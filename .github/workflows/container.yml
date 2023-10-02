@@ -61,7 +61,7 @@ jobs:
           cp -r dist ../docker/
           tar czf dist.tar.gz dist
       - name: Upload web interface
-        uses: actions/upload-artifact@v3.1.2
+        uses: actions/upload-artifact@v3.1.3
         with:
           name: jellyfin-web-${{ matrix.jellyfin-web-version }}+${{ steps.web-commit.outputs.commit }}.tar.gz
           path: web/dist.tar.gz
