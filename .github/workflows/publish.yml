@@ -9,7 +9,7 @@ jobs:
 
     steps:
     # set fetch-depth to 0 in order to clone all tags instead of just the current commit
-    - uses: actions/checkout@v3
+    - uses: actions/checkout@v4
       with:
         fetch-depth: 0
 
