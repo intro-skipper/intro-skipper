@@ -1,7 +1,7 @@
 # Intro Skipper (beta)
 
 <div align="center">
-<img alt="Plugin Banner" src="https://raw.githubusercontent.com/ConfusedPolarBear/intro-skipper/master/images/logo.png" />
+<img alt="Plugin Banner" src="https://raw.githubusercontent.com/jumoog/intro-skipper/master/images/logo.png" />
 </div>
 
 Analyzes the audio of television episodes to detect and skip over intros.
@@ -40,7 +40,7 @@ While this plugin is fully compatible with an unmodified version of Jellyfin 10.
 Instructions on how to switch web interface versions are located [here](docs/web_interface.md).
 
 ### Step 2: Install the plugin
-1. Add this plugin repository to your server: `https://raw.githubusercontent.com/ConfusedPolarBear/intro-skipper/master/manifest.json`
+1. Add this plugin repository to your server: `https://raw.githubusercontent.com/jumoog/intro-skipper/master/manifest.json`
 2. Install the Intro Skipper plugin from the General section
 3. Restart Jellyfin
 4. If you did not install the modified web interface, enable automatic skipping
