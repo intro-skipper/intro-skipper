@@ -34,12 +34,7 @@ All of these requirements can be customized as needed.
 
 ## Installation instructions
 
-### Step 1: Install the modified web interface (optional)
-While this plugin is fully compatible with an unmodified version of Jellyfin 10.8.z, using a modified web interface allows you to click a button to skip intros. If you skip this step and do not use the modified web interface, you will have to enable the "Automatically skip intros" option in the plugin settings.
-
-Instructions on how to switch web interface versions are located [here](docs/web_interface.md).
-
-### Step 2: Install the plugin
+### Step 1: Install the plugin
 1. Add this plugin repository to your server: `https://raw.githubusercontent.com/jumoog/intro-skipper/master/manifest.json`
 2. Install the Intro Skipper plugin from the General section
 3. Restart Jellyfin
