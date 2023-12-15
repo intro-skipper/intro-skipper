@@ -6,63 +6,15 @@
         "description": "Analyzes the audio of television episodes and detects introduction sequences.",
         "owner": "ConfusedPolarBear",
         "category": "General",
-        "imageUrl": "https://raw.githubusercontent.com/ConfusedPolarBear/intro-skipper/master/images/logo.png",
+        "imageUrl": "https://raw.githubusercontent.com/jumoog/intro-skipper/master/images/logo.png",
         "versions": [
             {
-                "version": "0.1.7.0",
-                "changelog": "- See the full changelog at [GitHub](https://github.com/ConfusedPolarBear/intro-skipper/blob/master/CHANGELOG.md)\n",
+                "version": "0.1.8.0",
+                "changelog": "- See the full changelog at [GitHub](https://github.com/jumoog/intro-skipper/blob/master/CHANGELOG.md)\n",
                 "targetAbi": "10.8.4.0",
-                "sourceUrl": "https://github.com/ConfusedPolarBear/intro-skipper/releases/download/v0.1.7/intro-skipper-v0.1.7.zip",
-                "checksum": "76676ea60b270879c831b50f6cb21ae1",
+                "sourceUrl": "https://github.com/jumoog/intro-skipper/releases/download/v0.1.7/intro-skipper-v0.1.7.zip",
+                "checksum": "97a0208376adbdd1ebb17b4ce358ab9c",
                 "timestamp": "2022-10-27T03:27:27Z"
-            },
-            {
-                "version": "0.1.6.0",
-                "changelog": "- See the full changelog at [GitHub](https://github.com/ConfusedPolarBear/intro-skipper/blob/master/CHANGELOG.md)\n",
-                "targetAbi": "10.8.1.0",
-                "sourceUrl": "https://github.com/ConfusedPolarBear/intro-skipper/releases/download/v0.1.6/intro-skipper-v0.1.6.zip",
-                "checksum": "625990fa5f92244c5269143da42697ea",
-                "timestamp": "2022-08-05T06:04:59Z"
-            },
-            {
-                "version": "0.1.5.0",
-                "changelog": "- use ffmpeg instead of fpcalc\n- version API endpoints\n- see CHANGELOG.md for full list of changes",
-                "targetAbi": "10.8.0.0",
-                "sourceUrl": "https://github.com/ConfusedPolarBear/intro-skipper/releases/download/v0.1.5.0/intro-skipper-v0.1.5.zip",
-                "checksum": "cdb5baa20a37af1559d85a4aeb4760fa",
-                "timestamp": "2022-06-18T03:01:21Z"
-            },
-            {
-                "version": "0.1.0.0",
-                "changelog": "- add automatic intro skip\n- cache audio fingerprints by default\n- switch to new fingerprint comparison algorithm",
-                "targetAbi": "10.8.0.0",
-                "sourceUrl": "https://github.com/ConfusedPolarBear/intro-skipper/releases/download/v0.1.0/intro-skipper-v0.1.0.zip",
-                "checksum": "7f1fe0e60bf8e78723fb5b10b1b137cb",
-                "timestamp": "2022-06-09T20:21:57Z"
-            },
-            {
-                "version": "0.0.0.3",
-                "changelog": "- fix version check",
-                "targetAbi": "10.8.0.0",
-                "sourceUrl": "https://github.com/ConfusedPolarBear/intro-skipper/releases/download/v0.0.3/intro-skipper-v0.0.3.zip",
-                "checksum": "4d9eee379679c13c351d64f9d8c52a23",
-                "timestamp": "2022-05-22T03:43:29Z"
-            },
-            {
-                "version": "0.0.0.2",
-                "changelog": "- decrease audio fingerprint comparison time\n- analyze two seasons simultaneously",
-                "targetAbi": "10.8.0.0",
-                "sourceUrl": "https://github.com/ConfusedPolarBear/intro-skipper/releases/download/v0.0.2/intro-skipper-v0.0.2.zip",
-                "checksum": "83c3e3618a6c37c2767e5bfea64ef515",
-                "timestamp": "2022-05-22T00:05:12Z"
-            },
-            {
-                "version": "0.0.0.1",
-                "changelog": "- initial alpha release",
-                "targetAbi": "10.8.0.0",
-                "sourceUrl": "https://github.com/ConfusedPolarBear/intro-skipper/releases/download/v0.0.1/intro-skipper-v0.0.1.zip",
-                "checksum": "4b0e4ae45d09ecd9014a4986f3095ce4",
-                "timestamp": "2022-05-10T07:57:11Z"
             }
         ]
     }
