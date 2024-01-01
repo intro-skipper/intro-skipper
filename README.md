@@ -34,7 +34,7 @@ All of these requirements can be customized as needed.
 1. Add this plugin repository to your server: `https://raw.githubusercontent.com/jumoog/intro-skipper/master/manifest.json`
 2. Install the Intro Skipper plugin from the General section
 3. Restart Jellyfin
-4. If you did not install the modified web interface, enable automatic skipping
+4. Enable automatic skipping
     1. Go to Dashboard -> Plugins -> Intro Skipper
     2. Check "Automatically skip intros" and click Save
 5. Go to Dashboard -> Scheduled Tasks -> Analyze Episodes and click the play button
