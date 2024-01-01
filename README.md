@@ -6,11 +6,7 @@
 
 Analyzes the audio of television episodes to detect and skip over intros.
 
-If you use the custom web interface on your server, you will be able to click a button to skip intros, like this:
-
-![Skip intro button](images/skip-button.png)
-
-However, if you want to use an unmodified installation of Jellyfin 10.8.z or use clients that do not use the web interface provided by the server, the plugin can be configured to automatically skip intros.
+This fork doesn't ship the custom web interface on your server. So the plugin needs to be configured to automatically skip intros.
 
 ## System requirements
 
