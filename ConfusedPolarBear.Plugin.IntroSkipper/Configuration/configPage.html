@@ -46,6 +46,18 @@
                             </div>
                         </div>
 
+                        <div class="checkboxContainer checkboxContainer-withDescription">
+                            <label class="emby-checkbox-label">
+                                <input id="CacheFingerprints" type="checkbox" is="emby-checkbox" />
+                                <span>Cache episode fingerprints</span>
+                            </label>
+
+                            <div class="fieldDescription">
+                                If checked, episode fingerprints will be cached to the filesystem
+                                <br />
+                            </div>
+                        </div>
+
                         <details id="edl">
                             <summary>EDL file generation</summary>
 
@@ -234,7 +246,7 @@
                         <div class="checkboxContainer checkboxContainer-withDescription">
                             <label class="emby-checkbox-label">
                                 <input id="PersistSkipButton" type="checkbox" is="emby-checkbox" />
-                                <span>Display skip through entire intro</span>
+                                <span>Display button for intro duration</span>
                             </label>
 
                             <div class="fieldDescription">
@@ -311,7 +323,6 @@
                         <button is="emby-button" type="submit" class="raised button-submit block emby-button">
                             <span>Save</span>
                         </button>
-                        <br />
                     </div>
                 </form>
             </div>
@@ -321,6 +332,7 @@
 
                 <textarea id="supportBundle" rows="20" cols="75" readonly></textarea>
             </details>
+            <br />
 
             <details id="visualizer">
                 <summary>Advanced</summary>
@@ -422,6 +434,7 @@
                     <span id="intros"></span>
                 </span>
             </details>
+            <br />
         </div>
 
         <script src="configurationpage?name=visualizer.js"></script>
@@ -469,11 +482,12 @@
 
             var booleanConfigurationFields = [
                 "AnalyzeSeasonZero",
+                "CacheFingerprints",
                 "RegenerateEdlFiles",
                 "AutoSkip",
                 "SkipFirstEpisode",
-                "SkipButtonVisible",
                 "PersistSkipButton",
+                "SkipButtonVisible"
             ]
 
             // visualizer elements
@@ -489,6 +503,23 @@
             var timeContainer = document.querySelector("span#timestampContainer");
 
             var windowHashInterval = 0;
+
+            var persistSkip = document.querySelector("input#PersistSkipButton");
+            var showAdjustment = document.querySelector("input#ShowPromptAdjustment");
+            var hideAdjustment = document.querySelector("input#HidePromptAdjustment");
+
+            // prevent setting unavailable options
+            async function persistSkipChanged() {
+              if (persistSkip.checked) {
+                showAdjustment.style.display = 'none';
+                hideAdjustment.style.display = 'none';
+              } else {
+                showAdjustment.style.display = 'block';
+                hideAdjustment.style.display = 'block';
+              }
+            }
+
+            persistSkip.addEventListener("change", persistSkipChanged);
 
             // when the fingerprint visualizer opens, populate show names
             async function visualizerToggled() {
@@ -767,6 +798,8 @@
                         for (const field of booleanConfigurationFields) {
                             document.querySelector("#" + field).checked = config[field];
                         }
+
+                        persistSkipChanged();
 
                         Dashboard.hideLoadingMsg();
                     });
