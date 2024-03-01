@@ -89,15 +89,15 @@ public class SkipIntroController : ControllerBase
             var config = Plugin.Instance!.Configuration;
             if (config.PersistSkipButton)
             {
+              segment.ShowSkipPromptAt = segment.IntroStart;
+              segment.HideSkipPromptAt = segment.IntroEnd;
+            }
+            else
+            {
               segment.ShowSkipPromptAt = Math.Max(0, segment.IntroStart - config.ShowPromptAdjustment);
               segment.HideSkipPromptAt = Math.Min(
                   segment.IntroStart + config.HidePromptAdjustment,
                   segment.IntroEnd);
-            }
-            else
-            {
-              segment.ShowSkipPromptAt = segment.IntroStart;
-              segment.HideSkipPromptAt = segment.IntroEnd;
             }
 
             segment.IntroEnd -= config.SecondsOfIntroToPlay;
