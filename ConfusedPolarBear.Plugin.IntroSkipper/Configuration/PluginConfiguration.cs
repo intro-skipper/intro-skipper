@@ -180,5 +180,5 @@ public class PluginConfiguration : BasePluginConfiguration
     /// <summary>
     /// Gets or sets the notification text sent after automatically skipping an introduction.
     /// </summary>
-    public string AutoSkipNotificationText { get; set; } = "Automatically skipped intro";
+    public string AutoSkipNotificationText { get; set; } = "Intro skipped";
 }

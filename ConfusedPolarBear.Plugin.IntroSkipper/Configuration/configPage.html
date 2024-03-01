@@ -46,6 +46,18 @@
                             </div>
                         </div>
 
+                        <div class="checkboxContainer checkboxContainer-withDescription">
+                            <label class="emby-checkbox-label">
+                                <input id="CacheFingerprints" type="checkbox" is="emby-checkbox" />
+                                <span>Cache episode fingerprints</span>
+                            </label>
+
+                            <div class="fieldDescription">
+                                If checked, episode fingerprints will be cached to the filesystem
+                                <br />
+                            </div>
+                        </div>
+
                         <details id="edl">
                             <summary>EDL file generation</summary>
 
@@ -469,11 +481,12 @@
 
             var booleanConfigurationFields = [
                 "AnalyzeSeasonZero",
+                "CacheFingerprints",
                 "RegenerateEdlFiles",
                 "AutoSkip",
                 "SkipFirstEpisode",
-                "SkipButtonVisible",
                 "PersistSkipButton",
+                "SkipButtonVisible"
             ]
 
             // visualizer elements
