@@ -223,37 +223,37 @@
                         <div class="checkboxContainer checkboxContainer-withDescription">
                             <label class="emby-checkbox-label">
                                 <input id="SkipFirstEpisode" type="checkbox" is="emby-checkbox" />
-                                <span>Automatically skip analysis of the first episode of a season</span>
+                                <span>Ignore intro in the first episode of a season</span>
                             </label>
 
                             <div class="fieldDescription">
-                                If checked, auto skip will ignore introductions in the first episode of a season.<br />
+                                If checked, auto skip will ignore introduction in the first episode of a season.<br />
                             </div>
                         </div>
 
                         <div class="inputContainer">
                             <label class="inputLabel inputLabelUnfocused" for="ShowPromptAdjustment">
-                                Show skip prompt at
+                                Skip prompt offset (in seoncds)
                             </label>
                             <input id="ShowPromptAdjustment" type="number" is="emby-input" min="0" />
                             <div class="fieldDescription">
-                                Seconds before the introduction starts to display the skip prompt at.
+                                Seconds to display skip prompt before introduction begins.
                             </div>
                         </div>
 
                         <div class="inputContainer">
                             <label class="inputLabel inputLabelUnfocused" for="HidePromptAdjustment">
-                                Hide skip prompt after
+                                Skip prompt timeout (in seconds)
                             </label>
                             <input id="HidePromptAdjustment" type="number" is="emby-input" min="2" />
                             <div class="fieldDescription">
-                                Seconds after the introduction starts to hide the skip prompt at.
+                                Seconds after introduction before skip prompt is hidden.
                             </div>
                         </div>
 
                         <div class="inputContainer">
                             <label class="inputLabel inputLabelUnfocused" for="SecondsOfIntroToPlay">
-                                Seconds of intro to play
+                                Intro playback offset (in seconds)
                             </label>
                             <input id="SecondsOfIntroToPlay" type="number" is="emby-input" min="0" />
                             <div class="fieldDescription">
@@ -290,7 +290,7 @@
                                 </label>
                                 <input id="AutoSkipNotificationText" type="text" is="emby-input" />
                                 <div class="fieldDescription">
-                                    Message sent to a user after automatically skipping an introduction. Leave blank to skip sending a notification.
+                                    Message shown after automatically skipping an introduction. Leave blank to disable notification.
                                 </div>
                             </div>
                         </details>
