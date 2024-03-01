@@ -6,6 +6,9 @@ on:
   pull_request:
     branches: [ "master" ]
 
+permissions:
+  contents: write
+
 jobs:
   build:
 
@@ -25,6 +28,11 @@ jobs:
     - name: Embed version info
       run: echo "${{ github.sha }}" > ConfusedPolarBear.Plugin.IntroSkipper/Configuration/version.txt
 
+    - name: Retrieve commit identification
+      run: |
+        GIT_HASH=$(git rev-parse --short HEAD)
+        echo "GIT_HASH=${GIT_HASH}" >> $GITHUB_ENV
+
     - name: Build
       run: dotnet build --no-restore
 
@@ -34,3 +42,20 @@ jobs:
         name: intro-skipper-${{ github.sha }}.dll
         path: ConfusedPolarBear.Plugin.IntroSkipper/bin/Debug/net6.0/ConfusedPolarBear.Plugin.IntroSkipper.dll
         if-no-files-found: error
+
+    - name: Create archive
+      uses: vimtor/action-zip@v1.1
+      with:
+        files: ConfusedPolarBear.Plugin.IntroSkipper/bin/Debug/net6.0/ConfusedPolarBear.Plugin.IntroSkipper.dll
+        dest:  intro-skipper-${{ env.GIT_HASH }}.zip
+
+    - name: Publish prerelease
+      uses: 8bitDream/action-github-releases@v1.0.0
+      if: github.event_name != 'pull_request'
+      with:
+        repo_token: "${{ secrets.GITHUB_TOKEN }}"
+        automatic_release_tag: ${{ env.GIT_HASH }}
+        prerelease: true
+        title: intro-skipper-${{ env.GIT_HASH }}
+        files: |
+          intro-skipper-${{ env.GIT_HASH }}.zip
