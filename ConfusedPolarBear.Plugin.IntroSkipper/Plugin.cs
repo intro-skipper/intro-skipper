@@ -85,7 +85,7 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
         var indexPath = Path.Join(applicationPaths.WebPath, "index.html");
         try
         {
-            InjectSkipButton(indexPath, Path.Join(introsDirectory, "index-pre-skip-button.html"));
+            InjectSkipButton(indexPath);
         }
         catch (Exception ex)
         {
@@ -328,8 +328,7 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
     /// Inject the skip button script into the web interface.
     /// </summary>
     /// <param name="indexPath">Full path to index.html.</param>
-    /// <param name="backupPath">Full path to create a backup of index.html at.</param>
-    private void InjectSkipButton(string indexPath, string backupPath)
+    private void InjectSkipButton(string indexPath)
     {
         // Parts of this code are based off of JellyScrub's script injection code.
         // https://github.com/nicknsy/jellyscrub/blob/4ce806f602988a662cfe3cdbaac35ee8046b7ec4/Nick.Plugin.Jellyscrub/JellyscrubPlugin.cs
@@ -348,10 +347,6 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
             _logger.LogInformation("Skip button already added");
             return;
         }
-
-        // Backup the original version of the web interface
-        _logger.LogInformation("Backing up index.html to {Backup}", backupPath);
-        File.WriteAllText(backupPath, contents);
 
         // Inject a link to the script at the end of the <head> section.
         // A regex is used here to ensure the replacement is only done once.
