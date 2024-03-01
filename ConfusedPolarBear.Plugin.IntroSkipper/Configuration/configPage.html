@@ -246,7 +246,7 @@
                         <div class="checkboxContainer checkboxContainer-withDescription">
                             <label class="emby-checkbox-label">
                                 <input id="PersistSkipButton" type="checkbox" is="emby-checkbox" />
-                                <span>Display skip through entire intro</span>
+                                <span>Display button for intro duration</span>
                             </label>
 
                             <div class="fieldDescription">
@@ -502,6 +502,23 @@
             var timeContainer = document.querySelector("span#timestampContainer");
 
             var windowHashInterval = 0;
+
+            var persistSkip = document.querySelector("input#PersistSkipButton");
+            var showAdjustment = document.querySelector("input#ShowPromptAdjustment");
+            var hideAdjustment = document.querySelector("input#HidePromptAdjustment");
+
+            // prevent setting unavailable options
+            async function persistSkipChanged() {
+              if (persistSkip.checked) {
+                showAdjustment.style.display = 'none';
+                hideAdjustment.style.display = 'none';
+              } else {
+                showAdjustment.style.display = 'block';
+                hideAdjustment.style.display = 'block';
+              }
+            }
+
+            persistSkip.addEventListener("change", persistSkipChanged);
 
             // when the fingerprint visualizer opens, populate show names
             async function visualizerToggled() {
@@ -780,6 +797,8 @@
                         for (const field of booleanConfigurationFields) {
                             document.querySelector("#" + field).checked = config[field];
                         }
+
+                        persistSkipChanged();
 
                         Dashboard.hideLoadingMsg();
                     });
