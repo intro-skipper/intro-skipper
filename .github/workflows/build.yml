@@ -54,7 +54,7 @@ jobs:
       if: github.event_name != 'pull_request'
       with:
         repo_token: "${{ secrets.GITHUB_TOKEN }}"
-        automatic_release_tag: ${{ env.GIT_HASH }}
+        automatic_release_tag: preview
         prerelease: true
         title: intro-skipper-${{ env.GIT_HASH }}
         files: |
