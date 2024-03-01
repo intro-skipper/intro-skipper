@@ -122,9 +122,14 @@ public class PluginConfiguration : BasePluginConfiguration
     public int HidePromptAdjustment { get; set; } = 10;
 
     /// <summary>
-    /// Gets or sets a value indicating whether the introduction in the first episode of a season should be skipped.
+    /// Gets or sets a value indicating whether the introduction in the first episode of a season should be ignored.
     /// </summary>
     public bool SkipFirstEpisode { get; set; } = true;
+
+    /// <summary>
+    /// Gets or sets a value indicating whether the skip button should be displayed for the duration of the intro.
+    /// </summary>
+    public bool PersistSkipButton { get; set; } = true;
 
     /// <summary>
     /// Gets or sets the amount of intro to play (in seconds).
