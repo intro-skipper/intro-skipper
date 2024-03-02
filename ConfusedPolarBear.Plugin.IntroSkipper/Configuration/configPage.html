@@ -226,19 +226,6 @@
 
                         <div class="checkboxContainer checkboxContainer-withDescription">
                             <label class="emby-checkbox-label">
-                                <input id="SkipButtonVisible" type="checkbox" is="emby-checkbox" />
-                                <span>Show skip intro button</span>
-                            </label>
-
-                            <div class="fieldDescription">
-                                If checked, a skip button will be displayed at the start of an episode's introduction.
-                                <strong>This setting only applies to the web interface.</strong>
-                                <br />
-                            </div>
-                        </div>
-
-                        <div class="checkboxContainer checkboxContainer-withDescription">
-                            <label class="emby-checkbox-label">
                                 <input id="AutoSkip" type="checkbox" is="emby-checkbox" />
                                 <span>Automatically skip intros</span>
                             </label>
@@ -250,7 +237,7 @@
                             </div>
                         </div>
 
-                        <div class="checkboxContainer checkboxContainer-withDescription">
+                        <div id="divSkipFirstEpisode" class="checkboxContainer checkboxContainer-withDescription">
                             <label class="emby-checkbox-label">
                                 <input id="SkipFirstEpisode" type="checkbox" is="emby-checkbox" />
                                 <span>Ignore intro in the first episode of a season</span>
@@ -258,6 +245,19 @@
 
                             <div class="fieldDescription">
                                 If checked, auto skip will ignore introduction in the first episode of a season.<br />
+                            </div>
+                        </div>
+
+                        <div class="checkboxContainer checkboxContainer-withDescription">
+                            <label class="emby-checkbox-label">
+                                <input id="SkipButtonVisible" type="checkbox" is="emby-checkbox" />
+                                <span>Show skip intro button</span>
+                            </label>
+
+                            <div class="fieldDescription">
+                                If checked, a skip button will be displayed at the start of an episode's introduction.
+                                <strong>This setting only applies to the web interface.</strong>
+                                <br />
                             </div>
                         </div>
 
@@ -272,7 +272,7 @@
                             </div>
                         </div>
 
-                        <div class="inputContainer">
+                        <div id="divShowPromptAdjustment" class="inputContainer">
                             <label class="inputLabel inputLabelUnfocused" for="ShowPromptAdjustment">
                                 Skip prompt offset (in seoncds)
                             </label>
@@ -282,7 +282,7 @@
                             </div>
                         </div>
 
-                        <div class="inputContainer">
+                        <div id="divHidePromptAdjustment" class="inputContainer">
                             <label class="inputLabel inputLabelUnfocused" for="HidePromptAdjustment">
                                 Skip prompt timeout (in seconds)
                             </label>
@@ -326,7 +326,7 @@
                                 </div>
                             </div>
 
-                            <div class="inputContainer">
+                            <div id="divAutoSkipNotificationText" class="inputContainer">
                                 <label class="inputLabel" for="AutoSkipNotificationText">
                                     Automatic skip notification message
                                 </label>
@@ -350,13 +350,13 @@
                     <legend>Advanced</legend>
 
                     <details id="support">
-                        <summary>Support Bundle</summary>
+                        <summary>Support Bundle (ffmpeg)</summary>
 
                         <textarea id="supportBundle" rows="20" cols="75" readonly></textarea>
                     </details>
 
                     <details id="visualizer">
-                        <summary>Fingerprint Editor</summary>
+                        <summary>Manage Fingerprints</summary>
 
                         <br />
                         <h3 style="margin:0">Select episodes to manage</h3>
@@ -528,9 +528,25 @@
 
             var windowHashInterval = 0;
 
+            var autoSkip = document.querySelector("input#AutoSkip");
+            var skipFirstEpisode = document.querySelector("div#divSkipFirstEpisode");
+            var autoSkipNotificationText = document.querySelector("div#divAutoSkipNotificationText");
+
+            async function autoSkipChanged() {
+              if (autoSkip.checked) {
+                skipFirstEpisode.style.display = 'block';
+                autoSkipNotificationText.style.display = 'block';
+              } else {
+                skipFirstEpisode.style.display = 'none';
+                autoSkipNotificationText.style.display = 'none';
+              }
+            }
+
+            autoSkip.addEventListener("change", autoSkipChanged);
+
             var persistSkip = document.querySelector("input#PersistSkipButton");
-            var showAdjustment = document.querySelector("input#ShowPromptAdjustment");
-            var hideAdjustment = document.querySelector("input#HidePromptAdjustment");
+            var showAdjustment = document.querySelector("div#divShowPromptAdjustment");
+            var hideAdjustment = document.querySelector("div#divHidePromptAdjustment");
 
             // prevent setting unavailable options
             async function persistSkipChanged() {
@@ -823,6 +839,7 @@
                             document.querySelector("#" + field).checked = config[field];
                         }
 
+                        autoSkipChanged();
                         persistSkipChanged();
 
                         Dashboard.hideLoadingMsg();
