@@ -9,6 +9,19 @@
     <div id="TemplateConfigPage" data-role="page" class="page type-interior pluginConfigurationPage"
         data-require="emby-input,emby-button,emby-select,emby-checkbox">
         <div data-role="content">
+            <style>
+                summary {
+                   cursor: pointer;
+                   padding: 10px;
+                   width: inherit;
+                   margin: auto;
+                   border: none;
+                   text-align: center;
+                   outline: none;
+                   font-size: 1.0em;
+                   outline: 2px solid rgba(155, 155, 155, 0.5);
+                }
+            </style>
             <div class="content-primary">
                 <form id="FingerprintConfigForm">
                     <fieldset class="verticalSection-extrabottompadding">
@@ -61,6 +74,7 @@
                         <details id="edl">
                             <summary>EDL file generation</summary>
 
+                            <br />
                             <div class="selectContainer">
                                 <label class="selectLabel" for="EdlAction">EDL Action</label>
                                 <select is="emby-select" id="EdlAction" class="emby-select-withcolor emby-select">
@@ -115,6 +129,7 @@
                         <details id="intro_reqs">
                             <summary>Modify introduction requirements</summary>
 
+                            <br />
                             <div class="inputContainer">
                                 <label class="inputLabel inputLabelUnfocused" for="AnalysisPercent">
                                     Percent of audio to analyze
@@ -179,6 +194,7 @@
                         <details id="silence">
                             <summary>Silence detection options</summary>
 
+                            <br />
                             <div class="inputContainer">
                                 <label class="inputLabel inputLabelUnfocused" for="SilenceDetectionMaximumNoise">
                                     Noise tolerance
@@ -287,6 +303,7 @@
                         <details>
                             <summary>User Interface Customization</summary>
 
+                            <br />
                             <div class="inputContainer">
                                 <label class="inputLabel" for="SkipButtonIntroText">
                                     Skip intro button text
@@ -325,116 +342,121 @@
                         </button>
                     </div>
                 </form>
+                <br />
+
+                <fieldset class="verticalSection-extrabottompadding">
+                    <legend>Advanced</legend>
+
+                    <details id="support">
+                        <summary>Support Bundle</summary>
+
+                        <textarea id="supportBundle" rows="20" cols="75" readonly></textarea>
+                    </details>
+
+                    <details id="visualizer">
+                        <summary>Fingerprint Editor</summary>
+
+                        <br />
+                        <h3 style="margin:0">Select episodes to manage</h3>
+                        <br />
+                        <select id="troubleshooterShow"></select>
+                        <select id="troubleshooterSeason"></select>
+                        <br />
+
+                        <select id="troubleshooterEpisode1"></select>
+                        <select id="troubleshooterEpisode2"></select>
+                        <br />
+                        <br />
+
+                        <div id="timestampEditor" style="display:none">
+                            <h3 style="margin:0">Introduction timestamp editor</h3>
+                            <p style="margin:0">All times are in seconds.</p>
+
+                            <p id="editLeftEpisodeTitle" style="margin-bottom:0"></p>
+                            <input style="width:4em" type="number" min="0" id="editLeftEpisodeStart"> to
+                            <input style="width:4em;margin-bottom:10px" type="number" min="0" id="editLeftEpisodeEnd">
+
+                            <p id="editRightEpisodeTitle" style="margin-top:0;margin-bottom:0"></p>
+                            <input style="width:4em" type="number" min="0" id="editRightEpisodeStart"> to
+                            <input style="width:4em;margin-bottom:10px" type="number" min="0" id="editRightEpisodeEnd">
+                            <br />
+
+                            <button id="btnUpdateTimestamps" type="button">
+                                Update timestamps
+                            </button>
+                            <br />
+                            <br />
+
+                            <button id="btnEraseSeasonTimestamps" type="button">
+                                Erase all timestamps for this season
+                            </button>
+                            <hr />
+                        </div>
+
+                        <button id="btnEraseIntroTimestamps">
+                            Erase all introduction timestamps (globally)
+                        </button>
+                        <br />
+
+                        <button id="btnEraseCreditTimestamps">
+                            Erase all end credits timestamps (globally)
+                        </button>
+                        <br />
+                        <br />
+
+                        <h3>Fingerprint Visualizer</h3>
+                        <p>
+                            Interactively compare the audio fingerprints of two episodes. <br />
+                            The blue and red bar to the right of the fingerprint diff turns blue
+                            when the corresponding fingerprint points are at least 80% similar.
+                        </p>
+                        <table>
+                            <thead>
+                                <td style="min-width: 100px; font-weight: bold">Key</td>
+                                <td style="font-weight: bold">Function</td>
+                            </thead>
+                            <tbody>
+                                <tr>
+                                    <td>Up arrow</td>
+                                    <td>
+                                        Shift the left episode up by 0.128 seconds.
+                                        Holding control will shift the episode by 10 seconds.
+                                    </td>
+                                </tr>
+                                <tr>
+                                    <td>Down arrow</td>
+                                    <td>
+                                        Shift the left episode down by 0.128 seconds.
+                                        Holding control will shift the episode by 10 seconds.
+                                    </td>
+                                </tr>
+                                <tr>
+                                    <td>Right arrow</td>
+                                    <td>Advance to the next pair of episodes.</td>
+                                </tr>
+                                <tr>
+                                    <td>Left arrow</td>
+                                    <td>Go back to the previous pair of episodes.</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                        <br />
+
+                        <span>Shift amount:</span>
+                        <input type="number" min="-3000" max="3000" value="0" id="offset">
+                        <br />
+                        <span id="suggestedShifts">Suggested shifts:</span>
+                        <br />
+                        <br />
+
+                        <canvas id="troubleshooter"></canvas>
+                        <span id="timestampContainer">
+                            <span id="timestamps"></span> <br />
+                            <span id="intros"></span>
+                        </span>
+                    </details>
+                </fieldset>
             </div>
-
-            <details id="support">
-                <summary>Support Bundle</summary>
-
-                <textarea id="supportBundle" rows="20" cols="75" readonly></textarea>
-            </details>
-            <br />
-
-            <details id="visualizer">
-                <summary>Advanced</summary>
-
-                <h3 style="margin:0">Select episodes to manage</h3>
-                <select id="troubleshooterShow"></select>
-                <select id="troubleshooterSeason"></select>
-                <br />
-
-                <select id="troubleshooterEpisode1"></select>
-                <select id="troubleshooterEpisode2"></select>
-                <br />
-                <br />
-
-                <div id="timestampEditor" style="display:none">
-                    <h3 style="margin:0">Introduction timestamp editor</h3>
-                    <p style="margin:0">All times are in seconds.</p>
-
-                    <p id="editLeftEpisodeTitle" style="margin-bottom:0"></p>
-                    <input style="width:4em" type="number" min="0" id="editLeftEpisodeStart"> to
-                    <input style="width:4em;margin-bottom:10px" type="number" min="0" id="editLeftEpisodeEnd">
-
-                    <p id="editRightEpisodeTitle" style="margin-top:0;margin-bottom:0"></p>
-                    <input style="width:4em" type="number" min="0" id="editRightEpisodeStart"> to
-                    <input style="width:4em;margin-bottom:10px" type="number" min="0" id="editRightEpisodeEnd">
-                    <br />
-
-                    <button id="btnUpdateTimestamps" type="button">
-                        Update timestamps
-                    </button>
-                    <br />
-                    <br />
-
-                    <button id="btnEraseSeasonTimestamps" type="button">
-                        Erase all timestamps for this season
-                    </button>
-                    <hr />
-                </div>
-
-                <button id="btnEraseIntroTimestamps">
-                    Erase all introduction timestamps (globally)
-                </button>
-                <br />
-
-                <button id="btnEraseCreditTimestamps">
-                    Erase all end credits timestamps (globally)
-                </button>
-                <br />
-                <br />
-
-                <h3>Fingerprint Visualizer</h3>
-                <p>
-                    Interactively compare the audio fingerprints of two episodes. <br />
-                    The blue and red bar to the right of the fingerprint diff turns blue
-                    when the corresponding fingerprint points are at least 80% similar.
-                </p>
-                <table>
-                    <thead>
-                        <td style="min-width: 100px; font-weight: bold">Key</td>
-                        <td style="font-weight: bold">Function</td>
-                    </thead>
-                    <tbody>
-                        <tr>
-                            <td>Up arrow</td>
-                            <td>
-                                Shift the left episode up by 0.128 seconds.
-                                Holding control will shift the episode by 10 seconds.
-                            </td>
-                        </tr>
-                        <tr>
-                            <td>Down arrow</td>
-                            <td>
-                                Shift the left episode down by 0.128 seconds.
-                                Holding control will shift the episode by 10 seconds.
-                            </td>
-                        </tr>
-                        <tr>
-                            <td>Right arrow</td>
-                            <td>Advance to the next pair of episodes.</td>
-                        </tr>
-                        <tr>
-                            <td>Left arrow</td>
-                            <td>Go back to the previous pair of episodes.</td>
-                        </tr>
-                    </tbody>
-                </table>
-                <br />
-
-                <span>Shift amount:</span>
-                <input type="number" min="-3000" max="3000" value="0" id="offset">
-                <br />
-                <span id="suggestedShifts">Suggested shifts:</span>
-                <br />
-                <br />
-
-                <canvas id="troubleshooter"></canvas>
-                <span id="timestampContainer">
-                    <span id="timestamps"></span> <br />
-                    <span id="intros"></span>
-                </span>
-            </details>
-            <br />
         </div>
 
         <script src="configurationpage?name=visualizer.js"></script>
