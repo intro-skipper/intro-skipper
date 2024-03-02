@@ -333,8 +333,6 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
         // Parts of this code are based off of JellyScrub's script injection code.
         // https://github.com/nicknsy/jellyscrub/blob/4ce806f602988a662cfe3cdbaac35ee8046b7ec4/Nick.Plugin.Jellyscrub/JellyscrubPlugin.cs
 
-        _logger.LogInformation("Adding skip button to {Path}", indexPath);
-
         _logger.LogDebug("Reading index.html from {Path}", indexPath);
         var contents = File.ReadAllText(indexPath);
         _logger.LogDebug("Successfully read index.html");
@@ -358,6 +356,6 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
         _logger.LogDebug("Saving modified file");
         File.WriteAllText(indexPath, contents);
 
-        _logger.LogInformation("Skip intro button successfully added to web interface");
+        _logger.LogInformation("Skip intro button successfully added");
     }
 }
