@@ -45,6 +45,7 @@ jobs:
 
     - name: Create archive
       uses: vimtor/action-zip@v1.1
+      if: github.event_name != 'pull_request'
       with:
         files: ConfusedPolarBear.Plugin.IntroSkipper/bin/Debug/net6.0/ConfusedPolarBear.Plugin.IntroSkipper.dll
         dest:  intro-skipper-${{ env.GIT_HASH }}.zip
