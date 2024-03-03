@@ -151,7 +151,10 @@ public class ChapterAnalyzer : IMediaFileAnalyzer
 
             matchingChapter = new(episode.EpisodeId, currentRange);
             _logger.LogTrace("{Base}: okay", baseMessage);
-            break;
+            if (i > 0)
+            {
+                break;
+            }
         }
 
         return matchingChapter;
