@@ -59,6 +59,41 @@
                             </div>
                         </div>
 
+                        <div class="selectContainer">
+                            <label class="selectLabel" for="ProcessPriority">ffmpeg Priority</label>
+                            <select is="emby-select" id="ProcessPriority" class="emby-select-withcolor emby-select">
+                                <option value="Idle">
+                                    Idle
+                                </option>
+
+                                <option value="BelowNormal">
+                                    Below Normal
+                                </option>
+
+                                <option value="Normal">
+                                    Normal
+                                </option>
+
+                                <option value="AboveNormal">
+                                    Above Normal
+                                </option>
+
+                                <option value="High">
+                                    High
+                                </option>
+
+                                <option value="RealTime">
+                                    Highest
+                                </option>
+                            </select>
+
+                            <div class="fieldDescription">
+                                Sets the relative priority of the ffmpeg process during detection<br />
+                                If you notice excessive RAM usage, try setting a lower value<br/>
+                                If you would like to speed up detection, increase this value
+                            </div>
+                        </div>
+
                         <div class="checkboxContainer checkboxContainer-withDescription">
                             <label class="emby-checkbox-label">
                                 <input id="CacheFingerprints" type="checkbox" is="emby-checkbox" />
@@ -486,6 +521,7 @@
                 // analysis
                 "MaxParallelism",
                 "SelectedLibraries",
+                "ProcessPriority",
                 "AnalysisPercent",
                 "AnalysisLengthLimit",
                 "MinimumIntroDuration",
