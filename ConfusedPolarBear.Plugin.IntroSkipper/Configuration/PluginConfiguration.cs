@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using MediaBrowser.Model.Plugins;
 
 namespace ConfusedPolarBear.Plugin.IntroSkipper.Configuration;
@@ -181,4 +182,14 @@ public class PluginConfiguration : BasePluginConfiguration
     /// Gets or sets the notification text sent after automatically skipping an introduction.
     /// </summary>
     public string AutoSkipNotificationText { get; set; } = "Intro skipped";
+
+    /// <summary>
+    /// Gets or sets the number of threads for an ffmpeg process.
+    /// </summary>
+    public int ProcessThreads { get; set; } = 0;
+
+    /// <summary>
+    /// Gets or sets the relative priority for an ffmpeg process.
+    /// </summary>
+    public ProcessPriorityClass ProcessPriority { get; set; } = ProcessPriorityClass.BelowNormal;
 }
