@@ -331,7 +331,7 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
     private void InjectSkipButton(string indexPath)
     {
         // Parts of this code are based off of JellyScrub's script injection code.
-        // https://github.com/nicknsy/jellyscrub/blob/4ce806f602988a662cfe3cdbaac35ee8046b7ec4/Nick.Plugin.Jellyscrub/JellyscrubPlugin.cs
+        // https://github.com/nicknsy/jellyscrub/blob/main/Nick.Plugin.Jellyscrub/JellyscrubPlugin.cs#L38
 
         _logger.LogDebug("Reading index.html from {Path}", indexPath);
         var contents = File.ReadAllText(indexPath);

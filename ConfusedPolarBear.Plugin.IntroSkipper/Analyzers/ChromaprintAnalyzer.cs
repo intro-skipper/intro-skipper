@@ -275,10 +275,10 @@ public class ChromaprintAnalyzer : IMediaFileAnalyzer
             {
                 var modifiedPoint = (uint)(originalPoint + i);
 
-                if (rhsIndex.ContainsKey(modifiedPoint))
+                if (rhsIndex.TryGetValue(modifiedPoint, out var value))
                 {
                     var lhsFirst = (int)lhsIndex[originalPoint];
-                    var rhsFirst = (int)rhsIndex[modifiedPoint];
+                    var rhsFirst = (int)value;
                     indexShifts.Add(rhsFirst - lhsFirst);
                 }
             }

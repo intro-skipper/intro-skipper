@@ -400,8 +400,9 @@ public static class FFmpegWrapper
         // for each file that is fingerprinted.
         var prependArgument = string.Format(
             CultureInfo.InvariantCulture,
-            "-hide_banner -loglevel {0} ",
-            logLevel);
+            "-hide_banner -loglevel {0} -threads {1} ",
+            logLevel,
+            Plugin.Instance?.Configuration.ProcessThreads ?? 0);
 
         var info = new ProcessStartInfo(ffmpegPath, args.Insert(0, prependArgument))
         {
@@ -424,6 +425,17 @@ public static class FFmpegWrapper
             ffmpeg.StartInfo.Arguments);
 
         ffmpeg.Start();
+
+        try
+        {
+            ffmpeg.PriorityClass = Plugin.Instance?.Configuration.ProcessPriority ?? ProcessPriorityClass.BelowNormal;
+        }
+        catch (Exception e)
+        {
+            Logger?.LogDebug(
+                "ffmpeg priority could not be modified. {Message}",
+                e.Message);
+        }
 
         using (MemoryStream ms = new MemoryStream())
         {

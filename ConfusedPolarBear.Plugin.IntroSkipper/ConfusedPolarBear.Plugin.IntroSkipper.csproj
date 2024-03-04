@@ -1,25 +1,22 @@
 <Project Sdk="Microsoft.NET.Sdk">
-
   <PropertyGroup>
     <TargetFramework>net6.0</TargetFramework>
     <RootNamespace>ConfusedPolarBear.Plugin.IntroSkipper</RootNamespace>
-    <AssemblyVersion>0.1.14.0</AssemblyVersion>
-    <FileVersion>0.1.14.0</FileVersion>
+    <AssemblyVersion>0.1.15.0</AssemblyVersion>
+    <FileVersion>0.1.15.0</FileVersion>
     <GenerateDocumentationFile>true</GenerateDocumentationFile>
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
     <Nullable>enable</Nullable>
     <AnalysisMode>AllEnabledByDefault</AnalysisMode>
     <CodeAnalysisRuleSet>../jellyfin.ruleset</CodeAnalysisRuleSet>
   </PropertyGroup>
-
   <ItemGroup>
     <PackageReference Include="Jellyfin.Controller" Version="10.8.*" />
     <PackageReference Include="Jellyfin.Model" Version="10.8.*" />
     <PackageReference Include="SerilogAnalyzer" Version="0.15.0" PrivateAssets="All" />
-    <PackageReference Include="StyleCop.Analyzers" Version="1.2.0-beta.376" PrivateAssets="All" />
     <PackageReference Include="SmartAnalyzers.MultithreadingAnalyzer" Version="1.1.31" PrivateAssets="All" />
+    <PackageReference Include="StyleCop.Analyzers.Unstable" Version="1.2.0.556" PrivateAssets="All" />
   </ItemGroup>
-
   <ItemGroup>
     <None Remove="Configuration\configPage.html" />
     <EmbeddedResource Include="Configuration\configPage.html" />
@@ -27,5 +24,4 @@
     <EmbeddedResource Include="Configuration\inject.js" />
     <EmbeddedResource Include="Configuration\version.txt" />
   </ItemGroup>
-
 </Project>

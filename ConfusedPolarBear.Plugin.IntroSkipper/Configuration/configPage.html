@@ -59,77 +59,8 @@
                             </div>
                         </div>
 
-                        <div class="checkboxContainer checkboxContainer-withDescription">
-                            <label class="emby-checkbox-label">
-                                <input id="CacheFingerprints" type="checkbox" is="emby-checkbox" />
-                                <span>Cache episode fingerprints</span>
-                            </label>
-
-                            <div class="fieldDescription">
-                                If checked, episode fingerprints will be cached to the filesystem
-                                <br />
-                                <strong>WARNING: Disabling cache may result in lengthy detection</strong>
-                                <br />
-                            </div>
-                        </div>
-
-                        <details id="edl">
-                            <summary>EDL file generation</summary>
-
-                            <br />
-                            <div class="selectContainer">
-                                <label class="selectLabel" for="EdlAction">EDL Action</label>
-                                <select is="emby-select" id="EdlAction" class="emby-select-withcolor emby-select">
-                                    <option value="None">
-                                        None (do not create or modify EDL files)
-                                    </option>
-
-                                    <option value="CommercialBreak">
-                                        Commercial Break (recommended, skips past the intro once)
-                                    </option>
-
-                                    <option value="Cut">
-                                        Cut (player will remove the intro from the video)
-                                    </option>
-
-                                    <option value="Intro">
-                                        Intro (show a skip button, *experimental*)
-                                    </option>
-
-                                    <option value="Mute">
-                                        Mute (audio will be muted)
-                                    </option>
-
-                                    <option value="SceneMarker">
-                                        Scene Marker (create a chapter marker)
-                                    </option>
-                                </select>
-
-                                <div class="fieldDescription">
-                                    If set to a value other than None, specifies which action to write to
-                                    <a href="https://kodi.wiki/view/Edit_decision_list">MPlayer compatible EDL files</a>
-                                    alongside your episode files. <br />
-
-                                    If this value is changed after EDL files are generated, you must check the
-                                    "Regenerate EDL files" checkbox below.
-                                </div>
-                            </div>
-
-                            <div class="checkboxContainer checkboxContainer-withDescription">
-                                <label class="emby-checkbox-label">
-                                    <input id="RegenerateEdlFiles" type="checkbox" is="emby-checkbox" />
-                                    <span>Regenerate EDL files during next scan</span>
-                                </label>
-
-                                <div class="fieldDescription">
-                                    If checked, the plugin will <strong>overwrite all EDL files</strong> associated with
-                                    your episodes with the currently discovered introduction timestamps and EDL action.
-                                </div>
-                            </div>
-                        </details>
-
                         <details id="intro_reqs">
-                            <summary>Modify introduction requirements</summary>
+                            <summary>Modify Intro Parameters</summary>
 
                             <br />
                             <div class="inputContainer">
@@ -193,8 +124,63 @@
                             </p>
                         </details>
 
+                        <details id="edl">
+                            <summary>EDL File Generation</summary>
+
+                            <br />
+                            <div class="selectContainer">
+                                <label class="selectLabel" for="EdlAction">EDL Action</label>
+                                <select is="emby-select" id="EdlAction" class="emby-select-withcolor emby-select">
+                                    <option value="None">
+                                        None (do not create or modify EDL files)
+                                    </option>
+
+                                    <option value="CommercialBreak">
+                                        Commercial Break (recommended, skips past the intro once)
+                                    </option>
+
+                                    <option value="Cut">
+                                        Cut (player will remove the intro from the video)
+                                    </option>
+
+                                    <option value="Intro">
+                                        Intro (show a skip button, *experimental*)
+                                    </option>
+
+                                    <option value="Mute">
+                                        Mute (audio will be muted)
+                                    </option>
+
+                                    <option value="SceneMarker">
+                                        Scene Marker (create a chapter marker)
+                                    </option>
+                                </select>
+
+                                <div class="fieldDescription">
+                                    If set to a value other than None, specifies which action to write to
+                                    <a href="https://kodi.wiki/view/Edit_decision_list">MPlayer compatible EDL files</a>
+                                    alongside your episode files. <br />
+
+                                    If this value is changed after EDL files are generated, you must check the
+                                    "Regenerate EDL files" checkbox below.
+                                </div>
+                            </div>
+
+                            <div class="checkboxContainer checkboxContainer-withDescription">
+                                <label class="emby-checkbox-label">
+                                    <input id="RegenerateEdlFiles" type="checkbox" is="emby-checkbox" />
+                                    <span>Regenerate EDL files during next scan</span>
+                                </label>
+
+                                <div class="fieldDescription">
+                                    If checked, the plugin will <strong>overwrite all EDL files</strong> associated with
+                                    your episodes with the currently discovered introduction timestamps and EDL action.
+                                </div>
+                            </div>
+                        </details>
+
                         <details id="silence">
-                            <summary>Silence detection options</summary>
+                            <summary>Silence Detection Options</summary>
 
                             <br />
                             <div class="inputContainer">
@@ -216,6 +202,73 @@
                                     step="0.01" />
                                 <div class="fieldDescription">
                                     Minimum silence duration in seconds before adjusting introduction end time.
+                                </div>
+                            </div>
+                        </details>
+
+                        <details id="detection">
+                            <summary>Process Configuration</summary>
+
+                            <br/>
+                            <div class="checkboxContainer checkboxContainer-withDescription">
+                                <label class="emby-checkbox-label">
+                                    <input id="CacheFingerprints" type="checkbox" is="emby-checkbox" />
+                                    <span>Cache episode fingerprints</span>
+                                </label>
+
+                                <div class="fieldDescription">
+                                    If checked, episode fingerprints will be saved on the filesystem to improve analysis speed.
+                                    <br />
+                                    <strong>WARNING: May result in lengthy detection! Not recommended for large libraries!</strong>
+                                    <br />
+                                </div>
+                            </div>
+
+                            <div class="selectContainer">
+                                <label class="selectLabel" for="ProcessPriority">ffmpeg Priority</label>
+                                <select is="emby-select" id="ProcessPriority" class="emby-select-withcolor emby-select">
+                                    <option value="Idle">
+                                        Idle
+                                    </option>
+
+                                    <option value="BelowNormal">
+                                        Below Normal
+                                    </option>
+
+                                    <option value="Normal">
+                                        Normal
+                                    </option>
+
+                                    <option value="AboveNormal">
+                                        Above Normal
+                                    </option>
+
+                                    <option value="High">
+                                        High
+                                    </option>
+
+                                    <option value="RealTime">
+                                        Highest
+                                    </option>
+                                </select>
+
+                                <div class="fieldDescription">
+                                    Sets the relative priority of the analysis ffmpeg process to other parallel operations
+                                    (ie. transcoding, chapter detection, etc).
+                                </div>
+                            </div>
+
+                            <div class="inputContainer">
+                                <label class="inputLabel inputLabelUnfocused" for="ProcessThreads">
+                                    ffmpeg Threads
+                                </label>
+                                <input id="ProcessThreads" type="number" is="emby-input" min="0"
+                                    max="16" />
+                                <div class="fieldDescription">
+                                    Number of simultaneous processes to use for ffmpeg operations.
+                                    <br />
+                                    This value is most often defined as 1 thread per CPU core,
+                                    but setting a value of 0 (default) will use the maximum threads available.
                                 </div>
                             </div>
                         </details>
@@ -268,7 +321,7 @@
                             </label>
 
                             <div class="fieldDescription">
-                                If checked, skip button will appear through entire intro (offset and timeout are ignored).<br />
+                                If checked, skip button will appear throughout entire intro (offset and timeout are ignored).<br />
                             </div>
                         </div>
 
@@ -388,12 +441,12 @@
                             </button>
                             <br />
                             <br />
-
-                            <button id="btnEraseSeasonTimestamps" type="button">
-                                Erase all timestamps for this season
-                            </button>
-                            <hr />
                         </div>
+
+                        <button id="btnEraseSeasonTimestamps" type="button" style="display:none;">
+                            Erase all timestamps for this season
+                        </button>
+                        <hr />
 
                         <button id="btnEraseIntroTimestamps">
                             Erase all introduction timestamps (globally)
@@ -491,6 +544,8 @@
                 "MinimumIntroDuration",
                 "MaximumIntroDuration",
                 "EdlAction",
+                "ProcessPriority",
+                "ProcessThreads",
                 // playback
                 "ShowPromptAdjustment",
                 "HidePromptAdjustment",
@@ -506,8 +561,8 @@
 
             var booleanConfigurationFields = [
                 "AnalyzeSeasonZero",
-                "CacheFingerprints",
                 "RegenerateEdlFiles",
+                "CacheFingerprints",
                 "AutoSkip",
                 "SkipFirstEpisode",
                 "PersistSkipButton",
@@ -618,6 +673,7 @@
             // show changed, populate seasons
             async function showChanged() {
                 clearSelect(selectSeason);
+                btnSeasonEraseTimestamps.style.display = "none";
 
                 // add all seasons from this show to the season select
                 for (var season of shows[selectShow.value]) {
@@ -634,6 +690,7 @@
 
                 clearSelect(selectEpisode1);
                 clearSelect(selectEpisode2);
+                btnSeasonEraseTimestamps.style.display = "block";
 
                 let i = 1;
                 for (let episode of episodes) {
@@ -714,7 +771,7 @@
 
             // make an authenticated GET to the server and parse the response as JSON
             async function getJson(url) {
-                return await fetchWithAuth(url, "GET").then(r => { return r.json(); });
+                return await fetchWithAuth(url, "GET").then(r => { return r.json(); }).catch(err => { console.debug(err) });
             }
 
             // make an authenticated fetch to the server
