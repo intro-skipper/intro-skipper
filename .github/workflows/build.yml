@@ -44,7 +44,7 @@ jobs:
         if-no-files-found: error
 
     - name: Create archive
-      uses: vimtor/action-zip@v1.1
+      uses: vimtor/action-zip@v1.2
       if: github.event_name != 'pull_request'
       with:
         files: ConfusedPolarBear.Plugin.IntroSkipper/bin/Debug/net6.0/ConfusedPolarBear.Plugin.IntroSkipper.dll
