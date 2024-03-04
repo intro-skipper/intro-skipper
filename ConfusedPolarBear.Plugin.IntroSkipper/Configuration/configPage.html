@@ -59,57 +59,8 @@
                             </div>
                         </div>
 
-                        <div class="selectContainer">
-                            <label class="selectLabel" for="ProcessPriority">ffmpeg Priority</label>
-                            <select is="emby-select" id="ProcessPriority" class="emby-select-withcolor emby-select">
-                                <option value="Idle">
-                                    Idle
-                                </option>
-
-                                <option value="BelowNormal">
-                                    Below Normal
-                                </option>
-
-                                <option value="Normal">
-                                    Normal
-                                </option>
-
-                                <option value="AboveNormal">
-                                    Above Normal
-                                </option>
-
-                                <option value="High">
-                                    High
-                                </option>
-
-                                <option value="RealTime">
-                                    Highest
-                                </option>
-                            </select>
-
-                            <div class="fieldDescription">
-                                Sets the relative priority of the ffmpeg process during detection<br />
-                                If you notice excessive RAM usage, try setting a lower value<br/>
-                                If you would like to speed up detection, increase this value
-                            </div>
-                        </div>
-
-                        <div class="checkboxContainer checkboxContainer-withDescription">
-                            <label class="emby-checkbox-label">
-                                <input id="CacheFingerprints" type="checkbox" is="emby-checkbox" />
-                                <span>Cache episode fingerprints</span>
-                            </label>
-
-                            <div class="fieldDescription">
-                                If checked, episode fingerprints will be cached to the filesystem
-                                <br />
-                                <strong>WARNING: Disabling cache may result in lengthy detection</strong>
-                                <br />
-                            </div>
-                        </div>
-
                         <details id="edl">
-                            <summary>EDL file generation</summary>
+                            <summary>EDL File Generation</summary>
 
                             <br />
                             <div class="selectContainer">
@@ -164,7 +115,7 @@
                         </details>
 
                         <details id="intro_reqs">
-                            <summary>Modify introduction requirements</summary>
+                            <summary>Modify Intro Requirements</summary>
 
                             <br />
                             <div class="inputContainer">
@@ -229,7 +180,7 @@
                         </details>
 
                         <details id="silence">
-                            <summary>Silence detection options</summary>
+                            <summary>Silence Detection Options</summary>
 
                             <br />
                             <div class="inputContainer">
@@ -253,6 +204,74 @@
                                     Minimum silence duration in seconds before adjusting introduction end time.
                                 </div>
                             </div>
+                        </details>
+
+                        <details id="detection">
+                            <summary>Task Configuration</summary>
+
+                            <br/>
+                            <div class="checkboxContainer checkboxContainer-withDescription">
+                                <label class="emby-checkbox-label">
+                                    <input id="CacheFingerprints" type="checkbox" is="emby-checkbox" />
+                                    <span>Cache episode fingerprints</span>
+                                </label>
+
+                                <div class="fieldDescription">
+                                    If checked, episode fingerprints will be saved on the filesystem to improve analysis speed.
+                                    <br />
+                                    <strong>WARNING: May result in lengthy detection! Not recommended for large libraries!</strong>
+                                    <br />
+                                </div>
+                            </div>
+
+                            <div class="selectContainer">
+                                <label class="selectLabel" for="ProcessPriority">ffmpeg Priority</label>
+                                <select is="emby-select" id="ProcessPriority" class="emby-select-withcolor emby-select">
+                                    <option value="Idle">
+                                        Idle
+                                    </option>
+
+                                    <option value="BelowNormal">
+                                        Below Normal
+                                    </option>
+
+                                    <option value="Normal">
+                                        Normal
+                                    </option>
+
+                                    <option value="AboveNormal">
+                                        Above Normal
+                                    </option>
+
+                                    <option value="High">
+                                        High
+                                    </option>
+
+                                    <option value="RealTime">
+                                        Highest
+                                    </option>
+                                </select>
+
+                                <div class="fieldDescription">
+                                    Sets the relative priority of the analysis ffmpeg process to other parallel operations
+                                    (ie. transcoding, chapter detection, etc).
+                                </div>
+                            </div>
+
+                            <div class="inputContainer">
+                                <label class="inputLabel inputLabelUnfocused" for="ProcessThreads">
+                                    ffmpeg Threads
+                                </label>
+                                <input id="ProcessThreads" type="number" is="emby-input" min="0"
+                                    max="16" />
+                                <div class="fieldDescription">
+                                    Number of simultaneous processes to use for ffmpeg operations.
+                                    <br />
+                                    This value is most often defined as 1 thread per CPU core,
+                                    but setting a value of 0 (default) will use the maximum threads available.
+                                </div>
+                            </div>
+
                         </details>
                     </fieldset>
 
@@ -521,12 +540,13 @@
                 // analysis
                 "MaxParallelism",
                 "SelectedLibraries",
-                "ProcessPriority",
                 "AnalysisPercent",
                 "AnalysisLengthLimit",
                 "MinimumIntroDuration",
                 "MaximumIntroDuration",
                 "EdlAction",
+                "ProcessPriority",
+                "ProcessThreads",
                 // playback
                 "ShowPromptAdjustment",
                 "HidePromptAdjustment",
@@ -542,8 +562,8 @@
 
             var booleanConfigurationFields = [
                 "AnalyzeSeasonZero",
-                "CacheFingerprints",
                 "RegenerateEdlFiles",
+                "CacheFingerprints",
                 "AutoSkip",
                 "SkipFirstEpisode",
                 "PersistSkipButton",
