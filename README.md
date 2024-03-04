@@ -17,14 +17,14 @@ This fork doesn't ship the custom web interface on your server. So the plugin ne
   * Debian Linux based native installs: provided by the `jellyfin-ffmpeg5` package
   * MacOS native installs: build ffmpeg with chromaprint support ([instructions](#installation-instructions-for-macos))
 
-## Introduction requirements
+## Introduction parameters
 
-Show introductions will only be detected if they are:
+Show introductions will be detected if they are:
 
-* Located within the first 25% of an episode, or the first 10 minutes, whichever is smaller
+* Located within the first 25% of an episode or the first 10 minutes, whichever is smaller
 * Between 15 seconds and 2 minutes long
 
-Ending credits will only be detected if they are shorter than 4 minutes.
+Ending credits will be detected if they are shorter than 4 minutes.
 
 All of these requirements can be customized as needed.
 
