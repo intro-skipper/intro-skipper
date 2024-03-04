@@ -4,7 +4,7 @@
         "name": "Intro Skipper",
         "overview": "Automatically detect and skip intros in television episodes",
         "description": "Analyzes the audio of television episodes and detects introduction sequences.",
-        "owner": "ConfusedPolarBear",
+        "owner": "jumoog (forked from ConfusedPolarBear)",
         "category": "General",
         "imageUrl": "https://raw.githubusercontent.com/jumoog/intro-skipper/master/images/logo.png",
         "versions": [
