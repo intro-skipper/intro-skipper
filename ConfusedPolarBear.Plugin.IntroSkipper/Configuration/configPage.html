@@ -443,6 +443,9 @@
                             <br />
                         </div>
 
+                        <textarea id="timestampError" style="display:none;" rows="2" cols="75" readonly></textarea>
+                        <br />
+
                         <button id="btnEraseSeasonTimestamps" type="button" style="display:none;">
                             Erase all timestamps for this season
                         </button>
@@ -578,6 +581,7 @@
             var txtOffset = document.querySelector("input#offset");
             var txtSuggested = document.querySelector("span#suggestedShifts");
             var btnSeasonEraseTimestamps = document.querySelector("button#btnEraseSeasonTimestamps");
+            var timestampError = document.querySelector("textarea#timestampError");
             var btnUpdateTimestamps = document.querySelector("button#btnUpdateTimestamps");
             var timeContainer = document.querySelector("span#timestampContainer");
 
@@ -674,6 +678,8 @@
             async function showChanged() {
                 clearSelect(selectSeason);
                 btnSeasonEraseTimestamps.style.display = "none";
+                clearSelect(selectEpisode1);
+                clearSelect(selectEpisode2);
 
                 // add all seasons from this show to the season select
                 for (var season of shows[selectShow.value]) {
@@ -715,8 +721,22 @@
 
                 Dashboard.showLoadingMsg();
 
+                timestampError.value = "";
+
                 lhs = await getJson("Intros/Episode/" + selectEpisode1.value + "/Chromaprint");
                 rhs = await getJson("Intros/Episode/" + selectEpisode2.value + "/Chromaprint");
+
+                if (lhs === undefined) {
+                    timestampError.value += "Error: " + selectEpisode1.value + " fingerprints missing!\n";
+                }
+                if (rhs === undefined) {
+                    timestampError.value += "Error: " + selectEpisode2.value + " fingerprints missing!";
+                }
+                if (timestampError.value == "") {
+                    timestampError.style.display = "none";
+                } else {
+                    timestampError.style.display = "block";
+                }
 
                 Dashboard.hideLoadingMsg();
 
@@ -763,6 +783,8 @@
 
             // clear a select of items
             function clearSelect(select) {
+                timestampError.value = "";
+                timestampError.style.display = "none";
                 let i, L = select.options.length - 1;
                 for (i = L; i >= 0; i--) {
                     select.remove(i);
