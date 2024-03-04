@@ -215,6 +215,20 @@
                             <br/>
                             <div class="checkboxContainer checkboxContainer-withDescription">
                                 <label class="emby-checkbox-label">
+                                    <input id="UseChromaprint" type="checkbox" is="emby-checkbox" />
+                                    <span>Chromaprint analysis</span>
+                                </label>
+
+                                <div class="fieldDescription">
+                                    If checked, analysis will use Chromaprint to compare episode audio and identify intros.
+                                    <br />
+                                    <strong>WARNING: Disabling this option may result in incomplete or innaccurate analysis!</strong>
+                                    <br />
+                                </div>
+                            </div>
+
+                            <div class="checkboxContainer checkboxContainer-withDescription">
+                                <label class="emby-checkbox-label">
                                     <input id="CacheFingerprints" type="checkbox" is="emby-checkbox" />
                                     <span>Cache episode fingerprints</span>
                                 </label>
@@ -568,6 +582,7 @@
             var booleanConfigurationFields = [
                 "AnalyzeSeasonZero",
                 "RegenerateEdlFiles",
+                "UseChromaprint",
                 "CacheFingerprints",
                 "AutoSkip",
                 "SkipFirstEpisode",
