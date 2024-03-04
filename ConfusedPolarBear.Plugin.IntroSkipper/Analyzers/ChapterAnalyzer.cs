@@ -7,8 +7,8 @@ using System.Globalization;
 using System.Linq;
 using System.Text.RegularExpressions;
 using System.Threading;
-using Microsoft.Extensions.Logging;
 using MediaBrowser.Model.Entities;
+using Microsoft.Extensions.Logging;
 
 /// <summary>
 /// Chapter name analyzer.

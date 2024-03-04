@@ -5,3 +5,7 @@ BenchmarkDotNet.Artifacts/
 
 # Ignore pre compiled web interface
 docker/dist
+
+# Visual Studio
+.vs/
+UpgradeLog*.htm
