@@ -18,11 +18,6 @@ public class PluginConfiguration : BasePluginConfiguration
     // ===== Analysis settings =====
 
     /// <summary>
-    /// Gets or sets a value indicating whether the episode's fingerprint should be cached to the filesystem.
-    /// </summary>
-    public bool CacheFingerprints { get; set; } = true;
-
-    /// <summary>
     /// Gets or sets the max degree of parallelism used when analyzing episodes.
     /// </summary>
     public int MaxParallelism { get; set; } = 2;
@@ -36,6 +31,16 @@ public class PluginConfiguration : BasePluginConfiguration
     /// Gets or sets a value indicating whether to analyze season 0.
     /// </summary>
     public bool AnalyzeSeasonZero { get; set; } = false;
+
+    /// <summary>
+    /// Gets or sets a value indicating whether the episode's fingerprint should be cached to the filesystem.
+    /// </summary>
+    public bool CacheFingerprints { get; set; } = true;
+
+    /// <summary>
+    /// Gets or sets a value indicating whether analysis will use Chromaprint to determine fingerprints.
+    /// </summary>
+    public bool UseChromaprint { get; set; } = true;
 
     // ===== EDL handling =====
 

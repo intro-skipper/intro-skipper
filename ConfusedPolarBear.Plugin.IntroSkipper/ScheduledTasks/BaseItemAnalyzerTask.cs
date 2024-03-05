@@ -54,7 +54,7 @@ public class BaseItemAnalyzerTask
         CancellationToken cancellationToken)
     {
         // Assert that ffmpeg with chromaprint is installed
-        if (!FFmpegWrapper.CheckFFmpegVersion())
+        if (Plugin.Instance!.Configuration.UseChromaprint && !FFmpegWrapper.CheckFFmpegVersion())
         {
             throw new FingerprintException(
                 "ffmpeg with chromaprint is not installed on this system - episodes will not be analyzed. If Jellyfin is running natively, install jellyfin-ffmpeg5. If Jellyfin is running in a container, upgrade it to the latest version of 10.8.0.");
@@ -186,7 +186,10 @@ public class BaseItemAnalyzerTask
         var analyzers = new Collection<IMediaFileAnalyzer>();
 
         analyzers.Add(new ChapterAnalyzer(_loggerFactory.CreateLogger<ChapterAnalyzer>()));
-        analyzers.Add(new ChromaprintAnalyzer(_loggerFactory.CreateLogger<ChromaprintAnalyzer>()));
+        if (Plugin.Instance!.Configuration.UseChromaprint)
+        {
+            analyzers.Add(new ChromaprintAnalyzer(_loggerFactory.CreateLogger<ChromaprintAnalyzer>()));
+        }
 
         if (this._analysisMode == AnalysisMode.Credits)
         {

@@ -30,11 +30,14 @@
                         <div class="checkboxContainer checkboxContainer-withDescription">
                             <label class="emby-checkbox-label">
                                 <input id="AnalyzeSeasonZero" type="checkbox" is="emby-checkbox" />
-                                <span>Analyze show extras</span>
+                                <span>Analyze season 0</span>
                             </label>
 
                             <div class="fieldDescription">
-                                Analyze show extras (specials).
+                                If checked, season 0 (specials / extras) will be included in analysis.
+                                <br />
+                                Note: Shows containing both a specials and extra folder will identify extras as season 0
+                                and ignore specials, regardless of this setting.
                             </div>
                         </div>
 
@@ -44,7 +47,7 @@
                             </label>
                             <input id="MaxParallelism" type="number" is="emby-input" min="1" />
                             <div class="fieldDescription">
-                                Maximum degree of parallelism to use when analyzing episodes.
+                                Maximum number of simultaneous async episode analysis operations.
                             </div>
                         </div>
 
@@ -210,6 +213,20 @@
                             <summary>Process Configuration</summary>
 
                             <br/>
+                            <div class="checkboxContainer checkboxContainer-withDescription">
+                                <label class="emby-checkbox-label">
+                                    <input id="UseChromaprint" type="checkbox" is="emby-checkbox" />
+                                    <span>Chromaprint analysis</span>
+                                </label>
+
+                                <div class="fieldDescription">
+                                    If checked, analysis will use Chromaprint to compare episode audio and identify intros.
+                                    <br />
+                                    <strong>WARNING: Disabling this option may result in incomplete or innaccurate analysis!</strong>
+                                    <br />
+                                </div>
+                            </div>
+
                             <div class="checkboxContainer checkboxContainer-withDescription">
                                 <label class="emby-checkbox-label">
                                     <input id="CacheFingerprints" type="checkbox" is="emby-checkbox" />
@@ -565,6 +582,7 @@
             var booleanConfigurationFields = [
                 "AnalyzeSeasonZero",
                 "RegenerateEdlFiles",
+                "UseChromaprint",
                 "CacheFingerprints",
                 "AutoSkip",
                 "SkipFirstEpisode",
@@ -727,10 +745,10 @@
                 rhs = await getJson("Intros/Episode/" + selectEpisode2.value + "/Chromaprint");
 
                 if (lhs === undefined) {
-                    timestampError.value += "Error: " + selectEpisode1.value + " fingerprints missing!\n";
+                    timestampError.value += "Error: " + selectEpisode1.value + " fingerprints failed!\n";
                 }
                 if (rhs === undefined) {
-                    timestampError.value += "Error: " + selectEpisode2.value + " fingerprints missing!";
+                    timestampError.value += "Error: " + selectEpisode2.value + " fingerprints failed!";
                 }
                 if (timestampError.value == "") {
                     timestampError.style.display = "none";

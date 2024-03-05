@@ -149,12 +149,21 @@ public class ChapterAnalyzer : IMediaFileAnalyzer
                 continue;
             }
 
+            // Check for possibility of overlapping keywords
+            var overlap = Regex.IsMatch(
+                next.Name,
+                expression,
+                RegexOptions.None,
+                TimeSpan.FromSeconds(1));
+
+            if (overlap)
+            {
+                continue;
+            }
+
             matchingChapter = new(episode.EpisodeId, currentRange);
             _logger.LogTrace("{Base}: okay", baseMessage);
-            if (i > 0)
-            {
-                break;
-            }
+            break;
         }
 
         return matchingChapter;
