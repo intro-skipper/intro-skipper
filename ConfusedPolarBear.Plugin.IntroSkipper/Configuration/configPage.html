@@ -850,12 +850,16 @@
 
                 switch (e.key) {
                     case "ArrowDown":
-                        // if the control key is pressed, shift LHS by 10s. Otherwise, shift by 1.
-                        offsetDelta = e.ctrlKey ? 10 / 0.128 : 1;
+                        if (timestampError.value != "") {
+                            // if the control key is pressed, shift LHS by 10s. Otherwise, shift by 1.
+                            offsetDelta = e.ctrlKey ? 10 / 0.128 : 1;
+                        }
                         break;
 
                     case "ArrowUp":
-                        offsetDelta = e.ctrlKey ? -10 / 0.128 : -1;
+                        if (timestampError.value != "") {
+                            offsetDelta = e.ctrlKey ? -10 / 0.128 : -1;
+                        }
                         break;
 
                     case "ArrowRight":
