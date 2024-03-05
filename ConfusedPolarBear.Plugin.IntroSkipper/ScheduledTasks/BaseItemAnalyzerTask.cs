@@ -57,7 +57,7 @@ public class BaseItemAnalyzerTask
         if (Plugin.Instance!.Configuration.UseChromaprint && !FFmpegWrapper.CheckFFmpegVersion())
         {
             throw new FingerprintException(
-                "ffmpeg with chromaprint is not installed on this system - episodes will not be analyzed. If Jellyfin is running natively, install jellyfin-ffmpeg5. If Jellyfin is running in a container, upgrade it to the latest version of 10.8.0.");
+                "Analysis terminated! Chromaprint is not enabled in the current ffmpeg. If Jellyfin is running natively, install jellyfin-ffmpeg5. If Jellyfin is running in a container, upgrade to version 10.8.0 or newer.");
         }
 
         var queueManager = new QueueManager(
