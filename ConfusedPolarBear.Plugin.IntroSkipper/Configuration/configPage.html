@@ -746,12 +746,20 @@
                 lhs = await getJson("Intros/Episode/" + selectEpisode1.value + "/Chromaprint");
                 rhs = await getJson("Intros/Episode/" + selectEpisode2.value + "/Chromaprint");
 
-                if (lhs === undefined) {
+                if (lhs === null) {
+                    timestampError.value += "Error: " + selectEpisode1.value + " fingerprints missing!\n";
+                }
+                else if (lhs === undefined) {
                     timestampError.value += "Error: " + selectEpisode1.value + " fingerprints failed!\n";
+                }
+
+                if (rhs === null) {
+                    timestampError.value += "Error: " + selectEpisode2.value + " fingerprints missing!\n";
                 }
                 if (rhs === undefined) {
                     timestampError.value += "Error: " + selectEpisode2.value + " fingerprints failed!";
                 }
+
                 if (timestampError.value == "") {
                     timestampError.style.display = "none";
                 } else {
