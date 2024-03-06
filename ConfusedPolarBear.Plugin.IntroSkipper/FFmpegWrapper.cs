@@ -606,6 +606,25 @@ public static class FFmpegWrapper
     }
 
     /// <summary>
+    /// Remove a cached episode fingerprint from disk.
+    /// </summary>
+    /// <param name="episodeId">Episode to remove from cache.</param>
+    /// <param name="mode">Analysis mode.</param>
+    public static void DeleteEpisodeCache(string episodeId, AnalysisMode mode)
+    {
+        var cachePath = Path.Join(
+            Plugin.Instance!.FingerprintCachePath,
+            episodeId);
+
+        if (mode == AnalysisMode.Credits)
+        {
+            cachePath += "-credits";
+        }
+
+        File.Delete(cachePath);
+    }
+
+    /// <summary>
     /// Determines the path an episode should be cached at.
     /// This function was created before the unified caching mechanism was introduced (in v0.1.7).
     /// </summary>

@@ -39,7 +39,7 @@ jobs:
     - name: Upload artifact
       uses: actions/upload-artifact@v4.3.1
       with:
-        name: intro-skipper-${{ github.sha }}.dll
+        name: ConfusedPolarBear.Plugin.IntroSkipper-${{ env.GIT_HASH }}.dll
         path: ConfusedPolarBear.Plugin.IntroSkipper/bin/Debug/net6.0/ConfusedPolarBear.Plugin.IntroSkipper.dll
         if-no-files-found: error
 

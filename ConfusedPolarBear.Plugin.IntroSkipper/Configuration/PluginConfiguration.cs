@@ -103,7 +103,7 @@ public class PluginConfiguration : BasePluginConfiguration
     /// Gets or sets the regular expression used to detect ending credit chapters.
     /// </summary>
     public string ChapterAnalyzerEndCreditsPattern { get; set; } =
-        @"(^|\s)(Credits?|Ending)(\s|$)";
+        @"(^|\s)(Credits?|ED|Ending)(\s|$)";
 
     // ===== Playback settings =====
 
