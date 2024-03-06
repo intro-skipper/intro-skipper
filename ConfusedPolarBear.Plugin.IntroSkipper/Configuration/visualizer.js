@@ -169,6 +169,8 @@ function paintFingerprintDiff(canvas, fp1, fp2, offset) {
         return;
     }
 
+    canvas.style.display = "unset";
+
     let leftOffset = 0, rightOffset = 0;
     if (offset < 0) {
         leftOffset -= offset;

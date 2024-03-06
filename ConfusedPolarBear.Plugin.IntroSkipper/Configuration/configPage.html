@@ -454,31 +454,15 @@
                             <input style="width:4em" type="number" min="0" id="editRightEpisodeStart"> to
                             <input style="width:4em;margin-bottom:10px" type="number" min="0" id="editRightEpisodeEnd">
                             <br />
+                            <br />
 
                             <button id="btnUpdateTimestamps" type="button">
                                 Update timestamps
                             </button>
                             <br />
-                            <br />
                         </div>
 
                         <textarea id="timestampError" style="display:none;" rows="2" cols="75" readonly></textarea>
-                        <br />
-
-                        <button id="btnEraseSeasonTimestamps" type="button" style="display:none;">
-                            Erase all timestamps for this season
-                        </button>
-                        <hr />
-
-                        <button id="btnEraseIntroTimestamps">
-                            Erase all introduction timestamps (globally)
-                        </button>
-                        <br />
-
-                        <button id="btnEraseCreditTimestamps">
-                            Erase all end credits timestamps (globally)
-                        </button>
-                        <br />
                         <br />
 
                         <h3>Fingerprint Visualizer</h3>
@@ -526,11 +510,27 @@
                         <br />
                         <br />
 
-                        <canvas id="troubleshooter"></canvas>
+                        <canvas id="troubleshooter" style="display:none;"></canvas>
                         <span id="timestampContainer">
                             <span id="timestamps"></span> <br />
                             <span id="intros"></span>
                         </span>
+                        <br />
+                        <br />
+
+                        <button id="btnEraseSeasonTimestamps" type="button" style="display:none;">
+                            Erase all timestamps for this season
+                        </button>
+                        <hr />
+
+                        <button id="btnEraseIntroTimestamps">
+                            Erase all introduction timestamps (globally)
+                        </button>
+                        <br />
+
+                        <button id="btnEraseCreditTimestamps">
+                            Erase all end credits timestamps (globally)
+                        </button>
                     </details>
                 </fieldset>
             </div>
@@ -602,6 +602,7 @@
             var txtSuggested = document.querySelector("span#suggestedShifts");
             var btnSeasonEraseTimestamps = document.querySelector("button#btnEraseSeasonTimestamps");
             var timestampError = document.querySelector("textarea#timestampError");
+            var timestampEditor = document.querySelector("#timestampEditor");
             var btnUpdateTimestamps = document.querySelector("button#btnUpdateTimestamps");
             var timeContainer = document.querySelector("span#timestampContainer");
 
@@ -613,8 +614,8 @@
 
             async function autoSkipChanged() {
               if (autoSkip.checked) {
-                skipFirstEpisode.style.display = 'block';
-                autoSkipNotificationText.style.display = 'block';
+                skipFirstEpisode.style.display = 'unset';
+                autoSkipNotificationText.style.display = 'unset';
               } else {
                 skipFirstEpisode.style.display = 'none';
                 autoSkipNotificationText.style.display = 'none';
@@ -633,8 +634,8 @@
                 showAdjustment.style.display = 'none';
                 hideAdjustment.style.display = 'none';
               } else {
-                showAdjustment.style.display = 'block';
-                hideAdjustment.style.display = 'block';
+                showAdjustment.style.display = 'unset';
+                hideAdjustment.style.display = 'unset';
               }
             }
 
@@ -716,7 +717,7 @@
 
                 clearSelect(selectEpisode1);
                 clearSelect(selectEpisode2);
-                btnSeasonEraseTimestamps.style.display = "block";
+                btnSeasonEraseTimestamps.style.display = "unset";
 
                 let i = 1;
                 for (let episode of episodes) {
@@ -742,6 +743,7 @@
                 Dashboard.showLoadingMsg();
 
                 timestampError.value = "";
+                canvas.style.display = "none";
 
                 lhs = await getJson("Intros/Episode/" + selectEpisode1.value + "/Chromaprint");
                 rhs = await getJson("Intros/Episode/" + selectEpisode2.value + "/Chromaprint");
@@ -763,7 +765,7 @@
                 if (timestampError.value == "") {
                     timestampError.style.display = "none";
                 } else {
-                    timestampError.style.display = "block";
+                    timestampError.style.display = "unset";
                 }
 
                 Dashboard.hideLoadingMsg();
@@ -793,7 +795,7 @@
                 }
 
                 // Update the editor for the first and second episodes
-                document.querySelector("#timestampEditor").style.display = "unset";
+                timestampEditor.style.display = "unset";
                 document.querySelector("#editLeftEpisodeTitle").textContent = leftEpisode.text;
                 document.querySelector("#editLeftEpisodeStart").value = Math.round(leftEpisodeIntro.IntroStart);
                 document.querySelector("#editLeftEpisodeEnd").value = Math.round(leftEpisodeIntro.IntroEnd);
@@ -813,6 +815,9 @@
             function clearSelect(select) {
                 timestampError.value = "";
                 timestampError.style.display = "none";
+                timestampEditor.style.display = "none";
+                timeContainer.style.display = "none";
+                canvas.style.display = "none";
                 let i, L = select.options.length - 1;
                 for (i = L; i >= 0; i--) {
                     select.remove(i);
