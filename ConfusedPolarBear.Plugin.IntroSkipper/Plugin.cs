@@ -109,6 +109,8 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
                 _logger.LogError("Unknown error encountered while adding skip button: {Error}", ex);
             }
         }
+
+        FFmpegWrapper.CheckFFmpegVersion();
     }
 
     /// <summary>
