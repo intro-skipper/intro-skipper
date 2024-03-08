@@ -45,12 +45,13 @@ introSkipper.viewShow = function () {
         introSkipper.d("Ignoring location change");
         return;
     }
-    introSkipper.d("Adding button CSS and element");
     introSkipper.injectCss();
     introSkipper.injectButton();
-    introSkipper.d("Hooking video timeupdate");
     introSkipper.videoPlayer = document.querySelector("video");
-    introSkipper.videoPlayer.addEventListener("timeupdate", introSkipper.videoPositionChanged);
+    if (introSkipper.videoPlayer != null) {
+        introSkipper.d("Hooking video timeupdate");
+        introSkipper.videoPlayer.addEventListener("timeupdate", introSkipper.videoPositionChanged);
+    }
 }
 /**
  * Injects the CSS used by the skip intro button.
