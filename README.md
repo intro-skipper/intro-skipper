@@ -6,8 +6,6 @@
 
 Analyzes the audio of television episodes to detect and skip over intros.
 
-This fork doesn't ship the custom web interface on your server. So the plugin needs to be configured to automatically skip intros.
-
 ## System requirements
 
 * Jellyfin 10.8.4 (or newer)
