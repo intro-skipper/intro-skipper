@@ -47,6 +47,9 @@ jobs:
           ConfusedPolarBear.Plugin.IntroSkipper/bin/Debug/net6.0/ConfusedPolarBear.Plugin.IntroSkipper.dll
         dest:  intro-skipper-${{ github.event.head_commit.message }}.zip
 
+    - name: Generate md5
+      run: md5sum intro-skipper-${{ github.event.head_commit.message }}.zip > intro-skipper-${{ github.event.head_commit.message }}.md5
+
     - name: Publish release
       uses: 8bitDream/action-github-releases@v1.0.0
       with:
@@ -55,4 +58,5 @@ jobs:
         prerelease: false
         title: intro-skipper-${{ github.event.head_commit.message }}
         files: |
+          intro-skipper-${{ github.event.head_commit.message }}.md5
           intro-skipper-${{ github.event.head_commit.message }}.zip
