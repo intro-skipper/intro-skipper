@@ -1,0 +1,54 @@
+name: "Bug report"
+description: "Create a report to help us improve"
+title: "[Bug]: "
+labels: [bug]
+body:
+  - type: textarea
+    attributes:
+      label: Describe the bug
+      description: Also tell us, what did you expect to happen?
+      placeholder: |
+        The more information that you are able to provide, the better. Did you do anything before this happened? Did you upgrade or change anything? Any screenshots or logs you can provide will be helpful.
+
+        This is my issue.
+
+        Steps to Reproduce
+          1. In this environment...
+          2. With this config...
+          3. Run '...'
+          4. See error...
+    validations:
+      required: true
+
+  - type: input
+    attributes:
+      label: Jellyfin installation method
+      placeholder: Docker, Windows installer, etc.
+    validations:
+      required: true
+
+  - type: input
+    attributes:
+      label: Container image and tag
+      description: Only fill in this field if you are running Jellyfin in a container
+      placeholder: jellyfin/jellyfin:10.8.7, jellyfin-intro-skipper:latest, etc.
+
+  - type: input
+    attributes:
+      label: Operating System
+      placeholder: Debian 11, Windows 11, etc.
+    validations:
+      required: true
+
+  - type: textarea
+    attributes:
+      label: Support Bundle
+      placeholder: go to Dashboard -> Plugins -> Intro Skipper -> Support Bundle (at the bottom of the page) and paste the contents of the textbox here
+    validations:
+      required: true
+
+  - type: textarea
+    attributes:
+      label: Jellyfin logs
+      placeholder: Paste any relevant logs here
+

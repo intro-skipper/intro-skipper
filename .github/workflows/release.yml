@@ -1,10 +1,12 @@
 name: 'Build Plugin'
 
 on:
-  push:
-    branches: [ "master" ]
-  pull_request:
-    branches: [ "master" ]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'v0.1'
+        required: true
+        type: string
 
 permissions:
   contents: write
@@ -28,41 +30,33 @@ jobs:
     - name: Embed version info
       run: echo "${{ github.sha }}" > ConfusedPolarBear.Plugin.IntroSkipper/Configuration/version.txt
 
-    - name: Retrieve commit identification
-      run: |
-        GIT_HASH=$(git rev-parse --short HEAD)
-        echo "GIT_HASH=${GIT_HASH}" >> $GITHUB_ENV
-
     - name: Build
       run: dotnet build --no-restore
 
     - name: Upload artifact
       uses: actions/upload-artifact@v4.3.1
       with:
-        name: ConfusedPolarBear.Plugin.IntroSkipper-${{ env.GIT_HASH }}.dll
+        name: ConfusedPolarBear.Plugin.IntroSkipper-${{ github.event.head_commit.message }}.dll
         path: ConfusedPolarBear.Plugin.IntroSkipper/bin/Debug/net6.0/ConfusedPolarBear.Plugin.IntroSkipper.dll
         if-no-files-found: error
 
     - name: Create archive
       uses: vimtor/action-zip@v1.2
-      if: github.event_name != 'pull_request'
       with:
         files: |
           ConfusedPolarBear.Plugin.IntroSkipper/bin/Debug/net6.0/ConfusedPolarBear.Plugin.IntroSkipper.dll
-        dest:  intro-skipper-${{ env.GIT_HASH }}.zip
+        dest:  intro-skipper-${{ github.event.head_commit.message }}.zip
 
     - name: Generate md5
-      if: github.event_name != 'pull_request'
-      run: md5sum intro-skipper-${{ env.GIT_HASH }}.zip > intro-skipper-${{ env.GIT_HASH }}.md5
+      run: md5sum intro-skipper-${{ github.event.head_commit.message }}.zip > intro-skipper-${{ github.event.head_commit.message }}.md5
 
-    - name: Publish prerelease
+    - name: Publish release
       uses: 8bitDream/action-github-releases@v1.0.0
-      if: github.event_name != 'pull_request'
       with:
         repo_token: "${{ secrets.GITHUB_TOKEN }}"
-        automatic_release_tag: preview
-        prerelease: true
-        title: intro-skipper-${{ env.GIT_HASH }}
+        automatic_release_tag: ${{ github.event.head_commit.message }}
+        prerelease: false
+        title: intro-skipper-${{ github.event.head_commit.message }}
         files: |
-          intro-skipper-${{ env.GIT_HASH }}.md5
-          intro-skipper-${{ env.GIT_HASH }}.zip
+          intro-skipper-${{ github.event.head_commit.message }}.md5
+          intro-skipper-${{ github.event.head_commit.message }}.zip
