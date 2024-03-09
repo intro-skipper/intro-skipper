@@ -52,6 +52,7 @@ jobs:
         dest:  intro-skipper-${{ env.GIT_HASH }}.zip
 
     - name: Generate md5
+      if: github.event_name != 'pull_request'
       run: md5sum intro-skipper-${{ env.GIT_HASH }}.zip > intro-skipper-${{ env.GIT_HASH }}.md5
 
     - name: Publish prerelease
