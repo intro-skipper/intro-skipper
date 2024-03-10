@@ -176,6 +176,7 @@ public class SkipIntroController : ControllerBase
     /// </summary>
     /// <response code="200">UserInterfaceConfiguration returned.</response>
     /// <returns>UserInterfaceConfiguration.</returns>
+    [HttpGet]
     [Route("Intros/UserInterfaceConfiguration")]
     public ActionResult<UserInterfaceConfiguration> GetUserInterfaceConfiguration()
     {
