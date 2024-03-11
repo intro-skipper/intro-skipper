@@ -1,4 +1,4 @@
-name: 'Relase Plugin'
+name: 'Release Plugin'
 
 on:
   workflow_dispatch:
