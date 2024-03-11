@@ -1,4 +1,4 @@
-name: 'Build Plugin'
+name: 'Relase Plugin'
 
 on:
   workflow_dispatch:
