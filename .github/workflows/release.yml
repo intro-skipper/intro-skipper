@@ -56,7 +56,7 @@ jobs:
         repo_token: "${{ secrets.GITHUB_TOKEN }}"
         automatic_release_tag: ${{ github.event.inputs.version }}
         prerelease: false
-        title: intro-skipper-${{ github.event.inputs.version }}
+        title: ${{ github.event.inputs.version }}
         files: |
           intro-skipper-${{ github.event.inputs.version }}.md5
           intro-skipper-${{ github.event.inputs.version }}.zip
