@@ -826,7 +826,15 @@
 
             // make an authenticated GET to the server and parse the response as JSON
             async function getJson(url) {
-                return await fetchWithAuth(url, "GET").then(r => { return r.json(); }).catch(err => { console.debug(err) });
+                return await fetchWithAuth(url, "GET")
+                .then(r => {
+                  if (r.status == 404) {
+                    return null;
+                  } else {
+                    return r.json();
+                  }
+                })
+                .catch(err => { console.debug(err); });
             }
 
             // make an authenticated fetch to the server
