@@ -43,7 +43,7 @@ These parameters can be configured by opening the plugin settings
 6. After a season has completed analyzing, play some episodes from it and observe the results
     1. Status updates are logged before analyzing each season of a show
 
-### Troubleshooting
+## Troubleshooting
 #### Scheduled tasks fail instantly
 - Verify that Intro Skipper can detect ffmpeg with Chromaprint
     - Dashboard -> Plugins -> Intro Skipper -> Support Bundle Info
@@ -51,7 +51,7 @@ These parameters can be configured by opening the plugin settings
     - Dashboard -> Playback -> FFmpeg path
 - Verify that Chromaprint is enabled in ffmpeg (`--enable-chromaprint`)
 
-#### Skip button isn't visible
+#### Skip button is not visible
 - Verify you have successfully completed the scheduled task at least once
 - Clear your browser cache and reload the Jellyfin server webpage
 - Fix any permission mismatches between the web folder and Jellyfin server
