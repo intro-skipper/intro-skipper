@@ -11,6 +11,7 @@ permissions:
 
 jobs:
   build:
+    if: ${{ ! startsWith(github.event.head_commit.message, 'v0.1') }}
 
     runs-on: ubuntu-latest
 
