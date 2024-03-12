@@ -1,10 +1,13 @@
 # Intro Skipper (beta)
 
 <div align="center">
-<img alt="Plugin Banner" src="https://raw.githubusercontent.com/jumoog/intro-skipper/master/images/logo.png" />
+    <p>
+        <img alt="Plugin Banner" src="https://raw.githubusercontent.com/jumoog/intro-skipper/master/images/logo.png" />
+    </p>
+    <p>
+        Analyzes the audio of television episodes to detect and skip over intros.
+    </p>
 </div>
-
-Analyzes the audio of television episodes to detect and skip over intros.
 
 ## System requirements
 
@@ -15,7 +18,7 @@ Analyzes the audio of television episodes to detect and skip over intros.
   * Debian Linux based native installs: provided by the `jellyfin-ffmpeg5` package
   * MacOS native installs: build ffmpeg with chromaprint support ([instructions](#installation-instructions-for-macos))
 
-## Introduction parameters
+## Detection parameters
 
 Show introductions will be detected if they are:
 
@@ -24,14 +27,15 @@ Show introductions will be detected if they are:
 
 Ending credits will be detected if they are shorter than 4 minutes.
 
-All of these requirements can be customized as needed.
+These parameters can be configured by opening the plugin settings
 
-## Installation instructions
+## Installation
 
 ### Step 1: Install the plugin
 1. Add this plugin repository to your server: `https://raw.githubusercontent.com/jumoog/intro-skipper/master/manifest.json`
 2. Install the Intro Skipper plugin from the General section
 3. Restart Jellyfin
+### Step 2: Configure the plugin
 4. OPTIONAL: Enable automatic skipping or skip button
     1. Go to Dashboard -> Plugins -> Intro Skipper
     2. Check "Automatically skip intros" or "Show skip intro button" and click Save
@@ -39,11 +43,10 @@ All of these requirements can be customized as needed.
 6. After a season has completed analyzing, play some episodes from it and observe the results
     1. Status updates are logged before analyzing each season of a show
 
-## Installation instructions for MacOS
-
-macOS 12 or newer can install the [portable jellyfin-ffmpeg](https://github.com/jellyfin/jellyfin-ffmpeg)
+## Installation (MacOS)
 
 1. Build ffmpeg with chromaprint support using brew:
+    - macOS 12 or newer can install the [portable jellyfin-ffmpeg](https://github.com/jellyfin/jellyfin-ffmpeg)
 
 ```
 brew uninstall --force --ignore-dependencies ffmpeg
@@ -53,9 +56,15 @@ brew install homebrew-ffmpeg/ffmpeg/ffmpeg --with-chromaprint
 brew link --overwrite ffmpeg
 ```
 
-2. Retrieve ffmpeg path with `whereis ffmpeg` and use this path on Jellyfin under [encoding settings](http://localhost:8096/web/index.html#!/encodingsettings.html)
+2. Open ~/.config/jellyfin/encoding.xml and add or edit the following lines
+    - Replace [FFMPEG_PATH] with the path returned by `whereis ffmpeg`
 
-3. Follow the [installation instructions](#installation-instructions) above
+```
+<EncoderAppPath>[FFMPEG_PATH]</EncoderAppPath>
+<EncoderAppPathDisplay>[FFMPEG_PATH]</EncoderAppPathDisplay>
+```
+
+4. Follow the [general installation instructions](#installation) above
 
 ## Documentation
 
