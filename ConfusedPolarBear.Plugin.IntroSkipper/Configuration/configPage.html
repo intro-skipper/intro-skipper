@@ -462,8 +462,11 @@
                             <br />
                         </div>
 
-                        <textarea id="timestampError" style="display:none;" rows="2" cols="75" readonly></textarea>
-                        <br />
+                        <div id="timestampErrorDiv" style="display:none">
+                          <textarea id="timestampError" rows="2" cols="75" readonly></textarea>
+                          <br />
+                          <br />
+                        </div>
 
                         <h3>Fingerprint Visualizer</h3>
                         <p>
@@ -763,9 +766,9 @@
                 }
 
                 if (timestampError.value == "") {
-                    timestampError.style.display = "none";
+                    timestampErrorDiv.style.display = "none";
                 } else {
-                    timestampError.style.display = "unset";
+                    timestampErrorDiv.style.display = "unset";
                 }
 
                 Dashboard.hideLoadingMsg();
@@ -814,7 +817,7 @@
             // clear a select of items
             function clearSelect(select) {
                 timestampError.value = "";
-                timestampError.style.display = "none";
+                timestampErrorDiv.style.display = "none";
                 timestampEditor.style.display = "none";
                 timeContainer.style.display = "none";
                 canvas.style.display = "none";
