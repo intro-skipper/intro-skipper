@@ -43,14 +43,22 @@ These parameters can be configured by opening the plugin settings
 6. After a season has completed analyzing, play some episodes from it and observe the results
     1. Status updates are logged before analyzing each season of a show
 
-### Troubleshooting - Skip button isn't visible
+### Troubleshooting
+#### Scheduled tasks fail instantly
+- Verify that Intro Skipper can detect ffmpeg with Chromaprint
+    - Dashboard -> Plugins -> Intro Skipper -> Support Bundle Info
+- Verify that ffmpeg is installed and detected by jellyfin
+    - Dashboard -> Playback -> FFmpeg path
+- Verify that Chromaprint is enabled in ffmpeg (`--enable-chromaprint`)
+
+#### Skip button isn't visible
 - Verify you have successfully completed the scheduled task at least once
 - Clear your browser cache and reload the Jellyfin server webpage
 - Fix any permission mismatches between the web folder and Jellyfin server
 
     * <b>Docker -</b> the container is being run as a non-root user while having been built as a root user, causing the web files to be owned by root. To solve this, you can remove any lines like `User: 1000:1000`, `GUID:`, `PID:`, etc. from the jellyfin docker compose file.
 
-    * <b>Install from distro repositories -</b> the jellyfin-server will execute as `jellyfin` user while the web files will be owned by `root`, `www-data`, etc. This can <i>likely</i> be fixed by adding the `jellyfin` (or whichever user executes the jellyfin server) to the same group that owns the jellyfin-web folders. **You should only do this if they are owned by a group other than root**.
+    * <b>Install from distro repositories -</b> the jellyfin-server will execute as `jellyfin` user while the web files will be owned by `root`, `www-data`, etc. This can <i>likely</i> be fixed by adding the `jellyfin` user (or whichever user executes the jellyfin server) to the same group that owns the jellyfin-web folders. **You should only do this if they are owned by a group other than root**.
 
 ## Installation (MacOS)
 
