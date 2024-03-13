@@ -66,21 +66,6 @@ introSkipper.injectCss = function () {
     let styleElement = document.createElement("style");
     styleElement.id = "introSkipperCss";
     styleElement.innerText = `
-    @media (hover:hover) and (pointer:fine) {
-        #skipIntro .paper-icon-button-light:hover:not(:disabled) {
-            color: black !important;
-            background-color: rgba(47, 93, 98, 0) !important;
-        }
-    }
-
-    #skipIntro .paper-icon-button-light.show-focus:focus {
-        transform: scale(1.04) !important;
-    }
-    
-    #skipIntro.upNextContainer {
-        width: unset;
-    }
-
     #skipIntro {
         padding: 0 1px;
         position: absolute;
@@ -95,15 +80,23 @@ introSkipper.injectCss = function () {
         -webkit-transition: ease-out 0.4s;
         -moz-transition: ease-out 0.4s;
         transition: ease-out 0.4s;
-    }
-
-    #skipIntro #btnSkipSegmentText {
-        padding-right: 3px;
-        padding-bottom: 2px;
-    }
-
-    @media (max-width: 1080px) {
-        #skipIntro {
+        @media (hover:hover) and (pointer:fine) {
+            .paper-icon-button-light:hover:not(:disabled) {
+                color: black !important;
+                background-color: rgba(47, 93, 98, 0) !important;
+            }
+        }
+        .paper-icon-button-light.show-focus:focus {
+            transform: scale(1.04) !important;
+        }
+        #btnSkipSegmentText {
+            padding-right: 3px;
+            padding-bottom: 2px;
+        }
+        &.upNextContainer {
+            width: unset;
+        }
+        @media (max-width: 1080px) {
             right: 10%;
         }
     }
