@@ -73,6 +73,10 @@ introSkipper.injectCss = function () {
         }
     }
 
+    #skipIntro .paper-icon-button-light.show-focus:focus {
+        transform: scale(1.04) !important;
+    }
+    
     #skipIntro.upNextContainer {
         width: unset;
     }
