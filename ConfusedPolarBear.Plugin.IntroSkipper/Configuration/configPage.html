@@ -749,20 +749,17 @@
                 canvas.style.display = "none";
 
                 lhs = await getJson("Intros/Episode/" + selectEpisode1.value + "/Chromaprint");
-                rhs = await getJson("Intros/Episode/" + selectEpisode2.value + "/Chromaprint");
-
-                if (lhs === null) {
+                if (lhs === undefined) {
+                    timestampError.value += "Error: " + selectEpisode1.value + " fingerprints failed!\n";
+                } else if (lhs === null) {
                     timestampError.value += "Error: " + selectEpisode1.value + " fingerprints missing!\n";
                 }
-                else if (lhs === undefined) {
-                    timestampError.value += "Error: " + selectEpisode1.value + " fingerprints failed!\n";
-                }
 
-                if (rhs === null) {
-                    timestampError.value += "Error: " + selectEpisode2.value + " fingerprints missing!\n";
-                }
+                rhs = await getJson("Intros/Episode/" + selectEpisode2.value + "/Chromaprint");
                 if (rhs === undefined) {
                     timestampError.value += "Error: " + selectEpisode2.value + " fingerprints failed!";
+                } else if (rhs === null) {
+                    timestampError.value += "Error: " + selectEpisode2.value + " fingerprints missing!\n";
                 }
 
                 if (timestampError.value == "") {
@@ -787,12 +784,12 @@
                 const rightEpisode = selectEpisode2.options[selectEpisode2.selectedIndex];
 
                 // Try to get the timestamps of each intro, falling back a default value of zero if no intro was found
-                let leftEpisodeIntro = await getJson("Episode/" + leftEpisode.value + "/IntroTimestamps/v1");
+                let leftEpisodeIntro = await getJson("Episode/" + selectEpisode1.value + "/IntroTimestamps/v1");
                 if (!leftEpisodeIntro.hasOwnProperty("IntroStart")) {
                     leftEpisodeIntro = { IntroStart: 0, IntroEnd: 0 };
                 }
 
-                let rightEpisodeIntro = await getJson("Episode/" + rightEpisode.value + "/IntroTimestamps/v1");
+                let rightEpisodeIntro = await getJson("Episode/" + selectEpisode2.value + "/IntroTimestamps/v1");
                 if (!rightEpisodeIntro.hasOwnProperty("IntroStart")) {
                     rightEpisodeIntro = { IntroStart: 0, IntroEnd: 0 };
                 }
@@ -837,7 +834,10 @@
                     return r.json();
                   }
                 })
-                .catch(err => { console.debug(err); });
+                .catch(err => {
+                  console.debug(err);
+                  return undefined;
+                 });
             }
 
             // make an authenticated fetch to the server
