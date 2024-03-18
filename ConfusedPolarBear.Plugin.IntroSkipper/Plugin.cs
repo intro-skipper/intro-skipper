@@ -30,6 +30,9 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
     private ILogger<Plugin> _logger;
     private string _introPath;
     private string _creditsPath;
+    private string _oldintroPath;
+    private string _oldcreditsPath;
+    private string _oldFingerprintCachePath;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="Plugin"/> class.
@@ -58,15 +61,38 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
 
         FFmpegPath = serverConfiguration.GetEncodingOptions().EncoderAppPathDisplay;
 
-        var introsDirectory = Path.Join(applicationPaths.PluginConfigurationsPath, "intros");
-        FingerprintCachePath = Path.Join(introsDirectory, "cache");
-        _introPath = Path.Join(applicationPaths.PluginConfigurationsPath, "intros", "intros.xml");
-        _creditsPath = Path.Join(applicationPaths.PluginConfigurationsPath, "intros", "credits.xml");
+        var introsDirectory = Path.Join(applicationPaths.CachePath, "introskipper");
+        FingerprintCachePath = Path.Join(introsDirectory, "chromaprints");
+        _introPath = Path.Join(applicationPaths.CachePath, "introskipper", "intros.xml");
+        _creditsPath = Path.Join(applicationPaths.CachePath, "introskipper", "credits.xml");
+
+        var oldintrosDirectory = Path.Join(applicationPaths.PluginConfigurationsPath, "intros");
+        _oldFingerprintCachePath = Path.Join(oldintrosDirectory, "cache");
+        _oldintroPath = Path.Join(applicationPaths.PluginConfigurationsPath, "intros", "intros.xml");
+        _oldcreditsPath = Path.Join(applicationPaths.PluginConfigurationsPath, "intros", "credits.xml");
 
         // Create the base & cache directories (if needed).
         if (!Directory.Exists(FingerprintCachePath))
         {
             Directory.CreateDirectory(FingerprintCachePath);
+
+            // Check if the old cache directory exists
+            if (Directory.Exists(_oldFingerprintCachePath))
+            {
+                // Move the contents from old directory to new directory
+                File.Move(_oldintroPath, _introPath);
+                File.Move(_oldcreditsPath, _creditsPath);
+                string[] files = Directory.GetFiles(_oldFingerprintCachePath);
+                foreach (string file in files)
+                {
+                    string fileName = Path.GetFileName(file);
+                    string destFile = Path.Combine(FingerprintCachePath, fileName);
+                    File.Move(file, destFile);
+                }
+
+                // Optionally, you may delete the old directory after moving its contents
+                Directory.Delete(oldintrosDirectory, true);
+            }
         }
 
         ConfigurationChanged += OnConfigurationChanged;
