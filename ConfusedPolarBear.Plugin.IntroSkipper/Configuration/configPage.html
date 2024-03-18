@@ -616,13 +616,13 @@
             var autoSkipNotificationText = document.querySelector("div#divAutoSkipNotificationText");
 
             async function autoSkipChanged() {
-              if (autoSkip.checked) {
-                skipFirstEpisode.style.display = 'unset';
-                autoSkipNotificationText.style.display = 'unset';
-              } else {
-                skipFirstEpisode.style.display = 'none';
-                autoSkipNotificationText.style.display = 'none';
-              }
+                if (autoSkip.checked) {
+                    skipFirstEpisode.style.display = 'unset';
+                    autoSkipNotificationText.style.display = 'unset';
+                } else {
+                    skipFirstEpisode.style.display = 'none';
+                    autoSkipNotificationText.style.display = 'none';
+                }
             }
 
             autoSkip.addEventListener("change", autoSkipChanged);
@@ -633,13 +633,13 @@
 
             // prevent setting unavailable options
             async function persistSkipChanged() {
-              if (persistSkip.checked) {
-                showAdjustment.style.display = 'none';
-                hideAdjustment.style.display = 'none';
-              } else {
-                showAdjustment.style.display = 'unset';
-                hideAdjustment.style.display = 'unset';
-              }
+                if (persistSkip.checked) {
+                    showAdjustment.style.display = 'none';
+                    hideAdjustment.style.display = 'none';
+                } else {
+                    showAdjustment.style.display = 'unset';
+                    hideAdjustment.style.display = 'unset';
+                }
             }
 
             persistSkip.addEventListener("change", persistSkipChanged);
@@ -785,12 +785,12 @@
 
                 // Try to get the timestamps of each intro, falling back a default value of zero if no intro was found
                 let leftEpisodeIntro = await getJson("Episode/" + selectEpisode1.value + "/IntroTimestamps/v1");
-                if (!leftEpisodeIntro.hasOwnProperty("IntroStart")) {
+                if (leftEpisodeIntro === null) {
                     leftEpisodeIntro = { IntroStart: 0, IntroEnd: 0 };
                 }
 
                 let rightEpisodeIntro = await getJson("Episode/" + selectEpisode2.value + "/IntroTimestamps/v1");
-                if (!rightEpisodeIntro.hasOwnProperty("IntroStart")) {
+                if (rightEpisodeIntro === null) {
                     rightEpisodeIntro = { IntroStart: 0, IntroEnd: 0 };
                 }
 
