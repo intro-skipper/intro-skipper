@@ -53,9 +53,9 @@ public class BaseItemAnalyzerTask
         IProgress<double> progress,
         CancellationToken cancellationToken)
     {
-        var ffmpegError = FFmpegWrapper.CheckFFmpegVersion();
+        var ffmpegValid = FFmpegWrapper.CheckFFmpegVersion();
         // Assert that ffmpeg with chromaprint is installed
-        if (Plugin.Instance!.Configuration.UseChromaprint && !ffmpegError)
+        if (Plugin.Instance!.Configuration.UseChromaprint && !ffmpegValid)
         {
             throw new FingerprintException(
                 "Analysis terminated! Chromaprint is not enabled in the current ffmpeg. If Jellyfin is running natively, install jellyfin-ffmpeg5. If Jellyfin is running in a container, upgrade to version 10.8.0 or newer.");

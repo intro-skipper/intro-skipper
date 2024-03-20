@@ -784,12 +784,12 @@
                 const rightEpisode = selectEpisode2.options[selectEpisode2.selectedIndex];
 
                 // Try to get the timestamps of each intro, falling back a default value of zero if no intro was found
-                let leftEpisodeIntro = await getJson("Episode/" + selectEpisode1.value + "/IntroTimestamps/v1");
+                let leftEpisodeIntro = await getJson("Episode/" + leftEpisode.value + "/IntroTimestamps/v1");
                 if (leftEpisodeIntro === null) {
                     leftEpisodeIntro = { IntroStart: 0, IntroEnd: 0 };
                 }
 
-                let rightEpisodeIntro = await getJson("Episode/" + selectEpisode2.value + "/IntroTimestamps/v1");
+                let rightEpisodeIntro = await getJson("Episode/" + rightEpisode.value + "/IntroTimestamps/v1");
                 if (rightEpisodeIntro === null) {
                     rightEpisodeIntro = { IntroStart: 0, IntroEnd: 0 };
                 }
@@ -828,15 +828,14 @@
             async function getJson(url) {
                 return await fetchWithAuth(url, "GET")
                 .then(r => {
-                  if (r.status == 404) {
-                    return null;
-                  } else {
+                  if (r.ok) {
                     return r.json();
+                  } else {
+                    return null;
                   }
                 })
                 .catch(err => {
                   console.debug(err);
-                  return undefined;
                  });
             }
 
