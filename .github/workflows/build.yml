@@ -65,5 +65,5 @@ jobs:
         prerelease: true
         title: intro-skipper-${{ env.GIT_HASH }}
         files: |
-          intro-skipper-${{ env.GIT_HASH }}.md5
           intro-skipper-${{ env.GIT_HASH }}.zip
+          md5-intro-skipper-${{ env.GIT_HASH }}
