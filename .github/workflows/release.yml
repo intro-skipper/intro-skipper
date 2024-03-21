@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: 'Version'
+        description: 'Version v'
         required: true
         type: string
 
@@ -36,7 +36,7 @@ jobs:
     - name: Upload artifact
       uses: actions/upload-artifact@v4.3.1
       with:
-        name: ConfusedPolarBear.Plugin.IntroSkipper-${{ github.event.inputs.version }}.dll
+        name: ConfusedPolarBear.Plugin.IntroSkipper-v${{ github.event.inputs.version }}.dll
         path: ConfusedPolarBear.Plugin.IntroSkipper/bin/Debug/net6.0/ConfusedPolarBear.Plugin.IntroSkipper.dll
         if-no-files-found: error
 
@@ -45,18 +45,39 @@ jobs:
       with:
         files: |
           ConfusedPolarBear.Plugin.IntroSkipper/bin/Debug/net6.0/ConfusedPolarBear.Plugin.IntroSkipper.dll
-        dest:  intro-skipper-${{ github.event.inputs.version }}.zip
+        dest:  intro-skipper-v${{ github.event.inputs.version }}.zip
 
     - name: Generate md5
-      run: md5sum intro-skipper-${{ github.event.inputs.version }}.zip > intro-skipper-${{ github.event.inputs.version }}.md5
+      run: |
+        md5sum intro-skipper-v${{ github.event.inputs.version }}.zip > intro-skipper-v${{ github.event.inputs.version }}.md5
+        GIT_MD5SUM=$(awk '{print $1}' intro-skipper-v${{ github.event.inputs.version }}.md5)
+        echo "GIT_MD5SUM=${GIT_MD5SUM}" >> $GITHUB_ENV
+        echo "MD5: ${{ env.GIT_MD5SUM }}"
 
     - name: Publish release
       uses: 8bitDream/action-github-releases@v1.0.0
       with:
         repo_token: "${{ secrets.GITHUB_TOKEN }}"
-        automatic_release_tag: ${{ github.event.inputs.version }}
+        automatic_release_tag: v${{ github.event.inputs.version }}
         prerelease: false
-        title: ${{ github.event.inputs.version }}
+        title: v${{ github.event.inputs.version }}
         files: |
-          intro-skipper-${{ github.event.inputs.version }}.md5
-          intro-skipper-${{ github.event.inputs.version }}.zip
+          intro-skipper-v${{ github.event.inputs.version }}.md5
+          intro-skipper-v${{ github.event.inputs.version }}.zip
+    #
+    # - name: Update manifest
+    #
+    # {
+    #     "version": "${{ github.event.inputs.version }}",
+    #     "changelog": "- See the full changelog at [GitHub](https://github.com/jumoog/intro-skipper/blob/master/CHANGELOG.md)\n",
+    #     "targetAbi": "10.8.4.0",
+    #     "sourceUrl": "https://github.com/jumoog/intro-skipper/releases/download/v${{ github.event.inputs.version }}/intro-skipper-v${{ github.event.inputs.version }}.zip",
+    #     "checksum": "${{ env.GIT_MD5SUM }}",
+    #     "timestamp": "2024-03-11T22:00:13Z"
+    # },
+
+    # - name: Push changes
+    #   uses: ad-m/github-push-action@master
+    #   with:
+    #     github_token: ${{ secrets.GITHUB_TOKEN }}
+    #     branch: master
