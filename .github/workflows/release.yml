@@ -50,9 +50,9 @@ jobs:
     - name: Generate md5
       run: |
         md5sum intro-skipper-v${{ github.event.inputs.version }}.zip > intro-skipper-v${{ github.event.inputs.version }}.md5
-        GIT_MD5SUM=$(awk '{print $1}' intro-skipper-v${{ github.event.inputs.version }}.md5)
-        echo "GIT_MD5SUM=${GIT_MD5SUM}" >> $GITHUB_ENV
-        echo "MD5: ${{ env.GIT_MD5SUM }}"
+        echo "sourceUrl: ${{ github.repository }}/releases/download/v${{ github.event.inputs.version }}/intro-skipper-v${{ github.event.inputs.version }}.zip"
+        echo "checksum: $(awk '{print $1}' intro-skipper-v${{ github.event.inputs.version }}.md5)"
+        echo "timestamp: $(date +%FT%TZ)"
 
     - name: Publish release
       uses: 8bitDream/action-github-releases@v1.0.0
@@ -64,17 +64,6 @@ jobs:
         files: |
           intro-skipper-v${{ github.event.inputs.version }}.md5
           intro-skipper-v${{ github.event.inputs.version }}.zip
-    #
-    # - name: Update manifest
-    #
-    # {
-    #     "version": "${{ github.event.inputs.version }}",
-    #     "changelog": "- See the full changelog at [GitHub](https://github.com/jumoog/intro-skipper/blob/master/CHANGELOG.md)\n",
-    #     "targetAbi": "10.8.4.0",
-    #     "sourceUrl": "https://github.com/jumoog/intro-skipper/releases/download/v${{ github.event.inputs.version }}/intro-skipper-v${{ github.event.inputs.version }}.zip",
-    #     "checksum": "${{ env.GIT_MD5SUM }}",
-    #     "timestamp": "2024-03-11T22:00:13Z"
-    # },
 
     # - name: Push changes
     #   uses: ad-m/github-push-action@master
