@@ -49,9 +49,9 @@ jobs:
 
     - name: Generate md5
       run: |
-        md5sum intro-skipper-v${{ github.event.inputs.version }}.zip > intro-skipper-v${{ github.event.inputs.version }}.md5
+        md5sum intro-skipper-v${{ github.event.inputs.version }}.zip > intro-skipper-v${{ github.event.inputs.version }}.zip.md5
         echo "sourceUrl: https://github.com/${{ github.repository }}/releases/download/v${{ github.event.inputs.version }}/intro-skipper-v${{ github.event.inputs.version }}.zip"
-        echo "checksum: $(awk '{print $1}' intro-skipper-v${{ github.event.inputs.version }}.md5)"
+        echo "checksum: $(awk '{print $1}' intro-skipper-v${{ github.event.inputs.version }}.zip.md5)"
         echo "timestamp: $(date +%FT%TZ)"
 
     - name: Publish release
@@ -63,7 +63,7 @@ jobs:
         title: v${{ github.event.inputs.version }}
         files: |
           intro-skipper-v${{ github.event.inputs.version }}.zip
-          md5-intro-skipper-v${{ github.event.inputs.version }}
+          intro-skipper-v${{ github.event.inputs.version }}.zip.md5
 
     # - name: Push changes
     #   uses: ad-m/github-push-action@master

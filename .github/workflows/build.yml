@@ -54,7 +54,7 @@ jobs:
 
     - name: Generate md5
       if: github.event_name != 'pull_request'
-      run: md5sum intro-skipper-${{ env.GIT_HASH }}.zip > intro-skipper-${{ env.GIT_HASH }}.md5
+      run: md5sum intro-skipper-${{ env.GIT_HASH }}.zip > intro-skipper-${{ env.GIT_HASH }}.zip.md5
 
     - name: Publish prerelease
       uses: 8bitDream/action-github-releases@v1.0.0
@@ -66,4 +66,4 @@ jobs:
         title: intro-skipper-${{ env.GIT_HASH }}
         files: |
           intro-skipper-${{ env.GIT_HASH }}.zip
-          md5-intro-skipper-${{ env.GIT_HASH }}
+          intro-skipper-${{ env.GIT_HASH }}.zip.md5
