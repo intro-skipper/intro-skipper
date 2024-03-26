@@ -109,7 +109,7 @@ public class AutoSkip : IServerEntryPoint
         }
 
         // If this is the first episode in the season, and SkipFirstEpisode is false, pretend that we've already sent the seek command for this playback session.
-        if (!Plugin.Instance!.Configuration.SkipFirstEpisode && episodeNumber == 1)
+        if (Plugin.Instance!.Configuration.SkipFirstEpisode && episodeNumber == 1)
         {
             newState = true;
         }
