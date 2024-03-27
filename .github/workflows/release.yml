@@ -1,4 +1,4 @@
-name: 'Release Plugin'
+name: '10.9 Release Plugin'
 
 on:
   workflow_dispatch:
@@ -37,7 +37,7 @@ jobs:
       uses: actions/upload-artifact@v4.3.1
       with:
         name: ConfusedPolarBear.Plugin.IntroSkipper-v${{ github.event.inputs.version }}.dll
-        path: ConfusedPolarBear.Plugin.IntroSkipper/bin/Debug/net6.0/ConfusedPolarBear.Plugin.IntroSkipper.dll
+        path: ConfusedPolarBear.Plugin.IntroSkipper/bin/Debug/net8.0/ConfusedPolarBear.Plugin.IntroSkipper.dll
         if-no-files-found: error
 
     - name: Create archive
