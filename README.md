@@ -32,9 +32,11 @@ These parameters can be configured by opening the plugin settings
 ## Installation
 
 ### Step 1: Install the plugin
-1. Add this plugin repository to your server: `https://raw.githubusercontent.com/jumoog/intro-skipper/master/manifest.json`
-2. Install the Intro Skipper plugin from the General section
-3. Restart Jellyfin
+1. Add the plugin repository to your server:
+   - 10.8: `https://raw.githubusercontent.com/jumoog/intro-skipper/master/manifest.json`
+   - 10.9: `https://raw.githubusercontent.com/jumoog/intro-skipper/10.9/manifest.json`
+3. Install the Intro Skipper plugin from the General section
+4. Restart Jellyfin
 ### Step 2: Configure the plugin
 4. OPTIONAL: Enable automatic skipping or skip button
     1. Go to Dashboard -> Plugins -> Intro Skipper
