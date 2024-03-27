@@ -2,9 +2,9 @@ name: 'Build Plugin'
 
 on:
   push:
-    branches: [ "master" ]
+    branches: [ "10.9" ]
   pull_request:
-    branches: [ "master" ]
+    branches: [ "10.9" ]
 
 permissions:
   contents: write
@@ -41,7 +41,7 @@ jobs:
       uses: actions/upload-artifact@v4.3.1
       with:
         name: ConfusedPolarBear.Plugin.IntroSkipper-${{ env.GIT_HASH }}.dll
-        path: ConfusedPolarBear.Plugin.IntroSkipper/bin/Debug/net6.0/ConfusedPolarBear.Plugin.IntroSkipper.dll
+        path: ConfusedPolarBear.Plugin.IntroSkipper/bin/Debug/net8.0/ConfusedPolarBear.Plugin.IntroSkipper.dll
         if-no-files-found: error
 
     - name: Create archive
@@ -61,7 +61,7 @@ jobs:
       if: github.event_name != 'pull_request'
       with:
         repo_token: "${{ secrets.GITHUB_TOKEN }}"
-        automatic_release_tag: preview
+        automatic_release_tag: 10.9/preview
         prerelease: true
         title: intro-skipper-${{ env.GIT_HASH }}
         files: |
