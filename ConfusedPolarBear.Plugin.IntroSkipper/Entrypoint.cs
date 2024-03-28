@@ -1,8 +1,7 @@
 using System;
-using System.IO;
+using System.Threading;
 using System.Threading.Tasks;
 using MediaBrowser.Controller.Library;
-using MediaBrowser.Controller.Plugins;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 
@@ -42,38 +41,11 @@ public class Entrypoint : IHostedService
     }
 
     /// <summary>
-    /// Registers event handler.
-    /// </summary>
-    /// <returns>Task.</returns>
-    public Task RunAsync()
-    {
-        FFmpegWrapper.Logger = _logger;
-
-        // TODO: when a new item is added to the server, immediately analyze the season it belongs to
-        // instead of waiting for the next task interval. The task start should be debounced by a few seconds.
-
-        try
-        {
-            // Enqueue all episodes at startup to ensure any FFmpeg errors appear as early as possible
-            _logger.LogInformation("Running startup enqueue");
-            var queueManager = new QueueManager(_loggerFactory.CreateLogger<QueueManager>(), _libraryManager);
-            queueManager.GetMediaItems();
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError("Unable to run startup enqueue: {Exception}", ex);
-        }
-
-        return Task.CompletedTask;
-    }
-
-    /// <summary>
     /// Dispose.
     /// </summary>
     public void Dispose()
     {
         Dispose(true);
-        GC.SuppressFinalize(this);
     }
 
     /// <summary>
@@ -86,5 +58,34 @@ public class Entrypoint : IHostedService
         {
             return;
         }
+    }
+
+    /// <inheritdoc />
+    public Task StartAsync(CancellationToken cancellationToken)
+    {
+        FFmpegWrapper.Logger = _logger;
+
+        // TODO: when a new item is added to the server, immediately analyze the season it belongs to
+        // instead of waiting for the next task interval. The task start should be debounced by a few seconds.
+
+        try
+        {
+            // Enqueue all episodes at startup to ensure any FFmpeg errors appear as early as possible
+            _logger.LogInformation("Running startup enqueue");
+            var queueManager = new QueueManager(_loggerFactory.CreateLogger<QueueManager>(), _libraryManager);
+            queueManager?.GetMediaItems();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError("Unable to run startup enqueue: {Exception}", ex);
+        }
+
+        return Task.CompletedTask;
+    }
+
+    /// <inheritdoc />
+    public Task StopAsync(CancellationToken cancellationToken)
+    {
+        return Task.CompletedTask;
     }
 }

@@ -18,7 +18,7 @@ namespace ConfusedPolarBear.Plugin.IntroSkipper;
 /// Automatically skip past introduction sequences.
 /// Commands clients to seek to the end of the intro as soon as they start playing it.
 /// </summary>
-public class AutoSkip : IHostedService
+public class AutoSkip : IHostedService, IDisposable
 {
     private readonly object _sentSeekCommandLock = new();
 
@@ -43,26 +43,6 @@ public class AutoSkip : IHostedService
         _sessionManager = sessionManager;
         _logger = logger;
         _sentSeekCommand = new Dictionary<string, bool>();
-    }
-
-    /// <summary>
-    /// If introduction auto skipping is enabled, set it up.
-    /// </summary>
-    /// <returns>Task.</returns>
-    public Task RunAsync()
-    {
-        _logger.LogDebug("Setting up automatic skipping");
-
-        _userDataManager.UserDataSaved += UserDataManager_UserDataSaved;
-        Plugin.Instance!.AutoSkipChanged += AutoSkipChanged;
-
-        // Make the timer restart automatically and set enabled to match the configuration value.
-        _playbackTimer.AutoReset = true;
-        _playbackTimer.Elapsed += PlaybackTimer_Elapsed;
-
-        AutoSkipChanged(null, EventArgs.Empty);
-
-        return Task.CompletedTask;
     }
 
     private void AutoSkipChanged(object? sender, EventArgs e)
@@ -223,8 +203,31 @@ public class AutoSkip : IHostedService
             return;
         }
 
-        _userDataManager.UserDataSaved -= UserDataManager_UserDataSaved;
         _playbackTimer.Stop();
         _playbackTimer.Dispose();
+    }
+
+    /// <inheritdoc />
+    public Task StartAsync(CancellationToken cancellationToken)
+    {
+        _logger.LogDebug("Setting up automatic skipping");
+
+        _userDataManager.UserDataSaved += UserDataManager_UserDataSaved;
+        Plugin.Instance!.AutoSkipChanged += AutoSkipChanged;
+
+        // Make the timer restart automatically and set enabled to match the configuration value.
+        _playbackTimer.AutoReset = true;
+        _playbackTimer.Elapsed += PlaybackTimer_Elapsed;
+
+        AutoSkipChanged(null, EventArgs.Empty);
+
+        return Task.CompletedTask;
+    }
+
+    /// <inheritdoc />
+    public Task StopAsync(CancellationToken cancellationToken)
+    {
+        _userDataManager.UserDataSaved -= UserDataManager_UserDataSaved;
+        return Task.CompletedTask;
     }
 }
