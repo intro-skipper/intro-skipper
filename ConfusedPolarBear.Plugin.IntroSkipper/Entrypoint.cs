@@ -3,6 +3,7 @@ using System.IO;
 using System.Threading.Tasks;
 using MediaBrowser.Controller.Library;
 using MediaBrowser.Controller.Plugins;
+using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 
 namespace ConfusedPolarBear.Plugin.IntroSkipper;
@@ -10,7 +11,7 @@ namespace ConfusedPolarBear.Plugin.IntroSkipper;
 /// <summary>
 /// Server entrypoint.
 /// </summary>
-public class Entrypoint : IServerEntryPoint
+public class Entrypoint : IHostedService
 {
     private readonly IUserManager _userManager;
     private readonly IUserViewManager _userViewManager;
