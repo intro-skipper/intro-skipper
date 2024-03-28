@@ -74,6 +74,10 @@ public class Entrypoint : IServerEntryPoint
         return Task.CompletedTask;
     }
 
+    // Disclose source for inspiration
+    // Implementation based on the principles of jellyfin-plugin-media-analyzer:
+    // https://github.com/endrl/jellyfin-plugin-media-analyzer
+
     /// <summary>
     /// Library item was added.
     /// </summary>
@@ -135,10 +139,6 @@ public class Entrypoint : IServerEntryPoint
           _logger.LogError("Error analyzing: {Exception}", ex);
         }
     }
-
-    // Disclose source for inspiration
-    // Implementationbased on the principles of jellyfin-plugin-media-analyzer:
-    // https://github.com/endrl/jellyfin-plugin-media-analyzer
 
     /// <summary>
     /// TaskManager task ended.
