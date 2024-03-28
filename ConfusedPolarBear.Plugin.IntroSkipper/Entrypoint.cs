@@ -136,6 +136,10 @@ public class Entrypoint : IServerEntryPoint
         }
     }
 
+    // Disclose source for inspiration
+    // Implementationbased on the principles of jellyfin-plugin-media-analyzer:
+    // https://github.com/endrl/jellyfin-plugin-media-analyzer
+
     /// <summary>
     /// TaskManager task ended.
     /// </summary>
