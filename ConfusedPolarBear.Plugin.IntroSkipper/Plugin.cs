@@ -7,7 +7,6 @@ using MediaBrowser.Common.Configuration;
 using MediaBrowser.Common.Plugins;
 using MediaBrowser.Controller.Configuration;
 using MediaBrowser.Controller.Entities;
-using MediaBrowser.Controller.Entities.TV;
 using MediaBrowser.Controller.Library;
 using MediaBrowser.Controller.Persistence;
 using MediaBrowser.Model.Entities;
@@ -24,7 +23,6 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
 {
     private readonly object _serializationLock = new();
     private readonly object _introsLock = new();
-    private IXmlSerializer _xmlSerializer;
     private ILibraryManager _libraryManager;
     private IItemRepository _itemRepository;
     private ILogger<Plugin> _logger;
@@ -54,12 +52,13 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
     {
         Instance = this;
 
-        _xmlSerializer = xmlSerializer;
         _libraryManager = libraryManager;
         _itemRepository = itemRepository;
         _logger = logger;
 
         FFmpegPath = serverConfiguration.GetEncodingOptions().EncoderAppPathDisplay;
+
+        ArgumentNullException.ThrowIfNull(applicationPaths);
 
         var introsDirectory = Path.Join(applicationPaths.CachePath, "introskipper");
         FingerprintCachePath = Path.Join(introsDirectory, "chromaprints");
@@ -94,6 +93,10 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
                 Directory.Delete(oldintrosDirectory, true);
             }
         }
+
+        // migrate from XMLSchema to DataContract
+        XmlSerializationHelper.MigrateXML(_introPath);
+        XmlSerializationHelper.MigrateXML(_creditsPath);
 
         ConfigurationChanged += OnConfigurationChanged;
 
@@ -205,7 +208,14 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
                 introList.Add(intro.Value);
             }
 
-            _xmlSerializer.SerializeToFile(introList, _introPath);
+            try
+            {
+                XmlSerializationHelper.SerializeToXml(introList, _introPath);
+            }
+            catch (Exception e)
+            {
+                _logger.LogError("SaveTimestamps intros {Message}", e.Message);
+            }
 
             // Serialize credits
             introList.Clear();
@@ -215,7 +225,14 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
                 introList.Add(intro.Value);
             }
 
-            _xmlSerializer.SerializeToFile(introList, _creditsPath);
+            try
+            {
+                XmlSerializationHelper.SerializeToXml(introList, _creditsPath);
+            }
+            catch (Exception e)
+            {
+                _logger.LogError("SaveTimestamps credits {Message}", e.Message);
+            }
         }
     }
 
@@ -227,9 +244,7 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
         if (File.Exists(_introPath))
         {
             // Since dictionaries can't be easily serialized, analysis results are stored on disk as a list.
-            var introList = (List<Intro>)_xmlSerializer.DeserializeFromFile(
-                typeof(List<Intro>),
-                _introPath);
+            var introList = XmlSerializationHelper.DeserializeFromXml(_introPath);
 
             foreach (var intro in introList)
             {
@@ -239,9 +254,7 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
 
         if (File.Exists(_creditsPath))
         {
-            var creditList = (List<Intro>)_xmlSerializer.DeserializeFromFile(
-                typeof(List<Intro>),
-                _creditsPath);
+            var creditList = XmlSerializationHelper.DeserializeFromXml(_creditsPath);
 
             foreach (var credit in creditList)
             {
