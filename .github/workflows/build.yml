@@ -59,7 +59,18 @@ jobs:
         checksum="$(awk '{print $1}' intro-skipper-${{ env.GIT_HASH }}.md5)"
         echo "CHECKSUM=$checksum" >> $GITHUB_ENV
 
-    - name: Publish Release
+    - name: Publish prerelease
+      uses: 8bitDream/action-github-releases@v1.0.0
+      if: github.event_name != 'pull_request'
+      with:
+        repo_token: "${{ secrets.GITHUB_TOKEN }}"
+        automatic_release_tag: preview
+        prerelease: true
+        title: intro-skipper-${{ env.GIT_HASH }}
+        files: |
+          intro-skipper-${{ env.GIT_HASH }}.zip
+
+    - name: Publish prerelease notes
       uses: softprops/action-gh-release@v2.0.4
       if: github.event_name != 'pull_request'
       with:
@@ -67,8 +78,6 @@ jobs:
         name: intro-skipper-${{ env.GIT_HASH }}
         body: |
           checksum:  ${{ env.CHECKSUM }}
-        files: |
-          intro-skipper-${{ env.GIT_HASH }}.zip
         draft: false
         prerelease: true
       env:
