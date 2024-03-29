@@ -64,6 +64,25 @@ public class DetectCreditsTask : IScheduledTask
             throw new InvalidOperationException("Library manager was null");
         }
 
+        // Wait for running analyzer
+        if (Plugin.Instance!.AnalyzerTaskIsRunning)
+        {
+            try
+            {
+                while (Plugin.Instance!.AnalyzerTaskIsRunning)
+                {
+                    cancellationToken.ThrowIfCancellationRequested();
+                    Task.Delay(10000).Wait(cancellationToken); // Adjust delay as needed
+                }
+            }
+            catch (OperationCanceledException)
+            {
+                 return Task.CompletedTask;
+            }
+        }
+
+        Plugin.Instance!.AnalyzerTaskIsRunning = true;
+
         var baseAnalyzer = new BaseItemAnalyzerTask(
             AnalysisMode.Credits,
             _loggerFactory.CreateLogger<DetectCreditsTask>(),
@@ -71,6 +90,8 @@ public class DetectCreditsTask : IScheduledTask
             _libraryManager);
 
         baseAnalyzer.AnalyzeItems(progress, cancellationToken);
+
+        Plugin.Instance!.AnalyzerTaskIsRunning = false;
 
         return Task.CompletedTask;
     }

@@ -63,6 +63,25 @@ public class DetectIntroductionsTask : IScheduledTask
             throw new InvalidOperationException("Library manager was null");
         }
 
+        // Wait for running analyzer
+        if (Plugin.Instance!.AnalyzerTaskIsRunning)
+        {
+            try
+            {
+                while (Plugin.Instance!.AnalyzerTaskIsRunning)
+                {
+                    cancellationToken.ThrowIfCancellationRequested();
+                    Task.Delay(10000).Wait(cancellationToken); // Adjust delay as needed
+                }
+            }
+            catch (OperationCanceledException)
+            {
+                 return Task.CompletedTask;
+            }
+        }
+
+        Plugin.Instance!.AnalyzerTaskIsRunning = true;
+
         var baseAnalyzer = new BaseItemAnalyzerTask(
             AnalysisMode.Introduction,
             _loggerFactory.CreateLogger<DetectIntroductionsTask>(),
@@ -70,6 +89,8 @@ public class DetectIntroductionsTask : IScheduledTask
             _libraryManager);
 
         baseAnalyzer.AnalyzeItems(progress, cancellationToken);
+
+        Plugin.Instance!.AnalyzerTaskIsRunning = false;
 
         return Task.CompletedTask;
     }
