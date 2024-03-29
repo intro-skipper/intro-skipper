@@ -145,6 +145,11 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
     public event EventHandler? AutoSkipChanged;
 
     /// <summary>
+    /// Gets or sets a value indicating whether analysis is running.
+    /// </summary>
+    public bool AnalyzerTaskIsRunning { get; set; } = false;
+
+    /// <summary>
     /// Gets the results of fingerprinting all episodes.
     /// </summary>
     public Dictionary<Guid, Intro> Intros { get; } = new();
