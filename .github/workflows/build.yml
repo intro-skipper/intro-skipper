@@ -53,21 +53,27 @@ jobs:
       if: github.event_name != 'pull_request'
       with:
         files: |
-          ConfusedPolarBear.Plugin.IntroSkipper/bin/Debug/net6.0/ConfusedPolarBear.Plugin.IntroSkipper.dll
+          ConfusedPolarBear.Plugin.IntroSkipper/bin/Debug/net8.0/ConfusedPolarBear.Plugin.IntroSkipper.dll
         dest:  intro-skipper-${{ env.GIT_HASH }}.zip
 
     - name: Generate md5
       if: github.event_name != 'pull_request'
-      run: md5sum intro-skipper-${{ env.GIT_HASH }}.zip > intro-skipper-${{ env.GIT_HASH }}.zip.md5
+      run: |
+        md5sum intro-skipper-${{ env.GIT_HASH }}.zip > intro-skipper-${{ env.GIT_HASH }}.md5
+        checksum="$(awk '{print $1}' intro-skipper-${{ env.GIT_HASH }}.md5)"
+        echo "CHECKSUM=$checksum" >> $GITHUB_ENV
 
-    - name: Publish prerelease
-      uses: 8bitDream/action-github-releases@v1.0.0
+    - name: Publish Release
+      uses: softprops/action-gh-release@v2.0.4
       if: github.event_name != 'pull_request'
       with:
-        repo_token: "${{ secrets.GITHUB_TOKEN }}"
-        automatic_release_tag: 10.9/preview
-        prerelease: true
-        title: intro-skipper-${{ env.GIT_HASH }}
+        tag_name: 10.9/preview
+        name: intro-skipper-${{ env.GIT_HASH }}
+        body: |
+          checksum:  ${{ env.CHECKSUM }}
         files: |
           intro-skipper-${{ env.GIT_HASH }}.zip
-          intro-skipper-${{ env.GIT_HASH }}.zip.md5
+        draft: false
+        prerelease: true
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
