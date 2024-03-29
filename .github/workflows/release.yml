@@ -45,22 +45,31 @@ jobs:
       with:
         files: |
           ConfusedPolarBear.Plugin.IntroSkipper/bin/Debug/net6.0/ConfusedPolarBear.Plugin.IntroSkipper.dll
-        dest:  intro-skipper-v${{ github.event.inputs.version }}.zip
+        dest: intro-skipper-v${{ github.event.inputs.version }}.zip
 
-    - name: Generate md5
+    - name: Generate manifest keys
       run: |
-        md5sum intro-skipper-v${{ github.event.inputs.version }}.zip > intro-skipper-v${{ github.event.inputs.version }}.zip.md5
-        echo "sourceUrl: https://github.com/${{ github.repository }}/releases/download/v${{ github.event.inputs.version }}/intro-skipper-v${{ github.event.inputs.version }}.zip"
-        echo "checksum: $(awk '{print $1}' intro-skipper-v${{ github.event.inputs.version }}.zip.md5)"
-        echo "timestamp: $(date +%FT%TZ)"
+        sourceUrl="https://github.com/${{ github.repository }}/releases/download/v${{ github.event.inputs.version }}/intro-skipper-v${{ github.event.inputs.version }}.zip"
+        echo "SOURCE_URL=$sourceUrl" >> $GITHUB_ENV
+        md5sum intro-skipper-v${{ github.event.inputs.version }}.zip > intro-skipper-v${{ github.event.inputs.version }}.md5
+        checksum="$(awk '{print $1}' intro-skipper-v${{ github.event.inputs.version }}.md5)"
+        echo "CHECKSUM=$checksum" >> $GITHUB_ENV
+        timestamp="$(date +%FT%TZ)"
+        echo "TIMESTAMP=$timestamp" >> $GITHUB_ENV
 
-    - name: Publish release
-      uses: 8bitDream/action-github-releases@v1.0.0
+    - name: Publish Release
+      uses: softprops/action-gh-release@v2.0.4
       with:
-        repo_token: "${{ secrets.GITHUB_TOKEN }}"
-        automatic_release_tag: v${{ github.event.inputs.version }}
-        prerelease: false
-        title: v${{ github.event.inputs.version }}
+        tag_name: v${{ github.event.inputs.version }}
+        name: v${{ github.event.inputs.version }}
+        body: |
+          sourceUrl:  ${{ env.SOURCE_URL }}
+          checksum:  ${{ env.CHECKSUM }}
+          timestamp: ${{ env.TIMESTAMP }}
         files: |
           intro-skipper-v${{ github.event.inputs.version }}.zip
-          intro-skipper-v${{ github.event.inputs.version }}.zip.md5
+        draft: false
+        prerelease: false
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
