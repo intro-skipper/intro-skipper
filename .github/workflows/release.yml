@@ -57,7 +57,17 @@ jobs:
         timestamp="$(date +%FT%TZ)"
         echo "TIMESTAMP=$timestamp" >> $GITHUB_ENV
 
-    - name: Publish Release
+    - name: Publish release
+      uses: 8bitDream/action-github-releases@v1.0.0
+      with:
+        repo_token: "${{ secrets.GITHUB_TOKEN }}"
+        automatic_release_tag: 10.9/v${{ github.event.inputs.version }}
+        prerelease: false
+        title: v${{ github.event.inputs.version }}
+        files: |
+          intro-skipper-v${{ github.event.inputs.version }}.zip
+
+    - name: Publish release notes
       uses: softprops/action-gh-release@v2.0.4
       with:
         tag_name: 10.9/v${{ github.event.inputs.version }}
@@ -66,8 +76,6 @@ jobs:
           sourceUrl:  ${{ env.SOURCE_URL }}
           checksum:  ${{ env.CHECKSUM }}
           timestamp: ${{ env.TIMESTAMP }}
-        files: |
-          intro-skipper-v${{ github.event.inputs.version }}.zip
         draft: false
         prerelease: false
       env:
