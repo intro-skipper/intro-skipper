@@ -1,7 +1,12 @@
 using System;
+using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
+using MediaBrowser.Controller.Entities.TV;
 using MediaBrowser.Controller.Library;
+using MediaBrowser.Controller.Plugins;
+using MediaBrowser.Model.Entities;
+using MediaBrowser.Model.Tasks;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 
@@ -14,9 +19,11 @@ public class Entrypoint : IHostedService
 {
     private readonly IUserManager _userManager;
     private readonly IUserViewManager _userViewManager;
+    private readonly ITaskManager _taskManager;
     private readonly ILibraryManager _libraryManager;
     private readonly ILogger<Entrypoint> _logger;
     private readonly ILoggerFactory _loggerFactory;
+    private Timer _queueTimer;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="Entrypoint"/> class.
@@ -24,20 +31,160 @@ public class Entrypoint : IHostedService
     /// <param name="userManager">User manager.</param>
     /// <param name="userViewManager">User view manager.</param>
     /// <param name="libraryManager">Library manager.</param>
+    /// <param name="taskManager">Task manager.</param>
     /// <param name="logger">Logger.</param>
     /// <param name="loggerFactory">Logger factory.</param>
     public Entrypoint(
         IUserManager userManager,
         IUserViewManager userViewManager,
         ILibraryManager libraryManager,
+        ITaskManager taskManager,
         ILogger<Entrypoint> logger,
         ILoggerFactory loggerFactory)
     {
         _userManager = userManager;
         _userViewManager = userViewManager;
         _libraryManager = libraryManager;
+        _taskManager = taskManager;
         _logger = logger;
         _loggerFactory = loggerFactory;
+
+        _queueTimer = new Timer(
+                OnTimerCallback,
+                null,
+                Timeout.InfiniteTimeSpan,
+                Timeout.InfiniteTimeSpan);
+    }
+
+    // Disclose source for inspiration
+    // Implementation based on the principles of jellyfin-plugin-media-analyzer:
+    // https://github.com/endrl/jellyfin-plugin-media-analyzer
+
+    /// <summary>
+    /// Library item was added.
+    /// </summary>
+    /// <param name="sender">The sending entity.</param>
+    /// <param name="itemChangeEventArgs">The <see cref="ItemChangeEventArgs"/>.</param>
+    private void OnItemAdded(object? sender, ItemChangeEventArgs itemChangeEventArgs)
+    {
+        // Don't do anything if it's not a supported media type
+        if (itemChangeEventArgs.Item is not Episode)
+        {
+            return;
+        }
+
+        if (itemChangeEventArgs.Item.LocationType == LocationType.Virtual)
+        {
+            return;
+        }
+
+        StartTimer();
+    }
+
+    /// <summary>
+    /// Library item was modified.
+    /// </summary>
+    /// <param name="sender">The sending entity.</param>
+    /// <param name="itemChangeEventArgs">The <see cref="ItemChangeEventArgs"/>.</param>
+    private void OnItemModified(object? sender, ItemChangeEventArgs itemChangeEventArgs)
+    {
+        // Don't do anything if it's not a supported media type
+        if (itemChangeEventArgs.Item is not Episode)
+        {
+            return;
+        }
+
+        if (itemChangeEventArgs.Item.LocationType == LocationType.Virtual)
+        {
+            return;
+        }
+
+        StartTimer();
+    }
+
+    /// <summary>
+    /// TaskManager task ended.
+    /// </summary>
+    /// <param name="sender">The sending entity.</param>
+    /// <param name="eventArgs">The <see cref="TaskCompletionEventArgs"/>.</param>
+    private void OnLibraryRefresh(object? sender, TaskCompletionEventArgs eventArgs)
+    {
+        var result = eventArgs.Result;
+
+        if (result.Key != "RefreshLibrary")
+        {
+            return;
+        }
+
+        if (result.Status != TaskCompletionStatus.Completed)
+        {
+            return;
+        }
+
+        StartTimer();
+    }
+
+    /// <summary>
+    /// Start timer to debounce analyzing.
+    /// </summary>
+    private void StartTimer()
+    {
+        if (Plugin.Instance!.AnalyzerTaskIsRunning)
+        {
+           return; // Don't do anything if a Analyzer is running
+        }
+        else
+        {
+            _logger.LogInformation("Media Library changed, analyzis will start soon!");
+            _queueTimer.Change(TimeSpan.FromMilliseconds(20000), Timeout.InfiniteTimeSpan);
+        }
+    }
+
+    /// <summary>
+    /// Wait for timer callback to be completed.
+    /// </summary>
+    private void OnTimerCallback(object? state)
+    {
+        try
+        {
+            PerformAnalysis();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error in PerformAnalysis");
+        }
+    }
+
+    /// <summary>
+    /// Wait for timer to be completed.
+    /// </summary>
+    private void PerformAnalysis()
+    {
+        _logger.LogInformation("Timer elapsed - start analyzing");
+        Plugin.Instance!.AnalyzerTaskIsRunning = true;
+
+        var progress = new Progress<double>();
+        var cancellationToken = new CancellationToken(false);
+
+        // intro
+        var introductionAnalyzer = new BaseItemAnalyzerTask(
+            AnalysisMode.Introduction,
+            _loggerFactory.CreateLogger<Entrypoint>(),
+            _loggerFactory,
+            _libraryManager);
+
+        introductionAnalyzer.AnalyzeItems(progress, cancellationToken);
+
+        // outro
+        var creditsAnalyzer = new BaseItemAnalyzerTask(
+            AnalysisMode.Credits,
+            _loggerFactory.CreateLogger<Entrypoint>(),
+            _loggerFactory,
+            _libraryManager);
+
+        creditsAnalyzer.AnalyzeItems(progress, cancellationToken);
+
+        Plugin.Instance!.AnalyzerTaskIsRunning = false;
     }
 
     /// <summary>
@@ -56,6 +203,12 @@ public class Entrypoint : IHostedService
     {
         if (!dispose)
         {
+            _libraryManager.ItemAdded -= OnItemAdded;
+            _libraryManager.ItemUpdated -= OnItemModified;
+            _taskManager.TaskCompleted -= OnLibraryRefresh;
+
+            _queueTimer.Dispose();
+
             return;
         }
     }
@@ -63,10 +216,14 @@ public class Entrypoint : IHostedService
     /// <inheritdoc />
     public Task StartAsync(CancellationToken cancellationToken)
     {
-        FFmpegWrapper.Logger = _logger;
+        if (Plugin.Instance!.Configuration.AutomaticAnalysis)
+        {
+            _libraryManager.ItemAdded += OnItemAdded;
+            _libraryManager.ItemUpdated += OnItemModified;
+            _taskManager.TaskCompleted += OnLibraryRefresh;
+        }
 
-        // TODO: when a new item is added to the server, immediately analyze the season it belongs to
-        // instead of waiting for the next task interval. The task start should be debounced by a few seconds.
+        FFmpegWrapper.Logger = _logger;
 
         try
         {
