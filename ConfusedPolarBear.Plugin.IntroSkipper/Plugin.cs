@@ -140,14 +140,14 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
     }
 
     /// <summary>
-    /// Gets or sets a value indicating whether analysis is running.
-    /// </summary>
-    public bool AnalyzerTaskIsRunning { get; set; } = false;
-
-    /// <summary>
     /// Fired after configuration has been saved so the auto skip timer can be stopped or started.
     /// </summary>
     public event EventHandler? AutoSkipChanged;
+
+    /// <summary>
+    /// Gets or sets a value indicating whether analysis is running.
+    /// </summary>
+    public bool AnalyzerTaskIsRunning { get; set; } = false;
 
     /// <summary>
     /// Gets the results of fingerprinting all episodes.

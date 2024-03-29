@@ -72,7 +72,7 @@ public class DetectCreditsTask : IScheduledTask
                 while (Plugin.Instance!.AnalyzerTaskIsRunning)
                 {
                     cancellationToken.ThrowIfCancellationRequested();
-                    Task.Delay(10000).Wait(cancellationToken); // Adjust delay as needed
+                    Task.Delay(10000, cancellationToken); // Adjust delay as needed
                 }
             }
             catch (OperationCanceledException)
