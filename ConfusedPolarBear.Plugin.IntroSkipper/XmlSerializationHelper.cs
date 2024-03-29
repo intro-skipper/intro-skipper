@@ -51,20 +51,23 @@ namespace ConfusedPolarBear.Plugin.IntroSkipper
 
         public static void MigrateXML(string filePath)
         {
-            string searchString = "<ArrayOfIntro xmlns:xsi=\"http://www.w3.org/2001/XMLSchema-instance\" xmlns:xsd=\"http://www.w3.org/2001/XMLSchema\">";
-            string replacementString = "<ArrayOfIntro xmlns=\"http://schemas.datacontract.org/2004/07/ConfusedPolarBear.Plugin.IntroSkipper\" xmlns:i=\"http://www.w3.org/2001/XMLSchema-instance\">";
-
-            // Read the content of the file
-            string fileContent = File.ReadAllText(filePath, Encoding.UTF8);
-
-            // Check if the target string exists at the beginning
-            if (fileContent.Contains(searchString, StringComparison.OrdinalIgnoreCase))
+            if (File.Exists(filePath))
             {
-                // Replace the target string
-                fileContent = fileContent.Replace(searchString, replacementString, StringComparison.OrdinalIgnoreCase);
+                string searchString = "<ArrayOfIntro xmlns:xsi=\"http://www.w3.org/2001/XMLSchema-instance\" xmlns:xsd=\"http://www.w3.org/2001/XMLSchema\">";
+                string replacementString = "<ArrayOfIntro xmlns=\"http://schemas.datacontract.org/2004/07/ConfusedPolarBear.Plugin.IntroSkipper\" xmlns:i=\"http://www.w3.org/2001/XMLSchema-instance\">";
 
-                // Write the modified content back to the file
-                File.WriteAllText(filePath, fileContent, Encoding.UTF8);
+                // Read the content of the file
+                string fileContent = File.ReadAllText(filePath, Encoding.UTF8);
+
+                // Check if the target string exists at the beginning
+                if (fileContent.Contains(searchString, StringComparison.OrdinalIgnoreCase))
+                {
+                    // Replace the target string
+                    fileContent = fileContent.Replace(searchString, replacementString, StringComparison.OrdinalIgnoreCase);
+
+                    // Write the modified content back to the file
+                    File.WriteAllText(filePath, fileContent, Encoding.UTF8);
+                }
             }
         }
     }
