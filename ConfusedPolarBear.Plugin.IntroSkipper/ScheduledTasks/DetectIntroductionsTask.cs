@@ -13,6 +13,8 @@ namespace ConfusedPolarBear.Plugin.IntroSkipper;
 /// </summary>
 public class DetectIntroductionsTask : IScheduledTask
 {
+    private readonly ILogger<DetectIntroductionsTask> _logger;
+
     private readonly ILoggerFactory _loggerFactory;
 
     private readonly ILibraryManager _libraryManager;
@@ -22,10 +24,13 @@ public class DetectIntroductionsTask : IScheduledTask
     /// </summary>
     /// <param name="loggerFactory">Logger factory.</param>
     /// <param name="libraryManager">Library manager.</param>
+    /// <param name="logger">Logger.</param>
     public DetectIntroductionsTask(
+        ILogger<DetectIntroductionsTask> logger,
         ILoggerFactory loggerFactory,
         ILibraryManager libraryManager)
     {
+        _logger = logger;
         _loggerFactory = loggerFactory;
         _libraryManager = libraryManager;
     }
@@ -66,19 +71,36 @@ public class DetectIntroductionsTask : IScheduledTask
         // Wait for running analyzer
         if (Plugin.Instance!.AnalyzerTaskIsRunning)
         {
-            try
+            _logger.LogInformation("Other running Analyzer Task detected. Wait...");
+            using (var timer = new Timer(_ => { }, null, Timeout.InfiniteTimeSpan, Timeout.InfiniteTimeSpan))
             {
-                while (Plugin.Instance!.AnalyzerTaskIsRunning)
+                try
                 {
-                    cancellationToken.ThrowIfCancellationRequested();
-                    Task.Delay(10000, cancellationToken); // Adjust delay as needed
+                    void DisposeTimerOnCancellation() => timer.Dispose();
+                    cancellationToken.Register(DisposeTimerOnCancellation);
+                    while (Plugin.Instance!.AnalyzerTaskIsRunning && !cancellationToken.IsCancellationRequested)
+                    {
+                        timer.Change(TimeSpan.FromMilliseconds(20000), Timeout.InfiniteTimeSpan); // Adjust delay
+                    }
+                }
+                catch (OperationCanceledException)
+                {
+                    return Task.CompletedTask;
                 }
             }
-            catch (OperationCanceledException)
+
+            if (!cancellationToken.IsCancellationRequested) // Check cancellation again before logging
             {
-                 return Task.CompletedTask;
+                _logger.LogInformation("No other Task active. Run Analyzer Task");
+            }
+            else
+            {
+                _logger.LogInformation("Task was canceled");
+                return Task.CompletedTask;
             }
         }
+
+        _logger.LogInformation("No other Task active. Run Analyzer Task");
 
         Plugin.Instance!.AnalyzerTaskIsRunning = true;
 
