@@ -54,9 +54,13 @@ public class Entrypoint : IServerEntryPoint
     /// <returns>Task.</returns>
     public Task RunAsync()
     {
-        _libraryManager.ItemAdded += OnItemAdded;
-        _libraryManager.ItemUpdated += OnItemModified;
-        _taskManager.TaskCompleted += OnLibraryRefresh;
+        if (Plugin.Instance!.Configuration.AutomaticAnalysis)
+        {
+            _libraryManager.ItemAdded += OnItemAdded;
+            _libraryManager.ItemUpdated += OnItemModified;
+            _taskManager.TaskCompleted += OnLibraryRefresh;
+        }
+
         FFmpegWrapper.Logger = _logger;
 
         try

@@ -30,6 +30,11 @@ public class PluginConfiguration : BasePluginConfiguration
     /// <summary>
     /// Gets or sets a value indicating whether to analyze season 0.
     /// </summary>
+    public bool AutomaticAnalysis { get; set; } = true;
+
+    /// <summary>
+    /// Gets or sets a value indicating whether to analyze season 0.
+    /// </summary>
     public bool AnalyzeSeasonZero { get; set; } = false;
 
     /// <summary>
