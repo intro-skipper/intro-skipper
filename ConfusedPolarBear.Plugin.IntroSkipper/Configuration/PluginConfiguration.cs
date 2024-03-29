@@ -28,6 +28,11 @@ public class PluginConfiguration : BasePluginConfiguration
     public string SelectedLibraries { get; set; } = string.Empty;
 
     /// <summary>
+    /// Gets or sets a value indicating whether to analyze automatically, when new Items are added.
+    /// </summary>
+    public bool AutomaticAnalysis { get; set; } = false;
+
+    /// <summary>
     /// Gets or sets a value indicating whether to analyze season 0.
     /// </summary>
     public bool AnalyzeSeasonZero { get; set; } = false;

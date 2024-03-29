@@ -14,6 +14,8 @@ namespace ConfusedPolarBear.Plugin.IntroSkipper;
 /// </summary>
 public class DetectCreditsTask : IScheduledTask
 {
+    private readonly ILogger<DetectCreditsTask> _logger;
+
     private readonly ILoggerFactory _loggerFactory;
 
     private readonly ILibraryManager _libraryManager;
@@ -23,10 +25,13 @@ public class DetectCreditsTask : IScheduledTask
     /// </summary>
     /// <param name="loggerFactory">Logger factory.</param>
     /// <param name="libraryManager">Library manager.</param>
+    /// <param name="logger">Logger.</param>
     public DetectCreditsTask(
+        ILogger<DetectCreditsTask> logger,
         ILoggerFactory loggerFactory,
         ILibraryManager libraryManager)
     {
+        _logger = logger;
         _loggerFactory = loggerFactory;
         _libraryManager = libraryManager;
     }
@@ -64,6 +69,40 @@ public class DetectCreditsTask : IScheduledTask
             throw new InvalidOperationException("Library manager was null");
         }
 
+        // Wait for running analyzer
+        if (Plugin.Instance!.AnalyzerTaskIsRunning)
+        {
+            _logger.LogInformation("Other running Analyzer Task detected. Wait...");
+            using (var timer = new Timer(_ => { }, null, Timeout.InfiniteTimeSpan, Timeout.InfiniteTimeSpan))
+            {
+                try
+                {
+                    void DisposeTimerOnCancellation() => timer.Dispose();
+                    cancellationToken.Register(DisposeTimerOnCancellation);
+                    while (Plugin.Instance!.AnalyzerTaskIsRunning && !cancellationToken.IsCancellationRequested)
+                    {
+                        timer.Change(TimeSpan.FromMilliseconds(20000), Timeout.InfiniteTimeSpan); // Adjust delay
+                    }
+                }
+                catch (OperationCanceledException)
+                {
+                    return Task.CompletedTask;
+                }
+            }
+
+            if (!cancellationToken.IsCancellationRequested) // Check cancellation again before logging
+            {
+                _logger.LogInformation("No other Task active. Run Analyzer Task");
+            }
+            else
+            {
+                _logger.LogInformation("Task was canceled");
+                return Task.CompletedTask;
+            }
+        }
+
+        Plugin.Instance!.AnalyzerTaskIsRunning = true;
+
         var baseAnalyzer = new BaseItemAnalyzerTask(
             AnalysisMode.Credits,
             _loggerFactory.CreateLogger<DetectCreditsTask>(),
@@ -71,6 +110,8 @@ public class DetectCreditsTask : IScheduledTask
             _libraryManager);
 
         baseAnalyzer.AnalyzeItems(progress, cancellationToken);
+
+        Plugin.Instance!.AnalyzerTaskIsRunning = false;
 
         return Task.CompletedTask;
     }
