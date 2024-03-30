@@ -100,8 +100,6 @@ public class DetectIntroductionsTask : IScheduledTask
             }
         }
 
-        _logger.LogInformation("No other Task active. Run Analyzer Task");
-
         Plugin.Instance!.AnalyzerTaskIsRunning = true;
 
         var baseAnalyzer = new BaseItemAnalyzerTask(
