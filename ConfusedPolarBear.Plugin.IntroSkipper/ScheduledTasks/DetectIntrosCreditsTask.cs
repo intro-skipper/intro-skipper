@@ -11,18 +11,18 @@ namespace ConfusedPolarBear.Plugin.IntroSkipper;
 /// <summary>
 /// Analyze all television episodes for introduction sequences.
 /// </summary>
-public class DetectIntrosAndCreditsTask : IScheduledTask
+public class DetectIntrosCreditsTask : IScheduledTask
 {
     private readonly ILoggerFactory _loggerFactory;
 
     private readonly ILibraryManager _libraryManager;
 
     /// <summary>
-    /// Initializes a new instance of the <see cref="DetectIntrosAndCreditsTask"/> class.
+    /// Initializes a new instance of the <see cref="DetectIntrosCreditsTask"/> class.
     /// </summary>
     /// <param name="loggerFactory">Logger factory.</param>
     /// <param name="libraryManager">Library manager.</param>
-    public DetectIntrosAndCreditsTask(
+    public DetectIntrosCreditsTask(
         ILoggerFactory loggerFactory,
         ILibraryManager libraryManager)
     {
@@ -73,27 +73,21 @@ public class DetectIntrosAndCreditsTask : IScheduledTask
             Plugin.Instance!.AnalyzerTaskIsRunning = true;
         }
 
-        if (Plugin.Instance!.Configuration.DetectIntros)
-        {
-            var baseIntroAnalyzer = new BaseItemAnalyzerTask(
-                AnalysisMode.Introduction,
-                _loggerFactory.CreateLogger<DetectIntrosAndCreditsTask>(),
-                _loggerFactory,
-                _libraryManager);
+        var baseIntroAnalyzer = new BaseItemAnalyzerTask(
+            AnalysisMode.Introduction,
+            _loggerFactory.CreateLogger<DetectIntrosCreditsTask>(),
+            _loggerFactory,
+            _libraryManager);
 
-            baseIntroAnalyzer.AnalyzeItems(progress, cancellationToken);
-        }
+        baseIntroAnalyzer.AnalyzeItems(progress, cancellationToken);
 
-        if (Plugin.Instance!.Configuration.DetectCredits)
-        {
-            var baseCreditAnalyzer = new BaseItemAnalyzerTask(
-                AnalysisMode.Credits,
-                _loggerFactory.CreateLogger<DetectIntrosAndCreditsTask>(),
-                _loggerFactory,
-                _libraryManager);
+        var baseCreditAnalyzer = new BaseItemAnalyzerTask(
+            AnalysisMode.Credits,
+            _loggerFactory.CreateLogger<DetectIntrosCreditsTask>(),
+            _loggerFactory,
+            _libraryManager);
 
-            baseCreditAnalyzer.AnalyzeItems(progress, cancellationToken);
-        }
+        baseCreditAnalyzer.AnalyzeItems(progress, cancellationToken);
 
         Plugin.Instance!.AnalyzerTaskIsRunning = false;
 

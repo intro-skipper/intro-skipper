@@ -29,37 +29,26 @@
 
                         <div class="checkboxContainer checkboxContainer-withDescription">
                             <label class="emby-checkbox-label">
-                                <input id="DetectIntros" type="checkbox" is="emby-checkbox" />
-                                <span>Detect Introductions</span>
+                                <input id="AutoDetectIntros" type="checkbox" is="emby-checkbox" />
+                                <span>Automatically Scan Intros</span>
                             </label>
 
                             <div class="fieldDescription">
-                                This option enables scheduled introduction detection. Your videos will be scanned for introductions during a scheduled task.
+                                If enabled, introductions will be automatically analyzed for new media
                             </div>
                         </div>
 
                         <div class="checkboxContainer checkboxContainer-withDescription">
                             <label class="emby-checkbox-label">
-                                <input id="DetectCredits" type="checkbox" is="emby-checkbox" />
-                                <span>Detect Credits</span>
+                                <input id="AutoDetectCredits" type="checkbox" is="emby-checkbox" />
+                                <span>Automatically Scan Credits</span>
                             </label>
 
                             <div class="fieldDescription">
-                                This option enables scheduled credit detection. Your videos will be scanned for credits during a scheduled task. 
+                                If enabled, credits will be automatically analyzed for new media
                             </div>
                             <div class="fieldDescription">
                                 Note: Selecting neither Intro nor Credit Detection will disable automatic scans. To configure the scheduled task, see <a is="emby-linkbutton" class="button-link" href="scheduledtasks.html">scheduled tasks</a>.
-                            </div>
-                        </div>
-
-                        <div class="checkboxContainer checkboxContainer-withDescription">
-                            <label class="emby-checkbox-label">
-                                <input id="AutomaticAnalysis" type="checkbox" is="emby-checkbox" />
-                                <span>Automatic analysis</span>
-                            </label>
-
-                            <div class="fieldDescription">
-                                If checked, newly added items will be automatically analyzed.
                             </div>
                         </div>
 
@@ -227,7 +216,7 @@
                                     Noise tolerance
                                 </label>
                                 <input id="SilenceDetectionMaximumNoise" type="number" is="emby-input" min="-90"
-                                    max="0" />
+                                       max="0" />
                                 <div class="fieldDescription">
                                     Noise tolerance in negative decibels.
                                 </div>
@@ -238,7 +227,7 @@
                                     Minimum silence duration
                                 </label>
                                 <input id="SilenceDetectionMinimumDuration" type="number" is="emby-input" min="0"
-                                    step="0.01" />
+                                       step="0.01" />
                                 <div class="fieldDescription">
                                     Minimum silence duration in seconds before adjusting introduction end time.
                                 </div>
@@ -248,7 +237,7 @@
                         <details id="detection">
                             <summary>Process Configuration</summary>
 
-                            <br/>
+                            <br />
                             <div class="checkboxContainer checkboxContainer-withDescription">
                                 <label class="emby-checkbox-label">
                                     <input id="UseChromaprint" type="checkbox" is="emby-checkbox" />
@@ -316,7 +305,7 @@
                                     ffmpeg Threads
                                 </label>
                                 <input id="ProcessThreads" type="number" is="emby-input" min="0"
-                                    max="16" />
+                                       max="16" />
                                 <div class="fieldDescription">
                                     Number of simultaneous processes to use for ffmpeg operations.
                                     <br />
@@ -623,9 +612,8 @@
             ]
 
             var booleanConfigurationFields = [
-                "DetectIntros",
-                "DetectCredits",
-                "AutomaticAnalysis",
+                "AutoDetectIntros",
+                "AutoDetectCredits",
                 "AnalyzeSeasonZero",
                 "RegenerateEdlFiles",
                 "UseChromaprint",
