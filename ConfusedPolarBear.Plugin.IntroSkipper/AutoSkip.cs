@@ -129,8 +129,8 @@ public class AutoSkip : IServerEntryPoint
     {
         foreach (var session in _sessionManager.Sessions)
         {
-            Skip(sender, e, "intro", session, _sentIntroSeekCommandLock, !Plugin.Instance!.Intros, Plugin.Instance!.Configuration.AutoSkipIntroNotificationText);
-            Skip(sender, e, "credit", session, _sentCreditsSeekCommandLock, !Plugin.Instance!.Credits, Plugin.Instance!.Configuration.AutoSkipCreditsNotificationText);
+            Skip(sender, e, "intro", session, _sentIntroSeekCommandLock, Plugin.Instance!.Intros, Plugin.Instance!.Configuration.AutoSkipIntroNotificationText);
+            Skip(sender, e, "credit", session, _sentCreditsSeekCommandLock, Plugin.Instance!.Credits, Plugin.Instance!.Configuration.AutoSkipCreditsNotificationText);
         }
     }
 
@@ -151,7 +151,7 @@ public class AutoSkip : IServerEntryPoint
         }
 
         // Assert that an intro was detected for this item.
-        if (items.TryGetValue(itemId, out var item) || !item.Valid)
+        if (!items.TryGetValue(itemId, out var item) || !item.Valid)
         {
             return;
         }
