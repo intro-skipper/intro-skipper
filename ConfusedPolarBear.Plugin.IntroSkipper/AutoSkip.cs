@@ -129,21 +129,21 @@ public class AutoSkip : IServerEntryPoint
     {
         foreach (var session in _sessionManager.Sessions)
         {
-            Skip(sender, e,"intro", session, _sentIntroSeekCommandLock, !Plugin.Instance!.Intros, Plugin.Instance!.Configuration.AutoSkipIntroNotificationText);
-            Skip(sender, e,"credit", session, _sentCreditsSeekCommandLock, !Plugin.Instance!.Credits, Plugin.Instance!.Configuration.AutoSkipCreditsNotificationText);
+            Skip(sender, e, "intro", session, _sentIntroSeekCommandLock, !Plugin.Instance!.Intros, Plugin.Instance!.Configuration.AutoSkipIntroNotificationText);
+            Skip(sender, e, "credit", session, _sentCreditsSeekCommandLock, !Plugin.Instance!.Credits, Plugin.Instance!.Configuration.AutoSkipCreditsNotificationText);
         }
     }
 
-    private void Skip(object? sender, ElapsedEventArgs e, string type, SessionInfo session, object _lock, Dictionary<Guid, Intro> items, string notificationText )
+    private void Skip(object? sender, ElapsedEventArgs e, string type, SessionInfo session, object lock, Dictionary<Guid, Intro> items, string notificationText )
     {
         var deviceId = session.DeviceId;
         var itemId = session.NowPlayingItem.Id;
         var position = session.PlayState.PositionTicks / TimeSpan.TicksPerSecond;
 
          // Don't send the seek command more than once in the same session.
-        lock (_lock)
+        lock (lock)
         {
-            if ( _sentSeekCommand.TryGetValue(deviceId, out var types) && types.TryGetValue(type, out var sent) && sent)
+            if (_sentSeekCommand.TryGetValue(deviceId, out var types) && types.TryGetValue(type, out var sent) && sent)
             {
                 _logger.LogTrace("Already sent intro seek command for session {Session}", deviceId);
                 return;
@@ -201,7 +201,7 @@ public class AutoSkip : IServerEntryPoint
             CancellationToken.None);
 
         // Flag that we've sent the seek command so that it's not sent repeatedly
-        lock (_lock)
+        lock (lock)
         {
             _logger.LogTrace("Setting seek command state for session {Session}", deviceId);
             _sentSeekCommand[deviceId][type] = true;
