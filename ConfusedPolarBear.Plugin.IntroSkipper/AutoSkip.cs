@@ -129,8 +129,8 @@ public class AutoSkip : IServerEntryPoint
     {
         foreach (var session in _sessionManager.Sessions)
         {
-            Skip(sender, e,"intro", _sentIntroSeekCommandLock, !Plugin.Instance!.Intros, Plugin.Instance!.Configuration.AutoSkipIntroNotificationText)
-            Skip(sender, e,"credit", _sentCreditsSeekCommandLock, !Plugin.Instance!.Credits, Plugin.Instance!.Configuration.AutoSkipCreditsNotificationText)
+            Skip(sender, e,"intro", _sentIntroSeekCommandLock, !Plugin.Instance!.Intros, Plugin.Instance!.Configuration.AutoSkipIntroNotificationText);
+            Skip(sender, e,"credit", _sentCreditsSeekCommandLock, !Plugin.Instance!.Credits, Plugin.Instance!.Configuration.AutoSkipCreditsNotificationText);
         }
     }
 
