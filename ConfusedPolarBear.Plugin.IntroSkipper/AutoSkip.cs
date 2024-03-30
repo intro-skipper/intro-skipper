@@ -129,12 +129,12 @@ public class AutoSkip : IServerEntryPoint
     {
         foreach (var session in _sessionManager.Sessions)
         {
-            Skip(sender, e,"intro", _sentIntroSeekCommandLock, !Plugin.Instance!.Intros, Plugin.Instance!.Configuration.AutoSkipIntroNotificationText)
-            Skip(sender, e,"credit", _sentCreditsSeekCommandLock, !Plugin.Instance!.Credits, Plugin.Instance!.Configuration.AutoSkipCreditsNotificationText)
+            Skip(sender, e,"intro", session, _sentIntroSeekCommandLock, !Plugin.Instance!.Intros, Plugin.Instance!.Configuration.AutoSkipIntroNotificationText)
+            Skip(sender, e,"credit", session, _sentCreditsSeekCommandLock, !Plugin.Instance!.Credits, Plugin.Instance!.Configuration.AutoSkipCreditsNotificationText)
         }
     }
 
-    private void Skip(object? sender, ElapsedEventArgs e, string type, object _lock, Dictionary<Guid, Intro> items, string notificationText )
+    private void Skip(object? sender, ElapsedEventArgs e, string type, SessionInfo session, object _lock, Dictionary<Guid, Intro> items, string notificationText )
     {
         var deviceId = session.DeviceId;
         var itemId = session.NowPlayingItem.Id;
@@ -146,14 +146,14 @@ public class AutoSkip : IServerEntryPoint
             if ( _sentSeekCommand.TryGetValue(deviceId, out var types) && types.TryGetValue(type, out var sent) && sent)
             {
                 _logger.LogTrace("Already sent intro seek command for session {Session}", deviceId);
-                continue;
+                return;
             }
         }
 
         // Assert that an intro was detected for this item.
         if (items.TryGetValue(itemId, out var item) || !item.Valid)
         {
-            continue;
+            return;
         }
 
         // Seek is unreliable if called at the very start of an episode.
@@ -167,7 +167,7 @@ public class AutoSkip : IServerEntryPoint
 
         if (position < adjustedStart || position > item.IntroEnd)
         {
-            continue;
+            return;
         }
 
         // Notify the user that an introduction is being skipped for them.
