@@ -62,7 +62,7 @@ public class Entrypoint : IServerEntryPoint
     /// <returns>Task.</returns>
     public Task RunAsync()
     {
-        if (Plugin.Instance!.Configuration.AutomaticAnalysis)
+        if (Plugin.Instance!.Configuration.AutoDetectIntros || Plugin.Instance!.Configuration.AutoDetectCredits)
         {
             _libraryManager.ItemAdded += OnItemAdded;
             _libraryManager.ItemUpdated += OnItemModified;
@@ -196,22 +196,40 @@ public class Entrypoint : IServerEntryPoint
         var progress = new Progress<double>();
         var cancellationToken = new CancellationToken(false);
 
-        if (Plugin.Instance!.Configuration.DetectIntros)
+        if (Plugin.Instance!.Configuration.AutoDetectIntros && Plugin.Instance!.Configuration.AutoDetectCredits)
+        {
+            // This is where we can optimize a single scan
+            var baseIntroAnalyzer = new BaseItemAnalyzerTask(
+                AnalysisMode.Introduction,
+                _loggerFactory.CreateLogger<DetectIntrosCreditsTask>(),
+                _loggerFactory,
+                _libraryManager);
+
+            baseIntroAnalyzer.AnalyzeItems(progress, cancellationToken);
+
+            var baseCreditAnalyzer = new BaseItemAnalyzerTask(
+                AnalysisMode.Credits,
+                _loggerFactory.CreateLogger<DetectIntrosCreditsTask>(),
+                _loggerFactory,
+                _libraryManager);
+
+            baseCreditAnalyzer.AnalyzeItems(progress, cancellationToken);
+        }
+        else if (Plugin.Instance!.Configuration.AutoDetectIntros)
         {
             var baseIntroAnalyzer = new BaseItemAnalyzerTask(
                 AnalysisMode.Introduction,
-                _loggerFactory.CreateLogger<DetectIntrosAndCreditsTask>(),
+                _loggerFactory.CreateLogger<DetectIntrosTask>(),
                 _loggerFactory,
                 _libraryManager);
 
             baseIntroAnalyzer.AnalyzeItems(progress, cancellationToken);
         }
-
-        if (Plugin.Instance!.Configuration.DetectCredits)
+        else if (Plugin.Instance!.Configuration.AutoDetectCredits)
         {
             var baseCreditAnalyzer = new BaseItemAnalyzerTask(
                 AnalysisMode.Credits,
-                _loggerFactory.CreateLogger<DetectIntrosAndCreditsTask>(),
+                _loggerFactory.CreateLogger<DetectCreditsTask>(),
                 _loggerFactory,
                 _libraryManager);
 
