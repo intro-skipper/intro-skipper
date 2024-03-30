@@ -22,6 +22,7 @@ public class Entrypoint : IServerEntryPoint
     private readonly ILibraryManager _libraryManager;
     private readonly ILogger<Entrypoint> _logger;
     private readonly ILoggerFactory _loggerFactory;
+    private Timer _queueTimer;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="Entrypoint"/> class.
@@ -46,6 +47,12 @@ public class Entrypoint : IServerEntryPoint
         _taskManager = taskManager;
         _logger = logger;
         _loggerFactory = loggerFactory;
+
+        _queueTimer = new Timer(
+                OnTimerCallback,
+                null,
+                Timeout.InfiniteTimeSpan,
+                Timeout.InfiniteTimeSpan);
     }
 
     /// <summary>
@@ -87,7 +94,7 @@ public class Entrypoint : IServerEntryPoint
     /// </summary>
     /// <param name="sender">The sending entity.</param>
     /// <param name="itemChangeEventArgs">The <see cref="ItemChangeEventArgs"/>.</param>
-    private async void OnItemAdded(object? sender, ItemChangeEventArgs itemChangeEventArgs)
+    private void OnItemAdded(object? sender, ItemChangeEventArgs itemChangeEventArgs)
     {
         // Don't do anything if it's not a supported media type
         if (itemChangeEventArgs.Item is not Episode)
@@ -100,17 +107,7 @@ public class Entrypoint : IServerEntryPoint
             return;
         }
 
-        // Debouncing logic (adjust delay as needed)
-        await Task.Delay(20000).ConfigureAwait(false); // Delay analysis for 20 seconds
-
-        try
-        {
-            OnDemandAnalyze();
-        }
-        catch (Exception ex)
-        {
-          _logger.LogError("Error analyzing: {Exception}", ex);
-        }
+        StartTimer();
     }
 
     /// <summary>
@@ -118,7 +115,7 @@ public class Entrypoint : IServerEntryPoint
     /// </summary>
     /// <param name="sender">The sending entity.</param>
     /// <param name="itemChangeEventArgs">The <see cref="ItemChangeEventArgs"/>.</param>
-    private async void OnItemModified(object? sender, ItemChangeEventArgs itemChangeEventArgs)
+    private void OnItemModified(object? sender, ItemChangeEventArgs itemChangeEventArgs)
     {
         // Don't do anything if it's not a supported media type
         if (itemChangeEventArgs.Item is not Episode)
@@ -131,17 +128,7 @@ public class Entrypoint : IServerEntryPoint
             return;
         }
 
-        // Debouncing logic (adjust delay as needed)
-        await Task.Delay(20000).ConfigureAwait(false); // Delay analysis for 20 seconds
-
-        try
-        {
-            OnDemandAnalyze();
-        }
-        catch (Exception ex)
-        {
-          _logger.LogError("Error analyzing: {Exception}", ex);
-        }
+        StartTimer();
     }
 
     /// <summary>
@@ -149,7 +136,7 @@ public class Entrypoint : IServerEntryPoint
     /// </summary>
     /// <param name="sender">The sending entity.</param>
     /// <param name="eventArgs">The <see cref="TaskCompletionEventArgs"/>.</param>
-    private async void OnLibraryRefresh(object? sender, TaskCompletionEventArgs eventArgs)
+    private void OnLibraryRefresh(object? sender, TaskCompletionEventArgs eventArgs)
     {
         var result = eventArgs.Result;
 
@@ -163,25 +150,47 @@ public class Entrypoint : IServerEntryPoint
             return;
         }
 
-        // Debouncing logic (adjust delay as needed)
-        await Task.Delay(20000).ConfigureAwait(false); // Delay analysis for 20 seconds
+        StartTimer();
+    }
 
-        try
+    /// <summary>
+    /// Start timer to debounce analyzing.
+    /// </summary>
+    private void StartTimer()
+    {
+        if (Plugin.Instance!.AnalyzerTaskIsRunning)
         {
-            OnDemandAnalyze();
+           return; // Don't do anything if a Analyzer is running
         }
-        catch (Exception ex)
+        else
         {
-          _logger.LogError("Error analyzing: {Exception}", ex);
+            _logger.LogInformation("Media Library changed, analyzis will start soon!");
+            _queueTimer.Change(TimeSpan.FromMilliseconds(20000), Timeout.InfiniteTimeSpan);
         }
     }
 
-    private void OnDemandAnalyze()
+    /// <summary>
+    /// Wait for timer callback to be completed.
+    /// </summary>
+    private void OnTimerCallback(object? state)
     {
-        if (_libraryManager is null)
+        try
         {
-            throw new InvalidOperationException("Library manager was null");
+            PerformAnalysis();
         }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error in PerformAnalysis");
+        }
+    }
+
+    /// <summary>
+    /// Wait for timer to be completed.
+    /// </summary>
+    private void PerformAnalysis()
+    {
+        _logger.LogInformation("Timer elapsed - start analyzing");
+        Plugin.Instance!.AnalyzerTaskIsRunning = true;
 
         var progress = new Progress<double>();
         var cancellationToken = new CancellationToken(false);
@@ -203,6 +212,8 @@ public class Entrypoint : IServerEntryPoint
             _libraryManager);
 
         creditsAnalyzer.AnalyzeItems(progress, cancellationToken);
+
+        Plugin.Instance!.AnalyzerTaskIsRunning = false;
     }
 
     /// <summary>
@@ -222,6 +233,12 @@ public class Entrypoint : IServerEntryPoint
     {
         if (!dispose)
         {
+            _libraryManager.ItemAdded -= OnItemAdded;
+            _libraryManager.ItemUpdated -= OnItemModified;
+            _taskManager.TaskCompleted -= OnLibraryRefresh;
+
+            _queueTimer.Dispose();
+
             return;
         }
     }
