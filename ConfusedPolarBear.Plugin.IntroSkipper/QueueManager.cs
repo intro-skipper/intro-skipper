@@ -57,9 +57,7 @@ public class QueueManager
                 continue;
             }
 
-            _logger.LogInformation(
-                "Running enqueue of items in library {Name}",
-                folder.Name);
+            _logger.LogInformation("Running enqueue of items in library {Name}", folder.Name);
 
             try
             {
@@ -114,7 +112,7 @@ public class QueueManager
         if (config.AnalysisLengthLimit != 10 || config.AnalysisPercent != 25 || config.MinimumIntroDuration != 15)
         {
             _logger.LogInformation(
-                "Analysis settings have been changed to: {Percent}%/{Minutes}m and a minimum of {Minimum}s",
+                "Analysis settings have been changed to: {Percent}% / {Minutes}m and a minimum of {Minimum}s",
                 config.AnalysisPercent,
                 config.AnalysisLengthLimit,
                 config.MinimumIntroDuration);
@@ -139,8 +137,6 @@ public class QueueManager
             Recursive = true,
             IsVirtualItem = false
         };
-
-        _logger.LogDebug("Getting items");
 
         var items = _libraryManager.GetItemList(query, false);
 

@@ -368,7 +368,6 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
 
         _logger.LogDebug("Reading index.html from {Path}", indexPath);
         var contents = File.ReadAllText(indexPath);
-        _logger.LogDebug("Successfully read index.html");
 
         var scriptTag = "<script src=\"configurationpage?name=skip-intro-button.js\"></script>";
 
@@ -381,12 +380,10 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
 
         // Inject a link to the script at the end of the <head> section.
         // A regex is used here to ensure the replacement is only done once.
-        _logger.LogDebug("Injecting script tag");
         var headEnd = new Regex("</head>", RegexOptions.IgnoreCase);
         contents = headEnd.Replace(contents, scriptTag + "</head>", 1);
 
         // Write the modified file contents
-        _logger.LogDebug("Saving modified file");
         File.WriteAllText(indexPath, contents);
 
         _logger.LogInformation("Skip intro button successfully added");
