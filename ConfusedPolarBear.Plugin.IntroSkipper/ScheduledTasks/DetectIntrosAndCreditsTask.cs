@@ -11,26 +11,21 @@ namespace ConfusedPolarBear.Plugin.IntroSkipper;
 /// <summary>
 /// Analyze all television episodes for introduction sequences.
 /// </summary>
-public class DetectIntroductionsTask : IScheduledTask
+public class DetectIntrosAndCreditsTask : IScheduledTask
 {
-    private readonly ILogger<DetectIntroductionsTask> _logger;
-
     private readonly ILoggerFactory _loggerFactory;
 
     private readonly ILibraryManager _libraryManager;
 
     /// <summary>
-    /// Initializes a new instance of the <see cref="DetectIntroductionsTask"/> class.
+    /// Initializes a new instance of the <see cref="DetectIntrosAndCreditsTask"/> class.
     /// </summary>
     /// <param name="loggerFactory">Logger factory.</param>
     /// <param name="libraryManager">Library manager.</param>
-    /// <param name="logger">Logger.</param>
-    public DetectIntroductionsTask(
-        ILogger<DetectIntroductionsTask> logger,
+    public DetectIntrosAndCreditsTask(
         ILoggerFactory loggerFactory,
         ILibraryManager libraryManager)
     {
-        _logger = logger;
         _loggerFactory = loggerFactory;
         _libraryManager = libraryManager;
     }
@@ -38,7 +33,7 @@ public class DetectIntroductionsTask : IScheduledTask
     /// <summary>
     /// Gets the task name.
     /// </summary>
-    public string Name => "Detect Introductions";
+    public string Name => "Detect Introductions and Credits";
 
     /// <summary>
     /// Gets the task category.
@@ -48,12 +43,12 @@ public class DetectIntroductionsTask : IScheduledTask
     /// <summary>
     /// Gets the task description.
     /// </summary>
-    public string Description => "Analyzes the audio of all television episodes to find introduction sequences.";
+    public string Description => "Analyzes the audio of all television episodes to find introduction and credit sequences.";
 
     /// <summary>
     /// Gets the task key.
     /// </summary>
-    public string Key => "CPBIntroSkipperDetectIntroductions";
+    public string Key => "CPBIntroSkipperDetectIntrosAndCredits";
 
     /// <summary>
     /// Analyze all episodes in the queue. Only one instance of this task should be run at a time.
@@ -68,47 +63,36 @@ public class DetectIntroductionsTask : IScheduledTask
             throw new InvalidOperationException("Library manager was null");
         }
 
-        // Wait for running analyzer
+        // abort if analyzer is already running
         if (Plugin.Instance!.AnalyzerTaskIsRunning)
         {
-            _logger.LogInformation("Other running Analyzer Task detected. Wait...");
-            using (var timer = new Timer(_ => { }, null, Timeout.InfiniteTimeSpan, Timeout.InfiniteTimeSpan))
-            {
-                try
-                {
-                    void DisposeTimerOnCancellation() => timer.Dispose();
-                    cancellationToken.Register(DisposeTimerOnCancellation);
-                    while (Plugin.Instance!.AnalyzerTaskIsRunning && !cancellationToken.IsCancellationRequested)
-                    {
-                        timer.Change(TimeSpan.FromMilliseconds(20000), Timeout.InfiniteTimeSpan); // Adjust delay
-                    }
-                }
-                catch (OperationCanceledException)
-                {
-                    return Task.CompletedTask;
-                }
-            }
-
-            if (!cancellationToken.IsCancellationRequested) // Check cancellation again before logging
-            {
-                _logger.LogInformation("No other Task active. Run Analyzer Task");
-            }
-            else
-            {
-                _logger.LogInformation("Task was canceled");
-                return Task.CompletedTask;
-            }
+            return Task.CompletedTask;
+        }
+        else
+        {
+            Plugin.Instance!.AnalyzerTaskIsRunning = true;
         }
 
-        Plugin.Instance!.AnalyzerTaskIsRunning = true;
-
-        var baseAnalyzer = new BaseItemAnalyzerTask(
+        // intro
+        var baseIntroAnalyzer = new BaseItemAnalyzerTask(
             AnalysisMode.Introduction,
-            _loggerFactory.CreateLogger<DetectIntroductionsTask>(),
+            _loggerFactory.CreateLogger<DetectIntrosAndCreditsTask>(),
             _loggerFactory,
             _libraryManager);
 
-        baseAnalyzer.AnalyzeItems(progress, cancellationToken);
+        baseIntroAnalyzer.AnalyzeItems(progress, cancellationToken);
+
+        // reset progress
+        progress.Report(0);
+
+        // outro
+        var baseCreditAnalyzer = new BaseItemAnalyzerTask(
+            AnalysisMode.Credits,
+            _loggerFactory.CreateLogger<DetectIntrosAndCreditsTask>(),
+            _loggerFactory,
+            _libraryManager);
+
+        baseCreditAnalyzer.AnalyzeItems(progress, cancellationToken);
 
         Plugin.Instance!.AnalyzerTaskIsRunning = false;
 
