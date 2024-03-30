@@ -73,26 +73,27 @@ public class DetectIntrosAndCreditsTask : IScheduledTask
             Plugin.Instance!.AnalyzerTaskIsRunning = true;
         }
 
-        // intro
-        var baseIntroAnalyzer = new BaseItemAnalyzerTask(
-            AnalysisMode.Introduction,
-            _loggerFactory.CreateLogger<DetectIntrosAndCreditsTask>(),
-            _loggerFactory,
-            _libraryManager);
+        if (Plugin.Instance!.Configuration.DetectIntros)
+        {
+            var baseIntroAnalyzer = new BaseItemAnalyzerTask(
+                AnalysisMode.Introduction,
+                _loggerFactory.CreateLogger<DetectIntrosAndCreditsTask>(),
+                _loggerFactory,
+                _libraryManager);
 
-        baseIntroAnalyzer.AnalyzeItems(progress, cancellationToken);
+            baseIntroAnalyzer.AnalyzeItems(progress, cancellationToken);
+        }
 
-        // reset progress
-        progress.Report(0);
+        if (Plugin.Instance!.Configuration.DetectCredits)
+        {
+            var baseCreditAnalyzer = new BaseItemAnalyzerTask(
+                AnalysisMode.Credits,
+                _loggerFactory.CreateLogger<DetectIntrosAndCreditsTask>(),
+                _loggerFactory,
+                _libraryManager);
 
-        // outro
-        var baseCreditAnalyzer = new BaseItemAnalyzerTask(
-            AnalysisMode.Credits,
-            _loggerFactory.CreateLogger<DetectIntrosAndCreditsTask>(),
-            _loggerFactory,
-            _libraryManager);
-
-        baseCreditAnalyzer.AnalyzeItems(progress, cancellationToken);
+            baseCreditAnalyzer.AnalyzeItems(progress, cancellationToken);
+        }
 
         Plugin.Instance!.AnalyzerTaskIsRunning = false;
 
