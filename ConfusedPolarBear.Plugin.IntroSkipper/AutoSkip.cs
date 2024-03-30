@@ -134,21 +134,21 @@ public class AutoSkip : IServerEntryPoint
         }
     }
 
-    private void Skip(object? sender, ElapsedEventArgs e, string type, SessionInfo session, object lock, Dictionary<Guid, Intro> items, string notificationText )
+    private void Skip(object? sender, ElapsedEventArgs e, string type, SessionInfo session, object lock, Dictionary<Guid, Intro> items, string notificationText)
     {
         var deviceId = session.DeviceId;
         var itemId = session.NowPlayingItem.Id;
         var position = session.PlayState.PositionTicks / TimeSpan.TicksPerSecond;
 
-         // Don't send the seek command more than once in the same session.
+        // Don't send the seek command more than once in the same session.
         lock (lock)
-        {
-            if (_sentSeekCommand.TryGetValue(deviceId, out var types) && types.TryGetValue(type, out var sent) && sent)
             {
-                _logger.LogTrace("Already sent intro seek command for session {Session}", deviceId);
-                return;
+                if (_sentSeekCommand.TryGetValue(deviceId, out var types) && types.TryGetValue(type, out var sent) && sent)
+                {
+                    _logger.LogTrace("Already sent intro seek command for session {Session}", deviceId);
+                    return;
+                }
             }
-        }
 
         // Assert that an intro was detected for this item.
         if (items.TryGetValue(itemId, out var item) || !item.Valid)
@@ -202,10 +202,10 @@ public class AutoSkip : IServerEntryPoint
 
         // Flag that we've sent the seek command so that it's not sent repeatedly
         lock (lock)
-        {
-            _logger.LogTrace("Setting seek command state for session {Session}", deviceId);
-            _sentSeekCommand[deviceId][type] = true;
-        }
+            {
+                _logger.LogTrace("Setting seek command state for session {Session}", deviceId);
+                _sentSeekCommand[deviceId][type] = true;
+            }
     }
 
     /// <summary>
