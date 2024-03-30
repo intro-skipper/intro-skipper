@@ -28,16 +28,6 @@ public class PluginConfiguration : BasePluginConfiguration
     public string SelectedLibraries { get; set; } = string.Empty;
 
     /// <summary>
-    /// Gets or sets a value indicating whether to scan for intros during a scheduled task.
-    /// </summary>
-    public bool DetectIntros { get; set; } = true;
-
-    /// <summary>
-    /// Gets or sets a value indicating whether to scan for credits during a scheduled task.
-    /// </summary>
-    public bool DetectCredits { get; set; } = true;
-
-    /// <summary>
     /// Gets or sets a value indicating whether to analyze automatically, when new Items are added.
     /// </summary>
     public bool AutomaticAnalysis { get; set; } = false;

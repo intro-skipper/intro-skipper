@@ -7,7 +7,7 @@
 
 <body>
     <div id="TemplateConfigPage" data-role="page" class="page type-interior pluginConfigurationPage"
-        data-require="emby-input,emby-button,emby-select,emby-checkbox,emby-linkbutton">
+        data-require="emby-input,emby-button,emby-select,emby-checkbox">
         <div data-role="content">
             <style>
                 summary {
@@ -26,31 +26,6 @@
                 <form id="FingerprintConfigForm">
                     <fieldset class="verticalSection-extrabottompadding">
                         <legend>Analysis</legend>
-
-                        <div class="checkboxContainer checkboxContainer-withDescription">
-                            <label class="emby-checkbox-label">
-                                <input id="DetectIntros" type="checkbox" is="emby-checkbox" />
-                                <span>Detect Introductions</span>
-                            </label>
-
-                            <div class="fieldDescription">
-                                This option enables scheduled introduction detection. Your videos will be scanned for introductions during a scheduled task.
-                            </div>
-                        </div>
-
-                        <div class="checkboxContainer checkboxContainer-withDescription">
-                            <label class="emby-checkbox-label">
-                                <input id="DetectCredits" type="checkbox" is="emby-checkbox" />
-                                <span>Detect Credits</span>
-                            </label>
-
-                            <div class="fieldDescription">
-                                This option enables scheduled credit detection. Your videos will be scanned for credits during a scheduled task. 
-                            </div>
-                            <div class="fieldDescription">
-                                Note: Selecting neither Intro nor Credit Detection will disable automatic scans. To configure the scheduled task, see <a is="emby-linkbutton" class="button-link" href="scheduledtasks.html">scheduled tasks</a>.
-                            </div>
-                        </div>
 
                         <div class="checkboxContainer checkboxContainer-withDescription">
                             <label class="emby-checkbox-label">
@@ -622,8 +597,6 @@
             ]
 
             var booleanConfigurationFields = [
-                "DetectIntros",
-                "DetectCredits",
                 "AutomaticAnalysis",
                 "AnalyzeSeasonZero",
                 "RegenerateEdlFiles",

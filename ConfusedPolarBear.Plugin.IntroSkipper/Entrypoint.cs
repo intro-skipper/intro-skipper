@@ -23,7 +23,6 @@ public class Entrypoint : IServerEntryPoint
     private readonly ILogger<Entrypoint> _logger;
     private readonly ILoggerFactory _loggerFactory;
     private Timer _queueTimer;
-    private bool _analyzeAgain;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="Entrypoint"/> class.
@@ -161,7 +160,7 @@ public class Entrypoint : IServerEntryPoint
     {
         if (Plugin.Instance!.AnalyzerTaskIsRunning)
         {
-           _analyzeAgain = true; // Items added during a scan will be included later.
+           return; // Don't do anything if a Analyzer is running
         }
         else
         {
@@ -196,37 +195,25 @@ public class Entrypoint : IServerEntryPoint
         var progress = new Progress<double>();
         var cancellationToken = new CancellationToken(false);
 
-        if (Plugin.Instance!.Configuration.DetectIntros)
-        {
-            var baseIntroAnalyzer = new BaseItemAnalyzerTask(
-                AnalysisMode.Introduction,
-                _loggerFactory.CreateLogger<DetectIntrosAndCreditsTask>(),
-                _loggerFactory,
-                _libraryManager);
+        // intro
+        var introductionAnalyzer = new BaseItemAnalyzerTask(
+            AnalysisMode.Introduction,
+            _loggerFactory.CreateLogger<Entrypoint>(),
+            _loggerFactory,
+            _libraryManager);
 
-            baseIntroAnalyzer.AnalyzeItems(progress, cancellationToken);
-        }
+        introductionAnalyzer.AnalyzeItems(progress, cancellationToken);
 
-        if (Plugin.Instance!.Configuration.DetectCredits)
-        {
-            var baseCreditAnalyzer = new BaseItemAnalyzerTask(
-                AnalysisMode.Credits,
-                _loggerFactory.CreateLogger<DetectIntrosAndCreditsTask>(),
-                _loggerFactory,
-                _libraryManager);
+        // outro
+        var creditsAnalyzer = new BaseItemAnalyzerTask(
+            AnalysisMode.Credits,
+            _loggerFactory.CreateLogger<Entrypoint>(),
+            _loggerFactory,
+            _libraryManager);
 
-            baseCreditAnalyzer.AnalyzeItems(progress, cancellationToken);
-        }
+        creditsAnalyzer.AnalyzeItems(progress, cancellationToken);
 
         Plugin.Instance!.AnalyzerTaskIsRunning = false;
-
-        // New item detected, start timer again
-        if (_analyzeAgain)
-        {
-            _logger.LogInformation("Analyzing ended, but we need to analyze again!");
-            _analyzeAgain = false;
-            StartTimer();
-        }
     }
 
     /// <summary>
