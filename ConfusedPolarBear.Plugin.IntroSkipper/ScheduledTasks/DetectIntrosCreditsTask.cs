@@ -81,6 +81,9 @@ public class DetectIntrosCreditsTask : IScheduledTask
 
         baseIntroAnalyzer.AnalyzeItems(progress, cancellationToken);
 
+        // reset progress
+        progress.Report(0);
+
         var baseCreditAnalyzer = new BaseItemAnalyzerTask(
             AnalysisMode.Credits,
             _loggerFactory.CreateLogger<DetectIntrosCreditsTask>(),
