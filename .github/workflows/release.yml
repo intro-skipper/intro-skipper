@@ -72,7 +72,9 @@ jobs:
       with:
         tag_name: 10.9/v${{ github.event.inputs.version }}
         name: v${{ github.event.inputs.version }}
+        append_body: true
         body: |
+          ---
           sourceUrl:  ${{ env.SOURCE_URL }}
           checksum:  ${{ env.CHECKSUM }}
           timestamp: ${{ env.TIMESTAMP }}
