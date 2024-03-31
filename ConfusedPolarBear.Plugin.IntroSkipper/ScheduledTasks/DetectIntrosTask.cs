@@ -38,7 +38,7 @@ public class DetectIntrosTask : IScheduledTask
     /// <summary>
     /// Gets the task name.
     /// </summary>
-    public string Name => "Detect Introductions";
+    public string Name => "Detect Intros";
 
     /// <summary>
     /// Gets the task category.
@@ -48,7 +48,7 @@ public class DetectIntrosTask : IScheduledTask
     /// <summary>
     /// Gets the task description.
     /// </summary>
-    public string Description => "Analyzes the audio of all television episodes to find introduction sequences.";
+    public string Description => "Analyzes media to determine the timestamp and length of intros.";
 
     /// <summary>
     /// Gets the task key.

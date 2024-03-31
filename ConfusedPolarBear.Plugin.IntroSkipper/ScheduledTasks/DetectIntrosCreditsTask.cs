@@ -33,7 +33,7 @@ public class DetectIntrosCreditsTask : IScheduledTask
     /// <summary>
     /// Gets the task name.
     /// </summary>
-    public string Name => "Detect Introductions and Credits";
+    public string Name => "Detect Intros and Credits";
 
     /// <summary>
     /// Gets the task category.
@@ -43,12 +43,12 @@ public class DetectIntrosCreditsTask : IScheduledTask
     /// <summary>
     /// Gets the task description.
     /// </summary>
-    public string Description => "Analyzes the audio of all television episodes to find introduction and credit sequences.";
+    public string Description => "Analyzes media to determine the timestamp and length of intros and credits.";
 
     /// <summary>
     /// Gets the task key.
     /// </summary>
-    public string Key => "CPBIntroSkipperDetectIntrosAndCredits";
+    public string Key => "CPBIntroSkipperDetectIntrosCredits";
 
     /// <summary>
     /// Analyze all episodes in the queue. Only one instance of this task should be run at a time.
