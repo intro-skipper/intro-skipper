@@ -146,7 +146,14 @@ public class BaseItemAnalyzerTask
                 EdlManager.UpdateEDLFiles(episodes);
             }
 
-            progress.Report((totalProcessed * 100) / totalQueued);
+            if (_analysisMode == AnalysisMode.Introduction)
+            {
+                progress.Report(((totalProcessed * 100) / totalQueued) / 2);
+            }
+            else
+            {
+                progress.Report((((totalProcessed * 100) / totalQueued) / 2) + 50);
+            }
         });
 
         if (
