@@ -41,9 +41,9 @@ introSkipper.d = function (msg) {
   introSkipper.viewShow = function () {
     const location = window.location.hash;
     introSkipper.d("Location changed to " + location);
-    if (location !== "#!/video") {
-      introSkipper.d("Ignoring location change");
-      return;
+    if (location !== "#/video") {
+        introSkipper.d("Ignoring location change");
+        return;
     }
     introSkipper.injectCss();
     introSkipper.injectButton();

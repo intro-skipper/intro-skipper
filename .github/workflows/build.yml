@@ -2,12 +2,13 @@ name: 'Build Plugin'
 
 on:
   push:
-    branches: [ "master" ]
+    branches: [ "10.9" ]
   pull_request:
-    branches: [ "master" ]
+    branches: [ "10.9" ]
 
 permissions:
   contents: write
+  packages: write
 
 jobs:
   build:
@@ -21,10 +22,13 @@ jobs:
     - name: Setup .NET
       uses: actions/setup-dotnet@v4
       with:
-        dotnet-version: 6.0.x
+        dotnet-version: 8.0.x
 
     - name: Restore dependencies
-      run: dotnet restore
+      run: |
+        dotnet nuget add source --username ${{ github.actor }} --password ${{ secrets.GITHUB_TOKEN }} --store-password-in-clear-text --name jellyfin-pre "https://nuget.pkg.github.com/jellyfin/index.json"
+        dotnet tool install --global dotnet-outdated-tool
+        dotnet outdated -pre Always -u -inc Jellyfin
 
     - name: Embed version info
       run: echo "${{ github.sha }}" > ConfusedPolarBear.Plugin.IntroSkipper/Configuration/version.txt
@@ -41,7 +45,7 @@ jobs:
       uses: actions/upload-artifact@v4.3.1
       with:
         name: ConfusedPolarBear.Plugin.IntroSkipper-${{ env.GIT_HASH }}.dll
-        path: ConfusedPolarBear.Plugin.IntroSkipper/bin/Debug/net6.0/ConfusedPolarBear.Plugin.IntroSkipper.dll
+        path: ConfusedPolarBear.Plugin.IntroSkipper/bin/Debug/net8.0/ConfusedPolarBear.Plugin.IntroSkipper.dll
         if-no-files-found: error
 
     - name: Create archive
@@ -49,7 +53,7 @@ jobs:
       if: github.event_name != 'pull_request'
       with:
         files: |
-          ConfusedPolarBear.Plugin.IntroSkipper/bin/Debug/net6.0/ConfusedPolarBear.Plugin.IntroSkipper.dll
+          ConfusedPolarBear.Plugin.IntroSkipper/bin/Debug/net8.0/ConfusedPolarBear.Plugin.IntroSkipper.dll
         dest:  intro-skipper-${{ env.GIT_HASH }}.zip
 
     - name: Generate md5
@@ -64,7 +68,7 @@ jobs:
       if: github.event_name != 'pull_request'
       with:
         repo_token: "${{ secrets.GITHUB_TOKEN }}"
-        automatic_release_tag: preview
+        automatic_release_tag: 10.9/preview
         prerelease: true
         title: intro-skipper-${{ env.GIT_HASH }}
         files: |
@@ -74,7 +78,7 @@ jobs:
       uses: softprops/action-gh-release@v2.0.4
       if: github.event_name != 'pull_request'
       with:
-        tag_name: preview
+        tag_name: 10.9/preview
         name: intro-skipper-${{ env.GIT_HASH }}
         body: |
           checksum:  ${{ env.CHECKSUM }}

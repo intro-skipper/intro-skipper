@@ -1,4 +1,4 @@
-name: 'Release Plugin'
+name: '10.9 Release Plugin'
 
 on:
   workflow_dispatch:
@@ -22,7 +22,7 @@ jobs:
     - name: Setup .NET
       uses: actions/setup-dotnet@v4
       with:
-        dotnet-version: 6.0.x
+        dotnet-version: 8.0.x
 
     - name: Restore dependencies
       run: dotnet restore
@@ -37,14 +37,14 @@ jobs:
       uses: actions/upload-artifact@v4.3.1
       with:
         name: ConfusedPolarBear.Plugin.IntroSkipper-v${{ github.event.inputs.version }}.dll
-        path: ConfusedPolarBear.Plugin.IntroSkipper/bin/Debug/net6.0/ConfusedPolarBear.Plugin.IntroSkipper.dll
+        path: ConfusedPolarBear.Plugin.IntroSkipper/bin/Debug/net8.0/ConfusedPolarBear.Plugin.IntroSkipper.dll
         if-no-files-found: error
 
     - name: Create archive
       uses: vimtor/action-zip@v1.2
       with:
         files: |
-          ConfusedPolarBear.Plugin.IntroSkipper/bin/Debug/net6.0/ConfusedPolarBear.Plugin.IntroSkipper.dll
+          ConfusedPolarBear.Plugin.IntroSkipper/bin/Debug/net8.0/ConfusedPolarBear.Plugin.IntroSkipper.dll
         dest: intro-skipper-v${{ github.event.inputs.version }}.zip
 
     - name: Generate manifest keys
@@ -61,7 +61,7 @@ jobs:
       uses: 8bitDream/action-github-releases@v1.0.0
       with:
         repo_token: "${{ secrets.GITHUB_TOKEN }}"
-        automatic_release_tag: v${{ github.event.inputs.version }}
+        automatic_release_tag: 10.9/v${{ github.event.inputs.version }}
         prerelease: false
         title: v${{ github.event.inputs.version }}
         files: |
@@ -70,7 +70,7 @@ jobs:
     - name: Publish release notes
       uses: softprops/action-gh-release@v2.0.4
       with:
-        tag_name: v${{ github.event.inputs.version }}
+        tag_name: 10.9/v${{ github.event.inputs.version }}
         name: v${{ github.event.inputs.version }}
         body: |
           sourceUrl:  ${{ env.SOURCE_URL }}

@@ -9,6 +9,7 @@ using MediaBrowser.Controller.Plugins;
 using MediaBrowser.Controller.Session;
 using MediaBrowser.Model.Entities;
 using MediaBrowser.Model.Session;
+using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 
 namespace ConfusedPolarBear.Plugin.IntroSkipper;
@@ -17,7 +18,7 @@ namespace ConfusedPolarBear.Plugin.IntroSkipper;
 /// Automatically skip past introduction sequences.
 /// Commands clients to seek to the end of the intro as soon as they start playing it.
 /// </summary>
-public class AutoSkip : IServerEntryPoint
+public class AutoSkip : IHostedService, IDisposable
 {
     private readonly object _sentIntroSeekCommandLock = new();
     private readonly object _sentCreditsSeekCommandLock = new();
@@ -43,26 +44,6 @@ public class AutoSkip : IServerEntryPoint
         _sessionManager = sessionManager;
         _logger = logger;
         _sentSeekCommand = new Dictionary<string, Dictionary<string, bool>>();
-    }
-
-    /// <summary>
-    /// If introduction auto skipping is enabled, set it up.
-    /// </summary>
-    /// <returns>Task.</returns>
-    public Task RunAsync()
-    {
-        _logger.LogDebug("Setting up automatic skipping");
-
-        _userDataManager.UserDataSaved += UserDataManager_UserDataSaved;
-        Plugin.Instance!.AutoSkipChanged += AutoSkipChanged;
-
-        // Make the timer restart automatically and set enabled to match the configuration value.
-        _playbackTimer.AutoReset = true;
-        _playbackTimer.Elapsed += PlaybackTimer_Elapsed;
-
-        AutoSkipChanged(null, EventArgs.Empty);
-
-        return Task.CompletedTask;
     }
 
     private void AutoSkipChanged(object? sender, EventArgs e)
@@ -228,8 +209,31 @@ public class AutoSkip : IServerEntryPoint
             return;
         }
 
-        _userDataManager.UserDataSaved -= UserDataManager_UserDataSaved;
         _playbackTimer.Stop();
         _playbackTimer.Dispose();
+    }
+
+    /// <inheritdoc />
+    public Task StartAsync(CancellationToken cancellationToken)
+    {
+        _logger.LogDebug("Setting up automatic skipping");
+
+        _userDataManager.UserDataSaved += UserDataManager_UserDataSaved;
+        Plugin.Instance!.AutoSkipChanged += AutoSkipChanged;
+
+        // Make the timer restart automatically and set enabled to match the configuration value.
+        _playbackTimer.AutoReset = true;
+        _playbackTimer.Elapsed += PlaybackTimer_Elapsed;
+
+        AutoSkipChanged(null, EventArgs.Empty);
+
+        return Task.CompletedTask;
+    }
+
+    /// <inheritdoc />
+    public Task StopAsync(CancellationToken cancellationToken)
+    {
+        _userDataManager.UserDataSaved -= UserDataManager_UserDataSaved;
+        return Task.CompletedTask;
     }
 }

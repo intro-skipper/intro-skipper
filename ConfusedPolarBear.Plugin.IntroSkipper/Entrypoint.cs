@@ -7,6 +7,7 @@ using MediaBrowser.Controller.Library;
 using MediaBrowser.Controller.Plugins;
 using MediaBrowser.Model.Entities;
 using MediaBrowser.Model.Tasks;
+using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 
 namespace ConfusedPolarBear.Plugin.IntroSkipper;
@@ -14,7 +15,7 @@ namespace ConfusedPolarBear.Plugin.IntroSkipper;
 /// <summary>
 /// Server entrypoint.
 /// </summary>
-public class Entrypoint : IServerEntryPoint
+public class Entrypoint : IHostedService
 {
     private readonly IUserManager _userManager;
     private readonly IUserViewManager _userViewManager;
@@ -49,10 +50,27 @@ public class Entrypoint : IServerEntryPoint
     }
 
     /// <summary>
-    /// Registers event handler.
+    /// Dispose.
     /// </summary>
-    /// <returns>Task.</returns>
-    public Task RunAsync()
+    public void Dispose()
+    {
+        Dispose(true);
+    }
+
+    /// <summary>
+    /// Protected dispose.
+    /// </summary>
+    /// <param name="dispose">Dispose.</param>
+    protected virtual void Dispose(bool dispose)
+    {
+        if (!dispose)
+        {
+            return;
+        }
+    }
+
+    /// <inheritdoc />
+    public Task StartAsync(CancellationToken cancellationToken)
     {
         if (Plugin.Instance!.Configuration.AutomaticAnalysis)
         {
@@ -68,7 +86,7 @@ public class Entrypoint : IServerEntryPoint
             // Enqueue all episodes at startup to ensure any FFmpeg errors appear as early as possible
             _logger.LogInformation("Running startup enqueue");
             var queueManager = new QueueManager(_loggerFactory.CreateLogger<QueueManager>(), _libraryManager);
-            queueManager.GetMediaItems();
+            queueManager?.GetMediaItems();
         }
         catch (Exception ex)
         {
@@ -214,15 +232,9 @@ public class Entrypoint : IServerEntryPoint
         GC.SuppressFinalize(this);
     }
 
-    /// <summary>
-    /// Protected dispose.
-    /// </summary>
-    /// <param name="dispose">Dispose.</param>
-    protected virtual void Dispose(bool dispose)
+    /// <inheritdoc />
+    public Task StopAsync(CancellationToken cancellationToken)
     {
-        if (!dispose)
-        {
-            return;
-        }
+        return Task.CompletedTask;
     }
 }
