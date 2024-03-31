@@ -76,7 +76,9 @@ jobs:
       with:
         tag_name: preview
         name: intro-skipper-${{ env.GIT_HASH }}
+        append_body: true
         body: |
+          ---
           checksum:  ${{ env.CHECKSUM }}
         draft: false
         prerelease: true
