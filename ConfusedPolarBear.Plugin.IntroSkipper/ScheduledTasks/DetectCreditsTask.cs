@@ -49,7 +49,7 @@ public class DetectCreditsTask : IScheduledTask
     /// <summary>
     /// Gets the task description.
     /// </summary>
-    public string Description => "Analyzes the audio and video of all television episodes to find credits.";
+    public string Description => "Analyzes media to determine the timestamp and length of credits";
 
     /// <summary>
     /// Gets the task key.
