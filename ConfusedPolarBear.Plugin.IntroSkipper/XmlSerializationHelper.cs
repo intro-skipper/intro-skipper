@@ -43,31 +43,28 @@ namespace ConfusedPolarBear.Plugin.IntroSkipper
             {
                 Console.WriteLine($"Error deserializing XML: {ex.Message}");
             }
-#pragma warning disable CS8603
+
             // Return the deserialized object
-            return result;
-#pragma warning restore CS8603
+            return result!;
         }
 
         public static void MigrateXML(string filePath)
         {
             if (File.Exists(filePath))
             {
-                string searchString = "<ArrayOfIntro xmlns:xsi=\"http://www.w3.org/2001/XMLSchema-instance\" xmlns:xsd=\"http://www.w3.org/2001/XMLSchema\">";
-                string replacementString = "<ArrayOfIntro xmlns=\"http://schemas.datacontract.org/2004/07/ConfusedPolarBear.Plugin.IntroSkipper\" xmlns:i=\"http://www.w3.org/2001/XMLSchema-instance\">";
+                // Load the XML document
+                XmlDocument xmlDoc = new XmlDocument();
+                xmlDoc.Load(filePath);
 
-                // Read the content of the file
-                string fileContent = File.ReadAllText(filePath, Encoding.UTF8);
+                // Replace the namespace declaration
+                XmlNamespaceManager nsManager = new XmlNamespaceManager(xmlDoc.NameTable);
+                nsManager.AddNamespace("xsi", "http://www.w3.org/2001/XMLSchema-instance");
+                nsManager.AddNamespace("xsd", "http://www.w3.org/2001/XMLSchema");
+                xmlDoc.DocumentElement?.SetAttribute("xmlns", "http://schemas.datacontract.org/2004/07/ConfusedPolarBear.Plugin.IntroSkipper");
+                xmlDoc.DocumentElement?.SetAttribute("xmlns:i", "http://www.w3.org/2001/XMLSchema-instance");
 
-                // Check if the target string exists at the beginning
-                if (fileContent.Contains(searchString, StringComparison.OrdinalIgnoreCase))
-                {
-                    // Replace the target string
-                    fileContent = fileContent.Replace(searchString, replacementString, StringComparison.OrdinalIgnoreCase);
-
-                    // Write the modified content back to the file
-                    File.WriteAllText(filePath, fileContent, Encoding.UTF8);
-                }
+                // Save the modified XML document
+                xmlDoc.Save(filePath);
             }
         }
     }
