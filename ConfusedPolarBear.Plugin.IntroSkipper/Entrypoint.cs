@@ -50,14 +50,6 @@ public class Entrypoint : IHostedService
     }
 
     /// <summary>
-    /// Dispose.
-    /// </summary>
-    public void Dispose()
-    {
-        Dispose(true);
-    }
-
-    /// <summary>
     /// Protected dispose.
     /// </summary>
     /// <param name="dispose">Dispose.</param>
@@ -127,7 +119,7 @@ public class Entrypoint : IHostedService
         }
         catch (Exception ex)
         {
-          _logger.LogError("Error analyzing: {Exception}", ex);
+            _logger.LogError("Error analyzing: {Exception}", ex);
         }
     }
 
@@ -158,7 +150,7 @@ public class Entrypoint : IHostedService
         }
         catch (Exception ex)
         {
-          _logger.LogError("Error analyzing: {Exception}", ex);
+            _logger.LogError("Error analyzing: {Exception}", ex);
         }
     }
 
@@ -190,7 +182,7 @@ public class Entrypoint : IHostedService
         }
         catch (Exception ex)
         {
-          _logger.LogError("Error analyzing: {Exception}", ex);
+            _logger.LogError("Error analyzing: {Exception}", ex);
         }
     }
 
