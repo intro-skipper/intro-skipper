@@ -322,11 +322,11 @@
                         <div class="checkboxContainer checkboxContainer-withDescription">
                             <label class="emby-checkbox-label">
                                 <input id="AutoSkip" type="checkbox" is="emby-checkbox" />
-                                <span>Automatically skip intros</span>
+                                <span>Automatically skip intros/credits</span>
                             </label>
 
                             <div class="fieldDescription">
-                                If checked, intros will be automatically skipped. If you access Jellyfin through a
+                                If checked, intros and credits will be automatically skipped. If you access Jellyfin through a
                                 reverse proxy, it must be configured to proxy web
                                 sockets.<br />
                             </div>
@@ -424,13 +424,23 @@
                                 </div>
                             </div>
 
-                            <div id="divAutoSkipNotificationText" class="inputContainer">
-                                <label class="inputLabel" for="AutoSkipNotificationText">
-                                    Automatic skip notification message
+                            <div id="divAutoSkipIntroNotificationText" class="inputContainer">
+                                <label class="inputLabel" for="AutoSkipIntroNotificationText">
+                                    Automatic skip notification message for intros
                                 </label>
-                                <input id="AutoSkipNotificationText" type="text" is="emby-input" />
+                                <input id="AutoSkipIntroNotificationText" type="text" is="emby-input" />
                                 <div class="fieldDescription">
                                     Message shown after automatically skipping an introduction. Leave blank to disable notification.
+                                </div>
+                            </div>
+
+                            <div id="divAutoSkipCreditsNotificationText" class="inputContainer">
+                                <label class="inputLabel" for="AutoSkipCreditsNotificationText">
+                                    Automatic skip notification message for credits
+                                </label>
+                                <input id="AutoSkipCreditsNotificationText" type="text" is="emby-input" />
+                                <div class="fieldDescription">
+                                    Message shown after automatically skipping an credits. Leave blank to disable notification.
                                 </div>
                             </div>
                         </details>
@@ -607,7 +617,8 @@
                 // UI customization
                 "SkipButtonIntroText",
                 "SkipButtonEndCreditsText",
-                "AutoSkipNotificationText"
+                "AutoSkipIntroNotificationText",
+                "AutoSkipCreditsNotificationText"
             ]
 
             var booleanConfigurationFields = [
@@ -641,15 +652,18 @@
 
             var autoSkip = document.querySelector("input#AutoSkip");
             var skipFirstEpisode = document.querySelector("div#divSkipFirstEpisode");
-            var autoSkipNotificationText = document.querySelector("div#divAutoSkipNotificationText");
+            var AutoSkipIntroNotificationText = document.querySelector("div#divAutoSkipIntroNotificationText");
+            var AutoSkipCreditsNotificationText = document.querySelector("div#divAutoSkipCreditsNotificationText");
 
             async function autoSkipChanged() {
                 if (autoSkip.checked) {
                     skipFirstEpisode.style.display = 'unset';
-                    autoSkipNotificationText.style.display = 'unset';
+                    AutoSkipIntroNotificationText.style.display = 'unset';
+                    AutoSkipCreditsNotificationText.style.display = 'unset';
                 } else {
                     skipFirstEpisode.style.display = 'none';
-                    autoSkipNotificationText.style.display = 'none';
+                    AutoSkipIntroNotificationText.style.display = 'none';
+                    AutoSkipCreditsNotificationText.style.display = 'none';
                 }
             }
 

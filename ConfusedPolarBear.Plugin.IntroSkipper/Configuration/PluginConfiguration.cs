@@ -123,7 +123,7 @@ public class PluginConfiguration : BasePluginConfiguration
     public bool SkipButtonVisible { get; set; } = true;
 
     /// <summary>
-    /// Gets or sets a value indicating whether introductions should be automatically skipped.
+    /// Gets or sets a value indicating whether introductions/credits should be automatically skipped.
     /// </summary>
     public bool AutoSkip { get; set; }
 
@@ -196,7 +196,12 @@ public class PluginConfiguration : BasePluginConfiguration
     /// <summary>
     /// Gets or sets the notification text sent after automatically skipping an introduction.
     /// </summary>
-    public string AutoSkipNotificationText { get; set; } = "Intro skipped";
+    public string AutoSkipIntroNotificationText { get; set; } = "Intro skipped";
+
+    /// <summary>
+    /// Gets or sets the notification text sent after automatically skipping an Credits.
+    /// </summary>
+    public string AutoSkipCreditsNotificationText { get; set; } = "Credits skipped";
 
     /// <summary>
     /// Gets or sets the number of threads for an ffmpeg process.

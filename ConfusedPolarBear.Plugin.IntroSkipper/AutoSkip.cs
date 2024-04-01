@@ -19,13 +19,14 @@ namespace ConfusedPolarBear.Plugin.IntroSkipper;
 /// </summary>
 public class AutoSkip : IServerEntryPoint
 {
-    private readonly object _sentSeekCommandLock = new();
+    private readonly object _sentIntroSeekCommandLock = new();
+    private readonly object _sentCreditsSeekCommandLock = new();
 
     private ILogger<AutoSkip> _logger;
     private IUserDataManager _userDataManager;
     private ISessionManager _sessionManager;
     private System.Timers.Timer _playbackTimer = new(1000);
-    private Dictionary<string, bool> _sentSeekCommand;
+    private Dictionary<string, Dictionary<string, bool>> _sentSeekCommand;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="AutoSkip"/> class.
@@ -41,7 +42,7 @@ public class AutoSkip : IServerEntryPoint
         _userDataManager = userDataManager;
         _sessionManager = sessionManager;
         _logger = logger;
-        _sentSeekCommand = new Dictionary<string, bool>();
+        _sentSeekCommand = new Dictionary<string, Dictionary<string, bool>>();
     }
 
     /// <summary>
@@ -115,12 +116,12 @@ public class AutoSkip : IServerEntryPoint
         }
 
         // Reset the seek command state for this device.
-        lock (_sentSeekCommandLock)
+        lock (_sentIntroSeekCommandLock)
         {
             var device = session.DeviceId;
 
             _logger.LogDebug("Resetting seek command state for session {Session}", device);
-            _sentSeekCommand[device] = newState;
+            _sentSeekCommand[device]["intro"] = newState;
         }
     }
 
@@ -128,77 +129,82 @@ public class AutoSkip : IServerEntryPoint
     {
         foreach (var session in _sessionManager.Sessions)
         {
-            var deviceId = session.DeviceId;
-            var itemId = session.NowPlayingItem.Id;
-            var position = session.PlayState.PositionTicks / TimeSpan.TicksPerSecond;
+            Skip(sender, e, "intro", session, _sentIntroSeekCommandLock, Plugin.Instance!.Intros, Plugin.Instance!.Configuration.AutoSkipIntroNotificationText);
+            Skip(sender, e, "credit", session, _sentCreditsSeekCommandLock, Plugin.Instance!.Credits, Plugin.Instance!.Configuration.AutoSkipCreditsNotificationText);
+        }
+    }
 
-            // Don't send the seek command more than once in the same session.
-            lock (_sentSeekCommandLock)
+    private void Skip(object? sender, ElapsedEventArgs e, string type, SessionInfo session, object type_lock, Dictionary<Guid, Intro> items, string notificationText)
+    {
+        var deviceId = session.DeviceId;
+        var itemId = session.NowPlayingItem.Id;
+        var position = session.PlayState.PositionTicks / TimeSpan.TicksPerSecond;
+
+        // Don't send the seek command more than once in the same session.
+        lock (type_lock)
+        {
+            if (_sentSeekCommand.TryGetValue(deviceId, out var types) && types.TryGetValue(type, out var sent) && sent)
             {
-                if (_sentSeekCommand.TryGetValue(deviceId, out var sent) && sent)
-                {
-                    _logger.LogTrace("Already sent seek command for session {Session}", deviceId);
-                    continue;
-                }
+                _logger.LogTrace("Already sent intro seek command for session {Session}", deviceId);
+                return;
             }
+        }
 
-            // Assert that an intro was detected for this item.
-            if (!Plugin.Instance!.Intros.TryGetValue(itemId, out var intro) || !intro.Valid)
+        // Assert that an intro was detected for this item.
+        if (!items.TryGetValue(itemId, out var item) || !item.Valid)
+        {
+            return;
+        }
+
+        // Seek is unreliable if called at the very start of an episode.
+        var adjustedStart = Math.Max(5, item.IntroStart);
+
+        _logger.LogTrace(
+            "Playback position is {Position}, intro runs from {Start} to {End}",
+            position,
+            adjustedStart,
+            item.IntroEnd);
+
+        if (position < adjustedStart || position > item.IntroEnd)
+        {
+            return;
+        }
+
+        // Notify the user that an introduction is being skipped for them.
+        if (!string.IsNullOrWhiteSpace(notificationText))
+        {
+            _sessionManager.SendMessageCommand(
+            session.Id,
+            session.Id,
+            new MessageCommand()
             {
-                continue;
-            }
+                Header = string.Empty,      // some clients require header to be a string instead of null
+                Text = notificationText,
+                TimeoutMs = 2000,
+            },
+            CancellationToken.None);
+        }
 
-            // Seek is unreliable if called at the very start of an episode.
-            var adjustedStart = Math.Max(5, intro.IntroStart);
+        _logger.LogDebug("Sending seek command to {Session}", deviceId);
 
-            _logger.LogTrace(
-                "Playback position is {Position}, intro runs from {Start} to {End}",
-                position,
-                adjustedStart,
-                intro.IntroEnd);
+        var introEnd = (long)item.IntroEnd - Plugin.Instance!.Configuration.SecondsOfIntroToPlay;
 
-            if (position < adjustedStart || position > intro.IntroEnd)
+        _sessionManager.SendPlaystateCommand(
+            session.Id,
+            session.Id,
+            new PlaystateRequest
             {
-                continue;
-            }
+                Command = PlaystateCommand.Seek,
+                ControllingUserId = session.UserId.ToString("N"),
+                SeekPositionTicks = introEnd * TimeSpan.TicksPerSecond,
+            },
+            CancellationToken.None);
 
-            // Notify the user that an introduction is being skipped for them.
-            var notificationText = Plugin.Instance!.Configuration.AutoSkipNotificationText;
-            if (!string.IsNullOrWhiteSpace(notificationText))
-            {
-                _sessionManager.SendMessageCommand(
-                session.Id,
-                session.Id,
-                new MessageCommand()
-                {
-                    Header = string.Empty,      // some clients require header to be a string instead of null
-                    Text = notificationText,
-                    TimeoutMs = 2000,
-                },
-                CancellationToken.None);
-            }
-
-            _logger.LogDebug("Sending seek command to {Session}", deviceId);
-
-            var introEnd = (long)intro.IntroEnd - Plugin.Instance!.Configuration.SecondsOfIntroToPlay;
-
-            _sessionManager.SendPlaystateCommand(
-                session.Id,
-                session.Id,
-                new PlaystateRequest
-                {
-                    Command = PlaystateCommand.Seek,
-                    ControllingUserId = session.UserId.ToString("N"),
-                    SeekPositionTicks = introEnd * TimeSpan.TicksPerSecond,
-                },
-                CancellationToken.None);
-
-            // Flag that we've sent the seek command so that it's not sent repeatedly
-            lock (_sentSeekCommandLock)
-            {
-                _logger.LogTrace("Setting seek command state for session {Session}", deviceId);
-                _sentSeekCommand[deviceId] = true;
-            }
+        // Flag that we've sent the seek command so that it's not sent repeatedly
+        lock (type_lock)
+        {
+            _logger.LogTrace("Setting seek command state for session {Session}", deviceId);
+            _sentSeekCommand[deviceId][type] = true;
         }
     }
 
