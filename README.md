@@ -1,5 +1,4 @@
 # Intro Skipper (beta)
-
 <div align="center">
     <p>
         <img alt="Plugin Banner" src="https://raw.githubusercontent.com/jumoog/intro-skipper/master/images/logo.png" />
@@ -8,6 +7,11 @@
         Analyzes the audio of television episodes to detect and skip over intros.
     </p>
 </div>
+
+## ⚠️ Warning for Jellyfin 10.9 ⚠️ ##
+
+**The current version is a beta version, so please save your old files before upgrading from `10.8` to `10.9`.
+Changes are possible during the beta phase!**
 
 ## System requirements
 
