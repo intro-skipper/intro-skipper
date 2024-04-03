@@ -99,7 +99,7 @@ public class Entrypoint : IServerEntryPoint
         {
             return;
         }
-        
+
         // Don't do anything if it's not a supported media type
         if (itemChangeEventArgs.Item is not Episode)
         {
@@ -126,7 +126,7 @@ public class Entrypoint : IServerEntryPoint
         {
             return;
         }
-        
+
         // Don't do anything if it's not a supported media type
         if (itemChangeEventArgs.Item is not Episode)
         {
@@ -153,7 +153,7 @@ public class Entrypoint : IServerEntryPoint
         {
             return;
         }
-        
+
         var result = eventArgs.Result;
 
         if (result.Key != "RefreshLibrary")
