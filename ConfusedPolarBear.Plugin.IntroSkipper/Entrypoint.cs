@@ -95,7 +95,7 @@ public class Entrypoint : IServerEntryPoint
     private void OnItemAdded(object? sender, ItemChangeEventArgs itemChangeEventArgs)
     {
         // Don't do anything if auto detection is disabled
-        if (Plugin.Instance!.Configuration.!AutoDetectIntros && Plugin.Instance!.Configuration.!AutoDetectCredits)
+        if (!Plugin.Instance!.Configuration.AutoDetectIntros && !Plugin.Instance!.Configuration.AutoDetectCredits)
         {
             return;
         }
@@ -122,7 +122,7 @@ public class Entrypoint : IServerEntryPoint
     private void OnItemModified(object? sender, ItemChangeEventArgs itemChangeEventArgs)
     {
         // Don't do anything if auto detection is disabled
-        if (Plugin.Instance!.Configuration.!AutoDetectIntros && Plugin.Instance!.Configuration.!AutoDetectCredits)
+        if (!Plugin.Instance!.Configuration.AutoDetectIntros && !Plugin.Instance!.Configuration.AutoDetectCredits)
         {
             return;
         }
@@ -149,7 +149,7 @@ public class Entrypoint : IServerEntryPoint
     private void OnLibraryRefresh(object? sender, TaskCompletionEventArgs eventArgs)
     {
         // Don't do anything if auto detection is disabled
-        if (Plugin.Instance!.Configuration.!AutoDetectIntros && Plugin.Instance!.Configuration.!AutoDetectCredits)
+        if (!Plugin.Instance!.Configuration.AutoDetectIntros && !Plugin.Instance!.Configuration.AutoDetectCredits)
         {
             return;
         }
