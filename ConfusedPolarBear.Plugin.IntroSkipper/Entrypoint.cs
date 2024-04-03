@@ -68,6 +68,12 @@ public class Entrypoint : IHostedService
     /// <param name="itemChangeEventArgs">The <see cref="ItemChangeEventArgs"/>.</param>
     private void OnItemAdded(object? sender, ItemChangeEventArgs itemChangeEventArgs)
     {
+        // Don't do anything if auto detection is disabled
+        if (!Plugin.Instance!.Configuration.AutoDetectIntros && !Plugin.Instance!.Configuration.AutoDetectCredits)
+        {
+            return;
+        }
+
         // Don't do anything if it's not a supported media type
         if (itemChangeEventArgs.Item is not Episode)
         {
@@ -89,6 +95,12 @@ public class Entrypoint : IHostedService
     /// <param name="itemChangeEventArgs">The <see cref="ItemChangeEventArgs"/>.</param>
     private void OnItemModified(object? sender, ItemChangeEventArgs itemChangeEventArgs)
     {
+        // Don't do anything if auto detection is disabled
+        if (!Plugin.Instance!.Configuration.AutoDetectIntros && !Plugin.Instance!.Configuration.AutoDetectCredits)
+        {
+            return;
+        }
+
         // Don't do anything if it's not a supported media type
         if (itemChangeEventArgs.Item is not Episode)
         {
@@ -110,6 +122,12 @@ public class Entrypoint : IHostedService
     /// <param name="eventArgs">The <see cref="TaskCompletionEventArgs"/>.</param>
     private void OnLibraryRefresh(object? sender, TaskCompletionEventArgs eventArgs)
     {
+        // Don't do anything if auto detection is disabled
+        if (!Plugin.Instance!.Configuration.AutoDetectIntros && !Plugin.Instance!.Configuration.AutoDetectCredits)
+        {
+            return;
+        }
+
         var result = eventArgs.Result;
 
         if (result.Key != "RefreshLibrary")
@@ -247,12 +265,9 @@ public class Entrypoint : IHostedService
     /// <inheritdoc />
     public Task StartAsync(CancellationToken cancellationToken)
     {
-        if (Plugin.Instance!.Configuration.AutoDetectIntros || Plugin.Instance!.Configuration.AutoDetectCredits)
-        {
-            _libraryManager.ItemAdded += OnItemAdded;
-            _libraryManager.ItemUpdated += OnItemModified;
-            _taskManager.TaskCompleted += OnLibraryRefresh;
-        }
+        _libraryManager.ItemAdded += OnItemAdded;
+        _libraryManager.ItemUpdated += OnItemModified;
+        _taskManager.TaskCompleted += OnLibraryRefresh;
 
         FFmpegWrapper.Logger = _logger;
 
