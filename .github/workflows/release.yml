@@ -75,9 +75,10 @@ jobs:
         append_body: true
         body: |
           ---
-          sourceUrl:  ${{ env.SOURCE_URL }}
-          checksum:  ${{ env.CHECKSUM }}
-          timestamp: ${{ env.TIMESTAMP }}
+          "targetAbi": "10.8.4.0",
+          "sourceUrl": "${{ env.SOURCE_URL }}",
+          "checksum:" "${{ env.CHECKSUM }}",
+          "timestamp": "${{ env.TIMESTAMP }}"
         draft: false
         prerelease: false
       env:
