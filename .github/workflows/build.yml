@@ -64,7 +64,7 @@ jobs:
       if: github.event_name != 'pull_request'
       with:
         repo_token: "${{ secrets.GITHUB_TOKEN }}"
-        automatic_release_tag: preview
+        automatic_release_tag: 10.8/preview
         prerelease: true
         title: intro-skipper-${{ env.GIT_HASH }}
         files: |
@@ -74,7 +74,7 @@ jobs:
       uses: softprops/action-gh-release@v2.0.4
       if: github.event_name != 'pull_request'
       with:
-        tag_name: preview
+        tag_name: 10.8/preview
         name: intro-skipper-${{ env.GIT_HASH }}
         append_body: true
         body: |
