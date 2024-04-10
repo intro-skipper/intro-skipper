@@ -8,46 +8,6 @@
         "category": "General",
         "imageUrl": "https://raw.githubusercontent.com/jumoog/intro-skipper/master/images/logo.png",
         "versions": [
-          {
-              "version": "0.1.16.5",
-              "changelog": "- See the full changelog at [GitHub](https://github.com/jumoog/intro-skipper/blob/master/CHANGELOG.md)\n",
-              "targetAbi": "10.8.4.0",
-              "sourceUrl": "https://github.com/jumoog/intro-skipper/releases/download/10.8/v0.1.16.5/intro-skipper-v0.1.16.5.zip",
-              "checksum": "3117831289ba9e82a97a1d072d842c19",
-              "timestamp": "2024-04-10T04:53:16Z"
-          },
-          {
-              "version": "0.1.16.4",
-              "changelog": "- See the full changelog at [GitHub](https://github.com/jumoog/intro-skipper/blob/master/CHANGELOG.md)\n",
-              "targetAbi": "10.8.4.0",
-              "sourceUrl": "https://github.com/jumoog/intro-skipper/releases/download/v0.1.16.4/intro-skipper-v0.1.16.4.zip",
-              "checksum": "fcfd2e5e01980de4d48034be67d89bd1",
-              "timestamp": "2024-03-26T20:44:40Z"
-          },
-          {
-              "version": "0.1.16.3",
-              "changelog": "- See the full changelog at [GitHub](https://github.com/jumoog/intro-skipper/blob/master/CHANGELOG.md)\n",
-              "targetAbi": "10.8.4.0",
-              "sourceUrl": "https://github.com/jumoog/intro-skipper/releases/download/v0.1.16.3/intro-skipper-v0.1.16.3.zip",
-              "checksum": "f4832c852684409206e0f4191a135779",
-              "timestamp": "2024-03-11T22:00:13Z"
-          },
-          {
-              "version": "0.1.16.2",
-              "changelog": "- See the full changelog at [GitHub](https://github.com/jumoog/intro-skipper/blob/master/CHANGELOG.md)\n",
-              "targetAbi": "10.8.4.0",
-              "sourceUrl": "https://github.com/jumoog/intro-skipper/releases/download/v0.1.16.2/intro-skipper-v0.1.16.2.zip",
-              "checksum": "714e084cb02d159da57216e2ceec3509",
-              "timestamp": "2024-03-07T21:20:34Z"
-          },
-          {
-                "version": "0.1.16.1",
-                "changelog": "- See the full changelog at [GitHub](https://github.com/jumoog/intro-skipper/blob/master/CHANGELOG.md)\n",
-                "targetAbi": "10.8.4.0",
-                "sourceUrl": "https://github.com/jumoog/intro-skipper/releases/download/v0.1.16.1/intro-skipper-v0.1.16.1.zip",
-                "checksum": "d8e5370f974bd5624206f87b3fed05bb",
-                "timestamp": "2024-03-06T10:17:25Z"
-            },
             {
                 "version": "0.1.16.0",
                 "changelog": "- See the full changelog at [GitHub](https://github.com/jumoog/intro-skipper/blob/master/CHANGELOG.md)\n",
