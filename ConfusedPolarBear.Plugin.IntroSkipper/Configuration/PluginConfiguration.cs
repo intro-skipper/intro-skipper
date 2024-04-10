@@ -128,6 +128,11 @@ public class PluginConfiguration : BasePluginConfiguration
     public bool AutoSkip { get; set; }
 
     /// <summary>
+    /// Gets or sets a value indicating whether credits should be automatically skipped.
+    /// </summary>
+    public bool AutoSkipCredits { get; set; }
+
+    /// <summary>
     /// Gets or sets the seconds before the intro starts to show the skip prompt at.
     /// </summary>
     public int ShowPromptAdjustment { get; set; } = 5;
@@ -197,6 +202,11 @@ public class PluginConfiguration : BasePluginConfiguration
     /// Gets or sets the notification text sent after automatically skipping an introduction.
     /// </summary>
     public string AutoSkipNotificationText { get; set; } = "Intro skipped";
+
+    /// <summary>
+    /// Gets or sets the notification text sent after automatically skipping credits.
+    /// </summary>
+    public string AutoSkipCreditsNotificationText { get; set; } = "Intro skipped";
 
     /// <summary>
     /// Gets or sets the number of threads for an ffmpeg process.

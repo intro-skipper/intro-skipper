@@ -346,6 +346,19 @@
 
                         <div class="checkboxContainer checkboxContainer-withDescription">
                             <label class="emby-checkbox-label">
+                                <input id="AutoSkipCredits" type="checkbox" is="emby-checkbox" />
+                                <span>Automatically skip credits</span>
+                            </label>
+
+                            <div class="fieldDescription">
+                                If checked, credits will be automatically skipped. If you access Jellyfin through a
+                                reverse proxy, it must be configured to proxy web
+                                sockets.<br />
+                            </div>
+                        </div>
+
+                        <div class="checkboxContainer checkboxContainer-withDescription">
+                            <label class="emby-checkbox-label">
                                 <input id="SkipButtonVisible" type="checkbox" is="emby-checkbox" />
                                 <span>Show skip intro button</span>
                             </label>
@@ -433,6 +446,16 @@
                                 <input id="AutoSkipNotificationText" type="text" is="emby-input" />
                                 <div class="fieldDescription">
                                     Message shown after automatically skipping an introduction. Leave blank to disable notification.
+                                </div>
+                            </div>
+
+                            <div id="divAutoSkipCreditsNotificationText" class="inputContainer">
+                                <label class="inputLabel" for="AutoSkipCreditsNotificationText">
+                                    Automatic skip notification message
+                                </label>
+                                <input id="AutoSkipCreditsNotificationText" type="text" is="emby-input" />
+                                <div class="fieldDescription">
+                                    Message shown after automatically skipping credits. Leave blank to disable notification.
                                 </div>
                             </div>
                         </details>
@@ -609,7 +632,8 @@
                 // UI customization
                 "SkipButtonIntroText",
                 "SkipButtonEndCreditsText",
-                "AutoSkipNotificationText"
+                "AutoSkipNotificationText",
+                "AutoSkipCreditsNotificationText"
             ]
 
             var booleanConfigurationFields = [
@@ -620,6 +644,7 @@
                 "UseChromaprint",
                 "CacheFingerprints",
                 "AutoSkip",
+                "AutoSkipCredits",
                 "SkipFirstEpisode",
                 "PersistSkipButton",
                 "SkipButtonVisible"
@@ -644,6 +669,8 @@
             var autoSkip = document.querySelector("input#AutoSkip");
             var skipFirstEpisode = document.querySelector("div#divSkipFirstEpisode");
             var autoSkipNotificationText = document.querySelector("div#divAutoSkipNotificationText");
+            var autoSkipCredits = document.querySelector("input#AutoSkipCredits");
+            var autoSkipCreditsNotificationText = document.querySelector("div#divAutoSkipCreditsNotificationText");
 
             async function autoSkipChanged() {
                 if (autoSkip.checked) {
@@ -656,6 +683,16 @@
             }
 
             autoSkip.addEventListener("change", autoSkipChanged);
+
+            async function autoSkipCreditsChanged() {
+                if (autoSkipCredits.checked) {
+                    autoSkipCreditsNotificationText.style.display = 'unset';
+                } else {
+                    autoSkipCreditsNotificationText.style.display = 'none';
+                }
+            }
+
+            autoSkipCredits.addEventListener("change", autoSkipCreditsChanged);
 
             var persistSkip = document.querySelector("input#PersistSkipButton");
             var showAdjustment = document.querySelector("div#divShowPromptAdjustment");
@@ -996,6 +1033,7 @@
                         }
 
                         autoSkipChanged();
+                        autoSkipCreditsChanged();
                         persistSkipChanged();
 
                         Dashboard.hideLoadingMsg();
