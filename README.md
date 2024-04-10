@@ -9,6 +9,11 @@
     </p>
 </div>
 
+## ⚠️ Warning for Jellyfin 10.9 ⚠️ ##
+
+**The current version is a beta version, so please save your old files before upgrading from `10.8` to `10.9`.
+Changes are possible during the beta phase!**
+
 ## System requirements
 
 * Jellyfin 10.8.4 (or newer)
