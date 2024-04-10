@@ -145,6 +145,11 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
     public event EventHandler? AutoSkipChanged;
 
     /// <summary>
+    /// Fired after configuration has been saved so the auto skip timer can be stopped or started.
+    /// </summary>
+    public event EventHandler? AutoSkipCreditsChanged;
+
+    /// <summary>
     /// Gets or sets a value indicating whether analysis is running.
     /// </summary>
     public bool AnalyzerTaskIsRunning { get; set; } = false;
@@ -355,6 +360,7 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
     private void OnConfigurationChanged(object? sender, BasePluginConfiguration e)
     {
         AutoSkipChanged?.Invoke(this, EventArgs.Empty);
+        AutoSkipCreditsChanged?.Invoke(this, EventArgs.Empty);
     }
 
     /// <summary>
