@@ -15,7 +15,7 @@ namespace ConfusedPolarBear.Plugin.IntroSkipper;
 /// <summary>
 /// Server entrypoint.
 /// </summary>
-public class Entrypoint : IHostedService
+public class Entrypoint : IHostedService, IDisposable
 {
     private readonly IUserManager _userManager;
     private readonly IUserViewManager _userViewManager;
@@ -55,6 +55,36 @@ public class Entrypoint : IHostedService
                 null,
                 Timeout.InfiniteTimeSpan,
                 Timeout.InfiniteTimeSpan);
+    }
+
+    /// <inheritdoc />
+    public Task StartAsync(CancellationToken cancellationToken)
+    {
+        _libraryManager.ItemAdded += OnItemAdded;
+        _libraryManager.ItemUpdated += OnItemModified;
+        _taskManager.TaskCompleted += OnLibraryRefresh;
+
+        FFmpegWrapper.Logger = _logger;
+
+        try
+        {
+            // Enqueue all episodes at startup to ensure any FFmpeg errors appear as early as possible
+            _logger.LogInformation("Running startup enqueue");
+            var queueManager = new QueueManager(_loggerFactory.CreateLogger<QueueManager>(), _libraryManager);
+            queueManager?.GetMediaItems();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError("Unable to run startup enqueue: {Exception}", ex);
+        }
+
+        return Task.CompletedTask;
+    }
+
+    /// <inheritdoc />
+    public Task StopAsync(CancellationToken cancellationToken)
+    {
+        return Task.CompletedTask;
     }
 
     // Disclose source for inspiration
@@ -242,6 +272,7 @@ public class Entrypoint : IHostedService
     public void Dispose()
     {
         Dispose(true);
+        GC.SuppressFinalize(this);
     }
 
     /// <summary>
@@ -260,35 +291,5 @@ public class Entrypoint : IHostedService
 
             return;
         }
-    }
-
-    /// <inheritdoc />
-    public Task StartAsync(CancellationToken cancellationToken)
-    {
-        _libraryManager.ItemAdded += OnItemAdded;
-        _libraryManager.ItemUpdated += OnItemModified;
-        _taskManager.TaskCompleted += OnLibraryRefresh;
-
-        FFmpegWrapper.Logger = _logger;
-
-        try
-        {
-            // Enqueue all episodes at startup to ensure any FFmpeg errors appear as early as possible
-            _logger.LogInformation("Running startup enqueue");
-            var queueManager = new QueueManager(_loggerFactory.CreateLogger<QueueManager>(), _libraryManager);
-            queueManager?.GetMediaItems();
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError("Unable to run startup enqueue: {Exception}", ex);
-        }
-
-        return Task.CompletedTask;
-    }
-
-    /// <inheritdoc />
-    public Task StopAsync(CancellationToken cancellationToken)
-    {
-        return Task.CompletedTask;
     }
 }
