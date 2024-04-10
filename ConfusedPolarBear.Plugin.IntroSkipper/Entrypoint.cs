@@ -57,6 +57,36 @@ public class Entrypoint : IHostedService
                 Timeout.InfiniteTimeSpan);
     }
 
+    /// <inheritdoc />
+    public Task StartAsync(CancellationToken cancellationToken)
+    {
+        _libraryManager.ItemAdded += OnItemAdded;
+        _libraryManager.ItemUpdated += OnItemModified;
+        _taskManager.TaskCompleted += OnLibraryRefresh;
+
+        FFmpegWrapper.Logger = _logger;
+
+        try
+        {
+            // Enqueue all episodes at startup to ensure any FFmpeg errors appear as early as possible
+            _logger.LogInformation("Running startup enqueue");
+            var queueManager = new QueueManager(_loggerFactory.CreateLogger<QueueManager>(), _libraryManager);
+            queueManager?.GetMediaItems();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError("Unable to run startup enqueue: {Exception}", ex);
+        }
+
+        return Task.CompletedTask;
+    }
+
+    /// <inheritdoc />
+    public Task StopAsync(CancellationToken cancellationToken)
+    {
+        return Task.CompletedTask;
+    }
+
     // Disclose source for inspiration
     // Implementation based on the principles of jellyfin-plugin-media-analyzer:
     // https://github.com/endrl/jellyfin-plugin-media-analyzer
@@ -242,6 +272,7 @@ public class Entrypoint : IHostedService
     public void Dispose()
     {
         Dispose(true);
+        GC.SuppressFinalize(this);
     }
 
     /// <summary>
@@ -260,35 +291,5 @@ public class Entrypoint : IHostedService
 
             return;
         }
-    }
-
-    /// <inheritdoc />
-    public Task StartAsync(CancellationToken cancellationToken)
-    {
-        _libraryManager.ItemAdded += OnItemAdded;
-        _libraryManager.ItemUpdated += OnItemModified;
-        _taskManager.TaskCompleted += OnLibraryRefresh;
-
-        FFmpegWrapper.Logger = _logger;
-
-        try
-        {
-            // Enqueue all episodes at startup to ensure any FFmpeg errors appear as early as possible
-            _logger.LogInformation("Running startup enqueue");
-            var queueManager = new QueueManager(_loggerFactory.CreateLogger<QueueManager>(), _libraryManager);
-            queueManager?.GetMediaItems();
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError("Unable to run startup enqueue: {Exception}", ex);
-        }
-
-        return Task.CompletedTask;
-    }
-
-    /// <inheritdoc />
-    public Task StopAsync(CancellationToken cancellationToken)
-    {
-        return Task.CompletedTask;
     }
 }
