@@ -2,9 +2,9 @@ name: 'Build Plugin'
 
 on:
   push:
-    branches: [ "10.9" ]
+    branches: [ "master" ]
   pull_request:
-    branches: [ "10.9" ]
+    branches: [ "master" ]
 
 permissions:
   contents: write
