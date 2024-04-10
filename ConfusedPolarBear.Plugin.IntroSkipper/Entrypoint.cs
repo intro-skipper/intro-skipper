@@ -15,7 +15,7 @@ namespace ConfusedPolarBear.Plugin.IntroSkipper;
 /// <summary>
 /// Server entrypoint.
 /// </summary>
-public class Entrypoint : IHostedService
+public class Entrypoint : IHostedService, IDisposable
 {
     private readonly IUserManager _userManager;
     private readonly IUserViewManager _userViewManager;
