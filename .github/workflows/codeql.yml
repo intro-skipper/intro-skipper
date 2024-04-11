@@ -8,6 +8,7 @@ on:
 
 permissions:
   contents: write
+  packages: read
 
 jobs:
   analyze:
@@ -27,7 +28,7 @@ jobs:
       with:
         dotnet-version: 8.0.x
 
-    - name: Restore dependencies
+    - name: Install dependencies
       run: |
         dotnet nuget add source --username ${{ github.repository_owner }} --password ${{ secrets.GITHUB_TOKEN }} --store-password-in-clear-text --name jellyfin-pre "https://nuget.pkg.github.com/jellyfin/index.json"
         dotnet tool install --global dotnet-outdated-tool
