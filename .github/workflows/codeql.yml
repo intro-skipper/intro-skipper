@@ -2,12 +2,13 @@ name: "CodeQL"
 
 on:
   push:
-    branches: [ master ]
+    branches: [ 10.8 ]
   pull_request:
-    branches: [ master ]
+    branches: [ 10.8 ]
 
 permissions:
   contents: write
+  packages: read
 
 jobs:
   analyze:
