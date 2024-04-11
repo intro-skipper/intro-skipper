@@ -6,9 +6,7 @@ on:
   pull_request:
     branches: [ 10.8 ]
 
-permissions:
-  contents: write
-  packages: read
+permissions: write-all
 
 jobs:
   analyze:
