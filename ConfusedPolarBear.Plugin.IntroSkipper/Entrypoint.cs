@@ -84,6 +84,13 @@ public class Entrypoint : IHostedService, IDisposable
     /// <inheritdoc />
     public Task StopAsync(CancellationToken cancellationToken)
     {
+        _libraryManager.ItemAdded -= OnItemAdded;
+        _libraryManager.ItemUpdated -= OnItemModified;
+        _taskManager.TaskCompleted -= OnLibraryRefresh;
+
+        // Stop the timer
+        _queueTimer.Change(Timeout.Infinite, 0);
+
         return Task.CompletedTask;
     }
 
@@ -283,10 +290,6 @@ public class Entrypoint : IHostedService, IDisposable
     {
         if (!dispose)
         {
-            _libraryManager.ItemAdded -= OnItemAdded;
-            _libraryManager.ItemUpdated -= OnItemModified;
-            _taskManager.TaskCompleted -= OnLibraryRefresh;
-
             _queueTimer.Dispose();
 
             return;
