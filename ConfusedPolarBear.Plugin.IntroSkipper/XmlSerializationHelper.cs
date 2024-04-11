@@ -2,7 +2,6 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Runtime.Serialization;
-using System.Text;
 using System.Xml;
 
 namespace ConfusedPolarBear.Plugin.IntroSkipper
@@ -44,8 +43,10 @@ namespace ConfusedPolarBear.Plugin.IntroSkipper
                 Console.WriteLine($"Error deserializing XML: {ex.Message}");
             }
 
+            ArgumentNullException.ThrowIfNull(result);
+
             // Return the deserialized object
-            return result!;
+            return result;
         }
 
         public static void MigrateXML(string filePath)
@@ -56,15 +57,19 @@ namespace ConfusedPolarBear.Plugin.IntroSkipper
                 XmlDocument xmlDoc = new XmlDocument();
                 xmlDoc.Load(filePath);
 
-                // Replace the namespace declaration
-                XmlNamespaceManager nsManager = new XmlNamespaceManager(xmlDoc.NameTable);
-                nsManager.AddNamespace("xsi", "http://www.w3.org/2001/XMLSchema-instance");
-                nsManager.AddNamespace("xsd", "http://www.w3.org/2001/XMLSchema");
-                xmlDoc.DocumentElement?.SetAttribute("xmlns", "http://schemas.datacontract.org/2004/07/ConfusedPolarBear.Plugin.IntroSkipper");
-                xmlDoc.DocumentElement?.SetAttribute("xmlns:i", "http://www.w3.org/2001/XMLSchema-instance");
+                ArgumentNullException.ThrowIfNull(xmlDoc.DocumentElement);
 
-                // Save the modified XML document
-                xmlDoc.Save(filePath);
+                // check that the file has not already been migrated
+                if (xmlDoc.DocumentElement.HasAttribute("xmlns:xsi"))
+                {
+                    xmlDoc.DocumentElement.RemoveAttribute("xmlns:xsi");
+                    xmlDoc.DocumentElement.RemoveAttribute("xmlns:xsd");
+                    xmlDoc.DocumentElement.SetAttribute("xmlns", "http://schemas.datacontract.org/2004/07/ConfusedPolarBear.Plugin.IntroSkipper");
+                    xmlDoc.DocumentElement.SetAttribute("xmlns:i", "http://www.w3.org/2001/XMLSchema-instance");
+
+                    // Save the modified XML document
+                    xmlDoc.Save(filePath);
+                }
             }
         }
     }
