@@ -98,8 +98,6 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
         XmlSerializationHelper.MigrateXML(_introPath);
         XmlSerializationHelper.MigrateXML(_creditsPath);
 
-        ConfigurationChanged += OnConfigurationChanged;
-
         // TODO: remove when https://github.com/jellyfin/jellyfin-meta/discussions/30 is complete
         try
         {
@@ -141,11 +139,6 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
 
         FFmpegWrapper.CheckFFmpegVersion();
     }
-
-    /// <summary>
-    /// Fired after configuration has been saved so the auto skip timer can be stopped or started.
-    /// </summary>
-    public event EventHandler? AutoSkipChanged;
 
     /// <summary>
     /// Gets or sets a value indicating whether analysis is running.
@@ -363,11 +356,6 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
 
             Plugin.Instance!.SaveTimestamps();
         }
-    }
-
-    private void OnConfigurationChanged(object? sender, BasePluginConfiguration e)
-    {
-        AutoSkipChanged?.Invoke(this, EventArgs.Empty);
     }
 
     /// <summary>

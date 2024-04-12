@@ -3,11 +3,12 @@ using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Timers;
+using ConfusedPolarBear.Plugin.IntroSkipper.Configuration;
 using MediaBrowser.Common.Extensions;
 using MediaBrowser.Controller.Library;
-using MediaBrowser.Controller.Plugins;
 using MediaBrowser.Controller.Session;
 using MediaBrowser.Model.Entities;
+using MediaBrowser.Model.Plugins;
 using MediaBrowser.Model.Session;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
@@ -45,9 +46,10 @@ public class AutoSkip : IHostedService, IDisposable
         _sentSeekCommand = new Dictionary<string, bool>();
     }
 
-    private void AutoSkipChanged(object? sender, EventArgs e)
+    private void AutoSkipChanged(object? sender, BasePluginConfiguration e)
     {
-        var newState = Plugin.Instance!.Configuration.AutoSkip;
+        var configuration = (PluginConfiguration)e;
+        var newState = configuration.AutoSkip;
         _logger.LogDebug("Setting playback timer enabled to {NewState}", newState);
         _playbackTimer.Enabled = newState;
     }
@@ -213,13 +215,13 @@ public class AutoSkip : IHostedService, IDisposable
         _logger.LogDebug("Setting up automatic skipping");
 
         _userDataManager.UserDataSaved += UserDataManager_UserDataSaved;
-        Plugin.Instance!.AutoSkipChanged += AutoSkipChanged;
+        Plugin.Instance!.ConfigurationChanged += AutoSkipChanged;
 
         // Make the timer restart automatically and set enabled to match the configuration value.
         _playbackTimer.AutoReset = true;
         _playbackTimer.Elapsed += PlaybackTimer_Elapsed;
 
-        AutoSkipChanged(null, EventArgs.Empty);
+        AutoSkipChanged(null, Plugin.Instance!.Configuration);
 
         return Task.CompletedTask;
     }
