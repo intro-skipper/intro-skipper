@@ -202,9 +202,6 @@ public class AutoSkip : IHostedService, IDisposable
         {
             return;
         }
-
-        _playbackTimer.Stop();
-        _playbackTimer.Dispose();
     }
 
     /// <inheritdoc />
@@ -228,6 +225,11 @@ public class AutoSkip : IHostedService, IDisposable
     public Task StopAsync(CancellationToken cancellationToken)
     {
         _userDataManager.UserDataSaved -= UserDataManager_UserDataSaved;
+        Plugin.Instance!.AutoSkipChanged -= AutoSkipChanged;
+
+        _playbackTimer.Stop();
+        _playbackTimer.Dispose();
+        
         return Task.CompletedTask;
     }
 }
