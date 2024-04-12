@@ -12,8 +12,8 @@ namespace ConfusedPolarBear.Plugin.IntroSkipper
         /// <inheritdoc />
         public void RegisterServices(IServiceCollection serviceCollection, IServerApplicationHost applicationHost)
         {
-            serviceCollection.AddHostedService<AutoSkip>();
             serviceCollection.AddHostedService<Entrypoint>();
+            serviceCollection.AddHostedService<AutoSkip>();
         }
     }
 }
