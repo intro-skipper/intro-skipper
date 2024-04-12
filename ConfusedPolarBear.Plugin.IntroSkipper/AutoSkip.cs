@@ -229,7 +229,7 @@ public class AutoSkip : IHostedService, IDisposable
 
         _playbackTimer.Stop();
         _playbackTimer.Dispose();
-        
+
         return Task.CompletedTask;
     }
 }
