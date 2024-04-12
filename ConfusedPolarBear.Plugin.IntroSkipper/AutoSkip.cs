@@ -202,6 +202,8 @@ public class AutoSkip : IHostedService, IDisposable
         {
             return;
         }
+
+        _playbackTimer.Dispose();
     }
 
     /// <inheritdoc />
