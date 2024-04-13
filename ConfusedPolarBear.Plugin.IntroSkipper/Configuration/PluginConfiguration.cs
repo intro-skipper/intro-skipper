@@ -96,7 +96,7 @@ public class PluginConfiguration : BasePluginConfiguration
     /// <summary>
     /// Gets or sets the upper limit (in seconds) on the length of each episode's audio track that will be analyzed when searching for ending credits.
     /// </summary>
-    public int MaximumEpisodeCreditsDuration { get; set; } = 240;
+    public int MaximumEpisodeCreditsDuration { get; set; } = 600;
 
     /// <summary>
     /// Gets or sets the minimum percentage of a frame that must consist of black pixels before it is considered a black frame.
