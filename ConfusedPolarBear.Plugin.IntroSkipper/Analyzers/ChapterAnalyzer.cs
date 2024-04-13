@@ -94,7 +94,7 @@ public class ChapterAnalyzer : IMediaFileAnalyzer
         var minDuration = config.MinimumIntroDuration;
         int maxDuration = mode == AnalysisMode.Introduction ?
             config.MaximumIntroDuration :
-            config.MaximumEpisodeCreditsDuration;
+            config.MaximumCreditsDuration;
 
         if (chapters.Count == 0)
         {

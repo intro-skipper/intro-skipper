@@ -79,7 +79,7 @@ public class BlackFrameAnalyzer : IMediaFileAnalyzer
         var config = Plugin.Instance?.Configuration ?? new Configuration.PluginConfiguration();
 
         // Start by analyzing the last N minutes of the file.
-        var start = TimeSpan.FromSeconds(config.MaximumEpisodeCreditsDuration);
+        var start = TimeSpan.FromSeconds(config.MaximumCreditsDuration);
         var end = TimeSpan.FromSeconds(config.MinimumCreditsDuration);
         var firstFrameTime = 0.0;
 
