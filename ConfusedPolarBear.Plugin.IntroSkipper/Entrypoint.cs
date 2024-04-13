@@ -25,6 +25,8 @@ public class Entrypoint : IHostedService, IDisposable
     private readonly ILoggerFactory _loggerFactory;
     private Timer _queueTimer;
     private bool _analyzeAgain;
+    private static CancellationTokenSource? _cancellationTokenSource;
+    private static ManualResetEventSlim _autoTaskCompletEvent = new ManualResetEventSlim(false);
 
     /// <summary>
     /// Initializes a new instance of the <see cref="Entrypoint"/> class.
@@ -55,6 +57,24 @@ public class Entrypoint : IHostedService, IDisposable
                 null,
                 Timeout.InfiniteTimeSpan,
                 Timeout.InfiniteTimeSpan);
+    }
+
+    /// <summary>
+    /// Gets State of the automatic task.
+    /// </summary>
+    public static TaskState AutomaticTaskState
+    {
+        get
+        {
+            if (_cancellationTokenSource is not null)
+            {
+                return _cancellationTokenSource.IsCancellationRequested
+                        ? TaskState.Cancelling
+                        : TaskState.Running;
+            }
+
+            return TaskState.Idle;
+        }
     }
 
     /// <inheritdoc />
@@ -90,6 +110,12 @@ public class Entrypoint : IHostedService, IDisposable
 
         // Stop the timer
         _queueTimer.Change(Timeout.Infinite, 0);
+
+        if (_cancellationTokenSource != null) // Null Check
+            {
+                _cancellationTokenSource.Dispose();
+                _cancellationTokenSource = null;
+            }
 
         return Task.CompletedTask;
     }
@@ -219,50 +245,54 @@ public class Entrypoint : IHostedService, IDisposable
         _logger.LogInformation("Timer elapsed - start analyzing");
         Plugin.Instance!.AnalyzerTaskIsRunning = true;
 
-        var progress = new Progress<double>();
-        var cancellationToken = new CancellationToken(false);
-
-        if (Plugin.Instance!.Configuration.AutoDetectIntros && Plugin.Instance!.Configuration.AutoDetectCredits)
+        using (_cancellationTokenSource = new CancellationTokenSource())
         {
-            // This is where we can optimize a single scan
-            var baseIntroAnalyzer = new BaseItemAnalyzerTask(
-                AnalysisMode.Introduction,
-                _loggerFactory.CreateLogger<DetectIntrosCreditsTask>(),
-                _loggerFactory,
-                _libraryManager);
+            var progress = new Progress<double>();
+            var cancellationToken = _cancellationTokenSource.Token;
 
-            baseIntroAnalyzer.AnalyzeItems(progress, cancellationToken);
+            if (Plugin.Instance!.Configuration.AutoDetectIntros && Plugin.Instance!.Configuration.AutoDetectCredits)
+            {
+                // This is where we can optimize a single scan
+                var baseIntroAnalyzer = new BaseItemAnalyzerTask(
+                    AnalysisMode.Introduction,
+                    _loggerFactory.CreateLogger<DetectIntrosCreditsTask>(),
+                    _loggerFactory,
+                    _libraryManager);
 
-            var baseCreditAnalyzer = new BaseItemAnalyzerTask(
-                AnalysisMode.Credits,
-                _loggerFactory.CreateLogger<DetectIntrosCreditsTask>(),
-                _loggerFactory,
-                _libraryManager);
+                baseIntroAnalyzer.AnalyzeItems(progress, cancellationToken);
 
-            baseCreditAnalyzer.AnalyzeItems(progress, cancellationToken);
-        }
-        else if (Plugin.Instance!.Configuration.AutoDetectIntros)
-        {
-            var baseIntroAnalyzer = new BaseItemAnalyzerTask(
-                AnalysisMode.Introduction,
-                _loggerFactory.CreateLogger<DetectIntrosTask>(),
-                _loggerFactory,
-                _libraryManager);
+                var baseCreditAnalyzer = new BaseItemAnalyzerTask(
+                    AnalysisMode.Credits,
+                    _loggerFactory.CreateLogger<DetectIntrosCreditsTask>(),
+                    _loggerFactory,
+                    _libraryManager);
 
-            baseIntroAnalyzer.AnalyzeItems(progress, cancellationToken);
-        }
-        else if (Plugin.Instance!.Configuration.AutoDetectCredits)
-        {
-            var baseCreditAnalyzer = new BaseItemAnalyzerTask(
-                AnalysisMode.Credits,
-                _loggerFactory.CreateLogger<DetectCreditsTask>(),
-                _loggerFactory,
-                _libraryManager);
+                baseCreditAnalyzer.AnalyzeItems(progress, cancellationToken);
+            }
+            else if (Plugin.Instance!.Configuration.AutoDetectIntros)
+            {
+                var baseIntroAnalyzer = new BaseItemAnalyzerTask(
+                    AnalysisMode.Introduction,
+                    _loggerFactory.CreateLogger<DetectIntrosTask>(),
+                    _loggerFactory,
+                    _libraryManager);
 
-            baseCreditAnalyzer.AnalyzeItems(progress, cancellationToken);
+                baseIntroAnalyzer.AnalyzeItems(progress, cancellationToken);
+            }
+            else if (Plugin.Instance!.Configuration.AutoDetectCredits)
+            {
+                var baseCreditAnalyzer = new BaseItemAnalyzerTask(
+                    AnalysisMode.Credits,
+                    _loggerFactory.CreateLogger<DetectCreditsTask>(),
+                    _loggerFactory,
+                    _libraryManager);
+
+                baseCreditAnalyzer.AnalyzeItems(progress, cancellationToken);
+            }
         }
 
         Plugin.Instance!.AnalyzerTaskIsRunning = false;
+        _autoTaskCompletEvent.Set();
 
         // New item detected, start timer again
         if (_analyzeAgain)
@@ -270,6 +300,23 @@ public class Entrypoint : IHostedService, IDisposable
             _logger.LogInformation("Analyzing ended, but we need to analyze again!");
             _analyzeAgain = false;
             StartTimer();
+        }
+    }
+
+    /// <summary>
+    /// Method to cancel the automatic task.
+    /// </summary>
+    public static void CancelAutomaticTask()
+    {
+        if (_cancellationTokenSource != null)
+        {
+            _cancellationTokenSource.Cancel();
+
+            _autoTaskCompletEvent.Wait(); // Wait for the signal
+            _autoTaskCompletEvent.Reset();  // Reset for the next task
+
+            _cancellationTokenSource.Dispose(); // Now safe to dispose
+            _cancellationTokenSource = null;
         }
     }
 
