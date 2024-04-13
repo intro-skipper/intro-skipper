@@ -70,14 +70,18 @@ public class DetectCreditsTask : IScheduledTask
         }
 
         // abort if analyzer is already running
-        if (Plugin.Instance!.AnalyzerTaskIsRunning)
+        if (Plugin.Instance!.AnalyzerTaskIsRunning && Entrypoint.AutomaticTaskState == TaskState.Idle)
         {
             return Task.CompletedTask;
         }
-        else
+        else if (Plugin.Instance!.AnalyzerTaskIsRunning && Entrypoint.AutomaticTaskState == TaskState.Running)
         {
-            Plugin.Instance!.AnalyzerTaskIsRunning = true;
+            _logger.LogInformation("Automatic Task is {0} and will be canceled.", Entrypoint.AutomaticTaskState);
+            Entrypoint.CancelAutomaticTask();
         }
+
+        _logger.LogInformation("Scheduled Task is starting");
+        Plugin.Instance!.AnalyzerTaskIsRunning = true;
 
         var baseCreditAnalyzer = new BaseItemAnalyzerTask(
             AnalysisMode.Credits,
