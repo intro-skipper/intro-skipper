@@ -198,7 +198,7 @@ public class QueueManager
         _queuedEpisodes.TryAdd(episode.SeasonId, new List<QueuedEpisode>());
 
         // Queue the episode for analysis
-        var maxCreditsDuration = Plugin.Instance!.Configuration.MaximumEpisodeCreditsDuration;
+        var maxCreditsDuration = Plugin.Instance!.Configuration.MaximumCreditsDuration;
         _queuedEpisodes[episode.SeasonId].Add(new QueuedEpisode()
         {
             SeriesName = episode.SeriesName,

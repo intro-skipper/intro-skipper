@@ -48,7 +48,7 @@
                                 If enabled, credits will be automatically analyzed for new media
                             </div>
                             <div class="fieldDescription">
-                                Note: Not selecting at least one detection will disable automatic scans. To configure the scheduled task, see <a is="emby-linkbutton" class="button-link" href="scheduledtasks.html">scheduled tasks</a>.
+                                Note: Not selecting at least one automatic detection type will disable automatic scans. To configure the scheduled task, see <a is="emby-linkbutton" class="button-link" href="scheduledtasks.html">scheduled tasks</a>.
                             </div>
                         </div>
 
@@ -133,6 +133,26 @@
                                 <div class="fieldDescription">
                                     Similar sounding audio which is longer than this duration will not be considered an
                                     introduction.
+                                </div>
+                            </div>
+
+                            <div class="inputContainer">
+                                <label class="inputLabel inputLabelUnfocused" for="MinimumCreditsDuration">
+                                    Minimum credits duration (in seconds)
+                                </label>
+                                <input id="MinimumCreditsDuration" type="number" is="emby-input" min="1" />
+                                <div class="fieldDescription">
+                                    Similar sounding audio which is shorter than this duration will not be considered credits.
+                                </div>
+                            </div>
+
+                            <div class="inputContainer">
+                                <label class="inputLabel inputLabelUnfocused" for="MaximumEpisodeCreditsDuration">
+                                    Maximum credits duration (in seconds)
+                                </label>
+                                <input id="MaximumEpisodeCreditsDuration" type="number" is="emby-input" min="1" />
+                                <div class="fieldDescription">
+                                    Similar sounding audio which is longer than this duration will not be considered credits.
                                 </div>
                             </div>
 
@@ -595,6 +615,8 @@
                 "AnalysisLengthLimit",
                 "MinimumIntroDuration",
                 "MaximumIntroDuration",
+                "MinimumCreditsDuration",
+                "MaximumCreditsDuration",
                 "EdlAction",
                 "ProcessPriority",
                 "ProcessThreads",
