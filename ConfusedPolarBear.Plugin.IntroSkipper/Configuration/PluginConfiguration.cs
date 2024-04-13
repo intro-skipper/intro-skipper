@@ -206,7 +206,7 @@ public class PluginConfiguration : BasePluginConfiguration
     /// <summary>
     /// Gets or sets the notification text sent after automatically skipping credits.
     /// </summary>
-    public string AutoSkipCreditsNotificationText { get; set; } = "Intro skipped";
+    public string AutoSkipCreditsNotificationText { get; set; } = "Credits skipped";
 
     /// <summary>
     /// Gets or sets the number of threads for an ffmpeg process.
