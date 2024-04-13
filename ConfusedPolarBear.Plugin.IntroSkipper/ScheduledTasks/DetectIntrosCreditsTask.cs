@@ -13,6 +13,8 @@ namespace ConfusedPolarBear.Plugin.IntroSkipper;
 /// </summary>
 public class DetectIntrosCreditsTask : IScheduledTask
 {
+    private readonly ILogger<DetectIntrosCreditsTask> _logger;
+
     private readonly ILoggerFactory _loggerFactory;
 
     private readonly ILibraryManager _libraryManager;
@@ -22,10 +24,13 @@ public class DetectIntrosCreditsTask : IScheduledTask
     /// </summary>
     /// <param name="loggerFactory">Logger factory.</param>
     /// <param name="libraryManager">Library manager.</param>
+    /// <param name="logger">Logger.</param>
     public DetectIntrosCreditsTask(
+        ILogger<DetectIntrosCreditsTask> logger,
         ILoggerFactory loggerFactory,
         ILibraryManager libraryManager)
     {
+        _logger = logger;
         _loggerFactory = loggerFactory;
         _libraryManager = libraryManager;
     }
@@ -64,14 +69,18 @@ public class DetectIntrosCreditsTask : IScheduledTask
         }
 
         // abort if analyzer is already running
-        if (Plugin.Instance!.AnalyzerTaskIsRunning)
+        if (Plugin.Instance!.AnalyzerTaskIsRunning && Entrypoint.AutomaticTaskState == TaskState.Idle)
         {
             return Task.CompletedTask;
         }
-        else
+        else if (Plugin.Instance!.AnalyzerTaskIsRunning && Entrypoint.AutomaticTaskState == TaskState.Running)
         {
-            Plugin.Instance!.AnalyzerTaskIsRunning = true;
+            _logger.LogInformation("Automatic Task is {0} and will be canceled.", Entrypoint.AutomaticTaskState);
+            Entrypoint.CancelAutomaticTask();
         }
+
+        _logger.LogInformation("Scheduled Task is starting");
+        Plugin.Instance!.AnalyzerTaskIsRunning = true;
 
         var baseIntroAnalyzer = new BaseItemAnalyzerTask(
             AnalysisMode.Introduction,
