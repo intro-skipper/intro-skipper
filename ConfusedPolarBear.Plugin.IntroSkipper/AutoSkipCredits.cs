@@ -14,8 +14,8 @@ using Microsoft.Extensions.Logging;
 namespace ConfusedPolarBear.Plugin.IntroSkipper;
 
 /// <summary>
-/// Automatically skip past introduction sequences.
-/// Commands clients to seek to the end of the intro as soon as they start playing it.
+/// Automatically skip past credit sequences.
+/// Commands clients to seek to the end of the credits as soon as they start playing it.
 /// </summary>
 public class AutoSkipCredits : IServerEntryPoint
 {
@@ -45,7 +45,7 @@ public class AutoSkipCredits : IServerEntryPoint
     }
 
     /// <summary>
-    /// If introduction auto skipping is enabled, set it up.
+    /// If credits auto skipping is enabled, set it up.
     /// </summary>
     /// <returns>Task.</returns>
     public Task RunAsync()
@@ -136,27 +136,27 @@ public class AutoSkipCredits : IServerEntryPoint
                 }
             }
 
-            // Assert that a credit was detected for this item.
-            if (!Plugin.Instance!.Credits.TryGetValue(itemId, out var intro) || !intro.Valid)
+            // Assert that credits were detected for this item.
+            if (!Plugin.Instance!.Credits.TryGetValue(itemId, out var credit) || !credit.Valid)
             {
                 continue;
             }
 
             // Seek is unreliable if called at the very start of an episode.
-            var adjustedStart = Math.Max(5, intro.IntroStart);
+            var adjustedStart = Math.Max(5, credit.IntroStart);
 
             _logger.LogTrace(
-                "Playback position is {Position}, intro runs from {Start} to {End}",
+                "Playback position is {Position}, credits run from {Start} to {End}",
                 position,
                 adjustedStart,
-                intro.IntroEnd);
+                credit.IntroEnd);
 
-            if (position < adjustedStart || position > intro.IntroEnd)
+            if (position < adjustedStart || position > credit.IntroEnd)
             {
                 continue;
             }
 
-            // Notify the user that an introduction is being skipped for them.
+            // Notify the user that credits are being skipped for them.
             var notificationText = Plugin.Instance!.Configuration.AutoSkipCreditsNotificationText;
             if (!string.IsNullOrWhiteSpace(notificationText))
             {
@@ -174,7 +174,7 @@ public class AutoSkipCredits : IServerEntryPoint
 
             _logger.LogDebug("Sending seek command to {Session}", deviceId);
 
-            var introEnd = (long)intro.IntroEnd;
+            var creditEnd = (long)credit.IntroEnd;
 
             _sessionManager.SendPlaystateCommand(
                 session.Id,
@@ -183,7 +183,7 @@ public class AutoSkipCredits : IServerEntryPoint
                 {
                     Command = PlaystateCommand.Seek,
                     ControllingUserId = session.UserId.ToString("N"),
-                    SeekPositionTicks = introEnd * TimeSpan.TicksPerSecond,
+                    SeekPositionTicks = creditEnd * TimeSpan.TicksPerSecond,
                 },
                 CancellationToken.None);
 
