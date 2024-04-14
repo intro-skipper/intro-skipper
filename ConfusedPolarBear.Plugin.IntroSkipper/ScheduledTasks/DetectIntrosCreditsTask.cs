@@ -73,6 +73,11 @@ public class DetectIntrosCreditsTask : IScheduledTask
         {
             return Task.CompletedTask;
         }
+        else if (Plugin.Instance!.AnalyzerTaskIsRunning && Entrypoint.AutomaticTaskState == TaskState.Running)
+        {
+            _logger.LogInformation("Automatic Task is {0} and will be canceled.", Entrypoint.AutomaticTaskState);
+            Entrypoint.CancelAutomaticTask();
+        }
 
         _logger.LogInformation("Scheduled Task is starting");
         Plugin.Instance!.AnalyzerTaskIsRunning = true;
