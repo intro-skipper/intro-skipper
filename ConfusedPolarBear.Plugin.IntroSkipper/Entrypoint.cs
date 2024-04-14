@@ -148,6 +148,8 @@ public class Entrypoint : IHostedService, IDisposable
             return;
         }
 
+        Plugin.Instance!.Configuration.PathRestrictions.Add(itemChangeEventArgs.Item.ContainingFolderPath);
+
         StartTimer();
     }
 
@@ -174,6 +176,8 @@ public class Entrypoint : IHostedService, IDisposable
         {
             return;
         }
+
+        Plugin.Instance!.Configuration.PathRestrictions.Add(itemChangeEventArgs.Item.ContainingFolderPath);
 
         StartTimer();
     }
@@ -291,6 +295,7 @@ public class Entrypoint : IHostedService, IDisposable
             }
         }
 
+        Plugin.Instance!.Configuration.PathRestrictions.Clear();
         _autoTaskCompletEvent.Set();
         _cancellationTokenSource = null;
 
