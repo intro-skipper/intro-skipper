@@ -314,9 +314,6 @@ public class Entrypoint : IHostedService, IDisposable
 
             _autoTaskCompletEvent.Wait(); // Wait for the signal
             _autoTaskCompletEvent.Reset();  // Reset for the next task
-
-            _cancellationTokenSource.Dispose(); // Now safe to dispose
-            _cancellationTokenSource = null;
         }
         else if (_cancellationTokenSource != null && _cancellationTokenSource.IsCancellationRequested) // Just wait if cancellation is already requested
         {
