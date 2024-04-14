@@ -308,7 +308,7 @@ public class Entrypoint : IHostedService, IDisposable
     /// </summary>
     public static void CancelAutomaticTask()
     {
-        if (_cancellationTokenSource != null)
+        if (_cancellationTokenSource != null && !_cancellationTokenSource.IsCancellationRequested)
         {
             _cancellationTokenSource.Cancel();
 
@@ -317,6 +317,10 @@ public class Entrypoint : IHostedService, IDisposable
 
             _cancellationTokenSource.Dispose(); // Now safe to dispose
             _cancellationTokenSource = null;
+        }
+        else if (_cancellationTokenSource != null && _cancellationTokenSource.IsCancellationRequested) // Just wait if cancellation is already requested
+        {
+            _autoTaskCompletEvent.Wait();
         }
     }
 
