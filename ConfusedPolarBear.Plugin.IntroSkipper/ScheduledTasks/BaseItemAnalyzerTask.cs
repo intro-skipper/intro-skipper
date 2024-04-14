@@ -146,13 +146,20 @@ public class BaseItemAnalyzerTask
                 EdlManager.UpdateEDLFiles(episodes);
             }
 
-            if (_analysisMode == AnalysisMode.Introduction)
+            if (_logger is ILogger<DetectIntrosCreditsTask>)
             {
-                progress.Report(((totalProcessed * 100) / totalQueued) / 2);
+                if (_analysisMode == AnalysisMode.Introduction)
+                {
+                    progress.Report(((totalProcessed * 100) / totalQueued) / 2);
+                }
+                else
+                {
+                    progress.Report((((totalProcessed * 100) / totalQueued) / 2) + 50);
+                }
             }
             else
             {
-                progress.Report((((totalProcessed * 100) / totalQueued) / 2) + 50);
+                progress.Report((totalProcessed * 100) / totalQueued);
             }
         });
 

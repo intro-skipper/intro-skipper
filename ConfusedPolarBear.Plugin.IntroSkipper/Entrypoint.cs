@@ -300,8 +300,8 @@ public class Entrypoint : IServerEntryPoint
             }
         }
 
-        Plugin.Instance!.AnalyzerTaskIsRunning = false;
         Plugin.Instance!.Configuration.PathRestrictions.Clear();
+        Plugin.Instance!.AnalyzerTaskIsRunning = false;
         _autoTaskCompletEvent.Set();
 
         // New item detected, start timer again
