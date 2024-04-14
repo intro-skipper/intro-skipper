@@ -46,8 +46,8 @@
 
                             <div class="fieldDescription">
                                 If enabled, credits will be automatically analyzed for new media
-                            </div>
-                            <div class="fieldDescription">
+                                <br />
+                                <br />
                                 Note: Not selecting at least one automatic detection type will disable automatic scans. To configure the scheduled task, see <a is="emby-linkbutton" class="button-link" href="scheduledtasks.html">scheduled tasks</a>.
                             </div>
                         </div>
@@ -60,6 +60,7 @@
 
                             <div class="fieldDescription">
                                 If checked, season 0 (specials / extras) will be included in analysis.
+                                <br />
                                 <br />
                                 Note: Shows containing both a specials and extra folder will identify extras as season 0
                                 and ignore specials, regardless of this setting.
@@ -147,10 +148,10 @@
                             </div>
 
                             <div class="inputContainer">
-                                <label class="inputLabel inputLabelUnfocused" for="MaximumEpisodeCreditsDuration">
+                                <label class="inputLabel inputLabelUnfocused" for="MaximumCreditsDuration">
                                     Maximum credits duration (in seconds)
                                 </label>
-                                <input id="MaximumEpisodeCreditsDuration" type="number" is="emby-input" min="1" />
+                                <input id="MaximumCreditsDuration" type="number" is="emby-input" min="1" />
                                 <div class="fieldDescription">
                                     Similar sounding audio which is longer than this duration will not be considered credits.
                                 </div>

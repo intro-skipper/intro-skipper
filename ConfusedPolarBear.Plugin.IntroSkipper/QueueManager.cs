@@ -157,6 +157,14 @@ public class QueueManager
                 continue;
             }
 
+            if (Plugin.Instance!.Configuration.PathRestrictions.Count > 0)
+            {
+                if (!Plugin.Instance!.Configuration.PathRestrictions.Contains(item.ContainingFolderPath))
+                {
+                    continue;
+                }
+            }
+
             QueueEpisode(episode);
         }
 

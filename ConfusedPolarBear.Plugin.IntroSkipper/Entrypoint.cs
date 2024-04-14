@@ -131,6 +131,8 @@ public class Entrypoint : IServerEntryPoint
             return;
         }
 
+        Plugin.Instance!.Configuration.PathRestrictions.Add(itemChangeEventArgs.Item.ContainingFolderPath);
+
         StartTimer();
     }
 
@@ -157,6 +159,8 @@ public class Entrypoint : IServerEntryPoint
         {
             return;
         }
+
+        Plugin.Instance!.Configuration.PathRestrictions.Add(itemChangeEventArgs.Item.ContainingFolderPath);
 
         StartTimer();
     }
@@ -275,6 +279,7 @@ public class Entrypoint : IServerEntryPoint
         }
 
         Plugin.Instance!.AnalyzerTaskIsRunning = false;
+        Plugin.Instance!.Configuration.PathRestrictions.Clear();
         _autoTaskCompletEvent.Set();
 
         // New item detected, start timer again
@@ -293,6 +298,7 @@ public class Entrypoint : IServerEntryPoint
     {
         if (_cancellationTokenSource != null)
         {
+            Plugin.Instance!.Configuration.PathRestrictions.Clear();
             _cancellationTokenSource.Cancel();
 
             _autoTaskCompletEvent.Wait(); // Wait for the signal
