@@ -190,6 +190,12 @@ public class Entrypoint : IServerEntryPoint
             return;
         }
 
+        if (Plugin.Instance!.AnalyzerTaskIsRunning && AutomaticTaskState == TaskState.Running)
+        {
+            _logger.LogInformation("{0} Automatic Task will be superseded by library scan.", AutomaticTaskState);
+            CancelAutomaticTask();
+        }
+
         StartTimer();
     }
 
