@@ -261,24 +261,29 @@ public static class FFmpegWrapper
         var raw = Encoding.UTF8.GetString(GetOutput(args, cacheKey, true));
         foreach (var line in raw.Split('\n'))
         {
-            var matches = BlackFrameRegex.Matches(line);
-            if (matches.Count != 2)
+            // There is no FFmpeg flag to hide metadata such as description
+            // In our case, the metadata contained something that matched the regex.
+            if (line.StartsWith("[Parsed_blackframe_", StringComparison.OrdinalIgnoreCase))
             {
-                continue;
-            }
+                var matches = BlackFrameRegex.Matches(line);
+                if (matches.Count != 2)
+                {
+                    continue;
+                }
 
-            var (strPercent, strTime) = (
-                matches[0].Value.Split(':')[1],
-                matches[1].Value.Split(':')[1]
-            );
+                var (strPercent, strTime) = (
+                    matches[0].Value.Split(':')[1],
+                    matches[1].Value.Split(':')[1]
+                );
 
-            var bf = new BlackFrame(
-                Convert.ToInt32(strPercent, CultureInfo.InvariantCulture),
-                Convert.ToDouble(strTime, CultureInfo.InvariantCulture));
+                var bf = new BlackFrame(
+                    Convert.ToInt32(strPercent, CultureInfo.InvariantCulture),
+                    Convert.ToDouble(strTime, CultureInfo.InvariantCulture));
 
-            if (bf.Percentage > minimum)
-            {
-                blackFrames.Add(bf);
+                if (bf.Percentage > minimum)
+                {
+                    blackFrames.Add(bf);
+                }
             }
         }
 
