@@ -243,6 +243,7 @@ public class Entrypoint : IHostedService, IDisposable
     private void PerformAnalysis()
     {
         _logger.LogInformation("Timer elapsed - start analyzing");
+        _autoTaskCompletEvent.Reset();
 
         using (_cancellationTokenSource = new CancellationTokenSource())
         {
@@ -305,7 +306,7 @@ public class Entrypoint : IHostedService, IDisposable
     /// <summary>
     /// Method to cancel the automatic task.
     /// </summary>
-    public static void CancelAutomaticTask()
+    public static void CancelAutomaticTask(CancellationToken cancellationToken)
     {
         if (_cancellationTokenSource != null)
         {
@@ -314,8 +315,7 @@ public class Entrypoint : IHostedService, IDisposable
                 _cancellationTokenSource.Cancel();
             }
 
-            _autoTaskCompletEvent.Wait(); // Wait for the signal
-            _autoTaskCompletEvent.Reset();  // Reset for the next task
+            _autoTaskCompletEvent.Wait(TimeSpan.FromSeconds(60), cancellationToken); // Wait for the signal
         }
     }
 

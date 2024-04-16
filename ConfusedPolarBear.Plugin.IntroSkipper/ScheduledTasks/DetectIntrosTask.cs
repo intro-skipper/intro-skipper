@@ -72,7 +72,7 @@ public class DetectIntrosTask : IScheduledTask
         if (Entrypoint.AutomaticTaskState == TaskState.Running || Entrypoint.AutomaticTaskState == TaskState.Cancelling)
         {
             _logger.LogInformation("Automatic Task is {0} and will be canceled.", Entrypoint.AutomaticTaskState);
-            Entrypoint.CancelAutomaticTask();
+            Entrypoint.CancelAutomaticTask(cancellationToken);
         }
 
         ScheduledTaskSemaphore.Wait(-1, cancellationToken);
