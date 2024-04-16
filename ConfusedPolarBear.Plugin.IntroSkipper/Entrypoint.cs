@@ -290,8 +290,8 @@ public class Entrypoint : IHostedService, IDisposable
             }
         }
 
-        _cancellationTokenSource = null;
         _autoTaskCompletEvent.Set();
+        _cancellationTokenSource = null;
 
         // New item detected, start timer again
         if (_analyzeAgain)
@@ -307,16 +307,15 @@ public class Entrypoint : IHostedService, IDisposable
     /// </summary>
     public static void CancelAutomaticTask()
     {
-        if (_cancellationTokenSource != null && !_cancellationTokenSource.IsCancellationRequested)
+        if (_cancellationTokenSource != null)
         {
-            _cancellationTokenSource.Cancel();
-
+            if (!_cancellationTokenSource.IsCancellationRequested)
+            {
+                _cancellationTokenSource.Cancel();
+            }
+            
             _autoTaskCompletEvent.Wait(); // Wait for the signal
             _autoTaskCompletEvent.Reset();  // Reset for the next task
-        }
-        else if (_cancellationTokenSource != null && _cancellationTokenSource.IsCancellationRequested) // Just wait if cancellation is already requested
-        {
-            _autoTaskCompletEvent.Wait();
         }
     }
 
