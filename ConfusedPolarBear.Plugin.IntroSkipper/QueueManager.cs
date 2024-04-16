@@ -171,7 +171,11 @@ public class QueueManager
         _logger.LogDebug("Queued {Count} episodes", items.Count);
     }
 
-    private void QueueEpisode(Episode episode)
+    /// <summary>
+    /// Adds a single episode to the current queue for analyzing.
+    /// </summary>
+    /// <param name="episode">The episode to analyze.</param>
+    public void QueueEpisode(Episode episode)
     {
         if (Plugin.Instance is null)
         {

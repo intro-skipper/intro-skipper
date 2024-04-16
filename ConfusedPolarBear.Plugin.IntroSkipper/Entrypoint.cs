@@ -26,6 +26,7 @@ public class Entrypoint : IServerEntryPoint
     private bool _analyzeAgain;
     private static CancellationTokenSource? _cancellationTokenSource;
     private static ManualResetEventSlim _autoTaskCompletEvent = new ManualResetEventSlim(false);
+    private QueueManager _queueManager;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="Entrypoint"/> class.
@@ -56,6 +57,10 @@ public class Entrypoint : IServerEntryPoint
                 null,
                 Timeout.InfiniteTimeSpan,
                 Timeout.InfiniteTimeSpan);
+
+        _queueManager = new QueueManager(
+            _loggerFactory.CreateLogger<QueueManager>(),
+            _libraryManager);
     }
 
     /// <summary>
@@ -92,8 +97,7 @@ public class Entrypoint : IServerEntryPoint
         {
             // Enqueue all episodes at startup to ensure any FFmpeg errors appear as early as possible
             _logger.LogInformation("Running startup enqueue");
-            var queueManager = new QueueManager(_loggerFactory.CreateLogger<QueueManager>(), _libraryManager);
-            queueManager.GetMediaItems();
+            _queueManager.GetMediaItems();
         }
         catch (Exception ex)
         {
@@ -121,7 +125,7 @@ public class Entrypoint : IServerEntryPoint
         }
 
         // Don't do anything if it's not a supported media type
-        if (itemChangeEventArgs.Item is not Episode)
+        if (itemChangeEventArgs.Item is not Episode episode)
         {
             return;
         }
@@ -131,9 +135,15 @@ public class Entrypoint : IServerEntryPoint
             return;
         }
 
-        Plugin.Instance!.Configuration.PathRestrictions.Add(itemChangeEventArgs.Item.ContainingFolderPath);
-
-        StartTimer();
+        if (Plugin.Instance!.AnalyzerTaskIsRunning)
+        {
+            _queueManager.QueueEpisode(episode);
+        }
+        else
+        {
+            Plugin.Instance!.Configuration.PathRestrictions.Add(itemChangeEventArgs.Item.ContainingFolderPath);
+            StartTimer();
+        }
     }
 
     /// <summary>
@@ -150,7 +160,7 @@ public class Entrypoint : IServerEntryPoint
         }
 
         // Don't do anything if it's not a supported media type
-        if (itemChangeEventArgs.Item is not Episode)
+        if (itemChangeEventArgs.Item is not Episode episode)
         {
             return;
         }
@@ -160,9 +170,15 @@ public class Entrypoint : IServerEntryPoint
             return;
         }
 
-        Plugin.Instance!.Configuration.PathRestrictions.Add(itemChangeEventArgs.Item.ContainingFolderPath);
-
-        StartTimer();
+        if (Plugin.Instance!.AnalyzerTaskIsRunning)
+        {
+            _queueManager.QueueEpisode(episode);
+        }
+        else
+        {
+            Plugin.Instance!.Configuration.PathRestrictions.Add(itemChangeEventArgs.Item.ContainingFolderPath);
+            StartTimer();
+        }
     }
 
     /// <summary>
@@ -284,8 +300,8 @@ public class Entrypoint : IServerEntryPoint
             }
         }
 
-        Plugin.Instance!.AnalyzerTaskIsRunning = false;
         Plugin.Instance!.Configuration.PathRestrictions.Clear();
+        Plugin.Instance!.AnalyzerTaskIsRunning = false;
         _autoTaskCompletEvent.Set();
 
         // New item detected, start timer again
