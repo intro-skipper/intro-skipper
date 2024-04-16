@@ -220,11 +220,11 @@ public class Entrypoint : IServerEntryPoint
     /// </summary>
     private void StartTimer()
     {
-        if (Plugin.Instance!.AnalyzerTaskIsRunning)
+        if (Entrypoint.AutomaticTaskState == TaskState.Running)
         {
            _analyzeAgain = true; // Items added during a scan will be included later.
         }
-        else
+        else if (ScheduledTaskSemaphore.CurrentCount > 0)
         {
             _logger.LogInformation("Media Library changed, analyzis will start soon!");
             _queueTimer.Change(TimeSpan.FromMilliseconds(20000), Timeout.InfiniteTimeSpan);
@@ -252,7 +252,7 @@ public class Entrypoint : IServerEntryPoint
     private void PerformAnalysis()
     {
         _logger.LogInformation("Timer elapsed - start analyzing");
-        Plugin.Instance!.AnalyzerTaskIsRunning = true;
+        _autoTaskCompletEvent.Reset();
 
         using (_cancellationTokenSource = new CancellationTokenSource())
         {
@@ -303,6 +303,7 @@ public class Entrypoint : IServerEntryPoint
         Plugin.Instance!.Configuration.PathRestrictions.Clear();
         Plugin.Instance!.AnalyzerTaskIsRunning = false;
         _autoTaskCompletEvent.Set();
+        _cancellationTokenSource = null;
 
         // New item detected, start timer again
         if (_analyzeAgain)
@@ -316,18 +317,18 @@ public class Entrypoint : IServerEntryPoint
     /// <summary>
     /// Method to cancel the automatic task.
     /// </summary>
-    public static void CancelAutomaticTask()
+    /// <param name="cancellationToken">Cancellation token.</param>
+    public static void CancelAutomaticTask(CancellationToken cancellationToken)
     {
         if (_cancellationTokenSource != null)
         {
-            Plugin.Instance!.Configuration.PathRestrictions.Clear();
-            _cancellationTokenSource.Cancel();
+            if (!_cancellationTokenSource.IsCancellationRequested)
+            {
+                Plugin.Instance!.Configuration.PathRestrictions.Clear();
+                _cancellationTokenSource.Cancel();
+            }
 
-            _autoTaskCompletEvent.Wait(); // Wait for the signal
-            _autoTaskCompletEvent.Reset();  // Reset for the next task
-
-            _cancellationTokenSource.Dispose(); // Now safe to dispose
-            _cancellationTokenSource = null;
+            _autoTaskCompletEvent.Wait(TimeSpan.FromSeconds(60), cancellationToken); // Wait for the signal
         }
     }
 
