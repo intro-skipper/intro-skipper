@@ -68,19 +68,22 @@ public class DetectIntrosCreditsTask : IScheduledTask
             throw new InvalidOperationException("Library manager was null");
         }
 
-        // abort if analyzer is already running
-        if (Plugin.Instance!.AnalyzerTaskIsRunning && Entrypoint.AutomaticTaskState == TaskState.Idle)
-        {
-            return Task.CompletedTask;
-        }
-        else if (Plugin.Instance!.AnalyzerTaskIsRunning && Entrypoint.AutomaticTaskState == TaskState.Running)
+        // abort automatic analyzer if running
+        if (Entrypoint.AutomaticTaskState == TaskState.Running || Entrypoint.AutomaticTaskState == TaskState.Cancelling)
         {
             _logger.LogInformation("Automatic Task is {0} and will be canceled.", Entrypoint.AutomaticTaskState);
-            Entrypoint.CancelAutomaticTask();
+            Entrypoint.CancelAutomaticTask(cancellationToken);
+        }
+
+        ScheduledTaskSemaphore.Wait(-1, cancellationToken);
+
+        if (cancellationToken.IsCancellationRequested)
+        {
+            ScheduledTaskSemaphore.Release();
+            return Task.CompletedTask;
         }
 
         _logger.LogInformation("Scheduled Task is starting");
-        Plugin.Instance!.AnalyzerTaskIsRunning = true;
 
         var baseIntroAnalyzer = new BaseItemAnalyzerTask(
             AnalysisMode.Introduction,
@@ -98,8 +101,7 @@ public class DetectIntrosCreditsTask : IScheduledTask
 
         baseCreditAnalyzer.AnalyzeItems(progress, cancellationToken);
 
-        Plugin.Instance!.AnalyzerTaskIsRunning = false;
-
+        ScheduledTaskSemaphore.Release();
         return Task.CompletedTask;
     }
 
