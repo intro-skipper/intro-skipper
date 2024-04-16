@@ -215,11 +215,7 @@ public class Entrypoint : IHostedService, IDisposable
         {
            _analyzeAgain = true; // Items added during a scan will be included later.
         }
-        else if (!ScheduledTaskSemaphore.TryEnter())
-        {
-            // Do nothing if scheduled task is running
-        }
-        else
+        else if (ScheduledTaskSemaphore.CurrentCount > 0)
         {
             _logger.LogInformation("Media Library changed, analyzis will start soon!");
             _queueTimer.Change(TimeSpan.FromMilliseconds(20000), Timeout.InfiniteTimeSpan);

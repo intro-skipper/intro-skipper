@@ -11,6 +11,8 @@ internal sealed class ScheduledTaskSemaphore : IDisposable
     {
     }
 
+    public static int CurrentCount => _semaphore.CurrentCount;
+
     public static bool Wait(int timeout, CancellationToken cancellationToken)
     {
         return _semaphore.Wait(timeout, cancellationToken);
@@ -19,11 +21,6 @@ internal sealed class ScheduledTaskSemaphore : IDisposable
     public static int Release()
     {
         return _semaphore.Release();
-    }
-
-    public bool TryEnter()
-    {
-        return _semaphore.TryEnter();
     }
 
     /// <summary>
