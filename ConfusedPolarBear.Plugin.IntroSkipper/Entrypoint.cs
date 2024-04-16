@@ -306,6 +306,7 @@ public class Entrypoint : IHostedService, IDisposable
     /// <summary>
     /// Method to cancel the automatic task.
     /// </summary>
+    /// <param name="cancellationToken">Cancellation token.</param>
     public static void CancelAutomaticTask(CancellationToken cancellationToken)
     {
         if (_cancellationTokenSource != null)
