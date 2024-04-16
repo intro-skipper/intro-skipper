@@ -301,7 +301,6 @@ public class Entrypoint : IServerEntryPoint
         }
 
         Plugin.Instance!.Configuration.PathRestrictions.Clear();
-        Plugin.Instance!.AnalyzerTaskIsRunning = false;
         _autoTaskCompletEvent.Set();
         _cancellationTokenSource = null;
 
@@ -324,7 +323,6 @@ public class Entrypoint : IServerEntryPoint
         {
             if (!_cancellationTokenSource.IsCancellationRequested)
             {
-                Plugin.Instance!.Configuration.PathRestrictions.Clear();
                 _cancellationTokenSource.Cancel();
             }
 
