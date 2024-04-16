@@ -207,10 +207,10 @@ public class Entrypoint : IHostedService, IDisposable
             return;
         }
 
-        if (Plugin.Instance!.AnalyzerTaskIsRunning && AutomaticTaskState == TaskState.Running)
+        // Unless user initiated, this is likely an overlap
+        if (Entrypoint.AutomaticTaskState == TaskState.Running)
         {
-            _logger.LogInformation("{0} Automatic Task will be superseded by library scan.", AutomaticTaskState);
-            CancelAutomaticTask();
+            return;
         }
 
         StartTimer();

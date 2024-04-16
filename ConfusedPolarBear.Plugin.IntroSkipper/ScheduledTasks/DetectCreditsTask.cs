@@ -86,6 +86,8 @@ public class DetectCreditsTask : IScheduledTask
 
         _logger.LogInformation("Scheduled Task is starting");
 
+        Plugin.Instance!.Configuration.PathRestrictions.Clear();
+
         var baseCreditAnalyzer = new BaseItemAnalyzerTask(
             AnalysisMode.Credits,
             _loggerFactory.CreateLogger<DetectCreditsTask>(),
