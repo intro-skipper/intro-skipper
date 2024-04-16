@@ -135,7 +135,7 @@ public class Entrypoint : IServerEntryPoint
             return;
         }
 
-        if (Plugin.Instance!.AnalyzerTaskIsRunning)
+        if (Entrypoint.AutomaticTaskState == TaskState.Running)
         {
             _queueManager.QueueEpisode(episode);
         }
@@ -170,7 +170,7 @@ public class Entrypoint : IServerEntryPoint
             return;
         }
 
-        if (Plugin.Instance!.AnalyzerTaskIsRunning)
+        if (Entrypoint.AutomaticTaskState == TaskState.Running)
         {
             _queueManager.QueueEpisode(episode);
         }
@@ -204,12 +204,6 @@ public class Entrypoint : IServerEntryPoint
         if (result.Status != TaskCompletionStatus.Completed)
         {
             return;
-        }
-
-        if (Plugin.Instance!.AnalyzerTaskIsRunning && AutomaticTaskState == TaskState.Running)
-        {
-            _logger.LogInformation("{0} Automatic Task will be superseded by library scan.", AutomaticTaskState);
-            CancelAutomaticTask();
         }
 
         StartTimer();
