@@ -85,6 +85,8 @@ public class DetectIntrosCreditsTask : IScheduledTask
 
         _logger.LogInformation("Scheduled Task is starting");
 
+        Plugin.Instance!.Configuration.PathRestrictions.Clear();
+
         var baseIntroAnalyzer = new BaseItemAnalyzerTask(
             AnalysisMode.Introduction,
             _loggerFactory.CreateLogger<DetectIntrosCreditsTask>(),

@@ -206,6 +206,12 @@ public class Entrypoint : IServerEntryPoint
             return;
         }
 
+        // Unless user initiated, this is likely an overlap
+        if (Entrypoint.AutomaticTaskState == TaskState.Running)
+        {
+            return;
+        }
+
         StartTimer();
     }
 
@@ -341,6 +347,7 @@ public class Entrypoint : IServerEntryPoint
     {
         if (!dispose)
         {
+            Plugin.Instance!.Configuration.PathRestrictions.Clear();
             _libraryManager.ItemAdded -= OnItemAdded;
             _libraryManager.ItemUpdated -= OnItemModified;
             _taskManager.TaskCompleted -= OnLibraryRefresh;
