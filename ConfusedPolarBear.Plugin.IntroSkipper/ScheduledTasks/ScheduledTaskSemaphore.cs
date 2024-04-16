@@ -21,6 +21,11 @@ internal sealed class ScheduledTaskSemaphore : IDisposable
         return _semaphore.Release();
     }
 
+    public bool TryEnter()
+    {
+        return _semaphore.TryEnter();
+    }
+
     /// <summary>
     /// Dispose.
     /// </summary>

@@ -85,7 +85,6 @@ public class DetectCreditsTask : IScheduledTask
         }
 
         _logger.LogInformation("Scheduled Task is starting");
-        Plugin.Instance!.AnalyzerTaskIsRunning = true;
 
         var baseCreditAnalyzer = new BaseItemAnalyzerTask(
             AnalysisMode.Credits,
@@ -94,8 +93,6 @@ public class DetectCreditsTask : IScheduledTask
             _libraryManager);
 
         baseCreditAnalyzer.AnalyzeItems(progress, cancellationToken);
-
-        Plugin.Instance!.AnalyzerTaskIsRunning = false;
 
         ScheduledTaskSemaphore.Release();
         return Task.CompletedTask;

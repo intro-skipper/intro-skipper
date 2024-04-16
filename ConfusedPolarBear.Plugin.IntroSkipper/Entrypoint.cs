@@ -211,9 +211,13 @@ public class Entrypoint : IHostedService, IDisposable
     /// </summary>
     private void StartTimer()
     {
-        if (Plugin.Instance!.AnalyzerTaskIsRunning)
+        if (Entrypoint.AutomaticTaskState == TaskState.Running)
         {
            _analyzeAgain = true; // Items added during a scan will be included later.
+        }
+        else if (!ScheduledTaskSemaphore.TryEnter())
+        {
+            // Do nothing if scheduled task is running
         }
         else
         {
@@ -243,7 +247,6 @@ public class Entrypoint : IHostedService, IDisposable
     private void PerformAnalysis()
     {
         _logger.LogInformation("Timer elapsed - start analyzing");
-        Plugin.Instance!.AnalyzerTaskIsRunning = true;
 
         using (_cancellationTokenSource = new CancellationTokenSource())
         {
@@ -291,7 +294,6 @@ public class Entrypoint : IHostedService, IDisposable
             }
         }
 
-        Plugin.Instance!.AnalyzerTaskIsRunning = false;
         _autoTaskCompletEvent.Set();
 
         // New item detected, start timer again
@@ -314,9 +316,6 @@ public class Entrypoint : IHostedService, IDisposable
 
             _autoTaskCompletEvent.Wait(); // Wait for the signal
             _autoTaskCompletEvent.Reset();  // Reset for the next task
-
-            _cancellationTokenSource.Dispose(); // Now safe to dispose
-            _cancellationTokenSource = null;
         }
         else if (_cancellationTokenSource != null && _cancellationTokenSource.IsCancellationRequested) // Just wait if cancellation is already requested
         {
