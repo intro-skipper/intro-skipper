@@ -290,6 +290,7 @@ public class Entrypoint : IHostedService, IDisposable
             }
         }
 
+        _cancellationTokenSource = null;
         _autoTaskCompletEvent.Set();
 
         // New item detected, start timer again
