@@ -313,7 +313,7 @@ public class Entrypoint : IHostedService, IDisposable
             {
                 _cancellationTokenSource.Cancel();
             }
-            
+
             _autoTaskCompletEvent.Wait(); // Wait for the signal
             _autoTaskCompletEvent.Reset();  // Reset for the next task
         }
