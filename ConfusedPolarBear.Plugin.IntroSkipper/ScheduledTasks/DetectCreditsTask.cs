@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Collections.ObjectModel;
 using System.Threading;
 using System.Threading.Tasks;
 using MediaBrowser.Controller.Library;
@@ -86,8 +87,10 @@ public class DetectCreditsTask : IScheduledTask
 
         _logger.LogInformation("Scheduled Task is starting");
 
+        var modes = new List<AnalysisMode> { AnalysisMode.Credits };
+
         var baseCreditAnalyzer = new BaseItemAnalyzerTask(
-            AnalysisMode.Credits,
+            modes.AsReadOnly(),
             _loggerFactory.CreateLogger<DetectCreditsTask>(),
             _loggerFactory,
             _libraryManager);

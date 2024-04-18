@@ -63,14 +63,12 @@ public static class EdlManager
         {
             var id = episode.EpisodeId;
 
-            if (!Plugin.Instance!.Intros.TryGetValue(id, out var intro))
+            bool hasIntro = Plugin.Instance!.Intros.TryGetValue(id, out var intro) && intro.Valid;
+            bool hasCredit = Plugin.Instance!.Credits.TryGetValue(id, out var credit) && credit.Valid;
+
+            if (!hasIntro && !hasCredit)
             {
-                _logger?.LogDebug("Episode {Id} did not have an introduction, skipping", id);
-                continue;
-            }
-            else if (!intro.Valid)
-            {
-                _logger?.LogDebug("Episode {Id} did not have a valid introduction, skipping", id);
+                _logger?.LogDebug("Episode {Id} has neither a valid intro nor credit, skipping", id);
                 continue;
             }
 
@@ -84,7 +82,31 @@ public static class EdlManager
                 continue;
             }
 
-            File.WriteAllText(edlPath, intro.ToEdl(action));
+            var edlContent = string.Empty;
+
+            if (hasIntro)
+            {
+                edlContent += intro?.ToEdl(action);
+            }
+
+            if (hasCredit)
+            {
+                if (edlContent.Length > 0)
+                {
+                    edlContent += Environment.NewLine;
+                }
+
+                if (action == EdlAction.Intro)
+                {
+                    edlContent += credit?.ToEdl(EdlAction.Credit);
+                }
+                else
+                {
+                    edlContent += credit?.ToEdl(action);
+                }
+            }
+
+            File.WriteAllText(edlPath, edlContent);
         }
     }
 

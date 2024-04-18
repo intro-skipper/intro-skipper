@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Collections.ObjectModel;
 using System.Threading;
 using System.Threading.Tasks;
 using MediaBrowser.Controller.Library;
@@ -85,8 +86,10 @@ public class DetectIntrosTask : IScheduledTask
 
         _logger.LogInformation("Scheduled Task is starting");
 
+        var modes = new List<AnalysisMode> { AnalysisMode.Introduction };
+
         var baseIntroAnalyzer = new BaseItemAnalyzerTask(
-            AnalysisMode.Introduction,
+            modes.AsReadOnly(),
             _loggerFactory.CreateLogger<DetectIntrosTask>(),
             _loggerFactory,
             _libraryManager);
