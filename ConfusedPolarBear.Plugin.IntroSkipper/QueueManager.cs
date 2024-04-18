@@ -231,17 +231,16 @@ public class QueueManager
     /// This is done to ensure that we don't analyze items that were deleted between the call to GetMediaItems() and popping them from the queue.
     /// </summary>
     /// <param name="candidates">Queued media items.</param>
-    /// <param name="mode">Analysis mode.</param>
+    /// <param name="modes">Analysis mode.</param>
     /// <returns>Media items that have been verified to exist in Jellyfin and in storage.</returns>
-    public (ReadOnlyCollection<QueuedEpisode> VerifiedItems, bool AnyUnanalyzed)
-        VerifyQueue(ReadOnlyCollection<QueuedEpisode> candidates, AnalysisMode mode)
+    public (ReadOnlyCollection<QueuedEpisode> VerifiedItems, ReadOnlyCollection<AnalysisMode> RequiredModes)
+        VerifyQueue(ReadOnlyCollection<QueuedEpisode> candidates, ReadOnlyCollection<AnalysisMode> modes)
     {
-        var unanalyzed = false;
         var verified = new List<QueuedEpisode>();
+        var reqModes = new List<AnalysisMode>();
 
-        var timestamps = mode == AnalysisMode.Introduction ?
-                Plugin.Instance!.Intros :
-                Plugin.Instance!.Credits;
+        var requiresIntroAnalysis = modes.Contains(AnalysisMode.Introduction);
+        var requiresCreditsAnalysis = modes.Contains(AnalysisMode.Credits);
 
         foreach (var candidate in candidates)
         {
@@ -252,24 +251,31 @@ public class QueueManager
                 if (File.Exists(path))
                 {
                     verified.Add(candidate);
-                }
 
-                if (!timestamps.ContainsKey(candidate.EpisodeId))
-                {
-                    unanalyzed = true;
+                    if (requiresIntroAnalysis && !Plugin.Instance!.Intros.ContainsKey(candidate.EpisodeId))
+                    {
+                        reqModes.Add(AnalysisMode.Introduction);
+                        requiresIntroAnalysis = false;  // No need to check again
+                    }
+
+                    if (requiresCreditsAnalysis && !Plugin.Instance!.Credits.ContainsKey(candidate.EpisodeId))
+                    {
+                        reqModes.Add(AnalysisMode.Credits);
+                        requiresCreditsAnalysis = false; // No need to check again
+                    }
                 }
             }
             catch (Exception ex)
             {
                 _logger.LogDebug(
                     "Skipping {Mode} analysis of {Name} ({Id}): {Exception}",
-                    mode,
+                    modes,
                     candidate.Name,
                     candidate.EpisodeId,
                     ex);
             }
         }
 
-        return (verified.AsReadOnly(), unanalyzed);
+        return (verified.AsReadOnly(), reqModes.AsReadOnly());
     }
 }

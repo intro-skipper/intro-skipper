@@ -1,4 +1,6 @@
 using System;
+using System.Collections.Generic;
+using System.Collections.ObjectModel;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
@@ -259,45 +261,33 @@ public class Entrypoint : IServerEntryPoint
             var progress = new Progress<double>();
             var cancellationToken = _cancellationTokenSource.Token;
 
+            var modes = new List<AnalysisMode>();
+            var tasklogger = _loggerFactory.CreateLogger("DefaultLogger");
+
             if (Plugin.Instance!.Configuration.AutoDetectIntros && Plugin.Instance!.Configuration.AutoDetectCredits)
             {
-                // This is where we can optimize a single scan
-                var baseIntroAnalyzer = new BaseItemAnalyzerTask(
-                    AnalysisMode.Introduction,
-                    _loggerFactory.CreateLogger<DetectIntrosCreditsTask>(),
-                    _loggerFactory,
-                    _libraryManager);
-
-                baseIntroAnalyzer.AnalyzeItems(progress, cancellationToken);
-
-                var baseCreditAnalyzer = new BaseItemAnalyzerTask(
-                    AnalysisMode.Credits,
-                    _loggerFactory.CreateLogger<DetectIntrosCreditsTask>(),
-                    _loggerFactory,
-                    _libraryManager);
-
-                baseCreditAnalyzer.AnalyzeItems(progress, cancellationToken);
+                modes.Add(AnalysisMode.Introduction);
+                modes.Add(AnalysisMode.Credits);
+                tasklogger = _loggerFactory.CreateLogger<DetectIntrosCreditsTask>();
             }
             else if (Plugin.Instance!.Configuration.AutoDetectIntros)
             {
-                var baseIntroAnalyzer = new BaseItemAnalyzerTask(
-                    AnalysisMode.Introduction,
-                    _loggerFactory.CreateLogger<DetectIntrosTask>(),
-                    _loggerFactory,
-                    _libraryManager);
-
-                baseIntroAnalyzer.AnalyzeItems(progress, cancellationToken);
+                modes.Add(AnalysisMode.Introduction);
+                tasklogger = _loggerFactory.CreateLogger<DetectIntrosTask>();
             }
             else if (Plugin.Instance!.Configuration.AutoDetectCredits)
             {
-                var baseCreditAnalyzer = new BaseItemAnalyzerTask(
-                    AnalysisMode.Credits,
-                    _loggerFactory.CreateLogger<DetectCreditsTask>(),
+                modes.Add(AnalysisMode.Credits);
+                tasklogger = _loggerFactory.CreateLogger<DetectCreditsTask>();
+            }
+
+            var baseCreditAnalyzer = new BaseItemAnalyzerTask(
+                    modes.AsReadOnly(),
+                    tasklogger,
                     _loggerFactory,
                     _libraryManager);
 
-                baseCreditAnalyzer.AnalyzeItems(progress, cancellationToken);
-            }
+            baseCreditAnalyzer.AnalyzeItems(progress, cancellationToken);
         }
 
         Plugin.Instance!.Configuration.PathRestrictions.Clear();

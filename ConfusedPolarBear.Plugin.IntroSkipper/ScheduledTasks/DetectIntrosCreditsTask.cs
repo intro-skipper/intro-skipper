@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Collections.ObjectModel;
 using System.Threading;
 using System.Threading.Tasks;
 using MediaBrowser.Controller.Library;
@@ -86,22 +87,15 @@ public class DetectIntrosCreditsTask : IScheduledTask
         _logger.LogInformation("Scheduled Task is starting");
 
         Plugin.Instance!.Configuration.PathRestrictions.Clear();
+        var modes = new List<AnalysisMode> { AnalysisMode.Introduction, AnalysisMode.Credits };
 
         var baseIntroAnalyzer = new BaseItemAnalyzerTask(
-            AnalysisMode.Introduction,
+            modes.AsReadOnly(),
             _loggerFactory.CreateLogger<DetectIntrosCreditsTask>(),
             _loggerFactory,
             _libraryManager);
 
         baseIntroAnalyzer.AnalyzeItems(progress, cancellationToken);
-
-        var baseCreditAnalyzer = new BaseItemAnalyzerTask(
-            AnalysisMode.Credits,
-            _loggerFactory.CreateLogger<DetectIntrosCreditsTask>(),
-            _loggerFactory,
-            _libraryManager);
-
-        baseCreditAnalyzer.AnalyzeItems(progress, cancellationToken);
 
         ScheduledTaskSemaphore.Release();
         return Task.CompletedTask;
