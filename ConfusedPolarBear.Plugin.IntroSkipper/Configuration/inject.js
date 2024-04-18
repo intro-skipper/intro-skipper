@@ -76,6 +76,7 @@ introSkipper.injectCss = function () {
         border-radius: 0px;
         display: inline-block;
         cursor: pointer;
+        opacity: 0;
         box-shadow: inset 0 0 0 0 #f9f9f9;
         -webkit-transition: ease-out 0.4s;
         -moz-transition: ease-out 0.4s;
@@ -177,7 +178,12 @@ introSkipper.videoPositionChanged = function () {
     const segment = introSkipper.getCurrentSegment(introSkipper.videoPlayer.currentTime);
     switch (segment["SegmentType"]) {
         case "None":
-            skipButton.classList.add("hide");
+            if (skipButton.style.opacity === '0') return;
+
+            skipButton.style.opacity = '0';
+            skipButton.addEventListener("transitionend", () => {
+                skipButton.classList.add("hide");
+            }, { once: true });
             return;
         case "Introduction":
             skipButton.querySelector("#btnSkipSegmentText").textContent =
@@ -188,7 +194,14 @@ introSkipper.videoPositionChanged = function () {
                 skipButton.dataset["credits_text"];
             break;
     }
+    if (!skipButton.classList.contains("hide")) return;
+
     skipButton.classList.remove("hide");
+    requestAnimationFrame(() => {
+        requestAnimationFrame(() => {
+            skipButton.style.opacity = '1';
+        });
+    });
 }
 /** Seeks to the end of the intro. */
 introSkipper.doSkip = function (e) {
