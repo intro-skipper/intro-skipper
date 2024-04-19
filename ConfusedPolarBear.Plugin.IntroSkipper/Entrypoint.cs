@@ -150,6 +150,8 @@ public class Entrypoint : IHostedService, IDisposable
             return;
         }
 
+        Plugin.Instance!.Configuration.PathRestrictions.Add(itemChangeEventArgs.Item.ContainingFolderPath);
+
         StartTimer();
     }
 
@@ -177,6 +179,8 @@ public class Entrypoint : IHostedService, IDisposable
             return;
         }
 
+        Plugin.Instance!.Configuration.PathRestrictions.Add(itemChangeEventArgs.Item.ContainingFolderPath);
+
         StartTimer();
     }
 
@@ -201,6 +205,12 @@ public class Entrypoint : IHostedService, IDisposable
         }
 
         if (result.Status != TaskCompletionStatus.Completed)
+        {
+            return;
+        }
+
+        // Unless user initiated, this is likely an overlap
+        if (Entrypoint.AutomaticTaskState == TaskState.Running)
         {
             return;
         }
@@ -281,6 +291,7 @@ public class Entrypoint : IHostedService, IDisposable
             baseCreditAnalyzer.AnalyzeItems(progress, cancellationToken);
         }
 
+        Plugin.Instance!.Configuration.PathRestrictions.Clear();
         _autoTaskCompletEvent.Set();
         _cancellationTokenSource = null;
 
