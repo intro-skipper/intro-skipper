@@ -74,6 +74,8 @@ public class BaseItemAnalyzerTask
             totalQueued += kvp.Value.Count;
         }
 
+        totalQueued *= _analysisModes.Count;
+
         if (totalQueued == 0)
         {
             throw new FingerprintException(
@@ -131,6 +133,8 @@ public class BaseItemAnalyzerTask
                     Interlocked.Add(ref totalProcessed, analyzed);
 
                     writeEdl = analyzed > 0 || Plugin.Instance!.Configuration.RegenerateEdlFiles;
+
+                    progress.Report((totalProcessed * 100) / totalQueued);
                 }
             }
             catch (FingerprintException ex)
@@ -146,8 +150,6 @@ public class BaseItemAnalyzerTask
             {
                 EdlManager.UpdateEDLFiles(episodes);
             }
-
-            progress.Report((totalProcessed * 100) / totalQueued);
         });
 
         if (Plugin.Instance!.Configuration.RegenerateEdlFiles)
