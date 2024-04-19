@@ -261,8 +261,8 @@ public class ChromaprintAnalyzer : IMediaFileAnalyzer
         var rhsRanges = new List<TimeRange>();
 
         // Generate inverted indexes for the left and right episodes.
-        var lhsIndex = FFmpegWrapper.CreateInvertedIndex(lhsId, lhsPoints);
-        var rhsIndex = FFmpegWrapper.CreateInvertedIndex(rhsId, rhsPoints);
+        var lhsIndex = FFmpegWrapper.CreateInvertedIndex(lhsId, lhsPoints, this._analysisMode);
+        var rhsIndex = FFmpegWrapper.CreateInvertedIndex(rhsId, rhsPoints, this._analysisMode);
         var indexShifts = new HashSet<int>();
 
         // For all audio points in the left episode, check if the right episode has a point which matches exactly.
