@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Globalization;
@@ -14,8 +15,6 @@ namespace ConfusedPolarBear.Plugin.IntroSkipper;
 /// </summary>
 public static class FFmpegWrapper
 {
-    private static readonly object InvertedIndexCacheLock = new();
-
     /// <summary>
     /// Used with FFmpeg's silencedetect filter to extract the start and end times of silence.
     /// </summary>
@@ -34,7 +33,7 @@ public static class FFmpegWrapper
 
     private static Dictionary<string, string> ChromaprintLogs { get; set; } = new();
 
-    private static Dictionary<Guid, Dictionary<uint, int>> InvertedIndexCache { get; set; } = new();
+    private static ConcurrentDictionary<AnalysisMode, ConcurrentDictionary<Guid, Dictionary<uint, int>>> InvertedIndexCache { get; set; } = new();
 
     /// <summary>
     /// Check that the installed version of ffmpeg supports chromaprint.
@@ -137,15 +136,16 @@ public static class FFmpegWrapper
     /// </summary>
     /// <param name="id">Episode ID.</param>
     /// <param name="fingerprint">Chromaprint fingerprint.</param>
+     /// <param name="mode">Mode.</param>
     /// <returns>Inverted index.</returns>
-    public static Dictionary<uint, int> CreateInvertedIndex(Guid id, uint[] fingerprint)
+    public static Dictionary<uint, int> CreateInvertedIndex(Guid id, uint[] fingerprint, AnalysisMode mode)
     {
-        lock (InvertedIndexCacheLock)
+        var innerDictionary = InvertedIndexCache.GetOrAdd(mode, _ => new ConcurrentDictionary<Guid, Dictionary<uint, int>>());
+
+        // Check if cached for the ID
+        if (innerDictionary.TryGetValue(id, out var cached))
         {
-            if (InvertedIndexCache.TryGetValue(id, out var cached))
-            {
-                return cached;
-            }
+            return cached;
         }
 
         var invIndex = new Dictionary<uint, int>();
@@ -159,10 +159,7 @@ public static class FFmpegWrapper
             invIndex[point] = i;
         }
 
-        lock (InvertedIndexCacheLock)
-        {
-            InvertedIndexCache[id] = invIndex;
-        }
+        innerDictionary[id] = invIndex;
 
         return invIndex;
     }
