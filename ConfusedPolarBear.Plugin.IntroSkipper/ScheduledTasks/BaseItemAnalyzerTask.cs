@@ -114,13 +114,13 @@ public class BaseItemAnalyzerTask
             var first = episodes[0];
             var requiredModeCount = requiredModes.Count;
 
-            if (requiredModeCount == 0) 
+            if (requiredModeCount == 0)
             {
                 _logger.LogDebug(
                     "All episodes in {Name} season {Season} have already been analyzed",
                     first.SeriesName,
                     first.SeasonNumber);
-                    
+
                 Interlocked.Add(ref totalProcessed, (episodeCount * modeCount)); // Update totalProcessed directly
                 progress.Report((totalProcessed * 100) / totalQueued);
 
