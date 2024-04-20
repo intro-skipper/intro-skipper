@@ -237,7 +237,7 @@ public class QueueManager
         {
             try
             {
-                var path = Plugin.Instance.GetItemPath(candidate.EpisodeId);
+                var path = Plugin.Instance!.GetItemPath(candidate.EpisodeId);
 
                 if (File.Exists(path))
                 {
