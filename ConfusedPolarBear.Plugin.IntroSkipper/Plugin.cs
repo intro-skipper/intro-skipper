@@ -205,7 +205,7 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
             var introList = new List<Intro>();
 
             // Serialize intros
-            foreach (var intro in Plugin.Instance!.Intros)
+            foreach (var intro in Instance!.Intros)
             {
                 introList.Add(intro.Value);
             }
@@ -215,7 +215,7 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
             // Serialize credits
             introList.Clear();
 
-            foreach (var intro in Plugin.Instance!.Credits)
+            foreach (var intro in Instance.Credits)
             {
                 introList.Add(intro.Value);
             }
@@ -238,7 +238,7 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
 
             foreach (var intro in introList)
             {
-                Plugin.Instance!.Intros[intro.EpisodeId] = intro;
+                Instance!.Intros[intro.EpisodeId] = intro;
             }
         }
 
@@ -250,7 +250,7 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
 
             foreach (var credit in creditList)
             {
-                Plugin.Instance!.Credits[credit.EpisodeId] = credit;
+                Instance!.Credits[credit.EpisodeId] = credit;
             }
         }
     }
@@ -340,15 +340,15 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
             {
                 if (mode == AnalysisMode.Introduction)
                 {
-                    Plugin.Instance!.Intros[intro.Key] = intro.Value;
+                    Instance!.Intros[intro.Key] = intro.Value;
                 }
                 else if (mode == AnalysisMode.Credits)
                 {
-                    Plugin.Instance!.Credits[intro.Key] = intro.Value;
+                    Instance!.Credits[intro.Key] = intro.Value;
                 }
             }
 
-            Plugin.Instance!.SaveTimestamps();
+            Instance!.SaveTimestamps();
         }
     }
 
