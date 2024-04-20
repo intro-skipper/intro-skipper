@@ -18,11 +18,11 @@ Changes are possible during the beta phase!**
 
 ## System requirements
 
-* Jellyfin 10.8.4 (or newer)
-* Jellyfin's [fork](https://github.com/jellyfin/jellyfin-ffmpeg) of `ffmpeg` must be installed, version `5.0.1-5` or newer
-  * `jellyfin/jellyfin` 10.8.z container: preinstalled
-  * `linuxserver/jellyfin` 10.8.z container: preinstalled
-  * Debian Linux based native installs: provided by the `jellyfin-ffmpeg5` package
+* Jellyfin 10.9.0 (or newer)
+* Jellyfin's [fork](https://github.com/jellyfin/jellyfin-ffmpeg) of `ffmpeg` must be installed, version `6.0.1-5` or newer
+  * `jellyfin/jellyfin` 10.9.z container: preinstalled
+  * `linuxserver/jellyfin` 10.9.z container: preinstalled
+  * Debian Linux based native installs: provided by the `jellyfin-ffmpeg6` package
   * MacOS native installs: build ffmpeg with chromaprint support ([instructions](#installation-instructions-for-macos))
 
 ## Detection parameters
