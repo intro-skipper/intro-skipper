@@ -81,7 +81,7 @@ public class TestAudioFingerprinting
             {77, 5},
         };
 
-        var actual = FFmpegWrapper.CreateInvertedIndex(Guid.NewGuid(), fpr);
+        var actual = FFmpegWrapper.CreateInvertedIndex(Guid.NewGuid(), fpr, AnalysisMode.Introduction);
 
         Assert.Equal(expected, actual);
     }
