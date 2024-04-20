@@ -159,7 +159,7 @@ public class VisualizationController : ControllerBase
     {
         var tr = new TimeRange(timestamps.IntroStart, timestamps.IntroEnd);
         Plugin.Instance!.Intros[id] = new Intro(id, tr);
-        Plugin.Instance!.SaveTimestamps();
+        Plugin.Instance.SaveTimestamps();
 
         return NoContent();
     }

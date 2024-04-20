@@ -12,6 +12,7 @@ using MediaBrowser.Model.Plugins;
 using MediaBrowser.Model.Session;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
+using Timer = System.Timers.Timer;
 
 namespace ConfusedPolarBear.Plugin.IntroSkipper;
 
@@ -26,7 +27,7 @@ public class AutoSkip : IHostedService, IDisposable
     private ILogger<AutoSkip> _logger;
     private IUserDataManager _userDataManager;
     private ISessionManager _sessionManager;
-    private System.Timers.Timer _playbackTimer = new(1000);
+    private Timer _playbackTimer = new(1000);
     private Dictionary<string, bool> _sentSeekCommand;
 
     /// <summary>
@@ -146,13 +147,13 @@ public class AutoSkip : IHostedService, IDisposable
             }
 
             // Notify the user that an introduction is being skipped for them.
-            var notificationText = Plugin.Instance!.Configuration.AutoSkipNotificationText;
+            var notificationText = Plugin.Instance.Configuration.AutoSkipNotificationText;
             if (!string.IsNullOrWhiteSpace(notificationText))
             {
                 _sessionManager.SendMessageCommand(
                 session.Id,
                 session.Id,
-                new MessageCommand()
+                new MessageCommand
                 {
                     Header = string.Empty,      // some clients require header to be a string instead of null
                     Text = notificationText,
@@ -163,7 +164,7 @@ public class AutoSkip : IHostedService, IDisposable
 
             _logger.LogDebug("Sending seek command to {Session}", deviceId);
 
-            var introEnd = (long)intro.IntroEnd - Plugin.Instance!.Configuration.SecondsOfIntroToPlay;
+            var introEnd = (long)intro.IntroEnd - Plugin.Instance.Configuration.SecondsOfIntroToPlay;
 
             _sessionManager.SendPlaystateCommand(
                 session.Id,
@@ -221,7 +222,7 @@ public class AutoSkip : IHostedService, IDisposable
         _playbackTimer.AutoReset = true;
         _playbackTimer.Elapsed += PlaybackTimer_Elapsed;
 
-        AutoSkipChanged(null, Plugin.Instance!.Configuration);
+        AutoSkipChanged(null, Plugin.Instance.Configuration);
 
         return Task.CompletedTask;
     }

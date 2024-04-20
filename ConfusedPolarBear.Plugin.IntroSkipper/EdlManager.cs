@@ -1,9 +1,9 @@
-namespace ConfusedPolarBear.Plugin.IntroSkipper;
-
 using System;
 using System.Collections.ObjectModel;
 using System.IO;
 using Microsoft.Extensions.Logging;
+
+namespace ConfusedPolarBear.Plugin.IntroSkipper;
 
 /// <summary>
 /// Update EDL files associated with a list of episodes.
@@ -50,7 +50,7 @@ public static class EdlManager
     public static void UpdateEDLFiles(ReadOnlyCollection<QueuedEpisode> episodes)
     {
         var regenerate = Plugin.Instance!.Configuration.RegenerateEdlFiles;
-        var action = Plugin.Instance!.Configuration.EdlAction;
+        var action = Plugin.Instance.Configuration.EdlAction;
         if (action == EdlAction.None)
         {
             _logger?.LogDebug("EDL action is set to none, not updating EDL files");
@@ -72,7 +72,7 @@ public static class EdlManager
                 continue;
             }
 
-            var edlPath = GetEdlPath(Plugin.Instance!.GetItemPath(id));
+            var edlPath = GetEdlPath(Plugin.Instance.GetItemPath(id));
 
             _logger?.LogTrace("Episode {Id} has EDL path {Path}", id, edlPath);
 

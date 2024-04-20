@@ -1,11 +1,12 @@
-namespace ConfusedPolarBear.Plugin.IntroSkipper;
-
 using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Numerics;
 using System.Threading;
+using ConfusedPolarBear.Plugin.IntroSkipper.Configuration;
 using Microsoft.Extensions.Logging;
+
+namespace ConfusedPolarBear.Plugin.IntroSkipper;
 
 /// <summary>
 /// Chromaprint audio analyzer.
@@ -38,7 +39,7 @@ public class ChromaprintAnalyzer : IMediaFileAnalyzer
     /// <param name="logger">Logger.</param>
     public ChromaprintAnalyzer(ILogger<ChromaprintAnalyzer> logger)
     {
-        var config = Plugin.Instance?.Configuration ?? new Configuration.PluginConfiguration();
+        var config = Plugin.Instance?.Configuration ?? new PluginConfiguration();
         maximumDifferences = config.MaximumFingerprintPointDifferences;
         invertedIndexShift = config.InvertedIndexShift;
         maximumTimeSkip = config.MaximumTimeSkip;
@@ -261,8 +262,8 @@ public class ChromaprintAnalyzer : IMediaFileAnalyzer
         var rhsRanges = new List<TimeRange>();
 
         // Generate inverted indexes for the left and right episodes.
-        var lhsIndex = FFmpegWrapper.CreateInvertedIndex(lhsId, lhsPoints);
-        var rhsIndex = FFmpegWrapper.CreateInvertedIndex(rhsId, rhsPoints);
+        var lhsIndex = FFmpegWrapper.CreateInvertedIndex(lhsId, lhsPoints, this._analysisMode);
+        var rhsIndex = FFmpegWrapper.CreateInvertedIndex(rhsId, rhsPoints, this._analysisMode);
         var indexShifts = new HashSet<int>();
 
         // For all audio points in the left episode, check if the right episode has a point which matches exactly.
@@ -277,8 +278,8 @@ public class ChromaprintAnalyzer : IMediaFileAnalyzer
 
                 if (rhsIndex.TryGetValue(modifiedPoint, out var rhsModifiedPoint))
                 {
-                    var lhsFirst = (int)lhsIndex[originalPoint];
-                    var rhsFirst = (int)rhsModifiedPoint;
+                    var lhsFirst = lhsIndex[originalPoint];
+                    var rhsFirst = rhsModifiedPoint;
                     indexShifts.Add(rhsFirst - lhsFirst);
                 }
             }
@@ -390,9 +391,6 @@ public class ChromaprintAnalyzer : IMediaFileAnalyzer
         ReadOnlyCollection<QueuedEpisode> episodes,
         Dictionary<Guid, Intro> originalIntros)
     {
-        // The minimum duration of audio that must be silent before adjusting the intro's end.
-        var minimumSilence = Plugin.Instance!.Configuration.SilenceDetectionMinimumDuration;
-
         Dictionary<Guid, Intro> modifiedIntros = new();
 
         // For all episodes

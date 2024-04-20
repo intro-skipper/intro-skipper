@@ -86,19 +86,19 @@ public class SkipIntroController : ControllerBase
             // Operate on a copy to avoid mutating the original Intro object stored in the dictionary.
             var segment = new Intro(timestamp);
 
-            var config = Plugin.Instance!.Configuration;
+            var config = Plugin.Instance.Configuration;
             segment.IntroEnd -= config.SecondsOfIntroToPlay;
             if (config.PersistSkipButton)
             {
-              segment.ShowSkipPromptAt = segment.IntroStart;
-              segment.HideSkipPromptAt = segment.IntroEnd;
+                segment.ShowSkipPromptAt = segment.IntroStart;
+                segment.HideSkipPromptAt = segment.IntroEnd;
             }
             else
             {
-              segment.ShowSkipPromptAt = Math.Max(0, segment.IntroStart - config.ShowPromptAdjustment);
-              segment.HideSkipPromptAt = Math.Min(
-                  segment.IntroStart + config.HidePromptAdjustment,
-                  segment.IntroEnd);
+                segment.ShowSkipPromptAt = Math.Max(0, segment.IntroStart - config.ShowPromptAdjustment);
+                segment.HideSkipPromptAt = Math.Min(
+                    segment.IntroStart + config.HidePromptAdjustment,
+                    segment.IntroEnd);
             }
 
             return segment;
@@ -153,7 +153,7 @@ public class SkipIntroController : ControllerBase
         foreach (var intro in timestamps)
         {
             // Get the details of the item from Jellyfin
-            var rawItem = Plugin.Instance!.GetItem(intro.Key);
+            var rawItem = Plugin.Instance.GetItem(intro.Key);
             if (rawItem is not Episode episode)
             {
                 throw new InvalidCastException("Unable to cast item id " + intro.Key + " to an Episode");

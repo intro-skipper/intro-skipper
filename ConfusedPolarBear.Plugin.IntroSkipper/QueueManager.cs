@@ -1,5 +1,3 @@
-namespace ConfusedPolarBear.Plugin.IntroSkipper;
-
 using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
@@ -10,6 +8,8 @@ using MediaBrowser.Controller.Entities;
 using MediaBrowser.Controller.Entities.TV;
 using MediaBrowser.Controller.Library;
 using Microsoft.Extensions.Logging;
+
+namespace ConfusedPolarBear.Plugin.IntroSkipper;
 
 /// <summary>
 /// Manages enqueuing library items for analysis.
@@ -72,11 +72,11 @@ public class QueueManager
             }
         }
 
-        Plugin.Instance!.TotalSeasons = _queuedEpisodes.Count;
-        Plugin.Instance!.QueuedMediaItems.Clear();
+        Plugin.Instance.TotalSeasons = _queuedEpisodes.Count;
+        Plugin.Instance.QueuedMediaItems.Clear();
         foreach (var kvp in _queuedEpisodes)
         {
-            Plugin.Instance!.QueuedMediaItems[kvp.Key] = kvp.Value;
+            Plugin.Instance.QueuedMediaItems[kvp.Key] = kvp.Value;
         }
 
         return new(_queuedEpisodes);
@@ -123,16 +123,11 @@ public class QueueManager
     {
         _logger.LogDebug("Constructing anonymous internal query");
 
-        var query = new InternalItemsQuery()
+        var query = new InternalItemsQuery
         {
             // Order by series name, season, and then episode number so that status updates are logged in order
             ParentId = id,
-            OrderBy = new List<(ItemSortBy, SortOrder)>
-            {
-                 new(ItemSortBy.SeriesSortName, SortOrder.Ascending),
-                 new(ItemSortBy.ParentIndexNumber, SortOrder.Ascending),
-                 new(ItemSortBy.IndexNumber, SortOrder.Ascending),
-            },
+            OrderBy = new[] { (ItemSortBy.SeriesSortName, SortOrder.Ascending), (ItemSortBy.ParentIndexNumber, SortOrder.Ascending), (ItemSortBy.IndexNumber, SortOrder.Ascending), },
             IncludeItemTypes = [BaseItemKind.Episode],
             Recursive = true,
             IsVirtualItem = false
@@ -159,7 +154,7 @@ public class QueueManager
 
             if (Plugin.Instance!.Configuration.PathRestrictions.Count > 0)
             {
-                if (!Plugin.Instance!.Configuration.PathRestrictions.Contains(item.ContainingFolderPath))
+                if (!Plugin.Instance.Configuration.PathRestrictions.Contains(item.ContainingFolderPath))
                 {
                     continue;
                 }
@@ -200,14 +195,14 @@ public class QueueManager
 
         fingerprintDuration = Math.Min(
             fingerprintDuration,
-            60 * Plugin.Instance!.Configuration.AnalysisLengthLimit);
+            60 * Plugin.Instance.Configuration.AnalysisLengthLimit);
 
         // Allocate a new list for each new season
         _queuedEpisodes.TryAdd(episode.SeasonId, new List<QueuedEpisode>());
 
         // Queue the episode for analysis
-        var maxCreditsDuration = Plugin.Instance!.Configuration.MaximumCreditsDuration;
-        _queuedEpisodes[episode.SeasonId].Add(new QueuedEpisode()
+        var maxCreditsDuration = Plugin.Instance.Configuration.MaximumCreditsDuration;
+        _queuedEpisodes[episode.SeasonId].Add(new QueuedEpisode
         {
             SeriesName = episode.SeriesName,
             SeasonNumber = episode.AiredSeasonNumber ?? 0,
@@ -219,7 +214,7 @@ public class QueueManager
             CreditsFingerprintStart = Convert.ToInt32(duration - maxCreditsDuration),
         });
 
-        Plugin.Instance!.TotalQueued++;
+        Plugin.Instance.TotalQueued++;
     }
 
     /// <summary>
@@ -242,7 +237,7 @@ public class QueueManager
         {
             try
             {
-                var path = Plugin.Instance!.GetItemPath(candidate.EpisodeId);
+                var path = Plugin.Instance.GetItemPath(candidate.EpisodeId);
 
                 if (File.Exists(path))
                 {

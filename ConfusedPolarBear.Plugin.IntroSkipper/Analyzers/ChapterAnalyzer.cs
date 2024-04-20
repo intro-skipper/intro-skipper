@@ -1,5 +1,3 @@
-namespace ConfusedPolarBear.Plugin.IntroSkipper;
-
 using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
@@ -7,8 +5,11 @@ using System.Globalization;
 using System.Linq;
 using System.Text.RegularExpressions;
 using System.Threading;
+using ConfusedPolarBear.Plugin.IntroSkipper.Configuration;
 using MediaBrowser.Model.Entities;
 using Microsoft.Extensions.Logging;
+
+namespace ConfusedPolarBear.Plugin.IntroSkipper;
 
 /// <summary>
 /// Chapter name analyzer.
@@ -52,7 +53,7 @@ public class ChapterAnalyzer : IMediaFileAnalyzer
 
             var skipRange = FindMatchingChapter(
                 episode,
-                new(Plugin.Instance!.GetChapters(episode.EpisodeId)),
+                new(Plugin.Instance.GetChapters(episode.EpisodeId)),
                 expression,
                 mode);
 
@@ -64,7 +65,7 @@ public class ChapterAnalyzer : IMediaFileAnalyzer
             skippableRanges.Add(episode.EpisodeId, skipRange);
         }
 
-        Plugin.Instance!.UpdateTimestamps(skippableRanges, mode);
+        Plugin.Instance.UpdateTimestamps(skippableRanges, mode);
 
         return analysisQueue
             .Where(x => !skippableRanges.ContainsKey(x.EpisodeId))
@@ -89,7 +90,7 @@ public class ChapterAnalyzer : IMediaFileAnalyzer
     {
         Intro? matchingChapter = null;
 
-        var config = Plugin.Instance?.Configuration ?? new Configuration.PluginConfiguration();
+        var config = Plugin.Instance?.Configuration ?? new PluginConfiguration();
 
         var minDuration = config.MinimumIntroDuration;
         int maxDuration = mode == AnalysisMode.Introduction ?

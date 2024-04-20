@@ -2,6 +2,7 @@ using System;
 using System.Net.Mime;
 using System.Text;
 using MediaBrowser.Common;
+using MediaBrowser.Common.Configuration;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Logging;
@@ -42,18 +43,19 @@ public class TroubleshootingController : ControllerBase
     [Produces(MediaTypeNames.Text.Plain)]
     public ActionResult<string> GetSupportBundle()
     {
-        var config = Plugin.Instance!.Configuration;
+        ArgumentNullException.ThrowIfNull(Plugin.Instance);
+
         var bundle = new StringBuilder();
 
         bundle.Append("* Jellyfin version: ");
         bundle.Append(_applicationHost.ApplicationVersionString);
         bundle.Append('\n');
 
-        var version = Plugin.Instance!.Version.ToString(3);
+        var version = Plugin.Instance.Version.ToString(3);
 
         try
         {
-            var commit = Plugin.Instance!.GetCommit();
+            var commit = Plugin.Instance.GetCommit();
             if (!string.IsNullOrWhiteSpace(commit))
             {
                 version += string.Concat("+", commit.AsSpan(0, 12));
@@ -69,9 +71,9 @@ public class TroubleshootingController : ControllerBase
         bundle.Append('\n');
 
         bundle.Append("* Queue contents: ");
-        bundle.Append(Plugin.Instance!.TotalQueued);
+        bundle.Append(Plugin.Instance.TotalQueued);
         bundle.Append(" episodes, ");
-        bundle.Append(Plugin.Instance!.TotalSeasons);
+        bundle.Append(Plugin.Instance.TotalSeasons);
         bundle.Append(" seasons\n");
 
         bundle.Append("* Warnings: `");

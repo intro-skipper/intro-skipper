@@ -1,12 +1,10 @@
 using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
-using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
 using MediaBrowser.Controller.Entities.TV;
 using MediaBrowser.Controller.Library;
-using MediaBrowser.Controller.Plugins;
 using MediaBrowser.Model.Entities;
 using MediaBrowser.Model.Tasks;
 using Microsoft.Extensions.Hosting;
@@ -114,10 +112,10 @@ public class Entrypoint : IHostedService, IDisposable
         _queueTimer.Change(Timeout.Infinite, 0);
 
         if (_cancellationTokenSource != null) // Null Check
-            {
-                _cancellationTokenSource.Dispose();
-                _cancellationTokenSource = null;
-            }
+        {
+            _cancellationTokenSource.Dispose();
+            _cancellationTokenSource = null;
+        }
 
         return Task.CompletedTask;
     }
@@ -134,7 +132,7 @@ public class Entrypoint : IHostedService, IDisposable
     private void OnItemAdded(object? sender, ItemChangeEventArgs itemChangeEventArgs)
     {
         // Don't do anything if auto detection is disabled
-        if (!Plugin.Instance!.Configuration.AutoDetectIntros && !Plugin.Instance!.Configuration.AutoDetectCredits)
+        if (!Plugin.Instance!.Configuration.AutoDetectIntros && !Plugin.Instance.Configuration.AutoDetectCredits)
         {
             return;
         }
@@ -150,7 +148,7 @@ public class Entrypoint : IHostedService, IDisposable
             return;
         }
 
-        Plugin.Instance!.Configuration.PathRestrictions.Add(itemChangeEventArgs.Item.ContainingFolderPath);
+        Plugin.Instance.Configuration.PathRestrictions.Add(itemChangeEventArgs.Item.ContainingFolderPath);
 
         StartTimer();
     }
@@ -163,7 +161,7 @@ public class Entrypoint : IHostedService, IDisposable
     private void OnItemModified(object? sender, ItemChangeEventArgs itemChangeEventArgs)
     {
         // Don't do anything if auto detection is disabled
-        if (!Plugin.Instance!.Configuration.AutoDetectIntros && !Plugin.Instance!.Configuration.AutoDetectCredits)
+        if (!Plugin.Instance!.Configuration.AutoDetectIntros && !Plugin.Instance.Configuration.AutoDetectCredits)
         {
             return;
         }
@@ -179,7 +177,7 @@ public class Entrypoint : IHostedService, IDisposable
             return;
         }
 
-        Plugin.Instance!.Configuration.PathRestrictions.Add(itemChangeEventArgs.Item.ContainingFolderPath);
+        Plugin.Instance.Configuration.PathRestrictions.Add(itemChangeEventArgs.Item.ContainingFolderPath);
 
         StartTimer();
     }
@@ -192,7 +190,7 @@ public class Entrypoint : IHostedService, IDisposable
     private void OnLibraryRefresh(object? sender, TaskCompletionEventArgs eventArgs)
     {
         // Don't do anything if auto detection is disabled
-        if (!Plugin.Instance!.Configuration.AutoDetectIntros && !Plugin.Instance!.Configuration.AutoDetectCredits)
+        if (!Plugin.Instance!.Configuration.AutoDetectIntros && !Plugin.Instance.Configuration.AutoDetectCredits)
         {
             return;
         }
@@ -210,7 +208,7 @@ public class Entrypoint : IHostedService, IDisposable
         }
 
         // Unless user initiated, this is likely an overlap
-        if (Entrypoint.AutomaticTaskState == TaskState.Running)
+        if (AutomaticTaskState == TaskState.Running)
         {
             return;
         }
@@ -223,9 +221,9 @@ public class Entrypoint : IHostedService, IDisposable
     /// </summary>
     private void StartTimer()
     {
-        if (Entrypoint.AutomaticTaskState == TaskState.Running)
+        if (AutomaticTaskState == TaskState.Running)
         {
-           _analyzeAgain = true; // Items added during a scan will be included later.
+            _analyzeAgain = true; // Items added during a scan will be included later.
         }
         else if (ScheduledTaskSemaphore.CurrentCount > 0)
         {
@@ -265,18 +263,18 @@ public class Entrypoint : IHostedService, IDisposable
             var modes = new List<AnalysisMode>();
             var tasklogger = _loggerFactory.CreateLogger("DefaultLogger");
 
-            if (Plugin.Instance!.Configuration.AutoDetectIntros && Plugin.Instance!.Configuration.AutoDetectCredits)
+            if (Plugin.Instance!.Configuration.AutoDetectIntros && Plugin.Instance.Configuration.AutoDetectCredits)
             {
                 modes.Add(AnalysisMode.Introduction);
                 modes.Add(AnalysisMode.Credits);
                 tasklogger = _loggerFactory.CreateLogger<DetectIntrosCreditsTask>();
             }
-            else if (Plugin.Instance!.Configuration.AutoDetectIntros)
+            else if (Plugin.Instance.Configuration.AutoDetectIntros)
             {
                 modes.Add(AnalysisMode.Introduction);
                 tasklogger = _loggerFactory.CreateLogger<DetectIntrosTask>();
             }
-            else if (Plugin.Instance!.Configuration.AutoDetectCredits)
+            else if (Plugin.Instance.Configuration.AutoDetectCredits)
             {
                 modes.Add(AnalysisMode.Credits);
                 tasklogger = _loggerFactory.CreateLogger<DetectCreditsTask>();
@@ -291,7 +289,7 @@ public class Entrypoint : IHostedService, IDisposable
             baseCreditAnalyzer.AnalyzeItems(progress, cancellationToken);
         }
 
-        Plugin.Instance!.Configuration.PathRestrictions.Clear();
+        Plugin.Instance.Configuration.PathRestrictions.Clear();
         _autoTaskCompletEvent.Set();
         _cancellationTokenSource = null;
 
@@ -339,8 +337,6 @@ public class Entrypoint : IHostedService, IDisposable
         if (!dispose)
         {
             _queueTimer.Dispose();
-
-            return;
         }
     }
 }

@@ -1,5 +1,3 @@
-namespace ConfusedPolarBear.Plugin.IntroSkipper;
-
 using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
@@ -7,6 +5,8 @@ using System.Threading;
 using System.Threading.Tasks;
 using MediaBrowser.Controller.Library;
 using Microsoft.Extensions.Logging;
+
+namespace ConfusedPolarBear.Plugin.IntroSkipper;
 
 /// <summary>
 /// Common code shared by all media item analyzer tasks.
@@ -89,12 +89,12 @@ public class BaseItemAnalyzerTask
 
         var totalProcessed = 0;
         var modeCount = _analysisModes.Count;
-        var options = new ParallelOptions()
+        var options = new ParallelOptions
         {
-            MaxDegreeOfParallelism = Plugin.Instance!.Configuration.MaxParallelism
+            MaxDegreeOfParallelism = Plugin.Instance.Configuration.MaxParallelism
         };
 
-        Parallel.ForEach(queue, options, (season) =>
+        Parallel.ForEach(queue, options, season =>
         {
             var writeEdl = false;
 
@@ -145,7 +145,7 @@ public class BaseItemAnalyzerTask
                     var analyzed = AnalyzeItems(episodes, mode, cancellationToken);
                     Interlocked.Add(ref totalProcessed, analyzed);
 
-                    writeEdl = analyzed > 0 || Plugin.Instance!.Configuration.RegenerateEdlFiles;
+                    writeEdl = analyzed > 0 || Plugin.Instance.Configuration.RegenerateEdlFiles;
 
                     progress.Report((totalProcessed * 100) / totalQueued);
                 }
@@ -159,17 +159,17 @@ public class BaseItemAnalyzerTask
                     ex);
             }
 
-            if (writeEdl && Plugin.Instance!.Configuration.EdlAction != EdlAction.None)
+            if (writeEdl && Plugin.Instance.Configuration.EdlAction != EdlAction.None)
             {
                 EdlManager.UpdateEDLFiles(episodes);
             }
         });
 
-        if (Plugin.Instance!.Configuration.RegenerateEdlFiles)
+        if (Plugin.Instance.Configuration.RegenerateEdlFiles)
         {
             _logger.LogInformation("Turning EDL file regeneration flag off");
-            Plugin.Instance!.Configuration.RegenerateEdlFiles = false;
-            Plugin.Instance!.SaveConfiguration();
+            Plugin.Instance.Configuration.RegenerateEdlFiles = false;
+            Plugin.Instance.SaveConfiguration();
         }
     }
 
