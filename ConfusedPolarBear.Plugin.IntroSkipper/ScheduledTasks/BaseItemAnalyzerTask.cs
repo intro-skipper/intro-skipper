@@ -121,7 +121,7 @@ public class BaseItemAnalyzerTask
                     first.SeriesName,
                     first.SeasonNumber);
 
-                Interlocked.Add(ref totalProcessed, (episodeCount * modeCount)); // Update totalProcessed directly
+                Interlocked.Add(ref totalProcessed, episodeCount * modeCount); // Update total Processed directly
                 progress.Report((totalProcessed * 100) / totalQueued);
 
                 return;
