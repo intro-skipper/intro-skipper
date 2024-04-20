@@ -391,9 +391,6 @@ public class ChromaprintAnalyzer : IMediaFileAnalyzer
         ReadOnlyCollection<QueuedEpisode> episodes,
         Dictionary<Guid, Intro> originalIntros)
     {
-        // The minimum duration of audio that must be silent before adjusting the intro's end.
-        var minimumSilence = Plugin.Instance!.Configuration.SilenceDetectionMinimumDuration;
-
         Dictionary<Guid, Intro> modifiedIntros = new();
 
         // For all episodes
