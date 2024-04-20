@@ -7,7 +7,6 @@ using MediaBrowser.Common.Configuration;
 using MediaBrowser.Common.Plugins;
 using MediaBrowser.Controller.Configuration;
 using MediaBrowser.Controller.Entities;
-using MediaBrowser.Controller.Entities.TV;
 using MediaBrowser.Controller.Library;
 using MediaBrowser.Controller.Persistence;
 using MediaBrowser.Model.Entities;
@@ -215,7 +214,7 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
             // Serialize credits
             introList.Clear();
 
-            foreach (var intro in Instance.Credits)
+            foreach (var intro in Instance!.Credits)
             {
                 introList.Add(intro.Value);
             }
