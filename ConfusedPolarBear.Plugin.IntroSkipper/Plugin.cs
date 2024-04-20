@@ -255,7 +255,7 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
             }
             else if (mode == AnalysisMode.Credits)
             {
-                foreach (var intro in Instance.Credits)
+                foreach (var intro in Instance!.Credits)
                 {
                     introList.Add(intro.Value);
                 }
