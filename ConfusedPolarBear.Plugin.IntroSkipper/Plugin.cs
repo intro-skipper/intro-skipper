@@ -227,6 +227,52 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
     }
 
     /// <summary>
+    /// Save timestamps to disk.
+    /// </summary>
+    /// <param name="mode">Mode.</param>
+    public void SaveTimestamps(AnalysisMode mode)
+    {
+        lock (_serializationLock)
+        {
+            var introList = new List<Intro>();
+
+            // Serialize intros
+            if (mode == AnalysisMode.Introduction)
+            {
+                foreach (var intro in Instance!.Intros)
+                {
+                    introList.Add(intro.Value);
+                }
+
+                try
+                {
+                    XmlSerializationHelper.SerializeToXml(introList, _introPath);
+                }
+                catch (Exception e)
+                {
+                    _logger.LogError("SaveTimestamps intros {Message}", e.Message);
+                }
+            }
+            else if (mode == AnalysisMode.Credits)
+            {
+                foreach (var intro in Instance.Credits)
+                {
+                    introList.Add(intro.Value);
+                }
+
+                try
+                {
+                    XmlSerializationHelper.SerializeToXml(introList, _creditsPath);
+                }
+                catch (Exception e)
+                {
+                    _logger.LogError("SaveTimestamps credits {Message}", e.Message);
+                }
+            }
+        }
+    }
+
+    /// <summary>
     /// Restore previous analysis results from disk.
     /// </summary>
     public void RestoreTimestamps()
@@ -346,7 +392,7 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
                 }
             }
 
-            Instance!.SaveTimestamps();
+            Instance!.SaveTimestamps(mode);
         }
     }
 
