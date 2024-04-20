@@ -88,6 +88,7 @@ public class BaseItemAnalyzerTask
         }
 
         var totalProcessed = 0;
+        var modeCount = _analysisModes.Count;
         var options = new ParallelOptions()
         {
             MaxDegreeOfParallelism = Plugin.Instance!.Configuration.MaxParallelism
@@ -103,21 +104,33 @@ public class BaseItemAnalyzerTask
                 season.Value.AsReadOnly(),
                 _analysisModes);
 
-            if (episodes.Count == 0)
+            var episodeCount = episodes.Count;
+
+            if (episodeCount == 0)
             {
                 return;
             }
 
             var first = episodes[0];
+            var requiredModeCount = requiredModes.Count;
 
-            if (requiredModes.Count == 0)
+            if (requiredModeCount == 0) 
             {
                 _logger.LogDebug(
                     "All episodes in {Name} season {Season} have already been analyzed",
                     first.SeriesName,
                     first.SeasonNumber);
+                    
+                Interlocked.Add(ref totalProcessed, (episodeCount * modeCount)); // Update totalProcessed directly
+                progress.Report((totalProcessed * 100) / totalQueued);
 
                 return;
+            }
+
+            if (modeCount != requiredModeCount)
+            {
+                Interlocked.Add(ref totalProcessed, episodeCount);
+                progress.Report((totalProcessed * 100) / totalQueued); // Partial analysis some modes have already been analyzed
             }
 
             try
