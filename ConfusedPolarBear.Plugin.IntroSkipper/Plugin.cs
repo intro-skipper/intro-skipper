@@ -213,7 +213,7 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
             // Serialize credits
             introList.Clear();
 
-            foreach (var intro in Plugin.Instance!.Credits)
+            foreach (var intro in Plugin.Instance.Credits)
             {
                 introList.Add(intro.Value);
             }

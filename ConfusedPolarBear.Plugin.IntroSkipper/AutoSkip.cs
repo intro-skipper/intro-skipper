@@ -146,7 +146,7 @@ public class AutoSkip : IHostedService, IDisposable
             }
 
             // Notify the user that an introduction is being skipped for them.
-            var notificationText = Plugin.Instance!.Configuration.AutoSkipNotificationText;
+            var notificationText = Plugin.Instance.Configuration.AutoSkipNotificationText;
             if (!string.IsNullOrWhiteSpace(notificationText))
             {
                 _sessionManager.SendMessageCommand(
@@ -163,7 +163,7 @@ public class AutoSkip : IHostedService, IDisposable
 
             _logger.LogDebug("Sending seek command to {Session}", deviceId);
 
-            var introEnd = (long)intro.IntroEnd - Plugin.Instance!.Configuration.SecondsOfIntroToPlay;
+            var introEnd = (long)intro.IntroEnd - Plugin.Instance.Configuration.SecondsOfIntroToPlay;
 
             _sessionManager.SendPlaystateCommand(
                 session.Id,
@@ -221,7 +221,7 @@ public class AutoSkip : IHostedService, IDisposable
         _playbackTimer.AutoReset = true;
         _playbackTimer.Elapsed += PlaybackTimer_Elapsed;
 
-        AutoSkipChanged(null, Plugin.Instance!.Configuration);
+        AutoSkipChanged(null, Plugin.Instance.Configuration);
 
         return Task.CompletedTask;
     }

@@ -72,11 +72,11 @@ public class QueueManager
             }
         }
 
-        Plugin.Instance!.TotalSeasons = _queuedEpisodes.Count;
-        Plugin.Instance!.QueuedMediaItems.Clear();
+        Plugin.Instance.TotalSeasons = _queuedEpisodes.Count;
+        Plugin.Instance.QueuedMediaItems.Clear();
         foreach (var kvp in _queuedEpisodes)
         {
-            Plugin.Instance!.QueuedMediaItems[kvp.Key] = kvp.Value;
+            Plugin.Instance.QueuedMediaItems[kvp.Key] = kvp.Value;
         }
 
         return new(_queuedEpisodes);
@@ -159,7 +159,7 @@ public class QueueManager
 
             if (Plugin.Instance!.Configuration.PathRestrictions.Count > 0)
             {
-                if (!Plugin.Instance!.Configuration.PathRestrictions.Contains(item.ContainingFolderPath))
+                if (!Plugin.Instance.Configuration.PathRestrictions.Contains(item.ContainingFolderPath))
                 {
                     continue;
                 }
@@ -200,13 +200,13 @@ public class QueueManager
 
         fingerprintDuration = Math.Min(
             fingerprintDuration,
-            60 * Plugin.Instance!.Configuration.AnalysisLengthLimit);
+            60 * Plugin.Instance.Configuration.AnalysisLengthLimit);
 
         // Allocate a new list for each new season
         _queuedEpisodes.TryAdd(episode.SeasonId, new List<QueuedEpisode>());
 
         // Queue the episode for analysis
-        var maxCreditsDuration = Plugin.Instance!.Configuration.MaximumCreditsDuration;
+        var maxCreditsDuration = Plugin.Instance.Configuration.MaximumCreditsDuration;
         _queuedEpisodes[episode.SeasonId].Add(new QueuedEpisode()
         {
             SeriesName = episode.SeriesName,
@@ -219,7 +219,7 @@ public class QueueManager
             CreditsFingerprintStart = Convert.ToInt32(duration - maxCreditsDuration),
         });
 
-        Plugin.Instance!.TotalQueued++;
+        Plugin.Instance.TotalQueued++;
     }
 
     /// <summary>
@@ -243,7 +243,7 @@ public class QueueManager
         {
             try
             {
-                var path = Plugin.Instance!.GetItemPath(candidate.EpisodeId);
+                var path = Plugin.Instance.GetItemPath(candidate.EpisodeId);
 
                 if (File.Exists(path))
                 {

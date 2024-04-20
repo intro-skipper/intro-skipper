@@ -49,11 +49,11 @@ public class TroubleshootingController : ControllerBase
         bundle.Append(_applicationHost.ApplicationVersionString);
         bundle.Append('\n');
 
-        var version = Plugin.Instance!.Version.ToString(3);
+        var version = Plugin.Instance.Version.ToString(3);
 
         try
         {
-            var commit = Plugin.Instance!.GetCommit();
+            var commit = Plugin.Instance.GetCommit();
             if (!string.IsNullOrWhiteSpace(commit))
             {
                 version += string.Concat("+", commit.AsSpan(0, 12));
@@ -69,9 +69,9 @@ public class TroubleshootingController : ControllerBase
         bundle.Append('\n');
 
         bundle.Append("* Queue contents: ");
-        bundle.Append(Plugin.Instance!.TotalQueued);
+        bundle.Append(Plugin.Instance.TotalQueued);
         bundle.Append(" episodes, ");
-        bundle.Append(Plugin.Instance!.TotalSeasons);
+        bundle.Append(Plugin.Instance.TotalSeasons);
         bundle.Append(" seasons\n");
 
         bundle.Append("* Warnings: `");

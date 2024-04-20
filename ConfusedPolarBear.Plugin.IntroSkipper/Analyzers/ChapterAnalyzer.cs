@@ -52,7 +52,7 @@ public class ChapterAnalyzer : IMediaFileAnalyzer
 
             var skipRange = FindMatchingChapter(
                 episode,
-                new(Plugin.Instance!.GetChapters(episode.EpisodeId)),
+                new(Plugin.Instance.GetChapters(episode.EpisodeId)),
                 expression,
                 mode);
 
@@ -64,7 +64,7 @@ public class ChapterAnalyzer : IMediaFileAnalyzer
             skippableRanges.Add(episode.EpisodeId, skipRange);
         }
 
-        Plugin.Instance!.UpdateTimestamps(skippableRanges, mode);
+        Plugin.Instance.UpdateTimestamps(skippableRanges, mode);
 
         return analysisQueue
             .Where(x => !skippableRanges.ContainsKey(x.EpisodeId))

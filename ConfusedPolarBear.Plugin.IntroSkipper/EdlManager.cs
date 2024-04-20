@@ -50,7 +50,7 @@ public static class EdlManager
     public static void UpdateEDLFiles(ReadOnlyCollection<QueuedEpisode> episodes)
     {
         var regenerate = Plugin.Instance!.Configuration.RegenerateEdlFiles;
-        var action = Plugin.Instance!.Configuration.EdlAction;
+        var action = Plugin.Instance.Configuration.EdlAction;
         if (action == EdlAction.None)
         {
             _logger?.LogDebug("EDL action is set to none, not updating EDL files");
@@ -63,7 +63,7 @@ public static class EdlManager
         {
             var id = episode.EpisodeId;
 
-            if (!Plugin.Instance!.Intros.TryGetValue(id, out var intro))
+            if (!Plugin.Instance.Intros.TryGetValue(id, out var intro))
             {
                 _logger?.LogDebug("Episode {Id} did not have an introduction, skipping", id);
                 continue;
@@ -74,7 +74,7 @@ public static class EdlManager
                 continue;
             }
 
-            var edlPath = GetEdlPath(Plugin.Instance!.GetItemPath(id));
+            var edlPath = GetEdlPath(Plugin.Instance.GetItemPath(id));
 
             _logger?.LogTrace("Episode {Id} has EDL path {Path}", id, edlPath);
 

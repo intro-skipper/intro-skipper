@@ -87,7 +87,7 @@ public class BaseItemAnalyzerTask
         var totalProcessed = 0;
         var options = new ParallelOptions()
         {
-            MaxDegreeOfParallelism = Plugin.Instance!.Configuration.MaxParallelism
+            MaxDegreeOfParallelism = Plugin.Instance.Configuration.MaxParallelism
         };
 
         Parallel.ForEach(queue, options, (season) =>
@@ -127,7 +127,7 @@ public class BaseItemAnalyzerTask
                 var analyzed = AnalyzeItems(episodes, cancellationToken);
                 Interlocked.Add(ref totalProcessed, analyzed);
 
-                writeEdl = analyzed > 0 || Plugin.Instance!.Configuration.RegenerateEdlFiles;
+                writeEdl = analyzed > 0 || Plugin.Instance.Configuration.RegenerateEdlFiles;
             }
             catch (FingerprintException ex)
             {
@@ -140,7 +140,7 @@ public class BaseItemAnalyzerTask
 
             if (
                 writeEdl &&
-                Plugin.Instance!.Configuration.EdlAction != EdlAction.None &&
+                Plugin.Instance.Configuration.EdlAction != EdlAction.None &&
                 _analysisMode == AnalysisMode.Introduction)
             {
                 EdlManager.UpdateEDLFiles(episodes);
@@ -158,11 +158,11 @@ public class BaseItemAnalyzerTask
 
         if (
             _analysisMode == AnalysisMode.Introduction &&
-            Plugin.Instance!.Configuration.RegenerateEdlFiles)
+            Plugin.Instance.Configuration.RegenerateEdlFiles)
         {
             _logger.LogInformation("Turning EDL file regeneration flag off");
-            Plugin.Instance!.Configuration.RegenerateEdlFiles = false;
-            Plugin.Instance!.SaveConfiguration();
+            Plugin.Instance.Configuration.RegenerateEdlFiles = false;
+            Plugin.Instance.SaveConfiguration();
         }
     }
 

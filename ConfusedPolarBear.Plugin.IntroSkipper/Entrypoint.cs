@@ -132,7 +132,7 @@ public class Entrypoint : IHostedService, IDisposable
     private void OnItemAdded(object? sender, ItemChangeEventArgs itemChangeEventArgs)
     {
         // Don't do anything if auto detection is disabled
-        if (!Plugin.Instance!.Configuration.AutoDetectIntros && !Plugin.Instance!.Configuration.AutoDetectCredits)
+        if (!Plugin.Instance!.Configuration.AutoDetectIntros && !Plugin.Instance.Configuration.AutoDetectCredits)
         {
             return;
         }
@@ -148,7 +148,7 @@ public class Entrypoint : IHostedService, IDisposable
             return;
         }
 
-        Plugin.Instance!.Configuration.PathRestrictions.Add(itemChangeEventArgs.Item.ContainingFolderPath);
+        Plugin.Instance.Configuration.PathRestrictions.Add(itemChangeEventArgs.Item.ContainingFolderPath);
 
         StartTimer();
     }
@@ -161,7 +161,7 @@ public class Entrypoint : IHostedService, IDisposable
     private void OnItemModified(object? sender, ItemChangeEventArgs itemChangeEventArgs)
     {
         // Don't do anything if auto detection is disabled
-        if (!Plugin.Instance!.Configuration.AutoDetectIntros && !Plugin.Instance!.Configuration.AutoDetectCredits)
+        if (!Plugin.Instance!.Configuration.AutoDetectIntros && !Plugin.Instance.Configuration.AutoDetectCredits)
         {
             return;
         }
@@ -177,7 +177,7 @@ public class Entrypoint : IHostedService, IDisposable
             return;
         }
 
-        Plugin.Instance!.Configuration.PathRestrictions.Add(itemChangeEventArgs.Item.ContainingFolderPath);
+        Plugin.Instance.Configuration.PathRestrictions.Add(itemChangeEventArgs.Item.ContainingFolderPath);
 
         StartTimer();
     }
@@ -190,7 +190,7 @@ public class Entrypoint : IHostedService, IDisposable
     private void OnLibraryRefresh(object? sender, TaskCompletionEventArgs eventArgs)
     {
         // Don't do anything if auto detection is disabled
-        if (!Plugin.Instance!.Configuration.AutoDetectIntros && !Plugin.Instance!.Configuration.AutoDetectCredits)
+        if (!Plugin.Instance!.Configuration.AutoDetectIntros && !Plugin.Instance.Configuration.AutoDetectCredits)
         {
             return;
         }
@@ -260,7 +260,7 @@ public class Entrypoint : IHostedService, IDisposable
             var progress = new Progress<double>();
             var cancellationToken = _cancellationTokenSource.Token;
 
-            if (Plugin.Instance!.Configuration.AutoDetectIntros && Plugin.Instance!.Configuration.AutoDetectCredits)
+            if (Plugin.Instance!.Configuration.AutoDetectIntros && Plugin.Instance.Configuration.AutoDetectCredits)
             {
                 // This is where we can optimize a single scan
                 var baseIntroAnalyzer = new BaseItemAnalyzerTask(
@@ -279,7 +279,7 @@ public class Entrypoint : IHostedService, IDisposable
 
                 baseCreditAnalyzer.AnalyzeItems(progress, cancellationToken);
             }
-            else if (Plugin.Instance!.Configuration.AutoDetectIntros)
+            else if (Plugin.Instance.Configuration.AutoDetectIntros)
             {
                 var baseIntroAnalyzer = new BaseItemAnalyzerTask(
                     AnalysisMode.Introduction,
@@ -289,7 +289,7 @@ public class Entrypoint : IHostedService, IDisposable
 
                 baseIntroAnalyzer.AnalyzeItems(progress, cancellationToken);
             }
-            else if (Plugin.Instance!.Configuration.AutoDetectCredits)
+            else if (Plugin.Instance.Configuration.AutoDetectCredits)
             {
                 var baseCreditAnalyzer = new BaseItemAnalyzerTask(
                     AnalysisMode.Credits,
@@ -301,7 +301,7 @@ public class Entrypoint : IHostedService, IDisposable
             }
         }
 
-        Plugin.Instance!.Configuration.PathRestrictions.Clear();
+        Plugin.Instance.Configuration.PathRestrictions.Clear();
         _autoTaskCompletEvent.Set();
         _cancellationTokenSource = null;
 
