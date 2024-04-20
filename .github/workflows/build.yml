@@ -3,15 +3,20 @@ name: 'Build Plugin'
 on:
   push:
     branches: [ "master" ]
+    paths-ignore:
+      - '**/README.md'
+      - '.github/ISSUE_TEMPLATE/**'
+      - 'docs/**'
+      - 'images/**'
+      - 'manifest.json'
   pull_request:
     branches: [ "master" ]
-  paths-ignore:
-    - '**/README.md'
-    - '.github/ISSUE_TEMPLATE/**'
-    - 'docs/**'
-    - 'images/**'
-    - 'manifest.json'
-
+    paths-ignore:
+      - '**/README.md'
+      - '.github/ISSUE_TEMPLATE/**'
+      - 'docs/**'
+      - 'images/**'
+      - 'manifest.json'
 
 permissions:
   contents: write
