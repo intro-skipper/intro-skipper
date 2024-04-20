@@ -12,6 +12,7 @@ using MediaBrowser.Model.Plugins;
 using MediaBrowser.Model.Session;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
+using Timer = System.Timers.Timer;
 
 namespace ConfusedPolarBear.Plugin.IntroSkipper;
 
@@ -26,7 +27,7 @@ public class AutoSkip : IHostedService, IDisposable
     private ILogger<AutoSkip> _logger;
     private IUserDataManager _userDataManager;
     private ISessionManager _sessionManager;
-    private System.Timers.Timer _playbackTimer = new(1000);
+    private Timer _playbackTimer = new(1000);
     private Dictionary<string, bool> _sentSeekCommand;
 
     /// <summary>
@@ -152,7 +153,7 @@ public class AutoSkip : IHostedService, IDisposable
                 _sessionManager.SendMessageCommand(
                 session.Id,
                 session.Id,
-                new MessageCommand()
+                new MessageCommand
                 {
                     Header = string.Empty,      // some clients require header to be a string instead of null
                     Text = notificationText,

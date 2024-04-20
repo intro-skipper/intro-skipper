@@ -1,9 +1,9 @@
-namespace ConfusedPolarBear.Plugin.IntroSkipper;
-
 using System;
 using System.Collections.ObjectModel;
 using System.IO;
 using Microsoft.Extensions.Logging;
+
+namespace ConfusedPolarBear.Plugin.IntroSkipper;
 
 /// <summary>
 /// Update EDL files associated with a list of episodes.
@@ -68,7 +68,8 @@ public static class EdlManager
                 _logger?.LogDebug("Episode {Id} did not have an introduction, skipping", id);
                 continue;
             }
-            else if (!intro.Valid)
+
+            if (!intro.Valid)
             {
                 _logger?.LogDebug("Episode {Id} did not have a valid introduction, skipping", id);
                 continue;

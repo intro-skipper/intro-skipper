@@ -1,11 +1,12 @@
-namespace ConfusedPolarBear.Plugin.IntroSkipper;
-
 using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Linq;
 using System.Threading;
+using ConfusedPolarBear.Plugin.IntroSkipper.Configuration;
 using Microsoft.Extensions.Logging;
+
+namespace ConfusedPolarBear.Plugin.IntroSkipper;
 
 /// <summary>
 /// Media file analyzer used to detect end credits that consist of text overlaid on a black background.
@@ -76,7 +77,7 @@ public class BlackFrameAnalyzer : IMediaFileAnalyzer
     /// <returns>Credits timestamp.</returns>
     public Intro? AnalyzeMediaFile(QueuedEpisode episode, AnalysisMode mode, int minimum)
     {
-        var config = Plugin.Instance?.Configuration ?? new Configuration.PluginConfiguration();
+        var config = Plugin.Instance?.Configuration ?? new PluginConfiguration();
 
         // Start by analyzing the last N minutes of the file.
         var start = TimeSpan.FromSeconds(config.MaximumCreditsDuration);

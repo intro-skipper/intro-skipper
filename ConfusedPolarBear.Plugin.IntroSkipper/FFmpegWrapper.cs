@@ -125,7 +125,7 @@ public static class FFmpegWrapper
         }
         else
         {
-            throw new ArgumentException("Unknown analysis mode " + mode.ToString());
+            throw new ArgumentException("Unknown analysis mode " + mode);
         }
 
         return Fingerprint(episode, mode, start, end);
@@ -642,14 +642,13 @@ public static class FFmpegWrapper
         {
             return basePath;
         }
-        else if (mode == AnalysisMode.Credits)
+
+        if (mode == AnalysisMode.Credits)
         {
             return basePath + "-credits";
         }
-        else
-        {
-            throw new ArgumentException("Unknown analysis mode " + mode.ToString());
-        }
+
+        throw new ArgumentException("Unknown analysis mode " + mode);
     }
 
     private static string FormatFFmpegLog(string key)

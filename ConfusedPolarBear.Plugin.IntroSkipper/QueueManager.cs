@@ -1,5 +1,3 @@
-namespace ConfusedPolarBear.Plugin.IntroSkipper;
-
 using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
@@ -9,8 +7,9 @@ using Jellyfin.Data.Enums;
 using MediaBrowser.Controller.Entities;
 using MediaBrowser.Controller.Entities.TV;
 using MediaBrowser.Controller.Library;
-using MediaBrowser.Model.Querying;
 using Microsoft.Extensions.Logging;
+
+namespace ConfusedPolarBear.Plugin.IntroSkipper;
 
 /// <summary>
 /// Manages enqueuing library items for analysis.
@@ -124,7 +123,7 @@ public class QueueManager
     {
         _logger.LogDebug("Constructing anonymous internal query");
 
-        var query = new InternalItemsQuery()
+        var query = new InternalItemsQuery
         {
             // Order by series name, season, and then episode number so that status updates are logged in order
             ParentId = id,
@@ -203,7 +202,7 @@ public class QueueManager
 
         // Queue the episode for analysis
         var maxCreditsDuration = Plugin.Instance.Configuration.MaximumCreditsDuration;
-        _queuedEpisodes[episode.SeasonId].Add(new QueuedEpisode()
+        _queuedEpisodes[episode.SeasonId].Add(new QueuedEpisode
         {
             SeriesName = episode.SeriesName,
             SeasonNumber = episode.AiredSeasonNumber ?? 0,

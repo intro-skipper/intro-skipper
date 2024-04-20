@@ -1,4 +1,5 @@
 using System;
+using System.Globalization;
 using System.Text.Json.Serialization;
 
 namespace ConfusedPolarBear.Plugin.IntroSkipper;
@@ -102,7 +103,7 @@ public class Intro
         var start = Math.Round(IntroStart, 2);
         var end = Math.Round(IntroEnd, 2);
 
-        return string.Format(System.Globalization.CultureInfo.InvariantCulture, "{0} {1} {2}", start, end, (int)action);
+        return string.Format(CultureInfo.InvariantCulture, "{0} {1} {2}", start, end, (int)action);
     }
 }
 

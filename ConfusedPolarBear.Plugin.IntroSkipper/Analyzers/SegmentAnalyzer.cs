@@ -1,8 +1,8 @@
-namespace ConfusedPolarBear.Plugin.IntroSkipper;
-
 using System.Collections.ObjectModel;
 using System.Threading;
 using Microsoft.Extensions.Logging;
+
+namespace ConfusedPolarBear.Plugin.IntroSkipper;
 
 /// <summary>
 /// Chapter name analyzer.

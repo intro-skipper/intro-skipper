@@ -1,11 +1,11 @@
-namespace ConfusedPolarBear.Plugin.IntroSkipper;
-
 using System;
 using System.Collections.ObjectModel;
 using System.Threading;
 using System.Threading.Tasks;
 using MediaBrowser.Controller.Library;
 using Microsoft.Extensions.Logging;
+
+namespace ConfusedPolarBear.Plugin.IntroSkipper;
 
 /// <summary>
 /// Common code shared by all media item analyzer tasks.
@@ -85,12 +85,12 @@ public class BaseItemAnalyzerTask
         }
 
         var totalProcessed = 0;
-        var options = new ParallelOptions()
+        var options = new ParallelOptions
         {
             MaxDegreeOfParallelism = Plugin.Instance.Configuration.MaxParallelism
         };
 
-        Parallel.ForEach(queue, options, (season) =>
+        Parallel.ForEach(queue, options, season =>
         {
             var writeEdl = false;
 
