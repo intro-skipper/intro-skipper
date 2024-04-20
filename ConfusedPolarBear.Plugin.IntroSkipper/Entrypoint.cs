@@ -208,7 +208,7 @@ public class Entrypoint : IHostedService, IDisposable
         }
 
         // Unless user initiated, this is likely an overlap
-        if (Entrypoint.AutomaticTaskState == TaskState.Running)
+        if (AutomaticTaskState == TaskState.Running)
         {
             return;
         }
@@ -221,7 +221,7 @@ public class Entrypoint : IHostedService, IDisposable
     /// </summary>
     private void StartTimer()
     {
-        if (Entrypoint.AutomaticTaskState == TaskState.Running)
+        if (AutomaticTaskState == TaskState.Running)
         {
            _analyzeAgain = true; // Items added during a scan will be included later.
         }
