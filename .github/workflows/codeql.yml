@@ -3,14 +3,20 @@ name: "CodeQL"
 on:
   push:
     branches: [ 10.8 ]
+    paths-ignore:
+      - '**/README.md'
+      - '.github/ISSUE_TEMPLATE/**'
+      - 'docs/**'
+      - 'images/**'
+      - 'manifest.json'
   pull_request:
     branches: [ 10.8 ]
-  paths-ignore:
-    - '**/README.md'
-    - '.github/ISSUE_TEMPLATE/**'
-    - 'docs/**'
-    - 'images/**'
-    - 'manifest.json'
+    paths-ignore:
+      - '**/README.md'
+      - '.github/ISSUE_TEMPLATE/**'
+      - 'docs/**'
+      - 'images/**'
+      - 'manifest.json'
 
 permissions: write-all
 
