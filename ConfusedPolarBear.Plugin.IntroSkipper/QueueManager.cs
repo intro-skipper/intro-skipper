@@ -9,6 +9,7 @@ using Jellyfin.Data.Enums;
 using MediaBrowser.Controller.Entities;
 using MediaBrowser.Controller.Entities.TV;
 using MediaBrowser.Controller.Library;
+using MediaBrowser.Model.Querying;
 using Microsoft.Extensions.Logging;
 
 /// <summary>
@@ -127,12 +128,7 @@ public class QueueManager
         {
             // Order by series name, season, and then episode number so that status updates are logged in order
             ParentId = id,
-            OrderBy = new List<(ItemSortBy, SortOrder)>
-            {
-                 new(ItemSortBy.SeriesSortName, SortOrder.Ascending),
-                 new(ItemSortBy.ParentIndexNumber, SortOrder.Ascending),
-                 new(ItemSortBy.IndexNumber, SortOrder.Ascending),
-            },
+            OrderBy = new[] { (ItemSortBy.SeriesSortName, SortOrder.Ascending), (ItemSortBy.ParentIndexNumber, SortOrder.Ascending), (ItemSortBy.IndexNumber, SortOrder.Ascending), },
             IncludeItemTypes = [BaseItemKind.Episode],
             Recursive = true,
             IsVirtualItem = false
