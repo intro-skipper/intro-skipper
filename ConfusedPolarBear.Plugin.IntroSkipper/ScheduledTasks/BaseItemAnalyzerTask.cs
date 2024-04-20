@@ -182,7 +182,8 @@ public class BaseItemAnalyzerTask
         }
 
         _logger.LogInformation(
-            "Analyzing {Count} files from {Name} season {Season}",
+            "[Mode: {Mode}] Analyzing {Count} files from {Name} season {Season}",
+            mode,
             items.Count,
             first.SeriesName,
             first.SeasonNumber);
