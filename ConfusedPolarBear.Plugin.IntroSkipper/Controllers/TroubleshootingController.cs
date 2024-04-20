@@ -2,6 +2,7 @@ using System;
 using System.Net.Mime;
 using System.Text;
 using MediaBrowser.Common;
+using MediaBrowser.Common.Configuration;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Logging;
@@ -42,7 +43,8 @@ public class TroubleshootingController : ControllerBase
     [Produces(MediaTypeNames.Text.Plain)]
     public ActionResult<string> GetSupportBundle()
     {
-        var config = Plugin.Instance!.Configuration;
+        ArgumentNullException.ThrowIfNull(Plugin.Instance);
+
         var bundle = new StringBuilder();
 
         bundle.Append("* Jellyfin version: ");
