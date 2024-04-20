@@ -28,9 +28,6 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
     private ILogger<Plugin> _logger;
     private string _introPath;
     private string _creditsPath;
-    private string _oldintroPath;
-    private string _oldcreditsPath;
-    private string _oldFingerprintCachePath;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="Plugin"/> class.
@@ -65,10 +62,10 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
         _introPath = Path.Join(applicationPaths.CachePath, "introskipper", "intros.xml");
         _creditsPath = Path.Join(applicationPaths.CachePath, "introskipper", "credits.xml");
 
-        var oldintrosDirectory = Path.Join(applicationPaths.PluginConfigurationsPath, "intros");
-        _oldFingerprintCachePath = Path.Join(oldintrosDirectory, "cache");
-        _oldintroPath = Path.Join(applicationPaths.PluginConfigurationsPath, "intros", "intros.xml");
-        _oldcreditsPath = Path.Join(applicationPaths.PluginConfigurationsPath, "intros", "credits.xml");
+        var oldIntrosDirectory = Path.Join(applicationPaths.PluginConfigurationsPath, "intros");
+        var oldFingerprintCachePath = Path.Join(oldIntrosDirectory, "cache");
+        var oldIntroPath = Path.Join(applicationPaths.PluginConfigurationsPath, "intros", "intros.xml");
+        var oldCreditsPath = Path.Join(applicationPaths.PluginConfigurationsPath, "intros", "credits.xml");
 
         // Create the base & cache directories (if needed).
         if (!Directory.Exists(FingerprintCachePath))
@@ -76,12 +73,12 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
             Directory.CreateDirectory(FingerprintCachePath);
 
             // Check if the old cache directory exists
-            if (Directory.Exists(_oldFingerprintCachePath))
+            if (Directory.Exists(oldFingerprintCachePath))
             {
                 // Move the contents from old directory to new directory
-                File.Move(_oldintroPath, _introPath);
-                File.Move(_oldcreditsPath, _creditsPath);
-                string[] files = Directory.GetFiles(_oldFingerprintCachePath);
+                File.Move(oldIntroPath, _introPath);
+                File.Move(oldCreditsPath, _creditsPath);
+                string[] files = Directory.GetFiles(oldFingerprintCachePath);
                 foreach (string file in files)
                 {
                     string fileName = Path.GetFileName(file);
@@ -90,7 +87,7 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
                 }
 
                 // Optionally, you may delete the old directory after moving its contents
-                Directory.Delete(oldintrosDirectory, true);
+                Directory.Delete(oldIntrosDirectory, true);
             }
         }
 
