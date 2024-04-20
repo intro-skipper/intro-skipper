@@ -136,7 +136,7 @@ public static class FFmpegWrapper
     /// </summary>
     /// <param name="id">Episode ID.</param>
     /// <param name="fingerprint">Chromaprint fingerprint.</param>
-     /// <param name="mode">Mode.</param>
+    /// <param name="mode">Mode.</param>
     /// <returns>Inverted index.</returns>
     public static Dictionary<uint, int> CreateInvertedIndex(Guid id, uint[] fingerprint, AnalysisMode mode)
     {

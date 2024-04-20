@@ -1,10 +1,8 @@
 using System;
-using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
 using MediaBrowser.Controller.Entities.TV;
 using MediaBrowser.Controller.Library;
-using MediaBrowser.Controller.Plugins;
 using MediaBrowser.Model.Entities;
 using MediaBrowser.Model.Tasks;
 using Microsoft.Extensions.Hosting;
@@ -112,10 +110,10 @@ public class Entrypoint : IHostedService, IDisposable
         _queueTimer.Change(Timeout.Infinite, 0);
 
         if (_cancellationTokenSource != null) // Null Check
-            {
-                _cancellationTokenSource.Dispose();
-                _cancellationTokenSource = null;
-            }
+        {
+            _cancellationTokenSource.Dispose();
+            _cancellationTokenSource = null;
+        }
 
         return Task.CompletedTask;
     }
@@ -208,7 +206,7 @@ public class Entrypoint : IHostedService, IDisposable
         }
 
         // Unless user initiated, this is likely an overlap
-        if (AutomaticTaskState == TaskState.Running)
+        if (Entrypoint.AutomaticTaskState == TaskState.Running)
         {
             return;
         }
@@ -221,9 +219,9 @@ public class Entrypoint : IHostedService, IDisposable
     /// </summary>
     private void StartTimer()
     {
-        if (AutomaticTaskState == TaskState.Running)
+        if (Entrypoint.AutomaticTaskState == TaskState.Running)
         {
-           _analyzeAgain = true; // Items added during a scan will be included later.
+            _analyzeAgain = true; // Items added during a scan will be included later.
         }
         else if (ScheduledTaskSemaphore.CurrentCount > 0)
         {
