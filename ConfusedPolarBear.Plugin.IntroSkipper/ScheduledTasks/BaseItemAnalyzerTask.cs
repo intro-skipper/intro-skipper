@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Threading;
 using System.Threading.Tasks;
@@ -12,7 +13,7 @@ namespace ConfusedPolarBear.Plugin.IntroSkipper;
 /// </summary>
 public class BaseItemAnalyzerTask
 {
-    private readonly AnalysisMode _analysisMode;
+    private readonly ReadOnlyCollection<AnalysisMode> _analysisModes;
 
     private readonly ILogger _logger;
 
@@ -23,22 +24,22 @@ public class BaseItemAnalyzerTask
     /// <summary>
     /// Initializes a new instance of the <see cref="BaseItemAnalyzerTask"/> class.
     /// </summary>
-    /// <param name="mode">Analysis mode.</param>
+    /// <param name="modes">Analysis mode.</param>
     /// <param name="logger">Task logger.</param>
     /// <param name="loggerFactory">Logger factory.</param>
     /// <param name="libraryManager">Library manager.</param>
     public BaseItemAnalyzerTask(
-        AnalysisMode mode,
+        ReadOnlyCollection<AnalysisMode> modes,
         ILogger logger,
         ILoggerFactory loggerFactory,
         ILibraryManager libraryManager)
     {
-        _analysisMode = mode;
+        _analysisModes = modes;
         _logger = logger;
         _loggerFactory = loggerFactory;
         _libraryManager = libraryManager;
 
-        if (mode == AnalysisMode.Introduction)
+        if (Plugin.Instance!.Configuration.EdlAction != EdlAction.None)
         {
             EdlManager.Initialize(_logger);
         }
@@ -73,18 +74,21 @@ public class BaseItemAnalyzerTask
             totalQueued += kvp.Value.Count;
         }
 
+        totalQueued *= _analysisModes.Count;
+
         if (totalQueued == 0)
         {
             throw new FingerprintException(
                 "No episodes to analyze. If you are limiting the list of libraries to analyze, check that all library names have been spelled correctly.");
         }
 
-        if (this._analysisMode == AnalysisMode.Introduction)
+        if (Plugin.Instance!.Configuration.EdlAction != EdlAction.None)
         {
             EdlManager.LogConfiguration();
         }
 
         var totalProcessed = 0;
+        var modeCount = _analysisModes.Count;
         var options = new ParallelOptions
         {
             MaxDegreeOfParallelism = Plugin.Instance.Configuration.MaxParallelism
@@ -96,25 +100,37 @@ public class BaseItemAnalyzerTask
 
             // Since the first run of the task can run for multiple hours, ensure that none
             // of the current media items were deleted from Jellyfin since the task was started.
-            var (episodes, unanalyzed) = queueManager.VerifyQueue(
+            var (episodes, requiredModes) = queueManager.VerifyQueue(
                 season.Value.AsReadOnly(),
-                this._analysisMode);
+                _analysisModes);
 
-            if (episodes.Count == 0)
+            var episodeCount = episodes.Count;
+
+            if (episodeCount == 0)
             {
                 return;
             }
 
             var first = episodes[0];
+            var requiredModeCount = requiredModes.Count;
 
-            if (!unanalyzed)
+            if (requiredModeCount == 0)
             {
                 _logger.LogDebug(
                     "All episodes in {Name} season {Season} have already been analyzed",
                     first.SeriesName,
                     first.SeasonNumber);
 
+                Interlocked.Add(ref totalProcessed, episodeCount * modeCount); // Update total Processed directly
+                progress.Report((totalProcessed * 100) / totalQueued);
+
                 return;
+            }
+
+            if (modeCount != requiredModeCount)
+            {
+                Interlocked.Add(ref totalProcessed, episodeCount);
+                progress.Report((totalProcessed * 100) / totalQueued); // Partial analysis some modes have already been analyzed
             }
 
             try
@@ -124,10 +140,15 @@ public class BaseItemAnalyzerTask
                     return;
                 }
 
-                var analyzed = AnalyzeItems(episodes, cancellationToken);
-                Interlocked.Add(ref totalProcessed, analyzed);
+                foreach (AnalysisMode mode in requiredModes)
+                {
+                    var analyzed = AnalyzeItems(episodes, mode, cancellationToken);
+                    Interlocked.Add(ref totalProcessed, analyzed);
 
-                writeEdl = analyzed > 0 || Plugin.Instance.Configuration.RegenerateEdlFiles;
+                    writeEdl = analyzed > 0 || Plugin.Instance.Configuration.RegenerateEdlFiles;
+
+                    progress.Report((totalProcessed * 100) / totalQueued);
+                }
             }
             catch (FingerprintException ex)
             {
@@ -138,27 +159,13 @@ public class BaseItemAnalyzerTask
                     ex);
             }
 
-            if (
-                writeEdl &&
-                Plugin.Instance.Configuration.EdlAction != EdlAction.None &&
-                _analysisMode == AnalysisMode.Introduction)
+            if (writeEdl && Plugin.Instance.Configuration.EdlAction != EdlAction.None)
             {
                 EdlManager.UpdateEDLFiles(episodes);
             }
-
-            if (_analysisMode == AnalysisMode.Introduction)
-            {
-                progress.Report(((totalProcessed * 100) / totalQueued) / 2);
-            }
-            else
-            {
-                progress.Report((((totalProcessed * 100) / totalQueued) / 2) + 50);
-            }
         });
 
-        if (
-            _analysisMode == AnalysisMode.Introduction &&
-            Plugin.Instance.Configuration.RegenerateEdlFiles)
+        if (Plugin.Instance.Configuration.RegenerateEdlFiles)
         {
             _logger.LogInformation("Turning EDL file regeneration flag off");
             Plugin.Instance.Configuration.RegenerateEdlFiles = false;
@@ -170,10 +177,12 @@ public class BaseItemAnalyzerTask
     /// Analyze a group of media items for skippable segments.
     /// </summary>
     /// <param name="items">Media items to analyze.</param>
+    /// <param name="mode">Analysis mode.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>Number of items that were successfully analyzed.</returns>
     private int AnalyzeItems(
         ReadOnlyCollection<QueuedEpisode> items,
+        AnalysisMode mode,
         CancellationToken cancellationToken)
     {
         var totalItems = items.Count;
@@ -186,7 +195,8 @@ public class BaseItemAnalyzerTask
         }
 
         _logger.LogInformation(
-            "Analyzing {Count} files from {Name} season {Season}",
+            "[Mode: {Mode}] Analyzing {Count} files from {Name} season {Season}",
+            mode,
             items.Count,
             first.SeriesName,
             first.SeasonNumber);
@@ -199,7 +209,7 @@ public class BaseItemAnalyzerTask
             analyzers.Add(new ChromaprintAnalyzer(_loggerFactory.CreateLogger<ChromaprintAnalyzer>()));
         }
 
-        if (this._analysisMode == AnalysisMode.Credits)
+        if (mode == AnalysisMode.Credits)
         {
             analyzers.Add(new BlackFrameAnalyzer(_loggerFactory.CreateLogger<BlackFrameAnalyzer>()));
         }
@@ -208,7 +218,7 @@ public class BaseItemAnalyzerTask
         // analyzed items from the queue.
         foreach (var analyzer in analyzers)
         {
-            items = analyzer.AnalyzeMediaFiles(items, this._analysisMode, cancellationToken);
+            items = analyzer.AnalyzeMediaFiles(items, mode, cancellationToken);
         }
 
         return totalItems;
