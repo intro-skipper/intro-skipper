@@ -98,6 +98,13 @@ public class BaseItemAnalyzerTask
         {
             var writeEdl = false;
 
+            var totalRemaining = (Plugin.Instance!.TotalQueued * modeCount) - totalProcessed;
+
+            if (totalRemaining >= queue.Count * modeCount)
+            {
+                // TODO: Handle items being added dynamically
+            }
+
             // Since the first run of the task can run for multiple hours, ensure that none
             // of the current media items were deleted from Jellyfin since the task was started.
             var (episodes, requiredModes) = queueManager.VerifyQueue(
