@@ -102,7 +102,13 @@ public class BaseItemAnalyzerTask
 
             if (totalRemaining >= queue.Count * modeCount)
             {
-                // TODO: Handle items being added dynamically
+                totalQueued = 0;
+                foreach (var kvp in Plugin.Instance!.QueuedMediaItems)
+                {
+                    totalQueued += kvp.Value.Count;
+                }
+
+                totalQueued *= _analysisModes.Count;
             }
 
             // Since the first run of the task can run for multiple hours, ensure that none
