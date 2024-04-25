@@ -80,7 +80,8 @@ public class BlackFrameAnalyzer : IMediaFileAnalyzer
         var config = Plugin.Instance?.Configuration ?? new PluginConfiguration();
 
         // Start by analyzing the last N minutes of the file.
-        var start = TimeSpan.FromSeconds(config.MaximumCreditsDuration);
+        var creditsLimit = config.MaximumCreditsDuration;
+        var start = TimeSpan.FromSeconds(creditsLimit);
         var end = TimeSpan.FromSeconds(config.MinimumCreditsDuration);
         var firstFrameTime = 0.0;
 
@@ -119,6 +120,14 @@ public class BlackFrameAnalyzer : IMediaFileAnalyzer
                 // Some black frames were found, slide the range closer to the start
                 end = midpoint;
                 firstFrameTime = frames[0].Time + scanTime;
+
+                if (firstFrameTime <= episode.Duration - creditsLimit + 4)
+                {
+                    creditsLimit += config.MinimumCreditsDuration * 2;
+
+                    // Reset start for a new search with the increased duration
+                    start = TimeSpan.FromSeconds(creditsLimit);
+                }
             }
         }
 
