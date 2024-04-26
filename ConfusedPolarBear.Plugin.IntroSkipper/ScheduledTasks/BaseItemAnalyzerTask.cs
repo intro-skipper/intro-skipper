@@ -102,8 +102,9 @@ public class BaseItemAnalyzerTask
 
             if (totalRemaining >= queue.Count * modeCount)
             {
+                queue = new(Plugin.Instance!.QueuedMediaItems);
                 totalQueued = 0;
-                foreach (var kvp in Plugin.Instance!.QueuedMediaItems)
+                foreach (var kvp in queue)
                 {
                     totalQueued += kvp.Value.Count;
                 }
