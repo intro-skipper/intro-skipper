@@ -91,7 +91,9 @@ public class ChapterAnalyzer : IMediaFileAnalyzer
 
         var config = Plugin.Instance?.Configuration ?? new Configuration.PluginConfiguration();
 
-        var minDuration = config.MinimumIntroDuration;
+        var minDuration = mode == AnalysisMode.Introduction ?
+            config.MinimumIntroDuration :
+            config.MinimumCreditsDuration;
         int maxDuration = mode == AnalysisMode.Introduction ?
             config.MaximumIntroDuration :
             config.MaximumCreditsDuration;

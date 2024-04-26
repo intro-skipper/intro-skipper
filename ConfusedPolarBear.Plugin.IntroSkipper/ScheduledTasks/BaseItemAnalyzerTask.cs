@@ -98,6 +98,20 @@ public class BaseItemAnalyzerTask
         {
             var writeEdl = false;
 
+            var totalRemaining = (Plugin.Instance!.TotalQueued * modeCount) - totalProcessed;
+
+            if (totalRemaining >= queue.Count * modeCount)
+            {
+                queue = new(Plugin.Instance!.QueuedMediaItems);
+                totalQueued = 0;
+                foreach (var kvp in queue)
+                {
+                    totalQueued += kvp.Value.Count;
+                }
+
+                totalQueued *= _analysisModes.Count;
+            }
+
             // Since the first run of the task can run for multiple hours, ensure that none
             // of the current media items were deleted from Jellyfin since the task was started.
             var (episodes, requiredModes) = queueManager.VerifyQueue(
