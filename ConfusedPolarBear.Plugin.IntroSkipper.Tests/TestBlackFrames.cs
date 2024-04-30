@@ -37,7 +37,7 @@ public class TestBlackFrames
         var episode = queueFile("credits.mp4");
         episode.Duration = (int)new TimeSpan(0, 5, 30).TotalSeconds;
 
-        var result = analyzer.AnalyzeMediaFile(episode, 240, 15, 85);
+        var result = analyzer.AnalyzeMediaFile(episode, 240, 30, 85);
         Assert.NotNull(result);
         Assert.InRange(result.IntroStart, 300 - range, 300 + range);
     }
