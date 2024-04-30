@@ -88,7 +88,7 @@ public class BlackFrameAnalyzer : IMediaFileAnalyzer
                     }
                 }
 
-                if (searchStart == minimumCreditsDuration) // Skip if no black frames are found
+                if (searchStart == minimumCreditsDuration) // Skip if no black frames were found
                 {
                     continue;
                 }
@@ -104,6 +104,8 @@ public class BlackFrameAnalyzer : IMediaFileAnalyzer
 
             if (intro is null)
             {
+                // If no credits were found, reset the first-episode search logic for the next episode in the sequence.
+                searchStart = minimumCreditsDuration;
                 isFirstEpisode = true;
                 continue;
             }
