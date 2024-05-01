@@ -115,7 +115,8 @@ public class ChapterAnalyzer : IMediaFileAnalyzer
             for (int i = chapters.Count - 2; i >= 0; i--)
             {
                 var current = chapters[i];
-                var next = chapters[i + 1];
+                var last = chapters[i + 1];
+                var next = chapters[i - 1];
 
                 if (string.IsNullOrWhiteSpace(current.Name))
                 {
@@ -124,7 +125,7 @@ public class ChapterAnalyzer : IMediaFileAnalyzer
 
                 var currentRange = new TimeRange(
                     TimeSpan.FromTicks(current.StartPositionTicks).TotalSeconds,
-                    TimeSpan.FromTicks(next.StartPositionTicks).TotalSeconds);
+                    TimeSpan.FromTicks(last.StartPositionTicks).TotalSeconds);
 
                 var baseMessage = string.Format(
                     CultureInfo.InvariantCulture,
@@ -152,6 +153,21 @@ public class ChapterAnalyzer : IMediaFileAnalyzer
                 {
                     _logger.LogTrace("{Base}: ignoring (does not match regular expression)", baseMessage);
                     continue;
+                }
+
+                if (!string.IsNullOrWhiteSpace(next.Name))
+                {
+                    // Check for possibility of overlapping keywords
+                    var overlap = Regex.IsMatch(
+                        next.Name,
+                        expression,
+                        RegexOptions.None,
+                        TimeSpan.FromSeconds(1));
+
+                    if (overlap)
+                    {
+                        continue;
+                    }
                 }
 
                 matchingChapter = new(episode.EpisodeId, currentRange);
