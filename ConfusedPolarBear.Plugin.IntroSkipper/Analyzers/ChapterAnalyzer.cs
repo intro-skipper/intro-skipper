@@ -115,7 +115,7 @@ public class ChapterAnalyzer : IMediaFileAnalyzer
             for (int i = chapters.Count - 2; i >= 0; i--)
             {
                 var current = chapters[i];
-                var next = chapters[i - 1];
+                var previous = chapters[i - 1];
 
                 if (string.IsNullOrWhiteSpace(current.Name))
                 {
@@ -154,11 +154,11 @@ public class ChapterAnalyzer : IMediaFileAnalyzer
                     continue;
                 }
 
-                if (!string.IsNullOrWhiteSpace(next.Name))
+                if (!string.IsNullOrWhiteSpace(previous.Name))
                 {
                     // Check for possibility of overlapping keywords
                     var overlap = Regex.IsMatch(
-                        next.Name,
+                        previous.Name,
                         expression,
                         RegexOptions.None,
                         TimeSpan.FromSeconds(1));
