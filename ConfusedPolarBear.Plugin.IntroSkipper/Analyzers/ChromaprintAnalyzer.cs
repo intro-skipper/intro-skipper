@@ -76,6 +76,12 @@ public class ChromaprintAnalyzer : IMediaFileAnalyzer
             {
                 fingerprintCache[episode.EpisodeId] = FFmpegWrapper.Fingerprint(episode, mode);
 
+                // Use reversed fingerprints for credits
+                if (_analysisMode == AnalysisMode.Credits)
+                {
+                    Array.Reverse(fingerprintCache[episode.EpisodeId]);
+                }
+
                 if (cancellationToken.IsCancellationRequested)
                 {
                     return analysisQueue;
@@ -124,14 +130,20 @@ public class ChromaprintAnalyzer : IMediaFileAnalyzer
                  * While this is desired behavior for detecting introductions, it breaks credit
                  * detection, as the audio we're analyzing was extracted from some point into the file.
                  *
-                 * To fix this, add the starting time of the fingerprint to the reported time range.
+                 * To fix this, the starting and ending times need to be switched, as they were previously reversed
+                 * and subtracted from the episode duration to get the reported time range.
                  */
                 if (this._analysisMode == AnalysisMode.Credits)
                 {
-                    currentIntro.IntroStart += currentEpisode.CreditsFingerprintStart;
-                    currentIntro.IntroEnd += currentEpisode.CreditsFingerprintStart;
-                    remainingIntro.IntroStart += remainingEpisode.CreditsFingerprintStart;
-                    remainingIntro.IntroEnd += remainingEpisode.CreditsFingerprintStart;
+                    // Calculate new values for the current intro
+                    double currentOriginalIntroStart = currentIntro.IntroStart;
+                    currentIntro.IntroStart = currentEpisode.Duration - currentIntro.IntroEnd;
+                    currentIntro.IntroEnd = currentEpisode.Duration - currentOriginalIntroStart;
+
+                    // Calculate new values for the remaining intro
+                    double remainingIntroOriginalStart = remainingIntro.IntroStart;
+                    remainingIntro.IntroStart = remainingEpisode.Duration - remainingIntro.IntroEnd;
+                    remainingIntro.IntroEnd = remainingEpisode.Duration - remainingIntroOriginalStart;
                 }
 
                 // Only save the discovered intro if it is:
