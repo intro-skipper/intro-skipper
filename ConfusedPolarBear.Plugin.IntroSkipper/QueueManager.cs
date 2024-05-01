@@ -63,7 +63,15 @@ public class QueueManager
             {
                 foreach (var location in folder.Locations)
                 {
-                    QueueLibraryContents(_libraryManager.FindByPath(location, true).Id);
+                    var item = _libraryManager.FindByPath(location, true);
+
+                    if (item is null)
+                    {
+                        _logger.LogWarning("Unable to find linked item at path {0}", location);
+                        continue;
+                    }
+
+                    QueueLibraryContents(item.Id);
                 }
             }
             catch (Exception ex)
