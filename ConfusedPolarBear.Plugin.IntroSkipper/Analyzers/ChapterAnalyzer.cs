@@ -115,7 +115,6 @@ public class ChapterAnalyzer : IMediaFileAnalyzer
             for (int i = chapters.Count - 2; i >= 0; i--)
             {
                 var current = chapters[i];
-                var last = chapters[i + 1];
                 var next = chapters[i - 1];
 
                 if (string.IsNullOrWhiteSpace(current.Name))
@@ -125,7 +124,7 @@ public class ChapterAnalyzer : IMediaFileAnalyzer
 
                 var currentRange = new TimeRange(
                     TimeSpan.FromTicks(current.StartPositionTicks).TotalSeconds,
-                    TimeSpan.FromTicks(last.StartPositionTicks).TotalSeconds);
+                    TimeSpan.FromTicks(chapters[i + 1].StartPositionTicks).TotalSeconds);
 
                 var baseMessage = string.Format(
                     CultureInfo.InvariantCulture,
