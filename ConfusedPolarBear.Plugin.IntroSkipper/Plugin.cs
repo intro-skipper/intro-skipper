@@ -351,7 +351,7 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
         return commit;
     }
 
-    internal BaseItem GetItem(Guid id)
+    internal BaseItem? GetItem(Guid id)
     {
         return _libraryManager.GetItemById(id);
     }
@@ -363,7 +363,15 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
     /// <returns>Full path to item.</returns>
     internal string GetItemPath(Guid id)
     {
-        return GetItem(id).Path;
+        var item = GetItem(id);
+        if (item == null)
+        {
+            // Handle the case where the item is not found
+            _logger.LogWarning("Item with ID {Id} not found.", id);
+            return string.Empty;
+        }
+
+        return item.Path;
     }
 
     /// <summary>
@@ -373,7 +381,15 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
     /// <returns>List of chapters.</returns>
     internal List<ChapterInfo> GetChapters(Guid id)
     {
-        return _itemRepository.GetChapters(GetItem(id));
+        var item = GetItem(id);
+        if (item == null)
+        {
+            // Handle the case where the item is not found
+            _logger.LogWarning("Item with ID {Id} not found.", id);
+            return new List<ChapterInfo>();
+        }
+
+        return _itemRepository.GetChapters(item);
     }
 
     internal void UpdateTimestamps(Dictionary<Guid, Intro> newTimestamps, AnalysisMode mode)
