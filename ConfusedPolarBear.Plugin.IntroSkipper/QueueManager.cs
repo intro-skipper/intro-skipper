@@ -67,7 +67,7 @@ public class QueueManager
 
                     if (item is null)
                     {
-                        Logger.LogWarning("Unable to find linked item at path {0}", info.Path);
+                        _logger.LogWarning("Unable to find linked item at path {0}", location);
                         continue;
                     }
 
