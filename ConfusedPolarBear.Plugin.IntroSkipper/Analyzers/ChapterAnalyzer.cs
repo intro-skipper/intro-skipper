@@ -113,7 +113,7 @@ public class ChapterAnalyzer : IMediaFileAnalyzer
             });
 
             // Check all chapters in reverse order, skipping the virtual chapter
-            for (int i = chapters.Count - 2; i >= 0; i--)
+            for (int i = chapters.Count - 2; i > 0; i--)
             {
                 var current = chapters[i];
                 var next = chapters[i + 1];
