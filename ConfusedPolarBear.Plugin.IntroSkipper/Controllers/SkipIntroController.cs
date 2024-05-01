@@ -153,8 +153,8 @@ public class SkipIntroController : ControllerBase
         foreach (var intro in timestamps)
         {
             // Get the details of the item from Jellyfin
-            var rawItem = Plugin.Instance!.GetItem(intro.Key);
-            if (rawItem is not Episode episode)
+            var rawItem = Plugin.Instance.GetItem(intro.Key);
+            if (rawItem == null || rawItem is not Episode episode)
             {
                 throw new InvalidCastException("Unable to cast item id " + intro.Key + " to an Episode");
             }

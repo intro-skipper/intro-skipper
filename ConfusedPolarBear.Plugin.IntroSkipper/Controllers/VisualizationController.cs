@@ -140,6 +140,7 @@ public class VisualizationController : ControllerBase
         foreach (var e in episodes)
         {
             Plugin.Instance!.Intros.Remove(e.EpisodeId);
+            Plugin.Instance!.Credits.Remove(e.EpisodeId);
         }
 
         Plugin.Instance!.SaveTimestamps();
