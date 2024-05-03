@@ -210,7 +210,7 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
             }
             catch (Exception e)
             {
-                _logger.LogError("SaveTimestamps {Mode} {Message}", mode, e.Message);
+                _logger.LogError("SaveTimestamps {Message}", e.Message);
             }
         }
     }
