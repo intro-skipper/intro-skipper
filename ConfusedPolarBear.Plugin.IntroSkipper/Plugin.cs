@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.IO;
 using System.Text.RegularExpressions;
@@ -140,17 +141,17 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
     /// <summary>
     /// Gets the results of fingerprinting all episodes.
     /// </summary>
-    public Dictionary<Guid, Intro> Intros { get; } = new();
+    public ConcurrentDictionary<Guid, Intro> Intros { get; } = new();
 
     /// <summary>
     /// Gets all discovered ending credits.
     /// </summary>
-    public Dictionary<Guid, Intro> Credits { get; } = new();
+    public ConcurrentDictionary<Guid, Intro> Credits { get; } = new();
 
     /// <summary>
     /// Gets the most recent media item queue.
     /// </summary>
-    public Dictionary<Guid, List<QueuedEpisode>> QueuedMediaItems { get; } = new();
+    public ConcurrentDictionary<Guid, List<QueuedEpisode>> QueuedMediaItems { get; } = new();
 
     /// <summary>
     /// Gets or sets the total number of episodes in the queue.
@@ -186,88 +187,30 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
     /// <summary>
     /// Save timestamps to disk.
     /// </summary>
-    public void SaveTimestamps()
-    {
-        lock (_serializationLock)
-        {
-            var introList = new List<Intro>();
-
-            // Serialize intros
-            foreach (var intro in Instance!.Intros)
-            {
-                introList.Add(intro.Value);
-            }
-
-            try
-            {
-                XmlSerializationHelper.SerializeToXml(introList, _introPath);
-            }
-            catch (Exception e)
-            {
-                _logger.LogError("SaveTimestamps intros {Message}", e.Message);
-            }
-
-            // Serialize credits
-            introList.Clear();
-
-            foreach (var intro in Instance.Credits)
-            {
-                introList.Add(intro.Value);
-            }
-
-            try
-            {
-                XmlSerializationHelper.SerializeToXml(introList, _creditsPath);
-            }
-            catch (Exception e)
-            {
-                _logger.LogError("SaveTimestamps credits {Message}", e.Message);
-            }
-        }
-    }
-
-    /// <summary>
-    /// Save timestamps to disk.
-    /// </summary>
     /// <param name="mode">Mode.</param>
     public void SaveTimestamps(AnalysisMode mode)
     {
+        List<Intro> introList = new List<Intro>();
+        var filePath = mode == AnalysisMode.Introduction
+                        ? _introPath
+                        : _creditsPath;
+
+        lock (_introsLock)
+        {
+            introList.AddRange(mode == AnalysisMode.Introduction
+                            ? Instance!.Intros.Values
+                            : Instance!.Credits.Values);
+        }
+
         lock (_serializationLock)
         {
-            var introList = new List<Intro>();
-
-            // Serialize intros
-            if (mode == AnalysisMode.Introduction)
+             try
             {
-                foreach (var intro in Instance!.Intros)
-                {
-                    introList.Add(intro.Value);
-                }
-
-                try
-                {
-                    XmlSerializationHelper.SerializeToXml(introList, _introPath);
-                }
-                catch (Exception e)
-                {
-                    _logger.LogError("SaveTimestamps intros {Message}", e.Message);
-                }
+                XmlSerializationHelper.SerializeToXml(introList, filePath);
             }
-            else if (mode == AnalysisMode.Credits)
+            catch (Exception e)
             {
-                foreach (var intro in Instance!.Credits)
-                {
-                    introList.Add(intro.Value);
-                }
-
-                try
-                {
-                    XmlSerializationHelper.SerializeToXml(introList, _creditsPath);
-                }
-                catch (Exception e)
-                {
-                    _logger.LogError("SaveTimestamps credits {Message}", e.Message);
-                }
+                _logger.LogError("SaveTimestamps {Mode} {Message}", mode, e.Message);
             }
         }
     }
@@ -284,7 +227,7 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
 
             foreach (var intro in introList)
             {
-                Instance!.Intros[intro.EpisodeId] = intro;
+                Instance!.Intros.TryAdd(intro.EpisodeId, intro);
             }
         }
 
@@ -294,7 +237,7 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
 
             foreach (var credit in creditList)
             {
-                Instance!.Credits[credit.EpisodeId] = credit;
+                Instance!.Credits.TryAdd(credit.EpisodeId, credit);
             }
         }
     }
@@ -394,22 +337,19 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
 
     internal void UpdateTimestamps(Dictionary<Guid, Intro> newTimestamps, AnalysisMode mode)
     {
-        lock (_introsLock)
+        foreach (var intro in newTimestamps)
         {
-            foreach (var intro in newTimestamps)
+            if (mode == AnalysisMode.Introduction)
             {
-                if (mode == AnalysisMode.Introduction)
-                {
-                    Instance!.Intros[intro.Key] = intro.Value;
-                }
-                else if (mode == AnalysisMode.Credits)
-                {
-                    Instance!.Credits[intro.Key] = intro.Value;
-                }
+                Instance!.Intros.AddOrUpdate(intro.Key, intro.Value, (key, oldValue) => intro.Value);
             }
-
-            Instance!.SaveTimestamps(mode);
+            else if (mode == AnalysisMode.Credits)
+            {
+                 Instance!.Credits.AddOrUpdate(intro.Key, intro.Value, (key, oldValue) => intro.Value);
+            }
         }
+
+        SaveTimestamps(mode);
     }
 
     /// <summary>

@@ -84,7 +84,7 @@ public class QueueManager
         Plugin.Instance.QueuedMediaItems.Clear();
         foreach (var kvp in _queuedEpisodes)
         {
-            Plugin.Instance.QueuedMediaItems[kvp.Key] = kvp.Value;
+            Plugin.Instance.QueuedMediaItems.TryAdd(kvp.Key, kvp.Value);
         }
 
         return new(_queuedEpisodes);
