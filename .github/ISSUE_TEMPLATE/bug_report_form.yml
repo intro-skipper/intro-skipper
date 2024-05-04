@@ -40,6 +40,11 @@ body:
     validations:
       required: true
 
+  - type: input
+    attributes:
+      label: IMDb ID of that TV Series
+      placeholder: tt0903747
+
   - type: textarea
     attributes:
       label: Support Bundle
