@@ -103,6 +103,7 @@ public class ChromaprintAnalyzer : IMediaFileAnalyzer
             // Pop the first episode from the queue
             var currentEpisode = episodeAnalysisQueue[0];
             episodeAnalysisQueue.RemoveAt(0);
+            bool isSeasonIntro = false;
 
             // Search through all remaining episodes.
             foreach (var remainingEpisode in episodeAnalysisQueue)
@@ -154,6 +155,7 @@ public class ChromaprintAnalyzer : IMediaFileAnalyzer
                     currentIntro.Duration > savedCurrentIntro.Duration)
                 {
                     seasonIntros[currentIntro.EpisodeId] = currentIntro;
+                    isSeasonIntro = true;
                 }
 
                 if (
@@ -161,13 +163,17 @@ public class ChromaprintAnalyzer : IMediaFileAnalyzer
                     remainingIntro.Duration > savedRemainingIntro.Duration)
                 {
                     seasonIntros[remainingIntro.EpisodeId] = remainingIntro;
+                    isSeasonIntro = true;
                 }
 
                 break;
             }
 
             // If no intro is found at this point, the popped episode is not reinserted into the queue.
-            episodesWithoutIntros.Add(currentEpisode);
+            if (!isSeasonIntro)
+            {
+                episodesWithoutIntros.Add(currentEpisode);
+            }
         }
 
         // If cancellation was requested, report that no episodes were analyzed.
