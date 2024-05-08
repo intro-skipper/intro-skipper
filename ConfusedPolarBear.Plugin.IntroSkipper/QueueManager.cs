@@ -256,7 +256,7 @@ public class QueueManager
             {
                 var path = Plugin.Instance!.GetItemPath(candidate.EpisodeId);
 
-                if (File.Exists(path))
+                if (File.Exists(path) && !verified.Any(v => v.EpisodeId == candidate.EpisodeId))
                 {
                     verified.Add(candidate);
 
