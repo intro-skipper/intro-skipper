@@ -200,6 +200,19 @@ public class QueueManager
             return;
         }
 
+        // Allocate a new list for each new season
+        _queuedEpisodes.TryAdd(episode.SeasonId, new List<QueuedEpisode>());
+
+        if (_queuedEpisodes[episode.SeasonId].Any(e => e.EpisodeId == episode.Id))
+        {
+            _logger.LogDebug(
+                "\"{Name}\" from series \"{Series}\" ({Id}) is already queued",
+                episode.Name,
+                episode.SeriesName,
+                episode.Id);
+            return;
+        }
+
         // Limit analysis to the first X% of the episode and at most Y minutes.
         // X and Y default to 25% and 10 minutes.
         var duration = TimeSpan.FromTicks(episode.RunTimeTicks ?? 0).TotalSeconds;
@@ -213,9 +226,6 @@ public class QueueManager
         fingerprintDuration = Math.Min(
             fingerprintDuration,
             60 * Plugin.Instance!.Configuration.AnalysisLengthLimit);
-
-        // Allocate a new list for each new season
-        _queuedEpisodes.TryAdd(episode.SeasonId, new List<QueuedEpisode>());
 
         // Queue the episode for analysis
         var maxCreditsDuration = Plugin.Instance!.Configuration.MaximumCreditsDuration;
@@ -256,7 +266,7 @@ public class QueueManager
             {
                 var path = Plugin.Instance!.GetItemPath(candidate.EpisodeId);
 
-                if (File.Exists(path) && !verified.Any(v => v.EpisodeId == candidate.EpisodeId))
+                if (File.Exists(path))
                 {
                     verified.Add(candidate);
 
