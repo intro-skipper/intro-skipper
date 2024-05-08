@@ -33,7 +33,7 @@ public static class FFmpegWrapper
 
     private static Dictionary<string, string> ChromaprintLogs { get; set; } = new();
 
-    private static ConcurrentDictionary<AnalysisMode, ConcurrentDictionary<Guid, Dictionary<uint, int>>> InvertedIndexCache { get; set; } = new();
+    private static ConcurrentDictionary<(Guid Id, AnalysisMode Mode), Dictionary<uint, int>> InvertedIndexCache { get; set; } = new();
 
     /// <summary>
     /// Check that the installed version of ffmpeg supports chromaprint.
@@ -140,10 +140,7 @@ public static class FFmpegWrapper
     /// <returns>Inverted index.</returns>
     public static Dictionary<uint, int> CreateInvertedIndex(Guid id, uint[] fingerprint, AnalysisMode mode)
     {
-        var innerDictionary = InvertedIndexCache.GetOrAdd(mode, _ => new ConcurrentDictionary<Guid, Dictionary<uint, int>>());
-
-        // Check if cached for the ID
-        if (innerDictionary.TryGetValue(id, out var cached))
+        if (InvertedIndexCache.TryGetValue((id, mode), out var cached))
         {
             return cached;
         }
@@ -159,7 +156,7 @@ public static class FFmpegWrapper
             invIndex[point] = i;
         }
 
-        innerDictionary[id] = invIndex;
+        InvertedIndexCache[(id, mode)] = invIndex;
 
         return invIndex;
     }
