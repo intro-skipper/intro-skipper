@@ -166,7 +166,10 @@ public class ChromaprintAnalyzer : IMediaFileAnalyzer
             }
 
             // If no intro is found at this point, the popped episode is not reinserted into the queue.
-            episodesWithoutIntros.Add(currentEpisode);
+            if (!seasonIntros.ContainsKey(currentEpisode.EpisodeId))
+            {
+                episodesWithoutIntros.Add(currentEpisode);
+            }
         }
 
         // If cancellation was requested, report that no episodes were analyzed.
