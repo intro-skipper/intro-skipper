@@ -531,14 +531,14 @@
                                 <tr>
                                     <td>Up arrow</td>
                                     <td>
-                                        Shift the left episode up by 0.128 seconds.
+                                        Shift the left episode up by 0.1238 seconds.
                                         Holding control will shift the episode by 10 seconds.
                                     </td>
                                 </tr>
                                 <tr>
                                     <td>Down arrow</td>
                                     <td>
-                                        Shift the left episode down by 0.128 seconds.
+                                        Shift the left episode down by 0.1238 seconds.
                                         Holding control will shift the episode by 10 seconds.
                                     </td>
                                 </tr>
@@ -919,13 +919,13 @@
                     case "ArrowDown":
                         if (timestampError.value != "") {
                             // if the control key is pressed, shift LHS by 10s. Otherwise, shift by 1.
-                            offsetDelta = e.ctrlKey ? 10 / 0.128 : 1;
+                            offsetDelta = e.ctrlKey ? 10 / 0.1238 : 1;
                         }
                         break;
 
                     case "ArrowUp":
                         if (timestampError.value != "") {
-                            offsetDelta = e.ctrlKey ? -10 / 0.128 : -1;
+                            offsetDelta = e.ctrlKey ? -10 / 0.1238 : -1;
                         }
                         break;
 
@@ -1108,12 +1108,12 @@
 
                 let lTime, rTime, diffPos;
                 if (shift < 0) {
-                    lTime = y * 0.128;
-                    rTime = (y + shift) * 0.128;
+                    lTime = y * 0.1238;
+                    rTime = (y + shift) * 0.1238;
                     diffPos = y + shift;
                 } else {
-                    lTime = (y - shift) * 0.128;
-                    rTime = y * 0.128;
+                    lTime = (y - shift) * 0.1238;
+                    rTime = y * 0.1238;
                     diffPos = y - shift;
                 }
 
