@@ -77,29 +77,23 @@ public class DetectCreditsTask : IScheduledTask
             Entrypoint.CancelAutomaticTask(cancellationToken);
         }
 
-        ScheduledTaskSemaphore.Wait(-1, cancellationToken);
-
-        if (cancellationToken.IsCancellationRequested)
+        using (ScheduledTaskSemaphore.Acquire(-1, cancellationToken))
         {
-            ScheduledTaskSemaphore.Release();
+            _logger.LogInformation("Scheduled Task is starting");
+
+            Plugin.Instance!.Configuration.PathRestrictions.Clear();
+            var modes = new List<AnalysisMode> { AnalysisMode.Credits };
+
+            var baseCreditAnalyzer = new BaseItemAnalyzerTask(
+                modes.AsReadOnly(),
+                _loggerFactory.CreateLogger<DetectCreditsTask>(),
+                _loggerFactory,
+                _libraryManager);
+
+            baseCreditAnalyzer.AnalyzeItems(progress, cancellationToken);
+
             return Task.CompletedTask;
         }
-
-        _logger.LogInformation("Scheduled Task is starting");
-
-        Plugin.Instance!.Configuration.PathRestrictions.Clear();
-        var modes = new List<AnalysisMode> { AnalysisMode.Credits };
-
-        var baseCreditAnalyzer = new BaseItemAnalyzerTask(
-            modes.AsReadOnly(),
-            _loggerFactory.CreateLogger<DetectCreditsTask>(),
-            _loggerFactory,
-            _libraryManager);
-
-        baseCreditAnalyzer.AnalyzeItems(progress, cancellationToken);
-
-        ScheduledTaskSemaphore.Release();
-        return Task.CompletedTask;
     }
 
     /// <summary>

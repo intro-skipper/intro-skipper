@@ -7,20 +7,18 @@ internal sealed class ScheduledTaskSemaphore : IDisposable
 {
     private static readonly SemaphoreSlim _semaphore = new SemaphoreSlim(1, 1);
 
+    private static bool _isHeld = false;
+
     private ScheduledTaskSemaphore()
     {
     }
 
     public static int CurrentCount => _semaphore.CurrentCount;
 
-    public static bool Wait(int timeout, CancellationToken cancellationToken)
+    public static IDisposable Acquire(int timeout, CancellationToken cancellationToken)
     {
-        return _semaphore.Wait(timeout, cancellationToken);
-    }
-
-    public static int Release()
-    {
-        return _semaphore.Release();
+        _isHeld = _semaphore.Wait(timeout, cancellationToken);
+        return new ScheduledTaskSemaphore();
     }
 
     /// <summary>
@@ -28,21 +26,10 @@ internal sealed class ScheduledTaskSemaphore : IDisposable
     /// </summary>
     public void Dispose()
     {
-        Dispose(true);
-        GC.SuppressFinalize(this);
-    }
-
-    /// <summary>
-    /// Protected dispose.
-    /// </summary>
-    /// <param name="disposing">Dispose.</param>
-    private void Dispose(bool disposing)
-    {
-        if (!disposing)
+        if (_isHeld) // Release only if acquired
         {
-            return;
+            _semaphore.Release();
+            _isHeld = false;
         }
-
-        _semaphore.Dispose();
     }
 }
