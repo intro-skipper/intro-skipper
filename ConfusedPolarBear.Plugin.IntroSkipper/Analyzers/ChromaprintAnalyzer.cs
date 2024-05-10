@@ -17,7 +17,7 @@ public class ChromaprintAnalyzer : IMediaFileAnalyzer
     /// Seconds of audio in one fingerprint point.
     /// This value is defined by the Chromaprint library and should not be changed.
     /// </summary>
-    private const double SamplesToSeconds = 0.128;
+    private const double SamplesToSeconds = 0.1238;
 
     private int minimumIntroDuration;
 
