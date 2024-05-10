@@ -218,14 +218,14 @@ public class BaseItemAnalyzerTask
         var analyzers = new Collection<IMediaFileAnalyzer>();
 
         analyzers.Add(new ChapterAnalyzer(_loggerFactory.CreateLogger<ChapterAnalyzer>()));
-        if (Plugin.Instance!.Configuration.UseChromaprint)
-        {
-            analyzers.Add(new ChromaprintAnalyzer(_loggerFactory.CreateLogger<ChromaprintAnalyzer>()));
-        }
-
         if (mode == AnalysisMode.Credits)
         {
             analyzers.Add(new BlackFrameAnalyzer(_loggerFactory.CreateLogger<BlackFrameAnalyzer>()));
+        }
+
+        if (Plugin.Instance!.Configuration.UseChromaprint)
+        {
+            analyzers.Add(new ChromaprintAnalyzer(_loggerFactory.CreateLogger<ChromaprintAnalyzer>()));
         }
 
         // Use each analyzer to find skippable ranges in all media files, removing successfully
