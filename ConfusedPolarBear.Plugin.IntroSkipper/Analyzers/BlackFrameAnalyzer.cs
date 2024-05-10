@@ -167,7 +167,7 @@ public class BlackFrameAnalyzer : IMediaFileAnalyzer
             if (frames.Length == 0)
             {
                 // Since no black frames were found, slide the range closer to the end
-                start = midpoint;
+                start = midpoint - TimeSpan.FromSeconds(2);
 
                 if (midpoint - TimeSpan.FromSeconds(lowerLimit) < _maximumError)
                 {
