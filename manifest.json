@@ -4,10 +4,18 @@
         "name": "Intro Skipper",
         "overview": "Automatically detect and skip intros in television episodes",
         "description": "Analyzes the audio of television episodes and detects introduction sequences.",
-        "owner": "jumoog, AbandonedCart (forked from ConfusedPolarBear)",
+        "owner": "AbandonedCart, rlauuzo, jumoog (forked from ConfusedPolarBear)",
         "category": "General",
         "imageUrl": "https://raw.githubusercontent.com/jumoog/intro-skipper/master/images/logo.png",
         "versions": [
+            {
+                "version": "0.1.18.0",
+                "changelog": "- See the full changelog at [GitHub](https://github.com/jumoog/intro-skipper/blob/master/CHANGELOG.md)\n",
+                "targetAbi": "10.8.4.0",
+                "sourceUrl": "https://github.com/jumoog/intro-skipper/releases/download/10.8/v0.1.18.0/intro-skipper-v0.1.18.0.zip",
+                "checksum": "f98afa056f66c08111102dd2de2970f7",
+                "timestamp": "2024-05-09T21:47:35Z"
+            },
             {
                 "version": "0.1.17.0",
                 "changelog": "- See the full changelog at [GitHub](https://github.com/jumoog/intro-skipper/blob/master/CHANGELOG.md)\n",
@@ -23,38 +31,6 @@
                 "sourceUrl": "https://github.com/jumoog/intro-skipper/releases/download/v0.1.16/intro-skipper-v0.1.16.zip",
                 "checksum": "8989cbe9c438d5a14fab3002e21c26ba",
                 "timestamp": "2024-03-04T10:10:35Z"
-            },
-            {
-                "version": "0.1.14.0",
-                "changelog": "- See the full changelog at [GitHub](https://github.com/jumoog/intro-skipper/blob/master/CHANGELOG.md)\n",
-                "targetAbi": "10.8.4.0",
-                "sourceUrl": "https://github.com/jumoog/intro-skipper/releases/download/v0.1.14/intro-skipper-v0.1.14.zip",
-                "checksum": "704ecc32588243545c44b2eed130b033",
-                "timestamp": "2024-03-02T21:10:57Z"
-            },
-            {
-                "version": "0.1.10.0",
-                "changelog": "- See the full changelog at [GitHub](https://github.com/jumoog/intro-skipper/blob/master/CHANGELOG.md)\n",
-                "targetAbi": "10.8.4.0",
-                "sourceUrl": "https://github.com/jumoog/intro-skipper/releases/download/v0.1.10/intro-skipper-v0.1.10.zip",
-                "checksum": "50b16e5131f3389d7261691c301c2d70",
-                "timestamp": "2024-03-01T16:50:00Z"
-            },
-            {
-                "version": "0.1.9.0",
-                "changelog": "- See the full changelog at [GitHub](https://github.com/jumoog/intro-skipper/blob/master/CHANGELOG.md)\n",
-                "targetAbi": "10.8.4.0",
-                "sourceUrl": "https://github.com/jumoog/intro-skipper/releases/download/v0.1.9/intro-skipper-v0.1.9.zip",
-                "checksum": "a85ff99d7fcde37aecf3fdd355708f49",
-                "timestamp": "2024-03-01T10:23:43Z"
-            },
-            {
-                "version": "0.1.8.0",
-                "changelog": "- See the full changelog at [GitHub](https://github.com/jumoog/intro-skipper/blob/master/CHANGELOG.md)\n",
-                "targetAbi": "10.8.4.0",
-                "sourceUrl": "https://github.com/jumoog/intro-skipper/releases/download/v0.1.7/intro-skipper-v0.1.7.zip",
-                "checksum": "97a0208376adbdd1ebb17b4ce358ab9c",
-                "timestamp": "2022-10-27T03:27:27Z"
             }
         ]
     }
