@@ -71,7 +71,7 @@ jobs:
           intro-skipper-v${{ github.event.inputs.version }}.zip
 
     - name: Publish release notes
-      uses: softprops/action-gh-release@v2.0.4
+      uses: softprops/action-gh-release@v2.0.5
       with:
         tag_name: 10.9/v${{ github.event.inputs.version }}
         name: v${{ github.event.inputs.version }}
