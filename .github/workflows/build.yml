@@ -83,7 +83,7 @@ jobs:
           intro-skipper-${{ env.GIT_HASH }}.zip
 
     - name: Publish prerelease notes
-      uses: softprops/action-gh-release@v2.0.4
+      uses: softprops/action-gh-release@v2.0.5
       if: github.event_name != 'pull_request'
       with:
         tag_name: 10.8/preview
