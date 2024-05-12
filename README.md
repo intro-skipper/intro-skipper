@@ -11,10 +11,8 @@
 [![CodeQL](https://github.com/jumoog/intro-skipper/actions/workflows/codeql.yml/badge.svg)](https://github.com/jumoog/intro-skipper/actions/workflows/codeql.yml)
 </div>
 
-## ⚠️ Warning for Jellyfin 10.9 ⚠️ ##
-
-**The current version is a beta version, so please save your old files before upgrading from `10.8` to `10.9`.
-Changes are possible during the beta phase!**
+## Jellyfin 10.8
+👉👉👉 [Jellyfin 10.8 Instructions](https://github.com/jumoog/intro-skipper/blob/10.8/README.md)
 
 ## System requirements
 
