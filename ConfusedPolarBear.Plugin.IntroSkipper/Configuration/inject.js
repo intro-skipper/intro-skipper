@@ -6,66 +6,78 @@ let introSkipper = {
 };
 introSkipper.d = function (msg) {
     console.debug("[intro skipper] ", msg);
-}
-/** Setup event listeners */
-introSkipper.setup = function () {
+  }
+  /** Setup event listeners */
+  introSkipper.setup = function () {
     document.addEventListener("viewshow", introSkipper.viewShow);
     window.fetch = introSkipper.fetchWrapper;
     introSkipper.d("Registered hooks");
-}
-/** Wrapper around fetch() that retrieves skip segments for the currently playing item. */
-introSkipper.fetchWrapper = async function (...args) {
+  }
+  /** Wrapper around fetch() that retrieves skip segments for the currently playing item. */
+  introSkipper.fetchWrapper = async function (...args) {
     // Based on JellyScrub's trickplay.js
     let [resource, options] = args;
     let response = await introSkipper.originalFetch(resource, options);
     // Bail early if this isn't a playback info URL
     try {
-        let path = new URL(resource).pathname;
-        if (!path.includes("/PlaybackInfo")) { return response; }
-        introSkipper.d("Retrieving skip segments from URL");
-        introSkipper.d(path);
-        let id = path.split("/")[2];
-        introSkipper.skipSegments = await introSkipper.secureFetch(`Episode/${id}/IntroSkipperSegments`);
-        introSkipper.d("Successfully retrieved skip segments");
-        introSkipper.d(introSkipper.skipSegments);
+      let path = new URL(resource).pathname;
+      if (!path.includes("/PlaybackInfo")) { return response; }
+      introSkipper.d("Retrieving skip segments from URL");
+      introSkipper.d(path);
+      let id = path.split("/")[2];
+      introSkipper.skipSegments = await introSkipper.secureFetch(`Episode/${id}/IntroSkipperSegments`);
+      introSkipper.d("Successfully retrieved skip segments");
+      introSkipper.d(introSkipper.skipSegments);
     }
     catch (e) {
-        console.error("Unable to get skip segments from", resource, e);
+      console.error("Unable to get skip segments from", resource, e);
     }
     return response;
-}
-/**
- * Event handler that runs whenever the current view changes.
- * Used to detect the start of video playback.
- */
-introSkipper.viewShow = function () {
+  }
+  /**
+  * Event handler that runs whenever the current view changes.
+  * Used to detect the start of video playback.
+  */
+  introSkipper.viewShow = function () {
     const location = window.location.hash;
     introSkipper.d("Location changed to " + location);
-    if (location !== "#/video") {
-        introSkipper.d("Ignoring location change");
-        return;
+    if (location !== "#!/video") {
+      introSkipper.d("Ignoring location change");
+      return;
     }
     introSkipper.injectCss();
     introSkipper.injectButton();
     introSkipper.videoPlayer = document.querySelector("video");
     if (introSkipper.videoPlayer != null) {
-        introSkipper.d("Hooking video timeupdate");
-        introSkipper.videoPlayer.addEventListener("timeupdate", introSkipper.videoPositionChanged);
+      introSkipper.d("Hooking video timeupdate");
+      introSkipper.videoPlayer.addEventListener("timeupdate", introSkipper.videoPositionChanged);
     }
-}
-/**
- * Injects the CSS used by the skip intro button.
- * Calling this function is a no-op if the CSS has already been injected.
- */
-introSkipper.injectCss = function () {
+  }
+  /**
+  * Injects the CSS used by the skip intro button.
+  * Calling this function is a no-op if the CSS has already been injected.
+  */
+  introSkipper.injectCss = function () {
     if (introSkipper.testElement("style#introSkipperCss")) {
-        introSkipper.d("CSS already added");
-        return;
+      introSkipper.d("CSS already added");
+      return;
     }
     introSkipper.d("Adding CSS");
     let styleElement = document.createElement("style");
     styleElement.id = "introSkipperCss";
     styleElement.innerText = `
+    @media (hover:hover) and (pointer:fine) {
+        #skipIntro .paper-icon-button-light:hover:not(:disabled) {
+            color: black !important;
+            background-color: rgba(47, 93, 98, 0) !important;
+        }
+    }
+    #skipIntro .paper-icon-button-light.show-focus:focus {
+        transform: scale(1.04) !important;
+    }
+    #skipIntro.upNextContainer {
+        width: unset;
+    }
     #skipIntro {
         padding: 0 1px;
         position: absolute;
@@ -81,31 +93,21 @@ introSkipper.injectCss = function () {
         -webkit-transition: ease-out 0.4s;
         -moz-transition: ease-out 0.4s;
         transition: ease-out 0.4s;
-        @media (max-width: 1080px) {
+    }
+    #skipIntro #btnSkipSegmentText {
+        padding-right: 3px;
+        padding-bottom: 2px;
+    }
+    @media (max-width: 1080px) {
+        #skipIntro {
             right: 10%;
         }
-        &:hover {
-            box-shadow: inset 400px 0 0 0 #f9f9f9;
-            -webkit-transition: ease-in 1s;
-            -moz-transition: ease-in 1s;
-            transition: ease-in 1s;
-        }
-        &.upNextContainer {
-            width: unset;
-        }
-        @media (hover:hover) and (pointer:fine) {
-            .paper-icon-button-light:hover:not(:disabled) {
-                color: black !important;
-                background-color: rgba(47, 93, 98, 0) !important;
-            }
-        }
-        .paper-icon-button-light.show-focus:focus {
-            transform: scale(1.04) !important;
-        }
-        #btnSkipSegmentText {
-            padding-right: 3px;
-            padding-bottom: 2px;
-        }
+    }
+    #skipIntro:hover {
+        box-shadow: inset 400px 0 0 0 #f9f9f9;
+        -webkit-transition: ease-in 1s;
+        -moz-transition: ease-in 1s;
+        transition: ease-in 1s;
     }
     `;
     document.querySelector("head").appendChild(styleElement);
