@@ -76,9 +76,19 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
             // Check if the old cache directory exists
             if (Directory.Exists(oldFingerprintCachePath))
             {
+                // move intro.xml if exists
+                if (File.Exists(oldIntroPath))
+                {
+                    File.Move(oldIntroPath, _introPath);
+                }
+
+                // move credits.xml if exists
+                if (File.Exists(oldCreditsPath))
+                {
+                    File.Move(oldCreditsPath, _creditsPath);
+                }
+
                 // Move the contents from old directory to new directory
-                File.Move(oldIntroPath, _introPath);
-                File.Move(oldCreditsPath, _creditsPath);
                 string[] files = Directory.GetFiles(oldFingerprintCachePath);
                 foreach (string file in files)
                 {
