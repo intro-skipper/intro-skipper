@@ -172,7 +172,7 @@ public class AutoSkip : IHostedService, IDisposable
                 new PlaystateRequest
                 {
                     Command = PlaystateCommand.Seek,
-                    ControllingUserId = session.UserId.ToString("N"),
+                    ControllingUserId = session.UserId.ToString(),
                     SeekPositionTicks = introEnd * TimeSpan.TicksPerSecond,
                 },
                 CancellationToken.None);
