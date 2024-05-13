@@ -7,19 +7,19 @@
 
 <body>
     <div id="TemplateConfigPage" data-role="page" class="page type-interior pluginConfigurationPage"
-        data-require="emby-input,emby-button,emby-select,emby-checkbox,emby-linkbutton">
+         data-require="emby-input,emby-button,emby-select,emby-checkbox,emby-linkbutton">
         <div data-role="content">
             <style>
                 summary {
-                   cursor: pointer;
-                   padding: 10px;
-                   width: inherit;
-                   margin: auto;
-                   border: none;
-                   text-align: center;
-                   outline: none;
-                   font-size: 1.0em;
-                   outline: 2px solid rgba(155, 155, 155, 0.5);
+                    cursor: pointer;
+                    padding: 10px;
+                    width: inherit;
+                    margin: auto;
+                    border: none;
+                    text-align: center;
+                    outline: none;
+                    font-size: 1.0em;
+                    outline: 2px solid rgba(155, 155, 155, 0.5);
                 }
             </style>
             <div class="content-primary">
@@ -356,11 +356,25 @@
                         <div id="divSkipFirstEpisode" class="checkboxContainer checkboxContainer-withDescription">
                             <label class="emby-checkbox-label">
                                 <input id="SkipFirstEpisode" type="checkbox" is="emby-checkbox" />
-                                <span>Ignore intro in the first episode of a season</span>
+                                <span>Play intro for first episode of a season</span>
                             </label>
 
                             <div class="fieldDescription">
-                                If checked, auto skip will ignore introduction in the first episode of a season.<br />
+                                If checked, auto skip will play the introduction of the first episode in a season.<br />
+                            </div>
+                            <br />
+                        </div>
+
+                        <div class="checkboxContainer checkboxContainer-withDescription">
+                            <label class="emby-checkbox-label">
+                                <input id="AutoSkipCredits" type="checkbox" is="emby-checkbox" />
+                                <span>Automatically skip credits</span>
+                            </label>
+
+                            <div class="fieldDescription">
+                                If checked, credits will be automatically skipped. If you access Jellyfin through a
+                                reverse proxy, it must be configured to proxy web
+                                sockets.<br />
                             </div>
                         </div>
 
@@ -455,6 +469,16 @@
                                     Message shown after automatically skipping an introduction. Leave blank to disable notification.
                                 </div>
                             </div>
+
+                            <div id="divAutoSkipCreditsNotificationText" class="inputContainer">
+                                <label class="inputLabel" for="AutoSkipCreditsNotificationText">
+                                    Automatic skip notification message
+                                </label>
+                                <input id="AutoSkipCreditsNotificationText" type="text" is="emby-input" />
+                                <div class="fieldDescription">
+                                    Message shown after automatically skipping credits. Leave blank to disable notification.
+                                </div>
+                            </div>
                         </details>
                     </fieldset>
 
@@ -511,9 +535,9 @@
                         </div>
 
                         <div id="timestampErrorDiv" style="display:none">
-                          <textarea id="timestampError" rows="2" cols="75" readonly></textarea>
-                          <br />
-                          <br />
+                            <textarea id="timestampError" rows="2" cols="75" readonly></textarea>
+                            <br />
+                            <br />
                         </div>
 
                         <h3>Fingerprint Visualizer</h3>
@@ -524,8 +548,8 @@
                         </p>
                         <table>
                             <thead>
-                                <td style="min-width: 100px; font-weight: bold">Key</td>
-                                <td style="font-weight: bold">Function</td>
+                            <td style="min-width: 100px; font-weight: bold">Key</td>
+                            <td style="font-weight: bold">Function</td>
                             </thead>
                             <tbody>
                                 <tr>
@@ -631,7 +655,8 @@
                 // UI customization
                 "SkipButtonIntroText",
                 "SkipButtonEndCreditsText",
-                "AutoSkipNotificationText"
+                "AutoSkipNotificationText",
+                "AutoSkipCreditsNotificationText"
             ]
 
             var booleanConfigurationFields = [
@@ -642,6 +667,7 @@
                 "UseChromaprint",
                 "CacheFingerprints",
                 "AutoSkip",
+                "AutoSkipCredits",
                 "SkipFirstEpisode",
                 "PersistSkipButton",
                 "SkipButtonVisible"
@@ -666,6 +692,8 @@
             var autoSkip = document.querySelector("input#AutoSkip");
             var skipFirstEpisode = document.querySelector("div#divSkipFirstEpisode");
             var autoSkipNotificationText = document.querySelector("div#divAutoSkipNotificationText");
+            var autoSkipCredits = document.querySelector("input#AutoSkipCredits");
+            var autoSkipCreditsNotificationText = document.querySelector("div#divAutoSkipCreditsNotificationText");
 
             async function autoSkipChanged() {
                 if (autoSkip.checked) {
@@ -678,6 +706,16 @@
             }
 
             autoSkip.addEventListener("change", autoSkipChanged);
+
+            async function autoSkipCreditsChanged() {
+                if (autoSkipCredits.checked) {
+                    autoSkipCreditsNotificationText.style.display = 'unset';
+                } else {
+                    autoSkipCreditsNotificationText.style.display = 'none';
+                }
+            }
+
+            autoSkipCredits.addEventListener("change", autoSkipCreditsChanged);
 
             var persistSkip = document.querySelector("input#PersistSkipButton");
             var showAdjustment = document.querySelector("div#divShowPromptAdjustment");
@@ -879,16 +917,16 @@
             // make an authenticated GET to the server and parse the response as JSON
             async function getJson(url) {
                 return await fetchWithAuth(url, "GET")
-                .then(r => {
-                  if (r.ok) {
-                    return r.json();
-                  } else {
-                    return null;
-                  }
-                })
-                .catch(err => {
-                  console.debug(err);
-                 });
+                    .then(r => {
+                        if (r.ok) {
+                            return r.json();
+                        } else {
+                            return null;
+                        }
+                    })
+                    .catch(err => {
+                        console.debug(err);
+                    });
             }
 
             // make an authenticated fetch to the server
@@ -1018,6 +1056,7 @@
                         }
 
                         autoSkipChanged();
+                        autoSkipCreditsChanged();
                         persistSkipChanged();
 
                         Dashboard.hideLoadingMsg();
