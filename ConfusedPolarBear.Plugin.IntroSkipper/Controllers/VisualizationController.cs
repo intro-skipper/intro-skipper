@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.Net.Mime;
+using MediaBrowser.Common.Api;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Logging;
@@ -11,7 +12,7 @@ namespace ConfusedPolarBear.Plugin.IntroSkipper.Controllers;
 /// <summary>
 /// Audio fingerprint visualization controller. Allows browsing fingerprints on a per episode basis.
 /// </summary>
-[Authorize(Policy = "RequiresElevation")]
+[Authorize(Policy = Policies.RequiresElevation)]
 [ApiController]
 [Produces(MediaTypeNames.Application.Json)]
 [Route("Intros")]

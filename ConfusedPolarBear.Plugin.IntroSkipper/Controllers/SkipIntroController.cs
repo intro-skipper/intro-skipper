@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Net.Mime;
 using ConfusedPolarBear.Plugin.IntroSkipper.Configuration;
+using MediaBrowser.Common.Api;
 using MediaBrowser.Controller.Entities.TV;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -115,7 +116,7 @@ public class SkipIntroController : ControllerBase
     /// <param name="mode">Mode.</param>
     /// <response code="204">Operation successful.</response>
     /// <returns>No content.</returns>
-    [Authorize(Policy = "RequiresElevation")]
+    [Authorize(Policy = Policies.RequiresElevation)]
     [HttpPost("Intros/EraseTimestamps")]
     public ActionResult ResetIntroTimestamps([FromQuery] AnalysisMode mode)
     {
@@ -138,7 +139,7 @@ public class SkipIntroController : ControllerBase
     /// <param name="mode">Mode.</param>
     /// <response code="200">All timestamps have been returned.</response>
     /// <returns>List of IntroWithMetadata objects.</returns>
-    [Authorize(Policy = "RequiresElevation")]
+    [Authorize(Policy = Policies.RequiresElevation)]
     [HttpGet("Intros/All")]
     public ActionResult<List<IntroWithMetadata>> GetAllTimestamps(
         [FromQuery] AnalysisMode mode = AnalysisMode.Introduction)

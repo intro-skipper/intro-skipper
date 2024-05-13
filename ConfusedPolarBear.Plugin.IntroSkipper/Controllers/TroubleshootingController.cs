@@ -2,6 +2,7 @@ using System;
 using System.Net.Mime;
 using System.Text;
 using MediaBrowser.Common;
+using MediaBrowser.Common.Api;
 using MediaBrowser.Common.Configuration;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -12,7 +13,7 @@ namespace ConfusedPolarBear.Plugin.IntroSkipper.Controllers;
 /// <summary>
 /// Troubleshooting controller.
 /// </summary>
-[Authorize(Policy = "RequiresElevation")]
+[Authorize(Policy = Policies.RequiresElevation)]
 [ApiController]
 [Produces(MediaTypeNames.Application.Json)]
 [Route("IntroSkipper")]
