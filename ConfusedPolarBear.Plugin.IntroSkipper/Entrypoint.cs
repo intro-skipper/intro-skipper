@@ -24,7 +24,6 @@ public class Entrypoint : IHostedService, IDisposable
     private readonly ILogger<Entrypoint> _logger;
     private readonly ILoggerFactory _loggerFactory;
     private Timer _queueTimer;
-    private bool _analyzeAgain;
     private static CancellationTokenSource? _cancellationTokenSource;
     private static ManualResetEventSlim _autoTaskCompletEvent = new ManualResetEventSlim(false);
 
@@ -221,15 +220,8 @@ public class Entrypoint : IHostedService, IDisposable
     /// </summary>
     private void StartTimer()
     {
-        if (AutomaticTaskState == TaskState.Running)
-        {
-            _analyzeAgain = true; // Items added during a scan will be included later.
-        }
-        else if (ScheduledTaskSemaphore.CurrentCount > 0)
-        {
-            _logger.LogInformation("Media Library changed, analyzis will start soon!");
-            _queueTimer.Change(TimeSpan.FromMilliseconds(20000), Timeout.InfiniteTimeSpan);
-        }
+        _logger.LogInformation("Media Library changed, analyzis will start soon!");
+        _queueTimer.Change(TimeSpan.FromMilliseconds(20000), Timeout.InfiniteTimeSpan);
     }
 
     /// <summary>
@@ -256,6 +248,7 @@ public class Entrypoint : IHostedService, IDisposable
         _autoTaskCompletEvent.Reset();
 
         using (_cancellationTokenSource = new CancellationTokenSource())
+        using (ScheduledTaskSemaphore.Acquire(-1, _cancellationTokenSource.Token))
         {
             var progress = new Progress<double>();
             var cancellationToken = _cancellationTokenSource.Token;
@@ -292,14 +285,6 @@ public class Entrypoint : IHostedService, IDisposable
         Plugin.Instance.Configuration.PathRestrictions.Clear();
         _autoTaskCompletEvent.Set();
         _cancellationTokenSource = null;
-
-        // New item detected, start timer again
-        if (_analyzeAgain)
-        {
-            _logger.LogInformation("Analyzing ended, but we need to analyze again!");
-            _analyzeAgain = false;
-            StartTimer();
-        }
     }
 
     /// <summary>
