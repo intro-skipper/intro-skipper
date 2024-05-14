@@ -237,6 +237,12 @@ public class Entrypoint : IHostedService, IDisposable
         {
             _logger.LogError(ex, "Error in PerformAnalysis");
         }
+        finally
+        {
+            Plugin.Instance!.Configuration.PathRestrictions.Clear();
+            _autoTaskCompletEvent.Set();
+            _cancellationTokenSource = null;
+        }
     }
 
     /// <summary>
@@ -281,10 +287,6 @@ public class Entrypoint : IHostedService, IDisposable
 
             baseCreditAnalyzer.AnalyzeItems(progress, cancellationToken);
         }
-
-        Plugin.Instance.Configuration.PathRestrictions.Clear();
-        _autoTaskCompletEvent.Set();
-        _cancellationTokenSource = null;
     }
 
     /// <summary>
