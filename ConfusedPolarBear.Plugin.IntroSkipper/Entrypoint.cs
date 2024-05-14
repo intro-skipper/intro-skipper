@@ -26,7 +26,7 @@ public class Entrypoint : IHostedService, IDisposable
     private readonly object _pathRestrictionsLock = new();
     private Timer _queueTimer;
     private bool _isAnalyzingItems = false;
-    public List<string> _pathRestrictions = new List<string>();
+    private List<string> _pathRestrictions = new List<string>();
     private static CancellationTokenSource? _cancellationTokenSource;
     private static ManualResetEventSlim _autoTaskCompletEvent = new ManualResetEventSlim(false);
 
@@ -279,7 +279,7 @@ public class Entrypoint : IHostedService, IDisposable
 
                 _pathRestrictions.Clear();
             }
-            
+
             _isAnalyzingItems = true;
 
             var progress = new Progress<double>();
