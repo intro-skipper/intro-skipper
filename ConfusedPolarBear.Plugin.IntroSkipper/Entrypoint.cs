@@ -25,7 +25,7 @@ public class Entrypoint : IHostedService, IDisposable
     private readonly ILoggerFactory _loggerFactory;
     private readonly object _pathRestrictionsLock = new();
     private Timer _queueTimer;
-    private bool _isAnalyzingItems = false;
+    private bool _analyzeAgain;
     private List<string> _pathRestrictions = new List<string>();
     private static CancellationTokenSource? _cancellationTokenSource;
     private static ManualResetEventSlim _autoTaskCompletEvent = new ManualResetEventSlim(false);
@@ -230,10 +230,11 @@ public class Entrypoint : IHostedService, IDisposable
     private void StartTimer()
     {
         // Skip if an automatic task is still pending.
-        if (AutomaticTaskState == TaskState.Idle || _isAnalyzingItems)
+        if (AutomaticTaskState == TaskState.Idle || _analyzeAgain)
         {
             _logger.LogInformation("Media Library changed, analyzis will start soon!");
             _queueTimer.Change(TimeSpan.FromMilliseconds(20000), Timeout.InfiniteTimeSpan);
+            _analyzeAgain = false; // Do not permit more than one pending task.
         }
     }
 
@@ -254,7 +255,6 @@ public class Entrypoint : IHostedService, IDisposable
         {
             Plugin.Instance!.Configuration.PathRestrictions.Clear();
             _autoTaskCompletEvent.Set();
-            _isAnalyzingItems = false;
             _cancellationTokenSource = null;
         }
     }
@@ -280,7 +280,7 @@ public class Entrypoint : IHostedService, IDisposable
                 _pathRestrictions.Clear();
             }
 
-            _isAnalyzingItems = true;
+            _analyzeAgain = true;
 
             var progress = new Progress<double>();
             var cancellationToken = _cancellationTokenSource.Token;
