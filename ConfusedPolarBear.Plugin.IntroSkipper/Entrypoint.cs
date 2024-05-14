@@ -23,7 +23,10 @@ public class Entrypoint : IHostedService, IDisposable
     private readonly ILibraryManager _libraryManager;
     private readonly ILogger<Entrypoint> _logger;
     private readonly ILoggerFactory _loggerFactory;
+    private readonly object _pathRestrictionsLock = new();
     private Timer _queueTimer;
+    private bool _isAnalyzingItems = false;
+    public List<string> _pathRestrictions = new List<string>();
     private static CancellationTokenSource? _cancellationTokenSource;
     private static ManualResetEventSlim _autoTaskCompletEvent = new ManualResetEventSlim(false);
 
@@ -147,7 +150,10 @@ public class Entrypoint : IHostedService, IDisposable
             return;
         }
 
-        Plugin.Instance.Configuration.PathRestrictions.Add(itemChangeEventArgs.Item.ContainingFolderPath);
+        lock (_pathRestrictionsLock)
+        {
+            _pathRestrictions.Add(itemChangeEventArgs.Item.ContainingFolderPath);
+        }
 
         StartTimer();
     }
@@ -176,7 +182,10 @@ public class Entrypoint : IHostedService, IDisposable
             return;
         }
 
-        Plugin.Instance.Configuration.PathRestrictions.Add(itemChangeEventArgs.Item.ContainingFolderPath);
+        lock (_pathRestrictionsLock)
+        {
+            _pathRestrictions.Add(itemChangeEventArgs.Item.ContainingFolderPath);
+        }
 
         StartTimer();
     }
@@ -220,8 +229,12 @@ public class Entrypoint : IHostedService, IDisposable
     /// </summary>
     private void StartTimer()
     {
-        _logger.LogInformation("Media Library changed, analyzis will start soon!");
-        _queueTimer.Change(TimeSpan.FromMilliseconds(20000), Timeout.InfiniteTimeSpan);
+        // Skip if an automatic task is still pending.
+        if (AutomaticTaskState == TaskState.Idle || _isAnalyzingItems)
+        {
+            _logger.LogInformation("Media Library changed, analyzis will start soon!");
+            _queueTimer.Change(TimeSpan.FromMilliseconds(20000), Timeout.InfiniteTimeSpan);
+        }
     }
 
     /// <summary>
@@ -241,6 +254,7 @@ public class Entrypoint : IHostedService, IDisposable
         {
             Plugin.Instance!.Configuration.PathRestrictions.Clear();
             _autoTaskCompletEvent.Set();
+            _isAnalyzingItems = false;
             _cancellationTokenSource = null;
         }
     }
@@ -256,6 +270,18 @@ public class Entrypoint : IHostedService, IDisposable
         using (_cancellationTokenSource = new CancellationTokenSource())
         using (ScheduledTaskSemaphore.Acquire(-1, _cancellationTokenSource.Token))
         {
+            lock (_pathRestrictionsLock)
+            {
+                foreach (var path in _pathRestrictions)
+                {
+                    Plugin.Instance!.Configuration.PathRestrictions.Add(path);
+                }
+
+                _pathRestrictions.Clear();
+            }
+            
+            _isAnalyzingItems = true;
+
             var progress = new Progress<double>();
             var cancellationToken = _cancellationTokenSource.Token;
 
