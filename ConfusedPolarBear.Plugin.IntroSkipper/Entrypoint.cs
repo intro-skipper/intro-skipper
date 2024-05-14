@@ -308,15 +308,19 @@ public class Entrypoint : IHostedService, IDisposable
     /// <param name="cancellationToken">Cancellation token.</param>
     public static void CancelAutomaticTask(CancellationToken cancellationToken)
     {
-        if (_cancellationTokenSource != null)
+        if (_cancellationTokenSource != null && !_cancellationTokenSource.IsCancellationRequested)
         {
-            if (!_cancellationTokenSource.IsCancellationRequested)
+            try
             {
                 _cancellationTokenSource.Cancel();
             }
-
-            _autoTaskCompletEvent.Wait(TimeSpan.FromSeconds(60), cancellationToken); // Wait for the signal
+            catch (ObjectDisposedException)
+            {
+                // The token source has been disposed, handle this gracefully
+            }
         }
+
+        _autoTaskCompletEvent.Wait(TimeSpan.FromSeconds(60), cancellationToken); // Wait for the signal
     }
 
     /// <summary>
