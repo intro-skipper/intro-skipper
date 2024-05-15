@@ -229,12 +229,14 @@ public class Entrypoint : IHostedService, IDisposable
     /// </summary>
     private void StartTimer()
     {
-        // Skip if an automatic task is still pending.
-        if (AutomaticTaskState == TaskState.Idle || _analyzeAgain)
+        if (AutomaticTaskState == TaskState.Running)
         {
-            _logger.LogInformation("Media Library changed, analyzis will start soon!");
+            _analyzeAgain = true;
+        }
+        else if (AutomaticTaskState == TaskState.Idle)
+        {
+            _logger.LogDebug("Media Library changed, analyzis will start soon!");
             _queueTimer.Change(TimeSpan.FromMilliseconds(20000), Timeout.InfiniteTimeSpan);
-            _analyzeAgain = false; // Do not permit more than one pending task.
         }
     }
 
@@ -253,9 +255,11 @@ public class Entrypoint : IHostedService, IDisposable
         }
         finally
         {
+            // Clean up
             Plugin.Instance!.Configuration.PathRestrictions.Clear();
-            _autoTaskCompletEvent.Set();
+            _cancellationTokenSource?.Dispose();
             _cancellationTokenSource = null;
+            _autoTaskCompletEvent.Set();
         }
     }
 
@@ -264,7 +268,7 @@ public class Entrypoint : IHostedService, IDisposable
     /// </summary>
     private void PerformAnalysis()
     {
-        _logger.LogInformation("Timer elapsed - start analyzing");
+        _logger.LogInformation("Initiate automatic analysis task.");
         _autoTaskCompletEvent.Reset();
 
         using (_cancellationTokenSource = new CancellationTokenSource())
@@ -280,11 +284,8 @@ public class Entrypoint : IHostedService, IDisposable
                 _pathRestrictions.Clear();
             }
 
-            _analyzeAgain = true;
-
+            _analyzeAgain = false;
             var progress = new Progress<double>();
-            var cancellationToken = _cancellationTokenSource.Token;
-
             var modes = new List<AnalysisMode>();
             var tasklogger = _loggerFactory.CreateLogger("DefaultLogger");
 
@@ -311,7 +312,14 @@ public class Entrypoint : IHostedService, IDisposable
                     _loggerFactory,
                     _libraryManager);
 
-            baseCreditAnalyzer.AnalyzeItems(progress, cancellationToken);
+            baseCreditAnalyzer.AnalyzeItems(progress, _cancellationTokenSource.Token);
+
+            // New item detected, start timer again
+            if (_analyzeAgain && !_cancellationTokenSource.IsCancellationRequested)
+            {
+                _logger.LogInformation("Analyzing ended, but we need to analyze again!");
+                StartTimer();
+            }
         }
     }
 
