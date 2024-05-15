@@ -334,7 +334,7 @@ public class Entrypoint : IHostedService, IDisposable
             }
             catch (ObjectDisposedException)
             {
-                // The token source has been disposed, handle this gracefully
+                _cancellationTokenSource = null;
             }
         }
 
