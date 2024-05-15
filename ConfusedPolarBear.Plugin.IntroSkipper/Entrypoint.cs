@@ -253,14 +253,11 @@ public class Entrypoint : IHostedService, IDisposable
         {
             _logger.LogError(ex, "Error in PerformAnalysis");
         }
-        finally
-        {
-            // Clean up
-            Plugin.Instance!.Configuration.PathRestrictions.Clear();
-            _cancellationTokenSource?.Dispose();
-            _cancellationTokenSource = null;
-            _autoTaskCompletEvent.Set();
-        }
+
+        // Clean up
+        Plugin.Instance!.Configuration.PathRestrictions.Clear();
+        _cancellationTokenSource = null;
+        _autoTaskCompletEvent.Set();
     }
 
     /// <summary>
