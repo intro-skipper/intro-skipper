@@ -82,11 +82,13 @@ introSkipper.d = function (msg) {
     @media (hover:hover) and (pointer:fine) {
         #skipIntro .paper-icon-button-light:hover:not(:disabled) {
             color: rgba(255, 255, 255, 0.87) !important;
+            text-shadow: rgba(0, 0, 0, 0.6) 0px 0px 4px;
             background-color: transparent !important;
         }
     }
     #skipIntro .paper-icon-button-light.show-focus:focus {
         color: rgba(255, 255, 255, 0.87) !important;
+        text-shadow: rgba(0, 0, 0, 0.6) 0px 0px 4px;
         transform: scale(1) !important;
     }
     #skipIntro.upNextContainer {
