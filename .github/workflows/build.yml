@@ -51,9 +51,19 @@ jobs:
 
     - name: Upload artifact
       uses: actions/upload-artifact@v4.3.1
+      if: github.event_name != 'pull_request'
       with:
         name: ConfusedPolarBear.Plugin.IntroSkipper-${{ env.GIT_HASH }}.dll
         path: ConfusedPolarBear.Plugin.IntroSkipper/bin/Debug/net6.0/ConfusedPolarBear.Plugin.IntroSkipper.dll
+        if-no-files-found: error
+
+    - name: Upload artifact
+      uses: actions/upload-artifact@v4.3.1
+      if: github.event_name == 'pull_request'
+      with:
+        name: ConfusedPolarBear.Plugin.IntroSkipper-${{ github.head_ref }}.dll
+        path: ConfusedPolarBear.Plugin.IntroSkipper/bin/Debug/net6.0/ConfusedPolarBear.Plugin.IntroSkipper.dll
+        retention-days: 7
         if-no-files-found: error
 
     - name: Create archive
