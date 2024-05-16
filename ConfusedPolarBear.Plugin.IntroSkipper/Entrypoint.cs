@@ -23,8 +23,10 @@ public class Entrypoint : IHostedService, IDisposable
     private readonly ILibraryManager _libraryManager;
     private readonly ILogger<Entrypoint> _logger;
     private readonly ILoggerFactory _loggerFactory;
+    private readonly object _pathRestrictionsLock = new();
     private Timer _queueTimer;
     private bool _analyzeAgain;
+    private List<string> _pathRestrictions = new List<string>();
     private static CancellationTokenSource? _cancellationTokenSource;
     private static ManualResetEventSlim _autoTaskCompletEvent = new ManualResetEventSlim(false);
 
@@ -148,7 +150,10 @@ public class Entrypoint : IHostedService, IDisposable
             return;
         }
 
-        Plugin.Instance.Configuration.PathRestrictions.Add(itemChangeEventArgs.Item.ContainingFolderPath);
+        lock (_pathRestrictionsLock)
+        {
+            _pathRestrictions.Add(itemChangeEventArgs.Item.ContainingFolderPath);
+        }
 
         StartTimer();
     }
@@ -177,7 +182,10 @@ public class Entrypoint : IHostedService, IDisposable
             return;
         }
 
-        Plugin.Instance.Configuration.PathRestrictions.Add(itemChangeEventArgs.Item.ContainingFolderPath);
+        lock (_pathRestrictionsLock)
+        {
+            _pathRestrictions.Add(itemChangeEventArgs.Item.ContainingFolderPath);
+        }
 
         StartTimer();
     }
@@ -223,11 +231,11 @@ public class Entrypoint : IHostedService, IDisposable
     {
         if (AutomaticTaskState == TaskState.Running)
         {
-            _analyzeAgain = true; // Items added during a scan will be included later.
+            _analyzeAgain = true;
         }
-        else if (ScheduledTaskSemaphore.CurrentCount > 0)
+        else if (AutomaticTaskState == TaskState.Idle)
         {
-            _logger.LogInformation("Media Library changed, analyzis will start soon!");
+            _logger.LogDebug("Media Library changed, analyzis will start soon!");
             _queueTimer.Change(TimeSpan.FromMilliseconds(20000), Timeout.InfiniteTimeSpan);
         }
     }
@@ -245,6 +253,11 @@ public class Entrypoint : IHostedService, IDisposable
         {
             _logger.LogError(ex, "Error in PerformAnalysis");
         }
+
+        // Clean up
+        Plugin.Instance!.Configuration.PathRestrictions.Clear();
+        _cancellationTokenSource = null;
+        _autoTaskCompletEvent.Set();
     }
 
     /// <summary>
@@ -252,14 +265,24 @@ public class Entrypoint : IHostedService, IDisposable
     /// </summary>
     private void PerformAnalysis()
     {
-        _logger.LogInformation("Timer elapsed - start analyzing");
+        _logger.LogInformation("Initiate automatic analysis task.");
         _autoTaskCompletEvent.Reset();
 
         using (_cancellationTokenSource = new CancellationTokenSource())
+        using (ScheduledTaskSemaphore.Acquire(-1, _cancellationTokenSource.Token))
         {
-            var progress = new Progress<double>();
-            var cancellationToken = _cancellationTokenSource.Token;
+            lock (_pathRestrictionsLock)
+            {
+                foreach (var path in _pathRestrictions)
+                {
+                    Plugin.Instance!.Configuration.PathRestrictions.Add(path);
+                }
 
+                _pathRestrictions.Clear();
+            }
+
+            _analyzeAgain = false;
+            var progress = new Progress<double>();
             var modes = new List<AnalysisMode>();
             var tasklogger = _loggerFactory.CreateLogger("DefaultLogger");
 
@@ -286,19 +309,14 @@ public class Entrypoint : IHostedService, IDisposable
                     _loggerFactory,
                     _libraryManager);
 
-            baseCreditAnalyzer.AnalyzeItems(progress, cancellationToken);
-        }
+            baseCreditAnalyzer.AnalyzeItems(progress, _cancellationTokenSource.Token);
 
-        Plugin.Instance.Configuration.PathRestrictions.Clear();
-        _autoTaskCompletEvent.Set();
-        _cancellationTokenSource = null;
-
-        // New item detected, start timer again
-        if (_analyzeAgain)
-        {
-            _logger.LogInformation("Analyzing ended, but we need to analyze again!");
-            _analyzeAgain = false;
-            StartTimer();
+            // New item detected, start timer again
+            if (_analyzeAgain && !_cancellationTokenSource.IsCancellationRequested)
+            {
+                _logger.LogInformation("Analyzing ended, but we need to analyze again!");
+                StartTimer();
+            }
         }
     }
 
@@ -308,15 +326,19 @@ public class Entrypoint : IHostedService, IDisposable
     /// <param name="cancellationToken">Cancellation token.</param>
     public static void CancelAutomaticTask(CancellationToken cancellationToken)
     {
-        if (_cancellationTokenSource != null)
+        if (_cancellationTokenSource != null && !_cancellationTokenSource.IsCancellationRequested)
         {
-            if (!_cancellationTokenSource.IsCancellationRequested)
+            try
             {
                 _cancellationTokenSource.Cancel();
             }
-
-            _autoTaskCompletEvent.Wait(TimeSpan.FromSeconds(60), cancellationToken); // Wait for the signal
+            catch (ObjectDisposedException)
+            {
+                _cancellationTokenSource = null;
+            }
         }
+
+        _autoTaskCompletEvent.Wait(TimeSpan.FromSeconds(60), cancellationToken); // Wait for the signal
     }
 
     /// <summary>
