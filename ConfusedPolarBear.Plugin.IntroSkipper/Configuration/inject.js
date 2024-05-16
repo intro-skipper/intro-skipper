@@ -24,7 +24,16 @@ introSkipper.d = function (msg) {
       if (!path.includes("/PlaybackInfo")) { return response; }
       introSkipper.d("Retrieving skip segments from URL");
       introSkipper.d(path);
-      let id = path.split("/")[2];
+      
+      // Check for context root and set id accordingly
+      let path_arr = path.split("/");
+      let id = "";
+      if (path_arr[1] == "Items") {
+        id = path_arr[2];
+      } else {
+        id = path_arr[3];
+      }
+
       introSkipper.skipSegments = await introSkipper.secureFetch(`Episode/${id}/IntroSkipperSegments`);
       introSkipper.d("Successfully retrieved skip segments");
       introSkipper.d(introSkipper.skipSegments);
