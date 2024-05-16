@@ -97,7 +97,7 @@ introSkipper.d = function (msg) {
         border-radius: 0px;
         display: inline-block;
         cursor: pointer;
-        opacity: 1;
+        opacity: 0;
         box-shadow: inset 0 0 0 0 #f9f9f9;
         -webkit-transition: ease-out 0.4s;
         -moz-transition: ease-out 0.4s;
