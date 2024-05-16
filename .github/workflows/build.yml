@@ -35,7 +35,7 @@ jobs:
       uses: actions/setup-dotnet@v4
       with:
         dotnet-version: 8.0.x
-        
+
     - name: Restore dependencies
       run: dotnet restore
 
@@ -52,9 +52,19 @@ jobs:
 
     - name: Upload artifact
       uses: actions/upload-artifact@v4.3.3
+      if: github.event_name != 'pull_request'
       with:
         name: ConfusedPolarBear.Plugin.IntroSkipper-${{ env.GIT_HASH }}.dll
         path: ConfusedPolarBear.Plugin.IntroSkipper/bin/Debug/net8.0/ConfusedPolarBear.Plugin.IntroSkipper.dll
+        if-no-files-found: error
+
+    - name: Upload artifact
+      uses: actions/upload-artifact@v4.3.3
+      if: github.event_name == 'pull_request'
+      with:
+        name: ConfusedPolarBear.Plugin.IntroSkipper-${{ github.head_ref }}.dll
+        path: ConfusedPolarBear.Plugin.IntroSkipper/bin/Debug/net6.0/ConfusedPolarBear.Plugin.IntroSkipper.dll
+        retention-days: 7
         if-no-files-found: error
 
     - name: Create archive
