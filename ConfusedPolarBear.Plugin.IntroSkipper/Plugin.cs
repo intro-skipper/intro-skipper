@@ -60,15 +60,27 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
 
         FFmpegPath = serverConfiguration.GetEncodingOptions().EncoderAppPathDisplay;
 
-        var introsDirectory = Path.Join(applicationPaths.CachePath, "introskipper");
-        FingerprintCachePath = Path.Join(introsDirectory, "chromaprints");
-        _introPath = Path.Join(applicationPaths.CachePath, "introskipper", "intros.xml");
-        _creditsPath = Path.Join(applicationPaths.CachePath, "introskipper", "credits.xml");
+        var pluginDirName = "introskipper";
+        var pluginCachePath = "chromaprints";
 
-        var oldintrosDirectory = Path.Join(applicationPaths.PluginConfigurationsPath, "intros");
-        _oldFingerprintCachePath = Path.Join(oldintrosDirectory, "cache");
-        _oldintroPath = Path.Join(applicationPaths.PluginConfigurationsPath, "intros", "intros.xml");
-        _oldcreditsPath = Path.Join(applicationPaths.PluginConfigurationsPath, "intros", "credits.xml");
+        var introsDirectory = Path.Join(applicationPaths.DataPath, pluginDirName);
+        FingerprintCachePath = Path.Join(introsDirectory, pluginCachePath);
+        _introPath = Path.Join(applicationPaths.DataPath, pluginDirName, "intros.xml");
+        _creditsPath = Path.Join(applicationPaths.DataPath, pluginDirName, "credits.xml");
+
+        var cacheRoot = applicationPaths.CachePath;
+        var oldintrosDirectory = Path.Join(cacheRoot, pluginDirName);
+        if (!Directory.Exists(oldintrosDirectory))
+        {
+            pluginDirName = "intros";
+            pluginCachePath = "cache";
+            cacheRoot = applicationPaths.PluginConfigurationsPath;
+            oldintrosDirectory = Path.Join(cacheRoot, pluginDirName);
+        }
+
+        _oldFingerprintCachePath = Path.Join(oldintrosDirectory, pluginCachePath);
+        _oldintroPath = Path.Join(cacheRoot, pluginDirName, "intros.xml");
+        _oldcreditsPath = Path.Join(cacheRoot, pluginDirName, "credits.xml");
 
         // Create the base & cache directories (if needed).
         if (!Directory.Exists(FingerprintCachePath))
