@@ -75,48 +75,71 @@ introSkipper.d = function (msg) {
     let styleElement = document.createElement("style");
     styleElement.id = "introSkipperCss";
     styleElement.innerText = `
+    :root {
+        --rounding: .2em;
+        --accent: 0, 164, 220;
+    }
     @media (hover:hover) and (pointer:fine) {
         #skipIntro .paper-icon-button-light:hover:not(:disabled) {
-            color: black !important;
-            background-color: rgba(47, 93, 98, 0) !important;
+            color: rgba(255, 255, 255, 0.87) !important;
+            background-color: transparent !important;
         }
     }
     #skipIntro .paper-icon-button-light.show-focus:focus {
-        transform: scale(1.04) !important;
+        color: rgba(255, 255, 255, 0.87) !important;
+        transform: scale(1) !important;
     }
     #skipIntro.upNextContainer {
         width: unset;
     }
     #skipIntro {
-        padding: 0 1px;
+        padding: 0 0.5em;
         position: absolute;
-        right: 10em;
         bottom: 9em;
-        background-color: rgba(25, 25, 25, 0.66);
-        border: 1px solid;
-        border-radius: 0px;
-        display: inline-block;
+        right: 5em;
+        background: rgba(0, 0, 0, 0.3);
+        border: none;
+        border-radius: var(--rounding);
+        display: flex;
+        justify-content: center;
+        align-items: center;
         cursor: pointer;
+        user-select: none;
         opacity: 0;
-        box-shadow: inset 0 0 0 0 #f9f9f9;
-        -webkit-transition: ease-out 0.4s;
-        -moz-transition: ease-out 0.4s;
-        transition: ease-out 0.4s;
+        color: rgba(255, 255, 255, 0.87);
+        will-change: opacity, transform;
+        transition: opacity 0.3s ease-out, transform 0.3s ease-out;
+        font-size: 1.2em;
+        text-shadow: rgba(0, 0, 0, 0.6) 0px 0px 4px;
     }
-    #skipIntro #btnSkipSegmentText {
-        padding-right: 3px;
-        padding-bottom: 2px;
+    #skipIntro::after {
+        content: '';
+        position: absolute;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        background: rgba(var(--accent),0.5);
+        opacity: 0;
+        border-radius: var(--rounding);
+        transition: opacity 0.3s ease-in-out;
+        z-index: -1;
     }
-    @media (max-width: 1080px) {
-        #skipIntro {
-            right: 10%;
-        }
+    #btnSkipSegmentText {
+        padding-right: 0.15em;
+        padding-left: 0.35em;
+        margin-top: -0.025em;
+        font-weight: bold;
     }
-    #skipIntro:hover {
-        box-shadow: inset 400px 0 0 0 #f9f9f9;
-        -webkit-transition: ease-in 1s;
-        -moz-transition: ease-in 1s;
-        transition: ease-in 1s;
+    #skipIntro:hover::after,
+    #skipIntro:focus::after,
+    #skipIntro:focus-within::after {
+        opacity: 1;
+    }
+    #skipIntro:hover,
+    #skipIntro:focus,
+    #skipIntro:focus-within {
+        transform: scale(1.05);
     }
     `;
     document.querySelector("head").appendChild(styleElement);
