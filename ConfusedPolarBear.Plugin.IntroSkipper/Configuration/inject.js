@@ -79,69 +79,36 @@ introSkipper.d = function (msg) {
         --rounding: .2em;
         --accent: 0, 164, 220;
     }
-    @media (hover:hover) and (pointer:fine) {
-        #skipIntro .paper-icon-button-light:hover:not(:disabled) {
-            color: rgba(255, 255, 255, 0.87) !important;
-            text-shadow: rgba(0, 0, 0, 0.6) 0px 0px 4px;
-            background-color: transparent !important;
-        }
-    }
-    #skipIntro .paper-icon-button-light.show-focus:focus {
+    #skipIntro .raised {
         color: rgba(255, 255, 255, 0.87) !important;
-        text-shadow: rgba(0, 0, 0, 0.6) 0px 0px 4px;
-        transform: scale(1) !important;
+        text-shadow: rgba(0, 0, 0, 0.7) 0px 0px 3px !important;
+        border-radius: var(--rounding) !important;
+        background: rgba(0, 0, 0, 0.3) !important;
+        opacity: 0;
+	    will-change: opacity, transform;
+        transition: opacity 0.3s ease-in, transform 0.3s ease-out !important;
+    }
+    #skipIntro .raised:hover,
+    #skipIntro .raised:focus {
+        color: rgba(255, 255, 255, 0.87) !important;
+        text-shadow: rgba(0, 0, 0, 0.7) 0px 0px 3px !important;
+        background: rgba(var(--accent),0.5) !important;
+        transform: scale(1.05) !important;
     }
     #skipIntro.upNextContainer {
         width: unset;
     }
     #skipIntro {
-        padding: 0 0.5em;
         position: absolute;
-        bottom: 9em;
-        right: 5em;
-        background: rgba(0, 0, 0, 0.3);
-        border: none;
-        border-radius: var(--rounding);
-        display: flex;
-        justify-content: center;
-        align-items: center;
-        cursor: pointer;
-        user-select: none;
-        opacity: 0;
-        color: rgba(255, 255, 255, 0.87);
-        will-change: opacity, transform;
-        transition: opacity 0.3s ease-out, transform 0.3s ease-out;
+        bottom: 6em;
+        right: 4.5em;
         font-size: 1.2em;
-        text-shadow: rgba(0, 0, 0, 0.6) 0px 0px 4px;
-    }
-    #skipIntro::after {
-        content: '';
-        position: absolute;
-        top: 0;
-        left: 0;
-        width: 100%;
-        height: 100%;
-        background: rgba(var(--accent),0.5);
-        opacity: 0;
-        border-radius: var(--rounding);
-        transition: opacity 0.3s ease-in-out;
-        z-index: -1;
     }
     #btnSkipSegmentText {
-        padding-right: 0.15em;
-        padding-left: 0.35em;
-        margin-top: -0.025em;
+        padding-right: 0.1em;
+        padding-left: 0.2em;
+        margin-top: -0.1em;
         font-weight: bold;
-    }
-    #skipIntro:hover::after,
-    #skipIntro:focus::after,
-    #skipIntro:focus-within::after {
-        opacity: 1;
-    }
-    #skipIntro:hover,
-    #skipIntro:focus,
-    #skipIntro:focus-within {
-        transform: scale(1.05);
     }
     `;
     document.querySelector("head").appendChild(styleElement);
@@ -172,7 +139,7 @@ introSkipper.injectButton = async function () {
     button.classList.add("hide");
     button.addEventListener("click", introSkipper.doSkip);
     button.innerHTML = `
-    <button is="paper-icon-button-light" class="btnSkipIntro paper-icon-button-light injected">
+    <button is="emby-button" type="button" class="raised btnSkipIntro injected">
         <span id="btnSkipSegmentText"></span>
         <span class="material-icons skip_next"></span>
     </button>
@@ -214,9 +181,9 @@ introSkipper.videoPositionChanged = function () {
     const segment = introSkipper.getCurrentSegment(introSkipper.videoPlayer.currentTime);
     switch (segment["SegmentType"]) {
         case "None":
-            if (skipButton.style.opacity === '0') return;
+            if (skipButton.querySelector('.raised').style.opacity === '0') return;
 
-            skipButton.style.opacity = '0';
+            skipButton.querySelector('.raised').style.opacity = '0';
             skipButton.addEventListener("transitionend", () => {
                 skipButton.classList.add("hide");
             }, { once: true });
@@ -235,7 +202,7 @@ introSkipper.videoPositionChanged = function () {
     skipButton.classList.remove("hide");
     requestAnimationFrame(() => {
         requestAnimationFrame(() => {
-            skipButton.style.opacity = '1';
+            skipButton.querySelector('.raised').style.opacity = '1';
         });
     });
 }
