@@ -79,22 +79,6 @@ introSkipper.d = function (msg) {
         --rounding: .2em;
         --accent: 0, 164, 220;
     }
-    #skipIntro .raised {
-        color: rgba(255, 255, 255, 0.87) !important;
-        text-shadow: rgba(0, 0, 0, 0.7) 0px 0px 3px !important;
-        border-radius: var(--rounding) !important;
-        background: rgba(0, 0, 0, 0.3) !important;
-        opacity: 0;
-	    will-change: opacity, transform;
-        transition: opacity 0.3s ease-in, transform 0.3s ease-out !important;
-    }
-    #skipIntro .raised:hover,
-    #skipIntro .raised:focus {
-        color: rgba(255, 255, 255, 0.87) !important;
-        text-shadow: rgba(0, 0, 0, 0.7) 0px 0px 3px !important;
-        background: rgba(var(--accent),0.5) !important;
-        transform: scale(1.05) !important;
-    }
     #skipIntro.upNextContainer {
         width: unset;
     }
@@ -102,13 +86,26 @@ introSkipper.d = function (msg) {
         position: absolute;
         bottom: 6em;
         right: 4.5em;
+        background-color: transparent;
         font-size: 1.2em;
     }
+    #skipIntro .emby-button {
+        text-shadow: 0 0 3px rgba(0, 0, 0, 0.7);
+        border-radius: var(--rounding);
+        background-color: rgba(0, 0, 0, 0.3);
+	    will-change: opacity, transform;
+        opacity: 0;
+        transition: opacity 0.3s ease-in, transform 0.3s ease-out;
+    }
+    #skipIntro .emby-button:hover,
+    #skipIntro .emby-button:focus {
+        background-color: rgba(var(--accent),0.7);
+        transform: scale(1.05);
+    }
     #btnSkipSegmentText {
-        padding-right: 0.1em;
+        padding-right: 0.15em;
         padding-left: 0.2em;
         margin-top: -0.1em;
-        font-weight: bold;
     }
     `;
     document.querySelector("head").appendChild(styleElement);
@@ -139,7 +136,7 @@ introSkipper.injectButton = async function () {
     button.classList.add("hide");
     button.addEventListener("click", introSkipper.doSkip);
     button.innerHTML = `
-    <button is="emby-button" type="button" class="raised btnSkipIntro injected">
+    <button is="emby-button" type="button" class="btnSkipIntro injected">
         <span id="btnSkipSegmentText"></span>
         <span class="material-icons skip_next"></span>
     </button>
@@ -181,9 +178,9 @@ introSkipper.videoPositionChanged = function () {
     const segment = introSkipper.getCurrentSegment(introSkipper.videoPlayer.currentTime);
     switch (segment["SegmentType"]) {
         case "None":
-            if (skipButton.querySelector('.raised').style.opacity === '0') return;
+            if (skipButton.querySelector('.emby-button').style.opacity === '0') return;
 
-            skipButton.querySelector('.raised').style.opacity = '0';
+            skipButton.querySelector('.emby-button').style.opacity = '0';
             skipButton.addEventListener("transitionend", () => {
                 skipButton.classList.add("hide");
             }, { once: true });
@@ -202,7 +199,7 @@ introSkipper.videoPositionChanged = function () {
     skipButton.classList.remove("hide");
     requestAnimationFrame(() => {
         requestAnimationFrame(() => {
-            skipButton.querySelector('.raised').style.opacity = '1';
+            skipButton.querySelector('.emby-button').style.opacity = '1';
         });
     });
 }
