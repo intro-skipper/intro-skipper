@@ -28,7 +28,7 @@ public class AutoSkipCredits : IHostedService, IDisposable
     private IUserDataManager _userDataManager;
     private ISessionManager _sessionManager;
     private Timer _playbackTimer = new(1000);
-    private Dictionary<string, bool> _sentNextCommand;
+    private Dictionary<string, bool> _sentSeekCommand;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="AutoSkipCredits"/> class.
@@ -44,7 +44,7 @@ public class AutoSkipCredits : IHostedService, IDisposable
         _userDataManager = userDataManager;
         _sessionManager = sessionManager;
         _logger = logger;
-        _sentNextCommand = new Dictionary<string, bool>();
+        _sentSeekCommand = new Dictionary<string, bool>();
     }
 
     private void AutoSkipCreditChanged(object? sender, BasePluginConfiguration e)
@@ -103,8 +103,8 @@ public class AutoSkipCredits : IHostedService, IDisposable
         {
             var device = session.DeviceId;
 
-            _logger.LogDebug("Resetting next command state for session {Session}", device);
-            _sentNextCommand[device] = newState;
+            _logger.LogDebug("Resetting seek command state for session {Session}", device);
+            _sentSeekCommand[device] = newState;
         }
     }
 
@@ -119,7 +119,7 @@ public class AutoSkipCredits : IHostedService, IDisposable
             // Don't send the seek command more than once in the same session.
             lock (_sentSeekCommandLock)
             {
-                if (_sentNextCommand.TryGetValue(deviceId, out var sent) && sent)
+                if (_sentSeekCommand.TryGetValue(deviceId, out var sent) && sent)
                 {
                     _logger.LogTrace("Already sent seek command for session {Session}", deviceId);
                     continue;
@@ -127,7 +127,7 @@ public class AutoSkipCredits : IHostedService, IDisposable
             }
 
             // Assert that credits were detected for this item.
-            if (!Plugin.Instance!.Credits.TryGetValue(itemId, out var credit))
+            if (!Plugin.Instance!.Credits.TryGetValue(itemId, out var credit) || !credit.Valid)
             {
                 continue;
             }
@@ -141,7 +141,7 @@ public class AutoSkipCredits : IHostedService, IDisposable
                 adjustedStart,
                 credit.IntroEnd);
 
-            if (position < adjustedStart)
+            if (position < adjustedStart || position > credit.IntroEnd)
             {
                 continue;
             }
@@ -162,7 +162,7 @@ public class AutoSkipCredits : IHostedService, IDisposable
                 CancellationToken.None);
             }
 
-            _logger.LogDebug("Sending next track command to {Session}", deviceId);
+            _logger.LogDebug("Sending seek command to {Session}", deviceId);
 
             var creditEnd = (long)credit.IntroEnd;
 
@@ -171,16 +171,17 @@ public class AutoSkipCredits : IHostedService, IDisposable
                 session.Id,
                 new PlaystateRequest
                 {
-                    Command = PlaystateCommand.NextTrack,
+                    Command = PlaystateCommand.Seek,
                     ControllingUserId = session.UserId.ToString(),
+                    SeekPositionTicks = creditEnd * TimeSpan.TicksPerSecond,
                 },
                 CancellationToken.None);
 
             // Flag that we've sent the seek command so that it's not sent repeatedly
             lock (_sentSeekCommandLock)
             {
-                _logger.LogTrace("Setting next track command state for session {Session}", deviceId);
-                _sentNextCommand[deviceId] = true;
+                _logger.LogTrace("Setting seek command state for session {Session}", deviceId);
+                _sentSeekCommand[deviceId] = true;
             }
         }
     }
