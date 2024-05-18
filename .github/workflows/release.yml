@@ -75,10 +75,16 @@ jobs:
         append_body: true
         body: |
           ---
-          "targetAbi": "10.9.0.0",
-          "sourceUrl": "${{ env.SOURCE_URL }}",
-          "checksum": "${{ env.CHECKSUM }}",
-          "timestamp": "${{ env.TIMESTAMP }}"
+          ```json
+            {
+                "version": "${{ github.event.inputs.version }}",
+                "changelog": "- See the full changelog at [GitHub](https://github.com/jumoog/intro-skipper/blob/master/CHANGELOG.md)\n",
+                "targetAbi": "10.9.0.0",
+                "sourceUrl": "${{ env.SOURCE_URL }}",
+                "checksum": "${{ env.CHECKSUM }}",
+                "timestamp": "${{ env.TIMESTAMP }}"
+            }
+          ```
         draft: false
         prerelease: false
       env:
