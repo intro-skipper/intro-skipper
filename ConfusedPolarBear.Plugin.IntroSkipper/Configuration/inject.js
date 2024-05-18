@@ -1,4 +1,5 @@
 let introSkipper = {
+    allowEnter: true,
     skipSegments: {},
     videoPlayer: {},
     // .bind() is used here to prevent illegal invocation errors
@@ -56,6 +57,7 @@ introSkipper.d = function (msg) {
     }
     introSkipper.injectCss();
     introSkipper.injectButton();
+    document.body.addEventListener('keydown', introSkipper.eventHandler, true);
     introSkipper.videoPlayer = document.querySelector("video");
     if (introSkipper.videoPlayer != null) {
       introSkipper.d("Hooking video timeupdate");
@@ -221,5 +223,24 @@ introSkipper.secureFetch = async function (url) {
     const res = await fetch(url, reqInit);
     if (res.status !== 200) { throw new Error(`Expected status 200 from ${url}, but got ${res.status}`); }
     return await res.json();
+}
+introSkipper.eventHandler = function (e) {
+    const skipButton = document.querySelector("#skipIntro");
+    if (!skipButton) {
+        return;
+    }
+    const embyButton = skipButton.querySelector(".emby-button");
+    if (!introSkipper.allowEnter) {
+        event.preventDefault();
+    }
+    else if (e.key === "Enter" && embyButton.style.opacity !== '0') {
+        e.preventDefault();
+        e.stopPropagation();
+        introSkipper.doSkip();
+        introSkipper.allowEnter = false
+        setTimeout(() => {
+          introSkipper.allowEnter = true;
+        }, 5000);
+    }
 }
 introSkipper.setup();
