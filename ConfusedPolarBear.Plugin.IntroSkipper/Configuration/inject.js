@@ -1,5 +1,4 @@
 let introSkipper = {
-    allowEnter: true,
     skipSegments: {},
     videoPlayer: {},
     // .bind() is used here to prevent illegal invocation errors
@@ -57,7 +56,6 @@ introSkipper.d = function (msg) {
     }
     introSkipper.injectCss();
     introSkipper.injectButton();
-    document.body.addEventListener('keydown', introSkipper.eventHandler, true);
     introSkipper.videoPlayer = document.querySelector("video");
     if (introSkipper.videoPlayer != null) {
       introSkipper.d("Hooking video timeupdate");
@@ -223,29 +221,5 @@ introSkipper.secureFetch = async function (url) {
     const res = await fetch(url, reqInit);
     if (res.status !== 200) { throw new Error(`Expected status 200 from ${url}, but got ${res.status}`); }
     return await res.json();
-}
-/** Handle keydown events. */
-introSkipper.eventHandler = function (e) {
-    const skipButton = document.querySelector("#skipIntro");
-    if (!skipButton) {
-        return;
-    }
-    const embyButton = skipButton.querySelector(".emby-button");
-    // Ignore all keydown events
-    if (!introSkipper.allowEnter) {
-        e.preventDefault();
-    }
-    // The Enter key has been pressed and the Intro Skip button is visible
-    else if (e.key === "Enter" && embyButton.style.opacity !== '0') {
-        e.preventDefault();
-        e.stopPropagation();
-        introSkipper.doSkip();
-        // Do not allow any keydown events
-        introSkipper.allowEnter = false
-        // Wait 5 seconds to allow keydown events again
-        setTimeout(() => {
-          introSkipper.allowEnter = true;
-        }, 5000);
-    }
 }
 introSkipper.setup();
