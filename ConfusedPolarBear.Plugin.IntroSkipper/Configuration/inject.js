@@ -179,7 +179,7 @@ introSkipper.videoPositionChanged = function () {
     const segment = introSkipper.getCurrentSegment(introSkipper.videoPlayer.currentTime);
     switch (segment.SegmentType) {
         case "None":
-            if (skipButton.querySelector('.emby-button').style.opacity === '0') return;
+            if (embyButton.style.opacity === '0') return;
 
             embyButton.style.opacity = '0';
             embyButton.addEventListener("transitionend", () => {
