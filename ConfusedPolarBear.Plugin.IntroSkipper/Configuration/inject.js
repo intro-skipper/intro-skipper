@@ -196,7 +196,7 @@ introSkipper.videoPositionChanged = function () {
     if (!skipButton.classList.contains("hide")) return;
 
     skipButton.classList.remove("hide");
-    embyButton.getBoundingClientRect(); // Force reflow
+    embyButton.offsetWidth; // Force reflow
     requestAnimationFrame(() => {
         embyButton.style.opacity = '1';
     });
