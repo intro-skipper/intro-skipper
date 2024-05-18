@@ -224,20 +224,25 @@ introSkipper.secureFetch = async function (url) {
     if (res.status !== 200) { throw new Error(`Expected status 200 from ${url}, but got ${res.status}`); }
     return await res.json();
 }
+/** Handle keydown events. */
 introSkipper.eventHandler = function (e) {
     const skipButton = document.querySelector("#skipIntro");
     if (!skipButton) {
         return;
     }
     const embyButton = skipButton.querySelector(".emby-button");
+    // Ignore all keydown events
     if (!introSkipper.allowEnter) {
-        event.preventDefault();
+        e.preventDefault();
     }
+    // The Enter key has been pressed and the Intro Skip button is visible
     else if (e.key === "Enter" && embyButton.style.opacity !== '0') {
         e.preventDefault();
         e.stopPropagation();
         introSkipper.doSkip();
+        // Do not allow any keydown events
         introSkipper.allowEnter = false
+        // Wait 5 seconds to allow keydown events again
         setTimeout(() => {
           introSkipper.allowEnter = true;
         }, 5000);
