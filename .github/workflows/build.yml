@@ -63,7 +63,7 @@ jobs:
       if: github.event_name == 'pull_request'
       with:
         name: ConfusedPolarBear.Plugin.IntroSkipper-${{ github.head_ref }}.dll
-        path: ConfusedPolarBear.Plugin.IntroSkipper/bin/Debug/net6.0/ConfusedPolarBear.Plugin.IntroSkipper.dll
+        path: ConfusedPolarBear.Plugin.IntroSkipper/bin/Debug/net8.0/ConfusedPolarBear.Plugin.IntroSkipper.dll
         retention-days: 7
         if-no-files-found: error
 
