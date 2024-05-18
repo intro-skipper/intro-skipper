@@ -75,48 +75,37 @@ introSkipper.d = function (msg) {
     let styleElement = document.createElement("style");
     styleElement.id = "introSkipperCss";
     styleElement.innerText = `
-    @media (hover:hover) and (pointer:fine) {
-        #skipIntro .paper-icon-button-light:hover:not(:disabled) {
-            color: black !important;
-            background-color: rgba(47, 93, 98, 0) !important;
-        }
-    }
-    #skipIntro .paper-icon-button-light.show-focus:focus {
-        transform: scale(1.04) !important;
+    :root {
+        --rounding: .2em;
+        --accent: 0, 164, 220;
     }
     #skipIntro.upNextContainer {
         width: unset;
     }
     #skipIntro {
-        padding: 0 1px;
         position: absolute;
-        right: 10em;
-        bottom: 9em;
-        background-color: rgba(25, 25, 25, 0.66);
-        border: 1px solid;
-        border-radius: 0px;
-        display: inline-block;
-        cursor: pointer;
+        bottom: 6em;
+        right: 4.5em;
+        background-color: transparent;
+        font-size: 1.2em;
+    }
+    #skipIntro .emby-button {
+        text-shadow: 0 0 3px rgba(0, 0, 0, 0.7);
+        border-radius: var(--rounding);
+        background-color: rgba(0, 0, 0, 0.3);
+        will-change: opacity, transform;
         opacity: 0;
-        box-shadow: inset 0 0 0 0 #f9f9f9;
-        -webkit-transition: ease-out 0.4s;
-        -moz-transition: ease-out 0.4s;
-        transition: ease-out 0.4s;
+        transition: opacity 0.3s ease-in, transform 0.3s ease-out;
     }
-    #skipIntro #btnSkipSegmentText {
-        padding-right: 3px;
-        padding-bottom: 2px;
+    #skipIntro .emby-button:hover,
+    #skipIntro .emby-button:focus {
+        background-color: rgba(var(--accent),0.7);
+        transform: scale(1.05);
     }
-    @media (max-width: 1080px) {
-        #skipIntro {
-            right: 10%;
-        }
-    }
-    #skipIntro:hover {
-        box-shadow: inset 400px 0 0 0 #f9f9f9;
-        -webkit-transition: ease-in 1s;
-        -moz-transition: ease-in 1s;
-        transition: ease-in 1s;
+    #btnSkipSegmentText {
+        padding-right: 0.15em;
+        padding-left: 0.2em;
+        margin-top: -0.1em;
     }
     `;
     document.querySelector("head").appendChild(styleElement);
@@ -147,7 +136,7 @@ introSkipper.injectButton = async function () {
     button.classList.add("hide");
     button.addEventListener("click", introSkipper.doSkip);
     button.innerHTML = `
-    <button is="paper-icon-button-light" class="btnSkipIntro paper-icon-button-light injected">
+    <button is="emby-button" type="button" class="btnSkipIntro injected">
         <span id="btnSkipSegmentText"></span>
         <span class="material-icons skip_next"></span>
     </button>
@@ -186,32 +175,30 @@ introSkipper.videoPositionChanged = function () {
     if (!skipButton) {
         return;
     }
+    const embyButton = skipButton.querySelector(".emby-button");
     const segment = introSkipper.getCurrentSegment(introSkipper.videoPlayer.currentTime);
-    switch (segment["SegmentType"]) {
+    switch (segment.SegmentType) {
         case "None":
-            if (skipButton.style.opacity === '0') return;
+            if (embyButton.style.opacity === '0') return;
 
-            skipButton.style.opacity = '0';
-            skipButton.addEventListener("transitionend", () => {
+            embyButton.style.opacity = '0';
+            embyButton.addEventListener("transitionend", () => {
                 skipButton.classList.add("hide");
             }, { once: true });
             return;
         case "Introduction":
-            skipButton.querySelector("#btnSkipSegmentText").textContent =
-                skipButton.dataset["intro_text"];
+            skipButton.querySelector("#btnSkipSegmentText").textContent = skipButton.dataset.intro_text;
             break;
         case "Credits":
-            skipButton.querySelector("#btnSkipSegmentText").textContent =
-                skipButton.dataset["credits_text"];
+            skipButton.querySelector("#btnSkipSegmentText").textContent = skipButton.dataset.credits_text;
             break;
     }
     if (!skipButton.classList.contains("hide")) return;
 
     skipButton.classList.remove("hide");
+    embyButton.offsetWidth; // Force reflow
     requestAnimationFrame(() => {
-        requestAnimationFrame(() => {
-            skipButton.style.opacity = '1';
-        });
+        embyButton.style.opacity = '1';
     });
 }
 /** Seeks to the end of the intro. */
