@@ -93,7 +93,7 @@ introSkipper.d = function (msg) {
         text-shadow: 0 0 3px rgba(0, 0, 0, 0.7);
         border-radius: var(--rounding);
         background-color: rgba(0, 0, 0, 0.3);
-	    will-change: opacity, transform;
+        will-change: opacity, transform;
         opacity: 0;
         transition: opacity 0.3s ease-in, transform 0.3s ease-out;
     }
@@ -175,32 +175,30 @@ introSkipper.videoPositionChanged = function () {
     if (!skipButton) {
         return;
     }
+    const embyButton = skipButton.querySelector(".emby-button");
     const segment = introSkipper.getCurrentSegment(introSkipper.videoPlayer.currentTime);
-    switch (segment["SegmentType"]) {
+    switch (segment.SegmentType) {
         case "None":
             if (skipButton.querySelector('.emby-button').style.opacity === '0') return;
 
-            skipButton.querySelector('.emby-button').style.opacity = '0';
-            skipButton.addEventListener("transitionend", () => {
+            embyButton.style.opacity = '0';
+            embyButton.addEventListener("transitionend", () => {
                 skipButton.classList.add("hide");
             }, { once: true });
             return;
         case "Introduction":
-            skipButton.querySelector("#btnSkipSegmentText").textContent =
-                skipButton.dataset["intro_text"];
+            skipButton.querySelector("#btnSkipSegmentText").textContent = skipButton.dataset.intro_text;
             break;
         case "Credits":
-            skipButton.querySelector("#btnSkipSegmentText").textContent =
-                skipButton.dataset["credits_text"];
+            skipButton.querySelector("#btnSkipSegmentText").textContent = skipButton.dataset.credits_text;
             break;
     }
     if (!skipButton.classList.contains("hide")) return;
 
     skipButton.classList.remove("hide");
+    embyButton.getBoundingClientRect(); // Force reflow
     requestAnimationFrame(() => {
-        requestAnimationFrame(() => {
-            skipButton.querySelector('.emby-button').style.opacity = '1';
-        });
+        embyButton.style.opacity = '1';
     });
 }
 /** Seeks to the end of the intro. */
