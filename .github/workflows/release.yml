@@ -72,21 +72,26 @@ jobs:
       with:
         tag_name: 10.9/v${{ github.event.inputs.version }}
         name: v${{ github.event.inputs.version }}
-        append_body: true
-        body: |
-          ---
-          ```json
-            {
-                "version": "${{ github.event.inputs.version }}",
-                "changelog": "- See the full changelog at [GitHub](https://github.com/jumoog/intro-skipper/blob/master/CHANGELOG.md)\n",
-                "targetAbi": "10.9.0.0",
-                "sourceUrl": "${{ env.SOURCE_URL }}",
-                "checksum": "${{ env.CHECKSUM }}",
-                "timestamp": "${{ env.TIMESTAMP }}"
-            }
-          ```
         draft: false
         prerelease: false
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
+    - name: Set up Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '20'
+
+    - name: Run validation and update script
+      run: node validate-and-update-manifest.js
+      env:
+        VERSION: ${{ github.event.inputs.version }}
+
+    - name: Commit changes
+      if: success()
+      run: |
+        git config --global user.name "github-actions[bot]"
+        git config --global user.email "github-actions[bot]@users.noreply.github.com"
+        git add manifest.json
+        git commit -m "release v${{ github.event.inputs.version }}"
+        git push
