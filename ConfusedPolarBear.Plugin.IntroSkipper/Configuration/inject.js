@@ -201,7 +201,9 @@ introSkipper.videoPositionChanged = function () {
 
     embyButton.style.opacity = '1';
 
-    embyButton.focus({ focusVisible: true });
+    if (document.documentElement.classList.contains("layout-tv")) {
+        embyButton.focus({ focusVisible: true }); 
+    }
 }
 function throttle(func, limit) {
     let inThrottle;
@@ -250,11 +252,11 @@ introSkipper.eventHandler = function (e) {
     if (!skipButton || skipButton.classList.contains("hide")) {
         return;
     }
-    const embyButton = skipButton.querySelector(".emby-button");
+    // const embyButton = skipButton.querySelector(".emby-button");
     // Ignore if the Emby button is not focused or hovered
-    if (!embyButton.matches(":focus") && !embyButton.matches(":hover")) {
-        return;
-    }
+    // if (document.documentElement.classList.contains("layout-tv") && !embyButton.matches(":focus") && !embyButton.matches(":hover")) {
+    //     return;
+    // }
     // Ignore all keydown events
     if (!introSkipper.allowEnter) {
         e.preventDefault();
@@ -262,6 +264,9 @@ introSkipper.eventHandler = function (e) {
     }
     if (e.key === "Enter") {
         e.stopPropagation();
+        if (document.documentElement.classList.contains("layout-desktop")) {
+            introSkipper.doSkip();
+        }
     }
 }
 introSkipper.setup();
