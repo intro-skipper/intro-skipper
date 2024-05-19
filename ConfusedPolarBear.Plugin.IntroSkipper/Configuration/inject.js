@@ -174,7 +174,7 @@ introSkipper.getCurrentSegment = function (position) {
 /** Playback position changed, check if the skip button needs to be displayed. */
 introSkipper.videoPositionChanged = function () {
     const skipButton = document.querySelector("#skipIntro");
-    if (!skipButton) {
+    if (!skipButton || !introSkipper.allowEnter) {
         return;
     }
     const embyButton = skipButton.querySelector(".emby-button");
@@ -195,7 +195,7 @@ introSkipper.videoPositionChanged = function () {
             skipButton.querySelector("#btnSkipSegmentText").textContent = skipButton.dataset.credits_text;
             break;
     }
-    if (!skipButton.classList.contains("hide") || !introSkipper.allowEnter) return;
+    if (!skipButton.classList.contains("hide")) return;
 
     skipButton.classList.remove("hide");
     embyButton.offsetWidth; // Force reflow
