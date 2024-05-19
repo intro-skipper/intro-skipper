@@ -195,7 +195,7 @@ introSkipper.videoPositionChanged = function () {
             skipButton.querySelector("#btnSkipSegmentText").textContent = skipButton.dataset.credits_text;
             break;
     }
-    if (!skipButton.classList.contains("hide")) return;
+    if (!skipButton.classList.contains("hide") || !introSkipper.allowEnter) return;
 
     skipButton.classList.remove("hide");
     embyButton.offsetWidth; // Force reflow
@@ -203,17 +203,34 @@ introSkipper.videoPositionChanged = function () {
         embyButton.style.opacity = '1';
     });
 }
+/** Debounce function to limit the rate at which a function can fire. */
+function debounce(func, wait) {
+    let timeout;
+    return function(...args) {
+        const context = this;
+        clearTimeout(timeout);
+        timeout = setTimeout(() => func.apply(context, args), wait);
+    };
+}
 /** Seeks to the end of the intro. */
-introSkipper.doSkip = function (e) {
+introSkipper.doSkip = debounce(function (e) {
     introSkipper.d("Skipping intro");
     introSkipper.d(introSkipper.skipSegments);
     const segment = introSkipper.getCurrentSegment(introSkipper.videoPlayer.currentTime);
-    if (segment["SegmentType"] === "None") {
+    if (segment.SegmentType === "None") {
         console.warn("[intro skipper] doSkip() called without an active segment");
         return;
     }
-    introSkipper.videoPlayer.currentTime = segment["IntroEnd"];
-}
+    // Disable keydown events
+    introSkipper.allowEnter = false;
+    introSkipper.videoPlayer.currentTime = segment.IntroEnd;
+    // Listen for the seeked event to re-enable keydown events
+    const onSeeked = () => {
+        introSkipper.allowEnter = true;
+        introSkipper.videoPlayer.removeEventListener('seeked', onSeeked);
+    };
+    introSkipper.videoPlayer.addEventListener('seeked', onSeeked);
+}, 1000);
 /** Tests if an element with the provided selector exists. */
 introSkipper.testElement = function (selector) { return document.querySelector(selector); }
 /** Make an authenticated fetch to the Jellyfin server and parse the response body as JSON. */
@@ -227,25 +244,18 @@ introSkipper.secureFetch = async function (url) {
 /** Handle keydown events. */
 introSkipper.eventHandler = function (e) {
     const skipButton = document.querySelector("#skipIntro");
-    if (!skipButton) {
+    if (!skipButton || skipButton.classList.contains("hide")) {
         return;
     }
-    const embyButton = skipButton.querySelector(".emby-button");
     // Ignore all keydown events
     if (!introSkipper.allowEnter) {
         e.preventDefault();
+        return;
     }
-    // The Enter key has been pressed and the Intro Skip button is visible
-    else if (e.key === "Enter" && embyButton.style.opacity !== '0') {
+    if (e.key === "Enter") {
         e.preventDefault();
         e.stopPropagation();
         introSkipper.doSkip();
-        // Do not allow any keydown events
-        introSkipper.allowEnter = false
-        // Wait 5 seconds to allow keydown events again
-        setTimeout(() => {
-          introSkipper.allowEnter = true;
-        }, 5000);
     }
 }
 introSkipper.setup();
