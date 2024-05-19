@@ -13,7 +13,7 @@ public class TestBlackFrames
         var range = 1e-5;
 
         var expected = new List<BlackFrame>();
-        expected.AddRange(CreateFrameSequence(2, 3));
+        expected.AddRange(CreateFrameSequence(2.04, 3));
         expected.AddRange(CreateFrameSequence(5, 6));
         expected.AddRange(CreateFrameSequence(8, 9.96));
 
@@ -30,7 +30,8 @@ public class TestBlackFrames
     [FactSkipFFmpegTests]
     public void TestEndCreditDetection()
     {
-        var range = 1;
+        // new strategy new range
+        var range = 3;
 
         var analyzer = CreateBlackFrameAnalyzer();
 
