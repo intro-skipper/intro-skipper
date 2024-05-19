@@ -198,22 +198,24 @@ introSkipper.videoPositionChanged = function () {
     if (!skipButton.classList.contains("hide")) return;
 
     skipButton.classList.remove("hide");
-    embyButton.offsetWidth; // Force reflow
-    requestAnimationFrame(() => {
-        embyButton.style.opacity = '1';
-    });
+
+    embyButton.style.opacity = '1';
+
+    embyButton.focus({ focusVisible: true });
 }
-/** Debounce function to limit the rate at which a function can fire. */
-function debounce(func, wait) {
-    let timeout;
+function throttle(func, limit) {
+    let inThrottle;
     return function(...args) {
         const context = this;
-        clearTimeout(timeout);
-        timeout = setTimeout(() => func.apply(context, args), wait);
+        if (!inThrottle) {
+            func.apply(context, args);
+            inThrottle = true;
+            setTimeout(() => inThrottle = false, limit);
+        }
     };
 }
 /** Seeks to the end of the intro. */
-introSkipper.doSkip = debounce(function (e) {
+introSkipper.doSkip = throttle(function (e) {
     introSkipper.d("Skipping intro");
     introSkipper.d(introSkipper.skipSegments);
     const segment = introSkipper.getCurrentSegment(introSkipper.videoPlayer.currentTime);
@@ -225,12 +227,13 @@ introSkipper.doSkip = debounce(function (e) {
     introSkipper.allowEnter = false;
     introSkipper.videoPlayer.currentTime = segment.IntroEnd;
     // Listen for the seeked event to re-enable keydown events
-    const onSeeked = () => {
+    const onSeeked = async () => {
+        await new Promise(resolve => setTimeout(resolve, 100)); // Wait 100ms
         introSkipper.allowEnter = true;
         introSkipper.videoPlayer.removeEventListener('seeked', onSeeked);
     };
     introSkipper.videoPlayer.addEventListener('seeked', onSeeked);
-}, 1000);
+}, 2000);
 /** Tests if an element with the provided selector exists. */
 introSkipper.testElement = function (selector) { return document.querySelector(selector); }
 /** Make an authenticated fetch to the Jellyfin server and parse the response body as JSON. */
@@ -247,15 +250,18 @@ introSkipper.eventHandler = function (e) {
     if (!skipButton || skipButton.classList.contains("hide")) {
         return;
     }
+    const embyButton = skipButton.querySelector(".emby-button");
+    // Ignore if the Emby button is not focused or hovered
+    if (!embyButton.matches(":focus") && !embyButton.matches(":hover")) {
+        return;
+    }
     // Ignore all keydown events
     if (!introSkipper.allowEnter) {
         e.preventDefault();
         return;
     }
     if (e.key === "Enter") {
-        e.preventDefault();
         e.stopPropagation();
-        introSkipper.doSkip();
     }
 }
 introSkipper.setup();
