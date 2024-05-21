@@ -57,11 +57,11 @@ introSkipper.d = function (msg) {
     }
     introSkipper.injectCss();
     introSkipper.injectButton();
-    document.body.addEventListener('keydown', introSkipper.eventHandler, true);
     introSkipper.videoPlayer = document.querySelector("video");
     if (introSkipper.videoPlayer != null) {
       introSkipper.d("Hooking video timeupdate");
       introSkipper.videoPlayer.addEventListener("timeupdate", introSkipper.videoPositionChanged);
+      document.body.addEventListener('keydown', introSkipper.eventHandler, true);
     }
   }
   /**
@@ -145,6 +145,18 @@ introSkipper.injectButton = async function () {
     `;
     button.dataset["intro_text"] = config.SkipButtonIntroText;
     button.dataset["credits_text"] = config.SkipButtonEndCreditsText;
+    // Store the original blur method
+    const embyButton = button.querySelector(".emby-button");
+    const originalBlur = embyButton.blur;
+    // Override the blur method
+    embyButton.blur = function () {
+        // Prevent button from losing focus only if isnt hidden AND focused
+        if (!button.classList.contains("hide") && this.matches(":focus")) {  
+            return; // Don't call blur() to keep focus
+        }
+        // Proceed with default blur behavior
+        originalBlur.call(this); // Call the stored original blur method
+    };
     /*
     * Alternative workaround for #44. Jellyfin's video component registers a global click handler
     * (located at src/controllers/playback/video/index.js:1492) that pauses video playback unless
@@ -230,7 +242,7 @@ introSkipper.doSkip = throttle(function (e) {
     introSkipper.videoPlayer.currentTime = segment.IntroEnd;
     // Listen for the seeked event to re-enable keydown events
     const onSeeked = async () => {
-        await new Promise(resolve => setTimeout(resolve, 100)); // Wait 100ms
+        await new Promise(resolve => setTimeout(resolve, 50)); // Wait 50ms
         introSkipper.allowEnter = true;
         introSkipper.videoPlayer.removeEventListener('seeked', onSeeked);
     };
