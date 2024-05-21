@@ -145,16 +145,28 @@ introSkipper.injectButton = async function () {
     `;
     button.dataset["intro_text"] = config.SkipButtonIntroText;
     button.dataset["credits_text"] = config.SkipButtonEndCreditsText;
-    // Store the original blur method
-    const embyButton = button.querySelector(".emby-button");
-    const originalBlur = embyButton.blur;
-    // Override the blur method
-    embyButton.blur = function () {
-        // Prevent button from losing focus only if isnt hidden AND focused
-        if (!introSkipper.osdVisible() && !embyButton.contains(document.activeElement)) {
-            originalBlur.call(this);
+
+    const observer = new MutationObserver((mutationsList) => {
+        for (const mutation of mutationsList) {
+            if (mutation.type === 'childList') {
+                const embyButton = button.querySelector(".emby-button");
+                if (embyButton) {
+                    const originalBlur = embyButton.blur;
+    
+                    embyButton.blur = function () {
+                        if (!introSkipper.osdVisible() || !embyButton.contains(document.activeElement)) {
+                            originalBlur.call(this);
+                        }
+                    };
+    
+                    observer.disconnect();
+                    break;
+                }
+            }
         }
-    };
+    });
+    
+    observer.observe(button, { childList: true, subtree: true });
     /*
     * Alternative workaround for #44. Jellyfin's video component registers a global click handler
     * (located at src/controllers/playback/video/index.js:1492) that pauses video playback unless
@@ -268,8 +280,12 @@ introSkipper.eventHandler = function (e) {
         e.preventDefault();
         return;
     }
-    if (e.key === "Enter" && document.documentElement.classList.contains("layout-tv") && embyButton.contains(document.activeElement)) {
+    if (e.key !== "Enter") {
+        return; 
+    }
+    if (document.documentElement.classList.contains("layout-tv") && embyButton.contains(document.activeElement)) {
         e.stopPropagation();
+        return; 
     }
     if (e.key === "Enter" && document.documentElement.classList.contains("layout-desktop")) {
         e.stopPropagation();
