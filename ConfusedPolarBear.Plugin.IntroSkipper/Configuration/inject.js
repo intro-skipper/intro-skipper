@@ -146,9 +146,10 @@ introSkipper.injectButton = async function () {
     button.dataset["intro_text"] = config.SkipButtonIntroText;
     button.dataset["credits_text"] = config.SkipButtonEndCreditsText;
     // Store the original blur method
-    const originalBlur = button.blur;
+    const embyButton = button.querySelector(".emby-button");
+    const originalBlur = embyButton.blur;
     // Override the blur method
-    button.blur = function () {
+    embyButton.blur = function () {
         // Prevent button from losing focus only if isnt hidden AND focused
         if (!button.classList.contains("hide") && this.matches(":focus")) {  
             return; // Don't call blur() to keep focus
@@ -246,7 +247,7 @@ introSkipper.doSkip = throttle(function (e) {
         introSkipper.videoPlayer.removeEventListener('seeked', onSeeked);
     };
     introSkipper.videoPlayer.addEventListener('seeked', onSeeked);
-}, 3000);
+}, 2000);
 /** Tests if an element with the provided selector exists. */
 introSkipper.testElement = function (selector) { return document.querySelector(selector); }
 /** Make an authenticated fetch to the Jellyfin server and parse the response body as JSON. */
