@@ -151,11 +151,9 @@ introSkipper.injectButton = async function () {
     // Override the blur method
     embyButton.blur = function () {
         // Prevent button from losing focus only if isnt hidden AND focused
-        if (!button.classList.contains("hide") && this.matches(":focus")) {  
-            return; // Don't call blur() to keep focus
+        if (!introSkipper.osdVisible() && !embyButton.contains(document.activeElement)) {
+            originalBlur.call(this);
         }
-        // Proceed with default blur behavior
-        originalBlur.call(this); // Call the stored original blur method
     };
     /*
     * Alternative workaround for #44. Jellyfin's video component registers a global click handler
@@ -247,7 +245,7 @@ introSkipper.doSkip = throttle(function (e) {
         introSkipper.videoPlayer.removeEventListener('seeked', onSeeked);
     };
     introSkipper.videoPlayer.addEventListener('seeked', onSeeked);
-}, 2000);
+}, 3000);
 /** Tests if an element with the provided selector exists. */
 introSkipper.testElement = function (selector) { return document.querySelector(selector); }
 /** Make an authenticated fetch to the Jellyfin server and parse the response body as JSON. */
@@ -264,21 +262,18 @@ introSkipper.eventHandler = function (e) {
     if (!skipButton || skipButton.classList.contains("hide")) {
         return;
     }
-    // const embyButton = skipButton.querySelector(".emby-button");
-    // Ignore if the Emby button is not focused or hovered
-    // if (document.documentElement.classList.contains("layout-tv") && !embyButton.matches(":focus") && !embyButton.matches(":hover")) {
-    //     return;
-    // }
+    const embyButton = skipButton.querySelector(".emby-button");
     // Ignore all keydown events
     if (!introSkipper.allowEnter) {
         e.preventDefault();
         return;
     }
-    if (e.key === "Enter") {
+    if (e.key === "Enter" && document.documentElement.classList.contains("layout-tv") && embyButton.contains(document.activeElement)) {
         e.stopPropagation();
-        if (document.documentElement.classList.contains("layout-desktop")) {
-            introSkipper.doSkip();
-        }
+    }
+    if (e.key === "Enter" && document.documentElement.classList.contains("layout-desktop")) {
+        e.stopPropagation();
+        introSkipper.doSkip();
     }
 }
 introSkipper.setup();
