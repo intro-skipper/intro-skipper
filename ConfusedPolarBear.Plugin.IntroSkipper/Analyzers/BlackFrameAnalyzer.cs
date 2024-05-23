@@ -134,7 +134,7 @@ public class BlackFrameAnalyzer : IMediaFileAnalyzer
     {
         // Start by analyzing the last N minutes of the file.
         var upperLimit = searchStart;
-        var lowerLimit = searchStart - searchDistance;
+        var lowerLimit = Math.Max(searchStart - searchDistance, minimumCreditsDuration);
         var start = TimeSpan.FromSeconds(upperLimit);
         var end = TimeSpan.FromSeconds(lowerLimit);
         var firstFrameTime = 0.0;
