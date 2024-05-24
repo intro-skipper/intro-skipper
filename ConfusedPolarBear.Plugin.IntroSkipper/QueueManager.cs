@@ -270,13 +270,13 @@ public class QueueManager
                 {
                     verified.Add(candidate);
 
-                    if (requiresIntroAnalysis && !Plugin.Instance!.Intros.ContainsKey(candidate.EpisodeId))
+                    if (requiresIntroAnalysis && (!Plugin.Instance!.Intros.TryGetValue(candidate.EpisodeId, out var intro) || !intro.Valid))
                     {
                         reqModes.Add(AnalysisMode.Introduction);
                         requiresIntroAnalysis = false;  // No need to check again
                     }
 
-                    if (requiresCreditsAnalysis && !Plugin.Instance!.Credits.ContainsKey(candidate.EpisodeId))
+                    if (requiresCreditsAnalysis && (!Plugin.Instance!.Credits.TryGetValue(candidate.EpisodeId, out var credit) || !credit.Valid))
                     {
                         reqModes.Add(AnalysisMode.Credits);
                         requiresCreditsAnalysis = false; // No need to check again
