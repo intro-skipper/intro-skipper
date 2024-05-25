@@ -21,7 +21,7 @@ const newVersion = {
 };
 
 async function updateManifest() {
-	await validVersion(newVersion);
+    await validVersion(newVersion);
 
     // Add the new version to the manifest
     jsonData[0].versions.unshift(newVersion);
@@ -29,14 +29,6 @@ async function updateManifest() {
     // Write the updated manifest to file if validation is successful
     fs.writeFileSync(manifestPath, JSON.stringify(jsonData, null, 4));
     console.log('Manifest updated successfully.');
-}
-
-async function validateJSON() {
-    for (const item of jsonData) {
-        for (const version of item.versions) {
-			await validVersion(version);
-        }
-    }
 }
 
 async function validVersion(version) {
@@ -112,8 +104,7 @@ async function downloadFile(url, destinationPath, redirects = 5) {
 }
 
 async function run() {
-	await updateManifest();
-	await validateJSON();
+    await updateManifest();
 }
 
 run();
