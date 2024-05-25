@@ -2,11 +2,6 @@ name: 'Release Plugin'
 
 on:
   workflow_dispatch:
-    inputs:
-      version:
-        description: 'Version v'
-        required: true
-        type: string
 
 permissions:
   contents: write
@@ -34,8 +29,6 @@ jobs:
 
     - name: Run update version
       run: node update-version.js
-      env:
-        VERSION: ${{ github.event.inputs.version }}
 
     - name: Embed version info
       run: echo "${{ github.sha }}" > ConfusedPolarBear.Plugin.IntroSkipper/Configuration/version.txt
@@ -46,7 +39,7 @@ jobs:
     - name: Upload artifact
       uses: actions/upload-artifact@v4.3.3
       with:
-        name: ConfusedPolarBear.Plugin.IntroSkipper-v${{ github.event.inputs.version }}.dll
+        name: ConfusedPolarBear.Plugin.IntroSkipper-v${{ env.NEW_FILE_VERSION }}.dll
         path: ConfusedPolarBear.Plugin.IntroSkipper/bin/Debug/net6.0/ConfusedPolarBear.Plugin.IntroSkipper.dll
         if-no-files-found: error
 
@@ -55,14 +48,14 @@ jobs:
       with:
         files: |
           ConfusedPolarBear.Plugin.IntroSkipper/bin/Debug/net6.0/ConfusedPolarBear.Plugin.IntroSkipper.dll
-        dest: intro-skipper-v${{ github.event.inputs.version }}.zip
+        dest: intro-skipper-v${{ env.NEW_FILE_VERSION }}.zip
 
     - name: Generate manifest keys
       run: |
-        sourceUrl="https://github.com/${{ github.repository }}/releases/download/10.8/v${{ github.event.inputs.version }}/intro-skipper-v${{ github.event.inputs.version }}.zip"
+        sourceUrl="https://github.com/${{ github.repository }}/releases/download/10.8/v${{ env.NEW_FILE_VERSION }}/intro-skipper-v${{ env.NEW_FILE_VERSION }}.zip"
         echo "SOURCE_URL=$sourceUrl" >> $GITHUB_ENV
-        md5sum intro-skipper-v${{ github.event.inputs.version }}.zip > intro-skipper-v${{ github.event.inputs.version }}.md5
-        checksum="$(awk '{print $1}' intro-skipper-v${{ github.event.inputs.version }}.md5)"
+        md5sum intro-skipper-v${{ env.NEW_FILE_VERSION }}.zip > intro-skipper-v${{ env.NEW_FILE_VERSION }}.md5
+        checksum="$(awk '{print $1}' intro-skipper-v${{ env.NEW_FILE_VERSION }}.md5)"
         echo "CHECKSUM=$checksum" >> $GITHUB_ENV
         timestamp="$(date +%FT%TZ)"
         echo "TIMESTAMP=$timestamp" >> $GITHUB_ENV
@@ -71,17 +64,17 @@ jobs:
       uses: 8bitDream/action-github-releases@v1.0.0
       with:
         repo_token: "${{ secrets.GITHUB_TOKEN }}"
-        automatic_release_tag: 10.8/v${{ github.event.inputs.version }}
+        automatic_release_tag: 10.8/v${{ env.NEW_FILE_VERSION }}
         prerelease: false
-        title: v${{ github.event.inputs.version }}
+        title: v${{ env.NEW_FILE_VERSION }}
         files: |
-          intro-skipper-v${{ github.event.inputs.version }}.zip
+          intro-skipper-v${{ env.NEW_FILE_VERSION }}.zip
 
     - name: Publish release notes
       uses: softprops/action-gh-release@v2.0.5
       with:
-        tag_name: 10.8/v${{ github.event.inputs.version }}
-        name: v${{ github.event.inputs.version }}
+        tag_name: 10.8/v${{ env.NEW_FILE_VERSION }}
+        name: v${{ env.NEW_FILE_VERSION }}
         draft: false
         prerelease: false
       env:
@@ -90,7 +83,7 @@ jobs:
     - name: Run validation and update script
       run: node validate-and-update-manifest.js
       env:
-        VERSION: ${{ github.event.inputs.version }}
+        VERSION: ${{ env.NEW_FILE_VERSION }}
 
     - name: Commit changes
       if: success()
@@ -98,5 +91,5 @@ jobs:
         git config --global user.name "github-actions[bot]"
         git config --global user.email "github-actions[bot]@users.noreply.github.com"
         git add manifest.json ConfusedPolarBear.Plugin.IntroSkipper/ConfusedPolarBear.Plugin.IntroSkipper.csproj
-        git commit -m "release v${{ github.event.inputs.version }}"
+        git commit -m "release v${{ env.NEW_FILE_VERSION }}"
         git push
