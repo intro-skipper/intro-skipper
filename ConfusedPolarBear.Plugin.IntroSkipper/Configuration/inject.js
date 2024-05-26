@@ -145,28 +145,16 @@ introSkipper.injectButton = async function () {
     `;
     button.dataset["intro_text"] = config.SkipButtonIntroText;
     button.dataset["credits_text"] = config.SkipButtonEndCreditsText;
-
-    const observer = new MutationObserver((mutationsList) => {
-        for (const mutation of mutationsList) {
-            if (mutation.type === 'childList') {
-                const embyButton = button.querySelector(".emby-button");
-                if (embyButton) {
-                    const originalBlur = embyButton.blur;
-    
-                    embyButton.blur = function () {
-                        if (!introSkipper.osdVisible() || !embyButton.contains(document.activeElement)) {
-                            originalBlur.call(this);
-                        }
-                    };
-    
-                    observer.disconnect();
-                    break;
-                }
+    const embyButton = button.querySelector(".emby-button");
+    if (embyButton) {
+        const originalBlur = embyButton.blur;
+        embyButton.blur = function () {
+            const segment = introSkipper.getCurrentSegment(introSkipper.videoPlayer.currentTime);
+            if (segment.SegmentType === "None" || !introSkipper.osdVisible() || !embyButton.contains(document.activeElement)) {
+                originalBlur.call(this);
             }
-        }
-    });
-    
-    observer.observe(button, { childList: true, subtree: true });
+        };
+    }
     /*
     * Alternative workaround for #44. Jellyfin's video component registers a global click handler
     * (located at src/controllers/playback/video/index.js:1492) that pauses video playback unless
@@ -196,7 +184,7 @@ introSkipper.getCurrentSegment = function (position) {
 /** Playback position changed, check if the skip button needs to be displayed. */
 introSkipper.videoPositionChanged = function () {
     const skipButton = document.querySelector("#skipIntro");
-    if (!skipButton || !introSkipper.allowEnter) {
+    if (!skipButton || introSkipper.videoPlayer.currentTime === 0 || !introSkipper.allowEnter) {
         return;
     }
     const embyButton = skipButton.querySelector(".emby-button");
@@ -208,6 +196,7 @@ introSkipper.videoPositionChanged = function () {
             embyButton.style.opacity = '0';
             embyButton.addEventListener("transitionend", () => {
                 skipButton.classList.add("hide");
+                embyButton.blur();
             }, { once: true });
             return;
         case "Introduction":
@@ -252,7 +241,7 @@ introSkipper.doSkip = throttle(function (e) {
     introSkipper.videoPlayer.currentTime = segment.IntroEnd;
     // Listen for the seeked event to re-enable keydown events
     const onSeeked = async () => {
-        await new Promise(resolve => setTimeout(resolve, 50)); // Wait 50ms
+        await new Promise(resolve => setTimeout(resolve, 100)); // Wait 100ms
         introSkipper.allowEnter = true;
         introSkipper.videoPlayer.removeEventListener('seeked', onSeeked);
     };
