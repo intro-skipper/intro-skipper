@@ -53,22 +53,31 @@ namespace ConfusedPolarBear.Plugin.IntroSkipper
         {
             if (File.Exists(filePath))
             {
-                // Load the XML document
-                XmlDocument xmlDoc = new XmlDocument();
-                xmlDoc.Load(filePath);
-
-                ArgumentNullException.ThrowIfNull(xmlDoc.DocumentElement);
-
-                // check that the file has not already been migrated
-                if (xmlDoc.DocumentElement.HasAttribute("xmlns:xsi"))
+                try
                 {
-                    xmlDoc.DocumentElement.RemoveAttribute("xmlns:xsi");
-                    xmlDoc.DocumentElement.RemoveAttribute("xmlns:xsd");
-                    xmlDoc.DocumentElement.SetAttribute("xmlns", "http://schemas.datacontract.org/2004/07/ConfusedPolarBear.Plugin.IntroSkipper");
-                    xmlDoc.DocumentElement.SetAttribute("xmlns:i", "http://www.w3.org/2001/XMLSchema-instance");
+                    // Load the XML document
+                    XmlDocument xmlDoc = new XmlDocument();
+                    xmlDoc.Load(filePath);
 
-                    // Save the modified XML document
-                    xmlDoc.Save(filePath);
+                    ArgumentNullException.ThrowIfNull(xmlDoc.DocumentElement);
+
+                    // Check that the file has not already been migrated
+                    if (xmlDoc.DocumentElement.HasAttribute("xmlns:xsi"))
+                    {
+                        xmlDoc.DocumentElement.RemoveAttribute("xmlns:xsi");
+                        xmlDoc.DocumentElement.RemoveAttribute("xmlns:xsd");
+                        xmlDoc.DocumentElement.SetAttribute("xmlns", "http://schemas.datacontract.org/2004/07/ConfusedPolarBear.Plugin.IntroSkipper");
+                        xmlDoc.DocumentElement.SetAttribute("xmlns:i", "http://www.w3.org/2001/XMLSchema-instance");
+
+                        // Save the modified XML document
+                        xmlDoc.Save(filePath);
+                    }
+                }
+                catch (XmlException ex)
+                {
+                    Console.WriteLine($"Error deserializing XML: {ex.Message}");
+                    File.Delete(filePath);
+                    Console.WriteLine($"Deleting {filePath}");
                 }
             }
         }
