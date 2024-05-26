@@ -523,7 +523,7 @@ public static class FFmpegWrapper
     /// <param name="mode">Analysis mode.</param>
     /// <param name="fingerprint">Array to store the fingerprint in.</param>
     /// <returns>true if the episode was successfully loaded from cache, false on any other error.</returns>
-    private static bool LoadCachedFingerprint(
+    public static bool LoadCachedFingerprint(
         QueuedEpisode episode,
         AnalysisMode mode,
         out uint[] fingerprint)

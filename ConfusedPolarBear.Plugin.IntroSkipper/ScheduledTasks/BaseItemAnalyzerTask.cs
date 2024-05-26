@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
+using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using MediaBrowser.Controller.Library;
@@ -50,9 +51,11 @@ public class BaseItemAnalyzerTask
     /// </summary>
     /// <param name="progress">Progress.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
+    /// <param name="episodeIdsToAnalyze">Episode Ids to analyze.</param>
     public void AnalyzeItems(
         IProgress<double> progress,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        HashSet<Guid>? episodeIdsToAnalyze = null)
     {
         var ffmpegValid = FFmpegWrapper.CheckFFmpegVersion();
         // Assert that ffmpeg with chromaprint is installed
@@ -67,6 +70,13 @@ public class BaseItemAnalyzerTask
             _libraryManager);
 
         var queue = queueManager.GetMediaItems();
+
+        // Filter the queue based on episodeIdsToAnalyze
+        if (episodeIdsToAnalyze != null && episodeIdsToAnalyze.Count > 0)
+        {
+            queue = queue.Where(kvp => kvp.Value.Any(episode => episodeIdsToAnalyze.Contains(episode.EpisodeId)))
+                             .ToDictionary(kvp => kvp.Key, kvp => kvp.Value).AsReadOnly();
+        }
 
         var totalQueued = 0;
         foreach (var kvp in queue)
@@ -194,6 +204,12 @@ public class BaseItemAnalyzerTask
             return 0;
         }
 
+        // Remove from Blacklist
+        foreach (var item in items.Where(e => e.IsBlacklisted.Contains(mode)))
+        {
+            item.RemoveBlacklistMode(mode);
+        }
+
         _logger.LogInformation(
             "[Mode: {Mode}] Analyzing {Count} files from {Name} season {Season}",
             mode,
@@ -219,6 +235,13 @@ public class BaseItemAnalyzerTask
         foreach (var analyzer in analyzers)
         {
             items = analyzer.AnalyzeMediaFiles(items, mode, cancellationToken);
+        }
+
+        // Add items without intros/credits to blacklist.
+        foreach (var item in items.Where(e => !e.IsAnalyzed.Contains(mode)))
+        {
+            item.AddBlacklistMode(mode);
+            totalItems -= 1;
         }
 
         return totalItems;
