@@ -248,7 +248,6 @@ public class Entrypoint : IHostedService, IDisposable
         }
 
         // Clean up
-        Plugin.Instance!.Configuration.PathRestrictions.Clear();
         _cancellationTokenSource = null;
         _autoTaskCompletEvent.Set();
     }
