@@ -241,7 +241,7 @@ introSkipper.doSkip = throttle(function (e) {
     introSkipper.videoPlayer.currentTime = segment.IntroEnd;
     // Listen for the seeked event to re-enable keydown events
     const onSeeked = async () => {
-        await new Promise(resolve => setTimeout(resolve, 100)); // Wait 100ms
+        await new Promise(resolve => setTimeout(resolve, 50)); // Wait 50ms
         introSkipper.allowEnter = true;
         introSkipper.videoPlayer.removeEventListener('seeked', onSeeked);
     };
@@ -263,20 +263,19 @@ introSkipper.eventHandler = function (e) {
     if (!skipButton || skipButton.classList.contains("hide")) {
         return;
     }
-    const embyButton = skipButton.querySelector(".emby-button");
     // Ignore all keydown events
     if (!introSkipper.allowEnter) {
         e.preventDefault();
         return;
     }
-    if (e.key !== "Enter") {
-        return; 
-    }
+    if (e.key !== "Enter") return;
+    const embyButton = skipButton.querySelector(".emby-button");
     if (document.documentElement.classList.contains("layout-tv") && embyButton.contains(document.activeElement)) {
         e.stopPropagation();
         return; 
     }
-    if (e.key === "Enter" && document.documentElement.classList.contains("layout-desktop")) {
+    if (document.documentElement.classList.contains("layout-desktop")) {
+        e.preventDefault();
         e.stopPropagation();
         introSkipper.doSkip();
     }
