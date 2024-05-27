@@ -62,26 +62,17 @@ public class QueuedEpisode
     /// Initializes a new instance of the <see cref="QueuedEpisode"/> class.
     /// </summary>
     /// <param name="mode">AnalysisMode.</param>
-    public void AddAnalysisMode(AnalysisMode mode)
-    {
-        IsAnalyzed.Add(mode);
-    }
+    public void AddAnalysisMode(AnalysisMode mode) => IsAnalyzed.Add(mode);
 
     /// <summary>
     /// Initializes a new instance of the <see cref="QueuedEpisode"/> class.
     /// </summary>
     /// <param name="mode">AnalysisMode.</param>
-    public void AddBlacklistMode(AnalysisMode mode)
-    {
-        IsBlacklisted.Add(mode);
-    }
+    public void AddBlacklistMode(AnalysisMode mode) => IsBlacklisted.Add(mode);
 
     /// <summary>
     /// Initializes a new instance of the <see cref="QueuedEpisode"/> class.
     /// </summary>
     /// <param name="mode">AnalysisMode.</param>
-    public void RemoveBlacklistMode(AnalysisMode mode)
-    {
-        IsBlacklisted.Remove(mode);
-    }
+    public void RemoveBlacklistMode(AnalysisMode mode) => IsBlacklisted.Remove(mode);
 }
