@@ -44,12 +44,8 @@ jobs:
         if-no-files-found: error
 
     - name: Create archive
-      uses: vimtor/action-zip@v1.2
-      with:
-        files: |
-          ConfusedPolarBear.Plugin.IntroSkipper/bin/Debug/net8.0/ConfusedPolarBear.Plugin.IntroSkipper.dll
-        dest: intro-skipper-v${{ env.NEW_FILE_VERSION }}.zip
-
+      run: zip -j "intro-skipper-v${{ env.NEW_FILE_VERSION }}.zip" ConfusedPolarBear.Plugin.IntroSkipper/bin/Debug/net8.0/ConfusedPolarBear.Plugin.IntroSkipper.dll
+      
     - name: Generate manifest keys
       run: |
         sourceUrl="https://github.com/${{ github.repository }}/releases/download/10.9/v${{ env.NEW_FILE_VERSION }}/intro-skipper-v${{ env.NEW_FILE_VERSION }}.zip"
@@ -60,23 +56,9 @@ jobs:
         timestamp="$(date +%FT%TZ)"
         echo "TIMESTAMP=$timestamp" >> $GITHUB_ENV
 
-    - name: Publish release
-      uses: 8bitDream/action-github-releases@v1.0.0
-      with:
-        repo_token: "${{ secrets.GITHUB_TOKEN }}"
-        automatic_release_tag: 10.9/v${{ env.NEW_FILE_VERSION }}
-        prerelease: false
-        title: v${{ env.NEW_FILE_VERSION }}
-        files: |
-          intro-skipper-v${{ env.NEW_FILE_VERSION }}.zip
-
-    - name: Publish release notes
-      uses: softprops/action-gh-release@v2.0.5
-      with:
-        tag_name: 10.9/v${{ env.NEW_FILE_VERSION }}
-        name: v${{ env.NEW_FILE_VERSION }}
-        draft: false
-        prerelease: false
+    - name: Create new release with tag
+      if: github.event_name != 'pull_request'
+      run: gh release create "10.9/v${{ env.NEW_FILE_VERSION }}" "intro-skipper-v${{ env.NEW_FILE_VERSION }}.zip" --title "v${{ env.NEW_FILE_VERSION }}" --latest
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 

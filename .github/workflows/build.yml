@@ -68,12 +68,8 @@ jobs:
         if-no-files-found: error
 
     - name: Create archive
-      uses: vimtor/action-zip@v1.2
       if: github.event_name != 'pull_request'
-      with:
-        files: |
-          ConfusedPolarBear.Plugin.IntroSkipper/bin/Debug/net8.0/ConfusedPolarBear.Plugin.IntroSkipper.dll
-        dest:  intro-skipper-${{ env.GIT_HASH }}.zip
+      run: zip -j "intro-skipper-${{ env.GIT_HASH }}.zip" ConfusedPolarBear.Plugin.IntroSkipper/bin/Debug/net8.0/ConfusedPolarBear.Plugin.IntroSkipper.dll
 
     - name: Generate md5
       if: github.event_name != 'pull_request'
@@ -82,28 +78,21 @@ jobs:
         checksum="$(awk '{print $1}' intro-skipper-${{ env.GIT_HASH }}.md5)"
         echo "CHECKSUM=$checksum" >> $GITHUB_ENV
 
-    - name: Publish prerelease
-      uses: 8bitDream/action-github-releases@v1.0.0
+    - name: Check if prerelease with tag '10.9/preview' exists and delete it
       if: github.event_name != 'pull_request'
-      with:
-        repo_token: "${{ secrets.GITHUB_TOKEN }}"
-        automatic_release_tag: 10.9/preview
-        prerelease: true
-        title: intro-skipper-${{ env.GIT_HASH }}
-        files: |
-          intro-skipper-${{ env.GIT_HASH }}.zip
+      run: |
+        if gh release view 10.9/preview --json id 2>/dev/null; then
+          release_id=$(gh release view 10.9/preview --json id -q ".id")
+          echo "Deleting existing prerelease with id: $release_id"
+          gh release delete 10.9/preview -y
+        else
+          echo "No existing prerelease with tag '10.9/preview' found."
+        fi
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-    - name: Publish prerelease notes
-      uses: softprops/action-gh-release@v2.0.5
+    - name: Create new prerelease with tag '10.9/preview'
       if: github.event_name != 'pull_request'
-      with:
-        tag_name: 10.9/preview
-        name: intro-skipper-${{ env.GIT_HASH }}
-        append_body: true
-        body: |
-          ---
-          checksum:  ${{ env.CHECKSUM }}
-        draft: false
-        prerelease: true
+      run: gh release create 10.9/preview "intro-skipper-${{ env.GIT_HASH }}.zip" --prerelease --title "intro-skipper-${{ env.GIT_HASH }}" --notes "This is a prerelease version."
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
