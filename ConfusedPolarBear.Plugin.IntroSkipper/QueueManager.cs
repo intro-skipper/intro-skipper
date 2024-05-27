@@ -263,11 +263,7 @@ public class QueueManager
         var verified = new List<QueuedEpisode>();
         var reqModes = new List<AnalysisMode>();
 
-        var requiresAnalysis = new Dictionary<AnalysisMode, bool>
-                {
-                    { AnalysisMode.Introduction, modes.Contains(AnalysisMode.Introduction) },
-                    { AnalysisMode.Credits, modes.Contains(AnalysisMode.Credits) }
-                };
+        var requiresAnalysis = modes.ToDictionary(mode => mode, mode => true);
 
         foreach (var candidate in candidates)
         {
@@ -279,7 +275,7 @@ public class QueueManager
                 {
                     verified.Add(candidate);
 
-                    foreach (AnalysisMode mode in modes)
+                    foreach (var mode in modes)
                     {
                         if (requiresAnalysis[mode] && !candidate.IsAnalyzed.Contains(mode) && !candidate.IsBlacklisted.Contains(mode))
                         {
@@ -292,8 +288,7 @@ public class QueueManager
             catch (Exception ex)
             {
                 _logger.LogDebug(
-                    "Skipping {Mode} analysis of {Name} ({Id}): {Exception}",
-                    modes,
+                    "Skipping analysis of {Name} ({Id}): {Exception}",
                     candidate.Name,
                     candidate.EpisodeId,
                     ex);
