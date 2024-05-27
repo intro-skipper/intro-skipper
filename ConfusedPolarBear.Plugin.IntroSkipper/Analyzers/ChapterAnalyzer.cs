@@ -89,23 +89,20 @@ public class ChapterAnalyzer : IMediaFileAnalyzer
         string expression,
         AnalysisMode mode)
     {
-        Intro? matchingChapter = null;
+        var config = Plugin.Instance?.Configuration ?? new PluginConfiguration();
 
-        var config = Plugin.Instance?.Configuration ?? new Configuration.PluginConfiguration();
-
-        int minDuration = mode == AnalysisMode.Introduction ?
-            config.MinimumIntroDuration :
-            config.MinimumCreditsDuration;
-        int maxDuration = mode == AnalysisMode.Introduction ?
-            config.MaximumIntroDuration :
-            config.MaximumCreditsDuration;
+        var (minDuration, maxDuration) = mode switch
+        {
+            AnalysisMode.Introduction => (config.MinimumIntroDuration, config.MaximumIntroDuration),
+            _ => (config.MinimumCreditsDuration, config.MaximumCreditsDuration)
+        };
 
         if (chapters.Count == 0)
         {
             return null;
         }
 
-        var matchingChapters = chapters
+        return chapters
             .Select((chapter, index) => new { chapter, next = chapters.ElementAtOrDefault(index + 1) ?? new ChapterInfo { StartPositionTicks = TimeSpan.FromSeconds(episode.Duration).Ticks } })
             .Where(pair => !string.IsNullOrWhiteSpace(pair.chapter.Name))
             .Where(pair => IsValidTimeRange(pair.chapter, pair.next, minDuration, maxDuration))
@@ -113,25 +110,11 @@ public class ChapterAnalyzer : IMediaFileAnalyzer
             .Select(pair => new Intro(episode.EpisodeId, new TimeRange(
                 TimeSpan.FromTicks(pair.chapter.StartPositionTicks).TotalSeconds,
                 TimeSpan.FromTicks(pair.next.StartPositionTicks).TotalSeconds)))
-            .ToList();
-
-        if (matchingChapters.Count == 0)
-        {
-            return null;
-        }
-
-        matchingChapter = mode == AnalysisMode.Introduction
-                ? matchingChapters.LastOrDefault()
-                : matchingChapters.FirstOrDefault();
-
-        return matchingChapter;
+            .OrderByDescending(_ => mode == AnalysisMode.Introduction)
+            .FirstOrDefault();
     }
 
-    private bool IsValidTimeRange(ChapterInfo chapter, ChapterInfo next, int minDuration, int maxDuration)
-    {
-        var timeRange = new TimeRange(
-            TimeSpan.FromTicks(chapter.StartPositionTicks).TotalSeconds,
-            TimeSpan.FromTicks(next.StartPositionTicks).TotalSeconds);
-        return timeRange.Duration >= minDuration && timeRange.Duration <= maxDuration;
-    }
+    private bool IsValidTimeRange(ChapterInfo chapter, ChapterInfo next, int minDuration, int maxDuration) =>
+        (TimeSpan.FromTicks(next.StartPositionTicks).TotalSeconds - TimeSpan.FromTicks(chapter.StartPositionTicks).TotalSeconds) is var duration &&
+        duration >= minDuration && duration <= maxDuration;
 }
