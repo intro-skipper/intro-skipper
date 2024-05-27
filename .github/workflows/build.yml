@@ -78,21 +78,10 @@ jobs:
         checksum="$(awk '{print $1}' intro-skipper-${{ env.GIT_HASH }}.md5)"
         echo "CHECKSUM=$checksum" >> $GITHUB_ENV
 
-    - name: Check if prerelease with tag '10.9/preview' exists and delete it
+    - name: Create/replace the preview release and upload artifacts
       if: github.event_name != 'pull_request'
       run: |
-        if gh release view 10.9/preview --json id 2>/dev/null; then
-          release_id=$(gh release view 10.9/preview --json id -q ".id")
-          echo "Deleting existing prerelease with id: $release_id"
-          gh release delete 10.9/preview -y
-        else
-          echo "No existing prerelease with tag '10.9/preview' found."
-        fi
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-    - name: Create new prerelease with tag '10.9/preview'
-      if: github.event_name != 'pull_request'
-      run: gh release create 10.9/preview "intro-skipper-${{ env.GIT_HASH }}.zip" --prerelease --title "intro-skipper-${{ env.GIT_HASH }}" --notes "This is a prerelease version."
+         gh release delete '10.9/preview' --cleanup-tag --yes || true
+         gh release create '10.9/preview' "intro-skipper-${{ env.GIT_HASH }}.zip" --prerelease --title "intro-skipper-${{ env.GIT_HASH }}" --notes "This is a prerelease version."
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
