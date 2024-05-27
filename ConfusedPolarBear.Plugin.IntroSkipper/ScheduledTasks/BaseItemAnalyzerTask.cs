@@ -51,11 +51,11 @@ public class BaseItemAnalyzerTask
     /// </summary>
     /// <param name="progress">Progress.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
-    /// <param name="episodeIdsToAnalyze">Episode Ids to analyze.</param>
+    /// <param name="seasonsToAnalyze">Season Ids to analyze.</param>
     public void AnalyzeItems(
         IProgress<double> progress,
         CancellationToken cancellationToken,
-        HashSet<Guid>? episodeIdsToAnalyze = null)
+        HashSet<Guid>? seasonsToAnalyze = null)
     {
         var ffmpegValid = FFmpegWrapper.CheckFFmpegVersion();
         // Assert that ffmpeg with chromaprint is installed
@@ -71,11 +71,11 @@ public class BaseItemAnalyzerTask
 
         var queue = queueManager.GetMediaItems();
 
-        // Filter the queue based on episodeIdsToAnalyze
-        if (episodeIdsToAnalyze != null && episodeIdsToAnalyze.Count > 0)
+        // Filter the queue based on seasonsToAnalyze
+        if (seasonsToAnalyze != null && seasonsToAnalyze.Count > 0)
         {
-            queue = queue.Where(kvp => kvp.Value.Any(episode => episodeIdsToAnalyze.Contains(episode.EpisodeId)))
-                             .ToDictionary(kvp => kvp.Key, kvp => kvp.Value).AsReadOnly();
+            queue = queue.Where(kvp => seasonsToAnalyze.Contains(kvp.Key))
+                        .ToDictionary(kvp => kvp.Key, kvp => kvp.Value).AsReadOnly();
         }
 
         var totalQueued = 0;

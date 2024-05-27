@@ -25,7 +25,7 @@ public class Entrypoint : IHostedService, IDisposable
     private readonly ILoggerFactory _loggerFactory;
     private Timer _queueTimer;
     private bool _analyzeAgain;
-    private HashSet<Guid> _episodeIdsToAnalyze = new HashSet<Guid>();
+    private HashSet<Guid> _seasonsToAnalyze = new HashSet<Guid>();
     private static CancellationTokenSource? _cancellationTokenSource;
     private static ManualResetEventSlim _autoTaskCompletEvent = new ManualResetEventSlim(false);
 
@@ -149,7 +149,7 @@ public class Entrypoint : IHostedService, IDisposable
             return;
         }
 
-        _episodeIdsToAnalyze.Add(episode.Id);
+        _seasonsToAnalyze.Add(episode.SeasonId);
 
         StartTimer();
     }
@@ -178,7 +178,7 @@ public class Entrypoint : IHostedService, IDisposable
             return;
         }
 
-        _episodeIdsToAnalyze.Add(episode.Id);
+        _seasonsToAnalyze.Add(episode.SeasonId);
 
         StartTimer();
     }
@@ -263,8 +263,8 @@ public class Entrypoint : IHostedService, IDisposable
         using (_cancellationTokenSource = new CancellationTokenSource())
         using (ScheduledTaskSemaphore.Acquire(-1, _cancellationTokenSource.Token))
         {
-            var episodeIds = new HashSet<Guid>(_episodeIdsToAnalyze);
-            _episodeIdsToAnalyze.Clear();
+            var seasonIds = new HashSet<Guid>(_seasonsToAnalyze);
+            _seasonsToAnalyze.Clear();
 
             _analyzeAgain = false;
             var progress = new Progress<double>();
@@ -294,7 +294,7 @@ public class Entrypoint : IHostedService, IDisposable
                     _loggerFactory,
                     _libraryManager);
 
-            baseCreditAnalyzer.AnalyzeItems(progress, _cancellationTokenSource.Token, episodeIds);
+            baseCreditAnalyzer.AnalyzeItems(progress, _cancellationTokenSource.Token, seasonIds);
 
             // New item detected, start timer again
             if (_analyzeAgain && !_cancellationTokenSource.IsCancellationRequested)
