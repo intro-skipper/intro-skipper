@@ -260,9 +260,7 @@ introSkipper.secureFetch = async function (url) {
 /** Handle keydown events. */
 introSkipper.eventHandler = function (e) {
     const skipButton = document.querySelector("#skipIntro");
-    if (!skipButton || skipButton.classList.contains("hide")) {
-        return;
-    }
+    if (!skipButton || skipButton.classList.contains("hide")) return;
     // Ignore all keydown events
     if (!introSkipper.allowEnter) {
         e.preventDefault();
