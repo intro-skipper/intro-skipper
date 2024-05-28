@@ -145,16 +145,6 @@ introSkipper.injectButton = async function () {
     `;
     button.dataset["intro_text"] = config.SkipButtonIntroText;
     button.dataset["credits_text"] = config.SkipButtonEndCreditsText;
-    const embyButton = button.querySelector(".emby-button");
-    if (embyButton) {
-        const originalBlur = embyButton.blur;
-        embyButton.blur = function () {
-            const segment = introSkipper.getCurrentSegment(introSkipper.videoPlayer.currentTime);
-            if (segment.SegmentType === "None" || !introSkipper.osdVisible() || !embyButton.contains(document.activeElement)) {
-                originalBlur.call(this);
-            }
-        };
-    }
     /*
     * Alternative workaround for #44. Jellyfin's video component registers a global click handler
     * (located at src/controllers/playback/video/index.js:1492) that pauses video playback unless
@@ -181,13 +171,28 @@ introSkipper.getCurrentSegment = function (position) {
     }
     return { "SegmentType": "None" };
 }
+introSkipper.overrideBlur = function(embyButton) {
+    if (!embyButton.originalBlur) {
+        embyButton.originalBlur = embyButton.blur;
+    }
+    embyButton.blur = function () {
+        if (!introSkipper.osdVisible() || !embyButton.contains(document.activeElement)) {
+            embyButton.originalBlur.call(this);
+        }
+    };
+};
+introSkipper.restoreBlur = function(embyButton) {
+    if (embyButton.originalBlur) {
+        embyButton.blur = embyButton.originalBlur;
+        delete embyButton.originalBlur;
+    }
+};
 /** Playback position changed, check if the skip button needs to be displayed. */
 introSkipper.videoPositionChanged = function () {
     const skipButton = document.querySelector("#skipIntro");
-    if (!skipButton || introSkipper.videoPlayer.currentTime === 0 || !introSkipper.allowEnter) {
-        return;
-    }
+    if (introSkipper.videoPlayer.currentTime === 0 || !skipButton || !introSkipper.allowEnter) return;
     const embyButton = skipButton.querySelector(".emby-button");
+    const tvLayout = document.documentElement.classList.contains("layout-tv");
     const segment = introSkipper.getCurrentSegment(introSkipper.videoPlayer.currentTime);
     switch (segment.SegmentType) {
         case "None":
@@ -196,7 +201,10 @@ introSkipper.videoPositionChanged = function () {
             embyButton.style.opacity = '0';
             embyButton.addEventListener("transitionend", () => {
                 skipButton.classList.add("hide");
-                embyButton.blur();
+                if (tvLayout) {
+                    introSkipper.restoreBlur(embyButton);
+                    embyButton.blur(); 
+                }
             }, { once: true });
             return;
         case "Introduction":
@@ -209,14 +217,14 @@ introSkipper.videoPositionChanged = function () {
     if (!skipButton.classList.contains("hide")) return;
 
     skipButton.classList.remove("hide");
-
     embyButton.style.opacity = '1';
 
-    if (document.documentElement.classList.contains("layout-tv")) {
+    if (tvLayout) {
+        introSkipper.overrideBlur(embyButton);
         embyButton.focus({ focusVisible: true }); 
     }
 }
-function throttle(func, limit) {
+introSkipper.throttle = function (func, limit) {
     let inThrottle;
     return function(...args) {
         const context = this;
@@ -228,7 +236,7 @@ function throttle(func, limit) {
     };
 }
 /** Seeks to the end of the intro. */
-introSkipper.doSkip = throttle(function (e) {
+introSkipper.doSkip = introSkipper.throttle(function (e) {
     introSkipper.d("Skipping intro");
     introSkipper.d(introSkipper.skipSegments);
     const segment = introSkipper.getCurrentSegment(introSkipper.videoPlayer.currentTime);
