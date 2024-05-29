@@ -22,20 +22,22 @@ body:
 
   - type: input
     attributes:
-      label: Jellyfin installation method
+      label: Jellyfin install method
+      description: How you installed Jellyfin or the tool used to install it
       placeholder: Docker, Windows installer, etc.
     validations:
       required: true
 
   - type: input
     attributes:
-      label: Container image and tag
-      description: Only fill in this field if you are running Jellyfin in a container
+      label: Container image/tag or Jellyfin vwrsion
+      description: The container for Docker or Jellyfin version for a native install
       placeholder: jellyfin/jellyfin:10.8.7, jellyfin-intro-skipper:latest, etc.
 
   - type: input
     attributes:
       label: Operating System
+      description: The operating system of the Jellyfin / Docker host computer
       placeholder: Debian 11, Windows 11, etc.
     validations:
       required: true
