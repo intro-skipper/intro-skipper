@@ -30,9 +30,11 @@ body:
 
   - type: input
     attributes:
-      label: Container image/tag or Jellyfin vwrsion
+      label: Container image/tag or Jellyfin version
       description: The container for Docker or Jellyfin version for a native install
       placeholder: jellyfin/jellyfin:10.8.7, jellyfin-intro-skipper:latest, etc.
+    validations:
+      required: true
 
   - type: input
     attributes:
