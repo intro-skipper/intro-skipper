@@ -3,6 +3,18 @@ description: "Create a report to help us improve"
 title: "[Bug]: "
 labels: [bug]
 body:
+  - type: checkboxes
+    id: requirements
+    attributes:
+      label: Self service debugging
+      description: |
+          Jellyfin 10.9 is still being actively updated. Please make sure you are using the newest release
+
+          Docker containers have known permission issues that can be resolved with a few extra steps.
+          If your skip button is not shown, please see https://github.com/jumoog/intro-skipper/issues/10
+      options:
+        - label: Jellyfin is updated and my permissions are correct (or I did not use Docker)
+          required: true
   - type: textarea
     attributes:
       label: Describe the bug
