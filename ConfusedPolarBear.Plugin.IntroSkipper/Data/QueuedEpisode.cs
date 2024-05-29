@@ -44,6 +44,11 @@ public class QueuedEpisode
     public string Name { get; set; } = string.Empty;
 
     /// <summary>
+    /// Gets or sets a value indicating whether an episode is Anime.
+    /// </summary>
+    public bool IsAnime { get; set; } = false;
+
+    /// <summary>
     /// Gets or sets the timestamp (in seconds) to stop searching for an introduction at.
     /// </summary>
     public int IntroFingerprintEnd { get; set; }

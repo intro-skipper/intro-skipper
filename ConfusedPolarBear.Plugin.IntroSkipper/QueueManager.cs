@@ -227,6 +227,7 @@ public class QueueManager
                 SeasonNumber = episode.AiredSeasonNumber ?? 0,
                 EpisodeId = episode.Id,
                 Name = episode.Name,
+                IsAnime = episode.GetInheritedTags().Contains("anime", StringComparer.OrdinalIgnoreCase),
                 Path = episode.Path,
                 Duration = Convert.ToInt32(duration),
                 IntroFingerprintEnd = Convert.ToInt32(fingerprintDuration),
