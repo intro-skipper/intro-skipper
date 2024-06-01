@@ -92,14 +92,14 @@ public class SkipIntroController : ControllerBase
             if (config.PersistSkipButton)
             {
                 segment.ShowSkipPromptAt = segment.IntroStart;
-                segment.HideSkipPromptAt = segment.IntroEnd - 1;
+                segment.HideSkipPromptAt = segment.IntroEnd;
             }
             else
             {
                 segment.ShowSkipPromptAt = Math.Max(0, segment.IntroStart - config.ShowPromptAdjustment);
                 segment.HideSkipPromptAt = Math.Min(
                     segment.IntroStart + config.HidePromptAdjustment,
-                    segment.IntroEnd - 1);
+                    segment.IntroEnd);
             }
 
             return segment;
