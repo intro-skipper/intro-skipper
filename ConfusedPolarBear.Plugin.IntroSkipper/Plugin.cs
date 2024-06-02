@@ -320,7 +320,7 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
     /// Gets the Intro for this item.
     /// </summary>
     /// <param name="id">Item id.</param>
-    /// <param name="mode">Item id.</param>
+    /// <param name="mode">Mode.</param>
     /// <returns>Intro.</returns>
     internal Intro GetIntroByMode(Guid id, AnalysisMode mode)
     {

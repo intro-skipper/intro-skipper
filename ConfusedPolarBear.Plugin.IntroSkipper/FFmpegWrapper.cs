@@ -629,6 +629,7 @@ public static class FFmpegWrapper
     /// </summary>
     /// <param name="episode">Episode.</param>
     /// <param name="mode">Analysis mode.</param>
+    /// <returns>Path.</returns>
     public static string GetFingerprintCachePath(QueuedEpisode episode, AnalysisMode mode)
     {
         var basePath = Path.Join(
