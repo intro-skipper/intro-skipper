@@ -168,10 +168,7 @@ public class QueueManager
 
     private void QueueEpisode(Episode episode)
     {
-        if (Plugin.Instance is null)
-        {
-            throw new InvalidOperationException("plugin instance was null");
-        }
+        var pluginInstance = Plugin.Instance ?? throw new InvalidOperationException("Plugin instance was null");
 
         if (string.IsNullOrEmpty(episode.Path))
         {
@@ -184,9 +181,13 @@ public class QueueManager
         }
 
         // Allocate a new list for each new season
-        _queuedEpisodes.TryAdd(episode.SeasonId, new List<QueuedEpisode>());
+        if (!_queuedEpisodes.TryGetValue(episode.SeasonId, out var seasonEpisodes))
+        {
+            seasonEpisodes = new List<QueuedEpisode>();
+            _queuedEpisodes[episode.SeasonId] = seasonEpisodes;
+        }
 
-        if (_queuedEpisodes[episode.SeasonId].Any(e => e.EpisodeId == episode.Id))
+        if (seasonEpisodes.Any(e => e.EpisodeId == episode.Id))
         {
             _logger.LogDebug(
                 "\"{Name}\" from series \"{Series}\" ({Id}) is already queued",
@@ -196,59 +197,45 @@ public class QueueManager
             return;
         }
 
-        QueuedEpisode? episodeToAdd = null;
-        // Try to reuse an existing QueuedEpisode, otherwise create a new one
-        if (Plugin.Instance!.QueuedMediaItems.TryGetValue(episode.SeasonId, out List<QueuedEpisode>? seasonEpisodes))
-        {
-            episodeToAdd = seasonEpisodes.Find(e => e.EpisodeId == episode.Id);
-        }
+        // Limit analysis to the first X% of the episode and at most Y minutes.
+        // X and Y default to 25% and 10 minutes.
+        var duration = TimeSpan.FromTicks(episode.RunTimeTicks ?? 0).TotalSeconds;
+        var fingerprintDuration = Math.Min(
+            duration >= 5 * 60 ? duration * analysisPercent : duration,
+            60 * pluginInstance.Configuration.AnalysisLengthLimit);
 
-        if (episodeToAdd == null)
+        // Queue the episode for analysis
+        var maxCreditsDuration = pluginInstance.Configuration.MaximumCreditsDuration;
+        var newEpisode = new QueuedEpisode()
         {
-            // Limit analysis to the first X% of the episode and at most Y minutes.
-            // X and Y default to 25% and 10 minutes.
-            var duration = TimeSpan.FromTicks(episode.RunTimeTicks ?? 0).TotalSeconds;
-            var fingerprintDuration = duration;
+            SeriesName = episode.SeriesName,
+            SeasonNumber = episode.AiredSeasonNumber ?? 0,
+            EpisodeId = episode.Id,
+            Name = episode.Name,
+            IsAnime = episode.GetInheritedTags().Contains("anime", StringComparer.OrdinalIgnoreCase),
+            Path = episode.Path,
+            Duration = Convert.ToInt32(duration),
+            IntroFingerprintEnd = Convert.ToInt32(fingerprintDuration),
+            CreditsFingerprintStart = Convert.ToInt32(duration - maxCreditsDuration),
+        };
 
-            if (fingerprintDuration >= 5 * 60)
+        // Try to reuse an existing QueuedEpisode States
+        if (pluginInstance.QueuedMediaItems.TryGetValue(episode.SeasonId, out var oldSeasonEpisodes) &&
+            oldSeasonEpisodes.Find(e => e.EpisodeId == episode.Id) is QueuedEpisode oldEpisode)
+        {
+            foreach (var mode in oldEpisode.IsAnalyzed)
             {
-                fingerprintDuration *= analysisPercent;
+                newEpisode.AddAnalysisMode(mode);
             }
 
-            fingerprintDuration = Math.Min(
-                fingerprintDuration,
-                60 * Plugin.Instance!.Configuration.AnalysisLengthLimit);
-
-            // Queue the episode for analysis
-            var maxCreditsDuration = Plugin.Instance!.Configuration.MaximumCreditsDuration;
-            episodeToAdd = new QueuedEpisode()
+            foreach (var mode in oldEpisode.IsBlacklisted)
             {
-                SeriesName = episode.SeriesName,
-                SeasonNumber = episode.AiredSeasonNumber ?? 0,
-                EpisodeId = episode.Id,
-                Name = episode.Name,
-                IsAnime = episode.GetInheritedTags().Contains("anime", StringComparer.OrdinalIgnoreCase),
-                Path = episode.Path,
-                Duration = Convert.ToInt32(duration),
-                IntroFingerprintEnd = Convert.ToInt32(fingerprintDuration),
-                CreditsFingerprintStart = Convert.ToInt32(duration - maxCreditsDuration),
-            };
-
-            // Add analysis modes if timestamps exist for this episode
-            if (Plugin.Instance!.Intros.ContainsKey(episodeToAdd.EpisodeId))
-            {
-                episodeToAdd.AddAnalysisMode(AnalysisMode.Introduction);
-            }
-
-            if (Plugin.Instance!.Credits.ContainsKey(episodeToAdd.EpisodeId))
-            {
-                episodeToAdd.AddAnalysisMode(AnalysisMode.Credits);
+                newEpisode.AddBlacklistMode(mode);
             }
         }
 
-        _queuedEpisodes[episode.SeasonId].Add(episodeToAdd);
-
-        Plugin.Instance!.TotalQueued++;
+        seasonEpisodes.Add(newEpisode);
+        pluginInstance.TotalQueued++;
     }
 
     /// <summary>
@@ -262,9 +249,7 @@ public class QueueManager
         VerifyQueue(ReadOnlyCollection<QueuedEpisode> candidates, ReadOnlyCollection<AnalysisMode> modes)
     {
         var verified = new List<QueuedEpisode>();
-        var reqModes = new List<AnalysisMode>();
-
-        var requiresAnalysis = modes.ToDictionary(mode => mode, mode => true);
+        var reqModes = new HashSet<AnalysisMode>();
 
         foreach (var candidate in candidates)
         {
@@ -278,10 +263,19 @@ public class QueueManager
 
                     foreach (var mode in modes)
                     {
-                        if (requiresAnalysis[mode] && !candidate.IsAnalyzed.Contains(mode) && !candidate.IsBlacklisted.Contains(mode))
+                        if (candidate.IsAnalyzed.Contains(mode) || candidate.IsBlacklisted.Contains(mode))
+                        {
+                            continue;
+                        }
+
+                        if ((mode == AnalysisMode.Introduction && Plugin.Instance!.Intros.ContainsKey(candidate.EpisodeId)) ||
+                            (mode == AnalysisMode.Credits && Plugin.Instance!.Credits.ContainsKey(candidate.EpisodeId)))
+                        {
+                            candidate.AddAnalysisMode(mode);
+                        }
+                        else
                         {
                             reqModes.Add(mode);
-                            requiresAnalysis[mode] = false;  // No need to check again
                         }
                     }
                 }
@@ -296,6 +290,6 @@ public class QueueManager
             }
         }
 
-        return (verified.AsReadOnly(), reqModes.AsReadOnly());
+        return (verified.AsReadOnly(), reqModes.ToList().AsReadOnly());
     }
 }

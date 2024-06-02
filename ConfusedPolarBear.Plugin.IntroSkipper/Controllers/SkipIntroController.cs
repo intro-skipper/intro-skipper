@@ -80,9 +80,7 @@ public class SkipIntroController : ControllerBase
     {
         try
         {
-            var timestamp = mode == AnalysisMode.Introduction ?
-                Plugin.Instance!.Intros[id] :
-                Plugin.Instance!.Credits[id];
+            var timestamp = Plugin.Instance!.GetIntroByMode(id, mode);
 
             // Operate on a copy to avoid mutating the original Intro object stored in the dictionary.
             var segment = new Intro(timestamp);

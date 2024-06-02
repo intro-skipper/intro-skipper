@@ -316,6 +316,19 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
         return commit;
     }
 
+    /// <summary>
+    /// Gets the Intro for this item.
+    /// </summary>
+    /// <param name="id">Item id.</param>
+    /// <param name="mode">Item id.</param>
+    /// <returns>Intro.</returns>
+    internal Intro GetIntroByMode(Guid id, AnalysisMode mode)
+    {
+        return mode == AnalysisMode.Introduction
+            ? Instance!.Intros[id]
+            : Instance!.Credits[id];
+    }
+
     internal BaseItem? GetItem(Guid id)
     {
         return _libraryManager.GetItemById(id);

@@ -523,7 +523,7 @@ public static class FFmpegWrapper
     /// <param name="mode">Analysis mode.</param>
     /// <param name="fingerprint">Array to store the fingerprint in.</param>
     /// <returns>true if the episode was successfully loaded from cache, false on any other error.</returns>
-    public static bool LoadCachedFingerprint(
+    private static bool LoadCachedFingerprint(
         QueuedEpisode episode,
         AnalysisMode mode,
         out uint[] fingerprint)
@@ -629,7 +629,7 @@ public static class FFmpegWrapper
     /// </summary>
     /// <param name="episode">Episode.</param>
     /// <param name="mode">Analysis mode.</param>
-    private static string GetFingerprintCachePath(QueuedEpisode episode, AnalysisMode mode)
+    public static string GetFingerprintCachePath(QueuedEpisode episode, AnalysisMode mode)
     {
         var basePath = Path.Join(
             Plugin.Instance!.FingerprintCachePath,
