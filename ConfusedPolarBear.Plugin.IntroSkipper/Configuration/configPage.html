@@ -593,9 +593,14 @@
                         <br />
                         <br />
 
-                        <button id="btnEraseSeasonTimestamps" type="button" style="display:none;">
-                            Erase all timestamps for this season
-                        </button>
+                        <div id="eraseSeasonContainer" style="display: none;"> 
+                            <button id="btnEraseSeasonTimestamps" type="button">
+                                Erase all timestamps for this season
+                            </button>
+
+                            <input type="checkbox" id="eraseSeasonCacheCheckbox" style="margin-left: 10px;">
+                            <label for="eraseSeasonCacheCheckbox" style="margin-left: 5px;">Erase cached fingerprint files</label>
+                        </div>
                         <hr />
 
                         <button id="btnEraseIntroTimestamps">
@@ -605,6 +610,15 @@
 
                         <button id="btnEraseCreditTimestamps">
                             Erase all end credits timestamps (globally)
+                        </button>
+                        <br />
+
+                        <input type="checkbox" id="eraseModeCacheCheckbox" style="margin-left: 10px;">
+                        <label for="eraseModeCacheCheckbox" style="margin-left: 5px;">Erase cached fingerprint files</label>
+                        <br />
+
+                        <button id="btnCleanCache">
+                            Clean cache from unused fingerprints
                         </button>
                     </details>
                 </fieldset>
@@ -630,6 +644,7 @@
             var support = document.querySelector("details#support");
             var btnEraseIntroTimestamps = document.querySelector("button#btnEraseIntroTimestamps");
             var btnEraseCreditTimestamps = document.querySelector("button#btnEraseCreditTimestamps");
+            var btnCleanCache = document.querySelector("button#btnCleanCache");
 
             // all plugin configuration fields that can be get or set with .value (i.e. strings or numbers).
             var configurationFields = [
@@ -682,6 +697,7 @@
             var txtOffset = document.querySelector("input#offset");
             var txtSuggested = document.querySelector("span#suggestedShifts");
             var btnSeasonEraseTimestamps = document.querySelector("button#btnEraseSeasonTimestamps");
+            var eraseSeasonContainer = document.getElementById("eraseSeasonContainer");
             var timestampError = document.querySelector("textarea#timestampError");
             var timestampEditor = document.querySelector("#timestampEditor");
             var btnUpdateTimestamps = document.querySelector("button#btnUpdateTimestamps");
@@ -791,7 +807,7 @@
             // show changed, populate seasons
             async function showChanged() {
                 clearSelect(selectSeason);
-                btnSeasonEraseTimestamps.style.display = "none";
+                eraseSeasonContainer.style.display = "none";
                 clearSelect(selectEpisode1);
                 clearSelect(selectEpisode2);
 
@@ -810,7 +826,7 @@
 
                 clearSelect(selectEpisode1);
                 clearSelect(selectEpisode2);
-                btnSeasonEraseTimestamps.style.display = "unset";
+                eraseSeasonContainer.style.display = "unset";
 
                 let i = 1;
                 for (let episode of episodes) {
@@ -1028,6 +1044,7 @@
                 const body = "Are you sure you want to erase all previously discovered " +
                     mode.toLocaleLowerCase() +
                     " timestamps?";
+                const eraseCacheChecked = document.getElementById("eraseModeCacheCheckbox").checked;
 
                 Dashboard.confirm(
                     body,
@@ -1037,9 +1054,28 @@
                             return;
                         }
 
-                        fetchWithAuth("Intros/EraseTimestamps?mode=" + mode, "POST", null);
+                        fetchWithAuth("Intros/EraseTimestamps?mode=" + mode + "&eraseCache=" + eraseCacheChecked, "POST", null);
 
                         Dashboard.alert(mode + " timestamps erased");
+                    });
+            }
+
+            // erase all intro/credits cache
+            function cleanCache() {
+                const title = "Confirm Cache erasure";
+                const body = "Are you sure you want to erase all unused fingerprints?";
+
+                Dashboard.confirm(
+                    body,
+                    title,
+                    (result) => {
+                        if (!result) {
+                            return;
+                        }
+
+                        fetchWithAuth("Intros/CleanCache", "POST", null);
+
+                        Dashboard.alert("Cache cleaned");
                     });
             }
 
@@ -1100,6 +1136,10 @@
                 eraseTimestamps("Credits");
                 e.preventDefault();
             });
+            btnCleanCache.addEventListener("click", (e) => {
+                cleanCache();
+                e.preventDefault();
+            });
             btnSeasonEraseTimestamps.addEventListener("click", () => {
                 Dashboard.confirm(
                     "Are you sure you want to erase all timestamps for this season?",
@@ -1111,11 +1151,13 @@
 
                         const show = selectShow.value;
                         const season = selectSeason.value;
+                        const eraseCacheChecked = document.getElementById("eraseSeasonCacheCheckbox").checked;
 
                         const url = "Intros/Show/" + encodeURIComponent(show) + "/" + encodeURIComponent(season);
-                        fetchWithAuth(url, "DELETE", null);
+                        fetchWithAuth(url + "?eraseCache=" + eraseCacheChecked, "DELETE", null);
 
                         Dashboard.alert("Erased timestamps for " + season + " of " + show);
+                        document.getElementById("eraseSeasonCacheCheckbox").checked = false;
                     }
                 );
             });

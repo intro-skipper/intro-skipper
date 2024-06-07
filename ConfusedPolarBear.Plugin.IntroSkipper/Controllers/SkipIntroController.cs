@@ -114,11 +114,12 @@ public class SkipIntroController : ControllerBase
     /// Erases all previously discovered introduction timestamps.
     /// </summary>
     /// <param name="mode">Mode.</param>
+    /// <param name="eraseCache">Erase cache.</param>
     /// <response code="204">Operation successful.</response>
     /// <returns>No content.</returns>
     [Authorize(Policy = Policies.RequiresElevation)]
     [HttpPost("Intros/EraseTimestamps")]
-    public ActionResult ResetIntroTimestamps([FromQuery] AnalysisMode mode)
+    public ActionResult ResetIntroTimestamps([FromQuery] AnalysisMode mode, [FromQuery] bool eraseCache = false)
     {
         if (mode == AnalysisMode.Introduction)
         {
@@ -129,7 +130,25 @@ public class SkipIntroController : ControllerBase
             Plugin.Instance!.Credits.Clear();
         }
 
+        if (eraseCache)
+        {
+            FFmpegWrapper.DeleteCacheFiles(mode);
+        }
+
         Plugin.Instance!.SaveTimestamps(mode);
+        return NoContent();
+    }
+
+    /// <summary>
+    /// Erases all previously cached introduction fingerprints.
+    /// </summary>
+    /// <response code="204">Operation successful.</response>
+    /// <returns>No content.</returns>
+    [Authorize(Policy = "RequiresElevation")]
+    [HttpPost("Intros/CleanCache")]
+    public ActionResult CleanIntroCache()
+    {
+        FFmpegWrapper.CleanCacheFiles();
         return NoContent();
     }
 
