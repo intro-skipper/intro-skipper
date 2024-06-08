@@ -388,8 +388,8 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
             }
         }
 
-        Instance!.SaveTimestamps(AnalysisMode.Introduction);
-        Instance!.SaveTimestamps(AnalysisMode.Credits);
+        SaveTimestamps(AnalysisMode.Introduction);
+        SaveTimestamps(AnalysisMode.Credits);
     }
 
     /// <summary>
