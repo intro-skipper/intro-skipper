@@ -1,7 +1,7 @@
 using System;
 using System.Collections.Generic;
-using System.Collections.ObjectModel;
 using System.IO;
+using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using MediaBrowser.Controller.Library;
@@ -58,7 +58,7 @@ public class CleanCacheTask : IScheduledTask
     public string Key => "CPBIntroSkipperCleanCache";
 
     /// <summary>
-    /// Analyze all episodes in the queue. Only one instance of this task should be run at a time.
+    /// Cleans the Intro Skipper cache by removing files that are no longer associated with episodes in the library.
     /// </summary>
     /// <param name="progress">Task progress.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
@@ -74,35 +74,31 @@ public class CleanCacheTask : IScheduledTask
             _loggerFactory.CreateLogger<QueueManager>(),
             _libraryManager);
 
+        // Retrieve media items and get valid episode IDs
         var queue = queueManager.GetMediaItems();
+        var validEpisodeIds = new HashSet<Guid>(queue.Values.SelectMany(episodes => episodes.Select(e => e.EpisodeId)));
 
-        var validEpisodeIds = new HashSet<Guid>();
-        foreach (var seasonEpisodes in queue.Values)
-        {
-            foreach (var episode in seasonEpisodes)
+        // Identify invalid episode IDs
+        var invalidEpisodeIds = Directory.EnumerateFiles(Plugin.Instance!.FingerprintCachePath)
+            .Select(filePath =>
             {
-                validEpisodeIds.Add(episode.EpisodeId);
-            }
-        }
-
-        // Delete invalid cache files
-        foreach (string filePath in Directory.EnumerateFiles(Plugin.Instance!.FingerprintCachePath))
-        {
-            string fileName = Path.GetFileNameWithoutExtension(filePath);
-
-            int dashIndex = fileName.IndexOf('-', StringComparison.Ordinal); // Find the index of the first '-' character
-            if (dashIndex > 0)
-            {
-                fileName = fileName.Substring(0, dashIndex);
-            }
-
-            if (Guid.TryParse(fileName, out Guid episodeId))
-            {
-                if (!validEpisodeIds.Contains(episodeId))
+                var fileName = Path.GetFileNameWithoutExtension(filePath);
+                var episodeIdStr = fileName.Split('-')[0];
+                if (Guid.TryParse(episodeIdStr, out Guid episodeId))
                 {
-                    FFmpegWrapper.DeleteEpisodeCache(episodeId);
+                    return validEpisodeIds.Contains(episodeId) ? (Guid?)null : episodeId;
                 }
-            }
+
+                return null;
+            })
+            .OfType<Guid>()
+            .ToHashSet();
+
+        // Delete cache files for invalid episode IDs
+        foreach (var episodeId in invalidEpisodeIds)
+        {
+            _logger.LogDebug("Deleting cache files for episode ID: {EpisodeId}", episodeId);
+            FFmpegWrapper.DeleteEpisodeCache(episodeId);
         }
 
         return Task.CompletedTask;
