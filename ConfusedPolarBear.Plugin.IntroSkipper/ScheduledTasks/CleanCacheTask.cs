@@ -78,6 +78,8 @@ public class CleanCacheTask : IScheduledTask
         var queue = queueManager.GetMediaItems();
         var validEpisodeIds = new HashSet<Guid>(queue.Values.SelectMany(episodes => episodes.Select(e => e.EpisodeId)));
 
+        Plugin.Instance!.CleanTimestamps(validEpisodeIds);
+
         // Identify invalid episode IDs
         var invalidEpisodeIds = Directory.EnumerateFiles(Plugin.Instance!.FingerprintCachePath)
             .Select(filePath =>
