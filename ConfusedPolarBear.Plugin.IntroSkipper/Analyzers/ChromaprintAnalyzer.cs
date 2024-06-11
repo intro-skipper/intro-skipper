@@ -118,7 +118,7 @@ public class ChromaprintAnalyzer : IMediaFileAnalyzer
                 fingerprintCache[episode.EpisodeId] = Array.Empty<uint>();
             }
         }
-        
+
         // While there are still episodes in the queue
         while (episodesWithoutIntros.Count > 0)
         {
