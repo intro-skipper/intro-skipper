@@ -4,6 +4,7 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.Globalization;
 using System.IO;
+using System.Linq;
 using System.Text;
 using System.Text.RegularExpressions;
 using Microsoft.Extensions.Logging;
@@ -607,20 +608,72 @@ public static class FFmpegWrapper
     /// <summary>
     /// Remove a cached episode fingerprint from disk.
     /// </summary>
-    /// <param name="episodeId">Episode to remove from cache.</param>
-    /// <param name="mode">Analysis mode.</param>
-    public static void DeleteEpisodeCache(string episodeId, AnalysisMode mode)
+    /// <param name="id">Episode to remove from cache.</param>
+    public static void DeleteEpisodeCache(Guid id)
     {
         var cachePath = Path.Join(
             Plugin.Instance!.FingerprintCachePath,
-            episodeId);
+            id.ToString("N"));
 
-        if (mode == AnalysisMode.Credits)
+        // File.Delete(cachePath);
+        // File.Delete(cachePath + "-intro-silence-v1");
+        // File.Delete(cachePath + "-credits");
+
+        var filePattern = Path.GetFileName(cachePath) + "*";
+        foreach (var filePath in Directory.EnumerateFiles(Plugin.Instance!.FingerprintCachePath, filePattern))
         {
-            cachePath += "-credits";
+            File.Delete(filePath);
         }
+    }
 
-        File.Delete(cachePath);
+    /// <summary>
+    /// Remove cached fingerprints from disk by mode.
+    /// </summary>
+    /// <param name="mode">Analysis mode.</param>
+    public static void DeleteCacheFiles(AnalysisMode mode)
+    {
+        foreach (var filePath in Directory.EnumerateFiles(Plugin.Instance!.FingerprintCachePath))
+        {
+            var shouldDelete = (mode == AnalysisMode.Introduction)
+                    ? !filePath.Contains("credit", StringComparison.OrdinalIgnoreCase)
+                    && !filePath.Contains("blackframes", StringComparison.OrdinalIgnoreCase)
+                    : filePath.Contains("credit", StringComparison.OrdinalIgnoreCase)
+                    || filePath.Contains("blackframes", StringComparison.OrdinalIgnoreCase);
+
+            if (shouldDelete)
+            {
+                File.Delete(filePath);
+            }
+        }
+    }
+
+    /// <summary>
+    /// Remove a cached episode fingerprint from disk.
+    /// </summary>
+    public static void CleanCacheFiles()
+    {
+        // Get valid episode IDs from the dictionaries
+        HashSet<Guid> validEpisodeIds = new HashSet<Guid>(Plugin.Instance!.Intros.Keys.Concat(Plugin.Instance!.Credits.Keys)); // Or use GetMediaItems instead?
+
+        // Delete invalid cache files
+        foreach (string filePath in Directory.EnumerateFiles(Plugin.Instance!.FingerprintCachePath))
+        {
+            string fileName = Path.GetFileNameWithoutExtension(filePath);
+
+            int dashIndex = fileName.IndexOf('-', StringComparison.Ordinal); // Find the index of the first '-' character
+            if (dashIndex > 0)
+            {
+                fileName = fileName.Substring(0, dashIndex);
+            }
+
+            if (Guid.TryParse(fileName, out Guid episodeId))
+            {
+                if (!validEpisodeIds.Contains(episodeId))
+                {
+                    DeleteEpisodeCache(episodeId);
+                }
+            }
+        }
     }
 
     /// <summary>

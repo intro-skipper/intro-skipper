@@ -125,11 +125,12 @@ public class VisualizationController : ControllerBase
     /// </summary>
     /// <param name="series">Show name.</param>
     /// <param name="season">Season name.</param>
+    /// <param name="eraseCache">Erase cache.</param>
     /// <response code="204">Season timestamps erased.</response>
     /// <response code="404">Unable to find season in provided series.</response>
     /// <returns>No content.</returns>
     [HttpDelete("Show/{Series}/{Season}")]
-    public ActionResult EraseSeason([FromRoute] string series, [FromRoute] string season)
+    public ActionResult EraseSeason([FromRoute] string series, [FromRoute] string season, [FromQuery] bool eraseCache = false)
     {
         if (!LookupSeasonByName(series, season, out var episodes))
         {
@@ -143,6 +144,10 @@ public class VisualizationController : ControllerBase
             Plugin.Instance!.Intros.TryRemove(e.EpisodeId, out _);
             Plugin.Instance!.Credits.TryRemove(e.EpisodeId, out _);
             e.State.ResetStates();
+            if (eraseCache)
+            {
+                FFmpegWrapper.DeleteEpisodeCache(e.EpisodeId);
+            }
         }
 
         Plugin.Instance!.SaveTimestamps(AnalysisMode.Introduction);

@@ -90,14 +90,14 @@ public class SkipIntroController : ControllerBase
             if (config.PersistSkipButton)
             {
                 segment.ShowSkipPromptAt = segment.IntroStart;
-                segment.HideSkipPromptAt = segment.IntroEnd - 1;
+                segment.HideSkipPromptAt = segment.IntroEnd;
             }
             else
             {
                 segment.ShowSkipPromptAt = Math.Max(0, segment.IntroStart - config.ShowPromptAdjustment);
                 segment.HideSkipPromptAt = Math.Min(
                     segment.IntroStart + config.HidePromptAdjustment,
-                    segment.IntroEnd - 1);
+                    segment.IntroEnd);
             }
 
             return segment;
@@ -112,11 +112,12 @@ public class SkipIntroController : ControllerBase
     /// Erases all previously discovered introduction timestamps.
     /// </summary>
     /// <param name="mode">Mode.</param>
+    /// <param name="eraseCache">Erase cache.</param>
     /// <response code="204">Operation successful.</response>
     /// <returns>No content.</returns>
     [Authorize(Policy = Policies.RequiresElevation)]
     [HttpPost("Intros/EraseTimestamps")]
-    public ActionResult ResetIntroTimestamps([FromQuery] AnalysisMode mode)
+    public ActionResult ResetIntroTimestamps([FromQuery] AnalysisMode mode, [FromQuery] bool eraseCache = false)
     {
         if (mode == AnalysisMode.Introduction)
         {
@@ -127,8 +128,29 @@ public class SkipIntroController : ControllerBase
             Plugin.Instance!.Credits.Clear();
         }
 
+<<<<<<< refactor-item-queue
         Plugin.Instance!.EpisodeStates.Clear();
+=======
+        if (eraseCache)
+        {
+            FFmpegWrapper.DeleteCacheFiles(mode);
+        }
+
+>>>>>>> master
         Plugin.Instance!.SaveTimestamps(mode);
+        return NoContent();
+    }
+
+    /// <summary>
+    /// Erases all previously cached introduction fingerprints.
+    /// </summary>
+    /// <response code="204">Operation successful.</response>
+    /// <returns>No content.</returns>
+    [Authorize(Policy = "RequiresElevation")]
+    [HttpPost("Intros/CleanCache")]
+    public ActionResult CleanIntroCache()
+    {
+        FFmpegWrapper.CleanCacheFiles();
         return NoContent();
     }
 

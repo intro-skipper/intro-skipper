@@ -1,4 +1,5 @@
 let introSkipper = {
+    allowEnter: true,
     skipSegments: {},
     videoPlayer: {},
     // .bind() is used here to prevent illegal invocation errors
@@ -60,6 +61,7 @@ introSkipper.d = function (msg) {
     if (introSkipper.videoPlayer != null) {
       introSkipper.d("Hooking video timeupdate");
       introSkipper.videoPlayer.addEventListener("timeupdate", introSkipper.videoPositionChanged);
+      document.body.addEventListener('keydown', introSkipper.eventHandler, true);
     }
   }
   /**
@@ -169,13 +171,28 @@ introSkipper.getCurrentSegment = function (position) {
     }
     return { "SegmentType": "None" };
 }
+introSkipper.overrideBlur = function(embyButton) {
+    if (!embyButton.originalBlur) {
+        embyButton.originalBlur = embyButton.blur;
+    }
+    embyButton.blur = function () {
+        if (!introSkipper.osdVisible() || !embyButton.contains(document.activeElement)) {
+            embyButton.originalBlur.call(this);
+        }
+    };
+};
+introSkipper.restoreBlur = function(embyButton) {
+    if (embyButton.originalBlur) {
+        embyButton.blur = embyButton.originalBlur;
+        delete embyButton.originalBlur;
+    }
+};
 /** Playback position changed, check if the skip button needs to be displayed. */
 introSkipper.videoPositionChanged = function () {
     const skipButton = document.querySelector("#skipIntro");
-    if (!skipButton) {
-        return;
-    }
+    if (introSkipper.videoPlayer.currentTime === 0 || !skipButton || !introSkipper.allowEnter) return;
     const embyButton = skipButton.querySelector(".emby-button");
+    const tvLayout = document.documentElement.classList.contains("layout-tv");
     const segment = introSkipper.getCurrentSegment(introSkipper.videoPlayer.currentTime);
     switch (segment.SegmentType) {
         case "None":
@@ -184,6 +201,10 @@ introSkipper.videoPositionChanged = function () {
             embyButton.style.opacity = '0';
             embyButton.addEventListener("transitionend", () => {
                 skipButton.classList.add("hide");
+                if (tvLayout) {
+                    introSkipper.restoreBlur(embyButton);
+                    embyButton.blur(); 
+                }
             }, { once: true });
             return;
         case "Introduction":
@@ -196,22 +217,44 @@ introSkipper.videoPositionChanged = function () {
     if (!skipButton.classList.contains("hide")) return;
 
     skipButton.classList.remove("hide");
-    embyButton.offsetWidth; // Force reflow
-    requestAnimationFrame(() => {
-        embyButton.style.opacity = '1';
-    });
+    embyButton.style.opacity = '1';
+
+    if (tvLayout) {
+        introSkipper.overrideBlur(embyButton);
+        embyButton.focus({ focusVisible: true }); 
+    }
+}
+introSkipper.throttle = function (func, limit) {
+    let inThrottle;
+    return function(...args) {
+        const context = this;
+        if (!inThrottle) {
+            func.apply(context, args);
+            inThrottle = true;
+            setTimeout(() => inThrottle = false, limit);
+        }
+    };
 }
 /** Seeks to the end of the intro. */
-introSkipper.doSkip = function (e) {
+introSkipper.doSkip = introSkipper.throttle(function (e) {
     introSkipper.d("Skipping intro");
     introSkipper.d(introSkipper.skipSegments);
     const segment = introSkipper.getCurrentSegment(introSkipper.videoPlayer.currentTime);
-    if (segment["SegmentType"] === "None") {
+    if (segment.SegmentType === "None") {
         console.warn("[intro skipper] doSkip() called without an active segment");
         return;
     }
-    introSkipper.videoPlayer.currentTime = segment["IntroEnd"];
-}
+    // Disable keydown events
+    introSkipper.allowEnter = false;
+    introSkipper.videoPlayer.currentTime = segment.IntroEnd;
+    // Listen for the seeked event to re-enable keydown events
+    const onSeeked = async () => {
+        await new Promise(resolve => setTimeout(resolve, 50)); // Wait 50ms
+        introSkipper.allowEnter = true;
+        introSkipper.videoPlayer.removeEventListener('seeked', onSeeked);
+    };
+    introSkipper.videoPlayer.addEventListener('seeked', onSeeked);
+}, 3000);
 /** Tests if an element with the provided selector exists. */
 introSkipper.testElement = function (selector) { return document.querySelector(selector); }
 /** Make an authenticated fetch to the Jellyfin server and parse the response body as JSON. */
@@ -221,5 +264,26 @@ introSkipper.secureFetch = async function (url) {
     const res = await fetch(url, reqInit);
     if (res.status !== 200) { throw new Error(`Expected status 200 from ${url}, but got ${res.status}`); }
     return await res.json();
+}
+/** Handle keydown events. */
+introSkipper.eventHandler = function (e) {
+    const skipButton = document.querySelector("#skipIntro");
+    if (!skipButton || skipButton.classList.contains("hide")) return;
+    // Ignore all keydown events
+    if (!introSkipper.allowEnter) {
+        e.preventDefault();
+        return;
+    }
+    if (e.key !== "Enter") return;
+    const embyButton = skipButton.querySelector(".emby-button");
+    if (document.documentElement.classList.contains("layout-tv") && embyButton.contains(document.activeElement)) {
+        e.stopPropagation();
+        return; 
+    }
+    if (document.documentElement.classList.contains("layout-desktop")) {
+        e.preventDefault();
+        e.stopPropagation();
+        introSkipper.doSkip();
+    }
 }
 introSkipper.setup();

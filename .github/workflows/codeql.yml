@@ -45,11 +45,11 @@ jobs:
         dotnet outdated -pre Always -u -inc Jellyfin
 
     - name: Initialize CodeQL
-      uses: github/codeql-action/init@ccf74c947955fd1cf117aef6a0e4e66191ef6f61 # v3.25.4
+      uses: github/codeql-action/init@2e230e8fe0ad3a14a340ad0815ddb96d599d2aff # v3.25.8
       with:
         languages: ${{ matrix.language }}
         queries: +security-extended
     - name: Autobuild
-      uses: github/codeql-action/autobuild@ccf74c947955fd1cf117aef6a0e4e66191ef6f61 # v3.25.4
+      uses: github/codeql-action/autobuild@2e230e8fe0ad3a14a340ad0815ddb96d599d2aff # v3.25.8
     - name: Perform CodeQL Analysis
-      uses: github/codeql-action/analyze@ccf74c947955fd1cf117aef6a0e4e66191ef6f61 # v3.25.4
+      uses: github/codeql-action/analyze@2e230e8fe0ad3a14a340ad0815ddb96d599d2aff # v3.25.8

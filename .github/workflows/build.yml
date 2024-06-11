@@ -68,12 +68,8 @@ jobs:
         if-no-files-found: error
 
     - name: Create archive
-      uses: vimtor/action-zip@v1.2
       if: github.event_name != 'pull_request'
-      with:
-        files: |
-          ConfusedPolarBear.Plugin.IntroSkipper/bin/Debug/net8.0/ConfusedPolarBear.Plugin.IntroSkipper.dll
-        dest:  intro-skipper-${{ env.GIT_HASH }}.zip
+      run: zip -j "intro-skipper-${{ env.GIT_HASH }}.zip" ConfusedPolarBear.Plugin.IntroSkipper/bin/Debug/net8.0/ConfusedPolarBear.Plugin.IntroSkipper.dll
 
     - name: Generate md5
       if: github.event_name != 'pull_request'
@@ -82,28 +78,10 @@ jobs:
         checksum="$(awk '{print $1}' intro-skipper-${{ env.GIT_HASH }}.md5)"
         echo "CHECKSUM=$checksum" >> $GITHUB_ENV
 
-    - name: Publish prerelease
-      uses: 8bitDream/action-github-releases@v1.0.0
+    - name: Create/replace the preview release and upload artifacts
       if: github.event_name != 'pull_request'
-      with:
-        repo_token: "${{ secrets.GITHUB_TOKEN }}"
-        automatic_release_tag: 10.9/preview
-        prerelease: true
-        title: intro-skipper-${{ env.GIT_HASH }}
-        files: |
-          intro-skipper-${{ env.GIT_HASH }}.zip
-
-    - name: Publish prerelease notes
-      uses: softprops/action-gh-release@v2.0.5
-      if: github.event_name != 'pull_request'
-      with:
-        tag_name: 10.9/preview
-        name: intro-skipper-${{ env.GIT_HASH }}
-        append_body: true
-        body: |
-          ---
-          checksum:  ${{ env.CHECKSUM }}
-        draft: false
-        prerelease: true
+      run: |
+         gh release delete '10.9/preview' --cleanup-tag --yes || true
+         gh release create '10.9/preview' "intro-skipper-${{ env.GIT_HASH }}.zip" --prerelease --title "intro-skipper-${{ env.GIT_HASH }}" --notes "This is a prerelease version."
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

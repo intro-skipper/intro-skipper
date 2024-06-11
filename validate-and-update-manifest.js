@@ -14,7 +14,7 @@ const jsonData = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
 const newVersion = {
     version: process.env.VERSION, // replace with the actual new version
     changelog: "- See the full changelog at [GitHub](https://github.com/jumoog/intro-skipper/blob/master/CHANGELOG.md)\n",
-    targetAbi: "10.9.0.0",
+    targetAbi: "10.9.4.0",
     sourceUrl: process.env.SOURCE_URL,
     checksum: process.env.CHECKSUM,
     timestamp: process.env.TIMESTAMP

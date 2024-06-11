@@ -3,6 +3,18 @@ description: "Create a report to help us improve"
 title: "[Bug]: "
 labels: [bug]
 body:
+  - type: checkboxes
+    id: requirements
+    attributes:
+      label: Self service debugging
+      description: |
+          Jellyfin 10.9 is still being actively updated. Please make sure you are using the newest release
+
+          Docker containers have known permission issues that can be resolved with a few extra steps.
+          If your skip button is not shown, please see https://github.com/jumoog/intro-skipper/issues/104
+      options:
+        - label: Jellyfin is updated and my permissions are correct (or I did not use Docker)
+          required: true
   - type: textarea
     attributes:
       label: Describe the bug
@@ -22,20 +34,24 @@ body:
 
   - type: input
     attributes:
-      label: Jellyfin installation method
+      label: Jellyfin install method
+      description: How you installed Jellyfin or the tool used to install it
       placeholder: Docker, Windows installer, etc.
     validations:
       required: true
 
   - type: input
     attributes:
-      label: Container image and tag
-      description: Only fill in this field if you are running Jellyfin in a container
+      label: Container image/tag or Jellyfin version
+      description: The container for Docker or Jellyfin version for a native install
       placeholder: jellyfin/jellyfin:10.8.7, jellyfin-intro-skipper:latest, etc.
+    validations:
+      required: true
 
   - type: input
     attributes:
       label: Operating System
+      description: The operating system of the Jellyfin / Docker host computer
       placeholder: Debian 11, Windows 11, etc.
     validations:
       required: true
