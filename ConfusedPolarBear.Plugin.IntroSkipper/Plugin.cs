@@ -176,6 +176,11 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
     public ConcurrentDictionary<Guid, List<QueuedEpisode>> QueuedMediaItems { get; } = new();
 
     /// <summary>
+    /// Gets all episode states.
+    /// </summary>
+    public ConcurrentDictionary<Guid, EpisodeState> EpisodeStates { get; } = new();
+
+    /// <summary>
     /// Gets or sets the total number of episodes in the queue.
     /// </summary>
     public int TotalQueued { get; set; }
@@ -369,6 +374,13 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
 
         return _itemRepository.GetChapters(item);
     }
+
+    /// <summary>
+    /// Gets the state for this item.
+    /// </summary>
+    /// <param name="id">Item ID.</param>
+    /// <returns>State of this item.</returns>
+    internal EpisodeState GetState(Guid id) => EpisodeStates.GetOrAdd(id, _ => new EpisodeState());
 
     internal void UpdateTimestamps(Dictionary<Guid, Intro> newTimestamps, AnalysisMode mode)
     {

@@ -205,9 +205,9 @@ public class BaseItemAnalyzerTask
         }
 
         // Remove from Blacklist
-        foreach (var item in items.Where(e => e.IsBlacklisted.Contains(mode)))
+        foreach (var item in items.Where(e => e.State.IsBlacklisted(mode)))
         {
-            item.RemoveBlacklistMode(mode);
+            item.State.SetBlacklisted(mode, false);
         }
 
         _logger.LogInformation(
@@ -253,9 +253,9 @@ public class BaseItemAnalyzerTask
         }
 
         // Add items without intros/credits to blacklist.
-        foreach (var item in items.Where(e => !e.IsAnalyzed.Contains(mode)))
+        foreach (var item in items.Where(e => !e.State.IsAnalyzed(mode)))
         {
-            item.AddBlacklistMode(mode);
+            item.State.SetBlacklisted(mode, true);
             totalItems -= 1;
         }
 

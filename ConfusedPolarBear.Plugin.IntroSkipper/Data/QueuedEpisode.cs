@@ -1,5 +1,4 @@
 using System;
-using System.Collections.Generic;
 
 namespace ConfusedPolarBear.Plugin.IntroSkipper;
 
@@ -24,14 +23,9 @@ public class QueuedEpisode
     public Guid EpisodeId { get; set; }
 
     /// <summary>
-    /// Gets a set of AnalysisMode flags indicating which analysis modes have been performed on this episode.
+    /// Gets the state of the episode.
     /// </summary>
-    public HashSet<AnalysisMode> IsAnalyzed { get; } = new HashSet<AnalysisMode>();
-
-    /// <summary>
-    /// Gets a set of AnalysisMode flags indicating which analysis modes have been performed on this episode.
-    /// </summary>
-    public HashSet<AnalysisMode> IsBlacklisted { get; } = new HashSet<AnalysisMode>();
+    public EpisodeState State => Plugin.Instance!.GetState(EpisodeId);
 
     /// <summary>
     /// Gets or sets the full path to episode.
@@ -62,22 +56,4 @@ public class QueuedEpisode
     /// Gets or sets the total duration of this media file (in seconds).
     /// </summary>
     public int Duration { get; set; }
-
-    /// <summary>
-    /// Initializes a new instance of the <see cref="QueuedEpisode"/> class.
-    /// </summary>
-    /// <param name="mode">AnalysisMode.</param>
-    public void AddAnalysisMode(AnalysisMode mode) => IsAnalyzed.Add(mode);
-
-    /// <summary>
-    /// Initializes a new instance of the <see cref="QueuedEpisode"/> class.
-    /// </summary>
-    /// <param name="mode">AnalysisMode.</param>
-    public void AddBlacklistMode(AnalysisMode mode) => IsBlacklisted.Add(mode);
-
-    /// <summary>
-    /// Initializes a new instance of the <see cref="QueuedEpisode"/> class.
-    /// </summary>
-    /// <param name="mode">AnalysisMode.</param>
-    public void RemoveBlacklistMode(AnalysisMode mode) => IsBlacklisted.Remove(mode);
 }

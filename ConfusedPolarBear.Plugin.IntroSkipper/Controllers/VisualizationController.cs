@@ -142,6 +142,7 @@ public class VisualizationController : ControllerBase
         {
             Plugin.Instance!.Intros.TryRemove(e.EpisodeId, out _);
             Plugin.Instance!.Credits.TryRemove(e.EpisodeId, out _);
+            e.State.ResetStates();
         }
 
         Plugin.Instance!.SaveTimestamps(AnalysisMode.Introduction);

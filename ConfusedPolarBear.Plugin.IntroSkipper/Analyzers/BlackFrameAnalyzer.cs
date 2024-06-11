@@ -59,7 +59,7 @@ public class BlackFrameAnalyzer : IMediaFileAnalyzer
 
         var searchDistance = 2 * minimumCreditsDuration;
 
-        foreach (var episode in episodeAnalysisQueue.Where(e => !e.IsAnalyzed.Contains(mode)))
+        foreach (var episode in episodeAnalysisQueue.Where(e => !e.State.IsAnalyzed(mode)))
         {
             if (cancellationToken.IsCancellationRequested)
             {
@@ -115,7 +115,7 @@ public class BlackFrameAnalyzer : IMediaFileAnalyzer
             searchStart = episode.Duration - credit.IntroStart + (0.5 * searchDistance);
 
             creditTimes.Add(episode.EpisodeId, credit);
-            episode.AddAnalysisMode(mode);
+            episode.State.SetAnalyzed(mode, true);
         }
 
         Plugin.Instance!.UpdateTimestamps(creditTimes, mode);

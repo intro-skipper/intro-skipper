@@ -127,6 +127,7 @@ public class SkipIntroController : ControllerBase
             Plugin.Instance!.Credits.Clear();
         }
 
+        Plugin.Instance!.EpisodeStates.Clear();
         Plugin.Instance!.SaveTimestamps(mode);
         return NoContent();
     }

@@ -206,7 +206,7 @@ public class QueueManager
 
         // Queue the episode for analysis
         var maxCreditsDuration = pluginInstance.Configuration.MaximumCreditsDuration;
-        var newEpisode = new QueuedEpisode()
+        _queuedEpisodes[episode.SeasonId].Add(new QueuedEpisode
         {
             SeriesName = episode.SeriesName,
             SeasonNumber = episode.AiredSeasonNumber ?? 0,
@@ -217,24 +217,8 @@ public class QueueManager
             Duration = Convert.ToInt32(duration),
             IntroFingerprintEnd = Convert.ToInt32(fingerprintDuration),
             CreditsFingerprintStart = Convert.ToInt32(duration - maxCreditsDuration),
-        };
+        });
 
-        // Try to reuse an existing QueuedEpisode States
-        if (pluginInstance.QueuedMediaItems.TryGetValue(episode.SeasonId, out var oldSeasonEpisodes) &&
-            oldSeasonEpisodes.Find(e => e.EpisodeId == episode.Id) is QueuedEpisode oldEpisode)
-        {
-            foreach (var mode in oldEpisode.IsAnalyzed)
-            {
-                newEpisode.AddAnalysisMode(mode);
-            }
-
-            foreach (var mode in oldEpisode.IsBlacklisted)
-            {
-                newEpisode.AddBlacklistMode(mode);
-            }
-        }
-
-        seasonEpisodes.Add(newEpisode);
         pluginInstance.TotalQueued++;
     }
 
@@ -257,26 +241,31 @@ public class QueueManager
             {
                 var path = Plugin.Instance!.GetItemPath(candidate.EpisodeId);
 
-                if (File.Exists(path))
+                if (!File.Exists(path))
                 {
-                    verified.Add(candidate);
+                    continue;
+                }
 
-                    foreach (var mode in modes)
+                verified.Add(candidate);
+
+                foreach (var mode in modes)
+                {
+                    if (candidate.State.IsAnalyzed(mode) || candidate.State.IsBlacklisted(mode))
                     {
-                        if (candidate.IsAnalyzed.Contains(mode) || candidate.IsBlacklisted.Contains(mode))
-                        {
-                            continue;
-                        }
+                        continue;
+                    }
 
-                        if ((mode == AnalysisMode.Introduction && Plugin.Instance!.Intros.ContainsKey(candidate.EpisodeId)) ||
-                            (mode == AnalysisMode.Credits && Plugin.Instance!.Credits.ContainsKey(candidate.EpisodeId)))
-                        {
-                            candidate.AddAnalysisMode(mode);
-                        }
-                        else
-                        {
-                            reqModes.Add(mode);
-                        }
+                    bool isAnalyzed = mode == AnalysisMode.Introduction
+                        ? Plugin.Instance!.Intros.ContainsKey(candidate.EpisodeId)
+                        : Plugin.Instance!.Credits.ContainsKey(candidate.EpisodeId);
+
+                    if (isAnalyzed)
+                    {
+                        candidate.State.SetAnalyzed(mode, true);
+                    }
+                    else
+                    {
+                        reqModes.Add(mode);
                     }
                 }
             }
