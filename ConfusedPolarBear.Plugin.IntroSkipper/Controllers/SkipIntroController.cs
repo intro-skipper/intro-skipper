@@ -128,15 +128,12 @@ public class SkipIntroController : ControllerBase
             Plugin.Instance!.Credits.Clear();
         }
 
-<<<<<<< refactor-item-queue
-        Plugin.Instance!.EpisodeStates.Clear();
-=======
         if (eraseCache)
         {
             FFmpegWrapper.DeleteCacheFiles(mode);
         }
 
->>>>>>> master
+        Plugin.Instance!.EpisodeStates.Clear();
         Plugin.Instance!.SaveTimestamps(mode);
         return NoContent();
     }
