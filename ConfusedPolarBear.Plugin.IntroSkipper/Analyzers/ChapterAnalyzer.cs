@@ -89,6 +89,8 @@ public class ChapterAnalyzer : IMediaFileAnalyzer
         string expression,
         AnalysisMode mode)
     {
+        Intro? matchingChapter = null;
+
         var config = Plugin.Instance?.Configuration ?? new PluginConfiguration();
 
         var (minDuration, maxDuration) = mode switch
@@ -102,19 +104,144 @@ public class ChapterAnalyzer : IMediaFileAnalyzer
             return null;
         }
 
-        return chapters
-            .Select((chapter, index) => new { chapter, next = chapters.ElementAtOrDefault(index + 1) ?? new ChapterInfo { StartPositionTicks = TimeSpan.FromSeconds(episode.Duration).Ticks } })
-            .Where(pair => !string.IsNullOrWhiteSpace(pair.chapter.Name))
-            .Where(pair => IsValidTimeRange(pair.chapter, pair.next, minDuration, maxDuration))
-            .Where(pair => Regex.IsMatch(pair.chapter.Name ?? string.Empty, expression, RegexOptions.None, TimeSpan.FromSeconds(1)))
-            .Select(pair => new Intro(episode.EpisodeId, new TimeRange(
-                TimeSpan.FromTicks(pair.chapter.StartPositionTicks).TotalSeconds,
-                TimeSpan.FromTicks(pair.next.StartPositionTicks).TotalSeconds)))
-            .OrderByDescending(_ => mode == AnalysisMode.Introduction)
-            .FirstOrDefault();
-    }
+        if (mode == AnalysisMode.Credits)
+        {
+            // Since the ending credits chapter may be the last chapter in the file, append a virtual
+            // chapter at the very end of the file.
+            chapters.Add(new()
+            {
+                StartPositionTicks = TimeSpan.FromSeconds(episode.Duration).Ticks
+            });
 
-    private bool IsValidTimeRange(ChapterInfo chapter, ChapterInfo next, int minDuration, int maxDuration) =>
-        (TimeSpan.FromTicks(next.StartPositionTicks).TotalSeconds - TimeSpan.FromTicks(chapter.StartPositionTicks).TotalSeconds) is var duration &&
-        duration >= minDuration && duration <= maxDuration;
+            // Check all chapters in reverse order, skipping the virtual chapter
+            for (int i = chapters.Count - 2; i > 0; i--)
+            {
+                var current = chapters[i];
+                var previous = chapters[i - 1];
+
+                if (string.IsNullOrWhiteSpace(current.Name))
+                {
+                    continue;
+                }
+
+                var currentRange = new TimeRange(
+                    TimeSpan.FromTicks(current.StartPositionTicks).TotalSeconds,
+                    TimeSpan.FromTicks(chapters[i + 1].StartPositionTicks).TotalSeconds);
+
+                var baseMessage = string.Format(
+                    CultureInfo.InvariantCulture,
+                    "{0}: Chapter \"{1}\" ({2} - {3})",
+                    episode.Path,
+                    current.Name,
+                    currentRange.Start,
+                    currentRange.End);
+
+                if (currentRange.Duration < minDuration || currentRange.Duration > maxDuration)
+                {
+                    _logger.LogTrace("{Base}: ignoring (invalid duration)", baseMessage);
+                    continue;
+                }
+
+                // Regex.IsMatch() is used here in order to allow the runtime to cache the compiled regex
+                // between function invocations.
+                var match = Regex.IsMatch(
+                    current.Name,
+                    expression,
+                    RegexOptions.None,
+                    TimeSpan.FromSeconds(1));
+
+                if (!match)
+                {
+                    _logger.LogTrace("{Base}: ignoring (does not match regular expression)", baseMessage);
+                    continue;
+                }
+
+                if (!string.IsNullOrWhiteSpace(previous.Name))
+                {
+                    // Check for possibility of overlapping keywords
+                    var overlap = Regex.IsMatch(
+                        previous.Name,
+                        expression,
+                        RegexOptions.None,
+                        TimeSpan.FromSeconds(1));
+
+                    if (overlap)
+                    {
+                        continue;
+                    }
+                }
+
+                matchingChapter = new(episode.EpisodeId, currentRange);
+                _logger.LogTrace("{Base}: okay", baseMessage);
+                break;
+            }
+        }
+        else
+        {
+            // Check all chapters
+            for (int i = 0; i < chapters.Count - 1; i++)
+            {
+                var current = chapters[i];
+                var next = chapters[i + 1];
+
+                if (string.IsNullOrWhiteSpace(current.Name))
+                {
+                    continue;
+                }
+
+                var currentRange = new TimeRange(
+                    TimeSpan.FromTicks(current.StartPositionTicks).TotalSeconds,
+                    TimeSpan.FromTicks(next.StartPositionTicks).TotalSeconds);
+
+                var baseMessage = string.Format(
+                    CultureInfo.InvariantCulture,
+                    "{0}: Chapter \"{1}\" ({2} - {3})",
+                    episode.Path,
+                    current.Name,
+                    currentRange.Start,
+                    currentRange.End);
+
+                if (currentRange.Duration < minDuration || currentRange.Duration > maxDuration)
+                {
+                    _logger.LogTrace("{Base}: ignoring (invalid duration)", baseMessage);
+                    continue;
+                }
+
+                // Regex.IsMatch() is used here in order to allow the runtime to cache the compiled regex
+                // between function invocations.
+                var match = Regex.IsMatch(
+                    current.Name,
+                    expression,
+                    RegexOptions.None,
+                    TimeSpan.FromSeconds(1));
+
+                if (!match)
+                {
+                    _logger.LogTrace("{Base}: ignoring (does not match regular expression)", baseMessage);
+                    continue;
+                }
+
+                if (!string.IsNullOrWhiteSpace(next.Name))
+                {
+                    // Check for possibility of overlapping keywords
+                    var overlap = Regex.IsMatch(
+                        next.Name,
+                        expression,
+                        RegexOptions.None,
+                        TimeSpan.FromSeconds(1));
+
+                    if (overlap)
+                    {
+                        continue;
+                    }
+                }
+
+                matchingChapter = new(episode.EpisodeId, currentRange);
+                _logger.LogTrace("{Base}: okay", baseMessage);
+                break;
+            }
+        }
+
+        return matchingChapter;
+    }
 }
