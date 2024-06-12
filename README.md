@@ -61,7 +61,21 @@ These parameters can be configured by opening the plugin settings
 - Clear your browser cache and reload the Jellyfin server webpage
 - Fix any permission mismatches between the web folder and Jellyfin server
 
-    * <b>Docker -</b> the container is being run as a non-root user while having been built as a root user, causing the web files to be owned by root. To solve this, you can remove any lines like `User: 1000:1000`, `GUID:`, `PID:`, etc. from the jellyfin docker compose file.
+    - **Official Jellyfin Docker:** The container is being run as a non-root user while having been built as a root user, causing the web files to be owned by root. To solve this, you can remove any lines like `User: 1000:1000`, etc. from the Jellyfin Docker Compose file.
+
+    - **LinuxServer Docker Container:** Set an environment variable `DOCKER_MODS=ghcr.io/jumoog/intro-skipper` to ensure the permissions are set correctly for the skip button:
+    
+        ```yaml
+        services:
+          jellyfin:
+            image: lscr.io/linuxserver/jellyfin:latest
+            container_name: jellyfin
+            environment:
+              - PUID=1000
+              - PGID=1000
+              - TZ=Etc/UTC
+              - DOCKER_MODS=ghcr.io/jumoog/intro-skipper
+        ```
 
     * <b>Install from distro repositories -</b> the jellyfin-server will execute as `jellyfin` user while the web files will be owned by `root`, `www-data`, etc. This can <i>likely</i> be fixed by adding the `jellyfin` user (or whichever user executes the jellyfin server) to the same group that owns the jellyfin-web folders. **You should only do this if they are owned by a group other than root**.
 - The official Android TV app do not support the skip button. For this app, you will need to use the autoskip option. Please note that there is currently an [issue](https://github.com/jumoog/intro-skipper/issues/168) with autoskip not working because the apps never receive the seek command from Jellyfin.
