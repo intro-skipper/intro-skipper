@@ -1,4 +1,4 @@
-# Opencl-Intel - Docker mod for Jellyfin
+# Introspipper - Docker mod for Jellyfin
 
 This mod adds skip button to jellyfin, to be installed/updated during container start.
 
