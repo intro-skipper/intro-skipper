@@ -1,7 +1,15 @@
-# Introskipper - Docker mod for Jellyfin
+### Introskipper - Docker Mod for Jellyfin
 
-This mod adds skip button to jellyfin, to be installed/updated during container start.
+This mod ensures the permissions are set correctly so that the skip button works as intended in Jellyfin, to be installed/updated during container start.
 
-In jellyfin docker arguments, set an environment variable `DOCKER_MODS=ghcr.io/jumoog/intro-skipper`
+To install, set an environment variable in your Jellyfin Docker arguments:
 
-If adding multiple mods, enter them in an array separated by `|`, such as `DOCKER_MODS=ghcr.io/jumoog/intro-skipper|linuxserver/mods:jellyfin-mod2`
+```yaml
+DOCKER_MODS=ghcr.io/jumoog/intro-skipper
+```
+
+If you are adding multiple mods, enter them in an array separated by `|`, like this:
+
+```yaml
+DOCKER_MODS=ghcr.io/jumoog/intro-skipper|linuxserver/mods:jellyfin-mod2
+```
