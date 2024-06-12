@@ -1,4 +1,4 @@
-# Introspipper - Docker mod for Jellyfin
+# Introskipper - Docker mod for Jellyfin
 
 This mod adds skip button to jellyfin, to be installed/updated during container start.
 
