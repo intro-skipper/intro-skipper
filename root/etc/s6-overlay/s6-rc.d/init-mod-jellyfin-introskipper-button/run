@@ -1,0 +1,3 @@
+#!/usr/bin/with-contenv bash
+
+chown abc /usr/share/jellyfin/web/index.html
