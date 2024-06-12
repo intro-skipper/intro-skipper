@@ -77,7 +77,7 @@ public class ChromaprintAnalyzer : IMediaFileAnalyzer
         }
 
         // Try to load fingerprints from cache
-        var episodesWithFingerprint = episodeAnalysisQueue.Where(e => File.Exists(FFmpegWrapper.GetFingerprintCachePath(e, mode))).ToList();
+        var episodesWithFingerprint = episodeAnalysisQueue.Where(e => e.State.IsAnalyzed(mode) && File.Exists(FFmpegWrapper.GetFingerprintCachePath(e, mode))).ToList();
 
         // Need at least two fingerprints.
         if (episodesWithFingerprint.Count == 1)
