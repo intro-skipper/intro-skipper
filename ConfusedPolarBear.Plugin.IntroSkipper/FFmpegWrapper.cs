@@ -417,55 +417,46 @@ public static class FFmpegWrapper
             RedirectStandardError = stderr
         };
 
-        var ffmpeg = new Process
+        using (var ffmpeg = new Process { StartInfo = info })
         {
-            StartInfo = info
-        };
+            Logger?.LogDebug("Starting ffmpeg with the following arguments: {Arguments}", ffmpeg.StartInfo.Arguments);
 
-        Logger?.LogDebug(
-            "Starting ffmpeg with the following arguments: {Arguments}",
-            ffmpeg.StartInfo.Arguments);
+            ffmpeg.Start();
 
-        ffmpeg.Start();
-
-        try
-        {
-            ffmpeg.PriorityClass = Plugin.Instance?.Configuration.ProcessPriority ?? ProcessPriorityClass.BelowNormal;
-        }
-        catch (Exception e)
-        {
-            Logger?.LogDebug(
-                "ffmpeg priority could not be modified. {Message}",
-                e.Message);
-        }
-
-        using (MemoryStream ms = new MemoryStream())
-        {
-            var buf = new byte[4096];
-            var bytesRead = 0;
-
-            do
+            try
             {
-                var streamReader = stderr ? ffmpeg.StandardError : ffmpeg.StandardOutput;
-                bytesRead = streamReader.BaseStream.Read(buf, 0, buf.Length);
-                ms.Write(buf, 0, bytesRead);
+                ffmpeg.PriorityClass = Plugin.Instance?.Configuration.ProcessPriority ?? ProcessPriorityClass.BelowNormal;
             }
-            while (bytesRead > 0);
-
-            if (ffmpeg.WaitForExit(timeout))
+            catch (Exception e)
             {
-                ffmpeg.Dispose();
+                Logger?.LogDebug("ffmpeg priority could not be modified. {Message}", e.Message);
             }
 
-            var output = ms.ToArray();
-
-            // If caching is enabled, cache the output of this command.
-            if (cacheOutput)
+            using (var ms = new MemoryStream())
             {
-                File.WriteAllBytes(cacheFilename, output);
-            }
+                var buf = new byte[4096];
+                int bytesRead;
 
-            return output;
+                using (var streamReader = stderr ? ffmpeg.StandardError : ffmpeg.StandardOutput)
+                {
+                    while ((bytesRead = streamReader.BaseStream.Read(buf, 0, buf.Length)) > 0)
+                    {
+                        ms.Write(buf, 0, bytesRead);
+                    }
+                }
+
+                ffmpeg.WaitForExit(timeout);
+
+                var output = ms.ToArray();
+
+                // If caching is enabled, cache the output of this command.
+                if (cacheOutput)
+                {
+                    File.WriteAllBytes(cacheFilename, output);
+                }
+
+                return output;
+            }
         }
     }
 
