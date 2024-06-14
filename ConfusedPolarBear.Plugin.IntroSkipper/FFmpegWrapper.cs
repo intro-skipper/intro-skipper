@@ -452,7 +452,10 @@ public static class FFmpegWrapper
             }
             while (bytesRead > 0);
 
-            ffmpeg.WaitForExit(timeout);
+            if (ffmpeg.WaitForExit(timeout))
+            {
+                ffmpeg.Dispose();
+            }
 
             var output = ms.ToArray();
 
