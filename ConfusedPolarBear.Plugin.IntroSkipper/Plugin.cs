@@ -374,6 +374,24 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
         SaveTimestamps(mode);
     }
 
+    internal void CleanTimestamps(HashSet<Guid> validEpisodeIds)
+    {
+        var allKeys = new HashSet<Guid>(Instance!.Intros.Keys);
+        allKeys.UnionWith(Instance!.Credits.Keys);
+
+        foreach (var key in allKeys)
+        {
+            if (!validEpisodeIds.Contains(key))
+            {
+                Instance!.Intros.TryRemove(key, out _);
+                Instance!.Credits.TryRemove(key, out _);
+            }
+        }
+
+        SaveTimestamps(AnalysisMode.Introduction);
+        SaveTimestamps(AnalysisMode.Credits);
+    }
+
     /// <summary>
     /// Inject the skip button script into the web interface.
     /// </summary>

@@ -140,19 +140,6 @@ public class SkipIntroController : ControllerBase
     }
 
     /// <summary>
-    /// Erases all previously cached introduction fingerprints.
-    /// </summary>
-    /// <response code="204">Operation successful.</response>
-    /// <returns>No content.</returns>
-    [Authorize(Policy = "RequiresElevation")]
-    [HttpPost("Intros/CleanCache")]
-    public ActionResult CleanIntroCache()
-    {
-        FFmpegWrapper.CleanCacheFiles();
-        return NoContent();
-    }
-
-    /// <summary>
     /// Get all introductions or credits. Only used by the end to end testing script.
     /// </summary>
     /// <param name="mode">Mode.</param>
