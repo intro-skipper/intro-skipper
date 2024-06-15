@@ -71,7 +71,7 @@ public class ChromaprintAnalyzer : IMediaFileAnalyzer
 
         this._analysisMode = mode;
 
-        if (!episodesWithoutIntros.Count == 0 || episodeAnalysisQueue.Count <= 1)
+        if (episodesWithoutIntros.Count == 0 || episodeAnalysisQueue.Count <= 1)
         {
             return analysisQueue;
         }
@@ -79,7 +79,7 @@ public class ChromaprintAnalyzer : IMediaFileAnalyzer
         var episodesWithFingerprint = new List<QueuedEpisode>(episodesWithoutIntros);
 
         // Load fingerprints from cache if available.
-        episodesWithFingerprint.AddRange(episodeAnalysisQueue.Where(e => e.State.IsAnalyzed.Contains(mode) && File.Exists(FFmpegWrapper.GetFingerprintCachePath(e, mode))));
+        episodesWithFingerprint.AddRange(episodeAnalysisQueue.Where(e => e.State.IsAnalyzed(mode) && File.Exists(FFmpegWrapper.GetFingerprintCachePath(e, mode))));
 
         // Ensure at least two fingerprints are present.
         if (episodesWithFingerprint.Count == 1)
