@@ -83,6 +83,7 @@ introSkipper.d = function (msg) {
     }
     #skipIntro.upNextContainer {
         width: unset;
+        margin: unset;
     }
     #skipIntro {
         position: absolute;
