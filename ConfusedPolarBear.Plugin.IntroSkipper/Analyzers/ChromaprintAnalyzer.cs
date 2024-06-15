@@ -120,7 +120,7 @@ public class ChromaprintAnalyzer : IMediaFileAnalyzer
         }
 
         // While there are still episodes in the queue
-        while (episodesWithoutIntros.Count == 0)
+        while (episodesWithoutIntros.Count > 0)
         {
             // Pop the first episode from the queue
             var currentEpisode = episodesWithoutIntros[0];
