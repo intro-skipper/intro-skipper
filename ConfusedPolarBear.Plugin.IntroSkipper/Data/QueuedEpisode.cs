@@ -23,6 +23,11 @@ public class QueuedEpisode
     public Guid EpisodeId { get; set; }
 
     /// <summary>
+    /// Gets the state of the episode.
+    /// </summary>
+    public EpisodeState State => Plugin.Instance!.GetState(EpisodeId);
+
+    /// <summary>
     /// Gets or sets the full path to episode.
     /// </summary>
     public string Path { get; set; } = string.Empty;
@@ -31,6 +36,11 @@ public class QueuedEpisode
     /// Gets or sets the name of the episode.
     /// </summary>
     public string Name { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Gets or sets a value indicating whether an episode is Anime.
+    /// </summary>
+    public bool IsAnime { get; set; } = false;
 
     /// <summary>
     /// Gets or sets the timestamp (in seconds) to stop searching for an introduction at.

@@ -51,13 +51,15 @@ public class BlackFrameAnalyzer : IMediaFileAnalyzer
 
         var creditTimes = new Dictionary<Guid, Intro>();
 
+        var episodeAnalysisQueue = new List<QueuedEpisode>(analysisQueue);
+
         bool isFirstEpisode = true;
 
         double searchStart = minimumCreditsDuration;
 
         var searchDistance = 2 * minimumCreditsDuration;
 
-        foreach (var episode in analysisQueue)
+        foreach (var episode in episodeAnalysisQueue.Where(e => !e.State.IsAnalyzed(mode)))
         {
             if (cancellationToken.IsCancellationRequested)
             {
@@ -96,13 +98,13 @@ public class BlackFrameAnalyzer : IMediaFileAnalyzer
                 isFirstEpisode = false;
             }
 
-            var intro = AnalyzeMediaFile(
+            var credit = AnalyzeMediaFile(
                 episode,
                 searchStart,
                 searchDistance,
                 blackFrameMinimumPercentage);
 
-            if (intro is null)
+            if (credit is null)
             {
                 // If no credits were found, reset the first-episode search logic for the next episode in the sequence.
                 searchStart = minimumCreditsDuration;
@@ -110,17 +112,15 @@ public class BlackFrameAnalyzer : IMediaFileAnalyzer
                 continue;
             }
 
-            searchStart = episode.Duration - intro.IntroStart + (0.5 * searchDistance);
+            searchStart = episode.Duration - credit.IntroStart + (0.5 * searchDistance);
 
-            creditTimes[episode.EpisodeId] = intro;
+            creditTimes.Add(episode.EpisodeId, credit);
+            episode.State.SetAnalyzed(mode, true);
         }
 
         Plugin.Instance!.UpdateTimestamps(creditTimes, mode);
 
-        return analysisQueue
-            .Where(x => !creditTimes.ContainsKey(x.EpisodeId))
-            .ToList()
-            .AsReadOnly();
+        return episodeAnalysisQueue.AsReadOnly();
     }
 
     /// <summary>

@@ -35,6 +35,9 @@ public class ChapterAnalyzer : IMediaFileAnalyzer
     {
         var skippableRanges = new Dictionary<Guid, Intro>();
 
+        // Episode analysis queue.
+        var episodeAnalysisQueue = new List<QueuedEpisode>(analysisQueue);
+
         var expression = mode == AnalysisMode.Introduction ?
             Plugin.Instance!.Configuration.ChapterAnalyzerIntroductionPattern :
             Plugin.Instance!.Configuration.ChapterAnalyzerEndCreditsPattern;
@@ -44,7 +47,7 @@ public class ChapterAnalyzer : IMediaFileAnalyzer
             return analysisQueue;
         }
 
-        foreach (var episode in analysisQueue)
+        foreach (var episode in episodeAnalysisQueue.Where(e => !e.State.IsAnalyzed(mode)))
         {
             if (cancellationToken.IsCancellationRequested)
             {
@@ -63,14 +66,12 @@ public class ChapterAnalyzer : IMediaFileAnalyzer
             }
 
             skippableRanges.Add(episode.EpisodeId, skipRange);
+            episode.State.SetAnalyzed(mode, true);
         }
 
         Plugin.Instance.UpdateTimestamps(skippableRanges, mode);
 
-        return analysisQueue
-            .Where(x => !skippableRanges.ContainsKey(x.EpisodeId))
-            .ToList()
-            .AsReadOnly();
+        return episodeAnalysisQueue.AsReadOnly();
     }
 
     /// <summary>
@@ -92,10 +93,11 @@ public class ChapterAnalyzer : IMediaFileAnalyzer
 
         var config = Plugin.Instance?.Configuration ?? new PluginConfiguration();
 
-        var minDuration = config.MinimumIntroDuration;
-        int maxDuration = mode == AnalysisMode.Introduction ?
-            config.MaximumIntroDuration :
-            config.MaximumCreditsDuration;
+        var (minDuration, maxDuration) = mode switch
+        {
+            AnalysisMode.Introduction => (config.MinimumIntroDuration, config.MaximumIntroDuration),
+            _ => (config.MinimumCreditsDuration, config.MaximumCreditsDuration)
+        };
 
         if (chapters.Count == 0)
         {

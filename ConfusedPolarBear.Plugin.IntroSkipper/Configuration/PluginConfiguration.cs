@@ -29,11 +29,6 @@ public class PluginConfiguration : BasePluginConfiguration
     public string SelectedLibraries { get; set; } = string.Empty;
 
     /// <summary>
-    /// Gets a temporary limitation on file paths to be analyzed. Should be empty when automatic scan is idle.
-    /// </summary>
-    public IList<string> PathRestrictions { get; } = new List<string>();
-
-    /// <summary>
     /// Gets or sets a value indicating whether to scan for intros during a scheduled task.
     /// </summary>
     public bool AutoDetectIntros { get; set; } = false;

@@ -80,7 +80,6 @@ public class DetectIntrosTask : IScheduledTask
         {
             _logger.LogInformation("Scheduled Task is starting");
 
-            Plugin.Instance!.Configuration.PathRestrictions.Clear();
             var modes = new List<AnalysisMode> { AnalysisMode.Introduction };
 
             var baseIntroAnalyzer = new BaseItemAnalyzerTask(

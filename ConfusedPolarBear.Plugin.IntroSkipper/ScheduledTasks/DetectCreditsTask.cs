@@ -81,7 +81,6 @@ public class DetectCreditsTask : IScheduledTask
         {
             _logger.LogInformation("Scheduled Task is starting");
 
-            Plugin.Instance!.Configuration.PathRestrictions.Clear();
             var modes = new List<AnalysisMode> { AnalysisMode.Credits };
 
             var baseCreditAnalyzer = new BaseItemAnalyzerTask(

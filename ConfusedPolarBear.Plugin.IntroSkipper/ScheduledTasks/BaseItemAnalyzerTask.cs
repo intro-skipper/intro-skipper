@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
+using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using MediaBrowser.Controller.Library;
@@ -50,9 +51,11 @@ public class BaseItemAnalyzerTask
     /// </summary>
     /// <param name="progress">Progress.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
+    /// <param name="seasonsToAnalyze">Season Ids to analyze.</param>
     public void AnalyzeItems(
         IProgress<double> progress,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        HashSet<Guid>? seasonsToAnalyze = null)
     {
         var ffmpegValid = FFmpegWrapper.CheckFFmpegVersion();
         // Assert that ffmpeg with chromaprint is installed
@@ -67,6 +70,13 @@ public class BaseItemAnalyzerTask
             _libraryManager);
 
         var queue = queueManager.GetMediaItems();
+
+        // Filter the queue based on seasonsToAnalyze
+        if (seasonsToAnalyze != null && seasonsToAnalyze.Count > 0)
+        {
+            queue = queue.Where(kvp => seasonsToAnalyze.Contains(kvp.Key))
+                        .ToDictionary(kvp => kvp.Key, kvp => kvp.Value).AsReadOnly();
+        }
 
         var totalQueued = 0;
         foreach (var kvp in queue)
@@ -194,6 +204,12 @@ public class BaseItemAnalyzerTask
             return 0;
         }
 
+        // Remove from Blacklist
+        foreach (var item in items.Where(e => e.State.IsBlacklisted(mode)))
+        {
+            item.State.SetBlacklisted(mode, false);
+        }
+
         _logger.LogInformation(
             "[Mode: {Mode}] Analyzing {Count} files from {Name} season {Season}",
             mode,
@@ -204,14 +220,29 @@ public class BaseItemAnalyzerTask
         var analyzers = new Collection<IMediaFileAnalyzer>();
 
         analyzers.Add(new ChapterAnalyzer(_loggerFactory.CreateLogger<ChapterAnalyzer>()));
-        if (mode == AnalysisMode.Credits)
+        if (first.IsAnime)
         {
-            analyzers.Add(new BlackFrameAnalyzer(_loggerFactory.CreateLogger<BlackFrameAnalyzer>()));
-        }
+            if (Plugin.Instance!.Configuration.UseChromaprint)
+            {
+                analyzers.Add(new ChromaprintAnalyzer(_loggerFactory.CreateLogger<ChromaprintAnalyzer>()));
+            }
 
-        if (Plugin.Instance!.Configuration.UseChromaprint)
+            if (mode == AnalysisMode.Credits)
+            {
+                analyzers.Add(new BlackFrameAnalyzer(_loggerFactory.CreateLogger<BlackFrameAnalyzer>()));
+            }
+        }
+        else
         {
-            analyzers.Add(new ChromaprintAnalyzer(_loggerFactory.CreateLogger<ChromaprintAnalyzer>()));
+            if (mode == AnalysisMode.Credits)
+            {
+                analyzers.Add(new BlackFrameAnalyzer(_loggerFactory.CreateLogger<BlackFrameAnalyzer>()));
+            }
+
+            if (Plugin.Instance!.Configuration.UseChromaprint)
+            {
+                analyzers.Add(new ChromaprintAnalyzer(_loggerFactory.CreateLogger<ChromaprintAnalyzer>()));
+            }
         }
 
         // Use each analyzer to find skippable ranges in all media files, removing successfully
@@ -219,6 +250,13 @@ public class BaseItemAnalyzerTask
         foreach (var analyzer in analyzers)
         {
             items = analyzer.AnalyzeMediaFiles(items, mode, cancellationToken);
+        }
+
+        // Add items without intros/credits to blacklist.
+        foreach (var item in items.Where(e => !e.State.IsAnalyzed(mode)))
+        {
+            item.State.SetBlacklisted(mode, true);
+            totalItems -= 1;
         }
 
         return totalItems;

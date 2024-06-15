@@ -23,10 +23,9 @@ public class Entrypoint : IHostedService, IDisposable
     private readonly ILibraryManager _libraryManager;
     private readonly ILogger<Entrypoint> _logger;
     private readonly ILoggerFactory _loggerFactory;
-    private readonly object _pathRestrictionsLock = new();
     private Timer _queueTimer;
     private bool _analyzeAgain;
-    private List<string> _pathRestrictions = new List<string>();
+    private HashSet<Guid> _seasonsToAnalyze = new HashSet<Guid>();
     private static CancellationTokenSource? _cancellationTokenSource;
     private static ManualResetEventSlim _autoTaskCompletEvent = new ManualResetEventSlim(false);
 
@@ -140,7 +139,7 @@ public class Entrypoint : IHostedService, IDisposable
         }
 
         // Don't do anything if it's not a supported media type
-        if (itemChangeEventArgs.Item is not Episode)
+        if (itemChangeEventArgs.Item is not Episode episode)
         {
             return;
         }
@@ -150,10 +149,7 @@ public class Entrypoint : IHostedService, IDisposable
             return;
         }
 
-        lock (_pathRestrictionsLock)
-        {
-            _pathRestrictions.Add(itemChangeEventArgs.Item.ContainingFolderPath);
-        }
+        _seasonsToAnalyze.Add(episode.SeasonId);
 
         StartTimer();
     }
@@ -172,7 +168,7 @@ public class Entrypoint : IHostedService, IDisposable
         }
 
         // Don't do anything if it's not a supported media type
-        if (itemChangeEventArgs.Item is not Episode)
+        if (itemChangeEventArgs.Item is not Episode episode)
         {
             return;
         }
@@ -182,10 +178,7 @@ public class Entrypoint : IHostedService, IDisposable
             return;
         }
 
-        lock (_pathRestrictionsLock)
-        {
-            _pathRestrictions.Add(itemChangeEventArgs.Item.ContainingFolderPath);
-        }
+        _seasonsToAnalyze.Add(episode.SeasonId);
 
         StartTimer();
     }
@@ -255,7 +248,6 @@ public class Entrypoint : IHostedService, IDisposable
         }
 
         // Clean up
-        Plugin.Instance!.Configuration.PathRestrictions.Clear();
         _cancellationTokenSource = null;
         _autoTaskCompletEvent.Set();
     }
@@ -271,15 +263,8 @@ public class Entrypoint : IHostedService, IDisposable
         using (_cancellationTokenSource = new CancellationTokenSource())
         using (ScheduledTaskSemaphore.Acquire(-1, _cancellationTokenSource.Token))
         {
-            lock (_pathRestrictionsLock)
-            {
-                foreach (var path in _pathRestrictions)
-                {
-                    Plugin.Instance!.Configuration.PathRestrictions.Add(path);
-                }
-
-                _pathRestrictions.Clear();
-            }
+            var seasonIds = new HashSet<Guid>(_seasonsToAnalyze);
+            _seasonsToAnalyze.Clear();
 
             _analyzeAgain = false;
             var progress = new Progress<double>();
@@ -309,7 +294,7 @@ public class Entrypoint : IHostedService, IDisposable
                     _loggerFactory,
                     _libraryManager);
 
-            baseCreditAnalyzer.AnalyzeItems(progress, _cancellationTokenSource.Token);
+            baseCreditAnalyzer.AnalyzeItems(progress, _cancellationTokenSource.Token, seasonIds);
 
             // New item detected, start timer again
             if (_analyzeAgain && !_cancellationTokenSource.IsCancellationRequested)

@@ -1,6 +1,8 @@
 using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
+using System.IO;
+using System.Linq;
 using System.Numerics;
 using System.Threading;
 using ConfusedPolarBear.Plugin.IntroSkipper.Configuration;
@@ -61,16 +63,36 @@ public class ChromaprintAnalyzer : IMediaFileAnalyzer
         // Cache of all fingerprints for this season.
         var fingerprintCache = new Dictionary<Guid, uint[]>();
 
-        // Episode analysis queue.
+        // Episode analysis queue based on not analyzed episodes
         var episodeAnalysisQueue = new List<QueuedEpisode>(analysisQueue);
 
         // Episodes that were analyzed and do not have an introduction.
-        var episodesWithoutIntros = new List<QueuedEpisode>();
+        var episodesWithoutIntros = episodeAnalysisQueue.Where(e => !e.State.IsAnalyzed(mode)).ToList();
 
         this._analysisMode = mode;
 
+        if (episodesWithoutIntros.Count == 0 || episodeAnalysisQueue.Count <= 1)
+        {
+            return analysisQueue;
+        }
+
+        var episodesWithFingerprint = new List<QueuedEpisode>(episodesWithoutIntros);
+
+        // Load fingerprints from cache if available.
+        episodesWithFingerprint.AddRange(episodeAnalysisQueue.Where(e => e.State.IsAnalyzed(mode) && File.Exists(FFmpegWrapper.GetFingerprintCachePath(e, mode))));
+
+        // Ensure at least two fingerprints are present.
+        if (episodesWithFingerprint.Count == 1)
+        {
+            var indexInAnalysisQueue = episodeAnalysisQueue.FindIndex(episode => episode == episodesWithoutIntros[0]);
+            episodesWithFingerprint.AddRange(episodeAnalysisQueue
+                .Where((episode, index) => Math.Abs(index - indexInAnalysisQueue) <= 1 && index != indexInAnalysisQueue));
+        }
+
+        seasonIntros = episodesWithFingerprint.Where(e => e.State.IsAnalyzed(mode)).ToDictionary(e => e.EpisodeId, e => Plugin.Instance!.GetIntroByMode(e.EpisodeId, mode));
+
         // Compute fingerprints for all episodes in the season
-        foreach (var episode in episodeAnalysisQueue)
+        foreach (var episode in episodesWithFingerprint)
         {
             try
             {
@@ -98,14 +120,15 @@ public class ChromaprintAnalyzer : IMediaFileAnalyzer
         }
 
         // While there are still episodes in the queue
-        while (episodeAnalysisQueue.Count > 0)
+        while (episodesWithoutIntros.Count > 0)
         {
             // Pop the first episode from the queue
-            var currentEpisode = episodeAnalysisQueue[0];
-            episodeAnalysisQueue.RemoveAt(0);
+            var currentEpisode = episodesWithoutIntros[0];
+            episodesWithoutIntros.RemoveAt(0);
+            episodesWithFingerprint.Remove(currentEpisode);
 
             // Search through all remaining episodes.
-            foreach (var remainingEpisode in episodeAnalysisQueue)
+            foreach (var remainingEpisode in episodesWithFingerprint)
             {
                 // Compare the current episode to all remaining episodes in the queue.
                 var (currentIntro, remainingIntro) = CompareEpisodes(
@@ -167,9 +190,10 @@ public class ChromaprintAnalyzer : IMediaFileAnalyzer
             }
 
             // If no intro is found at this point, the popped episode is not reinserted into the queue.
-            if (!seasonIntros.ContainsKey(currentEpisode.EpisodeId))
+            if (seasonIntros.ContainsKey(currentEpisode.EpisodeId))
             {
-                episodesWithoutIntros.Add(currentEpisode);
+                episodesWithFingerprint.Add(currentEpisode);
+                episodeAnalysisQueue.FirstOrDefault(x => x.EpisodeId == currentEpisode.EpisodeId)?.State.SetAnalyzed(mode, true);
             }
         }
 
@@ -187,7 +211,7 @@ public class ChromaprintAnalyzer : IMediaFileAnalyzer
 
         Plugin.Instance!.UpdateTimestamps(seasonIntros, this._analysisMode);
 
-        return episodesWithoutIntros.AsReadOnly();
+        return episodeAnalysisQueue.AsReadOnly();
     }
 
     /// <summary>
