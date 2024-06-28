@@ -237,7 +237,7 @@ introSkipper.throttle = function (func, limit) {
     };
 }
 /** Seeks to the end of the intro. */
-introSkipper.doSkip = introSkipper.throttle(function (e) {
+introSkipper.doSkip = introSkipper.throttle(async function () {
     introSkipper.d("Skipping intro");
     introSkipper.d(introSkipper.skipSegments);
     const segment = introSkipper.getCurrentSegment(introSkipper.videoPlayer.currentTime);
@@ -245,16 +245,34 @@ introSkipper.doSkip = introSkipper.throttle(function (e) {
         console.warn("[intro skipper] doSkip() called without an active segment");
         return;
     }
+    const seekToSegmentEnd = async () => {
+        introSkipper.videoPlayer.currentTime = segment.IntroEnd;
+        await new Promise(resolve => setTimeout(resolve, 100)); // Re-enable input after a short delay
+        introSkipper.allowEnter = true;
+    };
     // Disable keydown events
     introSkipper.allowEnter = false;
-    introSkipper.videoPlayer.currentTime = segment.IntroEnd;
-    // Listen for the seeked event to re-enable keydown events
-    const onSeeked = async () => {
-        await new Promise(resolve => setTimeout(resolve, 50)); // Wait 50ms
-        introSkipper.allowEnter = true;
-        introSkipper.videoPlayer.removeEventListener('seeked', onSeeked);
-    };
-    introSkipper.videoPlayer.addEventListener('seeked', onSeeked);
+    // Check if the segment is "Credits" and skipping would leave less than 3 seconds of video
+    if (segment.SegmentType === "Credits" && introSkipper.videoPlayer.duration - segment.IntroEnd < 3) {
+        // Simulate 'N' key press to go to the next episode
+        const event = new KeyboardEvent('keydown', { key: 'N', shiftKey: true, bubbles: true });
+        document.dispatchEvent(event);
+        // Check if the next episode actually starts loading
+        const nextEpisodeLoaded = await new Promise(resolve => {
+            const onLoadStart = () => {
+              introSkipper.allowEnter = true;
+              resolve(true);
+            };
+            const onTimeout = () => resolve(false);
+            introSkipper.videoPlayer.addEventListener('loadstart', onLoadStart, { once: true });
+            setTimeout(onTimeout, 100);
+        });
+        // If the next episode didn't load, just seek to the end of the current segment
+        if (!nextEpisodeLoaded) seekToSegmentEnd();
+        return;
+    }
+    // Default behavior: seek to the end of the current segment
+    seekToSegmentEnd();
 }, 3000);
 /** Tests if an element with the provided selector exists. */
 introSkipper.testElement = function (selector) { return document.querySelector(selector); }
