@@ -24,6 +24,7 @@ public class Entrypoint : IHostedService, IDisposable
     private readonly ILogger<Entrypoint> _logger;
     private readonly ILoggerFactory _loggerFactory;
     private Timer _queueTimer;
+    private bool _disposed;
     private bool _analyzeAgain;
     private HashSet<Guid> _seasonsToAnalyze = new HashSet<Guid>();
     private static CancellationTokenSource? _cancellationTokenSource;
@@ -111,13 +112,6 @@ public class Entrypoint : IHostedService, IDisposable
 
         // Stop the timer
         _queueTimer.Change(Timeout.Infinite, 0);
-
-        if (_cancellationTokenSource != null) // Null Check
-        {
-            _cancellationTokenSource.Dispose();
-            _cancellationTokenSource = null;
-        }
-
         return Task.CompletedTask;
     }
 
@@ -338,12 +332,19 @@ public class Entrypoint : IHostedService, IDisposable
     /// <summary>
     /// Protected dispose.
     /// </summary>
-    /// <param name="dispose">Dispose.</param>
-    protected virtual void Dispose(bool dispose)
+    /// <param name="disposing">Dispose.</param>
+    protected virtual void Dispose(bool disposing)
     {
-        if (!dispose)
+        if (!_disposed)
         {
-            _queueTimer.Dispose();
+            if (disposing)
+            {
+                _queueTimer.Dispose();
+                _cancellationTokenSource?.Dispose();
+                _autoTaskCompletEvent.Dispose();
+            }
+
+            _disposed = true;
         }
     }
 }

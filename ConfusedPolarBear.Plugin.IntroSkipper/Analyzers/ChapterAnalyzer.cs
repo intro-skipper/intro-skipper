@@ -89,17 +89,17 @@ public class ChapterAnalyzer : IMediaFileAnalyzer
         string expression,
         AnalysisMode mode)
     {
-        if (chapters.Count == 0)
+        var count = chapters.Count;
+        if (count == 0)
         {
             return null;
         }
 
         var config = Plugin.Instance?.Configuration ?? new PluginConfiguration();
-        var count = chapters.Count;
         var reversed = mode != AnalysisMode.Introduction;
-        var (minDuration, maxDuration) = !reversed
-            ? (config.MinimumIntroDuration, config.MaximumIntroDuration)
-            : (config.MinimumCreditsDuration, config.MaximumCreditsDuration);
+        var (minDuration, maxDuration) = reversed
+            ? (config.MinimumCreditsDuration, config.MaximumCreditsDuration)
+            : (config.MinimumIntroDuration, config.MaximumIntroDuration);
 
         // Check all chapters
         for (int i = reversed ? count - 1 : 0; reversed ? i >= 0 : i < count; i += reversed ? -1 : 1)
