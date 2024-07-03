@@ -113,7 +113,7 @@ public class AutoSkip : IHostedService, IDisposable
         foreach (var session in _sessionManager.Sessions)
         {
             // only need for official Android TV App and jellyfin-kodi
-            if (session.DeviceName != "Android TV" || session.DeviceName != "Kodi")
+            if (session.Client != "Android TV" || session.Client != "Kodi")
             {
                 continue;
             }
