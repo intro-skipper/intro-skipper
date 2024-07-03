@@ -112,6 +112,12 @@ public class AutoSkip : IHostedService, IDisposable
     {
         foreach (var session in _sessionManager.Sessions)
         {
+            // only need for official Android TV App
+            if (session.DeviceName != "Android TV")
+            {
+                continue;
+            }
+
             var deviceId = session.DeviceId;
             var itemId = session.NowPlayingItem.Id;
             var position = session.PlayState.PositionTicks / TimeSpan.TicksPerSecond;
