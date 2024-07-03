@@ -112,8 +112,8 @@ public class AutoSkipCredits : IHostedService, IDisposable
     {
         foreach (var session in _sessionManager.Sessions)
         {
-            // only need for official Android TV App
-            if (session.DeviceName != "Android TV")
+            // only need for official Android TV App and jellyfin-kodi
+            if (session.DeviceName != "Android TV" || session.DeviceName != "Kodi")
             {
                 continue;
             }
