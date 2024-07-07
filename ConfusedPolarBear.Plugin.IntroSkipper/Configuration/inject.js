@@ -264,7 +264,7 @@ introSkipper.doSkip = introSkipper.throttle(async function () {
         // Check if the next episode actually starts loading
         const nextEpisodeLoaded = await Promise.race([
             new Promise(resolve => introSkipper.videoPlayer.addEventListener('loadstart', () => resolve(true), { once: true })),
-            new Promise(resolve => setTimeout(() => resolve(false), 100))
+            new Promise(resolve => setTimeout(() => resolve(false), 300))
         ]);
         // If the next episode didn't load, just seek to the end of the current segment
         if (!nextEpisodeLoaded) await seekToSegmentEnd();
