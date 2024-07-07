@@ -100,6 +100,9 @@ introSkipper.d = function (msg) {
         opacity: 0;
         transition: opacity 0.3s ease-in, transform 0.3s ease-out;
     }
+    #skipIntro.show .emby-button {
+        opacity: 1;
+    }
     #skipIntro .emby-button:hover,
     #skipIntro .emby-button:focus {
         background-color: rgba(var(--accent),0.7);
@@ -197,9 +200,8 @@ introSkipper.videoPositionChanged = function () {
     const segment = introSkipper.getCurrentSegment(introSkipper.videoPlayer.currentTime);
     switch (segment.SegmentType) {
         case "None":
-            if (embyButton.style.opacity === '0') return;
-
-            embyButton.style.opacity = '0';
+            if (!skipButton.classList.contains('show')) return;
+            skipButton.classList.remove('show');
             embyButton.addEventListener("transitionend", () => {
                 skipButton.classList.add("hide");
                 if (tvLayout) {
@@ -216,14 +218,16 @@ introSkipper.videoPositionChanged = function () {
             break;
     }
     if (!skipButton.classList.contains("hide")) return;
-
-    skipButton.classList.remove("hide");
-    embyButton.style.opacity = '1';
-
-    if (tvLayout) {
-        introSkipper.overrideBlur(embyButton);
-        embyButton.focus({ focusVisible: true }); 
-    }
+    requestAnimationFrame(() => {
+        skipButton.classList.remove("hide");
+        requestAnimationFrame(() => {
+            skipButton.classList.add('show');
+            if (tvLayout) {
+                introSkipper.overrideBlur(embyButton);
+                embyButton.focus({ focusVisible: true });
+            }
+        });
+    });
 }
 introSkipper.throttle = function (func, limit) {
     let inThrottle;
@@ -245,34 +249,44 @@ introSkipper.doSkip = introSkipper.throttle(async function () {
         console.warn("[intro skipper] doSkip() called without an active segment");
         return;
     }
+    const currentSrc = introSkipper.videoPlayer.currentSrc;
+    const controller = new AbortController();
+    const signal = controller.signal;
     const seekToSegmentEnd = () => new Promise((resolve) => {
-        const onSeeked = () => {
-            setTimeout(() => {
-                introSkipper.allowEnter = true;
-                resolve();
-            }, 50); // Wait 50ms after seek completes
-        };
-        introSkipper.videoPlayer.addEventListener('seeked', onSeeked, { once: true });
+        const onSeeked = () => requestAnimationFrame(resolve);
+        introSkipper.videoPlayer.addEventListener('seeked', onSeeked, { once: true, signal });
         introSkipper.videoPlayer.currentTime = segment.IntroEnd;
+    });
+    const nextEpisodeLoaded = () => new Promise(resolve => {
+        const onLoadStart = () => resolve(true);
+        const timeoutId = setTimeout(() => resolve(false), 500);
+        introSkipper.videoPlayer.addEventListener('loadstart', onLoadStart, { signal });
+        signal.addEventListener('abort', () => clearTimeout(timeoutId));
     });
     // Disable keydown events
     introSkipper.allowEnter = false;
-    // Check if the segment is "Credits" and skipping would leave less than 3 seconds of video
-    if (segment.SegmentType === "Credits" && introSkipper.videoPlayer.duration - segment.IntroEnd < 3) {
-        // Simulate 'N' key press to go to the next episode
-        document.dispatchEvent(new KeyboardEvent('keydown', { key: 'N', shiftKey: true, bubbles: true }));
-        // Check if the next episode actually starts loading
-        const nextEpisodeLoaded = await Promise.race([
-            new Promise(resolve => introSkipper.videoPlayer.addEventListener('loadstart', () => resolve(true), { once: true })),
-            new Promise(resolve => setTimeout(() => resolve(false), 300))
-        ]);
-        // If the next episode didn't load, just seek to the end of the current segment
-        if (!nextEpisodeLoaded) await seekToSegmentEnd();
-        else introSkipper.allowEnter = true;
-        return;
+    try {
+        // Check if the segment is "Credits" and skipping would leave less than 3 seconds of video
+        if (segment.SegmentType === "Credits" && introSkipper.videoPlayer.duration - segment.IntroEnd < 3) {
+            // Simulate 'N' key press to go to the next episode
+            document.dispatchEvent(new KeyboardEvent('keydown', { key: 'N', shiftKey: true, bubbles: true }));
+            // Check if the next episode actually starts loading
+            const loaded = await nextEpisodeLoaded();
+            // If the next episode didn't load, just seek to the end of the current segment
+            if (!loaded) {
+                await new Promise(resolve => setTimeout(resolve, 100)); // Short delay
+                if (introSkipper.videoPlayer.currentSrc === currentSrc) {
+                    await seekToSegmentEnd();
+                }
+            }
+        } else {
+            // Default behavior: seek to the end of the current segment
+            await seekToSegmentEnd();
+        }
+    } finally {
+        introSkipper.allowEnter = true; // Always re-enable keydown events
+        controller.abort(); // Cleanup any remaining listeners
     }
-    // Default behavior: seek to the end of the current segment
-    await seekToSegmentEnd();
 }, 3000);
 /** Tests if an element with the provided selector exists. */
 introSkipper.testElement = function (selector) { return document.querySelector(selector); }
