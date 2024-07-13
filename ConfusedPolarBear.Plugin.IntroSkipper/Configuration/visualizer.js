@@ -17,7 +17,7 @@ function findIntros() {
     // get the times of all similar fingerprint points
     for (let i in fprDiffs) {
         if (fprDiffs[i] > fprDiffMinimum) {
-            times.push(i * 0.128);
+            times.push(i * 0.1238);
         }
     }
 
@@ -57,7 +57,7 @@ function findIntros() {
     introsLog.style.left = "115px";
     introsLog.innerHTML = "";
 
-    const offset = Number(txtOffset.value) * 0.128;
+    const offset = Number(txtOffset.value) * 0.1238;
     for (let r of ranges) {
         let lStart, lEnd, rStart, rEnd;
 
