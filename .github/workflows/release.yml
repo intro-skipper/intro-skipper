@@ -36,13 +36,6 @@ jobs:
     - name: Build
       run: dotnet build --no-restore
 
-    - name: Upload artifact
-      uses: actions/upload-artifact@v4.3.3
-      with:
-        name: ConfusedPolarBear.Plugin.IntroSkipper-v${{ env.NEW_FILE_VERSION }}.dll
-        path: ConfusedPolarBear.Plugin.IntroSkipper/bin/Debug/net8.0/ConfusedPolarBear.Plugin.IntroSkipper.dll
-        if-no-files-found: error
-
     - name: Create archive
       run: zip -j "intro-skipper-v${{ env.NEW_FILE_VERSION }}.zip" ConfusedPolarBear.Plugin.IntroSkipper/bin/Debug/net8.0/ConfusedPolarBear.Plugin.IntroSkipper.dll
       
