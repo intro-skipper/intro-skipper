@@ -201,7 +201,7 @@ const introSkipper = {
         });
     },
     /** Seeks to the end of the intro. */
-    async doSkip() {
+    doSkip() {
         if (!this.allowEnter) return;
         const segment = this.getCurrentSegment(this.videoPlayer.currentTime);
         if (segment.SegmentType === "None") {
