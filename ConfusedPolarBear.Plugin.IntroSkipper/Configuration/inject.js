@@ -201,7 +201,7 @@ const introSkipper = {
         });
     },
     /** Seeks to the end of the intro. */
-    doSkip() {
+    async doSkip() {
         if (!this.allowEnter) return;
         const segment = this.getCurrentSegment(this.videoPlayer.currentTime);
         if (segment.SegmentType === "None") {
@@ -210,7 +210,11 @@ const introSkipper = {
         }
         this.d(`Skipping ${segment.SegmentType}`);
         this.allowEnter = false;
-        this.videoPlayer.currentTime = segment.IntroEnd;
+        let introEnd = segment.IntroEnd;
+        if (segment.SegmentType === "Credits" && this.videoPlayer.duration - introEnd < 3) {
+            introEnd = 999999;
+        }
+        this.videoPlayer.currentTime = introEnd;
     },
     /** Make an authenticated fetch to the Jellyfin server and parse the response body as JSON. */
     async secureFetch(url) {
