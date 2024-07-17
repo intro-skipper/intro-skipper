@@ -35,7 +35,7 @@ const introSkipper = {
         const location = window.location.hash;
         this.d(`Location changed to ${location}`);
         if (location !== "#/video") {
-            if (this.videoPlayer) this.cleanup();
+            if (this.videoPlayer) this.initializeState();;
             return;
         }
         this.injectCss();
@@ -46,11 +46,6 @@ const introSkipper = {
             this.videoPlayer.addEventListener("timeupdate", this.videoPositionChanged);
             this.osdElement = document.querySelector("div.videoOsdBottom")
         }
-    },
-    cleanup() {
-        this.d("Cleaning up intro skipper");
-        this.videoPlayer.removeEventListener("timeupdate", this.videoPositionChanged);
-        this.initializeState();
     },
     /**
      * Injects the CSS used by the skip intro button.
@@ -111,7 +106,9 @@ const introSkipper = {
     async injectButton() {
         // Ensure the button we're about to inject into the page doesn't conflict with a pre-existing one
         const preExistingButton = document.querySelector("div.skipIntro");
-        if (preExistingButton) preExistingButton.style.display = "none";
+        if (preExistingButton) {
+            preExistingButton.style.display = "none";
+        }
         if (document.querySelector(".btnSkipIntro.injected")) {
             this.d("Button already added");
             this.skipButton = document.querySelector("#skipIntro");
@@ -212,7 +209,7 @@ const introSkipper = {
         this.allowEnter = false;
         let introEnd = segment.IntroEnd;
         if (segment.SegmentType === "Credits" && this.videoPlayer.duration - introEnd < 3) {
-            introEnd = 999999;
+            introEnd = 999999; // Relace with this.videoPlayer.duration?
         }
         this.videoPlayer.currentTime = introEnd;
     },
