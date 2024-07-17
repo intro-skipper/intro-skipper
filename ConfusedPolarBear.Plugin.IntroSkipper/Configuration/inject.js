@@ -35,7 +35,7 @@ const introSkipper = {
         const location = window.location.hash;
         this.d(`Location changed to ${location}`);
         if (location !== "#/video") {
-            if (this.videoPlayer) this.initializeState();;
+            if (this.videoPlayer) this.initializeState();
             return;
         }
         this.injectCss();
