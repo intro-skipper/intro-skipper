@@ -143,8 +143,8 @@ const introSkipper = {
     /** Get the currently playing skippable segment. */
     getCurrentSegment(position) {
         for (const [key, segment] of Object.entries(this.skipSegments)) {
-            if ((position > segment.ShowSkipPromptAt && position < segment.HideSkipPromptAt) || 
-                (this.osdVisible() && position > segment.IntroStart && position < segment.IntroEnd)) {
+            if ((position > segment.ShowSkipPromptAt && position < segment.HideSkipPromptAt - 1) || 
+                (this.osdVisible() && position > segment.IntroStart && position < segment.IntroEnd - 1)) {
                 segment.SegmentType = key;
                 return segment;
             }
@@ -207,11 +207,9 @@ const introSkipper = {
         }
         this.d(`Skipping ${segment.SegmentType}`);
         this.allowEnter = false;
-        let introEnd = segment.IntroEnd;
-        if (segment.SegmentType === "Credits" && this.videoPlayer.duration - introEnd < 3) {
-            introEnd = 999999; // Relace with this.videoPlayer.duration?
-        }
-        this.videoPlayer.currentTime = introEnd;
+        this.videoPlayer.currentTime = segment.SegmentType === "Credits" && this.videoPlayer.duration - segment.IntroEnd < 3
+            ? this.videoPlayer.duration + 10
+            : segment.IntroEnd;
     },
     /** Make an authenticated fetch to the Jellyfin server and parse the response body as JSON. */
     async secureFetch(url) {
