@@ -11,7 +11,7 @@ body:
           Jellyfin 10.9 is still being actively updated. Please make sure you are using the newest release
 
           Docker containers have known permission issues that can be resolved with a few extra steps.
-          If your skip button is not shown, please see https://github.com/jumoog/intro-skipper/?tab=readme-ov-file#skip-button-is-not-visible
+          If your skip button is not shown, please see [Troubleshooting](https://github.com/jumoog/intro-skipper/?tab=readme-ov-file#skip-button-is-not-visible)
       options:
         - label: Jellyfin is updated and my permissions are correct (or I did not use Docker)
           required: true
