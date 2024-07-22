@@ -61,7 +61,7 @@ const introSkipper = {
         styleElement.id = "introSkipperCss";
         styleElement.textContent = `
             :root {
-                --rounding: .2em;
+                --rounding: 4px;
                 --accent: 0, 164, 220;
             }
             #skipIntro.upNextContainer {
@@ -71,30 +71,40 @@ const introSkipper = {
             #skipIntro {
                 position: absolute;
                 bottom: 6em;
-                right: 4.5em;
+                right: 4em;
                 background-color: transparent;
                 font-size: 1.2em;
+                opacity: 0;
+                transform: translateY(1.35em);
+                transition: all 0.3s ease-out;
+            }
+            #skipIntro.show {
+                opacity: 1;
+                transform: translateY(0);
             }
             #skipIntro .emby-button {
-                text-shadow: 0 0 3px rgba(0, 0, 0, 0.7);
+                color: #ffffff;
+                text-shadow: 0 0 3px rgba(0, 0, 0, 0.8);
+                background: rgba(0, 0, 0, 0.5);
                 border-radius: var(--rounding);
-                background-color: rgba(0, 0, 0, 0.3);
-                will-change: opacity, transform;
-                opacity: 0;
-                transition: opacity 0.3s ease-in, transform 0.3s ease-out;
-            }
-            #skipIntro.show .emby-button {
-                opacity: 1;
+                box-shadow: 0 2px 10px rgba(0, 0, 0, 0.2);
+                transition: all 0.3s ease-out;
             }
             #skipIntro .emby-button:hover,
             #skipIntro .emby-button:focus {
-                background-color: rgba(var(--accent),0.7);
-                transform: scale(1.05);
+                background: rgba(var(--accent), 0.8);
+                box-shadow: 0 0 15px rgba(var(--accent), 0.5);
+                transform: translateY(-2px);
             }
             #btnSkipSegmentText {
-                padding-right: 0.15em;
-                padding-left: 0.2em;
-                margin-top: -0.1em;
+                display: flex;
+                letter-spacing: 0.5px
+            }
+            #btnSkipSegmentText::after {
+                font-family: 'Material Icons';
+                content: 'skip_next';
+                transform: scale(1.4);
+                margin-left: 0.4em;
             }
         `;
         document.querySelector("head").appendChild(styleElement);
@@ -128,7 +138,6 @@ const introSkipper = {
         this.skipButton.innerHTML = `
             <button is="emby-button" type="button" class="btnSkipIntro injected">
                 <span id="btnSkipSegmentText"></span>
-                <span class="material-icons skip_next"></span>
             </button>
         `;
         this.skipButton.dataset.Introduction = config.SkipButtonIntroText;
@@ -151,20 +160,20 @@ const introSkipper = {
         }
         return { SegmentType: "None" };
     },
-    overrideBlur(embyButton) {
-        if (!embyButton.originalBlur) {
-            embyButton.originalBlur = embyButton.blur;
-            embyButton.blur = () => {
-                if (!embyButton.contains(document.activeElement)) {
-                    embyButton.originalBlur();
+    overrideBlur(button) {
+        if (!button.originalBlur) {
+            button.originalBlur = button.blur;
+            button.blur = () => {
+                if (!button.contains(document.activeElement)) {
+                    button.originalBlur();
                 }
             };
         }
     },
-    restoreBlur(embyButton) {
-        if (embyButton.originalBlur) {
-            embyButton.blur = embyButton.originalBlur;
-            delete embyButton.originalBlur;
+    restoreBlur(button) {
+        if (button.originalBlur) {
+            button.blur = button.originalBlur;
+            delete button.originalBlur;
         }
     },
     /** Playback position changed, check if the skip button needs to be displayed. */
@@ -175,7 +184,7 @@ const introSkipper = {
         if (segmentType === "None") {
             if (!this.skipButton.classList.contains('show')) return;
             this.skipButton.classList.remove('show');
-            embyButton.addEventListener("transitionend", () => {
+            this.skipButton.addEventListener("transitionend", () => {
                 this.skipButton.classList.add("hide");
                 this.restoreBlur(embyButton);
                 embyButton.blur();
