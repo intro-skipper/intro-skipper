@@ -63,6 +63,7 @@ const introSkipper = {
             :root {
                 --rounding: 4px;
                 --accent: 0, 164, 220;
+                --transition: 0.3s cubic-bezier(0.25, 1, 0.5, 1);
             }
             #skipIntro.upNextContainer {
                 width: unset;
@@ -70,13 +71,12 @@ const introSkipper = {
             }
             #skipIntro {
                 position: absolute;
-                bottom: 6em;
-                right: 4em;
+                bottom: 7.25em;
+                right: 5em;
                 background-color: transparent;
-                font-size: 1.2em;
                 opacity: 0;
-                transform: translateY(1.35em);
-                transition: all 0.3s ease-out;
+                transform: translateY(50%);
+                transition: all var(--transition);
             }
             #skipIntro.show {
                 opacity: 1;
@@ -87,24 +87,28 @@ const introSkipper = {
                 text-shadow: 0 0 3px rgba(0, 0, 0, 0.8);
                 background: rgba(0, 0, 0, 0.5);
                 border-radius: var(--rounding);
-                box-shadow: 0 2px 10px rgba(0, 0, 0, 0.2);
-                transition: all 0.3s ease-out;
+                box-shadow: 0 0px 4px rgba(0, 0, 0, 0.6);
+                transition: all var(--transition);
+                transform: scale(1);
+                transform-origin: center;
             }
             #skipIntro .emby-button:hover,
             #skipIntro .emby-button:focus {
                 background: rgba(var(--accent), 0.8);
-                box-shadow: 0 0 15px rgba(var(--accent), 0.5);
-                transform: translateY(-2px);
+                box-shadow: 0 0px 4px rgba(var(--accent), 0.6);
+                transform: scale(1.025);
             }
             #btnSkipSegmentText {
-                display: flex;
+                display: inline-flex;
+                align-items: center;
+                font-size: 110%;
                 letter-spacing: 0.5px
             }
             #btnSkipSegmentText::after {
                 font-family: 'Material Icons';
-                content: 'skip_next';
-                transform: scale(1.4);
-                margin-left: 0.4em;
+                content: '\u00A0skip_next';
+                font-size: 130%;
+                margin: -0.2em;
             }
         `;
         document.querySelector("head").appendChild(styleElement);
@@ -229,7 +233,10 @@ const introSkipper = {
     },
     /** Handle keydown events. */
     eventHandler(e) {
-        if (e.key === "Enter") e.stopPropagation();
+        if (e.key !== "Enter") return;
+        e.stopPropagation();
+        e.preventDefault();
+        this.doSkip();
     }
 };
 introSkipper.setup();
