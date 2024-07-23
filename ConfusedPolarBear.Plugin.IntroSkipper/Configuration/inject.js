@@ -74,41 +74,34 @@ const introSkipper = {
                 bottom: 7.25em;
                 right: 5em;
                 background-color: transparent;
-                opacity: 0;
-                transform: translateY(50%);
-                transition: all var(--transition);
-            }
-            #skipIntro.show {
-                opacity: 1;
-                transform: translateY(0);
             }
             #skipIntro .emby-button {
                 color: #ffffff;
-                text-shadow: 0 0 3px rgba(0, 0, 0, 0.8);
-                background: rgba(0, 0, 0, 0.5);
+                background: rgba(0, 0, 0, 0.9);
                 border-radius: var(--rounding);
-                box-shadow: 0 0px 4px rgba(0, 0, 0, 0.6);
+                box-shadow: 0 0 4px rgba(0, 0, 0, 0.6);
                 transition: all var(--transition);
-                transform: scale(1);
-                transform-origin: center;
+                opacity: 0;
+                transform: translateY(50%);
+            }
+            #skipIntro.show .emby-button {
+                opacity: 1;
+                transform: translateY(0);
             }
             #skipIntro .emby-button:hover,
             #skipIntro .emby-button:focus {
-                background: rgba(var(--accent), 0.8);
-                box-shadow: 0 0px 4px rgba(var(--accent), 0.6);
-                transform: scale(1.025);
+                background: rgba(var(--accent), 0.9);
             }
             #btnSkipSegmentText {
-                display: inline-flex;
+                display: flex;
                 align-items: center;
                 font-size: 110%;
                 letter-spacing: 0.5px
+                padding-left: 2px;
             }
             #btnSkipSegmentText::after {
                 font-family: 'Material Icons';
                 content: '\u00A0skip_next';
-                font-size: 130%;
-                margin: -0.2em;
             }
         `;
         document.querySelector("head").appendChild(styleElement);
@@ -188,7 +181,7 @@ const introSkipper = {
         if (segmentType === "None") {
             if (!this.skipButton.classList.contains('show')) return;
             this.skipButton.classList.remove('show');
-            this.skipButton.addEventListener("transitionend", () => {
+            embyButton.addEventListener("transitionend", () => {
                 this.skipButton.classList.add("hide");
                 this.restoreBlur(embyButton);
                 embyButton.blur();
