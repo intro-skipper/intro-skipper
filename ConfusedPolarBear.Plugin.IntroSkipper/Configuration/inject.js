@@ -96,7 +96,7 @@ const introSkipper = {
                 display: flex;
                 align-items: center;
                 font-size: 110%;
-                letter-spacing: 0.5px
+                letter-spacing: 0.5px;
                 padding-left: 2px;
             }
             #btnSkipSegmentText::after {
