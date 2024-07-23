@@ -63,7 +63,6 @@ const introSkipper = {
             :root {
                 --rounding: 4px;
                 --accent: 0, 164, 220;
-                --transition: 0.3s cubic-bezier(0.25, 1, 0.5, 1);
             }
             #skipIntro.upNextContainer {
                 width: unset;
@@ -77,10 +76,10 @@ const introSkipper = {
             }
             #skipIntro .emby-button {
                 color: #ffffff;
-                background: rgba(0, 0, 0, 0.9);
+                background: rgba(0, 0, 0, 0.8);
                 border-radius: var(--rounding);
                 box-shadow: 0 0 4px rgba(0, 0, 0, 0.6);
-                transition: all var(--transition);
+                transition: all 0.3s cubic-bezier(0.25, 1, 0.5, 1);
                 opacity: 0;
                 transform: translateY(50%);
             }
@@ -90,7 +89,7 @@ const introSkipper = {
             }
             #skipIntro .emby-button:hover,
             #skipIntro .emby-button:focus {
-                background: rgba(var(--accent), 0.9);
+                background: rgba(var(--accent), 1);
             }
             #btnSkipSegmentText {
                 display: flex;
