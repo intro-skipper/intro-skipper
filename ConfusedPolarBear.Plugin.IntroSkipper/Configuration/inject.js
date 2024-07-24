@@ -70,16 +70,20 @@ const introSkipper = {
             }
             #skipIntro {
                 position: absolute;
-                bottom: 7.25em;
+                bottom: 7.5em;
                 right: 5em;
                 background-color: transparent;
             }
             #skipIntro .emby-button {
                 color: #ffffff;
+                font-size: 110%;
                 background: rgba(0, 0, 0, 0.8);
                 border-radius: var(--rounding);
                 box-shadow: 0 0 4px rgba(0, 0, 0, 0.6);
-                transition: all 0.3s cubic-bezier(0.25, 1, 0.5, 1);
+                transition: opacity 0.3s cubic-bezier(0.4,0,0.2,1),
+                            transform 0.3s cubic-bezier(0.4,0,0.2,1),
+                            background-color 0.2s ease-out,
+                            box-shadow 0.2s ease-out;
                 opacity: 0;
                 transform: translateY(50%);
             }
@@ -90,17 +94,11 @@ const introSkipper = {
             #skipIntro .emby-button:hover,
             #skipIntro .emby-button:focus {
                 background: rgba(var(--accent), 1);
+                box-shadow: 0 0 8px rgba(var(--accent), 0.6);
             }
             #btnSkipSegmentText {
-                display: flex;
-                align-items: center;
-                font-size: 110%;
                 letter-spacing: 0.5px;
-                padding-left: 2px;
-            }
-            #btnSkipSegmentText::after {
-                font-family: 'Material Icons';
-                content: '\u00A0skip_next';
+                padding: 0 5px 0 5px;
             }
         `;
         document.querySelector("head").appendChild(styleElement);
@@ -134,6 +132,7 @@ const introSkipper = {
         this.skipButton.innerHTML = `
             <button is="emby-button" type="button" class="btnSkipIntro injected">
                 <span id="btnSkipSegmentText"></span>
+                <span class="material-icons">skip_next</span>
             </button>
         `;
         this.skipButton.dataset.Introduction = config.SkipButtonIntroText;
