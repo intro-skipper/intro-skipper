@@ -77,7 +77,7 @@ const introSkipper = {
             #skipIntro .emby-button {
                 color: #ffffff;
                 font-size: 110%;
-                background: rgba(0, 0, 0, 0.8);
+                background: rgba(0, 0, 0, 0.7);
                 border-radius: var(--rounding);
                 box-shadow: 0 0 4px rgba(0, 0, 0, 0.6);
                 transition: opacity 0.3s cubic-bezier(0.4,0,0.2,1),
@@ -91,9 +91,13 @@ const introSkipper = {
                 opacity: 1;
                 transform: translateY(0);
             }
-            #skipIntro .emby-button:hover,
-            #skipIntro .emby-button:focus {
-                background: rgba(var(--accent), 1);
+            #skipIntro .emby-button:hover {
+                background: rgb(var(--accent));
+                box-shadow: 0 0 8px rgba(var(--accent), 0.6);
+                filter: brightness(1.2);
+            }
+            #skipIntro .emby-button:focus:not(:focus-visible) {
+                background: rgb(var(--accent));
                 box-shadow: 0 0 8px rgba(var(--accent), 0.6);
             }
             #btnSkipSegmentText {
@@ -189,7 +193,7 @@ const introSkipper = {
         }
         this.skipButton.querySelector("#btnSkipSegmentText").textContent = this.skipButton.dataset[segmentType];
         if (!this.skipButton.classList.contains("hide")) {
-            if (!this.osdVisible() && !embyButton.contains(document.activeElement)) embyButton.focus({ focusVisible: true });
+            if (!this.osdVisible() && !embyButton.contains(document.activeElement)) embyButton.focus();
             return;
         }
         requestAnimationFrame(() => {
@@ -197,7 +201,7 @@ const introSkipper = {
             requestAnimationFrame(() => {
                 this.skipButton.classList.add('show');
                 this.overrideBlur(embyButton);
-                embyButton.focus({ focusVisible: true });
+                embyButton.focus();
             });
         });
     },
