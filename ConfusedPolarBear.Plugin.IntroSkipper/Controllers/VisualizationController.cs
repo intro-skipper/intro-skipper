@@ -2,6 +2,8 @@ using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.Net.Mime;
+using ConfusedPolarBear.Plugin.IntroSkipper.Data;
+using ICU4N.Text;
 using MediaBrowser.Common.Api;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -164,10 +166,29 @@ public class VisualizationController : ControllerBase
     /// <response code="204">New introduction timestamps saved.</response>
     /// <returns>No content.</returns>
     [HttpPost("Episode/{Id}/UpdateIntroTimestamps")]
-    public ActionResult UpdateTimestamps([FromRoute] Guid id, [FromBody] Intro timestamps)
+    public ActionResult UpdateIntroTimestamps([FromRoute] Guid id, [FromBody] Intro timestamps)
     {
         var tr = new TimeRange(timestamps.IntroStart, timestamps.IntroEnd);
         Plugin.Instance!.Intros[id] = new Intro(id, tr);
+        Plugin.Instance.SaveTimestamps(AnalysisMode.Introduction);
+
+        return NoContent();
+    }
+
+    /// <summary>
+    /// Updates the timestamps for the provided episode.
+    /// </summary>
+    /// <param name="id">Episode ID to update timestamps for.</param>
+    /// <param name="timestamps">New introduction start and end times.</param>
+    /// <response code="204">New introduction timestamps saved.</response>
+    /// <returns>No content.</returns>
+    [HttpPost("Episode/{Id}/UpdateTimestamps")]
+    public ActionResult UpdateTimestamps([FromRoute] Guid id, [FromBody] TimeStamps timestamps)
+    {
+        var tr = new TimeRange(timestamps.Introduction.IntroStart, timestamps.Introduction.IntroEnd);
+        var cr = new TimeRange(timestamps.Credits.IntroStart, timestamps.Credits.IntroEnd);
+        Plugin.Instance!.Intros[id] = new Intro(id, tr);
+        Plugin.Instance!.Credits[id] = new Intro(id, cr);
         Plugin.Instance.SaveTimestamps(AnalysisMode.Introduction);
 
         return NoContent();
