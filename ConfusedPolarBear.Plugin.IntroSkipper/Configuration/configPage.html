@@ -519,12 +519,21 @@
                             <p style="margin:0">All times are in seconds.</p>
 
                             <p id="editLeftEpisodeTitle" style="margin-bottom:0"></p>
-                            <input style="width:4em" type="number" min="0" id="editLeftEpisodeStart"> to
-                            <input style="width:4em;margin-bottom:10px" type="number" min="0" id="editLeftEpisodeEnd">
-
+                            Intro 
+                            <input style="width:4em" type="number" min="0" id="editLeftIntroEpisodeStart"> to
+                            <input style="width:4em;margin-bottom:10px" type="number" min="0" id="editLeftIntroEpisodeEnd">
+                            <br />
+                            Credits
+                            <input style="width:4em" type="number" min="0" id="editLeftCreditEpisodeStart"> to
+                            <input style="width:4em;margin-bottom:10px" type="number" min="0" id="editLeftCreditEpisodeEnd">
                             <p id="editRightEpisodeTitle" style="margin-top:0;margin-bottom:0"></p>
-                            <input style="width:4em" type="number" min="0" id="editRightEpisodeStart"> to
-                            <input style="width:4em;margin-bottom:10px" type="number" min="0" id="editRightEpisodeEnd">
+                            Intro 
+                            <input style="width:4em" type="number" min="0" id="editRightIntroEpisodeStart"> to
+                            <input style="width:4em;margin-bottom:10px" type="number" min="0" id="editRightIntroEpisodeEnd">
+                            <br />
+                            Credits
+                            <input style="width:4em" type="number" min="0" id="editLeftCreditEpisodeStart"> to
+                            <input style="width:4em;margin-bottom:10px" type="number" min="0" id="editLeftCreditEpisodeEnd">
                             <br />
                             <br />
 
@@ -882,27 +891,40 @@
                 // Get the title and ID of the left and right episodes
                 const leftEpisode = selectEpisode1.options[selectEpisode1.selectedIndex];
                 const rightEpisode = selectEpisode2.options[selectEpisode2.selectedIndex];
-
                 // Try to get the timestamps of each intro, falling back a default value of zero if no intro was found
-                let leftEpisodeIntro = await getJson("Episode/" + leftEpisode.value + "/IntroTimestamps/v1");
-                if (leftEpisodeIntro === null) {
-                    leftEpisodeIntro = { IntroStart: 0, IntroEnd: 0 };
+                let leftEpisodeJson = await getJson("Episode/" + leftEpisode.value + "/IntroSkipperSegments");
+                if (!Object.prototype.hasOwnProperty.call(leftEpisodeJson, "Introduction")) {
+                    leftEpisodeJson = leftEpisodeJson.Introduction = { IntroStart: 0, IntroEnd: 0 };
                 }
 
-                let rightEpisodeIntro = await getJson("Episode/" + rightEpisode.value + "/IntroTimestamps/v1");
-                if (rightEpisodeIntro === null) {
-                    rightEpisodeIntro = { IntroStart: 0, IntroEnd: 0 };
+                if (!Object.prototype.hasOwnProperty.call(leftEpisodeJson, "Credits")) {
+                    leftEpisodeJson = leftEpisodeJson.Credits = { IntroStart: 0, IntroEnd: 0 };
+                }
+
+                let rightEpisodeJson = await getJson("Episode/" + rightEpisode.value + "/IntroSkipperSegments");
+                
+                if (!Object.prototype.hasOwnProperty.call(rightEpisodeJson, "Introduction")) {
+                    rightEpisodeJson = rightEpisodeJson.Introduction = { IntroStart: 0, IntroEnd: 0 };
+                }
+
+                if (!Object.prototype.hasOwnProperty.call(rightEpisodeJson, "Credits")) {
+                    rightEpisodeJson = rightEpisodeJson.Credits = { IntroStart: 0, IntroEnd: 0 };
                 }
 
                 // Update the editor for the first and second episodes
                 timestampEditor.style.display = "unset";
                 document.querySelector("#editLeftEpisodeTitle").textContent = leftEpisode.text;
-                document.querySelector("#editLeftEpisodeStart").value = Math.round(leftEpisodeIntro.IntroStart);
-                document.querySelector("#editLeftEpisodeEnd").value = Math.round(leftEpisodeIntro.IntroEnd);
+                document.querySelector("#editLeftIntroEpisodeStart").value = Math.round(leftEpisodeJson.Introduction.IntroStart);
+                document.querySelector("#editLeftIntroEpisodeEnd").value = Math.round(leftEpisodeJson.Introduction.IntroEnd);
+                document.querySelector("#editLeftCreditEpisodeStart").value = Math.round(leftEpisodeJson.Credits.IntroStart);
+                document.querySelector("#editLeftCreditEpisodeEnd").value = Math.round(leftEpisodeJson.Credits.IntroEnd);
 
                 document.querySelector("#editRightEpisodeTitle").textContent = rightEpisode.text;
-                document.querySelector("#editRightEpisodeStart").value = Math.round(rightEpisodeIntro.IntroStart);
-                document.querySelector("#editRightEpisodeEnd").value = Math.round(rightEpisodeIntro.IntroEnd);
+                document.querySelector("#editRightIntroEpisodeStart").value = Math.round(rightEpisodeJson.Introduction.IntroStart);
+                document.querySelector("#editRightIntroEpisodeEnd").value = Math.round(rightEpisodeJson.Intro.IntroEnd);
+                document.querySelector("#editRightCreditEpisodeStart").value = Math.round(rightEpisodeJson.Credits.IntroStart);
+                document.querySelector("#editRightCreditEpisodeEnd").value = Math.round(rightEpisodeJson.Credits.IntroEnd);
+
             }
 
             // adds an item to a dropdown
@@ -1134,19 +1156,30 @@
             });
             btnUpdateTimestamps.addEventListener("click", () => {
                 const lhsId = selectEpisode1.options[selectEpisode1.selectedIndex].value;
-                const newLhsIntro = {
-                    IntroStart: document.querySelector("#editLeftEpisodeStart").value,
-                    IntroEnd: document.querySelector("#editLeftEpisodeEnd").value,
+                const newLhs = {
+                    Introduction: {
+                        IntroStart: parseFloat(document.getElementById('editLeftIntroEpisodeStart').value),
+                        IntroEnd: parseFloat(document.getElementById('editLeftIntroEpisodeEnd').value)
+                    },
+                    Credits: {
+                        IntroStart: parseFloat(document.getElementById('editLeftCreditEpisodeStart').value),
+                        IntroEnd: parseFloat(document.getElementById('editLeftCreditEpisodeEnd').value)
+                    }
                 };
 
                 const rhsId = selectEpisode2.options[selectEpisode2.selectedIndex].value;
-                const newRhsIntro = {
-                    IntroStart: document.querySelector("#editRightEpisodeStart").value,
-                    IntroEnd: document.querySelector("#editRightEpisodeEnd").value,
+                const newRhs = {
+                    Introduction: {
+                        IntroStart: parseFloat(document.getElementById('editRightIntroEpisodeStart').value),
+                        IntroEnd: parseFloat(document.getElementById('editRightIntroEpisodeEnd').value)
+                    },
+                    Credits: {
+                        IntroStart: parseFloat(document.getElementById('editRightCreditEpisodeStart').value),
+                        IntroEnd: parseFloat(document.getElementById('editRightCreditEpisodeEnd').value)
+                    }
                 };
-
-                fetchWithAuth("Intros/Episode/" + lhsId + "/UpdateIntroTimestamps", "POST", JSON.stringify(newLhsIntro));
-                fetchWithAuth("Intros/Episode/" + rhsId + "/UpdateIntroTimestamps", "POST", JSON.stringify(newRhsIntro));
+                fetchWithAuth("Intros/Episode/" + lhsId + "/UpdateTimestamps", "POST", JSON.stringify(newLhs));
+                fetchWithAuth("Intros/Episode/" + rhsId + "/UpdateTimestamps", "POST", JSON.stringify(newRhs));
 
                 Dashboard.alert("New introduction timestamps saved");
             });
