@@ -167,9 +167,12 @@ public class VisualizationController : ControllerBase
     [HttpPost("Episode/{Id}/UpdateIntroTimestamps")]
     public ActionResult UpdateIntroTimestamps([FromRoute] Guid id, [FromBody] Intro timestamps)
     {
-        var tr = new TimeRange(timestamps.IntroStart, timestamps.IntroEnd);
-        Plugin.Instance!.Intros[id] = new Intro(id, tr);
-        Plugin.Instance.SaveTimestamps(AnalysisMode.Introduction);
+        if (timestamps.IntroStart > 0.0 && timestamps.IntroEnd > 0.0)
+        {
+            var tr = new TimeRange(timestamps.IntroStart, timestamps.IntroEnd);
+            Plugin.Instance!.Intros[id] = new Intro(id, tr);
+            Plugin.Instance.SaveTimestamps(AnalysisMode.Introduction);
+        }
 
         return NoContent();
     }
@@ -184,11 +187,19 @@ public class VisualizationController : ControllerBase
     [HttpPost("Episode/{Id}/UpdateTimestamps")]
     public ActionResult UpdateTimestamps([FromRoute] Guid id, [FromBody] TimeStamps timestamps)
     {
-        var tr = new TimeRange(timestamps.Introduction.IntroStart, timestamps.Introduction.IntroEnd);
-        var cr = new TimeRange(timestamps.Credits.IntroStart, timestamps.Credits.IntroEnd);
-        Plugin.Instance!.Intros[id] = new Intro(id, tr);
-        Plugin.Instance!.Credits[id] = new Intro(id, cr);
-        Plugin.Instance.SaveTimestamps(AnalysisMode.Introduction);
+        if (timestamps?.Introduction.IntroStart > 0.0 && timestamps?.Introduction.IntroEnd > 0.0)
+        {
+            var tr = new TimeRange(timestamps.Credits.IntroStart, timestamps.Credits.IntroEnd);
+            Plugin.Instance!.Intros[id] = new Intro(id, tr);
+        }
+
+        if (timestamps?.Credits.IntroStart > 0.0 && timestamps?.Credits.IntroEnd > 0.0)
+        {
+            var cr = new TimeRange(timestamps.Credits.IntroStart, timestamps.Credits.IntroEnd);
+            Plugin.Instance!.Credits[id] = new Intro(id, cr);
+        }
+
+        Plugin.Instance?.SaveTimestamps(AnalysisMode.Introduction);
 
         return NoContent();
     }
