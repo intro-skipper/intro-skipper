@@ -1052,7 +1052,7 @@
 
             // converts seconds to a readable timestamp (i.e. 127 becomes "02:07").
             function secondsToString(seconds) {
-                return new Date(seconds * 1000).toISOString().slice(14, 5);
+                return new Date(seconds * 1000).toISOString().slice(14, 19);
             }
 
             // erase all intro/credits timestamps
