@@ -189,7 +189,7 @@ public class VisualizationController : ControllerBase
     {
         if (timestamps?.Introduction.IntroStart > 0.0 && timestamps?.Introduction.IntroEnd > 0.0)
         {
-            var tr = new TimeRange(timestamps.Credits.IntroStart, timestamps.Credits.IntroEnd);
+            var tr = new TimeRange(timestamps.Introduction.IntroStart, timestamps.Introduction.IntroEnd);
             Plugin.Instance!.Intros[id] = new Intro(id, tr);
         }
 
