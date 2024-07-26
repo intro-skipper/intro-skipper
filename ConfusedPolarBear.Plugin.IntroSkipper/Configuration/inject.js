@@ -226,7 +226,7 @@ const introSkipper = {
     async injectDetailsPage() {
         try {
             const visibleItemDetailPage = document.querySelector('div#itemDetailPage:not(.hide)');
-            const detailPageContent = visibleItemDetailPage?.querySelector('.detailPageContent');
+            const detailPageContent = visibleItemDetailPage && visibleItemDetailPage.querySelector('.detailPageContent');
             if (!detailPageContent) {
                 this.d('DetailPageContent not found');
                 return;
