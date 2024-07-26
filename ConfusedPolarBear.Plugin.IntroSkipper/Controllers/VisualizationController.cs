@@ -158,7 +158,7 @@ public class VisualizationController : ControllerBase
     }
 
     /// <summary>
-    /// Updates the timestamps for the provided episode.
+    /// Updates the introduction timestamps for the provided episode.
     /// </summary>
     /// <param name="id">Episode ID to update timestamps for.</param>
     /// <param name="timestamps">New introduction start and end times.</param>
@@ -181,8 +181,8 @@ public class VisualizationController : ControllerBase
     /// Updates the timestamps for the provided episode.
     /// </summary>
     /// <param name="id">Episode ID to update timestamps for.</param>
-    /// <param name="timestamps">New introduction start and end times.</param>
-    /// <response code="204">New introduction timestamps saved.</response>
+    /// <param name="timestamps">New timestamps Introduction/Credits start and end times.</param>
+    /// <response code="204">New timestamps saved.</response>
     /// <returns>No content.</returns>
     [HttpPost("Episode/{Id}/UpdateTimestamps")]
     public ActionResult UpdateTimestamps([FromRoute] Guid id, [FromBody] TimeStamps timestamps)
