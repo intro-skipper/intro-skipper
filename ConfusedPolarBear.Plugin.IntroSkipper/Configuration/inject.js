@@ -81,7 +81,7 @@ const introSkipper = {
             #skipIntro .emby-button {
                 color: #ffffff;
                 font-size: 110%;
-                background: rgba(0, 0, 0, 0.8);
+                background: rgba(0, 0, 0, 0.7);
                 border-radius: var(--rounding);
                 box-shadow: 0 0 4px rgba(0, 0, 0, 0.6);
                 transition: opacity 0.3s cubic-bezier(0.4,0,0.2,1),
@@ -238,18 +238,18 @@ const introSkipper = {
                 return;
             }
             if (detailPageContent.querySelector('#skipperCollapsible')) {
-                this.d('Skipper data already injected for this episode');
+                this.d('Intro Skipper data already injected for this episode');
                 return;
             }
             const skipperData = await this.getJson(`Episode/${episodeId}/IntroSkipperSegments`);
             if (!skipperData || Object.keys(skipperData).length === 0) {
-                this.d('No skipper data found for this episode');
+                this.d('No intro skipper data found for this episode');
                 return;
             }
             detailPageContent.appendChild(this.createSkipperDataElement(episodeId, skipperData));
-            this.d('Skipper Data injected');
+            this.d('Intro Skipper Data injected');
         } catch (error) {
-            console.error('Error during skipper data injection:', error);
+            console.error('Error during intro skipper data injection:', error);
         }
     },
     createSkipperDataElement(episodeId, skipperData) {
@@ -262,7 +262,7 @@ const introSkipper = {
 
         skipperCollapsible.innerHTML = `
             <div class="content-primary">
-                <h2 class="sectionTitle sectionTitle-cards">Skipper Data</h2>
+                <h2 class="sectionTitle sectionTitle-cards">Intro Skipper</h2>
                 <div class="itemsContainer vertical-list">
                     <div class="listItem listItem-border">
                         <div class="listItemBody">
