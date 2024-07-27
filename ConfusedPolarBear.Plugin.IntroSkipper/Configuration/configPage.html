@@ -503,15 +503,16 @@
                         <summary>Manage Fingerprints</summary>
 
                         <br />
-                        <h3 style="margin:0">Select episodes to manage</h3>
-                        <br />
-                        <select id="troubleshooterShow"></select>
-                        <select id="troubleshooterSeason"></select>
+                        <label class="inputLabel" for="troubleshooterShow">Select TV Series to manage</label>
+                        <select is="emby-select" id="troubleshooterShow" class="emby-select-withcolor emby-select"></select>
+                        <label class="inputLabel" for="troubleshooterSeason">Select Season to manage</label>
+                        <select is="emby-select" id="troubleshooterSeason" class="emby-select-withcolor emby-select"></select>
                         <br />
 
-                        <select id="troubleshooterEpisode1"></select>
-                        <select id="troubleshooterEpisode2"></select>
-                        <br />
+                        <label class="inputLabel" for="troubleshooterEpisode1">Select the first episode</label>
+                        <select is="emby-select" id="troubleshooterEpisode1" class="emby-select-withcolor emby-select"></select>
+                        <label class="inputLabel" for="troubleshooterEpisode1">Select the seconds epsisode</label>
+                        <select is="emby-select" id="troubleshooterEpisode2" class="emby-select-withcolor emby-select"></select>
                         <br />
 
                         <div id="timestampEditor" style="display:none">
@@ -549,7 +550,7 @@
                                 </tr>
                             </table>
 
-                            <button id="btnUpdateTimestamps" type="button">
+                            <button is="emby-select" id="btnUpdateTimestamps" class="raised button-submit block emby-button" type="button">
                                 Update timestamps
                             </button>
                             <br />
