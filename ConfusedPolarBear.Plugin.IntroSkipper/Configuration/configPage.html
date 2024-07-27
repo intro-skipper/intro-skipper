@@ -518,13 +518,13 @@
                         <div id="timestampEditor" style="display:none">
                             <h3 style="margin:0">Introduction timestamp editor</h3>
                             <p style="margin:0">All times are displayed in the format (HH:MM:SS)</p>
-
-                            <table> 
+                            <br />
+                            <table class="detailTable"> 
                                 <tr>
-                                    <th>Episode</th>
-                                    <th>Section</th>
-                                    <th>Start Time</th>
-                                    <th>End Time</th>
+                                    <th scope="col" class="detailTableHeaderCell">Episode</th>
+                                    <th scope="col" class="detailTableHeaderCell">Section</th>
+                                    <th scope="col" class="detailTableHeaderCell">Start Time</th>
+                                    <th scope="col" class="detailTableHeaderCell">End Time</th>
                                 </tr>
                                 <tr>
                                     <td rowspan="2" id="editLeftEpisodeTitle"></td>
@@ -549,7 +549,7 @@
                                     <td><input type="time" step="1" id="editRightCreditEpisodeEnd"></td>
                                 </tr>
                             </table>
-
+                            <br />
                             <button is="emby-select" id="btnUpdateTimestamps" class="raised button-submit block emby-button" type="button">
                                 Update timestamps
                             </button>
