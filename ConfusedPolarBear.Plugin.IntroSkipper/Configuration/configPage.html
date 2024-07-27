@@ -894,25 +894,9 @@
                 const leftEpisode = selectEpisode1.options[selectEpisode1.selectedIndex];
                 const rightEpisode = selectEpisode2.options[selectEpisode2.selectedIndex];
                 // Try to get the timestamps of each intro, falling back a default value of zero if no intro was found
-                let leftEpisodeJson = await getJson("Episode/" + leftEpisode.value + "/Timestamps");
-                if (!Object.prototype.hasOwnProperty.call(leftEpisodeJson, "Introduction")) {
-                    leftEpisodeJson = leftEpisodeJson.Introduction = { IntroStart: 0, IntroEnd: 0 };
-                }
-
-                if (!Object.prototype.hasOwnProperty.call(leftEpisodeJson, "Credits")) {
-                    leftEpisodeJson = leftEpisodeJson.Credits = { IntroStart: 0, IntroEnd: 0 };
-                }
-
-                let rightEpisodeJson = await getJson("Episode/" + rightEpisode.value + "/Timestamps");
+                const leftEpisodeJson = await getJson("Episode/" + leftEpisode.value + "/Timestamps");
+                const rightEpisodeJson = await getJson("Episode/" + rightEpisode.value + "/Timestamps");
                 
-                if (!Object.prototype.hasOwnProperty.call(rightEpisodeJson, "Introduction")) {
-                    rightEpisodeJson = rightEpisodeJson.Introduction = { IntroStart: 0, IntroEnd: 0 };
-                }
-
-                if (!Object.prototype.hasOwnProperty.call(rightEpisodeJson, "Credits")) {
-                    rightEpisodeJson = rightEpisodeJson.Credits = { IntroStart: 0, IntroEnd: 0 };
-                }
-
                 // Update the editor for the first and second episodes
                 timestampEditor.style.display = "unset";
                 document.querySelector("#editLeftEpisodeTitle").textContent = leftEpisode.text;
