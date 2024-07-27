@@ -56,6 +56,7 @@ public class SkipIntroController : ControllerBase
     /// <param name="timestamps">New timestamps Introduction/Credits start and end times.</param>
     /// <response code="204">New timestamps saved.</response>
     /// <returns>No content.</returns>
+    [Authorize(Policy = Policies.RequiresElevation)]
     [HttpPost("Episode/{Id}/Timestamps")]
     public ActionResult UpdateTimestamps([FromRoute] Guid id, [FromBody] TimeStamps timestamps)
     {
