@@ -60,13 +60,13 @@ public class SkipIntroController : ControllerBase
     [HttpPost("Episode/{Id}/Timestamps")]
     public ActionResult UpdateTimestamps([FromRoute] Guid id, [FromBody] TimeStamps timestamps)
     {
-        if (timestamps?.Introduction.IntroStart > 0.0 && timestamps?.Introduction.IntroEnd > 0.0)
+        if (timestamps?.Introduction.IntroEnd > 0.0)
         {
             var tr = new TimeRange(timestamps.Introduction.IntroStart, timestamps.Introduction.IntroEnd);
             Plugin.Instance!.Intros[id] = new Intro(id, tr);
         }
 
-        if (timestamps?.Credits.IntroStart > 0.0 && timestamps?.Credits.IntroEnd > 0.0)
+        if (timestamps?.Credits.IntroEnd > 0.0)
         {
             var cr = new TimeRange(timestamps.Credits.IntroStart, timestamps.Credits.IntroEnd);
             Plugin.Instance!.Credits[id] = new Intro(id, cr);
