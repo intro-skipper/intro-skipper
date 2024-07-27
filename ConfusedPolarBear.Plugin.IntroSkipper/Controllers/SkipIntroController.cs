@@ -72,7 +72,8 @@ public class SkipIntroController : ControllerBase
             Plugin.Instance!.Credits[id] = new Intro(id, cr);
         }
 
-        Plugin.Instance?.SaveTimestamps(AnalysisMode.Introduction);
+        Plugin.Instance!.SaveTimestamps(AnalysisMode.Introduction);
+        Plugin.Instance!.SaveTimestamps(AnalysisMode.Credits);
 
         return NoContent();
     }
