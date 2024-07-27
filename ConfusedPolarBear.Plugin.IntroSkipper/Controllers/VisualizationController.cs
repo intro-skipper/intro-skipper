@@ -184,7 +184,7 @@ public class VisualizationController : ControllerBase
     /// <param name="timestamps">New timestamps Introduction/Credits start and end times.</param>
     /// <response code="204">New timestamps saved.</response>
     /// <returns>No content.</returns>
-    [HttpPost("Episode/{Id}/UpdateTimestamps")]
+    [HttpPost("Episode/{Id}/Timestamps")]
     public ActionResult UpdateTimestamps([FromRoute] Guid id, [FromBody] TimeStamps timestamps)
     {
         if (timestamps?.Introduction.IntroStart > 0.0 && timestamps?.Introduction.IntroEnd > 0.0)
@@ -202,6 +202,29 @@ public class VisualizationController : ControllerBase
         Plugin.Instance?.SaveTimestamps(AnalysisMode.Introduction);
 
         return NoContent();
+    }
+
+    /// <summary>
+    /// Gets the timestamps for the provided episode.
+    /// </summary>
+    /// <param name="id">Episode ID.</param>
+    /// <response code="204">Sucess.</response>
+    /// <returns>Episode Timestamps.</returns>
+    [HttpGet("Episode/{Id}/Timestamps")]
+    public static ActionResult<TimeStamps> GetTimestamps([FromRoute] Guid id)
+    {
+        var times = new TimeStamps();
+        if (Plugin.Instance!.Intros.TryGetValue(id, out var introValue))
+        {
+            times.Introduction = introValue;
+        }
+
+        if (Plugin.Instance!.Credits.TryGetValue(id, out var creditValue))
+        {
+            times.Credits = creditValue;
+        }
+
+        return times;
     }
 
     private string GetSeasonName(QueuedEpisode episode)

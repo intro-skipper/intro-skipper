@@ -894,7 +894,7 @@
                 const leftEpisode = selectEpisode1.options[selectEpisode1.selectedIndex];
                 const rightEpisode = selectEpisode2.options[selectEpisode2.selectedIndex];
                 // Try to get the timestamps of each intro, falling back a default value of zero if no intro was found
-                let leftEpisodeJson = await getJson("Episode/" + leftEpisode.value + "/IntroSkipperSegments");
+                let leftEpisodeJson = await getJson("Episode/" + leftEpisode.value + "/Timestamps");
                 if (!Object.prototype.hasOwnProperty.call(leftEpisodeJson, "Introduction")) {
                     leftEpisodeJson = leftEpisodeJson.Introduction = { IntroStart: 0, IntroEnd: 0 };
                 }
@@ -903,7 +903,7 @@
                     leftEpisodeJson = leftEpisodeJson.Credits = { IntroStart: 0, IntroEnd: 0 };
                 }
 
-                let rightEpisodeJson = await getJson("Episode/" + rightEpisode.value + "/IntroSkipperSegments");
+                let rightEpisodeJson = await getJson("Episode/" + rightEpisode.value + "/Timestamps");
                 
                 if (!Object.prototype.hasOwnProperty.call(rightEpisodeJson, "Introduction")) {
                     rightEpisodeJson = rightEpisodeJson.Introduction = { IntroStart: 0, IntroEnd: 0 };
@@ -1180,8 +1180,8 @@
                         IntroEnd: parseFloat(document.getElementById('editRightCreditEpisodeEnd').value)
                     }
                 };
-                fetchWithAuth("Intros/Episode/" + lhsId + "/UpdateTimestamps", "POST", JSON.stringify(newLhs));
-                fetchWithAuth("Intros/Episode/" + rhsId + "/UpdateTimestamps", "POST", JSON.stringify(newRhs));
+                fetchWithAuth("Intros/Episode/" + lhsId + "/Timestamps", "POST", JSON.stringify(newLhs));
+                fetchWithAuth("Intros/Episode/" + rhsId + "/Timestamps", "POST", JSON.stringify(newRhs));
 
                 Dashboard.alert("New introduction timestamps saved");
             });
