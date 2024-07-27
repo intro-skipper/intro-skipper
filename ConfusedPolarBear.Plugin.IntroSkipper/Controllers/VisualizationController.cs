@@ -177,56 +177,6 @@ public class VisualizationController : ControllerBase
         return NoContent();
     }
 
-    /// <summary>
-    /// Updates the timestamps for the provided episode.
-    /// </summary>
-    /// <param name="id">Episode ID to update timestamps for.</param>
-    /// <param name="timestamps">New timestamps Introduction/Credits start and end times.</param>
-    /// <response code="204">New timestamps saved.</response>
-    /// <returns>No content.</returns>
-    [HttpPost("Episode/{Id}/Timestamps")]
-    public ActionResult UpdateTimestamps([FromRoute] Guid id, [FromBody] TimeStamps timestamps)
-    {
-        if (timestamps?.Introduction.IntroStart > 0.0 && timestamps?.Introduction.IntroEnd > 0.0)
-        {
-            var tr = new TimeRange(timestamps.Introduction.IntroStart, timestamps.Introduction.IntroEnd);
-            Plugin.Instance!.Intros[id] = new Intro(id, tr);
-        }
-
-        if (timestamps?.Credits.IntroStart > 0.0 && timestamps?.Credits.IntroEnd > 0.0)
-        {
-            var cr = new TimeRange(timestamps.Credits.IntroStart, timestamps.Credits.IntroEnd);
-            Plugin.Instance!.Credits[id] = new Intro(id, cr);
-        }
-
-        Plugin.Instance?.SaveTimestamps(AnalysisMode.Introduction);
-
-        return NoContent();
-    }
-
-    /// <summary>
-    /// Gets the timestamps for the provided episode.
-    /// </summary>
-    /// <param name="id">Episode ID.</param>
-    /// <response code="204">Sucess.</response>
-    /// <returns>Episode Timestamps.</returns>
-    [HttpGet("Episode/{Id}/Timestamps")]
-    public static ActionResult<TimeStamps> GetTimestamps([FromRoute] Guid id)
-    {
-        var times = new TimeStamps();
-        if (Plugin.Instance!.Intros.TryGetValue(id, out var introValue))
-        {
-            times.Introduction = introValue;
-        }
-
-        if (Plugin.Instance!.Credits.TryGetValue(id, out var creditValue))
-        {
-            times.Credits = creditValue;
-        }
-
-        return times;
-    }
-
     private string GetSeasonName(QueuedEpisode episode)
     {
         return "Season " + episode.SeasonNumber.ToString(CultureInfo.InvariantCulture);

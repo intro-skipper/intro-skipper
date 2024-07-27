@@ -1180,8 +1180,8 @@
                         IntroEnd: parseFloat(document.getElementById('editRightCreditEpisodeEnd').value)
                     }
                 };
-                fetchWithAuth("Intros/Episode/" + lhsId + "/Timestamps", "POST", JSON.stringify(newLhs));
-                fetchWithAuth("Intros/Episode/" + rhsId + "/Timestamps", "POST", JSON.stringify(newRhs));
+                fetchWithAuth("Episode/" + lhsId + "/Timestamps", "POST", JSON.stringify(newLhs));
+                fetchWithAuth("Episode/" + rhsId + "/Timestamps", "POST", JSON.stringify(newRhs));
 
                 Dashboard.alert("New introduction timestamps saved");
             });
