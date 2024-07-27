@@ -518,24 +518,36 @@
                             <h3 style="margin:0">Introduction timestamp editor</h3>
                             <p style="margin:0">All times are displayed in the format (HH:MM:SS)</p>
 
-                            <p id="editLeftEpisodeTitle" style="margin-bottom:0"></p>
-                            Intro 
-                            <input style="width:7em" type="time" step="1" id="editLeftIntroEpisodeStart"> to
-                            <input style="width:7em;margin-bottom:10px" type="time" step="1" id="editLeftIntroEpisodeEnd">
-                            <br />
-                            Credits
-                            <input style="width:7em" type="time" step="1" id="editLeftCreditEpisodeStart"> to
-                            <input style="width:7em;margin-bottom:10px" type="time" step="1" id="editLeftCreditEpisodeEnd">
-                            <p id="editRightEpisodeTitle" style="margin-top:0;margin-bottom:0"></p>
-                            Intro 
-                            <input style="width:7em" type="time" step="1" id="editRightIntroEpisodeStart"> to
-                            <input style="width:7em;margin-bottom:10px" type="time" step="1" id="editRightIntroEpisodeEnd">
-                            <br />
-                            Credits
-                            <input style="width:7em" type="time" step="1" id="editRightCreditEpisodeStart"> to
-                            <input style="width:7em;margin-bottom:10px" type="time" step="1" id="editRightCreditEpisodeEnd">
-                            <br />
-                            <br />
+                            <table> 
+                                <tr>
+                                    <th>Episode</th>
+                                    <th>Section</th>
+                                    <th>Start Time</th>
+                                    <th>End Time</th>
+                                </tr>
+                                <tr>
+                                    <td rowspan="2" id="editLeftEpisodeTitle"></td>
+                                    <td>Intro</td>
+                                    <td><input type="time" step="1" id="editLeftIntroEpisodeStart"></td>
+                                    <td><input type="time" step="1" id="editLeftIntroEpisodeEnd"></td>
+                                </tr>
+                                <tr>
+                                    <td>Credits</td>
+                                    <td><input type="time" step="1" id="editLeftCreditEpisodeStart"></td>
+                                    <td><input type="time" step="1" id="editLeftCreditEpisodeEnd"></td>
+                                </tr>
+                                <tr>
+                                    <td rowspan="2" id="editRightEpisodeTitle"></td>
+                                    <td>Intro</td>
+                                    <td><input type="time" step="1" id="editRightIntroEpisodeStart"></td>
+                                    <td><input type="time" step="1" id="editRightIntroEpisodeEnd"></td>
+                                </tr>
+                                <tr>
+                                    <td>Credits</td>
+                                    <td><input type="time" step="1" id="editRightCreditEpisodeStart"></td>
+                                    <td><input type="time" step="1" id="editRightCreditEpisodeEnd"></td>
+                                </tr>
+                            </table>
 
                             <button id="btnUpdateTimestamps" type="button">
                                 Update timestamps
