@@ -165,9 +165,10 @@ public class VisualizationController : ControllerBase
     /// <response code="204">New introduction timestamps saved.</response>
     /// <returns>No content.</returns>
     [HttpPost("Episode/{Id}/UpdateIntroTimestamps")]
+    [Obsolete("deprecated use Episode/{Id}/Timestamps")]
     public ActionResult UpdateIntroTimestamps([FromRoute] Guid id, [FromBody] Intro timestamps)
     {
-        if (timestamps.IntroStart > 0.0 && timestamps.IntroEnd > 0.0)
+        if (timestamps.IntroEnd > 0.0)
         {
             var tr = new TimeRange(timestamps.IntroStart, timestamps.IntroEnd);
             Plugin.Instance!.Intros[id] = new Intro(id, tr);
