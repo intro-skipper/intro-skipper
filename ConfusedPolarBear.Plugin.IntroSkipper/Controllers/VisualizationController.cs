@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.Net.Mime;
+using ConfusedPolarBear.Plugin.IntroSkipper.Data;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Logging;
@@ -149,18 +150,22 @@ public class VisualizationController : ControllerBase
     }
 
     /// <summary>
-    /// Updates the timestamps for the provided episode.
+    /// Updates the introduction timestamps for the provided episode.
     /// </summary>
     /// <param name="id">Episode ID to update timestamps for.</param>
     /// <param name="timestamps">New introduction start and end times.</param>
     /// <response code="204">New introduction timestamps saved.</response>
     /// <returns>No content.</returns>
     [HttpPost("Episode/{Id}/UpdateIntroTimestamps")]
-    public ActionResult UpdateTimestamps([FromRoute] Guid id, [FromBody] Intro timestamps)
+    [Obsolete("deprecated use Episode/{Id}/Timestamps")]
+    public ActionResult UpdateIntroTimestamps([FromRoute] Guid id, [FromBody] Intro timestamps)
     {
-        var tr = new TimeRange(timestamps.IntroStart, timestamps.IntroEnd);
-        Plugin.Instance!.Intros[id] = new Intro(id, tr);
-        Plugin.Instance!.SaveTimestamps();
+        if (timestamps.IntroEnd > 0.0)
+        {
+            var tr = new TimeRange(timestamps.IntroStart, timestamps.IntroEnd);
+            Plugin.Instance!.Intros[id] = new Intro(id, tr);
+            Plugin.Instance.SaveTimestamps();
+        }
 
         return NoContent();
     }
