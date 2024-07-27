@@ -520,20 +520,20 @@
 
                             <p id="editLeftEpisodeTitle" style="margin-bottom:0"></p>
                             Intro 
-                            <input style="width:4em" type="number" min="0" id="editLeftIntroEpisodeStart"> to
-                            <input style="width:4em;margin-bottom:10px" type="number" min="0" id="editLeftIntroEpisodeEnd">
+                            <input style="width:6em" type="time" step="1" id="editLeftIntroEpisodeStart"> to
+                            <input style="width:6em;margin-bottom:10px" type="time" step="1" id="editLeftIntroEpisodeEnd">
                             <br />
                             Credits
-                            <input style="width:4em" type="number" min="0" id="editLeftCreditEpisodeStart"> to
-                            <input style="width:4em;margin-bottom:10px" type="number" min="0" id="editLeftCreditEpisodeEnd">
+                            <input style="width:6em" type="time" step="1" id="editLeftCreditEpisodeStart"> to
+                            <input style="width:6em;margin-bottom:10px" type="time" step="1" id="editLeftCreditEpisodeEnd">
                             <p id="editRightEpisodeTitle" style="margin-top:0;margin-bottom:0"></p>
                             Intro 
-                            <input style="width:4em" type="number" min="0" id="editRightIntroEpisodeStart"> to
-                            <input style="width:4em;margin-bottom:10px" type="number" min="0" id="editRightIntroEpisodeEnd">
+                            <input style="width:6em" type="time" step="1" id="editRightIntroEpisodeStart"> to
+                            <input style="width:6em;margin-bottom:10px" type="time" step="1" id="editRightIntroEpisodeEnd">
                             <br />
                             Credits
-                            <input style="width:4em" type="number" min="0" id="editRightCreditEpisodeStart"> to
-                            <input style="width:4em;margin-bottom:10px" type="number" min="0" id="editRightCreditEpisodeEnd">
+                            <input style="width:6em" type="time" step="1" id="editRightCreditEpisodeStart"> to
+                            <input style="width:6em;margin-bottom:10px" type="time" step="1" id="editRightCreditEpisodeEnd">
                             <br />
                             <br />
 
@@ -900,16 +900,16 @@
                 // Update the editor for the first and second episodes
                 timestampEditor.style.display = "unset";
                 document.querySelector("#editLeftEpisodeTitle").textContent = leftEpisode.text;
-                document.querySelector("#editLeftIntroEpisodeStart").value = Math.round(leftEpisodeJson.Introduction.IntroStart);
-                document.querySelector("#editLeftIntroEpisodeEnd").value = Math.round(leftEpisodeJson.Introduction.IntroEnd);
-                document.querySelector("#editLeftCreditEpisodeStart").value = Math.round(leftEpisodeJson.Credits.IntroStart);
-                document.querySelector("#editLeftCreditEpisodeEnd").value = Math.round(leftEpisodeJson.Credits.IntroEnd);
+                document.querySelector("#editLeftIntroEpisodeStart").value = setTime(Math.round(leftEpisodeJson.Introduction.IntroStart));
+                document.querySelector("#editLeftIntroEpisodeEnd").value = setTime(Math.round(leftEpisodeJson.Introduction.IntroEnd));
+                document.querySelector("#editLeftCreditEpisodeStart").value = setTime(Math.round(leftEpisodeJson.Credits.IntroStart));
+                document.querySelector("#editLeftCreditEpisodeEnd").value = setTime(Math.round(leftEpisodeJson.Credits.IntroEnd));
 
                 document.querySelector("#editRightEpisodeTitle").textContent = rightEpisode.text;
-                document.querySelector("#editRightIntroEpisodeStart").value = Math.round(rightEpisodeJson.Introduction.IntroStart);
-                document.querySelector("#editRightIntroEpisodeEnd").value = Math.round(rightEpisodeJson.Introduction.IntroEnd);
-                document.querySelector("#editRightCreditEpisodeStart").value = Math.round(rightEpisodeJson.Credits.IntroStart);
-                document.querySelector("#editRightCreditEpisodeEnd").value = Math.round(rightEpisodeJson.Credits.IntroEnd);
+                document.querySelector("#editRightIntroEpisodeStart").value = setTime(Math.round(rightEpisodeJson.Introduction.IntroStart));
+                document.querySelector("#editRightIntroEpisodeEnd").value = setTime(Math.round(rightEpisodeJson.Introduction.IntroEnd));
+                document.querySelector("#editRightCreditEpisodeStart").value = setTime(Math.round(rightEpisodeJson.Credits.IntroStart));
+                document.querySelector("#editRightCreditEpisodeEnd").value = setTime(Math.round(rightEpisodeJson.Credits.IntroEnd));
 
             }
 
@@ -1144,24 +1144,24 @@
                 const lhsId = selectEpisode1.options[selectEpisode1.selectedIndex].value;
                 const newLhs = {
                     Introduction: {
-                        IntroStart: parseFloat(document.getElementById('editLeftIntroEpisodeStart').value),
-                        IntroEnd: parseFloat(document.getElementById('editLeftIntroEpisodeEnd').value)
+                        IntroStart: getTimeInSeconds(document.getElementById('editLeftIntroEpisodeStart').value),
+                        IntroEnd: getTimeInSeconds(document.getElementById('editLeftIntroEpisodeEnd').value)
                     },
                     Credits: {
-                        IntroStart: parseFloat(document.getElementById('editLeftCreditEpisodeStart').value),
-                        IntroEnd: parseFloat(document.getElementById('editLeftCreditEpisodeEnd').value)
+                        IntroStart: getTimeInSeconds(document.getElementById('editLeftCreditEpisodeStart').value),
+                        IntroEnd: getTimeInSeconds(document.getElementById('editLeftCreditEpisodeEnd').value)
                     }
                 };
 
                 const rhsId = selectEpisode2.options[selectEpisode2.selectedIndex].value;
                 const newRhs = {
                     Introduction: {
-                        IntroStart: parseFloat(document.getElementById('editRightIntroEpisodeStart').value),
-                        IntroEnd: parseFloat(document.getElementById('editRightIntroEpisodeEnd').value)
+                        IntroStart: getTimeInSeconds(document.getElementById('editRightIntroEpisodeStart').value),
+                        IntroEnd: getTimeInSeconds(document.getElementById('editRightIntroEpisodeEnd').value)
                     },
                     Credits: {
-                        IntroStart: parseFloat(document.getElementById('editRightCreditEpisodeStart').value),
-                        IntroEnd: parseFloat(document.getElementById('editRightCreditEpisodeEnd').value)
+                        IntroStart: getTimeInSeconds(document.getElementById('editRightCreditEpisodeStart').value),
+                        IntroEnd: getTimeInSeconds(document.getElementById('editRightCreditEpisodeEnd').value)
                     }
                 };
                 fetchWithAuth("Episode/" + lhsId + "/Timestamps", "POST", JSON.stringify(newLhs));
@@ -1209,6 +1209,27 @@
                 timeContainer.style.left = "25px";
                 timeContainer.style.top = (-1 * rect.height + y).toString() + "px";
             });
+
+            function setTime(seconds) {
+                // Calculate hours, minutes, and remaining seconds
+                let hours = Math.floor(seconds / 3600);
+                let minutes = Math.floor((seconds % 3600) / 60);
+                let remainingSeconds = seconds % 60;
+
+                // Format as HH:MM:SS
+                let formattedTime = 
+                    String(hours).padStart(2, '0') + ':' +
+                    String(minutes).padStart(2, '0') + ':' +
+                    String(remainingSeconds).padStart(2, '0');
+
+                // Set the value of the time input
+                return formattedTime;
+            }
+
+            function getTimeInSeconds(time) {
+                let [hours, minutes, seconds] = time.split(':').map(Number);
+                return (hours * 3600) + (minutes * 60) + seconds;
+            }
         </script>
     </div>
 </body>
