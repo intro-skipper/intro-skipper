@@ -55,11 +55,19 @@ public class SkipIntroController : ControllerBase
     /// <param name="id">Episode ID to update timestamps for.</param>
     /// <param name="timestamps">New timestamps Introduction/Credits start and end times.</param>
     /// <response code="204">New timestamps saved.</response>
+    /// <response code="404">Given ID is not an Episode.</response>
     /// <returns>No content.</returns>
     [Authorize(Policy = Policies.RequiresElevation)]
     [HttpPost("Episode/{Id}/Timestamps")]
     public ActionResult UpdateTimestamps([FromRoute] Guid id, [FromBody] TimeStamps timestamps)
     {
+        // only update existing episodes
+        var rawItem = Plugin.Instance!.GetItem(id);
+        if (rawItem == null || rawItem is not Episode episode)
+        {
+            return NotFound();
+        }
+
         if (timestamps?.Introduction.IntroEnd > 0.0)
         {
             var tr = new TimeRange(timestamps.Introduction.IntroStart, timestamps.Introduction.IntroEnd);
@@ -82,7 +90,8 @@ public class SkipIntroController : ControllerBase
     /// Gets the timestamps for the provided episode.
     /// </summary>
     /// <param name="id">Episode ID.</param>
-    /// <response code="204">Sucess.</response>
+    /// <response code="200">Sucess.</response>
+    /// <response code="404">Given ID is not an Episode.</response>
     /// <returns>Episode Timestamps.</returns>
     [HttpGet("Episode/{Id}/Timestamps")]
     [ActionName("UpdateTimestamps")]
