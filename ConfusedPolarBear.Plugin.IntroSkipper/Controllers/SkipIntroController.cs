@@ -88,6 +88,13 @@ public class SkipIntroController : ControllerBase
     [ActionName("UpdateTimestamps")]
     public ActionResult<TimeStamps> GetTimestamps([FromRoute] Guid id)
     {
+        // only get return content for episodes
+        var rawItem = Plugin.Instance!.GetItem(id);
+        if (rawItem == null || rawItem is not Episode episode)
+        {
+            return NotFound();
+        }
+
         var times = new TimeStamps();
         if (Plugin.Instance!.Intros.TryGetValue(id, out var introValue))
         {
