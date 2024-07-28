@@ -648,24 +648,24 @@
 
         <script>
             // first and second episodes to fingerprint & compare
-            var lhs = [];
-            var rhs = [];
+            let lhs = [];
+            let rhs = [];
 
             // fingerprint point comparison & miminum similarity threshold (at most 6 bits out of 32 can be different)
-            var fprDiffs = [];
-            var fprDiffMinimum = (1 - 6 / 32) * 100;
+            let fprDiffs = [];
+            let fprDiffMinimum = (1 - 6 / 32) * 100;
 
             // seasons grouped by show
-            var shows = {};
+            let shows = {};
 
             // settings elements
-            var visualizer = document.querySelector("details#visualizer");
-            var support = document.querySelector("details#support");
-            var btnEraseIntroTimestamps = document.querySelector("button#btnEraseIntroTimestamps");
-            var btnEraseCreditTimestamps = document.querySelector("button#btnEraseCreditTimestamps");
+            let visualizer = document.querySelector("details#visualizer");
+            let support = document.querySelector("details#support");
+            let btnEraseIntroTimestamps = document.querySelector("button#btnEraseIntroTimestamps");
+            let btnEraseCreditTimestamps = document.querySelector("button#btnEraseCreditTimestamps");
 
             // all plugin configuration fields that can be get or set with .value (i.e. strings or numbers).
-            var configurationFields = [
+            let configurationFields = [
                 // analysis
                 "MaxParallelism",
                 "SelectedLibraries",
@@ -692,7 +692,7 @@
                 "AutoSkipCreditsNotificationText"
             ]
 
-            var booleanConfigurationFields = [
+            let booleanConfigurationFields = [
                 "AutoDetectIntros",
                 "AutoDetectCredits",
                 "AnalyzeSeasonZero",
@@ -707,28 +707,28 @@
             ]
 
             // visualizer elements
-            var canvas = document.querySelector("canvas#troubleshooter");
-            var selectShow = document.querySelector("select#troubleshooterShow");
-            var selectSeason = document.querySelector("select#troubleshooterSeason");
-            var selectEpisode1 = document.querySelector("select#troubleshooterEpisode1");
-            var selectEpisode2 = document.querySelector("select#troubleshooterEpisode2");
-            var txtOffset = document.querySelector("input#offset");
-            var txtSuggested = document.querySelector("span#suggestedShifts");
-            var btnSeasonEraseTimestamps = document.querySelector("button#btnEraseSeasonTimestamps");
-            var eraseSeasonContainer = document.getElementById("eraseSeasonContainer");
-            var timestampError = document.querySelector("textarea#timestampError");
-            var timestampErrorDiv = document.querySelector("div#timestampErrorDiv");
-            var timestampEditor = document.querySelector("#timestampEditor");
-            var btnUpdateTimestamps = document.querySelector("button#btnUpdateTimestamps");
-            var timeContainer = document.querySelector("span#timestampContainer");
+            let canvas = document.querySelector("canvas#troubleshooter");
+            let selectShow = document.querySelector("select#troubleshooterShow");
+            let selectSeason = document.querySelector("select#troubleshooterSeason");
+            let selectEpisode1 = document.querySelector("select#troubleshooterEpisode1");
+            let selectEpisode2 = document.querySelector("select#troubleshooterEpisode2");
+            let txtOffset = document.querySelector("input#offset");
+            let txtSuggested = document.querySelector("span#suggestedShifts");
+            let btnSeasonEraseTimestamps = document.querySelector("button#btnEraseSeasonTimestamps");
+            let eraseSeasonContainer = document.getElementById("eraseSeasonContainer");
+            let timestampError = document.querySelector("textarea#timestampError");
+            let timestampErrorDiv = document.querySelector("div#timestampErrorDiv");
+            let timestampEditor = document.querySelector("#timestampEditor");
+            let btnUpdateTimestamps = document.querySelector("button#btnUpdateTimestamps");
+            let timeContainer = document.querySelector("span#timestampContainer");
 
-            var windowHashInterval = 0;
+            let windowHashInterval = 0;
 
-            var autoSkip = document.querySelector("input#AutoSkip");
-            var skipFirstEpisode = document.querySelector("div#divSkipFirstEpisode");
-            var autoSkipNotificationText = document.querySelector("div#divAutoSkipNotificationText");
-            var autoSkipCredits = document.querySelector("input#AutoSkipCredits");
-            var autoSkipCreditsNotificationText = document.querySelector("div#divAutoSkipCreditsNotificationText");
+            let autoSkip = document.querySelector("input#AutoSkip");
+            let skipFirstEpisode = document.querySelector("div#divSkipFirstEpisode");
+            let autoSkipNotificationText = document.querySelector("div#divAutoSkipNotificationText");
+            let autoSkipCredits = document.querySelector("input#AutoSkipCredits");
+            let autoSkipCreditsNotificationText = document.querySelector("div#divAutoSkipCreditsNotificationText");
 
             async function autoSkipChanged() {
                 if (autoSkip.checked) {
@@ -752,9 +752,9 @@
 
             autoSkipCredits.addEventListener("change", autoSkipCreditsChanged);
 
-            var persistSkip = document.querySelector("input#PersistSkipButton");
-            var showAdjustment = document.querySelector("div#divShowPromptAdjustment");
-            var hideAdjustment = document.querySelector("div#divHidePromptAdjustment");
+            let persistSkip = document.querySelector("input#PersistSkipButton");
+            let showAdjustment = document.querySelector("div#divShowPromptAdjustment");
+            let hideAdjustment = document.querySelector("div#divHidePromptAdjustment");
 
             // prevent setting unavailable options
             async function persistSkipChanged() {
@@ -784,11 +784,11 @@
 
                 shows = await getJson("Intros/Shows");
 
-                var sorted = [];
-                for (var series in shows) { sorted.push(series); }
+                let sorted = [];
+                for (let series in shows) { sorted.push(series); }
                 sorted.sort();
 
-                for (var show of sorted) {
+                for (let show of sorted) {
                     addItem(selectShow, show, show);
                 }
 
@@ -831,7 +831,7 @@
                 clearSelect(selectEpisode2);
 
                 // add all seasons from this show to the season select
-                for (var season of shows[selectShow.value]) {
+                for (let season of shows[selectShow.value]) {
                     addItem(selectSeason, season, season);
                 }
 
