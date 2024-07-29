@@ -261,10 +261,10 @@ const introSkipper = {
     },
     updateSkipperFields() {
         const { Introduction = {}, Credits = {} } = this.skipperData;
-        document.getElementById('introStart').value = Introduction.IntroStart ?? 0;
-        document.getElementById('introEnd').value = Introduction.IntroEnd ?? 0;
-        document.getElementById('creditsStart').value = Credits.IntroStart ?? 0;
-        document.getElementById('creditsEnd').value = Credits.IntroEnd ?? 0;
+        document.getElementById('introStart').value = Introduction.IntroStart || 0;
+        document.getElementById('introEnd').value = Introduction.IntroEnd || 0;
+        document.getElementById('creditsStart').value = Credits.IntroStart || 0;
+        document.getElementById('creditsEnd').value = Credits.IntroEnd || 0;
     },
     attachSaveListener() {
         const saveButton = document.querySelector('.formDialogFooter .btnSave');
@@ -286,10 +286,10 @@ const introSkipper = {
             }
         };
         const { Introduction = {}, Credits = {} } = this.skipperData;
-        if (newTimestamps.Introduction.IntroStart !== (Introduction.IntroStart ?? 0) ||
-            newTimestamps.Introduction.IntroEnd !== (Introduction.IntroEnd ?? 0) ||
-            newTimestamps.Credits.IntroStart !== (Credits.IntroStart ?? 0) ||
-            newTimestamps.Credits.IntroEnd !== (Credits.IntroEnd ?? 0)) {
+        if (newTimestamps.Introduction.IntroStart !== (Introduction.IntroStart || 0) ||
+            newTimestamps.Introduction.IntroEnd !== (Introduction.IntroEnd || 0) ||
+            newTimestamps.Credits.IntroStart !== (Credits.IntroStart || 0) ||
+            newTimestamps.Credits.IntroEnd !== (Credits.IntroEnd || 0)) {
             const response = await secureFetch(`Episode/${this.currentEpisodeId}/Timestamps`, "POST", JSON.stringify(newTimestamps));
             this.d(response.ok ? 'Timestamps updated successfully' : 'Failed to update timestamps:', response.status);
         } else {
@@ -300,8 +300,8 @@ const introSkipper = {
     async secureFetch(url, method = "GET", body = null) {
         const response = await fetch(`${ApiClient.serverAddress()}/${url}`, {
             method,
-            headers: { "Authorization": `MediaBrowser Token=${ApiClient.accessToken()}`,
-                ...(method === "POST" && {"Content-Type": "application/json"}) },
+            headers: Object.assign({ "Authorization": `MediaBrowser Token=${ApiClient.accessToken()}` },
+                method === "POST" ? {"Content-Type": "application/json"} : {}),
             body });
         return response.ok ? (method === "POST" ? response : response.json()) :
             response.status === 404 ? null :
