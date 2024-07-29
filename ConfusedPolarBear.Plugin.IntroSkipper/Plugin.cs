@@ -138,23 +138,7 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
         {
             WarningManager.SetFlag(PluginWarning.UnableToAddSkipButton);
 
-            if (ex is UnauthorizedAccessException)
-            {
-                var suggestion = OperatingSystem.IsLinux() ?
-                    "running `sudo chown jellyfin PATH` (if this is a native installation)" :
-                    "changing the permissions of PATH";
-
-                suggestion = suggestion.Replace("PATH", indexPath, StringComparison.Ordinal);
-
-                _logger.LogError(
-                    "Failed to add skip button to web interface. Try {Suggestion} and restarting the server. Error: {Error}",
-                    suggestion,
-                    ex);
-            }
-            else
-            {
-                _logger.LogError("Unknown error encountered while adding skip button: {Error}", ex);
-            }
+            _logger.LogError("Failed to add skip button to web interface. See https://github.com/jumoog/intro-skipper?tab=readme-ov-file#skip-button-is-not-visible for the most common issues. Error: {Error}", ex);
         }
 
         FFmpegWrapper.CheckFFmpegVersion();
