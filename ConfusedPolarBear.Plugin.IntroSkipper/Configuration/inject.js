@@ -9,21 +9,31 @@ const introSkipper = {
         this.d("Registered hooks");
     },
     initializeState() {
-        Object.assign(this, { allowEnter: true, skipSegments: {}, videoPlayer: null, skipButton: null, osdElement: null });
+        Object.assign(this, { allowEnter: true, skipSegments: {}, videoPlayer: null, skipButton: null, osdElement: null, skipperData: null, currentEpisodeId: null, injectMetadata: false });
     },
     /** Wrapper around fetch() that retrieves skip segments for the currently playing item. */
     async fetchWrapper(resource, options) {
         const response = await this.originalFetch(resource, options);
         try {
-            const url = new URL(resource);
-            if (!url.pathname.includes("/PlaybackInfo")) return response;
-            this.d("Retrieving skip segments from URL", url.pathname);
-            const pathArr = url.pathname.split("/");
-            const id = pathArr[1] === "Items" ? pathArr[2] : pathArr[3];
-            this.skipSegments = await this.getJson(`Episode/${id}/IntroSkipperSegments`);
-            this.d("Successfully retrieved skip segments", this.skipSegments);
+            const pathname = new URL(resource).pathname;
+            if (pathname.includes("/PlaybackInfo")) {
+                this.d(`Retrieving skip segments from URL ${pathname}`);
+                const pathArr = pathname.split("/");
+                const id = pathArr[pathArr.indexOf("Items") + 1] || pathArr[3];
+                this.skipSegments = await this.secureFetch(`Episode/${id}/IntroSkipperSegments`);
+                this.d("Retrieved skip segments", this.skipSegments);
+            } else if (this.injectMetadata && pathname.includes("/MetadataEditor")) {
+                this.d(`Metadata editor detected, URL ${pathname}`);
+                const pathArr = pathname.split("/");
+                this.currentEpisodeId = pathArr[pathArr.indexOf("Items") + 1] || pathArr[3];
+                this.skipperData = await this.secureFetch(`Episode/${this.currentEpisodeId}/Timestamps`);
+                if (this.skipperData) {
+                    const metadataFormFields = document.querySelector('.metadataFormFields');
+                    metadataFormFields && requestAnimationFrame(() => this.injectSkipperFields(metadataFormFields));
+                }
+            }
         } catch (e) {
-            console.error("Unable to get skip segments from", resource, e);
+            console.error("Error processing", resource, e);
         }
         return response;
     },
@@ -34,22 +44,18 @@ const introSkipper = {
     viewShow() {
         const location = window.location.hash;
         this.d(`Location changed to ${location}`);
-        if (location.startsWith('#/details')) {
-            this.d('Attempting to inject Introskipper data');
-            this.injectDetailsPage();
-        }
-        if (location !== "#/video") {
-            if (this.videoPlayer) this.initializeState();
-            return;
-        }
-        this.injectCss();
-        this.injectButton();
-        this.videoPlayer = document.querySelector("video");
-        if (this.videoPlayer) {
-            this.d("Hooking video timeupdate");
-            this.videoPlayer.addEventListener("timeupdate", this.videoPositionChanged);
-            this.osdElement = document.querySelector("div.videoOsdBottom")
-        }
+        this.allowEnter = true;
+        this.injectMetadata = /#\/(tv|details|home|search)/.test(location);
+        if (location === "#/video") {
+            this.injectCss();
+            this.injectButton();
+            this.videoPlayer = document.querySelector("video");
+            if (this.videoPlayer) {
+                this.d("Hooking video timeupdate");
+                this.videoPlayer.addEventListener("timeupdate", this.videoPositionChanged);
+                this.osdElement = document.querySelector("div.videoOsdBottom")
+            }
+        }   
     },
     /**
      * Injects the CSS used by the skip intro button.
@@ -126,7 +132,7 @@ const introSkipper = {
             this.skipButton = document.querySelector("#skipIntro");
             return;
         }
-        const config = await this.getJson("Intros/UserInterfaceConfiguration");
+        const config = await this.secureFetch("Intros/UserInterfaceConfiguration");
         if (!config.SkipButtonVisible) {
             this.d("Not adding button: not visible");
             return;
@@ -223,140 +229,83 @@ const introSkipper = {
             ? this.videoPlayer.duration + 10
             : segment.IntroEnd;
     },
-    async injectDetailsPage() {
-        try {
-            const visibleItemDetailPage = document.querySelector('div#itemDetailPage:not(.hide)');
-            const detailPageContent = visibleItemDetailPage && visibleItemDetailPage.querySelector('.detailPageContent');
-            if (!detailPageContent) {
-                this.d('DetailPageContent not found');
-                return;
-            }
-            const urlParams = new URLSearchParams(window.location.hash.split('?')[1]);
-            const episodeId = urlParams.get('id');
-            if (!episodeId) {
-                this.d('Episode ID not found in URL');
-                return;
-            }
-            if (detailPageContent.querySelector('#skipperCollapsible')) {
-                this.d('Intro Skipper data already injected for this episode');
-                return;
-            }
-            const skipperData = await this.getJson(`Episode/${episodeId}/IntroSkipperSegments`);
-            if (!skipperData || Object.keys(skipperData).length === 0) {
-                this.d('No intro skipper data found for this episode');
-                return;
-            }
-            detailPageContent.appendChild(this.createSkipperDataElement(episodeId, skipperData));
-            this.d('Intro Skipper Data injected');
-        } catch (error) {
-            console.error('Error during intro skipper data injection:', error);
+    injectSkipperFields(metadataFormFields) {
+        const skipperFields = document.createElement('div');
+        skipperFields.className = 'detailSection introskipperSection';
+        skipperFields.innerHTML = `
+            <h2>Intro Skipper</h2>
+            <div class="inlineForm">
+                <div class="inputContainer">
+                    <label class="inputLabel inputLabelUnfocused" for="introStart">Intro Start</label>
+                    <input type="number" id="introStart" step="any" min="0" class="emby-input" value="0">
+                </div>
+                <div class="inputContainer">
+                    <label class="inputLabel inputLabelUnfocused" for="introEnd">Intro End</label>
+                    <input type="number" id="introEnd" step="any" min="0" class="emby-input" value="0">
+                </div>
+            </div>
+            <div class="inlineForm">
+                <div class="inputContainer">
+                    <label class="inputLabel inputLabelUnfocused" for="creditsStart">Credits Start</label>
+                    <input type="number" id="creditsStart" step="any" min="0" class="emby-input" value="0">
+                </div>
+                <div class="inputContainer">
+                    <label class="inputLabel inputLabelUnfocused" for="creditsEnd">Credits End</label>
+                    <input type="number" id="creditsEnd" step="any" min="0" class="emby-input" value="0">
+                </div>
+            </div>
+        `;
+        metadataFormFields.appendChild(skipperFields);
+        this.attachSaveListener();
+        this.updateSkipperFields();
+    },
+    updateSkipperFields() {
+        const { Introduction = {}, Credits = {} } = this.skipperData;
+        document.getElementById('introStart').value = Introduction.IntroStart ?? 0;
+        document.getElementById('introEnd').value = Introduction.IntroEnd ?? 0;
+        document.getElementById('creditsStart').value = Credits.IntroStart ?? 0;
+        document.getElementById('creditsEnd').value = Credits.IntroEnd ?? 0;
+    },
+    attachSaveListener() {
+        const saveButton = document.querySelector('.formDialogFooter .btnSave');
+        if (saveButton) {
+            saveButton.addEventListener('click', this.saveSkipperData);
+        } else {
+            console.error('Save button not found');
         }
     },
-    createSkipperDataElement(episodeId, skipperData) {
-        const skipperCollapsible = document.createElement('div');
-        skipperCollapsible.id = 'skipperCollapsible';
-        skipperCollapsible.className = 'verticalSection detailVerticalSection verticalSection-extrabottompadding emby-scroller-container';
-
-        const roundTime = time => Number(time).toFixed(2);
-        const { Introduction, Credits } = skipperData;
-
-        skipperCollapsible.innerHTML = `
-            <div class="content-primary">
-                <h2 class="sectionTitle sectionTitle-cards">Intro Skipper</h2>
-                <div class="itemsContainer vertical-list">
-                    <div class="listItem listItem-border">
-                        <div class="listItemBody">
-                            ${Introduction ? `<h3 class="listItemBodyText">Intro Start: ${roundTime(Introduction.IntroStart)}s, Intro End: ${roundTime(Introduction.IntroEnd)}s</h3>` : ''}
-                            ${Credits ? `<h3 class="listItemBodyText">Credits Start: ${roundTime(Credits.IntroStart)}s, Credits End: ${roundTime(Credits.IntroEnd)}s</h3>` : ''}
-                            <div class="listItemBodyText secondary" style="font-size: smaller; margin-top: 8px;">Episode ID: ${episodeId}</div>
-                        </div>
-                        <button is="emby-button" type="button" class="raised" id="editSkipperData">
-                            <span>Edit Timestamps</span>
-                        </button>
-                    </div>
-                </div>
-            </div>
-        `;
-        skipperCollapsible.querySelector('#editSkipperData').addEventListener('click', () => this.editTimestamps(episodeId, skipperData));
-        return skipperCollapsible;
-    },
-    editTimestamps(episodeId, skipperData) {
-        this.d('Edit button clicked for episode:', episodeId);
-        const dialog = document.createElement('div');
-        dialog.className = 'dialogContainer';
-        dialog.innerHTML = `
-            <div class="focuscontainer dialog dialog-fixedSize dialog-small formDialog opened" data-history="true" modal="modal" data-autofocus="true" data-removeonclose="true" style="animation: 180ms ease-out both scaleup;">
-                <div class="formDialogHeader">
-                    <h3 class="formDialogHeaderTitle">Edit Timestamps</h3>
-                    <button is="paper-icon-button-light" class="btnCancel btnClose autoSize paper-icon-button-light" tabindex="-1" title="Close" style="position: absolute; right: 0; top: 0;">
-                        <span class="material-icons close" aria-hidden="true"></span>
-                    </button>
-                </div>
-                <div class="formDialogContent smoothScrollY" style="padding-top:2em">
-                    <form class="editTimestampsForm dialogContentInner dialog-content-centered">
-                        ${['introStart', 'introEnd', 'creditsStart', 'creditsEnd'].map(id => `
-                            <div class="inputContainer">
-                                <label class="inputLabel inputLabelUnfocused" for="${id}">${id.charAt(0).toUpperCase() + id.slice(1).replace('Start', ' Start').replace('End', ' End')}</label>
-                                <input is="emby-input" id="${id}" type="number" step="0.01" label="${id}" class="emby-input" value="${skipperData[id.startsWith('intro') ? 'Introduction' : 'Credits']?.[id.endsWith('Start') ? 'IntroStart' : 'IntroEnd'] ?? 0}">
-                            </div>
-                        `).join('')}
-                    </form>
-                </div>
-                <div class="formDialogFooter">
-                    <button is="emby-button" type="button" class="raised button-submit block btnSave formDialogFooterItem emby-button">
-                        <span>Save</span>
-                    </button>
-                </div>
-            </div>
-        `;
-        document.body.appendChild(dialog);
-        dialog.querySelector('.btnSave').addEventListener('click', async () => {
-            const newTimestamps = {
-                Introduction: {
-                    IntroStart: parseFloat(document.getElementById('introStart').value),
-                    IntroEnd: parseFloat(document.getElementById('introEnd').value)
-                },
-                Credits: {
-                    IntroStart: parseFloat(document.getElementById('creditsStart').value),
-                    IntroEnd: parseFloat(document.getElementById('creditsEnd').value)
-                }
-            };
-            try {
-                const response = await this.fetchWithAuth(`Intros/Episode/${episodeId}/UpdateTimestamps`, "POST", JSON.stringify(newTimestamps));
-                if (response.ok) {
-                    this.d('Timestamps updated successfully');
-                    const updatedSkipperData = await this.getJson(`Episode/${episodeId}/IntroSkipperSegments`);
-                    const detailPageContent = document.querySelector('.detailPageContent');
-                    detailPageContent.replaceChild(this.createSkipperDataElement(episodeId, updatedSkipperData), document.getElementById('skipperCollapsible'));
-                } else {
-                    console.error('Failed to update timestamps:', response.status, response.statusText);
-                    alert('Failed to update timestamps. Please try again.');
-                }
-            } catch (error) {
-                console.error('Error updating timestamps:', error);
-                alert('An error occurred while updating timestamps. Please try again.');
+    async saveSkipperData() {
+        const newTimestamps = {
+            Introduction: {
+                IntroStart: parseFloat(document.getElementById('introStart').value || 0),
+                IntroEnd: parseFloat(document.getElementById('introEnd').value || 0)
+            },
+            Credits: {
+                IntroStart: parseFloat(document.getElementById('creditsStart').value || 0),
+                IntroEnd: parseFloat(document.getElementById('creditsEnd').value || 0)
             }
-            document.body.removeChild(dialog);
-        });
-        dialog.querySelector('.btnCancel').addEventListener('click', () => document.body.removeChild(dialog));
+        };
+        const { Introduction = {}, Credits = {} } = this.skipperData;
+        if (newTimestamps.Introduction.IntroStart !== (Introduction.IntroStart ?? 0) ||
+            newTimestamps.Introduction.IntroEnd !== (Introduction.IntroEnd ?? 0) ||
+            newTimestamps.Credits.IntroStart !== (Credits.IntroStart ?? 0) ||
+            newTimestamps.Credits.IntroEnd !== (Credits.IntroEnd ?? 0)) {
+            const response = await secureFetch(`Episode/${this.currentEpisodeId}/Timestamps`, "POST", JSON.stringify(newTimestamps));
+            this.d(response.ok ? 'Timestamps updated successfully' : 'Failed to update timestamps:', response.status);
+        } else {
+            this.d('Timestamps have not changed, skipping update');
+        }
     },
     /** Make an authenticated fetch to the Jellyfin server and parse the response body as JSON. */
-    async getJson(url) {
-        try {
-            const response = await this.fetchWithAuth(url, "GET");
-            return response.ok ? await response.json() : null;
-        } catch (err) {
-            console.error("Error fetching JSON:", err);
-            return null;
-        }
-    },
-    async fetchWithAuth(url, method, body) {
-        const fullUrl = `${ApiClient.serverAddress()}/${url}`;
-        const headers = {
-            "Authorization": `MediaBrowser Token=${ApiClient.accessToken()}`
-        };
-        if (method === "POST") headers["Content-Type"] = "application/json";
-        return await fetch(fullUrl, { method, headers, body });
+    async secureFetch(url, method = "GET", body = null) {
+        const response = await fetch(`${ApiClient.serverAddress()}/${url}`, {
+            method,
+            headers: { "Authorization": `MediaBrowser Token=${ApiClient.accessToken()}`,
+                ...(method === "POST" && {"Content-Type": "application/json"}) },
+            body });
+        return response.ok ? (method === "POST" ? response : response.json()) :
+            response.status === 404 ? null :
+            console.error(`Error ${response.status} from ${url}`) || null;
     },
     /** Handle keydown events. */
     eventHandler(e) {
