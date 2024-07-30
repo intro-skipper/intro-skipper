@@ -11,11 +11,16 @@ const introSkipper = {
     initializeState() {
         Object.assign(this, { allowEnter: true, skipSegments: {}, videoPlayer: null, skipButton: null, osdElement: null, skipperData: null, currentEpisodeId: null, injectMetadata: false });
     },
-    /** Wrapper around fetch() that retrieves skip segments for the currently playing item. */
+    /** Wrapper around fetch() that retrieves skip segments for the currently playing item or metadata. */
     async fetchWrapper(resource, options) {
         const response = await this.originalFetch(resource, options);
+        this.processResource(resource);
+        return response;
+    },
+    async processResource(resource) {
         try {
-            const pathname = new URL(resource).pathname;
+            const url = new URL(resource);
+            const pathname = url.pathname;
             if (pathname.includes("/PlaybackInfo")) {
                 this.d(`Retrieving skip segments from URL ${pathname}`);
                 const pathArr = pathname.split("/");
@@ -28,14 +33,15 @@ const introSkipper = {
                 this.currentEpisodeId = pathArr[pathArr.indexOf("Items") + 1] || pathArr[3];
                 this.skipperData = await this.secureFetch(`Episode/${this.currentEpisodeId}/Timestamps`);
                 if (this.skipperData) {
-                    const metadataFormFields = document.querySelector('.metadataFormFields');
-                    metadataFormFields && requestAnimationFrame(() => this.injectSkipperFields(metadataFormFields));
+                    requestAnimationFrame(() => {
+                        const metadataFormFields = document.querySelector('.metadataFormFields');
+                        metadataFormFields && this.injectSkipperFields(metadataFormFields);
+                    });
                 }
             }
         } catch (e) {
             console.error("Error processing", resource, e);
         }
-        return response;
     },
     /**
      * Event handler that runs whenever the current view changes.
@@ -237,52 +243,87 @@ const introSkipper = {
             <div class="inlineForm">
                 <div class="inputContainer">
                     <label class="inputLabel inputLabelUnfocused" for="introStart">Intro Start</label>
-                    <input type="number" id="introStart" step="any" min="0" class="emby-input" value="0">
+                    <input type="text" id="introStartDisplay" class="emby-input custom-time-input" readonly>
+                    <input type="number" id="introStartEdit" class="emby-input custom-time-input" style="display: none;" step="any" min="0">
                 </div>
                 <div class="inputContainer">
                     <label class="inputLabel inputLabelUnfocused" for="introEnd">Intro End</label>
-                    <input type="number" id="introEnd" step="any" min="0" class="emby-input" value="0">
+                    <input type="text" id="introEndDisplay" class="emby-input custom-time-input" readonly>
+                    <input type="number" id="introEndEdit" class="emby-input custom-time-input" style="display: none;" step="any" min="0">
                 </div>
             </div>
             <div class="inlineForm">
                 <div class="inputContainer">
                     <label class="inputLabel inputLabelUnfocused" for="creditsStart">Credits Start</label>
-                    <input type="number" id="creditsStart" step="any" min="0" class="emby-input" value="0">
+                    <input type="text" id="creditsStartDisplay" class="emby-input custom-time-input" readonly>
+                    <input type="number" id="creditsStartEdit" class="emby-input custom-time-input" style="display: none;" step="any" min="0">
                 </div>
                 <div class="inputContainer">
                     <label class="inputLabel inputLabelUnfocused" for="creditsEnd">Credits End</label>
-                    <input type="number" id="creditsEnd" step="any" min="0" class="emby-input" value="0">
+                    <input type="text" id="creditsEndDisplay" class="emby-input custom-time-input" readonly>
+                    <input type="number" id="creditsEndEdit" class="emby-input custom-time-input" style="display: none;" step="any" min="0">
                 </div>
             </div>
         `;
-        metadataFormFields.appendChild(skipperFields);
-        this.attachSaveListener();
-        this.updateSkipperFields();
+        metadataFormFields.querySelector('#metadataSettingsCollapsible').insertAdjacentElement('afterend', skipperFields);
+        this.attachSaveListener(metadataFormFields);
+        this.updateSkipperFields(skipperFields);
+        this.setTimeInputs(skipperFields);
     },
-    updateSkipperFields() {
+    updateSkipperFields(skipperFields) {
         const { Introduction = {}, Credits = {} } = this.skipperData;
-        document.getElementById('introStart').value = Introduction.IntroStart || 0;
-        document.getElementById('introEnd').value = Introduction.IntroEnd || 0;
-        document.getElementById('creditsStart').value = Credits.IntroStart || 0;
-        document.getElementById('creditsEnd').value = Credits.IntroEnd || 0;
+        skipperFields.querySelector('#introStartEdit').value = Introduction.IntroStart || 0;
+        skipperFields.querySelector('#introEndEdit').value = Introduction.IntroEnd || 0;
+        skipperFields.querySelector('#creditsStartEdit').value = Credits.IntroStart || 0;
+        skipperFields.querySelector('#creditsEndEdit').value = Credits.IntroEnd || 0;
     },
-    attachSaveListener() {
-        const saveButton = document.querySelector('.formDialogFooter .btnSave');
+    attachSaveListener(metadataFormFields) {
+        const saveButton = metadataFormFields.querySelector('.formDialogFooter .btnSave');
         if (saveButton) {
-            saveButton.addEventListener('click', this.saveSkipperData);
+            saveButton.addEventListener('click', this.saveSkipperData.bind(this));
         } else {
             console.error('Save button not found');
         }
     },
+    setTimeInputs(skipperFields) {
+        const inputContainers = skipperFields.querySelectorAll('.inputContainer');
+        inputContainers.forEach(container => {
+            const displayInput = container.querySelector('[id$="Display"]');
+            const editInput = container.querySelector('[id$="Edit"]');
+            displayInput.addEventListener('click', () => this.switchToEdit(displayInput, editInput));
+            editInput.addEventListener('blur', () => this.switchToDisplay(displayInput, editInput));
+            displayInput.value = this.formatTime(parseFloat(editInput.value) || 0);
+        });
+    },
+    formatTime(totalSeconds) {
+        const hours = Math.floor(totalSeconds / 3600);
+        const minutes = Math.floor((totalSeconds % 3600) / 60);
+        const seconds = Math.floor(totalSeconds % 60);
+        let result = [];
+        if (hours > 0) result.push(`${hours} hour${hours !== 1 ? 's' : ''}`);
+        if (minutes > 0) result.push(`${minutes} minute${minutes !== 1 ? 's' : ''}`);
+        if (seconds > 0 || result.length === 0) result.push(`${seconds} second${seconds !== 1 ? 's' : ''}`);
+        return result.join(' ');
+    },
+    switchToEdit(displayInput, editInput) {
+        displayInput.style.display = 'none';
+        editInput.style.display = '';
+        editInput.focus();
+    },
+    switchToDisplay(displayInput, editInput) {
+        editInput.style.display = 'none';
+        displayInput.style.display = '';
+        displayInput.value = this.formatTime(parseFloat(editInput.value) || 0);
+    },
     async saveSkipperData() {
         const newTimestamps = {
             Introduction: {
-                IntroStart: parseFloat(document.getElementById('introStart').value || 0),
-                IntroEnd: parseFloat(document.getElementById('introEnd').value || 0)
+                IntroStart: parseFloat(document.getElementById('introStartEdit').value || 0),
+                IntroEnd: parseFloat(document.getElementById('introEndEdit').value || 0)
             },
             Credits: {
-                IntroStart: parseFloat(document.getElementById('creditsStart').value || 0),
-                IntroEnd: parseFloat(document.getElementById('creditsEnd').value || 0)
+                IntroStart: parseFloat(document.getElementById('creditsStartEdit').value || 0),
+                IntroEnd: parseFloat(document.getElementById('creditsEndEdit').value || 0)
             }
         };
         const { Introduction = {}, Credits = {} } = this.skipperData;
@@ -290,7 +331,7 @@ const introSkipper = {
             newTimestamps.Introduction.IntroEnd !== (Introduction.IntroEnd || 0) ||
             newTimestamps.Credits.IntroStart !== (Credits.IntroStart || 0) ||
             newTimestamps.Credits.IntroEnd !== (Credits.IntroEnd || 0)) {
-            const response = await secureFetch(`Episode/${this.currentEpisodeId}/Timestamps`, "POST", JSON.stringify(newTimestamps));
+            const response = await this.secureFetch(`Episode/${this.currentEpisodeId}/Timestamps`, "POST", JSON.stringify(newTimestamps));
             this.d(response.ok ? 'Timestamps updated successfully' : 'Failed to update timestamps:', response.status);
         } else {
             this.d('Timestamps have not changed, skipping update');
