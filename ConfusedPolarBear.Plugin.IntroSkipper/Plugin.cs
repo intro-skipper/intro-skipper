@@ -413,7 +413,8 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
         _logger.LogDebug("Reading index.html from {Path}", indexPath);
         var contents = File.ReadAllText(indexPath);
 
-        var scriptTag = "<script src=\"configurationpage?name=skip-intro-button.js\"></script>";
+        // change URL with every relase to prevent the Browers from caching
+        var scriptTag = "<script src=\"configurationpage?name=skip-intro-button.js&release=" + GetType().Assembly.GetName().Version + "\"></script>";
 
         // Only inject the script tag once
         if (contents.Contains(scriptTag, StringComparison.OrdinalIgnoreCase))
@@ -421,6 +422,10 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
             _logger.LogInformation("Skip button already added");
             return;
         }
+
+        // remove old version if necessary
+        string pattern = @"<script src=""configurationpage\?name=skip-intro-button\.js.*<\/script>";
+        contents = Regex.Replace(contents, pattern, string.Empty, RegexOptions.IgnoreCase);
 
         // Inject a link to the script at the end of the <head> section.
         // A regex is used here to ensure the replacement is only done once.
