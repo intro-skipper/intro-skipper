@@ -9,23 +9,39 @@ const introSkipper = {
         this.d("Registered hooks");
     },
     initializeState() {
-        Object.assign(this, { allowEnter: true, skipSegments: {}, videoPlayer: null, skipButton: null, osdElement: null });
+        Object.assign(this, { allowEnter: true, skipSegments: {}, videoPlayer: null, skipButton: null, osdElement: null, skipperData: null, currentEpisodeId: null, injectMetadata: false });
     },
-    /** Wrapper around fetch() that retrieves skip segments for the currently playing item. */
+    /** Wrapper around fetch() that retrieves skip segments for the currently playing item or metadata. */
     async fetchWrapper(resource, options) {
         const response = await this.originalFetch(resource, options);
+        this.processResource(resource);
+        return response;
+    },
+    async processResource(resource) {
         try {
             const url = new URL(resource);
-            if (!url.pathname.includes("/PlaybackInfo")) return response;
-            this.d("Retrieving skip segments from URL", url.pathname);
-            const pathArr = url.pathname.split("/");
-            const id = pathArr[1] === "Items" ? pathArr[2] : pathArr[3];
-            this.skipSegments = await this.secureFetch(`Episode/${id}/IntroSkipperSegments`);
-            this.d("Successfully retrieved skip segments", this.skipSegments);
+            const pathname = url.pathname;
+            if (pathname.includes("/PlaybackInfo")) {
+                this.d(`Retrieving skip segments from URL ${pathname}`);
+                const pathArr = pathname.split("/");
+                const id = pathArr[pathArr.indexOf("Items") + 1] || pathArr[3];
+                this.skipSegments = await this.secureFetch(`Episode/${id}/IntroSkipperSegments`);
+                this.d("Retrieved skip segments", this.skipSegments);
+            } else if (this.injectMetadata && pathname.includes("/MetadataEditor")) {
+                this.d(`Metadata editor detected, URL ${pathname}`);
+                const pathArr = pathname.split("/");
+                this.currentEpisodeId = pathArr[pathArr.indexOf("Items") + 1] || pathArr[3];
+                this.skipperData = await this.secureFetch(`Episode/${this.currentEpisodeId}/Timestamps`);
+                if (this.skipperData) {
+                    requestAnimationFrame(() => {
+                        const metadataFormFields = document.querySelector('.metadataFormFields');
+                        metadataFormFields && this.injectSkipperFields(metadataFormFields);
+                    });
+                }
+            }
         } catch (e) {
-            console.error("Unable to get skip segments from", resource, e);
+            console.error("Error processing", resource, e);
         }
-        return response;
     },
     /**
      * Event handler that runs whenever the current view changes.
@@ -34,18 +50,18 @@ const introSkipper = {
     viewShow() {
         const location = window.location.hash;
         this.d(`Location changed to ${location}`);
-        if (location !== "#/video") {
-            if (this.videoPlayer) this.initializeState();
-            return;
-        }
-        this.injectCss();
-        this.injectButton();
-        this.videoPlayer = document.querySelector("video");
-        if (this.videoPlayer) {
-            this.d("Hooking video timeupdate");
-            this.videoPlayer.addEventListener("timeupdate", this.videoPositionChanged);
-            this.osdElement = document.querySelector("div.videoOsdBottom")
-        }
+        this.allowEnter = true;
+        this.injectMetadata = /#\/(tv|details|home|search)/.test(location);
+        if (location === "#/video") {
+            this.injectCss();
+            this.injectButton();
+            this.videoPlayer = document.querySelector("video");
+            if (this.videoPlayer) {
+                this.d("Hooking video timeupdate");
+                this.videoPlayer.addEventListener("timeupdate", this.videoPositionChanged);
+                this.osdElement = document.querySelector("div.videoOsdBottom")
+            }
+        }   
     },
     /**
      * Injects the CSS used by the skip intro button.
@@ -219,12 +235,119 @@ const introSkipper = {
             ? this.videoPlayer.duration + 10
             : segment.IntroEnd;
     },
+    injectSkipperFields(metadataFormFields) {
+        const skipperFields = document.createElement('div');
+        skipperFields.className = 'detailSection introskipperSection';
+        skipperFields.innerHTML = `
+            <h2>Intro Skipper</h2>
+            <div class="inlineForm">
+                <div class="inputContainer">
+                    <label class="inputLabel inputLabelUnfocused" for="introStart">Intro Start</label>
+                    <input type="text" id="introStartDisplay" class="emby-input custom-time-input" readonly>
+                    <input type="number" id="introStartEdit" class="emby-input custom-time-input" style="display: none;" step="any" min="0">
+                </div>
+                <div class="inputContainer">
+                    <label class="inputLabel inputLabelUnfocused" for="introEnd">Intro End</label>
+                    <input type="text" id="introEndDisplay" class="emby-input custom-time-input" readonly>
+                    <input type="number" id="introEndEdit" class="emby-input custom-time-input" style="display: none;" step="any" min="0">
+                </div>
+            </div>
+            <div class="inlineForm">
+                <div class="inputContainer">
+                    <label class="inputLabel inputLabelUnfocused" for="creditsStart">Credits Start</label>
+                    <input type="text" id="creditsStartDisplay" class="emby-input custom-time-input" readonly>
+                    <input type="number" id="creditsStartEdit" class="emby-input custom-time-input" style="display: none;" step="any" min="0">
+                </div>
+                <div class="inputContainer">
+                    <label class="inputLabel inputLabelUnfocused" for="creditsEnd">Credits End</label>
+                    <input type="text" id="creditsEndDisplay" class="emby-input custom-time-input" readonly>
+                    <input type="number" id="creditsEndEdit" class="emby-input custom-time-input" style="display: none;" step="any" min="0">
+                </div>
+            </div>
+        `;
+        metadataFormFields.querySelector('#metadataSettingsCollapsible').insertAdjacentElement('afterend', skipperFields);
+        this.attachSaveListener(metadataFormFields);
+        this.updateSkipperFields(skipperFields);
+        this.setTimeInputs(skipperFields);
+    },
+    updateSkipperFields(skipperFields) {
+        const { Introduction = {}, Credits = {} } = this.skipperData;
+        skipperFields.querySelector('#introStartEdit').value = Introduction.IntroStart || 0;
+        skipperFields.querySelector('#introEndEdit').value = Introduction.IntroEnd || 0;
+        skipperFields.querySelector('#creditsStartEdit').value = Credits.IntroStart || 0;
+        skipperFields.querySelector('#creditsEndEdit').value = Credits.IntroEnd || 0;
+    },
+    attachSaveListener(metadataFormFields) {
+        const saveButton = metadataFormFields.querySelector('.formDialogFooter .btnSave');
+        if (saveButton) {
+            saveButton.addEventListener('click', this.saveSkipperData.bind(this));
+        } else {
+            console.error('Save button not found');
+        }
+    },
+    setTimeInputs(skipperFields) {
+        const inputContainers = skipperFields.querySelectorAll('.inputContainer');
+        inputContainers.forEach(container => {
+            const displayInput = container.querySelector('[id$="Display"]');
+            const editInput = container.querySelector('[id$="Edit"]');
+            displayInput.addEventListener('click', () => this.switchToEdit(displayInput, editInput));
+            editInput.addEventListener('blur', () => this.switchToDisplay(displayInput, editInput));
+            displayInput.value = this.formatTime(parseFloat(editInput.value) || 0);
+        });
+    },
+    formatTime(totalSeconds) {
+        const totalRoundedSeconds = Math.round(totalSeconds);
+        const hours = Math.floor(totalRoundedSeconds / 3600);
+        const minutes = Math.floor((totalRoundedSeconds % 3600) / 60);
+        const seconds = totalRoundedSeconds % 60;
+        let result = [];
+        if (hours > 0) result.push(`${hours} hour${hours !== 1 ? 's' : ''}`);
+        if (minutes > 0) result.push(`${minutes} minute${minutes !== 1 ? 's' : ''}`);
+        if (seconds > 0 || result.length === 0) result.push(`${seconds} second${seconds !== 1 ? 's' : ''}`);
+        return result.join(' ');
+    },
+    switchToEdit(displayInput, editInput) {
+        displayInput.style.display = 'none';
+        editInput.style.display = '';
+        editInput.focus();
+    },
+    switchToDisplay(displayInput, editInput) {
+        editInput.style.display = 'none';
+        displayInput.style.display = '';
+        displayInput.value = this.formatTime(parseFloat(editInput.value) || 0);
+    },
+    async saveSkipperData() {
+        const newTimestamps = {
+            Introduction: {
+                IntroStart: parseFloat(document.getElementById('introStartEdit').value || 0),
+                IntroEnd: parseFloat(document.getElementById('introEndEdit').value || 0)
+            },
+            Credits: {
+                IntroStart: parseFloat(document.getElementById('creditsStartEdit').value || 0),
+                IntroEnd: parseFloat(document.getElementById('creditsEndEdit').value || 0)
+            }
+        };
+        const { Introduction = {}, Credits = {} } = this.skipperData;
+        if (newTimestamps.Introduction.IntroStart !== (Introduction.IntroStart || 0) ||
+            newTimestamps.Introduction.IntroEnd !== (Introduction.IntroEnd || 0) ||
+            newTimestamps.Credits.IntroStart !== (Credits.IntroStart || 0) ||
+            newTimestamps.Credits.IntroEnd !== (Credits.IntroEnd || 0)) {
+            const response = await this.secureFetch(`Episode/${this.currentEpisodeId}/Timestamps`, "POST", JSON.stringify(newTimestamps));
+            this.d(response.ok ? 'Timestamps updated successfully' : 'Failed to update timestamps:', response.status);
+        } else {
+            this.d('Timestamps have not changed, skipping update');
+        }
+    },
     /** Make an authenticated fetch to the Jellyfin server and parse the response body as JSON. */
-    async secureFetch(url) {
-        url = new URL(url, ApiClient.serverAddress());
-        const res = await fetch(url, { headers: { "Authorization": `MediaBrowser Token=${ApiClient.accessToken()}` } });
-        if (!res.ok) throw new Error(`Expected status 200 from ${url}, but got ${res.status}`);
-        return res.json();
+    async secureFetch(url, method = "GET", body = null) {
+        const response = await fetch(`${ApiClient.serverAddress()}/${url}`, {
+            method,
+            headers: Object.assign({ "Authorization": `MediaBrowser Token=${ApiClient.accessToken()}` },
+                method === "POST" ? {"Content-Type": "application/json"} : {}),
+            body });
+        return response.ok ? (method === "POST" ? response : response.json()) :
+            response.status === 404 ? null :
+            console.error(`Error ${response.status} from ${url}`) || null;
     },
     /** Handle keydown events. */
     eventHandler(e) {
