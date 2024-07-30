@@ -298,7 +298,7 @@ const introSkipper = {
     formatTime(totalSeconds) {
         const hours = Math.floor(totalSeconds / 3600);
         const minutes = Math.floor((totalSeconds % 3600) / 60);
-        const seconds = Math.floor(totalSeconds % 60);
+        const seconds = Math.round(totalSeconds % 60);
         let result = [];
         if (hours > 0) result.push(`${hours} hour${hours !== 1 ? 's' : ''}`);
         if (minutes > 0) result.push(`${minutes} minute${minutes !== 1 ? 's' : ''}`);
