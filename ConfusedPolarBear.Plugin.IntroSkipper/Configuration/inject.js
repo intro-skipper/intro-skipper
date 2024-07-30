@@ -136,7 +136,7 @@ const introSkipper = {
         this.skipButton.innerHTML = `
             <button is="emby-button" type="button" class="btnSkipIntro injected">
                 <span id="btnSkipSegmentText"></span>
-                <span class="material-icons">skip_next</span>
+                <span class="material-icons skip_next"></span>
             </button>
         `;
         this.skipButton.dataset.Introduction = config.SkipButtonIntroText;
