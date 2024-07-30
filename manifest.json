@@ -9,6 +9,14 @@
         "imageUrl": "https://raw.githubusercontent.com/jumoog/intro-skipper/master/images/logo.png",
         "versions": [
             {
+                "version": "0.2.0.14",
+                "changelog": "- See the full changelog at [GitHub](https://github.com/jumoog/intro-skipper/blob/master/CHANGELOG.md)\n",
+                "targetAbi": "10.9.8.0",
+                "sourceUrl": "https://github.com/jumoog/intro-skipper/releases/download/10.9/v0.2.0.14/intro-skipper-v0.2.0.14.zip",
+                "checksum": "1d0b5cdc89030551599e9af4643cb3b5",
+                "timestamp": "2024-07-30T19:46:35Z"
+            },
+            {
                 "version": "0.2.0.13",
                 "changelog": "- See the full changelog at [GitHub](https://github.com/jumoog/intro-skipper/blob/master/CHANGELOG.md)\n",
                 "targetAbi": "10.9.8.0",
