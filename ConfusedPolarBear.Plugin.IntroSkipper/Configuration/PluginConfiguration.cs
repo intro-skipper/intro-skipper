@@ -158,6 +158,11 @@ public class PluginConfiguration : BasePluginConfiguration
     /// </summary>
     public int SecondsOfIntroToPlay { get; set; } = 2;
 
+    /// <summary>
+    /// Gets or sets the amount of credits to play (in seconds).
+    /// </summary>
+    public int SecondsOfCreditsToPlay { get; set; } = 2;
+
     // ===== Internal algorithm settings =====
 
     /// <summary>
