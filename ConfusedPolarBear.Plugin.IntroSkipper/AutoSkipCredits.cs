@@ -133,7 +133,7 @@ public class AutoSkipCredits : IHostedService, IDisposable
             }
 
             // Seek is unreliable if called at the very start of an episode.
-            var adjustedStart = Math.Max(5, credit.IntroStart);
+            var adjustedStart = Math.Max(5, credit.IntroStart) + Plugin.Instance.Configuration.SecondsOfCreditsToPlay;
 
             _logger.LogTrace(
                 "Playback position is {Position}, credits run from {Start} to {End}",
