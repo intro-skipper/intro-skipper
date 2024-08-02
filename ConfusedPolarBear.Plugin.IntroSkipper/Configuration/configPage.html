@@ -371,7 +371,7 @@
                             </label>
                             <input id="SecondsOfIntroStartToPlay" type="number" is="emby-input" min="0" />
                             <div class="fieldDescription">
-                                Seconds of introduction start that should be played. Defaults to 2.
+                                Seconds of introduction start that should be played. Defaults to 0.
                             </div>
                             <br />
                         </div>
@@ -395,7 +395,7 @@
                             </label>
                             <input id="SecondsOfCreditsStartToPlay" type="number" is="emby-input" min="0" />
                             <div class="fieldDescription">
-                                Seconds of credits start that should be played. Defaults to 2.
+                                Seconds of credits start that should be played. Defaults to 0.
                             </div>
                             <br />
                         </div>
@@ -455,16 +455,6 @@
                             <input id="SecondsOfIntroToPlay" type="number" is="emby-input" min="0" />
                             <div class="fieldDescription">
                                 Seconds of introduction ending that should be played. Defaults to 2.
-                            </div>
-                        </div>
-
-                         <div class="inputContainer">
-                            <label class="inputLabel inputLabelUnfocused" for="SecondsOfCreditsToPlay">
-                                Credits playback duration (in seconds)
-                            </label>
-                            <input id="SecondsOfCreditsToPlay" type="number" is="emby-input" min="0" />
-                            <div class="fieldDescription">
-                                Seconds of credits that should be played. Defaults to 0.
                             </div>
                         </div>
 
@@ -716,7 +706,6 @@
                 "SecondsOfIntroToPlay",
                 "SecondsOfIntroStartToPlay",
                 "SecondsOfCreditsStartToPlay",
-                "SecondsOfCreditsToPlay",
                 // internals
                 "SilenceDetectionMaximumNoise",
                 "SilenceDetectionMinimumDuration",
