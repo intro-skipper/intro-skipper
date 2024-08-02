@@ -156,7 +156,7 @@ public class SkipIntroController : ControllerBase
             var segment = new Intro(timestamp);
 
             var config = Plugin.Instance.Configuration;
-            segment.IntroEnd -= config.SecondsOfIntroToPlay;
+            segment.IntroEnd -= config.RemainingSecondsOfIntro;
             if (config.PersistSkipButton)
             {
                 segment.ShowSkipPromptAt = segment.IntroStart;
