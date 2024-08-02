@@ -195,7 +195,7 @@ const introSkipper = {
     videoPositionChanged() {
         if (!this.skipButton) return;
         const embyButton = this.skipButton.querySelector(".emby-button");
-        const segmentType = introSkipper.getCurrentSegment(this.videoPlayer.currentTime).SegmentType;
+        const segmentType = this.getCurrentSegment(this.videoPlayer.currentTime).SegmentType;
         if (segmentType === "None") {
             if (!this.skipButton.classList.contains('show')) return;
             this.skipButton.classList.remove('show');
