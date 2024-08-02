@@ -161,7 +161,7 @@ public class PluginConfiguration : BasePluginConfiguration
     /// <summary>
     /// Gets or sets the amount of credits to play (in seconds).
     /// </summary>
-    public int SecondsOfCreditsToPlay { get; set; } = 2;
+    public int SecondsOfCreditsToPlay { get; set; } = 0;
 
     // ===== Internal algorithm settings =====
 
