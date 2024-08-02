@@ -365,6 +365,17 @@
                             <br />
                         </div>
 
+                        <div id="divSecondsOfIntroStartToPlay" class="inputContainer">
+                            <label class="inputLabel inputLabelUnfocused" for="SecondsOfIntroStartToPlay">
+                                Intro playback duration (in seconds)
+                            </label>
+                            <input id="SecondsOfIntroStartToPlay" type="number" is="emby-input" min="0" />
+                            <div class="fieldDescription">
+                                Seconds of introduction start that should be played. Defaults to 2.
+                            </div>
+                            <br />
+                        </div>
+
                         <div class="checkboxContainer checkboxContainer-withDescription">
                             <label class="emby-checkbox-label">
                                 <input id="AutoSkipCredits" type="checkbox" is="emby-checkbox" />
@@ -376,6 +387,17 @@
                                 reverse proxy, it must be configured to proxy web
                                 sockets.<br />
                             </div>
+                        </div>
+
+                        <div id="divSecondsOfCreditsStartToPlay" class="inputContainer">
+                            <label class="inputLabel inputLabelUnfocused" for="SecondsOfCreditsStartToPlay">
+                                Credit playback duration (in seconds)
+                            </label>
+                            <input id="SecondsOfCreditsStartToPlay" type="number" is="emby-input" min="0" />
+                            <div class="fieldDescription">
+                                Seconds of credits start that should be played. Defaults to 2.
+                            </div>
+                            <br />
                         </div>
 
                         <div class="checkboxContainer checkboxContainer-withDescription">
@@ -433,6 +455,16 @@
                             <input id="SecondsOfIntroToPlay" type="number" is="emby-input" min="0" />
                             <div class="fieldDescription">
                                 Seconds of introduction ending that should be played. Defaults to 2.
+                            </div>
+                        </div>
+
+                         <div class="inputContainer">
+                            <label class="inputLabel inputLabelUnfocused" for="SecondsOfCreditsToPlay">
+                                Credits playback duration (in seconds)
+                            </label>
+                            <input id="SecondsOfCreditsToPlay" type="number" is="emby-input" min="0" />
+                            <div class="fieldDescription">
+                                Seconds of credits that should be played. Defaults to 0.
                             </div>
                         </div>
 
@@ -682,6 +714,9 @@
                 "ShowPromptAdjustment",
                 "HidePromptAdjustment",
                 "SecondsOfIntroToPlay",
+                "SecondsOfIntroStartToPlay",
+                "SecondsOfCreditsStartToPlay",
+                "SecondsOfCreditsToPlay",
                 // internals
                 "SilenceDetectionMaximumNoise",
                 "SilenceDetectionMinimumDuration",
@@ -725,6 +760,8 @@
 
             var autoSkip = document.querySelector("input#AutoSkip");
             var skipFirstEpisode = document.querySelector("div#divSkipFirstEpisode");
+            var secondsOfIntroStartToPlay = document.querySelector("div#divSecondsOfIntroStartToPlay");
+            var secondsOfCreditsStartToPlay = document.querySelector("div#divSecondsOfCreditsStartToPlay");
             var autoSkipNotificationText = document.querySelector("div#divAutoSkipNotificationText");
             var autoSkipCredits = document.querySelector("input#AutoSkipCredits");
             var autoSkipCreditsNotificationText = document.querySelector("div#divAutoSkipCreditsNotificationText");
@@ -733,9 +770,11 @@
                 if (autoSkip.checked) {
                     skipFirstEpisode.style.display = 'unset';
                     autoSkipNotificationText.style.display = 'unset';
+                    secondsOfIntroStartToPlay.style.display = 'unset';
                 } else {
                     skipFirstEpisode.style.display = 'none';
                     autoSkipNotificationText.style.display = 'none';
+                    secondsOfIntroStartToPlay.style.display = 'none';
                 }
             }
 
@@ -744,8 +783,10 @@
             async function autoSkipCreditsChanged() {
                 if (autoSkipCredits.checked) {
                     autoSkipCreditsNotificationText.style.display = 'unset';
+                    secondsOfCreditsStartToPlay.style.display = 'unset';
                 } else {
                     autoSkipCreditsNotificationText.style.display = 'none';
+                    secondsOfCreditsStartToPlay.style.display = 'none';
                 }
             }
 
