@@ -132,16 +132,17 @@ public class AutoSkipCredits : IHostedService, IDisposable
                 continue;
             }
 
-            // Seek is unreliable if called at the very start of an episode.
-            var adjustedStart = Math.Max(5, credit.IntroStart);
+            // Seek is unreliable if called at the very end of an episode.
+            var adjustedStart = credit.IntroStart + Plugin.Instance.Configuration.SecondsOfCreditsStartToPlay;
+            var adjustedEnd = credit.IntroEnd - Plugin.Instance.Configuration.RemainingSecondsOfIntro;
 
             _logger.LogTrace(
                 "Playback position is {Position}, credits run from {Start} to {End}",
                 position,
                 adjustedStart,
-                credit.IntroEnd);
+                adjustedEnd);
 
-            if (position < adjustedStart || position > credit.IntroEnd)
+            if (position < adjustedStart || position > adjustedEnd)
             {
                 continue;
             }
@@ -164,8 +165,6 @@ public class AutoSkipCredits : IHostedService, IDisposable
 
             _logger.LogDebug("Sending seek command to {Session}", deviceId);
 
-            var creditEnd = (long)credit.IntroEnd;
-
             _sessionManager.SendPlaystateCommand(
                 session.Id,
                 session.Id,
@@ -173,7 +172,7 @@ public class AutoSkipCredits : IHostedService, IDisposable
                 {
                     Command = PlaystateCommand.Seek,
                     ControllingUserId = session.UserId.ToString(),
-                    SeekPositionTicks = creditEnd * TimeSpan.TicksPerSecond,
+                    SeekPositionTicks = (long)adjustedEnd * TimeSpan.TicksPerSecond,
                 },
                 CancellationToken.None);
 
