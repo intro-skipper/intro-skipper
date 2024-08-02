@@ -132,16 +132,16 @@ public class AutoSkipCredits : IHostedService, IDisposable
                 continue;
             }
 
-            // Seek is unreliable if called at the very start of an episode.
-            var adjustedStart = Math.Max(5, credit.IntroStart) + Plugin.Instance.Configuration.SecondsOfCreditsToPlay;
+            // Seek is unreliable if called at the very end of an episode.
+            var adjustedEnd = Math.Max(5, credit.IntroEnd) + Plugin.Instance.Configuration.SecondsOfCreditsToPlay;
 
             _logger.LogTrace(
                 "Playback position is {Position}, credits run from {Start} to {End}",
                 position,
-                adjustedStart,
-                credit.IntroEnd);
+                credit.IntroStart,
+                adjustedEnd);
 
-            if (position < adjustedStart || position > credit.IntroEnd)
+            if (position < credit.IntroStart || position > adjustedEnd)
             {
                 continue;
             }
