@@ -86,8 +86,8 @@ public class SkipIntroController : ControllerBase
             // Operate on a copy to avoid mutating the original Intro object stored in the dictionary.
             var segment = new Intro(timestamp);
 
-            var config = Plugin.Instance!.Configuration;
-            segment.IntroEnd -= config.SecondsOfIntroToPlay;
+            var config = Plugin.Instance.Configuration;
+            segment.IntroEnd -= config.RemainingSecondsOfIntro;
             if (config.PersistSkipButton)
             {
                 segment.ShowSkipPromptAt = segment.IntroStart;
