@@ -112,7 +112,7 @@ const introSkipper = {
                 box-shadow: 0 0 8px rgba(var(--accent), 0.6);
                 filter: brightness(1.2);
             }
-            #skipIntro .emby-button:focus:not(:focus-visible) {
+            #skipIntro .emby-button:focus {
                 background: rgb(var(--accent));
                 box-shadow: 0 0 8px rgba(var(--accent), 0.6);
             }
