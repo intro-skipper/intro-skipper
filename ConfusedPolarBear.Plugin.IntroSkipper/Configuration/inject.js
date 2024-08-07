@@ -178,17 +178,11 @@ const introSkipper = {
     overrideBlur(button) {
         if (!button.originalBlur) {
             button.originalBlur = button.blur;
-            button.blur = () => {
-                if (!button.contains(document.activeElement)) {
-                    button.originalBlur();
+            button.blur = function() {
+                if (!this.contains(document.activeElement)) {
+                    this.originalBlur();
                 }
             };
-        }
-    },
-    restoreBlur(button) {
-        if (button.originalBlur) {
-            button.blur = button.originalBlur;
-            delete button.originalBlur;
         }
     },
     /** Playback position changed, check if the skip button needs to be displayed. */
@@ -201,9 +195,12 @@ const introSkipper = {
             this.skipButton.classList.remove('show');
             embyButton.addEventListener("transitionend", () => {
                 this.skipButton.classList.add("hide");
-                this.restoreBlur(embyButton);
-                embyButton.blur();
                 this.allowEnter = true;
+                if (this.osdVisible()) {
+                    this.osdElement.querySelector('button.btnPause').focus();
+                } else {
+                    embyButton.originalBlur();
+                }
             }, { once: true });
             return;
         }
