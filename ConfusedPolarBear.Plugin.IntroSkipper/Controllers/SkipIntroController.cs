@@ -56,7 +56,7 @@ public class SkipIntroController : ControllerBase
     /// <response code="204">New timestamps saved.</response>
     /// <response code="404">Given ID is not an Episode.</response>
     /// <returns>No content.</returns>
-    [Authorize(Policy = Policies.RequiresElevation)]
+    [Authorize(Policy = "RequiresElevation")]
     [HttpPost("Episode/{Id}/Timestamps")]
     public ActionResult UpdateTimestamps([FromRoute] Guid id, [FromBody] TimeStamps timestamps)
     {
