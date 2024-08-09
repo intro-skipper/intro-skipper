@@ -868,11 +868,9 @@
                 const bundle = await fetchWithAuth("IntroSkipper/Storage", "GET", null);
                 const bundleText = await bundle.text();
 
-                // Display it to the user and select all
+                // Display it to the user
                 const ta = document.querySelector("textarea#storage");
                 ta.value = bundleText;
-                ta.focus();
-                ta.setSelectionRange(0, ta.value.length);
             }
 
             // show changed, populate seasons
