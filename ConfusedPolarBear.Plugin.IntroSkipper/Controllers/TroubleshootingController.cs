@@ -5,7 +5,6 @@ using System.Net.Mime;
 using System.Text;
 using MediaBrowser.Common;
 using MediaBrowser.Common.Api;
-using MediaBrowser.Common.Configuration;
 using MediaBrowser.Controller.Library;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
