@@ -521,6 +521,12 @@
                         <textarea id="supportBundle" rows="20" cols="75" readonly></textarea>
                     </details>
 
+                    <details id="storage">
+                        <summary>Storage Usage</summary>
+
+                        <textarea id="storage" rows="20" cols="75" readonly></textarea>
+                    </details>
+
                     <details id="visualizer">
                         <summary>Manage Fingerprints</summary>
 
@@ -541,7 +547,7 @@
                             <h3 style="margin:0">Introduction timestamp editor</h3>
                             <p style="margin:0">All times are displayed in the format (HH:MM:SS)</p>
                             <br />
-                            <table class="detailTable"> 
+                            <table class="detailTable">
                                 <tr>
                                     <th scope="col" class="detailTableHeaderCell">Episode</th>
                                     <th scope="col" class="detailTableHeaderCell">Section</th>
@@ -639,7 +645,7 @@
                         <br />
                         <br />
 
-                        <div id="eraseSeasonContainer" style="display: none;"> 
+                        <div id="eraseSeasonContainer" style="display: none;">
                             <button id="btnEraseSeasonTimestamps" type="button">
                                 Erase all timestamps for this season
                             </button>
@@ -850,6 +856,23 @@
                 } catch {
                     Dashboard.alert("Press Ctrl+C to copy support bundle");
                 }
+            }
+
+            // fetch the storage whenever the detail section is opened.
+            async function storageToggled() {
+                if (!storage.open) {
+                    return;
+                }
+
+                // Fetch the support bundle
+                const bundle = await fetchWithAuth("IntroSkipper/Storage", "GET", null);
+                const bundleText = await bundle.text();
+
+                // Display it to the user and select all
+                const ta = document.querySelector("textarea#storage");
+                ta.value = bundleText;
+                ta.focus();
+                ta.setSelectionRange(0, ta.value.length);
             }
 
             // show changed, populate seasons
@@ -1149,6 +1172,7 @@
 
             visualizer.addEventListener("toggle", visualizerToggled);
             support.addEventListener("toggle", supportToggled);
+            storage.addEventListener("toggle", storageToggled);
             txtOffset.addEventListener("change", renderTroubleshooter);
             selectShow.addEventListener("change", showChanged);
             selectSeason.addEventListener("change", seasonChanged);
