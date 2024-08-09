@@ -29,7 +29,7 @@ public class TroubleshootingController : ControllerBase
     /// Initializes a new instance of the <see cref="TroubleshootingController"/> class.
     /// </summary>
     /// <param name="applicationHost">Application host.</param>
-    /// <param name="libraryManager">k host.</param>
+    /// <param name="libraryManager">Library Manager.</param>
     /// <param name="logger">Logger.</param>
     public TroubleshootingController(
         IApplicationHost applicationHost,
