@@ -541,7 +541,7 @@
                             <h3 style="margin:0">Introduction timestamp editor</h3>
                             <p style="margin:0">All times are displayed in the format (HH:MM:SS)</p>
                             <br />
-                            <table class="detailTable"> 
+                            <table class="detailTable">
                                 <tr>
                                     <th scope="col" class="detailTableHeaderCell">Episode</th>
                                     <th scope="col" class="detailTableHeaderCell">Section</th>
@@ -639,7 +639,7 @@
                         <br />
                         <br />
 
-                        <div id="eraseSeasonContainer" style="display: none;"> 
+                        <div id="eraseSeasonContainer" style="display: none;">
                             <button id="btnEraseSeasonTimestamps" type="button">
                                 Erase all timestamps for this season
                             </button>
@@ -647,7 +647,7 @@
                             <input type="checkbox" id="eraseSeasonCacheCheckbox" style="margin-left: 10px;">
                             <label for="eraseSeasonCacheCheckbox" style="margin-left: 5px;">Erase cached fingerprint files</label>
                         </div>
-                        <hr />
+                        <br />
 
                         <button id="btnEraseIntroTimestamps">
                             Erase all introduction timestamps (globally)
@@ -661,6 +661,15 @@
 
                         <input type="checkbox" id="eraseModeCacheCheckbox" style="margin-left: 10px;">
                         <label for="eraseModeCacheCheckbox" style="margin-left: 5px;">Erase cached fingerprint files</label>
+                    </details>
+
+                    <details id="storage">
+                        <br />
+                        <summary>Storage Usage</summary>
+                            <div class="fieldDescription">
+                                See how much space each library uses.
+                            </div>
+                        <textarea id="storage" rows="20" cols="75" readonly></textarea>
                     </details>
                 </fieldset>
             </div>
@@ -683,6 +692,7 @@
             // settings elements
             var visualizer = document.querySelector("details#visualizer");
             var support = document.querySelector("details#support");
+            var storage = document.querySelector("details#storage");
             var btnEraseIntroTimestamps = document.querySelector("button#btnEraseIntroTimestamps");
             var btnEraseCreditTimestamps = document.querySelector("button#btnEraseCreditTimestamps");
 
@@ -850,6 +860,21 @@
                 } catch {
                     Dashboard.alert("Press Ctrl+C to copy support bundle");
                 }
+            }
+
+            // fetch the storage whenever the detail section is opened.
+            async function storageToggled() {
+                if (!storage.open) {
+                    return;
+                }
+
+                // Fetch the support bundle
+                const bundle = await fetchWithAuth("IntroSkipper/Storage", "GET", null);
+                const bundleText = await bundle.text();
+
+                // Display it to the user
+                const ta = document.querySelector("textarea#storage");
+                ta.value = bundleText;
             }
 
             // show changed, populate seasons
@@ -1149,6 +1174,7 @@
 
             visualizer.addEventListener("toggle", visualizerToggled);
             support.addEventListener("toggle", supportToggled);
+            storage.addEventListener("toggle", storageToggled);
             txtOffset.addEventListener("change", renderTroubleshooter);
             selectShow.addEventListener("change", showChanged);
             selectSeason.addEventListener("change", seasonChanged);
