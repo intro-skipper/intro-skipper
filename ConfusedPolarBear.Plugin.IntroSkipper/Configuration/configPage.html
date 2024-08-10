@@ -521,12 +521,6 @@
                         <textarea id="supportBundle" rows="20" cols="75" readonly></textarea>
                     </details>
 
-                    <details id="storage">
-                        <summary>Storage Usage</summary>
-
-                        <textarea id="storage" rows="20" cols="75" readonly></textarea>
-                    </details>
-
                     <details id="visualizer">
                         <summary>Manage Fingerprints</summary>
 
@@ -653,7 +647,7 @@
                             <input type="checkbox" id="eraseSeasonCacheCheckbox" style="margin-left: 10px;">
                             <label for="eraseSeasonCacheCheckbox" style="margin-left: 5px;">Erase cached fingerprint files</label>
                         </div>
-                        <hr />
+                        <br />
 
                         <button id="btnEraseIntroTimestamps">
                             Erase all introduction timestamps (globally)
@@ -667,6 +661,15 @@
 
                         <input type="checkbox" id="eraseModeCacheCheckbox" style="margin-left: 10px;">
                         <label for="eraseModeCacheCheckbox" style="margin-left: 5px;">Erase cached fingerprint files</label>
+                    </details>
+
+                    <details id="storage">
+                        <br />
+                        <summary>Storage Usage</summary>
+                            <div class="fieldDescription">
+                                See how much space each library uses.
+                            </div>
+                        <textarea id="storage" rows="20" cols="75" readonly></textarea>
                     </details>
                 </fieldset>
             </div>
