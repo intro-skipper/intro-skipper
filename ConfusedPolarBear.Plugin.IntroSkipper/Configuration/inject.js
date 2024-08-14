@@ -287,7 +287,10 @@ const introSkipper = {
         inputContainers.forEach(container => {
             const displayInput = container.querySelector('[id$="Display"]');
             const editInput = container.querySelector('[id$="Edit"]');
-            displayInput.addEventListener('pointerdown', () => this.switchToEdit(displayInput, editInput));
+            displayInput.addEventListener('pointerdown', (e) => {
+                e.preventDefault();
+                this.switchToEdit(displayInput, editInput);
+            });
             editInput.addEventListener('blur', () => this.switchToDisplay(displayInput, editInput));
             displayInput.value = this.formatTime(parseFloat(editInput.value) || 0);
         });
