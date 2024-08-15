@@ -13,6 +13,14 @@ if (!fs.existsSync(manifestPath)) {
     console.error('manifest.json file not found');
     process.exit(1);
 }
+
+// Read README.md
+const readmePath = './README.md';
+if (!fs.existsSync(readmePath)) {
+    console.error('README.md file not found');
+    process.exit(1);
+}
+
 const jsonData = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
 
 const newVersion = {
@@ -33,6 +41,7 @@ async function updateManifest() {
     // Write the updated manifest to file if validation is successful
     fs.writeFileSync(manifestPath, JSON.stringify(jsonData, null, 4));
     console.log('Manifest updated successfully.');
+    updateReadMeVersion();
     process.exit(0); // Exit with no error
 }
 
@@ -92,6 +101,26 @@ async function downloadAndHashFile(url, redirects = 5) {
 function getMD5FromFile() {
     const fileBuffer = fs.readFileSync(`intro-skipper-v${version}.zip`);
     return crypto.createHash('md5').update(fileBuffer).digest('hex');
+}
+
+function getReadMeVersion() {
+    let parts = targetAbi.split('.').map(Number);
+    parts.pop();
+    return parts.join(".");
+}
+
+function updateReadMeVersion() {
+    const newVersion = getReadMeVersion();
+    const readMeContent = fs.readFileSync(readmePath, 'utf8');
+
+    const updatedContent = readMeContent
+        .replace(/Jellyfin.*\(or newer\)/, `Jellyfin ${newVersion} (or newer)`)
+    if (readMeContent != updatedContent) {
+        fs.writeFileSync(readmePath, updatedContent);
+        console.log('Updated README with new Jellyfin version.');
+    } else {
+        console.log('README has already newest Jellyfin version.');
+    }
 }
 
 async function run() {
