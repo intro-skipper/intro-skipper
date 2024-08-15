@@ -39,12 +39,6 @@ async function updateManifest() {
 async function validVersion(version) {
     console.log(`Validating version ${version.version}...`);
 
-    const isValidUrl = await checkUrl(version.sourceUrl);
-    if (!isValidUrl) {
-        console.error(`Invalid URL: ${version.sourceUrl}`);
-        process.exit(1); // Exit with an error code
-    }
-
     const isValidChecksum = await verifyChecksum(version.sourceUrl, version.checksum);
     if (!isValidChecksum) {
         console.error(`Checksum mismatch for URL: ${version.sourceUrl}`);
@@ -52,16 +46,6 @@ async function validVersion(version) {
     } else {
         console.log(`Version ${version.version} is valid.`);
     }
-}
-
-function checkUrl(url) {
-    return new Promise((resolve) => {
-        https.get(url, (res) => {
-            resolve(res.statusCode === 302);
-        }).on('error', () => {
-            resolve(false);
-        });
-    });
 }
 
 async function verifyChecksum(url, expectedChecksum) {
