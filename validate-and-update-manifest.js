@@ -29,6 +29,7 @@ async function updateManifest() {
     // Write the updated manifest to file if validation is successful
     fs.writeFileSync(manifestPath, JSON.stringify(jsonData, null, 4));
     console.log('Manifest updated successfully.');
+    process.exit(0); // Exit with no error
 }
 
 async function validVersion(version) {
@@ -60,13 +61,8 @@ function checkUrl(url) {
 }
 
 async function verifyChecksum(url, expectedChecksum) {
-    const tempFilePath = `tempfile_${Math.random().toString(36).substring(2, 15) + Math.random().toString(23).substring(2, 5)}.zip`;
-
     try {
-        await downloadFile(url, tempFilePath);
-        const fileBuffer = fs.readFileSync(tempFilePath);
-        const hash = crypto.createHash('md5').update(fileBuffer).digest('hex');
-        fs.unlinkSync(tempFilePath); // Clean up temp file
+        const hash = await downloadAndHashFile(url);
         return hash === expectedChecksum;
     } catch (error) {
         console.error(`Error verifying checksum for URL: ${url}`, error);
@@ -74,31 +70,33 @@ async function verifyChecksum(url, expectedChecksum) {
     }
 }
 
-async function downloadFile(url, destinationPath, redirects = 5) {
+async function downloadAndHashFile(url, redirects = 5) {
     if (redirects === 0) {
         throw new Error('Too many redirects');
     }
-
-    const file = fs.createWriteStream(destinationPath);
 
     return new Promise((resolve, reject) => {
         https.get(url, (response) => {
             if (response.statusCode >= 300 && response.statusCode < 400 && response.headers.location) {
                 // Follow redirect
                 const redirectUrl = new URL(response.headers.location, url).toString();
-                downloadFile(redirectUrl, destinationPath, redirects - 1)
+                downloadAndHashFile(redirectUrl, redirects - 1)
                     .then(resolve)
                     .catch(reject);
             } else if (response.statusCode === 200) {
-                response.pipe(file);
-                file.on('finish', () => {
-                    file.close(resolve);
+                const hash = crypto.createHash('md5');
+                response.pipe(hash);
+                response.on('end', () => {
+                    resolve(hash.digest('hex'));
+                });
+                response.on('error', (err) => {
+                    reject(err);
                 });
             } else {
                 reject(new Error(`Failed to get '${url}' (${response.statusCode})`));
             }
         }).on('error', (err) => {
-            fs.unlink(destinationPath, () => reject(err));
+            reject(err);
         });
     });
 }
