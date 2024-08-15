@@ -3,6 +3,10 @@ const crypto = require('crypto');
 const fs = require('fs');
 const { URL } = require('url');
 
+const repository = process.env.GITHUB_REPOSITORY;
+const version = process.env.VERSION;
+const targetAbi = "10.9.9.0";
+
 // Read manifest.json
 const manifestPath = './manifest.json';
 if (!fs.existsSync(manifestPath)) {
@@ -12,12 +16,12 @@ if (!fs.existsSync(manifestPath)) {
 const jsonData = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
 
 const newVersion = {
-    version: process.env.VERSION, // replace with the actual new version
-    changelog: "- See the full changelog at [GitHub](https://github.com/jumoog/intro-skipper/blob/master/CHANGELOG.md)\n",
-    targetAbi: "10.9.9.0",
-    sourceUrl: process.env.SOURCE_URL,
-    checksum: process.env.CHECKSUM,
-    timestamp: process.env.TIMESTAMP
+    version,
+    changelog: `- See the full changelog at [GitHub](https://github.com/${repository}/blob/master/CHANGELOG.md)\n`,
+    targetAbi,
+    sourceUrl: `https://github.com/${repository}/releases/download/10.9/v${version}/intro-skipper-v${version}.zip`,
+    checksum: getMD5FromFile(),
+    timestamp: new Date().toISOString().replace(/\.\d{3}Z$/, 'Z')
 };
 
 async function updateManifest() {
@@ -99,6 +103,11 @@ async function downloadAndHashFile(url, redirects = 5) {
             reject(err);
         });
     });
+}
+
+function getMD5FromFile() {
+    const fileBuffer = fs.readFileSync(`intro-skipper-v${version}.zip`);
+    return crypto.createHash('md5').update(fileBuffer).digest('hex');
 }
 
 async function run() {

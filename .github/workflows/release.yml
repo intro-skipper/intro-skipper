@@ -39,15 +39,6 @@ jobs:
     - name: Create archive
       run: zip -j "intro-skipper-v${{ env.NEW_FILE_VERSION }}.zip" ConfusedPolarBear.Plugin.IntroSkipper/bin/Debug/net8.0/ConfusedPolarBear.Plugin.IntroSkipper.dll
       
-    - name: Generate manifest keys
-      run: |
-        sourceUrl="https://github.com/${{ github.repository }}/releases/download/10.9/v${{ env.NEW_FILE_VERSION }}/intro-skipper-v${{ env.NEW_FILE_VERSION }}.zip"
-        echo "SOURCE_URL=$sourceUrl" >> $GITHUB_ENV
-        md5sum intro-skipper-v${{ env.NEW_FILE_VERSION }}.zip > intro-skipper-v${{ env.NEW_FILE_VERSION }}.md5
-        checksum="$(awk '{print $1}' intro-skipper-v${{ env.NEW_FILE_VERSION }}.md5)"
-        echo "CHECKSUM=$checksum" >> $GITHUB_ENV
-        timestamp="$(date +%FT%TZ)"
-        echo "TIMESTAMP=$timestamp" >> $GITHUB_ENV
 
     - name: Create new release with tag
       if: github.event_name != 'pull_request'
@@ -59,6 +50,7 @@ jobs:
       run: node validate-and-update-manifest.js
       env:
         VERSION: ${{ env.NEW_FILE_VERSION }}
+        GITHUB_REPOSITORY: ${{ github.repository }}
 
     - name: Commit changes
       if: success()
