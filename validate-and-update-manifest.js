@@ -17,7 +17,7 @@ const jsonData = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
 
 const newVersion = {
     version,
-    changelog: `- See the full changelog at [GitHub](https://github.com/${repository}/blob/master/CHANGELOG.md)\n`,
+    changelog: `- See the full changelog at [GitHub](https://github.com/${repository}/releases/tag/10.9/v${version})\n`,
     targetAbi,
     sourceUrl: `https://github.com/${repository}/releases/download/10.9/v${version}/intro-skipper-v${version}.zip`,
     checksum: getMD5FromFile(),
