@@ -187,7 +187,12 @@ public static class FFmpegWrapper
             Plugin.Instance?.Configuration.SilenceDetectionMaximumNoise ?? -50);
 
         // Cache the output of this command to "GUID-intro-silence-v2"
-        var cacheKey = episode.EpisodeId.ToString("N") + "-intro-silence-v2";
+        var cacheKey = string.Format(
+            CultureInfo.InvariantCulture,
+            "{0}-silence-{1}-{2}-v2",
+            episode.EpisodeId.ToString("N"),
+            range.Start,
+            range.End);
 
         var currentRange = new TimeRange();
         var silenceRanges = new List<TimeRange>();

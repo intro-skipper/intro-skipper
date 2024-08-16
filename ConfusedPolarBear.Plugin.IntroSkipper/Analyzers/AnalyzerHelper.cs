@@ -62,8 +62,8 @@ public class AnalyzerHelper
         var chapters = GetChaptersWithVirtualEnd(episode);
         var adjustedIntro = new Intro(originalIntro);
 
-        var originalIntroStart = new TimeRange(Math.Max(0, originalIntro.IntroStart - 5), originalIntro.IntroStart + 10);
-        var originalIntroEnd = new TimeRange(originalIntro.IntroEnd - 10, Math.Min(episode.Duration, originalIntro.IntroEnd + 5));
+        var originalIntroStart = new TimeRange(Math.Max(0, (int)originalIntro.IntroStart - 5), (int)originalIntro.IntroStart + 10);
+        var originalIntroEnd = new TimeRange((int)originalIntro.IntroEnd - 10, Math.Min(episode.Duration, (int)originalIntro.IntroEnd + 5));
 
         _logger.LogTrace("{Name} original intro: {Start} - {End}", episode.Name, originalIntro.IntroStart, originalIntro.IntroEnd);
 
