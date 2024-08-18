@@ -13,7 +13,7 @@ body:
           Docker containers have known permission issues that can be resolved with a few extra steps.
           If your skip button is not shown, please see [Troubleshooting](https://github.com/jumoog/intro-skipper/?tab=readme-ov-file#skip-button-is-not-visible)
       options:
-        - label: Jellyfin is updated and my permissions are correct (or I did not use Docker)
+        - label: Jellyfin is updated (10.9.9) and my permissions are correct (or I did not use Docker)
           required: true
   - type: textarea
     attributes:
@@ -44,7 +44,7 @@ body:
     attributes:
       label: Container image/tag or Jellyfin version
       description: The container for Docker or Jellyfin version for a native install
-      placeholder: jellyfin/jellyfin:10.8.7, jellyfin-intro-skipper:latest, etc.
+      placeholder: jellyfin/jellyfin:10.9.9, jellyfin-intro-skipper:latest, etc.
     validations:
       required: true
 
