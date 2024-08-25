@@ -5,7 +5,7 @@ const { URL } = require('url');
 
 const repository = process.env.GITHUB_REPOSITORY;
 const version = process.env.VERSION;
-const targetAbi = "10.9.9.0";
+const targetAbi = "10.9.10.0";
 
 // Read manifest.json
 const manifestPath = './manifest.json';
