@@ -43,16 +43,15 @@ jobs:
           key: ${{ runner.os }}-node-${{ hashFiles('web/package-lock.json') }}
           restore-keys: |
             ${{ runner.os }}-node-
-      - name: Build and copy web interface
+      - name: Build web interface
         run: |
           cd web
-          npm ci
+          npm ci --no-audit
           npm run build:production
           cp -r dist ../docker/
-          tar czf dist.tar.gz dist
       - name: Upload web interface
         uses: actions/upload-artifact@v4
         with:
-          name: jellyfin-web-${{ matrix.jellyfin-web-version }}+${{ github.sha }}.tar.gz
-          path: web/dist.tar.gz
+          name: jellyfin-web-${{ matrix.jellyfin-web-version }}+${{ github.sha }}
+          path: web/dist
           if-no-files-found: error
