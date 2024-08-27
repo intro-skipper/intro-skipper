@@ -1,0 +1,58 @@
+name: Create Jellyfin-web artifact
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+env:
+  IMAGE_NAME: ${{ github.repository_owner }}/jellyfin-intro-skipper
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    strategy:
+      matrix:
+        node-version: [20.x]
+        jellyfin-web-version: [10.9.10]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Use Node.js ${{ matrix.node-version }}
+        uses: actions/setup-node@v3
+        with:
+          node-version: ${{ matrix.node-version }}
+      - name: Checkout official jellyfin-web
+        uses: actions/checkout@v4
+        with:
+          repository: jellyfin/jellyfin-web
+          ref: v${{ matrix.jellyfin-web-version }}
+          path: web
+      - name: Apply intro skipper patch
+        run: |
+          cd web
+          curl -L "https://github.com/jellyfin/jellyfin-web/compare/v10.9.10...rlauuzo:jellyfin-web:intros.diff" | git apply
+      - name: Get npm cache directory
+        id: npm-cache-dir
+        run: |
+          echo "dir=$(npm config get cache)" >> $GITHUB_OUTPUT
+      - name: Configure npm cache
+        uses: actions/cache@v4
+        id: npm-cache
+        with:
+          path: ${{ steps.npm-cache-dir.outputs.dir }}
+          key: ${{ runner.os }}-node-${{ hashFiles('web/package-lock.json') }}
+          restore-keys: |
+            ${{ runner.os }}-node-
+      - name: Build and copy web interface
+        run: |
+          cd web
+          npm ci
+          npm run build:production
+          cp -r dist ../docker/
+          tar czf dist.tar.gz dist
+      - name: Upload web interface
+        uses: actions/upload-artifact@v4
+        with:
+          name: jellyfin-web-${{ matrix.jellyfin-web-version }}+${{ github.sha }}.tar.gz
+          path: web/dist.tar.gz
+          if-no-files-found: error
