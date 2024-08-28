@@ -35,7 +35,6 @@ jobs:
           cd web
           npm ci --no-audit
           npm run build:production
-          cp -r dist ../docker/
       - name: Upload web interface
         uses: actions/upload-artifact@v4
         with:
