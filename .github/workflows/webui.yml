@@ -3,8 +3,6 @@ on:
   release:
     types: [published]
   workflow_dispatch:
-env:
-  IMAGE_NAME: ${{ github.repository_owner }}/jellyfin-intro-skipper
 jobs:
   build:
     runs-on: ubuntu-latest
