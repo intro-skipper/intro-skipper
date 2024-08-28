@@ -4,6 +4,21 @@ const introSkipper = {
     setup() {
         this.initializeState();
         document.addEventListener("viewshow", this.viewShow.bind(this));
+        this.pip_mode = false;
+
+        document.addEventListener("viewshow", this.viewShow.bind(this));
+        document.addEventListener("viewshow", this.viewShow.bind(this));
+
+        document.addEventListener("enterpictureinpicture", e => {
+            this.pip_mode = true;
+            console.log("pip mode = " + this.pip_mode + ", enter");
+        });
+        
+        document.addEventListener("leavepictureinpicture", e => {
+            this.pip_mode = false;
+            console.log("pip mode = " + this.pip_mode + ", leave");
+        });
+
         window.fetch = this.fetchWrapper.bind(this);
         this.videoPositionChanged = this.videoPositionChanged.bind(this);
         this.d("Registered hooks");
@@ -131,6 +146,7 @@ const introSkipper = {
      * Calling this function is a no-op if the CSS has already been injected.
      */
     async injectButton() {
+        
         // Ensure the button we're about to inject into the page doesn't conflict with a pre-existing one
         const preExistingButton = document.querySelector("div.skipIntro");
         if (preExistingButton) {
@@ -190,6 +206,7 @@ const introSkipper = {
     },
     /** Playback position changed, check if the skip button needs to be displayed. */
     videoPositionChanged() {
+        console.log("pip mode = ", this.pip_mode + "start changed");
         if (!this.skipButton) return;
         const embyButton = this.skipButton.querySelector(".emby-button");
         const segmentType = this.getCurrentSegment(this.videoPlayer.currentTime).SegmentType;
@@ -207,6 +224,11 @@ const introSkipper = {
             }, { once: true });
             return;
         }
+        console.log("pip mode = ", this.pip_mode + "changed");
+        if (this.pip_mode) {
+            console.log("pip mode = ", this.pip_mode + ", skip");
+            this.doSkip();
+        }
         this.skipButton.querySelector("#btnSkipSegmentText").textContent = this.skipButton.dataset[segmentType];
         if (!this.skipButton.classList.contains("hide")) {
             if (!this.osdVisible() && !embyButton.contains(document.activeElement)) embyButton.focus();
@@ -215,9 +237,11 @@ const introSkipper = {
         requestAnimationFrame(() => {
             this.skipButton.classList.remove("hide");
             requestAnimationFrame(() => {
+
                 this.skipButton.classList.add('show');
                 this.overrideBlur(embyButton);
                 embyButton.focus();
+                
             });
         });
     },
