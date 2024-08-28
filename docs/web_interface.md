@@ -53,3 +53,7 @@ For Unraid users, follow these additional steps:
 3. Under **Extra Parameters**, add the appropriate volume mount command:
    - For the `jellyfin/jellyfin` container: `--volume /full/path/to/extracted/dist:/jellyfin/jellyfin-web:ro`
    - For the `linuxserver/jellyfin` container: `--volume /full/path/to/extracted/dist:/usr/share/jellyfin/web:ro`
+
+### Note for Jellyfin Media Player Users
+
+If you are using **Jellyfin Media Player (JMP)**, make sure that the "Intro Skipper Plugin" option is disabled in the JMP settings. This ensures compatibility with the modified web interface and avoids potential conflicts with the intro-skipping functionality.
