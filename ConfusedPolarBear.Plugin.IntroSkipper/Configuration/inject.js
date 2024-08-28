@@ -3,8 +3,8 @@ const introSkipper = {
     d: msg => console.debug("[intro skipper] ", msg),
     setup() {
         this.initializeState();
-        document.addEventListener("viewshow", this.viewShow.bind(this));        
-        this.pip_mode=false;
+        document.addEventListener("viewshow", this.viewShow.bind(this));
+        this.pip_mode = false;
         // add listener to detect when pip is on or off.
         document.addEventListener("enterpictureinpicture", e => {
             this.pip_mode = true;
@@ -69,7 +69,7 @@ const introSkipper = {
                 this.videoPlayer.addEventListener("timeupdate", this.videoPositionChanged);
                 this.osdElement = document.querySelector("div.videoOsdBottom")
             }
-        }   
+        }
     },
     /**
      * Injects the CSS used by the skip intro button.
@@ -175,7 +175,7 @@ const introSkipper = {
     /** Get the currently playing skippable segment. */
     getCurrentSegment(position) {
         for (const [key, segment] of Object.entries(this.skipSegments)) {
-            if ((position > segment.ShowSkipPromptAt && position < segment.HideSkipPromptAt - 1) || 
+            if ((position > segment.ShowSkipPromptAt && position < segment.HideSkipPromptAt - 1) ||
                 (this.osdVisible() && position > segment.IntroStart && position < segment.IntroEnd - 1)) {
                 segment.SegmentType = key;
                 return segment;
