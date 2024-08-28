@@ -5,6 +5,7 @@ const introSkipper = {
         this.initializeState();
         document.addEventListener("viewshow", this.viewShow.bind(this));        
         this.pip_mode;
+        // add listener to detect when pip is on or off.
         document.addEventListener("enterpictureinpicture", e => {
             this.pip_mode = true;
         });
@@ -211,9 +212,9 @@ const introSkipper = {
             }, { once: true });
             return;
         }
+        // if pip is on, automatically skip the intro.
         if (this.pip_mode) {
             this.doSkip();
-            return;
         }
         this.skipButton.querySelector("#btnSkipSegmentText").textContent = this.skipButton.dataset[segmentType];
         if (!this.skipButton.classList.contains("hide")) {
