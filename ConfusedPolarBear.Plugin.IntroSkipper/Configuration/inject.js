@@ -4,7 +4,7 @@ const introSkipper = {
     setup() {
         this.initializeState();
         document.addEventListener("viewshow", this.viewShow.bind(this));        
-        this.pip_mode;
+        this.pip_mode=false;
         // add listener to detect when pip is on or off.
         document.addEventListener("enterpictureinpicture", e => {
             this.pip_mode = true;
