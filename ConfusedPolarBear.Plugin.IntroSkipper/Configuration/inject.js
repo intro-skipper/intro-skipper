@@ -3,21 +3,14 @@ const introSkipper = {
     d: msg => console.debug("[intro skipper] ", msg),
     setup() {
         this.initializeState();
-        document.addEventListener("viewshow", this.viewShow.bind(this));
-        this.pip_mode = false;
-
-        document.addEventListener("viewshow", this.viewShow.bind(this));
-
+        document.addEventListener("viewshow", this.viewShow.bind(this));        
+        this.pip_mode;
         document.addEventListener("enterpictureinpicture", e => {
             this.pip_mode = true;
-            console.log("pip mode = " + this.pip_mode + ", enter");
         });
-        
         document.addEventListener("leavepictureinpicture", e => {
             this.pip_mode = false;
-            console.log("pip mode = " + this.pip_mode + ", leave");
         });
-
         window.fetch = this.fetchWrapper.bind(this);
         this.videoPositionChanged = this.videoPositionChanged.bind(this);
         this.d("Registered hooks");
@@ -218,12 +211,10 @@ const introSkipper = {
             }, { once: true });
             return;
         }
-
         if (this.pip_mode) {
-            console.log("pip mode = ", this.pip_mode + ", skip");
             this.doSkip();
+            return;
         }
-
         this.skipButton.querySelector("#btnSkipSegmentText").textContent = this.skipButton.dataset[segmentType];
         if (!this.skipButton.classList.contains("hide")) {
             if (!this.osdVisible() && !embyButton.contains(document.activeElement)) embyButton.focus();
