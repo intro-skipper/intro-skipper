@@ -8,6 +8,9 @@ const introSkipper = {
         this.videoPositionChanged = this.videoPositionChanged.bind(this);
         this.d("Registered hooks");
     },
+
+
+
     initializeState() {
         Object.assign(this, { allowEnter: true, skipSegments: {}, videoPlayer: null, skipButton: null, osdElement: null, skipperData: null, currentEpisodeId: null, injectMetadata: false });
     },
