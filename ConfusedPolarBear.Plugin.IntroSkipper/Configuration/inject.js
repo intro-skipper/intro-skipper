@@ -7,6 +7,7 @@ const introSkipper = {
         window.fetch = this.fetchWrapper.bind(this);
         this.videoPositionChanged = this.videoPositionChanged.bind(this);
         this.d("Registered hooks");
+        this.pip_mode = false;
     },
     initializeState() {
         Object.assign(this, { allowEnter: true, skipSegments: {}, videoPlayer: null, skipButton: null, osdElement: null, skipperData: null, currentEpisodeId: null, injectMetadata: false });
@@ -139,6 +140,9 @@ const introSkipper = {
             return;
         }
         const config = await this.secureFetch("Intros/UserInterfaceConfiguration");
+
+        this.pip_mode = config.AutoSkipPip;
+    
         if (!config.SkipButtonVisible) {
             this.d("Not adding button: not visible");
             return;
@@ -204,9 +208,9 @@ const introSkipper = {
             }, { once: true });
             return;
         }
-        // if pip is on, automatically skip the intro.
-        if (document.pictureInPictureElement) {
-            this.doskip();
+        // if pip is on, and the feature is enabled, automatically skip the intro.
+        if (this.pip_mode && document.pictureInPictureElement) {
+            this.doSkip();
         }
         this.skipButton.querySelector("#btnSkipSegmentText").textContent = this.skipButton.dataset[segmentType];
         if (!this.skipButton.classList.contains("hide")) {

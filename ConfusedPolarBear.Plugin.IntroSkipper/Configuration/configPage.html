@@ -342,6 +342,18 @@
 
                         <div class="checkboxContainer checkboxContainer-withDescription">
                             <label class="emby-checkbox-label">
+                                <input id="AutoSkipPip" type="checkbox" is="emby-checkbox" />
+                                <span>Automatically skip intros when the player is using picture in picture mode</span>
+                            </label>
+
+                            <div class="fieldDescription">
+                                If checked, intros will be automatically skipped when the user is in picture in picture mode<br />
+                                Node: if checked, the auto skip in picture in picture mode feature will not work on firefox.
+                            </div>
+                        </div>
+
+                        <div class="checkboxContainer checkboxContainer-withDescription">
+                            <label class="emby-checkbox-label">
                                 <input id="AutoSkip" type="checkbox" is="emby-checkbox" />
                                 <span>Automatically skip intros</span>
                             </label>
@@ -491,7 +503,7 @@
                                     Message shown after automatically skipping an introduction. Leave blank to disable notification.
                                 </div>
                             </div>
-
+                            
                             <div id="divAutoSkipCreditsNotificationText" class="inputContainer">
                                 <label class="inputLabel" for="AutoSkipCreditsNotificationText">
                                     Automatic skip notification message
@@ -733,6 +745,7 @@
                 "RegenerateEdlFiles",
                 "UseChromaprint",
                 "CacheFingerprints",
+                "AutoSkipPip",
                 "AutoSkip",
                 "AutoSkipCredits",
                 "SkipFirstEpisode",
@@ -776,7 +789,6 @@
                     secondsOfIntroStartToPlay.style.display = 'none';
                 }
             }
-
             autoSkip.addEventListener("change", autoSkipChanged);
 
             async function autoSkipCreditsChanged() {
@@ -788,7 +800,6 @@
                     secondsOfCreditsStartToPlay.style.display = 'none';
                 }
             }
-
             autoSkipCredits.addEventListener("change", autoSkipCreditsChanged);
 
             var persistSkip = document.querySelector("input#PersistSkipButton");

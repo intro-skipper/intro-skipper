@@ -11,11 +11,13 @@ public class UserInterfaceConfiguration
     /// <param name="visible">Skip button visibility.</param>
     /// <param name="introText">Skip button intro text.</param>
     /// <param name="creditsText">Skip button end credits text.</param>
-    public UserInterfaceConfiguration(bool visible, string introText, string creditsText)
+    /// <param name="autoSkipPipMode">Auto skip picture-in-picture.</param>
+    public UserInterfaceConfiguration(bool visible, string introText, string creditsText, bool autoSkipPipMode)
     {
         SkipButtonVisible = visible;
         SkipButtonIntroText = introText;
         SkipButtonEndCreditsText = creditsText;
+        AutoSkipPip = autoSkipPipMode;
     }
 
     /// <summary>
@@ -32,4 +34,9 @@ public class UserInterfaceConfiguration
     /// Gets or sets the text to display in the skip intro button in end credits mode.
     /// </summary>
     public string SkipButtonEndCreditsText { get; set; }
+
+    /// <summary>
+    /// Gets or sets a value indicating whether to automatically skip the intro when in picture-in-picture mode.
+    /// </summary>
+    public bool AutoSkipPip { get; set; }
 }

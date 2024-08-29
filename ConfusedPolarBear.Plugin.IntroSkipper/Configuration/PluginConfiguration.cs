@@ -124,6 +124,11 @@ public class PluginConfiguration : BasePluginConfiguration
     public bool SkipButtonVisible { get; set; } = true;
 
     /// <summary>
+    /// Gets or sets a value indicating whether to automatically skip the intro when in picture-in-picture mode.
+    /// </summary>
+    public bool AutoSkipPip { get; set; } = true;
+
+    /// <summary>
     /// Gets or sets a value indicating whether introductions should be automatically skipped.
     /// </summary>
     public bool AutoSkip { get; set; }
