@@ -58,9 +58,9 @@ const introSkipper = {
         this.allowEnter = true;
         this.injectMetadata = /#\/(tv|details|home|search)/.test(location);
         if (location === "#/video") {
-            observer.observe(document.body, { childList: true, subtree: true });
             this.injectCss();
             this.injectButton();
+            observer.observe(document.body, { childList: true, subtree: true });
             this.videoPlayer = document.querySelector("video");
             if (this.videoPlayer) {
                 this.d("Hooking video timeupdate");
@@ -147,7 +147,7 @@ const introSkipper = {
         const config = await this.secureFetch("Intros/UserInterfaceConfiguration");
 
         this.pip_mode = config.AutoSkipPip;
-    
+        this.localStorageHandler();
         if (!config.SkipButtonVisible) {
             this.d("Not adding button: not visible");
             return;
@@ -370,7 +370,15 @@ const introSkipper = {
         e.stopPropagation();
         e.preventDefault();
         this.doSkip();
+    },
+    localStorageHandler() {
+        this.currentOption = localStorage.getItem(STORAGE_KEY);
+        if (this.currentOption == 'Off' && (document.pictureInPictureEnabled && this.pip_mode)) {
+            localStorage.setItem(STORAGE_KEY, 'PiP only');
+            this.currentOption = 'PiP only';
+        }
     }
+    
 };
 introSkipper.setup();
 
@@ -430,7 +438,7 @@ function openSubmenu() {
 
     const scroller = submenu.querySelector('.actionSheetScroller');
     OPTIONS.forEach(option => {
-        if (option !== 'PiP only' || document.pictureInPictureEnabled) {
+        if ((option !== 'PiP only' || document.pictureInPictureEnabled) && (option !== 'Off'|| !introSkipper.pip_mode)) {
             scroller.appendChild(createSubmenuItem(option));
         }
     });
