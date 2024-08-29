@@ -1,3 +1,7 @@
+const BUTTON_ID = 'introskipperMenu';
+const STORAGE_KEY = 'introskipperOption';
+const OPTIONS = ['Off', 'Always', 'PiP only'];
+
 const introSkipper = {
     originalFetch: window.fetch.bind(window),
     d: msg => console.debug("[intro skipper] ", msg),
@@ -54,6 +58,7 @@ const introSkipper = {
         this.allowEnter = true;
         this.injectMetadata = /#\/(tv|details|home|search)/.test(location);
         if (location === "#/video") {
+            observer.observe(document.body, { childList: true, subtree: true });
             this.injectCss();
             this.injectButton();
             this.videoPlayer = document.querySelector("video");
@@ -208,8 +213,10 @@ const introSkipper = {
             }, { once: true });
             return;
         }
+        
+        this.currentOption = localStorage.getItem(STORAGE_KEY) || 'Pip only';
         // if pip is on, and the feature is enabled, automatically skip the intro.
-        if (this.pip_mode && document.pictureInPictureElement) {
+        if (this.currentOption == 'Always' || ((this.currentOption == 'PiP only' || this.pip_mode) && document.pictureInPictureElement)) {
             this.doSkip();
         }
         this.skipButton.querySelector("#btnSkipSegmentText").textContent = this.skipButton.dataset[segmentType];
@@ -366,3 +373,171 @@ const introSkipper = {
     }
 };
 introSkipper.setup();
+
+const observer = new MutationObserver(mutations => {
+    const mutation = mutations[mutations.length - 1];
+    if (mutation.type === 'childList') {
+        const container = mutation.target.querySelector('.actionSheetScroller');
+        if (container) {
+            injectMenu(container);
+        }
+    }
+});
+
+function createMenuItem() {
+    const button = document.createElement('button');
+    button.className = 'listItem listItem-button actionSheetMenuItem emby-button';
+    button.setAttribute('is', 'emby-button');
+    button.setAttribute('type', 'button');
+    button.setAttribute('data-id', BUTTON_ID);
+    button.innerHTML = `
+        <div class="listItemBody actionsheetListItemBody">
+            <div class="listItemBodyText actionSheetItemText">Automatically Skip</div>
+        </div>
+        <div class="listItemAside actionSheetItemAsideText">${localStorage.getItem(STORAGE_KEY) || 'Pip only'}</div>
+    `;
+    button.addEventListener('click', openSubmenu.bind());
+    return button;
+}
+
+function createSubmenuItem(option) {
+    const button = document.createElement('button');
+    button.className = 'listItem listItem-button actionSheetMenuItem emby-button';
+    button.setAttribute('is', 'emby-button');
+    button.setAttribute('type', 'button');
+    button.setAttribute('data-id', `introskipper-${option.toLowerCase().replace(' ', '-')}`);
+    button.innerHTML = `
+        <span class="actionsheetMenuItemIcon listItemIcon listItemIcon-transparent material-icons check" aria-hidden="true" style="visibility:${option === (localStorage.getItem(STORAGE_KEY) || 'Pip only') ? 'visible' : 'hidden'};"></span>
+        <div class="listItemBody actionsheetListItemBody">
+            <div class="listItemBodyText actionSheetItemText">${option}</div>
+        </div>
+    `;
+    button.addEventListener('click', () => selectOption(option));
+    return button;
+}
+
+function openSubmenu() {
+    const submenu = document.createElement('div');
+    submenu.className = 'dialogContainer';
+    submenu.innerHTML = `
+        <div class="focuscontainer dialog actionsheet-not-fullscreen actionSheet centeredDialog opened" data-history="true" data-removeonclose="true">
+            <div class="actionSheetContent">
+                <div class="actionSheetScroller scrollY" style="padding-bottom: 10px;">
+                </div>
+            </div>
+        </div>
+    `;
+
+    const scroller = submenu.querySelector('.actionSheetScroller');
+    OPTIONS.forEach(option => {
+        if (option !== 'PiP only' || document.pictureInPictureEnabled) {
+            scroller.appendChild(createSubmenuItem(option));
+        }
+    });
+
+    document.body.appendChild(submenu);
+    recalculatePosition(scroller);
+
+    submenu.addEventListener('click', (e) => {
+        if (e.target === submenu) {
+            submenu.remove();
+        }
+    });
+}
+
+function selectOption(option) {
+    localStorage.setItem(STORAGE_KEY, option);
+    console.log(`Introskipper option selected and saved: ${option}`);
+    updateMainButton();
+    document.querySelector('.dialogContainer').remove();
+}
+
+function updateMainButton() {
+    const button = document.querySelector(`[data-id="${BUTTON_ID}"]`);
+    if (button) {
+        button.querySelector('.actionSheetItemAsideText').textContent = localStorage.getItem(STORAGE_KEY) || 'Pip only';
+    }
+}
+
+function injectMenu(container) {    
+    const statsButton = document.querySelector('[data-id="stats"]');
+    const menuItem = createMenuItem();
+
+    if (statsButton) {
+        statsButton.before(menuItem);
+        console.debug("Introskipper menu item injected");
+        recalculatePosition(container);
+    }
+}
+
+function recalculatePosition(container) {
+    const actionSheet = container.closest('.actionSheet');
+    if (!actionSheet) return;
+
+    const dlg = actionSheet;
+    const options = {
+        positionTo: document.querySelector('.btnVideoOsdSettings'),
+        positionY: 'top',
+        offsetTop: 0,
+        offsetLeft: 0
+    };
+
+    const pos = getPosition(options.positionTo, options, dlg);
+
+    if (pos) {
+        dlg.style.position = 'fixed';
+        dlg.style.margin = '0';
+        dlg.style.left = pos.left + 'px';
+        dlg.style.top = pos.top + 'px';
+    }
+}
+
+function getPosition(positionTo, options, dlg) {
+    const windowSize = getWindowSize();
+    const windowHeight = windowSize.innerHeight;
+    const windowWidth = windowSize.innerWidth;
+    const pos = getOffsets([positionTo])[0];
+    if (options.positionY !== 'top') {
+        pos.top += (pos.height || 0) / 2;
+    }
+    pos.left += (pos.width || 0) / 2;
+    const height = dlg.offsetHeight || 300;
+    const width = dlg.offsetWidth || 160;
+    // Account for popup size
+    pos.top -= height / 2;
+    pos.left -= width / 2;
+    // Avoid showing too close to the bottom
+    const overflowX = pos.left + width - windowWidth;
+    const overflowY = pos.top + height - windowHeight;
+    if (overflowX > 0) {
+        pos.left -= (overflowX + 20);
+    }
+    if (overflowY > 0) {
+        pos.top -= (overflowY + 20);
+    }
+    pos.top += (options.offsetTop || 0);
+    pos.left += (options.offsetLeft || 0);
+    // Do some boundary checking
+    pos.top = Math.max(pos.top, 10);
+    pos.left = Math.max(pos.left, 10);
+    return pos;
+}
+
+function getWindowSize() {
+    return {
+        innerHeight: window.innerHeight,
+        innerWidth: window.innerWidth
+    };
+}
+
+function getOffsets(elements) {
+    return elements.map(el => {
+        const rect = el.getBoundingClientRect();
+        return {
+            top: rect.top,
+            left: rect.left,
+            width: rect.width,
+            height: rect.height
+        };
+    });
+}
