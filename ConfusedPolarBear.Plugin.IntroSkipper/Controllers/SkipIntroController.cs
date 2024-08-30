@@ -261,6 +261,8 @@ public class SkipIntroController : ControllerBase
             config.SkipButtonVisible,
             config.SkipButtonIntroText,
             config.SkipButtonEndCreditsText,
-            config.AutoSkipPip);
+            config.ClientConfiguration,
+            config.DefaultsOptionSupport,
+            config.DefaultsOptionUnSupport);
     }
 }

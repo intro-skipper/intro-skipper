@@ -11,13 +11,17 @@ public class UserInterfaceConfiguration
     /// <param name="visible">Skip button visibility.</param>
     /// <param name="introText">Skip button intro text.</param>
     /// <param name="creditsText">Skip button end credits text.</param>
-    /// <param name="autoSkipPipMode">Auto skip picture-in-picture.</param>
-    public UserInterfaceConfiguration(bool visible, string introText, string creditsText, bool autoSkipPipMode)
+    /// <param name="clientConfiguration">Client configuration visibility.</param>
+    /// <param name="defaultsOptionSupport">Defaults option for clients that support picture-in-picture.</param>
+    /// <param name="defaultsOptionUnSupport">Defaults option for clients that do not support picture-in-picture.</param>
+    public UserInterfaceConfiguration(bool visible, string introText, string creditsText, bool clientConfiguration, string defaultsOptionSupport, string defaultsOptionUnSupport)
     {
         SkipButtonVisible = visible;
         SkipButtonIntroText = introText;
         SkipButtonEndCreditsText = creditsText;
-        AutoSkipPip = autoSkipPipMode;
+        ClientConfiguration = clientConfiguration;
+        DefaultsOptionSupport = defaultsOptionSupport;
+        DefaultsOptionUnSupport = defaultsOptionUnSupport;
     }
 
     /// <summary>
@@ -36,7 +40,17 @@ public class UserInterfaceConfiguration
     public string SkipButtonEndCreditsText { get; set; }
 
     /// <summary>
-    /// Gets or sets a value indicating whether to automatically skip the intro when in picture-in-picture mode.
+    /// Gets or sets a value indicating whether to show the intro skip configuration in the player.
     /// </summary>
-    public bool AutoSkipPip { get; set; }
+    public bool ClientConfiguration { get; set; }
+
+    /// <summary>
+    /// Gets or sets the defaults option for clients that support the picture-in-picture mode.
+    /// </summary>
+    public string DefaultsOptionSupport { get; set; }
+
+    /// <summary>
+    /// Gets or sets the defaults option for clients that do not support the picture-in-picture mode.
+    /// </summary>
+    public string DefaultsOptionUnSupport { get; set; }
 }

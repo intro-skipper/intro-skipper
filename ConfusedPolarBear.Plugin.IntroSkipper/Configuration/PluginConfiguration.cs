@@ -124,9 +124,9 @@ public class PluginConfiguration : BasePluginConfiguration
     public bool SkipButtonVisible { get; set; } = true;
 
     /// <summary>
-    /// Gets or sets a value indicating whether to automatically skip the intro when in picture-in-picture mode.
+    /// Gets or sets a value indicating whether to show the intro skip configuration in the player.
     /// </summary>
-    public bool AutoSkipPip { get; set; } = true;
+    public bool ClientConfiguration { get; set; } = true;
 
     /// <summary>
     /// Gets or sets a value indicating whether introductions should be automatically skipped.
@@ -228,6 +228,16 @@ public class PluginConfiguration : BasePluginConfiguration
     /// Gets or sets the number of threads for an ffmpeg process.
     /// </summary>
     public int ProcessThreads { get; set; } = 0;
+
+    /// <summary>
+    /// Gets or sets the default option for the skip button, for when the client supports picture-in-picture.
+    /// </summary>
+    public string DefaultsOptionSupport { get; set; } = "Button w/ Auto Pip";
+
+    /// <summary>
+    /// Gets or sets the default option for the skip button, for when the client does not support picture-in-picture.
+    /// </summary>
+    public string DefaultsOptionUnSupport { get; set; } = "Button only";
 
     /// <summary>
     /// Gets or sets the relative priority for an ffmpeg process.

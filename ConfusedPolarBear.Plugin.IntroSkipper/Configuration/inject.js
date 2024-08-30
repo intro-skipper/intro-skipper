@@ -1,17 +1,33 @@
 const BUTTON_ID = 'introskipperMenu';
 const STORAGE_KEY = 'introskipperOption';
-const OPTIONS = ['Off', 'Always', 'PiP only'];
+
+const OPTIONS_UNSUPPORTED_PIP = ['default', 'Always Auto', 'Button only', 'Off'];
+const OPTIONS_SUPPORTED_PIP = ['default', 'Button w/ Auto Pip', 'Always Auto', 'Button only', 'Off'];
 
 const introSkipper = {
     originalFetch: window.fetch.bind(window),
     d: msg => console.debug("[intro skipper] ", msg),
     setup() {
+        this.localStorageHandler();
         this.initializeState();
+        this.initializeObservers();
+        this.VisibleConfiguration = false;
         document.addEventListener("viewshow", this.viewShow.bind(this));
         window.fetch = this.fetchWrapper.bind(this);
         this.videoPositionChanged = this.videoPositionChanged.bind(this);
         this.d("Registered hooks");
-        this.pip_mode = false;
+    },
+    initializeObservers() {
+        this.Observer = new MutationObserver(mutations => {
+            if (!this.VisibleConfiguration) return;
+            const mutation = mutations[mutations.length - 1];
+            if (mutation.type === 'childList') {
+                const container = mutation.target.querySelector('.actionSheetScroller');
+                if (container) {
+                    this.injectMenu(container);
+                }
+            }
+        });
     },
     initializeState() {
         Object.assign(this, { allowEnter: true, skipSegments: {}, videoPlayer: null, skipButton: null, osdElement: null, skipperData: null, currentEpisodeId: null, injectMetadata: false });
@@ -55,19 +71,22 @@ const introSkipper = {
     viewShow() {
         const location = window.location.hash;
         this.d(`Location changed to ${location}`);
-        this.allowEnter = true;
-        this.injectMetadata = /#\/(tv|details|home|search)/.test(location);
         if (location === "#/video") {
             this.injectCss();
             this.injectButton();
-            observer.observe(document.body, { childList: true, subtree: true });
             this.videoPlayer = document.querySelector("video");
             if (this.videoPlayer) {
                 this.d("Hooking video timeupdate");
                 this.videoPlayer.addEventListener("timeupdate", this.videoPositionChanged);
                 this.osdElement = document.querySelector("div.videoOsdBottom")
+                this.Observer.observe(document.body, { childList: true, subtree: true });
             }
         }
+        else {
+            this.allowEnter = true;
+            this.injectMetadata = /#\/(tv|details|home|search)/.test(location);
+            this.Observer.disconnect();
+        } 
     },
     /**
      * Injects the CSS used by the skip intro button.
@@ -145,12 +164,15 @@ const introSkipper = {
             return;
         }
         const config = await this.secureFetch("Intros/UserInterfaceConfiguration");
-
-        this.pip_mode = config.AutoSkipPip;
-        this.localStorageHandler();
         if (!config.SkipButtonVisible) {
             this.d("Not adding button: not visible");
             return;
+        }
+        this.DefaultsOption = this.getDefaultsOptions(config);
+        this.CurrentActiveOption = this.CurrentActiveOption ==='default' ? this.DefaultsOption : this.CurrentActiveOption;
+        this.VisibleConfiguration = config.ClientConfiguration;
+        if (!this.VisibleConfiguration){
+            localStorage.setItem(STORAGE_KEY, 'default');
         }
         this.d("Adding button");
         this.skipButton = document.createElement("div");
@@ -213,11 +235,13 @@ const introSkipper = {
             }, { once: true });
             return;
         }
+
+        if (this.CurrentActiveOption === 'Off') return;
         
-        this.currentOption = localStorage.getItem(STORAGE_KEY) || 'Pip only';
-        // if pip is on, and the feature is enabled, automatically skip the intro.
-        if (this.currentOption == 'Always' || ((this.currentOption == 'PiP only' || this.pip_mode) && document.pictureInPictureElement)) {
+        this.CurrentActiveOption = localStorage.getItem(STORAGE_KEY) === 'default' ? this.CurrentActiveOption : localStorage.getItem(STORAGE_KEY);
+        if ((this.CurrentActiveOption == "Button w/ Auto Pip" && document.pictureInPictureElement) || this.CurrentActiveOption == "Always Auto") {
             this.doSkip();
+            return;
         }
         this.skipButton.querySelector("#btnSkipSegmentText").textContent = this.skipButton.dataset[segmentType];
         if (!this.skipButton.classList.contains("hide")) {
@@ -372,180 +396,161 @@ const introSkipper = {
         this.doSkip();
     },
     localStorageHandler() {
-        this.currentOption = localStorage.getItem(STORAGE_KEY);
-        if (this.currentOption == 'Off' && (document.pictureInPictureEnabled && this.pip_mode)) {
-            localStorage.setItem(STORAGE_KEY, 'PiP only');
-            this.currentOption = 'PiP only';
+        this.CurrentActiveOption = localStorage.getItem(STORAGE_KEY);
+        if (this.CurrentActiveOption === null) {
+            this.CurrentActiveOption = 'default';
+            localStorage.setItem(STORAGE_KEY, 'default');
         }
-    }
-    
-};
-introSkipper.setup();
-
-const observer = new MutationObserver(mutations => {
-    const mutation = mutations[mutations.length - 1];
-    if (mutation.type === 'childList') {
-        const container = mutation.target.querySelector('.actionSheetScroller');
-        if (container) {
-            injectMenu(container);
-        }
-    }
-});
-
-function createMenuItem() {
-    const button = document.createElement('button');
-    button.className = 'listItem listItem-button actionSheetMenuItem emby-button';
-    button.setAttribute('is', 'emby-button');
-    button.setAttribute('type', 'button');
-    button.setAttribute('data-id', BUTTON_ID);
-    button.innerHTML = `
-        <div class="listItemBody actionsheetListItemBody">
-            <div class="listItemBodyText actionSheetItemText">Automatically Skip</div>
-        </div>
-        <div class="listItemAside actionSheetItemAsideText">${localStorage.getItem(STORAGE_KEY) || 'Pip only'}</div>
-    `;
-    button.addEventListener('click', openSubmenu.bind());
-    return button;
-}
-
-function createSubmenuItem(option) {
-    const button = document.createElement('button');
-    button.className = 'listItem listItem-button actionSheetMenuItem emby-button';
-    button.setAttribute('is', 'emby-button');
-    button.setAttribute('type', 'button');
-    button.setAttribute('data-id', `introskipper-${option.toLowerCase().replace(' ', '-')}`);
-    button.innerHTML = `
-        <span class="actionsheetMenuItemIcon listItemIcon listItemIcon-transparent material-icons check" aria-hidden="true" style="visibility:${option === (localStorage.getItem(STORAGE_KEY) || 'Pip only') ? 'visible' : 'hidden'};"></span>
-        <div class="listItemBody actionsheetListItemBody">
-            <div class="listItemBodyText actionSheetItemText">${option}</div>
-        </div>
-    `;
-    button.addEventListener('click', () => selectOption(option));
-    return button;
-}
-
-function openSubmenu() {
-    const submenu = document.createElement('div');
-    submenu.className = 'dialogContainer';
-    submenu.innerHTML = `
-        <div class="focuscontainer dialog actionsheet-not-fullscreen actionSheet centeredDialog opened" data-history="true" data-removeonclose="true">
-            <div class="actionSheetContent">
-                <div class="actionSheetScroller scrollY" style="padding-bottom: 10px;">
+    },
+    getDefaultsOptions(config) {
+        return document.pictureInPictureEnabled ? config.DefaultsOptionSupport : config.DefaultsOptionUnSupport;
+    },
+    createMenuItem() {
+        const button = document.createElement('button');
+        button.className = 'listItem listItem-button actionSheetMenuItem emby-button';
+        button.setAttribute('is', 'emby-button');
+        button.setAttribute('type', 'button');
+        button.setAttribute('data-id', BUTTON_ID);
+        button.innerHTML = `
+            <div class="listItemBody actionsheetListItemBody">
+                <div class="listItemBodyText actionSheetItemText">skip intro</div>
+            </div>
+            <div class="listItemAside actionSheetItemAsideText">${localStorage.getItem(STORAGE_KEY)}</div>
+        `;
+        button.addEventListener('click', this.openSubmenu.bind(this));
+        return button;
+    },
+    createSubmenuItem(option) {
+        const button = document.createElement('button');
+        button.className = 'listItem listItem-button actionSheetMenuItem emby-button';
+        button.setAttribute('is', 'emby-button');
+        button.setAttribute('type', 'button');
+        button.setAttribute('data-id', `introskipper-${option.toLowerCase().replace(' ', '-')}`);
+        button.innerHTML = `
+            <span class="actionsheetMenuItemIcon listItemIcon listItemIcon-transparent material-icons check" aria-hidden="true" style="visibility:${option === localStorage.getItem(STORAGE_KEY) ? 'visible' : 'hidden'};"></span>
+            <div class="listItemBody actionsheetListItemBody">
+                <div class="listItemBodyText actionSheetItemText">${option}</div>
+            </div>
+        `;
+        button.addEventListener('click', () => this.selectOption(option));
+        return button;
+    },
+    openSubmenu() {
+        const submenu = document.createElement('div');
+        submenu.className = 'dialogContainer';
+        submenu.innerHTML = `
+            <div class="focuscontainer dialog actionsheet-not-fullscreen actionSheet centeredDialog opened" data-history="true" data-removeonclose="true">
+                <div class="actionSheetContent">
+                    <div class="actionSheetScroller scrollY" style="padding-bottom: 10px;">
+                    </div>
                 </div>
             </div>
-        </div>
-    `;
+        `;
+    
+        const scroller = submenu.querySelector('.actionSheetScroller');
+        (document.pictureInPictureEnabled ? OPTIONS_SUPPORTED_PIP : OPTIONS_UNSUPPORTED_PIP).forEach(option => scroller.appendChild(this.createSubmenuItem(option)));
 
-    const scroller = submenu.querySelector('.actionSheetScroller');
-    OPTIONS.forEach(option => {
-        if ((option !== 'PiP only' || document.pictureInPictureEnabled) && (option !== 'Off'|| !introSkipper.pip_mode)) {
-            scroller.appendChild(createSubmenuItem(option));
+        document.body.appendChild(submenu);
+        this.recalculatePosition(scroller);
+    
+        submenu.addEventListener('click', (e) => {
+            if (e.target === submenu) {
+                submenu.remove();
+            }
+        });
+    },
+    selectOption(option) {
+        localStorage.setItem(STORAGE_KEY, option);
+        if (option === 'default') {
+            this.CurrentActiveOption = this.DefaultsOption;
         }
-    });
-
-    document.body.appendChild(submenu);
-    recalculatePosition(scroller);
-
-    submenu.addEventListener('click', (e) => {
-        if (e.target === submenu) {
-            submenu.remove();
+        this.d(`Introskipper option selected and saved: ${option}`);
+        this.updateMainButton();
+        document.querySelector('.dialogContainer').remove();
+    },
+    updateMainButton() {
+        const button = document.querySelector(`[data-id="${BUTTON_ID}"]`);
+        if (button) {
+            button.querySelector('.actionSheetItemAsideText').textContent = localStorage.getItem(STORAGE_KEY) || 'Pip only';
         }
-    });
-}
-
-function selectOption(option) {
-    localStorage.setItem(STORAGE_KEY, option);
-    console.log(`Introskipper option selected and saved: ${option}`);
-    updateMainButton();
-    document.querySelector('.dialogContainer').remove();
-}
-
-function updateMainButton() {
-    const button = document.querySelector(`[data-id="${BUTTON_ID}"]`);
-    if (button) {
-        button.querySelector('.actionSheetItemAsideText').textContent = localStorage.getItem(STORAGE_KEY) || 'Pip only';
-    }
-}
-
-function injectMenu(container) {    
-    const statsButton = document.querySelector('[data-id="stats"]');
-    const menuItem = createMenuItem();
-
-    if (statsButton) {
-        statsButton.before(menuItem);
-        console.debug("Introskipper menu item injected");
-        recalculatePosition(container);
-    }
-}
-
-function recalculatePosition(container) {
-    const actionSheet = container.closest('.actionSheet');
-    if (!actionSheet) return;
-
-    const dlg = actionSheet;
-    const options = {
-        positionTo: document.querySelector('.btnVideoOsdSettings'),
-        positionY: 'top',
-        offsetTop: 0,
-        offsetLeft: 0
-    };
-
-    const pos = getPosition(options.positionTo, options, dlg);
-
-    if (pos) {
-        dlg.style.position = 'fixed';
-        dlg.style.margin = '0';
-        dlg.style.left = pos.left + 'px';
-        dlg.style.top = pos.top + 'px';
-    }
-}
-
-function getPosition(positionTo, options, dlg) {
-    const windowSize = getWindowSize();
-    const windowHeight = windowSize.innerHeight;
-    const windowWidth = windowSize.innerWidth;
-    const pos = getOffsets([positionTo])[0];
-    if (options.positionY !== 'top') {
-        pos.top += (pos.height || 0) / 2;
-    }
-    pos.left += (pos.width || 0) / 2;
-    const height = dlg.offsetHeight || 300;
-    const width = dlg.offsetWidth || 160;
-    // Account for popup size
-    pos.top -= height / 2;
-    pos.left -= width / 2;
-    // Avoid showing too close to the bottom
-    const overflowX = pos.left + width - windowWidth;
-    const overflowY = pos.top + height - windowHeight;
-    if (overflowX > 0) {
-        pos.left -= (overflowX + 20);
-    }
-    if (overflowY > 0) {
-        pos.top -= (overflowY + 20);
-    }
-    pos.top += (options.offsetTop || 0);
-    pos.left += (options.offsetLeft || 0);
-    // Do some boundary checking
-    pos.top = Math.max(pos.top, 10);
-    pos.left = Math.max(pos.left, 10);
-    return pos;
-}
-
-function getWindowSize() {
-    return {
-        innerHeight: window.innerHeight,
-        innerWidth: window.innerWidth
-    };
-}
-
-function getOffsets(elements) {
-    return elements.map(el => {
-        const rect = el.getBoundingClientRect();
-        return {
-            top: rect.top,
-            left: rect.left,
-            width: rect.width,
-            height: rect.height
+    },
+    injectMenu(container) {
+        if (container.querySelector(`[data-id="${'introskipperMenu'}"]`)) return;
+        const statsButton = document.querySelector('[data-id="stats"]');
+        const menuItem = this.createMenuItem();
+    
+        if (statsButton) {
+            statsButton.before(menuItem);
+            this.recalculatePosition(container);
+        }
+    },
+    recalculatePosition(container) {
+        const actionSheet = container.closest('.actionSheet');
+        if (!actionSheet) return;
+    
+        const dlg = actionSheet;
+        const options = {
+            positionTo: document.querySelector('.btnVideoOsdSettings'),
+            positionY: 'top',
+            offsetTop: 0,
+            offsetLeft: 0
         };
-    });
-}
+    
+        const pos = this.getPosition(options.positionTo, options, dlg);
+    
+        if (pos) {
+            dlg.style.position = 'fixed';
+            dlg.style.margin = '0';
+            dlg.style.left = pos.left + 'px';
+            dlg.style.top = pos.top + 'px';
+        }
+    },
+    getPosition(positionTo, options, dlg) {
+        const windowSize = this.getWindowSize();
+        const windowHeight = windowSize.innerHeight;
+        const windowWidth = windowSize.innerWidth;
+        const pos = this.getOffsets([positionTo])[0];
+        if (options.positionY !== 'top') {
+            pos.top += (pos.height || 0) / 2;
+        }
+        pos.left += (pos.width || 0) / 2;
+        const height = dlg.offsetHeight || 300;
+        const width = dlg.offsetWidth || 160;
+        // Account for popup size
+        pos.top -= height / 2;
+        pos.left -= width / 2;
+        // Avoid showing too close to the bottom
+        const overflowX = pos.left + width - windowWidth;
+        const overflowY = pos.top + height - windowHeight;
+        if (overflowX > 0) {
+            pos.left -= (overflowX + 20);
+        }
+        if (overflowY > 0) {
+            pos.top -= (overflowY + 20);
+        }
+        pos.top += (options.offsetTop || 0);
+        pos.left += (options.offsetLeft || 0);
+        // Do some boundary checking
+        pos.top = Math.max(pos.top, 10);
+        pos.left = Math.max(pos.left, 10);
+        return pos;
+    },
+    getWindowSize() {
+        return {
+            innerHeight: window.innerHeight,
+            innerWidth: window.innerWidth
+        };
+    },
+    getOffsets(elements) {
+        return elements.map(el => {
+            const rect = el.getBoundingClientRect();
+            return {
+                top: rect.top,
+                left: rect.left,
+                width: rect.width,
+                height: rect.height
+            };
+        });
+    }
+};
+introSkipper.setup();

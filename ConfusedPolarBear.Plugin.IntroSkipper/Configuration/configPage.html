@@ -340,6 +340,52 @@
                     <fieldset class="verticalSection-extrabottompadding">
                         <legend>Playback</legend>
 
+                        <div class="selectContainer">
+                            <label class="selectLabel" for="DefaultsOptionSupport">Defaults for supperted pip clients</label>
+                            <select is="emby-select" id="DefaultsOptionSupport" class="emby-select-withcolor emby-select">
+                                <option value="Button only">
+                                    show a skip button
+                                </option>
+
+                                <option value="Button w/ Auto Pip">
+                                    show a skip button, auto skip in picture in picture mode
+                                </option>
+
+                                <option value="Always Auto">
+                                    Always auto skip
+                                </option>
+
+                                <option value="Off">
+                                    Dont Show Skip Button amd dont auto skip
+                                </option>
+                            </select>
+
+                            <div class="fieldDescription">
+                                Default behavior for skip intro option in the player when the client supports picture in picture mode.
+                            </div>
+                        </div>
+
+                        <div class="selectContainer">
+                            <label class="selectLabel" for="DefaultsOptionUnSupport">Defaults for unsupported pip clients</label>
+                            <select is="emby-select" id="DefaultsOptionUnSupport" class="emby-select-withcolor emby-select">
+                                <option value="Button only">
+                                    show a skip button
+                                </option>
+
+                                <option value="Always Auto">
+                                    Always auto skip
+                                </option>
+                                
+                                <option value="Off">
+                                    Dont Show Skip Button amd dont auto skip
+                                </option>
+                            </select>
+
+                            <div class="fieldDescription">
+                                Default behavior for skip intro option in the player when the client does not support picture in picture mode.
+                            </div>
+                        </div>
+
                         <div class="checkboxContainer checkboxContainer-withDescription">
                             <label class="emby-checkbox-label">
                                 <input id="AutoSkip" type="checkbox" is="emby-checkbox" />
@@ -378,13 +424,15 @@
 
                         <div class="checkboxContainer checkboxContainer-withDescription">
                             <label class="emby-checkbox-label">
-                                <input id="AutoSkipPip" type="checkbox" is="emby-checkbox" />
-                                <span>Automatically skip intros when the player is using picture in picture mode</span>
+                                <input id="ClientConfiguration" type="checkbox" is="emby-checkbox" />
+                                <span>Adding client configuration for intro skping</span>
                             </label>
 
                             <div class="fieldDescription">
-                                If checked, intros will be automatically skipped when the user is in picture in picture mode<br />
-                                Node: if checked, the auto skip in picture in picture mode feature will not work on firefox.
+                                if checked, there will be a configuration panal in the player for intro skipping.
+                                it will let the user choose between auto skip, skip button, skip button with auto pip, and default.
+                                the default will be set in the dashboard.<br />
+                                <strong>Note: it will show the options depending on the client support for picture in picture mode.</strong>
                             </div>
                         </div>
 
@@ -735,7 +783,9 @@
                 "SkipButtonIntroText",
                 "SkipButtonEndCreditsText",
                 "AutoSkipNotificationText",
-                "AutoSkipCreditsNotificationText"
+                "AutoSkipCreditsNotificationText",
+                "DefaultsOptionUnSupport",
+                "DefaultsOptionSupport"
             ]
 
             var booleanConfigurationFields = [
@@ -745,7 +795,7 @@
                 "RegenerateEdlFiles",
                 "UseChromaprint",
                 "CacheFingerprints",
-                "AutoSkipPip",
+                "ClientConfiguration",
                 "AutoSkip",
                 "AutoSkipCredits",
                 "SkipFirstEpisode",
