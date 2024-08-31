@@ -139,15 +139,16 @@ public class AutoSkip : IHostedService, IDisposable
             }
 
             // Seek is unreliable if called at the very start of an episode.
-            var adjustedStart = Math.Max(5, intro.IntroStart);
+            var adjustedStart = Math.Max(5, intro.IntroStart + Plugin.Instance.Configuration.SecondsOfIntroStartToPlay);
+            var adjustedEnd = intro.IntroEnd - Plugin.Instance.Configuration.RemainingSecondsOfIntro;
 
             _logger.LogTrace(
                 "Playback position is {Position}, intro runs from {Start} to {End}",
                 position,
                 adjustedStart,
-                intro.IntroEnd);
+                adjustedEnd);
 
-            if (position < adjustedStart || position > intro.IntroEnd)
+            if (position < adjustedStart || position > adjustedEnd)
             {
                 continue;
             }
@@ -170,8 +171,6 @@ public class AutoSkip : IHostedService, IDisposable
 
             _logger.LogDebug("Sending seek command to {Session}", deviceId);
 
-            var introEnd = (long)intro.IntroEnd - Plugin.Instance.Configuration.SecondsOfIntroToPlay;
-
             _sessionManager.SendPlaystateCommand(
                 session.Id,
                 session.Id,
@@ -179,7 +178,7 @@ public class AutoSkip : IHostedService, IDisposable
                 {
                     Command = PlaystateCommand.Seek,
                     ControllingUserId = session.UserId.ToString(),
-                    SeekPositionTicks = introEnd * TimeSpan.TicksPerSecond,
+                    SeekPositionTicks = (long)adjustedEnd * TimeSpan.TicksPerSecond,
                 },
                 CancellationToken.None);
 

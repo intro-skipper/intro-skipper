@@ -17,7 +17,7 @@ jobs:
     - name: Set up Node.js
       uses: actions/setup-node@v4
       with:
-        node-version: '20'
+        node-version: 'lts/*'
 
     - name: Setup .NET
       uses: actions/setup-dotnet@v4
@@ -36,29 +36,13 @@ jobs:
     - name: Build
       run: dotnet build --no-restore
 
-    - name: Upload artifact
-      uses: actions/upload-artifact@v4.3.3
-      with:
-        name: ConfusedPolarBear.Plugin.IntroSkipper-v${{ env.NEW_FILE_VERSION }}.dll
-        path: ConfusedPolarBear.Plugin.IntroSkipper/bin/Debug/net8.0/ConfusedPolarBear.Plugin.IntroSkipper.dll
-        if-no-files-found: error
-
     - name: Create archive
       run: zip -j "intro-skipper-v${{ env.NEW_FILE_VERSION }}.zip" ConfusedPolarBear.Plugin.IntroSkipper/bin/Debug/net8.0/ConfusedPolarBear.Plugin.IntroSkipper.dll
       
-    - name: Generate manifest keys
-      run: |
-        sourceUrl="https://github.com/${{ github.repository }}/releases/download/10.9/v${{ env.NEW_FILE_VERSION }}/intro-skipper-v${{ env.NEW_FILE_VERSION }}.zip"
-        echo "SOURCE_URL=$sourceUrl" >> $GITHUB_ENV
-        md5sum intro-skipper-v${{ env.NEW_FILE_VERSION }}.zip > intro-skipper-v${{ env.NEW_FILE_VERSION }}.md5
-        checksum="$(awk '{print $1}' intro-skipper-v${{ env.NEW_FILE_VERSION }}.md5)"
-        echo "CHECKSUM=$checksum" >> $GITHUB_ENV
-        timestamp="$(date +%FT%TZ)"
-        echo "TIMESTAMP=$timestamp" >> $GITHUB_ENV
 
     - name: Create new release with tag
       if: github.event_name != 'pull_request'
-      run: gh release create "10.9/v${{ env.NEW_FILE_VERSION }}" "intro-skipper-v${{ env.NEW_FILE_VERSION }}.zip" --title "v${{ env.NEW_FILE_VERSION }}" --latest
+      run: gh release create "10.9/v${{ env.NEW_FILE_VERSION }}" "intro-skipper-v${{ env.NEW_FILE_VERSION }}.zip" --title "v${{ env.NEW_FILE_VERSION }}" --latest --generate-notes
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
@@ -66,12 +50,13 @@ jobs:
       run: node validate-and-update-manifest.js
       env:
         VERSION: ${{ env.NEW_FILE_VERSION }}
+        GITHUB_REPOSITORY: ${{ github.repository }}
 
     - name: Commit changes
       if: success()
       run: |
         git config --global user.name "github-actions[bot]"
         git config --global user.email "github-actions[bot]@users.noreply.github.com"
-        git add manifest.json ConfusedPolarBear.Plugin.IntroSkipper/ConfusedPolarBear.Plugin.IntroSkipper.csproj
+        git add README.md manifest.json ConfusedPolarBear.Plugin.IntroSkipper/ConfusedPolarBear.Plugin.IntroSkipper.csproj
         git commit -m "release v${{ env.NEW_FILE_VERSION }}"
         git push

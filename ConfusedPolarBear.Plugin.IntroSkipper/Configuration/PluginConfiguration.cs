@@ -156,7 +156,17 @@ public class PluginConfiguration : BasePluginConfiguration
     /// <summary>
     /// Gets or sets the amount of intro to play (in seconds).
     /// </summary>
-    public int SecondsOfIntroToPlay { get; set; } = 2;
+    public int RemainingSecondsOfIntro { get; set; } = 2;
+
+    /// <summary>
+    /// Gets or sets the amount of intro at start to play (in seconds).
+    /// </summary>
+    public int SecondsOfIntroStartToPlay { get; set; } = 0;
+
+    /// <summary>
+    /// Gets or sets the amount of credit at start to play (in seconds).
+    /// </summary>
+    public int SecondsOfCreditsStartToPlay { get; set; } = 0;
 
     // ===== Internal algorithm settings =====
 

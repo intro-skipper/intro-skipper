@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Net.Mime;
 using ConfusedPolarBear.Plugin.IntroSkipper.Configuration;
+using ConfusedPolarBear.Plugin.IntroSkipper.Data;
 using MediaBrowser.Common.Api;
 using MediaBrowser.Controller.Entities.TV;
 using Microsoft.AspNetCore.Authorization;
@@ -49,6 +50,75 @@ public class SkipIntroController : ControllerBase
     }
 
     /// <summary>
+    /// Updates the timestamps for the provided episode.
+    /// </summary>
+    /// <param name="id">Episode ID to update timestamps for.</param>
+    /// <param name="timestamps">New timestamps Introduction/Credits start and end times.</param>
+    /// <response code="204">New timestamps saved.</response>
+    /// <response code="404">Given ID is not an Episode.</response>
+    /// <returns>No content.</returns>
+    [Authorize(Policy = Policies.RequiresElevation)]
+    [HttpPost("Episode/{Id}/Timestamps")]
+    public ActionResult UpdateTimestamps([FromRoute] Guid id, [FromBody] TimeStamps timestamps)
+    {
+        // only update existing episodes
+        var rawItem = Plugin.Instance!.GetItem(id);
+        if (rawItem == null || rawItem is not Episode episode)
+        {
+            return NotFound();
+        }
+
+        if (timestamps?.Introduction.IntroEnd > 0.0)
+        {
+            var tr = new TimeRange(timestamps.Introduction.IntroStart, timestamps.Introduction.IntroEnd);
+            Plugin.Instance!.Intros[id] = new Intro(id, tr);
+        }
+
+        if (timestamps?.Credits.IntroEnd > 0.0)
+        {
+            var cr = new TimeRange(timestamps.Credits.IntroStart, timestamps.Credits.IntroEnd);
+            Plugin.Instance!.Credits[id] = new Intro(id, cr);
+        }
+
+        Plugin.Instance!.SaveTimestamps(AnalysisMode.Introduction);
+        Plugin.Instance!.SaveTimestamps(AnalysisMode.Credits);
+
+        return NoContent();
+    }
+
+    /// <summary>
+    /// Gets the timestamps for the provided episode.
+    /// </summary>
+    /// <param name="id">Episode ID.</param>
+    /// <response code="200">Sucess.</response>
+    /// <response code="404">Given ID is not an Episode.</response>
+    /// <returns>Episode Timestamps.</returns>
+    [HttpGet("Episode/{Id}/Timestamps")]
+    [ActionName("UpdateTimestamps")]
+    public ActionResult<TimeStamps> GetTimestamps([FromRoute] Guid id)
+    {
+        // only get return content for episodes
+        var rawItem = Plugin.Instance!.GetItem(id);
+        if (rawItem == null || rawItem is not Episode episode)
+        {
+            return NotFound();
+        }
+
+        var times = new TimeStamps();
+        if (Plugin.Instance!.Intros.TryGetValue(id, out var introValue))
+        {
+            times.Introduction = introValue;
+        }
+
+        if (Plugin.Instance!.Credits.TryGetValue(id, out var creditValue))
+        {
+            times.Credits = creditValue;
+        }
+
+        return times;
+    }
+
+    /// <summary>
     /// Gets a dictionary of all skippable segments.
     /// </summary>
     /// <param name="id">Media ID.</param>
@@ -86,7 +156,7 @@ public class SkipIntroController : ControllerBase
             var segment = new Intro(timestamp);
 
             var config = Plugin.Instance.Configuration;
-            segment.IntroEnd -= config.SecondsOfIntroToPlay;
+            segment.IntroEnd -= config.RemainingSecondsOfIntro;
             if (config.PersistSkipButton)
             {
                 segment.ShowSkipPromptAt = segment.IntroStart;

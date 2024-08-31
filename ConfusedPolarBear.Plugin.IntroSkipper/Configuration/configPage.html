@@ -364,6 +364,17 @@
                             <br />
                         </div>
 
+                        <div id="divSecondsOfIntroStartToPlay" class="inputContainer">
+                            <label class="inputLabel inputLabelUnfocused" for="SecondsOfIntroStartToPlay">
+                                Intro playback duration (in seconds)
+                            </label>
+                            <input id="SecondsOfIntroStartToPlay" type="number" is="emby-input" min="0" />
+                            <div class="fieldDescription">
+                                Seconds of introduction start that should be played. Defaults to 0.
+                            </div>
+                            <br />
+                        </div>
+
                         <div class="checkboxContainer checkboxContainer-withDescription">
                             <label class="emby-checkbox-label">
                                 <input id="AutoSkipCredits" type="checkbox" is="emby-checkbox" />
@@ -374,6 +385,17 @@
                                 If checked, credits will be automatically skipped for Apps without Skip Button.
                                 If you access Jellyfin through a reverse proxy, it must be configured to proxy websockets.<br />
                             </div>
+                        </div>
+
+                        <div id="divSecondsOfCreditsStartToPlay" class="inputContainer">
+                            <label class="inputLabel inputLabelUnfocused" for="SecondsOfCreditsStartToPlay">
+                                Credit playback duration (in seconds)
+                            </label>
+                            <input id="SecondsOfCreditsStartToPlay" type="number" is="emby-input" min="0" />
+                            <div class="fieldDescription">
+                                Seconds of credits start that should be played. Defaults to 0.
+                            </div>
+                            <br />
                         </div>
 
                         <div class="checkboxContainer checkboxContainer-withDescription">
@@ -425,10 +447,10 @@
                         <br />
 
                         <div class="inputContainer">
-                            <label class="inputLabel inputLabelUnfocused" for="SecondsOfIntroToPlay">
+                            <label class="inputLabel inputLabelUnfocused" for="RemainingSecondsOfIntro">
                                 Intro playback duration (in seconds)
                             </label>
-                            <input id="SecondsOfIntroToPlay" type="number" is="emby-input" min="0" />
+                            <input id="RemainingSecondsOfIntro" type="number" is="emby-input" min="0" />
                             <div class="fieldDescription">
                                 Seconds of introduction ending that should be played. Defaults to 2.
                             </div>
@@ -501,32 +523,54 @@
                         <summary>Manage Fingerprints</summary>
 
                         <br />
-                        <h3 style="margin:0">Select episodes to manage</h3>
-                        <br />
-                        <select id="troubleshooterShow"></select>
-                        <select id="troubleshooterSeason"></select>
+                        <label class="inputLabel" for="troubleshooterShow">Select TV Series to manage</label>
+                        <select is="emby-select" id="troubleshooterShow" class="emby-select-withcolor emby-select"></select>
+                        <label class="inputLabel" for="troubleshooterSeason">Select Season to manage</label>
+                        <select is="emby-select" id="troubleshooterSeason" class="emby-select-withcolor emby-select"></select>
                         <br />
 
-                        <select id="troubleshooterEpisode1"></select>
-                        <select id="troubleshooterEpisode2"></select>
-                        <br />
+                        <label class="inputLabel" for="troubleshooterEpisode1">Select the first episode</label>
+                        <select is="emby-select" id="troubleshooterEpisode1" class="emby-select-withcolor emby-select"></select>
+                        <label class="inputLabel" for="troubleshooterEpisode1">Select the second episode</label>
+                        <select is="emby-select" id="troubleshooterEpisode2" class="emby-select-withcolor emby-select"></select>
                         <br />
 
                         <div id="timestampEditor" style="display:none">
                             <h3 style="margin:0">Introduction timestamp editor</h3>
-                            <p style="margin:0">All times are in seconds.</p>
-
-                            <p id="editLeftEpisodeTitle" style="margin-bottom:0"></p>
-                            <input style="width:4em" type="number" min="0" id="editLeftEpisodeStart"> to
-                            <input style="width:4em;margin-bottom:10px" type="number" min="0" id="editLeftEpisodeEnd">
-
-                            <p id="editRightEpisodeTitle" style="margin-top:0;margin-bottom:0"></p>
-                            <input style="width:4em" type="number" min="0" id="editRightEpisodeStart"> to
-                            <input style="width:4em;margin-bottom:10px" type="number" min="0" id="editRightEpisodeEnd">
+                            <p style="margin:0">All times are displayed in the format (HH:MM:SS)</p>
                             <br />
+                            <table class="detailTable">
+                                <tr>
+                                    <th scope="col" class="detailTableHeaderCell">Episode</th>
+                                    <th scope="col" class="detailTableHeaderCell">Section</th>
+                                    <th scope="col" class="detailTableHeaderCell">Start Time</th>
+                                    <th scope="col" class="detailTableHeaderCell">End Time</th>
+                                </tr>
+                                <tr>
+                                    <td rowspan="2" id="editLeftEpisodeTitle"></td>
+                                    <td>Intro</td>
+                                    <td><input type="time" step="1" id="editLeftIntroEpisodeStart"></td>
+                                    <td><input type="time" step="1" id="editLeftIntroEpisodeEnd"></td>
+                                </tr>
+                                <tr>
+                                    <td>Credits</td>
+                                    <td><input type="time" step="1" id="editLeftCreditEpisodeStart"></td>
+                                    <td><input type="time" step="1" id="editLeftCreditEpisodeEnd"></td>
+                                </tr>
+                                <tr>
+                                    <td rowspan="2" id="editRightEpisodeTitle"></td>
+                                    <td>Intro</td>
+                                    <td><input type="time" step="1" id="editRightIntroEpisodeStart"></td>
+                                    <td><input type="time" step="1" id="editRightIntroEpisodeEnd"></td>
+                                </tr>
+                                <tr>
+                                    <td>Credits</td>
+                                    <td><input type="time" step="1" id="editRightCreditEpisodeStart"></td>
+                                    <td><input type="time" step="1" id="editRightCreditEpisodeEnd"></td>
+                                </tr>
+                            </table>
                             <br />
-
-                            <button id="btnUpdateTimestamps" type="button">
+                            <button is="emby-select" id="btnUpdateTimestamps" class="raised button-submit block emby-button" type="button">
                                 Update timestamps
                             </button>
                             <br />
@@ -546,8 +590,10 @@
                         </p>
                         <table>
                             <thead>
-                            <td style="min-width: 100px; font-weight: bold">Key</td>
-                            <td style="font-weight: bold">Function</td>
+                                <tr>
+                                    <td style="min-width: 100px; font-weight: bold">Key</td>
+                                    <td style="font-weight: bold">Function</td>
+                                </tr>
                             </thead>
                             <tbody>
                                 <tr>
@@ -591,7 +637,7 @@
                         <br />
                         <br />
 
-                        <div id="eraseSeasonContainer" style="display: none;"> 
+                        <div id="eraseSeasonContainer" style="display: none;">
                             <button id="btnEraseSeasonTimestamps" type="button">
                                 Erase all timestamps for this season
                             </button>
@@ -599,7 +645,7 @@
                             <input type="checkbox" id="eraseSeasonCacheCheckbox" style="margin-left: 10px;">
                             <label for="eraseSeasonCacheCheckbox" style="margin-left: 5px;">Erase cached fingerprint files</label>
                         </div>
-                        <hr />
+                        <br />
 
                         <button id="btnEraseIntroTimestamps">
                             Erase all introduction timestamps (globally)
@@ -613,6 +659,15 @@
 
                         <input type="checkbox" id="eraseModeCacheCheckbox" style="margin-left: 10px;">
                         <label for="eraseModeCacheCheckbox" style="margin-left: 5px;">Erase cached fingerprint files</label>
+                    </details>
+
+                    <details id="storage">
+                        <br />
+                        <summary>Storage Usage</summary>
+                            <div class="fieldDescription">
+                                See how much space each library uses.
+                            </div>
+                        <textarea id="storage" rows="20" cols="75" readonly></textarea>
                     </details>
                 </fieldset>
             </div>
@@ -635,6 +690,7 @@
             // settings elements
             var visualizer = document.querySelector("details#visualizer");
             var support = document.querySelector("details#support");
+            var storage = document.querySelector("details#storage");
             var btnEraseIntroTimestamps = document.querySelector("button#btnEraseIntroTimestamps");
             var btnEraseCreditTimestamps = document.querySelector("button#btnEraseCreditTimestamps");
 
@@ -655,7 +711,9 @@
                 // playback
                 "ShowPromptAdjustment",
                 "HidePromptAdjustment",
-                "SecondsOfIntroToPlay",
+                "RemainingSecondsOfIntro",
+                "SecondsOfIntroStartToPlay",
+                "SecondsOfCreditsStartToPlay",
                 // internals
                 "SilenceDetectionMaximumNoise",
                 "SilenceDetectionMinimumDuration",
@@ -699,6 +757,8 @@
 
             var autoSkip = document.querySelector("input#AutoSkip");
             var skipFirstEpisode = document.querySelector("div#divSkipFirstEpisode");
+            var secondsOfIntroStartToPlay = document.querySelector("div#divSecondsOfIntroStartToPlay");
+            var secondsOfCreditsStartToPlay = document.querySelector("div#divSecondsOfCreditsStartToPlay");
             var autoSkipNotificationText = document.querySelector("div#divAutoSkipNotificationText");
             var autoSkipCredits = document.querySelector("input#AutoSkipCredits");
             var autoSkipCreditsNotificationText = document.querySelector("div#divAutoSkipCreditsNotificationText");
@@ -707,9 +767,11 @@
                 if (autoSkip.checked) {
                     skipFirstEpisode.style.display = 'unset';
                     autoSkipNotificationText.style.display = 'unset';
+                    secondsOfIntroStartToPlay.style.display = 'unset';
                 } else {
                     skipFirstEpisode.style.display = 'none';
                     autoSkipNotificationText.style.display = 'none';
+                    secondsOfIntroStartToPlay.style.display = 'none';
                 }
             }
 
@@ -718,8 +780,10 @@
             async function autoSkipCreditsChanged() {
                 if (autoSkipCredits.checked) {
                     autoSkipCreditsNotificationText.style.display = 'unset';
+                    secondsOfCreditsStartToPlay.style.display = 'unset';
                 } else {
                     autoSkipCreditsNotificationText.style.display = 'none';
+                    secondsOfCreditsStartToPlay.style.display = 'none';
                 }
             }
 
@@ -794,6 +858,21 @@
                 } catch {
                     Dashboard.alert("Press Ctrl+C to copy support bundle");
                 }
+            }
+
+            // fetch the storage whenever the detail section is opened.
+            async function storageToggled() {
+                if (!storage.open) {
+                    return;
+                }
+
+                // Fetch the support bundle
+                const bundle = await fetchWithAuth("IntroSkipper/Storage", "GET", null);
+                const bundleText = await bundle.text();
+
+                // Display it to the user
+                const ta = document.querySelector("textarea#storage");
+                ta.value = bundleText;
             }
 
             // show changed, populate seasons
@@ -880,27 +959,24 @@
                 // Get the title and ID of the left and right episodes
                 const leftEpisode = selectEpisode1.options[selectEpisode1.selectedIndex];
                 const rightEpisode = selectEpisode2.options[selectEpisode2.selectedIndex];
-
                 // Try to get the timestamps of each intro, falling back a default value of zero if no intro was found
-                let leftEpisodeIntro = await getJson("Episode/" + leftEpisode.value + "/IntroTimestamps/v1");
-                if (leftEpisodeIntro === null) {
-                    leftEpisodeIntro = { IntroStart: 0, IntroEnd: 0 };
-                }
-
-                let rightEpisodeIntro = await getJson("Episode/" + rightEpisode.value + "/IntroTimestamps/v1");
-                if (rightEpisodeIntro === null) {
-                    rightEpisodeIntro = { IntroStart: 0, IntroEnd: 0 };
-                }
-
+                const leftEpisodeJson = await getJson("Episode/" + leftEpisode.value + "/Timestamps");
+                const rightEpisodeJson = await getJson("Episode/" + rightEpisode.value + "/Timestamps");
+                
                 // Update the editor for the first and second episodes
                 timestampEditor.style.display = "unset";
                 document.querySelector("#editLeftEpisodeTitle").textContent = leftEpisode.text;
-                document.querySelector("#editLeftEpisodeStart").value = Math.round(leftEpisodeIntro.IntroStart);
-                document.querySelector("#editLeftEpisodeEnd").value = Math.round(leftEpisodeIntro.IntroEnd);
+                document.querySelector("#editLeftIntroEpisodeStart").value = setTime(Math.round(leftEpisodeJson.Introduction.IntroStart));
+                document.querySelector("#editLeftIntroEpisodeEnd").value = setTime(Math.round(leftEpisodeJson.Introduction.IntroEnd));
+                document.querySelector("#editLeftCreditEpisodeStart").value = setTime(Math.round(leftEpisodeJson.Credits.IntroStart));
+                document.querySelector("#editLeftCreditEpisodeEnd").value = setTime(Math.round(leftEpisodeJson.Credits.IntroEnd));
 
                 document.querySelector("#editRightEpisodeTitle").textContent = rightEpisode.text;
-                document.querySelector("#editRightEpisodeStart").value = Math.round(rightEpisodeIntro.IntroStart);
-                document.querySelector("#editRightEpisodeEnd").value = Math.round(rightEpisodeIntro.IntroEnd);
+                document.querySelector("#editRightIntroEpisodeStart").value = setTime(Math.round(rightEpisodeJson.Introduction.IntroStart));
+                document.querySelector("#editRightIntroEpisodeEnd").value = setTime(Math.round(rightEpisodeJson.Introduction.IntroEnd));
+                document.querySelector("#editRightCreditEpisodeStart").value = setTime(Math.round(rightEpisodeJson.Credits.IntroStart));
+                document.querySelector("#editRightCreditEpisodeEnd").value = setTime(Math.round(rightEpisodeJson.Credits.IntroEnd));
+
             }
 
             // adds an item to a dropdown
@@ -1026,7 +1102,7 @@
 
             // converts seconds to a readable timestamp (i.e. 127 becomes "02:07").
             function secondsToString(seconds) {
-                return new Date(seconds * 1000).toISOString().substr(14, 5);
+                return new Date(seconds * 1000).toISOString().slice(14, 19);
             }
 
             // erase all intro/credits timestamps
@@ -1096,6 +1172,7 @@
 
             visualizer.addEventListener("toggle", visualizerToggled);
             support.addEventListener("toggle", supportToggled);
+            storage.addEventListener("toggle", storageToggled);
             txtOffset.addEventListener("change", renderTroubleshooter);
             selectShow.addEventListener("change", showChanged);
             selectSeason.addEventListener("change", seasonChanged);
@@ -1132,19 +1209,30 @@
             });
             btnUpdateTimestamps.addEventListener("click", () => {
                 const lhsId = selectEpisode1.options[selectEpisode1.selectedIndex].value;
-                const newLhsIntro = {
-                    IntroStart: document.querySelector("#editLeftEpisodeStart").value,
-                    IntroEnd: document.querySelector("#editLeftEpisodeEnd").value,
+                const newLhs = {
+                    Introduction: {
+                        IntroStart: getTimeInSeconds(document.getElementById('editLeftIntroEpisodeStart').value),
+                        IntroEnd: getTimeInSeconds(document.getElementById('editLeftIntroEpisodeEnd').value)
+                    },
+                    Credits: {
+                        IntroStart: getTimeInSeconds(document.getElementById('editLeftCreditEpisodeStart').value),
+                        IntroEnd: getTimeInSeconds(document.getElementById('editLeftCreditEpisodeEnd').value)
+                    }
                 };
 
                 const rhsId = selectEpisode2.options[selectEpisode2.selectedIndex].value;
-                const newRhsIntro = {
-                    IntroStart: document.querySelector("#editRightEpisodeStart").value,
-                    IntroEnd: document.querySelector("#editRightEpisodeEnd").value,
+                const newRhs = {
+                    Introduction: {
+                        IntroStart: getTimeInSeconds(document.getElementById('editRightIntroEpisodeStart').value),
+                        IntroEnd: getTimeInSeconds(document.getElementById('editRightIntroEpisodeEnd').value)
+                    },
+                    Credits: {
+                        IntroStart: getTimeInSeconds(document.getElementById('editRightCreditEpisodeStart').value),
+                        IntroEnd: getTimeInSeconds(document.getElementById('editRightCreditEpisodeEnd').value)
+                    }
                 };
-
-                fetchWithAuth("Intros/Episode/" + lhsId + "/UpdateIntroTimestamps", "POST", JSON.stringify(newLhsIntro));
-                fetchWithAuth("Intros/Episode/" + rhsId + "/UpdateIntroTimestamps", "POST", JSON.stringify(newRhsIntro));
+                fetchWithAuth("Episode/" + lhsId + "/Timestamps", "POST", JSON.stringify(newLhs));
+                fetchWithAuth("Episode/" + rhsId + "/Timestamps", "POST", JSON.stringify(newRhs));
 
                 Dashboard.alert("New introduction timestamps saved");
             });
@@ -1188,6 +1276,27 @@
                 timeContainer.style.left = "25px";
                 timeContainer.style.top = (-1 * rect.height + y).toString() + "px";
             });
+
+            function setTime(seconds) {
+                // Calculate hours, minutes, and remaining seconds
+                let hours = Math.floor(seconds / 3600);
+                let minutes = Math.floor((seconds % 3600) / 60);
+                let remainingSeconds = seconds % 60;
+
+                // Format as HH:MM:SS
+                let formattedTime = 
+                    String(hours).padStart(2, '0') + ':' +
+                    String(minutes).padStart(2, '0') + ':' +
+                    String(remainingSeconds).padStart(2, '0');
+
+                // Set the value of the time input
+                return formattedTime;
+            }
+
+            function getTimeInSeconds(time) {
+                let [hours, minutes, seconds] = time.split(':').map(Number);
+                return (hours * 3600) + (minutes * 60) + seconds;
+            }
         </script>
     </div>
 </body>

@@ -16,12 +16,12 @@
 
 ## System requirements
 
-* Jellyfin 10.9.7 (or newer)
+* Jellyfin 10.9.9 (or newer)
 * Jellyfin's [fork](https://github.com/jellyfin/jellyfin-ffmpeg) of `ffmpeg` must be installed, version `6.0.1-5` or newer
   * `jellyfin/jellyfin` 10.9.z container: preinstalled
   * `linuxserver/jellyfin` 10.9.z container: preinstalled
   * Debian Linux based native installs: provided by the `jellyfin-ffmpeg6` package
-  * MacOS native installs: build ffmpeg with chromaprint support ([instructions](#installation-instructions-for-macos))
+  * MacOS native installs: build ffmpeg with chromaprint support ([instructions](#installation-macos))
 
 ## Detection parameters
 
@@ -76,6 +76,18 @@ These parameters can be configured by opening the plugin settings
               - TZ=Etc/UTC
               - DOCKER_MODS=ghcr.io/jumoog/intro-skipper
         ```
+
+    - **Hotio Docker Container:** For the Hotio Docker Container, you can find the detailed solution to permission issues in the linked GitHub discussion: [Hotio Docker Container Issue Solution](https://github.com/jumoog/intro-skipper/issues/198#issuecomment-2169737803).
+
+    - **Ubuntu/Debian:**
+      Run the following command to fix the permissions on `index.html`:
+      
+        ```sh
+        sudo chown jellyfin /usr/share/jellyfin/web/index.html
+        ```
+      Note that you might need to repeat this command after Jellyfin updates.
+
+    - **Windows:** Locate `index.html` in `C:\Program Files\Jellyfin\Server\jellyfin-web` and modify the permissions for your user to Full Control. After making this change, restart Jellyfin.
 
     * <b>Install from distro repositories -</b> the jellyfin-server will execute as `jellyfin` user while the web files will be owned by `root`, `www-data`, etc. This can <i>likely</i> be fixed by adding the `jellyfin` user (or whichever user executes the jellyfin server) to the same group that owns the jellyfin-web folders. **You should only do this if they are owned by a group other than root**.
 - The official Android TV app do not support the skip button. For this app, you will need to use the autoskip option. Please note that there is currently an [issue](https://github.com/jumoog/intro-skipper/issues/168) with autoskip not working because the apps never receive the seek command from Jellyfin.
