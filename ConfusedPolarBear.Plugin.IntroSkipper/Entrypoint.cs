@@ -3,6 +3,8 @@ using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Threading;
 using System.Threading.Tasks;
+using ConfusedPolarBear.Plugin.IntroSkipper.Data;
+using ConfusedPolarBear.Plugin.IntroSkipper.ScheduledTasks;
 using MediaBrowser.Controller.Entities.TV;
 using MediaBrowser.Controller.Library;
 using MediaBrowser.Model.Entities;

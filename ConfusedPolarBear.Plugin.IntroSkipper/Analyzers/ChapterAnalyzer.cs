@@ -6,10 +6,11 @@ using System.Linq;
 using System.Text.RegularExpressions;
 using System.Threading;
 using ConfusedPolarBear.Plugin.IntroSkipper.Configuration;
+using ConfusedPolarBear.Plugin.IntroSkipper.Data;
 using MediaBrowser.Model.Entities;
 using Microsoft.Extensions.Logging;
 
-namespace ConfusedPolarBear.Plugin.IntroSkipper;
+namespace ConfusedPolarBear.Plugin.IntroSkipper.Analyzers;
 
 /// <summary>
 /// Chapter name analyzer.

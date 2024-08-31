@@ -1,5 +1,6 @@
 namespace ConfusedPolarBear.Plugin.IntroSkipper.Tests;
 
+using ConfusedPolarBear.Plugin.IntroSkipper.Data;
 using Xunit;
 
 public class TestFlags

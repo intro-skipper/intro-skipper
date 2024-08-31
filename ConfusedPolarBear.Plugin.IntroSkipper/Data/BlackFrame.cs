@@ -1,4 +1,4 @@
-namespace ConfusedPolarBear.Plugin.IntroSkipper;
+namespace ConfusedPolarBear.Plugin.IntroSkipper.Data;
 
 /// <summary>
 /// A frame of video that partially (or entirely) consists of black pixels.

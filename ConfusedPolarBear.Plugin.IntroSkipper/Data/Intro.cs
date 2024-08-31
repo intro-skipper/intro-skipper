@@ -2,7 +2,7 @@ using System;
 using System.Globalization;
 using System.Text.Json.Serialization;
 
-namespace ConfusedPolarBear.Plugin.IntroSkipper;
+namespace ConfusedPolarBear.Plugin.IntroSkipper.Data;
 
 /// <summary>
 /// Result of fingerprinting and analyzing two episodes in a season.

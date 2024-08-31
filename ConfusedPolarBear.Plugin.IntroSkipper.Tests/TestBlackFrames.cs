@@ -2,6 +2,8 @@ namespace ConfusedPolarBear.Plugin.IntroSkipper.Tests;
 
 using System;
 using System.Collections.Generic;
+using ConfusedPolarBear.Plugin.IntroSkipper.Analyzers;
+using ConfusedPolarBear.Plugin.IntroSkipper.Data;
 using Microsoft.Extensions.Logging;
 using Xunit;
 

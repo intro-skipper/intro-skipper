@@ -1,6 +1,6 @@
 using System;
 
-namespace ConfusedPolarBear.Plugin.IntroSkipper;
+namespace ConfusedPolarBear.Plugin.IntroSkipper.Data;
 
 #pragma warning disable CA1036 // Override methods on comparable types
 

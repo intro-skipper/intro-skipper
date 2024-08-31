@@ -4,6 +4,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Text.RegularExpressions;
 using ConfusedPolarBear.Plugin.IntroSkipper.Configuration;
+using ConfusedPolarBear.Plugin.IntroSkipper.Data;
 using MediaBrowser.Common.Configuration;
 using MediaBrowser.Common.Plugins;
 using MediaBrowser.Controller.Configuration;

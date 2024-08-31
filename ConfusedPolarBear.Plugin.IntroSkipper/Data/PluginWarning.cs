@@ -1,6 +1,6 @@
 using System;
 
-namespace ConfusedPolarBear.Plugin.IntroSkipper;
+namespace ConfusedPolarBear.Plugin.IntroSkipper.Data;
 
 /// <summary>
 /// Support bundle warning.

@@ -6,6 +6,7 @@ using System.Globalization;
 using System.IO;
 using System.Text;
 using System.Text.RegularExpressions;
+using ConfusedPolarBear.Plugin.IntroSkipper.Data;
 using Microsoft.Extensions.Logging;
 
 namespace ConfusedPolarBear.Plugin.IntroSkipper;

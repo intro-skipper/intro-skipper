@@ -1,4 +1,4 @@
-namespace ConfusedPolarBear.Plugin.IntroSkipper;
+namespace ConfusedPolarBear.Plugin.IntroSkipper.Data;
 
 /// <summary>
 /// Type of media file analysis to perform.

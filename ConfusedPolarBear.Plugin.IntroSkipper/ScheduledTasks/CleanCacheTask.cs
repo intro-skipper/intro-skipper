@@ -8,7 +8,7 @@ using MediaBrowser.Controller.Library;
 using MediaBrowser.Model.Tasks;
 using Microsoft.Extensions.Logging;
 
-namespace ConfusedPolarBear.Plugin.IntroSkipper;
+namespace ConfusedPolarBear.Plugin.IntroSkipper.ScheduledTasks;
 
 /// <summary>
 /// Analyze all television episodes for introduction sequences.

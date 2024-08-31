@@ -1,7 +1,8 @@
 using System.Collections.ObjectModel;
 using System.Threading;
+using ConfusedPolarBear.Plugin.IntroSkipper.Data;
 
-namespace ConfusedPolarBear.Plugin.IntroSkipper;
+namespace ConfusedPolarBear.Plugin.IntroSkipper.Analyzers;
 
 /// <summary>
 /// Media file analyzer interface.

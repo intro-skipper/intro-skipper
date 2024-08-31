@@ -4,9 +4,10 @@ using System.Collections.ObjectModel;
 using System.Linq;
 using System.Threading;
 using ConfusedPolarBear.Plugin.IntroSkipper.Configuration;
+using ConfusedPolarBear.Plugin.IntroSkipper.Data;
 using Microsoft.Extensions.Logging;
 
-namespace ConfusedPolarBear.Plugin.IntroSkipper;
+namespace ConfusedPolarBear.Plugin.IntroSkipper.Analyzers;
 
 /// <summary>
 /// Media file analyzer used to detect end credits that consist of text overlaid on a black background.
@@ -30,7 +31,7 @@ public class BlackFrameAnalyzer : IMediaFileAnalyzer
     /// <param name="logger">Logger.</param>
     public BlackFrameAnalyzer(ILogger<BlackFrameAnalyzer> logger)
     {
-        var config = Plugin.Instance?.Configuration ?? new Configuration.PluginConfiguration();
+        var config = Plugin.Instance?.Configuration ?? new PluginConfiguration();
         minimumCreditsDuration = config.MinimumCreditsDuration;
         maximumCreditsDuration = 2 * config.MaximumCreditsDuration;
         blackFrameMinimumPercentage = config.BlackFrameMinimumPercentage;

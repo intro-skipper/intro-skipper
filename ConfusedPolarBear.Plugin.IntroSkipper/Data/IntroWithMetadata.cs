@@ -1,4 +1,4 @@
-﻿namespace ConfusedPolarBear.Plugin.IntroSkipper;
+﻿namespace ConfusedPolarBear.Plugin.IntroSkipper.Data;
 
 /// <summary>
 /// An Intro class with episode metadata. Only used in end to end testing programs.

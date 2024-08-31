@@ -1,6 +1,6 @@
 using System;
 
-namespace ConfusedPolarBear.Plugin.IntroSkipper;
+namespace ConfusedPolarBear.Plugin.IntroSkipper.Data;
 
 /// <summary>
 /// Episode name and internal ID as returned by the visualization controller.
