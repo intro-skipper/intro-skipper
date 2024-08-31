@@ -166,27 +166,34 @@ public static class FFmpegWrapper
     /// Detect ranges of silence in the provided episode.
     /// </summary>
     /// <param name="episode">Queued episode.</param>
-    /// <param name="limit">Maximum amount of audio (in seconds) to detect silence in.</param>
+    /// <param name="range">Time range to search.</param>
     /// <returns>Array of TimeRange objects that are silent in the queued episode.</returns>
-    public static TimeRange[] DetectSilence(QueuedEpisode episode, int limit)
+    public static TimeRange[] DetectSilence(QueuedEpisode episode, TimeRange range)
     {
         Logger?.LogTrace(
-            "Detecting silence in \"{File}\" (limit {Limit}, id {Id})",
+            "Detecting silence in \"{File}\" (range {Start}-{End}, id {Id})",
             episode.Path,
-            limit,
+            range.Start,
+            range.End,
             episode.EpisodeId);
 
         // -vn, -sn, -dn: ignore video, subtitle, and data tracks
         var args = string.Format(
             CultureInfo.InvariantCulture,
             "-vn -sn -dn " +
-                "-i \"{0}\" -to {1} -af \"silencedetect=noise={2}dB:duration=0.1\" -f null -",
+                "-ss {0} -i \"{1}\" -to {2} -af \"silencedetect=noise={3}dB:duration=0.1\" -f null -",
+            range.Start,
             episode.Path,
-            limit,
+            range.End - range.Start,
             Plugin.Instance?.Configuration.SilenceDetectionMaximumNoise ?? -50);
 
-        // Cache the output of this command to "GUID-intro-silence-v1"
-        var cacheKey = episode.EpisodeId.ToString("N") + "-intro-silence-v1";
+        // Cache the output of this command to "GUID-intro-silence-v2"
+        var cacheKey = string.Format(
+            CultureInfo.InvariantCulture,
+            "{0}-silence-{1}-{2}-v2",
+            episode.EpisodeId.ToString("N"),
+            range.Start,
+            range.End);
 
         var currentRange = new TimeRange();
         var silenceRanges = new List<TimeRange>();
@@ -205,11 +212,11 @@ public static class FFmpegWrapper
 
             if (isStart)
             {
-                currentRange.Start = time;
+                currentRange.Start = time + range.Start;
             }
             else
             {
-                currentRange.End = time;
+                currentRange.End = time + range.Start;
                 silenceRanges.Add(new TimeRange(currentRange));
             }
         }

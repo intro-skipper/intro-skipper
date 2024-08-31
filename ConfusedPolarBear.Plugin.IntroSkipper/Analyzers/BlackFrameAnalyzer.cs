@@ -119,6 +119,9 @@ public class BlackFrameAnalyzer : IMediaFileAnalyzer
             episode.State.SetAnalyzed(mode, true);
         }
 
+        var analyzerHelper = new AnalyzerHelper(_logger);
+        creditTimes = analyzerHelper.AdjustIntroTimes(analysisQueue, creditTimes, mode);
+
         Plugin.Instance!.UpdateTimestamps(creditTimes, mode);
 
         return episodeAnalysisQueue.AsReadOnly();

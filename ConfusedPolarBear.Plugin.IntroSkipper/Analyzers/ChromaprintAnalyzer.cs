@@ -30,8 +30,6 @@ public class ChromaprintAnalyzer : IMediaFileAnalyzer
 
     private double maximumTimeSkip;
 
-    private double silenceDetectionMinimumDuration;
-
     private ILogger<ChromaprintAnalyzer> _logger;
 
     private AnalysisMode _analysisMode;
@@ -46,7 +44,6 @@ public class ChromaprintAnalyzer : IMediaFileAnalyzer
         maximumDifferences = config.MaximumFingerprintPointDifferences;
         invertedIndexShift = config.InvertedIndexShift;
         maximumTimeSkip = config.MaximumTimeSkip;
-        silenceDetectionMinimumDuration = config.SilenceDetectionMinimumDuration;
         minimumIntroDuration = config.MinimumIntroDuration;
 
         _logger = logger;
@@ -204,11 +201,9 @@ public class ChromaprintAnalyzer : IMediaFileAnalyzer
             return analysisQueue;
         }
 
-        if (_analysisMode == AnalysisMode.Introduction)
-        {
-            // Adjust all introduction end times so that they end at silence.
-            seasonIntros = AdjustIntroEndTimes(analysisQueue, seasonIntros);
-        }
+        // Adjust all introduction times.
+        var analyzerHelper = new AnalyzerHelper(_logger);
+        seasonIntros = analyzerHelper.AdjustIntroTimes(analysisQueue, seasonIntros, this._analysisMode);
 
         Plugin.Instance!.UpdateTimestamps(seasonIntros, _analysisMode);
 
@@ -402,101 +397,7 @@ public class ChromaprintAnalyzer : IMediaFileAnalyzer
 
         // Since LHS had a contiguous time range, RHS must have one also.
         var rContiguous = TimeRangeHelpers.FindContiguous(rhsTimes.ToArray(), maximumTimeSkip)!;
-
-        if (_analysisMode == AnalysisMode.Introduction)
-        {
-            // Tweak the end timestamps just a bit to ensure as little content as possible is skipped over.
-            // TODO: remove this
-            if (lContiguous.Duration >= 90)
-            {
-                lContiguous.End -= 2 * maximumTimeSkip;
-                rContiguous.End -= 2 * maximumTimeSkip;
-            }
-            else if (lContiguous.Duration >= 30)
-            {
-                lContiguous.End -= maximumTimeSkip;
-                rContiguous.End -= maximumTimeSkip;
-            }
-        }
-
         return (lContiguous, rContiguous);
-    }
-
-    /// <summary>
-    /// Adjusts the end timestamps of all intros so that they end at silence.
-    /// </summary>
-    /// <param name="episodes">QueuedEpisodes to adjust.</param>
-    /// <param name="originalIntros">Original introductions.</param>
-    private Dictionary<Guid, Intro> AdjustIntroEndTimes(
-        ReadOnlyCollection<QueuedEpisode> episodes,
-        Dictionary<Guid, Intro> originalIntros)
-    {
-        Dictionary<Guid, Intro> modifiedIntros = new();
-
-        // For all episodes
-        foreach (var episode in episodes)
-        {
-            _logger.LogTrace(
-                "Adjusting introduction end time for {Name} ({Id})",
-                episode.Name,
-                episode.EpisodeId);
-
-            // If no intro was found for this episode, skip it.
-            if (!originalIntros.TryGetValue(episode.EpisodeId, out var originalIntro))
-            {
-                _logger.LogTrace("{Name} does not have an intro", episode.Name);
-                continue;
-            }
-
-            // Only adjust the end timestamp of the intro
-            var originalIntroEnd = new TimeRange(originalIntro.IntroEnd - 15, originalIntro.IntroEnd);
-
-            _logger.LogTrace(
-                "{Name} original intro: {Start} - {End}",
-                episode.Name,
-                originalIntro.IntroStart,
-                originalIntro.IntroEnd);
-
-            // Detect silence in the media file up to the end of the intro.
-            var silence = FFmpegWrapper.DetectSilence(episode, (int)originalIntro.IntroEnd + 2);
-
-            // For all periods of silence
-            foreach (var currentRange in silence)
-            {
-                _logger.LogTrace(
-                    "{Name} silence: {Start} - {End}",
-                    episode.Name,
-                    currentRange.Start,
-                    currentRange.End);
-
-                // Ignore any silence that:
-                // * doesn't intersect the ending of the intro, or
-                // * is shorter than the user defined minimum duration, or
-                // * starts before the introduction does
-                if (
-                    !originalIntroEnd.Intersects(currentRange) ||
-                    currentRange.Duration < silenceDetectionMinimumDuration ||
-                    currentRange.Start < originalIntro.IntroStart)
-                {
-                    continue;
-                }
-
-                // Adjust the end timestamp of the intro to match the start of the silence region.
-                originalIntro.IntroEnd = currentRange.Start;
-                break;
-            }
-
-            _logger.LogTrace(
-                "{Name} adjusted intro: {Start} - {End}",
-                episode.Name,
-                originalIntro.IntroStart,
-                originalIntro.IntroEnd);
-
-            // Add the (potentially) modified intro back.
-            modifiedIntros[episode.EpisodeId] = originalIntro;
-        }
-
-        return modifiedIntros;
     }
 
     /// <summary>
