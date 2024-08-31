@@ -114,7 +114,7 @@ public class AutoSkip : IHostedService, IDisposable
         {
             if (WarningManager.HasFlag(PluginWarning.UnableToAddSkipButton))
             {
-                _logger.LogInformation("using seek command to skip intro because skip button injection failed");
+                _logger.LogInformation("using autoskip to skip the intro because the injection of the skip button failed");
             }
 
             // only need for official Android TV App and jellyfin-kodi

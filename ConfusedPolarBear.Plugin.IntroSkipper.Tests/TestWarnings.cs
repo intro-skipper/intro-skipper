@@ -32,4 +32,17 @@ public class TestFlags
             "UnableToAddSkipButton, InvalidChromaprintFingerprint",
             WarningManager.GetWarnings());
     }
+
+    [Fact]
+    public void TestHasFlag()
+    {
+        WarningManager.Clear();
+        Assert.True(WarningManager.HasFlag(PluginWarning.None));
+        Assert.False(WarningManager.HasFlag(PluginWarning.UnableToAddSkipButton) && WarningManager.HasFlag(PluginWarning.InvalidChromaprintFingerprint));
+        WarningManager.SetFlag(PluginWarning.UnableToAddSkipButton);
+        WarningManager.SetFlag(PluginWarning.InvalidChromaprintFingerprint);
+        Assert.True(WarningManager.HasFlag(PluginWarning.UnableToAddSkipButton) && WarningManager.HasFlag(PluginWarning.InvalidChromaprintFingerprint));
+        Assert.False(WarningManager.HasFlag(PluginWarning.IncompatibleFFmpegBuild));
+        Assert.True(WarningManager.HasFlag(PluginWarning.None));
+    }
 }
