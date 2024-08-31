@@ -17,6 +17,7 @@ public class TestFlags
         WarningManager.Clear();
         WarningManager.SetFlag(PluginWarning.UnableToAddSkipButton);
         Assert.Equal("UnableToAddSkipButton", WarningManager.GetWarnings());
+        Assert.True(WarningManager.HasFlag(PluginWarning.UnableToAddSkipButton));
     }
 
     [Fact]
@@ -26,7 +27,7 @@ public class TestFlags
         WarningManager.SetFlag(PluginWarning.UnableToAddSkipButton);
         WarningManager.SetFlag(PluginWarning.InvalidChromaprintFingerprint);
         WarningManager.SetFlag(PluginWarning.InvalidChromaprintFingerprint);
-
+        Assert.True(WarningManager.HasFlag(PluginWarning.UnableToAddSkipButton) && WarningManager.HasFlag(PluginWarning.InvalidChromaprintFingerprint));
         Assert.Equal(
             "UnableToAddSkipButton, InvalidChromaprintFingerprint",
             WarningManager.GetWarnings());
