@@ -183,7 +183,7 @@ const introSkipper = {
     /** Get the currently playing skippable segment. */
     getCurrentSegment(position) {
         for (const [key, segment] of Object.entries(this.skipSegments)) {
-            if ((position > segment.ShowSkipPromptAt && position < segment.HideSkipPromptAt - 1) || 
+            if ((position > segment.ShowSkipPromptAt && position < segment.HideSkipPromptAt - 1) ||
                 (this.osdVisible() && position > segment.IntroStart && position < segment.IntroEnd - 1)) {
                 segment.SegmentType = key;
                 return segment;
@@ -328,7 +328,7 @@ const introSkipper = {
             element.style.left = `${originalLeft - newWidth / 2}px`;
         } else {
             const rect = reference.getBoundingClientRect();
-            element.style.left = `${rect.left - (element.offsetWidth - rect.width) / 2}px`;
+            element.style.left = `${Math.min(rect.left - (element.offsetWidth - rect.width) / 2, window.innerWidth - element.offsetWidth - 10)}px`;
             element.style.top = `${rect.top - element.offsetHeight + rect.height}px`;
         }
     },
@@ -457,9 +457,10 @@ const introSkipper = {
         this.doSkip();
     },
     handleEscapeKey(e) {
-        if (e.key !== 'Escape') return;
-        e.stopPropagation();
-        this.closeSubmenu(true);
+        if (e.key === 'Escape' || e.keyCode === 461 || e.keyCode === 10009) {
+            e.stopPropagation();
+            this.closeSubmenu(true);
+        }
     }
 };
 introSkipper.setup();
