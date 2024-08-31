@@ -112,6 +112,17 @@ public class AutoSkipCredits : IHostedService, IDisposable
     {
         foreach (var session in _sessionManager.Sessions)
         {
+            if (WarningManager.HasFlag(PluginWarning.UnableToAddSkipButton))
+            {
+                _logger.LogInformation("using autoskip to skip the credits because the injection of the skip button failed");
+            }
+
+            // only need for official Android TV App and jellyfin-kodi
+            else if (session.Client != "Android TV" || session.Client != "Kodi")
+            {
+                continue;
+            }
+
             var deviceId = session.DeviceId;
             var itemId = session.NowPlayingItem.Id;
             var position = session.PlayState.PositionTicks / TimeSpan.TicksPerSecond;

@@ -28,37 +28,3 @@ public enum PluginWarning
     /// </summary>
     IncompatibleFFmpegBuild = 4,
 }
-
-/// <summary>
-/// Warning manager.
-/// </summary>
-public static class WarningManager
-{
-    private static PluginWarning warnings;
-
-    /// <summary>
-    /// Set warning.
-    /// </summary>
-    /// <param name="warning">Warning.</param>
-    public static void SetFlag(PluginWarning warning)
-    {
-        warnings |= warning;
-    }
-
-    /// <summary>
-    /// Clear warnings.
-    /// </summary>
-    public static void Clear()
-    {
-        warnings = PluginWarning.None;
-    }
-
-    /// <summary>
-    /// Get warnings.
-    /// </summary>
-    /// <returns>Warnings.</returns>
-    public static string GetWarnings()
-    {
-        return warnings.ToString();
-    }
-}
