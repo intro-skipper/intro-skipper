@@ -6,6 +6,8 @@ using ConfusedPolarBear.Plugin.IntroSkipper.Data;
 using MediaBrowser.Model.Entities;
 using Microsoft.Extensions.Logging;
 
+namespace ConfusedPolarBear.Plugin.IntroSkipper;
+
 /// <summary>
 /// Analyzer Helper.
 /// </summary>
