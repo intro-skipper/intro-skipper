@@ -5,7 +5,7 @@ const { URL } = require('url');
 
 const repository = process.env.GITHUB_REPOSITORY;
 const version = process.env.VERSION;
-const targetAbi = "10.9.9.0";
+const targetAbi = "10.9.10.0";
 
 // Read manifest.json
 const manifestPath = './manifest.json';
@@ -38,10 +38,14 @@ async function updateManifest() {
     // Add the new version to the manifest
     jsonData[0].versions.unshift(newVersion);
 
-    // Write the updated manifest to file if validation is successful
-    fs.writeFileSync(manifestPath, JSON.stringify(jsonData, null, 4));
     console.log('Manifest updated successfully.');
     updateReadMeVersion();
+
+    cleanUpOldReleases();
+    
+    // Write the modified JSON data back to the file
+    fs.writeFileSync(manifestPath, JSON.stringify(jsonData, null, 4), 'utf8');
+
     process.exit(0); // Exit with no error
 }
 
@@ -121,6 +125,39 @@ function updateReadMeVersion() {
     } else {
         console.log('README has already newest Jellyfin version.');
     }
+}
+
+function cleanUpOldReleases() {
+    // Extract all unique targetAbi values
+    const abiSet = new Set();
+    jsonData.forEach(entry => {
+        entry.versions.forEach(version => {
+            abiSet.add(version.targetAbi);
+        });
+    });
+
+    // Convert the Set to an array and sort it in descending order
+    const abiArray = Array.from(abiSet).sort((a, b) => {
+        const aParts = a.split('.').map(Number);
+        const bParts = b.split('.').map(Number);
+
+        for (let i = 0; i < aParts.length; i++) {
+            if (aParts[i] > bParts[i]) return -1;
+            if (aParts[i] < bParts[i]) return 1;
+        }
+        return 0;
+    });
+
+    // Identify the highest and second highest targetAbi
+    const highestAbi = abiArray[0];
+    const secondHighestAbi = abiArray[1];
+
+    // Filter the versions array to keep only those with the highest or second highest targetAbi
+    jsonData.forEach(entry => {
+        entry.versions = entry.versions.filter(version =>
+            version.targetAbi === highestAbi || version.targetAbi === secondHighestAbi
+        );
+    });
 }
 
 async function run() {

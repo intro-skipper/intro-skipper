@@ -139,7 +139,7 @@ public class ChromaprintAnalyzer : IMediaFileAnalyzer
                 // - the introduction exceeds the configured limit
                 if (
                     !remainingIntro.Valid ||
-                    remainingIntro.Duration > Plugin.Instance!.Configuration.MaximumIntroDuration)
+                    (this._analysisMode == AnalysisMode.Introduction && remainingIntro.Duration > Plugin.Instance!.Configuration.MaximumIntroDuration))
                 {
                     continue;
                 }
