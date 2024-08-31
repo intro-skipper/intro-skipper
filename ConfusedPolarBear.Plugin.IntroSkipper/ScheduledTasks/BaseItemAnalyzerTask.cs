@@ -4,10 +4,12 @@ using System.Collections.ObjectModel;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
+using ConfusedPolarBear.Plugin.IntroSkipper.Analyzers;
+using ConfusedPolarBear.Plugin.IntroSkipper.Data;
 using MediaBrowser.Controller.Library;
 using Microsoft.Extensions.Logging;
 
-namespace ConfusedPolarBear.Plugin.IntroSkipper;
+namespace ConfusedPolarBear.Plugin.IntroSkipper.ScheduledTasks;
 
 /// <summary>
 /// Common code shared by all media item analyzer tasks.

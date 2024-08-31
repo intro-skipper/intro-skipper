@@ -1,6 +1,6 @@
 using System;
 
-namespace ConfusedPolarBear.Plugin.IntroSkipper;
+namespace ConfusedPolarBear.Plugin.IntroSkipper.Data;
 
 /// <summary>
 /// Exception raised when an error is encountered analyzing audio.

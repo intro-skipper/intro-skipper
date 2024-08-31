@@ -3,6 +3,7 @@ using System.Globalization;
 using System.IO;
 using System.Net.Mime;
 using System.Text;
+using ConfusedPolarBear.Plugin.IntroSkipper.Data;
 using MediaBrowser.Common;
 using MediaBrowser.Common.Api;
 using MediaBrowser.Controller.Library;

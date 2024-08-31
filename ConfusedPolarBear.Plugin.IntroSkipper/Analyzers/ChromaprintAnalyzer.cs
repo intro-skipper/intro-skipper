@@ -6,9 +6,10 @@ using System.Linq;
 using System.Numerics;
 using System.Threading;
 using ConfusedPolarBear.Plugin.IntroSkipper.Configuration;
+using ConfusedPolarBear.Plugin.IntroSkipper.Data;
 using Microsoft.Extensions.Logging;
 
-namespace ConfusedPolarBear.Plugin.IntroSkipper;
+namespace ConfusedPolarBear.Plugin.IntroSkipper.Analyzers;
 
 /// <summary>
 /// Chromaprint audio analyzer.
@@ -66,7 +67,7 @@ public class ChromaprintAnalyzer : IMediaFileAnalyzer
         // Episodes that were analyzed and do not have an introduction.
         var episodesWithoutIntros = episodeAnalysisQueue.Where(e => !e.State.IsAnalyzed(mode)).ToList();
 
-        this._analysisMode = mode;
+        _analysisMode = mode;
 
         if (episodesWithoutIntros.Count == 0 || episodeAnalysisQueue.Count <= 1)
         {
@@ -139,7 +140,7 @@ public class ChromaprintAnalyzer : IMediaFileAnalyzer
                 // - the introduction exceeds the configured limit
                 if (
                     !remainingIntro.Valid ||
-                    (this._analysisMode == AnalysisMode.Introduction && remainingIntro.Duration > Plugin.Instance!.Configuration.MaximumIntroDuration))
+                    (_analysisMode == AnalysisMode.Introduction && remainingIntro.Duration > Plugin.Instance!.Configuration.MaximumIntroDuration))
                 {
                     continue;
                 }
@@ -153,7 +154,7 @@ public class ChromaprintAnalyzer : IMediaFileAnalyzer
                  * To fix this, the starting and ending times need to be switched, as they were previously reversed
                  * and subtracted from the episode duration to get the reported time range.
                  */
-                if (this._analysisMode == AnalysisMode.Credits)
+                if (_analysisMode == AnalysisMode.Credits)
                 {
                     // Calculate new values for the current intro
                     double currentOriginalIntroStart = currentIntro.IntroStart;
@@ -204,7 +205,7 @@ public class ChromaprintAnalyzer : IMediaFileAnalyzer
         var analyzerHelper = new AnalyzerHelper(_logger);
         seasonIntros = analyzerHelper.AdjustIntroTimes(analysisQueue, seasonIntros, this._analysisMode);
 
-        Plugin.Instance!.UpdateTimestamps(seasonIntros, this._analysisMode);
+        Plugin.Instance!.UpdateTimestamps(seasonIntros, _analysisMode);
 
         return episodeAnalysisQueue.AsReadOnly();
     }
@@ -296,8 +297,8 @@ public class ChromaprintAnalyzer : IMediaFileAnalyzer
         var rhsRanges = new List<TimeRange>();
 
         // Generate inverted indexes for the left and right episodes.
-        var lhsIndex = FFmpegWrapper.CreateInvertedIndex(lhsId, lhsPoints, this._analysisMode);
-        var rhsIndex = FFmpegWrapper.CreateInvertedIndex(rhsId, rhsPoints, this._analysisMode);
+        var lhsIndex = FFmpegWrapper.CreateInvertedIndex(lhsId, lhsPoints, _analysisMode);
+        var rhsIndex = FFmpegWrapper.CreateInvertedIndex(rhsId, rhsPoints, _analysisMode);
         var indexShifts = new HashSet<int>();
 
         // For all audio points in the left episode, check if the right episode has a point which matches exactly.
@@ -396,7 +397,6 @@ public class ChromaprintAnalyzer : IMediaFileAnalyzer
 
         // Since LHS had a contiguous time range, RHS must have one also.
         var rContiguous = TimeRangeHelpers.FindContiguous(rhsTimes.ToArray(), maximumTimeSkip)!;
-
         return (lContiguous, rContiguous);
     }
 

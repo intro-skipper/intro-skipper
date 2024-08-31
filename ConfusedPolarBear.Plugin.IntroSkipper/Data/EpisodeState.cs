@@ -1,6 +1,6 @@
 using System;
 
-namespace ConfusedPolarBear.Plugin.IntroSkipper;
+namespace ConfusedPolarBear.Plugin.IntroSkipper.Data;
 
 /// <summary>
 /// Represents the state of an episode regarding analysis and blacklist status.

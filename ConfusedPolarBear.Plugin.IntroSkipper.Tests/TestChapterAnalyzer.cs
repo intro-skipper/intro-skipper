@@ -3,6 +3,8 @@ namespace ConfusedPolarBear.Plugin.IntroSkipper.Tests;
 using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
+using ConfusedPolarBear.Plugin.IntroSkipper.Analyzers;
+using ConfusedPolarBear.Plugin.IntroSkipper.Data;
 using MediaBrowser.Model.Entities;
 using Microsoft.Extensions.Logging;
 using Xunit;

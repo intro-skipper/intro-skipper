@@ -1,7 +1,7 @@
 using System;
 using System.Threading;
 
-namespace ConfusedPolarBear.Plugin.IntroSkipper;
+namespace ConfusedPolarBear.Plugin.IntroSkipper.ScheduledTasks;
 
 internal sealed class ScheduledTaskSemaphore : IDisposable
 {

@@ -1,4 +1,4 @@
-namespace ConfusedPolarBear.Plugin.IntroSkipper;
+namespace ConfusedPolarBear.Plugin.IntroSkipper.Data;
 
 /// <summary>
 /// Taken from https://kodi.wiki/view/Edit_decision_list#MPlayer_EDL.
