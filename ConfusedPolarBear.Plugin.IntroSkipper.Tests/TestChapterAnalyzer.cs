@@ -23,8 +23,8 @@ public class TestChapterAnalyzer
         var introChapter = FindChapter(chapters, AnalysisMode.Introduction);
 
         Assert.NotNull(introChapter);
-        Assert.Equal(60, introChapter.IntroStart);
-        Assert.Equal(90, introChapter.IntroEnd);
+        Assert.Equal(60, introChapter.Start);
+        Assert.Equal(90, introChapter.End);
     }
 
     [Theory]
@@ -39,11 +39,11 @@ public class TestChapterAnalyzer
         var creditsChapter = FindChapter(chapters, AnalysisMode.Credits);
 
         Assert.NotNull(creditsChapter);
-        Assert.Equal(1890, creditsChapter.IntroStart);
-        Assert.Equal(2000, creditsChapter.IntroEnd);
+        Assert.Equal(1890, creditsChapter.Start);
+        Assert.Equal(2000, creditsChapter.End);
     }
 
-    private Intro? FindChapter(Collection<ChapterInfo> chapters, AnalysisMode mode)
+    private Segment? FindChapter(Collection<ChapterInfo> chapters, AnalysisMode mode)
     {
         var logger = new LoggerFactory().CreateLogger<ChapterAnalyzer>();
         var analyzer = new ChapterAnalyzer(logger);
