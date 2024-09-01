@@ -115,7 +115,7 @@ public class AutoSkipCredits : IHostedService, IDisposable
         {
             if (WarningManager.HasFlag(PluginWarning.UnableToAddSkipButton))
             {
-                _logger.LogInformation("using autoskip to skip the credits because the injection of the skip button failed");
+                _logger.LogTrace("using autoskip to skip the credits because the injection of the skip button failed");
             }
 
             // only need for official Android TV App and jellyfin-kodi
