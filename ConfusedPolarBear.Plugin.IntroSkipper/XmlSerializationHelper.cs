@@ -73,6 +73,14 @@ namespace ConfusedPolarBear.Plugin.IntroSkipper
                         // Save the modified XML document
                         xmlDoc.Save(filePath);
                     }
+
+                    // undo namespace change
+                    if (xmlDoc.DocumentElement.NamespaceURI == "http://schemas.datacontract.org/2004/07/ConfusedPolarBear.Plugin.IntroSkipper.Data")
+                    {
+                        xmlDoc.DocumentElement.SetAttribute("xmlns", "http://schemas.datacontract.org/2004/07/ConfusedPolarBear.Plugin.IntroSkipper");
+                        // Save the modified XML document
+                        xmlDoc.Save(filePath);
+                    }
                 }
                 catch (XmlException ex)
                 {

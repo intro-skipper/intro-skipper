@@ -9,7 +9,7 @@ namespace ConfusedPolarBear.Plugin.IntroSkipper.Data;
 /// Result of fingerprinting and analyzing two episodes in a season.
 /// All times are measured in seconds relative to the beginning of the media file.
 /// </summary>
-[DataContract]
+[DataContract(Namespace = "http://schemas.datacontract.org/2004/07/ConfusedPolarBear.Plugin.IntroSkipper")]
 public class Intro
 {
     /// <summary>
