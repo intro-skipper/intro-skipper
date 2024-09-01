@@ -168,7 +168,7 @@ const introSkipper = {
     getCurrentSegment(position) {
         for (const [key, segment] of Object.entries(this.skipSegments)) {
             if ((position > segment.ShowSkipPromptAt && position < segment.HideSkipPromptAt - 1) || 
-                (this.osdVisible() && position > segment.Start && position < segment.End - 1)) {
+                (this.osdVisible() && position > segment.IntroStart && position < segment.IntroEnd - 1)) {
                 segment.SegmentType = key;
                 return segment;
             }
@@ -228,9 +228,9 @@ const introSkipper = {
         }
         this.d(`Skipping ${segment.SegmentType}`);
         this.allowEnter = false;
-        this.videoPlayer.currentTime = segment.SegmentType === "Credits" && this.videoPlayer.duration - segment.End < 3
+        this.videoPlayer.currentTime = segment.SegmentType === "Credits" && this.videoPlayer.duration - segment.IntroEnd < 3
             ? this.videoPlayer.duration + 10
-            : segment.End;
+            : segment.IntroEnd;
     },
     injectSkipperFields(metadataFormFields) {
         const skipperFields = document.createElement('div');
