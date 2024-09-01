@@ -35,7 +35,6 @@ public class SkipIntroController : ControllerBase
     /// <returns>Detected intro.</returns>
     [HttpGet("Episode/{id}/IntroTimestamps")]
     [HttpGet("Episode/{id}/IntroTimestamps/v1")]
-    [Obsolete("deprecated use Episode/{Id}/Timestamps")]
     public ActionResult<Intro> GetIntroTimestamps(
         [FromRoute] Guid id,
         [FromQuery] AnalysisMode mode = AnalysisMode.Introduction)
@@ -126,7 +125,6 @@ public class SkipIntroController : ControllerBase
     /// <response code="200">Skippable segments dictionary.</response>
     /// <returns>Dictionary of skippable segments.</returns>
     [HttpGet("Episode/{id}/IntroSkipperSegments")]
-    [Obsolete("deprecated use Episode/{Id}/Timestamps")]
     public ActionResult<Dictionary<AnalysisMode, Intro>> GetSkippableSegments([FromRoute] Guid id)
     {
         var segments = new Dictionary<AnalysisMode, Intro>();
