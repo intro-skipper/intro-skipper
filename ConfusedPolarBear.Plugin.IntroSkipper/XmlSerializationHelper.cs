@@ -67,7 +67,7 @@ namespace ConfusedPolarBear.Plugin.IntroSkipper
                     {
                         xmlDoc.DocumentElement.RemoveAttribute("xmlns:xsi");
                         xmlDoc.DocumentElement.RemoveAttribute("xmlns:xsd");
-                        xmlDoc.DocumentElement.SetAttribute("xmlns", "http://schemas.datacontract.org/2004/07/ConfusedPolarBear.Plugin.IntroSkipper");
+                        xmlDoc.DocumentElement.SetAttribute("xmlns", "http://schemas.datacontract.org/2004/07/ConfusedPolarBear.Plugin.IntroSkipper.Data");
                         xmlDoc.DocumentElement.SetAttribute("xmlns:i", "http://www.w3.org/2001/XMLSchema-instance");
 
                         // Save the modified XML document
