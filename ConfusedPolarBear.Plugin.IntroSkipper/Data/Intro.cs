@@ -1,5 +1,6 @@
 using System;
 using System.Globalization;
+using System.Runtime.Serialization;
 using System.Text.Json.Serialization;
 
 namespace ConfusedPolarBear.Plugin.IntroSkipper.Data;
@@ -8,6 +9,7 @@ namespace ConfusedPolarBear.Plugin.IntroSkipper.Data;
 /// Result of fingerprinting and analyzing two episodes in a season.
 /// All times are measured in seconds relative to the beginning of the media file.
 /// </summary>
+[DataContract]
 public class Intro
 {
     /// <summary>
@@ -54,6 +56,7 @@ public class Intro
     /// <summary>
     /// Gets or sets the Episode ID.
     /// </summary>
+    [DataMember]
     public Guid EpisodeId { get; set; }
 
     /// <summary>
@@ -71,11 +74,13 @@ public class Intro
     /// <summary>
     /// Gets or sets the introduction sequence start time.
     /// </summary>
+    [DataMember]
     public double IntroStart { get; set; }
 
     /// <summary>
     /// Gets or sets the introduction sequence end time.
     /// </summary>
+    [DataMember]
     public double IntroEnd { get; set; }
 
     /// <summary>
