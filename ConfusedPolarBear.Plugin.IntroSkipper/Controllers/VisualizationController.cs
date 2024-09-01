@@ -166,8 +166,15 @@ public class VisualizationController : ControllerBase
     /// <returns>No content.</returns>
     [HttpPost("Episode/{Id}/UpdateIntroTimestamps")]
     [Obsolete("deprecated use Episode/{Id}/Timestamps")]
-    public ActionResult UpdateIntroTimestamps([FromRoute] Guid id, [FromBody] Segment timestamps)
+    public ActionResult UpdateIntroTimestamps([FromRoute] Guid id, [FromBody] Intro timestamps)
     {
+        if (timestamps.IntroEnd > 0.0)
+        {
+            var tr = new TimeRange(timestamps.IntroStart, timestamps.IntroEnd);
+            Plugin.Instance!.Intros[id] = new Segment(id, tr);
+            Plugin.Instance.SaveTimestamps(AnalysisMode.Introduction);
+        }
+
         return NoContent();
     }
 
