@@ -50,7 +50,7 @@ public class BlackFrameAnalyzer : IMediaFileAnalyzer
             throw new NotImplementedException("mode must equal Credits");
         }
 
-        var creditTimes = new Dictionary<Guid, Intro>();
+        var creditTimes = new Dictionary<Guid, Segment>();
 
         var episodeAnalysisQueue = new List<QueuedEpisode>(analysisQueue);
 
@@ -113,7 +113,7 @@ public class BlackFrameAnalyzer : IMediaFileAnalyzer
                 continue;
             }
 
-            searchStart = episode.Duration - credit.IntroStart + (0.5 * searchDistance);
+            searchStart = episode.Duration - credit.Start + (0.5 * searchDistance);
 
             creditTimes.Add(episode.EpisodeId, credit);
             episode.State.SetAnalyzed(mode, true);
@@ -135,7 +135,7 @@ public class BlackFrameAnalyzer : IMediaFileAnalyzer
     /// <param name="searchDistance">Search Distance.</param>
     /// <param name="minimum">Percentage of the frame that must be black.</param>
     /// <returns>Credits timestamp.</returns>
-    public Intro? AnalyzeMediaFile(QueuedEpisode episode, double searchStart, int searchDistance, int minimum)
+    public Segment? AnalyzeMediaFile(QueuedEpisode episode, double searchStart, int searchDistance, int minimum)
     {
         // Start by analyzing the last N minutes of the file.
         var upperLimit = searchStart;

@@ -35,7 +35,7 @@ public class SkipIntroController : ControllerBase
     /// <returns>Detected intro.</returns>
     [HttpGet("Episode/{id}/IntroTimestamps")]
     [HttpGet("Episode/{id}/IntroTimestamps/v1")]
-    public ActionResult<Intro> GetIntroTimestamps(
+    public ActionResult<Segment> GetIntroTimestamps(
         [FromRoute] Guid id,
         [FromQuery] AnalysisMode mode = AnalysisMode.Introduction)
     {
@@ -68,16 +68,16 @@ public class SkipIntroController : ControllerBase
             return NotFound();
         }
 
-        if (timestamps?.Introduction.IntroEnd > 0.0)
+        if (timestamps?.Introduction.End > 0.0)
         {
-            var tr = new TimeRange(timestamps.Introduction.IntroStart, timestamps.Introduction.IntroEnd);
-            Plugin.Instance!.Intros[id] = new Intro(id, tr);
+            var tr = new TimeRange(timestamps.Introduction.Start, timestamps.Introduction.End);
+            Plugin.Instance!.Intros[id] = new Segment(id, tr);
         }
 
-        if (timestamps?.Credits.IntroEnd > 0.0)
+        if (timestamps?.Credits.End > 0.0)
         {
-            var cr = new TimeRange(timestamps.Credits.IntroStart, timestamps.Credits.IntroEnd);
-            Plugin.Instance!.Credits[id] = new Intro(id, cr);
+            var cr = new TimeRange(timestamps.Credits.Start, timestamps.Credits.End);
+            Plugin.Instance!.Credits[id] = new Segment(id, cr);
         }
 
         Plugin.Instance!.SaveTimestamps(AnalysisMode.Introduction);
@@ -125,16 +125,16 @@ public class SkipIntroController : ControllerBase
     /// <response code="200">Skippable segments dictionary.</response>
     /// <returns>Dictionary of skippable segments.</returns>
     [HttpGet("Episode/{id}/IntroSkipperSegments")]
-    public ActionResult<Dictionary<AnalysisMode, Intro>> GetSkippableSegments([FromRoute] Guid id)
+    public ActionResult<Dictionary<AnalysisMode, Segment>> GetSkippableSegments([FromRoute] Guid id)
     {
-        var segments = new Dictionary<AnalysisMode, Intro>();
+        var segments = new Dictionary<AnalysisMode, Segment>();
 
-        if (GetIntro(id, AnalysisMode.Introduction) is Intro intro)
+        if (GetIntro(id, AnalysisMode.Introduction) is Segment intro)
         {
             segments[AnalysisMode.Introduction] = intro;
         }
 
-        if (GetIntro(id, AnalysisMode.Credits) is Intro credits)
+        if (GetIntro(id, AnalysisMode.Credits) is Segment credits)
         {
             segments[AnalysisMode.Credits] = credits;
         }
@@ -146,28 +146,28 @@ public class SkipIntroController : ControllerBase
     /// <param name="id">Unique identifier of this episode.</param>
     /// <param name="mode">Mode.</param>
     /// <returns>Intro object if the provided item has an intro, null otherwise.</returns>
-    private Intro? GetIntro(Guid id, AnalysisMode mode)
+    private Segment? GetIntro(Guid id, AnalysisMode mode)
     {
         try
         {
             var timestamp = Plugin.Instance!.GetIntroByMode(id, mode);
 
             // Operate on a copy to avoid mutating the original Intro object stored in the dictionary.
-            var segment = new Intro(timestamp);
+            var segment = new Segment(timestamp);
 
             var config = Plugin.Instance.Configuration;
-            segment.IntroEnd -= config.RemainingSecondsOfIntro;
+            segment.End -= config.RemainingSecondsOfIntro;
             if (config.PersistSkipButton)
             {
-                segment.ShowSkipPromptAt = segment.IntroStart;
-                segment.HideSkipPromptAt = segment.IntroEnd;
+                segment.ShowSkipPromptAt = segment.Start;
+                segment.HideSkipPromptAt = segment.End;
             }
             else
             {
-                segment.ShowSkipPromptAt = Math.Max(0, segment.IntroStart - config.ShowPromptAdjustment);
+                segment.ShowSkipPromptAt = Math.Max(0, segment.Start - config.ShowPromptAdjustment);
                 segment.HideSkipPromptAt = Math.Min(
-                    segment.IntroStart + config.HidePromptAdjustment,
-                    segment.IntroEnd);
+                    segment.Start + config.HidePromptAdjustment,
+                    segment.End);
             }
 
             return segment;
@@ -206,45 +206,6 @@ public class SkipIntroController : ControllerBase
         Plugin.Instance!.EpisodeStates.Clear();
         Plugin.Instance!.SaveTimestamps(mode);
         return NoContent();
-    }
-
-    /// <summary>
-    /// Get all introductions or credits. Only used by the end to end testing script.
-    /// </summary>
-    /// <param name="mode">Mode.</param>
-    /// <response code="200">All timestamps have been returned.</response>
-    /// <returns>List of IntroWithMetadata objects.</returns>
-    [Authorize(Policy = Policies.RequiresElevation)]
-    [HttpGet("Intros/All")]
-    public ActionResult<List<IntroWithMetadata>> GetAllTimestamps(
-        [FromQuery] AnalysisMode mode = AnalysisMode.Introduction)
-    {
-        List<IntroWithMetadata> intros = new();
-
-        var timestamps = mode == AnalysisMode.Introduction ?
-            Plugin.Instance!.Intros :
-            Plugin.Instance!.Credits;
-
-        // Get metadata for all intros
-        foreach (var intro in timestamps)
-        {
-            // Get the details of the item from Jellyfin
-            var rawItem = Plugin.Instance.GetItem(intro.Key);
-            if (rawItem == null || rawItem is not Episode episode)
-            {
-                throw new InvalidCastException("Unable to cast item id " + intro.Key + " to an Episode");
-            }
-
-            // Associate the metadata with the intro
-            intros.Add(
-                new IntroWithMetadata(
-                episode.SeriesName,
-                episode.AiredSeasonNumber ?? 0,
-                episode.Name,
-                intro.Value));
-        }
-
-        return intros;
     }
 
     /// <summary>

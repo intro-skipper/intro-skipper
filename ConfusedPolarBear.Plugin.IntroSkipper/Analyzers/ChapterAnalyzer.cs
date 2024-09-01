@@ -34,7 +34,7 @@ public class ChapterAnalyzer : IMediaFileAnalyzer
         AnalysisMode mode,
         CancellationToken cancellationToken)
     {
-        var skippableRanges = new Dictionary<Guid, Intro>();
+        var skippableRanges = new Dictionary<Guid, Segment>();
 
         // Episode analysis queue.
         var episodeAnalysisQueue = new List<QueuedEpisode>(analysisQueue);
@@ -84,7 +84,7 @@ public class ChapterAnalyzer : IMediaFileAnalyzer
     /// <param name="expression">Regular expression pattern.</param>
     /// <param name="mode">Analysis mode.</param>
     /// <returns>Intro object containing skippable time range, or null if no chapter matched.</returns>
-    public Intro? FindMatchingChapter(
+    public Segment? FindMatchingChapter(
         QueuedEpisode episode,
         Collection<ChapterInfo> chapters,
         string expression,
@@ -165,7 +165,7 @@ public class ChapterAnalyzer : IMediaFileAnalyzer
             }
 
             _logger.LogTrace("{Base}: okay", baseMessage);
-            return new Intro(episode.EpisodeId, currentRange);
+            return new Segment(episode.EpisodeId, currentRange);
         }
 
         return null;

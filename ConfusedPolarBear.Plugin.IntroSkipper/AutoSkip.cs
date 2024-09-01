@@ -145,8 +145,8 @@ public class AutoSkip : IHostedService, IDisposable
             }
 
             // Seek is unreliable if called at the very start of an episode.
-            var adjustedStart = Math.Max(5, intro.IntroStart + Plugin.Instance.Configuration.SecondsOfIntroStartToPlay);
-            var adjustedEnd = intro.IntroEnd - Plugin.Instance.Configuration.RemainingSecondsOfIntro;
+            var adjustedStart = Math.Max(5, intro.Start + Plugin.Instance.Configuration.SecondsOfIntroStartToPlay);
+            var adjustedEnd = intro.End - Plugin.Instance.Configuration.RemainingSecondsOfIntro;
 
             _logger.LogTrace(
                 "Playback position is {Position}, intro runs from {Start} to {End}",

@@ -1,5 +1,4 @@
 using System;
-using System.Globalization;
 using System.Runtime.Serialization;
 using System.Text.Json.Serialization;
 
@@ -15,42 +14,12 @@ public class Intro
     /// <summary>
     /// Initializes a new instance of the <see cref="Intro"/> class.
     /// </summary>
-    /// <param name="episode">Episode.</param>
-    /// <param name="intro">Introduction time range.</param>
-    public Intro(Guid episode, TimeRange intro)
-    {
-        EpisodeId = episode;
-        IntroStart = intro.Start;
-        IntroEnd = intro.End;
-    }
-
-    /// <summary>
-    /// Initializes a new instance of the <see cref="Intro"/> class.
-    /// </summary>
-    /// <param name="episode">Episode.</param>
-    public Intro(Guid episode)
-    {
-        EpisodeId = episode;
-        IntroStart = 0;
-        IntroEnd = 0;
-    }
-
-    /// <summary>
-    /// Initializes a new instance of the <see cref="Intro"/> class.
-    /// </summary>
     /// <param name="intro">intro.</param>
-    public Intro(Intro intro)
+    public Intro(Segment intro)
     {
         EpisodeId = intro.EpisodeId;
-        IntroStart = intro.IntroStart;
-        IntroEnd = intro.IntroEnd;
-    }
-
-    /// <summary>
-    /// Initializes a new instance of the <see cref="Intro"/> class.
-    /// </summary>
-    public Intro()
-    {
+        IntroStart = intro.Start;
+        IntroEnd = intro.End;
     }
 
     /// <summary>
@@ -92,22 +61,4 @@ public class Intro
     /// Gets or sets the recommended time to hide the skip intro prompt.
     /// </summary>
     public double HideSkipPromptAt { get; set; }
-
-    /// <summary>
-    /// Convert this Intro object to a Kodi compatible EDL entry.
-    /// </summary>
-    /// <param name="action">User specified configuration EDL action.</param>
-    /// <returns>String.</returns>
-    public string ToEdl(EdlAction action)
-    {
-        if (action == EdlAction.None)
-        {
-            throw new ArgumentException("Cannot serialize an EdlAction of None");
-        }
-
-        var start = Math.Round(IntroStart, 2);
-        var end = Math.Round(IntroEnd, 2);
-
-        return string.Format(CultureInfo.InvariantCulture, "{0} {1} {2}", start, end, (int)action);
-    }
 }

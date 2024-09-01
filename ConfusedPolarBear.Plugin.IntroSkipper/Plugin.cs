@@ -147,12 +147,12 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
     /// <summary>
     /// Gets the results of fingerprinting all episodes.
     /// </summary>
-    public ConcurrentDictionary<Guid, Intro> Intros { get; } = new();
+    public ConcurrentDictionary<Guid, Segment> Intros { get; } = new();
 
     /// <summary>
     /// Gets all discovered ending credits.
     /// </summary>
-    public ConcurrentDictionary<Guid, Intro> Credits { get; } = new();
+    public ConcurrentDictionary<Guid, Segment> Credits { get; } = new();
 
     /// <summary>
     /// Gets the most recent media item queue.
@@ -201,7 +201,7 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
     /// <param name="mode">Mode.</param>
     public void SaveTimestamps(AnalysisMode mode)
     {
-        List<Intro> introList = new List<Intro>();
+        List<Segment> introList = new List<Segment>();
         var filePath = mode == AnalysisMode.Introduction
                         ? _introPath
                         : _creditsPath;
@@ -311,7 +311,7 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
     /// <param name="id">Item id.</param>
     /// <param name="mode">Mode.</param>
     /// <returns>Intro.</returns>
-    internal Intro GetIntroByMode(Guid id, AnalysisMode mode)
+    internal Segment GetIntroByMode(Guid id, AnalysisMode mode)
     {
         return mode == AnalysisMode.Introduction
             ? Instance!.Intros[id]
@@ -366,7 +366,7 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
     /// <returns>State of this item.</returns>
     internal EpisodeState GetState(Guid id) => EpisodeStates.GetOrAdd(id, _ => new EpisodeState());
 
-    internal void UpdateTimestamps(Dictionary<Guid, Intro> newTimestamps, AnalysisMode mode)
+    internal void UpdateTimestamps(Dictionary<Guid, Segment> newTimestamps, AnalysisMode mode)
     {
         foreach (var intro in newTimestamps)
         {
