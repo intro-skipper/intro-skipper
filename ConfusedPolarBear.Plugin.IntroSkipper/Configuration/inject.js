@@ -16,11 +16,8 @@ const introSkipper = {
     },
     initializeObserver() {
         this.observer = new MutationObserver(mutations => {
-            const lastMutation = mutations[mutations.length - 1];
-            if (lastMutation.type === 'childList') {
-                const actionSheet = lastMutation.target.querySelector('.actionSheet');
-                if (actionSheet) this.injectMenu(actionSheet);
-            }
+            const actionSheet = mutations[mutations.length - 1].target.querySelector('.actionSheet');
+            if (actionSheet && !actionSheet.querySelector(`[data-id="${'introskipperMenu'}"]`)) this.injectIntroSkipperOptions(actionSheet);
         });
     },
     /** Wrapper around fetch() that retrieves skip segments for the currently playing item or metadata. */
@@ -206,7 +203,7 @@ const introSkipper = {
         if (!this.skipButton) return;
         const embyButton = this.skipButton.querySelector(".emby-button");
         const segmentType = this.getCurrentSegment(this.videoPlayer.currentTime).SegmentType;
-        if (segmentType === "None") {
+        if (segmentType === "None" || this.currentOption === "Off" || !this.allowEnter) {
             if (this.skipButton.classList.contains('show')) {
                 this.skipButton.classList.remove('show');
                 embyButton.addEventListener("transitionend", () => {
@@ -216,12 +213,10 @@ const introSkipper = {
                     } else {
                         embyButton.originalBlur();
                     }
-                    this.allowEnter = true;
                 }, { once: true });
             }
             return;
         }
-        if (this.currentOption === "Off" || !this.allowEnter) return;
         if (this.currentOption === "Automatically Skip" || (this.currentOption === "Button w/ auto PiP" && document.pictureInPictureElement)) {
             this.doSkip();
             return;
@@ -254,7 +249,7 @@ const introSkipper = {
             this.videoPlayer.removeEventListener('seeked', seekedHandler);
             setTimeout(() => {
                 this.allowEnter = true;
-            }, 300);
+            }, 500);
         };
         this.videoPlayer.addEventListener('seeked', seekedHandler);
         this.videoPlayer.currentTime = segment.SegmentType === "Credits" && this.videoPlayer.duration - segment.IntroEnd < 3
@@ -308,16 +303,16 @@ const introSkipper = {
         localStorage.setItem('introskipperOption', option);
         this.d(`Introskipper option selected and saved: ${option}`);
     },
-    injectMenu(container) {
-        if (container.querySelector(`[data-id="${'introskipperMenu'}"]`)) return;
-        const statsButton = container.querySelector('[data-id="stats"]');
+    injectIntroSkipperOptions(actionSheet) {
+        if (!this.skipButton) return;
+        const statsButton = actionSheet.querySelector('[data-id="stats"]');
         if (!statsButton) return;
         const menuItem = this.createButton(statsButton, 'introskipperMenu',
                                       `<div class="listItemBody actionsheetListItemBody"><div class="listItemBodyText actionSheetItemText">Intro Skipper</div></div><div class="listItemAside actionSheetItemAsideText">${this.currentOption}</div>`,
-                                      () => this.openSubmenu(statsButton, container.closest('.dialogContainer')));
-        const originalWidth = container.offsetWidth;
+                                      () => this.openSubmenu(statsButton, actionSheet.closest('.dialogContainer')));
+        const originalWidth = actionSheet.offsetWidth;
         statsButton.before(menuItem);
-        if (container.classList.contains('actionsheet-not-fullscreen')) this.adjustPosition(container, menuItem, originalWidth);
+        if (actionSheet.classList.contains('actionsheet-not-fullscreen')) this.adjustPosition(actionSheet, menuItem, originalWidth);
     },
     adjustPosition(element, reference, originalWidth) {
         if (originalWidth) {
