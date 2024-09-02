@@ -34,13 +34,13 @@ jobs:
       run: echo "${{ github.sha }}" > ConfusedPolarBear.Plugin.IntroSkipper/Configuration/version.txt
 
     - name: Build
-      run: dotnet build --no-restore
+      run: dotnet build --configuration Release --no-restore
 
     - name: Upload artifact
       uses: actions/upload-artifact@v4.3.3
       with:
         name: ConfusedPolarBear.Plugin.IntroSkipper-v${{ env.NEW_FILE_VERSION }}.dll
-        path: ConfusedPolarBear.Plugin.IntroSkipper/bin/Debug/net6.0/ConfusedPolarBear.Plugin.IntroSkipper.dll
+        path: ConfusedPolarBear.Plugin.IntroSkipper/bin/Release/net6.0/ConfusedPolarBear.Plugin.IntroSkipper.dll
         if-no-files-found: error
 
     - name: Create archive
