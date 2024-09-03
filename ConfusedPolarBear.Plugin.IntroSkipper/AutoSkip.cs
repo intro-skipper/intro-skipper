@@ -109,6 +109,43 @@ public class AutoSkip : IHostedService, IDisposable
         }
     }
 
+    private void SendMessage(SessionInfo session)
+    {
+        lock (_sentSeekCommandLock)
+        {
+            if (_sentSeekCommand.TryGetValue(session.DeviceId, out var sent) && sent)
+            {
+                _logger.LogTrace("Already sent seek command for session {Session}", session.DeviceId);
+                return;
+            }
+        }
+
+        if (!Plugin.Instance!.Intros.TryGetValue(session.NowPlayingItem.Id, out var intro) || !intro.Valid)
+        {
+            return;
+        }
+
+        var notificationText = Plugin.Instance.Configuration.SkipButtonIntroText;
+        if (!string.IsNullOrWhiteSpace(notificationText))
+        {
+            _sessionManager.SendMessageCommand(
+            session.Id,
+            session.Id,
+            new MessageCommand
+            {
+                Header = string.Empty,      // some clients require header to be a string instead of null
+                Text = notificationText,
+                TimeoutMs = 2000,
+            },
+            CancellationToken.None);
+        }
+
+        lock (_sentSeekCommandLock)
+        {
+            _sentSeekCommand[session.DeviceId] = true;
+        }
+    }
+
     private void PlaybackTimer_Elapsed(object? sender, ElapsedEventArgs e)
     {
         foreach (var session in _sessionManager.Sessions)
@@ -128,19 +165,14 @@ public class AutoSkip : IHostedService, IDisposable
             var itemId = session.NowPlayingItem.Id;
             var position = session.PlayState.PositionTicks / TimeSpan.TicksPerSecond;
 
-            // Don't send the seek command more than once in the same session.
-            lock (_sentSeekCommandLock)
-            {
-                if (_sentSeekCommand.TryGetValue(deviceId, out var sent) && sent)
-                {
-                    _logger.LogTrace("Already sent seek command for session {Session}", deviceId);
-                    continue;
-                }
-            }
-
             // Assert that an intro was detected for this item.
             if (!Plugin.Instance!.Intros.TryGetValue(itemId, out var intro) || !intro.Valid)
             {
+                lock (_sentSeekCommandLock)
+                {
+                    _sentSeekCommand[session.DeviceId] = false;
+                }
+
                 continue;
             }
 
@@ -159,40 +191,30 @@ public class AutoSkip : IHostedService, IDisposable
                 continue;
             }
 
-            // Notify the user that an introduction is being skipped for them.
-            var notificationText = Plugin.Instance.Configuration.AutoSkipNotificationText;
-            if (!string.IsNullOrWhiteSpace(notificationText))
-            {
-                _sessionManager.SendMessageCommand(
-                session.Id,
-                session.Id,
-                new MessageCommand
-                {
-                    Header = string.Empty,      // some clients require header to be a string instead of null
-                    Text = notificationText,
-                    TimeoutMs = 2000,
-                },
-                CancellationToken.None);
-            }
-
             _logger.LogDebug("Sending seek command to {Session}", deviceId);
-
-            _sessionManager.SendPlaystateCommand(
-                session.Id,
-                session.Id,
-                new PlaystateRequest
-                {
-                    Command = PlaystateCommand.Seek,
-                    ControllingUserId = session.UserId.ToString(),
-                    SeekPositionTicks = (long)adjustedEnd * TimeSpan.TicksPerSecond,
-                },
-                CancellationToken.None);
-
-            // Flag that we've sent the seek command so that it's not sent repeatedly
-            lock (_sentSeekCommandLock)
+            SendMessage(session);
+            if (session.PlayState.IsPaused == true)
             {
-                _logger.LogTrace("Setting seek command state for session {Session}", deviceId);
-                _sentSeekCommand[deviceId] = true;
+                _sessionManager.SendPlaystateCommand(
+                    session.Id,
+                    session.Id,
+                    new PlaystateRequest
+                    {
+                        Command = PlaystateCommand.Unpause,
+                        ControllingUserId = session.UserId.ToString(),
+                    },
+                    CancellationToken.None);
+
+                _sessionManager.SendPlaystateCommand(
+                    session.Id,
+                    session.Id,
+                    new PlaystateRequest
+                    {
+                        Command = PlaystateCommand.Seek,
+                        ControllingUserId = session.UserId.ToString(),
+                        SeekPositionTicks = (long)adjustedEnd * TimeSpan.TicksPerSecond,
+                    },
+                    CancellationToken.None);
             }
         }
     }
