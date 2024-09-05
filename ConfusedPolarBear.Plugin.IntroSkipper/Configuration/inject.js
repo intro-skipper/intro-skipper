@@ -3,13 +3,22 @@ const introSkipper = {
     d: msg => console.debug("[intro skipper] ", msg),
     setup() {
         this.initializeState();
+        this.initializeObserver();
+        this.currentOption = localStorage.getItem('introskipperOption') || 'Show Button';
         document.addEventListener("viewshow", this.viewShow.bind(this));
         window.fetch = this.fetchWrapper.bind(this);
         this.videoPositionChanged = this.videoPositionChanged.bind(this);
+        this.handleEscapeKey = this.handleEscapeKey.bind(this);
         this.d("Registered hooks");
     },
     initializeState() {
         Object.assign(this, { allowEnter: true, skipSegments: {}, videoPlayer: null, skipButton: null, osdElement: null, skipperData: null, currentEpisodeId: null, injectMetadata: false });
+    },
+    initializeObserver() {
+        this.observer = new MutationObserver(mutations => {
+            const actionSheet = mutations[mutations.length - 1].target.querySelector('.actionSheet');
+            if (actionSheet && !actionSheet.querySelector(`[data-id="${'introskipperMenu'}"]`)) this.injectIntroSkipperOptions(actionSheet);
+        });
     },
     /** Wrapper around fetch() that retrieves skip segments for the currently playing item or metadata. */
     async fetchWrapper(resource, options) {
@@ -60,8 +69,12 @@ const introSkipper = {
                 this.d("Hooking video timeupdate");
                 this.videoPlayer.addEventListener("timeupdate", this.videoPositionChanged);
                 this.osdElement = document.querySelector("div.videoOsdBottom")
+                this.observer.observe(document.body, { childList: true, subtree: false });
             }
-        }   
+        }
+        else {
+            this.observer.disconnect();
+        } 
     },
     /**
      * Injects the CSS used by the skip intro button.
@@ -167,7 +180,7 @@ const introSkipper = {
     /** Get the currently playing skippable segment. */
     getCurrentSegment(position) {
         for (const [key, segment] of Object.entries(this.skipSegments)) {
-            if ((position > segment.ShowSkipPromptAt && position < segment.HideSkipPromptAt - 1) || 
+            if ((position > segment.ShowSkipPromptAt && position < segment.HideSkipPromptAt - 1) ||
                 (this.osdVisible() && position > segment.IntroStart && position < segment.IntroEnd - 1)) {
                 segment.SegmentType = key;
                 return segment;
@@ -190,18 +203,22 @@ const introSkipper = {
         if (!this.skipButton) return;
         const embyButton = this.skipButton.querySelector(".emby-button");
         const segmentType = this.getCurrentSegment(this.videoPlayer.currentTime).SegmentType;
-        if (segmentType === "None") {
-            if (!this.skipButton.classList.contains('show')) return;
-            this.skipButton.classList.remove('show');
-            embyButton.addEventListener("transitionend", () => {
-                this.skipButton.classList.add("hide");
-                this.allowEnter = true;
-                if (this.osdVisible()) {
-                    this.osdElement.querySelector('button.btnPause').focus();
-                } else {
-                    embyButton.originalBlur();
-                }
-            }, { once: true });
+        if (segmentType === "None" || this.currentOption === "Off" || !this.allowEnter) {
+            if (this.skipButton.classList.contains('show')) {
+                this.skipButton.classList.remove('show');
+                embyButton.addEventListener("transitionend", () => {
+                    this.skipButton.classList.add("hide");
+                    if (this.osdVisible()) {
+                        this.osdElement.querySelector('button.btnPause').focus();
+                    } else {
+                        embyButton.originalBlur();
+                    }
+                }, { once: true });
+            }
+            return;
+        }
+        if (this.currentOption === "Automatically Skip" || (this.currentOption === "Button w/ auto PiP" && document.pictureInPictureElement)) {
+            this.doSkip();
             return;
         }
         this.skipButton.querySelector("#btnSkipSegmentText").textContent = this.skipButton.dataset[segmentType];
@@ -228,9 +245,87 @@ const introSkipper = {
         }
         this.d(`Skipping ${segment.SegmentType}`);
         this.allowEnter = false;
+        const seekedHandler = () => {
+            this.videoPlayer.removeEventListener('seeked', seekedHandler);
+            setTimeout(() => {
+                this.allowEnter = true;
+            }, 500);
+        };
+        this.videoPlayer.addEventListener('seeked', seekedHandler);
         this.videoPlayer.currentTime = segment.SegmentType === "Credits" && this.videoPlayer.duration - segment.IntroEnd < 3
             ? this.videoPlayer.duration + 10
             : segment.IntroEnd;
+    },
+    createButton(ref, id, innerHTML, clickHandler) {
+        const button = ref.cloneNode(true);
+        button.setAttribute('data-id', id);
+        button.innerHTML = innerHTML;
+        button.addEventListener('click', clickHandler);
+        return button;
+    },
+    closeSubmenu(fullscreen) {
+        document.querySelector('.dialogContainer').remove();
+        document.querySelector('.dialogBackdrop').remove()
+        document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Control' }));
+        if (!fullscreen) return;
+        document.removeEventListener('keydown', this.handleEscapeKey);
+        document.querySelector('.btnVideoOsdSettings').focus();
+    },
+    openSubmenu(ref, menu) {
+        const options = ['Show Button', 'Button w/ auto PiP', 'Automatically Skip', 'Off'];
+        const submenu = menu.cloneNode(true);
+        const scroller = submenu.querySelector('.actionSheetScroller');
+        scroller.innerHTML = '';
+        options.forEach(option => {
+            if (option !== 'Button w/ auto PiP' || document.pictureInPictureEnabled) {
+                const button = this.createButton(ref, `introskipper-${option.toLowerCase().replace(' ', '-')}`,
+                                            `<span class="actionsheetMenuItemIcon listItemIcon listItemIcon-transparent material-icons check" aria-hidden="true" style="visibility:${option === this.currentOption ? 'visible' : 'hidden'};"></span><div class="listItemBody actionsheetListItemBody"><div class="listItemBodyText actionSheetItemText">${option}</div></div>`,
+                                            () => this.selectOption(option));
+                scroller.appendChild(button);
+            }
+        });
+        const backdrop = document.createElement('div');
+        backdrop.className = 'dialogBackdrop dialogBackdropOpened';
+        document.body.append(backdrop, submenu);
+        const actionSheet = submenu.querySelector('.actionSheet');
+        if (actionSheet.classList.contains('actionsheet-not-fullscreen')) {
+            this.adjustPosition(actionSheet, document.querySelector('.btnVideoOsdSettings'));
+            submenu.addEventListener('click', () => this.closeSubmenu(false));
+        } else {
+            submenu.querySelector('.btnCloseActionSheet').addEventListener('click', () => this.closeSubmenu(true))
+            scroller.addEventListener('click', () => this.closeSubmenu(true))
+            document.addEventListener('keydown', this.handleEscapeKey);
+            setTimeout(() => scroller.firstElementChild.focus(), 240);
+        }
+    },
+    selectOption(option) {
+        this.currentOption = option;
+        localStorage.setItem('introskipperOption', option);
+        this.d(`Introskipper option selected and saved: ${option}`);
+    },
+    injectIntroSkipperOptions(actionSheet) {
+        if (!this.skipButton) return;
+        const statsButton = actionSheet.querySelector('[data-id="stats"]');
+        if (!statsButton) return;
+        const menuItem = this.createButton(statsButton, 'introskipperMenu',
+                                      `<div class="listItemBody actionsheetListItemBody"><div class="listItemBodyText actionSheetItemText">Intro Skipper</div></div><div class="listItemAside actionSheetItemAsideText">${this.currentOption}</div>`,
+                                      () => this.openSubmenu(statsButton, actionSheet.closest('.dialogContainer')));
+        const originalWidth = actionSheet.offsetWidth;
+        statsButton.before(menuItem);
+        if (actionSheet.classList.contains('actionsheet-not-fullscreen')) this.adjustPosition(actionSheet, menuItem, originalWidth);
+    },
+    adjustPosition(element, reference, originalWidth) {
+        if (originalWidth) {
+            const currentTop = parseInt(element.style.top, 10) || 0;
+            element.style.top = `${currentTop - reference.offsetHeight}px`;
+            const newWidth = Math.max(reference.offsetWidth - originalWidth, 0);
+            const originalLeft = parseInt(element.style.left, 10) || 0;
+            element.style.left = `${originalLeft - newWidth / 2}px`;
+        } else {
+            const rect = reference.getBoundingClientRect();
+            element.style.left = `${Math.min(rect.left - (element.offsetWidth - rect.width) / 2, window.innerWidth - element.offsetWidth - 10)}px`;
+            element.style.top = `${rect.top - element.offsetHeight + rect.height}px`;
+        }
     },
     injectSkipperFields(metadataFormFields) {
         const skipperFields = document.createElement('div');
@@ -355,6 +450,12 @@ const introSkipper = {
         e.stopPropagation();
         e.preventDefault();
         this.doSkip();
+    },
+    handleEscapeKey(e) {
+        if (e.key === 'Escape' || e.keyCode === 461 || e.keyCode === 10009) {
+            e.stopPropagation();
+            this.closeSubmenu(true);
+        }
     }
 };
 introSkipper.setup();

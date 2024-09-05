@@ -34,10 +34,10 @@ jobs:
       run: echo "${{ github.sha }}" > ConfusedPolarBear.Plugin.IntroSkipper/Configuration/version.txt
 
     - name: Build
-      run: dotnet build --no-restore
+      run: dotnet build --configuration Release --no-restore
 
     - name: Create archive
-      run: zip -j "intro-skipper-v${{ env.NEW_FILE_VERSION }}.zip" ConfusedPolarBear.Plugin.IntroSkipper/bin/Debug/net8.0/ConfusedPolarBear.Plugin.IntroSkipper.dll
+      run: zip -j "intro-skipper-v${{ env.NEW_FILE_VERSION }}.zip" ConfusedPolarBear.Plugin.IntroSkipper/bin/Release/net8.0/ConfusedPolarBear.Plugin.IntroSkipper.dll
       
 
     - name: Create new release with tag
