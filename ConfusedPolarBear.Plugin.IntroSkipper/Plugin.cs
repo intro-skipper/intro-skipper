@@ -129,6 +129,8 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
             _logger.LogWarning("Unable to load introduction timestamps: {Exception}", ex);
         }
 
+        UnSupportedClients.InitializeList();
+
         // Inject the skip intro button code into the web interface.
         try
         {

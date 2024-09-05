@@ -119,7 +119,7 @@ public class AutoSkip : IHostedService, IDisposable
             }
 
             // only need for official Android TV App and jellyfin-kodi
-            else if (session.Client != "Android TV" && session.Client != "Kodi")
+            else if (UnSupportedClients.IsClientSupported(session.Client))
             {
                 continue;
             }

@@ -15,6 +15,7 @@ public class PluginConfiguration : BasePluginConfiguration
     /// </summary>
     public PluginConfiguration()
     {
+        // UnSupportedClients.InitializeList();
     }
 
     // ===== Analysis settings =====
@@ -28,6 +29,11 @@ public class PluginConfiguration : BasePluginConfiguration
     /// Gets or sets the comma separated list of library names to analyze. If empty, all libraries will be analyzed.
     /// </summary>
     public string SelectedLibraries { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Gets or sets the comma separated list of item types to analyze. If empty, all item types will be analyzed.
+    /// </summary>
+    public string SelectedClients { get; set; } = string.Empty;
 
     /// <summary>
     /// Gets or sets a value indicating whether to scan for intros during a scheduled task.
