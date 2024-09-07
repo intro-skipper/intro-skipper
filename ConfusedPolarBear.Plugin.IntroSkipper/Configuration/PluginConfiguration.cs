@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using System.Collections.ObjectModel;
 using System.Diagnostics;
 using ConfusedPolarBear.Plugin.IntroSkipper.Data;
 using MediaBrowser.Model.Plugins;
@@ -15,7 +16,6 @@ public class PluginConfiguration : BasePluginConfiguration
     /// </summary>
     public PluginConfiguration()
     {
-        // UnSupportedClients.InitializeList();
     }
 
     // ===== Analysis settings =====
@@ -31,9 +31,11 @@ public class PluginConfiguration : BasePluginConfiguration
     public string SelectedLibraries { get; set; } = string.Empty;
 
     /// <summary>
-    /// Gets or sets the comma separated list of item types to analyze. If empty, all item types will be analyzed.
+    /// Gets or sets the list of client to auto skip for.
     /// </summary>
-    public string SelectedClients { get; set; } = string.Empty;
+    #pragma warning disable CA2227
+    #pragma warning disable CA1002
+    public List<string> ClientList { get; set; } = ["default"];
 
     /// <summary>
     /// Gets or sets a value indicating whether to scan for intros during a scheduled task.

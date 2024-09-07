@@ -10,6 +10,44 @@
          data-require="emby-input,emby-button,emby-select,emby-checkbox,emby-linkbutton">
         <div data-role="content">
             <style>
+                .listsContainer {
+                    display: flex;
+                    gap: 20px;
+                }
+                .listsContainer ul {
+                    list-style-type: none;
+                    border: 1px solid #ccc;
+                    height: 300px;
+                    overflow-y: auto;
+                    padding: 0px;
+                    margin: 0px;
+                }
+                .listsContainer div {
+                    width: 100%;
+                    max-width: 200px;
+                    margin: unset;
+                    display: flex;
+                    flex-flow: column;
+                }
+                .listsContainer li {
+                    padding: 10px;
+                    cursor: pointer;
+                    border-bottom: 1px solid #ccc;
+                    user-select: none;
+                }
+                .listsContainer li:hover {
+                    background-color: #c4c4c448;
+                }
+                .listsContainer li.selected {
+                    background-color: #88b0ff8f;
+                }
+                .listsContainer span {
+                    border: 1px solid #ccc;
+                    text-align: center;
+                    border-radius: 4px 4px 0px 0px;
+                    margin-bottom: 0px;
+                }
+                
                 summary {
                     cursor: pointer;
                     padding: 10px;
@@ -340,15 +378,17 @@
                     <fieldset class="verticalSection-extrabottompadding">
                         <legend>Playback</legend>
 
-                        <div class="inputContainer">
-                            <label class="inputLabel inputLabelUnfocused" for="SelectedClients">
-                                Set clients to auto skip for.
-                            </label>
-                            <input id="SelectedClients" type="text" is="emby-input" />
-                            <div class="fieldDescription" id="ClientList">example: </div>
-                            <div class="fieldDescription">
-                                Enter the names of clients to automatically skip intros for, separated by commas.<br />
-                                #Note: this list is an addition to the default unsupported clients list.
+                        <div class="checkboxListContainer">
+                            <label>Set clients to auto skip for.</label> <br />
+                            <div class="listsContainer">
+                                <div>
+                                    <span>Auto skip</span>
+                                    <ul id="leftList"></ul>
+                                </div>
+                                <div>
+                                    <span>Do not auto skip</span>
+                                    <ul id="rightList"></ul>
+                                </div>
                             </div>
                         </div>
 
@@ -711,7 +751,6 @@
                 // analysis
                 "MaxParallelism",
                 "SelectedLibraries",
-                "SelectedClients",
                 "AnalysisPercent",
                 "AnalysisLengthLimit",
                 "MinimumIntroDuration",
@@ -776,35 +815,44 @@
             var autoSkipCredits = document.querySelector("input#AutoSkipCredits");
             var autoSkipCreditsNotificationText = document.querySelector("div#divAutoSkipCreditsNotificationText");
 
-            var devicesListDescription = document.querySelector("div#ClientList");
+            var clientListContainer = document.querySelector("div.listsContainer");
+            var ClientListUnSupport = clientListContainer.querySelector("ul#leftList");
+            var ClientListSupport = clientListContainer.querySelector("ul#rightList");
 
-            async function insertDeviceTypes() {
-                const response = await getJson("Devices");
-
-                var deviceTypes = ["Android TV", "Kodi"];
-
-                for (var device of response.Items) {
-                    if (!deviceTypes.includes(device.AppName)) {
-                        deviceTypes.push(device.AppName);
+            clientListContainer.querySelectorAll('ul').forEach(list => {
+                list.addEventListener('click', function(event) {
+                    if (event.target.tagName === 'LI') {
+                        event.target.classList.toggle('selected');
                     }
-                }
+                });
 
-                // adding deviceTypes list into the devicesListDescription
-                devicesListDescription.innerHTML += deviceTypes.join(", ");
-            }
-
-            insertDeviceTypes();
-            
-
-            function getDeviceTypes(devices) {
-                var deviceTypes = [];
-                for (var device of devices) {
-                    if (!deviceTypes.includes(device.AppName)) {
-                        deviceTypes.push(device.AppName);
+                list.addEventListener('dragstart', function(event) {
+                    if (event.target.tagName === 'LI') {
+                        const selectedItems = list.querySelectorAll('li.selected');
+                        if (!selectedItems.length) {
+                            event.target.classList.add('selected');
+                        }
+                        event.dataTransfer.setData('text/plain', null);
                     }
-                }
-                return deviceTypes;
-            }
+                });
+
+                list.addEventListener('dragover', function(event) {
+                    event.preventDefault();
+                });
+
+                list.addEventListener('drop', function(event) {
+                    event.preventDefault();
+                    const selectedItems = clientListContainer.querySelectorAll('.selected');
+                    selectedItems.forEach(item => {
+                        list.appendChild(item);
+                        item.classList.remove('selected');
+                    });
+                });
+            });
+
+            clientListContainer.querySelectorAll('li').forEach(item => {
+                item.setAttribute('draggable', 'true');
+            });
 
 
             async function autoSkipChanged() {
@@ -1020,7 +1068,6 @@
                 document.querySelector("#editRightIntroEpisodeEnd").value = setTime(Math.round(rightEpisodeJson.Introduction.IntroEnd));
                 document.querySelector("#editRightCreditEpisodeStart").value = setTime(Math.round(rightEpisodeJson.Credits.IntroStart));
                 document.querySelector("#editRightCreditEpisodeEnd").value = setTime(Math.round(rightEpisodeJson.Credits.IntroEnd));
-
             }
 
             // adds an item to a dropdown
@@ -1183,6 +1230,15 @@
                         for (const field of booleanConfigurationFields) {
                             document.querySelector("#" + field).checked = config[field];
                         }
+                        
+                        ClientListUnSupport.innerHTML = "";
+                        ClientListSupport.innerHTML = "";
+                        for (const client of config["ClientList"]) {
+                            if (client !== "default") {
+                                ClientListUnSupport.appendChild(createClientItem(client));
+                            }
+                        }
+                        insertDeviceTypes(config["ClientList"]);
 
                         autoSkipChanged();
                         autoSkipCreditsChanged();
@@ -1204,6 +1260,14 @@
                             config[field] = document.querySelector("#" + field).checked;
                         }
 
+                        config["ClientList"] = [];
+
+                        for (const client of ClientListUnSupport.querySelectorAll("li")) {
+                            config["ClientList"].push(client.textContent);
+                        }
+                        
+                        
+                        
                         ApiClient.updatePluginConfiguration("c83d86bb-a1e0-4c35-a113-e2101cf4ee6b", config)
                             .then(function (result) {
                                 Dashboard.processPluginConfigurationUpdateResult(result);
@@ -1213,6 +1277,25 @@
                     e.preventDefault();
                     return false;
                 });
+
+
+            async function insertDeviceTypes(clientList) {
+                const response = await getJson("Devices");
+                
+                for (var device of response.Items) {
+                    if (!clientList.includes(device.AppName)) {
+                        clientList.push(device.AppName);
+                        ClientListSupport.appendChild(createClientItem(device.AppName));
+                    }
+                }
+            }
+
+            function createClientItem(client) {
+                const li = document.createElement("li");
+                li.setAttribute("draggable", "true");
+                li.textContent = client;
+                return li;
+            }
 
             visualizer.addEventListener("toggle", visualizerToggled);
             support.addEventListener("toggle", supportToggled);

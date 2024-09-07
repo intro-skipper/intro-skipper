@@ -119,6 +119,11 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
         XmlSerializationHelper.MigrateXML(_introPath);
         XmlSerializationHelper.MigrateXML(_creditsPath);
 
+        if (Instance.Configuration.ClientList.Count == 1 && Instance.Configuration.ClientList[0] == "default")
+        {
+            Instance.Configuration.ClientList = ["Android TV", "Kodi"];
+        }
+
         // TODO: remove when https://github.com/jellyfin/jellyfin-meta/discussions/30 is complete
         try
         {
@@ -128,8 +133,6 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
         {
             _logger.LogWarning("Unable to load introduction timestamps: {Exception}", ex);
         }
-
-        UnSupportedClients.InitializeList();
 
         // Inject the skip intro button code into the web interface.
         try
