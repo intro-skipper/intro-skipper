@@ -95,16 +95,6 @@ public class Segment
     public double Duration => End - Start;
 
     /// <summary>
-    /// Gets or sets the recommended time to display the skip intro prompt.
-    /// </summary>
-    public double ShowSkipPromptAt { get; set; }
-
-    /// <summary>
-    /// Gets or sets the recommended time to hide the skip intro prompt.
-    /// </summary>
-    public double HideSkipPromptAt { get; set; }
-
-    /// <summary>
     /// Convert this Intro object to a Kodi compatible EDL entry.
     /// </summary>
     /// <param name="action">User specified configuration EDL action.</param>
