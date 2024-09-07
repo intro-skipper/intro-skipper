@@ -36,6 +36,8 @@ public class PluginConfiguration : BasePluginConfiguration
     #pragma warning disable CA2227
     #pragma warning disable CA1002
     public List<string> ClientList { get; set; } = ["default"];
+    #pragma warning restore CA2227
+    #pragma warning restore CA1002
 
     /// <summary>
     /// Gets or sets a value indicating whether to scan for intros during a scheduled task.
