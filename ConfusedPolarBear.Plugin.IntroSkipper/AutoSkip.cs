@@ -21,34 +21,25 @@ namespace ConfusedPolarBear.Plugin.IntroSkipper;
 /// Automatically skip past introduction sequences.
 /// Commands clients to seek to the end of the intro as soon as they start playing it.
 /// </summary>
-public class AutoSkip : IHostedService, IDisposable
+/// <remarks>
+/// Initializes a new instance of the <see cref="AutoSkip"/> class.
+/// </remarks>
+/// <param name="userDataManager">User data manager.</param>
+/// <param name="sessionManager">Session manager.</param>
+/// <param name="logger">Logger.</param>
+public class AutoSkip(
+    IUserDataManager userDataManager,
+    ISessionManager sessionManager,
+    ILogger<AutoSkip> logger) : IHostedService, IDisposable
 {
     private readonly object _sentSeekCommandLock = new();
 
-    private ILogger<AutoSkip> _logger;
-    private IUserDataManager _userDataManager;
-    private ISessionManager _sessionManager;
+    private ILogger<AutoSkip> _logger = logger;
+    private IUserDataManager _userDataManager = userDataManager;
+    private ISessionManager _sessionManager = sessionManager;
     private Timer _playbackTimer = new(1000);
-    private Dictionary<string, bool> _sentSeekCommand;
-    private HashSet<string> _clientList;
-
-    /// <summary>
-    /// Initializes a new instance of the <see cref="AutoSkip"/> class.
-    /// </summary>
-    /// <param name="userDataManager">User data manager.</param>
-    /// <param name="sessionManager">Session manager.</param>
-    /// <param name="logger">Logger.</param>
-    public AutoSkip(
-        IUserDataManager userDataManager,
-        ISessionManager sessionManager,
-        ILogger<AutoSkip> logger)
-    {
-        _userDataManager = userDataManager;
-        _sessionManager = sessionManager;
-        _logger = logger;
-        _sentSeekCommand = [];
-        _clientList = [];
-    }
+    private Dictionary<string, bool> _sentSeekCommand = [];
+    private HashSet<string> _clientList = [];
 
     private void AutoSkipChanged(object? sender, BasePluginConfiguration e)
     {
@@ -56,9 +47,7 @@ public class AutoSkip : IHostedService, IDisposable
         var newState = configuration.AutoSkip;
         _logger.LogDebug("Setting playback timer enabled to {NewState}", newState);
         _playbackTimer.Enabled = newState;
-        _clientList = configuration.ClientList.Split(',')
-                                      .Select(device => device.Trim())
-                                      .ToHashSet();
+        _clientList = [.. configuration.ClientList.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)];
     }
 
     private void UserDataManager_UserDataSaved(object? sender, UserDataSaveEventArgs e)

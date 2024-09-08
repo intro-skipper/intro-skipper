@@ -21,34 +21,25 @@ namespace ConfusedPolarBear.Plugin.IntroSkipper;
 /// Automatically skip past credit sequences.
 /// Commands clients to seek to the end of the credits as soon as they start playing it.
 /// </summary>
-public class AutoSkipCredits : IHostedService, IDisposable
+/// <remarks>
+/// Initializes a new instance of the <see cref="AutoSkipCredits"/> class.
+/// </remarks>
+/// <param name="userDataManager">User data manager.</param>
+/// <param name="sessionManager">Session manager.</param>
+/// <param name="logger">Logger.</param>
+public class AutoSkipCredits(
+    IUserDataManager userDataManager,
+    ISessionManager sessionManager,
+    ILogger<AutoSkipCredits> logger) : IHostedService, IDisposable
 {
     private readonly object _sentSeekCommandLock = new();
 
-    private ILogger<AutoSkipCredits> _logger;
-    private IUserDataManager _userDataManager;
-    private ISessionManager _sessionManager;
+    private ILogger<AutoSkipCredits> _logger = logger;
+    private IUserDataManager _userDataManager = userDataManager;
+    private ISessionManager _sessionManager = sessionManager;
     private Timer _playbackTimer = new(1000);
-    private Dictionary<string, bool> _sentSeekCommand;
-    private HashSet<string> _clientList;
-
-    /// <summary>
-    /// Initializes a new instance of the <see cref="AutoSkipCredits"/> class.
-    /// </summary>
-    /// <param name="userDataManager">User data manager.</param>
-    /// <param name="sessionManager">Session manager.</param>
-    /// <param name="logger">Logger.</param>
-    public AutoSkipCredits(
-        IUserDataManager userDataManager,
-        ISessionManager sessionManager,
-        ILogger<AutoSkipCredits> logger)
-    {
-        _userDataManager = userDataManager;
-        _sessionManager = sessionManager;
-        _logger = logger;
-        _sentSeekCommand = [];
-        _clientList = [];
-    }
+    private Dictionary<string, bool> _sentSeekCommand = [];
+    private HashSet<string> _clientList = [];
 
     private void AutoSkipCreditChanged(object? sender, BasePluginConfiguration e)
     {
@@ -56,9 +47,7 @@ public class AutoSkipCredits : IHostedService, IDisposable
         var newState = configuration.AutoSkipCredits;
         _logger.LogDebug("Setting playback timer enabled to {NewState}", newState);
         _playbackTimer.Enabled = newState;
-        _clientList = configuration.ClientList.Split(',')
-                                      .Select(device => device.Trim())
-                                      .ToHashSet();
+        _clientList = [.. configuration.ClientList.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)];
     }
 
     private void UserDataManager_UserDataSaved(object? sender, UserDataSaveEventArgs e)
