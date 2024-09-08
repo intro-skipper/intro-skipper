@@ -11,7 +11,7 @@ jobs:
       packages: write
     strategy:
       matrix:
-        jellyfin-web-version: [10.9.10]
+        jellyfin-web-version: [10.9.11]
     steps:
       - uses: actions/checkout@v4
       - name: Setup Node.js environment
