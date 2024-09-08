@@ -1,10 +1,10 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Timers;
 using ConfusedPolarBear.Plugin.IntroSkipper.Configuration;
-using ConfusedPolarBear.Plugin.IntroSkipper.Data;
 using MediaBrowser.Common.Extensions;
 using MediaBrowser.Controller.Library;
 using MediaBrowser.Controller.Session;
@@ -30,6 +30,7 @@ public class AutoSkip : IHostedService, IDisposable
     private ISessionManager _sessionManager;
     private Timer _playbackTimer = new(1000);
     private Dictionary<string, bool> _sentSeekCommand;
+    private HashSet<string> _clientList;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="AutoSkip"/> class.
@@ -45,7 +46,8 @@ public class AutoSkip : IHostedService, IDisposable
         _userDataManager = userDataManager;
         _sessionManager = sessionManager;
         _logger = logger;
-        _sentSeekCommand = new Dictionary<string, bool>();
+        _sentSeekCommand = [];
+        _clientList = [];
     }
 
     private void AutoSkipChanged(object? sender, BasePluginConfiguration e)
@@ -54,6 +56,9 @@ public class AutoSkip : IHostedService, IDisposable
         var newState = configuration.AutoSkip;
         _logger.LogDebug("Setting playback timer enabled to {NewState}", newState);
         _playbackTimer.Enabled = newState;
+        _clientList = configuration.ClientList.Split(',')
+                                      .Select(device => device.Trim())
+                                      .ToHashSet();
     }
 
     private void UserDataManager_UserDataSaved(object? sender, UserDataSaveEventArgs e)
@@ -111,19 +116,8 @@ public class AutoSkip : IHostedService, IDisposable
 
     private void PlaybackTimer_Elapsed(object? sender, ElapsedEventArgs e)
     {
-        foreach (var session in _sessionManager.Sessions)
+        foreach (var session in _sessionManager.Sessions.Where(s => _clientList.Contains(s.Client, StringComparer.OrdinalIgnoreCase)))
         {
-            if (WarningManager.HasFlag(PluginWarning.UnableToAddSkipButton))
-            {
-                _logger.LogTrace("using autoskip to skip the intro because the injection of the skip button failed");
-            }
-
-            // only need for official Android TV App and jellyfin-kodi
-            else if (session.Client != "Android TV" && session.Client != "Kodi")
-            {
-                continue;
-            }
-
             var deviceId = session.DeviceId;
             var itemId = session.NowPlayingItem.Id;
             var position = session.PlayState.PositionTicks / TimeSpan.TicksPerSecond;
