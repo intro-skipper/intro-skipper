@@ -35,7 +35,7 @@ public class PluginConfiguration : BasePluginConfiguration
     /// </summary>
     #pragma warning disable CA2227
     #pragma warning disable CA1002
-    public List<string> ClientList { get; set; } = ["default"];
+    public List<string> ClientList { get; set; } = new List<string>() { "Android TV", "Kodi" };
     #pragma warning restore CA2227
     #pragma warning restore CA1002
 

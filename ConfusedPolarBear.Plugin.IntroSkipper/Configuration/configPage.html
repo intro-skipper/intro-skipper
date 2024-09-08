@@ -390,6 +390,11 @@
                                     <ul id="rightList"></ul>
                                 </div>
                             </div>
+
+                            <div class="fieldDescription">
+                                If checked, the player will automatically skipped for the selected clients.
+                                #Note: This won't work if the auto skip feature is disabled.<br />
+                            </div>
                         </div>
 
                         <div class="checkboxContainer checkboxContainer-withDescription">
@@ -399,7 +404,7 @@
                             </label>
 
                             <div class="fieldDescription">
-                                If checked, credits will be automatically skipped for Apps without Skip Button.
+                                If checked, intros will be automatically skipped for Apps without Skip Button and for selected clients.
                                 If you access Jellyfin through a reverse proxy, it must be configured to proxy websockets.<br />
                             </div>
                         </div>
@@ -434,7 +439,7 @@
                             </label>
 
                             <div class="fieldDescription">
-                                If checked, credits will be automatically skipped for Apps without Skip Button.
+                                If checked, credits will be automatically skipped for Apps without Skip Button and for selected clients.
                                 If you access Jellyfin through a reverse proxy, it must be configured to proxy websockets.<br />
                             </div>
                         </div>
@@ -1234,9 +1239,7 @@
                         ClientListUnSupport.innerHTML = "";
                         ClientListSupport.innerHTML = "";
                         for (const client of config["ClientList"]) {
-                            if (client !== "default") {
-                                ClientListUnSupport.appendChild(createClientItem(client));
-                            }
+                            ClientListUnSupport.appendChild(createClientItem(client));
                         }
                         insertDeviceTypes(config["ClientList"]);
 
