@@ -816,27 +816,17 @@
                 return devices;
             }
 
-            function getCheckedDevices() {
-                var checkboxes = autoSkipClientList.querySelectorAll('input[type="checkbox"]:checked');
-                var checkedDevices = Array.prototype.map.call(checkboxes, function(checkbox) {
-                    return checkbox.nextElementSibling.textContent;
-                });
-                return checkedDevices.join(', ');
-            }
-
             function updateClientList() {
-                var updatedDeviceList = getCheckedDevices();
-                document.getElementById('ClientList').value = updatedDeviceList;
-                console.log("Updated device list:", updatedDeviceList);
+                document.getElementById('ClientList').value = Array.from(
+                    autoSkipClientList.querySelectorAll('input[type="checkbox"]:checked')
+                ).map(checkbox => checkbox.nextElementSibling.textContent).join(', ');
             }
 
             async function generateAutoSkipClientList() {
                 var devices = await getDeviceList();
-                console.info(devices);
-                
                 var deviceList = document.getElementById('ClientList').value;
                 var checkedDevices = deviceList ? deviceList.split(', ') : [];
-                
+
                 var checkboxListHtml = devices.map(function(device) {
                     var id = 'chk' + device.replace(/\s+/g, '');
                     var isChecked = checkedDevices.includes(device) ? 'checked' : '';
