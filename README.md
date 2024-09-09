@@ -83,9 +83,8 @@ These parameters can be configured by opening the plugin settings
       Run the following command to fix the permissions on `index.html`:
       
         ```sh
-        sudo chown jellyfin /usr/share/jellyfin/web/index.html
+        sudo dpkg-statoverride --update --add jellyfin root 0644 /usr/share/jellyfin/web/index.html
         ```
-      Note that you might need to repeat this command after Jellyfin updates.
 
     - **Windows:** Locate `index.html` in `C:\Program Files\Jellyfin\Server\jellyfin-web` and modify the permissions for your user to Full Control. After making this change, restart Jellyfin.
 
