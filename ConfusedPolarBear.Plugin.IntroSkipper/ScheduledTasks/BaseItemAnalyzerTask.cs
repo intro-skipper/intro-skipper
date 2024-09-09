@@ -154,6 +154,11 @@ public class BaseItemAnalyzerTask
 
                 foreach (AnalysisMode mode in requiredModes)
                 {
+                    if (IsBlacklisted(episodes[0], mode))
+                    {
+                        continue;
+                    }
+
                     var analyzed = AnalyzeItems(episodes, mode, cancellationToken);
                     Interlocked.Add(ref totalProcessed, analyzed);
 
@@ -207,7 +212,7 @@ public class BaseItemAnalyzerTask
         }
 
         // Remove from Blacklist
-        foreach (var item in items.Where(e => e.State.IsBlacklisted(mode)))
+        foreach (var item in items)
         {
             item.State.SetBlacklisted(mode, false);
         }
@@ -262,5 +267,15 @@ public class BaseItemAnalyzerTask
         }
 
         return totalItems;
+    }
+
+    private bool IsBlacklisted(QueuedEpisode episode, AnalysisMode mode)
+    {
+        if (mode == AnalysisMode.Introduction)
+        {
+            return Plugin.Instance!.Configuration.BlockListIntro.Contains(episode.SeriesName);
+        }
+
+        return Plugin.Instance!.Configuration.BlockListCredit.Contains(episode.SeriesName);
     }
 }

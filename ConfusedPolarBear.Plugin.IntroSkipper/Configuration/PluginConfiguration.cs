@@ -226,6 +226,20 @@ public class PluginConfiguration : BasePluginConfiguration
     public int ProcessThreads { get; set; } = 0;
 
     /// <summary>
+    /// Gets or sets the list of show names to block intros scanning.
+    /// </summary>
+    #pragma warning disable CA2227
+    #pragma warning disable CA1002
+    public List<string> BlockListIntro { get; set; } = new List<string>();
+
+    /// <summary>
+    /// Gets or sets the list of show names to block credits scanning.
+    /// </summary>
+    public List<string> BlockListCredit { get; set; } = new List<string>();
+    #pragma warning restore CA2227
+    #pragma warning restore CA1002
+
+    /// <summary>
     /// Gets or sets the relative priority for an ffmpeg process.
     /// </summary>
     public ProcessPriorityClass ProcessPriority { get; set; } = ProcessPriorityClass.BelowNormal;

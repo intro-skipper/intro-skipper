@@ -87,6 +87,24 @@
                                 blank, all libraries on the server containing television episodes will be analyzed.
                             </div>
                         </div>
+                        
+                        <details id="blockList">
+                            <summary>block list</summary>
+                            
+                            <div class="checkboxContainer checkboxContainer-withDescription">
+                                <br />
+                                <div id="blackListContainer">
+
+                                </div>
+                            </div>
+    
+    
+    
+    
+                                <div class="fieldDescription">
+                                    black list description.
+                                </div>
+                        </details>
 
                         <details id="intro_reqs">
                             <summary>Modify Segment Parameters</summary>
@@ -687,10 +705,14 @@
             // seasons grouped by show
             var shows = {};
 
+            var blockListIntro = [];
+            var blockListCredit = [];
+
             // settings elements
             var visualizer = document.querySelector("details#visualizer");
             var support = document.querySelector("details#support");
             var storage = document.querySelector("details#storage");
+            var blockListSettings = document.querySelector("details#blockList");
             var btnEraseIntroTimestamps = document.querySelector("button#btnEraseIntroTimestamps");
             var btnEraseCreditTimestamps = document.querySelector("button#btnEraseCreditTimestamps");
 
@@ -804,6 +826,22 @@
                 }
             }
 
+            function createBlackListCheckbox(show, isCheckedIntro, isCheckedCredit) {
+                return '<lable class="inputLabel">' +
+                        '<span>' + show + '</span>' +
+
+                        '<label class="emby-checkbox-label multi">' +
+                            '<input type="checkbox" is="emby-checkbox" id="intro" ' + isCheckedIntro + '>' +
+                            '<span class="checkboxLabel">intro</span>' +
+                        '</label>' +
+
+                        '<label class="emby-checkbox-label multi">' +
+                            '<input type="checkbox" is="emby-checkbox" id="credit" ' + isCheckedCredit + '>' +
+                            '<span class="checkboxLabel">credit</span>' +
+                        '</label>' +
+                    '</lable>';
+            }
+
             persistSkip.addEventListener("change", persistSkipChanged);
 
             // when the fingerprint visualizer opens, populate show names
@@ -873,6 +911,31 @@
                 // Display it to the user
                 const ta = document.querySelector("textarea#storage");
                 ta.value = bundleText;
+            }
+
+            async function blockListToggled() {
+                if (!blockListSettings.open) {
+                    return;
+                }
+
+                blackListContainer = blockListSettings.querySelector("div#blackListContainer");
+                blackListContainer.innerHTML = "";
+
+                Dashboard.showLoadingMsg();
+
+                shows = await getJson("Intros/Shows");
+
+                var sorted = [];
+                for (var series in shows) { sorted.push(series); }
+                sorted.sort();
+
+                for (var show of sorted) {
+                    var isCheckedIntro = blockListIntro.includes(show) ? 'checked' : '';
+                    var isCheckedCredit = blockListCredit.includes(show) ? 'checked' : '';
+                    blackListContainer.innerHTML += createBlackListCheckbox(show, isCheckedIntro, isCheckedCredit);
+                }
+
+                Dashboard.hideLoadingMsg();
             }
 
             // show changed, populate seasons
@@ -1139,6 +1202,9 @@
                         for (const field of booleanConfigurationFields) {
                             document.querySelector("#" + field).checked = config[field];
                         }
+                                                
+                        blockListIntro = config["BlockListIntro"];
+                        blockListCredit = config["BlockListCredit"];
 
                         autoSkipChanged();
                         autoSkipCreditsChanged();
@@ -1160,6 +1226,12 @@
                             config[field] = document.querySelector("#" + field).checked;
                         }
 
+                        config["BlockListIntro"] = [];
+                        config["BlockListCredit"] = [];
+                        for (const show of blackListContainer.querySelectorAll('input[type="checkbox"]:checked')) {
+                            config[show.id.includes("intro") ? "BlockListIntro" : "BlockListCredit"].push(show.parentElement.parentElement.querySelector('span').innerHTML);
+                        }
+
                         ApiClient.updatePluginConfiguration("c83d86bb-a1e0-4c35-a113-e2101cf4ee6b", config)
                             .then(function (result) {
                                 Dashboard.processPluginConfigurationUpdateResult(result);
@@ -1173,6 +1245,7 @@
             visualizer.addEventListener("toggle", visualizerToggled);
             support.addEventListener("toggle", supportToggled);
             storage.addEventListener("toggle", storageToggled);
+            blockListSettings.addEventListener("toggle", blockListToggled);
             txtOffset.addEventListener("change", renderTroubleshooter);
             selectShow.addEventListener("change", showChanged);
             selectSeason.addEventListener("change", seasonChanged);
