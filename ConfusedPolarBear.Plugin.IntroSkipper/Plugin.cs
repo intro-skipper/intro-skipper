@@ -30,6 +30,7 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
     private ILogger<Plugin> _logger;
     private string _introPath;
     private string _creditsPath;
+    private string _blocklistPath;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="Plugin"/> class.
@@ -66,6 +67,7 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
         FingerprintCachePath = Path.Join(introsDirectory, pluginCachePath);
         _introPath = Path.Join(applicationPaths.DataPath, pluginDirName, "intros.xml");
         _creditsPath = Path.Join(applicationPaths.DataPath, pluginDirName, "credits.xml");
+        _blocklistPath = Path.Join(applicationPaths.DataPath, pluginDirName, "blocklist.xml");
 
         var cacheRoot = applicationPaths.CachePath;
         var oldIntrosDirectory = Path.Join(cacheRoot, pluginDirName);
@@ -129,6 +131,15 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
             _logger.LogWarning("Unable to load introduction timestamps: {Exception}", ex);
         }
 
+        try
+        {
+            Blocklist = XmlSerializationHelper.DeserializeFromXmlBlocklist(_blocklistPath);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning("Unable to load blocklist: {Exception}", ex);
+        }
+
         // Inject the skip intro button code into the web interface.
         try
         {
@@ -163,6 +174,11 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
     /// Gets all episode states.
     /// </summary>
     public ConcurrentDictionary<Guid, EpisodeState> EpisodeStates { get; } = new();
+
+    /// <summary>
+    /// Gets or sets the blocklist.
+    /// </summary>
+    private ConcurrentDictionary<string, ConcurrentDictionary<AnalysisMode, bool>> Blocklist { get; set; } = new();
 
     /// <summary>
     /// Gets or sets the total number of episodes in the queue.
@@ -224,6 +240,55 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
                 _logger.LogError("SaveTimestamps {Message}", e.Message);
             }
         }
+    }
+
+    /// <summary>
+    /// Save blocklist to disk.
+    /// </summary>
+    public void SaveBlocklist()
+    {
+        lock (_serializationLock)
+        {
+            try
+            {
+                XmlSerializationHelper.SerializeToXml(Blocklist, _blocklistPath);
+            }
+            catch (Exception e)
+            {
+                _logger.LogError("SaveBlocklist {Message}", e.Message);
+            }
+        }
+    }
+
+    /// <summary>
+    /// Toggle blocklist for a series.
+    /// </summary>
+    /// <param name="series">Series name.</param>
+    /// <param name="mode">Mode.</param>
+    /// <param name="analysis">Analysis mode.</param>
+    public void ToggleBlocklistSeries(string series, AnalysisMode mode, bool analysis)
+    {
+        Blocklist.TryAdd(series, new ConcurrentDictionary<AnalysisMode, bool>());
+        Blocklist[series].AddOrUpdate(mode, analysis, (key, oldValue) => analysis);
+
+        // blocklist.AddOrUpdate(mode, analysis, (key, oldValue) => analysis);
+        SaveBlocklist();
+    }
+
+    /// <summary>
+    /// Get blocklist for a series.
+    /// </summary>
+    /// <param name="series">Series name.</param>
+    /// <param name="mode">Mode.</param>
+    /// <returns>True if the series is blocklisted, false otherwise.</returns>
+    public bool GetBlocklistForSeries(string series, AnalysisMode mode)
+    {
+        if (Blocklist.TryGetValue(series, out var blocklist))
+        {
+            return blocklist.TryGetValue(mode, out var value) && value;
+        }
+
+        return false;
     }
 
     /// <summary>

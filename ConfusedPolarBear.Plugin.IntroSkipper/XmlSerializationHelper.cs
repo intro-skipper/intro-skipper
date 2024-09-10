@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.IO;
 using System.Runtime.Serialization;
@@ -35,6 +36,36 @@ namespace ConfusedPolarBear.Plugin.IntroSkipper
 
                 // Deserialize the object from the XML
                 result = serializer.ReadObject(reader) as List<Intro>;
+
+                // Close the reader
+                reader.Close();
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Error deserializing XML: {ex.Message}");
+            }
+
+            ArgumentNullException.ThrowIfNull(result);
+
+            // Return the deserialized object
+            return result;
+        }
+
+        public static ConcurrentDictionary<string, ConcurrentDictionary<AnalysisMode, bool>> DeserializeFromXmlBlocklist(string filePath)
+        {
+            var result = new ConcurrentDictionary<string, ConcurrentDictionary<AnalysisMode, bool>>();
+            try
+            {
+                // Create a FileStream to read the XML file
+                using FileStream fileStream = new FileStream(filePath, FileMode.Open);
+                // Create an XmlDictionaryReader to read the XML
+                XmlDictionaryReader reader = XmlDictionaryReader.CreateTextReader(fileStream, new XmlDictionaryReaderQuotas());
+
+                // Create a DataContractSerializer for type T
+                DataContractSerializer serializer = new DataContractSerializer(typeof(ConcurrentDictionary<string, ConcurrentDictionary<AnalysisMode, bool>>));
+
+                // Deserialize the object from the XML
+                result = serializer.ReadObject(reader) as ConcurrentDictionary<string, ConcurrentDictionary<AnalysisMode, bool>>;
 
                 // Close the reader
                 reader.Close();

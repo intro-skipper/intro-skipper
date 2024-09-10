@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Globalization;
 using System.Net.Mime;
@@ -73,7 +74,24 @@ public class VisualizationController : ControllerBase
     }
 
     /// <summary>
-    /// Returns the names and unique identifiers of all episodes in the provided season.
+    /// Returns the blockList for the provided series.
+    /// </summary>
+    /// <param name="series">Show name.</param>
+    /// <returns>List of episode titles.</returns>
+    [HttpGet("BlockList/{Series}")]
+    public ActionResult<ConcurrentDictionary<AnalysisMode, bool>> GetBlockList([FromRoute] string series)
+    {
+        ConcurrentDictionary<AnalysisMode, bool> list = new ConcurrentDictionary<AnalysisMode, bool>() { [AnalysisMode.Introduction] = false, [AnalysisMode.Credits] = false };
+        foreach (var show in list)
+        {
+            list.AddOrUpdate(show.Key, false, (key, oldValue) => Plugin.Instance!.GetBlocklistForSeries(series, key));
+        }
+
+        return list;
+    }
+
+    /// <summary>
+    /// Returns the uncompressed fingerprint data points for the provided episode.
     /// </summary>
     /// <param name="series">Show name.</param>
     /// <param name="season">Season name.</param>
@@ -154,6 +172,23 @@ public class VisualizationController : ControllerBase
         Plugin.Instance!.SaveTimestamps(AnalysisMode.Introduction);
         Plugin.Instance!.SaveTimestamps(AnalysisMode.Credits);
 
+        return NoContent();
+    }
+
+    /// <summary>
+    /// Updates the block list.
+    /// </summary>
+    /// <param name="series">Show name.</param>
+    /// <param name="mode">New introduction start and end times.</param>
+    /// <param name="analysis">Analysis mode.</param>
+    /// <response code="204">New introduction timestamps saved.</response>
+    /// <returns>No content.</returns>
+    [HttpPost("BlockList/UpdateIntroTimestamps/{Series}/{mode}/{analysis}")]
+    public ActionResult UpdateBlockList([FromRoute] string series, [FromRoute] AnalysisMode mode, [FromRoute] bool analysis)
+    {
+        Plugin.Instance!.ToggleBlocklistSeries(series, mode, analysis);
+
+        Plugin.Instance!.SaveBlocklist();
         return NoContent();
     }
 

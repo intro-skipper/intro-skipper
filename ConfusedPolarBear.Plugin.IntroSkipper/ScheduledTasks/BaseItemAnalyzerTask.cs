@@ -154,7 +154,7 @@ public class BaseItemAnalyzerTask
 
                 foreach (AnalysisMode mode in requiredModes)
                 {
-                    if (IsBlacklisted(episodes[0], mode))
+                    if (Plugin.Instance!.GetBlocklistForSeries(first.SeriesName, mode))
                     {
                         continue;
                     }
@@ -267,15 +267,5 @@ public class BaseItemAnalyzerTask
         }
 
         return totalItems;
-    }
-
-    private bool IsBlacklisted(QueuedEpisode episode, AnalysisMode mode)
-    {
-        if (mode == AnalysisMode.Introduction)
-        {
-            return Plugin.Instance!.Configuration.BlockListIntro.Contains(episode.SeriesName);
-        }
-
-        return Plugin.Instance!.Configuration.BlockListCredit.Contains(episode.SeriesName);
     }
 }
