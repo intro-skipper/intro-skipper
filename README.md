@@ -21,7 +21,7 @@
   * `jellyfin/jellyfin` 10.9.z container: preinstalled
   * `linuxserver/jellyfin` 10.9.z container: preinstalled
   * Debian Linux based native installs: provided by the `jellyfin-ffmpeg6` package
-  * MacOS native installs: build ffmpeg with chromaprint support ([instructions](#installation-macos))
+  * MacOS native installs: build ffmpeg with chromaprint support ([instructions](https://github.com/jumoog/intro-skipper/wiki/Custom-FFMPEG-(MacOS)))
 
 ## Detection parameters
 
