@@ -456,6 +456,6 @@ public partial class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
         _logger.LogInformation("Skip intro button successfully added");
     }
 
-    [GeneratedRegex("</head>", RegexOptions.IgnoreCase, "de-DE")]
+    [GeneratedRegex("</head>", RegexOptions.IgnoreCase)]
     private static partial Regex HeadRegex();
 }
