@@ -1,10 +1,10 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Timers;
 using ConfusedPolarBear.Plugin.IntroSkipper.Configuration;
-using ConfusedPolarBear.Plugin.IntroSkipper.Data;
 using MediaBrowser.Common.Extensions;
 using MediaBrowser.Controller.Library;
 using MediaBrowser.Controller.Session;
@@ -21,32 +21,25 @@ namespace ConfusedPolarBear.Plugin.IntroSkipper;
 /// Automatically skip past introduction sequences.
 /// Commands clients to seek to the end of the intro as soon as they start playing it.
 /// </summary>
-public class AutoSkip : IHostedService, IDisposable
+/// <remarks>
+/// Initializes a new instance of the <see cref="AutoSkip"/> class.
+/// </remarks>
+/// <param name="userDataManager">User data manager.</param>
+/// <param name="sessionManager">Session manager.</param>
+/// <param name="logger">Logger.</param>
+public class AutoSkip(
+    IUserDataManager userDataManager,
+    ISessionManager sessionManager,
+    ILogger<AutoSkip> logger) : IHostedService, IDisposable
 {
     private readonly object _sentSeekCommandLock = new();
 
-    private ILogger<AutoSkip> _logger;
-    private IUserDataManager _userDataManager;
-    private ISessionManager _sessionManager;
+    private ILogger<AutoSkip> _logger = logger;
+    private IUserDataManager _userDataManager = userDataManager;
+    private ISessionManager _sessionManager = sessionManager;
     private Timer _playbackTimer = new(1000);
-    private Dictionary<string, bool> _sentSeekCommand;
-
-    /// <summary>
-    /// Initializes a new instance of the <see cref="AutoSkip"/> class.
-    /// </summary>
-    /// <param name="userDataManager">User data manager.</param>
-    /// <param name="sessionManager">Session manager.</param>
-    /// <param name="logger">Logger.</param>
-    public AutoSkip(
-        IUserDataManager userDataManager,
-        ISessionManager sessionManager,
-        ILogger<AutoSkip> logger)
-    {
-        _userDataManager = userDataManager;
-        _sessionManager = sessionManager;
-        _logger = logger;
-        _sentSeekCommand = new Dictionary<string, bool>();
-    }
+    private Dictionary<string, bool> _sentSeekCommand = [];
+    private HashSet<string> _clientList = [];
 
     private void AutoSkipChanged(object? sender, BasePluginConfiguration e)
     {
@@ -54,6 +47,7 @@ public class AutoSkip : IHostedService, IDisposable
         var newState = configuration.AutoSkip;
         _logger.LogDebug("Setting playback timer enabled to {NewState}", newState);
         _playbackTimer.Enabled = newState;
+        _clientList = [.. configuration.ClientList.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)];
     }
 
     private void UserDataManager_UserDataSaved(object? sender, UserDataSaveEventArgs e)
@@ -111,19 +105,8 @@ public class AutoSkip : IHostedService, IDisposable
 
     private void PlaybackTimer_Elapsed(object? sender, ElapsedEventArgs e)
     {
-        foreach (var session in _sessionManager.Sessions)
+        foreach (var session in _sessionManager.Sessions.Where(s => _clientList.Contains(s.Client, StringComparer.OrdinalIgnoreCase)))
         {
-            if (WarningManager.HasFlag(PluginWarning.UnableToAddSkipButton))
-            {
-                _logger.LogTrace("using autoskip to skip the intro because the injection of the skip button failed");
-            }
-
-            // only need for official Android TV App and jellyfin-kodi
-            else if (session.Client != "Android TV" && session.Client != "Kodi")
-            {
-                continue;
-            }
-
             var deviceId = session.DeviceId;
             var itemId = session.NowPlayingItem.Id;
             var position = session.PlayState.PositionTicks / TimeSpan.TicksPerSecond;

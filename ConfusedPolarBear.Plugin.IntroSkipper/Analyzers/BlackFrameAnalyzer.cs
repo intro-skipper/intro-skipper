@@ -19,11 +19,11 @@ public class BlackFrameAnalyzer : IMediaFileAnalyzer
 
     private readonly ILogger<BlackFrameAnalyzer> _logger;
 
-    private int minimumCreditsDuration;
+    private readonly int _minimumCreditsDuration;
 
-    private int maximumCreditsDuration;
+    private readonly int _maximumCreditsDuration;
 
-    private int blackFrameMinimumPercentage;
+    private readonly int _blackFrameMinimumPercentage;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="BlackFrameAnalyzer"/> class.
@@ -32,9 +32,9 @@ public class BlackFrameAnalyzer : IMediaFileAnalyzer
     public BlackFrameAnalyzer(ILogger<BlackFrameAnalyzer> logger)
     {
         var config = Plugin.Instance?.Configuration ?? new PluginConfiguration();
-        minimumCreditsDuration = config.MinimumCreditsDuration;
-        maximumCreditsDuration = 2 * config.MaximumCreditsDuration;
-        blackFrameMinimumPercentage = config.BlackFrameMinimumPercentage;
+        _minimumCreditsDuration = config.MinimumCreditsDuration;
+        _maximumCreditsDuration = 2 * config.MaximumCreditsDuration;
+        _blackFrameMinimumPercentage = config.BlackFrameMinimumPercentage;
 
         _logger = logger;
     }
@@ -56,9 +56,9 @@ public class BlackFrameAnalyzer : IMediaFileAnalyzer
 
         bool isFirstEpisode = true;
 
-        double searchStart = minimumCreditsDuration;
+        double searchStart = _minimumCreditsDuration;
 
-        var searchDistance = 2 * minimumCreditsDuration;
+        var searchDistance = 2 * _minimumCreditsDuration;
 
         foreach (var episode in episodeAnalysisQueue.Where(e => !e.State.IsAnalyzed(mode)))
         {
@@ -73,7 +73,7 @@ public class BlackFrameAnalyzer : IMediaFileAnalyzer
                 var scanTime = episode.Duration - searchStart;
                 var tr = new TimeRange(scanTime - 0.5, scanTime); // Short search range since accuracy isn't important here.
 
-                var frames = FFmpegWrapper.DetectBlackFrames(episode, tr, blackFrameMinimumPercentage);
+                var frames = FFmpegWrapper.DetectBlackFrames(episode, tr, _blackFrameMinimumPercentage);
 
                 while (frames.Length > 0) // While black frames are found increase searchStart
                 {
@@ -82,16 +82,16 @@ public class BlackFrameAnalyzer : IMediaFileAnalyzer
                     scanTime = episode.Duration - searchStart;
                     tr = new TimeRange(scanTime - 0.5, scanTime);
 
-                    frames = FFmpegWrapper.DetectBlackFrames(episode, tr, blackFrameMinimumPercentage);
+                    frames = FFmpegWrapper.DetectBlackFrames(episode, tr, _blackFrameMinimumPercentage);
 
-                    if (searchStart > maximumCreditsDuration)
+                    if (searchStart > _maximumCreditsDuration)
                     {
-                        searchStart = maximumCreditsDuration;
+                        searchStart = _maximumCreditsDuration;
                         break;
                     }
                 }
 
-                if (searchStart == minimumCreditsDuration) // Skip if no black frames were found
+                if (searchStart == _minimumCreditsDuration) // Skip if no black frames were found
                 {
                     continue;
                 }
@@ -103,12 +103,12 @@ public class BlackFrameAnalyzer : IMediaFileAnalyzer
                 episode,
                 searchStart,
                 searchDistance,
-                blackFrameMinimumPercentage);
+                _blackFrameMinimumPercentage);
 
             if (credit is null)
             {
                 // If no credits were found, reset the first-episode search logic for the next episode in the sequence.
-                searchStart = minimumCreditsDuration;
+                searchStart = _minimumCreditsDuration;
                 isFirstEpisode = true;
                 continue;
             }
@@ -139,7 +139,7 @@ public class BlackFrameAnalyzer : IMediaFileAnalyzer
     {
         // Start by analyzing the last N minutes of the file.
         var upperLimit = searchStart;
-        var lowerLimit = Math.Max(searchStart - searchDistance, minimumCreditsDuration);
+        var lowerLimit = Math.Max(searchStart - searchDistance, _minimumCreditsDuration);
         var start = TimeSpan.FromSeconds(upperLimit);
         var end = TimeSpan.FromSeconds(lowerLimit);
         var firstFrameTime = 0.0;
@@ -176,7 +176,7 @@ public class BlackFrameAnalyzer : IMediaFileAnalyzer
 
                 if (midpoint - TimeSpan.FromSeconds(lowerLimit) < _maximumError)
                 {
-                    lowerLimit = Math.Max(lowerLimit - (0.5 * searchDistance), minimumCreditsDuration);
+                    lowerLimit = Math.Max(lowerLimit - (0.5 * searchDistance), _minimumCreditsDuration);
 
                     // Reset end for a new search with the increased duration
                     end = TimeSpan.FromSeconds(lowerLimit);
@@ -190,7 +190,7 @@ public class BlackFrameAnalyzer : IMediaFileAnalyzer
 
                 if (TimeSpan.FromSeconds(upperLimit) - midpoint < _maximumError)
                 {
-                    upperLimit = Math.Min(upperLimit + (0.5 * searchDistance), maximumCreditsDuration);
+                    upperLimit = Math.Min(upperLimit + (0.5 * searchDistance), _maximumCreditsDuration);
 
                     // Reset start for a new search with the increased duration
                     start = TimeSpan.FromSeconds(upperLimit);

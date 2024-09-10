@@ -5,9 +5,9 @@ namespace ConfusedPolarBear.Plugin.IntroSkipper.ScheduledTasks;
 
 internal sealed class ScheduledTaskSemaphore : IDisposable
 {
-    private static readonly SemaphoreSlim _semaphore = new SemaphoreSlim(1, 1);
+    private static readonly SemaphoreSlim _semaphore = new(1, 1);
 
-    private static bool _isHeld = false;
+    private static bool _isHeld;
 
     private ScheduledTaskSemaphore()
     {

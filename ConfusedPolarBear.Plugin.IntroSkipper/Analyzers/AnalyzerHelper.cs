@@ -14,7 +14,7 @@ namespace ConfusedPolarBear.Plugin.IntroSkipper;
 public class AnalyzerHelper
 {
     private readonly ILogger _logger;
-    private readonly double silenceDetectionMinimumDuration;
+    private readonly double _silenceDetectionMinimumDuration;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="AnalyzerHelper"/> class.
@@ -23,7 +23,7 @@ public class AnalyzerHelper
     public AnalyzerHelper(ILogger logger)
     {
         var config = Plugin.Instance?.Configuration ?? new PluginConfiguration();
-        silenceDetectionMinimumDuration = config.SilenceDetectionMinimumDuration;
+        _silenceDetectionMinimumDuration = config.SilenceDetectionMinimumDuration;
         _logger = logger;
     }
 
@@ -126,7 +126,7 @@ public class AnalyzerHelper
     private bool IsValidSilenceForIntroAdjustment(TimeRange silenceRange, TimeRange originalIntroEnd, Segment adjustedIntro)
     {
         return originalIntroEnd.Intersects(silenceRange) &&
-                silenceRange.Duration >= silenceDetectionMinimumDuration &&
+                silenceRange.Duration >= _silenceDetectionMinimumDuration &&
                 silenceRange.Start >= adjustedIntro.Start;
     }
 }

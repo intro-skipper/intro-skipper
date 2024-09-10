@@ -134,7 +134,7 @@ public class BaseItemAnalyzerTask
                     first.SeasonNumber);
 
                 Interlocked.Add(ref totalProcessed, episodeCount * modeCount); // Update total Processed directly
-                progress.Report((totalProcessed * 100) / totalQueued);
+                progress.Report(totalProcessed * 100 / totalQueued);
 
                 return;
             }
@@ -142,7 +142,7 @@ public class BaseItemAnalyzerTask
             if (modeCount != requiredModeCount)
             {
                 Interlocked.Add(ref totalProcessed, episodeCount);
-                progress.Report((totalProcessed * 100) / totalQueued); // Partial analysis some modes have already been analyzed
+                progress.Report(totalProcessed * 100 / totalQueued); // Partial analysis some modes have already been analyzed
             }
 
             try
@@ -159,7 +159,7 @@ public class BaseItemAnalyzerTask
 
                     writeEdl = analyzed > 0 || Plugin.Instance.Configuration.RegenerateEdlFiles;
 
-                    progress.Report((totalProcessed * 100) / totalQueued);
+                    progress.Report(totalProcessed * 100 / totalQueued);
                 }
             }
             catch (FingerprintException ex)
@@ -219,9 +219,10 @@ public class BaseItemAnalyzerTask
             first.SeriesName,
             first.SeasonNumber);
 
-        var analyzers = new Collection<IMediaFileAnalyzer>();
-
-        analyzers.Add(new ChapterAnalyzer(_loggerFactory.CreateLogger<ChapterAnalyzer>()));
+        var analyzers = new Collection<IMediaFileAnalyzer>
+        {
+            new ChapterAnalyzer(_loggerFactory.CreateLogger<ChapterAnalyzer>())
+        };
         if (first.IsAnime)
         {
             if (Plugin.Instance!.Configuration.UseChromaprint)

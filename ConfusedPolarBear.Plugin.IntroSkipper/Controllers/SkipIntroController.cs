@@ -146,16 +146,16 @@ public class SkipIntroController : ControllerBase
     /// <param name="id">Unique identifier of this episode.</param>
     /// <param name="mode">Mode.</param>
     /// <returns>Intro object if the provided item has an intro, null otherwise.</returns>
-    private Intro? GetIntro(Guid id, AnalysisMode mode)
+    private static Intro? GetIntro(Guid id, AnalysisMode mode)
     {
         try
         {
-            var timestamp = Plugin.Instance!.GetIntroByMode(id, mode);
+            var timestamp = Plugin.GetIntroByMode(id, mode);
 
             // Operate on a copy to avoid mutating the original Intro object stored in the dictionary.
             var segment = new Intro(timestamp);
 
-            var config = Plugin.Instance.Configuration;
+            var config = Plugin.Instance!.Configuration;
             segment.IntroEnd -= config.RemainingSecondsOfIntro;
             if (config.PersistSkipButton)
             {

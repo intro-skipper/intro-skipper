@@ -40,7 +40,7 @@ public class QueuedEpisode
     /// <summary>
     /// Gets or sets a value indicating whether an episode is Anime.
     /// </summary>
-    public bool IsAnime { get; set; } = false;
+    public bool IsAnime { get; set; }
 
     /// <summary>
     /// Gets or sets the timestamp (in seconds) to stop searching for an introduction at.

@@ -61,7 +61,7 @@ public class TimeRange : IComparable
     /// <returns>int.</returns>
     public int CompareTo(object? obj)
     {
-        if (!(obj is TimeRange tr))
+        if (obj is not TimeRange tr)
         {
             throw new ArgumentException("obj must be a TimeRange");
         }
