@@ -1,6 +1,5 @@
 using System;
 using System.Collections.Generic;
-using System.Collections.ObjectModel;
 using System.Threading;
 using System.Threading.Tasks;
 using ConfusedPolarBear.Plugin.IntroSkipper.Data;
@@ -19,38 +18,30 @@ namespace ConfusedPolarBear.Plugin.IntroSkipper;
 /// </summary>
 public class Entrypoint : IHostedService, IDisposable
 {
-    private readonly IUserManager _userManager;
-    private readonly IUserViewManager _userViewManager;
     private readonly ITaskManager _taskManager;
     private readonly ILibraryManager _libraryManager;
     private readonly ILogger<Entrypoint> _logger;
     private readonly ILoggerFactory _loggerFactory;
-    private Timer _queueTimer;
+    private readonly HashSet<Guid> _seasonsToAnalyze = [];
+    private readonly Timer _queueTimer;
+    private static readonly ManualResetEventSlim _autoTaskCompletEvent = new(false);
     private bool _disposed;
     private bool _analyzeAgain;
-    private HashSet<Guid> _seasonsToAnalyze = new HashSet<Guid>();
     private static CancellationTokenSource? _cancellationTokenSource;
-    private static ManualResetEventSlim _autoTaskCompletEvent = new ManualResetEventSlim(false);
 
     /// <summary>
     /// Initializes a new instance of the <see cref="Entrypoint"/> class.
     /// </summary>
-    /// <param name="userManager">User manager.</param>
-    /// <param name="userViewManager">User view manager.</param>
     /// <param name="libraryManager">Library manager.</param>
     /// <param name="taskManager">Task manager.</param>
     /// <param name="logger">Logger.</param>
     /// <param name="loggerFactory">Logger factory.</param>
     public Entrypoint(
-        IUserManager userManager,
-        IUserViewManager userViewManager,
         ILibraryManager libraryManager,
         ITaskManager taskManager,
         ILogger<Entrypoint> logger,
         ILoggerFactory loggerFactory)
     {
-        _userManager = userManager;
-        _userViewManager = userViewManager;
         _libraryManager = libraryManager;
         _taskManager = taskManager;
         _logger = logger;

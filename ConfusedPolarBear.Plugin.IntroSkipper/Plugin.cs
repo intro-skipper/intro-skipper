@@ -21,15 +21,15 @@ namespace ConfusedPolarBear.Plugin.IntroSkipper;
 /// <summary>
 /// Intro skipper plugin. Uses audio analysis to find common sequences of audio shared between episodes.
 /// </summary>
-public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
+public partial class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
 {
     private readonly object _serializationLock = new();
     private readonly object _introsLock = new();
-    private ILibraryManager _libraryManager;
-    private IItemRepository _itemRepository;
-    private ILogger<Plugin> _logger;
-    private string _introPath;
-    private string _creditsPath;
+    private readonly ILibraryManager _libraryManager;
+    private readonly IItemRepository _itemRepository;
+    private readonly ILogger<Plugin> _logger;
+    private readonly string _introPath;
+    private readonly string _creditsPath;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="Plugin"/> class.
@@ -201,7 +201,7 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
     /// <param name="mode">Mode.</param>
     public void SaveTimestamps(AnalysisMode mode)
     {
-        List<Intro> introList = new List<Intro>();
+        List<Intro> introList = [];
         var filePath = mode == AnalysisMode.Introduction
                         ? _introPath
                         : _creditsPath;
@@ -256,11 +256,11 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
     /// <inheritdoc />
     public IEnumerable<PluginPageInfo> GetPages()
     {
-        return new[]
-        {
+        return
+        [
             new PluginPageInfo
             {
-                Name = this.Name,
+                Name = Name,
                 EmbeddedResourcePath = GetType().Namespace + ".Configuration.configPage.html"
             },
             new PluginPageInfo
@@ -273,7 +273,7 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
                 Name = "skip-intro-button.js",
                 EmbeddedResourcePath = GetType().Namespace + ".Configuration.inject.js"
             }
-        };
+        ];
     }
 
     /// <summary>
@@ -311,7 +311,7 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
     /// <param name="id">Item id.</param>
     /// <param name="mode">Mode.</param>
     /// <returns>Intro.</returns>
-    internal Intro GetIntroByMode(Guid id, AnalysisMode mode)
+    internal static Intro GetIntroByMode(Guid id, AnalysisMode mode)
     {
         return mode == AnalysisMode.Introduction
             ? Instance!.Intros[id]
@@ -353,7 +353,7 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
         {
             // Handle the case where the item is not found
             _logger.LogWarning("Item with ID {Id} not found.", id);
-            return new List<ChapterInfo>();
+            return [];
         }
 
         return _itemRepository.GetChapters(item);
@@ -447,7 +447,7 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
 
         // Inject a link to the script at the end of the <head> section.
         // A regex is used here to ensure the replacement is only done once.
-        Regex headEnd = new Regex("</head>", RegexOptions.IgnoreCase);
+        Regex headEnd = HeadRegex();
         contents = headEnd.Replace(contents, scriptTag + "</head>", 1);
 
         // Write the modified file contents
@@ -455,4 +455,7 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
 
         _logger.LogInformation("Skip intro button successfully added");
     }
+
+    [GeneratedRegex("</head>", RegexOptions.IgnoreCase)]
+    private static partial Regex HeadRegex();
 }
