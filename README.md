@@ -28,60 +28,17 @@ Ending credits will be detected if they are shorter than 4 minutes.
 
 These parameters can be configured by opening the plugin settings
 
-## Installation
+## [Installation](https://github.com/jumoog/intro-skipper/wiki/Installation)
+- #### [Install the plugin](https://github.com/jumoog/intro-skipper/wiki/Installation#step-1-install-the-plugin)
+- #### [Configure the plugin](https://github.com/jumoog/intro-skipper/wiki/Installation#step-2-configure-the-plugin)
+- #### [Custom FFMPEG (MacOS)](https://github.com/jumoog/intro-skipper/wiki/Custom-FFMPEG-(MacOS))
 
-### Step 1: Install the plugin
-1. Add this plugin repository to your server: `https://raw.githubusercontent.com/jumoog/intro-skipper/10.8/manifest.json`
-2. Install the Intro Skipper plugin from the General section
-3. Restart Jellyfin
-### Step 2: Configure the plugin
-4. OPTIONAL: Enable automatic skipping or skip button
-    1. Go to Dashboard -> Plugins -> Intro Skipper
-    2. Check "Automatically skip intros" or "Show skip intro button" and click Save
-5. Go to Dashboard -> Scheduled Tasks -> Analyze Episodes and click the play button
-6. After a season has completed analyzing, play some episodes from it and observe the results
-    1. Status updates are logged before analyzing each season of a show
+## [Troubleshooting](https://github.com/jumoog/intro-skipper/wiki/Troubleshooting)
+- #### [Scheduled tasks fail instantly](https://github.com/jumoog/intro-skipper/wiki/Troubleshooting#scheduled-tasks-fail-instantly)
 
-## Troubleshooting
-#### Scheduled tasks fail instantly
-- Verify that Intro Skipper can detect ffmpeg with Chromaprint
-    - Dashboard -> Plugins -> Intro Skipper -> Support Bundle Info
-- Verify that ffmpeg is installed and detected by jellyfin
-    - Dashboard -> Playback -> FFmpeg path
-- Verify that Chromaprint is enabled in ffmpeg (`--enable-chromaprint`)
+- #### [Skip button is not visible](https://github.com/jumoog/intro-skipper/wiki/Troubleshooting#skip-button-is-not-visible)
 
-#### Skip button is not visible
-- Verify you have successfully completed the scheduled task at least once
-- Clear your browser cache and reload the Jellyfin server webpage
-- Fix any permission mismatches between the web folder and Jellyfin server
-
-    * <b>Docker -</b> the container is being run as a non-root user while having been built as a root user, causing the web files to be owned by root. To solve this, you can remove any lines like `User: 1000:1000`, `GUID:`, `PID:`, etc. from the jellyfin docker compose file.
-
-    * <b>Install from distro repositories -</b> the jellyfin-server will execute as `jellyfin` user while the web files will be owned by `root`, `www-data`, etc. This can <i>likely</i> be fixed by adding the `jellyfin` user (or whichever user executes the jellyfin server) to the same group that owns the jellyfin-web folders. **You should only do this if they are owned by a group other than root**.
-- The official Android TV app do not support the skip button. For this app, you will need to use the autoskip option. Please note that there is currently an [issue](https://github.com/jumoog/intro-skipper/issues/168) with autoskip not working because the apps never receive the seek command from Jellyfin.
-## Installation (MacOS)
-
-1. Build ffmpeg with chromaprint support using brew:
-    - macOS 12 or newer can install the [portable jellyfin-ffmpeg](https://github.com/jellyfin/jellyfin-ffmpeg)
-
-```
-brew uninstall --force --ignore-dependencies ffmpeg
-brew install chromaprint amiaopensource/amiaos/decklinksdk
-brew tap homebrew-ffmpeg/ffmpeg
-brew install homebrew-ffmpeg/ffmpeg/ffmpeg --with-chromaprint
-brew link --overwrite ffmpeg
-```
-
-2. Open ~/.config/jellyfin/encoding.xml and add or edit the following lines
-    - Replace [FFMPEG_PATH] with the path returned by `whereis ffmpeg`
-
-```
-<EncoderAppPath>[FFMPEG_PATH]</EncoderAppPath>
-<EncoderAppPathDisplay>[FFMPEG_PATH]</EncoderAppPathDisplay>
-```
-
-4. Follow the [general installation instructions](#installation) above
-
-## Documentation
+## [API Documentation](https://github.com/jumoog/intro-skipper/blob/master/docs/api.md)
 
 Documentation about how the API works can be found in [api.md](docs/api.md).
+
