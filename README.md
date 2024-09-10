@@ -28,6 +28,8 @@ Ending credits will be detected if they are shorter than 4 minutes.
 
 These parameters can be configured by opening the plugin settings
 
+`https://raw.githubusercontent.com/jumoog/intro-skipper/10.8/manifest.json`
+
 ## [Installation](https://github.com/jumoog/intro-skipper/wiki/Installation)
 - #### [Install the plugin](https://github.com/jumoog/intro-skipper/wiki/Installation#step-1-install-the-plugin)
 - #### [Configure the plugin](https://github.com/jumoog/intro-skipper/wiki/Installation#step-2-configure-the-plugin)
