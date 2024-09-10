@@ -15,7 +15,7 @@
   * `jellyfin/jellyfin` 10.8.z container: preinstalled
   * `linuxserver/jellyfin` 10.8.z container: preinstalled
   * Debian Linux based native installs: provided by the `jellyfin-ffmpeg5` package
-  * MacOS native installs: build ffmpeg with chromaprint support ([instructions](#installation-instructions-for-macos))
+  * MacOS native installs: build ffmpeg with chromaprint support ([instructions](https://github.com/jumoog/intro-skipper/wiki/Custom-FFMPEG-(MacOS)))
 
 ## Detection parameters
 
@@ -27,8 +27,6 @@ Show introductions will be detected if they are:
 Ending credits will be detected if they are shorter than 4 minutes.
 
 These parameters can be configured by opening the plugin settings
-
-`https://raw.githubusercontent.com/jumoog/intro-skipper/10.8/manifest.json`
 
 ## [Installation](https://github.com/jumoog/intro-skipper/wiki/Installation)
 - #### [Install the plugin](https://github.com/jumoog/intro-skipper/wiki/Installation#step-1-install-the-plugin)
