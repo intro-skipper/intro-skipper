@@ -71,7 +71,7 @@ public class PluginConfiguration : BasePluginConfiguration
     /// By default, EDL files are only written for a season if the season had at least one newly analyzed episode.
     /// If this is set, all EDL files will be regenerated and overwrite any existing EDL file.
     /// </summary>
-    public bool RegenerateEdlFiles { get; set; } = false;
+    public bool RegenerateEdlFiles { get; set; }
 
     // ===== Custom analysis settings =====
 
@@ -172,7 +172,7 @@ public class PluginConfiguration : BasePluginConfiguration
     /// <summary>
     /// Gets or sets the amount of credit at start to play (in seconds).
     /// </summary>
-    public int SecondsOfCreditsStartToPlay { get; set; } = 0;
+    public int SecondsOfCreditsStartToPlay { get; set; }
 
     // ===== Internal algorithm settings =====
 
@@ -228,7 +228,7 @@ public class PluginConfiguration : BasePluginConfiguration
     /// <summary>
     /// Gets or sets the number of threads for an ffmpeg process.
     /// </summary>
-    public int ProcessThreads { get; set; } = 0;
+    public int ProcessThreads { get; set; }
 
     /// <summary>
     /// Gets or sets the relative priority for an ffmpeg process.

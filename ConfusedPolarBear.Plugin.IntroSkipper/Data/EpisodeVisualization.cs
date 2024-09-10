@@ -5,26 +5,20 @@ namespace ConfusedPolarBear.Plugin.IntroSkipper.Data;
 /// <summary>
 /// Episode name and internal ID as returned by the visualization controller.
 /// </summary>
-public class EpisodeVisualization
+/// <remarks>
+/// Initializes a new instance of the <see cref="EpisodeVisualization"/> class.
+/// </remarks>
+/// <param name="id">Episode id.</param>
+/// <param name="name">Episode name.</param>
+public class EpisodeVisualization(Guid id, string name)
 {
-    /// <summary>
-    /// Initializes a new instance of the <see cref="EpisodeVisualization"/> class.
-    /// </summary>
-    /// <param name="id">Episode id.</param>
-    /// <param name="name">Episode name.</param>
-    public EpisodeVisualization(Guid id, string name)
-    {
-        Id = id;
-        Name = name;
-    }
-
     /// <summary>
     /// Gets the id.
     /// </summary>
-    public Guid Id { get; private set; }
+    public Guid Id { get; private set; } = id;
 
     /// <summary>
     /// Gets the name.
     /// </summary>
-    public string Name { get; private set; } = string.Empty;
+    public string Name { get; private set; } = name;
 }

@@ -5,7 +5,7 @@ namespace ConfusedPolarBear.Plugin.IntroSkipper.Data;
 /// </summary>
 public static class WarningManager
 {
-    private static PluginWarning warnings;
+    private static PluginWarning _warnings;
 
     /// <summary>
     /// Set warning.
@@ -13,7 +13,7 @@ public static class WarningManager
     /// <param name="warning">Warning.</param>
     public static void SetFlag(PluginWarning warning)
     {
-        warnings |= warning;
+        _warnings |= warning;
     }
 
     /// <summary>
@@ -21,7 +21,7 @@ public static class WarningManager
     /// </summary>
     public static void Clear()
     {
-        warnings = PluginWarning.None;
+        _warnings = PluginWarning.None;
     }
 
     /// <summary>
@@ -30,7 +30,7 @@ public static class WarningManager
     /// <returns>Warnings.</returns>
     public static string GetWarnings()
     {
-        return warnings.ToString();
+        return _warnings.ToString();
     }
 
     /// <summary>
@@ -40,6 +40,6 @@ public static class WarningManager
     /// <returns>True if the flag is set, otherwise false.</returns>
     public static bool HasFlag(PluginWarning warning)
     {
-        return (warnings & warning) == warning;
+        return (_warnings & warning) == warning;
     }
 }

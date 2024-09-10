@@ -2,7 +2,6 @@
 using System.Collections.Generic;
 
 namespace ConfusedPolarBear.Plugin.IntroSkipper.Data;
-#pragma warning restore CA1036
 
 /// <summary>
 /// Time range helpers.

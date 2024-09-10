@@ -178,7 +178,7 @@ public class VisualizationController : ControllerBase
         return NoContent();
     }
 
-    private string GetSeasonName(QueuedEpisode episode)
+    private static string GetSeasonName(QueuedEpisode episode)
     {
         return "Season " + episode.SeasonNumber.ToString(CultureInfo.InvariantCulture);
     }
@@ -190,7 +190,7 @@ public class VisualizationController : ControllerBase
     /// <param name="season">Season name.</param>
     /// <param name="episodes">Episodes.</param>
     /// <returns>Boolean indicating if the requested season was found.</returns>
-    private bool LookupSeasonByName(string series, string season, out List<QueuedEpisode> episodes)
+    private static bool LookupSeasonByName(string series, string season, out List<QueuedEpisode> episodes)
     {
         foreach (var queuedEpisodes in Plugin.Instance!.QueuedMediaItems)
         {
@@ -209,7 +209,7 @@ public class VisualizationController : ControllerBase
             return true;
         }
 
-        episodes = new List<QueuedEpisode>();
+        episodes = [];
         return false;
     }
 }
