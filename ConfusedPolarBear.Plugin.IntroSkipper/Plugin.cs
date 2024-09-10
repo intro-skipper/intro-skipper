@@ -201,7 +201,7 @@ public partial class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
     /// <param name="mode">Mode.</param>
     public void SaveTimestamps(AnalysisMode mode)
     {
-        List<Intro> introList = [];
+        List<Segment> introList = [];
         var filePath = mode == AnalysisMode.Introduction
                         ? _introPath
                         : _creditsPath;
@@ -311,7 +311,7 @@ public partial class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
     /// <param name="id">Item id.</param>
     /// <param name="mode">Mode.</param>
     /// <returns>Intro.</returns>
-    internal static Intro GetIntroByMode(Guid id, AnalysisMode mode)
+    internal static Segment GetIntroByMode(Guid id, AnalysisMode mode)
     {
         return mode == AnalysisMode.Introduction
             ? Instance!.Intros[id]
