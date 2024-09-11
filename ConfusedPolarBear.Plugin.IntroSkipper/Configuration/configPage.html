@@ -21,7 +21,7 @@
                     font-size: 1.0em;
                     outline: 2px solid rgba(155, 155, 155, 0.5);
                 }
-                #blockListCheckboxContainer label {
+                #blackListCheckboxContainer label {
                     margin-right: 1.5em;
                     display: inline-block;
                 }
@@ -530,9 +530,9 @@
                         <label class="inputLabel" for="troubleshooterShow">Select TV Series to manage</label>
                         <select is="emby-select" id="troubleshooterShow" class="emby-select-withcolor emby-select"></select>
                         
-                        <div id="blockListCheckboxContainer"></div>
-                        <button id="saveBlockList" style="display: none;">
-                            <span>Save block list</span>
+                        <div id="blackListCheckboxContainer"></div>
+                        <button id="saveBlackList" style="display: none;">
+                            <span>Save blacklist</span>
                         </button>
 
                         <br />
@@ -752,8 +752,8 @@
             // visualizer elements
             var canvas = document.querySelector("canvas#troubleshooter");
             var selectShow = document.querySelector("select#troubleshooterShow");
-            var blockListCheckboxContainer = document.querySelector("div#blockListCheckboxContainer");
-            var saveBlockListButton = document.querySelector("button#saveBlockList");
+            var blackListCheckboxContainer = document.querySelector("div#blackListCheckboxContainer");
+            var saveBlackListButton = document.querySelector("button#saveBlackList");
             var selectSeason = document.querySelector("select#troubleshooterSeason");
             var selectEpisode1 = document.querySelector("select#troubleshooterEpisode1");
             var selectEpisode2 = document.querySelector("select#troubleshooterEpisode2");
@@ -887,7 +887,7 @@
                 const ta = document.querySelector("textarea#storage");
                 ta.value = bundleText;
             }
-            function createBlockListCheckbox(mode, toggle) {
+            function createBlackListCheckbox(mode, toggle) {
                 return `<label for="` + mode + `">
                             <span> do not analyze ` + mode + `</span>
                             <input type="checkbox" id="` + mode + `" ` + (toggle ? `checked` : ``) + `>
@@ -901,11 +901,11 @@
                 clearSelect(selectEpisode2);
 
                 Dashboard.showLoadingMsg();
-                const url = "Intros/BlockList/" + encodeURI(selectShow.value);
-                const BlockList = await getJson(url);
-                saveBlockListButton.style.display = "unset";    
-                blockListCheckboxContainer.innerHTML = ``;
-                Object.keys(BlockList).forEach(mode => blockListCheckboxContainer.innerHTML += createBlockListCheckbox(mode, BlockList[mode]));
+                const url = "Intros/BlackList/" + encodeURI(selectShow.value);
+                const BlackList = await getJson(url);
+                saveBlackListButton.style.display = "unset";    
+                blackListCheckboxContainer.innerHTML = ``;
+                Object.keys(BlackList).forEach(mode => blackListCheckboxContainer.innerHTML += createBlackListCheckbox(mode, BlackList[mode]));
                 Dashboard.hideLoadingMsg();
 
                 // add all seasons from this show to the season select
@@ -1165,9 +1165,6 @@
                         for (const field of booleanConfigurationFields) {
                             document.querySelector("#" + field).checked = config[field];
                         }
-                                                
-                        blockListIntro = config["BlockListIntro"];
-                        blockListCredit = config["BlockListCredit"];
 
                         autoSkipChanged();
                         autoSkipCreditsChanged();
@@ -1236,14 +1233,14 @@
                     }
                 );
             });
-            saveBlockListButton.addEventListener("click", () => {
+            saveBlackListButton.addEventListener("click", () => {
                 Dashboard.showLoadingMsg();
                 const show = selectShow.value;
-                for (const mode of blockListCheckboxContainer.querySelectorAll("input")) {
-                    var url ="Intros/BlockList/UpdateIntroTimestamps/" + encodeURIComponent(show) + "/" + mode.id + "/" + mode.checked;
+                for (const mode of blackListCheckboxContainer.querySelectorAll("input")) {
+                    var url ="Intros/BlackList/UpdateBlackList/" + encodeURIComponent(show) + "/" + mode.id + "/" + mode.checked;
                     fetchWithAuth(url, "POST", null);
                 }
-                Dashboard.alert("Block list saved");
+                Dashboard.alert("Black list saved");
                 Dashboard.hideLoadingMsg();
             });
             btnUpdateTimestamps.addEventListener("click", () => {

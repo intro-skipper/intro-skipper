@@ -31,7 +31,7 @@ namespace ConfusedPolarBear.Plugin.IntroSkipper
                 // Create an XmlDictionaryReader to read the XML
                 XmlDictionaryReader reader = XmlDictionaryReader.CreateTextReader(fileStream, new XmlDictionaryReaderQuotas());
 
-                // Create a DataContractSerializer for type T
+                // Create a DataContractSerializer for type List<Intro>
                 DataContractSerializer serializer = new DataContractSerializer(typeof(List<Intro>));
 
                 // Deserialize the object from the XML
@@ -51,9 +51,9 @@ namespace ConfusedPolarBear.Plugin.IntroSkipper
             return result;
         }
 
-        public static ConcurrentDictionary<string, ConcurrentDictionary<AnalysisMode, bool>> DeserializeFromXmlBlocklist(string filePath)
+        public static List<BlackListItem> DeserializeFromXmlBlacklist(string filePath)
         {
-            var result = new ConcurrentDictionary<string, ConcurrentDictionary<AnalysisMode, bool>>();
+            var result = new List<BlackListItem>();
             try
             {
                 // Create a FileStream to read the XML file
@@ -61,11 +61,11 @@ namespace ConfusedPolarBear.Plugin.IntroSkipper
                 // Create an XmlDictionaryReader to read the XML
                 XmlDictionaryReader reader = XmlDictionaryReader.CreateTextReader(fileStream, new XmlDictionaryReaderQuotas());
 
-                // Create a DataContractSerializer for type T
-                DataContractSerializer serializer = new DataContractSerializer(typeof(ConcurrentDictionary<string, ConcurrentDictionary<AnalysisMode, bool>>));
+                // Create a DataContractSerializer for type List<BlackListItem>
+                DataContractSerializer serializer = new DataContractSerializer(typeof(List<BlackListItem>));
 
                 // Deserialize the object from the XML
-                result = serializer.ReadObject(reader) as ConcurrentDictionary<string, ConcurrentDictionary<AnalysisMode, bool>>;
+                result = serializer.ReadObject(reader) as List<BlackListItem>;
 
                 // Close the reader
                 reader.Close();

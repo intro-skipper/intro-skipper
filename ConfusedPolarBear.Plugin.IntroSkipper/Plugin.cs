@@ -30,7 +30,7 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
     private ILogger<Plugin> _logger;
     private string _introPath;
     private string _creditsPath;
-    private string _blocklistPath;
+    private string _blacklistPath;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="Plugin"/> class.
@@ -67,7 +67,7 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
         FingerprintCachePath = Path.Join(introsDirectory, pluginCachePath);
         _introPath = Path.Join(applicationPaths.DataPath, pluginDirName, "intros.xml");
         _creditsPath = Path.Join(applicationPaths.DataPath, pluginDirName, "credits.xml");
-        _blocklistPath = Path.Join(applicationPaths.DataPath, pluginDirName, "blocklist.xml");
+        _blacklistPath = Path.Join(applicationPaths.DataPath, pluginDirName, "blacklist.xml");
 
         var cacheRoot = applicationPaths.CachePath;
         var oldIntrosDirectory = Path.Join(cacheRoot, pluginDirName);
@@ -133,11 +133,11 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
 
         try
         {
-            Blocklist = XmlSerializationHelper.DeserializeFromXmlBlocklist(_blocklistPath);
+            LoadBlacklist();
         }
-        catch (Exception ex)
+        catch (Exception e)
         {
-            _logger.LogWarning("Unable to load blocklist: {Exception}", ex);
+            _logger.LogError("Unable to load blacklist: {Message}", e.Message);
         }
 
         // Inject the skip intro button code into the web interface.
@@ -176,9 +176,9 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
     public ConcurrentDictionary<Guid, EpisodeState> EpisodeStates { get; } = new();
 
     /// <summary>
-    /// Gets or sets the blocklist.
+    /// Gets or sets the blacklist.
     /// </summary>
-    private ConcurrentDictionary<string, ConcurrentDictionary<AnalysisMode, bool>> Blocklist { get; set; } = new();
+    private List<BlackListItem> Blacklist { get; set; } = new();
 
     /// <summary>
     /// Gets or sets the total number of episodes in the queue.
@@ -243,52 +243,76 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
     }
 
     /// <summary>
-    /// Save blocklist to disk.
+    /// Save blacklist to disk.
     /// </summary>
-    public void SaveBlocklist()
+    public void SaveBlacklist()
     {
+        Blacklist.RemoveAll(item => item.BlackListedModes.Count == 0);
         lock (_serializationLock)
         {
             try
             {
-                XmlSerializationHelper.SerializeToXml(Blocklist, _blocklistPath);
+                XmlSerializationHelper.SerializeToXml(Blacklist, _blacklistPath);
             }
             catch (Exception e)
             {
-                _logger.LogError("SaveBlocklist {Message}", e.Message);
+                _logger.LogError("SaveBlacklist {Message}", e.Message);
             }
         }
     }
 
     /// <summary>
-    /// Toggle blocklist for a series.
+    /// Toggle blacklist for a series.
     /// </summary>
     /// <param name="series">Series name.</param>
     /// <param name="mode">Mode.</param>
     /// <param name="analysis">Analysis mode.</param>
-    public void ToggleBlocklistSeries(string series, AnalysisMode mode, bool analysis)
+    public void ToggleBlacklistSeries(string series, AnalysisMode mode, bool analysis)
     {
-        Blocklist.TryAdd(series, new ConcurrentDictionary<AnalysisMode, bool>());
-        Blocklist[series].AddOrUpdate(mode, analysis, (key, oldValue) => analysis);
+        var item = Blacklist.Find(item => item.Series == series);
+        if (item is null)
+        {
+            item = new BlackListItem(series);
+            Blacklist.Add(item);
+        }
 
-        // blocklist.AddOrUpdate(mode, analysis, (key, oldValue) => analysis);
-        SaveBlocklist();
+        item.UpdateOrAddBlackMode(mode, analysis);
+
+        SaveBlacklist();
     }
 
     /// <summary>
-    /// Get blocklist for a series.
+    /// Check if a series is blacklisted for a specific mode.
     /// </summary>
     /// <param name="series">Series name.</param>
     /// <param name="mode">Mode.</param>
-    /// <returns>True if the series is blocklisted, false otherwise.</returns>
-    public bool GetBlocklistForSeries(string series, AnalysisMode mode)
+    /// <returns>True if the series is blacklisted, false otherwise.</returns>
+    public bool IsBlacklisted(string series, AnalysisMode mode)
     {
-        if (Blocklist.TryGetValue(series, out var blocklist))
+        var item = Blacklist.Find(item => item.Series == series);
+        return item?.BlackListedModes.Contains(mode) ?? false;
+    }
+
+    /// <summary>
+    /// Load blacklist from disk.
+    /// </summary>
+    public void LoadBlacklist()
+    {
+        if (!File.Exists(_blacklistPath))
         {
-            return blocklist.TryGetValue(mode, out var value) && value;
+            Console.WriteLine("Blacklist file not found");
+            return;
         }
 
-        return false;
+        var blacklist = XmlSerializationHelper.DeserializeFromXmlBlacklist(_blacklistPath);
+        if (blacklist is null)
+        {
+            return;
+        }
+
+        blacklist.RemoveAll(item => item.BlackListedModes.Count == 0);
+
+        Blacklist = blacklist;
     }
 
     /// <summary>

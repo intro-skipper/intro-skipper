@@ -74,17 +74,17 @@ public class VisualizationController : ControllerBase
     }
 
     /// <summary>
-    /// Returns the blockList for the provided series.
+    /// Returns the blackList for the provided series.
     /// </summary>
     /// <param name="series">Show name.</param>
     /// <returns>List of episode titles.</returns>
-    [HttpGet("BlockList/{Series}")]
-    public ActionResult<ConcurrentDictionary<AnalysisMode, bool>> GetBlockList([FromRoute] string series)
+    [HttpGet("BlackList/{Series}")]
+    public ActionResult<ConcurrentDictionary<AnalysisMode, bool>> GetBlackList([FromRoute] string series)
     {
         ConcurrentDictionary<AnalysisMode, bool> list = new ConcurrentDictionary<AnalysisMode, bool>() { [AnalysisMode.Introduction] = false, [AnalysisMode.Credits] = false };
         foreach (var show in list)
         {
-            list.AddOrUpdate(show.Key, false, (key, oldValue) => Plugin.Instance!.GetBlocklistForSeries(series, key));
+            list.AddOrUpdate(show.Key, false, (key, oldValue) => Plugin.Instance!.IsBlacklisted(series, key));
         }
 
         return list;
@@ -176,19 +176,17 @@ public class VisualizationController : ControllerBase
     }
 
     /// <summary>
-    /// Updates the block list.
+    /// Updates the black list.
     /// </summary>
     /// <param name="series">Show name.</param>
     /// <param name="mode">New introduction start and end times.</param>
     /// <param name="analysis">Analysis mode.</param>
     /// <response code="204">New introduction timestamps saved.</response>
     /// <returns>No content.</returns>
-    [HttpPost("BlockList/UpdateIntroTimestamps/{Series}/{mode}/{analysis}")]
-    public ActionResult UpdateBlockList([FromRoute] string series, [FromRoute] AnalysisMode mode, [FromRoute] bool analysis)
+    [HttpPost("BlackList/UpdateBlackList/{Series}/{mode}/{analysis}")]
+    public ActionResult UpdateBlackList([FromRoute] string series, [FromRoute] AnalysisMode mode, [FromRoute] bool analysis)
     {
-        Plugin.Instance!.ToggleBlocklistSeries(series, mode, analysis);
-
-        Plugin.Instance!.SaveBlocklist();
+        Plugin.Instance!.ToggleBlacklistSeries(series, mode, analysis);
         return NoContent();
     }
 
