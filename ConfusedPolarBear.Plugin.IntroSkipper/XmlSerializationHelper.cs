@@ -20,9 +20,10 @@ namespace ConfusedPolarBear.Plugin.IntroSkipper
             serializer.WriteObject(fileStream, obj);
         }
 
-        public static List<Intro> DeserializeFromXml(string filePath)
+        public static void MigrateFromIntro(string filePath)
         {
-            var result = new List<Intro>();
+            var intros = new List<Intro>();
+            var segments = new List<Segment>();
             try
             {
                 // Create a FileStream to read the XML file
@@ -34,7 +35,39 @@ namespace ConfusedPolarBear.Plugin.IntroSkipper
                 DataContractSerializer serializer = new DataContractSerializer(typeof(List<Intro>));
 
                 // Deserialize the object from the XML
-                result = serializer.ReadObject(reader) as List<Intro>;
+                intros = serializer.ReadObject(reader) as List<Intro>;
+
+                // Close the reader
+                reader.Close();
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Error deserializing XML: {ex.Message}");
+            }
+
+            ArgumentNullException.ThrowIfNull(intros);
+            intros.ForEach(delegate(Intro name)
+            {
+                segments.Add(new Segment(name));
+            });
+            SerializeToXml(segments, filePath);
+        }
+
+        public static List<Segment> DeserializeFromXml(string filePath)
+        {
+            var result = new List<Segment>();
+            try
+            {
+                // Create a FileStream to read the XML file
+                using FileStream fileStream = new FileStream(filePath, FileMode.Open);
+                // Create an XmlDictionaryReader to read the XML
+                XmlDictionaryReader reader = XmlDictionaryReader.CreateTextReader(fileStream, new XmlDictionaryReaderQuotas());
+
+                // Create a DataContractSerializer for type T
+                DataContractSerializer serializer = new DataContractSerializer(typeof(List<Segment>));
+
+                // Deserialize the object from the XML
+                result = serializer.ReadObject(reader) as List<Segment>;
 
                 // Close the reader
                 reader.Close();
@@ -80,6 +113,12 @@ namespace ConfusedPolarBear.Plugin.IntroSkipper
                         xmlDoc.DocumentElement.SetAttribute("xmlns", "http://schemas.datacontract.org/2004/07/ConfusedPolarBear.Plugin.IntroSkipper");
                         // Save the modified XML document
                         xmlDoc.Save(filePath);
+                    }
+
+                    // intro -> segment migration
+                    if (xmlDoc.DocumentElement.NamespaceURI == "http://schemas.datacontract.org/2004/07/ConfusedPolarBear.Plugin.IntroSkipper")
+                    {
+                        MigrateFromIntro(filePath);
                     }
                 }
                 catch (XmlException ex)

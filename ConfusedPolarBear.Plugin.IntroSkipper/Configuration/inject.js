@@ -364,10 +364,10 @@ const introSkipper = {
     },
     updateSkipperFields(skipperFields) {
         const { Introduction = {}, Credits = {} } = this.skipperData;
-        skipperFields.querySelector('#introStartEdit').value = Introduction.IntroStart || 0;
-        skipperFields.querySelector('#introEndEdit').value = Introduction.IntroEnd || 0;
-        skipperFields.querySelector('#creditsStartEdit').value = Credits.IntroStart || 0;
-        skipperFields.querySelector('#creditsEndEdit').value = Credits.IntroEnd || 0;
+        skipperFields.querySelector('#introStartEdit').value = Introduction.Start || 0;
+        skipperFields.querySelector('#introEndEdit').value = Introduction.End || 0;
+        skipperFields.querySelector('#creditsStartEdit').value = Credits.Start || 0;
+        skipperFields.querySelector('#creditsEndEdit').value = Credits.End || 0;
     },
     attachSaveListener(metadataFormFields) {
         const saveButton = metadataFormFields.querySelector('.formDialogFooter .btnSave');
@@ -414,19 +414,19 @@ const introSkipper = {
     async saveSkipperData() {
         const newTimestamps = {
             Introduction: {
-                IntroStart: parseFloat(document.getElementById('introStartEdit').value || 0),
-                IntroEnd: parseFloat(document.getElementById('introEndEdit').value || 0)
+                Start: parseFloat(document.getElementById('introStartEdit').value || 0),
+                End: parseFloat(document.getElementById('introEndEdit').value || 0)
             },
             Credits: {
-                IntroStart: parseFloat(document.getElementById('creditsStartEdit').value || 0),
-                IntroEnd: parseFloat(document.getElementById('creditsEndEdit').value || 0)
+                Start: parseFloat(document.getElementById('creditsStartEdit').value || 0),
+                End: parseFloat(document.getElementById('creditsEndEdit').value || 0)
             }
         };
         const { Introduction = {}, Credits = {} } = this.skipperData;
-        if (newTimestamps.Introduction.IntroStart !== (Introduction.IntroStart || 0) ||
-            newTimestamps.Introduction.IntroEnd !== (Introduction.IntroEnd || 0) ||
-            newTimestamps.Credits.IntroStart !== (Credits.IntroStart || 0) ||
-            newTimestamps.Credits.IntroEnd !== (Credits.IntroEnd || 0)) {
+        if (newTimestamps.Introduction.Start !== (Introduction.Start || 0) ||
+            newTimestamps.Introduction.End !== (Introduction.End || 0) ||
+            newTimestamps.Credits.Start !== (Credits.Start || 0) ||
+            newTimestamps.Credits.End !== (Credits.End || 0)) {
             const response = await this.secureFetch(`Episode/${this.currentEpisodeId}/Timestamps`, "POST", JSON.stringify(newTimestamps));
             this.d(response.ok ? 'Timestamps updated successfully' : 'Failed to update timestamps:', response.status);
         } else {

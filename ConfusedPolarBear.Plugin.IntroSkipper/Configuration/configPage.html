@@ -1024,16 +1024,16 @@
                 // Update the editor for the first and second episodes
                 timestampEditor.style.display = "unset";
                 document.querySelector("#editLeftEpisodeTitle").textContent = leftEpisode.text;
-                document.querySelector("#editLeftIntroEpisodeStart").value = setTime(Math.round(leftEpisodeJson.Introduction.IntroStart));
-                document.querySelector("#editLeftIntroEpisodeEnd").value = setTime(Math.round(leftEpisodeJson.Introduction.IntroEnd));
-                document.querySelector("#editLeftCreditEpisodeStart").value = setTime(Math.round(leftEpisodeJson.Credits.IntroStart));
-                document.querySelector("#editLeftCreditEpisodeEnd").value = setTime(Math.round(leftEpisodeJson.Credits.IntroEnd));
+                document.querySelector("#editLeftIntroEpisodeStart").value = setTime(Math.round(leftEpisodeJson.Introduction.Start));
+                document.querySelector("#editLeftIntroEpisodeEnd").value = setTime(Math.round(leftEpisodeJson.Introduction.End));
+                document.querySelector("#editLeftCreditEpisodeStart").value = setTime(Math.round(leftEpisodeJson.Credits.Start));
+                document.querySelector("#editLeftCreditEpisodeEnd").value = setTime(Math.round(leftEpisodeJson.Credits.End));
 
                 document.querySelector("#editRightEpisodeTitle").textContent = rightEpisode.text;
-                document.querySelector("#editRightIntroEpisodeStart").value = setTime(Math.round(rightEpisodeJson.Introduction.IntroStart));
-                document.querySelector("#editRightIntroEpisodeEnd").value = setTime(Math.round(rightEpisodeJson.Introduction.IntroEnd));
-                document.querySelector("#editRightCreditEpisodeStart").value = setTime(Math.round(rightEpisodeJson.Credits.IntroStart));
-                document.querySelector("#editRightCreditEpisodeEnd").value = setTime(Math.round(rightEpisodeJson.Credits.IntroEnd));
+                document.querySelector("#editRightIntroEpisodeStart").value = setTime(Math.round(rightEpisodeJson.Introduction.Start));
+                document.querySelector("#editRightIntroEpisodeEnd").value = setTime(Math.round(rightEpisodeJson.Introduction.End));
+                document.querySelector("#editRightCreditEpisodeStart").value = setTime(Math.round(rightEpisodeJson.Credits.Start));
+                document.querySelector("#editRightCreditEpisodeEnd").value = setTime(Math.round(rightEpisodeJson.Credits.End));
             }
 
             // adds an item to a dropdown

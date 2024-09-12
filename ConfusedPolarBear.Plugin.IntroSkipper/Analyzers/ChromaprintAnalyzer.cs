@@ -56,7 +56,7 @@ public class ChromaprintAnalyzer : IMediaFileAnalyzer
         CancellationToken cancellationToken)
     {
         // All intros for this season.
-        var seasonIntros = new Dictionary<Guid, Intro>();
+        var seasonIntros = new Dictionary<Guid, Segment>();
 
         // Cache of all fingerprints for this season.
         var fingerprintCache = new Dictionary<Guid, uint[]>();
@@ -157,14 +157,14 @@ public class ChromaprintAnalyzer : IMediaFileAnalyzer
                 if (_analysisMode == AnalysisMode.Credits)
                 {
                     // Calculate new values for the current intro
-                    double currentOriginalIntroStart = currentIntro.IntroStart;
-                    currentIntro.IntroStart = currentEpisode.Duration - currentIntro.IntroEnd;
-                    currentIntro.IntroEnd = currentEpisode.Duration - currentOriginalIntroStart;
+                    double currentOriginalIntroStart = currentIntro.Start;
+                    currentIntro.Start = currentEpisode.Duration - currentIntro.End;
+                    currentIntro.End = currentEpisode.Duration - currentOriginalIntroStart;
 
                     // Calculate new values for the remaining intro
-                    double remainingIntroOriginalStart = remainingIntro.IntroStart;
-                    remainingIntro.IntroStart = remainingEpisode.Duration - remainingIntro.IntroEnd;
-                    remainingIntro.IntroEnd = remainingEpisode.Duration - remainingIntroOriginalStart;
+                    double remainingIntroOriginalStart = remainingIntro.Start;
+                    remainingIntro.Start = remainingEpisode.Duration - remainingIntro.End;
+                    remainingIntro.End = remainingEpisode.Duration - remainingIntroOriginalStart;
                 }
 
                 // Only save the discovered intro if it is:
@@ -218,7 +218,7 @@ public class ChromaprintAnalyzer : IMediaFileAnalyzer
     /// <param name="rhsId">Second episode id.</param>
     /// <param name="rhsPoints">Second episode fingerprint points.</param>
     /// <returns>Intros for the first and second episodes.</returns>
-    public (Intro Lhs, Intro Rhs) CompareEpisodes(
+    public (Segment Lhs, Segment Rhs) CompareEpisodes(
         Guid lhsId,
         uint[] lhsPoints,
         Guid rhsId,
@@ -240,7 +240,7 @@ public class ChromaprintAnalyzer : IMediaFileAnalyzer
             lhsId,
             rhsId);
 
-        return (new Intro(lhsId), new Intro(rhsId));
+        return (new Segment(lhsId), new Segment(rhsId));
     }
 
     /// <summary>
@@ -251,7 +251,7 @@ public class ChromaprintAnalyzer : IMediaFileAnalyzer
     /// <param name="rhsId">Second episode id.</param>
     /// <param name="rhsRanges">Second episode shared timecodes.</param>
     /// <returns>Intros for the first and second episodes.</returns>
-    private (Intro Lhs, Intro Rhs) GetLongestTimeRange(
+    private (Segment Lhs, Segment Rhs) GetLongestTimeRange(
         Guid lhsId,
         List<TimeRange> lhsRanges,
         Guid rhsId,
@@ -276,7 +276,7 @@ public class ChromaprintAnalyzer : IMediaFileAnalyzer
         }
 
         // Create Intro classes for each time range.
-        return (new Intro(lhsId, lhsIntro), new Intro(rhsId, rhsIntro));
+        return (new Segment(lhsId, lhsIntro), new Segment(rhsId, rhsIntro));
     }
 
     /// <summary>

@@ -171,7 +171,7 @@ public class VisualizationController : ControllerBase
         if (timestamps.IntroEnd > 0.0)
         {
             var tr = new TimeRange(timestamps.IntroStart, timestamps.IntroEnd);
-            Plugin.Instance!.Intros[id] = new Intro(id, tr);
+            Plugin.Instance!.Intros[id] = new Segment(id, tr);
             Plugin.Instance.SaveTimestamps(AnalysisMode.Introduction);
         }
 
