@@ -77,15 +77,17 @@
                             </div>
                         </div>
 
-                        <div class="inputContainer">
-                            <label class="inputLabel inputLabelUnfocused" for="SelectedLibraries">
-                                Limit analysis to the following libraries
-                            </label>
-                            <input id="SelectedLibraries" type="text" is="emby-input" />
-                            <div class="fieldDescription">
-                                Enter the names of libraries to analyze, separated by commas. If this field is left
-                                blank, all libraries on the server containing television episodes will be analyzed.
+                        <div class="folderAccessListContainer">
+                            <div class="folderAccess">
+                                <h3 class="checkboxListLabel">Limit analysis to the following libraries</h3>
+                                <div class="checkboxList paperList" style="padding: 0.5em 1em;" id="libraryCheckboxes">
+                                </div>
                             </div>
+                            <div class="fieldDescription">
+                                Select the libraries you want to include in the analysis. If no libraries are selected, all TV show libraries will be analyzed.
+                            </div>
+                            <label class="inputLabel" for="SelectedLibraries"></label>
+                            <input id="SelectedLibraries" type="hidden" is="emby-input" />
                         </div>
 
                         <details id="intro_reqs">
@@ -401,7 +403,7 @@
                         <details id="AutoSkipClientList" style="padding-bottom: 1em;">
                             <summary>Auto Skip Client List</summary>
                             <br />
-                            <div class="checkboxList paperList" style="padding:.5em 1em"></div>
+                            <div class="checkboxList paperList" style="padding:.5em 1em" id="autoSkipCheckboxes"></div>
                             <label class="inputLabel" for="ClientList"></label>
                             <input id="ClientList" type="hidden" is="emby-input" />
                         </details>
@@ -810,41 +812,43 @@
                 }
             }
 
-            async function getDeviceList() {
-                const response = await getJson("Devices");
-                const devices = [...new Set(response.Items.map(item => item.AppName))];
-                return devices;
+            function updateList(textField, container) {
+                textField.value = Array.from(container.querySelectorAll('input[type="checkbox"]:checked'))
+                    .map(checkbox => checkbox.nextElementSibling.textContent)
+                    .join(', ');
             }
 
-            function updateClientList() {
-                document.getElementById('ClientList').value = Array.from(
-                    autoSkipClientList.querySelectorAll('input[type="checkbox"]:checked')
-                ).map(checkbox => checkbox.nextElementSibling.textContent).join(', ');
-            }
+            function generateCheckboxList(items, containerId, textFieldId) {
+                const container = document.getElementById(containerId);
+                const textField = document.getElementById(textFieldId);
+                const checkedItems = textField.value ? textField.value.split(', ') : [];
 
-            async function generateAutoSkipClientList() {
-                var devices = await getDeviceList();
-                var deviceList = document.getElementById('ClientList').value;
-                var checkedDevices = deviceList ? deviceList.split(', ') : [];
-
-                var checkboxListHtml = devices.map(function(device) {
-                    var id = 'chk' + device.replace(/\s+/g, '');
-                    var isChecked = checkedDevices.includes(device) ? 'checked' : '';
+                container.innerHTML = items.map(item => {
+                    const isChecked = checkedItems.includes(item) ? 'checked' : '';
                     return '<label class="emby-checkbox-label">' +
-                        '<input type="checkbox" is="emby-checkbox" id="' + id + '" ' + isChecked + '>' +
-                        '<span class="checkboxLabel">' + device + '</span>' +
+                        '<input type="checkbox" is="emby-checkbox" ' + isChecked + '>' +
+                        '<span class="checkboxLabel">' + item + '</span>' +
                         '</label>';
                 }).join('');
 
-                var checkboxList = autoSkipClientList.querySelector('.checkboxList.paperList');
-                checkboxList.innerHTML = checkboxListHtml;
+                container.addEventListener('change', event => {
+                    if (event.target.type === 'checkbox') {
+                        updateList(textField, container);
+                    }
+                });
+            }
 
-                var checkboxes = checkboxList.querySelectorAll('input[type="checkbox"]');
-                for (var i = 0; i < checkboxes.length; i++) {
-                    checkboxes[i].addEventListener('change', function() {
-                        updateClientList();
-                    });
-                }
+            async function generateAutoSkipClientList() {
+                const response = await getJson("Devices");
+                const devices = [...new Set(response.Items.map(item => item.AppName))];
+                generateCheckboxList(devices, 'autoSkipCheckboxes', 'ClientList');
+            }
+
+            async function populateLibraries() {
+                const response = await getJson("Library/MediaFolders");
+                const tvLibraries = response.Items.filter(item => item.CollectionType === "tvshows");
+                const libraryNames = tvLibraries.map(lib => lib.Name || 'Unnamed Library');
+                generateCheckboxList(libraryNames, 'libraryCheckboxes', 'SelectedLibraries');
             }
 
             var persistSkip = document.querySelector("input#PersistSkipButton");
@@ -1197,6 +1201,7 @@
                             document.querySelector("#" + field).checked = config[field];
                         }
 
+                        populateLibraries();
                         autoSkipChanged();
                         autoSkipCreditsChanged();
                         persistSkipChanged();
