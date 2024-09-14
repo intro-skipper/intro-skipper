@@ -16,7 +16,7 @@
 
 ## System requirements
 
-* Jellyfin 10.9.10 (or newer)
+* Jellyfin 10.9.11 (or newer)
 * Jellyfin's [fork](https://github.com/jellyfin/jellyfin-ffmpeg) of `ffmpeg` must be installed, version `6.0.1-5` or newer
   * `jellyfin/jellyfin` 10.9.z container: preinstalled
   * `linuxserver/jellyfin` 10.9.z container: preinstalled
