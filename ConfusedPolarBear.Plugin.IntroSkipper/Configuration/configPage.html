@@ -77,15 +77,17 @@
                             </div>
                         </div>
 
-                        <div class="inputContainer">
-                            <label class="inputLabel inputLabelUnfocused" for="SelectedLibraries">
-                                Limit analysis to the following libraries
-                            </label>
-                            <input id="SelectedLibraries" type="text" is="emby-input" />
-                            <div class="fieldDescription">
-                                Enter the names of libraries to analyze, separated by commas. If this field is left
-                                blank, all libraries on the server containing television episodes will be analyzed.
+                        <div class="folderAccessListContainer">
+                            <div class="folderAccess">
+                                <h3 class="checkboxListLabel">Limit analysis to the following libraries</h3>
+                                <div class="checkboxList paperList" style="padding: 0.5em 1em;" id="libraryCheckboxes">
+                                </div>
                             </div>
+                            <div class="fieldDescription">
+                                Select the libraries you want to include in the analysis. If no libraries are selected, all TV show libraries will be analyzed.
+                            </div>
+                            <label class="inputLabel" for="SelectedLibraries"></label>
+                            <input id="SelectedLibraries" type="hidden" is="emby-input" />
                         </div>
 
                         <details id="intro_reqs">
@@ -847,6 +849,42 @@
                 }
             }
 
+            async function getSelectedLibrariesList() {
+                var response = await getJson("Library/MediaFolders");
+                var libraries = [...new Set(response.Items.filter(item => item.CollectionType === "tvshows"))];
+                return libraries;
+            }
+
+            function updateSelectedLibraries() {
+                document.getElementById('SelectedLibraries').value = Array.from(
+                    document.getElementById('libraryCheckboxes').querySelectorAll('input[type="checkbox"]:checked')
+                ).map(checkbox => checkbox.nextElementSibling.textContent).join(', ');
+            }
+
+            async function populateLibraries() {
+                var tvLibraries = await getSelectedLibrariesList();
+                var selectedLibraries = document.getElementById('SelectedLibraries').value;
+                var checkedLibraries = selectedLibraries ? selectedLibraries.split(', ') : [];
+
+                var checkboxListHtml = tvLibraries.map(function(library) {
+                    var name = library.Name || 'Unnamed Library';
+                    var isChecked = checkedLibraries.includes(name) ? 'checked' : '';
+                    return '<label class="emby-checkbox-label">' +
+                        '<input is="emby-checkbox" type="checkbox" ' +
+                        'data-id="' + library.Id + '" ' + isChecked + '>' +
+                        '<span class="checkboxLabel">' + name + '</span>' +
+                        '</label>';
+                }).join('');
+                
+                var checkboxContainer = document.getElementById("libraryCheckboxes");
+                checkboxContainer.innerHTML = checkboxListHtml;
+
+                var checkboxes = checkboxContainer.querySelectorAll('input[type="checkbox"]');
+                for (var i = 0; i < checkboxes.length; i++) {
+                    checkboxes[i].addEventListener('change', updateSelectedLibraries);
+                }
+            }
+
             var persistSkip = document.querySelector("input#PersistSkipButton");
             var showAdjustment = document.querySelector("div#divShowPromptAdjustment");
             var hideAdjustment = document.querySelector("div#divHidePromptAdjustment");
@@ -1197,6 +1235,7 @@
                             document.querySelector("#" + field).checked = config[field];
                         }
 
+                        populateLibraries();
                         autoSkipChanged();
                         autoSkipCreditsChanged();
                         persistSkipChanged();
