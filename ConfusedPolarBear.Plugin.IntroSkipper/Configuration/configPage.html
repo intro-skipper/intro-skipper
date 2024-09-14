@@ -846,7 +846,7 @@
 
             async function populateLibraries() {
                 const response = await getJson("Library/MediaFolders");
-                const tvLibraries = response.Items.filter(item => item.CollectionType === "tvshows" || item.CollectionType == "boxsets");
+                const tvLibraries = response.Items.filter(item => item.CollectionType === "tvshows" || item.CollectionType === undefined);
                 const libraryNames = tvLibraries.map(lib => lib.Name || 'Unnamed Library');
                 generateCheckboxList(libraryNames, 'libraryCheckboxes', 'SelectedLibraries');
             }
