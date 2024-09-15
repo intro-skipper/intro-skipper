@@ -864,7 +864,7 @@
                 container.innerHTML += '<div id="moreButton" class="raised button-submit block emby-button">More</div>';
 
                 container.addEventListener('change', event => {
-                    if (event.target.type === 'checkbox' && event.target.style.display !== 'none') {
+                    if (event.target.type === 'checkbox') {
                         updateList(textField, container);
                     }
                 });
