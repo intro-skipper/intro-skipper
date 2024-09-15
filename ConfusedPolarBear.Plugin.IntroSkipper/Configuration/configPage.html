@@ -837,6 +837,47 @@
                     }
                 });
             }
+            
+                function generateCheckboxListWithMoreButton(items, moreItems, containerId, textFieldId) {
+                const container = document.getElementById(containerId);
+                const textField = document.getElementById(textFieldId);
+                const checkedItems = textField.value ? textField.value.split(', ') : [];
+
+                container.innerHTML = items.map(item => {
+                    const isChecked = checkedItems.includes(item.Name) ? 'checked' : '';
+                    return '<label class="emby-checkbox-label">' +
+                        '<input type="checkbox" is="emby-checkbox" ' + isChecked + '>' +
+                        '<span class="checkboxLabel">' + item.Name + '</span>' +
+                        '</label>';
+                }).join('');
+
+                container.innerHTML += moreItems.map(item => {
+                        const isChecked = checkedItems.includes(item.Name) ? 'checked' : '';
+                        return '<label class="emby-checkbox-label moreItems" style="display:none;">' +
+                            '<input type="checkbox" is="emby-checkbox" ' + isChecked + '>' +
+                            '<span class="checkboxLabel">' + item.Name + '</span>' +
+                            '</label>';
+                    }).join('');
+
+                container.innerHTML += '<div id="moreButton" class="raised button-submit block emby-button">More</div>';
+
+                container.addEventListener('change', event => {
+                    if (event.target.type === 'checkbox' && event.target.style.display !== 'none') {
+                        updateList(textField, container);
+                    }
+                });
+
+                const moreButton = container.querySelector('#moreButton');
+                moreButton.addEventListener('click', () => {
+                    if (moreButton.innerHTML === 'less') {
+                        container.querySelectorAll('.moreItems').forEach(item => item.style.display = 'none');
+                        moreButton.innerHTML = 'more';
+                    } else {
+                        container.querySelectorAll('.moreItems').forEach(item => item.style.display = 'flex');
+                        moreButton.innerHTML = 'less';
+                    }
+                });
+            }
 
             async function generateAutoSkipClientList() {
                 const response = await getJson("Devices");
@@ -847,8 +888,9 @@
             async function populateLibraries() {
                 const response = await getJson("Library/MediaFolders");
                 const tvLibraries = response.Items.filter(item => item.CollectionType === "tvshows" || item.CollectionType === undefined);
+                const otherLibraries = response.Items.filter(item => item.CollectionType !== "tvshows" && item.CollectionType !== undefined);
                 const libraryNames = tvLibraries.map(lib => lib.Name || 'Unnamed Library');
-                generateCheckboxList(libraryNames, 'libraryCheckboxes', 'SelectedLibraries');
+                generateCheckboxListWithMoreButton(tvLibraries, otherLibraries, 'libraryCheckboxes', 'SelectedLibraries');
             }
 
             var persistSkip = document.querySelector("input#PersistSkipButton");
