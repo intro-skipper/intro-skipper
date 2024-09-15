@@ -893,7 +893,7 @@
             }
 
             async function populateLibraries() {
-                const response = await getJson("Library/MediaFolders");
+                const response = await getJson("Library/VirtualFolders");
                 const tvLibraries = response.Items.filter(item => item.CollectionType === "tvshows" || item.CollectionType === undefined);
                 const otherLibraries = response.Items.filter(item => item.CollectionType !== "tvshows" && item.CollectionType !== undefined);
                 const tvLibraryNames = tvLibraries.map(lib => lib.Name || 'Unnamed Library');
