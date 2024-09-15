@@ -844,18 +844,20 @@
                 const checkedItems = textField.value ? textField.value.split(', ') : [];
 
                 container.innerHTML = items.map(item => {
-                    const isChecked = checkedItems.includes(item.Name) ? 'checked' : '';
+                    const isChecked = checkedItems.includes(item) ? 'checked' : '';
                     return '<label class="emby-checkbox-label">' +
                         '<input type="checkbox" is="emby-checkbox" ' + isChecked + '>' +
-                        '<span class="checkboxLabel">' + item.Name + '</span>' +
+                        '<span class="checkboxLabel">' + item + '</span>' +
                         '</label>';
                 }).join('');
 
+                container.innerHTML += '<hr class="moreItems" style="display:none;">';
+
                 container.innerHTML += moreItems.map(item => {
-                        const isChecked = checkedItems.includes(item.Name) ? 'checked' : '';
+                        const isChecked = checkedItems.includes(item) ? 'checked' : '';
                         return '<label class="emby-checkbox-label moreItems" style="display:none;">' +
                             '<input type="checkbox" is="emby-checkbox" ' + isChecked + '>' +
-                            '<span class="checkboxLabel">' + item.Name + '</span>' +
+                            '<span class="checkboxLabel">' + item + '</span>' +
                             '</label>';
                 }).join('');
 
@@ -889,8 +891,9 @@
                 const response = await getJson("Library/MediaFolders");
                 const tvLibraries = response.Items.filter(item => item.CollectionType === "tvshows" || item.CollectionType === undefined);
                 const otherLibraries = response.Items.filter(item => item.CollectionType !== "tvshows" && item.CollectionType !== undefined);
-                const libraryNames = tvLibraries.map(lib => lib.Name || 'Unnamed Library');
-                generateCheckboxListWithMoreButton(tvLibraries, otherLibraries, 'libraryCheckboxes', 'SelectedLibraries');
+                const tvLibraryNames = tvLibraries.map(lib => lib.Name || 'Unnamed Library');
+                const otherLibraryNames = otherLibraries.map(lib => lib.Name || 'Unnamed Library');
+                generateCheckboxListWithMoreButton(tvLibraryNames, otherLibraryNames, 'libraryCheckboxes', 'SelectedLibraries');
             }
 
             var persistSkip = document.querySelector("input#PersistSkipButton");
