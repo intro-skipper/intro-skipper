@@ -839,6 +839,11 @@
             }
 
             function generateCheckboxListWithMoreButton(items, moreItems, containerId, textFieldId) {
+                if (moreItems.length == 1) {
+                    generateCheckboxList(items.concat(moreItems), containerId, textFieldId);
+                    return;
+                }
+
                 const container = document.getElementById(containerId);
                 const textField = document.getElementById(textFieldId);
                 const checkedItems = textField.value ? textField.value.split(', ') : [];
