@@ -9,6 +9,9 @@
     </p>
     
 [![CodeQL](https://github.com/jumoog/intro-skipper/actions/workflows/codeql.yml/badge.svg)](https://github.com/jumoog/intro-skipper/actions/workflows/codeql.yml)
+
+
+`https://raw.githubusercontent.com/jumoog/intro-skipper/master/manifest.json`
 </div>
 
 ## Jellyfin 10.8
