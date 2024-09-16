@@ -14,25 +14,24 @@ namespace ConfusedPolarBear.Plugin.IntroSkipper;
 /// <summary>
 /// Wrapper for libchromaprint and the silencedetect filter.
 /// </summary>
-public static class FFmpegWrapper
+public static partial class FFmpegWrapper
 {
     /// <summary>
     /// Used with FFmpeg's silencedetect filter to extract the start and end times of silence.
     /// </summary>
-    private static readonly Regex SilenceDetectionExpression = new(
-        "silence_(?<type>start|end): (?<time>[0-9\\.]+)");
+    private static readonly Regex _silenceDetectionExpression = SilenceRegex();
 
     /// <summary>
     /// Used with FFmpeg's blackframe filter to extract the time and percentage of black pixels.
     /// </summary>
-    private static readonly Regex BlackFrameRegex = new("(pblack|t):[0-9.]+");
+    private static readonly Regex _blackFrameRegex = BlackFrameRegex();
 
     /// <summary>
     /// Gets or sets the logger.
     /// </summary>
     public static ILogger? Logger { get; set; }
 
-    private static Dictionary<string, string> ChromaprintLogs { get; set; } = new();
+    private static Dictionary<string, string> ChromaprintLogs { get; set; } = [];
 
     private static ConcurrentDictionary<(Guid Id, AnalysisMode Mode), Dictionary<uint, int>> InvertedIndexCache { get; set; } = new();
 
@@ -205,7 +204,7 @@ public static class FFmpegWrapper
          * [silencedetect @ 0x000000000000] silence_end: 56.123 | silence_duration: 43.783
         */
         var raw = Encoding.UTF8.GetString(GetOutput(args, cacheKey, true));
-        foreach (Match match in SilenceDetectionExpression.Matches(raw))
+        foreach (Match match in _silenceDetectionExpression.Matches(raw))
         {
             var isStart = match.Groups["type"].Value == "start";
             var time = Convert.ToDouble(match.Groups["time"].Value, CultureInfo.InvariantCulture);
@@ -267,7 +266,7 @@ public static class FFmpegWrapper
             // In our case, the metadata contained something that matched the regex.
             if (line.StartsWith("[Parsed_blackframe_", StringComparison.OrdinalIgnoreCase))
             {
-                var matches = BlackFrameRegex.Matches(line);
+                var matches = _blackFrameRegex.Matches(line);
                 if (matches.Count != 2)
                 {
                     continue;
@@ -422,47 +421,43 @@ public static class FFmpegWrapper
             RedirectStandardError = stderr
         };
 
-        using (var ffmpeg = new Process { StartInfo = info })
+        using var ffmpeg = new Process { StartInfo = info };
+        Logger?.LogDebug("Starting ffmpeg with the following arguments: {Arguments}", ffmpeg.StartInfo.Arguments);
+
+        ffmpeg.Start();
+
+        try
         {
-            Logger?.LogDebug("Starting ffmpeg with the following arguments: {Arguments}", ffmpeg.StartInfo.Arguments);
+            ffmpeg.PriorityClass = Plugin.Instance?.Configuration.ProcessPriority ?? ProcessPriorityClass.BelowNormal;
+        }
+        catch (Exception e)
+        {
+            Logger?.LogDebug("ffmpeg priority could not be modified. {Message}", e.Message);
+        }
 
-            ffmpeg.Start();
+        using var ms = new MemoryStream();
+        var buf = new byte[4096];
+        int bytesRead;
 
-            try
+        using (var streamReader = stderr ? ffmpeg.StandardError : ffmpeg.StandardOutput)
+        {
+            while ((bytesRead = streamReader.BaseStream.Read(buf, 0, buf.Length)) > 0)
             {
-                ffmpeg.PriorityClass = Plugin.Instance?.Configuration.ProcessPriority ?? ProcessPriorityClass.BelowNormal;
-            }
-            catch (Exception e)
-            {
-                Logger?.LogDebug("ffmpeg priority could not be modified. {Message}", e.Message);
-            }
-
-            using (var ms = new MemoryStream())
-            {
-                var buf = new byte[4096];
-                int bytesRead;
-
-                using (var streamReader = stderr ? ffmpeg.StandardError : ffmpeg.StandardOutput)
-                {
-                    while ((bytesRead = streamReader.BaseStream.Read(buf, 0, buf.Length)) > 0)
-                    {
-                        ms.Write(buf, 0, bytesRead);
-                    }
-                }
-
-                ffmpeg.WaitForExit(timeout);
-
-                var output = ms.ToArray();
-
-                // If caching is enabled, cache the output of this command.
-                if (cacheOutput)
-                {
-                    File.WriteAllBytes(cacheFilename, output);
-                }
-
-                return output;
+                ms.Write(buf, 0, bytesRead);
             }
         }
+
+        ffmpeg.WaitForExit(timeout);
+
+        var output = ms.ToArray();
+
+        // If caching is enabled, cache the output of this command.
+        if (cacheOutput)
+        {
+            File.WriteAllBytes(cacheFilename, output);
+        }
+
+        return output;
     }
 
     /// <summary>
@@ -696,4 +691,10 @@ public static class FFmpegWrapper
 
         return formatted;
     }
+
+    [GeneratedRegex("silence_(?<type>start|end): (?<time>[0-9\\.]+)")]
+    private static partial Regex SilenceRegex();
+
+    [GeneratedRegex("(pblack|t):[0-9.]+")]
+    private static partial Regex BlackFrameRegex();
 }

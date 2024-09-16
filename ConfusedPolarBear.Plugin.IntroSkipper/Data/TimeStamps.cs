@@ -9,11 +9,11 @@ namespace ConfusedPolarBear.Plugin.IntroSkipper.Data
         /// <summary>
         /// Gets or sets Introduction.
         /// </summary>
-        public Intro Introduction { get; set; } = new Intro();
+        public Segment Introduction { get; set; } = new Segment();
 
         /// <summary>
         /// Gets or sets Credits.
         /// </summary>
-        public Intro Credits { get; set; } = new Intro();
+        public Segment Credits { get; set; } = new Segment();
     }
 }

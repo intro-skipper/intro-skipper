@@ -135,7 +135,7 @@ public class TroubleshootingController : ControllerBase
         return bundle.ToString().TrimEnd('\n');
     }
 
-    private string GetHumanReadableSize(long bytes)
+    private static string GetHumanReadableSize(long bytes)
     {
         string[] sizes = ["Bytes", "KB", "MB", "GB", "TB", "PB", "EB", "ZB", "YB"];
         double len = bytes;
@@ -144,7 +144,7 @@ public class TroubleshootingController : ControllerBase
         while (len >= 1024 && order < sizes.Length - 1)
         {
             order++;
-            len = len / 1024;
+            len /= 1024;
         }
 
         return $"{len:0.##} {sizes[order]}";

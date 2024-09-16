@@ -15,28 +15,18 @@ namespace ConfusedPolarBear.Plugin.IntroSkipper;
 /// <summary>
 /// Manages enqueuing library items for analysis.
 /// </summary>
-public class QueueManager
+/// <remarks>
+/// Initializes a new instance of the <see cref="QueueManager"/> class.
+/// </remarks>
+/// <param name="logger">Logger.</param>
+/// <param name="libraryManager">Library manager.</param>
+public class QueueManager(ILogger<QueueManager> logger, ILibraryManager libraryManager)
 {
-    private ILibraryManager _libraryManager;
-    private ILogger<QueueManager> _logger;
-
-    private double analysisPercent;
-    private List<string> selectedLibraries;
-    private Dictionary<Guid, List<QueuedEpisode>> _queuedEpisodes;
-
-    /// <summary>
-    /// Initializes a new instance of the <see cref="QueueManager"/> class.
-    /// </summary>
-    /// <param name="logger">Logger.</param>
-    /// <param name="libraryManager">Library manager.</param>
-    public QueueManager(ILogger<QueueManager> logger, ILibraryManager libraryManager)
-    {
-        _logger = logger;
-        _libraryManager = libraryManager;
-
-        selectedLibraries = new();
-        _queuedEpisodes = new();
-    }
+    private readonly ILibraryManager _libraryManager = libraryManager;
+    private readonly ILogger<QueueManager> _logger = logger;
+    private readonly Dictionary<Guid, List<QueuedEpisode>> _queuedEpisodes = [];
+    private double _analysisPercent;
+    private List<string> _selectedLibraries = [];
 
     /// <summary>
     /// Gets all media items on the server.
@@ -52,7 +42,7 @@ public class QueueManager
         foreach (var folder in _libraryManager.GetVirtualFolders())
         {
             // If libraries have been selected for analysis, ensure this library was selected.
-            if (selectedLibraries.Count > 0 && !selectedLibraries.Contains(folder.Name))
+            if (_selectedLibraries.Count > 0 && !_selectedLibraries.Contains(folder.Name))
             {
                 _logger.LogDebug("Not analyzing library \"{Name}\": not selected by user", folder.Name);
                 continue;
@@ -110,17 +100,15 @@ public class QueueManager
         var config = Plugin.Instance!.Configuration;
 
         // Store the analysis percent
-        analysisPercent = Convert.ToDouble(config.AnalysisPercent) / 100;
+        _analysisPercent = Convert.ToDouble(config.AnalysisPercent) / 100;
 
         // Get the list of library names which have been selected for analysis, ignoring whitespace and empty entries.
-        selectedLibraries = config.SelectedLibraries
-            .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
-            .ToList();
+        _selectedLibraries = [.. config.SelectedLibraries.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)];
 
         // If any libraries have been selected for analysis, log their names.
-        if (selectedLibraries.Count > 0)
+        if (_selectedLibraries.Count > 0)
         {
-            _logger.LogInformation("Limiting analysis to the following libraries: {Selected}", selectedLibraries);
+            _logger.LogInformation("Limiting analysis to the following libraries: {Selected}", _selectedLibraries);
         }
         else
         {
@@ -146,7 +134,7 @@ public class QueueManager
         {
             // Order by series name, season, and then episode number so that status updates are logged in order
             ParentId = id,
-            OrderBy = new[] { (ItemSortBy.SeriesSortName, SortOrder.Ascending), (ItemSortBy.ParentIndexNumber, SortOrder.Ascending), (ItemSortBy.IndexNumber, SortOrder.Ascending), },
+            OrderBy = [(ItemSortBy.SeriesSortName, SortOrder.Ascending), (ItemSortBy.ParentIndexNumber, SortOrder.Ascending), (ItemSortBy.IndexNumber, SortOrder.Ascending),],
             IncludeItemTypes = [BaseItemKind.Episode],
             Recursive = true,
             IsVirtualItem = false
@@ -194,7 +182,7 @@ public class QueueManager
         // Allocate a new list for each new season
         if (!_queuedEpisodes.TryGetValue(episode.SeasonId, out var seasonEpisodes))
         {
-            seasonEpisodes = new List<QueuedEpisode>();
+            seasonEpisodes = [];
             _queuedEpisodes[episode.SeasonId] = seasonEpisodes;
         }
 
@@ -212,7 +200,7 @@ public class QueueManager
         // X and Y default to 25% and 10 minutes.
         var duration = TimeSpan.FromTicks(episode.RunTimeTicks ?? 0).TotalSeconds;
         var fingerprintDuration = Math.Min(
-            duration >= 5 * 60 ? duration * analysisPercent : duration,
+            duration >= 5 * 60 ? duration * _analysisPercent : duration,
             60 * pluginInstance.Configuration.AnalysisLengthLimit);
 
         // Queue the episode for analysis
