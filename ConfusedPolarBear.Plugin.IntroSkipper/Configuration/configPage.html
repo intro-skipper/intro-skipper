@@ -79,12 +79,12 @@
 
                         <div class="folderAccessListContainer">
                             <div class="folderAccess">
-                                <h3 class="checkboxListLabel">Limit analysis to the following libraries</h3>
+                                <h4 class="checkboxListLabel">Limit analysis to the following libraries</h4>
                                 <div class="checkboxList paperList" style="padding: 0.5em 1em;" id="libraryCheckboxes">
                                 </div>
                             </div>
                             <div class="fieldDescription">
-                                Select the libraries you want to include in the analysis. If no libraries are selected, all TV show libraries will be analyzed.
+                                Selected libraries will be analyzed. If none are selected, all TV show and mixed libraries will be analyzed.
                             </div>
                             <label class="inputLabel" for="SelectedLibraries"></label>
                             <input id="SelectedLibraries" type="hidden" is="emby-input" />
@@ -1024,7 +1024,7 @@
                 // Try to get the timestamps of each intro, falling back a default value of zero if no intro was found
                 const leftEpisodeJson = await getJson("Episode/" + leftEpisode.value + "/Timestamps");
                 const rightEpisodeJson = await getJson("Episode/" + rightEpisode.value + "/Timestamps");
-                
+
                 // Update the editor for the first and second episodes
                 timestampEditor.style.display = "unset";
                 document.querySelector("#editLeftEpisodeTitle").textContent = leftEpisode.text;
@@ -1347,7 +1347,7 @@
                 let remainingSeconds = seconds % 60;
 
                 // Format as HH:MM:SS
-                let formattedTime = 
+                let formattedTime =
                     String(hours).padStart(2, '0') + ':' +
                     String(minutes).padStart(2, '0') + ':' +
                     String(remainingSeconds).padStart(2, '0');
