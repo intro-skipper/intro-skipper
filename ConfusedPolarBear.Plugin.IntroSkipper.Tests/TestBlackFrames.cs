@@ -42,7 +42,7 @@ public class TestBlackFrames
 
         var result = analyzer.AnalyzeMediaFile(episode, 240, 30, 85);
         Assert.NotNull(result);
-        Assert.InRange(result.IntroStart, 300 - range, 300 + range);
+        Assert.InRange(result.Start, 300 - range, 300 + range);
     }
 
     private QueuedEpisode queueFile(string path)

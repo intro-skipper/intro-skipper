@@ -81,15 +81,17 @@
                             </div>
                         </div>
 
-                        <div class="inputContainer">
-                            <label class="inputLabel inputLabelUnfocused" for="SelectedLibraries">
-                                Limit analysis to the following libraries
-                            </label>
-                            <input id="SelectedLibraries" type="text" is="emby-input" />
-                            <div class="fieldDescription">
-                                Enter the names of libraries to analyze, separated by commas. If this field is left
-                                blank, all libraries on the server containing television episodes will be analyzed.
+                        <div class="folderAccessListContainer">
+                            <div class="folderAccess">
+                                <h4 class="checkboxListLabel">Limit analysis to the following libraries</h4>
+                                <div class="checkboxList paperList" style="padding: 0.5em 1em;" id="libraryCheckboxes">
+                                </div>
                             </div>
+                            <div class="fieldDescription">
+                                Selected libraries will be analyzed. If none are selected, all TV show and mixed libraries will be analyzed.
+                            </div>
+                            <label class="inputLabel" for="SelectedLibraries"></label>
+                            <input id="SelectedLibraries" type="hidden" is="emby-input" />
                         </div>
                         
                         <details id="intro_reqs">
@@ -370,7 +372,7 @@
 
                         <div id="divSecondsOfIntroStartToPlay" class="inputContainer">
                             <label class="inputLabel inputLabelUnfocused" for="SecondsOfIntroStartToPlay">
-                                Intro playback duration (in seconds)
+                                Intro skip delay (in seconds)
                             </label>
                             <input id="SecondsOfIntroStartToPlay" type="number" is="emby-input" min="0" />
                             <div class="fieldDescription">
@@ -393,7 +395,7 @@
 
                         <div id="divSecondsOfCreditsStartToPlay" class="inputContainer">
                             <label class="inputLabel inputLabelUnfocused" for="SecondsOfCreditsStartToPlay">
-                                Credit playback duration (in seconds)
+                                Credit skip delay (in seconds)
                             </label>
                             <input id="SecondsOfCreditsStartToPlay" type="number" is="emby-input" min="0" />
                             <div class="fieldDescription">
@@ -401,6 +403,14 @@
                             </div>
                             <br />
                         </div>
+
+                        <details id="AutoSkipClientList" style="padding-bottom: 1em;">
+                            <summary>Auto Skip Client List</summary>
+                            <br />
+                            <div class="checkboxList paperList" style="padding:.5em 1em" id="autoSkipCheckboxes"></div>
+                            <label class="inputLabel" for="ClientList"></label>
+                            <input id="ClientList" type="hidden" is="emby-input" />
+                        </details>
 
                         <div class="checkboxContainer checkboxContainer-withDescription">
                             <label class="emby-checkbox-label">
@@ -430,7 +440,7 @@
 
                         <div id="divShowPromptAdjustment" class="inputContainer">
                             <label class="inputLabel inputLabelUnfocused" for="ShowPromptAdjustment">
-                                Skip prompt offset (in seoncds)
+                                Skip prompt offset (in seconds)
                             </label>
                             <input id="ShowPromptAdjustment" type="number" is="emby-input" min="0" />
                             <div class="fieldDescription">
@@ -486,7 +496,7 @@
 
                             <div id="divAutoSkipNotificationText" class="inputContainer">
                                 <label class="inputLabel" for="AutoSkipNotificationText">
-                                    Automatic skip notification message
+                                    Auto skip intro notification message
                                 </label>
                                 <input id="AutoSkipNotificationText" type="text" is="emby-input" />
                                 <div class="fieldDescription">
@@ -496,7 +506,7 @@
 
                             <div id="divAutoSkipCreditsNotificationText" class="inputContainer">
                                 <label class="inputLabel" for="AutoSkipCreditsNotificationText">
-                                    Automatic skip notification message
+                                    Auto skip credits notification message
                                 </label>
                                 <input id="AutoSkipCreditsNotificationText" type="text" is="emby-input" />
                                 <div class="fieldDescription">
@@ -710,6 +720,7 @@
                 // analysis
                 "MaxParallelism",
                 "SelectedLibraries",
+                "ClientList",
                 "AnalysisPercent",
                 "AnalysisLengthLimit",
                 "MinimumIntroDuration",
@@ -771,12 +782,13 @@
             var autoSkip = document.querySelector("input#AutoSkip");
             var skipFirstEpisode = document.querySelector("div#divSkipFirstEpisode");
             var secondsOfIntroStartToPlay = document.querySelector("div#divSecondsOfIntroStartToPlay");
+            var autoSkipClientList = document.getElementById("AutoSkipClientList");
             var secondsOfCreditsStartToPlay = document.querySelector("div#divSecondsOfCreditsStartToPlay");
             var autoSkipNotificationText = document.querySelector("div#divAutoSkipNotificationText");
             var autoSkipCredits = document.querySelector("input#AutoSkipCredits");
             var autoSkipCreditsNotificationText = document.querySelector("div#divAutoSkipCreditsNotificationText");
 
-            async function autoSkipChanged() {
+            function autoSkipChanged() {
                 if (autoSkip.checked) {
                     skipFirstEpisode.style.display = 'unset';
                     autoSkipNotificationText.style.display = 'unset';
@@ -786,11 +798,12 @@
                     autoSkipNotificationText.style.display = 'none';
                     secondsOfIntroStartToPlay.style.display = 'none';
                 }
+                clientListVisible();
             }
 
             autoSkip.addEventListener("change", autoSkipChanged);
 
-            async function autoSkipCreditsChanged() {
+            function autoSkipCreditsChanged() {
                 if (autoSkipCredits.checked) {
                     autoSkipCreditsNotificationText.style.display = 'unset';
                     secondsOfCreditsStartToPlay.style.display = 'unset';
@@ -798,9 +811,58 @@
                     autoSkipCreditsNotificationText.style.display = 'none';
                     secondsOfCreditsStartToPlay.style.display = 'none';
                 }
+                clientListVisible();
             }
 
             autoSkipCredits.addEventListener("change", autoSkipCreditsChanged);
+
+            function clientListVisible() {
+                if (autoSkip.checked || autoSkipCredits.checked) {
+                    autoSkipClientList.style.display = 'unset';
+                    autoSkipClientList.style.width = '100%';
+                } else {
+                    autoSkipClientList.style.display = 'none';
+                }
+            }
+
+            function updateList(textField, container) {
+                textField.value = Array.from(container.querySelectorAll('input[type="checkbox"]:checked'))
+                    .map(checkbox => checkbox.nextElementSibling.textContent)
+                    .join(', ');
+            }
+
+            function generateCheckboxList(items, containerId, textFieldId) {
+                const container = document.getElementById(containerId);
+                const textField = document.getElementById(textFieldId);
+                const checkedItems = textField.value ? textField.value.split(', ') : [];
+
+                container.innerHTML = items.map(item => {
+                    const isChecked = checkedItems.includes(item) ? 'checked' : '';
+                    return '<label class="emby-checkbox-label">' +
+                        '<input type="checkbox" is="emby-checkbox" ' + isChecked + '>' +
+                        '<span class="checkboxLabel">' + item + '</span>' +
+                        '</label>';
+                }).join('');
+
+                container.addEventListener('change', event => {
+                    if (event.target.type === 'checkbox') {
+                        updateList(textField, container);
+                    }
+                });
+            }
+
+            async function generateAutoSkipClientList() {
+                const response = await getJson("Devices");
+                const devices = [...new Set(response.Items.map(item => item.AppName))];
+                generateCheckboxList(devices, 'autoSkipCheckboxes', 'ClientList');
+            }
+
+            async function populateLibraries() {
+                const response = await getJson("Library/VirtualFolders");
+                const tvLibraries = response.filter(item => item.CollectionType === undefined || item.CollectionType === "tvshows");
+                const libraryNames = tvLibraries.map(lib => lib.Name || 'Unnamed Library');
+                generateCheckboxList(libraryNames, 'libraryCheckboxes', 'SelectedLibraries');
+            }
 
             var persistSkip = document.querySelector("input#PersistSkipButton");
             var showAdjustment = document.querySelector("div#divShowPromptAdjustment");
@@ -988,21 +1050,20 @@
                 // Try to get the timestamps of each intro, falling back a default value of zero if no intro was found
                 const leftEpisodeJson = await getJson("Episode/" + leftEpisode.value + "/Timestamps");
                 const rightEpisodeJson = await getJson("Episode/" + rightEpisode.value + "/Timestamps");
-                
+
                 // Update the editor for the first and second episodes
                 timestampEditor.style.display = "unset";
                 document.querySelector("#editLeftEpisodeTitle").textContent = leftEpisode.text;
-                document.querySelector("#editLeftIntroEpisodeStart").value = setTime(Math.round(leftEpisodeJson.Introduction.IntroStart));
-                document.querySelector("#editLeftIntroEpisodeEnd").value = setTime(Math.round(leftEpisodeJson.Introduction.IntroEnd));
-                document.querySelector("#editLeftCreditEpisodeStart").value = setTime(Math.round(leftEpisodeJson.Credits.IntroStart));
-                document.querySelector("#editLeftCreditEpisodeEnd").value = setTime(Math.round(leftEpisodeJson.Credits.IntroEnd));
+                document.querySelector("#editLeftIntroEpisodeStart").value = setTime(Math.round(leftEpisodeJson.Introduction.Start));
+                document.querySelector("#editLeftIntroEpisodeEnd").value = setTime(Math.round(leftEpisodeJson.Introduction.End));
+                document.querySelector("#editLeftCreditEpisodeStart").value = setTime(Math.round(leftEpisodeJson.Credits.Start));
+                document.querySelector("#editLeftCreditEpisodeEnd").value = setTime(Math.round(leftEpisodeJson.Credits.End));
 
                 document.querySelector("#editRightEpisodeTitle").textContent = rightEpisode.text;
-                document.querySelector("#editRightIntroEpisodeStart").value = setTime(Math.round(rightEpisodeJson.Introduction.IntroStart));
-                document.querySelector("#editRightIntroEpisodeEnd").value = setTime(Math.round(rightEpisodeJson.Introduction.IntroEnd));
-                document.querySelector("#editRightCreditEpisodeStart").value = setTime(Math.round(rightEpisodeJson.Credits.IntroStart));
-                document.querySelector("#editRightCreditEpisodeEnd").value = setTime(Math.round(rightEpisodeJson.Credits.IntroEnd));
-
+                document.querySelector("#editRightIntroEpisodeStart").value = setTime(Math.round(rightEpisodeJson.Introduction.Start));
+                document.querySelector("#editRightIntroEpisodeEnd").value = setTime(Math.round(rightEpisodeJson.Introduction.End));
+                document.querySelector("#editRightCreditEpisodeStart").value = setTime(Math.round(rightEpisodeJson.Credits.Start));
+                document.querySelector("#editRightCreditEpisodeEnd").value = setTime(Math.round(rightEpisodeJson.Credits.End));
             }
 
             // adds an item to a dropdown
@@ -1166,9 +1227,11 @@
                             document.querySelector("#" + field).checked = config[field];
                         }
 
+                        populateLibraries();
                         autoSkipChanged();
                         autoSkipCreditsChanged();
                         persistSkipChanged();
+                        generateAutoSkipClientList();
 
                         Dashboard.hideLoadingMsg();
                     });
@@ -1320,7 +1383,7 @@
                 let remainingSeconds = seconds % 60;
 
                 // Format as HH:MM:SS
-                let formattedTime = 
+                let formattedTime =
                     String(hours).padStart(2, '0') + ':' +
                     String(minutes).padStart(2, '0') + ':' +
                     String(remainingSeconds).padStart(2, '0');

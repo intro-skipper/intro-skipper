@@ -22,15 +22,15 @@ public class ChromaprintAnalyzer : IMediaFileAnalyzer
     /// </summary>
     private const double SamplesToSeconds = 0.1238;
 
-    private int minimumIntroDuration;
+    private readonly int _minimumIntroDuration;
 
-    private int maximumDifferences;
+    private readonly int _maximumDifferences;
 
-    private int invertedIndexShift;
+    private readonly int _invertedIndexShift;
 
-    private double maximumTimeSkip;
+    private readonly double _maximumTimeSkip;
 
-    private ILogger<ChromaprintAnalyzer> _logger;
+    private readonly ILogger<ChromaprintAnalyzer> _logger;
 
     private AnalysisMode _analysisMode;
 
@@ -41,10 +41,10 @@ public class ChromaprintAnalyzer : IMediaFileAnalyzer
     public ChromaprintAnalyzer(ILogger<ChromaprintAnalyzer> logger)
     {
         var config = Plugin.Instance?.Configuration ?? new PluginConfiguration();
-        maximumDifferences = config.MaximumFingerprintPointDifferences;
-        invertedIndexShift = config.InvertedIndexShift;
-        maximumTimeSkip = config.MaximumTimeSkip;
-        minimumIntroDuration = config.MinimumIntroDuration;
+        _maximumDifferences = config.MaximumFingerprintPointDifferences;
+        _invertedIndexShift = config.InvertedIndexShift;
+        _maximumTimeSkip = config.MaximumTimeSkip;
+        _minimumIntroDuration = config.MinimumIntroDuration;
 
         _logger = logger;
     }
@@ -56,7 +56,7 @@ public class ChromaprintAnalyzer : IMediaFileAnalyzer
         CancellationToken cancellationToken)
     {
         // All intros for this season.
-        var seasonIntros = new Dictionary<Guid, Intro>();
+        var seasonIntros = new Dictionary<Guid, Segment>();
 
         // Cache of all fingerprints for this season.
         var fingerprintCache = new Dictionary<Guid, uint[]>();
@@ -87,7 +87,7 @@ public class ChromaprintAnalyzer : IMediaFileAnalyzer
                 .Where((episode, index) => Math.Abs(index - indexInAnalysisQueue) <= 1 && index != indexInAnalysisQueue));
         }
 
-        seasonIntros = episodesWithFingerprint.Where(e => e.State.IsAnalyzed(mode)).ToDictionary(e => e.EpisodeId, e => Plugin.Instance!.GetIntroByMode(e.EpisodeId, mode));
+        seasonIntros = episodesWithFingerprint.Where(e => e.State.IsAnalyzed(mode)).ToDictionary(e => e.EpisodeId, e => Plugin.GetIntroByMode(e.EpisodeId, mode));
 
         // Compute fingerprints for all episodes in the season
         foreach (var episode in episodesWithFingerprint)
@@ -113,7 +113,7 @@ public class ChromaprintAnalyzer : IMediaFileAnalyzer
                 WarningManager.SetFlag(PluginWarning.InvalidChromaprintFingerprint);
 
                 // Fallback to an empty fingerprint on any error
-                fingerprintCache[episode.EpisodeId] = Array.Empty<uint>();
+                fingerprintCache[episode.EpisodeId] = [];
             }
         }
 
@@ -157,14 +157,14 @@ public class ChromaprintAnalyzer : IMediaFileAnalyzer
                 if (_analysisMode == AnalysisMode.Credits)
                 {
                     // Calculate new values for the current intro
-                    double currentOriginalIntroStart = currentIntro.IntroStart;
-                    currentIntro.IntroStart = currentEpisode.Duration - currentIntro.IntroEnd;
-                    currentIntro.IntroEnd = currentEpisode.Duration - currentOriginalIntroStart;
+                    double currentOriginalIntroStart = currentIntro.Start;
+                    currentIntro.Start = currentEpisode.Duration - currentIntro.End;
+                    currentIntro.End = currentEpisode.Duration - currentOriginalIntroStart;
 
                     // Calculate new values for the remaining intro
-                    double remainingIntroOriginalStart = remainingIntro.IntroStart;
-                    remainingIntro.IntroStart = remainingEpisode.Duration - remainingIntro.IntroEnd;
-                    remainingIntro.IntroEnd = remainingEpisode.Duration - remainingIntroOriginalStart;
+                    double remainingIntroOriginalStart = remainingIntro.Start;
+                    remainingIntro.Start = remainingEpisode.Duration - remainingIntro.End;
+                    remainingIntro.End = remainingEpisode.Duration - remainingIntroOriginalStart;
                 }
 
                 // Only save the discovered intro if it is:
@@ -203,7 +203,7 @@ public class ChromaprintAnalyzer : IMediaFileAnalyzer
 
         // Adjust all introduction times.
         var analyzerHelper = new AnalyzerHelper(_logger);
-        seasonIntros = analyzerHelper.AdjustIntroTimes(analysisQueue, seasonIntros, this._analysisMode);
+        seasonIntros = analyzerHelper.AdjustIntroTimes(analysisQueue, seasonIntros, _analysisMode);
 
         Plugin.Instance!.UpdateTimestamps(seasonIntros, _analysisMode);
 
@@ -218,7 +218,7 @@ public class ChromaprintAnalyzer : IMediaFileAnalyzer
     /// <param name="rhsId">Second episode id.</param>
     /// <param name="rhsPoints">Second episode fingerprint points.</param>
     /// <returns>Intros for the first and second episodes.</returns>
-    public (Intro Lhs, Intro Rhs) CompareEpisodes(
+    public (Segment Lhs, Segment Rhs) CompareEpisodes(
         Guid lhsId,
         uint[] lhsPoints,
         Guid rhsId,
@@ -240,7 +240,7 @@ public class ChromaprintAnalyzer : IMediaFileAnalyzer
             lhsId,
             rhsId);
 
-        return (new Intro(lhsId), new Intro(rhsId));
+        return (new Segment(lhsId), new Segment(rhsId));
     }
 
     /// <summary>
@@ -251,7 +251,7 @@ public class ChromaprintAnalyzer : IMediaFileAnalyzer
     /// <param name="rhsId">Second episode id.</param>
     /// <param name="rhsRanges">Second episode shared timecodes.</param>
     /// <returns>Intros for the first and second episodes.</returns>
-    private (Intro Lhs, Intro Rhs) GetLongestTimeRange(
+    private (Segment Lhs, Segment Rhs) GetLongestTimeRange(
         Guid lhsId,
         List<TimeRange> lhsRanges,
         Guid rhsId,
@@ -276,7 +276,7 @@ public class ChromaprintAnalyzer : IMediaFileAnalyzer
         }
 
         // Create Intro classes for each time range.
-        return (new Intro(lhsId, lhsIntro), new Intro(rhsId, rhsIntro));
+        return (new Segment(lhsId, lhsIntro), new Segment(rhsId, rhsIntro));
     }
 
     /// <summary>
@@ -307,7 +307,7 @@ public class ChromaprintAnalyzer : IMediaFileAnalyzer
         {
             var originalPoint = kvp.Key;
 
-            for (var i = -1 * invertedIndexShift; i <= invertedIndexShift; i++)
+            for (var i = -1 * _invertedIndexShift; i <= _invertedIndexShift; i++)
             {
                 var modifiedPoint = (uint)(originalPoint + i);
 
@@ -372,7 +372,7 @@ public class ChromaprintAnalyzer : IMediaFileAnalyzer
             var diff = lhs[lhsPosition] ^ rhs[rhsPosition];
 
             // If the difference between the samples is small, flag both times as similar.
-            if (CountBits(diff) > maximumDifferences)
+            if (CountBits(diff) > _maximumDifferences)
             {
                 continue;
             }
@@ -389,14 +389,14 @@ public class ChromaprintAnalyzer : IMediaFileAnalyzer
         rhsTimes.Add(double.MaxValue);
 
         // Now that both fingerprints have been compared at this shift, see if there's a contiguous time range.
-        var lContiguous = TimeRangeHelpers.FindContiguous(lhsTimes.ToArray(), maximumTimeSkip);
-        if (lContiguous is null || lContiguous.Duration < minimumIntroDuration)
+        var lContiguous = TimeRangeHelpers.FindContiguous(lhsTimes.ToArray(), _maximumTimeSkip);
+        if (lContiguous is null || lContiguous.Duration < _minimumIntroDuration)
         {
             return (new TimeRange(), new TimeRange());
         }
 
         // Since LHS had a contiguous time range, RHS must have one also.
-        var rContiguous = TimeRangeHelpers.FindContiguous(rhsTimes.ToArray(), maximumTimeSkip)!;
+        var rContiguous = TimeRangeHelpers.FindContiguous(rhsTimes.ToArray(), _maximumTimeSkip)!;
         return (lContiguous, rContiguous);
     }
 

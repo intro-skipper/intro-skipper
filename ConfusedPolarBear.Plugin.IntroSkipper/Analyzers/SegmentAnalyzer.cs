@@ -10,7 +10,7 @@ namespace ConfusedPolarBear.Plugin.IntroSkipper.Analyzers;
 /// </summary>
 public class SegmentAnalyzer : IMediaFileAnalyzer
 {
-    private ILogger<SegmentAnalyzer> _logger;
+    private readonly ILogger<SegmentAnalyzer> _logger;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="SegmentAnalyzer"/> class.
