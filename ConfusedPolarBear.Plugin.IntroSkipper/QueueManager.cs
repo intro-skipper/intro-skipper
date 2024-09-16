@@ -27,6 +27,7 @@ public class QueueManager(ILogger<QueueManager> logger, ILibraryManager libraryM
     private readonly Dictionary<Guid, List<QueuedEpisode>> _queuedEpisodes = [];
     private double _analysisPercent;
     private List<string> _selectedLibraries = [];
+    private bool _selectAllLibraries;
 
     /// <summary>
     /// Gets all media items on the server.
@@ -42,7 +43,7 @@ public class QueueManager(ILogger<QueueManager> logger, ILibraryManager libraryM
         foreach (var folder in _libraryManager.GetVirtualFolders())
         {
             // If libraries have been selected for analysis, ensure this library was selected.
-            if (_selectedLibraries.Count > 0 && !_selectedLibraries.Contains(folder.Name))
+            if (!_selectAllLibraries && !_selectedLibraries.Contains(folder.Name))
             {
                 _logger.LogDebug("Not analyzing library \"{Name}\": not selected by user", folder.Name);
                 continue;
@@ -92,12 +93,14 @@ public class QueueManager(ILogger<QueueManager> logger, ILibraryManager libraryM
         // Store the analysis percent
         _analysisPercent = Convert.ToDouble(config.AnalysisPercent) / 100;
 
-        // Get the list of library names which have been selected for analysis, ignoring whitespace and empty entries.
-        _selectedLibraries = [.. config.SelectedLibraries.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)];
+        _selectAllLibraries = config.SelectAllLibraries;
 
-        // If any libraries have been selected for analysis, log their names.
-        if (_selectedLibraries.Count > 0)
+        if (!_selectAllLibraries)
         {
+            // Get the list of library names which have been selected for analysis, ignoring whitespace and empty entries.
+            _selectedLibraries = [.. config.SelectedLibraries.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)];
+
+            // If any libraries have been selected for analysis, log their names.
             _logger.LogInformation("Limiting analysis to the following libraries: {Selected}", _selectedLibraries);
         }
         else

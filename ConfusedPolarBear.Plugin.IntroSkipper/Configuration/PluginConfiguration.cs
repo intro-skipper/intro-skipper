@@ -10,6 +10,8 @@ namespace ConfusedPolarBear.Plugin.IntroSkipper.Configuration;
 /// </summary>
 public class PluginConfiguration : BasePluginConfiguration
 {
+    private bool? _selectAllLibraries;
+
     /// <summary>
     /// Initializes a new instance of the <see cref="PluginConfiguration"/> class.
     /// </summary>
@@ -25,9 +27,18 @@ public class PluginConfiguration : BasePluginConfiguration
     public int MaxParallelism { get; set; } = 2;
 
     /// <summary>
-    /// Gets or sets the comma separated list of library names to analyze. If empty, all libraries will be analyzed.
+    /// Gets or sets the comma separated list of library names to analyze.
     /// </summary>
     public string SelectedLibraries { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Gets or sets a value indicating whether all libraries should be analyzed.
+    /// </summary>
+    public bool SelectAllLibraries
+    {
+        get => _selectAllLibraries ?? string.IsNullOrEmpty(SelectedLibraries);
+        set => _selectAllLibraries = value;
+    }
 
     /// <summary>
     /// Gets or sets the list of client to auto skip for.

@@ -77,17 +77,24 @@
                             </div>
                         </div>
 
-                        <div class="folderAccessListContainer">
-                            <div class="folderAccess">
-                                <h4 class="checkboxListLabel">Limit analysis to the following libraries</h4>
-                                <div class="checkboxList paperList" style="padding: 0.5em 1em;" id="libraryCheckboxes">
+                        <div class="checkboxContainer checkboxContainer-withDescription">
+                            <label class="emby-checkbox-label">
+                                <input id="SelectAllLibraries" type="checkbox" is="emby-checkbox" />
+                                <span>Enable analysis for all libraries containing television episodes</span>
+                            </label>
+
+                            <div class="folderAccessListContainer">
+                                <div class="folderAccess">
+                                    <h4 class="checkboxListLabel">Limit analysis to the following libraries</h4>
+                                    <div class="checkboxList paperList" style="padding: 0.5em 1em;" id="libraryCheckboxes">
+                                    </div>
                                 </div>
+                                <div class="fieldDescription">
+                                    Only selected libraries will be analyzed.
+                                </div>
+                                <label class="inputLabel" for="SelectedLibraries"></label>
+                                <input id="SelectedLibraries" type="hidden" is="emby-input" />
                             </div>
-                            <div class="fieldDescription">
-                                Selected libraries will be analyzed. If none are selected, all TV show and mixed libraries will be analyzed.
-                            </div>
-                            <label class="inputLabel" for="SelectedLibraries"></label>
-                            <input id="SelectedLibraries" type="hidden" is="emby-input" />
                         </div>
 
                         <details id="intro_reqs">
@@ -739,6 +746,7 @@
                 "AutoDetectIntros",
                 "AutoDetectCredits",
                 "AnalyzeSeasonZero",
+                "SelectAllLibraries",
                 "RegenerateEdlFiles",
                 "UseChromaprint",
                 "CacheFingerprints",
@@ -767,6 +775,8 @@
             var windowHashInterval = 0;
 
             var autoSkip = document.querySelector("input#AutoSkip");
+            var selectAllLibraries = document.querySelector("input#SelectAllLibraries");
+            var librariesContainer = document.querySelector("div.folderAccessListContainer");
             var skipFirstEpisode = document.querySelector("div#divSkipFirstEpisode");
             var secondsOfIntroStartToPlay = document.querySelector("div#divSecondsOfIntroStartToPlay");
             var autoSkipClientList = document.getElementById("AutoSkipClientList");
@@ -811,6 +821,16 @@
                     autoSkipClientList.style.display = 'none';
                 }
             }
+
+            function selectAllLibrariesChanged() {
+                if (selectAllLibraries.checked) {
+                    librariesContainer.style.display = 'none';
+                } else {
+                    librariesContainer.style.display = 'unset';
+                }
+            }
+
+            selectAllLibraries.addEventListener("change", selectAllLibrariesChanged);
 
             function updateList(textField, container) {
                 textField.value = Array.from(container.querySelectorAll('input[type="checkbox"]:checked'))
