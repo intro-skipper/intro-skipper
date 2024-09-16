@@ -91,7 +91,7 @@ public class BaseItemAnalyzerTask
         if (totalQueued == 0)
         {
             throw new FingerprintException(
-                "No episodes to analyze. If you are limiting the list of libraries to analyze, check that all library names have been spelled correctly.");
+                "No libraries selected for analysis. Please visit the plugin settings to configure.");
         }
 
         if (Plugin.Instance!.Configuration.EdlAction != EdlAction.None)
