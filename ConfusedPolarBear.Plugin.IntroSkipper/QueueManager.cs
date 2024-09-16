@@ -88,6 +88,16 @@ public class QueueManager
             Plugin.Instance.QueuedMediaItems.TryAdd(kvp.Key, kvp.Value);
         }
 
+        _logger.LogInformation("loadBlacklist");
+        try
+        {
+            Plugin.Instance!.LoadBlacklist();
+        }
+        catch (Exception e)
+        {
+            _logger.LogError("Unable to load blacklist: {Message}", e.Message);
+        }
+
         return new(_queuedEpisodes);
     }
 

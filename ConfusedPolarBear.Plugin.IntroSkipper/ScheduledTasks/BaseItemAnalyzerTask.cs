@@ -154,7 +154,7 @@ public class BaseItemAnalyzerTask
 
                 foreach (AnalysisMode mode in requiredModes)
                 {
-                    if (Plugin.Instance!.IsBlacklisted(first.SeriesName, mode))
+                    if (Plugin.Instance!.IsBlacklisted(season.Key, mode))
                     {
                         continue;
                     }

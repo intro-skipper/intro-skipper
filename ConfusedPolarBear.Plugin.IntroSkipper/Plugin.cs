@@ -131,15 +131,6 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
             _logger.LogWarning("Unable to load introduction timestamps: {Exception}", ex);
         }
 
-        try
-        {
-            LoadBlacklist();
-        }
-        catch (Exception e)
-        {
-            _logger.LogError("Unable to load blacklist: {Message}", e.Message);
-        }
-
         // Inject the skip intro button code into the web interface.
         try
         {
@@ -176,9 +167,9 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
     public ConcurrentDictionary<Guid, EpisodeState> EpisodeStates { get; } = new();
 
     /// <summary>
-    /// Gets or sets the blacklist.
+    /// Gets the blacklist.
     /// </summary>
-    private List<BlackListItem> Blacklist { get; set; } = new();
+    public ConcurrentDictionary<Guid, BlackListItem> IgnoreList { get; } = new();
 
     /// <summary>
     /// Gets or sets the total number of episodes in the queue.
@@ -243,76 +234,54 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
     }
 
     /// <summary>
-    /// Save blacklist to disk.
+    /// Save IgnoreList to disk.
     /// </summary>
-    public void SaveBlacklist()
+    public void SaveIgnoreList()
     {
-        Blacklist.RemoveAll(item => item.BlackListedModes.Count == 0);
+        List<BlackListItem> blacklist = [.. Instance!.IgnoreList.Values];
         lock (_serializationLock)
         {
             try
             {
-                XmlSerializationHelper.SerializeToXml(Blacklist, _blacklistPath);
+                XmlSerializationHelper.SerializeToXml(blacklist, _blacklistPath);
             }
             catch (Exception e)
             {
-                _logger.LogError("SaveBlacklist {Message}", e.Message);
+                _logger.LogError("SaveIgnoreList {Message}", e.Message);
             }
         }
     }
 
     /// <summary>
-    /// Toggle blacklist for a series.
+    /// Add an item to the blacklist.
     /// </summary>
-    /// <param name="series">Series name.</param>
+    /// <param name="id">Item id.</param>
     /// <param name="mode">Mode.</param>
-    /// <param name="analysis">Analysis mode.</param>
-    public void ToggleBlacklistSeries(string series, AnalysisMode mode, bool analysis)
+    /// <returns>True if the item was added, false if it was already blacklisted.</returns>
+    public bool IsBlacklisted(Guid id, AnalysisMode mode)
     {
-        var item = Blacklist.Find(item => item.Series == series);
-        if (item is null)
-        {
-            item = new BlackListItem(series);
-            Blacklist.Add(item);
-        }
-
-        item.UpdateOrAddBlackMode(mode, analysis);
-
-        SaveBlacklist();
+        return Instance!.IgnoreList.TryGetValue(id, out var item) && item.IsIgnored(mode);
     }
 
     /// <summary>
-    /// Check if a series is blacklisted for a specific mode.
-    /// </summary>
-    /// <param name="series">Series name.</param>
-    /// <param name="mode">Mode.</param>
-    /// <returns>True if the series is blacklisted, false otherwise.</returns>
-    public bool IsBlacklisted(string series, AnalysisMode mode)
-    {
-        var item = Blacklist.Find(item => item.Series == series);
-        return item?.BlackListedModes.Contains(mode) ?? false;
-    }
-
-    /// <summary>
-    /// Load blacklist from disk.
+    /// Load IgnoreList from disk.
     /// </summary>
     public void LoadBlacklist()
     {
-        if (!File.Exists(_blacklistPath))
+        if (File.Exists(_blacklistPath))
         {
-            Console.WriteLine("Blacklist file not found");
-            return;
+            var blacklist = XmlSerializationHelper.DeserializeFromXmlBlacklist(_blacklistPath);
+
+            foreach (var item in blacklist)
+            {
+                if ((item.IgnoreCredits && item.IgnoreIntro) || !Instance!.QueuedMediaItems.ContainsKey(item.Id))
+                {
+                    continue;
+                }
+
+                Instance!.IgnoreList.TryAdd(item.Id, item);
+            }
         }
-
-        var blacklist = XmlSerializationHelper.DeserializeFromXmlBlacklist(_blacklistPath);
-        if (blacklist is null)
-        {
-            return;
-        }
-
-        blacklist.RemoveAll(item => item.BlackListedModes.Count == 0);
-
-        Blacklist = blacklist;
     }
 
     /// <summary>

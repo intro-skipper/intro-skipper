@@ -529,17 +529,25 @@
                         <br />
                         <label class="inputLabel" for="troubleshooterShow">Select TV Series to manage</label>
                         <select is="emby-select" id="troubleshooterShow" class="emby-select-withcolor emby-select"></select>
+
                         
-                        <div id="blackListCheckboxContainer"></div>
+                        <label class="inputLabel" for="troubleshooterSeason">Select Season to manage</label>
+                        <select is="emby-select" id="troubleshooterSeason" class="emby-select-withcolor emby-select"></select>
+
+                        <div id="blackListCheckboxContainer" style="display: none;">
+                            <label for="blacklistIntro">
+                                <span>do not analyze intros</span>
+                                <input type="checkbox" id="blacklistIntro">
+                            </label>
+                            <label for="blacklistCredits">
+                                <span>do not analyze credits</span>
+                                <input type="checkbox" id="blacklistCredits">
+                            </label>
+                        </div>
                         <button id="saveBlackList" style="display: none;">
                             <span>Save blacklist</span>
                         </button>
-
                         <br />
-                        <label class="inputLabel" for="troubleshooterSeason">Select Season to manage</label>
-                        <select is="emby-select" id="troubleshooterSeason" class="emby-select-withcolor emby-select"></select>
-                        <br />
-
                         <label class="inputLabel" for="troubleshooterEpisode1">Select the first episode</label>
                         <select is="emby-select" id="troubleshooterEpisode1" class="emby-select-withcolor emby-select"></select>
                         <label class="inputLabel" for="troubleshooterEpisode1">Select the second episode</label>
@@ -698,6 +706,8 @@
             // seasons grouped by show
             var shows = {};
 
+            var IgnoreListItem;
+
             // settings elements
             var visualizer = document.querySelector("details#visualizer");
             var support = document.querySelector("details#support");
@@ -753,6 +763,8 @@
             var canvas = document.querySelector("canvas#troubleshooter");
             var selectShow = document.querySelector("select#troubleshooterShow");
             var blackListCheckboxContainer = document.querySelector("div#blackListCheckboxContainer");
+            var blacklistIntro = blackListCheckboxContainer.querySelector("input#blacklistIntro");
+            var blacklistCredits = blackListCheckboxContainer.querySelector("input#blacklistCredits");
             var saveBlackListButton = document.querySelector("button#saveBlackList");
             var selectSeason = document.querySelector("select#troubleshooterSeason");
             var selectEpisode1 = document.querySelector("select#troubleshooterEpisode1");
@@ -887,12 +899,6 @@
                 const ta = document.querySelector("textarea#storage");
                 ta.value = bundleText;
             }
-            function createBlackListCheckbox(mode, toggle) {
-                return `<label for="` + mode + `">
-                            <span> do not analyze ` + mode + `</span>
-                            <input type="checkbox" id="` + mode + `" ` + (toggle ? `checked` : ``) + `>
-                        </label>`;
-            }
             // show changed, populate seasons
             async function showChanged() {
                 clearSelect(selectSeason);
@@ -900,13 +906,7 @@
                 clearSelect(selectEpisode1);
                 clearSelect(selectEpisode2);
 
-                Dashboard.showLoadingMsg();
-                const url = "Intros/BlackList/" + encodeURI(selectShow.value);
-                const BlackList = await getJson(url);
-                saveBlackListButton.style.display = "unset";    
-                blackListCheckboxContainer.innerHTML = ``;
-                Object.keys(BlackList).forEach(mode => blackListCheckboxContainer.innerHTML += createBlackListCheckbox(mode, BlackList[mode]));
-                Dashboard.hideLoadingMsg();
+                saveBlackListButton.style.display = "none";
 
                 // add all seasons from this show to the season select
                 for (var season of shows[selectShow.value]) {
@@ -918,12 +918,22 @@
 
             // season changed, reload all episodes
             async function seasonChanged() {
-                const url = "Intros/Show/" + encodeURI(selectShow.value) + "/" + selectSeason.value;
-                const episodes = await getJson(url);
+                const seasonData = encodeURI(selectShow.value) + "/" + encodeURI(selectSeason.value);
+                const episodes = await getJson("Intros/Show/" + seasonData);
 
                 clearSelect(selectEpisode1);
                 clearSelect(selectEpisode2);
                 eraseSeasonContainer.style.display = "unset";
+
+                Dashboard.showLoadingMsg();
+                const BlackList = await getJson("Intros/IgnoreList/" + seasonData);
+                console.debug(BlackList);
+                saveBlackListButton.style.display = "unset";
+                blackListCheckboxContainer.style.display = "block";
+                blacklistIntro.checked = BlackList.IgnoreIntro;
+                blacklistCredits.checked = BlackList.IgnoreCredits;
+                IgnoreListItem = BlackList;
+                Dashboard.hideLoadingMsg();
 
                 let i = 1;
                 for (let episode of episodes) {
@@ -1236,10 +1246,16 @@
             saveBlackListButton.addEventListener("click", () => {
                 Dashboard.showLoadingMsg();
                 const show = selectShow.value;
-                for (const mode of blackListCheckboxContainer.querySelectorAll("input")) {
-                    var url ="Intros/BlackList/UpdateBlackList/" + encodeURIComponent(show) + "/" + mode.id + "/" + mode.checked;
-                    fetchWithAuth(url, "POST", null);
-                }
+
+                var url ="Intros/IgnoreList/UpdateIgnoreListSeason";
+                const newRhs = {
+                    IgnoreIntro: blacklistIntro.checked,
+                    IgnoreCredits: blacklistCredits.checked,
+                    Id: IgnoreListItem.Id
+                };
+
+                fetchWithAuth(url, "POST", JSON.stringify(newRhs));
+
                 Dashboard.alert("Black list saved");
                 Dashboard.hideLoadingMsg();
             });

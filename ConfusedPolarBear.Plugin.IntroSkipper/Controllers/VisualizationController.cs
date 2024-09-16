@@ -1,5 +1,4 @@
 using System;
-using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Globalization;
 using System.Net.Mime;
@@ -74,20 +73,27 @@ public class VisualizationController : ControllerBase
     }
 
     /// <summary>
-    /// Returns the blackList for the provided series.
+    /// Returns the ignore list for the provided season.
     /// </summary>
     /// <param name="series">Show name.</param>
+    /// <param name="season">Season name.</param>
     /// <returns>List of episode titles.</returns>
-    [HttpGet("BlackList/{Series}")]
-    public ActionResult<ConcurrentDictionary<AnalysisMode, bool>> GetBlackList([FromRoute] string series)
+    [HttpGet("IgnoreList/{Series}/{Season}")]
+    public ActionResult<BlackListItem> GetIgnoreListSeason(
+        [FromRoute] string series,
+        [FromRoute] string season)
     {
-        ConcurrentDictionary<AnalysisMode, bool> list = new ConcurrentDictionary<AnalysisMode, bool>() { [AnalysisMode.Introduction] = false, [AnalysisMode.Credits] = false };
-        foreach (var show in list)
+        if (!LookupSeasonIdByName(series, season, out var seasonId))
         {
-            list.AddOrUpdate(show.Key, false, (key, oldValue) => Plugin.Instance!.IsBlacklisted(series, key));
+            return NotFound();
         }
 
-        return list;
+        if (!Plugin.Instance!.IgnoreList.TryGetValue(seasonId, out _))
+        {
+            return new BlackListItem(seasonId);
+        }
+
+        return new BlackListItem(Plugin.Instance!.IgnoreList[seasonId]);
     }
 
     /// <summary>
@@ -176,17 +182,23 @@ public class VisualizationController : ControllerBase
     }
 
     /// <summary>
-    /// Updates the black list.
+    /// Updates the ignore list for the provided series.
     /// </summary>
-    /// <param name="series">Show name.</param>
-    /// <param name="mode">New introduction start and end times.</param>
-    /// <param name="analysis">Analysis mode.</param>
-    /// <response code="204">New introduction timestamps saved.</response>
+    /// <param name="ignoreListItem">New ignore list items.</param>
     /// <returns>No content.</returns>
-    [HttpPost("BlackList/UpdateBlackList/{Series}/{mode}/{analysis}")]
-    public ActionResult UpdateBlackList([FromRoute] string series, [FromRoute] AnalysisMode mode, [FromRoute] bool analysis)
+    [HttpPost("IgnoreList/UpdateIgnoreListSeason")]
+    public ActionResult UpdateIgnoreListSeason([FromBody] BlackListItem ignoreListItem)
     {
-        Plugin.Instance!.ToggleBlacklistSeries(series, mode, analysis);
+        if (!Plugin.Instance!.QueuedMediaItems.ContainsKey(ignoreListItem.Id))
+        {
+            return NotFound();
+        }
+
+        Console.WriteLine("Updating ignore list for season {0}, intro: {1}, credits: {2}", ignoreListItem.Id, ignoreListItem.IgnoreIntro, ignoreListItem.IgnoreCredits);
+
+        Plugin.Instance!.IgnoreList[ignoreListItem.Id] = ignoreListItem;
+        Plugin.Instance!.SaveIgnoreList();
+
         return NoContent();
     }
 
@@ -243,6 +255,36 @@ public class VisualizationController : ControllerBase
         }
 
         episodes = new List<QueuedEpisode>();
+        return false;
+    }
+
+    /// <summary>
+    /// Lookup a named season of a series and return its season id.
+    /// </summary>
+    /// <param name="series">Series name.</param>
+    /// <param name="season">Season name.</param>
+    /// <param name="seasonId">Season id.</param>
+    /// <returns>Boolean indicating if the requested season was found.</returns>
+    private bool LookupSeasonIdByName(string series, string season, out Guid seasonId)
+    {
+        foreach (var queuedEpisodes in Plugin.Instance!.QueuedMediaItems)
+        {
+            var first = queuedEpisodes.Value[0];
+            var firstSeasonName = GetSeasonName(first);
+
+            // Assert that the queued episode series and season are equal to what was requested
+            if (
+                !string.Equals(first.SeriesName, series, StringComparison.OrdinalIgnoreCase) ||
+                !string.Equals(firstSeasonName, season, StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            seasonId = queuedEpisodes.Key;
+            return true;
+        }
+
+        seasonId = Guid.Empty;
         return false;
     }
 }

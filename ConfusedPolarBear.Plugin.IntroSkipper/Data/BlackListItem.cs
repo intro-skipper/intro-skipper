@@ -1,10 +1,10 @@
-using System.Collections.ObjectModel;
+using System;
 using System.Runtime.Serialization;
 
 namespace ConfusedPolarBear.Plugin.IntroSkipper.Data;
 
 /// <summary>
-/// represents a show that is blacklisted from analysis.
+/// represents a season to be ignored.
 /// </summary>
 [DataContract(Namespace = "http://schemas.datacontract.org/2004/07/ConfusedPolarBear.Plugin.IntroSkipper")]
 public class BlackListItem
@@ -12,23 +12,47 @@ public class BlackListItem
     /// <summary>
     /// Initializes a new instance of the <see cref="BlackListItem"/> class.
     /// </summary>
-    /// <param name="series">Show name.</param>
-    public BlackListItem(string series)
+    public BlackListItem()
     {
-        Series = series;
     }
 
     /// <summary>
-    /// Gets or sets the series name.
+    /// Initializes a new instance of the <see cref="BlackListItem"/> class.
     /// </summary>
-    [DataMember]
-    public string Series { get; set; }
+    /// <param name="id">The season id.</param>
+    public BlackListItem(Guid id)
+    {
+        Id = id;
+    }
 
     /// <summary>
-    /// Gets or sets the blocked analysis modes.
+    /// Initializes a new instance of the <see cref="BlackListItem"/> class.
+    /// </summary>
+    /// <param name="item">The item to copy.</param>
+    public BlackListItem(BlackListItem item)
+    {
+        Id = item.Id;
+        IgnoreIntro = item.IgnoreIntro;
+        IgnoreCredits = item.IgnoreCredits;
+    }
+
+    /// <summary>
+    /// Gets or sets the season id.
     /// </summary>
     [DataMember]
-    public Collection<AnalysisMode> BlackListedModes { get; set; } = new();
+    public Guid Id { get; set; } = Guid.Empty;
+
+    /// <summary>
+    /// Gets or sets a value indicating whether to ignore the intro.
+    /// </summary>
+    [DataMember]
+    public bool IgnoreIntro { get; set; } = false;
+
+    /// <summary>
+    /// Gets or sets a value indicating whether to ignore the credits.
+    /// </summary>
+    [DataMember]
+    public bool IgnoreCredits { get; set; } = false;
 
     /// <summary>
     /// Updates or adds a blocked mode to the blacklist for this show.
@@ -37,18 +61,31 @@ public class BlackListItem
     /// </summary>
     /// <param name="mode">Analysis mode.</param>
     /// <param name="value">Value to set.</param>
-    public void UpdateOrAddBlackMode(AnalysisMode mode, bool value)
+    public void Toggle(AnalysisMode mode, bool value)
     {
-        if (value)
+        switch (mode)
         {
-            if (!BlackListedModes.Contains(mode))
-            {
-                BlackListedModes.Add(mode);
-            }
+            case AnalysisMode.Introduction:
+                IgnoreIntro = value;
+                break;
+            case AnalysisMode.Credits:
+                IgnoreCredits = value;
+                break;
         }
-        else
+    }
+
+    /// <summary>
+    /// Checks if the provided mode is ignored for this show.
+    /// </summary>
+    /// <param name="mode">Analysis mode.</param>
+    /// <returns>True if the mode is ignored, false otherwise.</returns>
+    public bool IsIgnored(AnalysisMode mode)
+    {
+        return mode switch
         {
-            BlackListedModes.Remove(mode);
-        }
+            AnalysisMode.Introduction => IgnoreIntro,
+            AnalysisMode.Credits => IgnoreCredits,
+            _ => false,
+        };
     }
 }
