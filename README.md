@@ -7,11 +7,10 @@
     <p>
         Analyzes the audio of television episodes to detect and skip over intros.
     </p>
-    
+
 [![CodeQL](https://github.com/jumoog/intro-skipper/actions/workflows/codeql.yml/badge.svg)](https://github.com/jumoog/intro-skipper/actions/workflows/codeql.yml)
 
-
-`https://raw.githubusercontent.com/jumoog/intro-skipper/master/manifest.json`
+    https://raw.githubusercontent.com/jumoog/intro-skipper/master/manifest.json
 </div>
 
 ## Jellyfin 10.8
