@@ -79,7 +79,7 @@ public class VisualizationController : ControllerBase
     /// <param name="season">Season name.</param>
     /// <returns>List of episode titles.</returns>
     [HttpGet("IgnoreList/{Series}/{Season}")]
-    public ActionResult<BlackListItem> GetIgnoreListSeason(
+    public ActionResult<IgnoreListItem> GetIgnoreListSeason(
         [FromRoute] string series,
         [FromRoute] string season)
     {
@@ -90,10 +90,38 @@ public class VisualizationController : ControllerBase
 
         if (!Plugin.Instance!.IgnoreList.TryGetValue(seasonId, out _))
         {
-            return new BlackListItem(seasonId);
+            return new IgnoreListItem(seasonId);
         }
 
-        return new BlackListItem(Plugin.Instance!.IgnoreList[seasonId]);
+        return new IgnoreListItem(Plugin.Instance!.IgnoreList[seasonId]);
+    }
+
+    /// <summary>
+    /// Returns the ignore list for the provided series.
+    /// </summary>
+    /// <param name="series">Show name.</param>
+    /// <returns>List of episode titles.</returns>
+    [HttpGet("IgnoreList/{Series}")]
+    public ActionResult<IgnoreListItem> GetIgnoreListSeries([FromRoute] string series)
+    {
+        if (!LookupSeasonIdsByName(series, out var seasonIds))
+        {
+            return NotFound();
+        }
+
+        IgnoreListItem ignoreListItem = new IgnoreListItem(Guid.Empty);
+        foreach (var seasonId in seasonIds)
+        {
+            ignoreListItem.IgnoreIntro |= Plugin.Instance!.IsIgnored(seasonId, AnalysisMode.Introduction);
+            ignoreListItem.IgnoreCredits |= Plugin.Instance!.IsIgnored(seasonId, AnalysisMode.Credits);
+
+            if (ignoreListItem.IgnoreIntro && ignoreListItem.IgnoreCredits)
+            {
+                break;
+            }
+        }
+
+        return ignoreListItem;
     }
 
     /// <summary>
@@ -182,12 +210,13 @@ public class VisualizationController : ControllerBase
     }
 
     /// <summary>
-    /// Updates the ignore list for the provided series.
+    /// Updates the ignore list for the provided season.
     /// </summary>
     /// <param name="ignoreListItem">New ignore list items.</param>
+    /// <param name="save">Save the ignore list.</param>
     /// <returns>No content.</returns>
     [HttpPost("IgnoreList/UpdateIgnoreListSeason")]
-    public ActionResult UpdateIgnoreListSeason([FromBody] BlackListItem ignoreListItem)
+    public ActionResult UpdateIgnoreListSeason([FromBody] IgnoreListItem ignoreListItem, bool save = true)
     {
         if (!Plugin.Instance!.QueuedMediaItems.ContainsKey(ignoreListItem.Id))
         {
@@ -197,6 +226,34 @@ public class VisualizationController : ControllerBase
         Console.WriteLine("Updating ignore list for season {0}, intro: {1}, credits: {2}", ignoreListItem.Id, ignoreListItem.IgnoreIntro, ignoreListItem.IgnoreCredits);
 
         Plugin.Instance!.IgnoreList[ignoreListItem.Id] = ignoreListItem;
+
+        if (save)
+        {
+            Plugin.Instance!.SaveIgnoreList();
+        }
+
+        return NoContent();
+    }
+
+    /// <summary>
+    /// Updates the ignore list for the provided series.
+    /// </summary>
+    /// <param name="series">Series name.</param>
+    /// <param name="ignoreListItem">New ignore list items.</param>
+    /// <returns>No content.</returns>
+    [HttpPost("IgnoreList/UpdateIgnoreListSeries/{Series}")]
+    public ActionResult UpdateIgnoreListSeries([FromRoute] string series, [FromBody] IgnoreListItem ignoreListItem)
+    {
+        if (!LookupSeasonIdsByName(series, out var seasonIds))
+        {
+            return NotFound();
+        }
+
+        foreach (var seasonId in seasonIds)
+        {
+            UpdateIgnoreListSeason(new IgnoreListItem(ignoreListItem) { Id = seasonId }, false);
+        }
+
         Plugin.Instance!.SaveIgnoreList();
 
         return NoContent();
@@ -286,5 +343,31 @@ public class VisualizationController : ControllerBase
 
         seasonId = Guid.Empty;
         return false;
+    }
+
+    /// <summary>
+    /// Lookup a named series and return all the season ids.
+    /// </summary>
+    /// <param name="series">Series name.</param>
+    /// <param name="seasons">Seasons.</param>
+    /// <returns>Boolean indicating if the requested series was found.</returns>
+    private bool LookupSeasonIdsByName(string series, out List<Guid> seasons)
+    {
+        seasons = new List<Guid>();
+
+        foreach (var queuedEpisodes in Plugin.Instance!.QueuedMediaItems)
+        {
+            var first = queuedEpisodes.Value[0];
+
+            // Assert that the queued episode series is equal to what was requested
+            if (!string.Equals(first.SeriesName, series, StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            seasons.Add(queuedEpisodes.Key);
+        }
+
+        return seasons.Count > 0;
     }
 }

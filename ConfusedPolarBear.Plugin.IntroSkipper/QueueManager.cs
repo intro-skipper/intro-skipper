@@ -78,14 +78,13 @@ public class QueueManager(ILogger<QueueManager> logger, ILibraryManager libraryM
             Plugin.Instance.QueuedMediaItems.TryAdd(kvp.Key, kvp.Value);
         }
 
-        _logger.LogInformation("loadBlacklist");
         try
         {
-            Plugin.Instance!.LoadBlacklist();
+            Plugin.Instance!.LoadIgnoreList();
         }
         catch (Exception e)
         {
-            _logger.LogError("Unable to load blacklist: {Message}", e.Message);
+            _logger.LogError("Unable to load ignore list: {Exception}", e);
         }
 
         return new(_queuedEpisodes);

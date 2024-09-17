@@ -84,9 +84,9 @@ namespace ConfusedPolarBear.Plugin.IntroSkipper
             return result;
         }
 
-        public static List<BlackListItem> DeserializeFromXmlBlacklist(string filePath)
+        public static List<IgnoreListItem> DeserializeFromXmlIgnoreList(string filePath)
         {
-            var result = new List<BlackListItem>();
+            var result = new List<IgnoreListItem>();
             try
             {
                 // Create a FileStream to read the XML file
@@ -94,11 +94,11 @@ namespace ConfusedPolarBear.Plugin.IntroSkipper
                 // Create an XmlDictionaryReader to read the XML
                 XmlDictionaryReader reader = XmlDictionaryReader.CreateTextReader(fileStream, new XmlDictionaryReaderQuotas());
 
-                // Create a DataContractSerializer for type List<BlackListItem>
-                DataContractSerializer serializer = new DataContractSerializer(typeof(List<BlackListItem>));
+                // Create a DataContractSerializer for type List<IgnoreListItem>
+                DataContractSerializer serializer = new DataContractSerializer(typeof(List<IgnoreListItem>));
 
                 // Deserialize the object from the XML
-                result = serializer.ReadObject(reader) as List<BlackListItem>;
+                result = serializer.ReadObject(reader) as List<IgnoreListItem>;
 
                 // Close the reader
                 reader.Close();

@@ -7,29 +7,29 @@ namespace ConfusedPolarBear.Plugin.IntroSkipper.Data;
 /// represents a season to be ignored.
 /// </summary>
 [DataContract(Namespace = "http://schemas.datacontract.org/2004/07/ConfusedPolarBear.Plugin.IntroSkipper")]
-public class BlackListItem
+public class IgnoreListItem
 {
     /// <summary>
-    /// Initializes a new instance of the <see cref="BlackListItem"/> class.
+    /// Initializes a new instance of the <see cref="IgnoreListItem"/> class.
     /// </summary>
-    public BlackListItem()
+    public IgnoreListItem()
     {
     }
 
     /// <summary>
-    /// Initializes a new instance of the <see cref="BlackListItem"/> class.
+    /// Initializes a new instance of the <see cref="IgnoreListItem"/> class.
     /// </summary>
     /// <param name="id">The season id.</param>
-    public BlackListItem(Guid id)
+    public IgnoreListItem(Guid id)
     {
         Id = id;
     }
 
     /// <summary>
-    /// Initializes a new instance of the <see cref="BlackListItem"/> class.
+    /// Initializes a new instance of the <see cref="IgnoreListItem"/> class.
     /// </summary>
     /// <param name="item">The item to copy.</param>
-    public BlackListItem(BlackListItem item)
+    public IgnoreListItem(IgnoreListItem item)
     {
         Id = item.Id;
         IgnoreIntro = item.IgnoreIntro;
@@ -55,9 +55,7 @@ public class BlackListItem
     public bool IgnoreCredits { get; set; } = false;
 
     /// <summary>
-    /// Updates or adds a blocked mode to the blacklist for this show.
-    /// if value is true, the mode is added to the blacklist(if not already present).
-    /// if value is false, the mode is removed from the blacklist(if present).
+    /// Sets the value of the provided mode.
     /// </summary>
     /// <param name="mode">Analysis mode.</param>
     /// <param name="value">Value to set.</param>
@@ -75,10 +73,10 @@ public class BlackListItem
     }
 
     /// <summary>
-    /// Checks if the provided mode is ignored for this show.
+    /// Determines if the provided mode is ignored.
     /// </summary>
     /// <param name="mode">Analysis mode.</param>
-    /// <returns>True if the mode is ignored, false otherwise.</returns>
+    /// <returns>True if ignored, false otherwise.</returns>
     public bool IsIgnored(AnalysisMode mode)
     {
         return mode switch

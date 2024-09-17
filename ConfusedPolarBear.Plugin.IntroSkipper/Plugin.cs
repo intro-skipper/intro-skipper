@@ -30,7 +30,7 @@ public partial class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
     private readonly ILogger<Plugin> _logger;
     private readonly string _introPath;
     private readonly string _creditsPath;
-    private string _blacklistPath;
+    private string _ignorelistPath;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="Plugin"/> class.
@@ -67,7 +67,7 @@ public partial class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
         FingerprintCachePath = Path.Join(introsDirectory, pluginCachePath);
         _introPath = Path.Join(applicationPaths.DataPath, pluginDirName, "intros.xml");
         _creditsPath = Path.Join(applicationPaths.DataPath, pluginDirName, "credits.xml");
-        _blacklistPath = Path.Join(applicationPaths.DataPath, pluginDirName, "blacklist.xml");
+        _ignorelistPath = Path.Join(applicationPaths.DataPath, pluginDirName, "ignorelist.xml");
 
         var cacheRoot = applicationPaths.CachePath;
         var oldIntrosDirectory = Path.Join(cacheRoot, pluginDirName);
@@ -167,9 +167,9 @@ public partial class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
     public ConcurrentDictionary<Guid, EpisodeState> EpisodeStates { get; } = new();
 
     /// <summary>
-    /// Gets the blacklist.
+    /// Gets the ignore list.
     /// </summary>
-    public ConcurrentDictionary<Guid, BlackListItem> IgnoreList { get; } = new();
+    public ConcurrentDictionary<Guid, IgnoreListItem> IgnoreList { get; } = new();
 
     /// <summary>
     /// Gets or sets the total number of episodes in the queue.
@@ -238,12 +238,21 @@ public partial class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
     /// </summary>
     public void SaveIgnoreList()
     {
-        List<BlackListItem> blacklist = [.. Instance!.IgnoreList.Values];
+        List<IgnoreListItem> ignorelist = new();
+
+        foreach (var item in Instance!.IgnoreList.Values)
+        {
+            if ((item.IgnoreCredits || item.IgnoreIntro) && Instance!.QueuedMediaItems.ContainsKey(item.Id))
+            {
+                ignorelist.Add(item);
+            }
+        }
+
         lock (_serializationLock)
         {
             try
             {
-                XmlSerializationHelper.SerializeToXml(blacklist, _blacklistPath);
+                XmlSerializationHelper.SerializeToXml(ignorelist, _ignorelistPath);
             }
             catch (Exception e)
             {
@@ -253,12 +262,12 @@ public partial class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
     }
 
     /// <summary>
-    /// Add an item to the blacklist.
+    /// Add an item to the ignore list.
     /// </summary>
     /// <param name="id">Item id.</param>
     /// <param name="mode">Mode.</param>
-    /// <returns>True if the item was added, false if it was already blacklisted.</returns>
-    public bool IsBlacklisted(Guid id, AnalysisMode mode)
+    /// <returns>True if the item was added, false if it was removed.</returns>
+    public bool IsIgnored(Guid id, AnalysisMode mode)
     {
         return Instance!.IgnoreList.TryGetValue(id, out var item) && item.IsIgnored(mode);
     }
@@ -266,20 +275,18 @@ public partial class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
     /// <summary>
     /// Load IgnoreList from disk.
     /// </summary>
-    public void LoadBlacklist()
+    public void LoadIgnoreList()
     {
-        if (File.Exists(_blacklistPath))
+        if (File.Exists(_ignorelistPath))
         {
-            var blacklist = XmlSerializationHelper.DeserializeFromXmlBlacklist(_blacklistPath);
+            var ignorelist = XmlSerializationHelper.DeserializeFromXmlIgnoreList(_ignorelistPath);
 
-            foreach (var item in blacklist)
+            foreach (var item in ignorelist)
             {
-                if ((item.IgnoreCredits && item.IgnoreIntro) || !Instance!.QueuedMediaItems.ContainsKey(item.Id))
+                if ((item.IgnoreCredits || item.IgnoreIntro) && Instance!.QueuedMediaItems.ContainsKey(item.Id))
                 {
-                    continue;
+                    Instance!.IgnoreList.TryAdd(item.Id, item);
                 }
-
-                Instance!.IgnoreList.TryAdd(item.Id, item);
             }
         }
     }

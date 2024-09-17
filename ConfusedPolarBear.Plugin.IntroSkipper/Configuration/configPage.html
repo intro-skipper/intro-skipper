@@ -21,9 +21,13 @@
                     font-size: 1.0em;
                     outline: 2px solid rgba(155, 155, 155, 0.5);
                 }
-                #blackListCheckboxContainer label {
+                #ignoreListCheckboxContainer label {
                     margin-right: 1.5em;
                     display: inline-block;
+                }
+                #ignorelistSection{
+                    margin-top: 0.5em;
+                    display: block;
                 }
             </style>
             <div class="content-primary">
@@ -534,7 +538,7 @@
                     </details>
 
                     <details id="visualizer">
-                        <summary>Manage Fingerprints</summary>
+                        <summary>Manage Timestamps & Fingerprints</summary>
 
                         <br />
                         <label class="inputLabel" for="troubleshooterShow">Select TV Series to manage</label>
@@ -543,21 +547,38 @@
                         
                         <label class="inputLabel" for="troubleshooterSeason">Select Season to manage</label>
                         <select is="emby-select" id="troubleshooterSeason" class="emby-select-withcolor emby-select"></select>
+                         <br />
 
-                        <div id="blackListCheckboxContainer" style="display: none;">
-                            <label for="blacklistIntro">
-                                <span>do not analyze intros</span>
-                                <input type="checkbox" id="blacklistIntro">
-                            </label>
-                            <label for="blacklistCredits">
-                                <span>do not analyze credits</span>
-                                <input type="checkbox" id="blacklistCredits">
-                            </label>
+                        <div id="ignorelistSection" style="display: none;">
+                            <h3 style="margin:0;">Ignore list editor</h3>
+                            <p style="margin:0;">
+                                Add or remove items from the ignore list. Items on the ignore list will not be analyzed.<br />
+                                you can add a apply the changes for the whole series or just the selected season.
+                            </p>
+                            <br />
+
+                            <div id="ignoreListCheckboxContainer">
+                                <label for="ignorelistIntro">
+                                    <span>do not analyze intros</span>
+                                    <input type="checkbox" id="ignorelistIntro">
+                                </label>
+                                <label for="ignorelistCredits">
+                                    <span>do not analyze credits</span>
+                                    <input type="checkbox" id="ignorelistCredits">
+                                </label>
+                            </div>
+                            <br />
+
+                            <button id="saveIgnoreListSeason" class="raised button-submit block emby-button">
+                                apply changes for this series
+                            </button>
+                            <button id="saveIgnoreListSeason" class="raised button-submit block emby-button" style="display: none;">
+                                apply changes for this season
+                            </button>
+                            <br>
                         </div>
-                        <button id="saveBlackList" style="display: none;">
-                            <span>Save blacklist</span>
-                        </button>
                         <br />
+
                         <label class="inputLabel" for="troubleshooterEpisode1">Select the first episode</label>
                         <select is="emby-select" id="troubleshooterEpisode1" class="emby-select-withcolor emby-select"></select>
                         <label class="inputLabel" for="troubleshooterEpisode1">Select the second episode</label>
@@ -716,7 +737,7 @@
             // seasons grouped by show
             var shows = {};
 
-            var IgnoreListItem;
+            var IgnoreListItemId;
 
             // settings elements
             var visualizer = document.querySelector("details#visualizer");
@@ -773,10 +794,12 @@
             // visualizer elements
             var canvas = document.querySelector("canvas#troubleshooter");
             var selectShow = document.querySelector("select#troubleshooterShow");
-            var blackListCheckboxContainer = document.querySelector("div#blackListCheckboxContainer");
-            var blacklistIntro = blackListCheckboxContainer.querySelector("input#blacklistIntro");
-            var blacklistCredits = blackListCheckboxContainer.querySelector("input#blacklistCredits");
-            var saveBlackListButton = document.querySelector("button#saveBlackList");
+            var ignoreListCheckboxContainer = document.querySelector("div#ignoreListCheckboxContainer");
+            var ignorelistIntro = ignoreListCheckboxContainer.querySelector("input#ignorelistIntro");
+            var ignorelistCredits = ignoreListCheckboxContainer.querySelector("input#ignorelistCredits");
+            var saveIgnoreListSeasonButton = document.querySelector("button#saveIgnoreListSeason");
+            var saveIgnoreListSeasonButton = document.querySelector("button#saveIgnoreListSeries");
+            var ignorelistSection = document.querySelector("div#ignorelistSection");
             var selectSeason = document.querySelector("select#troubleshooterSeason");
             var selectEpisode1 = document.querySelector("select#troubleshooterEpisode1");
             var selectEpisode2 = document.querySelector("select#troubleshooterEpisode2");
@@ -967,8 +990,14 @@
                 eraseSeasonContainer.style.display = "none";
                 clearSelect(selectEpisode1);
                 clearSelect(selectEpisode2);
-
-                saveBlackListButton.style.display = "none";
+                
+                Dashboard.showLoadingMsg();
+                const IgnoreList = await getJson("Intros/IgnoreList/" + encodeURI(selectShow.value));
+                ignorelistIntro.checked = IgnoreList.IgnoreIntro;
+                ignorelistCredits.checked = IgnoreList.IgnoreCredits;
+                ignorelistSection.style.display = "unset";
+                saveIgnoreListSeasonButton.style.display = "none";
+                Dashboard.hideLoadingMsg();
 
                 // add all seasons from this show to the season select
                 for (var season of shows[selectShow.value]) {
@@ -988,13 +1017,11 @@
                 eraseSeasonContainer.style.display = "unset";
 
                 Dashboard.showLoadingMsg();
-                const BlackList = await getJson("Intros/IgnoreList/" + seasonData);
-                console.debug(BlackList);
-                saveBlackListButton.style.display = "unset";
-                blackListCheckboxContainer.style.display = "block";
-                blacklistIntro.checked = BlackList.IgnoreIntro;
-                blacklistCredits.checked = BlackList.IgnoreCredits;
-                IgnoreListItem = BlackList;
+                saveIgnoreListSeasonButton.style.display = "unset";
+                const IgnoreList = await getJson("Intros/IgnoreList/" + seasonData);
+                ignorelistIntro.checked = IgnoreList.IgnoreIntro;
+                ignorelistCredits.checked = IgnoreList.IgnoreCredits;
+                IgnoreListItemId = IgnoreList.Id;
                 Dashboard.hideLoadingMsg();
 
                 let i = 1;
@@ -1306,20 +1333,33 @@
                     }
                 );
             });
-            saveBlackListButton.addEventListener("click", () => {
+            saveIgnoreListSeasonButton.addEventListener("click", () => {
                 Dashboard.showLoadingMsg();
-                const show = selectShow.value;
 
                 var url ="Intros/IgnoreList/UpdateIgnoreListSeason";
                 const newRhs = {
-                    IgnoreIntro: blacklistIntro.checked,
-                    IgnoreCredits: blacklistCredits.checked,
-                    Id: IgnoreListItem.Id
+                    IgnoreIntro: ignorelistIntro.checked,
+                    IgnoreCredits: ignorelistCredits.checked,
+                    Id: IgnoreListItemId
                 };
 
                 fetchWithAuth(url, "POST", JSON.stringify(newRhs));
 
-                Dashboard.alert("Black list saved");
+                Dashboard.alert("Ignore list saved");
+                Dashboard.hideLoadingMsg();
+            });
+            saveIgnoreListSeasonButton.addEventListener("click", () => {
+                Dashboard.showLoadingMsg();
+
+                var url ="Intros/IgnoreList/UpdateIgnoreListSeries" + "/" + encodeURIComponent(selectShow.value);
+                const newRhs = {
+                    IgnoreIntro: ignorelistIntro.checked,
+                    IgnoreCredits: ignorelistCredits.checked,
+                };
+
+                fetchWithAuth(url, "POST", JSON.stringify(newRhs));
+
+                Dashboard.alert("Ignore list saved");
                 Dashboard.hideLoadingMsg();
             });
             btnUpdateTimestamps.addEventListener("click", () => {
