@@ -219,8 +219,6 @@ public class VisualizationController : ControllerBase
             return NotFound();
         }
 
-        Console.WriteLine("Updating ignore list for season {0}, intro: {1}, credits: {2}", ignoreListItem.Id, ignoreListItem.IgnoreIntro, ignoreListItem.IgnoreCredits);
-
         Plugin.Instance!.IgnoreList[ignoreListItem.Id] = ignoreListItem;
 
         if (save)

@@ -2,6 +2,7 @@ using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using System.Text.RegularExpressions;
 using ConfusedPolarBear.Plugin.IntroSkipper.Configuration;
 using ConfusedPolarBear.Plugin.IntroSkipper.Data;
@@ -238,15 +239,8 @@ public partial class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
     /// </summary>
     public void SaveIgnoreList()
     {
-        List<IgnoreListItem> ignorelist = new();
-
-        foreach (var item in Instance!.IgnoreList.Values)
-        {
-            if ((item.IgnoreCredits || item.IgnoreIntro) && Instance!.QueuedMediaItems.ContainsKey(item.Id))
-            {
-                ignorelist.Add(item);
-            }
-        }
+        List<IgnoreListItem> ignorelist = Instance!.IgnoreList.Values
+        .Where(item => (item.IgnoreCredits || item.IgnoreIntro) && Instance!.QueuedMediaItems.ContainsKey(item.Id)).ToList();
 
         lock (_serializationLock)
         {
@@ -279,14 +273,12 @@ public partial class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
     {
         if (File.Exists(_ignorelistPath))
         {
-            var ignorelist = XmlSerializationHelper.DeserializeFromXmlIgnoreList(_ignorelistPath);
+            var ignorelist = XmlSerializationHelper.DeserializeFromXmlIgnoreList(_ignorelistPath)
+            .Where(item => (item.IgnoreCredits || item.IgnoreIntro) && Instance!.QueuedMediaItems.ContainsKey(item.Id)).ToList();
 
             foreach (var item in ignorelist)
             {
-                if ((item.IgnoreCredits || item.IgnoreIntro) && Instance!.QueuedMediaItems.ContainsKey(item.Id))
-                {
-                    Instance!.IgnoreList.TryAdd(item.Id, item);
-                }
+                Instance!.IgnoreList.TryAdd(item.Id, item);
             }
         }
     }
