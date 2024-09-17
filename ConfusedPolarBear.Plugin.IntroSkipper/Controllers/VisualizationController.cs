@@ -125,7 +125,7 @@ public class VisualizationController : ControllerBase
     }
 
     /// <summary>
-    /// Returns the uncompressed fingerprint data points for the provided episode.
+    /// Returns the names and unique identifiers of all episodes in the provided season.
     /// </summary>
     /// <param name="series">Show name.</param>
     /// <param name="season">Season name.</param>

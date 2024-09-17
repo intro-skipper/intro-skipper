@@ -25,10 +25,6 @@
                     margin-right: 1.5em;
                     display: inline-block;
                 }
-                #ignorelistSection{
-                    margin-top: 0.5em;
-                    display: block;
-                }
             </style>
             <div class="content-primary">
                 <form id="FingerprintConfigForm">
@@ -572,7 +568,7 @@
                             </div>
                             <br />
 
-                            <button id="saveIgnoreListSeason" class="raised button-submit block emby-button">
+                            <button id="saveIgnoreListSeries" class="raised button-submit block emby-button">
                                 apply changes for this series
                             </button>
                             <button id="saveIgnoreListSeason" class="raised button-submit block emby-button" style="display: none;">
@@ -802,7 +798,7 @@
             var ignorelistIntro = ignoreListCheckboxContainer.querySelector("input#ignorelistIntro");
             var ignorelistCredits = ignoreListCheckboxContainer.querySelector("input#ignorelistCredits");
             var saveIgnoreListSeasonButton = document.querySelector("button#saveIgnoreListSeason");
-            var saveIgnoreListSeasonButton = document.querySelector("button#saveIgnoreListSeries");
+            var saveIgnoreListSeriesButton = document.querySelector("button#saveIgnoreListSeries");
             var ignorelistSection = document.querySelector("div#ignorelistSection");
             var selectSeason = document.querySelector("select#troubleshooterSeason");
             var selectEpisode1 = document.querySelector("select#troubleshooterEpisode1");
@@ -1365,7 +1361,7 @@
                 Dashboard.alert("Ignore list saved");
                 Dashboard.hideLoadingMsg();
             });
-            saveIgnoreListSeasonButton.addEventListener("click", () => {
+            saveIgnoreListSeriesButton.addEventListener("click", () => {
                 Dashboard.showLoadingMsg();
 
                 var url ="Intros/IgnoreList/UpdateIgnoreListSeries" + "/" + encodeURIComponent(selectShow.value);
