@@ -79,9 +79,7 @@ public class VisualizationController : ControllerBase
     /// <param name="season">Season name.</param>
     /// <returns>List of episode titles.</returns>
     [HttpGet("IgnoreList/{Series}/{Season}")]
-    public ActionResult<IgnoreListItem> GetIgnoreListSeason(
-        [FromRoute] string series,
-        [FromRoute] string season)
+    public ActionResult<IgnoreListItem> GetIgnoreListSeason([FromRoute] string series, [FromRoute] string season)
     {
         if (!LookupSeasonIdByName(series, season, out var seasonId))
         {
@@ -131,9 +129,7 @@ public class VisualizationController : ControllerBase
     /// <param name="season">Season name.</param>
     /// <returns>List of episode titles.</returns>
     [HttpGet("Show/{Series}/{Season}")]
-    public ActionResult<List<EpisodeVisualization>> GetSeasonEpisodes(
-        [FromRoute] string series,
-        [FromRoute] string season)
+    public ActionResult<List<EpisodeVisualization>> GetSeasonEpisodes([FromRoute] string series, [FromRoute] string season)
     {
         var visualEpisodes = new List<EpisodeVisualization>();
 
