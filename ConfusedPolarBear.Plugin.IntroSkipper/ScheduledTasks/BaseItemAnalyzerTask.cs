@@ -114,8 +114,7 @@ public class BaseItemAnalyzerTask
             // of the current media items were deleted from Jellyfin since the task was started.
             var (episodes, requiredModes) = queueManager.VerifyQueue(
                 season.Value.AsReadOnly(),
-                _analysisModes,
-                season.Key);
+                _analysisModes.Where(m => !Plugin.Instance!.IsIgnored(season.Key, m)).ToList().AsReadOnly());
 
             var episodeCount = episodes.Count;
 

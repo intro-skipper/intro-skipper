@@ -229,10 +229,9 @@ public class QueueManager(ILogger<QueueManager> logger, ILibraryManager libraryM
     /// </summary>
     /// <param name="candidates">Queued media items.</param>
     /// <param name="modes">Analysis mode.</param>
-    /// <param name="seasonId">Season ID.</param>
     /// <returns>Media items that have been verified to exist in Jellyfin and in storage.</returns>
     public (ReadOnlyCollection<QueuedEpisode> VerifiedItems, ReadOnlyCollection<AnalysisMode> RequiredModes)
-        VerifyQueue(ReadOnlyCollection<QueuedEpisode> candidates, ReadOnlyCollection<AnalysisMode> modes, Guid seasonId)
+        VerifyQueue(ReadOnlyCollection<QueuedEpisode> candidates, ReadOnlyCollection<AnalysisMode> modes)
     {
         var verified = new List<QueuedEpisode>();
         var reqModes = new HashSet<AnalysisMode>();
@@ -265,7 +264,7 @@ public class QueueManager(ILogger<QueueManager> logger, ILibraryManager libraryM
                     {
                         candidate.State.SetAnalyzed(mode, true);
                     }
-                    else if (!Plugin.Instance!.IsIgnored(seasonId, mode))
+                    else
                     {
                         reqModes.Add(mode);
                     }
