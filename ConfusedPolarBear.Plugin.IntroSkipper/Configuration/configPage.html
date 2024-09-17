@@ -101,7 +101,7 @@
                                 <input id="SelectedLibraries" type="hidden" is="emby-input" />
                             </div>
                         </div>
-                        
+
                         <details id="intro_reqs">
                             <summary>Modify Segment Parameters</summary>
 
@@ -548,7 +548,6 @@
                         <label class="inputLabel" for="troubleshooterShow">Select TV Series to manage</label>
                         <select is="emby-select" id="troubleshooterShow" class="emby-select-withcolor emby-select"></select>
 
-                        
                         <label class="inputLabel" for="troubleshooterSeason">Select Season to manage</label>
                         <select is="emby-select" id="troubleshooterSeason" class="emby-select-withcolor emby-select"></select>
                          <br />
@@ -1007,7 +1006,7 @@
                 eraseSeasonContainer.style.display = "none";
                 clearSelect(selectEpisode1);
                 clearSelect(selectEpisode2);
-                
+
                 Dashboard.showLoadingMsg();
                 const IgnoreList = await getJson("Intros/IgnoreList/" + encodeURI(selectShow.value));
                 ignorelistIntro.checked = IgnoreList.IgnoreIntro;
