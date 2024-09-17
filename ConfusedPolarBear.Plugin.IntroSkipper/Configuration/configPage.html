@@ -21,10 +21,6 @@
                     font-size: 1.0em;
                     outline: 2px solid rgba(155, 155, 155, 0.5);
                 }
-                #ignoreListCheckboxContainer label {
-                    margin-right: 1.5em;
-                    display: inline-block;
-                }
             </style>
             <div class="content-primary">
                 <form id="FingerprintConfigForm">
@@ -557,11 +553,11 @@
                             <br />
 
                             <div id="ignoreListCheckboxContainer">
-                                <label for="ignorelistIntro">
+                                <label for="ignorelistIntro" style="margin-right: 1.5em; display: inline-block;">
                                     <span>do not analyze intros</span>
                                     <input type="checkbox" id="ignorelistIntro">
                                 </label>
-                                <label for="ignorelistCredits">
+                                <label for="ignorelistCredits" style="margin-right: 1.5em; display: inline-block;">
                                     <span>do not analyze credits</span>
                                     <input type="checkbox" id="ignorelistCredits">
                                 </label>
