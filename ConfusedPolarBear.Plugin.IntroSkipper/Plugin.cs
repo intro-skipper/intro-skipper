@@ -264,11 +264,11 @@ public partial class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
     }
 
     /// <summary>
-    /// Add an item to the ignore list.
+    /// Check if an item is ignored.
     /// </summary>
     /// <param name="id">Item id.</param>
     /// <param name="mode">Mode.</param>
-    /// <returns>True if the item was added, false if it was removed.</returns>
+    /// <returns>True if ignored, false otherwise.</returns>
     public bool IsIgnored(Guid id, AnalysisMode mode)
     {
         return Instance!.IgnoreList.TryGetValue(id, out var item) && item.IsIgnored(mode);
