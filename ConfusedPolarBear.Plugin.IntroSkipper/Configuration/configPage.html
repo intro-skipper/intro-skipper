@@ -557,21 +557,21 @@
 
                             <div id="ignoreListCheckboxContainer">
                                 <label for="ignorelistIntro" style="margin-right: 1.5em; display: inline-block;">
-                                    <span>do not analyze intros</span>
+                                    <span>Ignore intros</span>
                                     <input type="checkbox" id="ignorelistIntro">
                                 </label>
                                 <label for="ignorelistCredits" style="margin-right: 1.5em; display: inline-block;">
-                                    <span>do not analyze credits</span>
+                                    <span>Ignore credits</span>
                                     <input type="checkbox" id="ignorelistCredits">
                                 </label>
                             </div>
                             <br />
 
                             <button id="saveIgnoreListSeries" class="raised button-submit block emby-button">
-                                apply changes for this series
+                                Apply to series
                             </button>
                             <button id="saveIgnoreListSeason" class="raised button-submit block emby-button" style="display: none;">
-                                apply changes for this season
+                                Apply to season
                             </button>
                         </div>
                         <br />
@@ -1350,7 +1350,7 @@
             saveIgnoreListSeasonButton.addEventListener("click", () => {
                 Dashboard.showLoadingMsg();
 
-                var url ="Intros/IgnoreList/UpdateIgnoreListSeason";
+                var url ="Intros/IgnoreList/UpdateSeason";
                 const newRhs = {
                     IgnoreIntro: ignorelistIntro.checked,
                     IgnoreCredits: ignorelistCredits.checked,
@@ -1365,7 +1365,7 @@
             saveIgnoreListSeriesButton.addEventListener("click", () => {
                 Dashboard.showLoadingMsg();
 
-                var url ="Intros/IgnoreList/UpdateIgnoreListSeries" + "/" + encodeURIComponent(selectShow.value);
+                var url ="Intros/IgnoreList/UpdateSeries" + "/" + encodeURIComponent(selectShow.value);
                 const newRhs = {
                     IgnoreIntro: ignorelistIntro.checked,
                     IgnoreCredits: ignorelistCredits.checked,

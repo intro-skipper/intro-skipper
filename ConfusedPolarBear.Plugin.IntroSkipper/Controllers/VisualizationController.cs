@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Globalization;
+using System.Linq;
 using System.Net.Mime;
 using ConfusedPolarBear.Plugin.IntroSkipper.Data;
 using MediaBrowser.Common.Api;
@@ -107,19 +108,11 @@ public class VisualizationController : ControllerBase
             return NotFound();
         }
 
-        IgnoreListItem ignoreListItem = new IgnoreListItem(Guid.Empty);
-        foreach (var seasonId in seasonIds)
+        return new IgnoreListItem(Guid.Empty)
         {
-            ignoreListItem.IgnoreIntro |= Plugin.Instance!.IsIgnored(seasonId, AnalysisMode.Introduction);
-            ignoreListItem.IgnoreCredits |= Plugin.Instance!.IsIgnored(seasonId, AnalysisMode.Credits);
-
-            if (ignoreListItem.IgnoreIntro && ignoreListItem.IgnoreCredits)
-            {
-                break;
-            }
-        }
-
-        return ignoreListItem;
+            IgnoreIntro = seasonIds.All(seasonId => Plugin.Instance!.IsIgnored(seasonId, AnalysisMode.Introduction)),
+            IgnoreCredits = seasonIds.All(seasonId => Plugin.Instance!.IsIgnored(seasonId, AnalysisMode.Credits))
+        };
     }
 
     /// <summary>
@@ -211,7 +204,7 @@ public class VisualizationController : ControllerBase
     /// <param name="ignoreListItem">New ignore list items.</param>
     /// <param name="save">Save the ignore list.</param>
     /// <returns>No content.</returns>
-    [HttpPost("IgnoreList/UpdateIgnoreListSeason")]
+    [HttpPost("IgnoreList/UpdateSeason")]
     public ActionResult UpdateIgnoreListSeason([FromBody] IgnoreListItem ignoreListItem, bool save = true)
     {
         if (!Plugin.Instance!.QueuedMediaItems.ContainsKey(ignoreListItem.Id))
@@ -219,7 +212,14 @@ public class VisualizationController : ControllerBase
             return NotFound();
         }
 
-        Plugin.Instance!.IgnoreList[ignoreListItem.Id] = ignoreListItem;
+        if (ignoreListItem.IgnoreIntro || ignoreListItem.IgnoreCredits)
+        {
+            Plugin.Instance!.IgnoreList.AddOrUpdate(ignoreListItem.Id, ignoreListItem, (_, _) => ignoreListItem);
+        }
+        else
+        {
+            Plugin.Instance!.IgnoreList.TryRemove(ignoreListItem.Id, out _);
+        }
 
         if (save)
         {
@@ -235,7 +235,7 @@ public class VisualizationController : ControllerBase
     /// <param name="series">Series name.</param>
     /// <param name="ignoreListItem">New ignore list items.</param>
     /// <returns>No content.</returns>
-    [HttpPost("IgnoreList/UpdateIgnoreListSeries/{Series}")]
+    [HttpPost("IgnoreList/UpdateSeries/{Series}")]
     public ActionResult UpdateIgnoreListSeries([FromRoute] string series, [FromBody] IgnoreListItem ignoreListItem)
     {
         if (!LookupSeasonIdsByName(series, out var seasonIds))

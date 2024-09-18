@@ -132,6 +132,15 @@ public partial class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
             _logger.LogWarning("Unable to load introduction timestamps: {Exception}", ex);
         }
 
+        try
+        {
+            LoadIgnoreList();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning("Unable to load ignore list: {Exception}", ex);
+        }
+
         // Inject the skip intro button code into the web interface.
         try
         {
@@ -239,8 +248,7 @@ public partial class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
     /// </summary>
     public void SaveIgnoreList()
     {
-        List<IgnoreListItem> ignorelist = Instance!.IgnoreList.Values
-        .Where(item => (item.IgnoreCredits || item.IgnoreIntro) && Instance!.QueuedMediaItems.ContainsKey(item.Id)).ToList();
+        var ignorelist = Instance!.IgnoreList.Values.ToList();
 
         lock (_serializationLock)
         {
@@ -273,8 +281,7 @@ public partial class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
     {
         if (File.Exists(_ignorelistPath))
         {
-            var ignorelist = XmlSerializationHelper.DeserializeFromXmlIgnoreList(_ignorelistPath)
-            .Where(item => (item.IgnoreCredits || item.IgnoreIntro) && Instance!.QueuedMediaItems.ContainsKey(item.Id)).ToList();
+            var ignorelist = XmlSerializationHelper.DeserializeFromXml<IgnoreListItem>(_ignorelistPath);
 
             foreach (var item in ignorelist)
             {
@@ -291,7 +298,7 @@ public partial class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
         if (File.Exists(_introPath))
         {
             // Since dictionaries can't be easily serialized, analysis results are stored on disk as a list.
-            var introList = XmlSerializationHelper.DeserializeFromXml(_introPath);
+            var introList = XmlSerializationHelper.DeserializeFromXml<Segment>(_introPath);
 
             foreach (var intro in introList)
             {
@@ -301,7 +308,7 @@ public partial class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
 
         if (File.Exists(_creditsPath))
         {
-            var creditList = XmlSerializationHelper.DeserializeFromXml(_creditsPath);
+            var creditList = XmlSerializationHelper.DeserializeFromXml<Segment>(_creditsPath);
 
             foreach (var credit in creditList)
             {

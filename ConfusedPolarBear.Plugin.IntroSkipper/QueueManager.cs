@@ -79,13 +79,26 @@ public class QueueManager(ILogger<QueueManager> logger, ILibraryManager libraryM
             Plugin.Instance.QueuedMediaItems.TryAdd(kvp.Key, kvp.Value);
         }
 
-        try
+        var removedItems = false;
+        foreach (var ignoredItem in Plugin.Instance.IgnoreList.Values.ToList())
         {
-            Plugin.Instance!.LoadIgnoreList();
+            if (!Plugin.Instance.QueuedMediaItems.ContainsKey(ignoredItem.Id))
+            {
+                removedItems = true;
+                Plugin.Instance.IgnoreList.TryRemove(ignoredItem.Id, out _);
+            }
         }
-        catch (Exception e)
+
+        if (removedItems)
         {
-            _logger.LogError("Unable to load ignore list: {Exception}", e);
+            try
+            {
+                Plugin.Instance!.SaveIgnoreList();
+            }
+            catch (Exception e)
+            {
+                _logger.LogError("Unable to save ignore list: {Exception}", e);
+            }
         }
 
         return new(_queuedEpisodes);
