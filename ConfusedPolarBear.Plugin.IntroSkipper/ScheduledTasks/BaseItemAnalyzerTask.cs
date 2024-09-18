@@ -207,7 +207,7 @@ public class BaseItemAnalyzerTask
         }
 
         // Remove from Blacklist
-        foreach (var item in items)
+        foreach (var item in items.Where(e => e.State.IsBlacklisted(mode)))
         {
             item.State.SetBlacklisted(mode, false);
         }

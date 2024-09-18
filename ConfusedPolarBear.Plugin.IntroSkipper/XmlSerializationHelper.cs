@@ -64,7 +64,7 @@ namespace ConfusedPolarBear.Plugin.IntroSkipper
                 // Create an XmlDictionaryReader to read the XML
                 XmlDictionaryReader reader = XmlDictionaryReader.CreateTextReader(fileStream, new XmlDictionaryReaderQuotas());
 
-                // Create a DataContractSerializer for type T
+                // Create a DataContractSerializer for type List<Segment>
                 DataContractSerializer serializer = new DataContractSerializer(typeof(List<Segment>));
 
                 // Deserialize the object from the XML

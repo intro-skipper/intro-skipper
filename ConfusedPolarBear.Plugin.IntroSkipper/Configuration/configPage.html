@@ -551,7 +551,7 @@
                             <h3 style="margin:0;">Ignore list editor</h3>
                             <p style="margin:0;">
                                 Add or remove items from the ignore list. Items on the ignore list will not be analyzed.<br />
-                                you can add a apply the changes for the whole series or just the selected season.
+                                You can apply the changes for the entire series or just the selected season.
                             </p>
                             <br />
 
@@ -993,6 +993,7 @@
                 const ta = document.querySelector("textarea#storage");
                 ta.value = bundleText;
             }
+
             // show changed, populate seasons
             async function showChanged() {
                 clearSelect(selectSeason);
@@ -1032,7 +1033,6 @@
                 // show the erase season button
                 eraseSeasonContainer.style.display = "unset";
 
-                // reset the episode select
                 clearSelect(selectEpisode1);
                 clearSelect(selectEpisode2);
                 let i = 1;
