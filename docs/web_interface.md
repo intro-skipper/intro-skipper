@@ -3,7 +3,7 @@
 ## Requirements
 
 - **Jellyfin Version**: 10.9
-- **Modified Web Interface**: Download the latest version from [GitHub Actions](https://github.com/jumoog/intro-skipper/actions/workflows/webui.yml)
+- **Modified Web Interface**: Download the latest version from [GitHub Actions](https://github.com/intro-skipper/intro-skipper/actions/workflows/webui.yml)
   1. Open the most recent action run.
   2. In the "Artifacts" section, click the `jellyfin-web-VERSION+COMMIT.zip` link to download the pre-compiled web interface. *Note: You must be signed into GitHub to access this link.*
 
