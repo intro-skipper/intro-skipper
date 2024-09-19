@@ -150,7 +150,7 @@ public partial class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
         {
             WarningManager.SetFlag(PluginWarning.UnableToAddSkipButton);
 
-            _logger.LogError("Failed to add skip button to web interface. See https://github.com/jumoog/intro-skipper/wiki/Troubleshooting#skip-button-is-not-visible for the most common issues. Error: {Error}", ex);
+            _logger.LogError("Failed to add skip button to web interface. See https://github.com/intro-skipper/intro-skipper/wiki/Troubleshooting#skip-button-is-not-visible for the most common issues. Error: {Error}", ex);
         }
 
         FFmpegWrapper.CheckFFmpegVersion();

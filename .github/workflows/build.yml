@@ -29,6 +29,14 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
+    - name: Sanitize head_ref
+      run: |
+        # Get the branch name and sanitize it
+        SANITIZED_BRANCH_NAME=$(echo "${{ github.head_ref }}" | sed 's/[^a-zA-Z0-9.-]/_/g')
+        
+        # Export it as an environment variable
+        echo "SANITIZED_BRANCH_NAME=$SANITIZED_BRANCH_NAME" >> $GITHUB_ENV
+
     - uses: actions/checkout@v4
 
     - name: Setup .NET
@@ -62,7 +70,7 @@ jobs:
       uses: actions/upload-artifact@v4.3.6
       if: github.event_name == 'pull_request'
       with:
-        name: ConfusedPolarBear.Plugin.IntroSkipper-${{ github.head_ref }}.dll
+        name: ConfusedPolarBear.Plugin.IntroSkipper-${{ env.SANITIZED_BRANCH_NAME }}.dll
         path: ConfusedPolarBear.Plugin.IntroSkipper/bin/Debug/net8.0/ConfusedPolarBear.Plugin.IntroSkipper.dll
         retention-days: 7
         if-no-files-found: error
