@@ -734,7 +734,7 @@
             // seasons grouped by show
             var shows = {};
 
-            var IgnoreListItemId;
+            var IgnoreListSeasonId;
 
             // settings elements
             var visualizer = document.querySelector("details#visualizer");
@@ -1028,7 +1028,7 @@
                 const IgnoreList = await getJson("Intros/IgnoreList/" + seasonData);
                 ignorelistIntro.checked = IgnoreList.IgnoreIntro;
                 ignorelistCredits.checked = IgnoreList.IgnoreCredits;
-                IgnoreListItemId = IgnoreList.Id;
+                IgnoreListSeasonId = IgnoreList.SeasonId;
 
                 // show the erase season button
                 eraseSeasonContainer.style.display = "unset";
@@ -1354,7 +1354,7 @@
                 const newRhs = {
                     IgnoreIntro: ignorelistIntro.checked,
                     IgnoreCredits: ignorelistCredits.checked,
-                    Id: IgnoreListItemId
+                    SeasonId: IgnoreListSeasonId,
                 };
 
                 fetchWithAuth(url, "POST", JSON.stringify(newRhs));
