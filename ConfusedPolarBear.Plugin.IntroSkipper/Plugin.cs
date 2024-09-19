@@ -285,7 +285,7 @@ public partial class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
 
             foreach (var item in ignorelist)
             {
-                Instance!.IgnoreList.TryAdd(item.Id, item);
+                Instance!.IgnoreList.TryAdd(item.SeasonId, item);
             }
         }
     }

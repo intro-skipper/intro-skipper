@@ -4,7 +4,7 @@ using System.Runtime.Serialization;
 namespace ConfusedPolarBear.Plugin.IntroSkipper.Data;
 
 /// <summary>
-/// represents a season to be ignored.
+/// Represents an item to ignore.
 /// </summary>
 [DataContract(Namespace = "http://schemas.datacontract.org/2004/07/ConfusedPolarBear.Plugin.IntroSkipper")]
 public class IgnoreListItem
@@ -19,10 +19,10 @@ public class IgnoreListItem
     /// <summary>
     /// Initializes a new instance of the <see cref="IgnoreListItem"/> class.
     /// </summary>
-    /// <param name="id">The season id.</param>
-    public IgnoreListItem(Guid id)
+    /// <param name="seasonId">The season id.</param>
+    public IgnoreListItem(Guid seasonId)
     {
-        Id = id;
+        SeasonId = seasonId;
     }
 
     /// <summary>
@@ -31,7 +31,7 @@ public class IgnoreListItem
     /// <param name="item">The item to copy.</param>
     public IgnoreListItem(IgnoreListItem item)
     {
-        Id = item.Id;
+        SeasonId = item.SeasonId;
         IgnoreIntro = item.IgnoreIntro;
         IgnoreCredits = item.IgnoreCredits;
     }
@@ -40,7 +40,7 @@ public class IgnoreListItem
     /// Gets or sets the season id.
     /// </summary>
     [DataMember]
-    public Guid Id { get; set; } = Guid.Empty;
+    public Guid SeasonId { get; set; } = Guid.Empty;
 
     /// <summary>
     /// Gets or sets a value indicating whether to ignore the intro.
@@ -55,7 +55,7 @@ public class IgnoreListItem
     public bool IgnoreCredits { get; set; } = false;
 
     /// <summary>
-    /// Sets the value of the provided mode.
+    /// Toggles the provided mode to the provided value.
     /// </summary>
     /// <param name="mode">Analysis mode.</param>
     /// <param name="value">Value to set.</param>
@@ -73,7 +73,7 @@ public class IgnoreListItem
     }
 
     /// <summary>
-    /// Determines if the provided mode is ignored.
+    /// Checks if the provided mode is ignored.
     /// </summary>
     /// <param name="mode">Analysis mode.</param>
     /// <returns>True if ignored, false otherwise.</returns>

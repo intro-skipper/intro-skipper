@@ -82,10 +82,10 @@ public class QueueManager(ILogger<QueueManager> logger, ILibraryManager libraryM
         var removedItems = false;
         foreach (var ignoredItem in Plugin.Instance.IgnoreList.Values.ToList())
         {
-            if (!Plugin.Instance.QueuedMediaItems.ContainsKey(ignoredItem.Id))
+            if (!Plugin.Instance.QueuedMediaItems.ContainsKey(ignoredItem.SeasonId))
             {
                 removedItems = true;
-                Plugin.Instance.IgnoreList.TryRemove(ignoredItem.Id, out _);
+                Plugin.Instance.IgnoreList.TryRemove(ignoredItem.SeasonId, out _);
             }
         }
 

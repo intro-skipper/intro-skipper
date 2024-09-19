@@ -207,18 +207,18 @@ public class VisualizationController : ControllerBase
     [HttpPost("IgnoreList/UpdateSeason")]
     public ActionResult UpdateIgnoreListSeason([FromBody] IgnoreListItem ignoreListItem, bool save = true)
     {
-        if (!Plugin.Instance!.QueuedMediaItems.ContainsKey(ignoreListItem.Id))
+        if (!Plugin.Instance!.QueuedMediaItems.ContainsKey(ignoreListItem.SeasonId))
         {
             return NotFound();
         }
 
         if (ignoreListItem.IgnoreIntro || ignoreListItem.IgnoreCredits)
         {
-            Plugin.Instance!.IgnoreList.AddOrUpdate(ignoreListItem.Id, ignoreListItem, (_, _) => ignoreListItem);
+            Plugin.Instance!.IgnoreList.AddOrUpdate(ignoreListItem.SeasonId, ignoreListItem, (_, _) => ignoreListItem);
         }
         else
         {
-            Plugin.Instance!.IgnoreList.TryRemove(ignoreListItem.Id, out _);
+            Plugin.Instance!.IgnoreList.TryRemove(ignoreListItem.SeasonId, out _);
         }
 
         if (save)
@@ -245,7 +245,7 @@ public class VisualizationController : ControllerBase
 
         foreach (var seasonId in seasonIds)
         {
-            UpdateIgnoreListSeason(new IgnoreListItem(ignoreListItem) { Id = seasonId }, false);
+            UpdateIgnoreListSeason(new IgnoreListItem(ignoreListItem) { SeasonId = seasonId }, false);
         }
 
         Plugin.Instance!.SaveIgnoreList();
