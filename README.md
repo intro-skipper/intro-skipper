@@ -5,11 +5,11 @@ This mod ensures the permissions are set correctly so that the skip button works
 To install, set an environment variable in your Jellyfin Docker arguments:
 
 ```yaml
-DOCKER_MODS=ghcr.io/jumoog/intro-skipper
+DOCKER_MODS=ghcr.io/intro-skipper/intro-skipper-docker-mod
 ```
 
 If you are adding multiple mods, enter them in an array separated by `|`, like this:
 
 ```yaml
-DOCKER_MODS=ghcr.io/jumoog/intro-skipper|linuxserver/mods:jellyfin-mod2
+DOCKER_MODS=ghcr.io/intro-skipper/intro-skipper-docker-mod|linuxserver/mods:jellyfin-mod2
 ```
