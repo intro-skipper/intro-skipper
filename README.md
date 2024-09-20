@@ -38,7 +38,7 @@ These parameters can be configured by opening the plugin settings
 
 ## [Installation](https://github.com/intro-skipper/intro-skipper/wiki/Installation)
 - #### [Install the plugin](https://github.com/intro-skipper/intro-skipper/wiki/Installation#step-1-install-the-plugin)
-- #### [Configure the plugin](https://github.com/intro-skipper/intro-skipper/wiki/Installation#step-2-configure-the-plugin)
+- #### [Verify the plugin](https://github.com/intro-skipper/intro-skipper/wiki/Installation#step-2-verify-the-plugin)
 - #### [Custom FFMPEG (MacOS)](https://github.com/intro-skipper/intro-skipper/wiki/Custom-FFMPEG-(MacOS))
 
 ## [Troubleshooting](https://github.com/intro-skipper/intro-skipper/wiki/Troubleshooting)
