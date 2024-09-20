@@ -1,4 +1,4 @@
-# Intro Skipper (beta)
+# Intro Skipper
 
 <div align="center">
     <p>
