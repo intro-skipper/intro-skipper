@@ -942,12 +942,8 @@
 
                 shows = await getJson("Intros/Shows");
 
-                var sorted = [];
-                for (var series in shows) { sorted.push(series); }
-                sorted.sort();
-
-                for (var show of sorted) {
-                    addItem(selectShow, show, show);
+                for (const show in shows) {
+                    addItem(selectShow, shows[show].SeriesName, show);
                 }
 
                 selectShow.value = "";
@@ -1013,8 +1009,8 @@
                 Dashboard.hideLoadingMsg();
 
                 // add all seasons from this show to the season select
-                for (var season of shows[selectShow.value]) {
-                    addItem(selectSeason, season, season);
+                for (const season in shows[selectShow.value].Seasons) {
+                    addItem(selectSeason, shows[selectShow.value].Seasons[season], season);
                 }
 
                 selectSeason.value = "";
@@ -1039,10 +1035,10 @@
                 clearSelect(selectEpisode2);
                 let i = 1;
                 const episodes = await getJson("Intros/Show/" + seasonData);
-                for (let episode of episodes) {
+                for (const episode in episodes) {
                     const strI = i.toLocaleString("en", { minimumIntegerDigits: 2, maximumFractionDigits: 0 });
-                    addItem(selectEpisode1, strI + ": " + episode.Name, episode.Id);
-                    addItem(selectEpisode2, strI + ": " + episode.Name, episode.Id);
+                    addItem(selectEpisode1, strI + ": " + episodes[episode].EpisodeName, episodes[episode].EpisodeId);
+                    addItem(selectEpisode2, strI + ": " + episodes[episode].EpisodeName, episodes[episode].EpisodeId);
                     i++;
                 }
                 Dashboard.hideLoadingMsg();

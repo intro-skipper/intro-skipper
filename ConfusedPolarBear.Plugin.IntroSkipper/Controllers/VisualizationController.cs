@@ -18,7 +18,7 @@ namespace ConfusedPolarBear.Plugin.IntroSkipper.Controllers;
 [ApiController]
 [Produces(MediaTypeNames.Application.Json)]
 [Route("Intros")]
-public class VisualizationController : ControllerBase
+public partial class VisualizationController : ControllerBase
 {
     private readonly ILogger<VisualizationController> _logger;
 
@@ -36,11 +36,11 @@ public class VisualizationController : ControllerBase
     /// </summary>
     /// <returns>Dictionary of show names to a list of season names.</returns>
     [HttpGet("Shows")]
-    public ActionResult<Dictionary<Guid, HashSet<Guid>>> GetShowSeasons()
+    public ActionResult<Dictionary<Guid, ShowInfos>> GetShowSeasons()
     {
-        _logger.LogDebug("Returning season IDs by series ID");
+        _logger.LogDebug("Returning season IDs by series name");
 
-        var showSeasons = new Dictionary<Guid, HashSet<Guid>>();
+        var showSeasons = new Dictionary<Guid, ShowInfos>();
 
         foreach (var kvp in Plugin.Instance!.QueuedMediaItems)
         {
@@ -54,8 +54,15 @@ public class VisualizationController : ControllerBase
             var seriesId = first.SeriesId;
             var seasonId = kvp.Key;
 
-            showSeasons.TryAdd(seriesId, new HashSet<Guid>());
-            showSeasons[seriesId].Add(seasonId);
+            var seasonName = GetSeasonName(first);
+
+            if (!showSeasons.TryGetValue(seriesId, out var showInfo))
+            {
+                showInfo = new ShowInfos { SeriesName = first.SeriesName, Seasons = new Dictionary<Guid, string>() };
+                showSeasons[seriesId] = showInfo;
+            }
+
+            showInfo.Seasons[seasonId] = seasonName;
         }
 
         return showSeasons;
@@ -127,7 +134,9 @@ public class VisualizationController : ControllerBase
             return NotFound();
         }
 
-        return episodes.Select(e => new EpisodeVisualization(e.EpisodeId, e.Name)).ToList();
+        var showName = episodes.FirstOrDefault()?.SeriesName!;
+
+        return episodes.Select(e => new EpisodeVisualization(e.EpisodeId, showName, e.Name)).ToList();
     }
 
     /// <summary>
