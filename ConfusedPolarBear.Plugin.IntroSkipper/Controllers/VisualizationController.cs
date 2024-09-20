@@ -55,14 +55,11 @@ public class VisualizationController : ControllerBase
             var seasonId = kvp.Key;
 
             var seasonName = GetSeasonName(first);
-
-            if (!showSeasons.TryGetValue(seriesId, out var showInfo))
+            if (!showSeasons.TryGetValue(seriesId, out _))
             {
-                showInfo = new ShowInfos { SeriesName = first.SeriesName, Seasons = new Dictionary<Guid, string>() };
+                var showInfo = new ShowInfos { SeriesName = first.SeriesName, LibraryName = GetLibraryName(seriesId), Seasons = new Dictionary<Guid, string> { { seasonId, seasonName } } };
                 showSeasons[seriesId] = showInfo;
             }
-
-            showInfo.Seasons[seasonId] = seasonName;
         }
 
         return showSeasons;
