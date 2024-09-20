@@ -65,9 +65,9 @@ public class VisualizationController : ControllerBase
                 continue;
             }
 
-            // TryAdd is used when adding the HashSet since it is a no-op if one was already created for this series.
-            showSeasons.TryAdd(series, new HashSet<string>());
-            showSeasons[series].Add(season);
+            // create a unique series key that allows you to have the same Series multiple times.
+            string uniqueSeriesKey = $"{series} ({GetLibraryName(first.EpisodeId)})";
+            showSeasons[uniqueSeriesKey] = new HashSet<string> { season };
         }
 
         return showSeasons;
@@ -363,5 +363,17 @@ public class VisualizationController : ControllerBase
         }
 
         return seasons.Count > 0;
+    }
+
+    private string GetLibraryName(Guid episodeId)
+    {
+        var item = Plugin.Instance!.GetItem(episodeId);
+        if (item == null)
+        {
+            return "Unknow Library";
+        }
+
+        var library = item.GetTopParent();
+        return library?.Name ?? "Unknow Library";
     }
 }
