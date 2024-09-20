@@ -365,12 +365,12 @@ public class VisualizationController : ControllerBase
         return seasons.Count > 0;
     }
 
-    private string GetLibraryName(Guid episodeId)
+    private static string GetLibraryName(Guid episodeId)
     {
         var item = Plugin.Instance!.GetItem(episodeId);
         if (item == null)
         {
-            return "Unknow Library";
+            return "Unknow Item";
         }
 
         var library = item.GetTopParent();
