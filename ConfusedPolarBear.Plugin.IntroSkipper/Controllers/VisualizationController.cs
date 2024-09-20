@@ -18,7 +18,7 @@ namespace ConfusedPolarBear.Plugin.IntroSkipper.Controllers;
 [ApiController]
 [Produces(MediaTypeNames.Application.Json)]
 [Route("Intros")]
-public partial class VisualizationController : ControllerBase
+public class VisualizationController : ControllerBase
 {
     private readonly ILogger<VisualizationController> _logger;
 
@@ -136,7 +136,7 @@ public partial class VisualizationController : ControllerBase
 
         var showName = episodes.FirstOrDefault()?.SeriesName!;
 
-        return episodes.Select(e => new EpisodeVisualization(e.EpisodeId, showName, e.Name)).ToList();
+        return episodes.Select(e => new EpisodeVisualization(e.EpisodeId, e.Name)).ToList();
     }
 
     /// <summary>

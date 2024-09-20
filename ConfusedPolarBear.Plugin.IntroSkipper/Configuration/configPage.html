@@ -1037,8 +1037,8 @@
                 const episodes = await getJson("Intros/Show/" + seasonData);
                 for (const episode in episodes) {
                     const strI = i.toLocaleString("en", { minimumIntegerDigits: 2, maximumFractionDigits: 0 });
-                    addItem(selectEpisode1, strI + ": " + episodes[episode].EpisodeName, episodes[episode].EpisodeId);
-                    addItem(selectEpisode2, strI + ": " + episodes[episode].EpisodeName, episodes[episode].EpisodeId);
+                    addItem(selectEpisode1, strI + ": " + episodes[episode].Name, episodes[episode].Id);
+                    addItem(selectEpisode2, strI + ": " + episodes[episode].Name, episodes[episode].Id);
                     i++;
                 }
                 Dashboard.hideLoadingMsg();
