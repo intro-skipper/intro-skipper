@@ -928,6 +928,8 @@
             // when the fingerprint visualizer opens, populate show names
             async function visualizerToggled() {
                 if (!visualizer.open) {
+                    ignorelistSection.style.display = "none";
+                    saveIgnoreListSeasonButton.style.display = "none";
                     return;
                 }
 
