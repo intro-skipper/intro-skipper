@@ -36,38 +36,26 @@ public class VisualizationController : ControllerBase
     /// </summary>
     /// <returns>Dictionary of show names to a list of season names.</returns>
     [HttpGet("Shows")]
-    public ActionResult<Dictionary<string, HashSet<string>>> GetShowSeasons()
+    public ActionResult<Dictionary<Guid, HashSet<Guid>>> GetShowSeasons()
     {
-        _logger.LogDebug("Returning season names by series");
+        _logger.LogDebug("Returning season IDs by series ID");
 
-        var showSeasons = new Dictionary<string, HashSet<string>>();
+        var showSeasons = new Dictionary<Guid, HashSet<Guid>>();
 
-        // Loop through all seasons in the analysis queue
         foreach (var kvp in Plugin.Instance!.QueuedMediaItems)
         {
-            // Check that this season contains at least one episode.
             var episodes = kvp.Value;
             if (episodes is null || episodes.Count == 0)
             {
-                _logger.LogDebug("Skipping season {Id} (null or empty)", kvp.Key);
                 continue;
             }
 
-            // Peek at the top episode from this season and store the series name and season number.
             var first = episodes[0];
-            var series = first.SeriesName;
-            var season = GetSeasonName(first);
+            var seriesId = first.SeriesId;
+            var seasonId = kvp.Key;
 
-            // Validate the series and season before attempting to store it.
-            if (string.IsNullOrWhiteSpace(series) || string.IsNullOrWhiteSpace(season))
-            {
-                _logger.LogDebug("Skipping season {Id} (no name or number)", kvp.Key);
-                continue;
-            }
-
-            // create a unique series key that allows you to have the same Series multiple times.
-            string uniqueSeriesKey = $"{series} ({GetLibraryName(first.EpisodeId)})";
-            showSeasons[uniqueSeriesKey] = new HashSet<string> { season };
+            showSeasons.TryAdd(seriesId, new HashSet<Guid>());
+            showSeasons[seriesId].Add(seasonId);
         }
 
         return showSeasons;
@@ -76,13 +64,13 @@ public class VisualizationController : ControllerBase
     /// <summary>
     /// Returns the ignore list for the provided season.
     /// </summary>
-    /// <param name="series">Show name.</param>
-    /// <param name="season">Season name.</param>
+    /// <param name="seriesId">Show ID.</param>
+    /// <param name="seasonId">Season ID.</param>
     /// <returns>List of episode titles.</returns>
-    [HttpGet("IgnoreList/{Series}/{Season}")]
-    public ActionResult<IgnoreListItem> GetIgnoreListSeason([FromRoute] string series, [FromRoute] string season)
+    [HttpGet("IgnoreList/{SeriesId}/{SeasonId}")]
+    public ActionResult<IgnoreListItem> GetIgnoreListSeason([FromRoute] Guid seriesId, [FromRoute] Guid seasonId)
     {
-        if (!LookupSeasonIdByName(series, season, out var seasonId))
+        if (!Plugin.Instance!.QueuedMediaItems.ContainsKey(seasonId))
         {
             return NotFound();
         }
@@ -98,12 +86,17 @@ public class VisualizationController : ControllerBase
     /// <summary>
     /// Returns the ignore list for the provided series.
     /// </summary>
-    /// <param name="series">Show name.</param>
+    /// <param name="seriesId">Show ID.</param>
     /// <returns>List of episode titles.</returns>
-    [HttpGet("IgnoreList/{Series}")]
-    public ActionResult<IgnoreListItem> GetIgnoreListSeries([FromRoute] string series)
+    [HttpGet("IgnoreList/{SeriesId}")]
+    public ActionResult<IgnoreListItem> GetIgnoreListSeries([FromRoute] Guid seriesId)
     {
-        if (!LookupSeasonIdsByName(series, out var seasonIds))
+        var seasonIds = Plugin.Instance!.QueuedMediaItems
+            .Where(kvp => kvp.Value.Any(e => e.SeriesId == seriesId))
+            .Select(kvp => kvp.Key)
+            .ToList();
+
+        if (seasonIds.Count == 0)
         {
             return NotFound();
         }
@@ -118,25 +111,23 @@ public class VisualizationController : ControllerBase
     /// <summary>
     /// Returns the names and unique identifiers of all episodes in the provided season.
     /// </summary>
-    /// <param name="series">Show name.</param>
-    /// <param name="season">Season name.</param>
+    /// <param name="seriesId">Show ID.</param>
+    /// <param name="seasonId">Season ID.</param>
     /// <returns>List of episode titles.</returns>
-    [HttpGet("Show/{Series}/{Season}")]
-    public ActionResult<List<EpisodeVisualization>> GetSeasonEpisodes([FromRoute] string series, [FromRoute] string season)
+    [HttpGet("Show/{SeriesId}/{SeasonId}")]
+    public ActionResult<List<EpisodeVisualization>> GetSeasonEpisodes([FromRoute] Guid seriesId, [FromRoute] Guid seasonId)
     {
-        var visualEpisodes = new List<EpisodeVisualization>();
-
-        if (!LookupSeasonByName(series, season, out var episodes))
+        if (!Plugin.Instance!.QueuedMediaItems.TryGetValue(seasonId, out var episodes))
         {
             return NotFound();
         }
 
-        foreach (var e in episodes)
+        if (!episodes.Any(e => e.SeriesId == seriesId))
         {
-            visualEpisodes.Add(new EpisodeVisualization(e.EpisodeId, e.Name));
+            return NotFound();
         }
 
-        return visualEpisodes;
+        return episodes.Select(e => new EpisodeVisualization(e.EpisodeId, e.Name)).ToList();
     }
 
     /// <summary>
@@ -165,21 +156,26 @@ public class VisualizationController : ControllerBase
     /// <summary>
     /// Erases all timestamps for the provided season.
     /// </summary>
-    /// <param name="series">Show name.</param>
-    /// <param name="season">Season name.</param>
+    /// <param name="seriesId">Show ID.</param>
+    /// <param name="seasonId">Season ID.</param>
     /// <param name="eraseCache">Erase cache.</param>
     /// <response code="204">Season timestamps erased.</response>
     /// <response code="404">Unable to find season in provided series.</response>
     /// <returns>No content.</returns>
-    [HttpDelete("Show/{Series}/{Season}")]
-    public ActionResult EraseSeason([FromRoute] string series, [FromRoute] string season, [FromQuery] bool eraseCache = false)
+    [HttpDelete("Show/{SeriesId}/{SeasonId}")]
+    public ActionResult EraseSeason([FromRoute] Guid seriesId, [FromRoute] Guid seasonId, [FromQuery] bool eraseCache = false)
     {
-        if (!LookupSeasonByName(series, season, out var episodes))
+        if (!Plugin.Instance!.QueuedMediaItems.TryGetValue(seasonId, out var episodes))
         {
             return NotFound();
         }
 
-        _logger.LogInformation("Erasing timestamps for {Series} {Season} at user request", series, season);
+        if (!episodes.Any(e => e.SeriesId == seriesId))
+        {
+            return NotFound();
+        }
+
+        _logger.LogInformation("Erasing timestamps for series {SeriesId} season {SeasonId} at user request", seriesId, seasonId);
 
         foreach (var e in episodes)
         {
@@ -232,13 +228,18 @@ public class VisualizationController : ControllerBase
     /// <summary>
     /// Updates the ignore list for the provided series.
     /// </summary>
-    /// <param name="series">Series name.</param>
+    /// <param name="seriesId">Series ID.</param>
     /// <param name="ignoreListItem">New ignore list items.</param>
     /// <returns>No content.</returns>
-    [HttpPost("IgnoreList/UpdateSeries/{Series}")]
-    public ActionResult UpdateIgnoreListSeries([FromRoute] string series, [FromBody] IgnoreListItem ignoreListItem)
+    [HttpPost("IgnoreList/UpdateSeries/{SeriesId}")]
+    public ActionResult UpdateIgnoreListSeries([FromRoute] Guid seriesId, [FromBody] IgnoreListItem ignoreListItem)
     {
-        if (!LookupSeasonIdsByName(series, out var seasonIds))
+        var seasonIds = Plugin.Instance!.QueuedMediaItems
+            .Where(kvp => kvp.Value.Any(e => e.SeriesId == seriesId))
+            .Select(kvp => kvp.Key)
+            .ToList();
+
+        if (seasonIds.Count == 0)
         {
             return NotFound();
         }

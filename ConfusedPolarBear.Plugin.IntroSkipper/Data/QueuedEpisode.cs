@@ -23,6 +23,11 @@ public class QueuedEpisode
     public Guid EpisodeId { get; set; }
 
     /// <summary>
+    /// Gets or sets the series id.
+    /// </summary>
+    public Guid SeriesId { get; set; }
+
+    /// <summary>
     /// Gets the state of the episode.
     /// </summary>
     public EpisodeState State => Plugin.Instance!.GetState(EpisodeId);

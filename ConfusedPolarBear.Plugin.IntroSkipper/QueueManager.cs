@@ -202,6 +202,7 @@ public class QueueManager(ILogger<QueueManager> logger, ILibraryManager libraryM
         {
             SeriesName = episode.SeriesName,
             SeasonNumber = episode.AiredSeasonNumber ?? 0,
+            SeriesId = episode.FindSeriesId(),
             EpisodeId = episode.Id,
             Name = episode.Name,
             IsAnime = episode.GetInheritedTags().Contains("anime", StringComparer.OrdinalIgnoreCase),

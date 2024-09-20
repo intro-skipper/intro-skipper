@@ -618,7 +618,9 @@ public static partial class FFmpegWrapper
         var filePattern = Path.GetFileName(cachePath) + "*";
         foreach (var filePath in Directory.EnumerateFiles(Plugin.Instance!.FingerprintCachePath, filePattern))
         {
+#pragma warning disable CA3003 // Comments should contain text
             File.Delete(filePath);
+#pragma warning restore CA3003 // Comments should contain text
         }
     }
 
