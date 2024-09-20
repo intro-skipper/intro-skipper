@@ -943,7 +943,7 @@
                 shows = await getJson("Intros/Shows");
 
                 for (const show in shows) {
-                    addItem(selectShow, shows[show].SeriesName, show);
+                    addItem(selectShow, shows[show].SeriesName + " @(" + shows[show].LibraryName + ")", show);
                 }
 
                 selectShow.value = "";
