@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using System.Runtime.Serialization;
 using System.Xml;
 using ConfusedPolarBear.Plugin.IntroSkipper.Data;
@@ -22,40 +23,17 @@ namespace ConfusedPolarBear.Plugin.IntroSkipper
 
         public static void MigrateFromIntro(string filePath)
         {
-            var intros = new List<Intro>();
-            var segments = new List<Segment>();
-            try
-            {
-                // Create a FileStream to read the XML file
-                using FileStream fileStream = new FileStream(filePath, FileMode.Open);
-                // Create an XmlDictionaryReader to read the XML
-                XmlDictionaryReader reader = XmlDictionaryReader.CreateTextReader(fileStream, new XmlDictionaryReaderQuotas());
-
-                // Create a DataContractSerializer for type T
-                DataContractSerializer serializer = new DataContractSerializer(typeof(List<Intro>));
-
-                // Deserialize the object from the XML
-                intros = serializer.ReadObject(reader) as List<Intro>;
-
-                // Close the reader
-                reader.Close();
-            }
-            catch (Exception ex)
-            {
-                Console.WriteLine($"Error deserializing XML: {ex.Message}");
-            }
-
+            List<Intro> intros = DeserializeFromXml<Intro>(filePath);
             ArgumentNullException.ThrowIfNull(intros);
-            intros.ForEach(delegate(Intro name)
-            {
-                segments.Add(new Segment(name));
-            });
+
+            var segments = intros.Select(name => new Segment(name)).ToList();
+
             SerializeToXml(segments, filePath);
         }
 
-        public static List<Segment> DeserializeFromXml(string filePath)
+        public static List<T> DeserializeFromXml<T>(string filePath)
         {
-            var result = new List<Segment>();
+            var result = new List<T>();
             try
             {
                 // Create a FileStream to read the XML file
@@ -63,11 +41,11 @@ namespace ConfusedPolarBear.Plugin.IntroSkipper
                 // Create an XmlDictionaryReader to read the XML
                 XmlDictionaryReader reader = XmlDictionaryReader.CreateTextReader(fileStream, new XmlDictionaryReaderQuotas());
 
-                // Create a DataContractSerializer for type T
-                DataContractSerializer serializer = new DataContractSerializer(typeof(List<Segment>));
+                // Create a DataContractSerializer for type List<T>
+                DataContractSerializer serializer = new DataContractSerializer(typeof(List<T>));
 
                 // Deserialize the object from the XML
-                result = serializer.ReadObject(reader) as List<Segment>;
+                result = serializer.ReadObject(reader) as List<T>;
 
                 // Close the reader
                 reader.Close();

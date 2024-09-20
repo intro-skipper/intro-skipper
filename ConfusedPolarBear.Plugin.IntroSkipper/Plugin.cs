@@ -2,6 +2,7 @@ using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using System.Text.RegularExpressions;
 using ConfusedPolarBear.Plugin.IntroSkipper.Configuration;
 using ConfusedPolarBear.Plugin.IntroSkipper.Data;
@@ -30,6 +31,7 @@ public partial class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
     private readonly ILogger<Plugin> _logger;
     private readonly string _introPath;
     private readonly string _creditsPath;
+    private string _ignorelistPath;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="Plugin"/> class.
@@ -66,6 +68,7 @@ public partial class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
         FingerprintCachePath = Path.Join(introsDirectory, pluginCachePath);
         _introPath = Path.Join(applicationPaths.DataPath, pluginDirName, "intros.xml");
         _creditsPath = Path.Join(applicationPaths.DataPath, pluginDirName, "credits.xml");
+        _ignorelistPath = Path.Join(applicationPaths.DataPath, pluginDirName, "ignorelist.xml");
 
         var cacheRoot = applicationPaths.CachePath;
         var oldIntrosDirectory = Path.Join(cacheRoot, pluginDirName);
@@ -129,6 +132,15 @@ public partial class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
             _logger.LogWarning("Unable to load introduction timestamps: {Exception}", ex);
         }
 
+        try
+        {
+            LoadIgnoreList();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning("Unable to load ignore list: {Exception}", ex);
+        }
+
         // Inject the skip intro button code into the web interface.
         try
         {
@@ -163,6 +175,11 @@ public partial class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
     /// Gets all episode states.
     /// </summary>
     public ConcurrentDictionary<Guid, EpisodeState> EpisodeStates { get; } = new();
+
+    /// <summary>
+    /// Gets the ignore list.
+    /// </summary>
+    public ConcurrentDictionary<Guid, IgnoreListItem> IgnoreList { get; } = new();
 
     /// <summary>
     /// Gets or sets the total number of episodes in the queue.
@@ -227,6 +244,53 @@ public partial class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
     }
 
     /// <summary>
+    /// Save IgnoreList to disk.
+    /// </summary>
+    public void SaveIgnoreList()
+    {
+        var ignorelist = Instance!.IgnoreList.Values.ToList();
+
+        lock (_serializationLock)
+        {
+            try
+            {
+                XmlSerializationHelper.SerializeToXml(ignorelist, _ignorelistPath);
+            }
+            catch (Exception e)
+            {
+                _logger.LogError("SaveIgnoreList {Message}", e.Message);
+            }
+        }
+    }
+
+    /// <summary>
+    /// Check if an item is ignored.
+    /// </summary>
+    /// <param name="id">Item id.</param>
+    /// <param name="mode">Mode.</param>
+    /// <returns>True if ignored, false otherwise.</returns>
+    public bool IsIgnored(Guid id, AnalysisMode mode)
+    {
+        return Instance!.IgnoreList.TryGetValue(id, out var item) && item.IsIgnored(mode);
+    }
+
+    /// <summary>
+    /// Load IgnoreList from disk.
+    /// </summary>
+    public void LoadIgnoreList()
+    {
+        if (File.Exists(_ignorelistPath))
+        {
+            var ignorelist = XmlSerializationHelper.DeserializeFromXml<IgnoreListItem>(_ignorelistPath);
+
+            foreach (var item in ignorelist)
+            {
+                Instance!.IgnoreList.TryAdd(item.SeasonId, item);
+            }
+        }
+    }
+
+    /// <summary>
     /// Restore previous analysis results from disk.
     /// </summary>
     public void RestoreTimestamps()
@@ -234,7 +298,7 @@ public partial class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
         if (File.Exists(_introPath))
         {
             // Since dictionaries can't be easily serialized, analysis results are stored on disk as a list.
-            var introList = XmlSerializationHelper.DeserializeFromXml(_introPath);
+            var introList = XmlSerializationHelper.DeserializeFromXml<Segment>(_introPath);
 
             foreach (var intro in introList)
             {
@@ -244,7 +308,7 @@ public partial class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
 
         if (File.Exists(_creditsPath))
         {
-            var creditList = XmlSerializationHelper.DeserializeFromXml(_creditsPath);
+            var creditList = XmlSerializationHelper.DeserializeFromXml<Segment>(_creditsPath);
 
             foreach (var credit in creditList)
             {

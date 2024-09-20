@@ -58,7 +58,9 @@ public class CleanCacheTask : IScheduledTask
     public string Key => "CPBIntroSkipperCleanCache";
 
     /// <summary>
-    /// Cleans the Intro Skipper cache by removing files that are no longer associated with episodes in the library.
+    /// Cleans the cache of unused files.
+    /// Clears the Segment cache by removing files that are no longer associated with episodes in the library.
+    /// Clears the IgnoreList cache by removing items that are no longer associated with seasons in the library.
     /// </summary>
     /// <param name="progress">Task progress.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
@@ -101,6 +103,30 @@ public class CleanCacheTask : IScheduledTask
         {
             _logger.LogDebug("Deleting cache files for episode ID: {EpisodeId}", episodeId);
             FFmpegWrapper.DeleteEpisodeCache(episodeId);
+        }
+
+        // Clean up ignore list by removing items that are no longer exist..
+        var removedItems = false;
+        foreach (var ignoredItem in Plugin.Instance.IgnoreList.Values.ToList())
+        {
+            if (!Plugin.Instance.QueuedMediaItems.ContainsKey(ignoredItem.SeasonId))
+            {
+                removedItems = true;
+                Plugin.Instance.IgnoreList.TryRemove(ignoredItem.SeasonId, out _);
+            }
+        }
+
+        // Save ignore list if at least one item was removed.
+        if (removedItems)
+        {
+            try
+            {
+                Plugin.Instance!.SaveIgnoreList();
+            }
+            catch (Exception e)
+            {
+                _logger.LogError("Failed to save ignore list: {Error}", e.Message);
+            }
         }
 
         return Task.CompletedTask;

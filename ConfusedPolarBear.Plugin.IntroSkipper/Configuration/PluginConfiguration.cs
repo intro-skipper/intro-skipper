@@ -1,4 +1,3 @@
-using System.Collections.Generic;
 using System.Diagnostics;
 using ConfusedPolarBear.Plugin.IntroSkipper.Data;
 using MediaBrowser.Model.Plugins;

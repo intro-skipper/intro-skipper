@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Globalization;
+using System.Linq;
 using System.Net.Mime;
 using ConfusedPolarBear.Plugin.IntroSkipper.Data;
 using MediaBrowser.Common.Api;
@@ -73,15 +74,55 @@ public class VisualizationController : ControllerBase
     }
 
     /// <summary>
+    /// Returns the ignore list for the provided season.
+    /// </summary>
+    /// <param name="series">Show name.</param>
+    /// <param name="season">Season name.</param>
+    /// <returns>List of episode titles.</returns>
+    [HttpGet("IgnoreList/{Series}/{Season}")]
+    public ActionResult<IgnoreListItem> GetIgnoreListSeason([FromRoute] string series, [FromRoute] string season)
+    {
+        if (!LookupSeasonIdByName(series, season, out var seasonId))
+        {
+            return NotFound();
+        }
+
+        if (!Plugin.Instance!.IgnoreList.TryGetValue(seasonId, out _))
+        {
+            return new IgnoreListItem(seasonId);
+        }
+
+        return new IgnoreListItem(Plugin.Instance!.IgnoreList[seasonId]);
+    }
+
+    /// <summary>
+    /// Returns the ignore list for the provided series.
+    /// </summary>
+    /// <param name="series">Show name.</param>
+    /// <returns>List of episode titles.</returns>
+    [HttpGet("IgnoreList/{Series}")]
+    public ActionResult<IgnoreListItem> GetIgnoreListSeries([FromRoute] string series)
+    {
+        if (!LookupSeasonIdsByName(series, out var seasonIds))
+        {
+            return NotFound();
+        }
+
+        return new IgnoreListItem(Guid.Empty)
+        {
+            IgnoreIntro = seasonIds.All(seasonId => Plugin.Instance!.IsIgnored(seasonId, AnalysisMode.Introduction)),
+            IgnoreCredits = seasonIds.All(seasonId => Plugin.Instance!.IsIgnored(seasonId, AnalysisMode.Credits))
+        };
+    }
+
+    /// <summary>
     /// Returns the names and unique identifiers of all episodes in the provided season.
     /// </summary>
     /// <param name="series">Show name.</param>
     /// <param name="season">Season name.</param>
     /// <returns>List of episode titles.</returns>
     [HttpGet("Show/{Series}/{Season}")]
-    public ActionResult<List<EpisodeVisualization>> GetSeasonEpisodes(
-        [FromRoute] string series,
-        [FromRoute] string season)
+    public ActionResult<List<EpisodeVisualization>> GetSeasonEpisodes([FromRoute] string series, [FromRoute] string season)
     {
         var visualEpisodes = new List<EpisodeVisualization>();
 
@@ -158,6 +199,61 @@ public class VisualizationController : ControllerBase
     }
 
     /// <summary>
+    /// Updates the ignore list for the provided season.
+    /// </summary>
+    /// <param name="ignoreListItem">New ignore list items.</param>
+    /// <param name="save">Save the ignore list.</param>
+    /// <returns>No content.</returns>
+    [HttpPost("IgnoreList/UpdateSeason")]
+    public ActionResult UpdateIgnoreListSeason([FromBody] IgnoreListItem ignoreListItem, bool save = true)
+    {
+        if (!Plugin.Instance!.QueuedMediaItems.ContainsKey(ignoreListItem.SeasonId))
+        {
+            return NotFound();
+        }
+
+        if (ignoreListItem.IgnoreIntro || ignoreListItem.IgnoreCredits)
+        {
+            Plugin.Instance!.IgnoreList.AddOrUpdate(ignoreListItem.SeasonId, ignoreListItem, (_, _) => ignoreListItem);
+        }
+        else
+        {
+            Plugin.Instance!.IgnoreList.TryRemove(ignoreListItem.SeasonId, out _);
+        }
+
+        if (save)
+        {
+            Plugin.Instance!.SaveIgnoreList();
+        }
+
+        return NoContent();
+    }
+
+    /// <summary>
+    /// Updates the ignore list for the provided series.
+    /// </summary>
+    /// <param name="series">Series name.</param>
+    /// <param name="ignoreListItem">New ignore list items.</param>
+    /// <returns>No content.</returns>
+    [HttpPost("IgnoreList/UpdateSeries/{Series}")]
+    public ActionResult UpdateIgnoreListSeries([FromRoute] string series, [FromBody] IgnoreListItem ignoreListItem)
+    {
+        if (!LookupSeasonIdsByName(series, out var seasonIds))
+        {
+            return NotFound();
+        }
+
+        foreach (var seasonId in seasonIds)
+        {
+            UpdateIgnoreListSeason(new IgnoreListItem(ignoreListItem) { SeasonId = seasonId }, false);
+        }
+
+        Plugin.Instance!.SaveIgnoreList();
+
+        return NoContent();
+    }
+
+    /// <summary>
     /// Updates the introduction timestamps for the provided episode.
     /// </summary>
     /// <param name="id">Episode ID to update timestamps for.</param>
@@ -211,5 +307,61 @@ public class VisualizationController : ControllerBase
 
         episodes = [];
         return false;
+    }
+
+    /// <summary>
+    /// Lookup a named season of a series and return its season id.
+    /// </summary>
+    /// <param name="series">Series name.</param>
+    /// <param name="season">Season name.</param>
+    /// <param name="seasonId">Season id.</param>
+    /// <returns>Boolean indicating if the requested season was found.</returns>
+    private bool LookupSeasonIdByName(string series, string season, out Guid seasonId)
+    {
+        foreach (var queuedEpisodes in Plugin.Instance!.QueuedMediaItems)
+        {
+            var first = queuedEpisodes.Value[0];
+            var firstSeasonName = GetSeasonName(first);
+
+            // Assert that the queued episode series and season are equal to what was requested
+            if (
+                !string.Equals(first.SeriesName, series, StringComparison.OrdinalIgnoreCase) ||
+                !string.Equals(firstSeasonName, season, StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            seasonId = queuedEpisodes.Key;
+            return true;
+        }
+
+        seasonId = Guid.Empty;
+        return false;
+    }
+
+    /// <summary>
+    /// Lookup a named series and return all the season ids.
+    /// </summary>
+    /// <param name="series">Series name.</param>
+    /// <param name="seasons">Seasons.</param>
+    /// <returns>Boolean indicating if the requested series was found.</returns>
+    private bool LookupSeasonIdsByName(string series, out List<Guid> seasons)
+    {
+        seasons = new List<Guid>();
+
+        foreach (var queuedEpisodes in Plugin.Instance!.QueuedMediaItems)
+        {
+            var first = queuedEpisodes.Value[0];
+
+            // Assert that the queued episode series is equal to what was requested
+            if (!string.Equals(first.SeriesName, series, StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            seasons.Add(queuedEpisodes.Key);
+        }
+
+        return seasons.Count > 0;
     }
 }
