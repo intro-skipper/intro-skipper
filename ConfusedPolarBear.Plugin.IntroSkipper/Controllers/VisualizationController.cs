@@ -302,8 +302,14 @@ public class VisualizationController(ILogger<VisualizationController> logger) : 
 
     private static string GetLibraryName(Guid seriesId)
     {
-        return seriesId == Guid.Empty
-            ? "Unknown"
-            : Plugin.Instance?.GetItem(seriesId)?.GetTopParent()?.Name ?? "Unknown";
+        if (seriesId == Guid.Empty)
+        {
+            return "Unknown";
+        }
+
+        var collectionFolders = Plugin.Instance?.GetCollectionFolders(seriesId);
+        return collectionFolders?.Count > 0
+            ? string.Join(", ", collectionFolders.Select(folder => folder.Name))
+            : "Unknown";
     }
 }
