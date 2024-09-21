@@ -1,6 +1,5 @@
 using System;
 using System.Collections.Generic;
-using System.Collections.ObjectModel;
 using System.Linq;
 using System.Threading;
 using ConfusedPolarBear.Plugin.IntroSkipper.Configuration;
@@ -40,8 +39,8 @@ public class BlackFrameAnalyzer : IMediaFileAnalyzer
     }
 
     /// <inheritdoc />
-    public ReadOnlyCollection<QueuedEpisode> AnalyzeMediaFiles(
-        ReadOnlyCollection<QueuedEpisode> analysisQueue,
+    public IReadOnlyCollection<QueuedEpisode> AnalyzeMediaFiles(
+        IReadOnlyCollection<QueuedEpisode> analysisQueue,
         AnalysisMode mode,
         CancellationToken cancellationToken)
     {
@@ -124,7 +123,7 @@ public class BlackFrameAnalyzer : IMediaFileAnalyzer
 
         Plugin.Instance!.UpdateTimestamps(creditTimes, mode);
 
-        return episodeAnalysisQueue.AsReadOnly();
+        return episodeAnalysisQueue;
     }
 
     /// <summary>

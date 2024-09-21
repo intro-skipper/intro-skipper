@@ -1,5 +1,5 @@
 using System;
-using System.Collections.ObjectModel;
+using System.Collections.Generic;
 using System.IO;
 using ConfusedPolarBear.Plugin.IntroSkipper.Data;
 using Microsoft.Extensions.Logging;
@@ -48,7 +48,7 @@ public static class EdlManager
     /// If the EDL action is set to a value other than None, update EDL files for the provided episodes.
     /// </summary>
     /// <param name="episodes">Episodes to update EDL files for.</param>
-    public static void UpdateEDLFiles(ReadOnlyCollection<QueuedEpisode> episodes)
+    public static void UpdateEDLFiles(IReadOnlyCollection<QueuedEpisode> episodes)
     {
         var regenerate = Plugin.Instance!.Configuration.RegenerateEdlFiles;
         var action = Plugin.Instance.Configuration.EdlAction;

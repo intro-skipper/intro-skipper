@@ -15,22 +15,17 @@ namespace ConfusedPolarBear.Plugin.IntroSkipper.Analyzers;
 /// <summary>
 /// Chapter name analyzer.
 /// </summary>
-public class ChapterAnalyzer : IMediaFileAnalyzer
+/// <remarks>
+/// Initializes a new instance of the <see cref="ChapterAnalyzer"/> class.
+/// </remarks>
+/// <param name="logger">Logger.</param>
+public class ChapterAnalyzer(ILogger<ChapterAnalyzer> logger) : IMediaFileAnalyzer
 {
-    private ILogger<ChapterAnalyzer> _logger;
-
-    /// <summary>
-    /// Initializes a new instance of the <see cref="ChapterAnalyzer"/> class.
-    /// </summary>
-    /// <param name="logger">Logger.</param>
-    public ChapterAnalyzer(ILogger<ChapterAnalyzer> logger)
-    {
-        _logger = logger;
-    }
+    private ILogger<ChapterAnalyzer> _logger = logger;
 
     /// <inheritdoc />
-    public ReadOnlyCollection<QueuedEpisode> AnalyzeMediaFiles(
-        ReadOnlyCollection<QueuedEpisode> analysisQueue,
+    public IReadOnlyCollection<QueuedEpisode> AnalyzeMediaFiles(
+        IReadOnlyCollection<QueuedEpisode> analysisQueue,
         AnalysisMode mode,
         CancellationToken cancellationToken)
     {
@@ -72,7 +67,7 @@ public class ChapterAnalyzer : IMediaFileAnalyzer
 
         Plugin.Instance.UpdateTimestamps(skippableRanges, mode);
 
-        return episodeAnalysisQueue.AsReadOnly();
+        return episodeAnalysisQueue;
     }
 
     /// <summary>

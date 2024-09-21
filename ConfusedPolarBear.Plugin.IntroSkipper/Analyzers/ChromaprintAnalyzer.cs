@@ -1,6 +1,5 @@
 using System;
 using System.Collections.Generic;
-using System.Collections.ObjectModel;
 using System.IO;
 using System.Linq;
 using System.Numerics;
@@ -50,8 +49,8 @@ public class ChromaprintAnalyzer : IMediaFileAnalyzer
     }
 
     /// <inheritdoc />
-    public ReadOnlyCollection<QueuedEpisode> AnalyzeMediaFiles(
-        ReadOnlyCollection<QueuedEpisode> analysisQueue,
+    public IReadOnlyCollection<QueuedEpisode> AnalyzeMediaFiles(
+        IReadOnlyCollection<QueuedEpisode> analysisQueue,
         AnalysisMode mode,
         CancellationToken cancellationToken)
     {
@@ -207,7 +206,7 @@ public class ChromaprintAnalyzer : IMediaFileAnalyzer
 
         Plugin.Instance!.UpdateTimestamps(seasonIntros, _analysisMode);
 
-        return episodeAnalysisQueue.AsReadOnly();
+        return episodeAnalysisQueue;
     }
 
     /// <summary>

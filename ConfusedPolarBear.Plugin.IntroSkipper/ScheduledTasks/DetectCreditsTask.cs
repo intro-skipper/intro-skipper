@@ -85,7 +85,7 @@ public class DetectCreditsTask : IScheduledTask
             var modes = new List<AnalysisMode> { AnalysisMode.Credits };
 
             var baseCreditAnalyzer = new BaseItemAnalyzerTask(
-                modes.AsReadOnly(),
+                modes,
                 _loggerFactory.CreateLogger<DetectCreditsTask>(),
                 _loggerFactory,
                 _libraryManager);

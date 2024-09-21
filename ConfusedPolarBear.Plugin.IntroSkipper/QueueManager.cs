@@ -1,6 +1,5 @@
 using System;
 using System.Collections.Generic;
-using System.Collections.ObjectModel;
 using System.IO;
 using System.Linq;
 using ConfusedPolarBear.Plugin.IntroSkipper.Data;
@@ -33,7 +32,7 @@ public class QueueManager(ILogger<QueueManager> logger, ILibraryManager libraryM
     /// Gets all media items on the server.
     /// </summary>
     /// <returns>Queued media items.</returns>
-    public ReadOnlyDictionary<Guid, List<QueuedEpisode>> GetMediaItems()
+    public IReadOnlyDictionary<Guid, List<QueuedEpisode>> GetMediaItems()
     {
         Plugin.Instance!.TotalQueued = 0;
 
@@ -79,7 +78,7 @@ public class QueueManager(ILogger<QueueManager> logger, ILibraryManager libraryM
             Plugin.Instance.QueuedMediaItems.TryAdd(kvp.Key, kvp.Value);
         }
 
-        return new(_queuedEpisodes);
+        return _queuedEpisodes;
     }
 
     /// <summary>
@@ -198,11 +197,11 @@ public class QueueManager(ILogger<QueueManager> logger, ILibraryManager libraryM
 
         // Queue the episode for analysis
         var maxCreditsDuration = pluginInstance.Configuration.MaximumCreditsDuration;
-        _queuedEpisodes[episode.SeasonId].Add(new QueuedEpisode
+        seasonEpisodes.Add(new QueuedEpisode
         {
             SeriesName = episode.SeriesName,
             SeasonNumber = episode.AiredSeasonNumber ?? 0,
-            SeriesId = episode.FindSeriesId(),
+            SeriesId = episode.SeriesId,
             EpisodeId = episode.Id,
             Name = episode.Name,
             IsAnime = episode.GetInheritedTags().Contains("anime", StringComparer.OrdinalIgnoreCase),
@@ -222,8 +221,8 @@ public class QueueManager(ILogger<QueueManager> logger, ILibraryManager libraryM
     /// <param name="candidates">Queued media items.</param>
     /// <param name="modes">Analysis mode.</param>
     /// <returns>Media items that have been verified to exist in Jellyfin and in storage.</returns>
-    public (ReadOnlyCollection<QueuedEpisode> VerifiedItems, ReadOnlyCollection<AnalysisMode> RequiredModes)
-        VerifyQueue(ReadOnlyCollection<QueuedEpisode> candidates, ReadOnlyCollection<AnalysisMode> modes)
+    public (IReadOnlyCollection<QueuedEpisode> VerifiedItems, IReadOnlyCollection<AnalysisMode> RequiredModes)
+        VerifyQueue(IReadOnlyCollection<QueuedEpisode> candidates, IReadOnlyCollection<AnalysisMode> modes)
     {
         var verified = new List<QueuedEpisode>();
         var reqModes = new HashSet<AnalysisMode>();
@@ -272,6 +271,6 @@ public class QueueManager(ILogger<QueueManager> logger, ILibraryManager libraryM
             }
         }
 
-        return (verified.AsReadOnly(), reqModes.ToList().AsReadOnly());
+        return (verified, reqModes);
     }
 }
