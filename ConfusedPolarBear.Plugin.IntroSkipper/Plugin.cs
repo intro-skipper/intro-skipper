@@ -358,6 +358,12 @@ public partial class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
         return _libraryManager.GetItemById(id);
     }
 
+    internal List<Folder> GetCollectionFolders(Guid id)
+    {
+        var item = GetItem(id);
+        return item is not null ? _libraryManager.GetCollectionFolders(item) : [];
+    }
+
     /// <summary>
     /// Gets the full path for an item.
     /// </summary>
