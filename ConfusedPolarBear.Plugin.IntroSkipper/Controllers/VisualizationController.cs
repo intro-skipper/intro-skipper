@@ -4,6 +4,7 @@ using System.Globalization;
 using System.Linq;
 using System.Net.Mime;
 using ConfusedPolarBear.Plugin.IntroSkipper.Data;
+using ConfusedPolarBear.Plugin.IntroSkipper.Helper;
 using MediaBrowser.Common.Api;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -47,7 +48,7 @@ public class VisualizationController(ILogger<VisualizationController> logger) : 
                 var seasonName = GetSeasonName(first);
                 if (!showSeasons.TryGetValue(seriesId, out var showInfo))
                 {
-                    showInfo = new ShowInfos { SeriesName = first.SeriesName, ProductionYear = GetProductionYear(seriesId), LibraryName = GetLibraryName(seriesId),  Seasons = [] };
+                    showInfo = new ShowInfos { SeriesName = first.SeriesName, ProductionYear = Utils.GetProductionYear(seriesId), LibraryName = Utils.GetLibraryName(seriesId),  Seasons = [] };
                     showSeasons[seriesId] = showInfo;
                 }
 
@@ -291,25 +292,5 @@ public class VisualizationController(ILogger<VisualizationController> logger) : 
     private static string GetSeasonName(QueuedEpisode episode)
     {
         return "Season " + episode.SeasonNumber.ToString(CultureInfo.InvariantCulture);
-    }
-
-    private static string GetProductionYear(Guid seriesId)
-    {
-        return seriesId == Guid.Empty
-            ? "Unknown"
-            : Plugin.Instance?.GetItem(seriesId)?.ProductionYear?.ToString(CultureInfo.InvariantCulture) ?? "Unknown";
-    }
-
-    private static string GetLibraryName(Guid seriesId)
-    {
-        if (seriesId == Guid.Empty)
-        {
-            return "Unknown";
-        }
-
-        var collectionFolders = Plugin.Instance?.GetCollectionFolders(seriesId);
-        return collectionFolders?.Count > 0
-            ? string.Join(", ", collectionFolders.Select(folder => folder.Name))
-            : "Unknown";
     }
 }

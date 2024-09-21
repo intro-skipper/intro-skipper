@@ -6,6 +6,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using ConfusedPolarBear.Plugin.IntroSkipper.Analyzers;
 using ConfusedPolarBear.Plugin.IntroSkipper.Data;
+using ConfusedPolarBear.Plugin.IntroSkipper.Helper;
 using MediaBrowser.Controller.Library;
 using Microsoft.Extensions.Logging;
 
@@ -213,11 +214,12 @@ public class BaseItemAnalyzerTask
         }
 
         _logger.LogInformation(
-            "[Mode: {Mode}] Analyzing {Count} files from {Name} season {Season}",
+            "[Mode: {Mode}] Analyzing {Count} files from {Name} season {Season} in {Library}",
             mode,
             items.Count,
             first.SeriesName,
-            first.SeasonNumber);
+            first.SeasonNumber,
+            Utils.GetLibraryName(first.SeriesId));
 
         var analyzers = new Collection<IMediaFileAnalyzer>
         {
