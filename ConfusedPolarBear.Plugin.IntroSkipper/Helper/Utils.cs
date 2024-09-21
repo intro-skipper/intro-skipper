@@ -52,6 +52,7 @@ namespace ConfusedPolarBear.Plugin.IntroSkipper.Helper
         /// Inject the skip button script into the web interface.
         /// </summary>
         /// <param name="webPath">Full path to index.html.</param>
+        /// <param name="version">Plugin Version.</param>
         public static void InjectSkipButton(string webPath, Version version)
         {
             // search for controllers/playback/video/index.html
