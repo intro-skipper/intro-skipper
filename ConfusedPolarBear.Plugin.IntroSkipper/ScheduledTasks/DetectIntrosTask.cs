@@ -84,7 +84,7 @@ public class DetectIntrosTask : IScheduledTask
             var modes = new List<AnalysisMode> { AnalysisMode.Introduction };
 
             var baseIntroAnalyzer = new BaseItemAnalyzerTask(
-                modes.AsReadOnly(),
+                modes,
                 _loggerFactory.CreateLogger<DetectIntrosTask>(),
                 _loggerFactory,
                 _libraryManager);

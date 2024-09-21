@@ -16,7 +16,7 @@ namespace ConfusedPolarBear.Plugin.IntroSkipper.ScheduledTasks;
 /// </summary>
 public class BaseItemAnalyzerTask
 {
-    private readonly ReadOnlyCollection<AnalysisMode> _analysisModes;
+    private readonly IReadOnlyCollection<AnalysisMode> _analysisModes;
 
     private readonly ILogger _logger;
 
@@ -32,7 +32,7 @@ public class BaseItemAnalyzerTask
     /// <param name="loggerFactory">Logger factory.</param>
     /// <param name="libraryManager">Library manager.</param>
     public BaseItemAnalyzerTask(
-        ReadOnlyCollection<AnalysisMode> modes,
+        IReadOnlyCollection<AnalysisMode> modes,
         ILogger logger,
         ILoggerFactory loggerFactory,
         ILibraryManager libraryManager)
@@ -113,8 +113,8 @@ public class BaseItemAnalyzerTask
             // Since the first run of the task can run for multiple hours, ensure that none
             // of the current media items were deleted from Jellyfin since the task was started.
             var (episodes, requiredModes) = queueManager.VerifyQueue(
-                season.Value.AsReadOnly(),
-                _analysisModes.Where(m => !Plugin.Instance!.IsIgnored(season.Key, m)).ToList().AsReadOnly());
+                season.Value,
+                _analysisModes.Where(m => !Plugin.Instance!.IsIgnored(season.Key, m)).ToList());
 
             var episodeCount = episodes.Count;
 
@@ -123,7 +123,7 @@ public class BaseItemAnalyzerTask
                 return;
             }
 
-            var first = episodes[0];
+            var first = episodes.First();
             var requiredModeCount = requiredModes.Count;
 
             if (requiredModeCount == 0)
@@ -193,14 +193,14 @@ public class BaseItemAnalyzerTask
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>Number of items that were successfully analyzed.</returns>
     private int AnalyzeItems(
-        ReadOnlyCollection<QueuedEpisode> items,
+        IReadOnlyCollection<QueuedEpisode> items,
         AnalysisMode mode,
         CancellationToken cancellationToken)
     {
         var totalItems = items.Count;
 
         // Only analyze specials (season 0) if the user has opted in.
-        var first = items[0];
+        var first = items.First();
         if (first.SeasonNumber == 0 && !Plugin.Instance!.Configuration.AnalyzeSeasonZero)
         {
             return 0;

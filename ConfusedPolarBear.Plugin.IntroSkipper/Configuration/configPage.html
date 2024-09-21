@@ -934,24 +934,42 @@
                 }
 
                 // ensure the series select is empty
-                while (selectShow.options.length > 0) {
-                    selectShow.remove(0);
-                }
+                selectShow.innerHTML = '';
 
                 Dashboard.showLoadingMsg();
-
                 shows = await getJson("Intros/Shows");
 
-                var sorted = [];
-                for (var series in shows) { sorted.push(series); }
-                sorted.sort();
+                // Create an object to store shows by library
+                let showsByLibrary = {};
 
-                for (var show of sorted) {
-                    addItem(selectShow, show, show);
+                // Categorize shows by LibraryName
+                for (const show in shows) {
+                    const libraryName = shows[show].LibraryName || 'Uncategorized';
+                    if (!showsByLibrary[libraryName]) {
+                        showsByLibrary[libraryName] = [];
+                    }
+                    showsByLibrary[libraryName].push({
+                        value: show,
+                        text: shows[show].SeriesName + " (" + shows[show].ProductionYear + ")"
+                    });
+                }
+
+                // Add categorized shows to the select element
+                for (const library in showsByLibrary) {
+                    const optgroup = document.createElement('optgroup');
+                    optgroup.label = library;
+
+                    showsByLibrary[library].forEach(function(show) {
+                        const option = document.createElement('option');
+                        option.value = show.value;
+                        option.textContent = show.text;
+                        optgroup.appendChild(option);
+                    });
+
+                    selectShow.appendChild(optgroup);
                 }
 
                 selectShow.value = "";
-
                 Dashboard.hideLoadingMsg();
             }
 
@@ -1013,8 +1031,8 @@
                 Dashboard.hideLoadingMsg();
 
                 // add all seasons from this show to the season select
-                for (var season of shows[selectShow.value]) {
-                    addItem(selectSeason, season, season);
+                for (const season in shows[selectShow.value].Seasons) {
+                    addItem(selectSeason, shows[selectShow.value].Seasons[season], season);
                 }
 
                 selectSeason.value = "";
@@ -1039,10 +1057,10 @@
                 clearSelect(selectEpisode2);
                 let i = 1;
                 const episodes = await getJson("Intros/Show/" + seasonData);
-                for (let episode of episodes) {
+                for (const episode in episodes) {
                     const strI = i.toLocaleString("en", { minimumIntegerDigits: 2, maximumFractionDigits: 0 });
-                    addItem(selectEpisode1, strI + ": " + episode.Name, episode.Id);
-                    addItem(selectEpisode2, strI + ": " + episode.Name, episode.Id);
+                    addItem(selectEpisode1, strI + ": " + episodes[episode].Name, episodes[episode].Id);
+                    addItem(selectEpisode2, strI + ": " + episodes[episode].Name, episodes[episode].Id);
                     i++;
                 }
                 Dashboard.hideLoadingMsg();

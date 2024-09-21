@@ -1,6 +1,5 @@
 using System;
 using System.Collections.Generic;
-using System.Collections.ObjectModel;
 using ConfusedPolarBear.Plugin.IntroSkipper.Configuration;
 using ConfusedPolarBear.Plugin.IntroSkipper.Data;
 using MediaBrowser.Model.Entities;
@@ -35,8 +34,8 @@ public class AnalyzerHelper
     /// <param name="mode">Analysis mode.</param>
     /// <returns>Modified Intro Timestamps.</returns>
     public Dictionary<Guid, Segment> AdjustIntroTimes(
-            ReadOnlyCollection<QueuedEpisode> episodes,
-            Dictionary<Guid, Segment> originalIntros,
+            IReadOnlyCollection<QueuedEpisode> episodes,
+            IReadOnlyDictionary<Guid, Segment> originalIntros,
             AnalysisMode mode)
         {
             var modifiedIntros = new Dictionary<Guid, Segment>();
