@@ -14,22 +14,17 @@ namespace ConfusedPolarBear.Plugin.IntroSkipper.Controllers;
 /// <summary>
 /// Audio fingerprint visualization controller. Allows browsing fingerprints on a per episode basis.
 /// </summary>
+/// <remarks>
+/// Initializes a new instance of the <see cref="VisualizationController"/> class.
+/// </remarks>
+/// <param name="logger">Logger.</param>
 [Authorize(Policy = Policies.RequiresElevation)]
 [ApiController]
 [Produces(MediaTypeNames.Application.Json)]
 [Route("Intros")]
-public class VisualizationController : ControllerBase
+public class VisualizationController(ILogger<VisualizationController> logger) : ControllerBase
 {
-    private readonly ILogger<VisualizationController> _logger;
-
-    /// <summary>
-    /// Initializes a new instance of the <see cref="VisualizationController"/> class.
-    /// </summary>
-    /// <param name="logger">Logger.</param>
-    public VisualizationController(ILogger<VisualizationController> logger)
-    {
-        _logger = logger;
-    }
+    private readonly ILogger<VisualizationController> _logger = logger;
 
     /// <summary>
     /// Returns all show names and seasons.
@@ -184,12 +179,12 @@ public class VisualizationController : ControllerBase
     [HttpDelete("Show/{SeriesId}/{SeasonId}")]
     public ActionResult EraseSeason([FromRoute] Guid seriesId, [FromRoute] Guid seasonId, [FromQuery] bool eraseCache = false)
     {
-        if (!Plugin.Instance!.QueuedMediaItems.TryGetValue(seasonId, out var episodes))
-        {
-            return NotFound();
-        }
+        var episodes = Plugin.Instance!.QueuedMediaItems
+            .Where(kvp => kvp.Key == seasonId)
+            .SelectMany(kvp => kvp.Value.Where(e => e.SeriesId == seriesId))
+            .ToList();
 
-        if (!episodes.Any(e => e.SeriesId == seriesId))
+        if (episodes.Count == 0)
         {
             return NotFound();
         }
@@ -207,8 +202,7 @@ public class VisualizationController : ControllerBase
             }
         }
 
-        Plugin.Instance!.SaveTimestamps(AnalysisMode.Introduction);
-        Plugin.Instance!.SaveTimestamps(AnalysisMode.Credits);
+        Plugin.Instance!.SaveTimestamps(AnalysisMode.Introduction | AnalysisMode.Credits);
 
         return NoContent();
     }
