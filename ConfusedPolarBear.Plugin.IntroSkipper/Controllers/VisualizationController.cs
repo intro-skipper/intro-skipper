@@ -44,24 +44,20 @@ public class VisualizationController : ControllerBase
 
         foreach (var kvp in Plugin.Instance!.QueuedMediaItems)
         {
-            var episodes = kvp.Value;
-            if (episodes is null || episodes.Count == 0)
+            if (kvp.Value.FirstOrDefault() is QueuedEpisode first)
             {
-                continue;
+                var seriesId = first.SeriesId;
+                var seasonId = kvp.Key;
+
+                var seasonName = GetSeasonName(first);
+                if (!showSeasons.TryGetValue(seriesId, out var showInfo))
+                {
+                    showInfo = new ShowInfos { SeriesName = first.SeriesName, ProductionYear = GetProductionYear(seriesId), LibraryName = GetLibraryName(seriesId),  Seasons = [] };
+                    showSeasons[seriesId] = showInfo;
+                }
+
+                showInfo.Seasons[seasonId] = seasonName;
             }
-
-            var first = episodes[0];
-            var seriesId = first.SeriesId;
-            var seasonId = kvp.Key;
-
-            var seasonName = GetSeasonName(first);
-            if (!showSeasons.TryGetValue(seriesId, out var showInfo))
-            {
-                showInfo = new ShowInfos { SeriesName = first.SeriesName, LibraryName = GetLibraryName(seriesId),  Seasons = new Dictionary<Guid, string>() };
-                showSeasons[seriesId] = showInfo;
-            }
-
-            showInfo.Seasons[seasonId] = seasonName;
         }
 
         // Sort the dictionary by SeriesName and the seasons by SeasonName
@@ -72,6 +68,7 @@ public class VisualizationController : ControllerBase
                 kvp => new ShowInfos
                 {
                     SeriesName = kvp.Value.SeriesName,
+                    ProductionYear = kvp.Value.ProductionYear,
                     LibraryName = kvp.Value.LibraryName,
                     Seasons = kvp.Value.Seasons
                         .OrderBy(s => s.Value)
@@ -302,15 +299,17 @@ public class VisualizationController : ControllerBase
         return "Season " + episode.SeasonNumber.ToString(CultureInfo.InvariantCulture);
     }
 
-    private static string GetLibraryName(Guid episodeId)
+    private static string GetProductionYear(Guid seriesId)
     {
-        var item = Plugin.Instance!.GetItem(episodeId);
-        if (item == null)
-        {
-            return "Unknow Item";
-        }
+        return seriesId == Guid.Empty
+            ? "Unknown"
+            : Plugin.Instance?.GetItem(seriesId)?.ProductionYear?.ToString(CultureInfo.InvariantCulture) ?? "Unknown";
+    }
 
-        var library = item.GetTopParent();
-        return library?.Name ?? "Unknow Library";
+    private static string GetLibraryName(Guid seriesId)
+    {
+        return seriesId == Guid.Empty
+            ? "Unknown"
+            : Plugin.Instance?.GetItem(seriesId)?.GetTopParent()?.Name ?? "Unknown";
     }
 }

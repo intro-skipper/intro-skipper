@@ -430,7 +430,7 @@ public partial class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
     /// <returns>State of this item.</returns>
     internal EpisodeState GetState(Guid id) => EpisodeStates.GetOrAdd(id, _ => new EpisodeState());
 
-    internal void UpdateTimestamps(Dictionary<Guid, Segment> newTimestamps, AnalysisMode mode)
+    internal void UpdateTimestamps(IReadOnlyDictionary<Guid, Segment> newTimestamps, AnalysisMode mode)
     {
         foreach (var intro in newTimestamps)
         {

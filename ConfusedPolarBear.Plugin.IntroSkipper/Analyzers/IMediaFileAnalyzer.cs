@@ -1,4 +1,4 @@
-using System.Collections.ObjectModel;
+using System.Collections.Generic;
 using System.Threading;
 using ConfusedPolarBear.Plugin.IntroSkipper.Data;
 
@@ -16,8 +16,8 @@ public interface IMediaFileAnalyzer
     /// <param name="mode">Analysis mode.</param>
     /// <param name="cancellationToken">Cancellation token from scheduled task.</param>
     /// <returns>Collection of media files that were **unsuccessfully analyzed**.</returns>
-    public ReadOnlyCollection<QueuedEpisode> AnalyzeMediaFiles(
-        ReadOnlyCollection<QueuedEpisode> analysisQueue,
+    public IReadOnlyCollection<QueuedEpisode> AnalyzeMediaFiles(
+        IReadOnlyCollection<QueuedEpisode> analysisQueue,
         AnalysisMode mode,
         CancellationToken cancellationToken);
 }

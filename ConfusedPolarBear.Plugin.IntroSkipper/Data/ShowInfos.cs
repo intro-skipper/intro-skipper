@@ -14,6 +14,11 @@ namespace ConfusedPolarBear.Plugin.IntroSkipper.Controllers
         public required string SeriesName { get; set; }
 
         /// <summary>
+        /// Gets or sets the Year of the show.
+        /// </summary>
+        public required string ProductionYear { get; set; }
+
+        /// <summary>
         /// Gets or sets the Library of the show.
         /// </summary>
         public required string LibraryName { get; set; }

@@ -84,7 +84,7 @@ public class DetectIntrosCreditsTask : IScheduledTask
             var modes = new List<AnalysisMode> { AnalysisMode.Introduction, AnalysisMode.Credits };
 
             var baseIntroAnalyzer = new BaseItemAnalyzerTask(
-                modes.AsReadOnly(),
+                modes,
                 _loggerFactory.CreateLogger<DetectIntrosCreditsTask>(),
                 _loggerFactory,
                 _libraryManager);

@@ -934,20 +934,42 @@
                 }
 
                 // ensure the series select is empty
-                while (selectShow.options.length > 0) {
-                    selectShow.remove(0);
-                }
+                selectShow.innerHTML = '';
 
                 Dashboard.showLoadingMsg();
-
                 shows = await getJson("Intros/Shows");
 
+                // Create an object to store shows by library
+                let showsByLibrary = {};
+
+                // Categorize shows by LibraryName
                 for (const show in shows) {
-                    addItem(selectShow, shows[show].SeriesName + " @(" + shows[show].LibraryName + ")", show);
+                    const libraryName = shows[show].LibraryName || 'Uncategorized';
+                    if (!showsByLibrary[libraryName]) {
+                        showsByLibrary[libraryName] = [];
+                    }
+                    showsByLibrary[libraryName].push({
+                        value: show,
+                        text: shows[show].SeriesName + " (" + shows[show].ProductionYear + ")"
+                    });
+                }
+
+                // Add categorized shows to the select element
+                for (const library in showsByLibrary) {
+                    const optgroup = document.createElement('optgroup');
+                    optgroup.label = library;
+
+                    showsByLibrary[library].forEach(function(show) {
+                        const option = document.createElement('option');
+                        option.value = show.value;
+                        option.textContent = show.text;
+                        optgroup.appendChild(option);
+                    });
+
+                    selectShow.appendChild(optgroup);
                 }
 
                 selectShow.value = "";
-
                 Dashboard.hideLoadingMsg();
             }
 

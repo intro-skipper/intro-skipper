@@ -276,7 +276,7 @@ public class Entrypoint : IHostedService, IDisposable
             }
 
             var baseCreditAnalyzer = new BaseItemAnalyzerTask(
-                    modes.AsReadOnly(),
+                    modes,
                     tasklogger,
                     _loggerFactory,
                     _libraryManager);
