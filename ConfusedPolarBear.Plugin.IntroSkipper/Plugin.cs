@@ -341,35 +341,6 @@ public partial class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
     }
 
     /// <summary>
-    /// Gets the commit used to build the plugin.
-    /// </summary>
-    /// <returns>Commit.</returns>
-    public string GetCommit()
-    {
-        var commit = string.Empty;
-
-        var path = GetType().Namespace + ".Configuration.version.txt";
-        using var stream = GetType().Assembly.GetManifestResourceStream(path);
-        if (stream is null)
-        {
-            _logger.LogWarning("Unable to read embedded version information");
-            return commit;
-        }
-
-        using var reader = new StreamReader(stream);
-        commit = reader.ReadToEnd().TrimEnd();
-
-        if (commit == "unknown")
-        {
-            _logger.LogTrace("Embedded version information was not valid, ignoring");
-            return string.Empty;
-        }
-
-        _logger.LogInformation("Unstable plugin version built from commit {Commit}", commit);
-        return commit;
-    }
-
-    /// <summary>
     /// Gets the Intro for this item.
     /// </summary>
     /// <param name="id">Item id.</param>

@@ -24,4 +24,8 @@
     <EmbeddedResource Include="Configuration\inject.js" />
     <EmbeddedResource Include="Configuration\version.txt" />
   </ItemGroup>
+  <ItemGroup>
+    <Folder Include="Manager\" />
+    <Folder Include="Services\" />
+  </ItemGroup>
 </Project>

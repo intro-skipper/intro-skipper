@@ -4,6 +4,7 @@ using System.IO;
 using System.Net.Mime;
 using System.Text;
 using ConfusedPolarBear.Plugin.IntroSkipper.Data;
+using ConfusedPolarBear.Plugin.IntroSkipper.Helper;
 using MediaBrowser.Common;
 using MediaBrowser.Common.Api;
 using MediaBrowser.Controller.Library;
@@ -63,7 +64,7 @@ public class TroubleshootingController : ControllerBase
 
         try
         {
-            var commit = Plugin.Instance.GetCommit();
+            var commit = Commit.CommitHash;
             if (!string.IsNullOrWhiteSpace(commit))
             {
                 version += string.Concat("+", commit.AsSpan(0, 12));
