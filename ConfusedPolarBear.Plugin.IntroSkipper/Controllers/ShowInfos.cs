@@ -9,7 +9,7 @@ namespace ConfusedPolarBear.Plugin.IntroSkipper.Controllers
     public class ShowInfos
     {
         /// <summary>
-        /// Gets or sets the ID of the show.
+        /// Gets or sets the Name of the show.
         /// </summary>
         public required string SeriesName { get; set; }
 
