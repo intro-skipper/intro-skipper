@@ -48,7 +48,9 @@ jobs:
       run: dotnet restore
 
     - name: Embed version info
-      run: echo "${{ github.sha }}" > ConfusedPolarBear.Plugin.IntroSkipper/Configuration/version.txt
+      run: |
+        GITHUB_SHA=${{ github.sha }}
+        sed -i "s/string\.Empty/\"$GITHUB_SHA\"/g" ConfusedPolarBear.Plugin.IntroSkipper/Helper/Commit.cs
 
     - name: Retrieve commit identification
       run: |

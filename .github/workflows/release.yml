@@ -31,7 +31,9 @@ jobs:
       run: node update-version.js
 
     - name: Embed version info
-      run: echo "${{ github.sha }}" > ConfusedPolarBear.Plugin.IntroSkipper/Configuration/version.txt
+      run: |
+        GITHUB_SHA=${{ github.sha }}
+        sed -i "s/string\.Empty/\"$GITHUB_SHA\"/g" ConfusedPolarBear.Plugin.IntroSkipper/Helper/Commit.cs
 
     - name: Build
       run: dotnet build --configuration Release --no-restore
