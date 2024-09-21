@@ -619,6 +619,7 @@ public static partial class FFmpegWrapper
         foreach (var filePath in Directory.EnumerateFiles(Plugin.Instance!.FingerprintCachePath, filePattern))
         {
 #pragma warning disable CA3003 // Comments should contain text
+            Logger?.LogDebug("DeleteEpisodeCache {FilePath}", filePath);
             File.Delete(filePath);
 #pragma warning restore CA3003 // Comments should contain text
         }
