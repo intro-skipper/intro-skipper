@@ -4,7 +4,7 @@ using System.Collections.Generic;
 namespace ConfusedPolarBear.Plugin.IntroSkipper.Controllers
 {
     /// <summary>
-    /// Enthält Informationen über eine Show.
+    /// Contains information about a show.
     /// </summary>
     public class ShowInfos
     {
@@ -19,10 +19,8 @@ namespace ConfusedPolarBear.Plugin.IntroSkipper.Controllers
         public required string LibraryName { get; set; }
 
         /// <summary>
-        /// Gets or sets the Seasons of the show.
+        /// Gets the Seasons of the show.
         /// </summary>
-#pragma warning disable CA2227 // Sammlungseigenschaften müssen schreibgeschützt sein
-        public required Dictionary<Guid, string> Seasons { get; set; }
-#pragma warning restore CA2227 // Sammlungseigenschaften müssen schreibgeschützt sein
+        public required Dictionary<Guid, string> Seasons { get; init; }
     }
 }
