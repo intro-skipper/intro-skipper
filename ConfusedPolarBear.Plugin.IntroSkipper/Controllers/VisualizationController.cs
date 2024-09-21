@@ -1,6 +1,5 @@
 using System;
 using System.Collections.Generic;
-using System.Globalization;
 using System.Linq;
 using System.Net.Mime;
 using ConfusedPolarBear.Plugin.IntroSkipper.Data;
@@ -45,7 +44,7 @@ public class VisualizationController(ILogger<VisualizationController> logger) : 
                 var seriesId = first.SeriesId;
                 var seasonId = kvp.Key;
 
-                var seasonName = GetSeasonName(first);
+                var seasonName = Utils.GetSeasonName(first);
                 if (!showSeasons.TryGetValue(seriesId, out var showInfo))
                 {
                     showInfo = new ShowInfos { SeriesName = first.SeriesName, ProductionYear = Utils.GetProductionYear(seriesId), LibraryName = Utils.GetLibraryName(seriesId),  Seasons = [] };
@@ -287,10 +286,5 @@ public class VisualizationController(ILogger<VisualizationController> logger) : 
         }
 
         return NoContent();
-    }
-
-    private static string GetSeasonName(QueuedEpisode episode)
-    {
-        return "Season " + episode.SeasonNumber.ToString(CultureInfo.InvariantCulture);
     }
 }

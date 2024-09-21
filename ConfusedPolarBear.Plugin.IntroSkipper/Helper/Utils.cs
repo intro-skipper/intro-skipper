@@ -4,6 +4,7 @@ using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Text.RegularExpressions;
+using ConfusedPolarBear.Plugin.IntroSkipper.Data;
 using Microsoft.Extensions.Logging;
 
 namespace ConfusedPolarBear.Plugin.IntroSkipper.Helper
@@ -46,6 +47,16 @@ namespace ConfusedPolarBear.Plugin.IntroSkipper.Helper
             return collectionFolders?.Count > 0
                 ? string.Join(", ", collectionFolders.Select(folder => folder.Name))
                 : "Unknown";
+        }
+
+        /// <summary>
+        /// Gets the season name of the season.
+        /// </summary>
+        /// <param name="episode">The Name of the season.</param>
+        /// <returns>The season name as a string.</returns>
+        public static string GetSeasonName(QueuedEpisode episode)
+        {
+            return "Season " + episode.SeasonNumber.ToString(CultureInfo.InvariantCulture);
         }
 
         /// <summary>
