@@ -64,7 +64,21 @@ public class VisualizationController : ControllerBase
             showInfo.Seasons[seasonId] = seasonName;
         }
 
-        return showSeasons;
+        // Sort the dictionary by SeriesName and the seasons by SeasonName
+        var sortedShowSeasons = showSeasons
+            .OrderBy(kvp => kvp.Value.SeriesName)
+            .ToDictionary(
+                kvp => kvp.Key,
+                kvp => new ShowInfos
+                {
+                    SeriesName = kvp.Value.SeriesName,
+                    LibraryName = kvp.Value.LibraryName,
+                    Seasons = kvp.Value.Seasons
+                        .OrderBy(s => s.Value)
+                        .ToDictionary(s => s.Key, s => s.Value)
+                });
+
+        return sortedShowSeasons;
     }
 
     /// <summary>
