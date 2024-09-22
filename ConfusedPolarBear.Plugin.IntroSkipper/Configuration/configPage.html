@@ -411,9 +411,17 @@
                         <details id="AutoSkipClientList" style="padding-bottom: 1em;">
                             <summary>Auto Skip Client List</summary>
                             <br />
-                            <div class="checkboxList paperList" style="padding:.5em 1em" id="autoSkipCheckboxes"></div>
+                            <div class="checkboxList paperList" style="padding:.5em 1em" id="autoSkipClientCheckboxes"></div>
                             <label class="inputLabel" for="ClientList"></label>
                             <input id="ClientList" type="hidden" is="emby-input" />
+                        </details>
+
+                        <details id="AutoSkipUserList" style="padding-bottom: 1em;">
+                            <summary>Auto Skip User List</summary>
+                            <br />
+                            <div class="checkboxList paperList" style="padding:.5em 1em" id="autoSkipUserCheckboxes"></div>
+                            <label class="inputLabel" for="UserList"></label>
+                            <input id="UserList" type="hidden" is="emby-input" />
                         </details>
 
                         <div class="checkboxContainer checkboxContainer-withDescription">
@@ -749,6 +757,7 @@
                 "MaxParallelism",
                 "SelectedLibraries",
                 "ClientList",
+                "UserList",
                 "AnalysisPercent",
                 "AnalysisLengthLimit",
                 "MinimumIntroDuration",
@@ -817,6 +826,7 @@
             var skipFirstEpisode = document.querySelector("div#divSkipFirstEpisode");
             var secondsOfIntroStartToPlay = document.querySelector("div#divSecondsOfIntroStartToPlay");
             var autoSkipClientList = document.getElementById("AutoSkipClientList");
+            var AutoSkipUserList = document.getElementById("AutoSkipUserList");
             var secondsOfCreditsStartToPlay = document.querySelector("div#divSecondsOfCreditsStartToPlay");
             var autoSkipNotificationText = document.querySelector("div#divAutoSkipNotificationText");
             var autoSkipCredits = document.querySelector("input#AutoSkipCredits");
@@ -859,6 +869,15 @@
                 }
             }
 
+            function userListVisible() {
+                if (autoSkip.checked || autoSkipCredits.checked) {
+                    AutoSkipUserList.style.display = 'unset';
+                    AutoSkipUserList.style.width = '100%';
+                } else {
+                    AutoSkipUserList.style.display = 'none';
+                }
+            }
+
             function selectAllLibrariesChanged() {
                 if (selectAllLibraries.checked) {
                     librariesContainer.style.display = 'none';
@@ -872,6 +891,12 @@
             function updateList(textField, container) {
                 textField.value = Array.from(container.querySelectorAll('input[type="checkbox"]:checked'))
                     .map(checkbox => checkbox.nextElementSibling.textContent)
+                    .join(', ');
+            }
+
+            function updateListUsers(textField, container, users) {
+                textField.value = Array.from(container.querySelectorAll('input[type="checkbox"]:checked'))
+                    .map(checkbox => users.find(user => user.Name === checkbox.nextElementSibling.textContent).Id)
                     .join(', ');
             }
 
@@ -895,10 +920,36 @@
                 });
             }
 
+            function generateCheckboxListUsers(items, containerId, textFieldId) {
+                const container = document.getElementById(containerId);
+                const textField = document.getElementById(textFieldId);
+                const checkedItems = textField.value ? textField.value.split(', ') : [];
+
+                container.innerHTML = items.map(item => {
+                    const isChecked = checkedItems.includes(item.Id) ? 'checked' : '';
+                    return '<label class="emby-checkbox-label">' +
+                        '<input type="checkbox" is="emby-checkbox" ' + isChecked + '>' +
+                        '<span class="checkboxLabel">' + item.Name + '</span>' +
+                        '</label>';
+                }).join('');
+
+
+                container.addEventListener('change', event => {
+                    if (event.target.type === 'checkbox') {
+                        updateListUsers(textField, container, items);
+                    }
+                });
+            }
+
             async function generateAutoSkipClientList() {
                 const response = await getJson("Devices");
                 const devices = [...new Set(response.Items.map(item => item.AppName))];
-                generateCheckboxList(devices, 'autoSkipCheckboxes', 'ClientList');
+                generateCheckboxList(devices, 'autoSkipClientCheckboxes', 'ClientList');
+            }
+
+            async function generateAutoSkipUserList() {
+                const response = await getJson("Users");
+                generateCheckboxListUsers(response, 'autoSkipUserCheckboxes', 'UserList');
             }
 
             async function populateLibraries() {
@@ -1303,6 +1354,7 @@
                         autoSkipCreditsChanged();
                         persistSkipChanged();
                         generateAutoSkipClientList();
+                        generateAutoSkipUserList();
 
                         Dashboard.hideLoadingMsg();
                     });
