@@ -35,28 +35,24 @@ public class VisualizationController(ILogger<VisualizationController> logger) : 
     {
         _logger.LogDebug("Returning season IDs by series name");
 
-        var showSeasons = new Dictionary<Guid, ShowInfos>();
-
-        foreach (var kvp in Plugin.Instance!.QueuedMediaItems)
-        {
-            if (kvp.Value.FirstOrDefault() is QueuedEpisode first)
-            {
-                var seriesId = first.SeriesId;
-                var seasonId = kvp.Key;
-
-                var seasonNumber = first.SeasonNumber;
-                if (!showSeasons.TryGetValue(seriesId, out var showInfo))
+        var showSeasons = Plugin.Instance!.QueuedMediaItems
+            .Where(kvp => kvp.Value.FirstOrDefault() is QueuedEpisode)
+            .GroupBy(kvp => kvp.Value.First().SeriesId)
+            .ToDictionary(
+                g => g.Key,
+                g =>
                 {
-                    showInfo = new ShowInfos { SeriesName = first.SeriesName, ProductionYear = GetProductionYear(seriesId), LibraryName = GetLibraryName(seriesId),  Seasons = [] };
-                    showSeasons[seriesId] = showInfo;
-                }
+                    var first = g.First().Value.First();
+                    return new ShowInfos
+                    {
+                        SeriesName = first.SeriesName,
+                        ProductionYear = GetProductionYear(g.Key),
+                        LibraryName = GetLibraryName(g.Key),
+                        Seasons = g.ToDictionary(kvp => kvp.Key, kvp => kvp.Value.First().SeasonNumber)
+                    };
+                });
 
-                showInfo.Seasons[seasonId] = seasonNumber;
-            }
-        }
-
-        // Sort the dictionary by SeriesName and the seasons by SeasonName
-        var sortedShowSeasons = showSeasons
+        return showSeasons
             .OrderBy(kvp => kvp.Value.SeriesName)
             .ToDictionary(
                 kvp => kvp.Key,
@@ -65,12 +61,8 @@ public class VisualizationController(ILogger<VisualizationController> logger) : 
                     SeriesName = kvp.Value.SeriesName,
                     ProductionYear = kvp.Value.ProductionYear,
                     LibraryName = kvp.Value.LibraryName,
-                    Seasons = kvp.Value.Seasons
-                        .OrderBy(s => s.Value)
-                        .ToDictionary(s => s.Key, s => s.Value)
+                    Seasons = kvp.Value.Seasons.OrderBy(s => s.Value).ToDictionary(s => s.Key, s => s.Value)
                 });
-
-        return sortedShowSeasons;
     }
 
     /// <summary>
@@ -129,17 +121,10 @@ public class VisualizationController(ILogger<VisualizationController> logger) : 
     [HttpGet("Show/{SeriesId}/{SeasonId}")]
     public ActionResult<List<EpisodeVisualization>> GetSeasonEpisodes([FromRoute] Guid seriesId, [FromRoute] Guid seasonId)
     {
-        if (!Plugin.Instance!.QueuedMediaItems.TryGetValue(seasonId, out var episodes))
+        if (!Plugin.Instance!.QueuedMediaItems.TryGetValue(seasonId, out var episodes) || !episodes.Any(e => e.SeriesId == seriesId))
         {
             return NotFound();
         }
-
-        if (!episodes.Any(e => e.SeriesId == seriesId))
-        {
-            return NotFound();
-        }
-
-        var showName = episodes.FirstOrDefault()?.SeriesName!;
 
         return episodes.Select(e => new EpisodeVisualization(e.EpisodeId, e.Name)).ToList();
     }
@@ -152,19 +137,16 @@ public class VisualizationController(ILogger<VisualizationController> logger) : 
     [HttpGet("Episode/{Id}/Chromaprint")]
     public ActionResult<uint[]> GetEpisodeFingerprint([FromRoute] Guid id)
     {
-        // Search through all queued episodes to find the requested id
-        foreach (var season in Plugin.Instance!.QueuedMediaItems)
+        var episode = Plugin.Instance!.QueuedMediaItems
+            .SelectMany(season => season.Value)
+            .FirstOrDefault(e => e.EpisodeId == id);
+
+        if (episode == null)
         {
-            foreach (var needle in season.Value)
-            {
-                if (needle.EpisodeId == id)
-                {
-                    return FFmpegWrapper.Fingerprint(needle, AnalysisMode.Introduction);
-                }
-            }
+            return NotFound();
         }
 
-        return NotFound();
+        return FFmpegWrapper.Fingerprint(episode, AnalysisMode.Introduction);
     }
 
     /// <summary>
@@ -288,12 +270,10 @@ public class VisualizationController(ILogger<VisualizationController> logger) : 
         return NoContent();
     }
 
-    private static string GetProductionYear(Guid seriesId)
-    {
-        return seriesId == Guid.Empty
+    private static string GetProductionYear(Guid seriesId) =>
+        seriesId == Guid.Empty
             ? "Unknown"
             : Plugin.Instance?.GetItem(seriesId)?.ProductionYear?.ToString(CultureInfo.InvariantCulture) ?? "Unknown";
-    }
 
     private static string GetLibraryName(Guid seriesId)
     {
