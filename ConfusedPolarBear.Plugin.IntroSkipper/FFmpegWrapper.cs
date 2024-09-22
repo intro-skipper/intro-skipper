@@ -4,6 +4,7 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.Globalization;
 using System.IO;
+using System.Linq;
 using System.Text;
 using System.Text.RegularExpressions;
 using ConfusedPolarBear.Plugin.IntroSkipper.Data;
@@ -491,25 +492,13 @@ public static partial class FFmpegWrapper
             episode.Path,
             end - start);
 
-        // Returns all fingerprint points as raw 32 bit unsigned integers (little endian).
         var rawPoints = GetOutput(args, string.Empty);
-        if (rawPoints.Length == 0 || rawPoints.Length % 4 != 0)
-        {
-            Logger?.LogWarning("Chromaprint returned {Count} points for \"{Path}\"", rawPoints.Length, episode.Path);
-            throw new FingerprintException("chromaprint output for \"" + episode.Path + "\" was malformed");
-        }
-
-        var results = new List<uint>();
-        for (var i = 0; i < rawPoints.Length; i += 4)
-        {
-            var rawPoint = rawPoints.Slice(i, 4);
-            results.Add(BitConverter.ToUInt32(rawPoint));
-        }
+        var results = ParseRawPoints(rawPoints, episode.Path);
 
         // Try to cache this fingerprint.
-        CacheFingerprint(episode, mode, results);
+        CacheFingerprint(episode, mode, results.ToList());
 
-        return results.ToArray();
+        return results;
     }
 
     /// <summary>
@@ -691,6 +680,23 @@ public static partial class FFmpegWrapper
         formatted += "```\n\n";
 
         return formatted;
+    }
+
+    private static uint[] ParseRawPoints(ReadOnlySpan<byte> rawPoints, string path)
+    {
+        if (rawPoints.Length == 0 || rawPoints.Length % 4 != 0)
+        {
+            Logger?.LogWarning("Chromaprint returned {Count} points for \"{Path}\"", rawPoints.Length, path);
+            throw new FingerprintException("chromaprint output for \"" + path + "\" was malformed");
+        }
+
+        var results = new uint[rawPoints.Length / 4];
+        for (int i = 0; i < results.Length; i++)
+        {
+            results[i] = BitConverter.ToUInt32(rawPoints.Slice(i * 4, 4));
+        }
+
+        return results;
     }
 
     [GeneratedRegex("silence_(?<type>start|end): (?<time>[0-9\\.]+)")]
