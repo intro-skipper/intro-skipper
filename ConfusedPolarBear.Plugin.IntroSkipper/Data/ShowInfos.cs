@@ -26,6 +26,6 @@ namespace ConfusedPolarBear.Plugin.IntroSkipper.Controllers
         /// <summary>
         /// Gets the Seasons of the show.
         /// </summary>
-        public required Dictionary<Guid, string> Seasons { get; init; }
+        public required Dictionary<Guid, int> Seasons { get; init; }
     }
 }
