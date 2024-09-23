@@ -405,24 +405,27 @@
                             <div class="fieldDescription">
                                 Seconds of credits start that should be played. Defaults to 0.
                             </div>
-                            <br />
                         </div>
 
-                        <details id="AutoSkipClientList" style="padding-bottom: 1em;">
-                            <summary>Auto Skip Client List</summary>
-                            <br />
-                            <div class="checkboxList paperList" style="padding:.5em 1em" id="autoSkipClientCheckboxes"></div>
-                            <label class="inputLabel" for="ClientList"></label>
-                            <input id="ClientList" type="hidden" is="emby-input" />
-                        </details>
+                        <div id="AutoSkipLists">
+                            <h3>Auto Skip Lists:</h3>
+                            <details id="AutoSkipClientList">
+                                <summary>Auto Skip Client List</summary>
+                                <br />
+                                <div class="checkboxList paperList" style="padding:.5em 1em" id="autoSkipClientCheckboxes"></div>
+                                <label class="inputLabel" for="ClientList"></label>
+                                <input id="ClientList" type="hidden" is="emby-input" />
+                            </details>
 
-                        <details id="AutoSkipUserList" style="padding-bottom: 1em;">
-                            <summary>Auto Skip User List</summary>
+                            <details id="AutoSkipUserList">
+                                <summary>Auto Skip User List</summary>
+                                <br />
+                                <div class="checkboxList paperList" style="padding:.5em 1em" id="autoSkipUserCheckboxes"></div>
+                                <label class="inputLabel" for="UserList"></label>
+                                <input id="UserList" type="hidden" is="emby-input" />
+                            </details>
                             <br />
-                            <div class="checkboxList paperList" style="padding:.5em 1em" id="autoSkipUserCheckboxes"></div>
-                            <label class="inputLabel" for="UserList"></label>
-                            <input id="UserList" type="hidden" is="emby-input" />
-                        </details>
+                        </div>
 
                         <div class="checkboxContainer checkboxContainer-withDescription">
                             <label class="emby-checkbox-label">
@@ -825,8 +828,9 @@
             var librariesContainer = document.querySelector("div.folderAccessListContainer");
             var skipFirstEpisode = document.querySelector("div#divSkipFirstEpisode");
             var secondsOfIntroStartToPlay = document.querySelector("div#divSecondsOfIntroStartToPlay");
-            var autoSkipClientList = document.getElementById("AutoSkipClientList");
-            var AutoSkipUserList = document.getElementById("AutoSkipUserList");
+            var autoSkipList = document.querySelector("div#AutoSkipLists");
+            var autoSkipClientList = autoSkipList.querySelector("details#AutoSkipClientList");
+            var autoSkipUserList = autoSkipList.querySelector("details#AutoSkipUserList");
             var secondsOfCreditsStartToPlay = document.querySelector("div#divSecondsOfCreditsStartToPlay");
             var autoSkipNotificationText = document.querySelector("div#divAutoSkipNotificationText");
             var autoSkipCredits = document.querySelector("input#AutoSkipCredits");
@@ -842,7 +846,7 @@
                     autoSkipNotificationText.style.display = 'none';
                     secondsOfIntroStartToPlay.style.display = 'none';
                 }
-                clientListVisible();
+                AutoListVisible();
             }
 
             autoSkip.addEventListener("change", autoSkipChanged);
@@ -855,26 +859,17 @@
                     autoSkipCreditsNotificationText.style.display = 'none';
                     secondsOfCreditsStartToPlay.style.display = 'none';
                 }
-                clientListVisible();
+                AutoListVisible();
             }
 
             autoSkipCredits.addEventListener("change", autoSkipCreditsChanged);
 
-            function clientListVisible() {
+            function AutoListVisible() {
                 if (autoSkip.checked || autoSkipCredits.checked) {
-                    autoSkipClientList.style.display = 'unset';
-                    autoSkipClientList.style.width = '100%';
+                    autoSkipList.style.display = 'unset';
+                    autoSkipList.style.width = '100%';
                 } else {
-                    autoSkipClientList.style.display = 'none';
-                }
-            }
-
-            function userListVisible() {
-                if (autoSkip.checked || autoSkipCredits.checked) {
-                    AutoSkipUserList.style.display = 'unset';
-                    AutoSkipUserList.style.width = '100%';
-                } else {
-                    AutoSkipUserList.style.display = 'none';
+                    autoSkipList.style.display = 'none';
                 }
             }
 
