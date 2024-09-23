@@ -16,7 +16,7 @@ namespace ConfusedPolarBear.Plugin.IntroSkipper;
 /// <summary>
 /// Server entrypoint.
 /// </summary>
-public class Entrypoint : IHostedService, IDisposable
+public sealed class Entrypoint : IHostedService, IDisposable
 {
     private readonly ITaskManager _taskManager;
     private readonly ILibraryManager _libraryManager;
@@ -25,7 +25,6 @@ public class Entrypoint : IHostedService, IDisposable
     private readonly HashSet<Guid> _seasonsToAnalyze = [];
     private readonly Timer _queueTimer;
     private static readonly ManualResetEventSlim _autoTaskCompletEvent = new(false);
-    private bool _disposed;
     private bool _analyzeAgain;
     private static CancellationTokenSource? _cancellationTokenSource;
 
@@ -313,31 +312,11 @@ public class Entrypoint : IHostedService, IDisposable
         _autoTaskCompletEvent.Wait(TimeSpan.FromSeconds(60), cancellationToken); // Wait for the signal
     }
 
-    /// <summary>
-    /// Dispose.
-    /// </summary>
+    /// <inheritdoc/>
     public void Dispose()
     {
-        Dispose(true);
-        GC.SuppressFinalize(this);
-    }
-
-    /// <summary>
-    /// Protected dispose.
-    /// </summary>
-    /// <param name="disposing">Dispose.</param>
-    protected virtual void Dispose(bool disposing)
-    {
-        if (!_disposed)
-        {
-            if (disposing)
-            {
-                _queueTimer.Dispose();
-                _cancellationTokenSource?.Dispose();
-                _autoTaskCompletEvent.Dispose();
-            }
-
-            _disposed = true;
-        }
+        _queueTimer.Dispose();
+        _cancellationTokenSource?.Dispose();
+        _autoTaskCompletEvent.Dispose();
     }
 }
