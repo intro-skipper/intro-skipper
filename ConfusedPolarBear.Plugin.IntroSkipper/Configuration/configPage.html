@@ -1040,12 +1040,10 @@
 
             // season changed, reload all episodes
             async function seasonChanged() {
-                const seasonData = encodeURI(selectShow.value) + "/" + encodeURI(selectSeason.value);
-
                 Dashboard.showLoadingMsg();
                 // show the ignore list editor.
                 saveIgnoreListSeasonButton.style.display = "block";
-                const IgnoreList = await getJson("Intros/IgnoreListSeason/" + seasonData);
+                const IgnoreList = await getJson("Intros/IgnoreListSeason/" + encodeURI(selectSeason.value));
                 ignorelistIntro.checked = IgnoreList.IgnoreIntro;
                 ignorelistCredits.checked = IgnoreList.IgnoreCredits;
                 IgnoreListSeasonId = IgnoreList.SeasonId;
