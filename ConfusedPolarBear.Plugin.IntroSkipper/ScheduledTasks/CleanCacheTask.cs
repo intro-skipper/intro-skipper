@@ -109,7 +109,7 @@ public class CleanCacheTask : IScheduledTask
         var removedItems = false;
         foreach (var ignoredItem in Plugin.Instance.IgnoreList.Values.ToList())
         {
-            if (!Plugin.Instance.QueuedMediaItems.ContainsKey(ignoredItem.SeasonId))
+            if (!queue.ContainsKey(ignoredItem.SeasonId))
             {
                 removedItems = true;
                 Plugin.Instance.IgnoreList.TryRemove(ignoredItem.SeasonId, out _);
