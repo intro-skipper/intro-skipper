@@ -247,7 +247,7 @@ public sealed class Entrypoint : IHostedService, IDisposable
         _autoTaskCompletEvent.Reset();
 
         using (_cancellationTokenSource = new CancellationTokenSource())
-        using (ScheduledTaskSemaphore.Acquire(-1, _cancellationTokenSource.Token))
+        using (ScheduledTaskSemaphore.Acquire(_cancellationTokenSource.Token))
         {
             var seasonIds = new HashSet<Guid>(_seasonsToAnalyze);
             _seasonsToAnalyze.Clear();

@@ -77,7 +77,7 @@ public class DetectIntrosCreditsTask : IScheduledTask
             Entrypoint.CancelAutomaticTask(cancellationToken);
         }
 
-        using (ScheduledTaskSemaphore.Acquire(-1, cancellationToken))
+        using (ScheduledTaskSemaphore.Acquire(cancellationToken))
         {
             _logger.LogInformation("Scheduled Task is starting");
 
