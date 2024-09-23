@@ -107,7 +107,7 @@ public class AutoSkip(
 
     private void PlaybackTimer_Elapsed(object? sender, ElapsedEventArgs e)
     {
-        foreach (var session in _sessionManager.Sessions.Where(s => _clientList.Contains(s.Client, StringComparer.OrdinalIgnoreCase) && _userList.Contains(s.UserId)))
+        foreach (var session in _sessionManager.Sessions.Where(s => _clientList.Contains(s.Client, StringComparer.OrdinalIgnoreCase) && !_userList.Contains(s.UserId)))
         {
             var deviceId = session.DeviceId;
             var itemId = session.NowPlayingItem.Id;

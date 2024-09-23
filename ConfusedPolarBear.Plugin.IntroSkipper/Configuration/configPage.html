@@ -408,7 +408,9 @@
                         </div>
 
                         <div id="AutoSkipLists">
-                            <h3>Auto Skip Lists:</h3>
+                            <div style="margin-bottom: 0.5em;">
+                                Auto Skip Lists:
+                            </div>
                             <details id="AutoSkipClientList">
                                 <summary>Auto Skip Client List</summary>
                                 <br />
@@ -424,6 +426,10 @@
                                 <label class="inputLabel" for="UserList"></label>
                                 <input id="UserList" type="hidden" is="emby-input" />
                             </details>
+
+                            <div class="fieldDescription">
+                                auto skip will be enabled for the selected clients and users.
+                            </div>
                             <br />
                         </div>
 
@@ -890,7 +896,8 @@
             }
 
             function updateListUsers(textField, container, users) {
-                textField.value = Array.from(container.querySelectorAll('input[type="checkbox"]:checked'))
+                // get the user id from the user name. query the selectation who is not checked
+                textField.value = Array.from(container.querySelectorAll('input[type="checkbox"]:not(:checked)'))
                     .map(checkbox => users.find(user => user.Name === checkbox.nextElementSibling.textContent).Id)
                     .join(', ');
             }
@@ -921,7 +928,7 @@
                 const checkedItems = textField.value ? textField.value.split(', ') : [];
 
                 container.innerHTML = items.map(item => {
-                    const isChecked = checkedItems.includes(item.Id) ? 'checked' : '';
+                    const isChecked = !checkedItems.includes(item.Id) ? 'checked' : '';
                     return '<label class="emby-checkbox-label">' +
                         '<input type="checkbox" is="emby-checkbox" ' + isChecked + '>' +
                         '<span class="checkboxLabel">' + item.Name + '</span>' +
