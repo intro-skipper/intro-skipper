@@ -44,14 +44,14 @@ public class VisualizationController(ILogger<VisualizationController> logger) : 
                 var seriesId = first.SeriesId;
                 var seasonId = kvp.Key;
 
-                var seasonName = GetSeasonName(first);
+                var seasonNumber = first.SeasonNumber;
                 if (!showSeasons.TryGetValue(seriesId, out var showInfo))
                 {
                     showInfo = new ShowInfos { SeriesName = first.SeriesName, ProductionYear = GetProductionYear(seriesId), LibraryName = GetLibraryName(seriesId),  Seasons = [] };
                     showSeasons[seriesId] = showInfo;
                 }
 
-                showInfo.Seasons[seasonId] = seasonName;
+                showInfo.Seasons[seasonId] = seasonNumber;
             }
         }
 
@@ -285,11 +285,6 @@ public class VisualizationController(ILogger<VisualizationController> logger) : 
         }
 
         return NoContent();
-    }
-
-    private static string GetSeasonName(QueuedEpisode episode)
-    {
-        return "Season " + episode.SeasonNumber.ToString(CultureInfo.InvariantCulture);
     }
 
     private static string GetProductionYear(Guid seriesId)
