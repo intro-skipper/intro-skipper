@@ -76,11 +76,10 @@ public class VisualizationController(ILogger<VisualizationController> logger) : 
     /// <summary>
     /// Returns the ignore list for the provided season.
     /// </summary>
-    /// <param name="seriesId">Show ID.</param>
     /// <param name="seasonId">Season ID.</param>
     /// <returns>List of episode titles.</returns>
-    [HttpGet("IgnoreList/{SeriesId}/{SeasonId}")]
-    public ActionResult<IgnoreListItem> GetIgnoreListSeason([FromRoute] Guid seriesId, [FromRoute] Guid seasonId)
+    [HttpGet("IgnoreListSeason/{SeasonId}")]
+    public ActionResult<IgnoreListItem> GetIgnoreListSeason([FromRoute] Guid seasonId)
     {
         if (!Plugin.Instance!.QueuedMediaItems.ContainsKey(seasonId))
         {
@@ -100,7 +99,7 @@ public class VisualizationController(ILogger<VisualizationController> logger) : 
     /// </summary>
     /// <param name="seriesId">Show ID.</param>
     /// <returns>List of episode titles.</returns>
-    [HttpGet("IgnoreList/{SeriesId}")]
+    [HttpGet("IgnoreListSeries/{SeriesId}")]
     public ActionResult<IgnoreListItem> GetIgnoreListSeries([FromRoute] Guid seriesId)
     {
         var seasonIds = Plugin.Instance!.QueuedMediaItems
