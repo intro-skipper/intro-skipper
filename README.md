@@ -36,5 +36,9 @@ These parameters can be configured by opening the plugin settings
 
 ## [API Documentation](https://github.com/jumoog/intro-skipper/blob/master/docs/api.md)
 
-Documentation about how the API works can be found in [api.md](docs/api.md).
+<br />
+<p align="center">
+  <a href="https://discord.gg/AYZ7RJ3BuA"><img src="https://invidget.switchblade.xyz/AYZ7RJ3BuA"></a>
+</p>
+
 
