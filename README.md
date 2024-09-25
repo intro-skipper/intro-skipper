@@ -13,7 +13,7 @@
     https://raw.githubusercontent.com/intro-skipper/intro-skipper/master/manifest.json
 </div>
 
-## Jellyfin 10.8
+## Jellyfin 10.8 (previous version)
 👉👉👉 [Jellyfin 10.8 Instructions](https://github.com/intro-skipper/intro-skipper/blob/10.8/README.md)
 
 ## System requirements
