@@ -62,7 +62,7 @@ public class TestAudioFingerprinting
         };
 
         var actual = FFmpegWrapper.Fingerprint(
-            queueEpisode("audio/big_buck_bunny_intro.mp3"),
+            QueueEpisode("audio/big_buck_bunny_intro.mp3"),
             AnalysisMode.Introduction);
 
         Assert.Equal(expected, actual);
@@ -93,8 +93,8 @@ public class TestAudioFingerprinting
     {
         var chromaprint = CreateChromaprintAnalyzer();
 
-        var lhsEpisode = queueEpisode("audio/big_buck_bunny_intro.mp3");
-        var rhsEpisode = queueEpisode("audio/big_buck_bunny_clip.mp3");
+        var lhsEpisode = QueueEpisode("audio/big_buck_bunny_intro.mp3");
+        var rhsEpisode = QueueEpisode("audio/big_buck_bunny_clip.mp3");
         var lhsFingerprint = FFmpegWrapper.Fingerprint(lhsEpisode, AnalysisMode.Introduction);
         var rhsFingerprint = FFmpegWrapper.Fingerprint(rhsEpisode, AnalysisMode.Introduction);
 
@@ -120,7 +120,7 @@ public class TestAudioFingerprinting
     [FactSkipFFmpegTests]
     public void TestSilenceDetection()
     {
-        var clip = queueEpisode("audio/big_buck_bunny_clip.mp3");
+        var clip = QueueEpisode("audio/big_buck_bunny_clip.mp3");
 
         var expected = new TimeRange[]
         {
@@ -138,7 +138,7 @@ public class TestAudioFingerprinting
         Assert.Equal(expected, actual);
     }
 
-    private QueuedEpisode queueEpisode(string path)
+    private static QueuedEpisode QueueEpisode(string path)
     {
         return new QueuedEpisode()
         {
@@ -148,7 +148,7 @@ public class TestAudioFingerprinting
         };
     }
 
-    private ChromaprintAnalyzer CreateChromaprintAnalyzer()
+    private static ChromaprintAnalyzer CreateChromaprintAnalyzer()
     {
         var logger = new LoggerFactory().CreateLogger<ChromaprintAnalyzer>();
         return new(logger);
