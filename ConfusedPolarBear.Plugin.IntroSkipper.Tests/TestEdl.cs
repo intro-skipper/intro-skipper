@@ -38,7 +38,7 @@ public class TestEdl
         Assert.Equal(edlPath, EdlManager.GetEdlPath(mediaPath));
     }
 
-    private Segment MakeIntro(double start, double end)
+    private static Segment MakeIntro(double start, double end)
     {
         return new Segment(Guid.Empty, new TimeRange(start, end));
     }

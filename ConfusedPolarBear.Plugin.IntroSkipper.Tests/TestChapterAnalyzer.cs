@@ -74,7 +74,7 @@ public class TestChapterAnalyzer
     /// <param name="name">Chapter name.</param>
     /// <param name="position">Chapter position (in seconds).</param>
     /// <returns>ChapterInfo.</returns>
-    private ChapterInfo CreateChapter(string name, int position)
+    private static ChapterInfo CreateChapter(string name, int position)
     {
         return new()
         {

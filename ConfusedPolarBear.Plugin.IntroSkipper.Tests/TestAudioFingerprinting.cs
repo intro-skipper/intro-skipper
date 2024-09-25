@@ -124,12 +124,12 @@ public class TestAudioFingerprinting
 
         var expected = new TimeRange[]
         {
-            new TimeRange(44.6310, 44.8072),
-            new TimeRange(53.5905, 53.8070),
-            new TimeRange(53.8458, 54.2024),
-            new TimeRange(54.2611, 54.5935),
-            new TimeRange(54.7098, 54.9293),
-            new TimeRange(54.9294, 55.2590),
+            new(44.6310, 44.8072),
+            new(53.5905, 53.8070),
+            new(53.8458, 54.2024),
+            new(54.2611, 54.5935),
+            new(54.7098, 54.9293),
+            new(54.9294, 55.2590),
         };
 
         var range = new TimeRange(0, 60);
