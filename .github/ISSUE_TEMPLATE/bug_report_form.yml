@@ -8,9 +8,9 @@ body:
     attributes:
       label: Self service debugging
       description: |
-          Jellyfin 10.9 is still being actively updated. Please make sure you are using the [latest](https://github.com/jellyfin/jellyfin/releases/latest) release
+          Jellyfin 10.9 is actively updated. Please make sure you are using the [latest](https://github.com/jellyfin/jellyfin/releases/latest) release
 
-          Many servers have known permission issues that can be resolved with a few extra steps.
+          Many servers have permission issues that can be resolved with a few extra steps.
           If your skip button is not shown, please see [Troubleshooting](https://github.com/intro-skipper/intro-skipper/wiki/Troubleshooting#skip-button-is-not-visible) before reporting.
 
           Jellyfin is the latest version and my permissions are correct
