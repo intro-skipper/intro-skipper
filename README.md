@@ -13,9 +13,6 @@
     https://raw.githubusercontent.com/intro-skipper/intro-skipper/master/manifest.json
 </div>
 
-## Jellyfin 10.8
-👉👉👉 [Jellyfin 10.8 Instructions](https://github.com/intro-skipper/intro-skipper/blob/10.8/README.md)
-
 ## System requirements
 
 * Jellyfin 10.9.11 (or newer)
@@ -24,6 +21,9 @@
   * `linuxserver/jellyfin` 10.9.z container: preinstalled
   * Debian Linux based native installs: provided by the `jellyfin-ffmpeg6` package
   * MacOS native installs: build ffmpeg with chromaprint support ([instructions](https://github.com/intro-skipper/intro-skipper/wiki/Custom-FFMPEG-(MacOS)))
+ 
+## Jellyfin 10.8 (previous version)
+👉👉👉 [Jellyfin 10.8 Instructions](https://github.com/intro-skipper/intro-skipper/blob/10.8/README.md)
 
 ## Detection parameters
 
@@ -43,8 +43,8 @@ These parameters can be configured by opening the plugin settings
 
 ## [Troubleshooting](https://github.com/intro-skipper/intro-skipper/wiki/Troubleshooting)
 - #### [Scheduled tasks fail instantly](https://github.com/intro-skipper/intro-skipper/wiki/Troubleshooting#scheduled-tasks-fail-instantly)
-
 - #### [Skip button is not visible](https://github.com/intro-skipper/intro-skipper/wiki/Troubleshooting#skip-button-is-not-visible)
+- #### [Autoskip is not working](https://github.com/intro-skipper/intro-skipper/wiki/Troubleshooting#autoskip-is-not-working)
 
 ## [API Documentation](https://github.com/intro-skipper/intro-skipper/blob/master/docs/api.md)
 

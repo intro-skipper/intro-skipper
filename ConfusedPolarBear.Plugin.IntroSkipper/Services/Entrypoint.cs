@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
+using ConfusedPolarBear.Plugin.IntroSkipper.Configuration;
 using ConfusedPolarBear.Plugin.IntroSkipper.Data;
 using ConfusedPolarBear.Plugin.IntroSkipper.ScheduledTasks;
 using MediaBrowser.Controller.Entities.TV;
@@ -24,6 +25,7 @@ public sealed class Entrypoint : IHostedService, IDisposable
     private readonly ILoggerFactory _loggerFactory;
     private readonly HashSet<Guid> _seasonsToAnalyze = [];
     private readonly Timer _queueTimer;
+    private readonly PluginConfiguration _config;
     private static readonly ManualResetEventSlim _autoTaskCompletEvent = new(false);
     private bool _analyzeAgain;
     private static CancellationTokenSource? _cancellationTokenSource;
@@ -46,6 +48,7 @@ public sealed class Entrypoint : IHostedService, IDisposable
         _logger = logger;
         _loggerFactory = loggerFactory;
 
+        _config = Plugin.Instance?.Configuration ?? new PluginConfiguration();
         _queueTimer = new Timer(
                 OnTimerCallback,
                 null,
@@ -119,7 +122,7 @@ public sealed class Entrypoint : IHostedService, IDisposable
     private void OnItemAdded(object? sender, ItemChangeEventArgs itemChangeEventArgs)
     {
         // Don't do anything if auto detection is disabled
-        if (!Plugin.Instance!.Configuration.AutoDetectIntros && !Plugin.Instance.Configuration.AutoDetectCredits)
+        if (!_config.AutoDetectIntros && !_config.AutoDetectCredits)
         {
             return;
         }
@@ -148,7 +151,7 @@ public sealed class Entrypoint : IHostedService, IDisposable
     private void OnItemModified(object? sender, ItemChangeEventArgs itemChangeEventArgs)
     {
         // Don't do anything if auto detection is disabled
-        if (!Plugin.Instance!.Configuration.AutoDetectIntros && !Plugin.Instance.Configuration.AutoDetectCredits)
+        if (!_config.AutoDetectIntros && !_config.AutoDetectCredits)
         {
             return;
         }
@@ -177,7 +180,7 @@ public sealed class Entrypoint : IHostedService, IDisposable
     private void OnLibraryRefresh(object? sender, TaskCompletionEventArgs eventArgs)
     {
         // Don't do anything if auto detection is disabled
-        if (!Plugin.Instance!.Configuration.AutoDetectIntros && !Plugin.Instance.Configuration.AutoDetectCredits)
+        if (!_config.AutoDetectIntros && !_config.AutoDetectCredits)
         {
             return;
         }
@@ -257,21 +260,18 @@ public sealed class Entrypoint : IHostedService, IDisposable
             var modes = new List<AnalysisMode>();
             var tasklogger = _loggerFactory.CreateLogger("DefaultLogger");
 
-            if (Plugin.Instance!.Configuration.AutoDetectIntros && Plugin.Instance.Configuration.AutoDetectCredits)
-            {
-                modes.Add(AnalysisMode.Introduction);
-                modes.Add(AnalysisMode.Credits);
-                tasklogger = _loggerFactory.CreateLogger<DetectIntrosCreditsTask>();
-            }
-            else if (Plugin.Instance.Configuration.AutoDetectIntros)
+            if (_config.AutoDetectIntros)
             {
                 modes.Add(AnalysisMode.Introduction);
                 tasklogger = _loggerFactory.CreateLogger<DetectIntrosTask>();
             }
-            else if (Plugin.Instance.Configuration.AutoDetectCredits)
+
+            if (_config.AutoDetectCredits)
             {
                 modes.Add(AnalysisMode.Credits);
-                tasklogger = _loggerFactory.CreateLogger<DetectCreditsTask>();
+                tasklogger = modes.Count == 2
+                    ? _loggerFactory.CreateLogger<DetectIntrosCreditsTask>()
+                    : _loggerFactory.CreateLogger<DetectCreditsTask>();
             }
 
             var baseCreditAnalyzer = new BaseItemAnalyzerTask(

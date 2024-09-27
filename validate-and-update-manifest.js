@@ -5,7 +5,8 @@ const { URL } = require('url');
 
 const repository = process.env.GITHUB_REPOSITORY;
 const version = process.env.VERSION;
-const targetAbi = "10.9.11.0";
+let currentVersion = "";
+let targetAbi = "";
 
 // Read manifest.json
 const manifestPath = './manifest.json';
@@ -21,28 +22,37 @@ if (!fs.existsSync(readmePath)) {
     process.exit(1);
 }
 
+// Read .github/ISSUE_TEMPLATE/bug_report_form.yml
+const bugReportFormPath = './.github/ISSUE_TEMPLATE/bug_report_form.yml';
+if (!fs.existsSync(bugReportFormPath)) {
+    console.error(`${bugReportFormPath} file not found`);
+    process.exit(1);
+}
+
 const jsonData = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
 
-const newVersion = {
-    version,
-    changelog: `- See the full changelog at [GitHub](https://github.com/${repository}/releases/tag/10.9/v${version})\n`,
-    targetAbi,
-    sourceUrl: `https://github.com/${repository}/releases/download/10.9/v${version}/intro-skipper-v${version}.zip`,
-    checksum: getMD5FromFile(),
-    timestamp: new Date().toISOString().replace(/\.\d{3}Z$/, 'Z')
-};
-
 async function updateManifest() {
+    currentVersion = await getNugetPackageVersion('Jellyfin.Model', '10.*-*');
+    targetAbi = `${currentVersion}.0`
+    const newVersion = {
+        version,
+        changelog: `- See the full changelog at [GitHub](https://github.com/${repository}/releases/tag/10.9/v${version})\n`,
+        targetAbi,
+        sourceUrl: `https://github.com/${repository}/releases/download/10.9/v${version}/intro-skipper-v${version}.zip`,
+        checksum: getMD5FromFile(),
+        timestamp: new Date().toISOString().replace(/\.\d{3}Z$/, 'Z')
+    };
     await validVersion(newVersion);
 
     // Add the new version to the manifest
     jsonData[0].versions.unshift(newVersion);
 
     console.log('Manifest updated successfully.');
-    updateReadMeVersion();
+    updateDocsVersion(readmePath);
+    updateDocsVersion(bugReportFormPath);
 
     cleanUpOldReleases();
-    
+
     // Write the modified JSON data back to the file
     fs.writeFileSync(manifestPath, JSON.stringify(jsonData, null, 4), 'utf8');
 
@@ -107,23 +117,16 @@ function getMD5FromFile() {
     return crypto.createHash('md5').update(fileBuffer).digest('hex');
 }
 
-function getReadMeVersion() {
-    let parts = targetAbi.split('.').map(Number);
-    parts.pop();
-    return parts.join(".");
-}
-
-function updateReadMeVersion() {
-    const newVersion = getReadMeVersion();
-    const readMeContent = fs.readFileSync(readmePath, 'utf8');
+function updateDocsVersion(docsPath) {
+    const readMeContent = fs.readFileSync(docsPath, 'utf8');
 
     const updatedContent = readMeContent
-        .replace(/Jellyfin.*\(or newer\)/, `Jellyfin ${newVersion} (or newer)`)
+        .replace(/Jellyfin.*\(or newer\)/, `Jellyfin ${currentVersion} (or newer)`)
     if (readMeContent != updatedContent) {
-        fs.writeFileSync(readmePath, updatedContent);
-        console.log('Updated README with new Jellyfin version.');
+        fs.writeFileSync(docsPath, updatedContent);
+        console.log(`Updated ${docsPath} with new Jellyfin version.`);
     } else {
-        console.log('README has already newest Jellyfin version.');
+        console.log(`${docsPath} has already newest Jellyfin version.`);
     }
 }
 
@@ -158,6 +161,41 @@ function cleanUpOldReleases() {
             version.targetAbi === highestAbi || version.targetAbi === secondHighestAbi
         );
     });
+}
+
+async function getNugetPackageVersion(packageName, versionPattern) {
+    // Convert package name to lowercase for the NuGet API
+    const url = `https://api.nuget.org/v3-flatcontainer/${packageName.toLowerCase()}/index.json`;
+
+    try {
+        // Fetch data using the built-in fetch API
+        const response = await fetch(url);
+
+        if (!response.ok) {
+            throw new Error(`Failed to fetch package information: ${response.statusText}`);
+        }
+
+        const data = await response.json();
+        const versions = data.versions;
+
+        // Create a regular expression from the version pattern
+        const versionRegex = new RegExp(versionPattern.replace(/\./g, '\\.').replace('*', '.*'));
+
+        // Filter versions based on the provided pattern
+        const matchingVersions = versions.filter(version => versionRegex.test(version));
+
+        // Check if there are any matching versions
+        if (matchingVersions.length > 0) {
+            const latestVersion = matchingVersions[matchingVersions.length - 1];
+            console.log(`Latest version of ${packageName} matching ${versionPattern}: ${latestVersion}`);
+            return latestVersion;
+        } else {
+            console.log(`No versions of ${packageName} match the pattern ${versionPattern}`);
+            return null;
+        }
+    } catch (error) {
+        console.error(`Error fetching package information for ${packageName}: ${error.message}`);
+    }
 }
 
 async function run() {

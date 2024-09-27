@@ -250,7 +250,7 @@ public class ChromaprintAnalyzer : IMediaFileAnalyzer
     /// <param name="rhsId">Second episode id.</param>
     /// <param name="rhsRanges">Second episode shared timecodes.</param>
     /// <returns>Intros for the first and second episodes.</returns>
-    private (Segment Lhs, Segment Rhs) GetLongestTimeRange(
+    private static (Segment Lhs, Segment Rhs) GetLongestTimeRange(
         Guid lhsId,
         List<TimeRange> lhsRanges,
         Guid rhsId,

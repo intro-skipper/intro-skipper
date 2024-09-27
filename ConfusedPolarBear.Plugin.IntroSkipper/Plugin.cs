@@ -22,7 +22,7 @@ namespace ConfusedPolarBear.Plugin.IntroSkipper;
 /// <summary>
 /// Intro skipper plugin. Uses audio analysis to find common sequences of audio shared between episodes.
 /// </summary>
-public partial class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
+public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
 {
     private readonly object _serializationLock = new();
     private readonly object _introsLock = new();
@@ -488,7 +488,7 @@ public partial class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
 
         // Inject a link to the script at the end of the <head> section.
         // A regex is used here to ensure the replacement is only done once.
-        Regex headEnd = HeadRegex();
+        Regex headEnd = new Regex(@"</head>", RegexOptions.IgnoreCase, TimeSpan.FromSeconds(1));
         contents = headEnd.Replace(contents, scriptTag + "</head>", 1);
 
         // Write the modified file contents
@@ -496,7 +496,4 @@ public partial class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
 
         _logger.LogInformation("Skip intro button successfully added");
     }
-
-    [GeneratedRegex("</head>", RegexOptions.IgnoreCase)]
-    private static partial Regex HeadRegex();
 }

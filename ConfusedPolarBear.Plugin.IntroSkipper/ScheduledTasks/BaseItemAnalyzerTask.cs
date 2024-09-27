@@ -57,7 +57,7 @@ public class BaseItemAnalyzerTask
     public void AnalyzeItems(
         IProgress<double> progress,
         CancellationToken cancellationToken,
-        HashSet<Guid>? seasonsToAnalyze = null)
+        IReadOnlyCollection<Guid>? seasonsToAnalyze = null)
     {
         var ffmpegValid = FFmpegWrapper.CheckFFmpegVersion();
         // Assert that ffmpeg with chromaprint is installed
@@ -74,20 +74,12 @@ public class BaseItemAnalyzerTask
         var queue = queueManager.GetMediaItems();
 
         // Filter the queue based on seasonsToAnalyze
-        if (seasonsToAnalyze != null && seasonsToAnalyze.Count > 0)
+        if (seasonsToAnalyze is { Count: > 0 })
         {
-            queue = queue.Where(kvp => seasonsToAnalyze.Contains(kvp.Key))
-                        .ToDictionary(kvp => kvp.Key, kvp => kvp.Value).AsReadOnly();
+            queue = queue.Where(kvp => seasonsToAnalyze.Contains(kvp.Key)).ToDictionary(kvp => kvp.Key, kvp => kvp.Value);
         }
 
-        var totalQueued = 0;
-        foreach (var kvp in queue)
-        {
-            totalQueued += kvp.Value.Count;
-        }
-
-        totalQueued *= _analysisModes.Count;
-
+        int totalQueued = queue.Sum(kvp => kvp.Value.Count) * _analysisModes.Count;
         if (totalQueued == 0)
         {
             throw new FingerprintException(
@@ -100,7 +92,6 @@ public class BaseItemAnalyzerTask
         }
 
         var totalProcessed = 0;
-        var modeCount = _analysisModes.Count;
         var options = new ParallelOptions
         {
             MaxDegreeOfParallelism = Plugin.Instance.Configuration.MaxParallelism
@@ -116,32 +107,28 @@ public class BaseItemAnalyzerTask
                 season.Value,
                 _analysisModes.Where(m => !Plugin.Instance!.IsIgnored(season.Key, m)).ToList());
 
-            var episodeCount = episodes.Count;
-
-            if (episodeCount == 0)
+            if (episodes.Count == 0)
             {
                 return;
             }
 
             var first = episodes.First();
-            var requiredModeCount = requiredModes.Count;
-
-            if (requiredModeCount == 0)
+            if (requiredModes.Count == 0)
             {
                 _logger.LogDebug(
                     "All episodes in {Name} season {Season} have already been analyzed",
                     first.SeriesName,
                     first.SeasonNumber);
 
-                Interlocked.Add(ref totalProcessed, episodeCount * modeCount); // Update total Processed directly
+                Interlocked.Add(ref totalProcessed, episodes.Count * _analysisModes.Count); // Update total Processed directly
                 progress.Report(totalProcessed * 100 / totalQueued);
 
                 return;
             }
 
-            if (modeCount != requiredModeCount)
+            if (_analysisModes.Count != requiredModes.Count)
             {
-                Interlocked.Add(ref totalProcessed, episodeCount);
+                Interlocked.Add(ref totalProcessed, episodes.Count);
                 progress.Report(totalProcessed * 100 / totalQueued); // Partial analysis some modes have already been analyzed
             }
 
@@ -223,29 +210,20 @@ public class BaseItemAnalyzerTask
         {
             new ChapterAnalyzer(_loggerFactory.CreateLogger<ChapterAnalyzer>())
         };
-        if (first.IsAnime)
-        {
-            if (Plugin.Instance!.Configuration.UseChromaprint)
-            {
-                analyzers.Add(new ChromaprintAnalyzer(_loggerFactory.CreateLogger<ChromaprintAnalyzer>()));
-            }
 
-            if (mode == AnalysisMode.Credits)
-            {
-                analyzers.Add(new BlackFrameAnalyzer(_loggerFactory.CreateLogger<BlackFrameAnalyzer>()));
-            }
+        if (first.IsAnime && Plugin.Instance!.Configuration.UseChromaprint)
+        {
+            analyzers.Add(new ChromaprintAnalyzer(_loggerFactory.CreateLogger<ChromaprintAnalyzer>()));
         }
-        else
-        {
-            if (mode == AnalysisMode.Credits)
-            {
-                analyzers.Add(new BlackFrameAnalyzer(_loggerFactory.CreateLogger<BlackFrameAnalyzer>()));
-            }
 
-            if (Plugin.Instance!.Configuration.UseChromaprint)
-            {
-                analyzers.Add(new ChromaprintAnalyzer(_loggerFactory.CreateLogger<ChromaprintAnalyzer>()));
-            }
+        if (mode == AnalysisMode.Credits)
+        {
+            analyzers.Add(new BlackFrameAnalyzer(_loggerFactory.CreateLogger<BlackFrameAnalyzer>()));
+        }
+
+        if (!first.IsAnime && Plugin.Instance!.Configuration.UseChromaprint)
+        {
+            analyzers.Add(new ChromaprintAnalyzer(_loggerFactory.CreateLogger<ChromaprintAnalyzer>()));
         }
 
         // Use each analyzer to find skippable ranges in all media files, removing successfully
