@@ -25,6 +25,9 @@ jobs:
     name: Analyze
     runs-on: ubuntu-latest
 
+    # This job will only run if the repository is public
+    if: ${{ github.event.repository.private == false }}
+
     strategy:
       fail-fast: false
       matrix:
@@ -49,7 +52,9 @@ jobs:
       with:
         languages: ${{ matrix.language }}
         queries: +security-extended
+        
     - name: Autobuild
       uses: github/codeql-action/autobuild@294a9d92911152fe08befb9ec03e240add280cb3 # v3.26.8
+
     - name: Perform CodeQL Analysis
       uses: github/codeql-action/analyze@294a9d92911152fe08befb9ec03e240add280cb3 # v3.26.8
