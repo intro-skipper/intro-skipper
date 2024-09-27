@@ -22,6 +22,13 @@ if (!fs.existsSync(readmePath)) {
     process.exit(1);
 }
 
+// Read .github/ISSUE_TEMPLATE/bug_report_form.yml
+const bugReportFormPath = './.github/ISSUE_TEMPLATE/bug_report_form.yml';
+if (!fs.existsSync(bugReportFormPath)) {
+    console.error(`${bugReportFormPath} file not found`);
+    process.exit(1);
+}
+
 const jsonData = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
 
 async function updateManifest() {
@@ -41,7 +48,8 @@ async function updateManifest() {
     jsonData[0].versions.unshift(newVersion);
 
     console.log('Manifest updated successfully.');
-    updateReadMeVersion();
+    updateDocsVersion(readmePath);
+    updateDocsVersion(bugReportFormPath);
 
     cleanUpOldReleases();
 
@@ -109,16 +117,16 @@ function getMD5FromFile() {
     return crypto.createHash('md5').update(fileBuffer).digest('hex');
 }
 
-function updateReadMeVersion() {
-    const readMeContent = fs.readFileSync(readmePath, 'utf8');
+function updateDocsVersion(docsPath) {
+    const readMeContent = fs.readFileSync(docsPath, 'utf8');
 
     const updatedContent = readMeContent
         .replace(/Jellyfin.*\(or newer\)/, `Jellyfin ${currentVersion} (or newer)`)
     if (readMeContent != updatedContent) {
-        fs.writeFileSync(readmePath, updatedContent);
-        console.log('Updated README with new Jellyfin version.');
+        fs.writeFileSync(docsPath, updatedContent);
+        console.log(`Updated ${docsPath} with new Jellyfin version.`);
     } else {
-        console.log('README has already newest Jellyfin version.');
+        console.log(`${docsPath} has already newest Jellyfin version.`);
     }
 }
 

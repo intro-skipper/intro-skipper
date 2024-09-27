@@ -59,6 +59,6 @@ jobs:
       run: |
         git config --global user.name "github-actions[bot]"
         git config --global user.email "github-actions[bot]@users.noreply.github.com"
-        git add README.md manifest.json ConfusedPolarBear.Plugin.IntroSkipper/ConfusedPolarBear.Plugin.IntroSkipper.csproj
+        git add README.md manifest.json ConfusedPolarBear.Plugin.IntroSkipper/ConfusedPolarBear.Plugin.IntroSkipper.csproj .github/ISSUE_TEMPLATE/bug_report_form.yml
         git commit -m "release v${{ env.NEW_FILE_VERSION }}"
         git push
