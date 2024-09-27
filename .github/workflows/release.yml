@@ -58,6 +58,7 @@ jobs:
       env:
         VERSION: ${{ env.NEW_FILE_VERSION }}
         GITHUB_REPOSITORY: ${{ github.repository }}
+        GITHUB_REPO_VISIBILITY: ${{ github.event.repository.visibility }}
 
     - name: Commit changes
       if: success()

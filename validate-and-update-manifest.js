@@ -5,6 +5,7 @@ const { URL } = require('url');
 
 const repository = process.env.GITHUB_REPOSITORY;
 const version = process.env.VERSION;
+const gitHubRepoVisibilty = process.env.GITHUB_REPO_VISIBILITY
 let currentVersion = "";
 let targetAbi = "";
 
@@ -42,7 +43,11 @@ async function updateManifest() {
         checksum: getMD5FromFile(),
         timestamp: new Date().toISOString().replace(/\.\d{3}Z$/, 'Z')
     };
-    await validVersion(newVersion);
+
+    console.log(`Repo is ${gitHubRepoVisibilty}.`);
+    if (gitHubRepoVisibilty === 'public') {
+        await validVersion(newVersion);
+    }
 
     // Add the new version to the manifest
     jsonData[0].versions.unshift(newVersion);
