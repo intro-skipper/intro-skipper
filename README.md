@@ -13,9 +13,6 @@
     https://raw.githubusercontent.com/intro-skipper/intro-skipper/master/manifest.json
 </div>
 
-## Jellyfin 10.8 (previous version)
-👉👉👉 [Jellyfin 10.8 Instructions](https://github.com/intro-skipper/intro-skipper/blob/10.8/README.md)
-
 ## System requirements
 
 * The [latest](https://github.com/jellyfin/jellyfin/releases/latest) Jellyfin 10.9 release
@@ -24,6 +21,9 @@
   * `linuxserver/jellyfin` 10.9.z container: preinstalled
   * Debian Linux based native installs: provided by the `jellyfin-ffmpeg6` package
   * MacOS native installs: build ffmpeg with chromaprint support ([instructions](https://github.com/intro-skipper/intro-skipper/wiki/Custom-FFMPEG-(MacOS)))
+ 
+## Jellyfin 10.8 (previous version)
+👉👉👉 [Jellyfin 10.8 Instructions](https://github.com/intro-skipper/intro-skipper/blob/10.8/README.md)
 
 ## Detection parameters
 
