@@ -895,7 +895,7 @@
             }
 
             function updateListUsers(textField, container, users) {
-                // get the user id from the user name. query the selectation who is not checked
+                // Create a comma-separated list of user IDs from the unchecked checkboxes
                 textField.value = Array.from(container.querySelectorAll('input[type="checkbox"]:not(:checked)'))
                     .map(checkbox => users.find(user => user.Name === checkbox.nextElementSibling.textContent).Id)
                     .join(', ');
