@@ -50,20 +50,15 @@ public class QueueManager(ILogger<QueueManager> logger, ILibraryManager libraryM
 
             _logger.LogInformation("Running enqueue of items in library {Name}", folder.Name);
 
+            // Some virtual folders don't have a proper item id.
+            if (!Guid.TryParse(folder.ItemId, out var folderId))
+            {
+                continue;
+            }
+
             try
             {
-                foreach (var location in folder.Locations)
-                {
-                    var item = _libraryManager.FindByPath(location, true);
-
-                    if (item is null)
-                    {
-                        _logger.LogWarning("Unable to find linked item at path {0}", location);
-                        continue;
-                    }
-
-                    QueueLibraryContents(item.Id);
-                }
+                QueueLibraryContents(folderId);
             }
             catch (Exception ex)
             {
@@ -126,7 +121,7 @@ public class QueueManager(ILogger<QueueManager> logger, ILibraryManager libraryM
         {
             // Order by series name, season, and then episode number so that status updates are logged in order
             ParentId = id,
-            OrderBy = [(ItemSortBy.SeriesSortName, SortOrder.Ascending), (ItemSortBy.ParentIndexNumber, SortOrder.Ascending), (ItemSortBy.IndexNumber, SortOrder.Ascending),],
+            OrderBy = [(ItemSortBy.SeriesSortName, SortOrder.Ascending), (ItemSortBy.ParentIndexNumber, SortOrder.Descending), (ItemSortBy.IndexNumber, SortOrder.Ascending),],
             IncludeItemTypes = [BaseItemKind.Episode],
             Recursive = true,
             IsVirtualItem = false
@@ -172,10 +167,11 @@ public class QueueManager(ILogger<QueueManager> logger, ILibraryManager libraryM
         }
 
         // Allocate a new list for each new season
-        if (!_queuedEpisodes.TryGetValue(episode.SeasonId, out var seasonEpisodes))
+        var seasonId = GetSeasonId(episode);
+        if (!_queuedEpisodes.TryGetValue(seasonId, out var seasonEpisodes))
         {
             seasonEpisodes = [];
-            _queuedEpisodes[episode.SeasonId] = seasonEpisodes;
+            _queuedEpisodes[seasonId] = seasonEpisodes;
         }
 
         if (seasonEpisodes.Any(e => e.EpisodeId == episode.Id))
@@ -212,6 +208,24 @@ public class QueueManager(ILogger<QueueManager> logger, ILibraryManager libraryM
         });
 
         pluginInstance.TotalQueued++;
+    }
+
+    private Guid GetSeasonId(Episode episode)
+    {
+        if (episode.ParentIndexNumber == 0 && episode.AiredSeasonNumber != 0) // In-season special
+        {
+            foreach (var kvp in _queuedEpisodes)
+            {
+                var first = kvp.Value.FirstOrDefault();
+                if (first?.SeriesName == episode.SeriesName &&
+                    first.SeasonNumber == episode.AiredSeasonNumber)
+                {
+                    return kvp.Key;
+                }
+            }
+        }
+
+        return episode.SeasonId;
     }
 
     /// <summary>
