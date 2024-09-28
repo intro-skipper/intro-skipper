@@ -217,7 +217,7 @@ public class QueueManager(ILogger<QueueManager> logger, ILibraryManager libraryM
             foreach (var kvp in _queuedEpisodes)
             {
                 var first = kvp.Value.FirstOrDefault();
-                if (first?.SeriesName == episode.SeriesName &&
+                if (first?.SeriesId == episode.SeriesId &&
                     first.SeasonNumber == episode.AiredSeasonNumber)
                 {
                     return kvp.Key;
