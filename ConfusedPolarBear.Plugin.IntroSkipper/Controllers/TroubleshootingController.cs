@@ -3,7 +3,6 @@ using System.Globalization;
 using System.IO;
 using System.Net.Mime;
 using System.Text;
-using ConfusedPolarBear.Plugin.IntroSkipper.Data;
 using ConfusedPolarBear.Plugin.IntroSkipper.Helper;
 using MediaBrowser.Common;
 using MediaBrowser.Common.Api;
@@ -54,20 +53,24 @@ public class TroubleshootingController : ControllerBase
     {
         ArgumentNullException.ThrowIfNull(Plugin.Instance);
 
-        var bundle = new StringBuilder();
+        var bundle = new StringBuilder()
+            .AppendLine(CultureInfo.InvariantCulture, $"* Jellyfin version: {_applicationHost.ApplicationVersionString}")
+            .AppendLine(CultureInfo.InvariantCulture, $"* Plugin version: {GetPluginVersion()}")
+            .AppendLine(CultureInfo.InvariantCulture, $"* Queue contents: {Plugin.Instance.TotalQueued} episodes, {Plugin.Instance.TotalSeasons} seasons")
+            .Append(FFmpegWrapper.GetChromaprintLogs());
 
-        bundle.Append("* Jellyfin version: ");
-        bundle.Append(_applicationHost.ApplicationVersionString);
-        bundle.Append('\n');
+        return bundle.ToString();
+    }
 
-        var version = Plugin.Instance.Version.ToString(3);
-
+    private string GetPluginVersion()
+    {
+        var version = Plugin.Instance?.Version?.ToString(3) ?? "Unknown";
         try
         {
             var commit = Commit.CommitHash;
             if (!string.IsNullOrWhiteSpace(commit))
             {
-                version += string.Concat("+", commit.AsSpan(0, 12));
+                version += $"+{commit[..12]}";
             }
         }
         catch (Exception ex)
@@ -75,23 +78,7 @@ public class TroubleshootingController : ControllerBase
             _logger.LogWarning("Unable to append commit to version: {Exception}", ex);
         }
 
-        bundle.Append("* Plugin version: ");
-        bundle.Append(version);
-        bundle.Append('\n');
-
-        bundle.Append("* Queue contents: ");
-        bundle.Append(Plugin.Instance.TotalQueued);
-        bundle.Append(" episodes, ");
-        bundle.Append(Plugin.Instance.TotalSeasons);
-        bundle.Append(" seasons\n");
-
-        bundle.Append("* Warnings: `");
-        bundle.Append(WarningManager.GetWarnings());
-        bundle.Append("`\n");
-
-        bundle.Append(FFmpegWrapper.GetChromaprintLogs());
-
-        return bundle.ToString();
+        return version;
     }
 
     /// <summary>
@@ -106,26 +93,23 @@ public class TroubleshootingController : ControllerBase
         ArgumentNullException.ThrowIfNull(Plugin.Instance);
         var bundle = new StringBuilder();
 
-        var libraries = _libraryManager.GetVirtualFolders();
-        foreach (var library in libraries)
+        foreach (var library in _libraryManager.GetVirtualFolders())
         {
             try
             {
-                DriveInfo driveInfo = new DriveInfo(library.Locations[0]);
-                // Get available free space in bytes
-                long availableFreeSpace = driveInfo.AvailableFreeSpace;
+                var driveInfo = new DriveInfo(library.Locations[0]);
+                var usedSpacePercentage = driveInfo.TotalSize > 0
+                    ? (driveInfo.TotalSize - driveInfo.AvailableFreeSpace) / (double)driveInfo.TotalSize * 100
+                    : 0;
 
-                // Get total size of the drive in bytes
-                long totalSize = driveInfo.TotalSize;
-
-                // Get total used space in Percentage
-                double usedSpacePercentage = totalSize > 0 ? (totalSize - availableFreeSpace) / (double)totalSize * 100 : 0;
-
-                bundle.Append(CultureInfo.CurrentCulture, $"Library: {library.Name}\n");
-                bundle.Append(CultureInfo.CurrentCulture, $"Drive: {driveInfo.Name}\n");
-                bundle.Append(CultureInfo.CurrentCulture, $"Total Size: {GetHumanReadableSize(totalSize)}\n");
-                bundle.Append(CultureInfo.CurrentCulture, $"Available Free Space: {GetHumanReadableSize(availableFreeSpace)}\n");
-                bundle.Append(CultureInfo.CurrentCulture, $"Total used in Percentage: {Math.Round(usedSpacePercentage, 2)}%\n\n");
+                bundle.AppendFormat(
+                    CultureInfo.CurrentCulture,
+                    "Library: {0}\nDrive: {1}\nTotal Size: {2}\nAvailable Free Space: {3}\nTotal used in Percentage: {4:F2}%\n\n",
+                    library.Name,
+                    driveInfo.Name,
+                    GetHumanReadableSize(driveInfo.TotalSize),
+                    GetHumanReadableSize(driveInfo.AvailableFreeSpace),
+                    usedSpacePercentage);
             }
             catch (Exception ex)
             {
@@ -139,8 +123,8 @@ public class TroubleshootingController : ControllerBase
     private static string GetHumanReadableSize(long bytes)
     {
         string[] sizes = ["Bytes", "KB", "MB", "GB", "TB", "PB", "EB", "ZB", "YB"];
-        double len = bytes;
         int order = 0;
+        double len = bytes;
 
         while (len >= 1024 && order < sizes.Length - 1)
         {

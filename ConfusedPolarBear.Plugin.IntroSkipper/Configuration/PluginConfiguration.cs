@@ -5,10 +5,28 @@ using MediaBrowser.Model.Plugins;
 namespace ConfusedPolarBear.Plugin.IntroSkipper.Configuration;
 
 /// <summary>
-/// Plugin configuration.
+/// Represents the configuration for the IntroSkipper plugin.
 /// </summary>
 public class PluginConfiguration : BasePluginConfiguration
 {
+    /// <summary>
+    /// Default list of clients.
+    /// </summary>
+    private const string DefaultClientList = "Android TV, Kodi";
+
+    /// <summary>
+    /// Default pattern for detecting intros.
+    /// </summary>
+    private const string DefaultIntroPattern = @"(^|\s)(Intro|Introduction|OP|Opening)(\s|$)";
+
+    /// <summary>
+    /// Default pattern for detecting credits.
+    /// </summary>
+    private const string DefaultCreditsPattern = @"(^|\s)(Credits?|ED|Ending|End|Outro)(\s|$)";
+
+    /// <summary>
+    /// Backing field for SelectAllLibraries property.
+    /// </summary>
     private bool? _selectAllLibraries;
 
     /// <summary>
@@ -16,22 +34,50 @@ public class PluginConfiguration : BasePluginConfiguration
     /// </summary>
     public PluginConfiguration()
     {
+        // Initialize default values
+        MaxParallelism = 2;
+        ClientList = DefaultClientList;
+        AnalysisPercent = 25;
+        AnalysisLengthLimit = 10;
+        MinimumIntroDuration = 15;
+        MaximumIntroDuration = 120;
+        MinimumCreditsDuration = 15;
+        MaximumCreditsDuration = 300;
+        BlackFrameMinimumPercentage = 85;
+        ChapterAnalyzerIntroductionPattern = DefaultIntroPattern;
+        ChapterAnalyzerEndCreditsPattern = DefaultCreditsPattern;
+        SkipButtonVisible = true;
+        ShowPromptAdjustment = 5;
+        HidePromptAdjustment = 10;
+        SkipFirstEpisode = true;
+        PersistSkipButton = true;
+        RemainingSecondsOfIntro = 2;
+        MaximumFingerprintPointDifferences = 6;
+        MaximumTimeSkip = 3.5;
+        InvertedIndexShift = 2;
+        SilenceDetectionMaximumNoise = -50;
+        SilenceDetectionMinimumDuration = 0.33;
+        SkipButtonIntroText = "Skip Intro";
+        SkipButtonEndCreditsText = "Next";
+        AutoSkipNotificationText = "Intro skipped";
+        AutoSkipCreditsNotificationText = "Credits skipped";
+        ProcessPriority = ProcessPriorityClass.BelowNormal;
     }
 
-    // ===== Analysis settings =====
+    // Analysis settings
 
     /// <summary>
-    /// Gets or sets the max degree of parallelism used when analyzing episodes.
+    /// Gets or sets the maximum number of parallel operations.
     /// </summary>
-    public int MaxParallelism { get; set; } = 2;
+    public int MaxParallelism { get; set; }
 
     /// <summary>
-    /// Gets or sets the comma separated list of library names to analyze.
+    /// Gets or sets the selected libraries.
     /// </summary>
     public string SelectedLibraries { get; set; } = string.Empty;
 
     /// <summary>
-    /// Gets or sets a value indicating whether all libraries should be analyzed.
+    /// Gets or sets a value indicating whether all libraries are selected.
     /// </summary>
     public bool SelectAllLibraries
     {
@@ -40,208 +86,204 @@ public class PluginConfiguration : BasePluginConfiguration
     }
 
     /// <summary>
-    /// Gets or sets the list of client to auto skip for.
+    /// Gets or sets the list of clients.
     /// </summary>
-    public string ClientList { get; set; } = "Android TV, Kodi";
+    public string ClientList { get; set; }
 
     /// <summary>
-    /// Gets or sets a value indicating whether to scan for intros during a scheduled task.
+    /// Gets or sets a value indicating whether to auto-detect intros.
     /// </summary>
-    public bool AutoDetectIntros { get; set; } = false;
+    public bool AutoDetectIntros { get; set; }
 
     /// <summary>
-    /// Gets or sets a value indicating whether to scan for credits during a scheduled task.
+    /// Gets or sets a value indicating whether to auto-detect credits.
     /// </summary>
-    public bool AutoDetectCredits { get; set; } = false;
+    public bool AutoDetectCredits { get; set; }
 
     /// <summary>
-    /// Gets or sets a value indicating whether to analyze season 0.
+    /// Gets or sets a value indicating whether to analyze season zero.
     /// </summary>
-    public bool AnalyzeSeasonZero { get; set; } = false;
+    public bool AnalyzeSeasonZero { get; set; }
 
     /// <summary>
-    /// Gets or sets a value indicating whether the episode's fingerprint should be cached to the filesystem.
+    /// Gets or sets a value indicating whether to cache fingerprints.
     /// </summary>
     public bool CacheFingerprints { get; set; } = true;
 
     /// <summary>
-    /// Gets or sets a value indicating whether analysis will use Chromaprint to determine fingerprints.
+    /// Gets or sets a value indicating whether to use Chromaprint.
     /// </summary>
     public bool UseChromaprint { get; set; } = true;
 
-    // ===== EDL handling =====
+    // EDL handling
 
     /// <summary>
-    /// Gets or sets a value indicating the action to write to created EDL files.
+    /// Gets or sets the EDL action.
     /// </summary>
     public EdlAction EdlAction { get; set; } = EdlAction.None;
 
     /// <summary>
-    /// Gets or sets a value indicating whether to regenerate all EDL files during the next scan.
-    /// By default, EDL files are only written for a season if the season had at least one newly analyzed episode.
-    /// If this is set, all EDL files will be regenerated and overwrite any existing EDL file.
+    /// Gets or sets a value indicating whether to regenerate EDL files.
     /// </summary>
     public bool RegenerateEdlFiles { get; set; }
 
-    // ===== Custom analysis settings =====
+    // Custom analysis settings
 
     /// <summary>
-    /// Gets or sets the percentage of each episode's audio track to analyze.
+    /// Gets or sets the analysis percent.
     /// </summary>
-    public int AnalysisPercent { get; set; } = 25;
+    public int AnalysisPercent { get; set; }
 
     /// <summary>
-    /// Gets or sets the upper limit (in minutes) on the length of each episode's audio track that will be analyzed.
+    /// Gets or sets the analysis length limit.
     /// </summary>
-    public int AnalysisLengthLimit { get; set; } = 10;
+    public int AnalysisLengthLimit { get; set; }
 
     /// <summary>
-    /// Gets or sets the minimum length of similar audio that will be considered an introduction.
+    /// Gets or sets the minimum intro duration.
     /// </summary>
-    public int MinimumIntroDuration { get; set; } = 15;
+    public int MinimumIntroDuration { get; set; }
 
     /// <summary>
-    /// Gets or sets the maximum length of similar audio that will be considered an introduction.
+    /// Gets or sets the maximum intro duration.
     /// </summary>
-    public int MaximumIntroDuration { get; set; } = 120;
+    public int MaximumIntroDuration { get; set; }
 
     /// <summary>
-    /// Gets or sets the minimum length of similar audio that will be considered ending credits.
+    /// Gets or sets the minimum credits duration.
     /// </summary>
-    public int MinimumCreditsDuration { get; set; } = 15;
+    public int MinimumCreditsDuration { get; set; }
 
     /// <summary>
-    /// Gets or sets the upper limit (in seconds) on the length of each episode's audio track that will be analyzed when searching for ending credits.
+    /// Gets or sets the maximum credits duration.
     /// </summary>
-    public int MaximumCreditsDuration { get; set; } = 300;
+    public int MaximumCreditsDuration { get; set; }
 
     /// <summary>
-    /// Gets or sets the minimum percentage of a frame that must consist of black pixels before it is considered a black frame.
+    /// Gets or sets the minimum percentage for black frame detection.
     /// </summary>
-    public int BlackFrameMinimumPercentage { get; set; } = 85;
+    public int BlackFrameMinimumPercentage { get; set; }
 
     /// <summary>
-    /// Gets or sets the regular expression used to detect introduction chapters.
+    /// Gets or sets the pattern for detecting introductions in chapter analysis.
     /// </summary>
-    public string ChapterAnalyzerIntroductionPattern { get; set; } =
-        @"(^|\s)(Intro|Introduction|OP|Opening)(\s|$)";
+    public string ChapterAnalyzerIntroductionPattern { get; set; }
 
     /// <summary>
-    /// Gets or sets the regular expression used to detect ending credit chapters.
+    /// Gets or sets the pattern for detecting end credits in chapter analysis.
     /// </summary>
-    public string ChapterAnalyzerEndCreditsPattern { get; set; } =
-        @"(^|\s)(Credits?|ED|Ending|End|Outro)(\s|$)";
+    public string ChapterAnalyzerEndCreditsPattern { get; set; }
 
-    // ===== Playback settings =====
+    // Playback settings
 
     /// <summary>
-    /// Gets or sets a value indicating whether to show the skip intro button.
+    /// Gets or sets a value indicating whether the skip button is visible.
     /// </summary>
-    public bool SkipButtonVisible { get; set; } = true;
+    public bool SkipButtonVisible { get; set; }
 
     /// <summary>
-    /// Gets or sets a value indicating whether introductions should be automatically skipped.
+    /// Gets or sets a value indicating whether to auto-skip.
     /// </summary>
     public bool AutoSkip { get; set; }
 
     /// <summary>
-    /// Gets or sets a value indicating whether credits should be automatically skipped.
+    /// Gets or sets a value indicating whether to auto-skip credits.
     /// </summary>
     public bool AutoSkipCredits { get; set; }
 
     /// <summary>
-    /// Gets or sets the seconds before the intro starts to show the skip prompt at.
+    /// Gets or sets the adjustment for showing the prompt.
     /// </summary>
-    public int ShowPromptAdjustment { get; set; } = 5;
+    public int ShowPromptAdjustment { get; set; }
 
     /// <summary>
-    /// Gets or sets the seconds after the intro starts to hide the skip prompt at.
+    /// Gets or sets the adjustment for hiding the prompt.
     /// </summary>
-    public int HidePromptAdjustment { get; set; } = 10;
+    public int HidePromptAdjustment { get; set; }
 
     /// <summary>
-    /// Gets or sets a value indicating whether the introduction in the first episode of a season should be ignored.
+    /// Gets or sets a value indicating whether to skip the first episode.
     /// </summary>
-    public bool SkipFirstEpisode { get; set; } = true;
+    public bool SkipFirstEpisode { get; set; }
 
     /// <summary>
-    /// Gets or sets a value indicating whether the skip button should be displayed for the duration of the intro.
+    /// Gets or sets a value indicating whether to persist the skip button.
     /// </summary>
-    public bool PersistSkipButton { get; set; } = true;
+    public bool PersistSkipButton { get; set; }
 
     /// <summary>
-    /// Gets or sets the amount of intro to play (in seconds).
+    /// Gets or sets the remaining seconds of intro to play.
     /// </summary>
-    public int RemainingSecondsOfIntro { get; set; } = 2;
+    public int RemainingSecondsOfIntro { get; set; }
 
     /// <summary>
-    /// Gets or sets the amount of intro at start to play (in seconds).
+    /// Gets or sets the seconds of intro start to play.
     /// </summary>
-    public int SecondsOfIntroStartToPlay { get; set; } = 0;
+    public int SecondsOfIntroStartToPlay { get; set; }
 
     /// <summary>
-    /// Gets or sets the amount of credit at start to play (in seconds).
+    /// Gets or sets the seconds of credits start to play.
     /// </summary>
     public int SecondsOfCreditsStartToPlay { get; set; }
 
-    // ===== Internal algorithm settings =====
+    // Internal algorithm settings
 
     /// <summary>
-    /// Gets or sets the maximum number of bits (out of 32 total) that can be different between two Chromaprint points before they are considered dissimilar.
-    /// Defaults to 6 (81% similar).
+    /// Gets or sets the maximum fingerprint point differences.
     /// </summary>
-    public int MaximumFingerprintPointDifferences { get; set; } = 6;
+    public int MaximumFingerprintPointDifferences { get; set; }
 
     /// <summary>
-    /// Gets or sets the maximum number of seconds that can pass between two similar fingerprint points before a new time range is started.
+    /// Gets or sets the maximum time skip.
     /// </summary>
-    public double MaximumTimeSkip { get; set; } = 3.5;
+    public double MaximumTimeSkip { get; set; }
 
     /// <summary>
-    /// Gets or sets the amount to shift inverted indexes by.
+    /// Gets or sets the inverted index shift.
     /// </summary>
-    public int InvertedIndexShift { get; set; } = 2;
+    public int InvertedIndexShift { get; set; }
 
     /// <summary>
-    /// Gets or sets the maximum amount of noise (in dB) that is considered silent.
-    /// Lowering this number will increase the filter's sensitivity to noise.
+    /// Gets or sets the maximum noise for silence detection.
     /// </summary>
-    public int SilenceDetectionMaximumNoise { get; set; } = -50;
+    public int SilenceDetectionMaximumNoise { get; set; }
 
     /// <summary>
-    /// Gets or sets the minimum duration of audio (in seconds) that is considered silent.
+    /// Gets or sets the minimum duration for silence detection.
     /// </summary>
-    public double SilenceDetectionMinimumDuration { get; set; } = 0.33;
+    public double SilenceDetectionMinimumDuration { get; set; }
 
-    // ===== Localization support =====
+    // Localization support
 
     /// <summary>
-    /// Gets or sets the text to display in the skip button in introduction mode.
+    /// Gets or sets the text for the skip intro button.
     /// </summary>
-    public string SkipButtonIntroText { get; set; } = "Skip Intro";
+    public string SkipButtonIntroText { get; set; }
 
     /// <summary>
-    /// Gets or sets the text to display in the skip button in end credits mode.
+    /// Gets or sets the text for the skip end credits button.
     /// </summary>
-    public string SkipButtonEndCreditsText { get; set; } = "Next";
+    public string SkipButtonEndCreditsText { get; set; }
 
     /// <summary>
-    /// Gets or sets the notification text sent after automatically skipping an introduction.
+    /// Gets or sets the text for the auto-skip intro notification.
     /// </summary>
-    public string AutoSkipNotificationText { get; set; } = "Intro skipped";
+    public string AutoSkipNotificationText { get; set; }
 
     /// <summary>
-    /// Gets or sets the notification text sent after automatically skipping credits.
+    /// Gets or sets the text for the auto-skip credits notification.
     /// </summary>
-    public string AutoSkipCreditsNotificationText { get; set; } = "Credits skipped";
+    public string AutoSkipCreditsNotificationText { get; set; }
+
+    // Process settings
 
     /// <summary>
-    /// Gets or sets the number of threads for an ffmpeg process.
+    /// Gets or sets the number of process threads.
     /// </summary>
     public int ProcessThreads { get; set; }
 
     /// <summary>
-    /// Gets or sets the relative priority for an ffmpeg process.
+    /// Gets or sets the process priority.
     /// </summary>
-    public ProcessPriorityClass ProcessPriority { get; set; } = ProcessPriorityClass.BelowNormal;
+    public ProcessPriorityClass ProcessPriority { get; set; }
 }
