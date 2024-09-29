@@ -13,12 +13,7 @@ jobs:
 
     steps:
     - uses: actions/checkout@v4
-
-    - name: Set up Node.js
-      uses: actions/setup-node@v4
-      with:
-        node-version: 'lts/*'
-
+    
     - name: Setup .NET
       uses: actions/setup-dotnet@v4
       with:
@@ -28,7 +23,9 @@ jobs:
       run: dotnet restore
 
     - name: Run update version
-      run: node update-version.js
+      uses: intro-skipper/intro-skipper-action-ts@main
+      with:
+        task-type: 'updateVersion'
 
     - name: Embed version info
       run: |
@@ -54,10 +51,10 @@ jobs:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
     - name: Run validation and update script
-      run: node validate-and-update-manifest.js
+      uses: intro-skipper/intro-skipper-action-ts@main
+      with:
+        task-type: 'updateManifest'
       env:
-        VERSION: ${{ env.NEW_FILE_VERSION }}
-        GITHUB_REPOSITORY: ${{ github.repository }}
         GITHUB_REPO_VISIBILITY: ${{ github.event.repository.visibility }}
 
     - name: Commit changes

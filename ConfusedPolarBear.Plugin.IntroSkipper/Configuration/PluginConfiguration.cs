@@ -140,6 +140,11 @@ public class PluginConfiguration : BasePluginConfiguration
     public bool SkipButtonVisible { get; set; } = true;
 
     /// <summary>
+    /// Gets a value indicating whether to show the skip intro warning.
+    /// </summary>
+    public bool SkipButtonWarning { get => WarningManager.HasFlag(PluginWarning.UnableToAddSkipButton); }
+
+    /// <summary>
     /// Gets or sets a value indicating whether introductions should be automatically skipped.
     /// </summary>
     public bool AutoSkip { get; set; }
