@@ -739,7 +739,6 @@
             var shows = {};
 
             var IgnoreListSeasonId;
-            var ShowButtonWarning = false;
 
             // settings elements
             var visualizer = document.querySelector("details#visualizer");
@@ -826,15 +825,6 @@
             var autoSkipNotificationText = document.querySelector("div#divAutoSkipNotificationText");
             var autoSkipCredits = document.querySelector("input#AutoSkipCredits");
             var autoSkipCreditsNotificationText = document.querySelector("div#divAutoSkipCreditsNotificationText");
-
-            function skipButtonWarning() {
-                if (ShowButtonWarning) {
-                    document.getElementById("SkipButtonContainer").style.display = 'none';
-                    document.getElementById("PersistContainer").style.display = 'none';
-                } else {
-                    document.getElementById("warningMessage").style.display = 'none';
-                }
-            }
 
             function autoSkipChanged() {
                 if (autoSkip.checked) {
@@ -1310,10 +1300,14 @@
                             document.querySelector("#" + field).checked = config[field];
                         }
 
-                        ShowButtonWarning = config["SkipButtonWarning"];
+                        if (config["SkipButtonWarning"]) {
+                            document.getElementById("SkipButtonContainer").style.display = 'none';
+                            document.getElementById("PersistContainer").style.display = 'none';
+                        } else {
+                            document.getElementById("warningMessage").style.display = 'none';
+                        }
 
                         populateLibraries();
-                        skipButtonWarning();
                         selectAllLibrariesChanged();
                         autoSkipChanged();
                         autoSkipCreditsChanged();
