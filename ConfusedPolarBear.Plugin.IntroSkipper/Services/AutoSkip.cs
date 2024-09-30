@@ -128,7 +128,7 @@ public class AutoSkip(
             }
 
             // Seek is unreliable if called at the very start of an episode.
-            var adjustedStart = Math.Max(5, intro.Start + Plugin.Instance.Configuration.SecondsOfIntroStartToPlay);
+            var adjustedStart = Math.Max(1, intro.Start + Plugin.Instance.Configuration.SecondsOfIntroStartToPlay);
             var adjustedEnd = intro.End - Plugin.Instance.Configuration.RemainingSecondsOfIntro;
 
             _logger.LogTrace(
