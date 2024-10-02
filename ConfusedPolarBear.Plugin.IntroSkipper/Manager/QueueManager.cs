@@ -4,6 +4,7 @@ using System.IO;
 using System.Linq;
 using ConfusedPolarBear.Plugin.IntroSkipper.Data;
 using Jellyfin.Data.Enums;
+using Jellyfin.Extensions;
 using MediaBrowser.Controller.Entities;
 using MediaBrowser.Controller.Entities.TV;
 using MediaBrowser.Controller.Library;
@@ -186,7 +187,8 @@ public class QueueManager(ILogger<QueueManager> logger, ILibraryManager libraryM
 
         var isAnime = seasonEpisodes.FirstOrDefault()?.IsAnime ??
             (pluginInstance.GetItem(episode.SeriesId) is Series series &&
-            series.Tags.Concat(series.Genres).Any(tag => tag.Equals("anime", StringComparison.OrdinalIgnoreCase)));
+                (series.Tags.Contains("anime", StringComparison.OrdinalIgnoreCase) ||
+                series.Genres.Contains("anime", StringComparison.OrdinalIgnoreCase)));
 
         // Limit analysis to the first X% of the episode and at most Y minutes.
         // X and Y default to 25% and 10 minutes.
