@@ -44,10 +44,10 @@ public class AutoSkipCredits(
     private void AutoSkipCreditChanged(object? sender, BasePluginConfiguration e)
     {
         var configuration = (PluginConfiguration)e;
-        var newState = configuration.AutoSkipCredits;
+        _clientList = [.. configuration.ClientList.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)];
+        var newState = configuration.AutoSkipCredits || (configuration.SkipButtonVisible && _clientList.Count > 0);
         _logger.LogDebug("Setting playback timer enabled to {NewState}", newState);
         _playbackTimer.Enabled = newState;
-        _clientList = [.. configuration.ClientList.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)];
     }
 
     private void UserDataManager_UserDataSaved(object? sender, UserDataSaveEventArgs e)
@@ -105,7 +105,7 @@ public class AutoSkipCredits(
 
     private void PlaybackTimer_Elapsed(object? sender, ElapsedEventArgs e)
     {
-        foreach (var session in _sessionManager.Sessions.Where(s => _clientList.Contains(s.Client, StringComparer.OrdinalIgnoreCase)))
+        foreach (var session in _sessionManager.Sessions.Where(s => Plugin.Instance!.Configuration.AutoSkipCredits || (Plugin.Instance!.Configuration.SkipButtonVisible && _clientList.Contains(s.Client, StringComparer.OrdinalIgnoreCase))))
         {
             var deviceId = session.DeviceId;
             var itemId = session.NowPlayingItem.Id;

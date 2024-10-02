@@ -357,7 +357,8 @@
                             </label>
 
                             <div class="fieldDescription">
-                                If checked, intros will be automatically skipped for Apps without Skip Button.
+                                If checked, intros will be automatically skipped for <strong>all</strong> clients. 
+                                Individual clients can override this setting from the client player options.<br />
                                 If you access Jellyfin through a reverse proxy, it must be configured to proxy websockets.<br />
                             </div>
                         </div>
@@ -392,7 +393,8 @@
                             </label>
 
                             <div class="fieldDescription">
-                                If checked, credits will be automatically skipped for Apps without Skip Button.
+                                If checked, credits will be automatically skipped for <strong>all</strong> clients. 
+                                Individual clients can override this setting from the client player options.<br />
                                 If you access Jellyfin through a reverse proxy, it must be configured to proxy websockets.<br />
                             </div>
                         </div>
@@ -408,6 +410,23 @@
                             <br />
                         </div>
 
+                        <div id="SkipButtonContainer" class="checkboxContainer checkboxContainer-withDescription">
+                            <label class="emby-checkbox-label">
+                                <input id="SkipButtonVisible" type="checkbox" is="emby-checkbox" />
+                                <span id="SkipButtonVisibleLabel">Show skip intro / credit button</span>
+                            </label>
+
+                            <div class="fieldDescription">
+                                If checked, a skip button will be displayed according to the settings below, while 
+                                clients selected in the Auto Skip Client List will skip <strong>automatically</strong>.
+                                <br />
+                            </div>
+                        </div>
+
+                        <div id="warningMessage" style="color: #721c24; background-color: #f7cf1f; border: 1px solid #f5c6cb; border-radius: 4px; padding: 10px; margin-bottom: 10px;">
+                            Failed to add skip button to web interface. See <a href="https://github.com/intro-skipper/intro-skipper/wiki/Troubleshooting#skip-button-is-not-visible" target="_blank" rel="noopener noreferrer">troubleshooting guide</a> for the most common issues.
+                        </div>
+
                         <details id="AutoSkipClientList" style="padding-bottom: 1em;">
                             <summary>Auto Skip Client List</summary>
                             <br />
@@ -415,23 +434,6 @@
                             <label class="inputLabel" for="ClientList"></label>
                             <input id="ClientList" type="hidden" is="emby-input" />
                         </details>
-
-                        <div id="warningMessage" style="color: #721c24; background-color: #f7cf1f; border: 1px solid #f5c6cb; border-radius: 4px; padding: 10px; margin-bottom: 10px;">
-                            Failed to add skip button to web interface. See <a href="https://github.com/intro-skipper/intro-skipper/wiki/Troubleshooting#skip-button-is-not-visible" target="_blank" rel="noopener noreferrer">troubleshooting guide</a> for the most common issues.
-                        </div>
-
-                        <div id="SkipButtonContainer" class="checkboxContainer checkboxContainer-withDescription">
-                            <label class="emby-checkbox-label">
-                                <input id="SkipButtonVisible" type="checkbox" is="emby-checkbox" />
-                                <span>Show skip intro button</span>
-                            </label>
-
-                            <div class="fieldDescription">
-                                If checked, a skip button will be displayed at the start of an episode's introduction.
-                                <strong>Only applies to the web interface and compatible applications.</strong>
-                                <br />
-                            </div>
-                        </div>
 
                         <div id="PersistContainer" class="checkboxContainer checkboxContainer-withDescription">
                             <label class="emby-checkbox-label">
@@ -816,6 +818,7 @@
             var windowHashInterval = 0;
 
             var autoSkip = document.querySelector("input#AutoSkip");
+            var skipButtonVisibleLabel = document.getElementById("SkipButtonVisibleLabel");
             var selectAllLibraries = document.querySelector("input#SelectAllLibraries");
             var librariesContainer = document.querySelector("div.folderAccessListContainer");
             var skipFirstEpisode = document.querySelector("div#divSkipFirstEpisode");
@@ -825,6 +828,25 @@
             var autoSkipNotificationText = document.querySelector("div#divAutoSkipNotificationText");
             var autoSkipCredits = document.querySelector("input#AutoSkipCredits");
             var autoSkipCreditsNotificationText = document.querySelector("div#divAutoSkipCreditsNotificationText");
+
+            function skipButtonVisibleText() {
+                if (autoSkip.checked && autoSkipCredits.checked) {
+                    autoSkipClientList.style.display = 'none';
+                    skipButtonVisibleLabel.textContent = "Button unavailable due to auto skip";              
+                } else if (autoSkip.checked) {
+                    autoSkipClientList.style.display = 'unset';
+                    autoSkipClientList.style.width = '100%';
+                    skipButtonVisibleLabel.textContent = "Show skip credit button";
+                } else if (autoSkipCredits.checked) {
+                    autoSkipClientList.style.display = 'unset';
+                    autoSkipClientList.style.width = '100%';
+                    skipButtonVisibleLabel.textContent = "Show skip intro button";
+                } else {
+                    autoSkipClientList.style.display = 'unset';
+                    autoSkipClientList.style.width = '100%';
+                    skipButtonVisibleLabel.textContent = "Show skip intro / credit button";
+                }
+            }
 
             function autoSkipChanged() {
                 if (autoSkip.checked) {
@@ -836,7 +858,7 @@
                     autoSkipNotificationText.style.display = 'none';
                     secondsOfIntroStartToPlay.style.display = 'none';
                 }
-                clientListVisible();
+                skipButtonVisibleText();
             }
 
             autoSkip.addEventListener("change", autoSkipChanged);
@@ -849,19 +871,10 @@
                     autoSkipCreditsNotificationText.style.display = 'none';
                     secondsOfCreditsStartToPlay.style.display = 'none';
                 }
-                clientListVisible();
+                skipButtonVisibleText();
             }
 
             autoSkipCredits.addEventListener("change", autoSkipCreditsChanged);
-
-            function clientListVisible() {
-                if (autoSkip.checked || autoSkipCredits.checked) {
-                    autoSkipClientList.style.display = 'unset';
-                    autoSkipClientList.style.width = '100%';
-                } else {
-                    autoSkipClientList.style.display = 'none';
-                }
-            }
 
             function selectAllLibrariesChanged() {
                 if (selectAllLibraries.checked) {
