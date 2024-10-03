@@ -357,8 +357,8 @@
                             </label>
 
                             <div class="fieldDescription">
-                                If checked, intros will be automatically skipped for <strong>all</strong> clients. 
-                                Individual clients can override this setting from the client player options.<br />
+                                If checked, intros will be automatically skipped for <strong>all</strong> clients.
+                                 Individual clients can override this setting from the client player options.<br />
                                 If you access Jellyfin through a reverse proxy, it must be configured to proxy websockets.<br />
                             </div>
                         </div>
@@ -393,8 +393,8 @@
                             </label>
 
                             <div class="fieldDescription">
-                                If checked, credits will be automatically skipped for <strong>all</strong> clients. 
-                                Individual clients can override this setting from the client player options.<br />
+                                If checked, credits will be automatically skipped for <strong>all</strong> clients.
+                                 Individual clients can override this setting from the client player options.<br />
                                 If you access Jellyfin through a reverse proxy, it must be configured to proxy websockets.<br />
                             </div>
                         </div>
@@ -417,8 +417,8 @@
                             </label>
 
                             <div class="fieldDescription">
-                                If checked, a skip button will be displayed according to the settings below, while 
-                                clients selected in the Auto Skip Client List will skip <strong>automatically</strong>.
+                                If checked, a skip button will be displayed according to the settings below, while
+                                 clients selected in the Auto Skip Client List will skip <strong>automatically</strong>.
                                 <br />
                             </div>
                         </div>
@@ -435,40 +435,44 @@
                             <input id="ClientList" type="hidden" is="emby-input" />
                         </details>
 
-                        <div id="PersistContainer" class="checkboxContainer checkboxContainer-withDescription">
-                            <label class="emby-checkbox-label">
-                                <input id="PersistSkipButton" type="checkbox" is="emby-checkbox" />
-                                <span>Display button for intro duration</span>
-                            </label>
+                        <div id="SkipButtonSettings">
 
-                            <div class="fieldDescription">
-                                If checked, skip button will remain visible throught the intro (offset and timeout are ignored).
-                                <br />
-                                Note: If unchecked, button will only appear in the player controls after the set timeout.
-                            </div>
-                        </div>
+                          <div id="PersistContainer" class="checkboxContainer checkboxContainer-withDescription">
+                              <label class="emby-checkbox-label">
+                                  <input id="PersistSkipButton" type="checkbox" is="emby-checkbox" />
+                                  <span>Display button for intro duration</span>
+                              </label>
 
-                        <div id="divShowPromptAdjustment" class="inputContainer">
-                            <label class="inputLabel inputLabelUnfocused" for="ShowPromptAdjustment">
-                                Skip prompt offset (in seconds)
-                            </label>
-                            <input id="ShowPromptAdjustment" type="number" is="emby-input" min="0" />
-                            <div class="fieldDescription">
-                                Seconds to display skip prompt before introduction begins.
-                            </div>
-                        </div>
-                        <br />
+                              <div class="fieldDescription">
+                                  If checked, skip button will remain visible throught the intro (offset and timeout are ignored).
+                                  <br />
+                                  Note: If unchecked, button will only appear in the player controls after the set timeout.
+                              </div>
+                          </div>
 
-                        <div id="divHidePromptAdjustment" class="inputContainer">
-                            <label class="inputLabel inputLabelUnfocused" for="HidePromptAdjustment">
-                                Skip prompt timeout (in seconds)
-                            </label>
-                            <input id="HidePromptAdjustment" type="number" is="emby-input" min="2" />
-                            <div class="fieldDescription">
-                                Seconds after introduction before skip prompt is hidden.
-                            </div>
+                          <div id="divShowPromptAdjustment" class="inputContainer">
+                              <label class="inputLabel inputLabelUnfocused" for="ShowPromptAdjustment">
+                                  Skip prompt offset (in seconds)
+                              </label>
+                              <input id="ShowPromptAdjustment" type="number" is="emby-input" min="0" />
+                              <div class="fieldDescription">
+                                  Seconds to display skip prompt before introduction begins.
+                              </div>
+                          </div>
+                          <br />
+
+                          <div id="divHidePromptAdjustment" class="inputContainer">
+                              <label class="inputLabel inputLabelUnfocused" for="HidePromptAdjustment">
+                                  Skip prompt timeout (in seconds)
+                              </label>
+                              <input id="HidePromptAdjustment" type="number" is="emby-input" min="2" />
+                              <div class="fieldDescription">
+                                  Seconds after introduction before skip prompt is hidden.
+                              </div>
+                          </div>
+                          <br />
+
                         </div>
-                        <br />
 
                         <div class="inputContainer">
                             <label class="inputLabel inputLabelUnfocused" for="RemainingSecondsOfIntro">
@@ -818,7 +822,9 @@
             var windowHashInterval = 0;
 
             var autoSkip = document.querySelector("input#AutoSkip");
+            var skipButtonVisible = document.getElementById("SkipButtonVisible");
             var skipButtonVisibleLabel = document.getElementById("SkipButtonVisibleLabel");
+            var skipButtonSettings = document.getElementById("SkipButtonSettings");
             var selectAllLibraries = document.querySelector("input#SelectAllLibraries");
             var librariesContainer = document.querySelector("div.folderAccessListContainer");
             var skipFirstEpisode = document.querySelector("div#divSkipFirstEpisode");
@@ -829,10 +835,22 @@
             var autoSkipCredits = document.querySelector("input#AutoSkipCredits");
             var autoSkipCreditsNotificationText = document.querySelector("div#divAutoSkipCreditsNotificationText");
 
+            function skipButtonVisibleChanged() {
+                if (autoSkip.checked && autoSkipCredits.checked) {
+                    skipButtonSettings.style.display = 'none';
+                } else if (skipButtonVisible.checked) {
+                    skipButtonSettings.style.display = 'unset';
+                } else {
+                    skipButtonSettings.style.display = 'none';
+                }
+            }
+
+            skipButtonVisible.addEventListener("change", skipButtonVisibleChanged);
+
             function skipButtonVisibleText() {
                 if (autoSkip.checked && autoSkipCredits.checked) {
                     autoSkipClientList.style.display = 'none';
-                    skipButtonVisibleLabel.textContent = "Button unavailable due to auto skip";              
+                    skipButtonVisibleLabel.textContent = "Button unavailable due to auto skip";
                 } else if (autoSkip.checked) {
                     autoSkipClientList.style.display = 'unset';
                     autoSkipClientList.style.width = '100%';
@@ -846,6 +864,7 @@
                     autoSkipClientList.style.width = '100%';
                     skipButtonVisibleLabel.textContent = "Show skip intro / credit button";
                 }
+                skipButtonVisibleChanged()
             }
 
             function autoSkipChanged() {
@@ -875,6 +894,8 @@
             }
 
             autoSkipCredits.addEventListener("change", autoSkipCreditsChanged);
+
+            skipButtonVisibleText(); // run once on launch for legacy installs
 
             function selectAllLibrariesChanged() {
                 if (selectAllLibraries.checked) {
