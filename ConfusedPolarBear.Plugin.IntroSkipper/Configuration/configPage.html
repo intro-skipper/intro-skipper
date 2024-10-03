@@ -895,6 +895,8 @@
 
             autoSkipCredits.addEventListener("change", autoSkipCreditsChanged);
 
+            skipButtonVisibleText(); // run once on launch for legacy installs
+
             function selectAllLibrariesChanged() {
                 if (selectAllLibraries.checked) {
                     librariesContainer.style.display = 'none';
