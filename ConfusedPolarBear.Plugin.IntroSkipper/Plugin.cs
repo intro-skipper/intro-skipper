@@ -4,15 +4,19 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Text.RegularExpressions;
+using System.Threading.Tasks;
 using ConfusedPolarBear.Plugin.IntroSkipper.Configuration;
 using ConfusedPolarBear.Plugin.IntroSkipper.Data;
+using Jellyfin.Data.Enums;
 using MediaBrowser.Common.Configuration;
 using MediaBrowser.Common.Plugins;
+using MediaBrowser.Controller;
 using MediaBrowser.Controller.Configuration;
 using MediaBrowser.Controller.Entities;
 using MediaBrowser.Controller.Library;
 using MediaBrowser.Controller.Persistence;
 using MediaBrowser.Model.Entities;
+using MediaBrowser.Model.MediaSegments;
 using MediaBrowser.Model.Plugins;
 using MediaBrowser.Model.Serialization;
 using Microsoft.Extensions.Logging;
@@ -28,6 +32,7 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
     private readonly object _introsLock = new();
     private readonly ILibraryManager _libraryManager;
     private readonly IItemRepository _itemRepository;
+    private readonly IMediaSegmentManager _mediaSegmentsManager;
     private readonly ILogger<Plugin> _logger;
     private readonly string _introPath;
     private readonly string _creditsPath;
@@ -41,6 +46,7 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
     /// <param name="serverConfiguration">Server configuration manager.</param>
     /// <param name="libraryManager">Library manager.</param>
     /// <param name="itemRepository">Item repository.</param>
+    /// <param name="mediaSegmentsManager">Media segments manager.</param>
     /// <param name="logger">Logger.</param>
     public Plugin(
         IApplicationPaths applicationPaths,
@@ -48,6 +54,7 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
         IServerConfigurationManager serverConfiguration,
         ILibraryManager libraryManager,
         IItemRepository itemRepository,
+        IMediaSegmentManager mediaSegmentsManager,
         ILogger<Plugin> logger)
         : base(applicationPaths, xmlSerializer)
     {
@@ -55,6 +62,7 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
 
         _libraryManager = libraryManager;
         _itemRepository = itemRepository;
+        _mediaSegmentsManager = mediaSegmentsManager;
         _logger = logger;
 
         FFmpegPath = serverConfiguration.GetEncodingOptions().EncoderAppPathDisplay;
@@ -126,6 +134,8 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
         try
         {
             RestoreTimestamps();
+            // var task = MigrateToSegmentsAsync();
+            // task.Wait();
         }
         catch (Exception ex)
         {
@@ -314,6 +324,54 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
             {
                 Instance!.Credits.TryAdd(credit.EpisodeId, credit);
             }
+        }
+    }
+
+    /// <summary>
+    /// Migrate to segement.
+    /// </summary>
+    /// <returns>A <see cref="Task"/> representing the asynchronous operation.</returns>
+    public async Task MigrateToSegmentsAsync()
+    {
+        if (File.Exists(_introPath))
+        {
+            // Since dictionaries can't be easily serialized, analysis results are stored on disk as a list.
+            var introList = XmlSerializationHelper.DeserializeFromXml<Segment>(_introPath);
+
+            foreach (var intro in introList)
+            {
+                var seg = new MediaSegmentDto()
+                {
+                    StartTicks = TimeSpan.FromSeconds(intro.Start).Ticks,
+                    EndTicks = TimeSpan.FromSeconds(intro.End).Ticks,
+                    ItemId = intro.EpisodeId,
+                    Type = MediaSegmentType.Intro,
+                };
+
+                await _mediaSegmentsManager.CreateSegmentAsync(seg, this.Name).ConfigureAwait(false);
+            }
+
+            // File.Delete(_introPath);
+        }
+
+        if (File.Exists(_creditsPath))
+        {
+            var creditList = XmlSerializationHelper.DeserializeFromXml<Segment>(_creditsPath);
+
+            foreach (var credit in creditList)
+            {
+                var seg = new MediaSegmentDto()
+                {
+                    StartTicks = TimeSpan.FromSeconds(credit.Start).Ticks,
+                    EndTicks = TimeSpan.FromSeconds(credit.End).Ticks,
+                    ItemId = credit.EpisodeId,
+                    Type = MediaSegmentType.Outro,
+                };
+
+                await _mediaSegmentsManager.CreateSegmentAsync(seg, this.Name).ConfigureAwait(false);
+            }
+
+            // File.Delete(_creditsPath);
         }
     }
 
