@@ -427,13 +427,32 @@
                             Failed to add skip button to web interface. See <a href="https://github.com/intro-skipper/intro-skipper/wiki/Troubleshooting#skip-button-is-not-visible" target="_blank" rel="noopener noreferrer">troubleshooting guide</a> for the most common issues.
                         </div>
 
-                        <details id="AutoSkipClientList" style="padding-bottom: 1em;">
-                            <summary>Auto Skip Client List</summary>
-                            <br />
-                            <div class="checkboxList paperList" style="padding:.5em 1em" id="autoSkipCheckboxes"></div>
-                            <label class="inputLabel" for="ClientList"></label>
-                            <input id="ClientList" type="hidden" is="emby-input" />
-                        </details>
+                        <div id="AutoSkipLists">
+                            <div style="margin-bottom: 0.5em;">
+                                Auto Skip Lists:
+                            </div>
+                            <details id="AutoSkipClientList">
+                                <summary>Auto Skip Client List</summary>
+                                <div class="checkboxList paperList" style="padding:.5em 1em" id="autoSkipClientCheckboxes"></div>
+                                <label class="inputLabel" for="ClientList"></label>
+                                <input id="ClientList" type="hidden" is="emby-input" />
+                            </details>
+
+                            <details id="AutoSkipUserList">
+                                <summary>Auto Skip User List</summary>
+                                <div class="checkboxList paperList" style="padding:.5em 1em; margin-bottom: 0;" id="autoSkipUserCheckboxes"></div>
+                                <label class="inputLabel" for="UserList"></label>
+                                <input id="UserList" type="hidden" is="emby-input" />
+                            </details>
+
+                            <div class="fieldDescription">
+                                auto skip will be enabled for the selected clients and users.<br />
+                                Note:<br />
+                                - The device list will select android tv and kodi by defaults, any other device will need to be selected manually.<br />
+                                - The user list will select automatically any new user.
+                            </div>
+                            <br /><br />
+                        </div>
 
                         <div id="SkipButtonSettings">
 
@@ -759,6 +778,7 @@
                 "MaxParallelism",
                 "SelectedLibraries",
                 "ClientList",
+                "UserList",
                 "AnalysisPercent",
                 "AnalysisLengthLimit",
                 "MinimumIntroDuration",
@@ -829,7 +849,9 @@
             var librariesContainer = document.querySelector("div.folderAccessListContainer");
             var skipFirstEpisode = document.querySelector("div#divSkipFirstEpisode");
             var secondsOfIntroStartToPlay = document.querySelector("div#divSecondsOfIntroStartToPlay");
-            var autoSkipClientList = document.getElementById("AutoSkipClientList");
+            var autoSkipList = document.querySelector("div#AutoSkipLists");
+            var autoSkipClientList = autoSkipList.querySelector("details#AutoSkipClientList");
+            var autoSkipUserList = autoSkipList.querySelector("details#AutoSkipUserList");
             var secondsOfCreditsStartToPlay = document.querySelector("div#divSecondsOfCreditsStartToPlay");
             var autoSkipNotificationText = document.querySelector("div#divAutoSkipNotificationText");
             var autoSkipCredits = document.querySelector("input#AutoSkipCredits");
@@ -849,19 +871,19 @@
 
             function skipButtonVisibleText() {
                 if (autoSkip.checked && autoSkipCredits.checked) {
-                    autoSkipClientList.style.display = 'none';
+                    autoSkipList.style.display = 'none';
                     skipButtonVisibleLabel.textContent = "Button unavailable due to auto skip";
                 } else if (autoSkip.checked) {
-                    autoSkipClientList.style.display = 'unset';
-                    autoSkipClientList.style.width = '100%';
+                    autoSkipList.style.display = 'unset';
+                    autoSkipList.style.width = '100%';
                     skipButtonVisibleLabel.textContent = "Show skip credit button";
                 } else if (autoSkipCredits.checked) {
-                    autoSkipClientList.style.display = 'unset';
-                    autoSkipClientList.style.width = '100%';
+                    autoSkipList.style.display = 'unset';
+                    autoSkipList.style.width = '100%';
                     skipButtonVisibleLabel.textContent = "Show skip intro button";
                 } else {
-                    autoSkipClientList.style.display = 'unset';
-                    autoSkipClientList.style.width = '100%';
+                    autoSkipList.style.display = 'unset';
+                    autoSkipList.style.width = '100%';
                     skipButtonVisibleLabel.textContent = "Show skip intro / credit button";
                 }
                 skipButtonVisibleChanged()
@@ -913,6 +935,13 @@
                     .join(', ');
             }
 
+            function updateListUsers(textField, container, users) {
+                // Create a comma-separated list of user IDs from the unchecked checkboxes
+                textField.value = Array.from(container.querySelectorAll('input[type="checkbox"]:not(:checked)'))
+                    .map(checkbox => users.find(user => user.Name === checkbox.nextElementSibling.textContent).Id)
+                    .join(', ');
+            }
+
             function generateCheckboxList(items, containerId, textFieldId) {
                 const container = document.getElementById(containerId);
                 const textField = document.getElementById(textFieldId);
@@ -933,10 +962,36 @@
                 });
             }
 
+            function generateCheckboxListUsers(items, containerId, textFieldId) {
+                const container = document.getElementById(containerId);
+                const textField = document.getElementById(textFieldId);
+                const checkedItems = textField.value ? textField.value.split(', ') : [];
+
+                container.innerHTML = items.map(item => {
+                    const isChecked = !checkedItems.includes(item.Id) ? 'checked' : '';
+                    return '<label class="emby-checkbox-label">' +
+                        '<input type="checkbox" is="emby-checkbox" ' + isChecked + '>' +
+                        '<span class="checkboxLabel">' + item.Name + '</span>' +
+                        '</label>';
+                }).join('');
+
+
+                container.addEventListener('change', event => {
+                    if (event.target.type === 'checkbox') {
+                        updateListUsers(textField, container, items);
+                    }
+                });
+            }
+
             async function generateAutoSkipClientList() {
                 const response = await getJson("Devices");
                 const devices = [...new Set(response.Items.map(item => item.AppName))];
-                generateCheckboxList(devices, 'autoSkipCheckboxes', 'ClientList');
+                generateCheckboxList(devices, 'autoSkipClientCheckboxes', 'ClientList');
+            }
+
+            async function generateAutoSkipUserList() {
+                const response = await getJson("Users");
+                generateCheckboxListUsers(response, 'autoSkipUserCheckboxes', 'UserList');
             }
 
             async function populateLibraries() {
@@ -1347,6 +1402,7 @@
                         autoSkipCreditsChanged();
                         persistSkipChanged();
                         generateAutoSkipClientList();
+                        generateAutoSkipUserList();
 
                         Dashboard.hideLoadingMsg();
                     });
