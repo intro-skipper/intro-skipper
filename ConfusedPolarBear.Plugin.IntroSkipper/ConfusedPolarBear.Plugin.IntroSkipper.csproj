@@ -18,8 +18,6 @@
     <PackageReference Include="StyleCop.Analyzers.Unstable" Version="1.2.0.556" PrivateAssets="All" />
   </ItemGroup>
   <ItemGroup>
-    <None Remove="Configuration\configPage.html" />
-    <EmbeddedResource Include="Configuration\configPage.html" />
     <EmbeddedResource Include="Configuration\visualizer.js" />
     <EmbeddedResource Include="Configuration\inject.js" />
   </ItemGroup>
@@ -27,4 +25,16 @@
     <Folder Include="Manager\" />
     <Folder Include="Services\" />
   </ItemGroup>
+  <Choose>
+    <When Condition="Exists('Configuration\configPage.min.html')">
+      <ItemGroup>
+        <EmbeddedResource Include="Configuration\configPage.min.html" LogicalName="Configuration\configPage.html" />
+      </ItemGroup>
+    </When>
+    <Otherwise>
+      <ItemGroup>
+        <EmbeddedResource Include="Configuration\configPage.html" />
+      </ItemGroup>
+    </Otherwise>
+  </Choose>
 </Project>
