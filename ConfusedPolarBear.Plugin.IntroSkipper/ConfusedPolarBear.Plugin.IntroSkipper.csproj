@@ -18,6 +18,7 @@
     <PackageReference Include="StyleCop.Analyzers.Unstable" Version="1.2.0.556" PrivateAssets="All" />
   </ItemGroup>
   <ItemGroup>
+    <None Remove="Configuration\configPage.html" />
     <EmbeddedResource Include="Configuration\visualizer.js" />
     <EmbeddedResource Include="Configuration\inject.js" />
   </ItemGroup>
