@@ -44,6 +44,20 @@ jobs:
       with:
         dotnet-version: 8.0.x
 
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '>=20'
+    
+    - name: Install html-minifier-terser
+      run: npm install terser html-minifier-terser
+  
+    - name: Minify HTML
+      run: |
+          npx html-minifier-terser --collapse-boolean-attributes --collapse-whitespace --collapse-inline-tag-whitespace --remove-comments --remove-optional-tags --remove-redundant-attributes --remove-script-type-attributes --remove-tag-whitespace --use-short-doctype --minify-css true --minify-js true -o ConfusedPolarBear.Plugin.IntroSkipper/Configuration/configPage.html ConfusedPolarBear.Plugin.IntroSkipper/Configuration/configPage.html
+          npx terser ConfusedPolarBear.Plugin.IntroSkipper/Configuration/inject.js -o ConfusedPolarBear.Plugin.IntroSkipper/Configuration/inject.js -c -m
+          npx terser ConfusedPolarBear.Plugin.IntroSkipper/Configuration/visualizer.js -o ConfusedPolarBear.Plugin.IntroSkipper/Configuration/visualizer.js -c -m       
+
     - name: Restore dependencies
       run: dotnet restore
 
