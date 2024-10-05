@@ -448,9 +448,45 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
     /// <param name="webPath">Full path to index.html.</param>
     private void InjectSkipButton(string webPath)
     {
-        // search for controllers/playback/video/index.html
-        string searchPattern = "playback-video-index-html.*.chunk.js";
+        string searchPattern = "dashboard-dashboard.*.chunk.js";
         string[] filePaths = Directory.GetFiles(webPath, searchPattern, SearchOption.TopDirectoryOnly);
+        string pattern = @"buildVersion"".innerText=""(?<buildVersion>\d+\.\d+\.\d+)"".*?webVersion"".innerText=""(?<webVersion>\d+\.\d+\.\d+)";
+        string buildVersionString = "unknow";
+        string webVersionString = "unknow";
+        // Create a Regex object
+        Regex regex = new Regex(pattern);
+
+        // should be only one file but this safer
+        foreach (var file in filePaths)
+        {
+            string dashBoardText = File.ReadAllText(file);
+            // Perform the match
+            Match match = regex.Match(dashBoardText);
+            // search for class btnSkipIntro
+            if (match.Success)
+            {
+                buildVersionString = match.Groups["buildVersion"].Value;
+                webVersionString = match.Groups["webVersion"].Value;
+                _logger.LogInformation("Found jellyfin-web version <{WebVersion}>", webVersionString);
+                return;
+            }
+        }
+
+        if (webVersionString != "unknow")
+        {
+            Version? webversion;
+            if (Version.TryParse(webVersionString, out webversion))
+            {
+                if (GetType().Assembly.GetName().Version != webversion)
+                {
+                    _logger.LogWarning("The jellyfin-web version <{WebVersion}> doesn't match with Jellyfin version <{JellyfinVersion}>", webVersionString, GetType().Assembly.GetName().Version);
+                }
+            }
+        }
+
+        // search for controllers/playback/video/index.html
+        searchPattern = "playback-video-index-html.*.chunk.js";
+        filePaths = Directory.GetFiles(webPath, searchPattern, SearchOption.TopDirectoryOnly);
 
         // should be only one file but this safer
         foreach (var file in filePaths)
@@ -483,7 +519,7 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
         }
 
         // remove old version if necessary
-        string pattern = @"<script src=""configurationpage\?name=skip-intro-button\.js.*<\/script>";
+        pattern = @"<script src=""configurationpage\?name=skip-intro-button\.js.*<\/script>";
         contents = Regex.Replace(contents, pattern, string.Empty, RegexOptions.IgnoreCase);
 
         // Inject a link to the script at the end of the <head> section.
