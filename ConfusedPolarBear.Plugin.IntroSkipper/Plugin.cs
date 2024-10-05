@@ -6,6 +6,7 @@ using System.Linq;
 using System.Text.RegularExpressions;
 using ConfusedPolarBear.Plugin.IntroSkipper.Configuration;
 using ConfusedPolarBear.Plugin.IntroSkipper.Data;
+using MediaBrowser.Common;
 using MediaBrowser.Common.Configuration;
 using MediaBrowser.Common.Plugins;
 using MediaBrowser.Controller.Configuration;
@@ -28,6 +29,7 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
     private readonly object _introsLock = new();
     private readonly ILibraryManager _libraryManager;
     private readonly IItemRepository _itemRepository;
+    private readonly IApplicationHost _applicationHost;
     private readonly ILogger<Plugin> _logger;
     private readonly string _introPath;
     private readonly string _creditsPath;
@@ -36,6 +38,7 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
     /// <summary>
     /// Initializes a new instance of the <see cref="Plugin"/> class.
     /// </summary>
+    /// <param name="applicationHost">Application host.</param>
     /// <param name="applicationPaths">Instance of the <see cref="IApplicationPaths"/> interface.</param>
     /// <param name="xmlSerializer">Instance of the <see cref="IXmlSerializer"/> interface.</param>
     /// <param name="serverConfiguration">Server configuration manager.</param>
@@ -43,6 +46,7 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
     /// <param name="itemRepository">Item repository.</param>
     /// <param name="logger">Logger.</param>
     public Plugin(
+        IApplicationHost applicationHost,
         IApplicationPaths applicationPaths,
         IXmlSerializer xmlSerializer,
         IServerConfigurationManager serverConfiguration,
@@ -53,6 +57,7 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
     {
         Instance = this;
 
+        _applicationHost = applicationHost;
         _libraryManager = libraryManager;
         _itemRepository = itemRepository;
         _logger = logger;
@@ -400,9 +405,50 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
     /// <param name="webPath">Full path to index.html.</param>
     private void InjectSkipButton(string webPath)
     {
-        // search for controllers/playback/video/index.html
-        string searchPattern = "playback-video-index-html.*.chunk.js";
+        string searchPattern = "dashboard-dashboard.*.chunk.js";
         string[] filePaths = Directory.GetFiles(webPath, searchPattern, SearchOption.TopDirectoryOnly);
+        string pattern = @"buildVersion""\)\.innerText=""(?<buildVersion>\d+\.\d+\.\d+)"",.*?webVersion""\)\.innerText=""(?<webVersion>\d+\.\d+\.\d+)";
+        string buildVersionString = "unknow";
+        string webVersionString = "unknow";
+        // Create a Regex object
+        Regex regex = new Regex(pattern);
+
+        // should be only one file but this safer
+        foreach (var file in filePaths)
+        {
+            string dashBoardText = File.ReadAllText(file);
+            // Perform the match
+            Match match = regex.Match(dashBoardText);
+            // search for buildVersion and webVersion
+            if (match.Success)
+            {
+                buildVersionString = match.Groups["buildVersion"].Value;
+                webVersionString = match.Groups["webVersion"].Value;
+                _logger.LogInformation("Found jellyfin-web <{WebVersion}>", webVersionString);
+                break;
+            }
+        }
+
+        if (webVersionString != "unknow")
+        {
+            // append Revision
+            webVersionString += ".0";
+            if (Version.TryParse(webVersionString, out var webversion))
+            {
+                if (_applicationHost.ApplicationVersion != webversion)
+                {
+                    _logger.LogWarning("The jellyfin-web <{WebVersion}> NOT compatible with Jellyfin <{JellyfinVersion}>", webVersionString, _applicationHost.ApplicationVersion);
+                }
+                else
+                {
+                    _logger.LogInformation("The jellyfin-web <{WebVersion}> compatible with Jellyfin <{JellyfinVersion}>", webVersionString, _applicationHost.ApplicationVersion);
+                }
+            }
+        }
+
+        // search for controllers/playback/video/index.html
+        searchPattern = "playback-video-index-html.*.chunk.js";
+        filePaths = Directory.GetFiles(webPath, searchPattern, SearchOption.TopDirectoryOnly);
 
         // should be only one file but this safer
         foreach (var file in filePaths)
@@ -435,7 +481,7 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
         }
 
         // remove old version if necessary
-        string pattern = @"<script src=""configurationpage\?name=skip-intro-button\.js.*<\/script>";
+        pattern = @"<script src=""configurationpage\?name=skip-intro-button\.js.*<\/script>";
         contents = Regex.Replace(contents, pattern, string.Empty, RegexOptions.IgnoreCase);
 
         // Inject a link to the script at the end of the <head> section.
