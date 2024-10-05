@@ -48,7 +48,7 @@ public static class EdlManager
     /// If the EDL action is set to a value other than None, update EDL files for the provided episodes.
     /// </summary>
     /// <param name="episodes">Episodes to update EDL files for.</param>
-    public static void UpdateEDLFiles(IReadOnlyCollection<QueuedEpisode> episodes)
+    public static void UpdateEDLFiles(IReadOnlyList<QueuedEpisode> episodes)
     {
         var regenerate = Plugin.Instance!.Configuration.RegenerateEdlFiles;
         var action = Plugin.Instance.Configuration.EdlAction;
