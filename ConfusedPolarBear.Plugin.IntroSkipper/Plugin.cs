@@ -487,6 +487,10 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
                 {
                     _logger.LogWarning("The jellyfin-web version <{WebVersion}> doesn't match with Jellyfin version <{JellyfinVersion}>", webVersionString, _applicationHost.ApplicationVersion);
                 }
+                else
+                {
+                    _logger.LogInformation("The jellyfin-web version <{WebVersion}> match with Jellyfin version <{JellyfinVersion}>", webVersionString, _applicationHost.ApplicationVersion);
+                }
             }
         }
 
