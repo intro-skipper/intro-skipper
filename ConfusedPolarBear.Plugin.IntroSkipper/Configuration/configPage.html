@@ -1444,24 +1444,24 @@
                 const lhsId = selectEpisode1.options[selectEpisode1.selectedIndex].value;
                 const newLhs = {
                     Introduction: {
-                        IntroStart: getTimeInSeconds(document.getElementById('editLeftIntroEpisodeStart').value),
-                        IntroEnd: getTimeInSeconds(document.getElementById('editLeftIntroEpisodeEnd').value)
+                        Start: getTimeInSeconds(document.getElementById('editLeftIntroEpisodeStart').value),
+                        End: getTimeInSeconds(document.getElementById('editLeftIntroEpisodeEnd').value)
                     },
                     Credits: {
-                        IntroStart: getTimeInSeconds(document.getElementById('editLeftCreditEpisodeStart').value),
-                        IntroEnd: getTimeInSeconds(document.getElementById('editLeftCreditEpisodeEnd').value)
+                        Start: getTimeInSeconds(document.getElementById('editLeftCreditEpisodeStart').value),
+                        End: getTimeInSeconds(document.getElementById('editLeftCreditEpisodeEnd').value)
                     }
                 };
 
                 const rhsId = selectEpisode2.options[selectEpisode2.selectedIndex].value;
                 const newRhs = {
                     Introduction: {
-                        IntroStart: getTimeInSeconds(document.getElementById('editRightIntroEpisodeStart').value),
-                        IntroEnd: getTimeInSeconds(document.getElementById('editRightIntroEpisodeEnd').value)
+                        Start: getTimeInSeconds(document.getElementById('editRightIntroEpisodeStart').value),
+                        End: getTimeInSeconds(document.getElementById('editRightIntroEpisodeEnd').value)
                     },
                     Credits: {
-                        IntroStart: getTimeInSeconds(document.getElementById('editRightCreditEpisodeStart').value),
-                        IntroEnd: getTimeInSeconds(document.getElementById('editRightCreditEpisodeEnd').value)
+                        Start: getTimeInSeconds(document.getElementById('editRightCreditEpisodeStart').value),
+                        End: getTimeInSeconds(document.getElementById('editRightCreditEpisodeEnd').value)
                     }
                 };
                 fetchWithAuth("Episode/" + lhsId + "/Timestamps", "POST", JSON.stringify(newLhs));
