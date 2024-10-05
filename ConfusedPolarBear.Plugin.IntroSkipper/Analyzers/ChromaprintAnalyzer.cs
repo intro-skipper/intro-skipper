@@ -49,8 +49,8 @@ public class ChromaprintAnalyzer : IMediaFileAnalyzer
     }
 
     /// <inheritdoc />
-    public IReadOnlyCollection<QueuedEpisode> AnalyzeMediaFiles(
-        IReadOnlyCollection<QueuedEpisode> analysisQueue,
+    public IReadOnlyList<QueuedEpisode> AnalyzeMediaFiles(
+        IReadOnlyList<QueuedEpisode> analysisQueue,
         AnalysisMode mode,
         CancellationToken cancellationToken)
     {

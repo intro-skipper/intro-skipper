@@ -112,7 +112,7 @@ public class BaseItemAnalyzerTask
                 return;
             }
 
-            var first = episodes.First();
+            var first = episodes[0];
             if (requiredModes.Count == 0)
             {
                 _logger.LogDebug(
@@ -180,14 +180,14 @@ public class BaseItemAnalyzerTask
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>Number of items that were successfully analyzed.</returns>
     private int AnalyzeItems(
-        IReadOnlyCollection<QueuedEpisode> items,
+        IReadOnlyList<QueuedEpisode> items,
         AnalysisMode mode,
         CancellationToken cancellationToken)
     {
         var totalItems = items.Count;
 
         // Only analyze specials (season 0) if the user has opted in.
-        var first = items.First();
+        var first = items[0];
         if (first.SeasonNumber == 0 && !Plugin.Instance!.Configuration.AnalyzeSeasonZero)
         {
             return 0;

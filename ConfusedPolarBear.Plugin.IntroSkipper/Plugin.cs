@@ -312,10 +312,10 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
 
     internal BaseItem? GetItem(Guid id)
     {
-        return _libraryManager.GetItemById(id);
+        return id != Guid.Empty ? _libraryManager.GetItemById(id) : null;
     }
 
-    internal List<Folder> GetCollectionFolders(Guid id)
+    internal IReadOnlyList<Folder> GetCollectionFolders(Guid id)
     {
         var item = GetItem(id);
         return item is not null ? _libraryManager.GetCollectionFolders(item) : [];

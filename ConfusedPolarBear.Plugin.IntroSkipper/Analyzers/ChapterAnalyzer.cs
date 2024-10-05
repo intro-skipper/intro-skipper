@@ -24,8 +24,8 @@ public class ChapterAnalyzer(ILogger<ChapterAnalyzer> logger) : IMediaFileAnalyz
     private ILogger<ChapterAnalyzer> _logger = logger;
 
     /// <inheritdoc />
-    public IReadOnlyCollection<QueuedEpisode> AnalyzeMediaFiles(
-        IReadOnlyCollection<QueuedEpisode> analysisQueue,
+    public IReadOnlyList<QueuedEpisode> AnalyzeMediaFiles(
+        IReadOnlyList<QueuedEpisode> analysisQueue,
         AnalysisMode mode,
         CancellationToken cancellationToken)
     {

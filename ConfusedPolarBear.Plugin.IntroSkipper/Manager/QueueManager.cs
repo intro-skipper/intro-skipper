@@ -241,8 +241,8 @@ public class QueueManager(ILogger<QueueManager> logger, ILibraryManager libraryM
     /// <param name="candidates">Queued media items.</param>
     /// <param name="modes">Analysis mode.</param>
     /// <returns>Media items that have been verified to exist in Jellyfin and in storage.</returns>
-    public (IReadOnlyCollection<QueuedEpisode> VerifiedItems, IReadOnlyCollection<AnalysisMode> RequiredModes)
-        VerifyQueue(IReadOnlyCollection<QueuedEpisode> candidates, IReadOnlyCollection<AnalysisMode> modes)
+    public (IReadOnlyList<QueuedEpisode> VerifiedItems, IReadOnlyCollection<AnalysisMode> RequiredModes)
+        VerifyQueue(IReadOnlyList<QueuedEpisode> candidates, IReadOnlyCollection<AnalysisMode> modes)
     {
         var verified = new List<QueuedEpisode>();
         var reqModes = new HashSet<AnalysisMode>();

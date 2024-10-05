@@ -34,7 +34,7 @@ public class AnalyzerHelper
     /// <param name="mode">Analysis mode.</param>
     /// <returns>Modified Intro Timestamps.</returns>
     public Dictionary<Guid, Segment> AdjustIntroTimes(
-            IReadOnlyCollection<QueuedEpisode> episodes,
+            IReadOnlyList<QueuedEpisode> episodes,
             IReadOnlyDictionary<Guid, Segment> originalIntros,
             AnalysisMode mode)
         {
@@ -76,9 +76,9 @@ public class AnalyzerHelper
         return adjustedIntro;
     }
 
-    private List<ChapterInfo> GetChaptersWithVirtualEnd(QueuedEpisode episode)
+    private static List<ChapterInfo> GetChaptersWithVirtualEnd(QueuedEpisode episode)
     {
-        var chapters = Plugin.Instance?.GetChapters(episode.EpisodeId) ?? new List<ChapterInfo>();
+        var chapters = Plugin.Instance?.GetChapters(episode.EpisodeId) ?? [];
         chapters.Add(new ChapterInfo { StartPositionTicks = TimeSpan.FromSeconds(episode.Duration).Ticks });
         return chapters;
     }

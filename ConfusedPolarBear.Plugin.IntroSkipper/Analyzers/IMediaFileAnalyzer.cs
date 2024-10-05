@@ -16,8 +16,8 @@ public interface IMediaFileAnalyzer
     /// <param name="mode">Analysis mode.</param>
     /// <param name="cancellationToken">Cancellation token from scheduled task.</param>
     /// <returns>Collection of media files that were **unsuccessfully analyzed**.</returns>
-    public IReadOnlyCollection<QueuedEpisode> AnalyzeMediaFiles(
-        IReadOnlyCollection<QueuedEpisode> analysisQueue,
+    public IReadOnlyList<QueuedEpisode> AnalyzeMediaFiles(
+        IReadOnlyList<QueuedEpisode> analysisQueue,
         AnalysisMode mode,
         CancellationToken cancellationToken);
 }
