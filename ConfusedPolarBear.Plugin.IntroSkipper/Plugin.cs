@@ -450,7 +450,7 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
     {
         string searchPattern = "dashboard-dashboard.*.chunk.js";
         string[] filePaths = Directory.GetFiles(webPath, searchPattern, SearchOption.TopDirectoryOnly);
-        string pattern = @"buildVersion"".innerText=""(?<buildVersion>\d+\.\d+\.\d+)"".*?webVersion"".innerText=""(?<webVersion>\d+\.\d+\.\d+)";
+        string pattern = @"buildVersion""\)\.innerText=""(?<buildVersion>\d+\.\d+\.\d+)"",.*?webVersion""\)\.innerText=""(?<webVersion>\d+\.\d+\.\d+)";
         string buildVersionString = "unknow";
         string webVersionString = "unknow";
         // Create a Regex object
@@ -462,7 +462,7 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
             string dashBoardText = File.ReadAllText(file);
             // Perform the match
             Match match = regex.Match(dashBoardText);
-            // search for class btnSkipIntro
+            // search for buildVersion and webVersion
             if (match.Success)
             {
                 buildVersionString = match.Groups["buildVersion"].Value;
