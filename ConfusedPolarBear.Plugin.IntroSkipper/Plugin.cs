@@ -6,6 +6,7 @@ using System.Linq;
 using System.Text.RegularExpressions;
 using ConfusedPolarBear.Plugin.IntroSkipper.Configuration;
 using ConfusedPolarBear.Plugin.IntroSkipper.Data;
+using MediaBrowser.Common;
 using MediaBrowser.Common.Configuration;
 using MediaBrowser.Common.Plugins;
 using MediaBrowser.Controller.Configuration;
@@ -28,6 +29,7 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
     private readonly object _introsLock = new();
     private readonly ILibraryManager _libraryManager;
     private readonly IItemRepository _itemRepository;
+    private readonly IApplicationHost _applicationHost;
     private readonly ILogger<Plugin> _logger;
     private readonly string _introPath;
     private readonly string _creditsPath;
@@ -36,6 +38,7 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
     /// <summary>
     /// Initializes a new instance of the <see cref="Plugin"/> class.
     /// </summary>
+    /// <param name="applicationHost">Application host.</param>
     /// <param name="applicationPaths">Instance of the <see cref="IApplicationPaths"/> interface.</param>
     /// <param name="xmlSerializer">Instance of the <see cref="IXmlSerializer"/> interface.</param>
     /// <param name="serverConfiguration">Server configuration manager.</param>
@@ -43,6 +46,7 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
     /// <param name="itemRepository">Item repository.</param>
     /// <param name="logger">Logger.</param>
     public Plugin(
+        IApplicationHost applicationHost,
         IApplicationPaths applicationPaths,
         IXmlSerializer xmlSerializer,
         IServerConfigurationManager serverConfiguration,
@@ -53,6 +57,7 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
     {
         Instance = this;
 
+        _applicationHost = applicationHost;
         _libraryManager = libraryManager;
         _itemRepository = itemRepository;
         _logger = logger;
@@ -477,9 +482,9 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
             Version? webversion;
             if (Version.TryParse(webVersionString, out webversion))
             {
-                if (GetType().Assembly.GetName().Version != webversion)
+                if (_applicationHost.ApplicationVersion != webversion)
                 {
-                    _logger.LogWarning("The jellyfin-web version <{WebVersion}> doesn't match with Jellyfin version <{JellyfinVersion}>", webVersionString, GetType().Assembly.GetName().Version);
+                    _logger.LogWarning("The jellyfin-web version <{WebVersion}> doesn't match with Jellyfin version <{JellyfinVersion}>", webVersionString, _applicationHost.ApplicationVersion);
                 }
             }
         }
