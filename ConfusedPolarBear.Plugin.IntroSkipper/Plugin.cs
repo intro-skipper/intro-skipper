@@ -458,7 +458,7 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
             // search for class btnSkipIntro
             if (File.ReadAllText(file).Contains("btnSkipIntro", StringComparison.OrdinalIgnoreCase))
             {
-                _logger.LogInformation("jellyfin has build-in skip button");
+                _logger.LogInformation("Found a modified version of jellyfin-web with built-in skip button support.");
                 return;
             }
         }
@@ -478,7 +478,7 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
         // Only inject the script tag once
         if (contents.Contains(scriptTag, StringComparison.OrdinalIgnoreCase))
         {
-            _logger.LogInformation("Skip button already added");
+            _logger.LogInformation("The skip button has already been injected.");
             return;
         }
 
@@ -494,6 +494,6 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
         // Write the modified file contents
         File.WriteAllText(indexPath, contents);
 
-        _logger.LogInformation("Skip intro button successfully added");
+        _logger.LogInformation("Skip button added successfully.");
     }
 }
