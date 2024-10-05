@@ -468,7 +468,7 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
                 buildVersionString = match.Groups["buildVersion"].Value;
                 webVersionString = match.Groups["webVersion"].Value;
                 _logger.LogInformation("Found jellyfin-web version <{WebVersion}>", webVersionString);
-                return;
+                break;
             }
         }
 
