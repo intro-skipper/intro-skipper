@@ -9,8 +9,6 @@ namespace ConfusedPolarBear.Plugin.IntroSkipper.Configuration;
 /// </summary>
 public class PluginConfiguration : BasePluginConfiguration
 {
-    private bool? _selectAllLibraries;
-
     /// <summary>
     /// Initializes a new instance of the <see cref="PluginConfiguration"/> class.
     /// </summary>
@@ -33,11 +31,7 @@ public class PluginConfiguration : BasePluginConfiguration
     /// <summary>
     /// Gets or sets a value indicating whether all libraries should be analyzed.
     /// </summary>
-    public bool SelectAllLibraries
-    {
-        get => _selectAllLibraries ?? string.IsNullOrEmpty(SelectedLibraries);
-        set => _selectAllLibraries = value;
-    }
+    public bool SelectAllLibraries { get; set; } = true;
 
     /// <summary>
     /// Gets or sets the list of client to auto skip for.
@@ -47,17 +41,17 @@ public class PluginConfiguration : BasePluginConfiguration
     /// <summary>
     /// Gets or sets a value indicating whether to scan for intros during a scheduled task.
     /// </summary>
-    public bool AutoDetectIntros { get; set; } = false;
+    public bool AutoDetectIntros { get; set; }
 
     /// <summary>
     /// Gets or sets a value indicating whether to scan for credits during a scheduled task.
     /// </summary>
-    public bool AutoDetectCredits { get; set; } = false;
+    public bool AutoDetectCredits { get; set; }
 
     /// <summary>
     /// Gets or sets a value indicating whether to analyze season 0.
     /// </summary>
-    public bool AnalyzeSeasonZero { get; set; } = false;
+    public bool AnalyzeSeasonZero { get; set; }
 
     /// <summary>
     /// Gets or sets a value indicating whether the episode's fingerprint should be cached to the filesystem.
@@ -182,7 +176,7 @@ public class PluginConfiguration : BasePluginConfiguration
     /// <summary>
     /// Gets or sets the amount of intro at start to play (in seconds).
     /// </summary>
-    public int SecondsOfIntroStartToPlay { get; set; } = 0;
+    public int SecondsOfIntroStartToPlay { get; set; }
 
     /// <summary>
     /// Gets or sets the amount of credit at start to play (in seconds).

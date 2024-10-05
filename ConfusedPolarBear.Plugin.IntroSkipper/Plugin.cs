@@ -70,54 +70,6 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
         _creditsPath = Path.Join(applicationPaths.DataPath, pluginDirName, "credits.xml");
         _ignorelistPath = Path.Join(applicationPaths.DataPath, pluginDirName, "ignorelist.xml");
 
-        var cacheRoot = applicationPaths.CachePath;
-        var oldIntrosDirectory = Path.Join(cacheRoot, pluginDirName);
-        if (!Directory.Exists(oldIntrosDirectory))
-        {
-            pluginDirName = "intros";
-            pluginCachePath = "cache";
-            cacheRoot = applicationPaths.PluginConfigurationsPath;
-            oldIntrosDirectory = Path.Join(cacheRoot, pluginDirName);
-        }
-
-        var oldFingerprintCachePath = Path.Join(oldIntrosDirectory, pluginCachePath);
-        var oldIntroPath = Path.Join(cacheRoot, pluginDirName, "intros.xml");
-        var oldCreditsPath = Path.Join(cacheRoot, pluginDirName, "credits.xml");
-
-        // Create the base & cache directories (if needed).
-        if (!Directory.Exists(FingerprintCachePath))
-        {
-            Directory.CreateDirectory(FingerprintCachePath);
-
-            // Check if the old cache directory exists
-            if (Directory.Exists(oldFingerprintCachePath))
-            {
-                // move intro.xml if exists
-                if (File.Exists(oldIntroPath))
-                {
-                    File.Move(oldIntroPath, _introPath);
-                }
-
-                // move credits.xml if exists
-                if (File.Exists(oldCreditsPath))
-                {
-                    File.Move(oldCreditsPath, _creditsPath);
-                }
-
-                // Move the contents from old directory to new directory
-                string[] files = Directory.GetFiles(oldFingerprintCachePath);
-                foreach (string file in files)
-                {
-                    string fileName = Path.GetFileName(file);
-                    string destFile = Path.Combine(FingerprintCachePath, fileName);
-                    File.Move(file, destFile);
-                }
-
-                // Optionally, you may delete the old directory after moving its contents
-                Directory.Delete(oldIntrosDirectory, true);
-            }
-        }
-
         // migrate from XMLSchema to DataContract
         XmlSerializationHelper.MigrateXML(_introPath);
         XmlSerializationHelper.MigrateXML(_creditsPath);
