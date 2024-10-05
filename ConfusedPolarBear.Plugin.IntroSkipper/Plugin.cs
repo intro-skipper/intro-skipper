@@ -479,8 +479,9 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
 
         if (webVersionString != "unknow")
         {
-            Version? webversion;
-            if (Version.TryParse(webVersionString, out webversion))
+            // append Revision
+            webVersionString += ".0";
+            if (Version.TryParse(webVersionString, out var webversion))
             {
                 if (_applicationHost.ApplicationVersion != webversion)
                 {
