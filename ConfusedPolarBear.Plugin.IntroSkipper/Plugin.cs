@@ -472,7 +472,7 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
             {
                 buildVersionString = match.Groups["buildVersion"].Value;
                 webVersionString = match.Groups["webVersion"].Value;
-                _logger.LogInformation("Found jellyfin-web version <{WebVersion}>", webVersionString);
+                _logger.LogInformation("Found jellyfin-web <{WebVersion}>", webVersionString);
                 break;
             }
         }
@@ -485,11 +485,11 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
             {
                 if (_applicationHost.ApplicationVersion != webversion)
                 {
-                    _logger.LogWarning("The jellyfin-web version <{WebVersion}> doesn't match with Jellyfin version <{JellyfinVersion}>", webVersionString, _applicationHost.ApplicationVersion);
+                    _logger.LogWarning("The jellyfin-web <{WebVersion}> NOT compatible with Jellyfin <{JellyfinVersion}>", webVersionString, _applicationHost.ApplicationVersion);
                 }
                 else
                 {
-                    _logger.LogInformation("The jellyfin-web version <{WebVersion}> match with Jellyfin version <{JellyfinVersion}>", webVersionString, _applicationHost.ApplicationVersion);
+                    _logger.LogInformation("The jellyfin-web <{WebVersion}> compatible with Jellyfin <{JellyfinVersion}>", webVersionString, _applicationHost.ApplicationVersion);
                 }
             }
         }
