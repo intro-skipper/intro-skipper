@@ -1,32 +1,85 @@
-const introSkipper = {
-    originalFetch: window.fetch.bind(window),
-    d: msg => console.debug("[intro skipper] ", msg),
+interface ApiClient {
+    serverAddress(val?: string): string;
+    accessToken(): string;
+}
+
+declare const ApiClient: ApiClient;
+
+interface SkipperData {
+    Introduction?: Segment
+    Credits?: Segment
+}
+
+interface Segment {
+    EpisodeId: string;
+    Start: number;
+    End: number;
+    Valid: boolean;
+}
+
+interface UserInterfaceConfiguration {
+    SkipButtonVisible: boolean;
+    SkipButtonIntroText: string;
+    SkipButtonEndCreditsText: string;
+}
+
+
+class IntroSkipper {
+    observer: null | MutationObserver;
+    allowEnter: any;
+    skipSegments: Object;
+    videoPlayer: any;
+    skipButton: null | HTMLElement;
+    osdElement: null | Element;
+    skipperData: SkipperData;
+    currentEpisodeId: null | string;
+    injectMetadata: boolean;
+    currentOption: string;
+    originalFetch: any;
+    constructor() {
+        this.observer = null
+        this.allowEnter = true;
+        this.skipSegments = {};
+        this.videoPlayer = null;
+        this.skipButton = null;
+        this.osdElement = null;
+        this.skipperData = {};
+        this.currentEpisodeId = null;
+        this.injectMetadata = false;
+        this.currentOption = "";
+        this.originalFetch = window.fetch.bind(window);
+    }
+
+    d(msg: string) {
+        console.debug("[intro skipper] ", msg)
+    }
+
+    initializeObserver() {
+        this.observer = new MutationObserver(mutations => {
+            const actionSheet = (mutations[mutations.length - 1].target as HTMLElement).querySelector('.actionSheet') as HTMLElement; // Type assertion added
+            if (actionSheet && !actionSheet.querySelector(`[data-id="${'introskipperMenu'}"]`)) this.injectIntroSkipperOptions(actionSheet);
+        });
+    }
+
     setup() {
-        this.initializeState();
         this.initializeObserver();
         this.currentOption = localStorage.getItem('introskipperOption') || 'Show Button';
         document.addEventListener("viewshow", this.viewShow.bind(this));
+        // @ts-ignore
         window.fetch = this.fetchWrapper.bind(this);
         this.videoPositionChanged = this.videoPositionChanged.bind(this);
         this.handleEscapeKey = this.handleEscapeKey.bind(this);
         this.d("Registered hooks");
-    },
-    initializeState() {
-        Object.assign(this, { allowEnter: true, skipSegments: {}, videoPlayer: null, skipButton: null, osdElement: null, skipperData: null, currentEpisodeId: null, injectMetadata: false });
-    },
-    initializeObserver() {
-        this.observer = new MutationObserver(mutations => {
-            const actionSheet = mutations[mutations.length - 1].target.querySelector('.actionSheet');
-            if (actionSheet && !actionSheet.querySelector(`[data-id="${'introskipperMenu'}"]`)) this.injectIntroSkipperOptions(actionSheet);
-        });
-    },
+    }
+
     /** Wrapper around fetch() that retrieves skip segments for the currently playing item or metadata. */
-    async fetchWrapper(resource, options) {
+    async fetchWrapper(resource: URL, options: Request | undefined) {
         const response = await this.originalFetch(resource, options);
         this.processResource(resource);
         return response;
-    },
-    async processResource(resource) {
+    }
+
+    async processResource(resource: URL) {
         try {
             const url = new URL(resource);
             const pathname = url.pathname;
@@ -34,16 +87,16 @@ const introSkipper = {
                 this.d(`Retrieving skip segments from URL ${pathname}`);
                 const pathArr = pathname.split("/");
                 const id = pathArr[pathArr.indexOf("Items") + 1] || pathArr[3];
-                this.skipSegments = await this.secureFetch(`Episode/${id}/IntroSkipperSegments`);
-                this.d("Retrieved skip segments", this.skipSegments);
+                this.skipSegments = await this.secureFetch(`Episode/${id}/IntroSkipperSegments`) as SkipperData
+                this.d(`Retrieved skip segments: ${JSON.stringify(this.skipSegments)}`);
             } else if (this.injectMetadata && pathname.includes("/MetadataEditor")) {
                 this.d(`Metadata editor detected, URL ${pathname}`);
                 const pathArr = pathname.split("/");
                 this.currentEpisodeId = pathArr[pathArr.indexOf("Items") + 1] || pathArr[3];
-                this.skipperData = await this.secureFetch(`Episode/${this.currentEpisodeId}/Timestamps`);
+                this.skipperData = await this.secureFetch(`Episode/${this.currentEpisodeId}/Timestamps`) as SkipperData
                 if (this.skipperData) {
                     requestAnimationFrame(() => {
-                        const metadataFormFields = document.querySelector('.metadataFormFields');
+                        const metadataFormFields = document.querySelector('.metadataFormFields') as HTMLElement;
                         metadataFormFields && this.injectSkipperFields(metadataFormFields);
                     });
                 }
@@ -51,7 +104,8 @@ const introSkipper = {
         } catch (e) {
             console.error("Error processing", resource, e);
         }
-    },
+    }
+
     /**
      * Event handler that runs whenever the current view changes.
      * Used to detect the start of video playback.
@@ -69,13 +123,14 @@ const introSkipper = {
                 this.d("Hooking video timeupdate");
                 this.videoPlayer.addEventListener("timeupdate", this.videoPositionChanged);
                 this.osdElement = document.querySelector("div.videoOsdBottom")
-                this.observer.observe(document.body, { childList: true, subtree: false });
+                this.observer?.observe(document.body, { childList: true, subtree: false });
             }
         }
         else {
-            this.observer.disconnect();
+            this.observer?.disconnect();
         }
-    },
+    }
+
     /**
      * Injects the CSS used by the skip intro button.
      * Calling this function is a no-op if the CSS has already been injected.
@@ -134,15 +189,16 @@ const introSkipper = {
                 padding: 0 5px 0 5px;
             }
         `;
-        document.querySelector("head").appendChild(styleElement);
-    },
+        document.querySelector("head")?.appendChild(styleElement);
+    }
+
     /**
      * Inject the skip intro button into the video player.
      * Calling this function is a no-op if the CSS has already been injected.
      */
     async injectButton() {
         // Ensure the button we're about to inject into the page doesn't conflict with a pre-existing one
-        const preExistingButton = document.querySelector("div.skipIntro");
+        const preExistingButton = document.querySelector("div.skipIntro") as HTMLElement;
         if (preExistingButton) {
             preExistingButton.style.display = "none";
         }
@@ -151,7 +207,7 @@ const introSkipper = {
             this.skipButton = document.querySelector("#skipIntro");
             return;
         }
-        const config = await this.secureFetch("Intros/UserInterfaceConfiguration");
+        const config = await this.secureFetch("Intros/UserInterfaceConfiguration") as unknown as UserInterfaceConfiguration;
         if (!config.SkipButtonVisible) {
             this.d("Not adding button: not visible");
             return;
@@ -168,17 +224,19 @@ const introSkipper = {
                 <span class="material-icons skip_next"></span>
             </button>
         `;
-        this.skipButton.dataset.Introduction = config.SkipButtonIntroText;
-        this.skipButton.dataset.Credits = config.SkipButtonEndCreditsText;
+        this.skipButton.dataset.Introduction = config?.SkipButtonIntroText;
+        this.skipButton.dataset.Credits = config?.SkipButtonEndCreditsText;
         const controls = document.querySelector("div#videoOsdPage");
-        controls.appendChild(this.skipButton);
-    },
+        controls?.appendChild(this.skipButton);
+    }
+
     /** Tests if the OSD controls are visible. */
     osdVisible() {
         return this.osdElement ? !this.osdElement.classList.contains("hide") : false;
-    },
+    }
+
     /** Get the currently playing skippable segment. */
-    getCurrentSegment(position) {
+    getCurrentSegment(position: number) {
         for (const [key, segment] of Object.entries(this.skipSegments)) {
             if ((position > segment.ShowSkipPromptAt && position < segment.HideSkipPromptAt - 1) ||
                 (this.osdVisible() && position > segment.IntroStart && position < segment.IntroEnd - 1)) {
@@ -187,30 +245,38 @@ const introSkipper = {
             }
         }
         return { SegmentType: "None" };
-    },
-    overrideBlur(button) {
-        if (!button.originalBlur) {
+    }
+
+    overrideBlur(button: HTMLElement | null) {
+        // @ts-ignore
+        if (!button?.originalBlur) {
+            // @ts-ignore
             button.originalBlur = button.blur;
-            button.blur = function() {
+            // @ts-ignore
+            button.blur = function (): void {
+                // @ts-ignore
                 if (!this.contains(document.activeElement)) {
+                    // @ts-ignore
                     this.originalBlur();
                 }
             };
         }
-    },
+    }
+
     /** Playback position changed, check if the skip button needs to be displayed. */
     videoPositionChanged() {
         if (!this.skipButton) return;
-        const embyButton = this.skipButton.querySelector(".emby-button");
-        const segmentType = this.getCurrentSegment(this.videoPlayer.currentTime).SegmentType;
+        const embyButton = this.skipButton.querySelector(".emby-button") as HTMLButtonElement
+        const segmentType: string = this.getCurrentSegment(this.videoPlayer.currentTime).SegmentType;
         if (segmentType === "None" || this.currentOption === "Off" || !this.allowEnter) {
             if (this.skipButton.classList.contains('show')) {
                 this.skipButton.classList.remove('show');
-                embyButton.addEventListener("transitionend", () => {
-                    this.skipButton.classList.add("hide");
+                embyButton?.addEventListener("transitionend", () => {
+                    this.skipButton?.classList.add("hide");
                     if (this.osdVisible()) {
-                        this.osdElement.querySelector('button.btnPause').focus();
+                        (this.osdElement?.querySelector('button.btnPause') as HTMLButtonElement)?.focus();
                     } else {
+                        // @ts-ignore
                         embyButton.originalBlur();
                     }
                 }, { once: true });
@@ -221,20 +287,22 @@ const introSkipper = {
             this.doSkip();
             return;
         }
-        this.skipButton.querySelector("#btnSkipSegmentText").textContent = this.skipButton.dataset[segmentType];
+
+        (this.skipButton.querySelector("#btnSkipSegmentText") as HTMLButtonElement).textContent = this.skipButton.dataset[segmentType]!;
         if (!this.skipButton.classList.contains("hide")) {
-            if (!this.osdVisible() && !embyButton.contains(document.activeElement)) embyButton.focus();
+            if (!this.osdVisible() && !embyButton?.contains(document.activeElement)) (embyButton as HTMLButtonElement).focus();
             return;
         }
         requestAnimationFrame(() => {
-            this.skipButton.classList.remove("hide");
+            this.skipButton?.classList.remove("hide");
             requestAnimationFrame(() => {
-                this.skipButton.classList.add('show');
+                this.skipButton?.classList.add('show');
                 this.overrideBlur(embyButton);
                 embyButton.focus();
             });
         });
-    },
+    }
+
     /** Seeks to the end of the intro. */
     doSkip() {
         if (!this.allowEnter) return;
@@ -255,79 +323,81 @@ const introSkipper = {
         this.videoPlayer.currentTime = segment.SegmentType === "Credits" && this.videoPlayer.duration - segment.IntroEnd < 3
             ? this.videoPlayer.duration + 10
             : segment.IntroEnd;
-    },
-    createButton(ref, id, innerHTML, clickHandler) {
-        const button = ref.cloneNode(true);
+    }
+    createButton(ref: HTMLElement, id: string, innerHTML: string, clickHandler: { (): void; (): void; }) {
+        const button = ref.cloneNode(true) as HTMLElement;
         button.setAttribute('data-id', id);
         button.innerHTML = innerHTML;
         button.addEventListener('click', clickHandler);
         return button;
-    },
-    closeSubmenu(fullscreen) {
-        document.querySelector('.dialogContainer').remove();
-        document.querySelector('.dialogBackdrop').remove()
+    }
+    closeSubmenu(fullscreen: boolean) {
+        document.querySelector('.dialogContainer')?.remove();
+        document.querySelector('.dialogBackdrop')?.remove()
         document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Control' }));
         if (!fullscreen) return;
         document.removeEventListener('keydown', this.handleEscapeKey);
-        document.querySelector('.btnVideoOsdSettings').focus();
-    },
-    openSubmenu(ref, menu) {
+        (document.querySelector('.btnVideoOsdSettings') as HTMLElement)?.focus();
+    }
+    openSubmenu(ref: HTMLElement, menu: HTMLElement | null) {
         const options = ['Show Button', 'Button w/ auto PiP', 'Automatically Skip', 'Off'];
-        const submenu = menu.cloneNode(true);
+        const submenu = menu?.cloneNode(true) as HTMLElement;
         const scroller = submenu.querySelector('.actionSheetScroller');
-        scroller.innerHTML = '';
-        options.forEach(option => {
-            if (option !== 'Button w/ auto PiP' || document.pictureInPictureEnabled) {
-                const button = this.createButton(ref, `introskipper-${option.toLowerCase().replace(' ', '-')}`,
-                                            `<span class="actionsheetMenuItemIcon listItemIcon listItemIcon-transparent material-icons check" aria-hidden="true" style="visibility:${option === this.currentOption ? 'visible' : 'hidden'};"></span><div class="listItemBody actionsheetListItemBody"><div class="listItemBodyText actionSheetItemText">${option}</div></div>`,
-                                            () => this.selectOption(option));
-                scroller.appendChild(button);
+        if (scroller) { // Check if scroller is not null
+            scroller.innerHTML = '';
+            options.forEach(option => {
+                if (option !== 'Button w/ auto PiP' || document.pictureInPictureEnabled) {
+                    const button = this.createButton(ref, `introskipper-${option.toLowerCase().replace(' ', '-')}`,
+                        `<span class="actionsheetMenuItemIcon listItemIcon listItemIcon-transparent material-icons check" aria-hidden="true" style="visibility:${option === this.currentOption ? 'visible' : 'hidden'};"></span><div class="listItemBody actionsheetListItemBody"><div class="listItemBodyText actionSheetItemText">${option}</div></div>`,
+                        () => this.selectOption(option));
+                    scroller.appendChild(button);
+                }
+            });
+            const backdrop = document.createElement('div');
+            backdrop.className = 'dialogBackdrop dialogBackdropOpened';
+            document.body.append(backdrop, submenu);
+            const actionSheet = submenu.querySelector('.actionSheet') as HTMLElement;
+            if (actionSheet && actionSheet.classList.contains('actionsheet-not-fullscreen')) {
+                this.adjustPosition(actionSheet, document.querySelector('.btnVideoOsdSettings'));
+                submenu.addEventListener('click', () => this.closeSubmenu(false));
+            } else {
+                submenu.querySelector('.btnCloseActionSheet')?.addEventListener('click', () => this.closeSubmenu(true))
+                scroller.addEventListener('click', () => this.closeSubmenu(true))
+                document.addEventListener('keydown', this.handleEscapeKey);
+                setTimeout(() => (scroller.firstElementChild as HTMLElement)?.focus(), 240);
             }
-        });
-        const backdrop = document.createElement('div');
-        backdrop.className = 'dialogBackdrop dialogBackdropOpened';
-        document.body.append(backdrop, submenu);
-        const actionSheet = submenu.querySelector('.actionSheet');
-        if (actionSheet.classList.contains('actionsheet-not-fullscreen')) {
-            this.adjustPosition(actionSheet, document.querySelector('.btnVideoOsdSettings'));
-            submenu.addEventListener('click', () => this.closeSubmenu(false));
-        } else {
-            submenu.querySelector('.btnCloseActionSheet').addEventListener('click', () => this.closeSubmenu(true))
-            scroller.addEventListener('click', () => this.closeSubmenu(true))
-            document.addEventListener('keydown', this.handleEscapeKey);
-            setTimeout(() => scroller.firstElementChild.focus(), 240);
         }
-    },
-    selectOption(option) {
+    }
+    selectOption(option: string) {
         this.currentOption = option;
         localStorage.setItem('introskipperOption', option);
         this.d(`Introskipper option selected and saved: ${option}`);
-    },
-    injectIntroSkipperOptions(actionSheet) {
+    }
+    injectIntroSkipperOptions(actionSheet: HTMLElement) {
         if (!this.skipButton) return;
-        const statsButton = actionSheet.querySelector('[data-id="stats"]');
+        const statsButton = actionSheet.querySelector('[data-id="stats"]') as HTMLElement;
         if (!statsButton) return;
         const menuItem = this.createButton(statsButton, 'introskipperMenu',
-                                      `<div class="listItemBody actionsheetListItemBody"><div class="listItemBodyText actionSheetItemText">Intro Skipper</div></div><div class="listItemAside actionSheetItemAsideText">${this.currentOption}</div>`,
-                                      () => this.openSubmenu(statsButton, actionSheet.closest('.dialogContainer')));
+            `<div class="listItemBody actionsheetListItemBody"><div class="listItemBodyText actionSheetItemText">Intro Skipper</div></div><div class="listItemAside actionSheetItemAsideText">${this.currentOption}</div>`,
+            () => this.openSubmenu(statsButton, actionSheet.closest('.dialogContainer')));
         const originalWidth = actionSheet.offsetWidth;
         statsButton.before(menuItem);
         if (actionSheet.classList.contains('actionsheet-not-fullscreen')) this.adjustPosition(actionSheet, menuItem, originalWidth);
-    },
-    adjustPosition(element, reference, originalWidth) {
-        if (originalWidth) {
+    }
+    adjustPosition(element: HTMLElement, reference: HTMLElement | null, originalWidth?: number) {
+        if (originalWidth && reference) {
             const currentTop = parseInt(element.style.top, 10) || 0;
             element.style.top = `${currentTop - reference.offsetHeight}px`;
             const newWidth = Math.max(reference.offsetWidth - originalWidth, 0);
             const originalLeft = parseInt(element.style.left, 10) || 0;
             element.style.left = `${originalLeft - newWidth / 2}px`;
-        } else {
+        } else if (reference) {
             const rect = reference.getBoundingClientRect();
             element.style.left = `${Math.min(rect.left - (element.offsetWidth - rect.width) / 2, window.innerWidth - element.offsetWidth - 10)}px`;
             element.style.top = `${rect.top - element.offsetHeight + rect.height}px`;
         }
-    },
-    injectSkipperFields(metadataFormFields) {
+    }
+    injectSkipperFields(metadataFormFields: HTMLElement) {
         const skipperFields = document.createElement('div');
         skipperFields.className = 'detailSection introskipperSection';
         skipperFields.innerHTML = `
@@ -357,105 +427,128 @@ const introSkipper = {
                 </div>
             </div>
         `;
-        metadataFormFields.querySelector('#metadataSettingsCollapsible').insertAdjacentElement('afterend', skipperFields);
+        metadataFormFields.querySelector('#metadataSettingsCollapsible')?.insertAdjacentElement('afterend', skipperFields);
         this.attachSaveListener(metadataFormFields);
         this.updateSkipperFields(skipperFields);
         this.setTimeInputs(skipperFields);
-    },
-    updateSkipperFields(skipperFields) {
-        const { Introduction = {}, Credits = {} } = this.skipperData;
-        skipperFields.querySelector('#introStartEdit').value = Introduction.Start || 0;
-        skipperFields.querySelector('#introEndEdit').value = Introduction.End || 0;
-        skipperFields.querySelector('#creditsStartEdit').value = Credits.Start || 0;
-        skipperFields.querySelector('#creditsEndEdit').value = Credits.End || 0;
-    },
-    attachSaveListener(metadataFormFields) {
+    }
+
+    updateSkipperFields(skipperFields: HTMLElement) {
+        const { Introduction = {} as Segment, Credits = {} as Segment } = this.skipperData;
+        const introStartEdit = skipperFields.querySelector('#introStartEdit') as HTMLInputElement;
+        if (introStartEdit) {
+            introStartEdit.value = String(Introduction.Start) || "0";
+        }
+        const introEndEdit = skipperFields.querySelector('#introEndEdit') as HTMLInputElement;
+        if (introEndEdit) {
+            introEndEdit.value = String(Introduction.End) || "0";
+        }
+        const creditsStartEdit = skipperFields.querySelector('#creditsStartEdit') as HTMLInputElement;
+        if (creditsStartEdit) {
+            creditsStartEdit.value = String(Credits.Start) || "0";
+        }
+        const creditsEndEdit = skipperFields.querySelector('#creditsEndEdit') as HTMLInputElement;
+        if (creditsEndEdit) {
+            creditsEndEdit.value = String(Credits.Start) || "0";
+        }
+    }
+    attachSaveListener(metadataFormFields: HTMLElement) {
         const saveButton = metadataFormFields.querySelector('.formDialogFooter .btnSave');
         if (saveButton) {
             saveButton.addEventListener('click', this.saveSkipperData.bind(this));
         } else {
             console.error('Save button not found');
         }
-    },
-    setTimeInputs(skipperFields) {
+    }
+    setTimeInputs(skipperFields: Element) {
         const inputContainers = skipperFields.querySelectorAll('.inputContainer');
         inputContainers.forEach(container => {
-            const displayInput = container.querySelector('[id$="Display"]');
-            const editInput = container.querySelector('[id$="Edit"]');
-            displayInput.addEventListener('pointerdown', (e) => {
-                e.preventDefault();
-                this.switchToEdit(displayInput, editInput);
-            });
-            editInput.addEventListener('blur', () => this.switchToDisplay(displayInput, editInput));
-            displayInput.value = this.formatTime(parseFloat(editInput.value) || 0);
+            const displayInput: HTMLInputElement | null = container.querySelector('[id$="Display"]');
+            const editInput: HTMLInputElement | null = container.querySelector('[id$="Edit"]');
+            if (displayInput && editInput) {
+                displayInput?.addEventListener('pointerdown', (e: MouseEvent) => {
+                    e.preventDefault();
+                    this.switchToEdit(displayInput, editInput);
+                });
+                editInput.addEventListener('blur', () => this.switchToDisplay(displayInput, editInput));
+                displayInput.value = this.formatTime(parseFloat(editInput.value) || 0);
+            }
         });
-    },
-    formatTime(totalSeconds) {
+    }
+    formatTime(totalSeconds: number) {
         const totalRoundedSeconds = Math.round(totalSeconds);
         const hours = Math.floor(totalRoundedSeconds / 3600);
         const minutes = Math.floor((totalRoundedSeconds % 3600) / 60);
         const seconds = totalRoundedSeconds % 60;
-        let result = [];
+        let result: string[] = [];
         if (hours > 0) result.push(`${hours} hour${hours !== 1 ? 's' : ''}`);
         if (minutes > 0) result.push(`${minutes} minute${minutes !== 1 ? 's' : ''}`);
         if (seconds > 0 || result.length === 0) result.push(`${seconds} second${seconds !== 1 ? 's' : ''}`);
         return result.join(' ');
-    },
-    switchToEdit(displayInput, editInput) {
+    }
+    switchToEdit(displayInput: HTMLInputElement, editInput: HTMLInputElement) {
         displayInput.style.display = 'none';
         editInput.style.display = '';
         editInput.focus();
-    },
-    switchToDisplay(displayInput, editInput) {
+    }
+    switchToDisplay(displayInput: HTMLInputElement, editInput: HTMLInputElement) {
         editInput.style.display = 'none';
         displayInput.style.display = '';
         displayInput.value = this.formatTime(parseFloat(editInput.value) || 0);
-    },
+    }
     async saveSkipperData() {
         const newTimestamps = {
             Introduction: {
-                Start: parseFloat(document.getElementById('introStartEdit').value || 0),
-                End: parseFloat(document.getElementById('introEndEdit').value || 0)
+                Start: parseFloat((document.getElementById('introStartEdit') as HTMLInputElement)?.value || "0"),
+                End: parseFloat((document.getElementById('introEndEdit') as HTMLInputElement)?.value || "0")
             },
             Credits: {
-                Start: parseFloat(document.getElementById('creditsStartEdit').value || 0),
-                End: parseFloat(document.getElementById('creditsEndEdit').value || 0)
+                Start: parseFloat((document.getElementById('creditsStartEdit') as HTMLInputElement)?.value || "0"),
+                End: parseFloat((document.getElementById('creditsEndEdit') as HTMLInputElement)?.value || "0")
             }
         };
-        const { Introduction = {}, Credits = {} } = this.skipperData;
+        const { Introduction = {} as Segment, Credits = {} as Segment } = this.skipperData;
         if (newTimestamps.Introduction.Start !== (Introduction.Start || 0) ||
             newTimestamps.Introduction.End !== (Introduction.End || 0) ||
             newTimestamps.Credits.Start !== (Credits.Start || 0) ||
             newTimestamps.Credits.End !== (Credits.End || 0)) {
             const response = await this.secureFetch(`Episode/${this.currentEpisodeId}/Timestamps`, "POST", JSON.stringify(newTimestamps));
-            this.d(response.ok ? 'Timestamps updated successfully' : 'Failed to update timestamps:', response.status);
+            if (response) { // Check if response is not null
+                this.d(response.ok ? 'Timestamps updated successfully' : 'Failed to update timestamps:' + response.status);
+            } else {
+                this.d('Response is null, unable to update timestamps');
+            }
         } else {
             this.d('Timestamps have not changed, skipping update');
         }
-    },
+    }
     /** Make an authenticated fetch to the Jellyfin server and parse the response body as JSON. */
-    async secureFetch(url, method = "GET", body = null) {
+    async secureFetch(url: URL | string, method = "GET", body: string | null = null): Promise<Response | null> {
         const response = await fetch(`${ApiClient.serverAddress()}/${url}`, {
             method,
-            headers: Object.assign({ "Authorization": `MediaBrowser Token=${ApiClient.accessToken()}` },
-                method === "POST" ? {"Content-Type": "application/json"} : {}),
-            body });
+            headers: {
+                "Authorization": `MediaBrowser Token=${ApiClient.accessToken()}`,
+                ...(method === "POST" ? { "Content-Type": "application/json" } : {})
+            },
+            body
+        });
         return response.ok ? (method === "POST" ? response : response.json()) :
             response.status === 404 ? null :
-            console.error(`Error ${response.status} from ${url}`) || null;
-    },
+                console.error(`Error ${response.status} from ${url}`);
+    }
     /** Handle keydown events. */
-    eventHandler(e) {
+    eventHandler(e: KeyboardEvent) {
         if (e.key !== "Enter") return;
         e.stopPropagation();
         e.preventDefault();
         this.doSkip();
-    },
-    handleEscapeKey(e) {
+    }
+    handleEscapeKey(e: KeyboardEvent) {
+        // fix keyCode is deprecated
         if (e.key === 'Escape' || e.keyCode === 461 || e.keyCode === 10009) {
             e.stopPropagation();
             this.closeSubmenu(true);
         }
     }
 };
-introSkipper.setup();
+const introSkipper = new IntroSkipper().setup()

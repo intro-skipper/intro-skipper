@@ -47,6 +47,15 @@ jobs:
           dotnet tool install --global dotnet-outdated-tool
           dotnet outdated -pre Always -u -inc Jellyfin
 
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "lts/*"
+
+      - name: Minify HTML
+        run: |
+          npx --package typescript tsc
+
       - name: Initialize CodeQL
         uses: github/codeql-action/init@6db8d6351fd0be61f9ed8ebd12ccd35dcec51fea # v3.26.11
         with:
