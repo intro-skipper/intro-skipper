@@ -593,38 +593,60 @@
 
                         <div id="timestampEditor" style="display:none">
                             <h3 style="margin:0">Introduction timestamp editor</h3>
-                            <p style="margin:0">All times are displayed in the format (HH:MM:SS)</p>
                             <br />
-                            <table class="detailTable">
-                                <tr>
-                                    <th scope="col" class="detailTableHeaderCell">Episode</th>
-                                    <th scope="col" class="detailTableHeaderCell">Section</th>
-                                    <th scope="col" class="detailTableHeaderCell">Start Time</th>
-                                    <th scope="col" class="detailTableHeaderCell">End Time</th>
-                                </tr>
-                                <tr>
-                                    <td rowspan="2" id="editLeftEpisodeTitle"></td>
-                                    <td>Intro</td>
-                                    <td><input type="time" step="1" id="editLeftIntroEpisodeStart"></td>
-                                    <td><input type="time" step="1" id="editLeftIntroEpisodeEnd"></td>
-                                </tr>
-                                <tr>
-                                    <td>Credits</td>
-                                    <td><input type="time" step="1" id="editLeftCreditEpisodeStart"></td>
-                                    <td><input type="time" step="1" id="editLeftCreditEpisodeEnd"></td>
-                                </tr>
-                                <tr>
-                                    <td rowspan="2" id="editRightEpisodeTitle"></td>
-                                    <td>Intro</td>
-                                    <td><input type="time" step="1" id="editRightIntroEpisodeStart"></td>
-                                    <td><input type="time" step="1" id="editRightIntroEpisodeEnd"></td>
-                                </tr>
-                                <tr>
-                                    <td>Credits</td>
-                                    <td><input type="time" step="1" id="editRightCreditEpisodeStart"></td>
-                                    <td><input type="time" step="1" id="editRightCreditEpisodeEnd"></td>
-                                </tr>
-                            </table>
+                            <h4 style="margin:0" id="editLeftEpisodeTitle"></h4>
+                            <br />
+                            <div class="inlineForm">
+                                <div class="inputContainer">
+                                    <label class="inputLabel inputLabelUnfocused" for="introStart">Intro Start</label>
+                                    <input type="text" id="editLeftIntroEpisodeStartDisplay" class="emby-input custom-time-input" readonly>
+                                    <input type="number" id="editLeftIntroEpisodeStartEdit" class="emby-input custom-time-input" style="display: none;" step="any" min="0">
+                                </div>
+                                <div class="inputContainer">
+                                    <label class="inputLabel inputLabelUnfocused" for="introEnd">Intro End</label>
+                                    <input type="text" id="editLeftIntroEpisodeEndDisplay" class="emby-input custom-time-input" readonly>
+                                    <input type="number" id="editLeftIntroEpisodeEndEdit" class="emby-input custom-time-input" style="display: none;" step="any" min="0">
+                                </div>
+                            </div>
+                            <div class="inlineForm">
+                                <div class="inputContainer">
+                                    <label class="inputLabel inputLabelUnfocused" for="creditsStart">Credits Start</label>
+                                    <input type="text" id="editLeftCreditEpisodeStartDisplay" class="emby-input custom-time-input" readonly>
+                                    <input type="number" id="editLeftCreditEpisodeStartEdit" class="emby-input custom-time-input" style="display: none;" step="any" min="0">
+                                </div>
+                                <div class="inputContainer">
+                                    <label class="inputLabel inputLabelUnfocused" for="creditsEnd">Credits End</label>
+                                    <input type="text" id="editLeftCreditEpisodeEndDisplay" class="emby-input custom-time-input" readonly>
+                                    <input type="number" id="editLeftCreditEpisodeEndEdit" class="emby-input custom-time-input" style="display: none;" step="any" min="0">
+                                </div>
+                            </div>
+                            <br />
+                            <h4 style="margin:0" id="editRightEpisodeTitle"></h4>
+                            <br />
+                            <div class="inlineForm">
+                                <div class="inputContainer">
+                                    <label class="inputLabel inputLabelUnfocused" for="introStart">Intro Start</label>
+                                    <input type="text" id="editRightIntroEpisodeStartDisplay" class="emby-input custom-time-input" readonly>
+                                    <input type="number" id="editRightIntroEpisodeStartEdit" class="emby-input custom-time-input" style="display: none;" step="any" min="0">
+                                </div>
+                                <div class="inputContainer">
+                                    <label class="inputLabel inputLabelUnfocused" for="introEnd">Intro End</label>
+                                    <input type="text" id="editRightIntroEpisodeEndDisplay" class="emby-input custom-time-input" readonly>
+                                    <input type="number" id="editRightIntroEpisodeEndEdit" class="emby-input custom-time-input" style="display: none;" step="any" min="0">
+                                </div>
+                            </div>
+                            <div class="inlineForm">
+                                <div class="inputContainer">
+                                    <label class="inputLabel inputLabelUnfocused" for="creditsStart">Credits Start</label>
+                                    <input type="text" id="editRightCreditEpisodeStartDisplay" class="emby-input custom-time-input" readonly>
+                                    <input type="number" id="editRightCreditEpisodeStartEdit" class="emby-input custom-time-input" style="display: none;" step="any" min="0">
+                                </div>
+                                <div class="inputContainer">
+                                    <label class="inputLabel inputLabelUnfocused" for="creditsEnd">Credits End</label>
+                                    <input type="text" id="editRightCreditEpisodeEndDisplay" class="emby-input custom-time-input" readonly>
+                                    <input type="number" id="editRightCreditEpisodeEndEdit" class="emby-input custom-time-input" style="display: none;" step="any" min="0">
+                                </div>
+                            </div>
                             <br />
                             <button is="emby-select" id="btnUpdateTimestamps" class="raised button-submit block emby-button" type="button">
                                 Update timestamps
@@ -1149,6 +1171,45 @@
                 updateTimestampEditor();
             }
 
+            function setupTimeInputs() {
+                const timestampEditor = document.getElementById('timestampEditor');
+                timestampEditor.querySelectorAll('.inputContainer').forEach(container => {
+                    const displayInput = container.querySelector('[id$="Display"]');
+                    const editInput = container.querySelector('[id$="Edit"]');
+                    displayInput.addEventListener('pointerdown', e => {
+                        e.preventDefault();
+                        switchToEdit(displayInput, editInput);
+                    });
+                    editInput.addEventListener('blur', () => 
+                        switchToDisplay(displayInput, editInput)
+                    );
+                    displayInput.value = formatTime(parseFloat(editInput.value) || 0);
+                });
+            }
+
+            function switchToEdit(displayInput, editInput) {
+                displayInput.style.display = 'none';
+                editInput.style.display = '';
+                editInput.focus();
+            }
+
+            function switchToDisplay(displayInput, editInput) {
+                editInput.style.display = 'none';
+                displayInput.style.display = '';
+                displayInput.value = formatTime(parseFloat(editInput.value) || 0);
+            }
+
+            function formatTime(totalSeconds) {
+                const hours = Math.floor(totalSeconds / 3600);
+                const minutes = Math.floor((totalSeconds % 3600) / 60);
+                const seconds = Math.floor(totalSeconds % 60);
+                let result = [];
+                if (hours > 0) result.push(hours + ' hour' + (hours !== 1 ? 's' : ''));
+                if (minutes > 0) result.push(minutes + ' minute' + (minutes !== 1 ? 's' : ''));
+                if (seconds > 0 || result.length === 0) result.push(seconds + ' second' + (seconds !== 1 ? 's' : ''));
+                return result.join(' ');
+            }
+
             // updates the timestamp editor
             async function updateTimestampEditor() {
                 // Get the title and ID of the left and right episodes
@@ -1161,16 +1222,25 @@
                 // Update the editor for the first and second episodes
                 timestampEditor.style.display = "unset";
                 document.querySelector("#editLeftEpisodeTitle").textContent = leftEpisode.text;
-                document.querySelector("#editLeftIntroEpisodeStart").value = setTime(Math.round(leftEpisodeJson.Introduction.Start));
-                document.querySelector("#editLeftIntroEpisodeEnd").value = setTime(Math.round(leftEpisodeJson.Introduction.End));
-                document.querySelector("#editLeftCreditEpisodeStart").value = setTime(Math.round(leftEpisodeJson.Credits.Start));
-                document.querySelector("#editLeftCreditEpisodeEnd").value = setTime(Math.round(leftEpisodeJson.Credits.End));
+                document.querySelector("#editLeftIntroEpisodeStartEdit").value = leftEpisodeJson.Introduction.Start;
+                document.querySelector("#editLeftIntroEpisodeEndEdit").value = leftEpisodeJson.Introduction.End;
+                document.querySelector("#editLeftCreditEpisodeStartEdit").value = leftEpisodeJson.Credits.Start;
+                document.querySelector("#editLeftCreditEpisodeEndEdit").value = leftEpisodeJson.Credits.End;
 
                 document.querySelector("#editRightEpisodeTitle").textContent = rightEpisode.text;
-                document.querySelector("#editRightIntroEpisodeStart").value = setTime(Math.round(rightEpisodeJson.Introduction.Start));
-                document.querySelector("#editRightIntroEpisodeEnd").value = setTime(Math.round(rightEpisodeJson.Introduction.End));
-                document.querySelector("#editRightCreditEpisodeStart").value = setTime(Math.round(rightEpisodeJson.Credits.Start));
-                document.querySelector("#editRightCreditEpisodeEnd").value = setTime(Math.round(rightEpisodeJson.Credits.End));
+                document.querySelector("#editRightIntroEpisodeStartEdit").value = rightEpisodeJson.Introduction.Start;
+                document.querySelector("#editRightIntroEpisodeEndEdit").value = rightEpisodeJson.Introduction.End;
+                document.querySelector("#editRightCreditEpisodeStartEdit").value = rightEpisodeJson.Credits.Start;
+                document.querySelector("#editRightCreditEpisodeEndEdit").value = rightEpisodeJson.Credits.End;
+
+                // Update display inputs
+                const inputs = document.querySelectorAll('#timestampEditor input[type="number"]');
+                inputs.forEach(input => {
+                    const displayInput = document.getElementById(input.id.replace('Edit', 'Display'));
+                    displayInput.value = formatTime(parseFloat(input.value) || 0);
+                });
+
+                setupTimeInputs();
             }
 
             // adds an item to a dropdown
@@ -1441,29 +1511,32 @@
                 Dashboard.hideLoadingMsg();
             });
             btnUpdateTimestamps.addEventListener("click", () => {
+                const getEditValue = (id) => parseFloat(document.getElementById(id).value) || 0;
+
                 const lhsId = selectEpisode1.options[selectEpisode1.selectedIndex].value;
                 const newLhs = {
                     Introduction: {
-                        Start: getTimeInSeconds(document.getElementById('editLeftIntroEpisodeStart').value),
-                        End: getTimeInSeconds(document.getElementById('editLeftIntroEpisodeEnd').value)
+                        Start: getEditValue('editLeftIntroEpisodeStartEdit'),
+                        End: getEditValue('editLeftIntroEpisodeEndEdit')
                     },
                     Credits: {
-                        Start: getTimeInSeconds(document.getElementById('editLeftCreditEpisodeStart').value),
-                        End: getTimeInSeconds(document.getElementById('editLeftCreditEpisodeEnd').value)
+                        Start: getEditValue('editLeftCreditEpisodeStartEdit'),
+                        End: getEditValue('editLeftCreditEpisodeEndEdit')
                     }
                 };
 
                 const rhsId = selectEpisode2.options[selectEpisode2.selectedIndex].value;
                 const newRhs = {
                     Introduction: {
-                        Start: getTimeInSeconds(document.getElementById('editRightIntroEpisodeStart').value),
-                        End: getTimeInSeconds(document.getElementById('editRightIntroEpisodeEnd').value)
+                        Start: getEditValue('editRightIntroEpisodeStartEdit'),
+                        End: getEditValue('editRightIntroEpisodeEndEdit')
                     },
                     Credits: {
-                        Start: getTimeInSeconds(document.getElementById('editRightCreditEpisodeStart').value),
-                        End: getTimeInSeconds(document.getElementById('editRightCreditEpisodeEnd').value)
+                        Start: getEditValue('editRightCreditEpisodeStartEdit'),
+                        End: getEditValue('editRightCreditEpisodeEndEdit')
                     }
                 };
+
                 fetchWithAuth("Episode/" + lhsId + "/Timestamps", "POST", JSON.stringify(newLhs));
                 fetchWithAuth("Episode/" + rhsId + "/Timestamps", "POST", JSON.stringify(newRhs));
 
