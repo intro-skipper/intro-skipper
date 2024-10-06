@@ -36,7 +36,7 @@ public class PluginConfiguration : BasePluginConfiguration
     /// <summary>
     /// Gets or sets the list of client to auto skip for.
     /// </summary>
-    public string ClientList { get; set; } = "Android TV, Kodi";
+    public string ClientList { get; set; } = "Kodi";
 
     /// <summary>
     /// Gets or sets a value indicating whether to scan for intros during a scheduled task.
