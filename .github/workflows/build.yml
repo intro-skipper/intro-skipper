@@ -49,9 +49,6 @@ jobs:
         with:
           node-version: "lts/*"
 
-      - name: Install html-minifier-terser
-        run: npm install terser html-minifier-terser
-
       - name: Minify HTML
         run: |
           npx html-minifier-terser --collapse-boolean-attributes --collapse-whitespace --collapse-inline-tag-whitespace --remove-comments --remove-optional-tags --remove-redundant-attributes --remove-script-type-attributes --remove-tag-whitespace --use-short-doctype --minify-css true --minify-js true -o ConfusedPolarBear.Plugin.IntroSkipper/Configuration/configPage.html ConfusedPolarBear.Plugin.IntroSkipper/Configuration/configPage.html
