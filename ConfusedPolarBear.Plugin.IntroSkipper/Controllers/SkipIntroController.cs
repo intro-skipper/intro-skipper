@@ -221,6 +221,8 @@ public class SkipIntroController : ControllerBase
         return new UserInterfaceConfiguration(
             config.SkipButtonVisible,
             config.SkipButtonIntroText,
-            config.SkipButtonEndCreditsText);
+            config.SkipButtonEndCreditsText,
+            config.AutoSkip,
+            config.AutoSkipCredits);
     }
 }
