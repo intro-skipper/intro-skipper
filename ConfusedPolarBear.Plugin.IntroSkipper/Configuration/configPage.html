@@ -1178,12 +1178,12 @@
                     const editInput = container.querySelector('[id$="Edit"]');
                     displayInput.addEventListener('pointerdown', e => {
                         e.preventDefault();
-                        this.switchToEdit(displayInput, editInput);
+                        switchToEdit(displayInput, editInput);
                     });
                     editInput.addEventListener('blur', () => 
-                        this.switchToDisplay(displayInput, editInput)
+                        switchToDisplay(displayInput, editInput)
                     );
-                    displayInput.value = this.formatTime(parseFloat(editInput.value) || 0);
+                    displayInput.value = formatTime(parseFloat(editInput.value) || 0);
                 });
             }
 
