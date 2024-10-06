@@ -11,6 +11,7 @@ namespace ConfusedPolarBear.Plugin.IntroSkipper.Configuration;
 /// <param name="creditsText">Skip button end credits text.</param>
 /// <param name="autoSkip">Auto Skip Intro.</param>
 /// <param name="autoSkipCredits">Auto Skip Credits.</param>
+/// <param name="clientList">Auto Skip Clients.</param>
 public class UserInterfaceConfiguration(bool visible, string introText, string creditsText, bool autoSkip, bool autoSkipCredits)
 {
     /// <summary>
@@ -37,4 +38,9 @@ public class UserInterfaceConfiguration(bool visible, string introText, string c
     /// Gets or sets a value indicating whether auto skip credits.
     /// </summary>
     public bool AutoSkipCredits { get; set; } = autoSkipCredits;
+
+    /// <summary>
+    /// Gets or sets a value indicating client to auto skip for.
+    /// </summary>
+    public bool ClientList { get; set; } = clientList;
 }
