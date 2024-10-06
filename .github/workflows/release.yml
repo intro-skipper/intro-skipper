@@ -22,7 +22,7 @@ jobs:
     - name: Setup Node.js
       uses: actions/setup-node@v4
       with:
-          node-version: '>=20'
+        node-version: 'lts/*'
   
     - name: Install html-minifier-terser
       run: npm install terser html-minifier-terser
