@@ -223,6 +223,7 @@ public class SkipIntroController : ControllerBase
             config.SkipButtonIntroText,
             config.SkipButtonEndCreditsText,
             config.AutoSkip,
-            config.AutoSkipCredits);
+            config.AutoSkipCredits,
+            config.ClientList);
     }
 }
