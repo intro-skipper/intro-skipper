@@ -1,4 +1,4 @@
-name: 'Release Plugin'
+name: "Release Plugin"
 
 on:
   workflow_dispatch:
@@ -8,74 +8,73 @@ permissions:
 
 jobs:
   build:
-
     runs-on: ubuntu-latest
 
     steps:
-    - uses: actions/checkout@v4
-    
-    - name: Setup .NET
-      uses: actions/setup-dotnet@v4
-      with:
-        dotnet-version: 8.0.x
+      - uses: actions/checkout@v4
 
-    - name: Setup Node.js
-      uses: actions/setup-node@v4
-      with:
-        node-version: 'lts/*'
-  
-    - name: Install html-minifier-terser
-      run: npm install terser html-minifier-terser
-  
-    - name: Minify HTML
-      run: |
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "lts/*"
+
+      - name: Install html-minifier-terser
+        run: npm install terser html-minifier-terser
+
+      - name: Minify HTML
+        run: |
           npx html-minifier-terser --collapse-boolean-attributes --collapse-whitespace --collapse-inline-tag-whitespace --remove-comments --remove-optional-tags --remove-redundant-attributes --remove-script-type-attributes --remove-tag-whitespace --use-short-doctype --minify-css true --minify-js true -o ConfusedPolarBear.Plugin.IntroSkipper/Configuration/configPage.html ConfusedPolarBear.Plugin.IntroSkipper/Configuration/configPage.html
           npx terser ConfusedPolarBear.Plugin.IntroSkipper/Configuration/inject.js -o ConfusedPolarBear.Plugin.IntroSkipper/Configuration/inject.js -c -m
           npx terser ConfusedPolarBear.Plugin.IntroSkipper/Configuration/visualizer.js -o ConfusedPolarBear.Plugin.IntroSkipper/Configuration/visualizer.js -c -m
-          
-    - name: Restore dependencies
-      run: dotnet restore
 
-    - name: Run update version
-      uses: intro-skipper/intro-skipper-action-ts@main
-      with:
-        task-type: 'updateVersion'
+      - name: Restore dependencies
+        run: dotnet restore
 
-    - name: Embed version info
-      run: |
-        GITHUB_SHA=${{ github.sha }}
-        sed -i "s/string\.Empty/\"$GITHUB_SHA\"/g" ConfusedPolarBear.Plugin.IntroSkipper/Helper/Commit.cs
+      - name: Run update version
+        uses: intro-skipper/intro-skipper-action-ts@main
+        with:
+          task-type: "updateVersion"
 
-    - name: Build
-      run: dotnet build --configuration Release --no-restore
+      - name: Embed version info
+        run: |
+          GITHUB_SHA=${{ github.sha }}
+          sed -i "s/string\.Empty/\"$GITHUB_SHA\"/g" ConfusedPolarBear.Plugin.IntroSkipper/Helper/Commit.cs
 
-    - name: Create archive
-      run: zip -j "intro-skipper-v${{ env.NEW_FILE_VERSION }}.zip" ConfusedPolarBear.Plugin.IntroSkipper/bin/Release/net8.0/ConfusedPolarBear.Plugin.IntroSkipper.dll
+      - name: Build
+        run: dotnet build --configuration Release --no-restore
 
-    - name: Remove old release if exits
-      if: ${{ github.repository == 'intro-skipper/intro-skipper-test' }}
-      run: gh release delete "10.9/v${{ env.NEW_FILE_VERSION }}" --cleanup-tag --yes || true
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Create archive
+        run: zip -j "intro-skipper-v${{ env.NEW_FILE_VERSION }}.zip" ConfusedPolarBear.Plugin.IntroSkipper/bin/Release/net8.0/ConfusedPolarBear.Plugin.IntroSkipper.dll
 
-    - name: Create new release with tag
-      if: github.event_name != 'pull_request'
-      run: gh release create "10.9/v${{ env.NEW_FILE_VERSION }}" "intro-skipper-v${{ env.NEW_FILE_VERSION }}.zip" --title "v${{ env.NEW_FILE_VERSION }}" --latest --generate-notes
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Remove old release if exits
+        if: ${{ github.repository == 'intro-skipper/intro-skipper-test' }}
+        run: gh release delete "10.9/v${{ env.NEW_FILE_VERSION }}" --cleanup-tag --yes || true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-    - name: Run validation and update script
-      uses: intro-skipper/intro-skipper-action-ts@main
-      with:
-        task-type: 'updateManifest'
-      env:
-        GITHUB_REPO_VISIBILITY: ${{ github.event.repository.visibility }}
+      - name: Create new release with tag
+        if: github.event_name != 'pull_request'
+        run: gh release create "10.9/v${{ env.NEW_FILE_VERSION }}" "intro-skipper-v${{ env.NEW_FILE_VERSION }}.zip" --title "v${{ env.NEW_FILE_VERSION }}" --latest --generate-notes
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-    - name: Commit changes
-      if: success()
-      run: |
-        git config --global user.name "github-actions[bot]"
-        git config --global user.email "github-actions[bot]@users.noreply.github.com"
-        git add README.md manifest.json ConfusedPolarBear.Plugin.IntroSkipper/ConfusedPolarBear.Plugin.IntroSkipper.csproj .github/ISSUE_TEMPLATE/bug_report_form.yml
-        git commit -m "release v${{ env.NEW_FILE_VERSION }}"
-        git push
+      - name: Run validation and update script
+        uses: intro-skipper/intro-skipper-action-ts@main
+        with:
+          task-type: "updateManifest"
+        env:
+          GITHUB_REPO_VISIBILITY: ${{ github.event.repository.visibility }}
+
+      - name: Commit changes
+        if: success()
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          git add README.md manifest.json ConfusedPolarBear.Plugin.IntroSkipper/ConfusedPolarBear.Plugin.IntroSkipper.csproj .github/ISSUE_TEMPLATE/bug_report_form.yml
+          git commit -m "release v${{ env.NEW_FILE_VERSION }}"
+          git push

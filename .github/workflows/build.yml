@@ -1,22 +1,22 @@
-name: 'Build Plugin'
+name: "Build Plugin"
 
 on:
   push:
-    branches: [ "master" ]
+    branches: ["master"]
     paths-ignore:
-      - '**/README.md'
-      - '.github/ISSUE_TEMPLATE/**'
-      - 'docs/**'
-      - 'images/**'
-      - 'manifest.json'
+      - "**/README.md"
+      - ".github/ISSUE_TEMPLATE/**"
+      - "docs/**"
+      - "images/**"
+      - "manifest.json"
   pull_request:
-    branches: [ "master" ]
+    branches: ["master"]
     paths-ignore:
-      - '**/README.md'
-      - '.github/ISSUE_TEMPLATE/**'
-      - 'docs/**'
-      - 'images/**'
-      - 'manifest.json'
+      - "**/README.md"
+      - ".github/ISSUE_TEMPLATE/**"
+      - "docs/**"
+      - "images/**"
+      - "manifest.json"
 
 permissions:
   contents: write
@@ -29,76 +29,76 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-    - name: Sanitize head_ref
-      run: |
-        # Get the branch name and sanitize it
-        SANITIZED_BRANCH_NAME=$(echo "${{ github.head_ref }}" | sed 's/[^a-zA-Z0-9.-]/_/g')
-        
-        # Export it as an environment variable
-        echo "SANITIZED_BRANCH_NAME=$SANITIZED_BRANCH_NAME" >> $GITHUB_ENV
+      - name: Sanitize head_ref
+        run: |
+          # Get the branch name and sanitize it
+          SANITIZED_BRANCH_NAME=$(echo "${{ github.head_ref }}" | sed 's/[^a-zA-Z0-9.-]/_/g')
 
-    - uses: actions/checkout@v4
+          # Export it as an environment variable
+          echo "SANITIZED_BRANCH_NAME=$SANITIZED_BRANCH_NAME" >> $GITHUB_ENV
 
-    - name: Setup .NET
-      uses: actions/setup-dotnet@v4
-      with:
-        dotnet-version: 8.0.x
+      - uses: actions/checkout@v4
 
-    - name: Setup Node.js
-      uses: actions/setup-node@v4
-      with:
-        node-version: 'lts/*'
-    
-    - name: Install html-minifier-terser
-      run: npm install terser html-minifier-terser
-  
-    - name: Minify HTML
-      run: |
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "lts/*"
+
+      - name: Install html-minifier-terser
+        run: npm install terser html-minifier-terser
+
+      - name: Minify HTML
+        run: |
           npx html-minifier-terser --collapse-boolean-attributes --collapse-whitespace --collapse-inline-tag-whitespace --remove-comments --remove-optional-tags --remove-redundant-attributes --remove-script-type-attributes --remove-tag-whitespace --use-short-doctype --minify-css true --minify-js true -o ConfusedPolarBear.Plugin.IntroSkipper/Configuration/configPage.html ConfusedPolarBear.Plugin.IntroSkipper/Configuration/configPage.html
           npx terser ConfusedPolarBear.Plugin.IntroSkipper/Configuration/inject.js -o ConfusedPolarBear.Plugin.IntroSkipper/Configuration/inject.js -c -m
-          npx terser ConfusedPolarBear.Plugin.IntroSkipper/Configuration/visualizer.js -o ConfusedPolarBear.Plugin.IntroSkipper/Configuration/visualizer.js -c -m       
+          npx terser ConfusedPolarBear.Plugin.IntroSkipper/Configuration/visualizer.js -o ConfusedPolarBear.Plugin.IntroSkipper/Configuration/visualizer.js -c -m
 
-    - name: Restore dependencies
-      run: dotnet restore
+      - name: Restore dependencies
+        run: dotnet restore
 
-    - name: Embed version info
-      run: |
-        GITHUB_SHA=${{ github.sha }}
-        sed -i "s/string\.Empty/\"$GITHUB_SHA\"/g" ConfusedPolarBear.Plugin.IntroSkipper/Helper/Commit.cs
+      - name: Embed version info
+        run: |
+          GITHUB_SHA=${{ github.sha }}
+          sed -i "s/string\.Empty/\"$GITHUB_SHA\"/g" ConfusedPolarBear.Plugin.IntroSkipper/Helper/Commit.cs
 
-    - name: Retrieve commit identification
-      run: |
-        GIT_HASH=$(git rev-parse --short HEAD)
-        echo "GIT_HASH=${GIT_HASH}" >> $GITHUB_ENV
+      - name: Retrieve commit identification
+        run: |
+          GIT_HASH=$(git rev-parse --short HEAD)
+          echo "GIT_HASH=${GIT_HASH}" >> $GITHUB_ENV
 
-    - name: Build
-      run: dotnet build --no-restore
+      - name: Build
+        run: dotnet build --no-restore
 
-    - name: Upload artifact
-      uses: actions/upload-artifact@v4.3.6
-      if: github.event_name != 'pull_request'
-      with:
-        name: ConfusedPolarBear.Plugin.IntroSkipper-${{ env.GIT_HASH }}.dll
-        path: ConfusedPolarBear.Plugin.IntroSkipper/bin/Debug/net8.0/ConfusedPolarBear.Plugin.IntroSkipper.dll
-        if-no-files-found: error
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4.3.6
+        if: github.event_name != 'pull_request'
+        with:
+          name: ConfusedPolarBear.Plugin.IntroSkipper-${{ env.GIT_HASH }}.dll
+          path: ConfusedPolarBear.Plugin.IntroSkipper/bin/Debug/net8.0/ConfusedPolarBear.Plugin.IntroSkipper.dll
+          if-no-files-found: error
 
-    - name: Upload artifact
-      uses: actions/upload-artifact@v4.3.6
-      if: github.event_name == 'pull_request'
-      with:
-        name: ConfusedPolarBear.Plugin.IntroSkipper-${{ env.SANITIZED_BRANCH_NAME }}.dll
-        path: ConfusedPolarBear.Plugin.IntroSkipper/bin/Debug/net8.0/ConfusedPolarBear.Plugin.IntroSkipper.dll
-        retention-days: 7
-        if-no-files-found: error
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4.3.6
+        if: github.event_name == 'pull_request'
+        with:
+          name: ConfusedPolarBear.Plugin.IntroSkipper-${{ env.SANITIZED_BRANCH_NAME }}.dll
+          path: ConfusedPolarBear.Plugin.IntroSkipper/bin/Debug/net8.0/ConfusedPolarBear.Plugin.IntroSkipper.dll
+          retention-days: 7
+          if-no-files-found: error
 
-    - name: Create archive
-      if: github.event_name != 'pull_request'
-      run: zip -j "intro-skipper-${{ env.GIT_HASH }}.zip" ConfusedPolarBear.Plugin.IntroSkipper/bin/Debug/net8.0/ConfusedPolarBear.Plugin.IntroSkipper.dll
+      - name: Create archive
+        if: github.event_name != 'pull_request'
+        run: zip -j "intro-skipper-${{ env.GIT_HASH }}.zip" ConfusedPolarBear.Plugin.IntroSkipper/bin/Debug/net8.0/ConfusedPolarBear.Plugin.IntroSkipper.dll
 
-    - name: Create/replace the preview release and upload artifacts
-      if: github.event_name != 'pull_request'
-      run: |
-         gh release delete '10.9/preview' --cleanup-tag --yes || true
-         gh release create '10.9/preview' "intro-skipper-${{ env.GIT_HASH }}.zip" --prerelease --title "intro-skipper-${{ env.GIT_HASH }}" --notes "This is a prerelease version."
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Create/replace the preview release and upload artifacts
+        if: github.event_name != 'pull_request'
+        run: |
+          gh release delete '10.9/preview' --cleanup-tag --yes || true
+          gh release create '10.9/preview' "intro-skipper-${{ env.GIT_HASH }}.zip" --prerelease --title "intro-skipper-${{ env.GIT_HASH }}" --notes "This is a prerelease version."
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

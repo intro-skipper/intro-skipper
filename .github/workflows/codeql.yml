@@ -2,21 +2,21 @@ name: "CodeQL"
 
 on:
   push:
-    branches: [ master ]
+    branches: [master]
     paths-ignore:
-      - '**/README.md'
-      - '.github/ISSUE_TEMPLATE/**'
-      - 'docs/**'
-      - 'images/**'
-      - 'manifest.json'
+      - "**/README.md"
+      - ".github/ISSUE_TEMPLATE/**"
+      - "docs/**"
+      - "images/**"
+      - "manifest.json"
   pull_request:
-    branches: [ master ]
+    branches: [master]
     paths-ignore:
-      - '**/README.md'
-      - '.github/ISSUE_TEMPLATE/**'
-      - 'docs/**'
-      - 'images/**'
-      - 'manifest.json'
+      - "**/README.md"
+      - ".github/ISSUE_TEMPLATE/**"
+      - "docs/**"
+      - "images/**"
+      - "manifest.json"
 
 permissions: write-all
 
@@ -31,30 +31,30 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        language: [ 'csharp' ]
+        language: ["csharp"]
 
     steps:
-    - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-    - name: Setup .NET
-      uses: actions/setup-dotnet@v4
-      with:
-        dotnet-version: 8.0.x
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
 
-    - name: Install dependencies
-      run: |
-        dotnet nuget add source --username ${{ github.repository_owner }} --password ${{ secrets.GITHUB_TOKEN }} --store-password-in-clear-text --name jellyfin-pre "https://nuget.pkg.github.com/jellyfin/index.json"
-        dotnet tool install --global dotnet-outdated-tool
-        dotnet outdated -pre Always -u -inc Jellyfin
+      - name: Install dependencies
+        run: |
+          dotnet nuget add source --username ${{ github.repository_owner }} --password ${{ secrets.GITHUB_TOKEN }} --store-password-in-clear-text --name jellyfin-pre "https://nuget.pkg.github.com/jellyfin/index.json"
+          dotnet tool install --global dotnet-outdated-tool
+          dotnet outdated -pre Always -u -inc Jellyfin
 
-    - name: Initialize CodeQL
-      uses: github/codeql-action/init@e2b3eafc8d227b0241d48be5f425d47c2d750a13 # v3.26.10
-      with:
-        languages: ${{ matrix.language }}
-        queries: +security-extended
-        
-    - name: Autobuild
-      uses: github/codeql-action/autobuild@e2b3eafc8d227b0241d48be5f425d47c2d750a13 # v3.26.10
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@e2b3eafc8d227b0241d48be5f425d47c2d750a13 # v3.26.10
+        with:
+          languages: ${{ matrix.language }}
+          queries: +security-extended
 
-    - name: Perform CodeQL Analysis
-      uses: github/codeql-action/analyze@e2b3eafc8d227b0241d48be5f425d47c2d750a13 # v3.26.10
+      - name: Autobuild
+        uses: github/codeql-action/autobuild@e2b3eafc8d227b0241d48be5f425d47c2d750a13 # v3.26.10
+
+      - name: Perform CodeQL Analysis
+        uses: github/codeql-action/analyze@e2b3eafc8d227b0241d48be5f425d47c2d750a13 # v3.26.10
