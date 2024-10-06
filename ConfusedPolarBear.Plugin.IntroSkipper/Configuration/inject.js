@@ -74,7 +74,7 @@ const introSkipper = {
         }
         else {
             this.observer.disconnect();
-        } 
+        }
     },
     /**
      * Injects the CSS used by the skip intro button.
