@@ -75,6 +75,12 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
         _creditsPath = Path.Join(applicationPaths.DataPath, pluginDirName, "credits.xml");
         _ignorelistPath = Path.Join(applicationPaths.DataPath, pluginDirName, "ignorelist.xml");
 
+        // Create the base & cache directories (if needed).
+        if (!Directory.Exists(FingerprintCachePath))
+        {
+            Directory.CreateDirectory(FingerprintCachePath);
+        }
+
         // migrate from XMLSchema to DataContract
         XmlSerializationHelper.MigrateXML(_introPath);
         XmlSerializationHelper.MigrateXML(_creditsPath);
