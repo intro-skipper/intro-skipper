@@ -778,7 +778,7 @@
                 "MaxParallelism",
                 "SelectedLibraries",
                 "ClientList",
-                "UserList",
+                "UserIgnoreList",
                 "AnalysisPercent",
                 "AnalysisLengthLimit",
                 "MinimumIntroDuration",
@@ -936,7 +936,6 @@
             }
 
             function updateListUsers(textField, container, users) {
-                // Create a comma-separated list of user IDs from the unchecked checkboxes
                 textField.value = Array.from(container.querySelectorAll('input[type="checkbox"]:not(:checked)'))
                     .map(checkbox => users.find(user => user.Name === checkbox.nextElementSibling.textContent).Id)
                     .join(', ');

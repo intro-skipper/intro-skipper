@@ -45,9 +45,9 @@ public class PluginConfiguration : BasePluginConfiguration
     public string ClientList { get; set; } = "Android TV, Kodi";
 
     /// <summary>
-    /// Gets or sets the list of users to auto skip for.
+    /// Gets or sets the list of users to ignore.
     /// </summary>
-    public string UserList { get; set; } = string.Empty;
+    public string UserIgnoreList { get; set; } = string.Empty;
 
     /// <summary>
     /// Gets or sets a value indicating whether to scan for intros during a scheduled task.

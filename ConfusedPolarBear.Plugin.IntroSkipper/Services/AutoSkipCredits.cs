@@ -40,7 +40,7 @@ public class AutoSkipCredits(
     private Timer _playbackTimer = new(1000);
     private Dictionary<string, bool> _sentSeekCommand = [];
     private HashSet<string> _clientList = [];
-    private HashSet<Guid> _userList = [];
+    private HashSet<Guid> _userIgnoreList = [];
 
     private void AutoSkipCreditChanged(object? sender, BasePluginConfiguration e)
     {
@@ -49,7 +49,7 @@ public class AutoSkipCredits(
         var newState = configuration.AutoSkipCredits || (configuration.SkipButtonVisible && _clientList.Count > 0);
         _logger.LogDebug("Setting playback timer enabled to {NewState}", newState);
         _playbackTimer.Enabled = newState;
-        _userList = new HashSet<Guid>(configuration.UserList.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).Select(Guid.Parse));
+        _userIgnoreList = new HashSet<Guid>(configuration.UserIgnoreList.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).Select(Guid.Parse));
     }
 
     private void UserDataManager_UserDataSaved(object? sender, UserDataSaveEventArgs e)
@@ -107,7 +107,7 @@ public class AutoSkipCredits(
 
     private void PlaybackTimer_Elapsed(object? sender, ElapsedEventArgs e)
     {
-        foreach (var session in _sessionManager.Sessions.Where(s => Plugin.Instance!.Configuration.AutoSkipCredits || (Plugin.Instance!.Configuration.SkipButtonVisible && _clientList.Contains(s.Client, StringComparer.OrdinalIgnoreCase) && !_userList.Contains(s.UserId))))
+        foreach (var session in _sessionManager.Sessions.Where(s => Plugin.Instance!.Configuration.AutoSkipCredits || (Plugin.Instance!.Configuration.SkipButtonVisible && _clientList.Contains(s.Client, StringComparer.OrdinalIgnoreCase) && !_userIgnoreList.Contains(s.UserId))))
         {
             var deviceId = session.DeviceId;
             var itemId = session.NowPlayingItem.Id;
