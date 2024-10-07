@@ -441,8 +441,8 @@
                             <details id="AutoSkipUserList">
                                 <summary>Auto Skip User List</summary>
                                 <div class="checkboxList paperList" style="padding:.5em 1em; margin-bottom: 0;" id="autoSkipUserCheckboxes"></div>
-                                <label class="inputLabel" for="UserList"></label>
-                                <input id="UserList" type="hidden" is="emby-input" />
+                                <label class="inputLabel" for="UserIgnoreList"></label>
+                                <input id="UserIgnoreList" type="hidden" is="emby-input" />
                             </details>
 
                             <div class="fieldDescription">
@@ -990,7 +990,7 @@
 
             async function generateAutoSkipUserList() {
                 const response = await getJson("Users");
-                generateCheckboxListUsers(response, 'autoSkipUserCheckboxes', 'UserList');
+                generateCheckboxListUsers(response, 'autoSkipUserCheckboxes', 'UserIgnoreList');
             }
 
             async function populateLibraries() {
