@@ -87,8 +87,14 @@ public class AutoSkip(
             return;
         }
 
-        // If this is the first episode in the season, and SkipFirstEpisode is false, pretend that we've already sent the seek command for this playback session.
+        // If this is the first episode in the season, and SkipFirstEpisode is true, pretend that we've already sent the seek command for this playback session.
         if (Plugin.Instance!.Configuration.SkipFirstEpisode && episodeNumber == 1)
+        {
+            newState = true;
+        }
+
+        // If this is the last episode in the season, and SkipLastEpisode is true, pretend that we've already sent the seek command for this playback session.
+        if (Plugin.Instance!.Configuration.SkipLastEpisode && episodeNumber == 1)
         {
             newState = true;
         }

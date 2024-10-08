@@ -164,6 +164,11 @@ public class PluginConfiguration : BasePluginConfiguration
     public bool SkipFirstEpisode { get; set; } = true;
 
     /// <summary>
+    /// Gets or sets a value indicating whether the introduction in the last episode of a season should be ignored.
+    /// </summary>
+    public bool SkipLastEpisode { get; set; } = false;
+
+    /// <summary>
     /// Gets or sets a value indicating whether the skip button should be displayed for the duration of the intro.
     /// </summary>
     public bool PersistSkipButton { get; set; } = true;

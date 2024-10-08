@@ -375,6 +375,18 @@
                             <br />
                         </div>
 
+                        <div id="divSkipLastEpisode" class="checkboxContainer checkboxContainer-withDescription">
+                            <label class="emby-checkbox-label">
+                                <input id="SkipLastEpisode" type="checkbox" is="emby-checkbox" />
+                                <span>Play intro for last episode of a season</span>
+                            </label>
+
+                            <div class="fieldDescription">
+                                If checked, auto skip will play the introduction of the last episode in a season.<br />
+                            </div>
+                            <br />
+                        </div>
+
                         <div id="divSecondsOfIntroStartToPlay" class="inputContainer">
                             <label class="inputLabel inputLabelUnfocused" for="SecondsOfIntroStartToPlay">
                                 Intro skip delay (in seconds)
@@ -418,7 +430,7 @@
 
                             <div class="fieldDescription">
                                 If checked, a skip button will be displayed according to the settings below, while
-                                 clients selected in the Auto Skip Client List will skip <strong>automatically</strong>.
+                                clients selected in the Auto Skip Client List will skip <strong>automatically</strong>.
                                 <br />
                             </div>
                         </div>
@@ -817,6 +829,7 @@
                 "AutoSkip",
                 "AutoSkipCredits",
                 "SkipFirstEpisode",
+                "SkipLastEpisode",
                 "PersistSkipButton",
                 "SkipButtonVisible"
             ]
@@ -850,6 +863,7 @@
             var selectAllLibraries = document.querySelector("input#SelectAllLibraries");
             var librariesContainer = document.querySelector("div.folderAccessListContainer");
             var skipFirstEpisode = document.querySelector("div#divSkipFirstEpisode");
+            var skipLastEpisode = document.querySelector("div#divSkipLastEpisode");
             var secondsOfIntroStartToPlay = document.querySelector("div#divSecondsOfIntroStartToPlay");
             var autoSkipClientList = document.getElementById("AutoSkipClientList");
             var secondsOfCreditsStartToPlay = document.querySelector("div#divSecondsOfCreditsStartToPlay");
@@ -892,10 +906,12 @@
             function autoSkipChanged() {
                 if (autoSkip.checked) {
                     skipFirstEpisode.style.display = 'unset';
+                    skipLastEpisode.style.display = 'unset';
                     autoSkipNotificationText.style.display = 'unset';
                     secondsOfIntroStartToPlay.style.display = 'unset';
                 } else {
                     skipFirstEpisode.style.display = 'none';
+                    skipLastEpisode.style.display = 'none';
                     autoSkipNotificationText.style.display = 'none';
                     secondsOfIntroStartToPlay.style.display = 'none';
                 }
