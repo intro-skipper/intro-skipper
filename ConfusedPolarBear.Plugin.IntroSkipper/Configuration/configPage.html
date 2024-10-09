@@ -358,7 +358,7 @@
 
                             <div class="fieldDescription">
                                 If checked, intros will be automatically skipped for <strong>all</strong> clients.
-                                 Note: Clients cannot disable this setting from the player popup (gear icon).<br />
+                                Clients <strong>cannot</strong> disable this setting from the player popup (gear icon).<br />
                                 If you access Jellyfin through a reverse proxy, it must be configured to proxy websockets.<br />
                             </div>
                         </div>
@@ -394,7 +394,7 @@
 
                             <div class="fieldDescription">
                                 If checked, credits will be automatically skipped for <strong>all</strong> clients.
-                                 Note: Clients cannot disable this setting from the player popup (gear icon).<br />
+                                Clients <strong>cannot</strong> disable this setting from the player popup (gear icon).<br />
                                 If you access Jellyfin through a reverse proxy, it must be configured to proxy websockets.<br />
                             </div>
                         </div>
@@ -437,40 +437,40 @@
 
                         <div id="SkipButtonSettings">
 
-                          <div id="PersistContainer" class="checkboxContainer checkboxContainer-withDescription">
-                              <label class="emby-checkbox-label">
-                                  <input id="PersistSkipButton" type="checkbox" is="emby-checkbox" />
-                                  <span>Display button for intro duration</span>
-                              </label>
+                            <div id="PersistContainer" class="checkboxContainer checkboxContainer-withDescription">
+                                <label class="emby-checkbox-label">
+                                    <input id="PersistSkipButton" type="checkbox" is="emby-checkbox" />
+                                    <span>Display button for intro duration</span>
+                                </label>
 
-                              <div class="fieldDescription">
-                                  If checked, skip button will remain visible throught the intro (offset and timeout are ignored).
-                                  <br />
-                                  Note: If unchecked, button will only appear in the player controls after the set timeout.
-                              </div>
-                          </div>
+                                <div class="fieldDescription">
+                                    If checked, skip button will remain visible throught the intro (offset and timeout are ignored).
+                                    <br />
+                                    Note: If unchecked, button will only appear in the player controls after the set timeout.
+                                </div>
+                            </div>
 
-                          <div id="divShowPromptAdjustment" class="inputContainer">
-                              <label class="inputLabel inputLabelUnfocused" for="ShowPromptAdjustment">
-                                  Skip prompt offset (in seconds)
-                              </label>
-                              <input id="ShowPromptAdjustment" type="number" is="emby-input" min="0" />
-                              <div class="fieldDescription">
-                                  Seconds to display skip prompt before introduction begins.
-                              </div>
-                              <br />
-                          </div>
+                            <div id="divShowPromptAdjustment" class="inputContainer">
+                                <label class="inputLabel inputLabelUnfocused" for="ShowPromptAdjustment">
+                                    Skip prompt offset (in seconds)
+                                </label>
+                                <input id="ShowPromptAdjustment" type="number" is="emby-input" min="0" />
+                                <div class="fieldDescription">
+                                    Seconds to display skip prompt before introduction begins.
+                                </div>
+                                <br />
+                            </div>
 
-                          <div id="divHidePromptAdjustment" class="inputContainer">
-                              <label class="inputLabel inputLabelUnfocused" for="HidePromptAdjustment">
-                                  Skip prompt timeout (in seconds)
-                              </label>
-                              <input id="HidePromptAdjustment" type="number" is="emby-input" min="2" />
-                              <div class="fieldDescription">
-                                  Seconds after introduction before skip prompt is hidden.
-                              </div>
-                              <br />
-                          </div>
+                            <div id="divHidePromptAdjustment" class="inputContainer">
+                                <label class="inputLabel inputLabelUnfocused" for="HidePromptAdjustment">
+                                    Skip prompt timeout (in seconds)
+                                </label>
+                                <input id="HidePromptAdjustment" type="number" is="emby-input" min="2" />
+                                <div class="fieldDescription">
+                                    Seconds after introduction before skip prompt is hidden.
+                                </div>
+                                <br />
+                            </div>
 
                         </div>
 
@@ -1180,7 +1180,7 @@
                         e.preventDefault();
                         switchToEdit(displayInput, editInput);
                     });
-                    editInput.addEventListener('blur', () => 
+                    editInput.addEventListener('blur', () =>
                         switchToDisplay(displayInput, editInput)
                     );
                     displayInput.value = formatTime(parseFloat(editInput.value) || 0);
