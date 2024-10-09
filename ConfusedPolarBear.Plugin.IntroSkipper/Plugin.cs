@@ -350,7 +350,7 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
     /// </summary>
     /// <param name="id">Item id.</param>
     /// <returns>List of chapters.</returns>
-    internal List<ChapterInfo> GetChapters(Guid id)
+    internal IReadOnlyList<ChapterInfo> GetChapters(Guid id)
     {
         var item = GetItem(id);
         if (item == null)

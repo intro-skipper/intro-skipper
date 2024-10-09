@@ -52,7 +52,7 @@ public class ChapterAnalyzer(ILogger<ChapterAnalyzer> logger) : IMediaFileAnalyz
 
             var skipRange = FindMatchingChapter(
                 episode,
-                new(Plugin.Instance.GetChapters(episode.EpisodeId)),
+                Plugin.Instance.GetChapters(episode.EpisodeId),
                 expression,
                 mode);
 
@@ -81,7 +81,7 @@ public class ChapterAnalyzer(ILogger<ChapterAnalyzer> logger) : IMediaFileAnalyz
     /// <returns>Intro object containing skippable time range, or null if no chapter matched.</returns>
     public Segment? FindMatchingChapter(
         QueuedEpisode episode,
-        Collection<ChapterInfo> chapters,
+        IReadOnlyList<ChapterInfo> chapters,
         string expression,
         AnalysisMode mode)
     {

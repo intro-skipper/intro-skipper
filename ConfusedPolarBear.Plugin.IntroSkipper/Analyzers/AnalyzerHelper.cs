@@ -1,8 +1,8 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using ConfusedPolarBear.Plugin.IntroSkipper.Configuration;
 using ConfusedPolarBear.Plugin.IntroSkipper.Data;
-using MediaBrowser.Model.Entities;
 using Microsoft.Extensions.Logging;
 
 namespace ConfusedPolarBear.Plugin.IntroSkipper;
@@ -34,41 +34,26 @@ public class AnalyzerHelper
     /// <param name="mode">Analysis mode.</param>
     /// <returns>Modified Intro Timestamps.</returns>
     public Dictionary<Guid, Segment> AdjustIntroTimes(
-            IReadOnlyList<QueuedEpisode> episodes,
-            IReadOnlyDictionary<Guid, Segment> originalIntros,
-            AnalysisMode mode)
-        {
-            var modifiedIntros = new Dictionary<Guid, Segment>();
-
-            foreach (var episode in episodes)
-            {
-                _logger.LogTrace("Adjusting introduction end time for {Name} ({Id})", episode.Name, episode.EpisodeId);
-
-                if (!originalIntros.TryGetValue(episode.EpisodeId, out var originalIntro))
-                {
-                    _logger.LogTrace("{Name} does not have an intro", episode.Name);
-                    continue;
-                }
-
-                var adjustedIntro = AdjustIntroForEpisode(episode, originalIntro, mode);
-                modifiedIntros[episode.EpisodeId] = adjustedIntro;
-            }
-
-            return modifiedIntros;
-        }
+        IReadOnlyList<QueuedEpisode> episodes,
+        IReadOnlyDictionary<Guid, Segment> originalIntros,
+        AnalysisMode mode)
+    {
+        return episodes
+            .Where(episode => originalIntros.TryGetValue(episode.EpisodeId, out var _))
+            .ToDictionary(
+                episode => episode.EpisodeId,
+                episode => AdjustIntroForEpisode(episode, originalIntros[episode.EpisodeId], mode));
+    }
 
     private Segment AdjustIntroForEpisode(QueuedEpisode episode, Segment originalIntro, AnalysisMode mode)
     {
-        var chapters = GetChaptersWithVirtualEnd(episode);
-        var adjustedIntro = new Segment(originalIntro);
+        _logger.LogTrace("{Name} original intro: {Start} - {End}", episode.Name, originalIntro.Start, originalIntro.End);
 
+        var adjustedIntro = new Segment(originalIntro);
         var originalIntroStart = new TimeRange(Math.Max(0, (int)originalIntro.Start - 5), (int)originalIntro.Start + 10);
         var originalIntroEnd = new TimeRange((int)originalIntro.End - 10, Math.Min(episode.Duration, (int)originalIntro.End + 5));
 
-        _logger.LogTrace("{Name} original intro: {Start} - {End}", episode.Name, originalIntro.Start, originalIntro.End);
-
-        if (!AdjustIntroBasedOnChapters(episode, chapters, adjustedIntro, originalIntroStart, originalIntroEnd)
-            && mode == AnalysisMode.Introduction)
+        if (!AdjustIntroBasedOnChapters(episode, adjustedIntro, originalIntroStart, originalIntroEnd) && mode == AnalysisMode.Introduction)
         {
             AdjustIntroBasedOnSilence(episode, adjustedIntro, originalIntroEnd);
         }
@@ -76,18 +61,16 @@ public class AnalyzerHelper
         return adjustedIntro;
     }
 
-    private static List<ChapterInfo> GetChaptersWithVirtualEnd(QueuedEpisode episode)
+    private bool AdjustIntroBasedOnChapters(QueuedEpisode episode, Segment adjustedIntro, TimeRange originalIntroStart, TimeRange originalIntroEnd)
     {
-        var chapters = Plugin.Instance?.GetChapters(episode.EpisodeId) ?? [];
-        chapters.Add(new ChapterInfo { StartPositionTicks = TimeSpan.FromSeconds(episode.Duration).Ticks });
-        return chapters;
-    }
+        var chapterTimes = (Plugin.Instance?.GetChapters(episode.EpisodeId) ?? [])
+            .Select(c => TimeSpan.FromTicks(c.StartPositionTicks).TotalSeconds)
+            .Prepend(0).Append(episode.Duration).ToList();
 
-    private bool AdjustIntroBasedOnChapters(QueuedEpisode episode, List<ChapterInfo> chapters, Segment adjustedIntro, TimeRange originalIntroStart, TimeRange originalIntroEnd)
-    {
-        foreach (var chapter in chapters)
+        for (int i = 0; i < chapterTimes.Count - 1; i++)
         {
-            var chapterStartSeconds = TimeSpan.FromTicks(chapter.StartPositionTicks).TotalSeconds;
+            var chapterStartSeconds = chapterTimes[i];
+            var chapterEndSeconds = chapterTimes[i + 1];
 
             if (originalIntroStart.Start < chapterStartSeconds && chapterStartSeconds < originalIntroStart.End)
             {
@@ -95,10 +78,10 @@ public class AnalyzerHelper
                 _logger.LogTrace("{Name} chapter found close to intro start: {Start}", episode.Name, chapterStartSeconds);
             }
 
-            if (originalIntroEnd.Start < chapterStartSeconds && chapterStartSeconds < originalIntroEnd.End)
+            if (originalIntroEnd.Start < chapterEndSeconds && chapterEndSeconds < originalIntroEnd.End)
             {
-                adjustedIntro.End = chapterStartSeconds;
-                _logger.LogTrace("{Name} chapter found close to intro end: {End}", episode.Name, chapterStartSeconds);
+                adjustedIntro.End = chapterEndSeconds;
+                _logger.LogTrace("{Name} chapter found close to intro end: {End}", episode.Name, chapterEndSeconds);
                 return true;
             }
         }
