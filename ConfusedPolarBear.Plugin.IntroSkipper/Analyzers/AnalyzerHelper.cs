@@ -63,27 +63,29 @@ public class AnalyzerHelper
 
     private bool AdjustIntroBasedOnChapters(QueuedEpisode episode, Segment adjustedIntro, TimeRange originalIntroStart, TimeRange originalIntroEnd)
     {
-        var chapterTimes = (Plugin.Instance?.GetChapters(episode.EpisodeId) ?? [])
-            .Select(c => TimeSpan.FromTicks(c.StartPositionTicks).TotalSeconds)
-            .Prepend(0).Append(episode.Duration).ToList();
+        var chapters = Plugin.Instance?.GetChapters(episode.EpisodeId) ?? [];
+        double previousTime = 0;
 
-        for (int i = 0; i < chapterTimes.Count - 1; i++)
+        for (int i = 0; i <= chapters.Count; i++)
         {
-            var chapterStartSeconds = chapterTimes[i];
-            var chapterEndSeconds = chapterTimes[i + 1];
+            double currentTime = i == chapters.Count
+                ? episode.Duration
+                : TimeSpan.FromTicks(chapters[i].StartPositionTicks).TotalSeconds;
 
-            if (originalIntroStart.Start < chapterStartSeconds && chapterStartSeconds < originalIntroStart.End)
+            if (originalIntroStart.Start < previousTime && previousTime < originalIntroStart.End)
             {
-                adjustedIntro.Start = chapterStartSeconds;
-                _logger.LogTrace("{Name} chapter found close to intro start: {Start}", episode.Name, chapterStartSeconds);
+                adjustedIntro.Start = previousTime;
+                _logger.LogTrace("{Name} chapter found close to intro start: {Start}", episode.Name, previousTime);
             }
 
-            if (originalIntroEnd.Start < chapterEndSeconds && chapterEndSeconds < originalIntroEnd.End)
+            if (originalIntroEnd.Start < currentTime && currentTime < originalIntroEnd.End)
             {
-                adjustedIntro.End = chapterEndSeconds;
-                _logger.LogTrace("{Name} chapter found close to intro end: {End}", episode.Name, chapterEndSeconds);
+                adjustedIntro.End = currentTime;
+                _logger.LogTrace("{Name} chapter found close to intro end: {End}", episode.Name, currentTime);
                 return true;
             }
+
+            previousTime = currentTime;
         }
 
         return false;
