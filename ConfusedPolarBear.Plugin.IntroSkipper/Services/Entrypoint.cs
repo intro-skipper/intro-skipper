@@ -80,6 +80,7 @@ public sealed class Entrypoint : IHostedService, IDisposable
         _libraryManager.ItemAdded += OnItemAdded;
         _libraryManager.ItemUpdated += OnItemModified;
         _taskManager.TaskCompleted += OnLibraryRefresh;
+        Plugin.Instance!.ConfigurationChanged += OnSettingsChanged;
 
         FFmpegWrapper.Logger = _logger;
 
@@ -204,6 +205,13 @@ public sealed class Entrypoint : IHostedService, IDisposable
         }
 
         StartTimer();
+    }
+
+    private void OnSettingsChanged(object? sender, BasePluginConfiguration e)
+    {
+        _logger.LogInformation("Settings {E} changed, reset episode statuses.", e);
+        Plugin.Instance!.EpisodeStates.Clear();
+        return;
     }
 
     /// <summary>
