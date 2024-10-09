@@ -195,7 +195,7 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
 
         lock (_serializationLock)
         {
-             try
+            try
             {
                 XmlSerializationHelper.SerializeToXml(introList, filePath);
             }
@@ -380,7 +380,7 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
             }
             else if (mode == AnalysisMode.Credits)
             {
-                 Instance!.Credits.AddOrUpdate(intro.Key, intro.Value, (key, oldValue) => intro.Value);
+                Instance!.Credits.AddOrUpdate(intro.Key, intro.Value, (key, oldValue) => intro.Value);
             }
         }
 
