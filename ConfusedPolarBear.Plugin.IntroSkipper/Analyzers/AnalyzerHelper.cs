@@ -68,9 +68,9 @@ public class AnalyzerHelper
 
         for (int i = 0; i <= chapters.Count; i++)
         {
-            double currentTime = i == chapters.Count
-                ? episode.Duration
-                : TimeSpan.FromTicks(chapters[i].StartPositionTicks).TotalSeconds;
+            double currentTime = i < chapters.Count
+                ? TimeSpan.FromTicks(chapters[i].StartPositionTicks).TotalSeconds
+                : episode.Duration;
 
             if (originalIntroStart.Start < previousTime && previousTime < originalIntroStart.End)
             {
