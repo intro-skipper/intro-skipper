@@ -767,21 +767,23 @@
 
                 function generateCheckboxList(items, containerId, textFieldId) {
                     const container = document.getElementById(containerId);
-                    const textField = document.getElementById(textFieldId);
-                    const checkedItems = textField.value ? textField.value.split(", ") : [];
-
-                    container.innerHTML = items
-                        .map((item) => {
-                            const isChecked = checkedItems.includes(item) ? "checked" : "";
-                            return '<label class="emby-checkbox-label">' + '<input type="checkbox" is="emby-checkbox" ' + isChecked + ">" + '<span class="checkboxLabel">' + item + "</span>" + "</label>";
-                        })
-                        .join("");
-
-                    container.addEventListener("change", (event) => {
-                        if (event.target.type === "checkbox") {
-                            updateList(textField, container);
-                        }
+                    const checkedItems = new Set(document.getElementById(textFieldId).value.split(", ").filter(Boolean));
+                    const fragment = document.createDocumentFragment();
+                    items.forEach((item) => {
+                        const label = document.createElement("label");
+                        label.className = "emby-checkbox-label";
+                        label.innerHTML = '<input type="checkbox" is="emby-checkbox"' + (checkedItems.has(item) ? " checked" : "") + ">" + '<span class="checkboxLabel">' + item + "</span>";
+                        fragment.appendChild(label);
                     });
+                    container.innerHTML = "";
+                    container.appendChild(fragment);
+                    container.addEventListener(
+                        "change",
+                        (e) => {
+                            if (e.target.type === "checkbox") updateList(document.getElementById(textFieldId), container);
+                        },
+                        { passive: true },
+                    );
                 }
 
                 async function generateAutoSkipClientList() {
