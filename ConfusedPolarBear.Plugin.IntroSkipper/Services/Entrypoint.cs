@@ -208,17 +208,7 @@ public sealed class Entrypoint : IHostedService, IDisposable
         StartTimer();
     }
 
-    private void OnSettingsChanged(object? sender, BasePluginConfiguration e)
-    {
-        var configuration = (PluginConfiguration)e;
-        if (configuration.UseChromaprint != _config.UseChromaprint)
-        {
-            _logger.LogInformation("Settings changed, reset episode states.");
-            Plugin.Instance!.EpisodeStates.Clear();
-        }
-
-        _config = configuration;
-    }
+    private void OnSettingsChanged(object? sender, BasePluginConfiguration e) => _config = (PluginConfiguration)e;
 
     /// <summary>
     /// Start timer to debounce analyzing.
