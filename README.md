@@ -21,7 +21,11 @@
   * `linuxserver/jellyfin` 10.9.z container: preinstalled
   * Debian Linux based native installs: provided by the `jellyfin-ffmpeg6` package
   * MacOS native installs: build ffmpeg with chromaprint support ([instructions](https://github.com/intro-skipper/intro-skipper/wiki/Custom-FFMPEG-(MacOS)))
- 
+
+## Limitations
+
+* SyncPlay is not (yet) compatible with any method of skipping due to the nature of how the clients are synced. 
+
 ## Jellyfin 10.8 (previous version)
 👉👉👉 [Jellyfin 10.8 Instructions](https://github.com/intro-skipper/intro-skipper/blob/10.8/README.md)
 
