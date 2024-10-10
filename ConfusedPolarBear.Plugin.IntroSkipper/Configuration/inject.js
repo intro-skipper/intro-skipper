@@ -303,8 +303,18 @@ const introSkipper = {
         localStorage.setItem('introskipperOption', option);
         this.d(`Introskipper option selected and saved: ${option}`);
     },
-    injectIntroSkipperOptions(actionSheet) {
+    isAutoSkipLocked(config) {
+        const isAutoSkip = config.AutoSkip && config.AutoSkipCredits;
+        const isAutoSkipClient = new Set(config.ClientList.split(',')).has(ApiClient.appName());
+        return isAutoSkip || (config.SkipButtonVisible && isAutoSkipClient);
+    },
+    async injectIntroSkipperOptions(actionSheet) {
         if (!this.skipButton) return;
+        const config = await this.secureFetch("Intros/UserInterfaceConfiguration");
+        if (this.isAutoSkipLocked(config)) {
+            this.d("Auto skip enforced by server");
+            return;
+        }
         const statsButton = actionSheet.querySelector('[data-id="stats"]');
         if (!statsButton) return;
         const menuItem = this.createButton(statsButton, 'introskipperMenu',
