@@ -1,1372 +1,1198 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
+    <head>
+        <meta charset="utf-8" />
+    </head>
 
-<head>
-    <meta charset="utf-8">
-</head>
+    <body>
+        <div id="TemplateConfigPage" data-role="page" class="page type-interior pluginConfigurationPage" data-require="emby-input,emby-button,emby-select,emby-checkbox,emby-linkbutton">
+            <div data-role="content">
+                <style>
+                    summary {
+                        cursor: pointer;
+                        padding: 10px;
+                        width: inherit;
+                        margin: auto;
+                        border: none;
+                        text-align: center;
+                        outline: none;
+                        font-size: 1em;
+                        outline: 2px solid rgba(155, 155, 155, 0.5);
+                    }
+                    h3.checkboxListLabel {
+                        font-size: 1em;
+                        margin-bottom: 4px;
+                    }
+                </style>
+                <div class="content-primary">
+                    <form id="FingerprintConfigForm">
+                        <fieldset class="verticalSection-extrabottompadding">
+                            <legend>Analysis</legend>
 
-<body>
-    <div id="TemplateConfigPage" data-role="page" class="page type-interior pluginConfigurationPage"
-         data-require="emby-input,emby-button,emby-select,emby-checkbox,emby-linkbutton">
-        <div data-role="content">
-            <style>
-                summary {
-                    cursor: pointer;
-                    padding: 10px;
-                    width: inherit;
-                    margin: auto;
-                    border: none;
-                    text-align: center;
-                    outline: none;
-                    font-size: 1.0em;
-                    outline: 2px solid rgba(155, 155, 155, 0.5);
-                }
-                h3.checkboxListLabel {
-                  font-size: 1em;
-                  margin-bottom: 4px;
-                }
-            </style>
-            <div class="content-primary">
-                <form id="FingerprintConfigForm">
-                    <fieldset class="verticalSection-extrabottompadding">
-                        <legend>Analysis</legend>
+                            <div class="checkboxContainer checkboxContainer-withDescription">
+                                <label class="emby-checkbox-label">
+                                    <input id="AutoDetectIntros" type="checkbox" is="emby-checkbox" />
+                                    <span>Automatically Scan Intros</span>
+                                </label>
 
-                        <div class="checkboxContainer checkboxContainer-withDescription">
-                            <label class="emby-checkbox-label">
-                                <input id="AutoDetectIntros" type="checkbox" is="emby-checkbox" />
-                                <span>Automatically Scan Intros</span>
-                            </label>
-
-                            <div class="fieldDescription">
-                                If enabled, introductions will be automatically analyzed for new media
+                                <div class="fieldDescription">If enabled, introductions will be automatically analyzed for new media</div>
                             </div>
-                        </div>
 
-                        <div class="checkboxContainer checkboxContainer-withDescription">
-                            <label class="emby-checkbox-label">
-                                <input id="AutoDetectCredits" type="checkbox" is="emby-checkbox" />
-                                <span>Automatically Scan Credits</span>
-                            </label>
+                            <div class="checkboxContainer checkboxContainer-withDescription">
+                                <label class="emby-checkbox-label">
+                                    <input id="AutoDetectCredits" type="checkbox" is="emby-checkbox" />
+                                    <span>Automatically Scan Credits</span>
+                                </label>
 
-                            <div class="fieldDescription">
-                                If enabled, credits will be automatically analyzed for new media
-                                <br />
-                                <br />
-                                Note: Not selecting at least one automatic detection type will disable automatic scans. To configure the scheduled task, see <a is="emby-linkbutton" class="button-link" href="#/dashboard/tasks">scheduled tasks</a>.
+                                <div class="fieldDescription">
+                                    If enabled, credits will be automatically analyzed for new media
+                                    <br />
+                                    <br />
+                                    Note: Not selecting at least one automatic detection type will disable automatic scans. To configure the scheduled task, see <a is="emby-linkbutton" class="button-link" href="#/dashboard/tasks">scheduled tasks</a>.
+                                </div>
                             </div>
-                        </div>
 
-                        <div class="checkboxContainer checkboxContainer-withDescription">
-                            <label class="emby-checkbox-label">
-                                <input id="AnalyzeSeasonZero" type="checkbox" is="emby-checkbox" />
-                                <span>Analyze season 0</span>
-                            </label>
+                            <div class="checkboxContainer checkboxContainer-withDescription">
+                                <label class="emby-checkbox-label">
+                                    <input id="AnalyzeSeasonZero" type="checkbox" is="emby-checkbox" />
+                                    <span>Analyze season 0</span>
+                                </label>
 
-                            <div class="fieldDescription">
-                                If checked, season 0 (specials / extras) will be included in analysis.
-                                <br />
-                                <br />
-                                Note: Shows containing both a specials and extra folder will identify extras as season 0
-                                and ignore specials, regardless of this setting.
+                                <div class="fieldDescription">
+                                    If checked, season 0 (specials / extras) will be included in analysis.
+                                    <br />
+                                    <br />
+                                    Note: Shows containing both a specials and extra folder will identify extras as season 0 and ignore specials, regardless of this setting.
+                                </div>
                             </div>
-                        </div>
 
-                        <div class="inputContainer">
-                            <label class="inputLabel inputLabelUnfocused" for="MaxParallelism">
-                                Maximum degree of parallelism
-                            </label>
-                            <input id="MaxParallelism" type="number" is="emby-input" min="1" />
-                            <div class="fieldDescription">
-                                Maximum number of simultaneous async episode analysis operations.
+                            <div class="inputContainer">
+                                <label class="inputLabel inputLabelUnfocused" for="MaxParallelism"> Maximum degree of parallelism </label>
+                                <input id="MaxParallelism" type="number" is="emby-input" min="1" />
+                                <div class="fieldDescription">Maximum number of simultaneous async episode analysis operations.</div>
                             </div>
-                        </div>
 
-                        <div class="checkboxContainer checkboxContainer-withDescription">
-                            <label class="emby-checkbox-label">
-                                <input id="SelectAllLibraries" type="checkbox" is="emby-checkbox" />
-                                <span>Enable analysis for all libraries containing television episodes</span>
-                            </label>
+                            <div class="checkboxContainer checkboxContainer-withDescription">
+                                <label class="emby-checkbox-label">
+                                    <input id="SelectAllLibraries" type="checkbox" is="emby-checkbox" />
+                                    <span>Enable analysis for all libraries containing television episodes</span>
+                                </label>
 
-                            <div class="folderAccessListContainer">
-                                <div class="folderAccess">
-                                    <h3 class="checkboxListLabel">Limit analysis to the following libraries</h3>
-                                    <div class="checkboxList paperList" style="padding: 0.5em 1em;" id="libraryCheckboxes">
+                                <div class="folderAccessListContainer">
+                                    <div class="folderAccess">
+                                        <h3 class="checkboxListLabel">Limit analysis to the following libraries</h3>
+                                        <div class="checkboxList paperList" style="padding: 0.5em 1em" id="libraryCheckboxes"></div>
+                                    </div>
+                                    <label class="inputLabel" for="SelectedLibraries"></label>
+                                    <input id="SelectedLibraries" type="hidden" is="emby-input" />
+                                </div>
+                            </div>
+
+                            <details id="intro_reqs">
+                                <summary>Modify Segment Parameters</summary>
+
+                                <br />
+                                <div class="inputContainer">
+                                    <label class="inputLabel inputLabelUnfocused" for="AnalysisPercent"> Percent of audio to analyze </label>
+                                    <input id="AnalysisPercent" type="number" is="emby-input" min="1" max="90" />
+                                    <div class="fieldDescription">Analysis will be limited to this percentage of each episode's audio. For example, a value of 25 (the default) will limit analysis to the first quarter of each episode.</div>
+                                </div>
+
+                                <div class="inputContainer">
+                                    <label class="inputLabel inputLabelUnfocused" for="AnalysisLengthLimit"> Maximum runtime of audio to analyze (in minutes) </label>
+                                    <input id="AnalysisLengthLimit" type="number" is="emby-input" min="1" />
+                                    <div class="fieldDescription">Analysis will be limited to this amount of each episode's audio. For example, a value of 10 (the default) will limit analysis to the first 10 minutes of each episode.</div>
+                                </div>
+
+                                <div class="inputContainer">
+                                    <label class="inputLabel inputLabelUnfocused" for="MinimumIntroDuration"> Minimum introduction duration (in seconds) </label>
+                                    <input id="MinimumIntroDuration" type="number" is="emby-input" min="1" />
+                                    <div class="fieldDescription">Similar sounding audio which is shorter than this duration will not be considered an introduction.</div>
+                                </div>
+
+                                <div class="inputContainer">
+                                    <label class="inputLabel inputLabelUnfocused" for="MaximumIntroDuration"> Maximum introduction duration (in seconds) </label>
+                                    <input id="MaximumIntroDuration" type="number" is="emby-input" min="1" />
+                                    <div class="fieldDescription">Similar sounding audio which is longer than this duration will not be considered an introduction.</div>
+                                </div>
+
+                                <div class="inputContainer">
+                                    <label class="inputLabel inputLabelUnfocused" for="MinimumCreditsDuration"> Minimum credits duration (in seconds) </label>
+                                    <input id="MinimumCreditsDuration" type="number" is="emby-input" min="1" />
+                                    <div class="fieldDescription">Similar sounding audio which is shorter than this duration will not be considered credits.</div>
+                                </div>
+
+                                <div class="inputContainer">
+                                    <label class="inputLabel inputLabelUnfocused" for="MaximumCreditsDuration"> Maximum credits duration (in seconds) </label>
+                                    <input id="MaximumCreditsDuration" type="number" is="emby-input" min="1" />
+                                    <div class="fieldDescription">Similar sounding audio which is longer than this duration will not be considered credits.</div>
+                                </div>
+
+                                <p>The amount of each episode's audio that will be analyzed is determined using both the percentage of audio and maximum runtime of audio to analyze. The minimum of (episode duration * percent, maximum runtime) is the amount of audio that will be analyzed.</p>
+
+                                <p>
+                                    If the audio percentage or maximum runtime settings are modified, the cached fingerprints and introduction timestamps for each season you want to analyze with the modified settings <strong>will have to be deleted.</strong>
+
+                                    Increasing either of these settings will cause episode analysis to take much longer.
+                                </p>
+                            </details>
+
+                            <details id="edl">
+                                <summary>EDL File Generation</summary>
+
+                                <br />
+                                <div class="selectContainer">
+                                    <label class="selectLabel" for="EdlAction">EDL Action</label>
+                                    <select is="emby-select" id="EdlAction" class="emby-select-withcolor emby-select">
+                                        <option value="None">None (do not create or modify EDL files)</option>
+
+                                        <option value="CommercialBreak">Commercial Break (recommended, skips past the intro once)</option>
+
+                                        <option value="Cut">Cut (player will remove the intro from the video)</option>
+
+                                        <option value="Intro">Intro/Credit (show a skip button, *experimental*)</option>
+
+                                        <option value="Mute">Mute (audio will be muted)</option>
+
+                                        <option value="SceneMarker">Scene Marker (create a chapter marker)</option>
+                                    </select>
+
+                                    <div class="fieldDescription">
+                                        If set to a value other than None, specifies which action to write to
+                                        <a href="https://kodi.wiki/view/Edit_decision_list">MPlayer compatible EDL files</a>
+                                        alongside your episode files. <br />
+
+                                        If this value is changed after EDL files are generated, you must check the "Regenerate EDL files" checkbox below.
                                     </div>
                                 </div>
-                                <label class="inputLabel" for="SelectedLibraries"></label>
-                                <input id="SelectedLibraries" type="hidden" is="emby-input" />
-                            </div>
-                        </div>
 
-                        <details id="intro_reqs">
-                            <summary>Modify Segment Parameters</summary>
+                                <div class="checkboxContainer checkboxContainer-withDescription">
+                                    <label class="emby-checkbox-label">
+                                        <input id="RegenerateEdlFiles" type="checkbox" is="emby-checkbox" />
+                                        <span>Regenerate EDL files during next scan</span>
+                                    </label>
 
-                            <br />
-                            <div class="inputContainer">
-                                <label class="inputLabel inputLabelUnfocused" for="AnalysisPercent">
-                                    Percent of audio to analyze
+                                    <div class="fieldDescription">If checked, the plugin will <strong>overwrite all EDL files</strong> associated with your episodes with the currently discovered introduction/credit timestamps and EDL action.</div>
+                                </div>
+                            </details>
+
+                            <details id="silence">
+                                <summary>Silence Detection Options</summary>
+
+                                <br />
+                                <div class="inputContainer">
+                                    <label class="inputLabel inputLabelUnfocused" for="SilenceDetectionMaximumNoise"> Noise tolerance </label>
+                                    <input id="SilenceDetectionMaximumNoise" type="number" is="emby-input" min="-90" max="0" />
+                                    <div class="fieldDescription">Noise tolerance in negative decibels.</div>
+                                </div>
+
+                                <div class="inputContainer">
+                                    <label class="inputLabel inputLabelUnfocused" for="SilenceDetectionMinimumDuration"> Minimum silence duration </label>
+                                    <input id="SilenceDetectionMinimumDuration" type="number" is="emby-input" min="0" step="0.01" />
+                                    <div class="fieldDescription">Minimum silence duration in seconds before adjusting introduction end time.</div>
+                                </div>
+                            </details>
+
+                            <details id="detection">
+                                <summary>Process Configuration</summary>
+
+                                <br />
+                                <div class="checkboxContainer checkboxContainer-withDescription">
+                                    <label class="emby-checkbox-label">
+                                        <input id="CacheFingerprints" type="checkbox" is="emby-checkbox" />
+                                        <span>Cache episode fingerprints</span>
+                                    </label>
+
+                                    <div class="fieldDescription">
+                                        If checked, episode fingerprints will be saved on the filesystem to improve analysis speed.
+                                        <br />
+                                        <strong>WARNING: Disabling the cache will cause all libraries to be re-scanned, which can take a very long time!</strong>
+                                        <br />
+                                    </div>
+                                </div>
+
+                                <div class="selectContainer">
+                                    <label class="selectLabel" for="ProcessPriority">ffmpeg Priority</label>
+                                    <select is="emby-select" id="ProcessPriority" class="emby-select-withcolor emby-select">
+                                        <option value="Idle">Idle</option>
+
+                                        <option value="BelowNormal">Below Normal</option>
+
+                                        <option value="Normal">Normal</option>
+
+                                        <option value="AboveNormal">Above Normal</option>
+
+                                        <option value="High">High</option>
+
+                                        <option value="RealTime">Highest</option>
+                                    </select>
+
+                                    <div class="fieldDescription">Sets the relative priority of the analysis ffmpeg process to other parallel operations (ie. transcoding, chapter detection, etc).</div>
+                                </div>
+
+                                <div class="inputContainer">
+                                    <label class="inputLabel inputLabelUnfocused" for="ProcessThreads"> ffmpeg Threads </label>
+                                    <input id="ProcessThreads" type="number" is="emby-input" min="0" max="16" />
+                                    <div class="fieldDescription">
+                                        Number of simultaneous processes to use for ffmpeg operations.
+                                        <br />
+                                        This value is most often defined as 1 thread per CPU core, but setting a value of 0 (default) will use the maximum threads available.
+                                    </div>
+                                </div>
+                            </details>
+                        </fieldset>
+
+                        <fieldset class="verticalSection-extrabottompadding">
+                            <legend>Playback</legend>
+
+                            <div class="checkboxContainer checkboxContainer-withDescription">
+                                <label class="emby-checkbox-label">
+                                    <input id="AutoSkip" type="checkbox" is="emby-checkbox" />
+                                    <span>Automatically skip intros</span>
                                 </label>
-                                <input id="AnalysisPercent" type="number" is="emby-input" min="1" max="90" />
+
                                 <div class="fieldDescription">
-                                    Analysis will be limited to this percentage of each episode's audio. For example, a
-                                    value of 25 (the default) will limit analysis to the first quarter of each episode.
+                                    If checked, intros will be automatically skipped for <strong>all</strong> clients. Note: Clients cannot disable this setting from the player popup (gear icon).<br />
+                                    If you access Jellyfin through a reverse proxy, it must be configured to proxy websockets.<br />
                                 </div>
                             </div>
 
-                            <div class="inputContainer">
-                                <label class="inputLabel inputLabelUnfocused" for="AnalysisLengthLimit">
-                                    Maximum runtime of audio to analyze (in minutes)
+                            <div id="divSkipFirstEpisode" class="checkboxContainer checkboxContainer-withDescription">
+                                <label class="emby-checkbox-label">
+                                    <input id="SkipFirstEpisode" type="checkbox" is="emby-checkbox" />
+                                    <span>Play intro for first episode of a season</span>
                                 </label>
-                                <input id="AnalysisLengthLimit" type="number" is="emby-input" min="1" />
-                                <div class="fieldDescription">
-                                    Analysis will be limited to this amount of each episode's audio. For example, a
-                                    value of 10 (the default) will limit analysis to the first 10 minutes of each
-                                    episode.
-                                </div>
+
+                                <div class="fieldDescription">If checked, auto skip will play the introduction of the first episode in a season.<br /></div>
+                                <br />
                             </div>
 
-                            <div class="inputContainer">
-                                <label class="inputLabel inputLabelUnfocused" for="MinimumIntroDuration">
-                                    Minimum introduction duration (in seconds)
-                                </label>
-                                <input id="MinimumIntroDuration" type="number" is="emby-input" min="1" />
-                                <div class="fieldDescription">
-                                    Similar sounding audio which is shorter than this duration will not be considered an
-                                    introduction.
-                                </div>
-                            </div>
-
-                            <div class="inputContainer">
-                                <label class="inputLabel inputLabelUnfocused" for="MaximumIntroDuration">
-                                    Maximum introduction duration (in seconds)
-                                </label>
-                                <input id="MaximumIntroDuration" type="number" is="emby-input" min="1" />
-                                <div class="fieldDescription">
-                                    Similar sounding audio which is longer than this duration will not be considered an
-                                    introduction.
-                                </div>
-                            </div>
-
-                            <div class="inputContainer">
-                                <label class="inputLabel inputLabelUnfocused" for="MinimumCreditsDuration">
-                                    Minimum credits duration (in seconds)
-                                </label>
-                                <input id="MinimumCreditsDuration" type="number" is="emby-input" min="1" />
-                                <div class="fieldDescription">
-                                    Similar sounding audio which is shorter than this duration will not be considered credits.
-                                </div>
-                            </div>
-
-                            <div class="inputContainer">
-                                <label class="inputLabel inputLabelUnfocused" for="MaximumCreditsDuration">
-                                    Maximum credits duration (in seconds)
-                                </label>
-                                <input id="MaximumCreditsDuration" type="number" is="emby-input" min="1" />
-                                <div class="fieldDescription">
-                                    Similar sounding audio which is longer than this duration will not be considered credits.
-                                </div>
-                            </div>
-
-                            <p>
-                                The amount of each episode's audio that will be analyzed is determined using both
-                                the percentage of audio and maximum runtime of audio to analyze. The minimum of
-                                (episode duration * percent, maximum runtime) is the amount of audio that will
-                                be analyzed.
-                            </p>
-
-                            <p>
-                                If the audio percentage or maximum runtime settings are modified, the cached
-                                fingerprints and introduction timestamps for each season you want to analyze with the
-                                modified settings <strong>will have to be deleted.</strong>
-
-                                Increasing either of these settings will cause episode analysis to take much longer.
-                            </p>
-                        </details>
-
-                        <details id="edl">
-                            <summary>EDL File Generation</summary>
-
-                            <br />
-                            <div class="selectContainer">
-                                <label class="selectLabel" for="EdlAction">EDL Action</label>
-                                <select is="emby-select" id="EdlAction" class="emby-select-withcolor emby-select">
-                                    <option value="None">
-                                        None (do not create or modify EDL files)
-                                    </option>
-
-                                    <option value="CommercialBreak">
-                                        Commercial Break (recommended, skips past the intro once)
-                                    </option>
-
-                                    <option value="Cut">
-                                        Cut (player will remove the intro from the video)
-                                    </option>
-
-                                    <option value="Intro">
-                                        Intro/Credit (show a skip button, *experimental*)
-                                    </option>
-
-                                    <option value="Mute">
-                                        Mute (audio will be muted)
-                                    </option>
-
-                                    <option value="SceneMarker">
-                                        Scene Marker (create a chapter marker)
-                                    </option>
-                                </select>
-
-                                <div class="fieldDescription">
-                                    If set to a value other than None, specifies which action to write to
-                                    <a href="https://kodi.wiki/view/Edit_decision_list">MPlayer compatible EDL files</a>
-                                    alongside your episode files. <br />
-
-                                    If this value is changed after EDL files are generated, you must check the
-                                    "Regenerate EDL files" checkbox below.
-                                </div>
+                            <div id="divSecondsOfIntroStartToPlay" class="inputContainer">
+                                <label class="inputLabel inputLabelUnfocused" for="SecondsOfIntroStartToPlay"> Intro skip delay (in seconds) </label>
+                                <input id="SecondsOfIntroStartToPlay" type="number" is="emby-input" min="0" />
+                                <div class="fieldDescription">Seconds of introduction start that should be played. Defaults to 0.</div>
+                                <br />
                             </div>
 
                             <div class="checkboxContainer checkboxContainer-withDescription">
                                 <label class="emby-checkbox-label">
-                                    <input id="RegenerateEdlFiles" type="checkbox" is="emby-checkbox" />
-                                    <span>Regenerate EDL files during next scan</span>
+                                    <input id="AutoSkipCredits" type="checkbox" is="emby-checkbox" />
+                                    <span>Automatically skip credits</span>
                                 </label>
 
                                 <div class="fieldDescription">
-                                    If checked, the plugin will <strong>overwrite all EDL files</strong> associated with
-                                    your episodes with the currently discovered introduction/credit timestamps and EDL action.
-                                </div>
-                            </div>
-                        </details>
-
-                        <details id="silence">
-                            <summary>Silence Detection Options</summary>
-
-                            <br />
-                            <div class="inputContainer">
-                                <label class="inputLabel inputLabelUnfocused" for="SilenceDetectionMaximumNoise">
-                                    Noise tolerance
-                                </label>
-                                <input id="SilenceDetectionMaximumNoise" type="number" is="emby-input" min="-90"
-                                       max="0" />
-                                <div class="fieldDescription">
-                                    Noise tolerance in negative decibels.
+                                    If checked, credits will be automatically skipped for <strong>all</strong> clients. Note: Clients cannot disable this setting from the player popup (gear icon).<br />
+                                    If you access Jellyfin through a reverse proxy, it must be configured to proxy websockets.<br />
                                 </div>
                             </div>
 
-                            <div class="inputContainer">
-                                <label class="inputLabel inputLabelUnfocused" for="SilenceDetectionMinimumDuration">
-                                    Minimum silence duration
-                                </label>
-                                <input id="SilenceDetectionMinimumDuration" type="number" is="emby-input" min="0"
-                                       step="0.01" />
-                                <div class="fieldDescription">
-                                    Minimum silence duration in seconds before adjusting introduction end time.
-                                </div>
+                            <div id="divSecondsOfCreditsStartToPlay" class="inputContainer">
+                                <label class="inputLabel inputLabelUnfocused" for="SecondsOfCreditsStartToPlay"> Credit skip delay (in seconds) </label>
+                                <input id="SecondsOfCreditsStartToPlay" type="number" is="emby-input" min="0" />
+                                <div class="fieldDescription">Seconds of credits start that should be played. Defaults to 0.</div>
+                                <br />
                             </div>
-                        </details>
 
-                        <details id="detection">
-                            <summary>Process Configuration</summary>
-
-                            <br />
-                            <div class="checkboxContainer checkboxContainer-withDescription">
+                            <div id="SkipButtonContainer" class="checkboxContainer checkboxContainer-withDescription">
                                 <label class="emby-checkbox-label">
-                                    <input id="CacheFingerprints" type="checkbox" is="emby-checkbox" />
-                                    <span>Cache episode fingerprints</span>
+                                    <input id="SkipButtonVisible" type="checkbox" is="emby-checkbox" />
+                                    <span id="SkipButtonVisibleLabel">Show skip intro / credit button</span>
                                 </label>
 
                                 <div class="fieldDescription">
-                                    If checked, episode fingerprints will be saved on the filesystem to improve analysis speed.
-                                    <br />
-                                    <strong>WARNING: Disabling the cache will cause all libraries to be re-scanned, which can take a very long time!</strong>
+                                    If checked, a skip button will be displayed according to the settings below, while clients selected in the Auto Skip Client List will skip <strong>automatically</strong>.
                                     <br />
                                 </div>
                             </div>
 
-                            <div class="selectContainer">
-                                <label class="selectLabel" for="ProcessPriority">ffmpeg Priority</label>
-                                <select is="emby-select" id="ProcessPriority" class="emby-select-withcolor emby-select">
-                                    <option value="Idle">
-                                        Idle
-                                    </option>
+                            <div id="warningMessage" style="color: #721c24; background-color: #f7cf1f; border: 1px solid #f5c6cb; border-radius: 4px; padding: 10px; margin-bottom: 10px">Failed to add skip button to web interface. See <a href="https://github.com/intro-skipper/intro-skipper/wiki/Troubleshooting#skip-button-is-not-visible" target="_blank" rel="noopener noreferrer">troubleshooting guide</a> for the most common issues.</div>
 
-                                    <option value="BelowNormal">
-                                        Below Normal
-                                    </option>
+                            <details id="AutoSkipClientList" style="padding-bottom: 1em">
+                                <summary>Auto Skip Client List</summary>
+                                <br />
+                                <div class="checkboxList paperList" style="padding: 0.5em 1em" id="autoSkipCheckboxes"></div>
+                                <label class="inputLabel" for="ClientList"></label>
+                                <input id="ClientList" type="hidden" is="emby-input" />
+                            </details>
 
-                                    <option value="Normal">
-                                        Normal
-                                    </option>
+                            <div id="SkipButtonSettings">
+                                <div id="PersistContainer" class="checkboxContainer checkboxContainer-withDescription">
+                                    <label class="emby-checkbox-label">
+                                        <input id="PersistSkipButton" type="checkbox" is="emby-checkbox" />
+                                        <span>Display button for intro duration</span>
+                                    </label>
 
-                                    <option value="AboveNormal">
-                                        Above Normal
-                                    </option>
+                                    <div class="fieldDescription">
+                                        If checked, skip button will remain visible throught the intro (offset and timeout are ignored).
+                                        <br />
+                                        Note: If unchecked, button will only appear in the player controls after the set timeout.
+                                    </div>
+                                </div>
 
-                                    <option value="High">
-                                        High
-                                    </option>
+                                <div id="divShowPromptAdjustment" class="inputContainer">
+                                    <label class="inputLabel inputLabelUnfocused" for="ShowPromptAdjustment"> Skip prompt offset (in seconds) </label>
+                                    <input id="ShowPromptAdjustment" type="number" is="emby-input" min="0" />
+                                    <div class="fieldDescription">Seconds to display skip prompt before introduction begins.</div>
+                                    <br />
+                                </div>
 
-                                    <option value="RealTime">
-                                        Highest
-                                    </option>
-                                </select>
-
-                                <div class="fieldDescription">
-                                    Sets the relative priority of the analysis ffmpeg process to other parallel operations
-                                    (ie. transcoding, chapter detection, etc).
+                                <div id="divHidePromptAdjustment" class="inputContainer">
+                                    <label class="inputLabel inputLabelUnfocused" for="HidePromptAdjustment"> Skip prompt timeout (in seconds) </label>
+                                    <input id="HidePromptAdjustment" type="number" is="emby-input" min="2" />
+                                    <div class="fieldDescription">Seconds after introduction before skip prompt is hidden.</div>
+                                    <br />
                                 </div>
                             </div>
 
                             <div class="inputContainer">
-                                <label class="inputLabel inputLabelUnfocused" for="ProcessThreads">
-                                    ffmpeg Threads
-                                </label>
-                                <input id="ProcessThreads" type="number" is="emby-input" min="0"
-                                       max="16" />
-                                <div class="fieldDescription">
-                                    Number of simultaneous processes to use for ffmpeg operations.
+                                <label class="inputLabel inputLabelUnfocused" for="RemainingSecondsOfIntro"> Intro playback duration (in seconds) </label>
+                                <input id="RemainingSecondsOfIntro" type="number" is="emby-input" min="0" />
+                                <div class="fieldDescription">Seconds of introduction ending that should be played. Defaults to 2.</div>
+                            </div>
+
+                            <details>
+                                <summary>User Interface Customization</summary>
+
+                                <br />
+                                <div class="inputContainer">
+                                    <label class="inputLabel" for="SkipButtonIntroText"> Skip intro button text </label>
+                                    <input id="SkipButtonIntroText" type="text" is="emby-input" />
+                                    <div class="fieldDescription">Text to display in the skip intro button.</div>
+                                </div>
+
+                                <div class="inputContainer">
+                                    <label class="inputLabel" for="SkipButtonEndCreditsText"> Skip end credits button text </label>
+                                    <input id="SkipButtonEndCreditsText" type="text" is="emby-input" />
+                                    <div class="fieldDescription">Text to display in the skip end credits button.</div>
+                                </div>
+
+                                <div id="divAutoSkipNotificationText" class="inputContainer">
+                                    <label class="inputLabel" for="AutoSkipNotificationText"> Auto skip intro notification message </label>
+                                    <input id="AutoSkipNotificationText" type="text" is="emby-input" />
+                                    <div class="fieldDescription">Message shown after automatically skipping an introduction. Leave blank to disable notification.</div>
+                                </div>
+
+                                <div id="divAutoSkipCreditsNotificationText" class="inputContainer">
+                                    <label class="inputLabel" for="AutoSkipCreditsNotificationText"> Auto skip credits notification message </label>
+                                    <input id="AutoSkipCreditsNotificationText" type="text" is="emby-input" />
+                                    <div class="fieldDescription">Message shown after automatically skipping credits. Leave blank to disable notification.</div>
+                                </div>
+                            </details>
+                        </fieldset>
+
+                        <div>
+                            <button is="emby-button" type="submit" class="raised button-submit block emby-button">
+                                <span>Save</span>
+                            </button>
+                        </div>
+                        <br />
+
+                        <fieldset class="verticalSection-extrabottompadding">
+                            <legend>Advanced</legend>
+
+                            <details id="support">
+                                <summary>Support Bundle Info</summary>
+
+                                <textarea id="supportBundle" rows="20" cols="75" readonly></textarea>
+                            </details>
+
+                            <details id="visualizer">
+                                <summary>Manage Timestamps & Fingerprints</summary>
+
+                                <br />
+                                <label class="inputLabel" for="troubleshooterShow">Select TV Series to manage</label>
+                                <select is="emby-select" id="troubleshooterShow" class="emby-select-withcolor emby-select"></select>
+                                <label class="inputLabel" for="troubleshooterSeason">Select Season to manage</label>
+                                <select is="emby-select" id="troubleshooterSeason" class="emby-select-withcolor emby-select"></select>
+                                <br />
+
+                                <div id="ignorelistSection" style="display: none">
+                                    <h3 style="margin: 0">Ignore list editor</h3>
+                                    <p style="margin: 0">
+                                        Add or remove items from the ignore list. Items on the ignore list will not be analyzed.<br />
+                                        You can apply the changes for the entire series or just the selected season.
+                                    </p>
                                     <br />
-                                    This value is most often defined as 1 thread per CPU core,
-                                    but setting a value of 0 (default) will use the maximum threads available.
-                                </div>
-                            </div>
-                        </details>
-                    </fieldset>
 
-                    <fieldset class="verticalSection-extrabottompadding">
-                        <legend>Playback</legend>
-
-                        <div class="checkboxContainer checkboxContainer-withDescription">
-                            <label class="emby-checkbox-label">
-                                <input id="AutoSkip" type="checkbox" is="emby-checkbox" />
-                                <span>Automatically skip intros</span>
-                            </label>
-
-                            <div class="fieldDescription">
-                                If checked, intros will be automatically skipped for <strong>all</strong> clients.
-                                Clients <strong>cannot</strong> disable this setting from the player popup (gear icon).<br />
-                                If you access Jellyfin through a reverse proxy, it must be configured to proxy websockets.<br />
-                            </div>
-                        </div>
-
-                        <div id="divSkipFirstEpisode" class="checkboxContainer checkboxContainer-withDescription">
-                            <label class="emby-checkbox-label">
-                                <input id="SkipFirstEpisode" type="checkbox" is="emby-checkbox" />
-                                <span>Play intro for first episode of a season</span>
-                            </label>
-
-                            <div class="fieldDescription">
-                                If checked, auto skip will play the introduction of the first episode in a season.<br />
-                            </div>
-                            <br />
-                        </div>
-
-                        <div id="divSecondsOfIntroStartToPlay" class="inputContainer">
-                            <label class="inputLabel inputLabelUnfocused" for="SecondsOfIntroStartToPlay">
-                                Intro skip delay (in seconds)
-                            </label>
-                            <input id="SecondsOfIntroStartToPlay" type="number" is="emby-input" min="0" />
-                            <div class="fieldDescription">
-                                Seconds of introduction start that should be played. Defaults to 0.
-                            </div>
-                            <br />
-                        </div>
-
-                        <div class="checkboxContainer checkboxContainer-withDescription">
-                            <label class="emby-checkbox-label">
-                                <input id="AutoSkipCredits" type="checkbox" is="emby-checkbox" />
-                                <span>Automatically skip credits</span>
-                            </label>
-
-                            <div class="fieldDescription">
-                                If checked, credits will be automatically skipped for <strong>all</strong> clients.
-                                Clients <strong>cannot</strong> disable this setting from the player popup (gear icon).<br />
-                                If you access Jellyfin through a reverse proxy, it must be configured to proxy websockets.<br />
-                            </div>
-                        </div>
-
-                        <div id="divSecondsOfCreditsStartToPlay" class="inputContainer">
-                            <label class="inputLabel inputLabelUnfocused" for="SecondsOfCreditsStartToPlay">
-                                Credit skip delay (in seconds)
-                            </label>
-                            <input id="SecondsOfCreditsStartToPlay" type="number" is="emby-input" min="0" />
-                            <div class="fieldDescription">
-                                Seconds of credits start that should be played. Defaults to 0.
-                            </div>
-                            <br />
-                        </div>
-
-                        <div id="SkipButtonContainer" class="checkboxContainer checkboxContainer-withDescription">
-                            <label class="emby-checkbox-label">
-                                <input id="SkipButtonVisible" type="checkbox" is="emby-checkbox" />
-                                <span id="SkipButtonVisibleLabel">Show skip intro / credit button</span>
-                            </label>
-
-                            <div class="fieldDescription">
-                                If checked, a skip button will be displayed according to the settings below, while
-                                 clients selected in the Auto Skip Client List will skip <strong>automatically</strong>.
-                                <br />
-                            </div>
-                        </div>
-
-                        <div id="warningMessage" style="color: #721c24; background-color: #f7cf1f; border: 1px solid #f5c6cb; border-radius: 4px; padding: 10px; margin-bottom: 10px;">
-                            Failed to add skip button to web interface. See <a href="https://github.com/intro-skipper/intro-skipper/wiki/Troubleshooting#skip-button-is-not-visible" target="_blank" rel="noopener noreferrer">troubleshooting guide</a> for the most common issues.
-                        </div>
-
-                        <details id="AutoSkipClientList" style="padding-bottom: 1em;">
-                            <summary>Auto Skip Client List</summary>
-                            <br />
-                            <div class="checkboxList paperList" style="padding:.5em 1em" id="autoSkipCheckboxes"></div>
-                            <label class="inputLabel" for="ClientList"></label>
-                            <input id="ClientList" type="hidden" is="emby-input" />
-                        </details>
-
-                        <div id="SkipButtonSettings">
-
-                            <div id="PersistContainer" class="checkboxContainer checkboxContainer-withDescription">
-                                <label class="emby-checkbox-label">
-                                    <input id="PersistSkipButton" type="checkbox" is="emby-checkbox" />
-                                    <span>Display button for intro duration</span>
-                                </label>
-
-                                <div class="fieldDescription">
-                                    If checked, skip button will remain visible throught the intro (offset and timeout are ignored).
+                                    <div id="ignoreListCheckboxContainer">
+                                        <label for="ignorelistIntro" style="margin-right: 1.5em; display: inline-block">
+                                            <span>Ignore intros</span>
+                                            <input type="checkbox" id="ignorelistIntro" />
+                                        </label>
+                                        <label for="ignorelistCredits" style="margin-right: 1.5em; display: inline-block">
+                                            <span>Ignore credits</span>
+                                            <input type="checkbox" id="ignorelistCredits" />
+                                        </label>
+                                    </div>
                                     <br />
-                                    Note: If unchecked, button will only appear in the player controls after the set timeout.
-                                </div>
-                            </div>
 
-                            <div id="divShowPromptAdjustment" class="inputContainer">
-                                <label class="inputLabel inputLabelUnfocused" for="ShowPromptAdjustment">
-                                    Skip prompt offset (in seconds)
-                                </label>
-                                <input id="ShowPromptAdjustment" type="number" is="emby-input" min="0" />
-                                <div class="fieldDescription">
-                                    Seconds to display skip prompt before introduction begins.
+                                    <button id="saveIgnoreListSeries" class="raised button-submit block emby-button">Apply to series</button>
+                                    <button id="saveIgnoreListSeason" class="raised button-submit block emby-button" style="display: none">Apply to season</button>
                                 </div>
                                 <br />
-                            </div>
 
-                            <div id="divHidePromptAdjustment" class="inputContainer">
-                                <label class="inputLabel inputLabelUnfocused" for="HidePromptAdjustment">
-                                    Skip prompt timeout (in seconds)
-                                </label>
-                                <input id="HidePromptAdjustment" type="number" is="emby-input" min="2" />
-                                <div class="fieldDescription">
-                                    Seconds after introduction before skip prompt is hidden.
+                                <label class="inputLabel" for="troubleshooterEpisode1">Select the first episode</label>
+                                <select is="emby-select" id="troubleshooterEpisode1" class="emby-select-withcolor emby-select"></select>
+                                <label class="inputLabel" for="troubleshooterEpisode1">Select the second episode</label>
+                                <select is="emby-select" id="troubleshooterEpisode2" class="emby-select-withcolor emby-select"></select>
+                                <br />
+
+                                <div id="timestampEditor" style="display: none">
+                                    <h3 style="margin: 0">Introduction timestamp editor</h3>
+                                    <br />
+                                    <h4 style="margin: 0" id="editLeftEpisodeTitle"></h4>
+                                    <br />
+                                    <div class="inlineForm">
+                                        <div class="inputContainer">
+                                            <label class="inputLabel inputLabelUnfocused" for="introStart">Intro Start</label>
+                                            <input type="text" id="editLeftIntroEpisodeStartDisplay" class="emby-input custom-time-input" readonly />
+                                            <input type="number" id="editLeftIntroEpisodeStartEdit" class="emby-input custom-time-input" style="display: none" step="any" min="0" />
+                                        </div>
+                                        <div class="inputContainer">
+                                            <label class="inputLabel inputLabelUnfocused" for="introEnd">Intro End</label>
+                                            <input type="text" id="editLeftIntroEpisodeEndDisplay" class="emby-input custom-time-input" readonly />
+                                            <input type="number" id="editLeftIntroEpisodeEndEdit" class="emby-input custom-time-input" style="display: none" step="any" min="0" />
+                                        </div>
+                                    </div>
+                                    <div class="inlineForm">
+                                        <div class="inputContainer">
+                                            <label class="inputLabel inputLabelUnfocused" for="creditsStart">Credits Start</label>
+                                            <input type="text" id="editLeftCreditEpisodeStartDisplay" class="emby-input custom-time-input" readonly />
+                                            <input type="number" id="editLeftCreditEpisodeStartEdit" class="emby-input custom-time-input" style="display: none" step="any" min="0" />
+                                        </div>
+                                        <div class="inputContainer">
+                                            <label class="inputLabel inputLabelUnfocused" for="creditsEnd">Credits End</label>
+                                            <input type="text" id="editLeftCreditEpisodeEndDisplay" class="emby-input custom-time-input" readonly />
+                                            <input type="number" id="editLeftCreditEpisodeEndEdit" class="emby-input custom-time-input" style="display: none" step="any" min="0" />
+                                        </div>
+                                    </div>
+                                    <br />
+                                    <h4 style="margin: 0" id="editRightEpisodeTitle"></h4>
+                                    <br />
+                                    <div class="inlineForm">
+                                        <div class="inputContainer">
+                                            <label class="inputLabel inputLabelUnfocused" for="introStart">Intro Start</label>
+                                            <input type="text" id="editRightIntroEpisodeStartDisplay" class="emby-input custom-time-input" readonly />
+                                            <input type="number" id="editRightIntroEpisodeStartEdit" class="emby-input custom-time-input" style="display: none" step="any" min="0" />
+                                        </div>
+                                        <div class="inputContainer">
+                                            <label class="inputLabel inputLabelUnfocused" for="introEnd">Intro End</label>
+                                            <input type="text" id="editRightIntroEpisodeEndDisplay" class="emby-input custom-time-input" readonly />
+                                            <input type="number" id="editRightIntroEpisodeEndEdit" class="emby-input custom-time-input" style="display: none" step="any" min="0" />
+                                        </div>
+                                    </div>
+                                    <div class="inlineForm">
+                                        <div class="inputContainer">
+                                            <label class="inputLabel inputLabelUnfocused" for="creditsStart">Credits Start</label>
+                                            <input type="text" id="editRightCreditEpisodeStartDisplay" class="emby-input custom-time-input" readonly />
+                                            <input type="number" id="editRightCreditEpisodeStartEdit" class="emby-input custom-time-input" style="display: none" step="any" min="0" />
+                                        </div>
+                                        <div class="inputContainer">
+                                            <label class="inputLabel inputLabelUnfocused" for="creditsEnd">Credits End</label>
+                                            <input type="text" id="editRightCreditEpisodeEndDisplay" class="emby-input custom-time-input" readonly />
+                                            <input type="number" id="editRightCreditEpisodeEndEdit" class="emby-input custom-time-input" style="display: none" step="any" min="0" />
+                                        </div>
+                                    </div>
+                                    <br />
+                                    <button is="emby-select" id="btnUpdateTimestamps" class="raised button-submit block emby-button" type="button">Update timestamps</button>
+                                    <br />
+                                </div>
+
+                                <div id="timestampErrorDiv" style="display: none">
+                                    <textarea id="timestampError" rows="2" cols="75" readonly></textarea>
+                                    <br />
+                                    <br />
+                                </div>
+
+                                <h3>Fingerprint Visualizer</h3>
+                                <p>
+                                    Interactively compare the audio fingerprints of two episodes. <br />
+                                    The blue and red bar to the right of the fingerprint diff turns blue when the corresponding fingerprint points are at least 80% similar.
+                                </p>
+                                <table>
+                                    <thead>
+                                        <tr>
+                                            <td style="min-width: 100px; font-weight: bold">Key</td>
+                                            <td style="font-weight: bold">Function</td>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        <tr>
+                                            <td>Up arrow</td>
+                                            <td>Shift the left episode up by 0.1238 seconds. Holding control will shift the episode by 10 seconds.</td>
+                                        </tr>
+                                        <tr>
+                                            <td>Down arrow</td>
+                                            <td>Shift the left episode down by 0.1238 seconds. Holding control will shift the episode by 10 seconds.</td>
+                                        </tr>
+                                        <tr>
+                                            <td>Right arrow</td>
+                                            <td>Advance to the next pair of episodes.</td>
+                                        </tr>
+                                        <tr>
+                                            <td>Left arrow</td>
+                                            <td>Go back to the previous pair of episodes.</td>
+                                        </tr>
+                                    </tbody>
+                                </table>
+                                <br />
+
+                                <span>Shift amount:</span>
+                                <input type="number" min="-3000" max="3000" value="0" id="offset" />
+                                <br />
+                                <span id="suggestedShifts">Suggested shifts:</span>
+                                <br />
+                                <br />
+
+                                <canvas id="troubleshooter" style="display: none"></canvas>
+                                <span id="timestampContainer">
+                                    <span id="timestamps"></span> <br />
+                                    <span id="intros"></span>
+                                </span>
+                                <br />
+                                <br />
+
+                                <div id="eraseSeasonContainer" style="display: none">
+                                    <button id="btnEraseSeasonTimestamps" type="button">Erase all timestamps for this season</button>
+
+                                    <input type="checkbox" id="eraseSeasonCacheCheckbox" style="margin-left: 10px" />
+                                    <label for="eraseSeasonCacheCheckbox" style="margin-left: 5px">Erase cached fingerprint files</label>
                                 </div>
                                 <br />
-                            </div>
 
-                        </div>
+                                <button id="btnEraseIntroTimestamps">Erase all introduction timestamps (globally)</button>
+                                <br />
 
-                        <div class="inputContainer">
-                            <label class="inputLabel inputLabelUnfocused" for="RemainingSecondsOfIntro">
-                                Intro playback duration (in seconds)
-                            </label>
-                            <input id="RemainingSecondsOfIntro" type="number" is="emby-input" min="0" />
-                            <div class="fieldDescription">
-                                Seconds of introduction ending that should be played. Defaults to 2.
-                            </div>
-                        </div>
+                                <button id="btnEraseCreditTimestamps">Erase all end credits timestamps (globally)</button>
+                                <br />
 
-                        <details>
-                            <summary>User Interface Customization</summary>
+                                <input type="checkbox" id="eraseModeCacheCheckbox" style="margin-left: 10px" />
+                                <label for="eraseModeCacheCheckbox" style="margin-left: 5px">Erase cached fingerprint files</label>
+                            </details>
 
-                            <br />
-                            <div class="inputContainer">
-                                <label class="inputLabel" for="SkipButtonIntroText">
-                                    Skip intro button text
-                                </label>
-                                <input id="SkipButtonIntroText" type="text" is="emby-input" />
-                                <div class="fieldDescription">
-                                    Text to display in the skip intro button.
-                                </div>
-                            </div>
-
-                            <div class="inputContainer">
-                                <label class="inputLabel" for="SkipButtonEndCreditsText">
-                                    Skip end credits button text
-                                </label>
-                                <input id="SkipButtonEndCreditsText" type="text" is="emby-input" />
-                                <div class="fieldDescription">
-                                    Text to display in the skip end credits button.
-                                </div>
-                            </div>
-
-                            <div id="divAutoSkipNotificationText" class="inputContainer">
-                                <label class="inputLabel" for="AutoSkipNotificationText">
-                                    Auto skip intro notification message
-                                </label>
-                                <input id="AutoSkipNotificationText" type="text" is="emby-input" />
-                                <div class="fieldDescription">
-                                    Message shown after automatically skipping an introduction. Leave blank to disable notification.
-                                </div>
-                            </div>
-
-                            <div id="divAutoSkipCreditsNotificationText" class="inputContainer">
-                                <label class="inputLabel" for="AutoSkipCreditsNotificationText">
-                                    Auto skip credits notification message
-                                </label>
-                                <input id="AutoSkipCreditsNotificationText" type="text" is="emby-input" />
-                                <div class="fieldDescription">
-                                    Message shown after automatically skipping credits. Leave blank to disable notification.
-                                </div>
-                            </div>
-                        </details>
-                    </fieldset>
-
-                    <div>
-                        <button is="emby-button" type="submit" class="raised button-submit block emby-button">
-                            <span>Save</span>
-                        </button>
-                    </div>
-                    <br />
-
-                <fieldset class="verticalSection-extrabottompadding">
-                    <legend>Advanced</legend>
-
-                    <details id="support">
-                        <summary>Support Bundle Info</summary>
-
-                        <textarea id="supportBundle" rows="20" cols="75" readonly></textarea>
-                    </details>
-
-                    <details id="visualizer">
-                        <summary>Manage Timestamps & Fingerprints</summary>
-
-                        <br />
-                        <label class="inputLabel" for="troubleshooterShow">Select TV Series to manage</label>
-                        <select is="emby-select" id="troubleshooterShow" class="emby-select-withcolor emby-select"></select>
-                        <label class="inputLabel" for="troubleshooterSeason">Select Season to manage</label>
-                        <select is="emby-select" id="troubleshooterSeason" class="emby-select-withcolor emby-select"></select>
-                        <br />
-
-                        <div id="ignorelistSection" style="display: none;">
-                            <h3 style="margin:0;">Ignore list editor</h3>
-                            <p style="margin:0;">
-                                Add or remove items from the ignore list. Items on the ignore list will not be analyzed.<br />
-                                You can apply the changes for the entire series or just the selected season.
-                            </p>
-                            <br />
-
-                            <div id="ignoreListCheckboxContainer">
-                                <label for="ignorelistIntro" style="margin-right: 1.5em; display: inline-block;">
-                                    <span>Ignore intros</span>
-                                    <input type="checkbox" id="ignorelistIntro">
-                                </label>
-                                <label for="ignorelistCredits" style="margin-right: 1.5em; display: inline-block;">
-                                    <span>Ignore credits</span>
-                                    <input type="checkbox" id="ignorelistCredits">
-                                </label>
-                            </div>
-                            <br />
-
-                            <button id="saveIgnoreListSeries" class="raised button-submit block emby-button">
-                                Apply to series
-                            </button>
-                            <button id="saveIgnoreListSeason" class="raised button-submit block emby-button" style="display: none;">
-                                Apply to season
-                            </button>
-                        </div>
-                        <br />
-
-                        <label class="inputLabel" for="troubleshooterEpisode1">Select the first episode</label>
-                        <select is="emby-select" id="troubleshooterEpisode1" class="emby-select-withcolor emby-select"></select>
-                        <label class="inputLabel" for="troubleshooterEpisode1">Select the second episode</label>
-                        <select is="emby-select" id="troubleshooterEpisode2" class="emby-select-withcolor emby-select"></select>
-                        <br />
-
-                        <div id="timestampEditor" style="display:none">
-                            <h3 style="margin:0">Introduction timestamp editor</h3>
-                            <br />
-                            <h4 style="margin:0" id="editLeftEpisodeTitle"></h4>
-                            <br />
-                            <div class="inlineForm">
-                                <div class="inputContainer">
-                                    <label class="inputLabel inputLabelUnfocused" for="introStart">Intro Start</label>
-                                    <input type="text" id="editLeftIntroEpisodeStartDisplay" class="emby-input custom-time-input" readonly>
-                                    <input type="number" id="editLeftIntroEpisodeStartEdit" class="emby-input custom-time-input" style="display: none;" step="any" min="0">
-                                </div>
-                                <div class="inputContainer">
-                                    <label class="inputLabel inputLabelUnfocused" for="introEnd">Intro End</label>
-                                    <input type="text" id="editLeftIntroEpisodeEndDisplay" class="emby-input custom-time-input" readonly>
-                                    <input type="number" id="editLeftIntroEpisodeEndEdit" class="emby-input custom-time-input" style="display: none;" step="any" min="0">
-                                </div>
-                            </div>
-                            <div class="inlineForm">
-                                <div class="inputContainer">
-                                    <label class="inputLabel inputLabelUnfocused" for="creditsStart">Credits Start</label>
-                                    <input type="text" id="editLeftCreditEpisodeStartDisplay" class="emby-input custom-time-input" readonly>
-                                    <input type="number" id="editLeftCreditEpisodeStartEdit" class="emby-input custom-time-input" style="display: none;" step="any" min="0">
-                                </div>
-                                <div class="inputContainer">
-                                    <label class="inputLabel inputLabelUnfocused" for="creditsEnd">Credits End</label>
-                                    <input type="text" id="editLeftCreditEpisodeEndDisplay" class="emby-input custom-time-input" readonly>
-                                    <input type="number" id="editLeftCreditEpisodeEndEdit" class="emby-input custom-time-input" style="display: none;" step="any" min="0">
-                                </div>
-                            </div>
-                            <br />
-                            <h4 style="margin:0" id="editRightEpisodeTitle"></h4>
-                            <br />
-                            <div class="inlineForm">
-                                <div class="inputContainer">
-                                    <label class="inputLabel inputLabelUnfocused" for="introStart">Intro Start</label>
-                                    <input type="text" id="editRightIntroEpisodeStartDisplay" class="emby-input custom-time-input" readonly>
-                                    <input type="number" id="editRightIntroEpisodeStartEdit" class="emby-input custom-time-input" style="display: none;" step="any" min="0">
-                                </div>
-                                <div class="inputContainer">
-                                    <label class="inputLabel inputLabelUnfocused" for="introEnd">Intro End</label>
-                                    <input type="text" id="editRightIntroEpisodeEndDisplay" class="emby-input custom-time-input" readonly>
-                                    <input type="number" id="editRightIntroEpisodeEndEdit" class="emby-input custom-time-input" style="display: none;" step="any" min="0">
-                                </div>
-                            </div>
-                            <div class="inlineForm">
-                                <div class="inputContainer">
-                                    <label class="inputLabel inputLabelUnfocused" for="creditsStart">Credits Start</label>
-                                    <input type="text" id="editRightCreditEpisodeStartDisplay" class="emby-input custom-time-input" readonly>
-                                    <input type="number" id="editRightCreditEpisodeStartEdit" class="emby-input custom-time-input" style="display: none;" step="any" min="0">
-                                </div>
-                                <div class="inputContainer">
-                                    <label class="inputLabel inputLabelUnfocused" for="creditsEnd">Credits End</label>
-                                    <input type="text" id="editRightCreditEpisodeEndDisplay" class="emby-input custom-time-input" readonly>
-                                    <input type="number" id="editRightCreditEpisodeEndEdit" class="emby-input custom-time-input" style="display: none;" step="any" min="0">
-                                </div>
-                            </div>
-                            <br />
-                            <button is="emby-select" id="btnUpdateTimestamps" class="raised button-submit block emby-button" type="button">
-                                Update timestamps
-                            </button>
-                            <br />
-                        </div>
-
-                        <div id="timestampErrorDiv" style="display:none">
-                            <textarea id="timestampError" rows="2" cols="75" readonly></textarea>
-                            <br />
-                            <br />
-                        </div>
-
-                        <h3>Fingerprint Visualizer</h3>
-                        <p>
-                            Interactively compare the audio fingerprints of two episodes. <br />
-                            The blue and red bar to the right of the fingerprint diff turns blue
-                            when the corresponding fingerprint points are at least 80% similar.
-                        </p>
-                        <table>
-                            <thead>
-                                <tr>
-                                    <td style="min-width: 100px; font-weight: bold">Key</td>
-                                    <td style="font-weight: bold">Function</td>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                <tr>
-                                    <td>Up arrow</td>
-                                    <td>
-                                        Shift the left episode up by 0.1238 seconds.
-                                        Holding control will shift the episode by 10 seconds.
-                                    </td>
-                                </tr>
-                                <tr>
-                                    <td>Down arrow</td>
-                                    <td>
-                                        Shift the left episode down by 0.1238 seconds.
-                                        Holding control will shift the episode by 10 seconds.
-                                    </td>
-                                </tr>
-                                <tr>
-                                    <td>Right arrow</td>
-                                    <td>Advance to the next pair of episodes.</td>
-                                </tr>
-                                <tr>
-                                    <td>Left arrow</td>
-                                    <td>Go back to the previous pair of episodes.</td>
-                                </tr>
-                            </tbody>
-                        </table>
-                        <br />
-
-                        <span>Shift amount:</span>
-                        <input type="number" min="-3000" max="3000" value="0" id="offset">
-                        <br />
-                        <span id="suggestedShifts">Suggested shifts:</span>
-                        <br />
-                        <br />
-
-                        <canvas id="troubleshooter" style="display:none;"></canvas>
-                        <span id="timestampContainer">
-                            <span id="timestamps"></span> <br />
-                            <span id="intros"></span>
-                        </span>
-                        <br />
-                        <br />
-
-                        <div id="eraseSeasonContainer" style="display: none;">
-                            <button id="btnEraseSeasonTimestamps" type="button">
-                                Erase all timestamps for this season
-                            </button>
-
-                            <input type="checkbox" id="eraseSeasonCacheCheckbox" style="margin-left: 10px;">
-                            <label for="eraseSeasonCacheCheckbox" style="margin-left: 5px;">Erase cached fingerprint files</label>
-                        </div>
-                        <br />
-
-                        <button id="btnEraseIntroTimestamps">
-                            Erase all introduction timestamps (globally)
-                        </button>
-                        <br />
-
-                        <button id="btnEraseCreditTimestamps">
-                            Erase all end credits timestamps (globally)
-                        </button>
-                        <br />
-
-                        <input type="checkbox" id="eraseModeCacheCheckbox" style="margin-left: 10px;">
-                        <label for="eraseModeCacheCheckbox" style="margin-left: 5px;">Erase cached fingerprint files</label>
-                    </details>
-
-                    <details id="storage">
-                        <br />
-                        <summary>Storage Usage</summary>
-                            <div class="fieldDescription">
-                                See how much space each library uses.
-                            </div>
-                        <textarea id="storage" rows="20" cols="75" readonly></textarea>
-                    </details>
-                </fieldset>
-                </form>
+                            <details id="storage">
+                                <br />
+                                <summary>Storage Usage</summary>
+                                <div class="fieldDescription">See how much space each library uses.</div>
+                                <textarea id="storage" rows="20" cols="75" readonly></textarea>
+                            </details>
+                        </fieldset>
+                    </form>
+                </div>
             </div>
-        </div>
 
-        <script src="configurationpage?name=visualizer.js"></script>
+            <script src="configurationpage?name=visualizer.js"></script>
 
-        <script>
-            // first and second episodes to fingerprint & compare
-            var lhs = [];
-            var rhs = [];
+            <script>
+                // first and second episodes to fingerprint & compare
+                var lhs = [];
+                var rhs = [];
 
-            // fingerprint point comparison & miminum similarity threshold (at most 6 bits out of 32 can be different)
-            var fprDiffs = [];
-            var fprDiffMinimum = (1 - 6 / 32) * 100;
+                // fingerprint point comparison & miminum similarity threshold (at most 6 bits out of 32 can be different)
+                var fprDiffs = [];
+                var fprDiffMinimum = (1 - 6 / 32) * 100;
 
-            // seasons grouped by show
-            var shows = {};
+                // seasons grouped by show
+                var shows = {};
 
-            var IgnoreListSeasonId;
+                var IgnoreListSeasonId;
 
-            // settings elements
-            var visualizer = document.querySelector("details#visualizer");
-            var support = document.querySelector("details#support");
-            var storage = document.querySelector("details#storage");
-            var btnEraseIntroTimestamps = document.querySelector("button#btnEraseIntroTimestamps");
-            var btnEraseCreditTimestamps = document.querySelector("button#btnEraseCreditTimestamps");
+                // settings elements
+                var visualizer = document.querySelector("details#visualizer");
+                var support = document.querySelector("details#support");
+                var storage = document.querySelector("details#storage");
+                var btnEraseIntroTimestamps = document.querySelector("button#btnEraseIntroTimestamps");
+                var btnEraseCreditTimestamps = document.querySelector("button#btnEraseCreditTimestamps");
 
-            // all plugin configuration fields that can be get or set with .value (i.e. strings or numbers).
-            var configurationFields = [
-                // analysis
-                "MaxParallelism",
-                "SelectedLibraries",
-                "ClientList",
-                "AnalysisPercent",
-                "AnalysisLengthLimit",
-                "MinimumIntroDuration",
-                "MaximumIntroDuration",
-                "MinimumCreditsDuration",
-                "MaximumCreditsDuration",
-                "EdlAction",
-                "ProcessPriority",
-                "ProcessThreads",
-                // playback
-                "ShowPromptAdjustment",
-                "HidePromptAdjustment",
-                "RemainingSecondsOfIntro",
-                "SecondsOfIntroStartToPlay",
-                "SecondsOfCreditsStartToPlay",
-                // internals
-                "SilenceDetectionMaximumNoise",
-                "SilenceDetectionMinimumDuration",
-                // UI customization
-                "SkipButtonIntroText",
-                "SkipButtonEndCreditsText",
-                "AutoSkipNotificationText",
-                "AutoSkipCreditsNotificationText"
-            ]
+                // all plugin configuration fields that can be get or set with .value (i.e. strings or numbers).
+                var configurationFields = [
+                    // analysis
+                    "MaxParallelism",
+                    "SelectedLibraries",
+                    "ClientList",
+                    "AnalysisPercent",
+                    "AnalysisLengthLimit",
+                    "MinimumIntroDuration",
+                    "MaximumIntroDuration",
+                    "MinimumCreditsDuration",
+                    "MaximumCreditsDuration",
+                    "EdlAction",
+                    "ProcessPriority",
+                    "ProcessThreads",
+                    // playback
+                    "ShowPromptAdjustment",
+                    "HidePromptAdjustment",
+                    "RemainingSecondsOfIntro",
+                    "SecondsOfIntroStartToPlay",
+                    "SecondsOfCreditsStartToPlay",
+                    // internals
+                    "SilenceDetectionMaximumNoise",
+                    "SilenceDetectionMinimumDuration",
+                    // UI customization
+                    "SkipButtonIntroText",
+                    "SkipButtonEndCreditsText",
+                    "AutoSkipNotificationText",
+                    "AutoSkipCreditsNotificationText",
+                ];
 
-            var booleanConfigurationFields = [
-                "AutoDetectIntros",
-                "AutoDetectCredits",
-                "AnalyzeSeasonZero",
-                "SelectAllLibraries",
-                "RegenerateEdlFiles",
-                "CacheFingerprints",
-                "AutoSkip",
-                "AutoSkipCredits",
-                "SkipFirstEpisode",
-                "PersistSkipButton",
-                "SkipButtonVisible"
-            ]
+                var booleanConfigurationFields = ["AutoDetectIntros", "AutoDetectCredits", "AnalyzeSeasonZero", "SelectAllLibraries", "RegenerateEdlFiles", "CacheFingerprints", "AutoSkip", "AutoSkipCredits", "SkipFirstEpisode", "PersistSkipButton", "SkipButtonVisible"];
 
-            // visualizer elements
-            var ignorelistSection = document.querySelector("div#ignorelistSection");
-            var ignorelistIntro = ignorelistSection.querySelector("input#ignorelistIntro");
-            var ignorelistCredits = ignorelistSection.querySelector("input#ignorelistCredits");
-            var saveIgnoreListSeasonButton = ignorelistSection.querySelector("button#saveIgnoreListSeason");
-            var saveIgnoreListSeriesButton = ignorelistSection.querySelector("button#saveIgnoreListSeries");
-            var canvas = document.querySelector("canvas#troubleshooter");
-            var selectShow = document.querySelector("select#troubleshooterShow");
-            var selectSeason = document.querySelector("select#troubleshooterSeason");
-            var selectEpisode1 = document.querySelector("select#troubleshooterEpisode1");
-            var selectEpisode2 = document.querySelector("select#troubleshooterEpisode2");
-            var txtOffset = document.querySelector("input#offset");
-            var txtSuggested = document.querySelector("span#suggestedShifts");
-            var btnSeasonEraseTimestamps = document.querySelector("button#btnEraseSeasonTimestamps");
-            var eraseSeasonContainer = document.getElementById("eraseSeasonContainer");
-            var timestampError = document.querySelector("textarea#timestampError");
-            var timestampEditor = document.querySelector("#timestampEditor");
-            var btnUpdateTimestamps = document.querySelector("button#btnUpdateTimestamps");
-            var timeContainer = document.querySelector("span#timestampContainer");
+                // visualizer elements
+                var ignorelistSection = document.querySelector("div#ignorelistSection");
+                var ignorelistIntro = ignorelistSection.querySelector("input#ignorelistIntro");
+                var ignorelistCredits = ignorelistSection.querySelector("input#ignorelistCredits");
+                var saveIgnoreListSeasonButton = ignorelistSection.querySelector("button#saveIgnoreListSeason");
+                var saveIgnoreListSeriesButton = ignorelistSection.querySelector("button#saveIgnoreListSeries");
+                var canvas = document.querySelector("canvas#troubleshooter");
+                var selectShow = document.querySelector("select#troubleshooterShow");
+                var selectSeason = document.querySelector("select#troubleshooterSeason");
+                var selectEpisode1 = document.querySelector("select#troubleshooterEpisode1");
+                var selectEpisode2 = document.querySelector("select#troubleshooterEpisode2");
+                var txtOffset = document.querySelector("input#offset");
+                var txtSuggested = document.querySelector("span#suggestedShifts");
+                var btnSeasonEraseTimestamps = document.querySelector("button#btnEraseSeasonTimestamps");
+                var eraseSeasonContainer = document.getElementById("eraseSeasonContainer");
+                var timestampError = document.querySelector("textarea#timestampError");
+                var timestampEditor = document.querySelector("#timestampEditor");
+                var btnUpdateTimestamps = document.querySelector("button#btnUpdateTimestamps");
+                var timeContainer = document.querySelector("span#timestampContainer");
 
-            var windowHashInterval = 0;
+                var windowHashInterval = 0;
 
-            var autoSkip = document.querySelector("input#AutoSkip");
-            var skipButtonVisible = document.getElementById("SkipButtonVisible");
-            var skipButtonVisibleLabel = document.getElementById("SkipButtonVisibleLabel");
-            var skipButtonSettings = document.getElementById("SkipButtonSettings");
-            var selectAllLibraries = document.querySelector("input#SelectAllLibraries");
-            var librariesContainer = document.querySelector("div.folderAccessListContainer");
-            var skipFirstEpisode = document.querySelector("div#divSkipFirstEpisode");
-            var secondsOfIntroStartToPlay = document.querySelector("div#divSecondsOfIntroStartToPlay");
-            var autoSkipClientList = document.getElementById("AutoSkipClientList");
-            var secondsOfCreditsStartToPlay = document.querySelector("div#divSecondsOfCreditsStartToPlay");
-            var autoSkipNotificationText = document.querySelector("div#divAutoSkipNotificationText");
-            var autoSkipCredits = document.querySelector("input#AutoSkipCredits");
-            var autoSkipCreditsNotificationText = document.querySelector("div#divAutoSkipCreditsNotificationText");
+                var autoSkip = document.querySelector("input#AutoSkip");
+                var skipButtonVisible = document.getElementById("SkipButtonVisible");
+                var skipButtonVisibleLabel = document.getElementById("SkipButtonVisibleLabel");
+                var skipButtonSettings = document.getElementById("SkipButtonSettings");
+                var selectAllLibraries = document.querySelector("input#SelectAllLibraries");
+                var librariesContainer = document.querySelector("div.folderAccessListContainer");
+                var skipFirstEpisode = document.querySelector("div#divSkipFirstEpisode");
+                var secondsOfIntroStartToPlay = document.querySelector("div#divSecondsOfIntroStartToPlay");
+                var autoSkipClientList = document.getElementById("AutoSkipClientList");
+                var secondsOfCreditsStartToPlay = document.querySelector("div#divSecondsOfCreditsStartToPlay");
+                var autoSkipNotificationText = document.querySelector("div#divAutoSkipNotificationText");
+                var autoSkipCredits = document.querySelector("input#AutoSkipCredits");
+                var autoSkipCreditsNotificationText = document.querySelector("div#divAutoSkipCreditsNotificationText");
 
-            function skipButtonVisibleChanged() {
-                if (autoSkip.checked && autoSkipCredits.checked) {
-                    skipButtonSettings.style.display = 'none';
-                } else if (skipButtonVisible.checked) {
-                    skipButtonSettings.style.display = 'unset';
-                } else {
-                    skipButtonSettings.style.display = 'none';
-                }
-            }
-
-            skipButtonVisible.addEventListener("change", skipButtonVisibleChanged);
-
-            function skipButtonVisibleText() {
-                if (autoSkip.checked && autoSkipCredits.checked) {
-                    autoSkipClientList.style.display = 'none';
-                    skipButtonVisibleLabel.textContent = "Button unavailable due to auto skip";
-                } else if (autoSkip.checked) {
-                    autoSkipClientList.style.display = 'unset';
-                    autoSkipClientList.style.width = '100%';
-                    skipButtonVisibleLabel.textContent = "Show skip credit button";
-                } else if (autoSkipCredits.checked) {
-                    autoSkipClientList.style.display = 'unset';
-                    autoSkipClientList.style.width = '100%';
-                    skipButtonVisibleLabel.textContent = "Show skip intro button";
-                } else {
-                    autoSkipClientList.style.display = 'unset';
-                    autoSkipClientList.style.width = '100%';
-                    skipButtonVisibleLabel.textContent = "Show skip intro / credit button";
-                }
-                skipButtonVisibleChanged()
-            }
-
-            function autoSkipChanged() {
-                if (autoSkip.checked) {
-                    skipFirstEpisode.style.display = 'unset';
-                    autoSkipNotificationText.style.display = 'unset';
-                    secondsOfIntroStartToPlay.style.display = 'unset';
-                } else {
-                    skipFirstEpisode.style.display = 'none';
-                    autoSkipNotificationText.style.display = 'none';
-                    secondsOfIntroStartToPlay.style.display = 'none';
-                }
-                skipButtonVisibleText();
-            }
-
-            autoSkip.addEventListener("change", autoSkipChanged);
-
-            function autoSkipCreditsChanged() {
-                if (autoSkipCredits.checked) {
-                    autoSkipCreditsNotificationText.style.display = 'unset';
-                    secondsOfCreditsStartToPlay.style.display = 'unset';
-                } else {
-                    autoSkipCreditsNotificationText.style.display = 'none';
-                    secondsOfCreditsStartToPlay.style.display = 'none';
-                }
-                skipButtonVisibleText();
-            }
-
-            autoSkipCredits.addEventListener("change", autoSkipCreditsChanged);
-
-            skipButtonVisibleText(); // run once on launch for legacy installs
-
-            function selectAllLibrariesChanged() {
-                if (selectAllLibraries.checked) {
-                    librariesContainer.style.display = 'none';
-                } else {
-                    librariesContainer.style.display = 'unset';
-                }
-            }
-
-            selectAllLibraries.addEventListener("change", selectAllLibrariesChanged);
-
-            function updateList(textField, container) {
-                textField.value = Array.from(container.querySelectorAll('input[type="checkbox"]:checked'))
-                    .map(checkbox => checkbox.nextElementSibling.textContent)
-                    .join(', ');
-            }
-
-            function generateCheckboxList(items, containerId, textFieldId) {
-                const container = document.getElementById(containerId);
-                const textField = document.getElementById(textFieldId);
-                const checkedItems = textField.value ? textField.value.split(', ') : [];
-
-                container.innerHTML = items.map(item => {
-                    const isChecked = checkedItems.includes(item) ? 'checked' : '';
-                    return '<label class="emby-checkbox-label">' +
-                        '<input type="checkbox" is="emby-checkbox" ' + isChecked + '>' +
-                        '<span class="checkboxLabel">' + item + '</span>' +
-                        '</label>';
-                }).join('');
-
-                container.addEventListener('change', event => {
-                    if (event.target.type === 'checkbox') {
-                        updateList(textField, container);
+                function skipButtonVisibleChanged() {
+                    if (autoSkip.checked && autoSkipCredits.checked) {
+                        skipButtonSettings.style.display = "none";
+                    } else if (skipButtonVisible.checked) {
+                        skipButtonSettings.style.display = "unset";
+                    } else {
+                        skipButtonSettings.style.display = "none";
                     }
-                });
-            }
-
-            async function generateAutoSkipClientList() {
-                const response = await getJson("Devices");
-                const devices = [...new Set(response.Items.map(item => item.AppName))];
-                generateCheckboxList(devices, 'autoSkipCheckboxes', 'ClientList');
-            }
-
-            async function populateLibraries() {
-                const response = await getJson("Library/VirtualFolders");
-                const tvLibraries = response.filter(item => item.CollectionType === undefined || item.CollectionType === "tvshows");
-                const libraryNames = tvLibraries.map(lib => lib.Name || 'Unnamed Library');
-                generateCheckboxList(libraryNames, 'libraryCheckboxes', 'SelectedLibraries');
-            }
-
-            var persistSkip = document.querySelector("input#PersistSkipButton");
-            var showAdjustment = document.querySelector("div#divShowPromptAdjustment");
-            var hideAdjustment = document.querySelector("div#divHidePromptAdjustment");
-
-            // prevent setting unavailable options
-            async function persistSkipChanged() {
-                if (persistSkip.checked) {
-                    showAdjustment.style.display = 'none';
-                    hideAdjustment.style.display = 'none';
-                } else {
-                    showAdjustment.style.display = 'unset';
-                    hideAdjustment.style.display = 'unset';
-                }
-            }
-
-            persistSkip.addEventListener("change", persistSkipChanged);
-
-            // when the fingerprint visualizer opens, populate show names
-            async function visualizerToggled() {
-                if (!visualizer.open) {
-                    ignorelistSection.style.display = "none";
-                    saveIgnoreListSeasonButton.style.display = "none";
-                    return;
                 }
 
-                // ensure the series select is empty
-                selectShow.innerHTML = '';
+                skipButtonVisible.addEventListener("change", skipButtonVisibleChanged);
 
-                Dashboard.showLoadingMsg();
-                shows = await getJson("Intros/Shows");
-
-                // Create an object to store shows by library
-                let showsByLibrary = {};
-
-                // Categorize shows by LibraryName
-                for (const show in shows) {
-                    const libraryName = shows[show].LibraryName || 'Uncategorized';
-                    if (!showsByLibrary[libraryName]) {
-                        showsByLibrary[libraryName] = [];
+                function skipButtonVisibleText() {
+                    if (autoSkip.checked && autoSkipCredits.checked) {
+                        autoSkipClientList.style.display = "none";
+                        skipButtonVisibleLabel.textContent = "Button unavailable due to auto skip";
+                    } else if (autoSkip.checked) {
+                        autoSkipClientList.style.display = "unset";
+                        autoSkipClientList.style.width = "100%";
+                        skipButtonVisibleLabel.textContent = "Show skip credit button";
+                    } else if (autoSkipCredits.checked) {
+                        autoSkipClientList.style.display = "unset";
+                        autoSkipClientList.style.width = "100%";
+                        skipButtonVisibleLabel.textContent = "Show skip intro button";
+                    } else {
+                        autoSkipClientList.style.display = "unset";
+                        autoSkipClientList.style.width = "100%";
+                        skipButtonVisibleLabel.textContent = "Show skip intro / credit button";
                     }
-                    showsByLibrary[libraryName].push({
-                        value: show,
-                        text: shows[show].SeriesName + " (" + shows[show].ProductionYear + ")"
+                    skipButtonVisibleChanged();
+                }
+
+                function autoSkipChanged() {
+                    if (autoSkip.checked) {
+                        skipFirstEpisode.style.display = "unset";
+                        autoSkipNotificationText.style.display = "unset";
+                        secondsOfIntroStartToPlay.style.display = "unset";
+                    } else {
+                        skipFirstEpisode.style.display = "none";
+                        autoSkipNotificationText.style.display = "none";
+                        secondsOfIntroStartToPlay.style.display = "none";
+                    }
+                    skipButtonVisibleText();
+                }
+
+                autoSkip.addEventListener("change", autoSkipChanged);
+
+                function autoSkipCreditsChanged() {
+                    if (autoSkipCredits.checked) {
+                        autoSkipCreditsNotificationText.style.display = "unset";
+                        secondsOfCreditsStartToPlay.style.display = "unset";
+                    } else {
+                        autoSkipCreditsNotificationText.style.display = "none";
+                        secondsOfCreditsStartToPlay.style.display = "none";
+                    }
+                    skipButtonVisibleText();
+                }
+
+                autoSkipCredits.addEventListener("change", autoSkipCreditsChanged);
+
+                skipButtonVisibleText(); // run once on launch for legacy installs
+
+                function selectAllLibrariesChanged() {
+                    if (selectAllLibraries.checked) {
+                        librariesContainer.style.display = "none";
+                    } else {
+                        librariesContainer.style.display = "unset";
+                    }
+                }
+
+                selectAllLibraries.addEventListener("change", selectAllLibrariesChanged);
+
+                function updateList(textField, container) {
+                    textField.value = Array.from(container.querySelectorAll('input[type="checkbox"]:checked'))
+                        .map((checkbox) => checkbox.nextElementSibling.textContent)
+                        .join(", ");
+                }
+
+                function generateCheckboxList(items, containerId, textFieldId) {
+                    const container = document.getElementById(containerId);
+                    const checkedItems = new Set(document.getElementById(textFieldId).value.split(", ").filter(Boolean));
+                    const fragment = document.createDocumentFragment();
+                    items.forEach((item) => {
+                        const label = document.createElement("label");
+                        label.className = "emby-checkbox-label";
+                        label.innerHTML = '<input type="checkbox" is="emby-checkbox"' + (checkedItems.has(item) ? " checked" : "") + ">" + '<span class="checkboxLabel">' + item + "</span>";
+                        fragment.appendChild(label);
                     });
-                }
-
-                // Add categorized shows to the select element
-                for (const library in showsByLibrary) {
-                    const optgroup = document.createElement('optgroup');
-                    optgroup.label = library;
-
-                    showsByLibrary[library].forEach(function(show) {
-                        const option = document.createElement('option');
-                        option.value = show.value;
-                        option.textContent = show.text;
-                        optgroup.appendChild(option);
-                    });
-
-                    selectShow.appendChild(optgroup);
-                }
-
-                selectShow.value = "";
-                Dashboard.hideLoadingMsg();
-            }
-
-            // fetch the support bundle whenever the detail section is opened.
-            async function supportToggled() {
-                if (!support.open) {
-                    return;
-                }
-
-                // Fetch the support bundle
-                const bundle = await fetchWithAuth("IntroSkipper/SupportBundle", "GET", null);
-                const bundleText = await bundle.text();
-
-                // Display it to the user and select all
-                const ta = document.querySelector("textarea#supportBundle");
-                ta.value = bundleText;
-                ta.focus();
-                ta.setSelectionRange(0, ta.value.length);
-
-                // Attempt to copy it to the clipboard automatically, falling back
-                // to prompting the user to press Ctrl + C.
-                try {
-                    navigator.clipboard.writeText(bundleText);
-                    Dashboard.alert("Support bundle copied to clipboard");
-                } catch {
-                    Dashboard.alert("Press Ctrl+C to copy support bundle");
-                }
-            }
-
-            // fetch the storage whenever the detail section is opened.
-            async function storageToggled() {
-                if (!storage.open) {
-                    return;
-                }
-
-                // Fetch the support bundle
-                const bundle = await fetchWithAuth("IntroSkipper/Storage", "GET", null);
-                const bundleText = await bundle.text();
-
-                // Display it to the user
-                const ta = document.querySelector("textarea#storage");
-                ta.value = bundleText;
-            }
-
-            // show changed, populate seasons
-            async function showChanged() {
-                clearSelect(selectSeason);
-                eraseSeasonContainer.style.display = "none";
-                clearSelect(selectEpisode1);
-                clearSelect(selectEpisode2);
-
-                // show the ignore list editor.
-                Dashboard.showLoadingMsg();
-                const IgnoreList = await getJson("Intros/IgnoreListSeries/" + encodeURI(selectShow.value));
-                ignorelistIntro.checked = IgnoreList.IgnoreIntro;
-                ignorelistCredits.checked = IgnoreList.IgnoreCredits;
-                ignorelistSection.style.display = "unset";
-                saveIgnoreListSeasonButton.style.display = "none";
-                Dashboard.hideLoadingMsg();
-
-                // add all seasons from this show to the season select
-                for (const season in shows[selectShow.value].Seasons) {
-                    addItem(selectSeason, "Season " + shows[selectShow.value].Seasons[season], season);
-                }
-
-                selectSeason.value = "";
-            }
-
-            // season changed, reload all episodes
-            async function seasonChanged() {
-                const seasonData = encodeURI(selectShow.value) + "/" + encodeURI(selectSeason.value);
-                Dashboard.showLoadingMsg();
-                // show the ignore list editor.
-                saveIgnoreListSeasonButton.style.display = "block";
-                const IgnoreList = await getJson("Intros/IgnoreListSeason/" + encodeURI(selectSeason.value));
-                ignorelistIntro.checked = IgnoreList.IgnoreIntro;
-                ignorelistCredits.checked = IgnoreList.IgnoreCredits;
-                IgnoreListSeasonId = IgnoreList.SeasonId;
-
-                // show the erase season button
-                eraseSeasonContainer.style.display = "unset";
-
-                clearSelect(selectEpisode1);
-                clearSelect(selectEpisode2);
-                let i = 1;
-                const episodes = await getJson("Intros/Show/" + seasonData);
-                for (const episode in episodes) {
-                    const strI = i.toLocaleString("en", { minimumIntegerDigits: 2, maximumFractionDigits: 0 });
-                    addItem(selectEpisode1, strI + ": " + episodes[episode].Name, episodes[episode].Id);
-                    addItem(selectEpisode2, strI + ": " + episodes[episode].Name, episodes[episode].Id);
-                    i++;
-                }
-                Dashboard.hideLoadingMsg();
-
-                setTimeout(() => {
-                    selectEpisode1.selectedIndex = 0;
-                    selectEpisode2.selectedIndex = 1;
-                    episodeChanged();
-                }, 100);
-            }
-
-            // episode changed, get fingerprints & calculate diff
-            async function episodeChanged() {
-                if (!selectEpisode1.value || !selectEpisode2.value) {
-                    return;
-                }
-
-                Dashboard.showLoadingMsg();
-
-                timestampError.value = "";
-                canvas.style.display = "none";
-
-                lhs = await getJson("Intros/Episode/" + selectEpisode1.value + "/Chromaprint");
-                if (lhs === undefined) {
-                    timestampError.value += "Error: " + selectEpisode1.value + " fingerprints failed!\n";
-                } else if (lhs === null) {
-                    timestampError.value += "Error: " + selectEpisode1.value + " fingerprints missing!\n";
-                }
-
-                rhs = await getJson("Intros/Episode/" + selectEpisode2.value + "/Chromaprint");
-                if (rhs === undefined) {
-                    timestampError.value += "Error: " + selectEpisode2.value + " fingerprints failed!";
-                } else if (rhs === null) {
-                    timestampError.value += "Error: " + selectEpisode2.value + " fingerprints missing!\n";
-                }
-
-                if (timestampError.value == "") {
-                    timestampErrorDiv.style.display = "none";
-                } else {
-                    timestampErrorDiv.style.display = "unset";
-                }
-
-                Dashboard.hideLoadingMsg();
-
-                txtOffset.value = "0";
-                refreshBounds();
-                renderTroubleshooter();
-                findExactMatches();
-                updateTimestampEditor();
-            }
-
-            function setupTimeInputs() {
-                const timestampEditor = document.getElementById('timestampEditor');
-                timestampEditor.querySelectorAll('.inputContainer').forEach(container => {
-                    const displayInput = container.querySelector('[id$="Display"]');
-                    const editInput = container.querySelector('[id$="Edit"]');
-                    displayInput.addEventListener('pointerdown', e => {
-                        e.preventDefault();
-                        switchToEdit(displayInput, editInput);
-                    });
-                    editInput.addEventListener('blur', () =>
-                        switchToDisplay(displayInput, editInput)
+                    container.innerHTML = "";
+                    container.appendChild(fragment);
+                    container.addEventListener(
+                        "change",
+                        (e) => {
+                            if (e.target.type === "checkbox") updateList(document.getElementById(textFieldId), container);
+                        },
+                        { passive: true },
                     );
-                    displayInput.value = formatTime(parseFloat(editInput.value) || 0);
-                });
-            }
-
-            function switchToEdit(displayInput, editInput) {
-                displayInput.style.display = 'none';
-                editInput.style.display = '';
-                editInput.focus();
-            }
-
-            function switchToDisplay(displayInput, editInput) {
-                editInput.style.display = 'none';
-                displayInput.style.display = '';
-                displayInput.value = formatTime(parseFloat(editInput.value) || 0);
-            }
-
-            function formatTime(totalSeconds) {
-                const hours = Math.floor(totalSeconds / 3600);
-                const minutes = Math.floor((totalSeconds % 3600) / 60);
-                const seconds = Math.floor(totalSeconds % 60);
-                let result = [];
-                if (hours > 0) result.push(hours + ' hour' + (hours !== 1 ? 's' : ''));
-                if (minutes > 0) result.push(minutes + ' minute' + (minutes !== 1 ? 's' : ''));
-                if (seconds > 0 || result.length === 0) result.push(seconds + ' second' + (seconds !== 1 ? 's' : ''));
-                return result.join(' ');
-            }
-
-            // updates the timestamp editor
-            async function updateTimestampEditor() {
-                // Get the title and ID of the left and right episodes
-                const leftEpisode = selectEpisode1.options[selectEpisode1.selectedIndex];
-                const rightEpisode = selectEpisode2.options[selectEpisode2.selectedIndex];
-                // Try to get the timestamps of each intro, falling back a default value of zero if no intro was found
-                const leftEpisodeJson = await getJson("Episode/" + leftEpisode.value + "/Timestamps");
-                const rightEpisodeJson = await getJson("Episode/" + rightEpisode.value + "/Timestamps");
-
-                // Update the editor for the first and second episodes
-                timestampEditor.style.display = "unset";
-                document.querySelector("#editLeftEpisodeTitle").textContent = leftEpisode.text;
-                document.querySelector("#editLeftIntroEpisodeStartEdit").value = leftEpisodeJson.Introduction.Start;
-                document.querySelector("#editLeftIntroEpisodeEndEdit").value = leftEpisodeJson.Introduction.End;
-                document.querySelector("#editLeftCreditEpisodeStartEdit").value = leftEpisodeJson.Credits.Start;
-                document.querySelector("#editLeftCreditEpisodeEndEdit").value = leftEpisodeJson.Credits.End;
-
-                document.querySelector("#editRightEpisodeTitle").textContent = rightEpisode.text;
-                document.querySelector("#editRightIntroEpisodeStartEdit").value = rightEpisodeJson.Introduction.Start;
-                document.querySelector("#editRightIntroEpisodeEndEdit").value = rightEpisodeJson.Introduction.End;
-                document.querySelector("#editRightCreditEpisodeStartEdit").value = rightEpisodeJson.Credits.Start;
-                document.querySelector("#editRightCreditEpisodeEndEdit").value = rightEpisodeJson.Credits.End;
-
-                // Update display inputs
-                const inputs = document.querySelectorAll('#timestampEditor input[type="number"]');
-                inputs.forEach(input => {
-                    const displayInput = document.getElementById(input.id.replace('Edit', 'Display'));
-                    displayInput.value = formatTime(parseFloat(input.value) || 0);
-                });
-
-                setupTimeInputs();
-            }
-
-            // adds an item to a dropdown
-            function addItem(select, text, value) {
-                let item = new Option(text, value);
-                select.add(item);
-            }
-
-            // clear a select of items
-            function clearSelect(select) {
-                timestampError.value = "";
-                timestampErrorDiv.style.display = "none";
-                timestampEditor.style.display = "none";
-                timeContainer.style.display = "none";
-                canvas.style.display = "none";
-                let i, L = select.options.length - 1;
-                for (i = L; i >= 0; i--) {
-                    select.remove(i);
-                }
-            }
-
-            // make an authenticated GET to the server and parse the response as JSON
-            async function getJson(url) {
-                return await fetchWithAuth(url, "GET")
-                    .then(r => {
-                        if (r.ok) {
-                            return r.json();
-                        } else {
-                            return null;
-                        }
-                    })
-                    .catch(err => {
-                        console.debug(err);
-                    });
-            }
-
-            // make an authenticated fetch to the server
-            async function fetchWithAuth(url, method, body) {
-                url = ApiClient.serverAddress() + "/" + url;
-
-                const reqInit = {
-                    method: method,
-                    headers: {
-                        "Authorization": "MediaBrowser Token=" + ApiClient.accessToken()
-                    },
-                    body: body,
-                };
-
-                if (method === "POST") {
-                    reqInit.headers["Content-Type"] = "application/json";
                 }
 
-                return await fetch(url, reqInit);
-            }
-
-            // key pressed
-            function keyDown(e) {
-                let episodeDelta = 0;
-                let offsetDelta = 0;
-
-                switch (e.key) {
-                    case "ArrowDown":
-                        if (timestampError.value != "") {
-                            // if the control key is pressed, shift LHS by 10s. Otherwise, shift by 1.
-                            offsetDelta = e.ctrlKey ? 10 / 0.1238 : 1;
-                        }
-                        break;
-
-                    case "ArrowUp":
-                        if (timestampError.value != "") {
-                            offsetDelta = e.ctrlKey ? -10 / 0.1238 : -1;
-                        }
-                        break;
-
-                    case "ArrowRight":
-                        episodeDelta = 2;
-                        break;
-
-                    case "ArrowLeft":
-                        episodeDelta = -2;
-                        break;
-
-                    default:
-                        return;
+                async function generateAutoSkipClientList() {
+                    const response = await getJson("Devices");
+                    const devices = [...new Set(response.Items.map((item) => item.AppName))];
+                    generateCheckboxList(devices, "autoSkipCheckboxes", "ClientList");
                 }
 
-                if (offsetDelta != 0) {
-                    txtOffset.value = Number(txtOffset.value) + Math.floor(offsetDelta);
+                async function populateLibraries() {
+                    const response = await getJson("Library/VirtualFolders");
+                    const tvLibraries = response.filter((item) => item.CollectionType === undefined || item.CollectionType === "tvshows");
+                    const libraryNames = tvLibraries.map((lib) => lib.Name || "Unnamed Library");
+                    generateCheckboxList(libraryNames, "libraryCheckboxes", "SelectedLibraries");
                 }
 
-                if (episodeDelta != 0) {
-                    // calculate the number of episodes remaining in the LHS and RHS episode pickers
-                    const lhsRemaining = selectEpisode1.selectedIndex;
-                    const rhsRemaining = selectEpisode2.length - selectEpisode2.selectedIndex - 1;
+                var persistSkip = document.querySelector("input#PersistSkipButton");
+                var showAdjustment = document.querySelector("div#divShowPromptAdjustment");
+                var hideAdjustment = document.querySelector("div#divHidePromptAdjustment");
 
-                    // if we're moving forward and the right episode picker is close to the end, don't move.
-                    if (episodeDelta > 0 && rhsRemaining <= 1) {
-                        return;
-                    } else if (episodeDelta < 0 && lhsRemaining <= 1) {
+                // prevent setting unavailable options
+                async function persistSkipChanged() {
+                    if (persistSkip.checked) {
+                        showAdjustment.style.display = "none";
+                        hideAdjustment.style.display = "none";
+                    } else {
+                        showAdjustment.style.display = "unset";
+                        hideAdjustment.style.display = "unset";
+                    }
+                }
+
+                persistSkip.addEventListener("change", persistSkipChanged);
+
+                // when the fingerprint visualizer opens, populate show names
+                async function visualizerToggled() {
+                    if (!visualizer.open) {
+                        ignorelistSection.style.display = "none";
+                        saveIgnoreListSeasonButton.style.display = "none";
                         return;
                     }
 
-                    selectEpisode1.selectedIndex += episodeDelta;
-                    selectEpisode2.selectedIndex += episodeDelta;
-                    episodeChanged();
+                    // ensure the series select is empty
+                    selectShow.innerHTML = "";
+
+                    Dashboard.showLoadingMsg();
+                    shows = await getJson("Intros/Shows");
+
+                    // Create an object to store shows by library
+                    let showsByLibrary = {};
+
+                    // Categorize shows by LibraryName
+                    for (const show in shows) {
+                        const libraryName = shows[show].LibraryName || "Uncategorized";
+                        if (!showsByLibrary[libraryName]) {
+                            showsByLibrary[libraryName] = [];
+                        }
+                        showsByLibrary[libraryName].push({
+                            value: show,
+                            text: shows[show].SeriesName + " (" + shows[show].ProductionYear + ")",
+                        });
+                    }
+
+                    // Add categorized shows to the select element
+                    for (const library in showsByLibrary) {
+                        const optgroup = document.createElement("optgroup");
+                        optgroup.label = library;
+
+                        showsByLibrary[library].forEach(function (show) {
+                            const option = document.createElement("option");
+                            option.value = show.value;
+                            option.textContent = show.text;
+                            optgroup.appendChild(option);
+                        });
+
+                        selectShow.appendChild(optgroup);
+                    }
+
+                    selectShow.value = "";
+                    Dashboard.hideLoadingMsg();
                 }
 
-                renderTroubleshooter();
-                e.preventDefault();
-            }
+                // fetch the support bundle whenever the detail section is opened.
+                async function supportToggled() {
+                    if (!support.open) {
+                        return;
+                    }
 
-            // check that the user is still on the configuration page
-            function checkWindowHash() {
-                const h = location.hash;
-                if (h === "#!/configurationpage?name=Intro%20Skipper" || h.includes("#!/dialog")) {
-                    return;
+                    // Fetch the support bundle
+                    const bundle = await fetchWithAuth("IntroSkipper/SupportBundle", "GET", null);
+                    const bundleText = await bundle.text();
+
+                    // Display it to the user and select all
+                    const ta = document.querySelector("textarea#supportBundle");
+                    ta.value = bundleText;
+                    ta.focus();
+                    ta.setSelectionRange(0, ta.value.length);
+
+                    // Attempt to copy it to the clipboard automatically, falling back
+                    // to prompting the user to press Ctrl + C.
+                    try {
+                        navigator.clipboard.writeText(bundleText);
+                        Dashboard.alert("Support bundle copied to clipboard");
+                    } catch {
+                        Dashboard.alert("Press Ctrl+C to copy support bundle");
+                    }
                 }
 
-                console.debug("navigated away from intro skipper configuration page");
-                document.removeEventListener("keydown", keyDown);
-                clearInterval(windowHashInterval);
-            }
+                // fetch the storage whenever the detail section is opened.
+                async function storageToggled() {
+                    if (!storage.open) {
+                        return;
+                    }
 
-            // converts seconds to a readable timestamp (i.e. 127 becomes "02:07").
-            function secondsToString(seconds) {
-                return new Date(seconds * 1000).toISOString().slice(14, 19);
-            }
+                    // Fetch the support bundle
+                    const bundle = await fetchWithAuth("IntroSkipper/Storage", "GET", null);
+                    const bundleText = await bundle.text();
 
-            // erase all intro/credits timestamps
-            function eraseTimestamps(mode) {
-                const lower = mode.toLocaleLowerCase();
-                const title = "Confirm timestamp erasure";
-                const body = "Are you sure you want to erase all previously discovered " +
-                    mode.toLocaleLowerCase() +
-                    " timestamps?";
-                const eraseCacheChecked = document.getElementById("eraseModeCacheCheckbox").checked;
+                    // Display it to the user
+                    const ta = document.querySelector("textarea#storage");
+                    ta.value = bundleText;
+                }
 
-                Dashboard.confirm(
-                    body,
-                    title,
-                    (result) => {
+                // show changed, populate seasons
+                async function showChanged() {
+                    clearSelect(selectSeason);
+                    eraseSeasonContainer.style.display = "none";
+                    clearSelect(selectEpisode1);
+                    clearSelect(selectEpisode2);
+
+                    // show the ignore list editor.
+                    Dashboard.showLoadingMsg();
+                    const IgnoreList = await getJson("Intros/IgnoreListSeries/" + encodeURI(selectShow.value));
+                    ignorelistIntro.checked = IgnoreList.IgnoreIntro;
+                    ignorelistCredits.checked = IgnoreList.IgnoreCredits;
+                    ignorelistSection.style.display = "unset";
+                    saveIgnoreListSeasonButton.style.display = "none";
+                    Dashboard.hideLoadingMsg();
+
+                    // add all seasons from this show to the season select
+                    for (const season in shows[selectShow.value].Seasons) {
+                        addItem(selectSeason, "Season " + shows[selectShow.value].Seasons[season], season);
+                    }
+
+                    selectSeason.value = "";
+                }
+
+                // season changed, reload all episodes
+                async function seasonChanged() {
+                    const seasonData = encodeURI(selectShow.value) + "/" + encodeURI(selectSeason.value);
+                    Dashboard.showLoadingMsg();
+                    // show the ignore list editor.
+                    saveIgnoreListSeasonButton.style.display = "block";
+                    const IgnoreList = await getJson("Intros/IgnoreListSeason/" + encodeURI(selectSeason.value));
+                    ignorelistIntro.checked = IgnoreList.IgnoreIntro;
+                    ignorelistCredits.checked = IgnoreList.IgnoreCredits;
+                    IgnoreListSeasonId = IgnoreList.SeasonId;
+
+                    // show the erase season button
+                    eraseSeasonContainer.style.display = "unset";
+
+                    clearSelect(selectEpisode1);
+                    clearSelect(selectEpisode2);
+                    let i = 1;
+                    const episodes = await getJson("Intros/Show/" + seasonData);
+                    for (const episode in episodes) {
+                        const strI = i.toLocaleString("en", { minimumIntegerDigits: 2, maximumFractionDigits: 0 });
+                        addItem(selectEpisode1, strI + ": " + episodes[episode].Name, episodes[episode].Id);
+                        addItem(selectEpisode2, strI + ": " + episodes[episode].Name, episodes[episode].Id);
+                        i++;
+                    }
+                    Dashboard.hideLoadingMsg();
+
+                    setTimeout(() => {
+                        selectEpisode1.selectedIndex = 0;
+                        selectEpisode2.selectedIndex = 1;
+                        episodeChanged();
+                    }, 100);
+                }
+
+                // episode changed, get fingerprints & calculate diff
+                async function episodeChanged() {
+                    if (!selectEpisode1.value || !selectEpisode2.value) {
+                        return;
+                    }
+
+                    Dashboard.showLoadingMsg();
+
+                    timestampError.value = "";
+                    canvas.style.display = "none";
+
+                    lhs = await getJson("Intros/Episode/" + selectEpisode1.value + "/Chromaprint");
+                    if (lhs === undefined) {
+                        timestampError.value += "Error: " + selectEpisode1.value + " fingerprints failed!\n";
+                    } else if (lhs === null) {
+                        timestampError.value += "Error: " + selectEpisode1.value + " fingerprints missing!\n";
+                    }
+
+                    rhs = await getJson("Intros/Episode/" + selectEpisode2.value + "/Chromaprint");
+                    if (rhs === undefined) {
+                        timestampError.value += "Error: " + selectEpisode2.value + " fingerprints failed!";
+                    } else if (rhs === null) {
+                        timestampError.value += "Error: " + selectEpisode2.value + " fingerprints missing!\n";
+                    }
+
+                    if (timestampError.value == "") {
+                        timestampErrorDiv.style.display = "none";
+                    } else {
+                        timestampErrorDiv.style.display = "unset";
+                    }
+
+                    Dashboard.hideLoadingMsg();
+
+                    txtOffset.value = "0";
+                    refreshBounds();
+                    renderTroubleshooter();
+                    findExactMatches();
+                    updateTimestampEditor();
+                }
+
+                function setupTimeInputs() {
+                    const timestampEditor = document.getElementById("timestampEditor");
+                    timestampEditor.querySelectorAll(".inputContainer").forEach((container) => {
+                        const displayInput = container.querySelector('[id$="Display"]');
+                        const editInput = container.querySelector('[id$="Edit"]');
+                        displayInput.addEventListener("pointerdown", (e) => {
+                            e.preventDefault();
+                            switchToEdit(displayInput, editInput);
+                        });
+                        editInput.addEventListener("blur", () => switchToDisplay(displayInput, editInput));
+                        displayInput.value = formatTime(parseFloat(editInput.value) || 0);
+                    });
+                }
+
+                function switchToEdit(displayInput, editInput) {
+                    displayInput.style.display = "none";
+                    editInput.style.display = "";
+                    editInput.focus();
+                }
+
+                function switchToDisplay(displayInput, editInput) {
+                    editInput.style.display = "none";
+                    displayInput.style.display = "";
+                    displayInput.value = formatTime(parseFloat(editInput.value) || 0);
+                }
+
+                function formatTime(totalSeconds) {
+                    const hours = Math.floor(totalSeconds / 3600);
+                    const minutes = Math.floor((totalSeconds % 3600) / 60);
+                    const seconds = Math.floor(totalSeconds % 60);
+                    let result = [];
+                    if (hours > 0) result.push(hours + " hour" + (hours !== 1 ? "s" : ""));
+                    if (minutes > 0) result.push(minutes + " minute" + (minutes !== 1 ? "s" : ""));
+                    if (seconds > 0 || result.length === 0) result.push(seconds + " second" + (seconds !== 1 ? "s" : ""));
+                    return result.join(" ");
+                }
+
+                // updates the timestamp editor
+                async function updateTimestampEditor() {
+                    // Get the title and ID of the left and right episodes
+                    const leftEpisode = selectEpisode1.options[selectEpisode1.selectedIndex];
+                    const rightEpisode = selectEpisode2.options[selectEpisode2.selectedIndex];
+                    // Try to get the timestamps of each intro, falling back a default value of zero if no intro was found
+                    const leftEpisodeJson = await getJson("Episode/" + leftEpisode.value + "/Timestamps");
+                    const rightEpisodeJson = await getJson("Episode/" + rightEpisode.value + "/Timestamps");
+
+                    // Update the editor for the first and second episodes
+                    timestampEditor.style.display = "unset";
+                    document.querySelector("#editLeftEpisodeTitle").textContent = leftEpisode.text;
+                    document.querySelector("#editLeftIntroEpisodeStartEdit").value = leftEpisodeJson.Introduction.Start;
+                    document.querySelector("#editLeftIntroEpisodeEndEdit").value = leftEpisodeJson.Introduction.End;
+                    document.querySelector("#editLeftCreditEpisodeStartEdit").value = leftEpisodeJson.Credits.Start;
+                    document.querySelector("#editLeftCreditEpisodeEndEdit").value = leftEpisodeJson.Credits.End;
+
+                    document.querySelector("#editRightEpisodeTitle").textContent = rightEpisode.text;
+                    document.querySelector("#editRightIntroEpisodeStartEdit").value = rightEpisodeJson.Introduction.Start;
+                    document.querySelector("#editRightIntroEpisodeEndEdit").value = rightEpisodeJson.Introduction.End;
+                    document.querySelector("#editRightCreditEpisodeStartEdit").value = rightEpisodeJson.Credits.Start;
+                    document.querySelector("#editRightCreditEpisodeEndEdit").value = rightEpisodeJson.Credits.End;
+
+                    // Update display inputs
+                    const inputs = document.querySelectorAll('#timestampEditor input[type="number"]');
+                    inputs.forEach((input) => {
+                        const displayInput = document.getElementById(input.id.replace("Edit", "Display"));
+                        displayInput.value = formatTime(parseFloat(input.value) || 0);
+                    });
+
+                    setupTimeInputs();
+                }
+
+                // adds an item to a dropdown
+                function addItem(select, text, value) {
+                    let item = new Option(text, value);
+                    select.add(item);
+                }
+
+                // clear a select of items
+                function clearSelect(select) {
+                    timestampError.value = "";
+                    timestampErrorDiv.style.display = "none";
+                    timestampEditor.style.display = "none";
+                    timeContainer.style.display = "none";
+                    canvas.style.display = "none";
+                    let i,
+                        L = select.options.length - 1;
+                    for (i = L; i >= 0; i--) {
+                        select.remove(i);
+                    }
+                }
+
+                // make an authenticated GET to the server and parse the response as JSON
+                async function getJson(url) {
+                    return await fetchWithAuth(url, "GET")
+                        .then((r) => {
+                            if (r.ok) {
+                                return r.json();
+                            } else {
+                                return null;
+                            }
+                        })
+                        .catch((err) => {
+                            console.debug(err);
+                        });
+                }
+
+                // make an authenticated fetch to the server
+                async function fetchWithAuth(url, method, body) {
+                    url = ApiClient.serverAddress() + "/" + url;
+
+                    const reqInit = {
+                        method: method,
+                        headers: {
+                            Authorization: "MediaBrowser Token=" + ApiClient.accessToken(),
+                        },
+                        body: body,
+                    };
+
+                    if (method === "POST") {
+                        reqInit.headers["Content-Type"] = "application/json";
+                    }
+
+                    return await fetch(url, reqInit);
+                }
+
+                // key pressed
+                function keyDown(e) {
+                    let episodeDelta = 0;
+                    let offsetDelta = 0;
+
+                    switch (e.key) {
+                        case "ArrowDown":
+                            if (timestampError.value != "") {
+                                // if the control key is pressed, shift LHS by 10s. Otherwise, shift by 1.
+                                offsetDelta = e.ctrlKey ? 10 / 0.1238 : 1;
+                            }
+                            break;
+
+                        case "ArrowUp":
+                            if (timestampError.value != "") {
+                                offsetDelta = e.ctrlKey ? -10 / 0.1238 : -1;
+                            }
+                            break;
+
+                        case "ArrowRight":
+                            episodeDelta = 2;
+                            break;
+
+                        case "ArrowLeft":
+                            episodeDelta = -2;
+                            break;
+
+                        default:
+                            return;
+                    }
+
+                    if (offsetDelta != 0) {
+                        txtOffset.value = Number(txtOffset.value) + Math.floor(offsetDelta);
+                    }
+
+                    if (episodeDelta != 0) {
+                        // calculate the number of episodes remaining in the LHS and RHS episode pickers
+                        const lhsRemaining = selectEpisode1.selectedIndex;
+                        const rhsRemaining = selectEpisode2.length - selectEpisode2.selectedIndex - 1;
+
+                        // if we're moving forward and the right episode picker is close to the end, don't move.
+                        if (episodeDelta > 0 && rhsRemaining <= 1) {
+                            return;
+                        } else if (episodeDelta < 0 && lhsRemaining <= 1) {
+                            return;
+                        }
+
+                        selectEpisode1.selectedIndex += episodeDelta;
+                        selectEpisode2.selectedIndex += episodeDelta;
+                        episodeChanged();
+                    }
+
+                    renderTroubleshooter();
+                    e.preventDefault();
+                }
+
+                // check that the user is still on the configuration page
+                function checkWindowHash() {
+                    const h = location.hash;
+                    if (h === "#!/configurationpage?name=Intro%20Skipper" || h.includes("#!/dialog")) {
+                        return;
+                    }
+
+                    console.debug("navigated away from intro skipper configuration page");
+                    document.removeEventListener("keydown", keyDown);
+                    clearInterval(windowHashInterval);
+                }
+
+                // converts seconds to a readable timestamp (i.e. 127 becomes "02:07").
+                function secondsToString(seconds) {
+                    return new Date(seconds * 1000).toISOString().slice(14, 19);
+                }
+
+                // erase all intro/credits timestamps
+                function eraseTimestamps(mode) {
+                    const lower = mode.toLocaleLowerCase();
+                    const title = "Confirm timestamp erasure";
+                    const body = "Are you sure you want to erase all previously discovered " + mode.toLocaleLowerCase() + " timestamps?";
+                    const eraseCacheChecked = document.getElementById("eraseModeCacheCheckbox").checked;
+
+                    Dashboard.confirm(body, title, (result) => {
                         if (!result) {
                             return;
                         }
@@ -1375,10 +1201,9 @@
 
                         Dashboard.alert(mode + " timestamps erased");
                     });
-            }
+                }
 
-            document.querySelector('#TemplateConfigPage')
-                .addEventListener('pageshow', function () {
+                document.querySelector("#TemplateConfigPage").addEventListener("pageshow", function () {
                     Dashboard.showLoadingMsg();
                     ApiClient.getPluginConfiguration("c83d86bb-a1e0-4c35-a113-e2101cf4ee6b").then(function (config) {
                         for (const field of configurationFields) {
@@ -1390,10 +1215,10 @@
                         }
 
                         if (config["SkipButtonWarning"]) {
-                            document.getElementById("SkipButtonContainer").style.display = 'none';
-                            document.getElementById("PersistContainer").style.display = 'none';
+                            document.getElementById("SkipButtonContainer").style.display = "none";
+                            document.getElementById("PersistContainer").style.display = "none";
                         } else {
-                            document.getElementById("warningMessage").style.display = 'none';
+                            document.getElementById("warningMessage").style.display = "none";
                         }
 
                         populateLibraries();
@@ -1407,8 +1232,7 @@
                     });
                 });
 
-            document.querySelector('#FingerprintConfigForm')
-                .addEventListener('submit', function (e) {
+                document.querySelector("#FingerprintConfigForm").addEventListener("submit", function (e) {
                     Dashboard.showLoadingMsg();
                     ApiClient.getPluginConfiguration("c83d86bb-a1e0-4c35-a113-e2101cf4ee6b").then(function (config) {
                         for (const field of configurationFields) {
@@ -1419,37 +1243,33 @@
                             config[field] = document.querySelector("#" + field).checked;
                         }
 
-                        ApiClient.updatePluginConfiguration("c83d86bb-a1e0-4c35-a113-e2101cf4ee6b", config)
-                            .then(function (result) {
-                                Dashboard.processPluginConfigurationUpdateResult(result);
-                            });
+                        ApiClient.updatePluginConfiguration("c83d86bb-a1e0-4c35-a113-e2101cf4ee6b", config).then(function (result) {
+                            Dashboard.processPluginConfigurationUpdateResult(result);
+                        });
                     });
 
                     e.preventDefault();
                     return false;
                 });
 
-            visualizer.addEventListener("toggle", visualizerToggled);
-            support.addEventListener("toggle", supportToggled);
-            storage.addEventListener("toggle", storageToggled);
-            txtOffset.addEventListener("change", renderTroubleshooter);
-            selectShow.addEventListener("change", showChanged);
-            selectSeason.addEventListener("change", seasonChanged);
-            selectEpisode1.addEventListener("change", episodeChanged);
-            selectEpisode2.addEventListener("change", episodeChanged);
-            btnEraseIntroTimestamps.addEventListener("click", (e) => {
-                eraseTimestamps("Introduction");
-                e.preventDefault();
-            });
-            btnEraseCreditTimestamps.addEventListener("click", (e) => {
-                eraseTimestamps("Credits");
-                e.preventDefault();
-            });
-            btnSeasonEraseTimestamps.addEventListener("click", () => {
-                Dashboard.confirm(
-                    "Are you sure you want to erase all timestamps for this season?",
-                    "Confirm timestamp erasure",
-                    (result) => {
+                visualizer.addEventListener("toggle", visualizerToggled);
+                support.addEventListener("toggle", supportToggled);
+                storage.addEventListener("toggle", storageToggled);
+                txtOffset.addEventListener("change", renderTroubleshooter);
+                selectShow.addEventListener("change", showChanged);
+                selectSeason.addEventListener("change", seasonChanged);
+                selectEpisode1.addEventListener("change", episodeChanged);
+                selectEpisode2.addEventListener("change", episodeChanged);
+                btnEraseIntroTimestamps.addEventListener("click", (e) => {
+                    eraseTimestamps("Introduction");
+                    e.preventDefault();
+                });
+                btnEraseCreditTimestamps.addEventListener("click", (e) => {
+                    eraseTimestamps("Credits");
+                    e.preventDefault();
+                });
+                btnSeasonEraseTimestamps.addEventListener("click", () => {
+                    Dashboard.confirm("Are you sure you want to erase all timestamps for this season?", "Confirm timestamp erasure", (result) => {
                         if (!result) {
                             return;
                         }
@@ -1463,133 +1283,125 @@
 
                         Dashboard.alert("Erased timestamps for " + season + " of " + show);
                         document.getElementById("eraseSeasonCacheCheckbox").checked = false;
+                    });
+                });
+                saveIgnoreListSeasonButton.addEventListener("click", () => {
+                    Dashboard.showLoadingMsg();
+
+                    var url = "Intros/IgnoreList/UpdateSeason";
+                    const newRhs = {
+                        IgnoreIntro: ignorelistIntro.checked,
+                        IgnoreCredits: ignorelistCredits.checked,
+                        SeasonId: IgnoreListSeasonId,
+                    };
+
+                    fetchWithAuth(url, "POST", JSON.stringify(newRhs));
+
+                    Dashboard.alert("Ignore list updated for " + selectSeason.value + " of " + selectShow.value);
+                    Dashboard.hideLoadingMsg();
+                });
+                saveIgnoreListSeriesButton.addEventListener("click", () => {
+                    Dashboard.showLoadingMsg();
+
+                    var url = "Intros/IgnoreList/UpdateSeries" + "/" + encodeURIComponent(selectShow.value);
+                    const newRhs = {
+                        IgnoreIntro: ignorelistIntro.checked,
+                        IgnoreCredits: ignorelistCredits.checked,
+                    };
+
+                    fetchWithAuth(url, "POST", JSON.stringify(newRhs));
+
+                    Dashboard.alert("Ignore list updated for " + selectShow.value);
+                    Dashboard.hideLoadingMsg();
+                });
+                btnUpdateTimestamps.addEventListener("click", () => {
+                    const getEditValue = (id) => parseFloat(document.getElementById(id).value) || 0;
+
+                    const lhsId = selectEpisode1.options[selectEpisode1.selectedIndex].value;
+                    const newLhs = {
+                        Introduction: {
+                            Start: getEditValue("editLeftIntroEpisodeStartEdit"),
+                            End: getEditValue("editLeftIntroEpisodeEndEdit"),
+                        },
+                        Credits: {
+                            Start: getEditValue("editLeftCreditEpisodeStartEdit"),
+                            End: getEditValue("editLeftCreditEpisodeEndEdit"),
+                        },
+                    };
+
+                    const rhsId = selectEpisode2.options[selectEpisode2.selectedIndex].value;
+                    const newRhs = {
+                        Introduction: {
+                            Start: getEditValue("editRightIntroEpisodeStartEdit"),
+                            End: getEditValue("editRightIntroEpisodeEndEdit"),
+                        },
+                        Credits: {
+                            Start: getEditValue("editRightCreditEpisodeStartEdit"),
+                            End: getEditValue("editRightCreditEpisodeEndEdit"),
+                        },
+                    };
+
+                    fetchWithAuth("Episode/" + lhsId + "/Timestamps", "POST", JSON.stringify(newLhs));
+                    fetchWithAuth("Episode/" + rhsId + "/Timestamps", "POST", JSON.stringify(newRhs));
+
+                    Dashboard.alert("New introduction timestamps saved");
+                });
+                document.addEventListener("keydown", keyDown);
+                windowHashInterval = setInterval(checkWindowHash, 2500);
+
+                canvas.addEventListener("mousemove", (e) => {
+                    const rect = e.currentTarget.getBoundingClientRect();
+                    const y = e.clientY - rect.top;
+                    const shift = Number(txtOffset.value);
+
+                    let lTime, rTime, diffPos;
+                    if (shift < 0) {
+                        lTime = y * 0.1238;
+                        rTime = (y + shift) * 0.1238;
+                        diffPos = y + shift;
+                    } else {
+                        lTime = (y - shift) * 0.1238;
+                        rTime = y * 0.1238;
+                        diffPos = y - shift;
                     }
-                );
-            });
-            saveIgnoreListSeasonButton.addEventListener("click", () => {
-                Dashboard.showLoadingMsg();
 
-                var url ="Intros/IgnoreList/UpdateSeason";
-                const newRhs = {
-                    IgnoreIntro: ignorelistIntro.checked,
-                    IgnoreCredits: ignorelistCredits.checked,
-                    SeasonId: IgnoreListSeasonId,
-                };
+                    const diff = fprDiffs[Math.floor(diffPos)];
 
-                fetchWithAuth(url, "POST", JSON.stringify(newRhs));
-
-                Dashboard.alert("Ignore list updated for " + selectSeason.value + " of " + selectShow.value);
-                Dashboard.hideLoadingMsg();
-            });
-            saveIgnoreListSeriesButton.addEventListener("click", () => {
-                Dashboard.showLoadingMsg();
-
-                var url ="Intros/IgnoreList/UpdateSeries" + "/" + encodeURIComponent(selectShow.value);
-                const newRhs = {
-                    IgnoreIntro: ignorelistIntro.checked,
-                    IgnoreCredits: ignorelistCredits.checked,
-                };
-
-                fetchWithAuth(url, "POST", JSON.stringify(newRhs));
-
-                Dashboard.alert("Ignore list updated for " + selectShow.value);
-                Dashboard.hideLoadingMsg();
-            });
-            btnUpdateTimestamps.addEventListener("click", () => {
-                const getEditValue = (id) => parseFloat(document.getElementById(id).value) || 0;
-
-                const lhsId = selectEpisode1.options[selectEpisode1.selectedIndex].value;
-                const newLhs = {
-                    Introduction: {
-                        Start: getEditValue('editLeftIntroEpisodeStartEdit'),
-                        End: getEditValue('editLeftIntroEpisodeEndEdit')
-                    },
-                    Credits: {
-                        Start: getEditValue('editLeftCreditEpisodeStartEdit'),
-                        End: getEditValue('editLeftCreditEpisodeEndEdit')
+                    if (!diff) {
+                        timeContainer.style.display = "none";
+                        return;
+                    } else {
+                        timeContainer.style.display = "unset";
                     }
-                };
 
-                const rhsId = selectEpisode2.options[selectEpisode2.selectedIndex].value;
-                const newRhs = {
-                    Introduction: {
-                        Start: getEditValue('editRightIntroEpisodeStartEdit'),
-                        End: getEditValue('editRightIntroEpisodeEndEdit')
-                    },
-                    Credits: {
-                        Start: getEditValue('editRightCreditEpisodeStartEdit'),
-                        End: getEditValue('editRightCreditEpisodeEndEdit')
-                    }
-                };
+                    const times = document.querySelector("span#timestamps");
 
-                fetchWithAuth("Episode/" + lhsId + "/Timestamps", "POST", JSON.stringify(newLhs));
-                fetchWithAuth("Episode/" + rhsId + "/Timestamps", "POST", JSON.stringify(newRhs));
+                    // LHS timestamp, RHS timestamp, percent similarity
+                    times.textContent = secondsToString(lTime) + ", " + secondsToString(rTime) + ", " + Math.round(diff) + "%";
 
-                Dashboard.alert("New introduction timestamps saved");
-            });
-            document.addEventListener("keydown", keyDown);
-            windowHashInterval = setInterval(checkWindowHash, 2500);
+                    timeContainer.style.position = "relative";
+                    timeContainer.style.left = "25px";
+                    timeContainer.style.top = (-1 * rect.height + y).toString() + "px";
+                });
 
-            canvas.addEventListener("mousemove", (e) => {
-                const rect = e.currentTarget.getBoundingClientRect();
-                const y = e.clientY - rect.top;
-                const shift = Number(txtOffset.value);
+                function setTime(seconds) {
+                    // Calculate hours, minutes, and remaining seconds
+                    let hours = Math.floor(seconds / 3600);
+                    let minutes = Math.floor((seconds % 3600) / 60);
+                    let remainingSeconds = seconds % 60;
 
-                let lTime, rTime, diffPos;
-                if (shift < 0) {
-                    lTime = y * 0.1238;
-                    rTime = (y + shift) * 0.1238;
-                    diffPos = y + shift;
-                } else {
-                    lTime = (y - shift) * 0.1238;
-                    rTime = y * 0.1238;
-                    diffPos = y - shift;
+                    // Format as HH:MM:SS
+                    let formattedTime = String(hours).padStart(2, "0") + ":" + String(minutes).padStart(2, "0") + ":" + String(remainingSeconds).padStart(2, "0");
+
+                    // Set the value of the time input
+                    return formattedTime;
                 }
 
-                const diff = fprDiffs[Math.floor(diffPos)];
-
-                if (!diff) {
-                    timeContainer.style.display = "none";
-                    return;
-                } else {
-                    timeContainer.style.display = "unset";
+                function getTimeInSeconds(time) {
+                    let [hours, minutes, seconds] = time.split(":").map(Number);
+                    return hours * 3600 + minutes * 60 + seconds;
                 }
-
-                const times = document.querySelector("span#timestamps");
-
-                // LHS timestamp, RHS timestamp, percent similarity
-                times.textContent =
-                    secondsToString(lTime) + ", " +
-                    secondsToString(rTime) + ", " +
-                    Math.round(diff) + "%";
-
-                timeContainer.style.position = "relative";
-                timeContainer.style.left = "25px";
-                timeContainer.style.top = (-1 * rect.height + y).toString() + "px";
-            });
-
-            function setTime(seconds) {
-                // Calculate hours, minutes, and remaining seconds
-                let hours = Math.floor(seconds / 3600);
-                let minutes = Math.floor((seconds % 3600) / 60);
-                let remainingSeconds = seconds % 60;
-
-                // Format as HH:MM:SS
-                let formattedTime =
-                    String(hours).padStart(2, '0') + ':' +
-                    String(minutes).padStart(2, '0') + ':' +
-                    String(remainingSeconds).padStart(2, '0');
-
-                // Set the value of the time input
-                return formattedTime;
-            }
-
-            function getTimeInSeconds(time) {
-                let [hours, minutes, seconds] = time.split(':').map(Number);
-                return (hours * 3600) + (minutes * 60) + seconds;
-            }
-        </script>
-    </div>
-</body>
-
+            </script>
+        </div>
+    </body>
 </html>
