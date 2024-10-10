@@ -8,6 +8,7 @@ using ConfusedPolarBear.Plugin.IntroSkipper.ScheduledTasks;
 using MediaBrowser.Controller.Entities.TV;
 using MediaBrowser.Controller.Library;
 using MediaBrowser.Model.Entities;
+using MediaBrowser.Model.Plugins;
 using MediaBrowser.Model.Tasks;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
@@ -25,8 +26,8 @@ public sealed class Entrypoint : IHostedService, IDisposable
     private readonly ILoggerFactory _loggerFactory;
     private readonly HashSet<Guid> _seasonsToAnalyze = [];
     private readonly Timer _queueTimer;
-    private readonly PluginConfiguration _config;
     private static readonly ManualResetEventSlim _autoTaskCompletEvent = new(false);
+    private PluginConfiguration _config;
     private bool _analyzeAgain;
     private static CancellationTokenSource? _cancellationTokenSource;
 
@@ -80,6 +81,7 @@ public sealed class Entrypoint : IHostedService, IDisposable
         _libraryManager.ItemAdded += OnItemAdded;
         _libraryManager.ItemUpdated += OnItemModified;
         _taskManager.TaskCompleted += OnLibraryRefresh;
+        Plugin.Instance!.ConfigurationChanged += OnSettingsChanged;
 
         FFmpegWrapper.Logger = _logger;
 
@@ -205,6 +207,8 @@ public sealed class Entrypoint : IHostedService, IDisposable
 
         StartTimer();
     }
+
+    private void OnSettingsChanged(object? sender, BasePluginConfiguration e) => _config = (PluginConfiguration)e;
 
     /// <summary>
     /// Start timer to debounce analyzing.

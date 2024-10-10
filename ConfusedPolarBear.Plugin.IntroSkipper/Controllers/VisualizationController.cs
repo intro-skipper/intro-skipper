@@ -47,7 +47,7 @@ public class VisualizationController(ILogger<VisualizationController> logger) : 
                 var seasonNumber = first.SeasonNumber;
                 if (!showSeasons.TryGetValue(seriesId, out var showInfo))
                 {
-                    showInfo = new ShowInfos { SeriesName = first.SeriesName, ProductionYear = GetProductionYear(seriesId), LibraryName = GetLibraryName(seriesId),  Seasons = [] };
+                    showInfo = new ShowInfos { SeriesName = first.SeriesName, ProductionYear = GetProductionYear(seriesId), LibraryName = GetLibraryName(seriesId), Seasons = [] };
                     showSeasons[seriesId] = showInfo;
                 }
 

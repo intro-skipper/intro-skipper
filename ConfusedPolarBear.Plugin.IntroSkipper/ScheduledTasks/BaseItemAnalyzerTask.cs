@@ -61,7 +61,7 @@ public class BaseItemAnalyzerTask
     {
         var ffmpegValid = FFmpegWrapper.CheckFFmpegVersion();
         // Assert that ffmpeg with chromaprint is installed
-        if (Plugin.Instance!.Configuration.UseChromaprint && !ffmpegValid)
+        if (Plugin.Instance!.Configuration.WithChromaprint && !ffmpegValid)
         {
             throw new FingerprintException(
                 "Analysis terminated! Chromaprint is not enabled in the current ffmpeg. If Jellyfin is running natively, install jellyfin-ffmpeg5. If Jellyfin is running in a container, upgrade to version 10.8.0 or newer.");
@@ -211,7 +211,7 @@ public class BaseItemAnalyzerTask
             new ChapterAnalyzer(_loggerFactory.CreateLogger<ChapterAnalyzer>())
         };
 
-        if (first.IsAnime && Plugin.Instance!.Configuration.UseChromaprint)
+        if (first.IsAnime && Plugin.Instance!.Configuration.WithChromaprint)
         {
             analyzers.Add(new ChromaprintAnalyzer(_loggerFactory.CreateLogger<ChromaprintAnalyzer>()));
         }
@@ -221,7 +221,7 @@ public class BaseItemAnalyzerTask
             analyzers.Add(new BlackFrameAnalyzer(_loggerFactory.CreateLogger<BlackFrameAnalyzer>()));
         }
 
-        if (!first.IsAnime && Plugin.Instance!.Configuration.UseChromaprint)
+        if (!first.IsAnime && Plugin.Instance!.Configuration.WithChromaprint)
         {
             analyzers.Add(new ChromaprintAnalyzer(_loggerFactory.CreateLogger<ChromaprintAnalyzer>()));
         }

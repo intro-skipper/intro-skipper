@@ -199,20 +199,6 @@
                                 <br />
                                 <div class="checkboxContainer checkboxContainer-withDescription">
                                     <label class="emby-checkbox-label">
-                                        <input id="UseChromaprint" type="checkbox" is="emby-checkbox" />
-                                        <span>Chromaprint analysis</span>
-                                    </label>
-
-                                    <div class="fieldDescription">
-                                        If checked, analysis will use Chromaprint to compare episode audio and identify intros.
-                                        <br />
-                                        <strong>WARNING: Disabling this option may result in incomplete or innaccurate analysis!</strong>
-                                        <br />
-                                    </div>
-                                </div>
-
-                                <div class="checkboxContainer checkboxContainer-withDescription">
-                                    <label class="emby-checkbox-label">
                                         <input id="CacheFingerprints" type="checkbox" is="emby-checkbox" />
                                         <span>Cache episode fingerprints</span>
                                     </label>
@@ -649,7 +635,7 @@
                     "AutoSkipCreditsNotificationText",
                 ];
 
-                var booleanConfigurationFields = ["AutoDetectIntros", "AutoDetectCredits", "AnalyzeSeasonZero", "SelectAllLibraries", "RegenerateEdlFiles", "UseChromaprint", "CacheFingerprints", "AutoSkip", "AutoSkipCredits", "SkipFirstEpisode", "PersistSkipButton", "SkipButtonVisible"];
+                var booleanConfigurationFields = ["AutoDetectIntros", "AutoDetectCredits", "AnalyzeSeasonZero", "SelectAllLibraries", "RegenerateEdlFiles", "CacheFingerprints", "AutoSkip", "AutoSkipCredits", "SkipFirstEpisode", "PersistSkipButton", "SkipButtonVisible"];
 
                 // visualizer elements
                 var ignorelistSection = document.querySelector("div#ignorelistSection");

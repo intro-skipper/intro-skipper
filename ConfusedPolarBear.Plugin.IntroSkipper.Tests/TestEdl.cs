@@ -24,7 +24,8 @@ public class TestEdl
     [Fact]
     public void TestEdlInvalidSerialization()
     {
-        Assert.Throws<ArgumentException>(() => {
+        Assert.Throws<ArgumentException>(() =>
+        {
             var intro = MakeIntro(0, 5);
             intro.ToEdl(EdlAction.None);
         });
