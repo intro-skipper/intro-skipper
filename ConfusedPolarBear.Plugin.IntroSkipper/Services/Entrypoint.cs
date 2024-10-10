@@ -26,8 +26,8 @@ public sealed class Entrypoint : IHostedService, IDisposable
     private readonly ILoggerFactory _loggerFactory;
     private readonly HashSet<Guid> _seasonsToAnalyze = [];
     private readonly Timer _queueTimer;
-    private readonly PluginConfiguration _config;
     private static readonly ManualResetEventSlim _autoTaskCompletEvent = new(false);
+    private PluginConfiguration _config;
     private bool _analyzeAgain;
     private static CancellationTokenSource? _cancellationTokenSource;
 
@@ -210,9 +210,14 @@ public sealed class Entrypoint : IHostedService, IDisposable
 
     private void OnSettingsChanged(object? sender, BasePluginConfiguration e)
     {
-        _logger.LogInformation("Settings {E} changed, reset episode statuses.", e);
-        Plugin.Instance!.EpisodeStates.Clear();
-        return;
+        var configuration = (PluginConfiguration)e;
+        if (configuration.UseChromaprint != _config.UseChromaprint)
+        {
+            _logger.LogInformation("Settings changed, reset episode states.");
+            Plugin.Instance!.EpisodeStates.Clear();
+        }
+
+        _config = configuration;
     }
 
     /// <summary>
