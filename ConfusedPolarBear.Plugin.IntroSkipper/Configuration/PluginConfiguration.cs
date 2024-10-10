@@ -61,7 +61,7 @@ public class PluginConfiguration : BasePluginConfiguration
     /// <summary>
     /// Gets or sets a value indicating whether analysis will use Chromaprint to determine fingerprints.
     /// </summary>
-    public bool UseChromaprint { get; set; } = true;
+    public bool WithChromaprint { get; set; } = true;
 
     // ===== EDL handling =====
 
