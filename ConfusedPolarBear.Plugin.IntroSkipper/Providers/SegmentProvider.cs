@@ -15,15 +15,15 @@ namespace ConfusedPolarBear.Plugin.IntroSkipper.Providers
     /// <summary>
     /// Introskipper media segment provider.
     /// </summary>
-    public class IntroskipperSegmentProvider : IMediaSegmentProvider
+    public class SegmentProvider : IMediaSegmentProvider
     {
-        private readonly ILogger<IntroskipperSegmentProvider> _logger;
+        private readonly ILogger<SegmentProvider> _logger;
 
         /// <summary>
-        /// Initializes a new instance of the <see cref="IntroskipperSegmentProvider"/> class.
+        /// Initializes a new instance of the <see cref="SegmentProvider"/> class.
         /// </summary>
-        /// <param name="logger">Instance of the <see cref="ILogger{IntroskipperSegmentProvider}"/> interface.</param>
-        public IntroskipperSegmentProvider(ILogger<IntroskipperSegmentProvider> logger)
+        /// <param name="logger">Instance of the <see cref="ILogger{SegmentProvider}"/> interface.</param>
+        public SegmentProvider(ILogger<SegmentProvider> logger)
         {
             _logger = logger;
         }

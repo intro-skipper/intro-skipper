@@ -10,19 +10,8 @@
     <AnalysisMode>AllEnabledByDefault</AnalysisMode>
     <CodeAnalysisRuleSet>../jellyfin.ruleset</CodeAnalysisRuleSet>
   </PropertyGroup>
-  <ItemGroup Condition="'$(SOURCE_BUILD)' == 'true'">
-    <ProjectReference Include="../../jellyfin/Jellyfin.Data/Jellyfin.Data.csproj" />
-    <ProjectReference Include="../../jellyfin/MediaBrowser.Model/MediaBrowser.Model.csproj" />
-    <ProjectReference Include="../../jellyfin/MediaBrowser.Controller/MediaBrowser.Controller.csproj" />
-    <ProjectReference Include="../../jellyfin/MediaBrowser.Common/MediaBrowser.Common.csproj" />
-    <PackageReference Include="SerilogAnalyzer" Version="0.15.0" PrivateAssets="All" />
-    <PackageReference Include="SmartAnalyzers.MultithreadingAnalyzer" Version="1.1.31" PrivateAssets="All" />
-    <PackageReference Include="StyleCop.Analyzers.Unstable" Version="1.2.0.556" PrivateAssets="All" />
-  </ItemGroup>
-  <ItemGroup Condition="'$(SOURCE_BUILD)' != 'true'">
+  <ItemGroup>
     <PackageReference Include="Jellyfin.Controller" Version="10.*-*" />
-    <PackageReference Include="Jellyfin.Common" Version="10.*-*" />
-    <PackageReference Include="Jellyfin.Data" Version="10.*-*" />
     <PackageReference Include="Jellyfin.Model" Version="10.*-*" />
     <PackageReference Include="SerilogAnalyzer" Version="0.15.0" PrivateAssets="All" />
     <PackageReference Include="SmartAnalyzers.MultithreadingAnalyzer" Version="1.1.31" PrivateAssets="All" />
