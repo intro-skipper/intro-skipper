@@ -8,21 +8,23 @@ using MediaBrowser.Controller.Entities;
 using MediaBrowser.Controller.Entities.TV;
 using MediaBrowser.Model;
 using MediaBrowser.Model.MediaSegments;
-using Microsoft.Extensions.Logging;
 
 namespace ConfusedPolarBear.Plugin.IntroSkipper.Providers
 {
     /// <summary>
     /// Introskipper media segment provider.
     /// </summary>
-    /// <remarks>
-    /// Initializes a new instance of the <see cref="SegmentProvider"/> class.
-    /// </remarks>
-    /// <param name="logger">Instance of the <see cref="ILogger{SegmentProvider}"/> interface.</param>
-    public class SegmentProvider(ILogger<SegmentProvider> logger) : IMediaSegmentProvider
+    public class SegmentProvider : IMediaSegmentProvider
     {
-        private readonly ILogger<SegmentProvider> _logger = logger;
-        private int _remainingSecondsOfIntro = Plugin.Instance!.Configuration.RemainingSecondsOfIntro;
+        private readonly int _remainingSecondsOfIntro;
+
+        /// <summary>
+        /// Initializes a new instance of the <see cref="SegmentProvider"/> class.
+        /// </summary>
+        public SegmentProvider()
+        {
+            _remainingSecondsOfIntro = Plugin.Instance?.Configuration.RemainingSecondsOfIntro ?? 2;
+        }
 
         /// <inheritdoc/>
         public string Name => Plugin.Instance!.Name;
@@ -54,14 +56,10 @@ namespace ConfusedPolarBear.Plugin.IntroSkipper.Providers
                 });
             }
 
-            _logger.LogDebug("Found {SegmentCount} segments for item {ItemId}", segments.Count, request.ItemId);
             return Task.FromResult<IReadOnlyList<MediaSegmentDto>>(segments);
         }
 
         /// <inheritdoc/>
-        public ValueTask<bool> Supports(BaseItem item)
-        {
-            return ValueTask.FromResult(item is Episode);
-        }
+        public ValueTask<bool> Supports(BaseItem item) => ValueTask.FromResult(item is Episode);
     }
 }
