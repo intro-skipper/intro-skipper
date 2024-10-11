@@ -87,7 +87,7 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
         XmlSerializationHelper.MigrateXML(_introPath);
         XmlSerializationHelper.MigrateXML(_creditsPath);
 
-        var oldConfigFile = Path.Join(applicationPaths.DataPath, "ConfusedPolarBear.Plugin.IntroSkipper.xml");
+        var oldConfigFile = Path.Join(applicationPaths.PluginConfigurationsPath, "ConfusedPolarBear.Plugin.IntroSkipper.xml");
 
         if (File.Exists(oldConfigFile))
         {
