@@ -1,3 +1,4 @@
+using ConfusedPolarBear.Plugin.IntroSkipper.Providers;
 using MediaBrowser.Controller;
 using MediaBrowser.Controller.Plugins;
 using Microsoft.Extensions.DependencyInjection;
@@ -15,6 +16,7 @@ namespace ConfusedPolarBear.Plugin.IntroSkipper
             serviceCollection.AddHostedService<AutoSkip>();
             serviceCollection.AddHostedService<AutoSkipCredits>();
             serviceCollection.AddHostedService<Entrypoint>();
+            serviceCollection.AddSingleton<IMediaSegmentProvider, SegmentProvider>();
         }
     }
 }
