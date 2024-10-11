@@ -30,7 +30,10 @@ jobs:
           npx terser ConfusedPolarBear.Plugin.IntroSkipper/Configuration/visualizer.js -o ConfusedPolarBear.Plugin.IntroSkipper/Configuration/visualizer.js -c -m
 
       - name: Restore dependencies
-        run: dotnet restore
+        run: |
+          dotnet nuget add source --username ${{ github.repository_owner }} --password ${{ secrets.GITHUB_TOKEN }} --store-password-in-clear-text --name jellyfin-pre "https://nuget.pkg.github.com/jellyfin/index.json"
+          dotnet tool install --global dotnet-outdated-tool
+          dotnet outdated -pre Always -u -inc Jellyfin
 
       - name: Run update version
         uses: intro-skipper/intro-skipper-action-ts@main
@@ -50,13 +53,13 @@ jobs:
 
       - name: Remove old release if exits
         if: ${{ github.repository == 'intro-skipper/intro-skipper-test' }}
-        run: gh release delete "10.9/v${{ env.NEW_FILE_VERSION }}" --cleanup-tag --yes || true
+        run: gh release delete "10.10/v${{ env.NEW_FILE_VERSION }}" --cleanup-tag --yes || true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Create new release with tag
         if: github.event_name != 'pull_request'
-        run: gh release create "10.9/v${{ env.NEW_FILE_VERSION }}" "intro-skipper-v${{ env.NEW_FILE_VERSION }}.zip" --title "v${{ env.NEW_FILE_VERSION }}" --latest --generate-notes
+        run: gh release create "10.10/v${{ env.NEW_FILE_VERSION }}" "intro-skipper-v${{ env.NEW_FILE_VERSION }}.zip" --title "v${{ env.NEW_FILE_VERSION }}" --latest --generate-notes
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
