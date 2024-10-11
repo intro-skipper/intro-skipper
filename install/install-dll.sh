@@ -6,8 +6,8 @@ if [ "$(uname)" == "Darwin" ]; then
         echo "Intro Skipper plugin not found!"
         exit
     fi
-    cp -f ConfusedPolarBear.Plugin.IntroSkipper*.dll \
-    "$plugin/ConfusedPolarBear.Plugin.IntroSkipper.dll"
+    cp -f IntroSkipper*.dll \
+    "$plugin/IntroSkipper.dll"
   else
     echo "Jellyfin plugin directory not found!"
   fi
@@ -19,8 +19,8 @@ elif [ "$(expr substr $(uname -s) 1 5)" == "Linux" ]; then
         echo "Intro Skipper plugin not found!"
         exit
     fi
-    cp -f ConfusedPolarBear.Plugin.IntroSkipper*.dll \
-    "$plugin/ConfusedPolarBear.Plugin.IntroSkipper.dll"
+    cp -f IntroSkipper*.dll \
+    "$plugin/IntroSkipper.dll"
   else
     echo "Jellyfin plugin directory not found!"
   fi

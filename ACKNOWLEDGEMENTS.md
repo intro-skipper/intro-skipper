@@ -5,3 +5,4 @@ Intro Skipper is made possible by the following open source projects:
 * [JellyScrub](https://github.com/nicknsy/jellyscrub) (MIT)
 * [Jellyfin](https://github.com/jellyfin/jellyfin) (GPL)
 * [Jellyfin Media Analyzer](https://github.com/endrl/jellyfin-plugin-media-analyzer) (GPL)
+* [Intro Skipper (beta)](https://github.com/ConfusedPolarBear/intro-skipper) (GPL)
