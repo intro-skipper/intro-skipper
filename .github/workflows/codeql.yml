@@ -2,7 +2,7 @@ name: "CodeQL"
 
 on:
   push:
-    branches: [master]
+    branches: ["10.9"]
     paths-ignore:
       - "**/README.md"
       - ".github/ISSUE_TEMPLATE/**"
@@ -10,7 +10,7 @@ on:
       - "images/**"
       - "manifest.json"
   pull_request:
-    branches: [master]
+    branches: ["10.9"]
     paths-ignore:
       - "**/README.md"
       - ".github/ISSUE_TEMPLATE/**"
