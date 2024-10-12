@@ -9,9 +9,13 @@
     </p>
 
 [![CodeQL](https://github.com/intro-skipper/intro-skipper/actions/workflows/codeql.yml/badge.svg)](https://github.com/intro-skipper/intro-skipper/actions/workflows/codeql.yml)
-
-    https://raw.githubusercontent.com/intro-skipper/intro-skipper/master/manifest.json
 </div>
+
+## Manifest URL for all Jellyfin Versions
+
+```
+https://manifest.intro-skipper.workers.dev/
+```
 
 ## System requirements
 
@@ -25,9 +29,6 @@
 ## Limitations
 
 * SyncPlay is not (yet) compatible with any method of skipping due to the nature of how the clients are synced. 
-
-## Jellyfin 10.8 (previous version)
-👉👉👉 [Jellyfin 10.8 Instructions](https://github.com/intro-skipper/intro-skipper/blob/10.8/README.md)
 
 ## Detection parameters
 
