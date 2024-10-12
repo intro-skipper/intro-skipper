@@ -6,9 +6,13 @@
     <p>
         Analyzes the audio of television episodes to detect and skip over intros.
     </p>
-    
-    https://raw.githubusercontent.com/jumoog/intro-skipper/10.8/manifest.json
 </div>
+
+## Manifest URL for all Jellyfin Versions
+
+```
+https://manifest.intro-skipper.workers.dev/
+```
 
 ## System requirements
 
