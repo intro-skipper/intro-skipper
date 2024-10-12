@@ -88,37 +88,6 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
 
         MigrateRepoUrl(serverConfiguration);
 
-        // Access the current server configuration
-        var config = serverConfiguration.Configuration;
-
-        // Get the list of current plugin repositories
-        var pluginRepositories = config.PluginRepositories?.ToList() ?? [];
-
-        // Check if the new repository already exists
-        bool repositoryExists = pluginRepositories.Exists(repo => repo.Url == "https://raw.githubusercontent.com/intro-skipper/intro-skipper/master/manifest.json");
-
-        if (repositoryExists)
-        {
-            _logger.LogInformation("found old intro-skipper manifest... starting migration");
-            var old = pluginRepositories.Find(repo => repo.Url == "https://raw.githubusercontent.com/intro-skipper/intro-skipper/master/manifest.json");
-            if (old != null)
-            {
-                pluginRepositories.Remove(old);
-                // Add the new repository to the list
-                pluginRepositories.Add(new RepositoryInfo
-                {
-                    Name = "intro skipper",
-                    Url = "https://manifest.intro-skipper.workers.dev/"
-                });
-
-                // Update the configuration with the new repository list
-                config.PluginRepositories = [.. pluginRepositories];
-
-                // Save the updated configuration
-                serverConfiguration.SaveConfiguration();
-            }
-        }
-
         // TODO: remove when https://github.com/jellyfin/jellyfin-meta/discussions/30 is complete
         try
         {
