@@ -5,6 +5,7 @@ using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using ConfusedPolarBear.Plugin.IntroSkipper.Analyzers;
 using ConfusedPolarBear.Plugin.IntroSkipper.Data;
+using Jellyfin.Data.Enums;
 using MediaBrowser.Model.Entities;
 using Microsoft.Extensions.Logging;
 using Xunit;
@@ -19,8 +20,8 @@ public class TestChapterAnalyzer
     [InlineData("Introduction")]
     public void TestIntroductionExpression(string chapterName)
     {
-        var chapters = CreateChapters(chapterName, AnalysisMode.Introduction);
-        var introChapter = FindChapter(chapters, AnalysisMode.Introduction);
+        var chapters = CreateChapters(chapterName, MediaSegmentType.Intro);
+        var introChapter = FindChapter(chapters, MediaSegmentType.Intro);
 
         Assert.NotNull(introChapter);
         Assert.Equal(60, introChapter.Start);
@@ -35,34 +36,34 @@ public class TestChapterAnalyzer
     [InlineData("Credits")]
     public void TestEndCreditsExpression(string chapterName)
     {
-        var chapters = CreateChapters(chapterName, AnalysisMode.Credits);
-        var creditsChapter = FindChapter(chapters, AnalysisMode.Credits);
+        var chapters = CreateChapters(chapterName, MediaSegmentType.Outro);
+        var creditsChapter = FindChapter(chapters, MediaSegmentType.Outro);
 
         Assert.NotNull(creditsChapter);
         Assert.Equal(1890, creditsChapter.Start);
         Assert.Equal(2000, creditsChapter.End);
     }
 
-    private Segment? FindChapter(Collection<ChapterInfo> chapters, AnalysisMode mode)
+    private Segment? FindChapter(Collection<ChapterInfo> chapters, MediaSegmentType mode)
     {
         var logger = new LoggerFactory().CreateLogger<ChapterAnalyzer>();
         var analyzer = new ChapterAnalyzer(logger);
 
         var config = new Configuration.PluginConfiguration();
-        var expression = mode == AnalysisMode.Introduction ?
+        var expression = mode == MediaSegmentType.Intro ?
             config.ChapterAnalyzerIntroductionPattern :
             config.ChapterAnalyzerEndCreditsPattern;
 
         return analyzer.FindMatchingChapter(new() { Duration = 2000 }, chapters, expression, mode);
     }
 
-    private Collection<ChapterInfo> CreateChapters(string name, AnalysisMode mode)
+    private Collection<ChapterInfo> CreateChapters(string name, MediaSegmentType mode)
     {
         var chapters = new[]{
             CreateChapter("Cold Open", 0),
-            CreateChapter(mode == AnalysisMode.Introduction ? name : "Introduction", 60),
+            CreateChapter(mode == MediaSegmentType.Intro ? name : "Introduction", 60),
             CreateChapter("Main Episode", 90),
-            CreateChapter(mode == AnalysisMode.Credits ? name : "Credits", 1890)
+            CreateChapter(mode == MediaSegmentType.Outro ? name : "Credits", 1890)
         };
 
         return new(new List<ChapterInfo>(chapters));

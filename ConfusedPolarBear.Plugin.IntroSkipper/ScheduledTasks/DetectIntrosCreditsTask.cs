@@ -1,9 +1,8 @@
 using System;
 using System.Collections.Generic;
-using System.Collections.ObjectModel;
 using System.Threading;
 using System.Threading.Tasks;
-using ConfusedPolarBear.Plugin.IntroSkipper.Data;
+using Jellyfin.Data.Enums;
 using MediaBrowser.Controller.Library;
 using MediaBrowser.Model.Tasks;
 using Microsoft.Extensions.Logging;
@@ -81,7 +80,7 @@ public class DetectIntrosCreditsTask : IScheduledTask
         {
             _logger.LogInformation("Scheduled Task is starting");
 
-            var modes = new List<AnalysisMode> { AnalysisMode.Introduction, AnalysisMode.Credits };
+            var modes = new List<MediaSegmentType> { MediaSegmentType.Intro, MediaSegmentType.Outro };
 
             var baseIntroAnalyzer = new BaseItemAnalyzerTask(
                 modes,

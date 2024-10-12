@@ -7,6 +7,7 @@ using System.IO;
 using System.Text;
 using System.Text.RegularExpressions;
 using ConfusedPolarBear.Plugin.IntroSkipper.Data;
+using Jellyfin.Data.Enums;
 using Microsoft.Extensions.Logging;
 
 namespace ConfusedPolarBear.Plugin.IntroSkipper;
@@ -33,7 +34,7 @@ public static partial class FFmpegWrapper
 
     private static Dictionary<string, string> ChromaprintLogs { get; set; } = [];
 
-    private static ConcurrentDictionary<(Guid Id, AnalysisMode Mode), Dictionary<uint, int>> InvertedIndexCache { get; set; } = new();
+    private static ConcurrentDictionary<(Guid Id, MediaSegmentType Mode), Dictionary<uint, int>> InvertedIndexCache { get; set; } = new();
 
     /// <summary>
     /// Check that the installed version of ffmpeg supports chromaprint.
@@ -109,16 +110,16 @@ public static partial class FFmpegWrapper
     /// <param name="episode">Queued episode to fingerprint.</param>
     /// <param name="mode">Portion of media file to fingerprint. Introduction = first 25% / 10 minutes and Credits = last 4 minutes.</param>
     /// <returns>Numerical fingerprint points.</returns>
-    public static uint[] Fingerprint(QueuedEpisode episode, AnalysisMode mode)
+    public static uint[] Fingerprint(QueuedEpisode episode, MediaSegmentType mode)
     {
         int start, end;
 
-        if (mode == AnalysisMode.Introduction)
+        if (mode == MediaSegmentType.Intro)
         {
             start = 0;
             end = episode.IntroFingerprintEnd;
         }
-        else if (mode == AnalysisMode.Credits)
+        else if (mode == MediaSegmentType.Outro)
         {
             start = episode.CreditsFingerprintStart;
             end = episode.Duration;
@@ -138,7 +139,7 @@ public static partial class FFmpegWrapper
     /// <param name="fingerprint">Chromaprint fingerprint.</param>
     /// <param name="mode">Mode.</param>
     /// <returns>Inverted index.</returns>
-    public static Dictionary<uint, int> CreateInvertedIndex(Guid id, uint[] fingerprint, AnalysisMode mode)
+    public static Dictionary<uint, int> CreateInvertedIndex(Guid id, uint[] fingerprint, MediaSegmentType mode)
     {
         if (InvertedIndexCache.TryGetValue((id, mode), out var cached))
         {
@@ -468,7 +469,7 @@ public static partial class FFmpegWrapper
     /// <param name="start">Time (in seconds) relative to the start of the file to start fingerprinting from.</param>
     /// <param name="end">Time (in seconds) relative to the start of the file to stop fingerprinting at.</param>
     /// <returns>Numerical fingerprint points.</returns>
-    private static uint[] Fingerprint(QueuedEpisode episode, AnalysisMode mode, int start, int end)
+    private static uint[] Fingerprint(QueuedEpisode episode, MediaSegmentType mode, int start, int end)
     {
         // Try to load this episode from cache before running ffmpeg.
         if (LoadCachedFingerprint(episode, mode, out uint[] cachedFingerprint))
@@ -522,7 +523,7 @@ public static partial class FFmpegWrapper
     /// <returns>true if the episode was successfully loaded from cache, false on any other error.</returns>
     private static bool LoadCachedFingerprint(
         QueuedEpisode episode,
-        AnalysisMode mode,
+        MediaSegmentType mode,
         out uint[] fingerprint)
     {
         fingerprint = Array.Empty<uint>();
@@ -578,7 +579,7 @@ public static partial class FFmpegWrapper
     /// <param name="fingerprint">Fingerprint of the episode to store.</param>
     private static void CacheFingerprint(
         QueuedEpisode episode,
-        AnalysisMode mode,
+        MediaSegmentType mode,
         List<uint> fingerprint)
     {
         // Bail out if caching isn't enabled.
@@ -627,11 +628,11 @@ public static partial class FFmpegWrapper
     /// Remove cached fingerprints from disk by mode.
     /// </summary>
     /// <param name="mode">Analysis mode.</param>
-    public static void DeleteCacheFiles(AnalysisMode mode)
+    public static void DeleteCacheFiles(MediaSegmentType mode)
     {
         foreach (var filePath in Directory.EnumerateFiles(Plugin.Instance!.FingerprintCachePath))
         {
-            var shouldDelete = (mode == AnalysisMode.Introduction)
+            var shouldDelete = (mode == MediaSegmentType.Intro)
                     ? !filePath.Contains("credit", StringComparison.OrdinalIgnoreCase)
                     && !filePath.Contains("blackframes", StringComparison.OrdinalIgnoreCase)
                     : filePath.Contains("credit", StringComparison.OrdinalIgnoreCase)
@@ -651,18 +652,18 @@ public static partial class FFmpegWrapper
     /// <param name="episode">Episode.</param>
     /// <param name="mode">Analysis mode.</param>
     /// <returns>Path.</returns>
-    public static string GetFingerprintCachePath(QueuedEpisode episode, AnalysisMode mode)
+    public static string GetFingerprintCachePath(QueuedEpisode episode, MediaSegmentType mode)
     {
         var basePath = Path.Join(
             Plugin.Instance!.FingerprintCachePath,
             episode.EpisodeId.ToString("N"));
 
-        if (mode == AnalysisMode.Introduction)
+        if (mode == MediaSegmentType.Intro)
         {
             return basePath;
         }
 
-        if (mode == AnalysisMode.Credits)
+        if (mode == MediaSegmentType.Outro)
         {
             return basePath + "-credits";
         }

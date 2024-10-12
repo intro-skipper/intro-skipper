@@ -1,4 +1,5 @@
 using System;
+using Jellyfin.Data.Enums;
 
 namespace ConfusedPolarBear.Plugin.IntroSkipper.Data;
 
@@ -16,28 +17,28 @@ public class EpisodeState
     /// </summary>
     /// <param name="mode">The analysis mode to check.</param>
     /// <returns>True if the mode has been analyzed, false otherwise.</returns>
-    public bool IsAnalyzed(AnalysisMode mode) => _analyzedStates[(int)mode];
+    public bool IsAnalyzed(MediaSegmentType mode) => _analyzedStates[(int)mode];
 
     /// <summary>
     /// Sets the analyzed state for the specified analysis mode.
     /// </summary>
     /// <param name="mode">The analysis mode to set.</param>
     /// <param name="value">The analyzed state to set.</param>
-    public void SetAnalyzed(AnalysisMode mode, bool value) => _analyzedStates[(int)mode] = value;
+    public void SetAnalyzed(MediaSegmentType mode, bool value) => _analyzedStates[(int)mode] = value;
 
     /// <summary>
     /// Checks if the specified analysis mode has been blacklisted.
     /// </summary>
     /// <param name="mode">The analysis mode to check.</param>
     /// <returns>True if the mode has been blacklisted, false otherwise.</returns>
-    public bool IsBlacklisted(AnalysisMode mode) => _blacklistedStates[(int)mode];
+    public bool IsBlacklisted(MediaSegmentType mode) => _blacklistedStates[(int)mode];
 
     /// <summary>
     /// Sets the blacklisted state for the specified analysis mode.
     /// </summary>
     /// <param name="mode">The analysis mode to set.</param>
     /// <param name="value">The blacklisted state to set.</param>
-    public void SetBlacklisted(AnalysisMode mode, bool value) => _blacklistedStates[(int)mode] = value;
+    public void SetBlacklisted(MediaSegmentType mode, bool value) => _blacklistedStates[(int)mode] = value;
 
     /// <summary>
     /// Resets the analyzed states.
