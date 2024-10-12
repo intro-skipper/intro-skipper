@@ -33,7 +33,6 @@ namespace ConfusedPolarBear.Plugin.IntroSkipper.Services
         ILogger<AutoSkipCredits> logger) : IHostedService, IDisposable
     {
         private readonly object _sentSeekCommandLock = new();
-
         private ILogger<AutoSkipCredits> _logger = logger;
         private IUserDataManager _userDataManager = userDataManager;
         private ISessionManager _sessionManager = sessionManager;

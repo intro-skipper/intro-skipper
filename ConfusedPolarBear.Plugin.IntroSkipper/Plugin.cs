@@ -478,7 +478,15 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
         _logger.LogDebug("Reading index.html from {Path}", indexPath);
         string contents = File.ReadAllText(indexPath);
 
-        // change URL with every relase to prevent the Browers from caching
+        if (!Instance!.Configuration.SkipButtonVisible)
+        {
+            pattern = @"<script src=""configurationpage\?name=skip-intro-button\.js.*<\/script>";
+            contents = Regex.Replace(contents, pattern, string.Empty, RegexOptions.IgnoreCase);
+            File.WriteAllText(indexPath, contents);
+            return; // Button is disabled, so remove and abort
+        }
+
+        // change URL with every release to prevent the Browers from caching
         string scriptTag = "<script src=\"configurationpage?name=skip-intro-button.js&release=" + GetType().Assembly.GetName().Version + "\"></script>";
 
         // Only inject the script tag once
