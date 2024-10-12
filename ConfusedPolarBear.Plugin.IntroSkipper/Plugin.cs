@@ -415,7 +415,7 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
             List<string> oldRepos =
             [
             "https://raw.githubusercontent.com/intro-skipper/intro-skipper/master/manifest.json",
-            "https://raw.githubusercontent.com/intro-skipper/jumoog/master/manifest.json"
+            "https://raw.githubusercontent.com/jumoog/intro-skipper/master/manifest.json"
             ];
             // Access the current server configuration
             var config = serverConfiguration.Configuration;
@@ -439,12 +439,15 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
                     }
                 }
 
-                // Add the new repository to the list
-                pluginRepositories.Add(new RepositoryInfo
+                if (pluginRepositories.Exists(repo => repo.Url == "https://manifest.intro-skipper.workers.dev"))
                 {
-                    Name = "intro skipper",
-                    Url = "https://manifest.intro-skipper.workers.dev/"
-                });
+                    // Add the new repository to the list
+                    pluginRepositories.Add(new RepositoryInfo
+                    {
+                        Name = "intro skipper",
+                        Url = "https://manifest.intro-skipper.workers.dev/"
+                    });
+                }
 
                 // Update the configuration with the new repository list
                 config.PluginRepositories = [.. pluginRepositories];
