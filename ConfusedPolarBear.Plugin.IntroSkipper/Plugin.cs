@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using System.Text.RegularExpressions;
 using ConfusedPolarBear.Plugin.IntroSkipper.Configuration;
 using MediaBrowser.Common.Configuration;
@@ -402,16 +403,16 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
     {
         try
         {
-            List<string> oldRepos =
-            [
+            List<string> oldRepos = new List<string>
+            {
             "https://raw.githubusercontent.com/intro-skipper/intro-skipper/master/manifest.json",
             "https://raw.githubusercontent.com/jumoog/intro-skipper/master/manifest.json"
-            ];
+            };
             // Access the current server configuration
             var config = serverConfiguration.Configuration;
 
             // Get the list of current plugin repositories
-            var pluginRepositories = config.PluginRepositories?.ToList() ?? [];
+            var pluginRepositories = config.PluginRepositories?.ToList() ?? new List<RepositoryInfo>();
 
             // check if old plugins exits
             if (pluginRepositories.Exists(repo => repo != null && repo.Url != null && oldRepos.Contains(repo.Url)))
@@ -432,7 +433,7 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
                 }
 
                 // Update the configuration with the new repository list
-                config.PluginRepositories = [.. pluginRepositories];
+                config.PluginRepositories = pluginRepositories.ToList();
 
                 // Save the updated configuration
                 serverConfiguration.SaveConfiguration();
