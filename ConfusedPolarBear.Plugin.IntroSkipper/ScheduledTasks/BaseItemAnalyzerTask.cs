@@ -18,7 +18,7 @@ namespace ConfusedPolarBear.Plugin.IntroSkipper.ScheduledTasks;
 /// </summary>
 public class BaseItemAnalyzerTask
 {
-    private readonly IReadOnlyCollection<MediaSegmentType> _mediaSegmentTypes;
+    private readonly IReadOnlyCollection<MediaSegmentType> _modes;
 
     private readonly ILogger _logger;
 
@@ -39,7 +39,7 @@ public class BaseItemAnalyzerTask
         ILoggerFactory loggerFactory,
         ILibraryManager libraryManager)
     {
-        _mediaSegmentTypes = modes;
+        _modes = modes;
         _logger = logger;
         _loggerFactory = loggerFactory;
         _libraryManager = libraryManager;
@@ -81,7 +81,7 @@ public class BaseItemAnalyzerTask
             queue = queue.Where(kvp => seasonsToAnalyze.Contains(kvp.Key)).ToDictionary(kvp => kvp.Key, kvp => kvp.Value);
         }
 
-        int totalQueued = queue.Sum(kvp => kvp.Value.Count) * _mediaSegmentTypes.Count;
+        int totalQueued = queue.Sum(kvp => kvp.Value.Count) * _modes.Count;
         if (totalQueued == 0)
         {
             throw new FingerprintException(
@@ -107,7 +107,7 @@ public class BaseItemAnalyzerTask
             // of the current media items were deleted from Jellyfin since the task was started.
             var (episodes, requiredModes) = queueManager.VerifyQueue(
                 season.Value,
-                _mediaSegmentTypes.Where(m => !Plugin.Instance!.IsIgnored(season.Key, m)).ToList());
+                _modes.Where(m => !Plugin.Instance!.IsIgnored(season.Key, m)).ToList());
 
             if (episodes.Count == 0)
             {
@@ -122,13 +122,13 @@ public class BaseItemAnalyzerTask
                     first.SeriesName,
                     first.SeasonNumber);
 
-                Interlocked.Add(ref totalProcessed, episodes.Count * _mediaSegmentTypes.Count); // Update total Processed directly
+                Interlocked.Add(ref totalProcessed, episodes.Count * _modes.Count); // Update total Processed directly
                 progress.Report(totalProcessed * 100 / totalQueued);
 
                 return;
             }
 
-            if (_mediaSegmentTypes.Count != requiredModes.Count)
+            if (_modes.Count != requiredModes.Count)
             {
                 Interlocked.Add(ref totalProcessed, episodes.Count);
                 progress.Report(totalProcessed * 100 / totalQueued); // Partial analysis some modes have already been analyzed
