@@ -12,29 +12,22 @@ namespace ConfusedPolarBear.Plugin.IntroSkipper.ScheduledTasks;
 /// <summary>
 /// Analyze all television episodes for introduction sequences.
 /// </summary>
-public class DetectIntrosTask : IScheduledTask
+/// <remarks>
+/// Initializes a new instance of the <see cref="DetectIntrosTask"/> class.
+/// </remarks>
+/// <param name="loggerFactory">Logger factory.</param>
+/// <param name="libraryManager">Library manager.</param>
+/// <param name="logger">Logger.</param>
+public class DetectIntrosTask(
+    ILogger<DetectIntrosTask> logger,
+    ILoggerFactory loggerFactory,
+    ILibraryManager libraryManager) : IScheduledTask
 {
-    private readonly ILogger<DetectIntrosTask> _logger;
+    private readonly ILogger<DetectIntrosTask> _logger = logger;
 
-    private readonly ILoggerFactory _loggerFactory;
+    private readonly ILoggerFactory _loggerFactory = loggerFactory;
 
-    private readonly ILibraryManager _libraryManager;
-
-    /// <summary>
-    /// Initializes a new instance of the <see cref="DetectIntrosTask"/> class.
-    /// </summary>
-    /// <param name="loggerFactory">Logger factory.</param>
-    /// <param name="libraryManager">Library manager.</param>
-    /// <param name="logger">Logger.</param>
-    public DetectIntrosTask(
-        ILogger<DetectIntrosTask> logger,
-        ILoggerFactory loggerFactory,
-        ILibraryManager libraryManager)
-    {
-        _logger = logger;
-        _loggerFactory = loggerFactory;
-        _libraryManager = libraryManager;
-    }
+    private readonly ILibraryManager _libraryManager = libraryManager;
 
     /// <summary>
     /// Gets the task name.
