@@ -410,45 +410,52 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
 
     private void MigrateRepoUrl(IServerConfigurationManager serverConfiguration)
     {
-        List<string> oldRepos =
-        [
+        try
+        {
+            List<string> oldRepos =
+            [
             "https://raw.githubusercontent.com/intro-skipper/intro-skipper/master/manifest.json",
             "https://raw.githubusercontent.com/intro-skipper/jumoog/master/manifest.json"
-        ];
-        // Access the current server configuration
-        var config = serverConfiguration.Configuration;
+            ];
+            // Access the current server configuration
+            var config = serverConfiguration.Configuration;
 
-        // Get the list of current plugin repositories
-        var pluginRepositories = config.PluginRepositories?.ToList() ?? [];
+            // Get the list of current plugin repositories
+            var pluginRepositories = config.PluginRepositories?.ToList() ?? [];
 
-        bool repositoryExists = pluginRepositories.Exists(repo =>
-            repo.Url == oldRepos[0] ||
-            repo.Url == oldRepos[1] );
+            bool repositoryExists = pluginRepositories.Exists(repo =>
+                repo.Url == oldRepos[0] ||
+                repo.Url == oldRepos[1]);
 
-        if (repositoryExists)
-        {
-            foreach (var oldRepo in oldRepos)
+            if (repositoryExists)
             {
-                var old = pluginRepositories.Find(repo => repo.Url == oldRepo);
-                if (old != null)
+                foreach (var oldRepo in oldRepos)
                 {
-                    _logger.LogInformation("remove old repo url <{WebVersion}>", oldRepo);
-                    pluginRepositories.Remove(old);
+                    var old = pluginRepositories.Find(repo => repo.Url == oldRepo);
+                    if (old != null)
+                    {
+                        _logger.LogInformation("remove old repo url <{WebVersion}>", oldRepo);
+                        pluginRepositories.Remove(old);
+                    }
                 }
+
+                // Add the new repository to the list
+                pluginRepositories.Add(new RepositoryInfo
+                {
+                    Name = "intro skipper",
+                    Url = "https://manifest.intro-skipper.workers.dev/"
+                });
+
+                // Update the configuration with the new repository list
+                config.PluginRepositories = [.. pluginRepositories];
+
+                // Save the updated configuration
+                serverConfiguration.SaveConfiguration();
             }
-
-            // Add the new repository to the list
-            pluginRepositories.Add(new RepositoryInfo
-            {
-                Name = "intro skipper",
-                Url = "https://manifest.intro-skipper.workers.dev/"
-            });
-
-            // Update the configuration with the new repository list
-            config.PluginRepositories = [.. pluginRepositories];
-
-            // Save the updated configuration
-            serverConfiguration.SaveConfiguration();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error occurred while migrating repo URL");
         }
     }
 
