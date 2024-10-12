@@ -445,7 +445,7 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
                     // Add the new repository to the list
                     pluginRepositories.Add(new RepositoryInfo
                     {
-                        Name = "intro skipper",
+                        Name = "intro skipper (automatically migrated by plugin)",
                         Url = "https://manifest.intro-skipper.workers.dev/manifest.json",
                         Enabled = true,
                     });
