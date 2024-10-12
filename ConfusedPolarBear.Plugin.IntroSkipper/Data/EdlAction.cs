@@ -11,32 +11,22 @@ public enum EdlAction
     None = -1,
 
     /// <summary>
-    /// Completely remove the intro from playback as if it was never in the original video.
+    /// Completely remove the segment from playback as if it was never in the original video.
     /// </summary>
-    Cut,
+    Cut = 0,
 
     /// <summary>
     /// Mute audio, continue playback.
     /// </summary>
-    Mute,
+    Mute = 1,
 
     /// <summary>
     /// Inserts a new scene marker.
     /// </summary>
-    SceneMarker,
+    SceneMarker = 2,
 
     /// <summary>
-    /// Automatically skip the intro once during playback.
+    /// Automatically skip once during playback.
     /// </summary>
-    CommercialBreak,
-
-    /// <summary>
-    /// Show a skip button.
-    /// </summary>
-    Intro,
-
-    /// <summary>
-    /// Show a skip button.
-    /// </summary>
-    Credit,
+    CommercialBreak = 3
 }
