@@ -36,17 +36,17 @@ public class PluginConfiguration : BasePluginConfiguration
     /// <summary>
     /// Gets or sets the list of client to auto skip for.
     /// </summary>
-    public string ClientList { get; set; } = "Kodi";
+    public string ClientList { get; set; } = string.Empty;
 
     /// <summary>
     /// Gets or sets a value indicating whether to scan for intros during a scheduled task.
     /// </summary>
-    public bool AutoDetectIntros { get; set; }
+    public bool AutoDetectIntros { get; set; } = true;
 
     /// <summary>
     /// Gets or sets a value indicating whether to scan for credits during a scheduled task.
     /// </summary>
-    public bool AutoDetectCredits { get; set; }
+    public bool AutoDetectCredits { get; set; } = true;
 
     /// <summary>
     /// Gets or sets a value indicating whether to analyze season 0.
@@ -131,7 +131,7 @@ public class PluginConfiguration : BasePluginConfiguration
     /// <summary>
     /// Gets or sets a value indicating whether to show the skip intro button.
     /// </summary>
-    public bool SkipButtonVisible { get; set; } = true;
+    public bool SkipButtonVisible { get; set; } = false;
 
     /// <summary>
     /// Gets a value indicating whether to show the skip intro warning.
