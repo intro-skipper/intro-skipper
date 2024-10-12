@@ -44,7 +44,7 @@ namespace ConfusedPolarBear.Plugin.IntroSkipper.Services
         {
             var configuration = (PluginConfiguration)e;
             _clientList = [.. configuration.ClientList.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)];
-            var newState = configuration.AutoSkip || (configuration.SkipButtonVisible && _clientList.Count > 0);
+            var newState = configuration.AutoSkip || _clientList.Count > 0;
             _logger.LogDebug("Setting playback timer enabled to {NewState}", newState);
             _playbackTimer.Enabled = newState;
         }
@@ -104,7 +104,7 @@ namespace ConfusedPolarBear.Plugin.IntroSkipper.Services
 
         private void PlaybackTimer_Elapsed(object? sender, ElapsedEventArgs e)
         {
-            foreach (var session in _sessionManager.Sessions.Where(s => Plugin.Instance!.Configuration.AutoSkip || (Plugin.Instance!.Configuration.SkipButtonVisible && _clientList.Contains(s.Client, StringComparer.OrdinalIgnoreCase))))
+            foreach (var session in _sessionManager.Sessions.Where(s => Plugin.Instance!.Configuration.AutoSkip || _clientList.Contains(s.Client, StringComparer.OrdinalIgnoreCase)))
             {
                 var deviceId = session.DeviceId;
                 var itemId = session.NowPlayingItem.Id;
