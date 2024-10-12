@@ -439,9 +439,10 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
                     }
                 }
 
+                // Add repository only if it does not exit
                 if (!pluginRepositories.Exists(repo => repo.Url == "https://manifest.intro-skipper.workers.dev/manifest.json"))
                 {
-                     // Add the new repository to the list
+                    // Add the new repository to the list
                     pluginRepositories.Add(new RepositoryInfo
                     {
                         Name = "intro skipper",
