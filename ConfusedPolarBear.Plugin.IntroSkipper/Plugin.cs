@@ -16,6 +16,7 @@ using MediaBrowser.Controller.Persistence;
 using MediaBrowser.Model.Entities;
 using MediaBrowser.Model.Plugins;
 using MediaBrowser.Model.Serialization;
+using MediaBrowser.Model.Updates;
 using Microsoft.Extensions.Logging;
 
 namespace ConfusedPolarBear.Plugin.IntroSkipper;
@@ -84,6 +85,8 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
         // migrate from XMLSchema to DataContract
         XmlSerializationHelper.MigrateXML(_introPath);
         XmlSerializationHelper.MigrateXML(_creditsPath);
+
+        MigrateRepoUrl(serverConfiguration);
 
         // TODO: remove when https://github.com/jellyfin/jellyfin-meta/discussions/30 is complete
         try
@@ -403,6 +406,52 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
 
         SaveTimestamps(AnalysisMode.Introduction);
         SaveTimestamps(AnalysisMode.Credits);
+    }
+
+    private void MigrateRepoUrl(IServerConfigurationManager serverConfiguration)
+    {
+        try
+        {
+            List<string> oldRepos =
+            [
+            "https://raw.githubusercontent.com/intro-skipper/intro-skipper/master/manifest.json",
+            "https://raw.githubusercontent.com/jumoog/intro-skipper/master/manifest.json"
+            ];
+            // Access the current server configuration
+            var config = serverConfiguration.Configuration;
+
+            // Get the list of current plugin repositories
+            var pluginRepositories = config.PluginRepositories?.ToList() ?? [];
+
+            // check if old plugins exits
+            if (pluginRepositories.Exists(repo => repo != null && repo.Url != null && oldRepos.Contains(repo.Url)))
+            {
+                // remove all old plugins
+                pluginRepositories.RemoveAll(repo => repo != null && repo.Url != null && oldRepos.Contains(repo.Url));
+
+                // Add repository only if it does not exit
+                if (!pluginRepositories.Exists(repo => repo.Url == "https://manifest.intro-skipper.workers.dev/manifest.json"))
+                {
+                    // Add the new repository to the list
+                    pluginRepositories.Add(new RepositoryInfo
+                    {
+                        Name = "intro skipper (automatically migrated by plugin)",
+                        Url = "https://manifest.intro-skipper.workers.dev/manifest.json",
+                        Enabled = true,
+                    });
+                }
+
+                // Update the configuration with the new repository list
+                config.PluginRepositories = [.. pluginRepositories];
+
+                // Save the updated configuration
+                serverConfiguration.SaveConfiguration();
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error occurred while migrating repo URL");
+        }
     }
 
     /// <summary>
