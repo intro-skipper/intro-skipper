@@ -439,7 +439,7 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
                     }
                 }
 
-                if (pluginRepositories.Exists(repo => repo.Url == "https://manifest.intro-skipper.workers.dev"))
+                if (!pluginRepositories.Exists(repo => repo.Url == "https://manifest.intro-skipper.workers.dev"))
                 {
                     // Add the new repository to the list
                     pluginRepositories.Add(new RepositoryInfo
