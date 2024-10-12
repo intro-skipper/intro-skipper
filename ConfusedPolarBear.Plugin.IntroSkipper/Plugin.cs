@@ -16,6 +16,7 @@ using MediaBrowser.Controller.Persistence;
 using MediaBrowser.Model.Entities;
 using MediaBrowser.Model.Plugins;
 using MediaBrowser.Model.Serialization;
+using MediaBrowser.Model.Updates;
 using Microsoft.Extensions.Logging;
 
 namespace ConfusedPolarBear.Plugin.IntroSkipper;
@@ -84,6 +85,39 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
         // migrate from XMLSchema to DataContract
         XmlSerializationHelper.MigrateXML(_introPath);
         XmlSerializationHelper.MigrateXML(_creditsPath);
+
+        MigrateRepoUrl(serverConfiguration);
+
+        // Access the current server configuration
+        var config = serverConfiguration.Configuration;
+
+        // Get the list of current plugin repositories
+        var pluginRepositories = config.PluginRepositories?.ToList() ?? [];
+
+        // Check if the new repository already exists
+        bool repositoryExists = pluginRepositories.Exists(repo => repo.Url == "https://raw.githubusercontent.com/intro-skipper/intro-skipper/master/manifest.json");
+
+        if (repositoryExists)
+        {
+            _logger.LogInformation("found old intro-skipper manifest... starting migration");
+            var old = pluginRepositories.Find(repo => repo.Url == "https://raw.githubusercontent.com/intro-skipper/intro-skipper/master/manifest.json");
+            if (old != null)
+            {
+                pluginRepositories.Remove(old);
+                // Add the new repository to the list
+                pluginRepositories.Add(new RepositoryInfo
+                {
+                    Name = "intro skipper",
+                    Url = "https://manifest.intro-skipper.workers.dev/"
+                });
+
+                // Update the configuration with the new repository list
+                config.PluginRepositories = [.. pluginRepositories];
+
+                // Save the updated configuration
+                serverConfiguration.SaveConfiguration();
+            }
+        }
 
         // TODO: remove when https://github.com/jellyfin/jellyfin-meta/discussions/30 is complete
         try
@@ -403,6 +437,50 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
 
         SaveTimestamps(AnalysisMode.Introduction);
         SaveTimestamps(AnalysisMode.Credits);
+    }
+
+    private void MigrateRepoUrl(IServerConfigurationManager serverConfiguration)
+    {
+        List<string> oldRepos =
+        [
+            "https://raw.githubusercontent.com/intro-skipper/intro-skipper/master/manifest.json",
+            "https://raw.githubusercontent.com/intro-skipper/jumoog/master/manifest.json"
+        ];
+        // Access the current server configuration
+        var config = serverConfiguration.Configuration;
+
+        // Get the list of current plugin repositories
+        var pluginRepositories = config.PluginRepositories?.ToList() ?? [];
+
+        bool repositoryExists = pluginRepositories.Exists(repo =>
+            repo.Url == oldRepos[0] ||
+            repo.Url == oldRepos[1] );
+
+        if (repositoryExists)
+        {
+            foreach (var oldRepo in oldRepos)
+            {
+                var old = pluginRepositories.Find(repo => repo.Url == oldRepo);
+                if (old != null)
+                {
+                    _logger.LogInformation("remove old repo url <{WebVersion}>", oldRepo);
+                    pluginRepositories.Remove(old);
+                }
+            }
+
+            // Add the new repository to the list
+            pluginRepositories.Add(new RepositoryInfo
+            {
+                Name = "intro skipper",
+                Url = "https://manifest.intro-skipper.workers.dev/"
+            });
+
+            // Update the configuration with the new repository list
+            config.PluginRepositories = [.. pluginRepositories];
+
+            // Save the updated configuration
+            serverConfiguration.SaveConfiguration();
+        }
     }
 
     /// <summary>
