@@ -97,14 +97,7 @@ public static class EdlManager
                     edlContent += Environment.NewLine;
                 }
 
-                if (action == EdlAction.Intro)
-                {
-                    edlContent += credit?.ToEdl(EdlAction.Credit);
-                }
-                else
-                {
-                    edlContent += credit?.ToEdl(action);
-                }
+                edlContent += credit?.ToEdl(action);
             }
 
             File.WriteAllText(edlPath, edlContent);
