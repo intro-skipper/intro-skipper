@@ -423,21 +423,11 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
             // Get the list of current plugin repositories
             var pluginRepositories = config.PluginRepositories?.ToList() ?? [];
 
-            bool repositoryExists = pluginRepositories.Exists(repo =>
-                repo.Url == oldRepos[0] ||
-                repo.Url == oldRepos[1]);
-
-            if (repositoryExists)
+            // check if old plugins exits
+            if (pluginRepositories.Exists(repo => repo != null && repo.Url != null && oldRepos.Contains(repo.Url)))
             {
-                foreach (var oldRepo in oldRepos)
-                {
-                    var old = pluginRepositories.Find(repo => repo.Url == oldRepo);
-                    if (old != null)
-                    {
-                        _logger.LogInformation("remove old repo url <{WebVersion}>", oldRepo);
-                        pluginRepositories.Remove(old);
-                    }
-                }
+                // remove all old plugins
+                pluginRepositories.RemoveAll(repo => repo != null && repo.Url != null && oldRepos.Contains(repo.Url));
 
                 // Add repository only if it does not exit
                 if (!pluginRepositories.Exists(repo => repo.Url == "https://manifest.intro-skipper.workers.dev/manifest.json"))
