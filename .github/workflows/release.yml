@@ -66,6 +66,7 @@ jobs:
           task-type: "updateManifest"
         env:
           GITHUB_REPO_VISIBILITY: ${{ github.event.repository.visibility }}
+          MAIN_VERSION: "10.9"
 
       - name: Commit changes
         if: success()
