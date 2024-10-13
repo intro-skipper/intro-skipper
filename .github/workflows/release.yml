@@ -68,6 +68,13 @@ jobs:
           GITHUB_REPO_VISIBILITY: ${{ github.event.repository.visibility }}
           MAIN_VERSION: "10.9"
 
+      - name: Deploy to Cloudflare KV
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          command: kv key put --namespace-id=${{ github.repository == 'intro-skipper/intro-skipper-test' && '49c07e5b68074443b940de893d58a997' || '61215c51799a4de59f0a33a8b7aecb0e' }} "10.9" --path=manifest.json
+
       - name: Commit changes
         if: success()
         run: |
