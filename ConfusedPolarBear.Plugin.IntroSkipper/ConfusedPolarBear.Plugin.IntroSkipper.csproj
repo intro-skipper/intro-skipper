@@ -11,10 +11,8 @@
     <CodeAnalysisRuleSet>../jellyfin.ruleset</CodeAnalysisRuleSet>
   </PropertyGroup>
   <ItemGroup>
-    <ProjectReference Include="../../jellyfin/Jellyfin.Data/Jellyfin.Data.csproj" />
-    <ProjectReference Include="../../jellyfin/MediaBrowser.Model/MediaBrowser.Model.csproj" />
-    <ProjectReference Include="../../jellyfin/MediaBrowser.Controller/MediaBrowser.Controller.csproj" />
-    <ProjectReference Include="../../jellyfin/MediaBrowser.Common/MediaBrowser.Common.csproj" />
+    <PackageReference Include="Jellyfin.Controller" Version="10.10.*-*" />
+    <PackageReference Include="Jellyfin.Model" Version="10.10.*-*" />
     <PackageReference Include="SerilogAnalyzer" Version="0.15.0" PrivateAssets="All" />
     <PackageReference Include="SmartAnalyzers.MultithreadingAnalyzer" Version="1.1.31" PrivateAssets="All" />
     <PackageReference Include="StyleCop.Analyzers.Unstable" Version="1.2.0.556" PrivateAssets="All" />
