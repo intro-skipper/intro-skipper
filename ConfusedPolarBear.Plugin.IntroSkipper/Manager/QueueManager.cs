@@ -235,11 +235,6 @@ namespace ConfusedPolarBear.Plugin.IntroSkipper.Manager
                 return;
             }
 
-            _logger.LogInformation(
-                    "Queuing movie \"{Name}\" ({Id})",
-                    movie.Name,
-                    movie.Id);
-
             // Allocate a new list for each Movie
             _queuedEpisodes.TryAdd(movie.Id, []);
 
