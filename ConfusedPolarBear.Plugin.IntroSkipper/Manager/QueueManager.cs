@@ -144,11 +144,11 @@ namespace ConfusedPolarBear.Plugin.IntroSkipper.Manager
             {
                 if (item is Episode episode)
                 {
-                    QueueMedia(episode);
+                    QueueEpisode(episode);
                 }
                 else if (item is Movie movie)
                 {
-                    QueueMedia(movie);
+                    QueueMovie(movie);
                 }
                 else
                 {
@@ -159,63 +159,105 @@ namespace ConfusedPolarBear.Plugin.IntroSkipper.Manager
             _logger.LogDebug("Queued {Count} episodes", items.Count);
         }
 
-        private void QueueMedia<T>(T media)
-            where T : BaseItem
+        private void QueueEpisode(Episode episode)
         {
             var pluginInstance = Plugin.Instance ?? throw new InvalidOperationException("Plugin instance was null");
 
-            if (string.IsNullOrEmpty(media.Path))
+            if (string.IsNullOrEmpty(episode.Path))
             {
                 _logger.LogWarning(
-                    "Not queuing {MediaType} \"{Name}\" ({Id}) as no path was provided by Jellyfin",
-                    typeof(T).Name,
-                    media.Name,
-                    media.Id);
+                    "Not queuing episode \"{Name}\" from series \"{Series}\" ({Id}) as no path was provided by Jellyfin",
+                    episode.Name,
+                    episode.SeriesName,
+                    episode.Id);
                 return;
             }
 
-            var (seasonId, seriesName, seasonNumber, seriesId, isAnime) = media switch
-            {
-                Episode e => (GetSeasonId(e), e.SeriesName, e.AiredSeasonNumber ?? 0, e.SeriesId, GetIsAnime(e)),
-                Movie m => (m.Id, m.Name, 0, m.Id, false),
-                _ => throw new ArgumentException($"Unsupported media type: {media.GetType().Name}")
-            };
-
+            // Allocate a new list for each new season
+            var seasonId = GetSeasonId(episode);
             if (!_queuedEpisodes.TryGetValue(seasonId, out var seasonEpisodes))
             {
                 seasonEpisodes = [];
                 _queuedEpisodes[seasonId] = seasonEpisodes;
             }
 
-            if (media is Episode && seasonEpisodes.Any(e => e.EpisodeId == media.Id))
+            if (seasonEpisodes.Any(e => e.EpisodeId == episode.Id))
             {
                 _logger.LogDebug(
-                    "\"{Name}\" ({Id}) is already queued",
-                    media.Name,
-                    media.Id);
+                    "\"{Name}\" from series \"{Series}\" ({Id}) is already queued",
+                    episode.Name,
+                    episode.SeriesName,
+                    episode.Id);
                 return;
             }
 
-            var duration = TimeSpan.FromTicks(media.RunTimeTicks ?? 0).TotalSeconds;
+            var isAnime = seasonEpisodes.FirstOrDefault()?.IsAnime ??
+                (pluginInstance.GetItem(episode.SeriesId) is Series series &&
+                    (series.Tags.Contains("anime", StringComparison.OrdinalIgnoreCase) ||
+                    series.Genres.Contains("anime", StringComparison.OrdinalIgnoreCase)));
+
+            // Limit analysis to the first X% of the episode and at most Y minutes.
+            // X and Y default to 25% and 10 minutes.
+            var duration = TimeSpan.FromTicks(episode.RunTimeTicks ?? 0).TotalSeconds;
             var fingerprintDuration = Math.Min(
                 duration >= 5 * 60 ? duration * _analysisPercent : duration,
                 60 * pluginInstance.Configuration.AnalysisLengthLimit);
 
+            // Queue the episode for analysis
             var maxCreditsDuration = pluginInstance.Configuration.MaximumCreditsDuration;
-
             seasonEpisodes.Add(new QueuedEpisode
             {
-                SeriesName = seriesName,
-                SeasonNumber = seasonNumber,
-                SeriesId = seriesId,
-                EpisodeId = media.Id,
-                Name = media.Name,
+                SeriesName = episode.SeriesName,
+                SeasonNumber = episode.AiredSeasonNumber ?? 0,
+                SeriesId = episode.SeriesId,
+                EpisodeId = episode.Id,
+                Name = episode.Name,
                 IsAnime = isAnime,
-                Path = media.Path,
+                Path = episode.Path,
                 Duration = Convert.ToInt32(duration),
                 IntroFingerprintEnd = Convert.ToInt32(fingerprintDuration),
                 CreditsFingerprintStart = Convert.ToInt32(duration - maxCreditsDuration),
-                IsMovie = media is Movie
+            });
+
+            pluginInstance.TotalQueued++;
+        }
+
+        private void QueueMovie(Movie movie)
+        {
+            var pluginInstance = Plugin.Instance ?? throw new InvalidOperationException("Plugin instance was null");
+
+            if (string.IsNullOrEmpty(movie.Path))
+            {
+                _logger.LogWarning(
+                    "Not queuing movie \"{Name}\" ({Id}) as no path was provided by Jellyfin",
+                    movie.Name,
+                    movie.Id);
+                return;
+            }
+
+            // Allocate a new list for each Movie
+            _queuedEpisodes.TryAdd(movie.Id, []);
+
+            // Limit analysis to the first X% of the episode and at most Y minutes.
+            // X and Y default to 25% and 10 minutes.
+            var duration = TimeSpan.FromTicks(movie.RunTimeTicks ?? 0).TotalSeconds;
+            var fingerprintDuration = Math.Min(
+                duration >= 5 * 60 ? duration * _analysisPercent : duration,
+                60 * pluginInstance.Configuration.AnalysisLengthLimit);
+
+            // Queue the episode for analysis
+            var maxCreditsDuration = pluginInstance.Configuration.MaximumCreditsDuration;
+            _queuedEpisodes[movie.Id].Add(new QueuedEpisode
+            {
+                SeriesName = movie.Name,
+                SeriesId = movie.Id,
+                EpisodeId = movie.Id,
+                Name = movie.Name,
+                Path = movie.Path,
+                Duration = Convert.ToInt32(duration),
+                IntroFingerprintEnd = Convert.ToInt32(fingerprintDuration),
+                CreditsFingerprintStart = Convert.ToInt32(duration - maxCreditsDuration),
+                IsMovie = true
             });
 
             pluginInstance.TotalQueued++;
@@ -237,13 +279,6 @@ namespace ConfusedPolarBear.Plugin.IntroSkipper.Manager
             }
 
             return episode.SeasonId;
-        }
-
-        private static bool GetIsAnime(Episode episode)
-        {
-            return Plugin.Instance?.GetItem(episode.SeriesId) is Series series && (
-                series.Tags.Contains("anime", StringComparison.OrdinalIgnoreCase) ||
-                series.Genres.Contains("anime", StringComparison.OrdinalIgnoreCase));
         }
 
         /// <summary>
