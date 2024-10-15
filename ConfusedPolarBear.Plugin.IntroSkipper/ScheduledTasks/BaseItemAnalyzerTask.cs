@@ -211,7 +211,7 @@ public class BaseItemAnalyzerTask
             new ChapterAnalyzer(_loggerFactory.CreateLogger<ChapterAnalyzer>())
         };
 
-        if (first.IsAnime && Plugin.Instance!.Configuration.WithChromaprint)
+        if (first.IsAnime && Plugin.Instance!.Configuration.WithChromaprint && !first.IsMovie)
         {
             analyzers.Add(new ChromaprintAnalyzer(_loggerFactory.CreateLogger<ChromaprintAnalyzer>()));
         }
@@ -221,7 +221,7 @@ public class BaseItemAnalyzerTask
             analyzers.Add(new BlackFrameAnalyzer(_loggerFactory.CreateLogger<BlackFrameAnalyzer>()));
         }
 
-        if (!first.IsAnime && Plugin.Instance!.Configuration.WithChromaprint)
+        if (!first.IsAnime && Plugin.Instance!.Configuration.WithChromaprint && !first.IsMovie)
         {
             analyzers.Add(new ChromaprintAnalyzer(_loggerFactory.CreateLogger<ChromaprintAnalyzer>()));
         }

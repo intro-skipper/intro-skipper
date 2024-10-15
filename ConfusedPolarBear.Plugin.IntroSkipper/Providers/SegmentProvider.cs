@@ -60,6 +60,6 @@ namespace ConfusedPolarBear.Plugin.IntroSkipper.Providers
         }
 
         /// <inheritdoc/>
-        public ValueTask<bool> Supports(BaseItem item) => ValueTask.FromResult(item is Episode);
+        public ValueTask<bool> Supports(BaseItem item) => ValueTask.FromResult(item is IHasMediaSources);
     }
 }

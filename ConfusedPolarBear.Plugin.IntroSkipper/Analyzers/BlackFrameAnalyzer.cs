@@ -66,7 +66,17 @@ public class BlackFrameAnalyzer : IMediaFileAnalyzer
                 break;
             }
 
-            // Pre-check to find reasonable starting point.
+            var chapters = Plugin.Instance!.GetChapters(episode.EpisodeId);
+            if (chapters.Count > 0)
+            {
+                var last = chapters[chapters.Count - 1].StartPositionTicks;
+                if (searchStart <= _maximumCreditsDuration)
+                {
+                    searchStart = last;
+                    isFirstEpisode = false;
+                }
+            }
+
             if (isFirstEpisode)
             {
                 var scanTime = episode.Duration - searchStart;

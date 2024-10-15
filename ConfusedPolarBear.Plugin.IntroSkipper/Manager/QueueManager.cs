@@ -6,6 +6,7 @@ using ConfusedPolarBear.Plugin.IntroSkipper.Data;
 using Jellyfin.Data.Enums;
 using Jellyfin.Extensions;
 using MediaBrowser.Controller.Entities;
+using MediaBrowser.Controller.Entities.Movies;
 using MediaBrowser.Controller.Entities.TV;
 using MediaBrowser.Controller.Library;
 using Microsoft.Extensions.Logging;
@@ -141,13 +142,18 @@ public class QueueManager(ILogger<QueueManager> logger, ILibraryManager libraryM
 
         foreach (var item in items)
         {
-            if (item is not Episode episode)
+            if (item is Episode episode)
             {
-                _logger.LogDebug("Item {Name} is not an episode", item.Name);
-                continue;
+                QueueEpisode(episode);
             }
-
-            QueueEpisode(episode);
+            else if (item is Movie movie)
+            {
+                QueueMovie(movie);
+            }
+            else
+            {
+                logger.LogDebug("Item {Name} is not an episode or movie", item.Name);
+            }
         }
 
         _logger.LogDebug("Queued {Count} episodes", items.Count);
@@ -211,6 +217,46 @@ public class QueueManager(ILogger<QueueManager> logger, ILibraryManager libraryM
             Duration = Convert.ToInt32(duration),
             IntroFingerprintEnd = Convert.ToInt32(fingerprintDuration),
             CreditsFingerprintStart = Convert.ToInt32(duration - maxCreditsDuration),
+        });
+
+        pluginInstance.TotalQueued++;
+    }
+
+    private void QueueMovie(Movie movie)
+    {
+        var pluginInstance = Plugin.Instance ?? throw new InvalidOperationException("Plugin instance was null");
+
+        if (string.IsNullOrEmpty(movie.Path))
+        {
+            _logger.LogWarning(
+                "Not queuing movie \"{Name}\" ({Id}) as no path was provided by Jellyfin",
+                movie.Name,
+                movie.Id);
+            return;
+        }
+
+        // Allocate a new list for each Movie
+        _queuedEpisodes.TryAdd(movie.Id, []);
+
+        // Limit analysis to the first X% of the episode and at most Y minutes.
+        // X and Y default to 25% and 10 minutes.
+        var duration = TimeSpan.FromTicks(movie.RunTimeTicks ?? 0).TotalSeconds;
+        var fingerprintDuration = Math.Min(
+            duration >= 5 * 60 ? duration * _analysisPercent : duration,
+            60 * pluginInstance.Configuration.AnalysisLengthLimit);
+
+        // Queue the episode for analysis
+        var maxCreditsDuration = pluginInstance.Configuration.MaximumCreditsDuration;
+        _queuedEpisodes[movie.Id].Add(new QueuedEpisode
+        {
+            SeriesName = movie.Name,
+            EpisodeId = movie.Id,
+            Name = movie.Name,
+            Path = movie.Path,
+            Duration = Convert.ToInt32(duration),
+            IntroFingerprintEnd = Convert.ToInt32(fingerprintDuration),
+            CreditsFingerprintStart = Convert.ToInt32(duration - maxCreditsDuration),
+            IsMovie = true
         });
 
         pluginInstance.TotalQueued++;
