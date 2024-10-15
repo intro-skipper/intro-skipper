@@ -1,5 +1,6 @@
 using System;
 using ConfusedPolarBear.Plugin.IntroSkipper.Data;
+using ConfusedPolarBear.Plugin.IntroSkipper.Manager;
 using Xunit;
 
 namespace ConfusedPolarBear.Plugin.IntroSkipper.Tests;
