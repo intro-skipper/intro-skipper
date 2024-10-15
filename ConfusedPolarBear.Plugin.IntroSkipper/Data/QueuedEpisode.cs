@@ -48,7 +48,7 @@ public class QueuedEpisode
     public bool IsAnime { get; set; }
 
     /// <summary>
-    /// Gets or sets a value indicating whether an episode is Anime.
+    /// Gets or sets a value indicating whether an item is a movie.
     /// </summary>
     public bool IsMovie { get; set; }
 

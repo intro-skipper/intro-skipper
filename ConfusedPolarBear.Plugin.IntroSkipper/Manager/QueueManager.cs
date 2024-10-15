@@ -124,7 +124,7 @@ namespace ConfusedPolarBear.Plugin.IntroSkipper.Manager
                 // Order by series name, season, and then episode number so that status updates are logged in order
                 ParentId = id,
                 OrderBy = [(ItemSortBy.SeriesSortName, SortOrder.Ascending), (ItemSortBy.ParentIndexNumber, SortOrder.Descending), (ItemSortBy.IndexNumber, SortOrder.Ascending),],
-                IncludeItemTypes = [BaseItemKind.Episode],
+                IncludeItemTypes = [BaseItemKind.Episode, BaseItemKind.Movie],
                 Recursive = true,
                 IsVirtualItem = false
             };
@@ -234,6 +234,11 @@ namespace ConfusedPolarBear.Plugin.IntroSkipper.Manager
                     movie.Id);
                 return;
             }
+
+            _logger.LogInformation(
+                    "Queuing movie \"{Name}\" ({Id})",
+                    movie.Name,
+                    movie.Id);
 
             // Allocate a new list for each Movie
             _queuedEpisodes.TryAdd(movie.Id, []);

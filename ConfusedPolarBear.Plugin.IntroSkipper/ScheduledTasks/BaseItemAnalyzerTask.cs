@@ -189,7 +189,7 @@ public class BaseItemAnalyzerTask
 
         // Only analyze specials (season 0) if the user has opted in.
         var first = items[0];
-        if (first.SeasonNumber == 0 && !Plugin.Instance!.Configuration.AnalyzeSeasonZero)
+        if (!first.IsMovie && first.SeasonNumber == 0 && !Plugin.Instance!.Configuration.AnalyzeSeasonZero)
         {
             return 0;
         }

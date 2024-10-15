@@ -70,7 +70,7 @@ public class BlackFrameAnalyzer : IMediaFileAnalyzer
             if (chapters.Count > 0)
             {
                 var last = chapters[chapters.Count - 1].StartPositionTicks;
-                if (searchStart <= _maximumCreditsDuration)
+                if (last <= _maximumCreditsDuration)
                 {
                     searchStart = last;
                     isFirstEpisode = false;
