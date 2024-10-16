@@ -6,6 +6,8 @@ using System.Linq;
 using System.Text.RegularExpressions;
 using ConfusedPolarBear.Plugin.IntroSkipper.Configuration;
 using ConfusedPolarBear.Plugin.IntroSkipper.Data;
+using ConfusedPolarBear.Plugin.IntroSkipper.Helper;
+using Jellyfin.Data.Enums;
 using MediaBrowser.Common;
 using MediaBrowser.Common.Configuration;
 using MediaBrowser.Common.Plugins;
@@ -16,6 +18,7 @@ using MediaBrowser.Controller.Persistence;
 using MediaBrowser.Model.Entities;
 using MediaBrowser.Model.Plugins;
 using MediaBrowser.Model.Serialization;
+using MediaBrowser.Model.Updates;
 using Microsoft.Extensions.Logging;
 
 namespace ConfusedPolarBear.Plugin.IntroSkipper;
@@ -84,6 +87,8 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
         // migrate from XMLSchema to DataContract
         XmlSerializationHelper.MigrateXML(_introPath);
         XmlSerializationHelper.MigrateXML(_creditsPath);
+
+        MigrateRepoUrl(serverConfiguration);
 
         // TODO: remove when https://github.com/jellyfin/jellyfin-meta/discussions/30 is complete
         try
@@ -179,16 +184,16 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
     /// Save timestamps to disk.
     /// </summary>
     /// <param name="mode">Mode.</param>
-    public void SaveTimestamps(AnalysisMode mode)
+    public void SaveTimestamps(MediaSegmentType mode)
     {
         List<Segment> introList = [];
-        var filePath = mode == AnalysisMode.Introduction
+        var filePath = mode == MediaSegmentType.Intro
                         ? _introPath
                         : _creditsPath;
 
         lock (_introsLock)
         {
-            introList.AddRange(mode == AnalysisMode.Introduction
+            introList.AddRange(mode == MediaSegmentType.Intro
                             ? Instance!.Intros.Values
                             : Instance!.Credits.Values);
         }
@@ -232,7 +237,7 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
     /// <param name="id">Item id.</param>
     /// <param name="mode">Mode.</param>
     /// <returns>True if ignored, false otherwise.</returns>
-    public bool IsIgnored(Guid id, AnalysisMode mode)
+    public bool IsIgnored(Guid id, MediaSegmentType mode)
     {
         return Instance!.IgnoreList.TryGetValue(id, out var item) && item.IsIgnored(mode);
     }
@@ -309,9 +314,9 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
     /// <param name="id">Item id.</param>
     /// <param name="mode">Mode.</param>
     /// <returns>Intro.</returns>
-    internal static Segment GetIntroByMode(Guid id, AnalysisMode mode)
+    internal static Segment GetIntroByMode(Guid id, MediaSegmentType mode)
     {
-        return mode == AnalysisMode.Introduction
+        return mode == MediaSegmentType.Intro
             ? Instance!.Intros[id]
             : Instance!.Credits[id];
     }
@@ -370,15 +375,15 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
     /// <returns>State of this item.</returns>
     internal EpisodeState GetState(Guid id) => EpisodeStates.GetOrAdd(id, _ => new EpisodeState());
 
-    internal void UpdateTimestamps(IReadOnlyDictionary<Guid, Segment> newTimestamps, AnalysisMode mode)
+    internal void UpdateTimestamps(IReadOnlyDictionary<Guid, Segment> newTimestamps, MediaSegmentType mode)
     {
         foreach (var intro in newTimestamps)
         {
-            if (mode == AnalysisMode.Introduction)
+            if (mode == MediaSegmentType.Intro)
             {
                 Instance!.Intros.AddOrUpdate(intro.Key, intro.Value, (key, oldValue) => intro.Value);
             }
-            else if (mode == AnalysisMode.Credits)
+            else if (mode == MediaSegmentType.Outro)
             {
                 Instance!.Credits.AddOrUpdate(intro.Key, intro.Value, (key, oldValue) => intro.Value);
             }
@@ -401,8 +406,54 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
             }
         }
 
-        SaveTimestamps(AnalysisMode.Introduction);
-        SaveTimestamps(AnalysisMode.Credits);
+        SaveTimestamps(MediaSegmentType.Intro);
+        SaveTimestamps(MediaSegmentType.Outro);
+    }
+
+    private void MigrateRepoUrl(IServerConfigurationManager serverConfiguration)
+    {
+        try
+        {
+            List<string> oldRepos =
+            [
+            "https://raw.githubusercontent.com/intro-skipper/intro-skipper/master/manifest.json",
+            "https://raw.githubusercontent.com/jumoog/intro-skipper/master/manifest.json"
+            ];
+            // Access the current server configuration
+            var config = serverConfiguration.Configuration;
+
+            // Get the list of current plugin repositories
+            var pluginRepositories = config.PluginRepositories?.ToList() ?? [];
+
+            // check if old plugins exits
+            if (pluginRepositories.Exists(repo => repo != null && repo.Url != null && oldRepos.Contains(repo.Url)))
+            {
+                // remove all old plugins
+                pluginRepositories.RemoveAll(repo => repo != null && repo.Url != null && oldRepos.Contains(repo.Url));
+
+                // Add repository only if it does not exit
+                if (!pluginRepositories.Exists(repo => repo.Url == "https://manifest.intro-skipper.workers.dev/manifest.json"))
+                {
+                    // Add the new repository to the list
+                    pluginRepositories.Add(new RepositoryInfo
+                    {
+                        Name = "intro skipper (automatically migrated by plugin)",
+                        Url = "https://manifest.intro-skipper.workers.dev/manifest.json",
+                        Enabled = true,
+                    });
+                }
+
+                // Update the configuration with the new repository list
+                config.PluginRepositories = [.. pluginRepositories];
+
+                // Save the updated configuration
+                serverConfiguration.SaveConfiguration();
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error occurred while migrating repo URL");
+        }
     }
 
     /// <summary>

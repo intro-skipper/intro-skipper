@@ -23,8 +23,4 @@
     <EmbeddedResource Include="Configuration\visualizer.js" />
     <EmbeddedResource Include="Configuration\inject.js" />
   </ItemGroup>
-  <ItemGroup>
-    <Folder Include="Manager\" />
-    <Folder Include="Services\" />
-  </ItemGroup>
 </Project>

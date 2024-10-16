@@ -1,5 +1,6 @@
 using System;
 using System.Runtime.Serialization;
+using Jellyfin.Data.Enums;
 
 namespace ConfusedPolarBear.Plugin.IntroSkipper.Data;
 
@@ -59,14 +60,14 @@ public class IgnoreListItem
     /// </summary>
     /// <param name="mode">Analysis mode.</param>
     /// <param name="value">Value to set.</param>
-    public void Toggle(AnalysisMode mode, bool value)
+    public void Toggle(MediaSegmentType mode, bool value)
     {
         switch (mode)
         {
-            case AnalysisMode.Introduction:
+            case MediaSegmentType.Intro:
                 IgnoreIntro = value;
                 break;
-            case AnalysisMode.Credits:
+            case MediaSegmentType.Outro:
                 IgnoreCredits = value;
                 break;
         }
@@ -77,12 +78,12 @@ public class IgnoreListItem
     /// </summary>
     /// <param name="mode">Analysis mode.</param>
     /// <returns>True if ignored, false otherwise.</returns>
-    public bool IsIgnored(AnalysisMode mode)
+    public bool IsIgnored(MediaSegmentType mode)
     {
         return mode switch
         {
-            AnalysisMode.Introduction => IgnoreIntro,
-            AnalysisMode.Credits => IgnoreCredits,
+            MediaSegmentType.Intro => IgnoreIntro,
+            MediaSegmentType.Outro => IgnoreCredits,
             _ => false,
         };
     }
