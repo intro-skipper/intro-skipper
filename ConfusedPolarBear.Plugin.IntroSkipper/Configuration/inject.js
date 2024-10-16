@@ -186,8 +186,8 @@ const introSkipper = {
                 <span class="material-icons skip_next"></span>
             </button>
         `;
-        this.skipButton.dataset.Intro = config.SkipButtonIntroText;
-        this.skipButton.dataset.Outro = config.SkipButtonEndCreditsText;
+        this.skipButton.dataset.Introduction = config.SkipButtonIntroText;
+        this.skipButton.dataset.Credits = config.SkipButtonEndCreditsText;
         const controls = document.querySelector("div#videoOsdPage");
         controls.appendChild(this.skipButton);
     },
@@ -270,7 +270,7 @@ const introSkipper = {
             }, 500);
         };
         this.videoPlayer.addEventListener('seeked', seekedHandler);
-        this.videoPlayer.currentTime = segment.SegmentType === "Outro" && this.videoPlayer.duration - segment.IntroEnd < 3
+        this.videoPlayer.currentTime = segment.SegmentType === "Credits" && this.videoPlayer.duration - segment.IntroEnd < 3
             ? this.videoPlayer.duration + 10
             : segment.IntroEnd;
     },
@@ -391,11 +391,11 @@ const introSkipper = {
         this.setTimeInputs(skipperFields);
     },
     updateSkipperFields(skipperFields) {
-        const { Intro = {}, Outro = {} } = this.skipperData;
-        skipperFields.querySelector('#introStartEdit').value = Intro.Start || 0;
-        skipperFields.querySelector('#introEndEdit').value = Intro.End || 0;
-        skipperFields.querySelector('#creditsStartEdit').value = Outro.Start || 0;
-        skipperFields.querySelector('#creditsEndEdit').value = Outro.End || 0;
+        const { Introduction = {}, Credits = {} } = this.skipperData;
+        skipperFields.querySelector('#introStartEdit').value = Introduction.Start || 0;
+        skipperFields.querySelector('#introEndEdit').value = Introduction.End || 0;
+        skipperFields.querySelector('#creditsStartEdit').value = Credits.Start || 0;
+        skipperFields.querySelector('#creditsEndEdit').value = Credits.End || 0;
     },
     attachSaveListener(metadataFormFields) {
         const saveButton = metadataFormFields.querySelector('.formDialogFooter .btnSave');
@@ -441,20 +441,20 @@ const introSkipper = {
     },
     async saveSkipperData() {
         const newTimestamps = {
-            Intro: {
+            Introduction: {
                 Start: parseFloat(document.getElementById('introStartEdit').value || 0),
                 End: parseFloat(document.getElementById('introEndEdit').value || 0)
             },
-            Outro: {
+            Credits: {
                 Start: parseFloat(document.getElementById('creditsStartEdit').value || 0),
                 End: parseFloat(document.getElementById('creditsEndEdit').value || 0)
             }
         };
-        const { Intro = {}, Outro = {} } = this.skipperData;
-        if (newTimestamps.Intro.Start !== (Intro.Start || 0) ||
-            newTimestamps.Intro.End !== (Intro.End || 0) ||
-            newTimestamps.Outro.Start !== (Outro.Start || 0) ||
-            newTimestamps.Outro.End !== (Outro.End || 0)) {
+        const { Introduction = {}, Credits = {} } = this.skipperData;
+        if (newTimestamps.Introduction.Start !== (Introduction.Start || 0) ||
+            newTimestamps.Introduction.End !== (Introduction.End || 0) ||
+            newTimestamps.Credits.Start !== (Credits.Start || 0) ||
+            newTimestamps.Credits.End !== (Credits.End || 0)) {
             const response = await this.secureFetch(`Episode/${this.currentEpisodeId}/Timestamps`, "POST", JSON.stringify(newTimestamps));
             this.d(response.ok ? 'Timestamps updated successfully' : 'Failed to update timestamps:', response.status);
         } else {

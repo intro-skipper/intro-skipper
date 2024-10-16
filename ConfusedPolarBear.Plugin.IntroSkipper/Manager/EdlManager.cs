@@ -4,114 +4,113 @@ using System.IO;
 using ConfusedPolarBear.Plugin.IntroSkipper.Data;
 using Microsoft.Extensions.Logging;
 
-namespace ConfusedPolarBear.Plugin.IntroSkipper.Manager
+namespace ConfusedPolarBear.Plugin.IntroSkipper;
+
+/// <summary>
+/// Update EDL files associated with a list of episodes.
+/// </summary>
+public static class EdlManager
 {
+    private static ILogger? _logger;
+
     /// <summary>
-    /// Update EDL files associated with a list of episodes.
+    /// Initialize EDLManager with a logger.
     /// </summary>
-    public static class EdlManager
+    /// <param name="logger">ILogger.</param>
+    public static void Initialize(ILogger logger)
     {
-        private static ILogger? _logger;
+        _logger = logger;
+    }
 
-        /// <summary>
-        /// Initialize EDLManager with a logger.
-        /// </summary>
-        /// <param name="logger">ILogger.</param>
-        public static void Initialize(ILogger logger)
+    /// <summary>
+    /// Logs the configuration that will be used during EDL file creation.
+    /// </summary>
+    public static void LogConfiguration()
+    {
+        if (_logger is null)
         {
-            _logger = logger;
+            throw new InvalidOperationException("Logger must not be null");
         }
 
-        /// <summary>
-        /// Logs the configuration that will be used during EDL file creation.
-        /// </summary>
-        public static void LogConfiguration()
+        var config = Plugin.Instance!.Configuration;
+
+        if (config.EdlAction == EdlAction.None)
         {
-            if (_logger is null)
-            {
-                throw new InvalidOperationException("Logger must not be null");
-            }
-
-            var config = Plugin.Instance!.Configuration;
-
-            if (config.EdlAction == EdlAction.None)
-            {
-                _logger.LogDebug("EDL action: None - taking no further action");
-                return;
-            }
-
-            _logger.LogDebug("EDL action: {Action}", config.EdlAction);
-            _logger.LogDebug("Regenerate EDL files: {Regenerate}", config.RegenerateEdlFiles);
+            _logger.LogDebug("EDL action: None - taking no further action");
+            return;
         }
 
-        /// <summary>
-        /// If the EDL action is set to a value other than None, update EDL files for the provided episodes.
-        /// </summary>
-        /// <param name="episodes">Episodes to update EDL files for.</param>
-        public static void UpdateEDLFiles(IReadOnlyList<QueuedEpisode> episodes)
+        _logger.LogDebug("EDL action: {Action}", config.EdlAction);
+        _logger.LogDebug("Regenerate EDL files: {Regenerate}", config.RegenerateEdlFiles);
+    }
+
+    /// <summary>
+    /// If the EDL action is set to a value other than None, update EDL files for the provided episodes.
+    /// </summary>
+    /// <param name="episodes">Episodes to update EDL files for.</param>
+    public static void UpdateEDLFiles(IReadOnlyList<QueuedEpisode> episodes)
+    {
+        var regenerate = Plugin.Instance!.Configuration.RegenerateEdlFiles;
+        var action = Plugin.Instance.Configuration.EdlAction;
+        if (action == EdlAction.None)
         {
-            var regenerate = Plugin.Instance!.Configuration.RegenerateEdlFiles;
-            var action = Plugin.Instance.Configuration.EdlAction;
-            if (action == EdlAction.None)
-            {
-                _logger?.LogDebug("EDL action is set to none, not updating EDL files");
-                return;
-            }
-
-            _logger?.LogDebug("Updating EDL files with action {Action}", action);
-
-            foreach (var episode in episodes)
-            {
-                var id = episode.EpisodeId;
-
-                bool hasIntro = Plugin.Instance!.Intros.TryGetValue(id, out var intro) && intro.Valid;
-                bool hasCredit = Plugin.Instance!.Credits.TryGetValue(id, out var credit) && credit.Valid;
-
-                if (!hasIntro && !hasCredit)
-                {
-                    _logger?.LogDebug("Episode {Id} has neither a valid intro nor credit, skipping", id);
-                    continue;
-                }
-
-                var edlPath = GetEdlPath(Plugin.Instance.GetItemPath(id));
-
-                _logger?.LogTrace("Episode {Id} has EDL path {Path}", id, edlPath);
-
-                if (!regenerate && File.Exists(edlPath))
-                {
-                    _logger?.LogTrace("Refusing to overwrite existing EDL file {Path}", edlPath);
-                    continue;
-                }
-
-                var edlContent = string.Empty;
-
-                if (hasIntro)
-                {
-                    edlContent += intro?.ToEdl(action);
-                }
-
-                if (hasCredit)
-                {
-                    if (edlContent.Length > 0)
-                    {
-                        edlContent += Environment.NewLine;
-                    }
-
-                    edlContent += credit?.ToEdl(action);
-                }
-
-                File.WriteAllText(edlPath, edlContent);
-            }
+            _logger?.LogDebug("EDL action is set to none, not updating EDL files");
+            return;
         }
 
-        /// <summary>
-        /// Given the path to an episode, return the path to the associated EDL file.
-        /// </summary>
-        /// <param name="mediaPath">Full path to episode.</param>
-        /// <returns>Full path to EDL file.</returns>
-        public static string GetEdlPath(string mediaPath)
+        _logger?.LogDebug("Updating EDL files with action {Action}", action);
+
+        foreach (var episode in episodes)
         {
-            return Path.ChangeExtension(mediaPath, "edl");
+            var id = episode.EpisodeId;
+
+            bool hasIntro = Plugin.Instance!.Intros.TryGetValue(id, out var intro) && intro.Valid;
+            bool hasCredit = Plugin.Instance!.Credits.TryGetValue(id, out var credit) && credit.Valid;
+
+            if (!hasIntro && !hasCredit)
+            {
+                _logger?.LogDebug("Episode {Id} has neither a valid intro nor credit, skipping", id);
+                continue;
+            }
+
+            var edlPath = GetEdlPath(Plugin.Instance.GetItemPath(id));
+
+            _logger?.LogTrace("Episode {Id} has EDL path {Path}", id, edlPath);
+
+            if (!regenerate && File.Exists(edlPath))
+            {
+                _logger?.LogTrace("Refusing to overwrite existing EDL file {Path}", edlPath);
+                continue;
+            }
+
+            var edlContent = string.Empty;
+
+            if (hasIntro)
+            {
+                edlContent += intro?.ToEdl(action);
+            }
+
+            if (hasCredit)
+            {
+                if (edlContent.Length > 0)
+                {
+                    edlContent += Environment.NewLine;
+                }
+
+                edlContent += credit?.ToEdl(action);
+            }
+
+            File.WriteAllText(edlPath, edlContent);
         }
+    }
+
+    /// <summary>
+    /// Given the path to an episode, return the path to the associated EDL file.
+    /// </summary>
+    /// <param name="mediaPath">Full path to episode.</param>
+    /// <returns>Full path to EDL file.</returns>
+    public static string GetEdlPath(string mediaPath)
+    {
+        return Path.ChangeExtension(mediaPath, "edl");
     }
 }

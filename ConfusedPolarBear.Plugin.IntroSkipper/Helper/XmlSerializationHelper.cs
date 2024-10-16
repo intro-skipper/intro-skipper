@@ -6,7 +6,7 @@ using System.Runtime.Serialization;
 using System.Xml;
 using ConfusedPolarBear.Plugin.IntroSkipper.Data;
 
-namespace ConfusedPolarBear.Plugin.IntroSkipper.Helper
+namespace ConfusedPolarBear.Plugin.IntroSkipper
 {
     internal sealed class XmlSerializationHelper
     {

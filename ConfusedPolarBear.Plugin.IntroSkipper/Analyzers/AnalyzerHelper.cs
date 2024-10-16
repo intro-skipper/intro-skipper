@@ -3,116 +3,114 @@ using System.Collections.Generic;
 using System.Linq;
 using ConfusedPolarBear.Plugin.IntroSkipper.Configuration;
 using ConfusedPolarBear.Plugin.IntroSkipper.Data;
-using Jellyfin.Data.Enums;
 using Microsoft.Extensions.Logging;
 
-namespace ConfusedPolarBear.Plugin.IntroSkipper.Analyzers
+namespace ConfusedPolarBear.Plugin.IntroSkipper;
+
+/// <summary>
+/// Analyzer Helper.
+/// </summary>
+public class AnalyzerHelper
 {
+    private readonly ILogger _logger;
+    private readonly double _silenceDetectionMinimumDuration;
+
     /// <summary>
-    /// Analyzer Helper.
+    /// Initializes a new instance of the <see cref="AnalyzerHelper"/> class.
     /// </summary>
-    public class AnalyzerHelper
+    /// <param name="logger">Logger.</param>
+    public AnalyzerHelper(ILogger logger)
     {
-        private readonly ILogger _logger;
-        private readonly double _silenceDetectionMinimumDuration;
+        var config = Plugin.Instance?.Configuration ?? new PluginConfiguration();
+        _silenceDetectionMinimumDuration = config.SilenceDetectionMinimumDuration;
+        _logger = logger;
+    }
 
-        /// <summary>
-        /// Initializes a new instance of the <see cref="AnalyzerHelper"/> class.
-        /// </summary>
-        /// <param name="logger">Logger.</param>
-        public AnalyzerHelper(ILogger logger)
+    /// <summary>
+    /// Adjusts the end timestamps of all intros so that they end at silence.
+    /// </summary>
+    /// <param name="episodes">QueuedEpisodes to adjust.</param>
+    /// <param name="originalIntros">Original introductions.</param>
+    /// <param name="mode">Analysis mode.</param>
+    /// <returns>Modified Intro Timestamps.</returns>
+    public Dictionary<Guid, Segment> AdjustIntroTimes(
+        IReadOnlyList<QueuedEpisode> episodes,
+        IReadOnlyDictionary<Guid, Segment> originalIntros,
+        AnalysisMode mode)
+    {
+        return episodes
+            .Where(episode => originalIntros.TryGetValue(episode.EpisodeId, out var _))
+            .ToDictionary(
+                episode => episode.EpisodeId,
+                episode => AdjustIntroForEpisode(episode, originalIntros[episode.EpisodeId], mode));
+    }
+
+    private Segment AdjustIntroForEpisode(QueuedEpisode episode, Segment originalIntro, AnalysisMode mode)
+    {
+        _logger.LogTrace("{Name} original intro: {Start} - {End}", episode.Name, originalIntro.Start, originalIntro.End);
+
+        var adjustedIntro = new Segment(originalIntro);
+        var originalIntroStart = new TimeRange(Math.Max(0, (int)originalIntro.Start - 5), (int)originalIntro.Start + 10);
+        var originalIntroEnd = new TimeRange((int)originalIntro.End - 10, Math.Min(episode.Duration, (int)originalIntro.End + 5));
+
+        if (!AdjustIntroBasedOnChapters(episode, adjustedIntro, originalIntroStart, originalIntroEnd) && mode == AnalysisMode.Introduction)
         {
-            var config = Plugin.Instance?.Configuration ?? new PluginConfiguration();
-            _silenceDetectionMinimumDuration = config.SilenceDetectionMinimumDuration;
-            _logger = logger;
+            AdjustIntroBasedOnSilence(episode, adjustedIntro, originalIntroEnd);
         }
 
-        /// <summary>
-        /// Adjusts the end timestamps of all intros so that they end at silence.
-        /// </summary>
-        /// <param name="episodes">QueuedEpisodes to adjust.</param>
-        /// <param name="originalIntros">Original introductions.</param>
-        /// <param name="mode">Analysis mode.</param>
-        /// <returns>Modified Intro Timestamps.</returns>
-        public Dictionary<Guid, Segment> AdjustIntroTimes(
-            IReadOnlyList<QueuedEpisode> episodes,
-            IReadOnlyDictionary<Guid, Segment> originalIntros,
-            MediaSegmentType mode)
+        return adjustedIntro;
+    }
+
+    private bool AdjustIntroBasedOnChapters(QueuedEpisode episode, Segment adjustedIntro, TimeRange originalIntroStart, TimeRange originalIntroEnd)
+    {
+        var chapters = Plugin.Instance?.GetChapters(episode.EpisodeId) ?? [];
+        double previousTime = 0;
+
+        for (int i = 0; i <= chapters.Count; i++)
         {
-            return episodes
-                .Where(episode => originalIntros.TryGetValue(episode.EpisodeId, out var _))
-                .ToDictionary(
-                    episode => episode.EpisodeId,
-                    episode => AdjustIntroForEpisode(episode, originalIntros[episode.EpisodeId], mode));
-        }
+            double currentTime = i < chapters.Count
+                ? TimeSpan.FromTicks(chapters[i].StartPositionTicks).TotalSeconds
+                : episode.Duration;
 
-        private Segment AdjustIntroForEpisode(QueuedEpisode episode, Segment originalIntro, MediaSegmentType mode)
-        {
-            _logger.LogTrace("{Name} original intro: {Start} - {End}", episode.Name, originalIntro.Start, originalIntro.End);
-
-            var adjustedIntro = new Segment(originalIntro);
-            var originalIntroStart = new TimeRange(Math.Max(0, (int)originalIntro.Start - 5), (int)originalIntro.Start + 10);
-            var originalIntroEnd = new TimeRange((int)originalIntro.End - 10, Math.Min(episode.Duration, (int)originalIntro.End + 5));
-
-            if (!AdjustIntroBasedOnChapters(episode, adjustedIntro, originalIntroStart, originalIntroEnd) && mode == MediaSegmentType.Intro)
+            if (originalIntroStart.Start < previousTime && previousTime < originalIntroStart.End)
             {
-                AdjustIntroBasedOnSilence(episode, adjustedIntro, originalIntroEnd);
+                adjustedIntro.Start = previousTime;
+                _logger.LogTrace("{Name} chapter found close to intro start: {Start}", episode.Name, previousTime);
             }
 
-            return adjustedIntro;
-        }
-
-        private bool AdjustIntroBasedOnChapters(QueuedEpisode episode, Segment adjustedIntro, TimeRange originalIntroStart, TimeRange originalIntroEnd)
-        {
-            var chapters = Plugin.Instance?.GetChapters(episode.EpisodeId) ?? [];
-            double previousTime = 0;
-
-            for (int i = 0; i <= chapters.Count; i++)
+            if (originalIntroEnd.Start < currentTime && currentTime < originalIntroEnd.End)
             {
-                double currentTime = i < chapters.Count
-                    ? TimeSpan.FromTicks(chapters[i].StartPositionTicks).TotalSeconds
-                    : episode.Duration;
-
-                if (originalIntroStart.Start < previousTime && previousTime < originalIntroStart.End)
-                {
-                    adjustedIntro.Start = previousTime;
-                    _logger.LogTrace("{Name} chapter found close to intro start: {Start}", episode.Name, previousTime);
-                }
-
-                if (originalIntroEnd.Start < currentTime && currentTime < originalIntroEnd.End)
-                {
-                    adjustedIntro.End = currentTime;
-                    _logger.LogTrace("{Name} chapter found close to intro end: {End}", episode.Name, currentTime);
-                    return true;
-                }
-
-                previousTime = currentTime;
+                adjustedIntro.End = currentTime;
+                _logger.LogTrace("{Name} chapter found close to intro end: {End}", episode.Name, currentTime);
+                return true;
             }
 
-            return false;
+            previousTime = currentTime;
         }
 
-        private void AdjustIntroBasedOnSilence(QueuedEpisode episode, Segment adjustedIntro, TimeRange originalIntroEnd)
+        return false;
+    }
+
+    private void AdjustIntroBasedOnSilence(QueuedEpisode episode, Segment adjustedIntro, TimeRange originalIntroEnd)
+    {
+        var silence = FFmpegWrapper.DetectSilence(episode, originalIntroEnd);
+
+        foreach (var currentRange in silence)
         {
-            var silence = FFmpegWrapper.DetectSilence(episode, originalIntroEnd);
+            _logger.LogTrace("{Name} silence: {Start} - {End}", episode.Name, currentRange.Start, currentRange.End);
 
-            foreach (var currentRange in silence)
+            if (IsValidSilenceForIntroAdjustment(currentRange, originalIntroEnd, adjustedIntro))
             {
-                _logger.LogTrace("{Name} silence: {Start} - {End}", episode.Name, currentRange.Start, currentRange.End);
-
-                if (IsValidSilenceForIntroAdjustment(currentRange, originalIntroEnd, adjustedIntro))
-                {
-                    adjustedIntro.End = currentRange.Start;
-                    break;
-                }
+                adjustedIntro.End = currentRange.Start;
+                break;
             }
         }
+    }
 
-        private bool IsValidSilenceForIntroAdjustment(TimeRange silenceRange, TimeRange originalIntroEnd, Segment adjustedIntro)
-        {
-            return originalIntroEnd.Intersects(silenceRange) &&
-                    silenceRange.Duration >= _silenceDetectionMinimumDuration &&
-                    silenceRange.Start >= adjustedIntro.Start;
-        }
+    private bool IsValidSilenceForIntroAdjustment(TimeRange silenceRange, TimeRange originalIntroEnd, Segment adjustedIntro)
+    {
+        return originalIntroEnd.Intersects(silenceRange) &&
+                silenceRange.Duration >= _silenceDetectionMinimumDuration &&
+                silenceRange.Start >= adjustedIntro.Start;
     }
 }

@@ -4,7 +4,6 @@ using System.IO;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
-using ConfusedPolarBear.Plugin.IntroSkipper.Manager;
 using MediaBrowser.Controller.Library;
 using MediaBrowser.Model.Tasks;
 using Microsoft.Extensions.Logging;
@@ -14,22 +13,29 @@ namespace ConfusedPolarBear.Plugin.IntroSkipper.ScheduledTasks;
 /// <summary>
 /// Analyze all television episodes for introduction sequences.
 /// </summary>
-/// <remarks>
-/// Initializes a new instance of the <see cref="CleanCacheTask"/> class.
-/// </remarks>
-/// <param name="loggerFactory">Logger factory.</param>
-/// <param name="libraryManager">Library manager.</param>
-/// <param name="logger">Logger.</param>
-public class CleanCacheTask(
-    ILogger<CleanCacheTask> logger,
-    ILoggerFactory loggerFactory,
-    ILibraryManager libraryManager) : IScheduledTask
+public class CleanCacheTask : IScheduledTask
 {
-    private readonly ILogger<CleanCacheTask> _logger = logger;
+    private readonly ILogger<CleanCacheTask> _logger;
 
-    private readonly ILoggerFactory _loggerFactory = loggerFactory;
+    private readonly ILoggerFactory _loggerFactory;
 
-    private readonly ILibraryManager _libraryManager = libraryManager;
+    private readonly ILibraryManager _libraryManager;
+
+    /// <summary>
+    /// Initializes a new instance of the <see cref="CleanCacheTask"/> class.
+    /// </summary>
+    /// <param name="loggerFactory">Logger factory.</param>
+    /// <param name="libraryManager">Library manager.</param>
+    /// <param name="logger">Logger.</param>
+    public CleanCacheTask(
+        ILogger<CleanCacheTask> logger,
+        ILoggerFactory loggerFactory,
+        ILibraryManager libraryManager)
+    {
+        _logger = logger;
+        _loggerFactory = loggerFactory;
+        _libraryManager = libraryManager;
+    }
 
     /// <summary>
     /// Gets the task name.

@@ -4,7 +4,6 @@ using System.Linq;
 using System.Threading;
 using ConfusedPolarBear.Plugin.IntroSkipper.Configuration;
 using ConfusedPolarBear.Plugin.IntroSkipper.Data;
-using Jellyfin.Data.Enums;
 using Microsoft.Extensions.Logging;
 
 namespace ConfusedPolarBear.Plugin.IntroSkipper.Analyzers;
@@ -42,10 +41,10 @@ public class BlackFrameAnalyzer : IMediaFileAnalyzer
     /// <inheritdoc />
     public IReadOnlyList<QueuedEpisode> AnalyzeMediaFiles(
         IReadOnlyList<QueuedEpisode> analysisQueue,
-        MediaSegmentType mode,
+        AnalysisMode mode,
         CancellationToken cancellationToken)
     {
-        if (mode != MediaSegmentType.Outro)
+        if (mode != AnalysisMode.Credits)
         {
             throw new NotImplementedException("mode must equal Credits");
         }

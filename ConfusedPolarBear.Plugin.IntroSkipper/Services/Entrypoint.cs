@@ -3,9 +3,8 @@ using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
 using ConfusedPolarBear.Plugin.IntroSkipper.Configuration;
-using ConfusedPolarBear.Plugin.IntroSkipper.Manager;
+using ConfusedPolarBear.Plugin.IntroSkipper.Data;
 using ConfusedPolarBear.Plugin.IntroSkipper.ScheduledTasks;
-using Jellyfin.Data.Enums;
 using MediaBrowser.Controller.Entities.TV;
 using MediaBrowser.Controller.Library;
 using MediaBrowser.Model.Entities;
@@ -262,18 +261,18 @@ public sealed class Entrypoint : IHostedService, IDisposable
 
             _analyzeAgain = false;
             var progress = new Progress<double>();
-            var modes = new List<MediaSegmentType>();
+            var modes = new List<AnalysisMode>();
             var tasklogger = _loggerFactory.CreateLogger("DefaultLogger");
 
             if (_config.AutoDetectIntros)
             {
-                modes.Add(MediaSegmentType.Intro);
+                modes.Add(AnalysisMode.Introduction);
                 tasklogger = _loggerFactory.CreateLogger<DetectIntrosTask>();
             }
 
             if (_config.AutoDetectCredits)
             {
-                modes.Add(MediaSegmentType.Outro);
+                modes.Add(AnalysisMode.Credits);
                 tasklogger = modes.Count == 2
                     ? _loggerFactory.CreateLogger<DetectIntrosCreditsTask>()
                     : _loggerFactory.CreateLogger<DetectCreditsTask>();

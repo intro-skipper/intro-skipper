@@ -6,7 +6,6 @@ using System;
 using System.Collections.Generic;
 using ConfusedPolarBear.Plugin.IntroSkipper.Analyzers;
 using ConfusedPolarBear.Plugin.IntroSkipper.Data;
-using Jellyfin.Data.Enums;
 using Microsoft.Extensions.Logging;
 using Xunit;
 
@@ -64,7 +63,7 @@ public class TestAudioFingerprinting
 
         var actual = FFmpegWrapper.Fingerprint(
             QueueEpisode("audio/big_buck_bunny_intro.mp3"),
-            MediaSegmentType.Intro);
+            AnalysisMode.Introduction);
 
         Assert.Equal(expected, actual);
     }
@@ -84,7 +83,7 @@ public class TestAudioFingerprinting
             {77, 5},
         };
 
-        var actual = FFmpegWrapper.CreateInvertedIndex(Guid.NewGuid(), fpr, MediaSegmentType.Intro);
+        var actual = FFmpegWrapper.CreateInvertedIndex(Guid.NewGuid(), fpr, AnalysisMode.Introduction);
 
         Assert.Equal(expected, actual);
     }
@@ -96,8 +95,8 @@ public class TestAudioFingerprinting
 
         var lhsEpisode = QueueEpisode("audio/big_buck_bunny_intro.mp3");
         var rhsEpisode = QueueEpisode("audio/big_buck_bunny_clip.mp3");
-        var lhsFingerprint = FFmpegWrapper.Fingerprint(lhsEpisode, MediaSegmentType.Intro);
-        var rhsFingerprint = FFmpegWrapper.Fingerprint(rhsEpisode, MediaSegmentType.Intro);
+        var lhsFingerprint = FFmpegWrapper.Fingerprint(lhsEpisode, AnalysisMode.Introduction);
+        var rhsFingerprint = FFmpegWrapper.Fingerprint(rhsEpisode, AnalysisMode.Introduction);
 
         var (lhs, rhs) = chromaprint.CompareEpisodes(
             lhsEpisode.EpisodeId,

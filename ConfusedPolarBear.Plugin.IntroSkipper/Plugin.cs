@@ -6,8 +6,6 @@ using System.Linq;
 using System.Text.RegularExpressions;
 using ConfusedPolarBear.Plugin.IntroSkipper.Configuration;
 using ConfusedPolarBear.Plugin.IntroSkipper.Data;
-using ConfusedPolarBear.Plugin.IntroSkipper.Helper;
-using Jellyfin.Data.Enums;
 using MediaBrowser.Common;
 using MediaBrowser.Common.Configuration;
 using MediaBrowser.Common.Plugins;
@@ -184,16 +182,16 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
     /// Save timestamps to disk.
     /// </summary>
     /// <param name="mode">Mode.</param>
-    public void SaveTimestamps(MediaSegmentType mode)
+    public void SaveTimestamps(AnalysisMode mode)
     {
         List<Segment> introList = [];
-        var filePath = mode == MediaSegmentType.Intro
+        var filePath = mode == AnalysisMode.Introduction
                         ? _introPath
                         : _creditsPath;
 
         lock (_introsLock)
         {
-            introList.AddRange(mode == MediaSegmentType.Intro
+            introList.AddRange(mode == AnalysisMode.Introduction
                             ? Instance!.Intros.Values
                             : Instance!.Credits.Values);
         }
@@ -237,7 +235,7 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
     /// <param name="id">Item id.</param>
     /// <param name="mode">Mode.</param>
     /// <returns>True if ignored, false otherwise.</returns>
-    public bool IsIgnored(Guid id, MediaSegmentType mode)
+    public bool IsIgnored(Guid id, AnalysisMode mode)
     {
         return Instance!.IgnoreList.TryGetValue(id, out var item) && item.IsIgnored(mode);
     }
@@ -314,9 +312,9 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
     /// <param name="id">Item id.</param>
     /// <param name="mode">Mode.</param>
     /// <returns>Intro.</returns>
-    internal static Segment GetIntroByMode(Guid id, MediaSegmentType mode)
+    internal static Segment GetIntroByMode(Guid id, AnalysisMode mode)
     {
-        return mode == MediaSegmentType.Intro
+        return mode == AnalysisMode.Introduction
             ? Instance!.Intros[id]
             : Instance!.Credits[id];
     }
@@ -375,15 +373,15 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
     /// <returns>State of this item.</returns>
     internal EpisodeState GetState(Guid id) => EpisodeStates.GetOrAdd(id, _ => new EpisodeState());
 
-    internal void UpdateTimestamps(IReadOnlyDictionary<Guid, Segment> newTimestamps, MediaSegmentType mode)
+    internal void UpdateTimestamps(IReadOnlyDictionary<Guid, Segment> newTimestamps, AnalysisMode mode)
     {
         foreach (var intro in newTimestamps)
         {
-            if (mode == MediaSegmentType.Intro)
+            if (mode == AnalysisMode.Introduction)
             {
                 Instance!.Intros.AddOrUpdate(intro.Key, intro.Value, (key, oldValue) => intro.Value);
             }
-            else if (mode == MediaSegmentType.Outro)
+            else if (mode == AnalysisMode.Credits)
             {
                 Instance!.Credits.AddOrUpdate(intro.Key, intro.Value, (key, oldValue) => intro.Value);
             }
@@ -406,8 +404,8 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
             }
         }
 
-        SaveTimestamps(MediaSegmentType.Intro);
-        SaveTimestamps(MediaSegmentType.Outro);
+        SaveTimestamps(AnalysisMode.Introduction);
+        SaveTimestamps(AnalysisMode.Credits);
     }
 
     private void MigrateRepoUrl(IServerConfigurationManager serverConfiguration)

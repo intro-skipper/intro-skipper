@@ -6,8 +6,6 @@ using System.Threading;
 using System.Threading.Tasks;
 using ConfusedPolarBear.Plugin.IntroSkipper.Analyzers;
 using ConfusedPolarBear.Plugin.IntroSkipper.Data;
-using ConfusedPolarBear.Plugin.IntroSkipper.Manager;
-using Jellyfin.Data.Enums;
 using MediaBrowser.Controller.Library;
 using Microsoft.Extensions.Logging;
 
@@ -18,7 +16,7 @@ namespace ConfusedPolarBear.Plugin.IntroSkipper.ScheduledTasks;
 /// </summary>
 public class BaseItemAnalyzerTask
 {
-    private readonly IReadOnlyCollection<MediaSegmentType> _modes;
+    private readonly IReadOnlyCollection<AnalysisMode> _analysisModes;
 
     private readonly ILogger _logger;
 
@@ -34,12 +32,12 @@ public class BaseItemAnalyzerTask
     /// <param name="loggerFactory">Logger factory.</param>
     /// <param name="libraryManager">Library manager.</param>
     public BaseItemAnalyzerTask(
-        IReadOnlyCollection<MediaSegmentType> modes,
+        IReadOnlyCollection<AnalysisMode> modes,
         ILogger logger,
         ILoggerFactory loggerFactory,
         ILibraryManager libraryManager)
     {
-        _modes = modes;
+        _analysisModes = modes;
         _logger = logger;
         _loggerFactory = loggerFactory;
         _libraryManager = libraryManager;
@@ -81,7 +79,7 @@ public class BaseItemAnalyzerTask
             queue = queue.Where(kvp => seasonsToAnalyze.Contains(kvp.Key)).ToDictionary(kvp => kvp.Key, kvp => kvp.Value);
         }
 
-        int totalQueued = queue.Sum(kvp => kvp.Value.Count) * _modes.Count;
+        int totalQueued = queue.Sum(kvp => kvp.Value.Count) * _analysisModes.Count;
         if (totalQueued == 0)
         {
             throw new FingerprintException(
@@ -107,7 +105,7 @@ public class BaseItemAnalyzerTask
             // of the current media items were deleted from Jellyfin since the task was started.
             var (episodes, requiredModes) = queueManager.VerifyQueue(
                 season.Value,
-                _modes.Where(m => !Plugin.Instance!.IsIgnored(season.Key, m)).ToList());
+                _analysisModes.Where(m => !Plugin.Instance!.IsIgnored(season.Key, m)).ToList());
 
             if (episodes.Count == 0)
             {
@@ -122,13 +120,13 @@ public class BaseItemAnalyzerTask
                     first.SeriesName,
                     first.SeasonNumber);
 
-                Interlocked.Add(ref totalProcessed, episodes.Count * _modes.Count); // Update total Processed directly
+                Interlocked.Add(ref totalProcessed, episodes.Count * _analysisModes.Count); // Update total Processed directly
                 progress.Report(totalProcessed * 100 / totalQueued);
 
                 return;
             }
 
-            if (_modes.Count != requiredModes.Count)
+            if (_analysisModes.Count != requiredModes.Count)
             {
                 Interlocked.Add(ref totalProcessed, episodes.Count);
                 progress.Report(totalProcessed * 100 / totalQueued); // Partial analysis some modes have already been analyzed
@@ -141,7 +139,7 @@ public class BaseItemAnalyzerTask
                     return;
                 }
 
-                foreach (MediaSegmentType mode in requiredModes)
+                foreach (AnalysisMode mode in requiredModes)
                 {
                     var analyzed = AnalyzeItems(episodes, mode, cancellationToken);
                     Interlocked.Add(ref totalProcessed, analyzed);
@@ -183,7 +181,7 @@ public class BaseItemAnalyzerTask
     /// <returns>Number of items that were successfully analyzed.</returns>
     private int AnalyzeItems(
         IReadOnlyList<QueuedEpisode> items,
-        MediaSegmentType mode,
+        AnalysisMode mode,
         CancellationToken cancellationToken)
     {
         var totalItems = items.Count;
@@ -218,7 +216,7 @@ public class BaseItemAnalyzerTask
             analyzers.Add(new ChromaprintAnalyzer(_loggerFactory.CreateLogger<ChromaprintAnalyzer>()));
         }
 
-        if (mode == MediaSegmentType.Outro)
+        if (mode == AnalysisMode.Credits)
         {
             analyzers.Add(new BlackFrameAnalyzer(_loggerFactory.CreateLogger<BlackFrameAnalyzer>()));
         }

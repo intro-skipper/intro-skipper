@@ -1,8 +1,9 @@
 using System;
 using System.Collections.Generic;
+using System.Collections.ObjectModel;
 using System.Threading;
 using System.Threading.Tasks;
-using Jellyfin.Data.Enums;
+using ConfusedPolarBear.Plugin.IntroSkipper.Data;
 using MediaBrowser.Controller.Library;
 using MediaBrowser.Model.Tasks;
 using Microsoft.Extensions.Logging;
@@ -12,22 +13,29 @@ namespace ConfusedPolarBear.Plugin.IntroSkipper.ScheduledTasks;
 /// <summary>
 /// Analyze all television episodes for introduction sequences.
 /// </summary>
-/// <remarks>
-/// Initializes a new instance of the <see cref="DetectIntrosTask"/> class.
-/// </remarks>
-/// <param name="loggerFactory">Logger factory.</param>
-/// <param name="libraryManager">Library manager.</param>
-/// <param name="logger">Logger.</param>
-public class DetectIntrosTask(
-    ILogger<DetectIntrosTask> logger,
-    ILoggerFactory loggerFactory,
-    ILibraryManager libraryManager) : IScheduledTask
+public class DetectIntrosTask : IScheduledTask
 {
-    private readonly ILogger<DetectIntrosTask> _logger = logger;
+    private readonly ILogger<DetectIntrosTask> _logger;
 
-    private readonly ILoggerFactory _loggerFactory = loggerFactory;
+    private readonly ILoggerFactory _loggerFactory;
 
-    private readonly ILibraryManager _libraryManager = libraryManager;
+    private readonly ILibraryManager _libraryManager;
+
+    /// <summary>
+    /// Initializes a new instance of the <see cref="DetectIntrosTask"/> class.
+    /// </summary>
+    /// <param name="loggerFactory">Logger factory.</param>
+    /// <param name="libraryManager">Library manager.</param>
+    /// <param name="logger">Logger.</param>
+    public DetectIntrosTask(
+        ILogger<DetectIntrosTask> logger,
+        ILoggerFactory loggerFactory,
+        ILibraryManager libraryManager)
+    {
+        _logger = logger;
+        _loggerFactory = loggerFactory;
+        _libraryManager = libraryManager;
+    }
 
     /// <summary>
     /// Gets the task name.
@@ -73,7 +81,7 @@ public class DetectIntrosTask(
         {
             _logger.LogInformation("Scheduled Task is starting");
 
-            var modes = new List<MediaSegmentType> { MediaSegmentType.Intro };
+            var modes = new List<AnalysisMode> { AnalysisMode.Introduction };
 
             var baseIntroAnalyzer = new BaseItemAnalyzerTask(
                 modes,

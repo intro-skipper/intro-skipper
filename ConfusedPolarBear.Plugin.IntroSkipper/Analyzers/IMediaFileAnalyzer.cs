@@ -1,7 +1,6 @@
 using System.Collections.Generic;
 using System.Threading;
 using ConfusedPolarBear.Plugin.IntroSkipper.Data;
-using Jellyfin.Data.Enums;
 
 namespace ConfusedPolarBear.Plugin.IntroSkipper.Analyzers;
 
@@ -19,6 +18,6 @@ public interface IMediaFileAnalyzer
     /// <returns>Collection of media files that were **unsuccessfully analyzed**.</returns>
     public IReadOnlyList<QueuedEpisode> AnalyzeMediaFiles(
         IReadOnlyList<QueuedEpisode> analysisQueue,
-        MediaSegmentType mode,
+        AnalysisMode mode,
         CancellationToken cancellationToken);
 }
