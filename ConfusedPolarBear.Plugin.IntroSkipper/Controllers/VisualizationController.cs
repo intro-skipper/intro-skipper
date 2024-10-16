@@ -48,7 +48,7 @@ public class VisualizationController(ILogger<VisualizationController> logger) : 
                 var seasonNumber = first.SeasonNumber;
                 if (!showSeasons.TryGetValue(seriesId, out var showInfo))
                 {
-                    showInfo = new ShowInfos { SeriesName = first.SeriesName, ProductionYear = GetProductionYear(seriesId), LibraryName = GetLibraryName(seriesId), Seasons = [] };
+                    showInfo = new ShowInfos { SeriesName = first.SeriesName, ProductionYear = GetProductionYear(seriesId), LibraryName = GetLibraryName(seriesId), IsMovie = first.IsMovie, Seasons = [] };
                     showSeasons[seriesId] = showInfo;
                 }
 
@@ -66,6 +66,7 @@ public class VisualizationController(ILogger<VisualizationController> logger) : 
                     SeriesName = kvp.Value.SeriesName,
                     ProductionYear = kvp.Value.ProductionYear,
                     LibraryName = kvp.Value.LibraryName,
+                    IsMovie = kvp.Value.IsMovie,
                     Seasons = kvp.Value.Seasons
                         .OrderBy(s => s.Value)
                         .ToDictionary(s => s.Key, s => s.Value)
