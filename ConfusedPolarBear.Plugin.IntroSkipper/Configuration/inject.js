@@ -38,10 +38,10 @@ const introSkipper = {
         }
         return response;
     },
-    xhrOpenWrapper(xhr, method, url, async, user, password) {
+    xhrOpenWrapper(xhr, method, url, ...rest) {
         this.d(`XHR Open: ${method} ${url}`);
         xhr._introSkipperUrl = url;
-        return this.originalXHROpen.apply(xhr, [method, url, async, user, password]);
+        return this.originalXHROpen.apply(xhr, [method, url, ...rest]);
     },
     xhrSendWrapper(xhr, body) {
         const originalOnReadyStateChange = xhr.onreadystatechange;
