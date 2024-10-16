@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Net.Mime;
 using ConfusedPolarBear.Plugin.IntroSkipper.Configuration;
 using ConfusedPolarBear.Plugin.IntroSkipper.Data;
+using Jellyfin.Data.Enums;
 using MediaBrowser.Common.Api;
 using MediaBrowser.Controller.Entities.TV;
 using Microsoft.AspNetCore.Authorization;
@@ -37,7 +38,7 @@ public class SkipIntroController : ControllerBase
     [HttpGet("Episode/{id}/IntroTimestamps/v1")]
     public ActionResult<Intro> GetIntroTimestamps(
         [FromRoute] Guid id,
-        [FromQuery] AnalysisMode mode = AnalysisMode.Introduction)
+        [FromQuery] MediaSegmentType mode = MediaSegmentType.Intro)
     {
         var intro = GetIntro(id, mode);
 
@@ -80,8 +81,8 @@ public class SkipIntroController : ControllerBase
             Plugin.Instance!.Credits[id] = new Segment(id, cr);
         }
 
-        Plugin.Instance!.SaveTimestamps(AnalysisMode.Introduction);
-        Plugin.Instance!.SaveTimestamps(AnalysisMode.Credits);
+        Plugin.Instance!.SaveTimestamps(MediaSegmentType.Intro);
+        Plugin.Instance!.SaveTimestamps(MediaSegmentType.Outro);
 
         return NoContent();
     }
@@ -125,18 +126,18 @@ public class SkipIntroController : ControllerBase
     /// <response code="200">Skippable segments dictionary.</response>
     /// <returns>Dictionary of skippable segments.</returns>
     [HttpGet("Episode/{id}/IntroSkipperSegments")]
-    public ActionResult<Dictionary<AnalysisMode, Intro>> GetSkippableSegments([FromRoute] Guid id)
+    public ActionResult<Dictionary<MediaSegmentType, Intro>> GetSkippableSegments([FromRoute] Guid id)
     {
-        var segments = new Dictionary<AnalysisMode, Intro>();
+        var segments = new Dictionary<MediaSegmentType, Intro>();
 
-        if (GetIntro(id, AnalysisMode.Introduction) is Intro intro)
+        if (GetIntro(id, MediaSegmentType.Intro) is Intro intro)
         {
-            segments[AnalysisMode.Introduction] = intro;
+            segments[MediaSegmentType.Intro] = intro;
         }
 
-        if (GetIntro(id, AnalysisMode.Credits) is Intro credits)
+        if (GetIntro(id, MediaSegmentType.Outro) is Intro credits)
         {
-            segments[AnalysisMode.Credits] = credits;
+            segments[MediaSegmentType.Outro] = credits;
         }
 
         return segments;
@@ -146,7 +147,7 @@ public class SkipIntroController : ControllerBase
     /// <param name="id">Unique identifier of this episode.</param>
     /// <param name="mode">Mode.</param>
     /// <returns>Intro object if the provided item has an intro, null otherwise.</returns>
-    private static Intro? GetIntro(Guid id, AnalysisMode mode)
+    private static Intro? GetIntro(Guid id, MediaSegmentType mode)
     {
         try
         {
@@ -187,13 +188,13 @@ public class SkipIntroController : ControllerBase
     /// <returns>No content.</returns>
     [Authorize(Policy = Policies.RequiresElevation)]
     [HttpPost("Intros/EraseTimestamps")]
-    public ActionResult ResetIntroTimestamps([FromQuery] AnalysisMode mode, [FromQuery] bool eraseCache = false)
+    public ActionResult ResetIntroTimestamps([FromQuery] MediaSegmentType mode, [FromQuery] bool eraseCache = false)
     {
-        if (mode == AnalysisMode.Introduction)
+        if (mode == MediaSegmentType.Intro)
         {
             Plugin.Instance!.Intros.Clear();
         }
-        else if (mode == AnalysisMode.Credits)
+        else if (mode == MediaSegmentType.Outro)
         {
             Plugin.Instance!.Credits.Clear();
         }

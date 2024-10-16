@@ -1,4 +1,5 @@
 using ConfusedPolarBear.Plugin.IntroSkipper.Providers;
+using ConfusedPolarBear.Plugin.IntroSkipper.Services;
 using MediaBrowser.Controller;
 using MediaBrowser.Controller.Plugins;
 using Microsoft.Extensions.DependencyInjection;
