@@ -575,8 +575,16 @@
 
                                     <input type="checkbox" id="eraseSeasonCacheCheckbox" style="margin-left: 10px" />
                                     <label for="eraseSeasonCacheCheckbox" style="margin-left: 5px">Erase cached fingerprint files</label>
+                                    <br />
                                 </div>
-                                <br />
+
+                                <div id="eraseMovieContainer" style="display: none">
+                                    <button id="btnEraseMovieTimestamps" type="button">Erase all timestamps for this movie</button>
+
+                                    <input type="checkbox" id="eraseMovieCacheCheckbox" style="margin-left: 10px" />
+                                    <label for="eraseMovieCacheCheckbox" style="margin-left: 5px">Erase cached fingerprint files</label>
+                                    <br />
+                                </div>
 
                                 <button id="btnEraseIntroTimestamps">Erase all introduction timestamps (globally)</button>
                                 <br />
@@ -672,6 +680,8 @@
                 var txtSuggested = document.querySelector("span#suggestedShifts");
                 var btnSeasonEraseTimestamps = document.querySelector("button#btnEraseSeasonTimestamps");
                 var eraseSeasonContainer = document.getElementById("eraseSeasonContainer");
+                var btnMovieEraseTimestamps = document.querySelector("button#btnEraseMovieTimestamps");
+                var eraseMovieContainer = document.getElementById("eraseMovieContainer");
                 var timestampError = document.querySelector("textarea#timestampError");
                 var timestampEditor = document.querySelector("#timestampEditor");
                 var rightEpisodeEditor = document.getElementById("rightEpisodeEditor");
@@ -918,6 +928,7 @@
                     seasonSelection.style.display = "unset";
                     clearSelect(selectSeason);
                     eraseSeasonContainer.style.display = "none";
+                    eraseMovieContainer.style.display = "none";
                     episodeSelection.style.display = "unset";
                     clearSelect(selectEpisode1);
                     clearSelect(selectEpisode2);
@@ -1026,6 +1037,7 @@
 
                     seasonSelection.style.display = "none";
                     episodeSelection.style.display = "none";
+                    eraseMovieContainer.style.display = "unset";
 
                     timestampError.value = "";
                     fingerprintVisualizer.style.display = "none";
@@ -1365,6 +1377,22 @@
 
                         Dashboard.alert("Erased timestamps for " + season + " of " + show);
                         document.getElementById("eraseSeasonCacheCheckbox").checked = false;
+                    });
+                });
+                btnMovieEraseTimestamps.addEventListener("click", () => {
+                    Dashboard.confirm("Are you sure you want to erase all timestamps for this movie?", "Confirm timestamp erasure", (result) => {
+                        if (!result) {
+                            return;
+                        }
+
+                        const show = selectShow.value;
+                        const eraseCacheChecked = document.getElementById("eraseMovieCacheCheckbox").checked;
+
+                        const url = "Intros/Show/" + encodeURIComponent(show);
+                        fetchWithAuth(url + "?eraseCache=" + eraseCacheChecked, "DELETE", null);
+
+                        Dashboard.alert("Erased timestamps for " + show);
+                        document.getElementById("eraseMovieCacheCheckbox").checked = false;
                     });
                 });
                 saveIgnoreListSeasonButton.addEventListener("click", () => {
