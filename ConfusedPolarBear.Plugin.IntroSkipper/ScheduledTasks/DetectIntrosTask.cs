@@ -4,6 +4,7 @@ using System.Collections.ObjectModel;
 using System.Threading;
 using System.Threading.Tasks;
 using ConfusedPolarBear.Plugin.IntroSkipper.Data;
+using ConfusedPolarBear.Plugin.IntroSkipper.Services;
 using MediaBrowser.Controller.Library;
 using MediaBrowser.Model.Tasks;
 using Microsoft.Extensions.Logging;
