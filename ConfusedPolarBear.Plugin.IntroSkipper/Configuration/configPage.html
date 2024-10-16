@@ -429,11 +429,13 @@
                                 </div>
                                 <br />
 
-                                <label class="inputLabel" for="troubleshooterEpisode1">Select the first episode</label>
-                                <select is="emby-select" id="troubleshooterEpisode1" class="emby-select-withcolor emby-select"></select>
-                                <label class="inputLabel" for="troubleshooterEpisode1">Select the second episode</label>
-                                <select is="emby-select" id="troubleshooterEpisode2" class="emby-select-withcolor emby-select"></select>
-                                <br />
+                                <div id="episodeSelection">
+                                    <label class="inputLabel" for="troubleshooterEpisode1">Select the first episode</label>
+                                    <select is="emby-select" id="troubleshooterEpisode1" class="emby-select-withcolor emby-select"></select>
+                                    <label class="inputLabel" for="troubleshooterEpisode1">Select the second episode</label>
+                                    <select is="emby-select" id="troubleshooterEpisode2" class="emby-select-withcolor emby-select"></select>
+                                    <br />
+                                </div>
 
                                 <div id="timestampEditor" style="display: none">
                                     <h3 style="margin: 0">Introduction timestamp editor</h3>
@@ -644,6 +646,7 @@
                 var canvas = document.querySelector("canvas#troubleshooter");
                 var selectShow = document.querySelector("select#troubleshooterShow");
                 var selectSeason = document.querySelector("select#troubleshooterSeason");
+                var episodeSelection = document.getElementById("episodeSelection");
                 var selectEpisode1 = document.querySelector("select#troubleshooterEpisode1");
                 var selectEpisode2 = document.querySelector("select#troubleshooterEpisode2");
                 var txtOffset = document.querySelector("input#offset");
@@ -889,6 +892,15 @@
                     ta.value = bundleText;
                 }
 
+                async function movieSelected() {
+                    var visibility = (false) ? "none" : "unset"; // TODO: Check if movie
+                    
+                    selectSeason.style.display = visibility;
+                    episodeSelection.style.display = visibility;
+                    
+                    return visibility;
+                }
+
                 // show changed, populate seasons
                 async function showChanged() {
                     clearSelect(selectSeason);
@@ -905,21 +917,17 @@
                     saveIgnoreListSeasonButton.style.display = "none";
                     Dashboard.hideLoadingMsg();
 
+                    if (movieSelected()) {
+                        // TODO: load movie editor
+                        return;
+                    }
+
                     // add all seasons from this show to the season select
                     for (const season in shows[selectShow.value].Seasons) {
                         addItem(selectSeason, "Season " + shows[selectShow.value].Seasons[season], season);
                     }
 
                     selectSeason.value = "";
-                }
-
-                async function movieSelected() {
-                    var visibility = (false) ? "none" : "unset"; // TODO: Check if movie
-                        
-                    selectSeason.style.display = visibility;
-                    selectEpisode1.style.display = visibility;
-                    selectEpisode2.style.display = visibility;
-                    eraseSeasonContainer.style.display = visibility;
                 }
 
                 // season changed, reload all episodes
