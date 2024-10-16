@@ -6,7 +6,6 @@ using System.Numerics;
 using System.Threading;
 using ConfusedPolarBear.Plugin.IntroSkipper.Configuration;
 using ConfusedPolarBear.Plugin.IntroSkipper.Data;
-using Jellyfin.Data.Enums;
 using Microsoft.Extensions.Logging;
 
 namespace ConfusedPolarBear.Plugin.IntroSkipper.Analyzers;
@@ -32,7 +31,7 @@ public class ChromaprintAnalyzer : IMediaFileAnalyzer
 
     private readonly ILogger<ChromaprintAnalyzer> _logger;
 
-    private MediaSegmentType _mediaSegmentType;
+    private AnalysisMode _analysisMode;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="ChromaprintAnalyzer"/> class.
@@ -52,7 +51,7 @@ public class ChromaprintAnalyzer : IMediaFileAnalyzer
     /// <inheritdoc />
     public IReadOnlyList<QueuedEpisode> AnalyzeMediaFiles(
         IReadOnlyList<QueuedEpisode> analysisQueue,
-        MediaSegmentType mode,
+        AnalysisMode mode,
         CancellationToken cancellationToken)
     {
         // All intros for this season.
@@ -67,7 +66,7 @@ public class ChromaprintAnalyzer : IMediaFileAnalyzer
         // Episodes that were analyzed and do not have an introduction.
         var episodesWithoutIntros = episodeAnalysisQueue.Where(e => !e.State.IsAnalyzed(mode)).ToList();
 
-        _mediaSegmentType = mode;
+        _analysisMode = mode;
 
         if (episodesWithoutIntros.Count == 0 || episodeAnalysisQueue.Count <= 1)
         {
@@ -97,7 +96,7 @@ public class ChromaprintAnalyzer : IMediaFileAnalyzer
                 fingerprintCache[episode.EpisodeId] = FFmpegWrapper.Fingerprint(episode, mode);
 
                 // Use reversed fingerprints for credits
-                if (_mediaSegmentType == MediaSegmentType.Outro)
+                if (_analysisMode == AnalysisMode.Credits)
                 {
                     Array.Reverse(fingerprintCache[episode.EpisodeId]);
                 }
@@ -140,7 +139,7 @@ public class ChromaprintAnalyzer : IMediaFileAnalyzer
                 // - the introduction exceeds the configured limit
                 if (
                     !remainingIntro.Valid ||
-                    (_mediaSegmentType == MediaSegmentType.Intro && remainingIntro.Duration > Plugin.Instance!.Configuration.MaximumIntroDuration))
+                    (_analysisMode == AnalysisMode.Introduction && remainingIntro.Duration > Plugin.Instance!.Configuration.MaximumIntroDuration))
                 {
                     continue;
                 }
@@ -154,7 +153,7 @@ public class ChromaprintAnalyzer : IMediaFileAnalyzer
                  * To fix this, the starting and ending times need to be switched, as they were previously reversed
                  * and subtracted from the episode duration to get the reported time range.
                  */
-                if (_mediaSegmentType == MediaSegmentType.Outro)
+                if (_analysisMode == AnalysisMode.Credits)
                 {
                     // Calculate new values for the current intro
                     double currentOriginalIntroStart = currentIntro.Start;
@@ -203,9 +202,9 @@ public class ChromaprintAnalyzer : IMediaFileAnalyzer
 
         // Adjust all introduction times.
         var analyzerHelper = new AnalyzerHelper(_logger);
-        seasonIntros = analyzerHelper.AdjustIntroTimes(analysisQueue, seasonIntros, _mediaSegmentType);
+        seasonIntros = analyzerHelper.AdjustIntroTimes(analysisQueue, seasonIntros, _analysisMode);
 
-        Plugin.Instance!.UpdateTimestamps(seasonIntros, _mediaSegmentType);
+        Plugin.Instance!.UpdateTimestamps(seasonIntros, _analysisMode);
 
         return episodeAnalysisQueue;
     }
@@ -297,8 +296,8 @@ public class ChromaprintAnalyzer : IMediaFileAnalyzer
         var rhsRanges = new List<TimeRange>();
 
         // Generate inverted indexes for the left and right episodes.
-        var lhsIndex = FFmpegWrapper.CreateInvertedIndex(lhsId, lhsPoints, _mediaSegmentType);
-        var rhsIndex = FFmpegWrapper.CreateInvertedIndex(rhsId, rhsPoints, _mediaSegmentType);
+        var lhsIndex = FFmpegWrapper.CreateInvertedIndex(lhsId, lhsPoints, _analysisMode);
+        var rhsIndex = FFmpegWrapper.CreateInvertedIndex(rhsId, rhsPoints, _analysisMode);
         var indexShifts = new HashSet<int>();
 
         // For all audio points in the left episode, check if the right episode has a point which matches exactly.

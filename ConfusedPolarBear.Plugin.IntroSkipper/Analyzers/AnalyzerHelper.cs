@@ -3,7 +3,6 @@ using System.Collections.Generic;
 using System.Linq;
 using ConfusedPolarBear.Plugin.IntroSkipper.Configuration;
 using ConfusedPolarBear.Plugin.IntroSkipper.Data;
-using Jellyfin.Data.Enums;
 using Microsoft.Extensions.Logging;
 
 namespace ConfusedPolarBear.Plugin.IntroSkipper.Analyzers
@@ -37,7 +36,7 @@ namespace ConfusedPolarBear.Plugin.IntroSkipper.Analyzers
         public Dictionary<Guid, Segment> AdjustIntroTimes(
             IReadOnlyList<QueuedEpisode> episodes,
             IReadOnlyDictionary<Guid, Segment> originalIntros,
-            MediaSegmentType mode)
+            AnalysisMode mode)
         {
             return episodes
                 .Where(episode => originalIntros.TryGetValue(episode.EpisodeId, out var _))
@@ -46,7 +45,7 @@ namespace ConfusedPolarBear.Plugin.IntroSkipper.Analyzers
                     episode => AdjustIntroForEpisode(episode, originalIntros[episode.EpisodeId], mode));
         }
 
-        private Segment AdjustIntroForEpisode(QueuedEpisode episode, Segment originalIntro, MediaSegmentType mode)
+        private Segment AdjustIntroForEpisode(QueuedEpisode episode, Segment originalIntro, AnalysisMode mode)
         {
             _logger.LogTrace("{Name} original intro: {Start} - {End}", episode.Name, originalIntro.Start, originalIntro.End);
 
@@ -54,7 +53,7 @@ namespace ConfusedPolarBear.Plugin.IntroSkipper.Analyzers
             var originalIntroStart = new TimeRange(Math.Max(0, (int)originalIntro.Start - 5), (int)originalIntro.Start + 10);
             var originalIntroEnd = new TimeRange((int)originalIntro.End - 10, Math.Min(episode.Duration, (int)originalIntro.End + 5));
 
-            if (!AdjustIntroBasedOnChapters(episode, adjustedIntro, originalIntroStart, originalIntroEnd) && mode == MediaSegmentType.Intro)
+            if (!AdjustIntroBasedOnChapters(episode, adjustedIntro, originalIntroStart, originalIntroEnd) && mode == AnalysisMode.Introduction)
             {
                 AdjustIntroBasedOnSilence(episode, adjustedIntro, originalIntroEnd);
             }

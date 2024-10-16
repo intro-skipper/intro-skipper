@@ -1,8 +1,10 @@
 using System;
 using System.Collections.Generic;
+using System.Collections.ObjectModel;
 using System.Threading;
 using System.Threading.Tasks;
-using Jellyfin.Data.Enums;
+using ConfusedPolarBear.Plugin.IntroSkipper.Data;
+using ConfusedPolarBear.Plugin.IntroSkipper.Services;
 using MediaBrowser.Controller.Library;
 using MediaBrowser.Model.Tasks;
 using Microsoft.Extensions.Logging;
@@ -13,22 +15,29 @@ namespace ConfusedPolarBear.Plugin.IntroSkipper.ScheduledTasks;
 /// Analyze all television episodes for credits.
 /// TODO: analyze all media files.
 /// </summary>
-/// <remarks>
-/// Initializes a new instance of the <see cref="DetectCreditsTask"/> class.
-/// </remarks>
-/// <param name="loggerFactory">Logger factory.</param>
-/// <param name="libraryManager">Library manager.</param>
-/// <param name="logger">Logger.</param>
-public class DetectCreditsTask(
-    ILogger<DetectCreditsTask> logger,
-    ILoggerFactory loggerFactory,
-    ILibraryManager libraryManager) : IScheduledTask
+public class DetectCreditsTask : IScheduledTask
 {
-    private readonly ILogger<DetectCreditsTask> _logger = logger;
+    private readonly ILogger<DetectCreditsTask> _logger;
 
-    private readonly ILoggerFactory _loggerFactory = loggerFactory;
+    private readonly ILoggerFactory _loggerFactory;
 
-    private readonly ILibraryManager _libraryManager = libraryManager;
+    private readonly ILibraryManager _libraryManager;
+
+    /// <summary>
+    /// Initializes a new instance of the <see cref="DetectCreditsTask"/> class.
+    /// </summary>
+    /// <param name="loggerFactory">Logger factory.</param>
+    /// <param name="libraryManager">Library manager.</param>
+    /// <param name="logger">Logger.</param>
+    public DetectCreditsTask(
+        ILogger<DetectCreditsTask> logger,
+        ILoggerFactory loggerFactory,
+        ILibraryManager libraryManager)
+    {
+        _logger = logger;
+        _loggerFactory = loggerFactory;
+        _libraryManager = libraryManager;
+    }
 
     /// <summary>
     /// Gets the task name.
@@ -74,7 +83,7 @@ public class DetectCreditsTask(
         {
             _logger.LogInformation("Scheduled Task is starting");
 
-            var modes = new List<MediaSegmentType> { MediaSegmentType.Outro };
+            var modes = new List<AnalysisMode> { AnalysisMode.Credits };
 
             var baseCreditAnalyzer = new BaseItemAnalyzerTask(
                 modes,

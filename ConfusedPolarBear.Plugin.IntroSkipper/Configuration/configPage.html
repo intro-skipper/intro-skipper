@@ -1052,16 +1052,16 @@
                     // Update the editor for the first and second episodes
                     timestampEditor.style.display = "unset";
                     document.querySelector("#editLeftEpisodeTitle").textContent = leftEpisode.text;
-                    document.querySelector("#editLeftIntroEpisodeStartEdit").value = leftEpisodeJson.Intro.Start;
-                    document.querySelector("#editLeftIntroEpisodeEndEdit").value = leftEpisodeJson.Intro.End;
-                    document.querySelector("#editLeftCreditEpisodeStartEdit").value = leftEpisodeJson.Outro.Start;
-                    document.querySelector("#editLeftCreditEpisodeEndEdit").value = leftEpisodeJson.Outro.End;
+                    document.querySelector("#editLeftIntroEpisodeStartEdit").value = leftEpisodeJson.Introduction.Start;
+                    document.querySelector("#editLeftIntroEpisodeEndEdit").value = leftEpisodeJson.Introduction.End;
+                    document.querySelector("#editLeftCreditEpisodeStartEdit").value = leftEpisodeJson.Credits.Start;
+                    document.querySelector("#editLeftCreditEpisodeEndEdit").value = leftEpisodeJson.Credits.End;
 
                     document.querySelector("#editRightEpisodeTitle").textContent = rightEpisode.text;
-                    document.querySelector("#editRightIntroEpisodeStartEdit").value = rightEpisodeJson.Intro.Start;
-                    document.querySelector("#editRightIntroEpisodeEndEdit").value = rightEpisodeJson.Intro.End;
-                    document.querySelector("#editRightCreditEpisodeStartEdit").value = rightEpisodeJson.Outro.Start;
-                    document.querySelector("#editRightCreditEpisodeEndEdit").value = rightEpisodeJson.Outro.End;
+                    document.querySelector("#editRightIntroEpisodeStartEdit").value = rightEpisodeJson.Introduction.Start;
+                    document.querySelector("#editRightIntroEpisodeEndEdit").value = rightEpisodeJson.Introduction.End;
+                    document.querySelector("#editRightCreditEpisodeStartEdit").value = rightEpisodeJson.Credits.Start;
+                    document.querySelector("#editRightCreditEpisodeEndEdit").value = rightEpisodeJson.Credits.End;
 
                     // Update display inputs
                     const inputs = document.querySelectorAll('#timestampEditor input[type="number"]');
@@ -1276,11 +1276,11 @@
                 selectEpisode1.addEventListener("change", episodeChanged);
                 selectEpisode2.addEventListener("change", episodeChanged);
                 btnEraseIntroTimestamps.addEventListener("click", (e) => {
-                    eraseTimestamps("Intro");
+                    eraseTimestamps("Introduction");
                     e.preventDefault();
                 });
                 btnEraseCreditTimestamps.addEventListener("click", (e) => {
-                    eraseTimestamps("Outro");
+                    eraseTimestamps("Credits");
                     e.preventDefault();
                 });
                 btnSeasonEraseTimestamps.addEventListener("click", () => {
@@ -1334,11 +1334,11 @@
 
                     const lhsId = selectEpisode1.options[selectEpisode1.selectedIndex].value;
                     const newLhs = {
-                        Intro: {
+                        Introduction: {
                             Start: getEditValue("editLeftIntroEpisodeStartEdit"),
                             End: getEditValue("editLeftIntroEpisodeEndEdit"),
                         },
-                        Outro: {
+                        Credits: {
                             Start: getEditValue("editLeftCreditEpisodeStartEdit"),
                             End: getEditValue("editLeftCreditEpisodeEndEdit"),
                         },
@@ -1346,11 +1346,11 @@
 
                     const rhsId = selectEpisode2.options[selectEpisode2.selectedIndex].value;
                     const newRhs = {
-                        Intro: {
+                        Introduction: {
                             Start: getEditValue("editRightIntroEpisodeStartEdit"),
                             End: getEditValue("editRightIntroEpisodeEndEdit"),
                         },
-                        Outro: {
+                        Credits: {
                             Start: getEditValue("editRightCreditEpisodeStartEdit"),
                             End: getEditValue("editRightCreditEpisodeEndEdit"),
                         },

@@ -288,46 +288,53 @@ namespace ConfusedPolarBear.Plugin.IntroSkipper.Manager
         /// <param name="candidates">Queued media items.</param>
         /// <param name="modes">Analysis mode.</param>
         /// <returns>Media items that have been verified to exist in Jellyfin and in storage.</returns>
-        public (IReadOnlyList<QueuedEpisode> VerifiedItems, IReadOnlyCollection<MediaSegmentType> RequiredModes)
-            VerifyQueue(IReadOnlyList<QueuedEpisode> candidates, IReadOnlyCollection<MediaSegmentType> modes)
+        public (IReadOnlyList<QueuedEpisode> VerifiedItems, IReadOnlyCollection<AnalysisMode> RequiredModes)
+            VerifyQueue(IReadOnlyList<QueuedEpisode> candidates, IReadOnlyCollection<AnalysisMode> modes)
         {
             var verified = new List<QueuedEpisode>();
-            var reqModes = new HashSet<MediaSegmentType>(modes);
+            var reqModes = new HashSet<AnalysisMode>();
 
             foreach (var candidate in candidates)
             {
                 try
                 {
-                    if (!File.Exists(Plugin.Instance!.GetItemPath(candidate.EpisodeId)))
+                    var path = Plugin.Instance!.GetItemPath(candidate.EpisodeId);
+
+                    if (!File.Exists(path))
                     {
                         continue;
                     }
 
                     verified.Add(candidate);
-                    reqModes.ExceptWith(candidate.State.GetAnalyzedModes());
-                    reqModes.ExceptWith(candidate.State.GetBlacklistedModes());
 
-                    if (reqModes.Remove(MediaSegmentType.Intro) && Plugin.Instance.Intros.ContainsKey(candidate.EpisodeId))
+                    foreach (var mode in modes)
                     {
-                        candidate.State.SetAnalyzed(MediaSegmentType.Intro, true);
-                    }
-                    else
-                    {
-                        reqModes.Add(MediaSegmentType.Intro);
-                    }
+                        if (candidate.State.IsAnalyzed(mode) || candidate.State.IsBlacklisted(mode))
+                        {
+                            continue;
+                        }
 
-                    if (reqModes.Remove(MediaSegmentType.Outro) && Plugin.Instance.Credits.ContainsKey(candidate.EpisodeId))
-                    {
-                        candidate.State.SetAnalyzed(MediaSegmentType.Outro, true);
-                    }
-                    else
-                    {
-                        reqModes.Add(MediaSegmentType.Outro);
+                        bool isAnalyzed = mode == AnalysisMode.Introduction
+                            ? Plugin.Instance!.Intros.ContainsKey(candidate.EpisodeId)
+                            : Plugin.Instance!.Credits.ContainsKey(candidate.EpisodeId);
+
+                        if (isAnalyzed)
+                        {
+                            candidate.State.SetAnalyzed(mode, true);
+                        }
+                        else
+                        {
+                            reqModes.Add(mode);
+                        }
                     }
                 }
                 catch (Exception ex)
                 {
-                    _logger.LogDebug("Skipping analysis of {Name} ({Id}): {Exception}", candidate.Name, candidate.EpisodeId, ex);
+                    _logger.LogDebug(
+                        "Skipping analysis of {Name} ({Id}): {Exception}",
+                        candidate.Name,
+                        candidate.EpisodeId,
+                        ex);
                 }
             }
 

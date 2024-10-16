@@ -1,12 +1,12 @@
 using System;
 using System.Collections.Generic;
+using System.Collections.ObjectModel;
 using System.Globalization;
 using System.Linq;
 using System.Text.RegularExpressions;
 using System.Threading;
 using ConfusedPolarBear.Plugin.IntroSkipper.Configuration;
 using ConfusedPolarBear.Plugin.IntroSkipper.Data;
-using Jellyfin.Data.Enums;
 using MediaBrowser.Model.Entities;
 using Microsoft.Extensions.Logging;
 
@@ -26,7 +26,7 @@ public class ChapterAnalyzer(ILogger<ChapterAnalyzer> logger) : IMediaFileAnalyz
     /// <inheritdoc />
     public IReadOnlyList<QueuedEpisode> AnalyzeMediaFiles(
         IReadOnlyList<QueuedEpisode> analysisQueue,
-        MediaSegmentType mode,
+        AnalysisMode mode,
         CancellationToken cancellationToken)
     {
         var skippableRanges = new Dictionary<Guid, Segment>();
@@ -34,7 +34,7 @@ public class ChapterAnalyzer(ILogger<ChapterAnalyzer> logger) : IMediaFileAnalyz
         // Episode analysis queue.
         var episodeAnalysisQueue = new List<QueuedEpisode>(analysisQueue);
 
-        var expression = mode == MediaSegmentType.Intro ?
+        var expression = mode == AnalysisMode.Introduction ?
             Plugin.Instance!.Configuration.ChapterAnalyzerIntroductionPattern :
             Plugin.Instance!.Configuration.ChapterAnalyzerEndCreditsPattern;
 
@@ -83,7 +83,7 @@ public class ChapterAnalyzer(ILogger<ChapterAnalyzer> logger) : IMediaFileAnalyz
         QueuedEpisode episode,
         IReadOnlyList<ChapterInfo> chapters,
         string expression,
-        MediaSegmentType mode)
+        AnalysisMode mode)
     {
         var count = chapters.Count;
         if (count == 0)
@@ -92,7 +92,7 @@ public class ChapterAnalyzer(ILogger<ChapterAnalyzer> logger) : IMediaFileAnalyz
         }
 
         var config = Plugin.Instance?.Configuration ?? new PluginConfiguration();
-        var reversed = mode != MediaSegmentType.Intro;
+        var reversed = mode != AnalysisMode.Introduction;
         var (minDuration, maxDuration) = reversed
             ? (config.MinimumCreditsDuration, config.MaximumCreditsDuration)
             : (config.MinimumIntroDuration, config.MaximumIntroDuration);

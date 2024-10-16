@@ -4,7 +4,6 @@ using System.Globalization;
 using System.Linq;
 using System.Net.Mime;
 using ConfusedPolarBear.Plugin.IntroSkipper.Data;
-using Jellyfin.Data.Enums;
 using MediaBrowser.Common.Api;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -116,8 +115,8 @@ public class VisualizationController(ILogger<VisualizationController> logger) : 
 
         return new IgnoreListItem(Guid.Empty)
         {
-            IgnoreIntro = seasonIds.All(seasonId => Plugin.Instance!.IsIgnored(seasonId, MediaSegmentType.Intro)),
-            IgnoreCredits = seasonIds.All(seasonId => Plugin.Instance!.IsIgnored(seasonId, MediaSegmentType.Outro))
+            IgnoreIntro = seasonIds.All(seasonId => Plugin.Instance!.IsIgnored(seasonId, AnalysisMode.Introduction)),
+            IgnoreCredits = seasonIds.All(seasonId => Plugin.Instance!.IsIgnored(seasonId, AnalysisMode.Credits))
         };
     }
 
@@ -160,7 +159,7 @@ public class VisualizationController(ILogger<VisualizationController> logger) : 
             {
                 if (needle.EpisodeId == id)
                 {
-                    return FFmpegWrapper.Fingerprint(needle, MediaSegmentType.Intro);
+                    return FFmpegWrapper.Fingerprint(needle, AnalysisMode.Introduction);
                 }
             }
         }
@@ -203,7 +202,7 @@ public class VisualizationController(ILogger<VisualizationController> logger) : 
             }
         }
 
-        Plugin.Instance!.SaveTimestamps(MediaSegmentType.Intro | MediaSegmentType.Outro);
+        Plugin.Instance!.SaveTimestamps(AnalysisMode.Introduction | AnalysisMode.Credits);
 
         return NoContent();
     }
@@ -283,7 +282,7 @@ public class VisualizationController(ILogger<VisualizationController> logger) : 
         {
             var tr = new TimeRange(timestamps.IntroStart, timestamps.IntroEnd);
             Plugin.Instance!.Intros[id] = new Segment(id, tr);
-            Plugin.Instance.SaveTimestamps(MediaSegmentType.Intro);
+            Plugin.Instance.SaveTimestamps(AnalysisMode.Introduction);
         }
 
         return NoContent();
