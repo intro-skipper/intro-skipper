@@ -913,6 +913,15 @@
                     selectSeason.value = "";
                 }
 
+                async function movieSelected() {
+                    var visibility = (false) ? "none" : "unset"; // TODO: Check if movie
+                        
+                    selectSeason.style.display = visibility;
+                    selectEpisode1.style.display = visibility;
+                    selectEpisode2.style.display = visibility;
+                    eraseSeasonContainer.style.display = visibility;
+                }
+
                 // season changed, reload all episodes
                 async function seasonChanged() {
                     const seasonData = encodeURI(selectShow.value) + "/" + encodeURI(selectSeason.value);
