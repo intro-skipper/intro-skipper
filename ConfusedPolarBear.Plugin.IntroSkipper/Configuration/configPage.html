@@ -58,12 +58,7 @@
                                     <span>Analyze Movies</span>
                                 </label>
 
-                                <div class="fieldDescription">
-                                    If checked, movies will be included in analysis.
-                                    <br />
-                                    <br />
-                                    Note: Shows containing both a specials and extra folder will identify extras as season 0 and ignore specials, regardless of this setting.
-                                </div>
+                                <div class="fieldDescription">If checked, movies will be included in analysis.</div>
                             </div>
 
                             <div class="checkboxContainer checkboxContainer-withDescription">
@@ -412,10 +407,12 @@
                                 <summary>Manage Timestamps & Fingerprints</summary>
 
                                 <br />
-                                <label class="inputLabel" for="troubleshooterShow">Select TV Series to manage</label>
+                                <label class="inputLabel" for="troubleshooterShow">Select TV series / movie to manage</label>
                                 <select is="emby-select" id="troubleshooterShow" class="emby-select-withcolor emby-select"></select>
-                                <label class="inputLabel" for="troubleshooterSeason">Select Season to manage</label>
-                                <select is="emby-select" id="troubleshooterSeason" class="emby-select-withcolor emby-select"></select>
+                                <div id="seasonSelection">
+                                    <label class="inputLabel" for="troubleshooterSeason">Select season to manage</label>
+                                    <select is="emby-select" id="troubleshooterSeason" class="emby-select-withcolor emby-select"></select>
+                                </div>
                                 <br />
 
                                 <div id="ignorelistSection" style="display: none">
@@ -438,7 +435,7 @@
                                     </div>
                                     <br />
 
-                                    <button id="saveIgnoreListSeries" class="raised button-submit block emby-button">Apply to series</button>
+                                    <button id="saveIgnoreListSeries" class="raised button-submit block emby-button">Apply to series / movie</button>
                                     <button id="saveIgnoreListSeason" class="raised button-submit block emby-button" style="display: none">Apply to season</button>
                                 </div>
                                 <br />
@@ -481,33 +478,35 @@
                                         </div>
                                     </div>
                                     <br />
-                                    <h4 style="margin: 0" id="editRightEpisodeTitle"></h4>
-                                    <br />
-                                    <div class="inlineForm">
-                                        <div class="inputContainer">
-                                            <label class="inputLabel inputLabelUnfocused" for="introStart">Intro Start</label>
-                                            <input type="text" id="editRightIntroEpisodeStartDisplay" class="emby-input custom-time-input" readonly />
-                                            <input type="number" id="editRightIntroEpisodeStartEdit" class="emby-input custom-time-input" style="display: none" step="any" min="0" />
+                                    <div id="rightEpisodeEditor">
+                                        <h4 style="margin: 0" id="editRightEpisodeTitle"></h4>
+                                        <br />
+                                        <div class="inlineForm">
+                                            <div class="inputContainer">
+                                                <label class="inputLabel inputLabelUnfocused" for="introStart">Intro Start</label>
+                                                <input type="text" id="editRightIntroEpisodeStartDisplay" class="emby-input custom-time-input" readonly />
+                                                <input type="number" id="editRightIntroEpisodeStartEdit" class="emby-input custom-time-input" style="display: none" step="any" min="0" />
+                                            </div>
+                                            <div class="inputContainer">
+                                                <label class="inputLabel inputLabelUnfocused" for="introEnd">Intro End</label>
+                                                <input type="text" id="editRightIntroEpisodeEndDisplay" class="emby-input custom-time-input" readonly />
+                                                <input type="number" id="editRightIntroEpisodeEndEdit" class="emby-input custom-time-input" style="display: none" step="any" min="0" />
+                                            </div>
                                         </div>
-                                        <div class="inputContainer">
-                                            <label class="inputLabel inputLabelUnfocused" for="introEnd">Intro End</label>
-                                            <input type="text" id="editRightIntroEpisodeEndDisplay" class="emby-input custom-time-input" readonly />
-                                            <input type="number" id="editRightIntroEpisodeEndEdit" class="emby-input custom-time-input" style="display: none" step="any" min="0" />
+                                        <div class="inlineForm">
+                                            <div class="inputContainer">
+                                                <label class="inputLabel inputLabelUnfocused" for="creditsStart">Credits Start</label>
+                                                <input type="text" id="editRightCreditEpisodeStartDisplay" class="emby-input custom-time-input" readonly />
+                                                <input type="number" id="editRightCreditEpisodeStartEdit" class="emby-input custom-time-input" style="display: none" step="any" min="0" />
+                                            </div>
+                                            <div class="inputContainer">
+                                                <label class="inputLabel inputLabelUnfocused" for="creditsEnd">Credits End</label>
+                                                <input type="text" id="editRightCreditEpisodeEndDisplay" class="emby-input custom-time-input" readonly />
+                                                <input type="number" id="editRightCreditEpisodeEndEdit" class="emby-input custom-time-input" style="display: none" step="any" min="0" />
+                                            </div>
                                         </div>
+                                        <br />
                                     </div>
-                                    <div class="inlineForm">
-                                        <div class="inputContainer">
-                                            <label class="inputLabel inputLabelUnfocused" for="creditsStart">Credits Start</label>
-                                            <input type="text" id="editRightCreditEpisodeStartDisplay" class="emby-input custom-time-input" readonly />
-                                            <input type="number" id="editRightCreditEpisodeStartEdit" class="emby-input custom-time-input" style="display: none" step="any" min="0" />
-                                        </div>
-                                        <div class="inputContainer">
-                                            <label class="inputLabel inputLabelUnfocused" for="creditsEnd">Credits End</label>
-                                            <input type="text" id="editRightCreditEpisodeEndDisplay" class="emby-input custom-time-input" readonly />
-                                            <input type="number" id="editRightCreditEpisodeEndEdit" class="emby-input custom-time-input" style="display: none" step="any" min="0" />
-                                        </div>
-                                    </div>
-                                    <br />
                                     <button is="emby-select" id="btnUpdateTimestamps" class="raised button-submit block emby-button" type="button">Update timestamps</button>
                                     <br />
                                 </div>
@@ -518,51 +517,56 @@
                                     <br />
                                 </div>
 
-                                <h3>Fingerprint Visualizer</h3>
-                                <p>
-                                    Interactively compare the audio fingerprints of two episodes. <br />
-                                    The blue and red bar to the right of the fingerprint diff turns blue when the corresponding fingerprint points are at least 80% similar.
-                                </p>
-                                <table>
-                                    <thead>
-                                        <tr>
-                                            <td style="min-width: 100px; font-weight: bold">Key</td>
-                                            <td style="font-weight: bold">Function</td>
-                                        </tr>
-                                    </thead>
-                                    <tbody>
-                                        <tr>
-                                            <td>Up arrow</td>
-                                            <td>Shift the left episode up by 0.1238 seconds. Holding control will shift the episode by 10 seconds.</td>
-                                        </tr>
-                                        <tr>
-                                            <td>Down arrow</td>
-                                            <td>Shift the left episode down by 0.1238 seconds. Holding control will shift the episode by 10 seconds.</td>
-                                        </tr>
-                                        <tr>
-                                            <td>Right arrow</td>
-                                            <td>Advance to the next pair of episodes.</td>
-                                        </tr>
-                                        <tr>
-                                            <td>Left arrow</td>
-                                            <td>Go back to the previous pair of episodes.</td>
-                                        </tr>
-                                    </tbody>
-                                </table>
-                                <br />
+                                <div id="fingerprintVisualizer">
 
-                                <span>Shift amount:</span>
-                                <input type="number" min="-3000" max="3000" value="0" id="offset" />
-                                <br />
-                                <span id="suggestedShifts">Suggested shifts:</span>
-                                <br />
-                                <br />
+                                    <h3>Fingerprint Visualizer</h3>
+                                    <p>
+                                        Interactively compare the audio fingerprints of two episodes. <br />
+                                        The blue and red bar to the right of the fingerprint diff turns blue when the corresponding fingerprint points are at least 80% similar.
+                                    </p>
+                                    <table>
+                                        <thead>
+                                            <tr>
+                                                <td style="min-width: 100px; font-weight: bold">Key</td>
+                                                <td style="font-weight: bold">Function</td>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            <tr>
+                                                <td>Up arrow</td>
+                                                <td>Shift the left episode up by 0.1238 seconds. Holding control will shift the episode by 10 seconds.</td>
+                                            </tr>
+                                            <tr>
+                                                <td>Down arrow</td>
+                                                <td>Shift the left episode down by 0.1238 seconds. Holding control will shift the episode by 10 seconds.</td>
+                                            </tr>
+                                            <tr>
+                                                <td>Right arrow</td>
+                                                <td>Advance to the next pair of episodes.</td>
+                                            </tr>
+                                            <tr>
+                                                <td>Left arrow</td>
+                                                <td>Go back to the previous pair of episodes.</td>
+                                            </tr>
+                                        </tbody>
+                                    </table>
+                                    <br />
 
-                                <canvas id="troubleshooter" style="display: none"></canvas>
-                                <span id="timestampContainer">
-                                    <span id="timestamps"></span> <br />
-                                    <span id="intros"></span>
-                                </span>
+                                    <span>Shift amount:</span>
+                                    <input type="number" min="-3000" max="3000" value="0" id="offset" />
+                                    <br />
+                                    <span id="suggestedShifts">
+                                        <span>Suggested shifts:</span>
+                                        <br />
+                                        <br />
+                                    </span>
+
+                                    <canvas id="troubleshooter" style="display: none"></canvas>
+                                    <span id="timestampContainer">
+                                        <span id="timestamps"></span> <br />
+                                        <span id="intros"></span>
+                                    </span>
+                                </div>
                                 <br />
                                 <br />
 
@@ -659,6 +663,7 @@
                 var saveIgnoreListSeriesButton = ignorelistSection.querySelector("button#saveIgnoreListSeries");
                 var canvas = document.querySelector("canvas#troubleshooter");
                 var selectShow = document.querySelector("select#troubleshooterShow");
+                var seasonSelection = document.getElementById("seasonSelection");
                 var selectSeason = document.querySelector("select#troubleshooterSeason");
                 var episodeSelection = document.getElementById("episodeSelection");
                 var selectEpisode1 = document.querySelector("select#troubleshooterEpisode1");
@@ -669,8 +674,10 @@
                 var eraseSeasonContainer = document.getElementById("eraseSeasonContainer");
                 var timestampError = document.querySelector("textarea#timestampError");
                 var timestampEditor = document.querySelector("#timestampEditor");
+                var rightEpisodeEditor = document.getElementById("rightEpisodeEditor");
                 var btnUpdateTimestamps = document.querySelector("button#btnUpdateTimestamps");
                 var timeContainer = document.querySelector("span#timestampContainer");
+                var fingerprintVisualizer = document.getElementById("fingerprintVisualizer");
 
                 var windowHashInterval = 0;
 
@@ -906,19 +913,12 @@
                     ta.value = bundleText;
                 }
 
-                async function movieSelected() {
-                    var visibility = (false) ? "none" : "unset"; // TODO: Check if movie
-                    
-                    selectSeason.style.display = visibility;
-                    episodeSelection.style.display = visibility;
-                    
-                    return visibility;
-                }
-
                 // show changed, populate seasons
                 async function showChanged() {
+                    seasonSelection.style.display = "unset";
                     clearSelect(selectSeason);
                     eraseSeasonContainer.style.display = "none";
+                    episodeSelection.style.display = "unset";
                     clearSelect(selectEpisode1);
                     clearSelect(selectEpisode2);
 
@@ -931,8 +931,8 @@
                     saveIgnoreListSeasonButton.style.display = "none";
                     Dashboard.hideLoadingMsg();
 
-                    if (movieSelected()) {
-                        // TODO: load movie editor
+                    if (shows[selectShow.value].IsMovie) {
+                        movieLoaded();
                         return;
                     }
 
@@ -986,6 +986,7 @@
                     Dashboard.showLoadingMsg();
 
                     timestampError.value = "";
+                    fingerprintVisualizer.style.display = "unset";
                     canvas.style.display = "none";
 
                     lhs = await getJson("Intros/Episode/" + selectEpisode1.value + "/Chromaprint");
@@ -994,6 +995,8 @@
                     } else if (lhs === null) {
                         timestampError.value += "Error: " + selectEpisode1.value + " fingerprints missing!\n";
                     }
+
+                    rightEpisodeEditor.style.display = "unset";
 
                     rhs = await getJson("Intros/Episode/" + selectEpisode2.value + "/Chromaprint");
                     if (rhs === undefined) {
@@ -1015,6 +1018,56 @@
                     renderTroubleshooter();
                     findExactMatches();
                     updateTimestampEditor();
+                }
+
+                async function movieLoaded() {
+
+                    Dashboard.showLoadingMsg();
+
+                    seasonSelection.style.display = "none";
+                    episodeSelection.style.display = "none";
+
+                    timestampError.value = "";
+                    fingerprintVisualizer.style.display = "none";
+
+                    lhs = await getJson("Intros/Episode/" + selectShow.value + "/Chromaprint");
+                    if (lhs === undefined) {
+                        timestampError.value += "Error: " + selectShow.value + " fingerprints failed!\n";
+                    } else if (lhs === null) {
+                        timestampError.value += "Error: " + selectShow.value + " fingerprints missing!\n";
+                    }
+
+                    rightEpisodeEditor.style.display = "none";
+
+                    if (timestampError.value == "") {
+                        timestampErrorDiv.style.display = "none";
+                    } else {
+                        timestampErrorDiv.style.display = "unset";
+                    }
+
+                    Dashboard.hideLoadingMsg();
+
+                    txtOffset.value = "0";
+
+                    // Try to get the timestamps of each intro, falling back a default value of zero if no intro was found
+                    const leftEpisodeJson = await getJson("Episode/" + selectShow.value + "/Timestamps");
+
+                    // Update the editor for the first and second episodes
+                    timestampEditor.style.display = "unset";
+                    document.querySelector("#editLeftEpisodeTitle").textContent = selectShow.value;
+                    document.querySelector("#editLeftIntroEpisodeStartEdit").value = leftEpisodeJson.Introduction.Start;
+                    document.querySelector("#editLeftIntroEpisodeEndEdit").value = leftEpisodeJson.Introduction.End;
+                    document.querySelector("#editLeftCreditEpisodeStartEdit").value = leftEpisodeJson.Credits.Start;
+                    document.querySelector("#editLeftCreditEpisodeEndEdit").value = leftEpisodeJson.Credits.End
+
+                    // Update display inputs
+                    const inputs = document.querySelectorAll('#timestampEditor input[type="number"]');
+                    inputs.forEach((input) => {
+                        const displayInput = document.getElementById(input.id.replace("Edit", "Display"));
+                        displayInput.value = formatTime(parseFloat(input.value) || 0);
+                    });
+
+                    setupTimeInputs();
                 }
 
                 function setupTimeInputs() {
