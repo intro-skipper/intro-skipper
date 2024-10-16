@@ -1,7 +1,6 @@
 const introSkipper = {
     originalFetch: window.fetch.bind(window),
     originalXHROpen: XMLHttpRequest.prototype.open,
-    originalXHRSend: XMLHttpRequest.prototype.send,
     d: msg => console.debug("[intro skipper] ", msg),
     setup() {
         const self = this;
@@ -11,9 +10,6 @@ const introSkipper = {
         window.fetch = this.fetchWrapper.bind(this);
         XMLHttpRequest.prototype.open = function(...args) {
             self.xhrOpenWrapper(this, ...args);
-        };
-        XMLHttpRequest.prototype.send = function(...args) {
-            self.xhrSendWrapper(this, ...args);
         };
         document.addEventListener("viewshow", this.viewShow.bind(this));
         this.videoPositionChanged = this.videoPositionChanged.bind(this);
@@ -39,22 +35,8 @@ const introSkipper = {
         return response;
     },
     xhrOpenWrapper(xhr, method, url, ...rest) {
-        this.d(`XHR Open: ${method} ${url}`);
-        xhr._introSkipperUrl = url;
+        url.includes("/PlaybackInfo") && this.processPlaybackInfo(url);
         return this.originalXHROpen.apply(xhr, [method, url, ...rest]);
-    },
-    xhrSendWrapper(xhr, body) {
-        const originalOnReadyStateChange = xhr.onreadystatechange;
-        
-        xhr.onreadystatechange = () => {
-            if (xhr.readyState === 4 && xhr._introSkipperUrl.includes("/PlaybackInfo")) {
-                this.processPlaybackInfo(xhr._introSkipperUrl);
-            }
-            if (originalOnReadyStateChange) {
-                originalOnReadyStateChange.apply(xhr, arguments);
-            }
-        };
-        return this.originalXHRSend.apply(xhr, [body]);
     },
     async processPlaybackInfo(url) {
         const id = this.extractId(url);
