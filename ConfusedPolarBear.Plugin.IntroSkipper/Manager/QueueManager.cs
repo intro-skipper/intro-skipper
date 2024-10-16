@@ -29,6 +29,7 @@ namespace ConfusedPolarBear.Plugin.IntroSkipper.Manager
         private double _analysisPercent;
         private List<string> _selectedLibraries = [];
         private bool _selectAllLibraries;
+        private bool _analyzeMovies;
 
         /// <summary>
         /// Gets all media items on the server.
@@ -91,6 +92,8 @@ namespace ConfusedPolarBear.Plugin.IntroSkipper.Manager
 
             _selectAllLibraries = config.SelectAllLibraries;
 
+            _analyzeMovies = config.AnalyzeMovies;
+
             if (!_selectAllLibraries)
             {
                 // Get the list of library names which have been selected for analysis, ignoring whitespace and empty entries.
@@ -146,7 +149,7 @@ namespace ConfusedPolarBear.Plugin.IntroSkipper.Manager
                 {
                     QueueEpisode(episode);
                 }
-                else if (item is Movie movie)
+                else if (_analyzeMovies && item is Movie movie)
                 {
                     QueueMovie(movie);
                 }

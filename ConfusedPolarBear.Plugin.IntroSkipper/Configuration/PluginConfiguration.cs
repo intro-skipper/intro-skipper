@@ -34,6 +34,11 @@ public class PluginConfiguration : BasePluginConfiguration
     public bool SelectAllLibraries { get; set; } = true;
 
     /// <summary>
+    /// Gets or sets a value indicating whether movies should be analyzed.
+    /// </summary>
+    public bool AnalyzeMovies { get; set; }
+
+    /// <summary>
     /// Gets or sets the list of client to auto skip for.
     /// </summary>
     public string ClientList { get; set; } = string.Empty;
