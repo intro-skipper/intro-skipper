@@ -1,12 +1,21 @@
 const introSkipper = {
     originalFetch: window.fetch.bind(window),
+    originalXHROpen: XMLHttpRequest.prototype.open,
+    originalXHRSend: XMLHttpRequest.prototype.send,
     d: msg => console.debug("[intro skipper] ", msg),
     setup() {
+        const self = this;
         this.initializeState();
         this.initializeObserver();
         this.currentOption = localStorage.getItem('introskipperOption') || 'Show Button';
-        document.addEventListener("viewshow", this.viewShow.bind(this));
         window.fetch = this.fetchWrapper.bind(this);
+        XMLHttpRequest.prototype.open = function(...args) {
+            self.xhrOpenWrapper(this, ...args);
+        };
+        XMLHttpRequest.prototype.send = function(...args) {
+            self.xhrSendWrapper(this, ...args);
+        };
+        document.addEventListener("viewshow", this.viewShow.bind(this));
         this.videoPositionChanged = this.videoPositionChanged.bind(this);
         this.handleEscapeKey = this.handleEscapeKey.bind(this);
         this.d("Registered hooks");
@@ -20,37 +29,64 @@ const introSkipper = {
             if (actionSheet && !actionSheet.querySelector(`[data-id="${'introskipperMenu'}"]`)) this.injectIntroSkipperOptions(actionSheet);
         });
     },
-    /** Wrapper around fetch() that retrieves skip segments for the currently playing item or metadata. */
-    async fetchWrapper(resource, options) {
-        const response = await this.originalFetch(resource, options);
-        this.processResource(resource);
+    fetchWrapper(resource, options) {
+        const response = this.originalFetch(resource, options);
+        const url = new URL(resource);
+        if (this.injectMetadata && url.pathname.includes("/MetadataEditor"))
+        {
+            this.processMetadata(url.pathname);
+        }
         return response;
     },
-    async processResource(resource) {
-        try {
-            const url = new URL(resource);
-            const pathname = url.pathname;
-            if (pathname.includes("/PlaybackInfo")) {
-                this.d(`Retrieving skip segments from URL ${pathname}`);
-                const pathArr = pathname.split("/");
-                const id = pathArr[pathArr.indexOf("Items") + 1] || pathArr[3];
+    xhrOpenWrapper(xhr, method, url, async, user, password) {
+        this.d(`XHR Open: ${method} ${url}`);
+        xhr._introSkipperUrl = url;
+        return this.originalXHROpen.apply(xhr, [method, url, async, user, password]);
+    },
+    xhrSendWrapper(xhr, body) {
+        const originalOnReadyStateChange = xhr.onreadystatechange;
+        
+        xhr.onreadystatechange = () => {
+            if (xhr.readyState === 4 && xhr._introSkipperUrl.includes("/PlaybackInfo")) {
+                this.processPlaybackInfo(xhr._introSkipperUrl);
+            }
+            if (originalOnReadyStateChange) {
+                originalOnReadyStateChange.apply(xhr, arguments);
+            }
+        };
+        return this.originalXHRSend.apply(xhr, [body]);
+    },
+    async processPlaybackInfo(url) {
+        const id = this.extractId(url);
+        if (id) {
+            try {
                 this.skipSegments = await this.secureFetch(`Episode/${id}/IntroSkipperSegments`);
-                this.d("Retrieved skip segments", this.skipSegments);
-            } else if (this.injectMetadata && pathname.includes("/MetadataEditor")) {
-                this.d(`Metadata editor detected, URL ${pathname}`);
-                const pathArr = pathname.split("/");
-                this.currentEpisodeId = pathArr[pathArr.indexOf("Items") + 1] || pathArr[3];
-                this.skipperData = await this.secureFetch(`Episode/${this.currentEpisodeId}/Timestamps`);
+            } catch (error) {
+                this.d(`Error fetching skip segments: ${error.message}`);
+            }
+        }
+    },
+    async processMetadata(url) {
+        const id = this.extractId(url);
+        if (id) {
+            try {
+                this.skipperData = await this.secureFetch(`Episode/${id}/Timestamps`);
                 if (this.skipperData) {
+                    this.currentEpisodeId = id;
                     requestAnimationFrame(() => {
                         const metadataFormFields = document.querySelector('.metadataFormFields');
                         metadataFormFields && this.injectSkipperFields(metadataFormFields);
                     });
                 }
+            } catch (e) {
+                console.error("Error processing", e);
             }
-        } catch (e) {
-            console.error("Error processing", resource, e);
         }
+    },
+    extractId(searchString) {
+        const startIndex = searchString.indexOf('Items/') + 6;
+        const endIndex = searchString.indexOf('/', startIndex);
+        return endIndex !== -1 ? searchString.substring(startIndex, endIndex) : searchString.substring(startIndex);
     },
     /**
      * Event handler that runs whenever the current view changes.
