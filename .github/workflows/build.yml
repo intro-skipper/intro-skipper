@@ -96,6 +96,6 @@ jobs:
         if: github.event_name != 'pull_request'
         run: |
           gh release delete '10.9/preview' --cleanup-tag --yes || true
-          gh release create '10.9/preview' "intro-skipper-${{ env.GIT_HASH }}.zip" --prerelease --title "intro-skipper-${{ env.GIT_HASH }}" --notes "This is a prerelease version."
+          gh release create '10.9/preview' "intro-skipper-${{ env.GIT_HASH }}.zip" --prerelease --title "intro-skipper-${{ env.GIT_HASH }}" --notes "This is a prerelease version." --target "10.9"
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

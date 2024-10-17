@@ -56,7 +56,7 @@ jobs:
 
       - name: Create new release with tag
         if: github.event_name != 'pull_request'
-        run: gh release create "10.9/v${{ env.NEW_FILE_VERSION }}" "intro-skipper-v${{ env.NEW_FILE_VERSION }}.zip" --title "v${{ env.NEW_FILE_VERSION }}" --latest --generate-notes
+        run: gh release create "10.9/v${{ env.NEW_FILE_VERSION }}" "intro-skipper-v${{ env.NEW_FILE_VERSION }}.zip" --title "v${{ env.NEW_FILE_VERSION }}" --latest --target "10.9" --generate-notes
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
