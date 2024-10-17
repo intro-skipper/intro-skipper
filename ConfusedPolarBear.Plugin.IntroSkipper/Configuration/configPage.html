@@ -424,8 +424,8 @@
                                     </div>
                                     <br />
 
-                                    <button id="saveIgnoreListSeries" class="raised button-submit block emby-button">Apply to series</button>
-                                    <button id="saveIgnoreListSeason" class="raised button-submit block emby-button" style="display: none">Apply to season</button>
+                                    <button is="emby-button" id="saveIgnoreListSeries" class="raised button-submit block emby-button">Apply to series</button>
+                                    <button is="emby-button" id="saveIgnoreListSeason" class="raised button-submit block emby-button" style="display: none">Apply to season</button>
                                 </div>
                                 <br />
 
@@ -492,7 +492,7 @@
                                         </div>
                                     </div>
                                     <br />
-                                    <button is="emby-select" id="btnUpdateTimestamps" class="raised button-submit block emby-button" type="button">Update timestamps</button>
+                                    <button is="emby-button" id="btnUpdateTimestamps" class="raised button-submit block emby-button" type="button">Update timestamps</button>
                                     <br />
                                 </div>
 
@@ -551,21 +551,23 @@
                                 <br />
 
                                 <div id="eraseSeasonContainer" style="display: none">
-                                    <button id="btnEraseSeasonTimestamps" type="button">Erase all timestamps for this season</button>
+                                    <button is="emby-button" id="btnEraseSeasonTimestamps" class="button-submit emby-button" type="button">Erase all timestamps for this season</button>
 
                                     <input type="checkbox" id="eraseSeasonCacheCheckbox" style="margin-left: 10px" />
                                     <label for="eraseSeasonCacheCheckbox" style="margin-left: 5px">Erase cached fingerprint files</label>
                                 </div>
                                 <br />
 
-                                <button id="btnEraseIntroTimestamps">Erase all introduction timestamps (globally)</button>
+                                <button is="emby-button" class="button-submit emby-button" id="btnEraseIntroTimestamps">Erase all introduction timestamps (globally)</button>
                                 <br />
 
-                                <button id="btnEraseCreditTimestamps">Erase all end credits timestamps (globally)</button>
+                                <button is="emby-button" class="button-submit emby-button" id="btnEraseCreditTimestamps">Erase all end credits timestamps (globally)</button>
                                 <br />
-
+                                <br />
                                 <input type="checkbox" id="eraseModeCacheCheckbox" style="margin-left: 10px" />
                                 <label for="eraseModeCacheCheckbox" style="margin-left: 5px">Erase cached fingerprint files</label>
+                                <br />
+                                <br />
                             </details>
 
                             <details id="storage">
