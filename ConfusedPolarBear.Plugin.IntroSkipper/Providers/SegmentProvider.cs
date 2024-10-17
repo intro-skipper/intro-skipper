@@ -56,7 +56,7 @@ namespace ConfusedPolarBear.Plugin.IntroSkipper.Providers
 
                 var creditEndTicks = TimeSpan.FromSeconds(creditValue.End).Ticks;
 
-                if (creditEndTicks + TimeSpan.TicksPerSecond >= item.RunTimeTicks)
+                if (creditEndTicks + TimeSpan.TicksPerSecond < item.RunTimeTicks)
                 {
                     outroSegment.EndTicks = creditEndTicks - _remainingTicks;
                 }
