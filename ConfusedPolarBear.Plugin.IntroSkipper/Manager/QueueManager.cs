@@ -249,7 +249,7 @@ namespace ConfusedPolarBear.Plugin.IntroSkipper.Manager
                 60 * pluginInstance.Configuration.AnalysisLengthLimit);
 
             // Queue the episode for analysis
-            var maxCreditsDuration = pluginInstance.Configuration.MaximumCreditsDuration;
+            var maxCreditsDuration = pluginInstance.Configuration.MaximumMovieCreditsDuration;
             _queuedEpisodes[movie.Id].Add(new QueuedEpisode
             {
                 SeriesName = movie.Name,

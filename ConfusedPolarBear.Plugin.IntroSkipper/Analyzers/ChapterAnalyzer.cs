@@ -91,9 +91,10 @@ public class ChapterAnalyzer(ILogger<ChapterAnalyzer> logger) : IMediaFileAnalyz
         }
 
         var config = Plugin.Instance?.Configuration ?? new PluginConfiguration();
+        var creditDuration = episode.IsMovie ? config.MaximumMovieCreditsDuration : config.MaximumCreditsDuration;
         var reversed = mode != AnalysisMode.Introduction;
         var (minDuration, maxDuration) = reversed
-            ? (config.MinimumCreditsDuration, config.MaximumCreditsDuration)
+            ? (config.MinimumCreditsDuration, creditDuration)
             : (config.MinimumIntroDuration, config.MaximumIntroDuration);
 
         // Check all chapters
