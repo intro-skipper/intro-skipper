@@ -4,6 +4,7 @@ using System.Net.Mime;
 using ConfusedPolarBear.Plugin.IntroSkipper.Configuration;
 using ConfusedPolarBear.Plugin.IntroSkipper.Data;
 using MediaBrowser.Common.Api;
+using MediaBrowser.Controller.Entities.Movies;
 using MediaBrowser.Controller.Entities.TV;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -63,7 +64,7 @@ public class SkipIntroController : ControllerBase
     {
         // only update existing episodes
         var rawItem = Plugin.Instance!.GetItem(id);
-        if (rawItem == null || rawItem is not Episode episode)
+        if (rawItem == null || rawItem is not Episode and not Movie)
         {
             return NotFound();
         }
@@ -99,7 +100,7 @@ public class SkipIntroController : ControllerBase
     {
         // only get return content for episodes
         var rawItem = Plugin.Instance!.GetItem(id);
-        if (rawItem == null || rawItem is not Episode episode)
+        if (rawItem == null || rawItem is not Episode and not Movie)
         {
             return NotFound();
         }
