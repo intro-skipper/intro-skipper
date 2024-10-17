@@ -5,6 +5,7 @@ on:
 
 permissions:
   contents: write
+  packages: write
 
 jobs:
   build:
@@ -69,6 +70,7 @@ jobs:
           task-type: "updateManifest"
         env:
           GITHUB_REPO_VISIBILITY: ${{ github.event.repository.visibility }}
+          CURRENT_VERSION: "10.10.0"
           MAIN_VERSION: "10.10"
 
       - name: Deploy to Cloudflare KV
