@@ -149,6 +149,7 @@
                                     <label class="inputLabel inputLabelUnfocused" for="MaximumMovieCreditsDuration"> Maximum movie credits duration (in seconds) </label>
                                     <input id="MaximumMovieCreditsDuration" type="number" is="emby-input" min="1" />
                                     <div class="fieldDescription">Segments longer than this duration will not be considered movie credits.</div>
+                                    <br />upda
                                 </div>
                             </details>
 
@@ -441,8 +442,8 @@
                                     </div>
                                     <br />
 
-                                    <button id="saveIgnoreListSeries" class="raised button-submit block emby-button">Apply to series / movie</button>
-                                    <button id="saveIgnoreListSeason" class="raised button-submit block emby-button" style="display: none">Apply to season</button>
+                                    <button is="emby-button" id="saveIgnoreListSeries" class="raised button-submit block emby-button">Apply to series / movie</button>
+                                    <button is="emby-button" id="saveIgnoreListSeason" class="raised button-submit block emby-button" style="display: none">Apply to season</button>
                                 </div>
                                 <br />
 
@@ -513,7 +514,7 @@
                                         </div>
                                         <br />
                                     </div>
-                                    <button is="emby-select" id="btnUpdateTimestamps" class="raised button-submit block emby-button" type="button">Update timestamps</button>
+                                    <button is="emby-button" id="btnUpdateTimestamps" class="raised button-submit block emby-button" type="button">Update timestamps</button>
                                     <br />
                                 </div>
 
@@ -577,7 +578,7 @@
                                 <br />
 
                                 <div id="eraseSeasonContainer" style="display: none">
-                                    <button id="btnEraseSeasonTimestamps" type="button">Erase all timestamps for this season</button>
+                                    <button is="emby-button" id="btnEraseSeasonTimestamps" class="button-submit emby-button" type="button">Erase all timestamps for this season</button>
 
                                     <input type="checkbox" id="eraseSeasonCacheCheckbox" style="margin-left: 10px" />
                                     <label for="eraseSeasonCacheCheckbox" style="margin-left: 5px">Erase cached fingerprint files</label>
@@ -585,21 +586,23 @@
                                 </div>
 
                                 <div id="eraseMovieContainer" style="display: none">
-                                    <button id="btnEraseMovieTimestamps" type="button">Erase all timestamps for this movie</button>
+                                    <button is="emby-button" id="btnEraseMovieTimestamps" class="button-submit emby-button" type="button">Erase all timestamps for this movie</button>
 
                                     <input type="checkbox" id="eraseMovieCacheCheckbox" style="margin-left: 10px" />
                                     <label for="eraseMovieCacheCheckbox" style="margin-left: 5px">Erase cached fingerprint files</label>
                                     <br />
                                 </div>
 
-                                <button id="btnEraseIntroTimestamps">Erase all introduction timestamps (globally)</button>
+                                <button is="emby-button" class="button-submit emby-button" id="btnEraseIntroTimestamps">Erase all introduction timestamps (globally)</button>
                                 <br />
 
-                                <button id="btnEraseCreditTimestamps">Erase all end credits timestamps (globally)</button>
+                                <button is="emby-button" class="button-submit emby-button" id="btnEraseCreditTimestamps">Erase all end credits timestamps (globally)</button>
                                 <br />
-
+                                <br />
                                 <input type="checkbox" id="eraseModeCacheCheckbox" style="margin-left: 10px" />
                                 <label for="eraseModeCacheCheckbox" style="margin-left: 5px">Erase cached fingerprint files</label>
+                                <br />
+                                <br />
                             </details>
 
                             <details id="storage">
