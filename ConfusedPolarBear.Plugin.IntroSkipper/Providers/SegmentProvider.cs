@@ -15,14 +15,14 @@ namespace ConfusedPolarBear.Plugin.IntroSkipper.Providers
     /// </summary>
     public class SegmentProvider : IMediaSegmentProvider
     {
-        private readonly int _remainingSecondsOfIntro;
+        private readonly long _remainingTicks;
 
         /// <summary>
         /// Initializes a new instance of the <see cref="SegmentProvider"/> class.
         /// </summary>
         public SegmentProvider()
         {
-            _remainingSecondsOfIntro = Plugin.Instance?.Configuration.RemainingSecondsOfIntro ?? 2;
+            _remainingTicks = TimeSpan.FromSeconds(Plugin.Instance?.Configuration.RemainingSecondsOfIntro ?? 2).Ticks;
         }
 
         /// <inheritdoc/>
@@ -38,21 +38,34 @@ namespace ConfusedPolarBear.Plugin.IntroSkipper.Providers
                 segments.Add(new MediaSegmentDto
                 {
                     StartTicks = TimeSpan.FromSeconds(introValue.Start).Ticks,
-                    EndTicks = TimeSpan.FromSeconds(introValue.End - _remainingSecondsOfIntro).Ticks,
+                    EndTicks = TimeSpan.FromSeconds(introValue.End).Ticks - _remainingTicks,
                     ItemId = request.ItemId,
                     Type = MediaSegmentType.Intro
                 });
             }
 
-            if (Plugin.Instance!.Credits.TryGetValue(request.ItemId, out var creditValue))
+            if (Plugin.Instance!.Credits.TryGetValue(request.ItemId, out var creditValue)
+                            && Plugin.Instance.GetItem(request.ItemId) is IHasMediaSources item)
             {
-                segments.Add(new MediaSegmentDto
+                var outroSegment = new MediaSegmentDto
                 {
                     StartTicks = TimeSpan.FromSeconds(creditValue.Start).Ticks,
-                    EndTicks = TimeSpan.FromSeconds(creditValue.End - _remainingSecondsOfIntro).Ticks,
                     ItemId = request.ItemId,
                     Type = MediaSegmentType.Outro
-                });
+                };
+
+                var creditEndTicks = TimeSpan.FromSeconds(creditValue.End).Ticks;
+
+                if (creditEndTicks + TimeSpan.TicksPerSecond >= item.RunTimeTicks)
+                {
+                    outroSegment.EndTicks = creditEndTicks - _remainingTicks;
+                }
+                else
+                {
+                    outroSegment.EndTicks = item.RunTimeTicks ?? creditEndTicks;
+                }
+
+                segments.Add(outroSegment);
             }
 
             return Task.FromResult<IReadOnlyList<MediaSegmentDto>>(segments);
