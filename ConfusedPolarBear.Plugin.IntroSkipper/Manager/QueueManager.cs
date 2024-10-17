@@ -206,8 +206,11 @@ namespace ConfusedPolarBear.Plugin.IntroSkipper.Manager
                 duration >= 5 * 60 ? duration * _analysisPercent : duration,
                 60 * pluginInstance.Configuration.AnalysisLengthLimit);
 
+            var maxCreditsDuration = Math.Min(
+                duration >= 5 * 60 ? duration * _analysisPercent : duration,
+                60 * pluginInstance.Configuration.MaximumCreditsDuration);
+
             // Queue the episode for analysis
-            var maxCreditsDuration = pluginInstance.Configuration.MaximumCreditsDuration;
             seasonEpisodes.Add(new QueuedEpisode
             {
                 SeriesName = episode.SeriesName,

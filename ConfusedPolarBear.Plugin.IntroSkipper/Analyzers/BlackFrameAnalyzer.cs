@@ -34,8 +34,8 @@ public class BlackFrameAnalyzer : IMediaFileAnalyzer
     {
         var config = Plugin.Instance?.Configuration ?? new PluginConfiguration();
         _minimumCreditsDuration = config.MinimumCreditsDuration;
-        _maximumCreditsDuration = 2 * config.MaximumCreditsDuration;
-        _maximumMovieCreditsDuration = 2 * config.MaximumMovieCreditsDuration;
+        _maximumCreditsDuration = config.MaximumCreditsDuration;
+        _maximumMovieCreditsDuration = config.MaximumMovieCreditsDuration;
         _blackFrameMinimumPercentage = config.BlackFrameMinimumPercentage;
 
         _logger = logger;
