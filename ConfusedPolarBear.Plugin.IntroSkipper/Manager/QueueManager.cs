@@ -241,15 +241,8 @@ namespace ConfusedPolarBear.Plugin.IntroSkipper.Manager
             // Allocate a new list for each Movie
             _queuedEpisodes.TryAdd(movie.Id, []);
 
-            // Limit analysis to the first X% of the episode and at most Y minutes.
-            // X and Y default to 25% and 10 minutes.
             var duration = TimeSpan.FromTicks(movie.RunTimeTicks ?? 0).TotalSeconds;
-            var fingerprintDuration = Math.Min(
-                duration >= 5 * 60 ? duration * _analysisPercent : duration,
-                60 * pluginInstance.Configuration.AnalysisLengthLimit);
 
-            // Queue the episode for analysis
-            var maxCreditsDuration = pluginInstance.Configuration.MaximumMovieCreditsDuration;
             _queuedEpisodes[movie.Id].Add(new QueuedEpisode
             {
                 SeriesName = movie.Name,
@@ -258,8 +251,6 @@ namespace ConfusedPolarBear.Plugin.IntroSkipper.Manager
                 Name = movie.Name,
                 Path = movie.Path,
                 Duration = Convert.ToInt32(duration),
-                IntroFingerprintEnd = Convert.ToInt32(fingerprintDuration),
-                CreditsFingerprintStart = Convert.ToInt32(duration - maxCreditsDuration),
                 IsMovie = true
             });
 
