@@ -44,8 +44,7 @@ namespace ConfusedPolarBear.Plugin.IntroSkipper.Providers
                 });
             }
 
-            if (Plugin.Instance!.Credits.TryGetValue(request.ItemId, out var creditValue)
-                            && Plugin.Instance.GetItem(request.ItemId) is IHasMediaSources item)
+            if (Plugin.Instance!.Credits.TryGetValue(request.ItemId, out var creditValue))
             {
                 var outroSegment = new MediaSegmentDto
                 {
@@ -56,13 +55,13 @@ namespace ConfusedPolarBear.Plugin.IntroSkipper.Providers
 
                 var creditEndTicks = TimeSpan.FromSeconds(creditValue.End).Ticks;
 
-                if (creditEndTicks + TimeSpan.TicksPerSecond < item.RunTimeTicks)
+                if (Plugin.Instance.GetItem(request.ItemId) is IHasMediaSources item && creditEndTicks + TimeSpan.TicksPerSecond >= item.RunTimeTicks)
                 {
-                    outroSegment.EndTicks = creditEndTicks - _remainingTicks;
+                    outroSegment.EndTicks = item.RunTimeTicks ?? creditEndTicks;
                 }
                 else
                 {
-                    outroSegment.EndTicks = item.RunTimeTicks ?? creditEndTicks;
+                    outroSegment.EndTicks = creditEndTicks - _remainingTicks;
                 }
 
                 segments.Add(outroSegment);
