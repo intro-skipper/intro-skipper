@@ -24,6 +24,11 @@ namespace IntroSkipper.Controllers
         public required string LibraryName { get; set; }
 
         /// <summary>
+        /// Gets or sets a value indicating whether its a movie.
+        /// </summary>
+        public required bool IsMovie { get; set; }
+
+        /// <summary>
         /// Gets the Seasons of the show.
         /// </summary>
         public required Dictionary<Guid, int> Seasons { get; init; }

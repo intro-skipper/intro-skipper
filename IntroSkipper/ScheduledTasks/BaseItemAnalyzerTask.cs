@@ -122,11 +122,8 @@ public class BaseItemAnalyzerTask
 
                 Interlocked.Add(ref totalProcessed, episodes.Count * _analysisModes.Count); // Update total Processed directly
                 progress.Report(totalProcessed * 100 / totalQueued);
-
-                return;
             }
-
-            if (_analysisModes.Count != requiredModes.Count)
+            else if (_analysisModes.Count != requiredModes.Count)
             {
                 Interlocked.Add(ref totalProcessed, episodes.Count);
                 progress.Report(totalProcessed * 100 / totalQueued); // Partial analysis some modes have already been analyzed
@@ -188,7 +185,7 @@ public class BaseItemAnalyzerTask
 
         // Only analyze specials (season 0) if the user has opted in.
         var first = items[0];
-        if (first.SeasonNumber == 0 && !Plugin.Instance!.Configuration.AnalyzeSeasonZero)
+        if (!first.IsMovie && first.SeasonNumber == 0 && !Plugin.Instance!.Configuration.AnalyzeSeasonZero)
         {
             return 0;
         }
@@ -211,7 +208,7 @@ public class BaseItemAnalyzerTask
             new ChapterAnalyzer(_loggerFactory.CreateLogger<ChapterAnalyzer>())
         };
 
-        if (first.IsAnime && Plugin.Instance!.Configuration.WithChromaprint)
+        if (first.IsAnime && Plugin.Instance!.Configuration.WithChromaprint && !first.IsMovie)
         {
             analyzers.Add(new ChromaprintAnalyzer(_loggerFactory.CreateLogger<ChromaprintAnalyzer>()));
         }
@@ -221,7 +218,7 @@ public class BaseItemAnalyzerTask
             analyzers.Add(new BlackFrameAnalyzer(_loggerFactory.CreateLogger<BlackFrameAnalyzer>()));
         }
 
-        if (!first.IsAnime && Plugin.Instance!.Configuration.WithChromaprint)
+        if (!first.IsAnime && Plugin.Instance!.Configuration.WithChromaprint && !first.IsMovie)
         {
             analyzers.Add(new ChromaprintAnalyzer(_loggerFactory.CreateLogger<ChromaprintAnalyzer>()));
         }
