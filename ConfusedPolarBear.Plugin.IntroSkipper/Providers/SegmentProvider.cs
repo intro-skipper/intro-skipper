@@ -55,7 +55,7 @@ namespace ConfusedPolarBear.Plugin.IntroSkipper.Providers
 
                 var creditEndTicks = TimeSpan.FromSeconds(creditValue.End).Ticks;
 
-                if (Plugin.Instance.GetItem(request.ItemId) is IHasMediaSources item && creditEndTicks + TimeSpan.TicksPerSecond >= item.RunTimeTicks)
+                if (Plugin.Instance.GetItem(request.ItemId) is IHasMediaSources item && creditEndTicks >= item.RunTimeTicks - TimeSpan.TicksPerSecond)
                 {
                     outroSegment.EndTicks = item.RunTimeTicks ?? creditEndTicks;
                 }
