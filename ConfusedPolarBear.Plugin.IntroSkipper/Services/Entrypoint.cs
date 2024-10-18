@@ -25,6 +25,7 @@ namespace ConfusedPolarBear.Plugin.IntroSkipper.Services
         private readonly ILibraryManager _libraryManager;
         private readonly ILogger<Entrypoint> _logger;
         private readonly ILoggerFactory _loggerFactory;
+        private readonly IMediaSegmentUpdateManager _mediaSegmentUpdateManager;
         private readonly HashSet<Guid> _seasonsToAnalyze = [];
         private readonly Timer _queueTimer;
         private static readonly ManualResetEventSlim _autoTaskCompletEvent = new(false);
@@ -39,16 +40,19 @@ namespace ConfusedPolarBear.Plugin.IntroSkipper.Services
         /// <param name="taskManager">Task manager.</param>
         /// <param name="logger">Logger.</param>
         /// <param name="loggerFactory">Logger factory.</param>
+        /// <param name="mediaSegmentUpdateManager">mediaSegmentUpdateManager.</param>
         public Entrypoint(
             ILibraryManager libraryManager,
             ITaskManager taskManager,
             ILogger<Entrypoint> logger,
-            ILoggerFactory loggerFactory)
+            ILoggerFactory loggerFactory,
+            IMediaSegmentUpdateManager mediaSegmentUpdateManager)
         {
             _libraryManager = libraryManager;
             _taskManager = taskManager;
             _logger = logger;
             _loggerFactory = loggerFactory;
+            _mediaSegmentUpdateManager = mediaSegmentUpdateManager;
 
             _config = Plugin.Instance?.Configuration ?? new PluginConfiguration();
             _queueTimer = new Timer(
@@ -249,7 +253,7 @@ namespace ConfusedPolarBear.Plugin.IntroSkipper.Services
         /// <summary>
         /// Wait for timer to be completed.
         /// </summary>
-        private void PerformAnalysis()
+        private async void PerformAnalysis()
         {
             _logger.LogInformation("Initiate automatic analysis task.");
             _autoTaskCompletEvent.Reset();
@@ -283,9 +287,10 @@ namespace ConfusedPolarBear.Plugin.IntroSkipper.Services
                         modes,
                         tasklogger,
                         _loggerFactory,
-                        _libraryManager);
+                        _libraryManager,
+                        _mediaSegmentUpdateManager);
 
-                baseCreditAnalyzer.AnalyzeItems(progress, _cancellationTokenSource.Token, seasonIds);
+                await baseCreditAnalyzer.AnalyzeItems(progress, _cancellationTokenSource.Token, seasonIds).ConfigureAwait(false);
 
                 // New item detected, start timer again
                 if (_analyzeAgain && !_cancellationTokenSource.IsCancellationRequested)

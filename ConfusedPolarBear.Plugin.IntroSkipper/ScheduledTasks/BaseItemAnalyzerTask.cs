@@ -18,12 +18,10 @@ namespace ConfusedPolarBear.Plugin.IntroSkipper.ScheduledTasks;
 public class BaseItemAnalyzerTask
 {
     private readonly IReadOnlyCollection<AnalysisMode> _analysisModes;
-
     private readonly ILogger _logger;
-
     private readonly ILoggerFactory _loggerFactory;
-
     private readonly ILibraryManager _libraryManager;
+    private readonly IMediaSegmentUpdateManager _mediaSegmentUpdateManager;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="BaseItemAnalyzerTask"/> class.
@@ -32,16 +30,19 @@ public class BaseItemAnalyzerTask
     /// <param name="logger">Task logger.</param>
     /// <param name="loggerFactory">Logger factory.</param>
     /// <param name="libraryManager">Library manager.</param>
+    /// <param name="mediaSegmentUpdateManager">MediaSegmentUpdateManager.</param>
     public BaseItemAnalyzerTask(
         IReadOnlyCollection<AnalysisMode> modes,
         ILogger logger,
         ILoggerFactory loggerFactory,
-        ILibraryManager libraryManager)
+        ILibraryManager libraryManager,
+        IMediaSegmentUpdateManager mediaSegmentUpdateManager)
     {
         _analysisModes = modes;
         _logger = logger;
         _loggerFactory = loggerFactory;
         _libraryManager = libraryManager;
+        _mediaSegmentUpdateManager = mediaSegmentUpdateManager;
 
         if (Plugin.Instance!.Configuration.EdlAction != EdlAction.None)
         {
@@ -55,7 +56,8 @@ public class BaseItemAnalyzerTask
     /// <param name="progress">Progress.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <param name="seasonsToAnalyze">Season Ids to analyze.</param>
-    public void AnalyzeItems(
+    /// <returns>A <see cref="Task"/> representing the asynchronous operation.</returns>
+    public async Task AnalyzeItems(
         IProgress<double> progress,
         CancellationToken cancellationToken,
         IReadOnlyCollection<Guid>? seasonsToAnalyze = null)
@@ -95,12 +97,13 @@ public class BaseItemAnalyzerTask
         var totalProcessed = 0;
         var options = new ParallelOptions
         {
-            MaxDegreeOfParallelism = Plugin.Instance.Configuration.MaxParallelism
+            MaxDegreeOfParallelism = Plugin.Instance.Configuration.MaxParallelism,
+            CancellationToken = cancellationToken
         };
 
-        Parallel.ForEach(queue, options, season =>
+        await Parallel.ForEachAsync(queue, options, async (season, ct) =>
         {
-            var writeEdl = false;
+            var updateManagers = false;
 
             // Since the first run of the task can run for multiple hours, ensure that none
             // of the current media items were deleted from Jellyfin since the task was started.
@@ -132,17 +135,17 @@ public class BaseItemAnalyzerTask
 
             try
             {
-                if (cancellationToken.IsCancellationRequested)
+                if (ct.IsCancellationRequested)
                 {
                     return;
                 }
 
                 foreach (AnalysisMode mode in requiredModes)
                 {
-                    var analyzed = AnalyzeItems(episodes, mode, cancellationToken);
+                    var analyzed = AnalyzeItems(episodes, mode, ct);
                     Interlocked.Add(ref totalProcessed, analyzed);
 
-                    writeEdl = analyzed > 0 || Plugin.Instance.Configuration.RegenerateEdlFiles;
+                    updateManagers = analyzed > 0 || updateManagers;
 
                     progress.Report(totalProcessed * 100 / totalQueued);
                 }
@@ -156,11 +159,16 @@ public class BaseItemAnalyzerTask
                     ex);
             }
 
-            if (writeEdl && Plugin.Instance.Configuration.EdlAction != EdlAction.None)
+            if (updateManagers)
+            {
+                await _mediaSegmentUpdateManager.UpdateMediaSegments(episodes, ct).ConfigureAwait(false);
+            }
+
+            if (Plugin.Instance.Configuration.RegenerateEdlFiles || (updateManagers && Plugin.Instance.Configuration.EdlAction != EdlAction.None))
             {
                 EdlManager.UpdateEDLFiles(episodes);
             }
-        });
+        }).ConfigureAwait(false);
 
         if (Plugin.Instance.Configuration.RegenerateEdlFiles)
         {

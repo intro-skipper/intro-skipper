@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
 using ConfusedPolarBear.Plugin.IntroSkipper.Data;
+using ConfusedPolarBear.Plugin.IntroSkipper.Manager;
 using ConfusedPolarBear.Plugin.IntroSkipper.Services;
 using MediaBrowser.Controller.Library;
 using MediaBrowser.Model.Tasks;
@@ -13,29 +14,26 @@ namespace ConfusedPolarBear.Plugin.IntroSkipper.ScheduledTasks;
 /// <summary>
 /// Analyze all television episodes for introduction sequences.
 /// </summary>
-public class DetectIntrosTask : IScheduledTask
+/// <remarks>
+/// Initializes a new instance of the <see cref="DetectIntrosTask"/> class.
+/// </remarks>
+/// <param name="loggerFactory">Logger factory.</param>
+/// <param name="libraryManager">Library manager.</param>
+/// <param name="logger">Logger.</param>
+/// <param name="mediaSegmentUpdateManager">mediaSegmentUpdateManager.</param>
+public class DetectIntrosTask(
+    ILogger<DetectIntrosTask> logger,
+    ILoggerFactory loggerFactory,
+    ILibraryManager libraryManager,
+    IMediaSegmentUpdateManager mediaSegmentUpdateManager) : IScheduledTask
 {
-    private readonly ILogger<DetectIntrosTask> _logger;
+    private readonly ILogger<DetectIntrosTask> _logger = logger;
 
-    private readonly ILoggerFactory _loggerFactory;
+    private readonly ILoggerFactory _loggerFactory = loggerFactory;
 
-    private readonly ILibraryManager _libraryManager;
+    private readonly ILibraryManager _libraryManager = libraryManager;
 
-    /// <summary>
-    /// Initializes a new instance of the <see cref="DetectIntrosTask"/> class.
-    /// </summary>
-    /// <param name="loggerFactory">Logger factory.</param>
-    /// <param name="libraryManager">Library manager.</param>
-    /// <param name="logger">Logger.</param>
-    public DetectIntrosTask(
-        ILogger<DetectIntrosTask> logger,
-        ILoggerFactory loggerFactory,
-        ILibraryManager libraryManager)
-    {
-        _logger = logger;
-        _loggerFactory = loggerFactory;
-        _libraryManager = libraryManager;
-    }
+    private readonly IMediaSegmentUpdateManager _mediaSegmentUpdateManager = mediaSegmentUpdateManager;
 
     /// <summary>
     /// Gets the task name.
@@ -63,7 +61,7 @@ public class DetectIntrosTask : IScheduledTask
     /// <param name="progress">Task progress.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>Task.</returns>
-    public Task ExecuteAsync(IProgress<double> progress, CancellationToken cancellationToken)
+    public async Task ExecuteAsync(IProgress<double> progress, CancellationToken cancellationToken)
     {
         if (_libraryManager is null)
         {
@@ -87,12 +85,13 @@ public class DetectIntrosTask : IScheduledTask
                 modes,
                 _loggerFactory.CreateLogger<DetectIntrosTask>(),
                 _loggerFactory,
-                _libraryManager);
+                _libraryManager,
+                _mediaSegmentUpdateManager);
 
-            baseIntroAnalyzer.AnalyzeItems(progress, cancellationToken);
-
-            return Task.CompletedTask;
+            await baseIntroAnalyzer.AnalyzeItems(progress, cancellationToken).ConfigureAwait(false);
         }
+
+        return;
     }
 
     /// <summary>
