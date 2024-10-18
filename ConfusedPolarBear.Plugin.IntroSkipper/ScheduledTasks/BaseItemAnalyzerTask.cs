@@ -123,11 +123,8 @@ public class BaseItemAnalyzerTask
 
                 Interlocked.Add(ref totalProcessed, episodes.Count * _analysisModes.Count); // Update total Processed directly
                 progress.Report(totalProcessed * 100 / totalQueued);
-
-                return;
             }
-
-            if (_analysisModes.Count != requiredModes.Count)
+            else if (_analysisModes.Count != requiredModes.Count)
             {
                 Interlocked.Add(ref totalProcessed, episodes.Count);
                 progress.Report(totalProcessed * 100 / totalQueued); // Partial analysis some modes have already been analyzed
