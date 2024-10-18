@@ -2,7 +2,8 @@ name: "Build Plugin"
 
 on:
   push:
-    branches: ["master"]
+    branches:
+      - '*'
     paths-ignore:
       - "**/README.md"
       - ".github/ISSUE_TEMPLATE/**"
@@ -10,7 +11,8 @@ on:
       - "images/**"
       - "manifest.json"
   pull_request:
-    branches: ["master"]
+    branches:
+      - '*'
     paths-ignore:
       - "**/README.md"
       - ".github/ISSUE_TEMPLATE/**"
@@ -39,6 +41,22 @@ jobs:
 
       - uses: actions/checkout@v4
 
+      - name: Read version from VERSION.txt
+        id: read-version
+        run: |
+          MAIN_VERSION=$(cat VERSION.txt)
+          echo "MAIN_VERSION=${MAIN_VERSION}"
+          echo "MAIN_VERSION=$MAIN_VERSION" >> $GITHUB_ENV
+
+      - name: Check for BETA file
+        id: check-beta
+        run: |
+          if [ -f "BETA" ]; then
+            echo "IS_BETA=true" >> $GITHUB_ENV
+          else
+            echo "IS_BETA=false" >> $GITHUB_ENV
+          fi
+
       - name: Setup .NET
         uses: actions/setup-dotnet@v4
         with:
@@ -55,11 +73,16 @@ jobs:
           npx terser ConfusedPolarBear.Plugin.IntroSkipper/Configuration/inject.js -o ConfusedPolarBear.Plugin.IntroSkipper/Configuration/inject.js -c -m
           npx terser ConfusedPolarBear.Plugin.IntroSkipper/Configuration/visualizer.js -o ConfusedPolarBear.Plugin.IntroSkipper/Configuration/visualizer.js -c -m
 
-      - name: Restore dependencies
+      - name: Restore Beta dependencies
+        if: ${{env.IS_BETA == 'true' }}
         run: |
           dotnet nuget add source --username ${{ github.repository_owner }} --password ${{ secrets.GITHUB_TOKEN }} --store-password-in-clear-text --name jellyfin-pre "https://nuget.pkg.github.com/jellyfin/index.json"
           dotnet tool install --global dotnet-outdated-tool
           dotnet outdated -pre Always -u -inc Jellyfin
+
+      - name: Restore dependencies
+        if: ${{env.IS_BETA == 'false' }}
+        run: dotnet restore
 
       - name: Embed version info
         run: |
@@ -98,7 +121,7 @@ jobs:
       - name: Create/replace the preview release and upload artifacts
         if: github.event_name != 'pull_request'
         run: |
-          gh release delete '10.10/preview' --cleanup-tag --yes || true
-          gh release create '10.10/preview' "intro-skipper-${{ env.GIT_HASH }}.zip" --prerelease --title "intro-skipper-${{ env.GIT_HASH }}" --notes "This is a prerelease version."
+          gh release delete "${{ env.MAIN_VERSION }}/preview" --cleanup-tag --yes || true
+          gh release create "${{ env.MAIN_VERSION }}/preview" "intro-skipper-${{ env.GIT_HASH }}.zip" --prerelease --title "intro-skipper-${{ env.GIT_HASH }}" --notes "This is a prerelease version."  --target ${{ env.MAIN_VERSION }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
