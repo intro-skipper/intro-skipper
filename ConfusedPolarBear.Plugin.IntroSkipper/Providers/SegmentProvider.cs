@@ -5,7 +5,6 @@ using System.Threading.Tasks;
 using Jellyfin.Data.Enums;
 using MediaBrowser.Controller;
 using MediaBrowser.Controller.Entities;
-using MediaBrowser.Controller.Entities.TV;
 using MediaBrowser.Model;
 using MediaBrowser.Model.MediaSegments;
 
@@ -16,14 +15,14 @@ namespace ConfusedPolarBear.Plugin.IntroSkipper.Providers
     /// </summary>
     public class SegmentProvider : IMediaSegmentProvider
     {
-        private readonly int _remainingSecondsOfIntro;
+        private readonly long _remainingTicks;
 
         /// <summary>
         /// Initializes a new instance of the <see cref="SegmentProvider"/> class.
         /// </summary>
         public SegmentProvider()
         {
-            _remainingSecondsOfIntro = Plugin.Instance?.Configuration.RemainingSecondsOfIntro ?? 2;
+            _remainingTicks = TimeSpan.FromSeconds(Plugin.Instance?.Configuration.RemainingSecondsOfIntro ?? 2).Ticks;
         }
 
         /// <inheritdoc/>
@@ -39,7 +38,7 @@ namespace ConfusedPolarBear.Plugin.IntroSkipper.Providers
                 segments.Add(new MediaSegmentDto
                 {
                     StartTicks = TimeSpan.FromSeconds(introValue.Start).Ticks,
-                    EndTicks = TimeSpan.FromSeconds(introValue.End - _remainingSecondsOfIntro).Ticks,
+                    EndTicks = TimeSpan.FromSeconds(introValue.End).Ticks - _remainingTicks,
                     ItemId = request.ItemId,
                     Type = MediaSegmentType.Intro
                 });
@@ -47,19 +46,31 @@ namespace ConfusedPolarBear.Plugin.IntroSkipper.Providers
 
             if (Plugin.Instance!.Credits.TryGetValue(request.ItemId, out var creditValue))
             {
-                segments.Add(new MediaSegmentDto
+                var outroSegment = new MediaSegmentDto
                 {
                     StartTicks = TimeSpan.FromSeconds(creditValue.Start).Ticks,
-                    EndTicks = TimeSpan.FromSeconds(creditValue.End - _remainingSecondsOfIntro).Ticks,
                     ItemId = request.ItemId,
                     Type = MediaSegmentType.Outro
-                });
+                };
+
+                var creditEndTicks = TimeSpan.FromSeconds(creditValue.End).Ticks;
+
+                if (Plugin.Instance.GetItem(request.ItemId) is IHasMediaSources item && creditEndTicks >= item.RunTimeTicks - TimeSpan.TicksPerSecond)
+                {
+                    outroSegment.EndTicks = item.RunTimeTicks ?? creditEndTicks;
+                }
+                else
+                {
+                    outroSegment.EndTicks = creditEndTicks - _remainingTicks;
+                }
+
+                segments.Add(outroSegment);
             }
 
             return Task.FromResult<IReadOnlyList<MediaSegmentDto>>(segments);
         }
 
         /// <inheritdoc/>
-        public ValueTask<bool> Supports(BaseItem item) => ValueTask.FromResult(item is Episode);
+        public ValueTask<bool> Supports(BaseItem item) => ValueTask.FromResult(item is IHasMediaSources);
     }
 }
