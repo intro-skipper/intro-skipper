@@ -94,6 +94,12 @@ jobs:
           GIT_HASH=$(git rev-parse --short HEAD)
           echo "GIT_HASH=${GIT_HASH}" >> $GITHUB_ENV
 
+      - name: Jellyfin Server Implementations
+        run: |
+          git clone https://github.com/jellyfin/jellyfin.git
+          cd jellyfin
+          dotnet restore Jellyfin.Server.Implementations/Jellyfin.Server.Implementations.csproj
+
       - name: Build
         run: dotnet build --no-restore
 
