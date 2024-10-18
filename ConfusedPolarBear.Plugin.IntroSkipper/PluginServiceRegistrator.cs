@@ -19,7 +19,6 @@ namespace ConfusedPolarBear.Plugin.IntroSkipper
             serviceCollection.AddHostedService<AutoSkipCredits>();
             serviceCollection.AddHostedService<Entrypoint>();
             serviceCollection.AddSingleton<IMediaSegmentProvider, SegmentProvider>();
-            serviceCollection.AddScoped<IMediaSegmentUpdateManager, MediaSegmentUpdateManager>();
         }
     }
 }

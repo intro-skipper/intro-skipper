@@ -7,6 +7,7 @@ using System.Threading.Tasks;
 using ConfusedPolarBear.Plugin.IntroSkipper.Analyzers;
 using ConfusedPolarBear.Plugin.IntroSkipper.Data;
 using ConfusedPolarBear.Plugin.IntroSkipper.Manager;
+using MediaBrowser.Controller;
 using MediaBrowser.Controller.Library;
 using Microsoft.Extensions.Logging;
 
@@ -21,7 +22,8 @@ public class BaseItemAnalyzerTask
     private readonly ILogger _logger;
     private readonly ILoggerFactory _loggerFactory;
     private readonly ILibraryManager _libraryManager;
-    private readonly IMediaSegmentUpdateManager _mediaSegmentUpdateManager;
+    private readonly IMediaSegmentManager _mediaSegmentManager;
+    private readonly MediaSegmentUpdateManager _mediaSegmentUpdateManager;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="BaseItemAnalyzerTask"/> class.
@@ -30,24 +32,26 @@ public class BaseItemAnalyzerTask
     /// <param name="logger">Task logger.</param>
     /// <param name="loggerFactory">Logger factory.</param>
     /// <param name="libraryManager">Library manager.</param>
-    /// <param name="mediaSegmentUpdateManager">MediaSegmentUpdateManager.</param>
+    /// <param name="mediaSegmentManager">MediaSegmentManager.</param>
     public BaseItemAnalyzerTask(
         IReadOnlyCollection<AnalysisMode> modes,
         ILogger logger,
         ILoggerFactory loggerFactory,
         ILibraryManager libraryManager,
-        IMediaSegmentUpdateManager mediaSegmentUpdateManager)
+        IMediaSegmentManager mediaSegmentManager)
     {
         _analysisModes = modes;
         _logger = logger;
         _loggerFactory = loggerFactory;
         _libraryManager = libraryManager;
-        _mediaSegmentUpdateManager = mediaSegmentUpdateManager;
+        _mediaSegmentManager = mediaSegmentManager;
 
         if (Plugin.Instance!.Configuration.EdlAction != EdlAction.None)
         {
             EdlManager.Initialize(_logger);
         }
+
+        _mediaSegmentUpdateManager = new MediaSegmentUpdateManager(_mediaSegmentManager, _logger);
     }
 
     /// <summary>

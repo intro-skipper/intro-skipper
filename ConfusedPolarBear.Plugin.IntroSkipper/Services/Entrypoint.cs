@@ -6,6 +6,7 @@ using ConfusedPolarBear.Plugin.IntroSkipper.Configuration;
 using ConfusedPolarBear.Plugin.IntroSkipper.Data;
 using ConfusedPolarBear.Plugin.IntroSkipper.Manager;
 using ConfusedPolarBear.Plugin.IntroSkipper.ScheduledTasks;
+using MediaBrowser.Controller;
 using MediaBrowser.Controller.Entities.TV;
 using MediaBrowser.Controller.Library;
 using MediaBrowser.Model.Entities;
@@ -25,7 +26,7 @@ namespace ConfusedPolarBear.Plugin.IntroSkipper.Services
         private readonly ILibraryManager _libraryManager;
         private readonly ILogger<Entrypoint> _logger;
         private readonly ILoggerFactory _loggerFactory;
-        private readonly IMediaSegmentUpdateManager _mediaSegmentUpdateManager;
+        private readonly IMediaSegmentManager _mediaSegmentManager;
         private readonly HashSet<Guid> _seasonsToAnalyze = [];
         private readonly Timer _queueTimer;
         private static readonly ManualResetEventSlim _autoTaskCompletEvent = new(false);
@@ -40,19 +41,19 @@ namespace ConfusedPolarBear.Plugin.IntroSkipper.Services
         /// <param name="taskManager">Task manager.</param>
         /// <param name="logger">Logger.</param>
         /// <param name="loggerFactory">Logger factory.</param>
-        /// <param name="mediaSegmentUpdateManager">mediaSegmentUpdateManager.</param>
+        /// <param name="mediaSegmentManager">mediaSegmentManager.</param>
         public Entrypoint(
             ILibraryManager libraryManager,
             ITaskManager taskManager,
             ILogger<Entrypoint> logger,
             ILoggerFactory loggerFactory,
-            IMediaSegmentUpdateManager mediaSegmentUpdateManager)
+            IMediaSegmentManager mediaSegmentManager)
         {
             _libraryManager = libraryManager;
             _taskManager = taskManager;
             _logger = logger;
             _loggerFactory = loggerFactory;
-            _mediaSegmentUpdateManager = mediaSegmentUpdateManager;
+            _mediaSegmentManager = mediaSegmentManager;
 
             _config = Plugin.Instance?.Configuration ?? new PluginConfiguration();
             _queueTimer = new Timer(
@@ -288,7 +289,7 @@ namespace ConfusedPolarBear.Plugin.IntroSkipper.Services
                         tasklogger,
                         _loggerFactory,
                         _libraryManager,
-                        _mediaSegmentUpdateManager);
+                        _mediaSegmentManager);
 
                 await baseCreditAnalyzer.AnalyzeItems(progress, _cancellationTokenSource.Token, seasonIds).ConfigureAwait(false);
 

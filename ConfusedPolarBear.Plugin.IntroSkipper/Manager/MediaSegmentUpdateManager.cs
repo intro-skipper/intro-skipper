@@ -5,11 +5,8 @@ using System.Threading;
 using System.Threading.Tasks;
 using ConfusedPolarBear.Plugin.IntroSkipper.Data;
 using ConfusedPolarBear.Plugin.IntroSkipper.Providers;
-using Jellyfin.Data.Entities;
-using Jellyfin.Server.Implementations;
+using MediaBrowser.Controller;
 using MediaBrowser.Model;
-using MediaBrowser.Model.MediaSegments;
-using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 
 namespace ConfusedPolarBear.Plugin.IntroSkipper.Manager
@@ -17,12 +14,12 @@ namespace ConfusedPolarBear.Plugin.IntroSkipper.Manager
     /// <summary>
     /// Initializes a new instance of the <see cref="MediaSegmentUpdateManager" /> class.
     /// </summary>
-    /// <param name="dbProvider">EFCore Database factory.</param>
+    /// <param name="mediaSegmentManager">MediaSegmentManager.</param>
     /// <param name="logger">logger.</param>
-    public class MediaSegmentUpdateManager(IDbContextFactory<JellyfinDbContext> dbProvider, ILogger<MediaSegmentUpdateManager> logger) : IMediaSegmentUpdateManager
+    public class MediaSegmentUpdateManager(IMediaSegmentManager mediaSegmentManager, ILogger logger)
     {
-        private readonly IDbContextFactory<JellyfinDbContext> _dbProvider = dbProvider;
-        private readonly ILogger<MediaSegmentUpdateManager> _logger = logger;
+        private readonly IMediaSegmentManager _mediaSegmentManager = mediaSegmentManager;
+        private readonly ILogger _logger = logger;
         private readonly SegmentProvider _segmentProvider = new();
         private readonly string _name = Plugin.Instance!.Name;
 
@@ -34,33 +31,30 @@ namespace ConfusedPolarBear.Plugin.IntroSkipper.Manager
         /// <returns>A <see cref="Task"/> representing the asynchronous operation.</returns>
         public async Task UpdateMediaSegments(IReadOnlyList<QueuedEpisode> episodes, CancellationToken cancellationToken)
         {
-            using var db = await _dbProvider.CreateDbContextAsync(cancellationToken).ConfigureAwait(false);
-
             foreach (var episode in episodes)
             {
                 cancellationToken.ThrowIfCancellationRequested();
 
                 try
                 {
-                    await db.MediaSegments
-                        .Where(e => e.ItemId == episode.EpisodeId)
-                        .ExecuteDeleteAsync(cancellationToken).ConfigureAwait(false);
-
-                    var segments = await _segmentProvider.GetMediaSegments(
+                    var existingSegments = await _mediaSegmentManager.GetSegmentsAsync(episode.EpisodeId, null).ConfigureAwait(false);
+                    var newSegments = await _segmentProvider.GetMediaSegments(
                         new MediaSegmentGenerationRequest { ItemId = episode.EpisodeId },
                         cancellationToken).ConfigureAwait(false);
 
-                    if (segments.Count == 0)
+                    if (newSegments.Count == 0)
                     {
                         _logger.LogDebug("No segments found for episode {EpisodeId}", episode.EpisodeId);
                         continue;
                     }
 
-                    var mappedSegments = segments.Select(Map);
-                    await db.MediaSegments.AddRangeAsync(mappedSegments, cancellationToken).ConfigureAwait(false);
-                    await db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+                    var tasks = new List<Task>();
+                    tasks.AddRange(existingSegments.Select(s => _mediaSegmentManager.DeleteSegmentAsync(s.Id)));
+                    tasks.AddRange(newSegments.Select(s => _mediaSegmentManager.CreateSegmentAsync(s, _name)));
 
-                    _logger.LogDebug("Added {SegmentCount} segments for episode {EpisodeId}", segments.Count, episode.EpisodeId);
+                    await Task.WhenAll(tasks).ConfigureAwait(false);
+
+                    _logger.LogDebug("Updated {SegmentCount} segments for episode {EpisodeId}", newSegments.Count, episode.EpisodeId);
                 }
                 catch (Exception ex)
                 {
@@ -68,15 +62,5 @@ namespace ConfusedPolarBear.Plugin.IntroSkipper.Manager
                 }
             }
         }
-
-        private MediaSegment Map(MediaSegmentDto segment) => new()
-        {
-            Id = segment.Id,
-            EndTicks = segment.EndTicks,
-            ItemId = segment.ItemId,
-            StartTicks = segment.StartTicks,
-            Type = segment.Type,
-            SegmentProviderId = _name
-        };
     }
 }
