@@ -1,4 +1,3 @@
-using ConfusedPolarBear.Plugin.IntroSkipper.Manager;
 using ConfusedPolarBear.Plugin.IntroSkipper.Providers;
 using ConfusedPolarBear.Plugin.IntroSkipper.Services;
 using MediaBrowser.Controller;
