@@ -2,7 +2,8 @@ name: "CodeQL"
 
 on:
   push:
-    branches: ["10.9"]
+    branches:
+      - '*'
     paths-ignore:
       - "**/README.md"
       - ".github/ISSUE_TEMPLATE/**"
@@ -10,7 +11,8 @@ on:
       - "images/**"
       - "manifest.json"
   pull_request:
-    branches: ["10.9"]
+    branches:
+      - '*'
     paths-ignore:
       - "**/README.md"
       - ".github/ISSUE_TEMPLATE/**"
@@ -36,16 +38,30 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Check for BETA file
+        id: check-beta
+        run: |
+          if [ -f "BETA" ]; then
+            echo "IS_BETA=true" >> $GITHUB_ENV
+          else
+            echo "IS_BETA=false" >> $GITHUB_ENV
+          fi
+
       - name: Setup .NET
         uses: actions/setup-dotnet@v4
         with:
           dotnet-version: 8.0.x
 
-      - name: Install dependencies
+      - name: Restore Beta dependencies
+        if: ${{env.IS_BETA == 'true' }}
         run: |
           dotnet nuget add source --username ${{ github.repository_owner }} --password ${{ secrets.GITHUB_TOKEN }} --store-password-in-clear-text --name jellyfin-pre "https://nuget.pkg.github.com/jellyfin/index.json"
           dotnet tool install --global dotnet-outdated-tool
           dotnet outdated -pre Always -u -inc Jellyfin
+
+      - name: Restore dependencies
+        if: ${{env.IS_BETA == 'false' }}
+        run: dotnet restore
 
       - name: Initialize CodeQL
         uses: github/codeql-action/init@6db8d6351fd0be61f9ed8ebd12ccd35dcec51fea # v3.26.11
