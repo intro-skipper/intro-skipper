@@ -234,7 +234,7 @@ namespace ConfusedPolarBear.Plugin.IntroSkipper.Services
             {
                 try
                 {
-                   await _cancellationTokenSource.CancelAsync().ConfigureAwait(false);
+                    await _cancellationTokenSource.CancelAsync().ConfigureAwait(false);
                 }
                 catch (ObjectDisposedException)
                 {
