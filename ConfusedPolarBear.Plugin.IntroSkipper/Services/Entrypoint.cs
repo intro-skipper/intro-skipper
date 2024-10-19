@@ -6,7 +6,6 @@ using ConfusedPolarBear.Plugin.IntroSkipper.Configuration;
 using ConfusedPolarBear.Plugin.IntroSkipper.Data;
 using ConfusedPolarBear.Plugin.IntroSkipper.Manager;
 using ConfusedPolarBear.Plugin.IntroSkipper.ScheduledTasks;
-using MediaBrowser.Controller.Entities;
 using MediaBrowser.Controller.Entities.Movies;
 using MediaBrowser.Controller.Entities.TV;
 using MediaBrowser.Controller.Library;
@@ -111,23 +110,15 @@ namespace ConfusedPolarBear.Plugin.IntroSkipper.Services
         private void OnItemChanged(object? sender, ItemChangeEventArgs itemChangeEventArgs)
         {
             if ((_config.AutoDetectIntros || _config.AutoDetectCredits) &&
-                itemChangeEventArgs.Item is { LocationType: not LocationType.Virtual } and IHasMediaSources item)
+                itemChangeEventArgs.Item is { LocationType: not LocationType.Virtual } item)
             {
-                if (item is Episode episode)
-                {
-                    _seasonsToAnalyze.Add(episode.SeasonId);
-                }
-                else if (item is Movie movie)
-                {
-                    _seasonsToAnalyze.Add(movie.Id);
-                }
-                else
-                {
-                    return;
-                }
+                Guid? id = item is Episode episode ? episode.SeasonId : (item is Movie movie ? movie.Id : null);
 
-                _logger.LogDebug("Start Analysis.");
-                StartTimer();
+                if (id.HasValue)
+                {
+                    _seasonsToAnalyze.Add(id.Value);
+                    StartTimer();
+                }
             }
         }
 

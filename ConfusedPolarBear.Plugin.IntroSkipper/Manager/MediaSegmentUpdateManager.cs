@@ -17,11 +17,11 @@ namespace ConfusedPolarBear.Plugin.IntroSkipper.Manager
     /// <param name="mediaSegmentManager">MediaSegmentManager.</param>
     /// <param name="logger">logger.</param>
     /// <param name="segmentProvider">segmentProvider.</param>
-    public class MediaSegmentUpdateManager(IMediaSegmentManager mediaSegmentManager, ILogger logger, SegmentProvider segmentProvider)
+    public class MediaSegmentUpdateManager(IMediaSegmentManager mediaSegmentManager, ILogger<MediaSegmentUpdateManager> logger, IMediaSegmentProvider segmentProvider)
     {
         private readonly IMediaSegmentManager _mediaSegmentManager = mediaSegmentManager;
-        private readonly ILogger _logger = logger;
-        private readonly SegmentProvider _segmentProvider = segmentProvider;
+        private readonly ILogger<MediaSegmentUpdateManager> _logger = logger;
+        private readonly IMediaSegmentProvider _segmentProvider = segmentProvider;
         private readonly string _name = Plugin.Instance!.Name;
 
         /// <summary>
