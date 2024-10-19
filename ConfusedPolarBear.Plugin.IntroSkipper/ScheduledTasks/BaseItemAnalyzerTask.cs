@@ -175,9 +175,10 @@ public class BaseItemAnalyzerTask
             }
         }).ConfigureAwait(false);
 
-        if (Plugin.Instance.Configuration.RegenerateEdlFiles)
+        if (Plugin.Instance.Configuration.RegenerateMediaSegments || Plugin.Instance.Configuration.RegenerateEdlFiles)
         {
-            _logger.LogInformation("Turning EDL file regeneration flag off");
+            _logger.LogInformation("Turning Mediasegment/EDL file regeneration flag off");
+            Plugin.Instance.Configuration.RegenerateMediaSegments = false;
             Plugin.Instance.Configuration.RegenerateEdlFiles = false;
             Plugin.Instance.SaveConfiguration();
         }
