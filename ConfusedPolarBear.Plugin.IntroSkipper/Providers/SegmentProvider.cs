@@ -15,15 +15,7 @@ namespace ConfusedPolarBear.Plugin.IntroSkipper.Providers
     /// </summary>
     public class SegmentProvider : IMediaSegmentProvider
     {
-        private readonly long _remainingTicks;
-
-        /// <summary>
-        /// Initializes a new instance of the <see cref="SegmentProvider"/> class.
-        /// </summary>
-        public SegmentProvider()
-        {
-            _remainingTicks = TimeSpan.FromSeconds(Plugin.Instance?.Configuration.RemainingSecondsOfIntro ?? 2).Ticks;
-        }
+        private static long RemainingTicks => TimeSpan.FromSeconds(Plugin.Instance?.Configuration.RemainingSecondsOfIntro ?? 2).Ticks;
 
         /// <inheritdoc/>
         public string Name => Plugin.Instance!.Name;
@@ -38,7 +30,7 @@ namespace ConfusedPolarBear.Plugin.IntroSkipper.Providers
                 segments.Add(new MediaSegmentDto
                 {
                     StartTicks = TimeSpan.FromSeconds(introValue.Start).Ticks,
-                    EndTicks = TimeSpan.FromSeconds(introValue.End).Ticks - _remainingTicks,
+                    EndTicks = TimeSpan.FromSeconds(introValue.End).Ticks - RemainingTicks,
                     ItemId = request.ItemId,
                     Type = MediaSegmentType.Intro
                 });
@@ -61,7 +53,7 @@ namespace ConfusedPolarBear.Plugin.IntroSkipper.Providers
                 }
                 else
                 {
-                    outroSegment.EndTicks = creditEndTicks - _remainingTicks;
+                    outroSegment.EndTicks = creditEndTicks - RemainingTicks;
                 }
 
                 segments.Add(outroSegment);
