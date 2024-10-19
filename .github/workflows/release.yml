@@ -42,9 +42,9 @@ jobs:
 
       - name: Minify HTML
         run: |
-          npx html-minifier-terser --collapse-boolean-attributes --collapse-whitespace --remove-comments --remove-optional-tags --remove-redundant-attributes --remove-script-type-attributes --remove-tag-whitespace --use-short-doctype --minify-css true --minify-js true -o ConfusedPolarBear.Plugin.IntroSkipper/Configuration/configPage.html ConfusedPolarBear.Plugin.IntroSkipper/Configuration/configPage.html
-          npx terser ConfusedPolarBear.Plugin.IntroSkipper/Configuration/inject.js -o ConfusedPolarBear.Plugin.IntroSkipper/Configuration/inject.js -c -m
-          npx terser ConfusedPolarBear.Plugin.IntroSkipper/Configuration/visualizer.js -o ConfusedPolarBear.Plugin.IntroSkipper/Configuration/visualizer.js -c -m
+          npx html-minifier-terser --collapse-boolean-attributes --collapse-whitespace --remove-comments --remove-optional-tags --remove-redundant-attributes --remove-script-type-attributes --remove-tag-whitespace --use-short-doctype --minify-css true --minify-js true -o IntroSkipper/Configuration/configPage.html IntroSkipper/Configuration/configPage.html
+          npx terser IntroSkipper/Configuration/inject.js -o IntroSkipper/Configuration/inject.js -c -m
+          npx terser IntroSkipper/Configuration/visualizer.js -o IntroSkipper/Configuration/visualizer.js -c -m
 
       - name: Restore Beta dependencies
         if: ${{env.IS_BETA == 'true' }}
@@ -65,13 +65,13 @@ jobs:
       - name: Embed version info
         run: |
           GITHUB_SHA=${{ github.sha }}
-          sed -i "s/string\.Empty/\"$GITHUB_SHA\"/g" ConfusedPolarBear.Plugin.IntroSkipper/Helper/Commit.cs
+          sed -i "s/string\.Empty/\"$GITHUB_SHA\"/g" IntroSkipper/Helper/Commit.cs
 
       - name: Build
         run: dotnet build --configuration Release --no-restore
 
       - name: Create archive
-        run: zip -j "intro-skipper-v${{ env.NEW_FILE_VERSION }}.zip" ConfusedPolarBear.Plugin.IntroSkipper/bin/Release/net8.0/ConfusedPolarBear.Plugin.IntroSkipper.dll
+        run: zip -j "intro-skipper-v${{ env.NEW_FILE_VERSION }}.zip" IntroSkipper/bin/Release/net8.0/IntroSkipper.dll
 
       - name: Remove old release if exits
         if: ${{ github.repository == 'intro-skipper/intro-skipper-test' }}
@@ -105,6 +105,6 @@ jobs:
         run: |
           git config --global user.name "github-actions[bot]"
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
-          git add README.md manifest.json ConfusedPolarBear.Plugin.IntroSkipper/ConfusedPolarBear.Plugin.IntroSkipper.csproj .github/ISSUE_TEMPLATE/bug_report_form.yml
+          git add README.md manifest.json IntroSkipper/IntroSkipper.csproj .github/ISSUE_TEMPLATE/bug_report_form.yml
           git commit -m "release v${{ env.NEW_FILE_VERSION }}"
           git push

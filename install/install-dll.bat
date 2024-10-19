@@ -21,7 +21,7 @@ GOTO UserInput
 
 :FoundFile
 echo "%NewestFile%"
-xcopy /y ConfusedPolarBear.Plugin.IntroSkipper.dll "%NewestFile%"
+xcopy /y IntroSkipper.dll "%NewestFile%"
 
 :UserInput
 @pause
