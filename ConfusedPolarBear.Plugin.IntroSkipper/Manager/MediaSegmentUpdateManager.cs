@@ -30,7 +30,7 @@ namespace ConfusedPolarBear.Plugin.IntroSkipper.Manager
         /// <param name="episodes">Queued media items.</param>
         /// <param name="cancellationToken">CancellationToken.</param>
         /// <returns>A <see cref="Task"/> representing the asynchronous operation.</returns>
-        public async Task UpdateMediaSegments(IReadOnlyList<QueuedEpisode> episodes, CancellationToken cancellationToken)
+        public async Task UpdateMediaSegmentsAsync(IReadOnlyList<QueuedEpisode> episodes, CancellationToken cancellationToken)
         {
             foreach (var episode in episodes)
             {

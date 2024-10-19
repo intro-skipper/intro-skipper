@@ -166,7 +166,7 @@ public class BaseItemAnalyzerTask
 
             if (Plugin.Instance.Configuration.RegenerateMediaSegments || (updateManagers && Plugin.Instance.Configuration.UpdateMediaSegments))
             {
-                await _mediaSegmentUpdateManager.UpdateMediaSegments(episodes, ct).ConfigureAwait(false);
+                await _mediaSegmentUpdateManager.UpdateMediaSegmentsAsync(episodes, ct).ConfigureAwait(false);
             }
 
             if (Plugin.Instance.Configuration.RegenerateEdlFiles || (updateManagers && Plugin.Instance.Configuration.EdlAction != EdlAction.None))
