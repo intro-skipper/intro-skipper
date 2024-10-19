@@ -68,6 +68,20 @@ public class PluginConfiguration : BasePluginConfiguration
     /// </summary>
     public bool WithChromaprint { get; set; } = true;
 
+    // ===== Media Segment handling =====
+
+    /// <summary>
+    /// Gets or sets a value indicating whether to update Media Segments.
+    /// </summary>
+    public bool UpdateMediaSegments { get; set; } = true;
+
+    /// <summary>
+    /// Gets or sets a value indicating whether to regenerate all EDL files during the next scan.
+    /// By default, EDL files are only written for a season if the season had at least one newly analyzed episode.
+    /// If this is set, all EDL files will be regenerated and overwrite any existing EDL file.
+    /// </summary>
+    public bool RegenerateMediaSegments { get; set; } = true;
+
     // ===== EDL handling =====
 
     /// <summary>
