@@ -9,92 +9,12 @@
         "imageUrl": "https://raw.githubusercontent.com/intro-skipper/intro-skipper/master/images/logo.png",
         "versions": [
             {
-                "version": "1.0.0.6",
-                "changelog": "- See the full changelog at [GitHub](https://github.com/intro-skipper/intro-skipper/releases/tag/10.9/v1.0.0.6)\n",
-                "targetAbi": "10.9.11.0",
-                "sourceUrl": "https://github.com/intro-skipper/intro-skipper/releases/download/10.9/v1.0.0.6/intro-skipper-v1.0.0.6.zip",
-                "checksum": "2101f2fcd9068abcef1a914fee9022b1",
-                "timestamp": "2024-10-12T14:25:02Z"
-            },
-            {
-                "version": "1.0.0.5",
-                "changelog": "- See the full changelog at [GitHub](https://github.com/intro-skipper/intro-skipper/releases/tag/10.9/v1.0.0.5)\n",
-                "targetAbi": "10.9.11.0",
-                "sourceUrl": "https://github.com/intro-skipper/intro-skipper/releases/download/10.9/v1.0.0.5/intro-skipper-v1.0.0.5.zip",
-                "checksum": "20babdd7c9c8139bbcf43931b46f4d9a",
-                "timestamp": "2024-10-07T05:45:45Z"
-            },
-            {
-                "version": "1.0.0.4",
-                "changelog": "- See the full changelog at [GitHub](https://github.com/intro-skipper/intro-skipper/releases/tag/10.9/v1.0.0.4)\n",
-                "targetAbi": "10.9.11.0",
-                "sourceUrl": "https://github.com/intro-skipper/intro-skipper/releases/download/10.9/v1.0.0.4/intro-skipper-v1.0.0.4.zip",
-                "checksum": "d1dc6629795af7b44de1bc0d1a72ed4a",
-                "timestamp": "2024-10-06T20:31:39Z"
-            },
-            {
-                "version": "1.0.0.3",
-                "changelog": "- See the full changelog at [GitHub](https://github.com/intro-skipper/intro-skipper/releases/tag/10.9/v1.0.0.3)\n",
-                "targetAbi": "10.9.11.0",
-                "sourceUrl": "https://github.com/intro-skipper/intro-skipper/releases/download/10.9/v1.0.0.3/intro-skipper-v1.0.0.3.zip",
-                "checksum": "22d3572664eee4fb2b6909766e18d4e6",
-                "timestamp": "2024-10-03T19:35:14Z"
-            },
-            {
-                "version": "1.0.0.2",
-                "changelog": "- See the full changelog at [GitHub](https://github.com/intro-skipper/intro-skipper/releases/tag/10.9/v1.0.0.2)\n",
-                "targetAbi": "10.9.11.0",
-                "sourceUrl": "https://github.com/intro-skipper/intro-skipper/releases/download/10.9/v1.0.0.2/intro-skipper-v1.0.0.2.zip",
-                "checksum": "080ff30f7080a08c9689cf5afd343ed3",
-                "timestamp": "2024-09-29T19:49:54Z"
-            },
-            {
-                "version": "1.0.0.1",
-                "changelog": "- See the full changelog at [GitHub](https://github.com/intro-skipper/intro-skipper/releases/tag/10.9/v1.0.0.1)\n",
-                "targetAbi": "10.9.11.0",
-                "sourceUrl": "https://github.com/intro-skipper/intro-skipper/releases/download/10.9/v1.0.0.1/intro-skipper-v1.0.0.1.zip",
-                "checksum": "640fe8ce96076658d86882f3812313fb",
-                "timestamp": "2024-09-21T17:10:42Z"
-            },
-            {
-                "version": "0.2.0.22",
-                "changelog": "- See the full changelog at [GitHub](https://github.com/intro-skipper/intro-skipper/releases/tag/10.9/v0.2.0.22)\n",
-                "targetAbi": "10.9.11.0",
-                "sourceUrl": "https://github.com/intro-skipper/intro-skipper/releases/download/10.9/v0.2.0.22/intro-skipper-v0.2.0.22.zip",
-                "checksum": "e9f0b971bb726faec0b1f715272df278",
-                "timestamp": "2024-09-20T11:27:26Z"
-            },
-            {
-                "version": "0.2.0.21",
-                "changelog": "- See the full changelog at [GitHub](https://github.com/intro-skipper/intro-skipper/releases/tag/10.9/v0.2.0.21)\n",
-                "targetAbi": "10.9.11.0",
-                "sourceUrl": "https://github.com/intro-skipper/intro-skipper/releases/download/10.9/v0.2.0.21/intro-skipper-v0.2.0.21.zip",
-                "checksum": "b3331fbe4f415198e4e41c7856181715",
-                "timestamp": "2024-09-14T16:56:14Z"
-            },
-            {
-                "version": "0.2.0.20",
-                "changelog": "- See the full changelog at [GitHub](https://github.com/intro-skipper/intro-skipper/releases/tag/10.9/v0.2.0.20)\n",
-                "targetAbi": "10.9.10.0",
-                "sourceUrl": "https://github.com/intro-skipper/intro-skipper/releases/download/10.9/v0.2.0.20/intro-skipper-v0.2.0.20.zip",
-                "checksum": "18a57997aaab4396676b1dfc170c5eca",
-                "timestamp": "2024-09-05T18:11:29Z"
-            },
-            {
-                "version": "0.2.0.19",
-                "changelog": "- See the full changelog at [GitHub](https://github.com/intro-skipper/intro-skipper/releases/tag/10.9/v0.2.0.19)\n",
-                "targetAbi": "10.9.10.0",
-                "sourceUrl": "https://github.com/intro-skipper/intro-skipper/releases/download/10.9/v0.2.0.19/intro-skipper-v0.2.0.19.zip",
-                "checksum": "68e7203a5199133af46855cc91987ad8",
-                "timestamp": "2024-09-02T14:07:30Z"
-            },
-            {
-                "version": "0.2.0.18",
-                "changelog": "- See the full changelog at [GitHub](https://github.com/intro-skipper/intro-skipper/releases/tag/10.9/v0.2.0.18)\n",
-                "targetAbi": "10.9.10.0",
-                "sourceUrl": "https://github.com/intro-skipper/intro-skipper/releases/download/10.9/v0.2.0.18/intro-skipper-v0.2.0.18.zip",
-                "checksum": "08ab1f3adebec4fea3779ac33282afe2",
-                "timestamp": "2024-09-01T16:39:14Z"
+                "version": "1.0.1.1",
+                "changelog": "- See the full changelog at [GitHub](https://github.com/intro-skipper/intro-skipper/releases/tag/10.10/v1.0.1.1)\n",
+                "targetAbi": "10.10.0.0",
+                "sourceUrl": "https://github.com/intro-skipper/intro-skipper/releases/download/10.10/v1.0.1.1/intro-skipper-v1.0.1.1.zip",
+                "checksum": "304e23d218166d6d7fc4b1e8390b105b",
+                "timestamp": "2024-10-18T12:28:17Z"
             }
         ]
     }
