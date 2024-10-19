@@ -3,8 +3,8 @@ using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
 using ConfusedPolarBear.Plugin.IntroSkipper.Data;
+using ConfusedPolarBear.Plugin.IntroSkipper.Manager;
 using ConfusedPolarBear.Plugin.IntroSkipper.Services;
-using MediaBrowser.Controller;
 using MediaBrowser.Controller.Library;
 using MediaBrowser.Model.Tasks;
 using Microsoft.Extensions.Logging;
@@ -20,12 +20,12 @@ namespace ConfusedPolarBear.Plugin.IntroSkipper.ScheduledTasks;
 /// <param name="loggerFactory">Logger factory.</param>
 /// <param name="libraryManager">Library manager.</param>
 /// <param name="logger">Logger.</param>
-/// <param name="mediaSegmentManager">mediaSegmentManager.</param>
+/// <param name="mediaSegmentUpdateManager">MediaSegment Update Manager.</param>
 public class DetectIntrosCreditsTask(
     ILogger<DetectIntrosCreditsTask> logger,
     ILoggerFactory loggerFactory,
     ILibraryManager libraryManager,
-    IMediaSegmentManager mediaSegmentManager) : IScheduledTask
+    MediaSegmentUpdateManager mediaSegmentUpdateManager) : IScheduledTask
 {
     private readonly ILogger<DetectIntrosCreditsTask> _logger = logger;
 
@@ -33,7 +33,7 @@ public class DetectIntrosCreditsTask(
 
     private readonly ILibraryManager _libraryManager = libraryManager;
 
-    private readonly IMediaSegmentManager _mediaSegmentManager = mediaSegmentManager;
+    private readonly MediaSegmentUpdateManager _mediaSegmentUpdateManager = mediaSegmentUpdateManager;
 
     /// <summary>
     /// Gets the task name.
@@ -86,7 +86,7 @@ public class DetectIntrosCreditsTask(
                 _loggerFactory.CreateLogger<DetectIntrosCreditsTask>(),
                 _loggerFactory,
                 _libraryManager,
-                _mediaSegmentManager);
+                _mediaSegmentUpdateManager);
 
             await baseIntroAnalyzer.AnalyzeItems(progress, cancellationToken).ConfigureAwait(false);
         }

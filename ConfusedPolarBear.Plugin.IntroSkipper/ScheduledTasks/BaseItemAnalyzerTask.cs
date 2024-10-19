@@ -7,8 +7,6 @@ using System.Threading.Tasks;
 using ConfusedPolarBear.Plugin.IntroSkipper.Analyzers;
 using ConfusedPolarBear.Plugin.IntroSkipper.Data;
 using ConfusedPolarBear.Plugin.IntroSkipper.Manager;
-using ConfusedPolarBear.Plugin.IntroSkipper.Providers;
-using MediaBrowser.Controller;
 using MediaBrowser.Controller.Library;
 using Microsoft.Extensions.Logging;
 
@@ -23,7 +21,6 @@ public class BaseItemAnalyzerTask
     private readonly ILogger _logger;
     private readonly ILoggerFactory _loggerFactory;
     private readonly ILibraryManager _libraryManager;
-    private readonly IMediaSegmentManager _mediaSegmentManager;
     private readonly MediaSegmentUpdateManager _mediaSegmentUpdateManager;
 
     /// <summary>
@@ -33,21 +30,19 @@ public class BaseItemAnalyzerTask
     /// <param name="logger">Task logger.</param>
     /// <param name="loggerFactory">Logger factory.</param>
     /// <param name="libraryManager">Library manager.</param>
-    /// <param name="mediaSegmentManager">MediaSegmentManager.</param>
+    /// <param name="mediaSegmentUpdateManager">MediaSegmentUpdateManager.</param>
     public BaseItemAnalyzerTask(
         IReadOnlyCollection<AnalysisMode> modes,
         ILogger logger,
         ILoggerFactory loggerFactory,
         ILibraryManager libraryManager,
-        IMediaSegmentManager mediaSegmentManager)
+        MediaSegmentUpdateManager mediaSegmentUpdateManager)
     {
         _analysisModes = modes;
         _logger = logger;
         _loggerFactory = loggerFactory;
         _libraryManager = libraryManager;
-        _mediaSegmentManager = mediaSegmentManager;
-
-        _mediaSegmentUpdateManager = new MediaSegmentUpdateManager(_mediaSegmentManager, _logger, new SegmentProvider());
+        _mediaSegmentUpdateManager = mediaSegmentUpdateManager;
 
         if (Plugin.Instance!.Configuration.EdlAction != EdlAction.None)
         {
