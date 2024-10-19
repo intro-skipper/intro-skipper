@@ -4,6 +4,8 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Text.RegularExpressions;
+using System.Xml;
+using System.Xml.Serialization;
 using IntroSkipper.Configuration;
 using IntroSkipper.Data;
 using MediaBrowser.Common;
@@ -87,6 +89,36 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
         XmlSerializationHelper.MigrateXML(_creditsPath);
 
         MigrateRepoUrl(serverConfiguration);
+
+        var oldConfigFile = Path.Join(applicationPaths.PluginConfigurationsPath, "ConfusedPolarBear.Plugin.IntroSkipper.xml");
+
+        if (File.Exists(oldConfigFile))
+        {
+            try
+            {
+                XmlSerializer serializer = new XmlSerializer(typeof(PluginConfiguration));
+                using (FileStream fileStream = new FileStream(oldConfigFile, FileMode.Open))
+                {
+                    var settings = new XmlReaderSettings
+                    {
+                        DtdProcessing = DtdProcessing.Prohibit, // Disable DTD processing
+                        XmlResolver = null // Disable the XmlResolver
+                    };
+
+                    using (var reader = XmlReader.Create(fileStream, settings))
+                    {
+                        var oldConfig = serializer.Deserialize(reader) as PluginConfiguration;
+                        Instance.UpdateConfiguration(oldConfig);
+                        File.Delete(oldConfigFile);
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                // Handle exceptions, such as file not found, deserialization errors, etc.
+                _logger.LogWarning("Something stupid happend: {Exception}", ex);
+            }
+        }
 
         // TODO: remove when https://github.com/jellyfin/jellyfin-meta/discussions/30 is complete
         try
