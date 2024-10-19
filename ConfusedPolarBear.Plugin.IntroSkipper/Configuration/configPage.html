@@ -153,6 +153,29 @@
                                 </div>
                             </details>
 
+                            <details id="mediasegment">
+                                <summary>Jellyfin Mediasegment Generation</summary>
+
+                                <br />
+                                <div class="checkboxContainer checkboxContainer-withDescription">
+                                    <label class="emby-checkbox-label">
+                                        <input id="UpdateMediaSegments" type="checkbox" is="emby-checkbox" />
+                                        <span>Update Media Segments for Newly Added Files During Scan</span>
+                                    </label>
+
+                                    <div class="fieldDescription">Enable this option to update media segments for newly added files during a scan. <strong>Warning:</strong> This should be disabled if you're using media segment providers other than Intro Skipper.</div>
+                                </div>
+
+                                <div class="checkboxContainer checkboxContainer-withDescription">
+                                    <label class="emby-checkbox-label">
+                                        <input id="RegenerateMediaSegments" type="checkbox" is="emby-checkbox" />
+                                        <span>Regenerate All Media Segments on Next Scan</span>
+                                    </label>
+
+                                    <div class="fieldDescription">When enabled, this option will <strong>overwrite all existing media segments</strong> for your episodes with currently detected introduction and credit timestamps during the next scan.</div>
+                                </div>
+                            </details>
+
                             <details id="edl">
                                 <summary>EDL File Generation</summary>
 
@@ -671,7 +694,7 @@
                     "AutoSkipCreditsNotificationText",
                 ];
 
-                var booleanConfigurationFields = ["AutoDetectIntros", "AutoDetectCredits", "AnalyzeMovies", "AnalyzeSeasonZero", "SelectAllLibraries", "RegenerateEdlFiles", "CacheFingerprints", "AutoSkip", "AutoSkipCredits", "SkipFirstEpisode", "PersistSkipButton", "SkipButtonVisible"];
+                var booleanConfigurationFields = ["AutoDetectIntros", "AutoDetectCredits", "AnalyzeMovies", "AnalyzeSeasonZero", "SelectAllLibraries", "UpdateMediaSegments", "RegenerateMediaSegments", "RegenerateEdlFiles", "CacheFingerprints", "AutoSkip", "AutoSkipCredits", "SkipFirstEpisode", "PersistSkipButton", "SkipButtonVisible"];
 
                 // visualizer elements
                 var ignorelistSection = document.querySelector("div#ignorelistSection");

@@ -16,11 +16,12 @@ namespace ConfusedPolarBear.Plugin.IntroSkipper.Manager
     /// </summary>
     /// <param name="mediaSegmentManager">MediaSegmentManager.</param>
     /// <param name="logger">logger.</param>
-    public class MediaSegmentUpdateManager(IMediaSegmentManager mediaSegmentManager, ILogger logger)
+    /// <param name="segmentProvider">segmentProvider.</param>
+    public class MediaSegmentUpdateManager(IMediaSegmentManager mediaSegmentManager, ILogger logger, SegmentProvider segmentProvider)
     {
         private readonly IMediaSegmentManager _mediaSegmentManager = mediaSegmentManager;
         private readonly ILogger _logger = logger;
-        private readonly SegmentProvider _segmentProvider = new();
+        private readonly SegmentProvider _segmentProvider = segmentProvider;
         private readonly string _name = Plugin.Instance!.Name;
 
         /// <summary>
@@ -34,13 +35,13 @@ namespace ConfusedPolarBear.Plugin.IntroSkipper.Manager
             foreach (var episode in episodes)
             {
                 cancellationToken.ThrowIfCancellationRequested();
-
                 try
                 {
                     var existingSegments = await _mediaSegmentManager.GetSegmentsAsync(episode.EpisodeId, null).ConfigureAwait(false);
-                    var newSegments = await _segmentProvider.GetMediaSegments(
-                        new MediaSegmentGenerationRequest { ItemId = episode.EpisodeId },
-                        cancellationToken).ConfigureAwait(false);
+                    var deleteTasks = existingSegments.Select(s => _mediaSegmentManager.DeleteSegmentAsync(s.Id));
+                    await Task.WhenAll(deleteTasks).ConfigureAwait(false);
+
+                    var newSegments = await _segmentProvider.GetMediaSegments(new MediaSegmentGenerationRequest { ItemId = episode.EpisodeId }, cancellationToken).ConfigureAwait(false);
 
                     if (newSegments.Count == 0)
                     {
@@ -48,11 +49,8 @@ namespace ConfusedPolarBear.Plugin.IntroSkipper.Manager
                         continue;
                     }
 
-                    var tasks = new List<Task>();
-                    tasks.AddRange(existingSegments.Select(s => _mediaSegmentManager.DeleteSegmentAsync(s.Id)));
-                    tasks.AddRange(newSegments.Select(s => _mediaSegmentManager.CreateSegmentAsync(s, _name)));
-
-                    await Task.WhenAll(tasks).ConfigureAwait(false);
+                    var createTasks = newSegments.Select(s => _mediaSegmentManager.CreateSegmentAsync(s, _name));
+                    await Task.WhenAll(createTasks).ConfigureAwait(false);
 
                     _logger.LogDebug("Updated {SegmentCount} segments for episode {EpisodeId}", newSegments.Count, episode.EpisodeId);
                 }

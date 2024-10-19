@@ -7,6 +7,8 @@ using ConfusedPolarBear.Plugin.IntroSkipper.Data;
 using ConfusedPolarBear.Plugin.IntroSkipper.Manager;
 using ConfusedPolarBear.Plugin.IntroSkipper.ScheduledTasks;
 using MediaBrowser.Controller;
+using MediaBrowser.Controller.Entities;
+using MediaBrowser.Controller.Entities.Movies;
 using MediaBrowser.Controller.Entities.TV;
 using MediaBrowser.Controller.Library;
 using MediaBrowser.Model.Entities;
@@ -29,7 +31,7 @@ namespace ConfusedPolarBear.Plugin.IntroSkipper.Services
         private readonly IMediaSegmentManager _mediaSegmentManager;
         private readonly HashSet<Guid> _seasonsToAnalyze = [];
         private readonly Timer _queueTimer;
-        private static readonly ManualResetEventSlim _autoTaskCompletEvent = new(false);
+        private static readonly SemaphoreSlim _analysisSemaphore = new(1, 1);
         private PluginConfiguration _config;
         private bool _analyzeAgain;
         private static CancellationTokenSource? _cancellationTokenSource;
@@ -41,7 +43,7 @@ namespace ConfusedPolarBear.Plugin.IntroSkipper.Services
         /// <param name="taskManager">Task manager.</param>
         /// <param name="logger">Logger.</param>
         /// <param name="loggerFactory">Logger factory.</param>
-        /// <param name="mediaSegmentManager">mediaSegmentManager.</param>
+        /// <param name="mediaSegmentManager">MediaSegment Manager.</param>
         public Entrypoint(
             ILibraryManager libraryManager,
             ITaskManager taskManager,
@@ -66,42 +68,26 @@ namespace ConfusedPolarBear.Plugin.IntroSkipper.Services
         /// <summary>
         /// Gets State of the automatic task.
         /// </summary>
-        public static TaskState AutomaticTaskState
+        public static TaskState AutomaticTaskState => _cancellationTokenSource switch
         {
-            get
-            {
-                if (_cancellationTokenSource is not null)
-                {
-                    return _cancellationTokenSource.IsCancellationRequested
-                            ? TaskState.Cancelling
-                            : TaskState.Running;
-                }
-
-                return TaskState.Idle;
-            }
-        }
+            null => TaskState.Idle,
+            { IsCancellationRequested: true } => TaskState.Cancelling,
+            _ => TaskState.Running
+        };
 
         /// <inheritdoc />
         public Task StartAsync(CancellationToken cancellationToken)
         {
-            _libraryManager.ItemAdded += OnItemAdded;
-            _libraryManager.ItemUpdated += OnItemModified;
+            _libraryManager.ItemAdded += OnItemChanged;
+            _libraryManager.ItemUpdated += OnItemChanged;
             _taskManager.TaskCompleted += OnLibraryRefresh;
             Plugin.Instance!.ConfigurationChanged += OnSettingsChanged;
 
             FFmpegWrapper.Logger = _logger;
 
-            try
-            {
-                // Enqueue all episodes at startup to ensure any FFmpeg errors appear as early as possible
-                _logger.LogInformation("Running startup enqueue");
-                var queueManager = new QueueManager(_loggerFactory.CreateLogger<QueueManager>(), _libraryManager);
-                queueManager?.GetMediaItems();
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError("Unable to run startup enqueue: {Exception}", ex);
-            }
+            // Enqueue all episodes at startup to ensure any FFmpeg errors appear as early as possible
+            _logger.LogInformation("Running startup enqueue");
+            new QueueManager(_loggerFactory.CreateLogger<QueueManager>(), _libraryManager).GetMediaItems();
 
             return Task.CompletedTask;
         }
@@ -109,75 +95,41 @@ namespace ConfusedPolarBear.Plugin.IntroSkipper.Services
         /// <inheritdoc />
         public Task StopAsync(CancellationToken cancellationToken)
         {
-            _libraryManager.ItemAdded -= OnItemAdded;
-            _libraryManager.ItemUpdated -= OnItemModified;
+            _libraryManager.ItemAdded -= OnItemChanged;
+            _libraryManager.ItemUpdated -= OnItemChanged;
             _taskManager.TaskCompleted -= OnLibraryRefresh;
+            Plugin.Instance!.ConfigurationChanged -= OnSettingsChanged;
 
-            // Stop the timer
             _queueTimer.Change(Timeout.Infinite, 0);
             return Task.CompletedTask;
         }
-
-        // Disclose source for inspiration
-        // Implementation based on the principles of jellyfin-plugin-media-analyzer:
-        // https://github.com/endrl/jellyfin-plugin-media-analyzer
 
         /// <summary>
         /// Library item was added.
         /// </summary>
         /// <param name="sender">The sending entity.</param>
         /// <param name="itemChangeEventArgs">The <see cref="ItemChangeEventArgs"/>.</param>
-        private void OnItemAdded(object? sender, ItemChangeEventArgs itemChangeEventArgs)
+        private void OnItemChanged(object? sender, ItemChangeEventArgs itemChangeEventArgs)
         {
-            // Don't do anything if auto detection is disabled
-            if (!_config.AutoDetectIntros && !_config.AutoDetectCredits)
+            if ((_config.AutoDetectIntros || _config.AutoDetectCredits) &&
+                itemChangeEventArgs.Item is { LocationType: not LocationType.Virtual } and IHasMediaSources item)
             {
-                return;
+                if (item is Episode episode)
+                {
+                    _seasonsToAnalyze.Add(episode.SeasonId);
+                }
+                else if (item is Movie movie)
+                {
+                    _seasonsToAnalyze.Add(movie.Id);
+                }
+                else
+                {
+                    return;
+                }
+
+                _logger.LogDebug("Start Analysis.");
+                StartTimer();
             }
-
-            // Don't do anything if it's not a supported media type
-            if (itemChangeEventArgs.Item is not Episode episode)
-            {
-                return;
-            }
-
-            if (itemChangeEventArgs.Item.LocationType == LocationType.Virtual)
-            {
-                return;
-            }
-
-            _seasonsToAnalyze.Add(episode.SeasonId);
-
-            StartTimer();
-        }
-
-        /// <summary>
-        /// Library item was modified.
-        /// </summary>
-        /// <param name="sender">The sending entity.</param>
-        /// <param name="itemChangeEventArgs">The <see cref="ItemChangeEventArgs"/>.</param>
-        private void OnItemModified(object? sender, ItemChangeEventArgs itemChangeEventArgs)
-        {
-            // Don't do anything if auto detection is disabled
-            if (!_config.AutoDetectIntros && !_config.AutoDetectCredits)
-            {
-                return;
-            }
-
-            // Don't do anything if it's not a supported media type
-            if (itemChangeEventArgs.Item is not Episode episode)
-            {
-                return;
-            }
-
-            if (itemChangeEventArgs.Item.LocationType == LocationType.Virtual)
-            {
-                return;
-            }
-
-            _seasonsToAnalyze.Add(episode.SeasonId);
-
-            StartTimer();
         }
 
         /// <summary>
@@ -187,31 +139,12 @@ namespace ConfusedPolarBear.Plugin.IntroSkipper.Services
         /// <param name="eventArgs">The <see cref="TaskCompletionEventArgs"/>.</param>
         private void OnLibraryRefresh(object? sender, TaskCompletionEventArgs eventArgs)
         {
-            // Don't do anything if auto detection is disabled
-            if (!_config.AutoDetectIntros && !_config.AutoDetectCredits)
+            if ((_config.AutoDetectIntros || _config.AutoDetectCredits) &&
+                eventArgs.Result is { Key: "RefreshLibrary", Status: TaskCompletionStatus.Completed } &&
+                AutomaticTaskState != TaskState.Running)
             {
-                return;
+                StartTimer();
             }
-
-            var result = eventArgs.Result;
-
-            if (result.Key != "RefreshLibrary")
-            {
-                return;
-            }
-
-            if (result.Status != TaskCompletionStatus.Completed)
-            {
-                return;
-            }
-
-            // Unless user initiated, this is likely an overlap
-            if (AutomaticTaskState == TaskState.Running)
-            {
-                return;
-            }
-
-            StartTimer();
         }
 
         private void OnSettingsChanged(object? sender, BasePluginConfiguration e) => _config = (PluginConfiguration)e;
@@ -228,77 +161,65 @@ namespace ConfusedPolarBear.Plugin.IntroSkipper.Services
             else if (AutomaticTaskState == TaskState.Idle)
             {
                 _logger.LogDebug("Media Library changed, analyzis will start soon!");
-                _queueTimer.Change(TimeSpan.FromMilliseconds(20000), Timeout.InfiniteTimeSpan);
+                _queueTimer.Change(TimeSpan.FromSeconds(60), Timeout.InfiniteTimeSpan);
             }
         }
 
-        /// <summary>
-        /// Wait for timer callback to be completed.
-        /// </summary>
-        private void OnTimerCallback(object? state)
+        private void OnTimerCallback(object? state) =>
+            _ = RunAnalysisAsync();
+
+        private async Task RunAnalysisAsync()
         {
             try
             {
-                PerformAnalysis();
+                await PerformAnalysisAsync().ConfigureAwait(false);
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error in PerformAnalysis");
+                _logger.LogError(ex, "Error in RunAnalysisAsync");
             }
 
-            // Clean up
             _cancellationTokenSource = null;
-            _autoTaskCompletEvent.Set();
         }
 
-        /// <summary>
-        /// Wait for timer to be completed.
-        /// </summary>
-        private async void PerformAnalysis()
+        private async Task PerformAnalysisAsync()
         {
-            _logger.LogInformation("Initiate automatic analysis task.");
-            _autoTaskCompletEvent.Reset();
-
-            using (_cancellationTokenSource = new CancellationTokenSource())
-            using (ScheduledTaskSemaphore.Acquire(_cancellationTokenSource.Token))
+            await _analysisSemaphore.WaitAsync().ConfigureAwait(false);
+            try
             {
-                var seasonIds = new HashSet<Guid>(_seasonsToAnalyze);
-                _seasonsToAnalyze.Clear();
-
-                _analyzeAgain = false;
-                var progress = new Progress<double>();
-                var modes = new List<AnalysisMode>();
-                var tasklogger = _loggerFactory.CreateLogger("DefaultLogger");
-
-                if (_config.AutoDetectIntros)
+                using (_cancellationTokenSource = new CancellationTokenSource())
+                using (await ScheduledTaskSemaphore.AcquireAsync(_cancellationTokenSource.Token).ConfigureAwait(false))
                 {
-                    modes.Add(AnalysisMode.Introduction);
-                    tasklogger = _loggerFactory.CreateLogger<DetectIntrosTask>();
+                    _logger.LogInformation("Initiating automatic analysis task");
+                    var seasonIds = new HashSet<Guid>(_seasonsToAnalyze);
+                    _seasonsToAnalyze.Clear();
+                    _analyzeAgain = false;
+
+                    var modes = new List<AnalysisMode>();
+
+                    if (_config.AutoDetectIntros)
+                    {
+                        modes.Add(AnalysisMode.Introduction);
+                    }
+
+                    if (_config.AutoDetectCredits)
+                    {
+                        modes.Add(AnalysisMode.Credits);
+                    }
+
+                    var analyzer = new BaseItemAnalyzerTask(modes, _loggerFactory.CreateLogger<Entrypoint>(), _loggerFactory, _libraryManager, _mediaSegmentManager);
+                    await analyzer.AnalyzeItems(new Progress<double>(), _cancellationTokenSource.Token, seasonIds).ConfigureAwait(false);
+
+                    if (_analyzeAgain && !_cancellationTokenSource.IsCancellationRequested)
+                    {
+                        _logger.LogInformation("Analyzing ended, but we need to analyze again!");
+                        _queueTimer.Change(TimeSpan.FromSeconds(60), Timeout.InfiniteTimeSpan);
+                    }
                 }
-
-                if (_config.AutoDetectCredits)
-                {
-                    modes.Add(AnalysisMode.Credits);
-                    tasklogger = modes.Count == 2
-                        ? _loggerFactory.CreateLogger<DetectIntrosCreditsTask>()
-                        : _loggerFactory.CreateLogger<DetectCreditsTask>();
-                }
-
-                var baseCreditAnalyzer = new BaseItemAnalyzerTask(
-                        modes,
-                        tasklogger,
-                        _loggerFactory,
-                        _libraryManager,
-                        _mediaSegmentManager);
-
-                await baseCreditAnalyzer.AnalyzeItems(progress, _cancellationTokenSource.Token, seasonIds).ConfigureAwait(false);
-
-                // New item detected, start timer again
-                if (_analyzeAgain && !_cancellationTokenSource.IsCancellationRequested)
-                {
-                    _logger.LogInformation("Analyzing ended, but we need to analyze again!");
-                    StartTimer();
-                }
+            }
+            finally
+            {
+                _analysisSemaphore.Release();
             }
         }
 
@@ -306,13 +227,14 @@ namespace ConfusedPolarBear.Plugin.IntroSkipper.Services
         /// Method to cancel the automatic task.
         /// </summary>
         /// <param name="cancellationToken">Cancellation token.</param>
-        public static void CancelAutomaticTask(CancellationToken cancellationToken)
+        /// <returns>A <see cref="Task"/> representing the asynchronous operation.</returns>
+        public static async Task CancelAutomaticTaskAsync(CancellationToken cancellationToken)
         {
-            if (_cancellationTokenSource != null && !_cancellationTokenSource.IsCancellationRequested)
+            if (_cancellationTokenSource is { IsCancellationRequested: false })
             {
                 try
                 {
-                    _cancellationTokenSource.Cancel();
+                   await _cancellationTokenSource.CancelAsync().ConfigureAwait(false);
                 }
                 catch (ObjectDisposedException)
                 {
@@ -320,7 +242,7 @@ namespace ConfusedPolarBear.Plugin.IntroSkipper.Services
                 }
             }
 
-            _autoTaskCompletEvent.Wait(TimeSpan.FromSeconds(60), cancellationToken); // Wait for the signal
+            await _analysisSemaphore.WaitAsync(TimeSpan.FromSeconds(60), cancellationToken).ConfigureAwait(false);
         }
 
         /// <inheritdoc/>
@@ -328,7 +250,7 @@ namespace ConfusedPolarBear.Plugin.IntroSkipper.Services
         {
             _queueTimer.Dispose();
             _cancellationTokenSource?.Dispose();
-            _autoTaskCompletEvent.Dispose();
+            _analysisSemaphore.Dispose();
         }
     }
 }

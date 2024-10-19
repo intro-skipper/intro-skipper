@@ -1,5 +1,6 @@
 using System;
 using System.Threading;
+using System.Threading.Tasks;
 
 namespace ConfusedPolarBear.Plugin.IntroSkipper.ScheduledTasks;
 
@@ -11,9 +12,9 @@ internal sealed class ScheduledTaskSemaphore : IDisposable
     {
     }
 
-    public static IDisposable Acquire(CancellationToken cancellationToken)
+    public static async Task<IDisposable> AcquireAsync(CancellationToken cancellationToken)
     {
-        _semaphore.Wait(cancellationToken);
+        await _semaphore.WaitAsync(cancellationToken).ConfigureAwait(false);
         return new ScheduledTaskSemaphore();
     }
 

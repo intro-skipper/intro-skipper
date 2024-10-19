@@ -7,6 +7,7 @@ using System.Threading.Tasks;
 using ConfusedPolarBear.Plugin.IntroSkipper.Analyzers;
 using ConfusedPolarBear.Plugin.IntroSkipper.Data;
 using ConfusedPolarBear.Plugin.IntroSkipper.Manager;
+using ConfusedPolarBear.Plugin.IntroSkipper.Providers;
 using MediaBrowser.Controller;
 using MediaBrowser.Controller.Library;
 using Microsoft.Extensions.Logging;
@@ -46,12 +47,12 @@ public class BaseItemAnalyzerTask
         _libraryManager = libraryManager;
         _mediaSegmentManager = mediaSegmentManager;
 
+        _mediaSegmentUpdateManager = new MediaSegmentUpdateManager(_mediaSegmentManager, _logger, new SegmentProvider());
+
         if (Plugin.Instance!.Configuration.EdlAction != EdlAction.None)
         {
             EdlManager.Initialize(_logger);
         }
-
-        _mediaSegmentUpdateManager = new MediaSegmentUpdateManager(_mediaSegmentManager, _logger);
     }
 
     /// <summary>
@@ -163,7 +164,7 @@ public class BaseItemAnalyzerTask
                     ex);
             }
 
-            if (updateManagers)
+            if (Plugin.Instance.Configuration.RegenerateMediaSegments || (updateManagers && Plugin.Instance.Configuration.UpdateMediaSegments))
             {
                 await _mediaSegmentUpdateManager.UpdateMediaSegments(episodes, ct).ConfigureAwait(false);
             }
@@ -194,7 +195,7 @@ public class BaseItemAnalyzerTask
         AnalysisMode mode,
         CancellationToken cancellationToken)
     {
-        var totalItems = items.Count;
+        var totalItems = items.Count(e => !e.State.IsAnalyzed(mode));
 
         // Only analyze specials (season 0) if the user has opted in.
         var first = items[0];

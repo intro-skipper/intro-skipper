@@ -73,10 +73,10 @@ public class DetectCreditsTask(
         if (Entrypoint.AutomaticTaskState == TaskState.Running || Entrypoint.AutomaticTaskState == TaskState.Cancelling)
         {
             _logger.LogInformation("Automatic Task is {0} and will be canceled.", Entrypoint.AutomaticTaskState);
-            Entrypoint.CancelAutomaticTask(cancellationToken);
+            await Entrypoint.CancelAutomaticTaskAsync(cancellationToken).ConfigureAwait(false);
         }
 
-        using (ScheduledTaskSemaphore.Acquire(cancellationToken))
+        using (await ScheduledTaskSemaphore.AcquireAsync(cancellationToken).ConfigureAwait(false))
         {
             _logger.LogInformation("Scheduled Task is starting");
 
@@ -91,8 +91,6 @@ public class DetectCreditsTask(
 
             await baseCreditAnalyzer.AnalyzeItems(progress, cancellationToken).ConfigureAwait(false);
         }
-
-        return;
     }
 
     /// <summary>
