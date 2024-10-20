@@ -76,9 +76,9 @@ public class PluginConfiguration : BasePluginConfiguration
     public bool UpdateMediaSegments { get; set; } = true;
 
     /// <summary>
-    /// Gets or sets a value indicating whether to regenerate all Media Segemnts during the next scan.
-    /// By default, Media Segemnts are only written for a season if the season had at least one newly analyzed episode.
-    /// If this is set, all Media Segemnts will be regenerated and overwrite any existing Media Segemnts.
+    /// Gets or sets a value indicating whether to regenerate all Media Segments during the next scan.
+    /// By default, Media Segments are only written for a season if the season had at least one newly analyzed episode.
+    /// If this is set, all Media Segments will be regenerated and overwrite any existing Media Segemnts.
     /// </summary>
     public bool RegenerateMediaSegments { get; set; } = true;
 
