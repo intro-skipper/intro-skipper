@@ -969,6 +969,8 @@
                         return;
                     }
 
+                    saveIgnoreListSeriesButton.textContent = "Apply to series";
+
                     // add all seasons from this show to the season select
                     for (const season in shows[selectShow.value].Seasons) {
                         addItem(selectSeason, "Season " + shows[selectShow.value].Seasons[season], season);
@@ -1057,6 +1059,7 @@
 
                     Dashboard.showLoadingMsg();
 
+                    saveIgnoreListSeriesButton.textContent = "Apply to movie";
                     seasonSelection.style.display = "none";
                     episodeSelection.style.display = "none";
                     eraseMovieContainer.style.display = "unset";
