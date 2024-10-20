@@ -135,10 +135,7 @@ public class BaseItemAnalyzerTask
 
             try
             {
-                if (ct.IsCancellationRequested)
-                {
-                    return;
-                }
+                ct.ThrowIfCancellationRequested();
 
                 foreach (AnalysisMode mode in requiredModes)
                 {
@@ -150,6 +147,10 @@ public class BaseItemAnalyzerTask
                     progress.Report(totalProcessed * 100 / totalQueued);
                 }
             }
+            catch (OperationCanceledException ex)
+            {
+                _logger.LogDebug(ex, "Analysis cancelled");
+            }
             catch (FingerprintException ex)
             {
                 _logger.LogWarning(
@@ -157,6 +158,11 @@ public class BaseItemAnalyzerTask
                     first.SeriesName,
                     first.SeasonNumber,
                     ex);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "An unexpected error occurred during analysis");
+                throw;
             }
 
             if (Plugin.Instance.Configuration.RegenerateMediaSegments || (updateManagers && Plugin.Instance.Configuration.UpdateMediaSegments))
@@ -238,6 +244,7 @@ public class BaseItemAnalyzerTask
         foreach (var analyzer in analyzers)
         {
             items = analyzer.AnalyzeMediaFiles(items, mode, cancellationToken);
+            cancellationToken.ThrowIfCancellationRequested();
         }
 
         // Add items without intros/credits to blacklist.

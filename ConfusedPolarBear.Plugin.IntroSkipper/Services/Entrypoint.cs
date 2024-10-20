@@ -164,6 +164,10 @@ namespace ConfusedPolarBear.Plugin.IntroSkipper.Services
             {
                 await PerformAnalysisAsync().ConfigureAwait(false);
             }
+            catch (OperationCanceledException)
+            {
+                _logger.LogInformation("Automatic Analysis task cancelled");
+            }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Error in RunAnalysisAsync");
