@@ -101,6 +101,11 @@
                                 <summary>Modify Segment Parameters</summary>
 
                                 <br />
+                                <span style="color:orange"><strong>Changing segment parameters requires regenerating media segments before changes will take effect.</strong></span>
+                                <br />
+                                <span>Per the jellyfin MediaSegments API, records must be updated individually and may be slow to regenerate.</span>
+
+                                <br />
                                 <div class="inputContainer">
                                     <label class="inputLabel inputLabelUnfocused" for="AnalysisPercent"> Percent of audio to analyze </label>
                                     <input id="AnalysisPercent" type="number" is="emby-input" min="1" max="90" />
@@ -149,12 +154,12 @@
                                     <label class="inputLabel inputLabelUnfocused" for="MaximumMovieCreditsDuration"> Maximum movie credits duration (in seconds) </label>
                                     <input id="MaximumMovieCreditsDuration" type="number" is="emby-input" min="1" />
                                     <div class="fieldDescription">Segments longer than this duration will not be considered movie credits.</div>
-                                    <br />upda
+                                    <br />
                                 </div>
                             </details>
 
                             <details id="mediasegment">
-                                <summary>Jellyfin Mediasegment Generation</summary>
+                                <summary>Jellyfin MediaSegment Generation</summary>
 
                                 <br />
                                 <div class="checkboxContainer checkboxContainer-withDescription">
