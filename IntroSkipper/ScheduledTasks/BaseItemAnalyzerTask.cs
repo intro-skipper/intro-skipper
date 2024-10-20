@@ -43,11 +43,6 @@ public class BaseItemAnalyzerTask
         _loggerFactory = loggerFactory;
         _libraryManager = libraryManager;
         _mediaSegmentUpdateManager = mediaSegmentUpdateManager;
-
-        if (Plugin.Instance!.Configuration.EdlAction != EdlAction.None)
-        {
-            EdlManager.Initialize(_logger);
-        }
     }
 
     /// <summary>
@@ -87,11 +82,6 @@ public class BaseItemAnalyzerTask
         {
             throw new FingerprintException(
                 "No libraries selected for analysis. Please visit the plugin settings to configure.");
-        }
-
-        if (Plugin.Instance!.Configuration.EdlAction != EdlAction.None)
-        {
-            EdlManager.LogConfiguration();
         }
 
         var totalProcessed = 0;
@@ -169,18 +159,12 @@ public class BaseItemAnalyzerTask
             {
                 await _mediaSegmentUpdateManager.UpdateMediaSegmentsAsync(episodes, ct).ConfigureAwait(false);
             }
-
-            if (Plugin.Instance.Configuration.RegenerateEdlFiles || (updateManagers && Plugin.Instance.Configuration.EdlAction != EdlAction.None))
-            {
-                EdlManager.UpdateEDLFiles(episodes);
-            }
         }).ConfigureAwait(false);
 
-        if (Plugin.Instance.Configuration.RegenerateMediaSegments || Plugin.Instance.Configuration.RegenerateEdlFiles)
+        if (Plugin.Instance.Configuration.RegenerateMediaSegments)
         {
-            _logger.LogInformation("Turning Mediasegment/EDL file regeneration flag off");
+            _logger.LogInformation("Turning Mediasegment");
             Plugin.Instance.Configuration.RegenerateMediaSegments = false;
-            Plugin.Instance.Configuration.RegenerateEdlFiles = false;
             Plugin.Instance.SaveConfiguration();
         }
     }
