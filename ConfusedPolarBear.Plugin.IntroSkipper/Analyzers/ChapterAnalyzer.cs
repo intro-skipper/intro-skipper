@@ -55,7 +55,7 @@ public class ChapterAnalyzer(ILogger<ChapterAnalyzer> logger) : IMediaFileAnalyz
                 expression,
                 mode);
 
-            if (skipRange is null)
+            if (skipRange is null || !skipRange.Valid)
             {
                 continue;
             }

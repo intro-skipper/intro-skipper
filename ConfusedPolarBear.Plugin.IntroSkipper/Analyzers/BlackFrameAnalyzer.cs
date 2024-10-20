@@ -121,7 +121,7 @@ public class BlackFrameAnalyzer : IMediaFileAnalyzer
                 searchDistance,
                 _blackFrameMinimumPercentage);
 
-            if (credit is null)
+            if (credit is null || !credit.Valid)
             {
                 // If no credits were found, reset the first-episode search logic for the next episode in the sequence.
                 searchStart = _minimumCreditsDuration;
