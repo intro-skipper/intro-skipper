@@ -101,11 +101,12 @@
                                 <summary>Modify Segment Parameters</summary>
 
                                 <br />
-                                <span style="color:orange"><strong>Changing segment parameters requires regenerating media segments before changes will take effect.</strong></span>
-                                <br />
-                                <span>Per the jellyfin MediaSegments API, records must be updated individually and may be slow to regenerate.</span>
+                                <p>
+                                  <strong style="color:orange">Changing segment parameters requires regenerating media segments before changes take effect.</strong>
+                                  <br />
+                                  Per the jellyfin MediaSegments API, records must be updated individually and may be slow to regenerate.
+                                </p>
 
-                                <br />
                                 <div class="inputContainer">
                                     <label class="inputLabel inputLabelUnfocused" for="AnalysisPercent"> Percent of audio to analyze </label>
                                     <input id="AnalysisPercent" type="number" is="emby-input" min="1" max="90" />
