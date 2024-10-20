@@ -144,7 +144,7 @@
 
                                     Increasing either of these settings will cause episode analysis to take much longer.
                                 </p>
-                                
+
                                 <div class="inputContainer" id="movieCreditsDuration">
                                     <label class="inputLabel inputLabelUnfocused" for="MaximumMovieCreditsDuration"> Maximum movie credits duration (in seconds) </label>
                                     <input id="MaximumMovieCreditsDuration" type="number" is="emby-input" min="1" />
@@ -992,6 +992,8 @@
                         return;
                     }
 
+                    saveIgnoreListSeriesButton.textContent = "Apply to series";
+
                     // add all seasons from this show to the season select
                     for (const season in shows[selectShow.value].Seasons) {
                         addItem(selectSeason, "Season " + shows[selectShow.value].Seasons[season], season);
@@ -1080,6 +1082,7 @@
 
                     Dashboard.showLoadingMsg();
 
+                    saveIgnoreListSeriesButton.textContent = "Apply to movie";
                     seasonSelection.style.display = "none";
                     episodeSelection.style.display = "none";
                     eraseMovieContainer.style.display = "unset";
