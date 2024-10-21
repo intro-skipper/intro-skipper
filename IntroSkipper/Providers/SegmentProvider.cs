@@ -23,40 +23,30 @@ namespace IntroSkipper.Providers
         /// <inheritdoc/>
         public Task<IReadOnlyList<MediaSegmentDto>> GetMediaSegments(MediaSegmentGenerationRequest request, CancellationToken cancellationToken)
         {
-            ArgumentNullException.ThrowIfNull(request);
-
             var segments = new List<MediaSegmentDto>();
-            var remainingTicks = TimeSpan.FromSeconds(Plugin.Instance?.Configuration.RemainingSecondsOfIntro ?? 2).Ticks;
+            var remainingTicks = (Plugin.Instance?.Configuration.RemainingSecondsOfIntro ?? 2) * TimeSpan.TicksPerSecond;
 
-            if (Plugin.Instance!.Intros.TryGetValue(request.ItemId, out var introValue) && introValue.Valid)
+            if (Plugin.Instance!.Intros.TryGetValue(request.ItemId, out var introValue))
             {
                 segments.Add(new MediaSegmentDto
                 {
-                    StartTicks = TimeSpan.FromSeconds(introValue.Start).Ticks,
-                    EndTicks = TimeSpan.FromSeconds(introValue.End).Ticks - remainingTicks,
+                    StartTicks = (long)(introValue.Start * TimeSpan.TicksPerSecond),
+                    EndTicks = (long)(introValue.End * TimeSpan.TicksPerSecond) - remainingTicks,
                     ItemId = request.ItemId,
                     Type = MediaSegmentType.Intro
                 });
             }
 
-            if (Plugin.Instance!.Credits.TryGetValue(request.ItemId, out var creditValue) && creditValue.Valid)
+            if (Plugin.Instance!.Credits.TryGetValue(request.ItemId, out var creditValue))
             {
-                var creditEndTicks = TimeSpan.FromSeconds(creditValue.End).Ticks;
-
-                if (Plugin.Instance.GetItem(request.ItemId) is not null and var item &&
-                    item.RunTimeTicks - TimeSpan.TicksPerSecond < creditEndTicks)
-                {
-                    creditEndTicks = item.RunTimeTicks ?? creditEndTicks;
-                }
-                else
-                {
-                    creditEndTicks -= remainingTicks;
-                }
-
+                var creditEndTicks = (long)(creditValue.End * TimeSpan.TicksPerSecond);
+                var runTimeTicks = Plugin.Instance.GetItem(request.ItemId)?.RunTimeTicks ?? long.MaxValue;
                 segments.Add(new MediaSegmentDto
                 {
-                    StartTicks = TimeSpan.FromSeconds(creditValue.Start).Ticks,
-                    EndTicks = creditEndTicks,
+                    StartTicks = (long)(creditValue.Start * TimeSpan.TicksPerSecond),
+                    EndTicks = runTimeTicks > creditEndTicks + TimeSpan.TicksPerSecond
+                        ? creditEndTicks - remainingTicks
+                        : runTimeTicks,
                     ItemId = request.ItemId,
                     Type = MediaSegmentType.Outro
                 });

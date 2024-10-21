@@ -37,8 +37,7 @@ namespace IntroSkipper.Manager
                 try
                 {
                     var existingSegments = await _mediaSegmentManager.GetSegmentsAsync(episode.EpisodeId, null).ConfigureAwait(false);
-                    var deleteTasks = existingSegments.Select(s => _mediaSegmentManager.DeleteSegmentAsync(s.Id));
-                    await Task.WhenAll(deleteTasks).ConfigureAwait(false);
+                    await Task.WhenAll(existingSegments.Select(s => _mediaSegmentManager.DeleteSegmentAsync(s.Id))).ConfigureAwait(false);
 
                     var newSegments = await _segmentProvider.GetMediaSegments(new MediaSegmentGenerationRequest { ItemId = episode.EpisodeId }, cancellationToken).ConfigureAwait(false);
 
@@ -48,8 +47,7 @@ namespace IntroSkipper.Manager
                         continue;
                     }
 
-                    var createTasks = newSegments.Select(s => _mediaSegmentManager.CreateSegmentAsync(s, _name));
-                    await Task.WhenAll(createTasks).ConfigureAwait(false);
+                    await Task.WhenAll(newSegments.Select(s => _mediaSegmentManager.CreateSegmentAsync(s, _name))).ConfigureAwait(false);
 
                     _logger.LogDebug("Updated {SegmentCount} segments for episode {EpisodeId}", newSegments.Count, episode.EpisodeId);
                 }
