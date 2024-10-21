@@ -186,35 +186,7 @@
 
                                 <br />
                                 <div class="selectContainer">
-                                    <label class="selectLabel" for="EdlAction">EDL Action</label>
-                                    <select is="emby-select" id="EdlAction" class="emby-select-withcolor emby-select">
-                                        <option value="None">None (do not create or modify EDL files)</option>
-
-                                        <option value="CommercialBreak">Commercial Break (recommended, skips past the intro once)</option>
-
-                                        <option value="Cut">Cut (player will remove the intro from the video)</option>
-
-                                        <option value="Mute">Mute (audio will be muted)</option>
-
-                                        <option value="SceneMarker">Scene Marker (create a chapter marker)</option>
-                                    </select>
-
-                                    <div class="fieldDescription">
-                                        If set to a value other than None, specifies which action to write to
-                                        <a href="https://kodi.wiki/view/Edit_decision_list">MPlayer compatible EDL files</a>
-                                        alongside your episode files. <br />
-
-                                        If this value is changed after EDL files are generated, you must check the "Regenerate EDL files" checkbox below.
-                                    </div>
-                                </div>
-
-                                <div class="checkboxContainer checkboxContainer-withDescription">
-                                    <label class="emby-checkbox-label">
-                                        <input id="RegenerateEdlFiles" type="checkbox" is="emby-checkbox" />
-                                        <span>Regenerate EDL files during next scan</span>
-                                    </label>
-
-                                    <div class="fieldDescription">If checked, the plugin will <strong>overwrite all EDL files</strong> associated with your episodes with the currently discovered introduction/credit timestamps and EDL action.</div>
+                                    The EDL file generation has been removed. Please use endrl's <a href="https://github.com/endrl/jellyfin-plugin-edl">EDL plugin</a>.
                                 </div>
                             </details>
 
@@ -680,7 +652,6 @@
                     "MinimumCreditsDuration",
                     "MaximumCreditsDuration",
                     "MaximumMovieCreditsDuration",
-                    "EdlAction",
                     "ProcessPriority",
                     "ProcessThreads",
                     // playback
@@ -699,7 +670,7 @@
                     "AutoSkipCreditsNotificationText",
                 ];
 
-                var booleanConfigurationFields = ["AutoDetectIntros", "AutoDetectCredits", "AnalyzeMovies", "AnalyzeSeasonZero", "SelectAllLibraries", "UpdateMediaSegments", "RegenerateMediaSegments", "RegenerateEdlFiles", "CacheFingerprints", "AutoSkip", "AutoSkipCredits", "SkipFirstEpisode", "PersistSkipButton", "SkipButtonVisible"];
+                var booleanConfigurationFields = ["AutoDetectIntros", "AutoDetectCredits", "AnalyzeMovies", "AnalyzeSeasonZero", "SelectAllLibraries", "UpdateMediaSegments", "RegenerateMediaSegments", "CacheFingerprints", "AutoSkip", "AutoSkipCredits", "SkipFirstEpisode", "PersistSkipButton", "SkipButtonVisible"];
 
                 // visualizer elements
                 var ignorelistSection = document.querySelector("div#ignorelistSection");
