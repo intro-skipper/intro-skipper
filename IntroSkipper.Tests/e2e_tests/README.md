@@ -39,7 +39,6 @@ Selenium is used to verify that the plugin's web interface works as expected. It
 * Changing settings (will be added in the future)
     * Maximum degree of parallelism
     * Selecting libraries for analysis
-    * EDL settings
     * Introduction requirements
     * Auto skip
     * Show/hide skip prompt
