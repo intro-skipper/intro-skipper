@@ -514,12 +514,13 @@
                                 </div>
 
                                 <div id="timestampErrorDiv" style="display: none">
+                                    <br />
                                     <textarea id="timestampError" rows="2" cols="75" readonly></textarea>
                                     <br />
                                     <br />
                                 </div>
 
-                                <div id="fingerprintVisualizer">
+                                <div id="fingerprintVisualizer" style="display: none">
 
                                     <h3>Fingerprint Visualizer</h3>
                                     <p>
@@ -558,18 +559,18 @@
                                     <input type="number" min="-3000" max="3000" value="0" id="offset" />
                                     <br />
                                     <span id="suggestedShifts">
-                                        <span>Suggested shifts:</span>
-                                        <br />
-                                        <br />
+                                        <span>Suggested shifts: </span>
                                     </span>
-
+                                    <br />
+                                    <br />
                                     <canvas id="troubleshooter" style="display: none"></canvas>
                                     <span id="timestampContainer">
-                                        <span id="timestamps"></span> <br />
+                                        <span id="timestamps"></span>
+                                        <br />
                                         <span id="intros"></span>
                                     </span>
+                                    <br />
                                 </div>
-                                <br />
                                 <br />
 
                                 <div id="eraseSeasonContainer" style="display: none">
@@ -1022,7 +1023,7 @@
                     if (lhs === undefined) {
                         timestampError.value += "Error: " + selectEpisode1.value + " fingerprints failed!\n";
                     } else if (lhs === null) {
-                        timestampError.value += "Error: " + selectEpisode1.value + " fingerprints missing!\n";
+                        timestampError.value += selectEpisode1.value + " fingerprints missing or incomplete.\n";
                     }
 
                     rightEpisodeEditor.style.display = "unset";
@@ -1031,7 +1032,7 @@
                     if (rhs === undefined) {
                         timestampError.value += "Error: " + selectEpisode2.value + " fingerprints failed!";
                     } else if (rhs === null) {
-                        timestampError.value += "Error: " + selectEpisode2.value + " fingerprints missing!\n";
+                        timestampError.value += selectEpisode2.value + " fingerprints missing or incomplete.\n";
                     }
 
                     if (timestampError.value == "") {
@@ -1065,7 +1066,7 @@
                     if (lhs === undefined) {
                         timestampError.value += "Error: " + selectShow.value + " fingerprints failed!\n";
                     } else if (lhs === null) {
-                        timestampError.value += "Error: " + selectShow.value + " fingerprints missing!\n";
+                        timestampError.value += selectShow.value + " fingerprints missing or incomplete.\n";
                     }
 
                     rightEpisodeEditor.style.display = "none";
