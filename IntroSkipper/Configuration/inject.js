@@ -228,10 +228,10 @@ const introSkipper = {
 			const segment = this.skipSegments[key];
 			if (
 				(position > segment.ShowSkipPromptAt &&
-					position < segment.HideSkipPromptAt - 1) ||
+					position < segment.HideSkipPromptAt) ||
 				(this.osdVisible() &&
 					position > segment.IntroStart &&
-					position < segment.IntroEnd - 1)
+					position < segment.IntroEnd - 3)
 			) {
 				return { ...segment, SegmentType: key };
 			}
@@ -250,31 +250,13 @@ const introSkipper = {
 	},
 	/** Playback position changed, check if the skip button needs to be displayed. */
 	videoPositionChanged() {
-		if (!this.skipButton) return;
-		const embyButton = this.skipButton.querySelector(".emby-button");
-		const segmentType = this.getCurrentSegment(
-			this.videoPlayer.currentTime,
-		).SegmentType;
+		if (!this.skipButton || !this.allowEnter) return;
+		const { SegmentType: segmentType } = this.getCurrentSegment(this.videoPlayer.currentTime);
 		if (
 			segmentType === "None" ||
-			this.currentOption === "Off" ||
-			!this.allowEnter
+			this.currentOption === "Off"
 		) {
-			if (this.skipButton.classList.contains("show")) {
-				this.skipButton.classList.remove("show");
-				embyButton.addEventListener(
-					"transitionend",
-					() => {
-						this.skipButton.classList.add("hide");
-						if (this.osdVisible()) {
-							this.osdElement.querySelector("button.btnPause").focus();
-						} else {
-							embyButton.originalBlur();
-						}
-					},
-					{ once: true },
-				);
-			}
+			this.hideSkipButton();
 			return;
 		}
 		if (
@@ -285,22 +267,42 @@ const introSkipper = {
 			this.doSkip();
 			return;
 		}
+        const button = this.skipButton.querySelector(".emby-button");
 		this.skipButton.querySelector("#btnSkipSegmentText").textContent =
 			this.skipButton.dataset[segmentType];
 		if (!this.skipButton.classList.contains("hide")) {
-			if (!this.osdVisible() && !embyButton.contains(document.activeElement))
-				embyButton.focus();
-			return;
+			if (!this.osdVisible() && !button.contains(document.activeElement)) {
+                button.focus();
+            }
+            return;
 		}
 		requestAnimationFrame(() => {
 			this.skipButton.classList.remove("hide");
 			requestAnimationFrame(() => {
 				this.skipButton.classList.add("show");
-				this.overrideBlur(embyButton);
-				embyButton.focus();
+				this.overrideBlur(button);
+				button.focus();
 			});
 		});
 	},
+    hideSkipButton() {
+        if (this.skipButton.classList.contains("show")) {
+            this.skipButton.classList.remove("show");
+            const button = this.skipButton.querySelector(".emby-button");
+            button.addEventListener(
+                "transitionend",
+                () => {
+                    this.skipButton.classList.add("hide");
+                    if (this.osdVisible()) {
+                        this.osdElement.querySelector("button.btnPause").focus();
+                    } else {
+                        button.originalBlur();
+                    }
+                },
+                { once: true },
+            );
+        }
+    },
 	/** Seeks to the end of the intro. */
 	doSkip() {
 		if (!this.allowEnter) return;
@@ -310,19 +312,15 @@ const introSkipper = {
 			return;
 		}
 		this.d(`Skipping ${segment.SegmentType}`);
-		this.allowEnter = false;
 		const seekedHandler = () => {
 			this.videoPlayer.removeEventListener("seeked", seekedHandler);
 			setTimeout(() => {
 				this.allowEnter = true;
-			}, 500);
+			}, 700);
 		};
 		this.videoPlayer.addEventListener("seeked", seekedHandler);
-		this.videoPlayer.currentTime =
-			segment.SegmentType === "Credits" &&
-			this.videoPlayer.duration - segment.IntroEnd < 3
-				? this.videoPlayer.duration + 10
-				: segment.IntroEnd;
+		this.videoPlayer.currentTime = segment.IntroEnd;
+        this.hideSkipButton();
 	},
 	createButton(ref, id, innerHTML, clickHandler) {
 		const button = ref.cloneNode(true);
