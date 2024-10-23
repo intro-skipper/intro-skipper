@@ -4,6 +4,6 @@
   "files.encoding": "utf8",
   "files.trimTrailingWhitespace": true,
   "files.insertFinalNewline": true,
-  "editor.rulers": []
-  "dotnet.defaultSolution": "IntroSkipper.sln",
+  "editor.rulers": [],
+  "dotnet.defaultSolution": "IntroSkipper.sln"
 }
