@@ -157,18 +157,21 @@ public class SkipIntroController : ControllerBase
             var segment = new Intro(timestamp);
 
             var config = Plugin.Instance!.Configuration;
-            segment.IntroEnd -= config.RemainingSecondsOfIntro;
+            segment.IntroEnd = mode == AnalysisMode.Credits
+                ? GetAdjustedIntroEnd(id, segment.IntroEnd, config)
+                : segment.IntroEnd - config.RemainingSecondsOfIntro;
+
             if (config.PersistSkipButton)
             {
                 segment.ShowSkipPromptAt = segment.IntroStart;
-                segment.HideSkipPromptAt = segment.IntroEnd;
+                segment.HideSkipPromptAt = segment.IntroEnd - 3;
             }
             else
             {
                 segment.ShowSkipPromptAt = Math.Max(0, segment.IntroStart - config.ShowPromptAdjustment);
                 segment.HideSkipPromptAt = Math.Min(
                     segment.IntroStart + config.HidePromptAdjustment,
-                    segment.IntroEnd);
+                    segment.IntroEnd - 3);
             }
 
             return segment;
@@ -177,6 +180,14 @@ public class SkipIntroController : ControllerBase
         {
             return null;
         }
+    }
+
+    private static double GetAdjustedIntroEnd(Guid id, double segmentEnd, PluginConfiguration config)
+    {
+        var runTime = TimeSpan.FromTicks(Plugin.Instance!.GetItem(id)?.RunTimeTicks ?? 0).TotalSeconds;
+        return runTime > 0 && runTime < segmentEnd + 1
+            ? runTime
+            : segmentEnd - config.RemainingSecondsOfIntro;
     }
 
     /// <summary>
