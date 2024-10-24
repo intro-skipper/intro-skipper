@@ -448,7 +448,8 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
             List<string> oldRepos =
             [
             "https://raw.githubusercontent.com/intro-skipper/intro-skipper/master/manifest.json",
-                "https://raw.githubusercontent.com/jumoog/intro-skipper/master/manifest.json"
+            "https://raw.githubusercontent.com/jumoog/intro-skipper/master/manifest.json",
+            "https://manifest.intro-skipper.workers.dev/manifest.json"
             ];
             // Access the current server configuration
             var config = serverConfiguration.Configuration;
@@ -463,13 +464,13 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
                 pluginRepositories.RemoveAll(repo => repo != null && repo.Url != null && oldRepos.Contains(repo.Url));
 
                 // Add repository only if it does not exit
-                if (!pluginRepositories.Exists(repo => repo.Url == "https://manifest.intro-skipper.workers.dev/manifest.json"))
+                if (!pluginRepositories.Exists(repo => repo.Url == "https://manifest.intro-skipper.org/manifest.json"))
                 {
                     // Add the new repository to the list
                     pluginRepositories.Add(new RepositoryInfo
                     {
                         Name = "intro skipper (automatically migrated by plugin)",
-                        Url = "https://manifest.intro-skipper.workers.dev/manifest.json",
+                        Url = "https://manifest.intro-skipper.org/manifest.json",
                         Enabled = true,
                     });
                 }
