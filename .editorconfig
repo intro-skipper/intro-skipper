@@ -192,3 +192,5 @@ csharp_space_between_method_call_empty_parameter_list_parentheses = false
 # Wrapping preferences
 csharp_preserve_single_line_statements = true
 csharp_preserve_single_line_blocks = true
+
+file_header_template = Copyright (C) 2024 Intro-Skipper Contributors <intro-skipper.org>\nSPDX-License-Identifier: GNU General Public License v3.0 only. 

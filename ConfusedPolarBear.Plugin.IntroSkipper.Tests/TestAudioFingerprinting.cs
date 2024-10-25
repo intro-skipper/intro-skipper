@@ -1,3 +1,6 @@
+// Copyright (C) 2024 Intro-Skipper Contributors <intro-skipper.org>
+// SPDX-License-Identifier: GNU General Public License v3.0 only.
+
 /* These tests require that the host system has a version of FFmpeg installed
  * which supports both chromaprint and the "-fp_format raw" flag.
  */
