@@ -53,7 +53,7 @@ jobs:
           dotnet tool install --global dotnet-outdated-tool
           dotnet outdated -pre Always -u -inc Jellyfin
 
-      - name: Restore Beta
+      - name: Restore dependencies
         if: ${{env.IS_BETA == 'false' }}
         run: dotnet restore
 
@@ -92,13 +92,6 @@ jobs:
         env:
           GITHUB_REPO_VISIBILITY: ${{ github.event.repository.visibility }}
           MAIN_VERSION: ${{ env.MAIN_VERSION }}
-
-      - name: Deploy to Cloudflare KV
-        uses: cloudflare/wrangler-action@v3
-        with:
-          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          command: kv key put --namespace-id=${{ github.repository == 'intro-skipper/intro-skipper-test' && '49c07e5b68074443b940de893d58a997' || '61215c51799a4de59f0a33a8b7aecb0e' }} ${{ env.MAIN_VERSION }} --path=manifest.json
 
       - name: Commit changes
         if: success()
