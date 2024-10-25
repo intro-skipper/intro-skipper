@@ -1,3 +1,6 @@
+// Copyright (C) 2024 Intro-Skipper Contributors <intro-skipper.org>
+// SPDX-License-Identifier: GNU General Public License v3.0 only.
+
 using IntroSkipper.Manager;
 using IntroSkipper.Providers;
 using IntroSkipper.Services;
