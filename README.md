@@ -11,10 +11,10 @@
 [![CodeQL](https://github.com/intro-skipper/intro-skipper/actions/workflows/codeql.yml/badge.svg)](https://github.com/intro-skipper/intro-skipper/actions/workflows/codeql.yml)
 </div>
 
-## Manifest URL for all Jellyfin Versions
+## Manifest URL (All Jellyfin Versions)
 
 ```
-https://manifest.intro-skipper.workers.dev/manifest.json
+https://manifest.intro-skipper.org/manifest.json
 ```
 
 ## System requirements
