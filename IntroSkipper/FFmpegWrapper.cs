@@ -7,6 +7,7 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.Globalization;
 using System.IO;
+using System.Linq;
 using System.Text;
 using System.Text.RegularExpressions;
 using IntroSkipper.Data;
@@ -318,17 +319,7 @@ public static partial class FFmpegWrapper
         }
 
         // Print all remaining logs
-        foreach (var kvp in ChromaprintLogs)
-        {
-            if (kvp.Key == "error" || kvp.Key == "version")
-            {
-                continue;
-            }
-
-            logs += FormatFFmpegLog(kvp.Key);
-        }
-
-        return logs;
+        return ChromaprintLogs.Where(kvp => kvp.Key != "error" && kvp.Key != "version").Aggregate(logs, (current, kvp) => current + FormatFFmpegLog(kvp.Key));
     }
 
     /// <summary>
@@ -553,10 +544,7 @@ public static partial class FFmpegWrapper
 
         try
         {
-            foreach (var rawNumber in raw)
-            {
-                result.Add(Convert.ToUInt32(rawNumber, CultureInfo.InvariantCulture));
-            }
+            result.AddRange(raw.Select(rawNumber => Convert.ToUInt32(rawNumber, CultureInfo.InvariantCulture)));
         }
         catch (FormatException)
         {
@@ -592,11 +580,7 @@ public static partial class FFmpegWrapper
         }
 
         // Stringify each data point.
-        var lines = new List<string>();
-        foreach (var number in fingerprint)
-        {
-            lines.Add(number.ToString(CultureInfo.InvariantCulture));
-        }
+        var lines = fingerprint.Select(number => number.ToString(CultureInfo.InvariantCulture)).ToList();
 
         // Cache the episode.
         File.WriteAllLinesAsync(

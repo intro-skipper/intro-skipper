@@ -111,13 +111,10 @@ public class CleanCacheTask : IScheduledTask
 
         // Clean up ignore list by removing items that are no longer exist..
         var removedItems = false;
-        foreach (var ignoredItem in Plugin.Instance.IgnoreList.Values.ToList())
+        foreach (var ignoredItem in Plugin.Instance.IgnoreList.Values.ToList().Where(ignoredItem => !queue.ContainsKey(ignoredItem.SeasonId)))
         {
-            if (!queue.ContainsKey(ignoredItem.SeasonId))
-            {
-                removedItems = true;
-                Plugin.Instance.IgnoreList.TryRemove(ignoredItem.SeasonId, out _);
-            }
+            removedItems = true;
+            Plugin.Instance.IgnoreList.TryRemove(ignoredItem.SeasonId, out _);
         }
 
         // Save ignore list if at least one item was removed.

@@ -304,10 +304,8 @@ public class ChromaprintAnalyzer : IMediaFileAnalyzer
 
         // For all audio points in the left episode, check if the right episode has a point which matches exactly.
         // If an exact match is found, calculate the shift that must be used to align the points.
-        foreach (var kvp in lhsIndex)
+        foreach (var originalPoint in lhsIndex.Select(kvp => kvp.Key))
         {
-            var originalPoint = kvp.Key;
-
             for (var i = -1 * _invertedIndexShift; i <= _invertedIndexShift; i++)
             {
                 var modifiedPoint = (uint)(originalPoint + i);

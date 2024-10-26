@@ -137,7 +137,7 @@ public class VisualizationController(ILogger<VisualizationController> logger) : 
             return NotFound();
         }
 
-        if (!episodes.Any(e => e.SeriesId == seriesId))
+        if (episodes.All(e => e.SeriesId != seriesId))
         {
             return NotFound();
         }
@@ -156,12 +156,9 @@ public class VisualizationController(ILogger<VisualizationController> logger) : 
         // Search through all queued episodes to find the requested id
         foreach (var season in Plugin.Instance!.QueuedMediaItems)
         {
-            foreach (var needle in season.Value)
+            foreach (var needle in season.Value.Where(needle => needle.EpisodeId == id))
             {
-                if (needle.EpisodeId == id)
-                {
-                    return FFmpegWrapper.Fingerprint(needle, AnalysisMode.Introduction);
-                }
+                return FFmpegWrapper.Fingerprint(needle, AnalysisMode.Introduction);
             }
         }
 

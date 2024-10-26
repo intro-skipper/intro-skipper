@@ -434,13 +434,10 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
         var allKeys = new HashSet<Guid>(Instance!.Intros.Keys);
         allKeys.UnionWith(Instance.Credits.Keys);
 
-        foreach (var key in allKeys)
+        foreach (var key in allKeys.Where(key => !validEpisodeIds.Contains(key)))
         {
-            if (!validEpisodeIds.Contains(key))
-            {
-                Instance.Intros.TryRemove(key, out _);
-                Instance.Credits.TryRemove(key, out _);
-            }
+            Instance.Intros.TryRemove(key, out _);
+            Instance.Credits.TryRemove(key, out _);
         }
 
         SaveTimestamps(AnalysisMode.Introduction);
@@ -544,14 +541,10 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
         filePaths = Directory.GetFiles(webPath, searchPattern, SearchOption.TopDirectoryOnly);
 
         // should be only one file but this safer
-        foreach (var file in filePaths)
+        if (filePaths.Any(file => File.ReadAllText(file).Contains("btnSkipIntro", StringComparison.OrdinalIgnoreCase)))
         {
-            // search for class btnSkipIntro
-            if (File.ReadAllText(file).Contains("btnSkipIntro", StringComparison.OrdinalIgnoreCase))
-            {
-                _logger.LogInformation("Found a modified version of jellyfin-web with built-in skip button support.");
-                return;
-            }
+            _logger.LogInformation("Found a modified version of jellyfin-web with built-in skip button support.");
+            return;
         }
 
         // Inject the skip intro button code into the web interface.

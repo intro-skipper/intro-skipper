@@ -259,17 +259,17 @@ namespace IntroSkipper.Manager
 
         private Guid GetSeasonId(Episode episode)
         {
-            if (episode.ParentIndexNumber == 0 && episode.AiredSeasonNumber != 0) // In-season special
+            if (episode.ParentIndexNumber != 0 || episode.AiredSeasonNumber == 0) // In-season special
             {
-                foreach (var kvp in _queuedEpisodes)
-                {
-                    var first = kvp.Value.FirstOrDefault();
-                    if (first?.SeriesId == episode.SeriesId &&
-                        first.SeasonNumber == episode.AiredSeasonNumber)
-                    {
-                        return kvp.Key;
-                    }
-                }
+                return episode.SeasonId;
+            }
+
+            foreach (var kvp in from kvp in _queuedEpisodes
+                let first = kvp.Value.FirstOrDefault()
+                where first?.SeriesId == episode.SeriesId && first.SeasonNumber == episode.AiredSeasonNumber
+                select kvp)
+            {
+                return kvp.Key;
             }
 
             return episode.SeasonId;
