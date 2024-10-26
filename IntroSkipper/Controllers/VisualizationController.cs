@@ -42,7 +42,7 @@ public class VisualizationController(ILogger<VisualizationController> logger) : 
 
         foreach (var kvp in Plugin.Instance!.QueuedMediaItems)
         {
-            if (kvp.Value.FirstOrDefault() is QueuedEpisode first)
+            if (kvp.Value.FirstOrDefault() is { } first)
             {
                 var seriesId = first.SeriesId;
                 var seasonId = kvp.Key;

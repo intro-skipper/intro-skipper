@@ -133,12 +133,12 @@ public class SkipIntroController : ControllerBase
     {
         var segments = new Dictionary<AnalysisMode, Intro>();
 
-        if (GetIntro(id, AnalysisMode.Introduction) is Intro intro)
+        if (GetIntro(id, AnalysisMode.Introduction) is { } intro)
         {
             segments[AnalysisMode.Introduction] = intro;
         }
 
-        if (GetIntro(id, AnalysisMode.Credits) is Intro credits)
+        if (GetIntro(id, AnalysisMode.Credits) is { } credits)
         {
             segments[AnalysisMode.Credits] = credits;
         }
