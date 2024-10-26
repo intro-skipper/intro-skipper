@@ -230,7 +230,7 @@ public class SkipIntroController : ControllerBase
     /// <returns>UserInterfaceConfiguration.</returns>
     [HttpGet]
     [Route("Intros/UserInterfaceConfiguration")]
-    public ActionResult<UserInterfaceConfiguration> GetUserInterfaceConfiguration()
+    public static ActionResult<UserInterfaceConfiguration> GetUserInterfaceConfiguration()
     {
         var config = Plugin.Instance!.Configuration;
         return new UserInterfaceConfiguration(

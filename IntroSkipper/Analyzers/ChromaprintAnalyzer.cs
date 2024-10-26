@@ -404,7 +404,7 @@ public class ChromaprintAnalyzer : IMediaFileAnalyzer
     /// </summary>
     /// <param name="number">Number to count bits in.</param>
     /// <returns>Number of bits that are equal to 1.</returns>
-    public int CountBits(uint number)
+    public static int CountBits(uint number)
     {
         return BitOperations.PopCount(number);
     }

@@ -31,8 +31,7 @@ public class TestAudioFingerprinting
     [InlineData(19, 2_465_585_877)]
     public void TestBitCounting(int expectedBits, uint number)
     {
-        var chromaprint = CreateChromaprintAnalyzer();
-        Assert.Equal(expectedBits, chromaprint.CountBits(number));
+        Assert.Equal(expectedBits, ChromaprintAnalyzer.CountBits(number));
     }
 
     [FactSkipFFmpegTests]

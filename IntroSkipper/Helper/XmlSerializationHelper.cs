@@ -11,7 +11,7 @@ using IntroSkipper.Data;
 
 namespace IntroSkipper.Helper
 {
-    internal sealed class XmlSerializationHelper
+    internal static class XmlSerializationHelper
     {
         public static void SerializeToXml<T>(T obj, string filePath)
         {
@@ -24,7 +24,7 @@ namespace IntroSkipper.Helper
             serializer.WriteObject(fileStream, obj);
         }
 
-        public static void MigrateFromIntro(string filePath)
+        private static void MigrateFromIntro(string filePath)
         {
             List<Intro> intros = DeserializeFromXml<Intro>(filePath);
             ArgumentNullException.ThrowIfNull(intros);

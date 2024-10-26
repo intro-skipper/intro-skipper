@@ -274,7 +274,7 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
     /// <param name="id">Item id.</param>
     /// <param name="mode">Mode.</param>
     /// <returns>True if ignored, false otherwise.</returns>
-    public bool IsIgnored(Guid id, AnalysisMode mode)
+    public static bool IsIgnored(Guid id, AnalysisMode mode)
     {
         return Instance!.IgnoreList.TryGetValue(id, out var item) && item.IsIgnored(mode);
     }
@@ -282,7 +282,7 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
     /// <summary>
     /// Load IgnoreList from disk.
     /// </summary>
-    public void LoadIgnoreList()
+    private void LoadIgnoreList()
     {
         if (File.Exists(_ignorelistPath))
         {
@@ -298,7 +298,7 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
     /// <summary>
     /// Restore previous analysis results from disk.
     /// </summary>
-    public void RestoreTimestamps()
+    private void RestoreTimestamps()
     {
         if (File.Exists(_introPath))
         {

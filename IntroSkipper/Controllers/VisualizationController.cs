@@ -118,8 +118,8 @@ public class VisualizationController(ILogger<VisualizationController> logger) : 
 
         return new IgnoreListItem(Guid.Empty)
         {
-            IgnoreIntro = seasonIds.All(seasonId => Plugin.Instance.IsIgnored(seasonId, AnalysisMode.Introduction)),
-            IgnoreCredits = seasonIds.All(seasonId => Plugin.Instance.IsIgnored(seasonId, AnalysisMode.Credits))
+            IgnoreIntro = seasonIds.All(seasonId => Plugin.IsIgnored(seasonId, AnalysisMode.Introduction)),
+            IgnoreCredits = seasonIds.All(seasonId => Plugin.IsIgnored(seasonId, AnalysisMode.Credits))
         };
     }
 
