@@ -142,8 +142,6 @@ public class VisualizationController(ILogger<VisualizationController> logger) : 
             return NotFound();
         }
 
-        var showName = episodes.FirstOrDefault()?.SeriesName!;
-
         return episodes.Select(e => new EpisodeVisualization(e.EpisodeId, e.Name)).ToList();
     }
 
