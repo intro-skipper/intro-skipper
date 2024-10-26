@@ -49,13 +49,13 @@ public class IgnoreListItem
     /// Gets or sets a value indicating whether to ignore the intro.
     /// </summary>
     [DataMember]
-    public bool IgnoreIntro { get; set; } = false;
+    public bool IgnoreIntro { get; set; }
 
     /// <summary>
     /// Gets or sets a value indicating whether to ignore the credits.
     /// </summary>
     [DataMember]
-    public bool IgnoreCredits { get; set; } = false;
+    public bool IgnoreCredits { get; set; }
 
     /// <summary>
     /// Toggles the provided mode to the provided value.
