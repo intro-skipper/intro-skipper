@@ -461,7 +461,7 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
             var config = serverConfiguration.Configuration;
 
             // Get the list of current plugin repositories
-            var pluginRepositories = config.PluginRepositories.ToList() ?? [];
+            var pluginRepositories = config.PluginRepositories.ToList();
 
             // check if old plugins exits
             if (pluginRepositories.Exists(repo => repo.Url != null && oldRepos.Contains(repo.Url)))

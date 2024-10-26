@@ -63,7 +63,7 @@ public class SkipIntroController : ControllerBase
     /// <returns>No content.</returns>
     [Authorize(Policy = Policies.RequiresElevation)]
     [HttpPost("Episode/{Id}/Timestamps")]
-    public ActionResult UpdateTimestamps([FromRoute] Guid id, [FromBody] TimeStamps timestamps)
+    public ActionResult UpdateTimestamps([FromRoute] Guid id, [FromBody] TimeStamps? timestamps)
     {
         // only update existing episodes
         var rawItem = Plugin.Instance!.GetItem(id);
