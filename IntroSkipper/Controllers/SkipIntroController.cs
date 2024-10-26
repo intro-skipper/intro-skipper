@@ -65,6 +65,11 @@ public class SkipIntroController : ControllerBase
     [HttpPost("Episode/{Id:guid}/Timestamps")]
     public ActionResult UpdateTimestamps([FromRoute] Guid id, [FromBody] TimeStamps? timestamps)
     {
+        if (timestamps == null)
+        {
+            return BadRequest("Timestamps cannot be null");
+        }
+    {
         // only update existing episodes
         var rawItem = Plugin.Instance!.GetItem(id);
         if (rawItem == null || rawItem is not Episode and not Movie)
