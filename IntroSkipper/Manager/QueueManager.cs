@@ -137,12 +137,6 @@ namespace IntroSkipper.Manager
 
             var items = _libraryManager.GetItemList(query, false);
 
-            if (items is null)
-            {
-                _logger.LogError("Library query result is null");
-                return;
-            }
-
             // Queue all episodes on the server for fingerprinting.
             _logger.LogDebug("Iterating through library items");
 
