@@ -5,8 +5,8 @@ namespace IntroSkipper.Tests;
 
 using System;
 using System.Collections.Generic;
-using IntroSkipper.Analyzers;
-using IntroSkipper.Data;
+using Analyzers;
+using Data;
 using Microsoft.Extensions.Logging;
 using Xunit;
 

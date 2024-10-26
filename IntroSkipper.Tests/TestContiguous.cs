@@ -11,7 +11,7 @@ public class TestTimeRanges
     [Fact]
     public void TestSmallRange()
     {
-        var times = new double[]{
+        var times = new[]{
             1, 1.5, 2, 2.5, 3, 3.5, 4,
             100, 100.5, 101, 101.5
         };
@@ -25,7 +25,7 @@ public class TestTimeRanges
     [Fact]
     public void TestLargeRange()
     {
-        var times = new double[]{
+        var times = new[]{
             1, 1.5, 2,
             2.8, 2.9, 2.995, 3.0, 3.01, 3.02, 3.4, 3.45, 3.48, 3.7, 3.77, 3.78, 3.781, 3.782, 3.789, 3.85,
             4.5, 5.3122, 5.3123, 5.3124, 5.3125, 5.3126, 5.3127, 5.3128,
@@ -42,7 +42,7 @@ public class TestTimeRanges
     public void TestFuturama()
     {
         // These timestamps were manually extracted from Futurama S01E04 and S01E05.
-        var times = new double[]{
+        var times = new[]{
             2.176, 8.32, 10.112, 11.264, 13.696, 16, 16.128, 16.64, 16.768, 16.896, 17.024, 17.152, 17.28,
             17.408, 17.536, 17.664, 17.792, 17.92, 18.048, 18.176, 18.304, 18.432, 18.56, 18.688, 18.816,
             18.944, 19.072, 19.2, 19.328, 19.456, 19.584, 19.712, 19.84, 19.968, 20.096, 20.224, 20.352,

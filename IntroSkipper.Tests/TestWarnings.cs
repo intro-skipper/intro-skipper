@@ -3,7 +3,7 @@
 
 namespace IntroSkipper.Tests;
 
-using IntroSkipper.Data;
+using Data;
 using Xunit;
 
 public class TestFlags
