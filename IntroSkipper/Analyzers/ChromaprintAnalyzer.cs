@@ -86,7 +86,7 @@ public class ChromaprintAnalyzer : IMediaFileAnalyzer
         {
             var indexInAnalysisQueue = episodeAnalysisQueue.FindIndex(episode => episode == episodesWithoutIntros[0]);
             episodesWithFingerprint.AddRange(episodeAnalysisQueue
-                .Where((episode, index) => Math.Abs(index - indexInAnalysisQueue) <= 1 && index != indexInAnalysisQueue));
+                .Where((_, index) => Math.Abs(index - indexInAnalysisQueue) <= 1 && index != indexInAnalysisQueue));
         }
 
         seasonIntros = episodesWithFingerprint.Where(e => e.State.IsAnalyzed(mode)).ToDictionary(e => e.EpisodeId, e => Plugin.GetIntroByMode(e.EpisodeId, mode));

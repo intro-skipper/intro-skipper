@@ -418,11 +418,11 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
         {
             if (mode == AnalysisMode.Introduction)
             {
-                Instance!.Intros.AddOrUpdate(intro.Key, intro.Value, (key, oldValue) => intro.Value);
+                Instance!.Intros.AddOrUpdate(intro.Key, intro.Value, (_, _) => intro.Value);
             }
             else if (mode == AnalysisMode.Credits)
             {
-                Instance!.Credits.AddOrUpdate(intro.Key, intro.Value, (key, oldValue) => intro.Value);
+                Instance!.Credits.AddOrUpdate(intro.Key, intro.Value, (_, _) => intro.Value);
             }
         }
 
