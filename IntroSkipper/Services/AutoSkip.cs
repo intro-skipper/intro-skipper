@@ -30,7 +30,7 @@ namespace IntroSkipper.Services
     /// <param name="userDataManager">User data manager.</param>
     /// <param name="sessionManager">Session manager.</param>
     /// <param name="logger">Logger.</param>
-    public class AutoSkip(
+    public sealed class AutoSkip(
         IUserDataManager userDataManager,
         ISessionManager sessionManager,
         ILogger<AutoSkip> logger) : IHostedService, IDisposable
@@ -196,7 +196,7 @@ namespace IntroSkipper.Services
         /// Protected dispose.
         /// </summary>
         /// <param name="disposing">Dispose.</param>
-        protected virtual void Dispose(bool disposing)
+        private void Dispose(bool disposing)
         {
             if (!disposing)
             {
