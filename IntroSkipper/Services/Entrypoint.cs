@@ -204,8 +204,8 @@ namespace IntroSkipper.Services
                         modes.Add(AnalysisMode.Credits);
                     }
 
-                    var analyzer = new BaseItemAnalyzerTask(modes, _loggerFactory.CreateLogger<Entrypoint>(), _loggerFactory, _libraryManager, _mediaSegmentUpdateManager);
-                    await analyzer.AnalyzeItems(new Progress<double>(), _cancellationTokenSource.Token, seasonIds).ConfigureAwait(false);
+                    var analyzer = new BaseItemAnalyzerTask(_loggerFactory.CreateLogger<Entrypoint>(), _loggerFactory, _libraryManager, _mediaSegmentUpdateManager);
+                    await analyzer.AnalyzeItems(new Progress<double>(), _cancellationTokenSource.Token, modes, seasonIds).ConfigureAwait(false);
 
                     if (_analyzeAgain && !_cancellationTokenSource.IsCancellationRequested)
                     {

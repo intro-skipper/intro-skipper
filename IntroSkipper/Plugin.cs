@@ -40,6 +40,8 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
     private readonly ILogger<Plugin> _logger;
     private readonly string _introPath;
     private readonly string _creditsPath;
+    private readonly string _recapPath;
+    private readonly string _previewPath;
     private string _ignorelistPath;
 
     /// <summary>
@@ -80,6 +82,8 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
         FingerprintCachePath = Path.Join(introsDirectory, pluginCachePath);
         _introPath = Path.Join(applicationPaths.DataPath, pluginDirName, "intros.xml");
         _creditsPath = Path.Join(applicationPaths.DataPath, pluginDirName, "credits.xml");
+        _recapPath = Path.Join(applicationPaths.DataPath, pluginDirName, "recaps.xml");
+        _previewPath = Path.Join(applicationPaths.DataPath, pluginDirName, "previews.xml");
         _ignorelistPath = Path.Join(applicationPaths.DataPath, pluginDirName, "ignorelist.xml");
 
         // Create the base & cache directories (if needed).
@@ -169,6 +173,16 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
     public ConcurrentDictionary<Guid, Segment> Credits { get; } = new();
 
     /// <summary>
+    /// Gets all discovered recaps.
+    /// </summary>
+    public ConcurrentDictionary<Guid, Segment> Recaps { get; } = new();
+
+    /// <summary>
+    /// Gets all discovered previews.
+    /// </summary>
+    public ConcurrentDictionary<Guid, Segment> Previews { get; } = new();
+
+    /// <summary>
     /// Gets the most recent media item queue.
     /// </summary>
     public ConcurrentDictionary<Guid, List<QueuedEpisode>> QueuedMediaItems { get; } = new();
@@ -220,16 +234,26 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
     /// <param name="mode">Mode.</param>
     public void SaveTimestamps(AnalysisMode mode)
     {
-        List<Segment> introList = [];
-        var filePath = mode == AnalysisMode.Introduction
-                        ? _introPath
-                        : _creditsPath;
+        List<Segment> introList;
+        var filePath = mode switch
+        {
+            AnalysisMode.Introduction => _introPath,
+            AnalysisMode.Credits => _creditsPath,
+            AnalysisMode.Recap => _recapPath,
+            AnalysisMode.Preview => _previewPath,
+            _ => throw new ArgumentOutOfRangeException(nameof(mode), $"Unexpected analysis mode: {mode}")
+        };
 
         lock (_introsLock)
         {
-            introList.AddRange(mode == AnalysisMode.Introduction
-                            ? Instance!.Intros.Values
-                            : Instance!.Credits.Values);
+            introList = mode switch
+            {
+                AnalysisMode.Introduction => new List<Segment>(Instance!.Intros.Values),
+                AnalysisMode.Credits => new List<Segment>(Instance!.Credits.Values),
+                AnalysisMode.Recap => new List<Segment>(Instance!.Recaps.Values),
+                AnalysisMode.Preview => new List<Segment>(Instance!.Previews.Values),
+                _ => throw new ArgumentOutOfRangeException(nameof(mode), $"Unexpected analysis mode: {mode}")
+            };
         }
 
         lock (_serializationLock)
@@ -295,28 +319,23 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
     /// <summary>
     /// Restore previous analysis results from disk.
     /// </summary>
-    public void RestoreTimestamps()
+    private static void RestoreSegments(string path, IDictionary<Guid, Segment> dictionary)
     {
-        if (File.Exists(_introPath))
+        if (!File.Exists(path))
         {
-            // Since dictionaries can't be easily serialized, analysis results are stored on disk as a list.
-            var introList = XmlSerializationHelper.DeserializeFromXml<Segment>(_introPath);
-
-            foreach (var intro in introList)
-            {
-                Instance!.Intros.TryAdd(intro.EpisodeId, intro);
-            }
+            return;
         }
 
-        if (File.Exists(_creditsPath))
-        {
-            var creditList = XmlSerializationHelper.DeserializeFromXml<Segment>(_creditsPath);
+        var segments = XmlSerializationHelper.DeserializeFromXml<Segment>(path);
+        segments.ForEach(segment => dictionary[segment.EpisodeId] = segment);
+    }
 
-            foreach (var credit in creditList)
-            {
-                Instance!.Credits.TryAdd(credit.EpisodeId, credit);
-            }
-        }
+    private void RestoreTimestamps()
+    {
+        RestoreSegments(_introPath, Instance!.Intros);
+        RestoreSegments(_creditsPath, Instance.Credits);
+        RestoreSegments(_recapPath, Instance.Recaps);
+        RestoreSegments(_previewPath, Instance.Previews);
     }
 
     /// <inheritdoc />
@@ -411,17 +430,17 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
 
     internal void UpdateTimestamps(IReadOnlyDictionary<Guid, Segment> newTimestamps, AnalysisMode mode)
     {
-        foreach (var intro in newTimestamps)
+        var collections = mode switch
         {
-            if (mode == AnalysisMode.Introduction)
-            {
-                Instance!.Intros.AddOrUpdate(intro.Key, intro.Value, (key, oldValue) => intro.Value);
-            }
-            else if (mode == AnalysisMode.Credits)
-            {
-                Instance!.Credits.AddOrUpdate(intro.Key, intro.Value, (key, oldValue) => intro.Value);
-            }
-        }
+            AnalysisMode.Introduction => Instance!.Intros,
+            AnalysisMode.Credits => Instance!.Credits,
+            AnalysisMode.Recap => Instance!.Recaps,
+            AnalysisMode.Preview => Instance!.Previews,
+            _ => throw new ArgumentOutOfRangeException(nameof(mode), $"Unexpected analysis mode: {mode}")
+        };
+
+        newTimestamps.ToList().ForEach(segment =>
+            collections.AddOrUpdate(segment.Key, segment.Value, (_, _) => segment.Value));
 
         SaveTimestamps(mode);
     }

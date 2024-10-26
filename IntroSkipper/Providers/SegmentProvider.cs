@@ -40,10 +40,35 @@ namespace IntroSkipper.Providers
                 });
             }
 
+            if (Plugin.Instance!.Recaps.TryGetValue(request.ItemId, out var recapValue))
+            {
+                segments.Add(new MediaSegmentDto
+                {
+                    StartTicks = (long)(recapValue.Start * TimeSpan.TicksPerSecond),
+                    EndTicks = (long)(recapValue.End * TimeSpan.TicksPerSecond) - remainingTicks,
+                    ItemId = request.ItemId,
+                    Type = MediaSegmentType.Recap
+                });
+            }
+
+            var runTimeTicks = Plugin.Instance.GetItem(request.ItemId)?.RunTimeTicks ?? long.MaxValue;
+            if (Plugin.Instance!.Previews.TryGetValue(request.ItemId, out var previewValue))
+            {
+                var previewEndTicks = (long)(previewValue.End * TimeSpan.TicksPerSecond);
+                segments.Add(new MediaSegmentDto
+                {
+                    StartTicks = (long)(previewValue.Start * TimeSpan.TicksPerSecond),
+                    EndTicks = runTimeTicks > previewEndTicks + TimeSpan.TicksPerSecond
+                        ? previewEndTicks - remainingTicks
+                        : runTimeTicks,
+                    ItemId = request.ItemId,
+                    Type = MediaSegmentType.Preview
+                });
+            }
+
             if (Plugin.Instance!.Credits.TryGetValue(request.ItemId, out var creditValue))
             {
                 var creditEndTicks = (long)(creditValue.End * TimeSpan.TicksPerSecond);
-                var runTimeTicks = Plugin.Instance.GetItem(request.ItemId)?.RunTimeTicks ?? long.MaxValue;
                 segments.Add(new MediaSegmentDto
                 {
                     StartTicks = (long)(creditValue.Start * TimeSpan.TicksPerSecond),

@@ -17,4 +17,14 @@ public enum AnalysisMode
     /// Detect credits.
     /// </summary>
     Credits,
+
+    /// <summary>
+    /// Detect previews.
+    /// </summary>
+    Preview,
+
+    /// <summary>
+    /// Detect recaps.
+    /// </summary>
+    Recap,
 }

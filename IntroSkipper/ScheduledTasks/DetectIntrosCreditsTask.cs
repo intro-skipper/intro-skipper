@@ -82,10 +82,7 @@ public class DetectIntrosCreditsTask(
         {
             _logger.LogInformation("Scheduled Task is starting");
 
-            var modes = new List<AnalysisMode> { AnalysisMode.Introduction, AnalysisMode.Credits };
-
             var baseIntroAnalyzer = new BaseItemAnalyzerTask(
-                modes,
                 _loggerFactory.CreateLogger<DetectIntrosCreditsTask>(),
                 _loggerFactory,
                 _libraryManager,

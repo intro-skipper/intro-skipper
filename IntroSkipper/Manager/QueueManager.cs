@@ -152,9 +152,12 @@ namespace IntroSkipper.Manager
                 {
                     QueueEpisode(episode);
                 }
-                else if (_analyzeMovies && item is Movie movie)
+                else if (item is Movie movie)
                 {
-                    QueueMovie(movie);
+                    if (_analyzeMovies)
+                    {
+                        QueueMovie(movie);
+                    }
                 }
                 else
                 {
@@ -314,11 +317,14 @@ namespace IntroSkipper.Manager
                             continue;
                         }
 
-                        bool isAnalyzed = mode == AnalysisMode.Introduction
-                            ? Plugin.Instance!.Intros.ContainsKey(candidate.EpisodeId)
-                            : Plugin.Instance!.Credits.ContainsKey(candidate.EpisodeId);
-
-                        if (isAnalyzed)
+                        if (mode switch
+                        {
+                            AnalysisMode.Introduction => Plugin.Instance!.Intros.ContainsKey(candidate.EpisodeId),
+                            AnalysisMode.Credits => Plugin.Instance!.Credits.ContainsKey(candidate.EpisodeId),
+                            AnalysisMode.Recap => Plugin.Instance!.Recaps.ContainsKey(candidate.EpisodeId),
+                            AnalysisMode.Preview => Plugin.Instance!.Previews.ContainsKey(candidate.EpisodeId),
+                            _ => throw new ArgumentOutOfRangeException($"Unexpected analysis mode: {mode}")
+                        })
                         {
                             candidate.State.SetAnalyzed(mode, true);
                         }

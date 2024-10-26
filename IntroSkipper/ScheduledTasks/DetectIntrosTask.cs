@@ -82,16 +82,13 @@ public class DetectIntrosTask(
         {
             _logger.LogInformation("Scheduled Task is starting");
 
-            var modes = new List<AnalysisMode> { AnalysisMode.Introduction };
-
             var baseIntroAnalyzer = new BaseItemAnalyzerTask(
-                modes,
                 _loggerFactory.CreateLogger<DetectIntrosTask>(),
                 _loggerFactory,
                 _libraryManager,
                 _mediaSegmentUpdateManager);
 
-            await baseIntroAnalyzer.AnalyzeItems(progress, cancellationToken).ConfigureAwait(false);
+            await baseIntroAnalyzer.AnalyzeItems(progress, cancellationToken, [AnalysisMode.Introduction]).ConfigureAwait(false);
         }
     }
 

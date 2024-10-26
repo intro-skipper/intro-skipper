@@ -139,6 +139,18 @@ public class PluginConfiguration : BasePluginConfiguration
     public string ChapterAnalyzerEndCreditsPattern { get; set; } =
         @"(^|\s)(Credits?|ED|Ending|End|Outro)(\s|$)";
 
+    /// <summary>
+    /// Gets or sets the regular expression used to detect Preview chapters.
+    /// </summary>
+    public string ChapterAnalyzerPreviewPattern { get; set; } =
+        @"(^|\s)(Preview|Sneak\s?Peek|Coming\s?(Up|Soon)|Next\s+(time|on|episode)|Teaser|Trailer)(\s|:|$)";
+
+    /// <summary>
+    /// Gets or sets the regular expression used to detect Recap chapters.
+    /// </summary>
+    public string ChapterAnalyzerRecapPattern { get; set; } =
+        @"(^|\s)(Re?cap|Sum{1,2}ary|Prev(ious(ly)?)?|(Last|Earlier)(\s\w+)?|Catch[ -]up)(\s|:|$)";
+
     // ===== Playback settings =====
 
     /// <summary>

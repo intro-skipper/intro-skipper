@@ -10,9 +10,9 @@ namespace IntroSkipper.Data;
 /// </summary>
 public class EpisodeState
 {
-    private readonly bool[] _analyzedStates = new bool[2];
+    private readonly bool[] _analyzedStates = new bool[4];
 
-    private readonly bool[] _blacklistedStates = new bool[2];
+    private readonly bool[] _blacklistedStates = new bool[4];
 
     /// <summary>
     /// Checks if the specified analysis mode has been analyzed.

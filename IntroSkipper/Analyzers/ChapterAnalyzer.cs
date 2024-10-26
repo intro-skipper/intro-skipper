@@ -36,9 +36,14 @@ public class ChapterAnalyzer(ILogger<ChapterAnalyzer> logger) : IMediaFileAnalyz
         // Episode analysis queue.
         var episodeAnalysisQueue = new List<QueuedEpisode>(analysisQueue);
 
-        var expression = mode == AnalysisMode.Introduction ?
-            Plugin.Instance!.Configuration.ChapterAnalyzerIntroductionPattern :
-            Plugin.Instance!.Configuration.ChapterAnalyzerEndCreditsPattern;
+        var expression = mode switch
+        {
+            AnalysisMode.Introduction => Plugin.Instance!.Configuration.ChapterAnalyzerIntroductionPattern,
+            AnalysisMode.Credits => Plugin.Instance!.Configuration.ChapterAnalyzerEndCreditsPattern,
+            AnalysisMode.Recap => Plugin.Instance!.Configuration.ChapterAnalyzerRecapPattern,
+            AnalysisMode.Preview => Plugin.Instance!.Configuration.ChapterAnalyzerPreviewPattern,
+            _ => throw new ArgumentOutOfRangeException(nameof(mode), $"Unexpected analysis mode: {mode}")
+        };
 
         if (string.IsNullOrWhiteSpace(expression))
         {
@@ -95,7 +100,7 @@ public class ChapterAnalyzer(ILogger<ChapterAnalyzer> logger) : IMediaFileAnalyz
 
         var config = Plugin.Instance?.Configuration ?? new PluginConfiguration();
         var creditDuration = episode.IsMovie ? config.MaximumMovieCreditsDuration : config.MaximumCreditsDuration;
-        var reversed = mode != AnalysisMode.Introduction;
+        var reversed = mode == AnalysisMode.Credits;
         var (minDuration, maxDuration) = reversed
             ? (config.MinimumCreditsDuration, creditDuration)
             : (config.MinimumIntroDuration, config.MaximumIntroDuration);
@@ -135,7 +140,7 @@ public class ChapterAnalyzer(ILogger<ChapterAnalyzer> logger) : IMediaFileAnalyz
             var match = Regex.IsMatch(
                 chapter.Name,
                 expression,
-                RegexOptions.None,
+                RegexOptions.IgnoreCase,
                 TimeSpan.FromSeconds(1));
 
             if (!match)

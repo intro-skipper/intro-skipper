@@ -83,16 +83,13 @@ public class DetectCreditsTask(
         {
             _logger.LogInformation("Scheduled Task is starting");
 
-            var modes = new List<AnalysisMode> { AnalysisMode.Credits };
-
             var baseCreditAnalyzer = new BaseItemAnalyzerTask(
-                modes,
                 _loggerFactory.CreateLogger<DetectCreditsTask>(),
                 _loggerFactory,
                 _libraryManager,
                 _mediaSegmentUpdateManager);
 
-            await baseCreditAnalyzer.AnalyzeItems(progress, cancellationToken).ConfigureAwait(false);
+            await baseCreditAnalyzer.AnalyzeItems(progress, cancellationToken, [AnalysisMode.Credits]).ConfigureAwait(false);
         }
     }
 
