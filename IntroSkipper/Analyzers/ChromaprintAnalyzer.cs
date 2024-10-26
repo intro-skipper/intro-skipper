@@ -58,7 +58,6 @@ public class ChromaprintAnalyzer : IMediaFileAnalyzer
         CancellationToken cancellationToken)
     {
         // All intros for this season.
-        var seasonIntros = new Dictionary<Guid, Segment>();
 
         // Cache of all fingerprints for this season.
         var fingerprintCache = new Dictionary<Guid, uint[]>();
@@ -89,7 +88,7 @@ public class ChromaprintAnalyzer : IMediaFileAnalyzer
                 .Where((_, index) => Math.Abs(index - indexInAnalysisQueue) <= 1 && index != indexInAnalysisQueue));
         }
 
-        seasonIntros = episodesWithFingerprint.Where(e => e.State.IsAnalyzed(mode)).ToDictionary(e => e.EpisodeId, e => Plugin.GetIntroByMode(e.EpisodeId, mode));
+        Dictionary<Guid, Segment> seasonIntros = episodesWithFingerprint.Where(e => e.State.IsAnalyzed(mode)).ToDictionary(e => e.EpisodeId, e => Plugin.GetIntroByMode(e.EpisodeId, mode));
 
         // Compute fingerprints for all episodes in the season
         foreach (var episode in episodesWithFingerprint)
