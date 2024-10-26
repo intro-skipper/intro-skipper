@@ -434,7 +434,8 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
         var allKeys = new HashSet<Guid>(Instance!.Intros.Keys);
         allKeys.UnionWith(Instance.Credits.Keys);
 
-        foreach (var key in allKeys.Where(key => !validEpisodeIds.Contains(key)))
+        var keysToRemove = allKeys.Except(validEpisodeIds);
+        foreach (var key in keysToRemove)
         {
             Instance.Intros.TryRemove(key, out _);
             Instance.Credits.TryRemove(key, out _);
