@@ -580,7 +580,7 @@ public static partial class FFmpegWrapper
         }
 
         // Stringify each data point.
-        var lines = fingerprint.Select(number => number.ToString(CultureInfo.InvariantCulture)).ToList();
+        var lines = string.Join(Environment.NewLine, fingerprint.Select(number => number.ToString(CultureInfo.InvariantCulture)));
 
         // Cache the episode.
         File.WriteAllLinesAsync(
