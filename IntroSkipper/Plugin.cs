@@ -432,14 +432,14 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
     internal void CleanTimestamps(HashSet<Guid> validEpisodeIds)
     {
         var allKeys = new HashSet<Guid>(Instance!.Intros.Keys);
-        allKeys.UnionWith(Instance!.Credits.Keys);
+        allKeys.UnionWith(Instance.Credits.Keys);
 
         foreach (var key in allKeys)
         {
             if (!validEpisodeIds.Contains(key))
             {
-                Instance!.Intros.TryRemove(key, out _);
-                Instance!.Credits.TryRemove(key, out _);
+                Instance.Intros.TryRemove(key, out _);
+                Instance.Credits.TryRemove(key, out _);
             }
         }
 

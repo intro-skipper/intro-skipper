@@ -146,7 +146,7 @@ namespace IntroSkipper.Services
                 }
 
                 // Notify the user that credits are being skipped for them.
-                var notificationText = Plugin.Instance!.Configuration.AutoSkipCreditsNotificationText;
+                var notificationText = Plugin.Instance.Configuration.AutoSkipCreditsNotificationText;
                 if (!string.IsNullOrWhiteSpace(notificationText))
                 {
                     _sessionManager.SendMessageCommand(

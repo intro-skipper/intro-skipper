@@ -90,12 +90,12 @@ public class VisualizationController(ILogger<VisualizationController> logger) : 
             return NotFound();
         }
 
-        if (!Plugin.Instance!.IgnoreList.TryGetValue(seasonId, out _))
+        if (!Plugin.Instance.IgnoreList.TryGetValue(seasonId, out _))
         {
             return new IgnoreListItem(seasonId);
         }
 
-        return new IgnoreListItem(Plugin.Instance!.IgnoreList[seasonId]);
+        return new IgnoreListItem(Plugin.Instance.IgnoreList[seasonId]);
     }
 
     /// <summary>
@@ -118,8 +118,8 @@ public class VisualizationController(ILogger<VisualizationController> logger) : 
 
         return new IgnoreListItem(Guid.Empty)
         {
-            IgnoreIntro = seasonIds.All(seasonId => Plugin.Instance!.IsIgnored(seasonId, AnalysisMode.Introduction)),
-            IgnoreCredits = seasonIds.All(seasonId => Plugin.Instance!.IsIgnored(seasonId, AnalysisMode.Credits))
+            IgnoreIntro = seasonIds.All(seasonId => Plugin.Instance.IsIgnored(seasonId, AnalysisMode.Introduction)),
+            IgnoreCredits = seasonIds.All(seasonId => Plugin.Instance.IsIgnored(seasonId, AnalysisMode.Credits))
         };
     }
 
@@ -196,8 +196,8 @@ public class VisualizationController(ILogger<VisualizationController> logger) : 
 
         foreach (var e in episodes)
         {
-            Plugin.Instance!.Intros.TryRemove(e.EpisodeId, out _);
-            Plugin.Instance!.Credits.TryRemove(e.EpisodeId, out _);
+            Plugin.Instance.Intros.TryRemove(e.EpisodeId, out _);
+            Plugin.Instance.Credits.TryRemove(e.EpisodeId, out _);
             e.State.ResetStates();
             if (eraseCache)
             {
@@ -205,7 +205,7 @@ public class VisualizationController(ILogger<VisualizationController> logger) : 
             }
         }
 
-        Plugin.Instance!.SaveTimestamps(AnalysisMode.Introduction | AnalysisMode.Credits);
+        Plugin.Instance.SaveTimestamps(AnalysisMode.Introduction | AnalysisMode.Credits);
 
         return NoContent();
     }
@@ -226,16 +226,16 @@ public class VisualizationController(ILogger<VisualizationController> logger) : 
 
         if (ignoreListItem.IgnoreIntro || ignoreListItem.IgnoreCredits)
         {
-            Plugin.Instance!.IgnoreList.AddOrUpdate(ignoreListItem.SeasonId, ignoreListItem, (_, _) => ignoreListItem);
+            Plugin.Instance.IgnoreList.AddOrUpdate(ignoreListItem.SeasonId, ignoreListItem, (_, _) => ignoreListItem);
         }
         else
         {
-            Plugin.Instance!.IgnoreList.TryRemove(ignoreListItem.SeasonId, out _);
+            Plugin.Instance.IgnoreList.TryRemove(ignoreListItem.SeasonId, out _);
         }
 
         if (save)
         {
-            Plugin.Instance!.SaveIgnoreList();
+            Plugin.Instance.SaveIgnoreList();
         }
 
         return NoContent();
@@ -265,7 +265,7 @@ public class VisualizationController(ILogger<VisualizationController> logger) : 
             UpdateIgnoreListSeason(new IgnoreListItem(ignoreListItem) { SeasonId = seasonId }, false);
         }
 
-        Plugin.Instance!.SaveIgnoreList();
+        Plugin.Instance.SaveIgnoreList();
 
         return NoContent();
     }

@@ -87,7 +87,7 @@ public class CleanCacheTask : IScheduledTask
         Plugin.Instance!.CleanTimestamps(validEpisodeIds);
 
         // Identify invalid episode IDs
-        var invalidEpisodeIds = Directory.EnumerateFiles(Plugin.Instance!.FingerprintCachePath)
+        var invalidEpisodeIds = Directory.EnumerateFiles(Plugin.Instance.FingerprintCachePath)
             .Select(filePath =>
             {
                 var fileName = Path.GetFileNameWithoutExtension(filePath);
@@ -125,7 +125,7 @@ public class CleanCacheTask : IScheduledTask
         {
             try
             {
-                Plugin.Instance!.SaveIgnoreList();
+                Plugin.Instance.SaveIgnoreList();
             }
             catch (Exception e)
             {

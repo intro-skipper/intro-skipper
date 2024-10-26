@@ -40,7 +40,7 @@ namespace IntroSkipper.Providers
                 });
             }
 
-            if (Plugin.Instance!.Credits.TryGetValue(request.ItemId, out var creditValue))
+            if (Plugin.Instance.Credits.TryGetValue(request.ItemId, out var creditValue))
             {
                 var creditEndTicks = (long)(creditValue.End * TimeSpan.TicksPerSecond);
                 var runTimeTicks = Plugin.Instance.GetItem(request.ItemId)?.RunTimeTicks ?? long.MaxValue;

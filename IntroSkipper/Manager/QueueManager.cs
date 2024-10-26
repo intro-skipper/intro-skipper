@@ -315,8 +315,8 @@ namespace IntroSkipper.Manager
                         }
 
                         bool isAnalyzed = mode == AnalysisMode.Introduction
-                            ? Plugin.Instance!.Intros.ContainsKey(candidate.EpisodeId)
-                            : Plugin.Instance!.Credits.ContainsKey(candidate.EpisodeId);
+                            ? Plugin.Instance.Intros.ContainsKey(candidate.EpisodeId)
+                            : Plugin.Instance.Credits.ContainsKey(candidate.EpisodeId);
 
                         if (isAnalyzed)
                         {

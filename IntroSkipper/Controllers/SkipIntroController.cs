@@ -75,17 +75,17 @@ public class SkipIntroController : ControllerBase
         if (timestamps?.Introduction.End > 0.0)
         {
             var tr = new TimeRange(timestamps.Introduction.Start, timestamps.Introduction.End);
-            Plugin.Instance!.Intros[id] = new Segment(id, tr);
+            Plugin.Instance.Intros[id] = new Segment(id, tr);
         }
 
         if (timestamps?.Credits.End > 0.0)
         {
             var cr = new TimeRange(timestamps.Credits.Start, timestamps.Credits.End);
-            Plugin.Instance!.Credits[id] = new Segment(id, cr);
+            Plugin.Instance.Credits[id] = new Segment(id, cr);
         }
 
-        Plugin.Instance!.SaveTimestamps(AnalysisMode.Introduction);
-        Plugin.Instance!.SaveTimestamps(AnalysisMode.Credits);
+        Plugin.Instance.SaveTimestamps(AnalysisMode.Introduction);
+        Plugin.Instance.SaveTimestamps(AnalysisMode.Credits);
 
         return NoContent();
     }
@@ -109,12 +109,12 @@ public class SkipIntroController : ControllerBase
         }
 
         var times = new TimeStamps();
-        if (Plugin.Instance!.Intros.TryGetValue(id, out var introValue))
+        if (Plugin.Instance.Intros.TryGetValue(id, out var introValue))
         {
             times.Introduction = introValue;
         }
 
-        if (Plugin.Instance!.Credits.TryGetValue(id, out var creditValue))
+        if (Plugin.Instance.Credits.TryGetValue(id, out var creditValue))
         {
             times.Credits = creditValue;
         }
@@ -219,7 +219,7 @@ public class SkipIntroController : ControllerBase
         }
 
         Plugin.Instance!.EpisodeStates.Clear();
-        Plugin.Instance!.SaveTimestamps(mode);
+        Plugin.Instance.SaveTimestamps(mode);
         return NoContent();
     }
 

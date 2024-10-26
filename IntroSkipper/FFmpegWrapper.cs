@@ -620,7 +620,7 @@ public static partial class FFmpegWrapper
         // File.Delete(cachePath + "-credits");
 
         var filePattern = Path.GetFileName(cachePath) + "*";
-        foreach (var filePath in Directory.EnumerateFiles(Plugin.Instance!.FingerprintCachePath, filePattern))
+        foreach (var filePath in Directory.EnumerateFiles(Plugin.Instance.FingerprintCachePath, filePattern))
         {
             Logger?.LogDebug("DeleteEpisodeCache {FilePath}", filePath);
             File.Delete(filePath);
