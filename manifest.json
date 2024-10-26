@@ -15,14 +15,6 @@
                 "sourceUrl": "https://github.com/intro-skipper/intro-skipper/releases/download/10.10/v1.10.10.1/intro-skipper-v1.10.10.1.zip",
                 "checksum": "a1c171e64e304f67a81534184e61280c",
                 "timestamp": "2024-10-26T18:08:27Z"
-            },
-            {
-                "version": "1.0.1.1",
-                "changelog": "- See the full changelog at [GitHub](https://github.com/intro-skipper/intro-skipper/releases/tag/10.10/v1.0.1.1)\n",
-                "targetAbi": "10.10.0.0",
-                "sourceUrl": "https://github.com/intro-skipper/intro-skipper/releases/download/10.10/v1.0.1.1/intro-skipper-v1.0.1.1.zip",
-                "checksum": "304e23d218166d6d7fc4b1e8390b105b",
-                "timestamp": "2024-10-18T12:28:17Z"
             }
         ]
     }
