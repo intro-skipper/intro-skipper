@@ -424,7 +424,8 @@ public static partial class FFmpegWrapper
             RedirectStandardError = stderr
         };
 
-        using var ffmpeg = new Process { StartInfo = info };
+        using var ffmpeg = new Process();
+        ffmpeg.StartInfo = info;
         Logger?.LogDebug("Starting ffmpeg with the following arguments: {Arguments}", ffmpeg.StartInfo.Arguments);
 
         ffmpeg.Start();
