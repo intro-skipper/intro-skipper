@@ -37,8 +37,8 @@ public class SkipIntroController : ControllerBase
     /// <response code="200">Episode contains an intro.</response>
     /// <response code="404">Failed to find an intro in the provided episode.</response>
     /// <returns>Detected intro.</returns>
-    [HttpGet("Episode/{id}/IntroTimestamps")]
-    [HttpGet("Episode/{id}/IntroTimestamps/v1")]
+    [HttpGet("Episode/{id:guid}/IntroTimestamps")]
+    [HttpGet("Episode/{id:guid}/IntroTimestamps/v1")]
     public ActionResult<Intro> GetIntroTimestamps(
         [FromRoute] Guid id,
         [FromQuery] AnalysisMode mode = AnalysisMode.Introduction)
@@ -62,7 +62,7 @@ public class SkipIntroController : ControllerBase
     /// <response code="404">Given ID is not an Episode.</response>
     /// <returns>No content.</returns>
     [Authorize(Policy = Policies.RequiresElevation)]
-    [HttpPost("Episode/{Id}/Timestamps")]
+    [HttpPost("Episode/{Id:guid}/Timestamps")]
     public ActionResult UpdateTimestamps([FromRoute] Guid id, [FromBody] TimeStamps? timestamps)
     {
         // only update existing episodes
@@ -97,7 +97,7 @@ public class SkipIntroController : ControllerBase
     /// <response code="200">Sucess.</response>
     /// <response code="404">Given ID is not an Episode.</response>
     /// <returns>Episode Timestamps.</returns>
-    [HttpGet("Episode/{Id}/Timestamps")]
+    [HttpGet("Episode/{Id:guid}/Timestamps")]
     [ActionName("UpdateTimestamps")]
     public ActionResult<TimeStamps> GetTimestamps([FromRoute] Guid id)
     {
@@ -128,7 +128,7 @@ public class SkipIntroController : ControllerBase
     /// <param name="id">Media ID.</param>
     /// <response code="200">Skippable segments dictionary.</response>
     /// <returns>Dictionary of skippable segments.</returns>
-    [HttpGet("Episode/{id}/IntroSkipperSegments")]
+    [HttpGet("Episode/{id:guid}/IntroSkipperSegments")]
     public ActionResult<Dictionary<AnalysisMode, Intro>> GetSkippableSegments([FromRoute] Guid id)
     {
         var segments = new Dictionary<AnalysisMode, Intro>();

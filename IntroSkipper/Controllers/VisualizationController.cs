@@ -82,7 +82,7 @@ public class VisualizationController(ILogger<VisualizationController> logger) : 
     /// </summary>
     /// <param name="seasonId">Season ID.</param>
     /// <returns>List of episode titles.</returns>
-    [HttpGet("IgnoreListSeason/{SeasonId}")]
+    [HttpGet("IgnoreListSeason/{SeasonId:guid}")]
     public ActionResult<IgnoreListItem> GetIgnoreListSeason([FromRoute] Guid seasonId)
     {
         if (!Plugin.Instance!.QueuedMediaItems.ContainsKey(seasonId))
@@ -103,7 +103,7 @@ public class VisualizationController(ILogger<VisualizationController> logger) : 
     /// </summary>
     /// <param name="seriesId">Show ID.</param>
     /// <returns>List of episode titles.</returns>
-    [HttpGet("IgnoreListSeries/{SeriesId}")]
+    [HttpGet("IgnoreListSeries/{SeriesId:guid}")]
     public ActionResult<IgnoreListItem> GetIgnoreListSeries([FromRoute] Guid seriesId)
     {
         var seasonIds = Plugin.Instance!.QueuedMediaItems
@@ -129,7 +129,7 @@ public class VisualizationController(ILogger<VisualizationController> logger) : 
     /// <param name="seriesId">Show ID.</param>
     /// <param name="seasonId">Season ID.</param>
     /// <returns>List of episode titles.</returns>
-    [HttpGet("Show/{SeriesId}/{SeasonId}")]
+    [HttpGet("Show/{SeriesId:guid}/{SeasonId:guid}")]
     public ActionResult<List<EpisodeVisualization>> GetSeasonEpisodes([FromRoute] Guid seriesId, [FromRoute] Guid seasonId)
     {
         if (!Plugin.Instance!.QueuedMediaItems.TryGetValue(seasonId, out var episodes))
@@ -150,7 +150,7 @@ public class VisualizationController(ILogger<VisualizationController> logger) : 
     /// </summary>
     /// <param name="id">Episode id.</param>
     /// <returns>Read only collection of fingerprint points.</returns>
-    [HttpGet("Episode/{Id}/Chromaprint")]
+    [HttpGet("Episode/{Id:guid}/Chromaprint")]
     public ActionResult<uint[]> GetEpisodeFingerprint([FromRoute] Guid id)
     {
         // Search through all queued episodes to find the requested id
@@ -174,7 +174,7 @@ public class VisualizationController(ILogger<VisualizationController> logger) : 
     /// <response code="204">Season timestamps erased.</response>
     /// <response code="404">Unable to find season in provided series.</response>
     /// <returns>No content.</returns>
-    [HttpDelete("Show/{SeriesId}/{SeasonId}")]
+    [HttpDelete("Show/{SeriesId:guid}/{SeasonId:guid}")]
     public ActionResult EraseSeason([FromRoute] Guid seriesId, [FromRoute] Guid seasonId, [FromQuery] bool eraseCache = false)
     {
         var episodes = Plugin.Instance!.QueuedMediaItems
@@ -242,7 +242,7 @@ public class VisualizationController(ILogger<VisualizationController> logger) : 
     /// <param name="seriesId">Series ID.</param>
     /// <param name="ignoreListItem">New ignore list items.</param>
     /// <returns>No content.</returns>
-    [HttpPost("IgnoreList/UpdateSeries/{SeriesId}")]
+    [HttpPost("IgnoreList/UpdateSeries/{SeriesId:guid}")]
     public ActionResult UpdateIgnoreListSeries([FromRoute] Guid seriesId, [FromBody] IgnoreListItem ignoreListItem)
     {
         var seasonIds = Plugin.Instance!.QueuedMediaItems
@@ -272,7 +272,7 @@ public class VisualizationController(ILogger<VisualizationController> logger) : 
     /// <param name="timestamps">New introduction start and end times.</param>
     /// <response code="204">New introduction timestamps saved.</response>
     /// <returns>No content.</returns>
-    [HttpPost("Episode/{Id}/UpdateIntroTimestamps")]
+    [HttpPost("Episode/{Id:guid}/UpdateIntroTimestamps")]
     [Obsolete("deprecated use Episode/{Id}/Timestamps")]
     public ActionResult UpdateIntroTimestamps([FromRoute] Guid id, [FromBody] Intro timestamps)
     {
