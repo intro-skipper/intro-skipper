@@ -195,7 +195,7 @@ const introSkipper = {
 			return;
 		}
 		const config = await this.secureFetch("Intros/UserInterfaceConfiguration");
-		if (!config.SkipButtonVisible) {
+		if (!config.SkipButtonEnabled) {
 			this.d("Not adding button: not visible");
 			return;
 		}
@@ -387,7 +387,7 @@ const introSkipper = {
 		const isAutoSkipClient = new Set(config.ClientList.split(",")).has(
 			ApiClient.appName(),
 		);
-		return isAutoSkip || (config.SkipButtonVisible && isAutoSkipClient);
+		return isAutoSkip || (config.SkipButtonEnabled && isAutoSkipClient);
 	},
 	async injectIntroSkipperOptions(actionSheet) {
 		if (!this.skipButton) return;
