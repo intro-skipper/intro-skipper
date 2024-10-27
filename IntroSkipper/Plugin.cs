@@ -565,7 +565,6 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
             pattern = @"<script src=""configurationpage\?name=skip-intro-button\.js.*<\/script>";
             if (!Regex.IsMatch(contents, pattern, RegexOptions.IgnoreCase))
             {
-                _logger.LogInformation("nothing todo bye!");
                 return;
             }
 
