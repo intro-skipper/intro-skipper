@@ -562,7 +562,7 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
         _logger.LogDebug("Reading index.html from {Path}", indexPath);
         string contents = File.ReadAllText(indexPath);
 
-        if (!Instance!.Configuration.SkipButtonVisible)
+        if (!Instance!.Configuration.SkipButtonEnabled)
         {
             pattern = @"<script src=""configurationpage\?name=skip-intro-button\.js.*<\/script>";
             contents = Regex.Replace(contents, pattern, string.Empty, RegexOptions.IgnoreCase);

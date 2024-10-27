@@ -144,7 +144,7 @@ public class PluginConfiguration : BasePluginConfiguration
     /// <summary>
     /// Gets or sets a value indicating whether to show the skip intro button.
     /// </summary>
-    public bool SkipButtonVisible { get; set; } = false;
+    public bool SkipButtonEnabled { get; set; } = false;
 
     /// <summary>
     /// Gets a value indicating whether to show the skip intro warning.

@@ -234,7 +234,7 @@ public class SkipIntroController : ControllerBase
     {
         var config = Plugin.Instance!.Configuration;
         return new UserInterfaceConfiguration(
-            config.SkipButtonVisible,
+            config.SkipButtonEnabled,
             config.SkipButtonIntroText,
             config.SkipButtonEndCreditsText,
             config.AutoSkip,
