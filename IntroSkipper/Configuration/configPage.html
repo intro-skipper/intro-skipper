@@ -322,7 +322,9 @@
                                 </div>
                             </div>
 
-                            <div id="warningMessage" style="color: #721c24; background-color: #f7cf1f; border: 1px solid #f5c6cb; border-radius: 4px; padding: 10px; margin-bottom: 10px">Failed to add skip button to web interface. See <a href="https://github.com/intro-skipper/intro-skipper/wiki/Troubleshooting#skip-button-is-not-visible" target="_blank" rel="noopener noreferrer">troubleshooting guide</a> for the most common issues.</div>
+                            <div id="warningMessage" style="color: #721c24; background-color: #f7cf1f; border: 1px solid #f5c6cb; border-radius: 4px; padding: 10px; margin-bottom: 10px">
+                                Failed to add skip button to web interface. See <a href="https://github.com/intro-skipper/intro-skipper/wiki/Troubleshooting#skip-button-is-not-visible" target="_blank" rel="noopener noreferrer">troubleshooting guide</a> for the most common issues.
+                            </div>
 
                             <div id="SkipButtonSettings">
                                 <div id="PersistContainer" class="checkboxContainer checkboxContainer-withDescription">
@@ -1329,8 +1331,7 @@
                         }
 
                         if (config["SkipButtonWarning"]) {
-                            document.getElementById("SkipButtonContainer").style.display = "none";
-                            document.getElementById("PersistContainer").style.display = "none";
+                            document.getElementById("warningMessage").style.display = "unset";
                         } else {
                             document.getElementById("warningMessage").style.display = "none";
                         }
