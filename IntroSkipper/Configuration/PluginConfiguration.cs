@@ -248,12 +248,17 @@ public class PluginConfiguration : BasePluginConfiguration
     public string AutoSkipCreditsNotificationText { get; set; } = "Credits skipped";
 
     /// <summary>
-    /// Gets or sets the number of threads for an ffmpeg process.
+    /// Gets or sets the number of threads for a ffmpeg process.
     /// </summary>
     public int ProcessThreads { get; set; }
 
     /// <summary>
-    /// Gets or sets the relative priority for an ffmpeg process.
+    /// Gets or sets the relative priority for a ffmpeg process.
     /// </summary>
     public ProcessPriorityClass ProcessPriority { get; set; } = ProcessPriorityClass.BelowNormal;
+
+    /// <summary>
+    /// Gets or sets a value indicating whether the ManifestUrl is self-managed, e.g. for mainland China.
+    /// </summary>
+    public bool OverrideManifestUrl { get; set; }
 }
