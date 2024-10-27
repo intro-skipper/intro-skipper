@@ -467,7 +467,7 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
                 pluginRepositories.RemoveAll(repo => repo.Url != null && oldRepos.Contains(repo.Url));
 
                 // Add repository only if it does not exit and the OverideManifestUrl Option is activated
-                if (!pluginRepositories.Exists(repo => repo.Url == "https://manifest.intro-skipper.org/manifest.json") && Instance!.Configuration.OverideManifestUrl)
+                if (!pluginRepositories.Exists(repo => repo.Url == "https://manifest.intro-skipper.org/manifest.json") && Instance!.Configuration.OverrideManifestUrl)
                 {
                     // Add the new repository to the list
                     pluginRepositories.Add(new RepositoryInfo

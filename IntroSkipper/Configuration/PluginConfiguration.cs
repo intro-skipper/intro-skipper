@@ -260,5 +260,5 @@ public class PluginConfiguration : BasePluginConfiguration
     /// <summary>
     /// Gets or sets a value indicating whether the ManifestUrl is self-managed, e.g. for mainland China.
     /// </summary>
-    public bool OverideManifestUrl { get; set; }
+    public bool OverrideManifestUrl { get; set; }
 }
