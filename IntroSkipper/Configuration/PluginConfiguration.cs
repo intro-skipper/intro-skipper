@@ -258,7 +258,7 @@ public class PluginConfiguration : BasePluginConfiguration
     public ProcessPriorityClass ProcessPriority { get; set; } = ProcessPriorityClass.BelowNormal;
 
     /// <summary>
-    /// Gets or sets the ManifestUrl, e.g. for mainland China.
+    /// Gets or sets a value indicating whether the ManifestUrl is self-managed, e.g. for mainland China.
     /// </summary>
-    public string ManifestUrl { get; set; } = "https://manifest.intro-skipper.org/manifest.json";
+    public bool OverideManifestUrl { get; set; }
 }

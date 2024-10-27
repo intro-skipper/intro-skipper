@@ -466,14 +466,14 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
                 // remove all old plugins
                 pluginRepositories.RemoveAll(repo => repo.Url != null && oldRepos.Contains(repo.Url));
 
-                // Add repository only if it does not exit
-                if (!pluginRepositories.Exists(repo => repo.Url == Instance!.Configuration.ManifestUrl))
+                // Add repository only if it does not exit and the OverideManifestUrl Option is activated
+                if (!pluginRepositories.Exists(repo => repo.Url == "https://manifest.intro-skipper.org/manifest.json") && Instance!.Configuration.OverideManifestUrl)
                 {
                     // Add the new repository to the list
                     pluginRepositories.Add(new RepositoryInfo
                     {
                         Name = "intro skipper (automatically migrated by plugin)",
-                        Url = Instance!.Configuration.ManifestUrl,
+                        Url = "https://manifest.intro-skipper.org/manifest.json",
                         Enabled = true,
                     });
                 }
