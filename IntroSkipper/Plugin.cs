@@ -92,8 +92,6 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
         XmlSerializationHelper.MigrateXML(_introPath);
         XmlSerializationHelper.MigrateXML(_creditsPath);
 
-        MigrateRepoUrl(serverConfiguration);
-
         var oldConfigFile = Path.Join(applicationPaths.PluginConfigurationsPath, "ConfusedPolarBear.Plugin.IntroSkipper.xml");
 
         if (File.Exists(oldConfigFile))
@@ -123,6 +121,8 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
                 _logger.LogWarning("Something stupid happend: {Exception}", ex);
             }
         }
+
+        MigrateRepoUrl(serverConfiguration);
 
         // TODO: remove when https://github.com/jellyfin/jellyfin-meta/discussions/30 is complete
         try
@@ -467,13 +467,13 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
                 pluginRepositories.RemoveAll(repo => repo.Url != null && oldRepos.Contains(repo.Url));
 
                 // Add repository only if it does not exit
-                if (!pluginRepositories.Exists(repo => repo.Url == "https://manifest.intro-skipper.org/manifest.json") && !pluginRepositories.Exists(repo => repo.Url != null && repo.Url.StartsWith("https://raw.githubusercontent.com/intro-skipper/intro-skipper/10.", StringComparison.OrdinalIgnoreCase)))
+                if (!pluginRepositories.Exists(repo => repo.Url == Instance!.Configuration.ManifestUrl))
                 {
                     // Add the new repository to the list
                     pluginRepositories.Add(new RepositoryInfo
                     {
                         Name = "intro skipper (automatically migrated by plugin)",
-                        Url = "https://manifest.intro-skipper.org/manifest.json",
+                        Url = Instance!.Configuration.ManifestUrl,
                         Enabled = true,
                     });
                 }
@@ -565,6 +565,7 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
             pattern = @"<script src=""configurationpage\?name=skip-intro-button\.js.*<\/script>";
             if (!Regex.IsMatch(contents, pattern, RegexOptions.IgnoreCase))
             {
+                _logger.LogInformation("nothing todo bye!");
                 return;
             }
 
