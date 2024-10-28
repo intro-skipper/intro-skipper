@@ -536,21 +536,6 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
             }
         }
 
-        // search for controllers/playback/video/index.html
-        searchPattern = "playback-video-index-html.*.chunk.js";
-        filePaths = Directory.GetFiles(webPath, searchPattern, SearchOption.TopDirectoryOnly);
-
-        // should be only one file but this safer
-        foreach (var file in filePaths)
-        {
-            // search for class btnSkipIntro
-            if (File.ReadAllText(file).Contains("btnSkipIntro", StringComparison.OrdinalIgnoreCase))
-            {
-                _logger.LogInformation("Found a modified version of jellyfin-web with built-in skip button support.");
-                return;
-            }
-        }
-
         // Inject the skip intro button code into the web interface.
         string indexPath = Path.Join(webPath, "index.html");
 
