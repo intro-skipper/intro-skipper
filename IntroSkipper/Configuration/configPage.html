@@ -32,23 +32,13 @@
                             <div class="checkboxContainer checkboxContainer-withDescription">
                                 <label class="emby-checkbox-label">
                                     <input id="AutoDetectIntros" type="checkbox" is="emby-checkbox" />
-                                    <span>Automatically Scan Intros</span>
+                                    <span>Automatically scan newly added items</span>
                                 </label>
 
-                                <div class="fieldDescription">If enabled, introductions will be automatically analyzed for new media</div>
-                            </div>
-
-                            <div class="checkboxContainer checkboxContainer-withDescription">
-                                <label class="emby-checkbox-label">
-                                    <input id="AutoDetectCredits" type="checkbox" is="emby-checkbox" />
-                                    <span>Automatically Scan Credits</span>
-                                </label>
-
-                                <div class="fieldDescription">
-                                    If enabled, credits will be automatically analyzed for new media
+                                <div class="fieldDescription">If enabled, segments will be automatically analyzed for new media added to the library
                                     <br />
                                     <br />
-                                    Note: Not selecting at least one automatic detection type will disable automatic scans. To configure the scheduled task, see <a is="emby-linkbutton" class="button-link" href="#/dashboard/tasks">scheduled tasks</a>.
+                                    Note: To configure the scheduled task, see <a is="emby-linkbutton" class="button-link" href="#/dashboard/tasks">scheduled tasks.</a>.
                                 </div>
                             </div>
 
@@ -105,6 +95,34 @@
                                   <br />
                                   Per the jellyfin MediaSegments API, records must be updated individually and may be slow to regenerate.
                                 </p>
+
+                                <div class="checkboxContainer">
+                                    <label class="emby-checkbox-label">
+                                        <input id="ScanIntroduction" type="checkbox" is="emby-checkbox" />
+                                        <span>Scan Introductions</span>
+                                    </label>
+                                </div>
+
+                                <div class="checkboxContainer">
+                                    <label class="emby-checkbox-label">
+                                        <input id="ScanCredits" type="checkbox" is="emby-checkbox" />
+                                        <span>Scan Credits</span>
+                                    </label>
+                                </div>
+
+                                <div class="checkboxContainer">
+                                    <label class="emby-checkbox-label">
+                                        <input id="ScanRecap" type="checkbox" is="emby-checkbox" />
+                                        <span>Scan Recaps</span>
+                                    </label>
+                                </div>
+
+                                <div class="checkboxContainer">
+                                    <label class="emby-checkbox-label">
+                                        <input id="ScanPreview" type="checkbox" is="emby-checkbox" />
+                                        <span>Scan Previews</span>
+                                    </label>
+                                </div>
 
                                 <div class="inputContainer">
                                     <label class="inputLabel inputLabelUnfocused" for="AnalysisPercent"> Percent of audio to analyze </label>
@@ -713,8 +731,7 @@
                     "AutoSkipNotificationText",
                     "AutoSkipCreditsNotificationText",
                 ];
-
-                var booleanConfigurationFields = ["AutoDetectIntros", "AutoDetectCredits", "AnalyzeMovies", "AnalyzeSeasonZero", "SelectAllLibraries", "UpdateMediaSegments", "RegenerateMediaSegments", "CacheFingerprints", "AutoSkip", "AutoSkipCredits", "SkipFirstEpisode", "PersistSkipButton", "SkipButtonVisible"];
+                var booleanConfigurationFields = ["AutoDetectIntros", "AnalyzeMovies", "AnalyzeSeasonZero", "SelectAllLibraries", "UpdateMediaSegments", "RegenerateMediaSegments", "ScanIntroduction", "ScanCredits", "ScanRecap", "ScanPreview", "CacheFingerprints", "AutoSkip", "AutoSkipCredits", "SkipFirstEpisode", "PersistSkipButton", "SkipButtonVisible"];
 
                 // visualizer elements
                 var ignorelistSection = document.querySelector("div#ignorelistSection");
