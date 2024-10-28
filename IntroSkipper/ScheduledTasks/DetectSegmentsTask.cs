@@ -5,7 +5,6 @@ using System;
 using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
-using IntroSkipper.Data;
 using IntroSkipper.Manager;
 using IntroSkipper.Services;
 using MediaBrowser.Controller.Library;
@@ -15,22 +14,22 @@ using Microsoft.Extensions.Logging;
 namespace IntroSkipper.ScheduledTasks;
 
 /// <summary>
-/// Analyze all television episodes for introduction sequences.
+/// Analyze all television episodes for media segments.
 /// </summary>
 /// <remarks>
-/// Initializes a new instance of the <see cref="DetectIntrosCreditsTask"/> class.
+/// Initializes a new instance of the <see cref="DetectSegmentsTask"/> class.
 /// </remarks>
 /// <param name="loggerFactory">Logger factory.</param>
 /// <param name="libraryManager">Library manager.</param>
 /// <param name="logger">Logger.</param>
 /// <param name="mediaSegmentUpdateManager">MediaSegment Update Manager.</param>
-public class DetectIntrosCreditsTask(
-    ILogger<DetectIntrosCreditsTask> logger,
+public class DetectSegmentsTask(
+    ILogger<DetectSegmentsTask> logger,
     ILoggerFactory loggerFactory,
     ILibraryManager libraryManager,
     MediaSegmentUpdateManager mediaSegmentUpdateManager) : IScheduledTask
 {
-    private readonly ILogger<DetectIntrosCreditsTask> _logger = logger;
+    private readonly ILogger<DetectSegmentsTask> _logger = logger;
 
     private readonly ILoggerFactory _loggerFactory = loggerFactory;
 
@@ -41,7 +40,7 @@ public class DetectIntrosCreditsTask(
     /// <summary>
     /// Gets the task name.
     /// </summary>
-    public string Name => "Detect Intros and Credits";
+    public string Name => "Detect and Analyze Media Segments";
 
     /// <summary>
     /// Gets the task category.
@@ -56,7 +55,7 @@ public class DetectIntrosCreditsTask(
     /// <summary>
     /// Gets the task key.
     /// </summary>
-    public string Key => "CPBIntroSkipperDetectIntrosCredits";
+    public string Key => "IntroSkipperDetectSegmentsTask";
 
     /// <summary>
     /// Analyze all episodes in the queue. Only one instance of this task should be run at a time.
@@ -83,7 +82,7 @@ public class DetectIntrosCreditsTask(
             _logger.LogInformation("Scheduled Task is starting");
 
             var baseIntroAnalyzer = new BaseItemAnalyzerTask(
-                _loggerFactory.CreateLogger<DetectIntrosCreditsTask>(),
+                _loggerFactory.CreateLogger<DetectSegmentsTask>(),
                 _loggerFactory,
                 _libraryManager,
                 _mediaSegmentUpdateManager);

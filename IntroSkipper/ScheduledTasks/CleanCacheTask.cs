@@ -59,7 +59,7 @@ public class CleanCacheTask : IScheduledTask
     /// <summary>
     /// Gets the task key.
     /// </summary>
-    public string Key => "CPBIntroSkipperCleanCache";
+    public string Key => "IntroSkipperCleanCache";
 
     /// <summary>
     /// Cleans the cache of unused files.
@@ -133,6 +133,7 @@ public class CleanCacheTask : IScheduledTask
             }
         }
 
+        progress.Report(100);
         return Task.CompletedTask;
     }
 
