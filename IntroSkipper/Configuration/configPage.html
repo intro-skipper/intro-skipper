@@ -1092,13 +1092,13 @@
                     // Try to get the timestamps of each intro, falling back a default value of zero if no intro was found
                     const leftEpisodeJson = await getJson("Episode/" + selectShow.value + "/Timestamps");
 
-                    // Update the editor for the first and second episodes
+                    // Update the editor for the movie
                     timestampEditor.style.display = "unset";
                     document.querySelector("#editLeftEpisodeTitle").textContent = selectShow.value;
                     document.querySelector("#editLeftIntroEpisodeStartEdit").value = leftEpisodeJson.Introduction.Start;
                     document.querySelector("#editLeftIntroEpisodeEndEdit").value = leftEpisodeJson.Introduction.End;
                     document.querySelector("#editLeftCreditEpisodeStartEdit").value = leftEpisodeJson.Credits.Start;
-                    document.querySelector("#editLeftCreditEpisodeEndEdit").value = leftEpisodeJson.Credits.End
+                    document.querySelector("#editLeftCreditEpisodeEndEdit").value = leftEpisodeJson.Credits.End;
 
                     // Update display inputs
                     const inputs = document.querySelectorAll('#timestampEditor input[type="number"]');
