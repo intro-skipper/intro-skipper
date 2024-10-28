@@ -8,3 +8,6 @@ docker/dist
 
 # Visual Studio
 .vs/
+
+# JetBrains Rider
+.idea/
