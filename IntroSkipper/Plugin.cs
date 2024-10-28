@@ -96,8 +96,6 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
         XmlSerializationHelper.MigrateXML(_introPath);
         XmlSerializationHelper.MigrateXML(_creditsPath);
 
-        MigrateRepoUrl(serverConfiguration);
-
         var oldConfigFile = Path.Join(applicationPaths.PluginConfigurationsPath, "ConfusedPolarBear.Plugin.IntroSkipper.xml");
 
         if (File.Exists(oldConfigFile))
@@ -127,6 +125,8 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
                 _logger.LogWarning("Something stupid happend: {Exception}", ex);
             }
         }
+
+        MigrateRepoUrl(serverConfiguration);
 
         // TODO: remove when https://github.com/jellyfin/jellyfin-meta/discussions/30 is complete
         try
@@ -477,16 +477,16 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
             var config = serverConfiguration.Configuration;
 
             // Get the list of current plugin repositories
-            var pluginRepositories = config.PluginRepositories?.ToList() ?? [];
+            var pluginRepositories = config.PluginRepositories.ToList();
 
             // check if old plugins exits
-            if (pluginRepositories.Exists(repo => repo != null && repo.Url != null && oldRepos.Contains(repo.Url)))
+            if (pluginRepositories.Exists(repo => repo.Url != null && oldRepos.Contains(repo.Url)))
             {
                 // remove all old plugins
-                pluginRepositories.RemoveAll(repo => repo != null && repo.Url != null && oldRepos.Contains(repo.Url));
+                pluginRepositories.RemoveAll(repo => repo.Url != null && oldRepos.Contains(repo.Url));
 
-                // Add repository only if it does not exit
-                if (!pluginRepositories.Exists(repo => repo.Url == "https://manifest.intro-skipper.org/manifest.json"))
+                // Add repository only if it does not exit and the OverideManifestUrl Option is activated
+                if (!pluginRepositories.Exists(repo => repo.Url == "https://manifest.intro-skipper.org/manifest.json") && Instance!.Configuration.OverrideManifestUrl)
                 {
                     // Add the new repository to the list
                     pluginRepositories.Add(new RepositoryInfo
@@ -519,8 +519,7 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
         string searchPattern = "dashboard-dashboard.*.chunk.js";
         string[] filePaths = Directory.GetFiles(webPath, searchPattern, SearchOption.TopDirectoryOnly);
         string pattern = @"buildVersion""\)\.innerText=""(?<buildVersion>\d+\.\d+\.\d+)"",.*?webVersion""\)\.innerText=""(?<webVersion>\d+\.\d+\.\d+)";
-        string buildVersionString = "unknow";
-        string webVersionString = "unknow";
+        string webVersionString = "unknown";
         // Create a Regex object
         Regex regex = new Regex(pattern);
 
@@ -533,14 +532,13 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
             // search for buildVersion and webVersion
             if (match.Success)
             {
-                buildVersionString = match.Groups["buildVersion"].Value;
                 webVersionString = match.Groups["webVersion"].Value;
                 _logger.LogInformation("Found jellyfin-web <{WebVersion}>", webVersionString);
                 break;
             }
         }
 
-        if (webVersionString != "unknow")
+        if (webVersionString != "unknown")
         {
             // append Revision
             webVersionString += ".0";
@@ -557,21 +555,6 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
             }
         }
 
-        // search for controllers/playback/video/index.html
-        searchPattern = "playback-video-index-html.*.chunk.js";
-        filePaths = Directory.GetFiles(webPath, searchPattern, SearchOption.TopDirectoryOnly);
-
-        // should be only one file but this safer
-        foreach (var file in filePaths)
-        {
-            // search for class btnSkipIntro
-            if (File.ReadAllText(file).Contains("btnSkipIntro", StringComparison.OrdinalIgnoreCase))
-            {
-                _logger.LogInformation("Found a modified version of jellyfin-web with built-in skip button support.");
-                return;
-            }
-        }
-
         // Inject the skip intro button code into the web interface.
         string indexPath = Path.Join(webPath, "index.html");
 
@@ -581,15 +564,20 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
         _logger.LogDebug("Reading index.html from {Path}", indexPath);
         string contents = File.ReadAllText(indexPath);
 
-        if (!Instance!.Configuration.SkipButtonVisible)
+        if (!Instance!.Configuration.SkipButtonEnabled)
         {
             pattern = @"<script src=""configurationpage\?name=skip-intro-button\.js.*<\/script>";
+            if (!Regex.IsMatch(contents, pattern, RegexOptions.IgnoreCase))
+            {
+                return;
+            }
+
             contents = Regex.Replace(contents, pattern, string.Empty, RegexOptions.IgnoreCase);
             File.WriteAllText(indexPath, contents);
             return; // Button is disabled, so remove and abort
         }
 
-        // change URL with every release to prevent the Browers from caching
+        // change URL with every release to prevent the Browsers from caching
         string scriptTag = "<script src=\"configurationpage?name=skip-intro-button.js&release=" + GetType().Assembly.GetName().Version + "\"></script>";
 
         // Only inject the script tag once
