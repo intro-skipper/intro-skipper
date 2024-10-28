@@ -8,6 +8,7 @@ using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using IntroSkipper.Analyzers;
+using IntroSkipper.Configuration;
 using IntroSkipper.Data;
 using IntroSkipper.Manager;
 using MediaBrowser.Controller.Library;
@@ -35,30 +36,34 @@ public class BaseItemAnalyzerTask(
     private readonly ILoggerFactory _loggerFactory = loggerFactory;
     private readonly ILibraryManager _libraryManager = libraryManager;
     private readonly MediaSegmentUpdateManager _mediaSegmentUpdateManager = mediaSegmentUpdateManager;
+    private readonly PluginConfiguration _config = Plugin.Instance?.Configuration ?? new PluginConfiguration();
 
     /// <summary>
     /// Analyze all media items on the server.
     /// </summary>
     /// <param name="progress">Progress.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
-    /// <param name="modes">Modes.</param>
     /// <param name="seasonsToAnalyze">Season Ids to analyze.</param>
     /// <returns>A <see cref="Task"/> representing the asynchronous operation.</returns>
     public async Task AnalyzeItems(
         IProgress<double> progress,
         CancellationToken cancellationToken,
-        IReadOnlyCollection<AnalysisMode>? modes = null,
         IReadOnlyCollection<Guid>? seasonsToAnalyze = null)
     {
         var ffmpegValid = FFmpegWrapper.CheckFFmpegVersion();
         // Assert that ffmpeg with chromaprint is installed
-        if (Plugin.Instance!.Configuration.WithChromaprint && !ffmpegValid)
+        if (_config.WithChromaprint && !ffmpegValid)
         {
             throw new FingerprintException(
                 "Analysis terminated! Chromaprint is not enabled in the current ffmpeg. If Jellyfin is running natively, install jellyfin-ffmpeg5. If Jellyfin is running in a container, upgrade to version 10.8.0 or newer.");
         }
 
-        modes ??= [AnalysisMode.Introduction, AnalysisMode.Credits, AnalysisMode.Recap, AnalysisMode.Preview];
+        HashSet<AnalysisMode> modes = [
+            .. _config.ScanIntroduction ? [AnalysisMode.Introduction] : Array.Empty<AnalysisMode>(),
+            .. _config.ScanCredits ? [AnalysisMode.Credits] : Array.Empty<AnalysisMode>(),
+            .. _config.ScanRecap ? [AnalysisMode.Recap] : Array.Empty<AnalysisMode>(),
+            .. _config.ScanPreview ? [AnalysisMode.Preview] : Array.Empty<AnalysisMode>()
+        ];
 
         var queueManager = new QueueManager(
             _loggerFactory.CreateLogger<QueueManager>(),
@@ -82,7 +87,7 @@ public class BaseItemAnalyzerTask(
         var totalProcessed = 0;
         var options = new ParallelOptions
         {
-            MaxDegreeOfParallelism = Plugin.Instance.Configuration.MaxParallelism,
+            MaxDegreeOfParallelism = _config.MaxParallelism,
             CancellationToken = cancellationToken
         };
 
@@ -138,17 +143,17 @@ public class BaseItemAnalyzerTask(
                 throw;
             }
 
-            if (Plugin.Instance.Configuration.RegenerateMediaSegments || (updateManagers && Plugin.Instance.Configuration.UpdateMediaSegments))
+            if (_config.RegenerateMediaSegments || (updateManagers && _config.UpdateMediaSegments))
             {
                 await _mediaSegmentUpdateManager.UpdateMediaSegmentsAsync(episodes, ct).ConfigureAwait(false);
             }
         }).ConfigureAwait(false);
 
-        if (Plugin.Instance.Configuration.RegenerateMediaSegments)
+        if (_config.RegenerateMediaSegments)
         {
             _logger.LogInformation("Turning Mediasegment");
-            Plugin.Instance.Configuration.RegenerateMediaSegments = false;
-            Plugin.Instance.SaveConfiguration();
+            _config.RegenerateMediaSegments = false;
+            Plugin.Instance!.SaveConfiguration();
         }
     }
 
@@ -168,7 +173,7 @@ public class BaseItemAnalyzerTask(
 
         // Only analyze specials (season 0) if the user has opted in.
         var first = items[0];
-        if (!first.IsMovie && first.SeasonNumber == 0 && !Plugin.Instance!.Configuration.AnalyzeSeasonZero)
+        if (!first.IsMovie && first.SeasonNumber == 0 && !_config.AnalyzeSeasonZero)
         {
             return 0;
         }
@@ -191,7 +196,7 @@ public class BaseItemAnalyzerTask(
             new ChapterAnalyzer(_loggerFactory.CreateLogger<ChapterAnalyzer>())
         };
 
-        if (first.IsAnime && Plugin.Instance!.Configuration.WithChromaprint && !first.IsMovie && mode != AnalysisMode.Recap && mode != AnalysisMode.Preview)
+        if (first.IsAnime && _config.WithChromaprint && !first.IsMovie && mode != AnalysisMode.Recap && mode != AnalysisMode.Preview)
         {
             analyzers.Add(new ChromaprintAnalyzer(_loggerFactory.CreateLogger<ChromaprintAnalyzer>()));
         }
@@ -201,7 +206,7 @@ public class BaseItemAnalyzerTask(
             analyzers.Add(new BlackFrameAnalyzer(_loggerFactory.CreateLogger<BlackFrameAnalyzer>()));
         }
 
-        if (!first.IsAnime && Plugin.Instance!.Configuration.WithChromaprint && !first.IsMovie && mode != AnalysisMode.Recap && mode != AnalysisMode.Preview)
+        if (!first.IsAnime && _config.WithChromaprint && !first.IsMovie && mode != AnalysisMode.Recap && mode != AnalysisMode.Preview)
         {
             analyzers.Add(new ChromaprintAnalyzer(_loggerFactory.CreateLogger<ChromaprintAnalyzer>()));
         }

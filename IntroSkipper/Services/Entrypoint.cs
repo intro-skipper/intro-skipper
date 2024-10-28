@@ -6,7 +6,6 @@ using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
 using IntroSkipper.Configuration;
-using IntroSkipper.Data;
 using IntroSkipper.Manager;
 using IntroSkipper.ScheduledTasks;
 using MediaBrowser.Controller.Entities.Movies;
@@ -112,7 +111,7 @@ namespace IntroSkipper.Services
         /// <param name="itemChangeEventArgs">The <see cref="ItemChangeEventArgs"/>.</param>
         private void OnItemChanged(object? sender, ItemChangeEventArgs itemChangeEventArgs)
         {
-            if ((_config.AutoDetectIntros || _config.AutoDetectCredits) &&
+            if (_config.AutoDetectIntros &&
                 itemChangeEventArgs.Item is { LocationType: not LocationType.Virtual } item)
             {
                 Guid? id = item is Episode episode ? episode.SeasonId : (item is Movie movie ? movie.Id : null);
@@ -132,7 +131,7 @@ namespace IntroSkipper.Services
         /// <param name="eventArgs">The <see cref="TaskCompletionEventArgs"/>.</param>
         private void OnLibraryRefresh(object? sender, TaskCompletionEventArgs eventArgs)
         {
-            if ((_config.AutoDetectIntros || _config.AutoDetectCredits) &&
+            if (_config.AutoDetectIntros &&
                 eventArgs.Result is { Key: "RefreshLibrary", Status: TaskCompletionStatus.Completed } &&
                 AutomaticTaskState != TaskState.Running)
             {
@@ -192,20 +191,8 @@ namespace IntroSkipper.Services
                     _seasonsToAnalyze.Clear();
                     _analyzeAgain = false;
 
-                    var modes = new List<AnalysisMode>();
-
-                    if (_config.AutoDetectIntros)
-                    {
-                        modes.Add(AnalysisMode.Introduction);
-                    }
-
-                    if (_config.AutoDetectCredits)
-                    {
-                        modes.Add(AnalysisMode.Credits);
-                    }
-
                     var analyzer = new BaseItemAnalyzerTask(_loggerFactory.CreateLogger<Entrypoint>(), _loggerFactory, _libraryManager, _mediaSegmentUpdateManager);
-                    await analyzer.AnalyzeItems(new Progress<double>(), _cancellationTokenSource.Token, modes, seasonIds).ConfigureAwait(false);
+                    await analyzer.AnalyzeItems(new Progress<double>(), _cancellationTokenSource.Token, seasonIds).ConfigureAwait(false);
 
                     if (_analyzeAgain && !_cancellationTokenSource.IsCancellationRequested)
                     {

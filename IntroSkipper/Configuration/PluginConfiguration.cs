@@ -47,14 +47,9 @@ public class PluginConfiguration : BasePluginConfiguration
     public string ClientList { get; set; } = string.Empty;
 
     /// <summary>
-    /// Gets or sets a value indicating whether to scan for intros during a scheduled task.
+    /// Gets or sets a value indicating whether to automatically scan newly added items.
     /// </summary>
     public bool AutoDetectIntros { get; set; } = true;
-
-    /// <summary>
-    /// Gets or sets a value indicating whether to scan for credits during a scheduled task.
-    /// </summary>
-    public bool AutoDetectCredits { get; set; } = true;
 
     /// <summary>
     /// Gets or sets a value indicating whether to analyze season 0.
@@ -86,6 +81,26 @@ public class PluginConfiguration : BasePluginConfiguration
     public bool RegenerateMediaSegments { get; set; } = true;
 
     // ===== Custom analysis settings =====
+
+    /// <summary>
+    /// Gets or sets a value indicating whether Introductions should be analyzed.
+    /// </summary>
+    public bool ScanIntroduction { get; set; } = true;
+
+    /// <summary>
+    /// Gets or sets a value indicating whether Credits should be analyzed.
+    /// </summary>
+    public bool ScanCredits { get; set; } = true;
+
+    /// <summary>
+    /// Gets or sets a value indicating whether Recaps should be analyzed.
+    /// </summary>
+    public bool ScanRecap { get; set; } = true;
+
+    /// <summary>
+    /// Gets or sets a value indicating whether Previews should be analyzed.
+    /// </summary>
+    public bool ScanPreview { get; set; } = true;
 
     /// <summary>
     /// Gets or sets the percentage of each episode's audio track to analyze.
