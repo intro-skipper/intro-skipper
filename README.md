@@ -11,7 +11,7 @@
 ## Manifest URL (All Jellyfin Versions)
 
 ```
-https://manifest.intro-skipper.org/manifest.json
+https://intro-skipper.org/manifest.json
 ```
 
 ## System requirements
