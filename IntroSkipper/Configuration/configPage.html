@@ -1153,14 +1153,10 @@
                     document.querySelector("#editLeftIntroEpisodeEndEdit").value = leftEpisodeJson.Introduction.End;
                     document.querySelector("#editLeftCreditEpisodeStartEdit").value = leftEpisodeJson.Credits.Start;
                     document.querySelector("#editLeftCreditEpisodeEndEdit").value = leftEpisodeJson.Credits.End;
-                    try {
-                        document.querySelector("#editLeftRecapEpisodeStartEdit").value = leftEpisodeJson.Recap.Start;
-                        document.querySelector("#editLeftRecapEpisodeEndEdit").value = leftEpisodeJson.Recap.End;
-                    } catch (error) { }
-                    try {
-                        document.querySelector("#editLeftPreviewEpisodeStartEdit").value = leftEpisodeJson.Preview.Start;
-                        document.querySelector("#editLeftPreviewEpisodeEndEdit").value = leftEpisodeJson.Preview.End;
-                    } catch (error) { }
+                    document.querySelector("#editLeftRecapEpisodeStartEdit").value = leftEpisodeJson.Recap.Start;
+                    document.querySelector("#editLeftRecapEpisodeEndEdit").value = leftEpisodeJson.Recap.End;
+                    document.querySelector("#editLeftPreviewEpisodeStartEdit").value = leftEpisodeJson.Preview.Start;
+                    document.querySelector("#editLeftPreviewEpisodeEndEdit").value = leftEpisodeJson.Preview.End;
 
                     // Update display inputs
                     const inputs = document.querySelectorAll('#timestampEditor input[type="number"]');
@@ -1225,27 +1221,19 @@
                     document.querySelector("#editLeftIntroEpisodeEndEdit").value = leftEpisodeJson.Introduction.End;
                     document.querySelector("#editLeftCreditEpisodeStartEdit").value = leftEpisodeJson.Credits.Start;
                     document.querySelector("#editLeftCreditEpisodeEndEdit").value = leftEpisodeJson.Credits.End;
-                    try {
-                        document.querySelector("#editLeftRecapEpisodeStartEdit").value = leftEpisodeJson.Recap.Start;
-                        document.querySelector("#editLeftRecapEpisodeEndEdit").value = leftEpisodeJson.Recap.End;
-                    } catch (error) { }
-                    try {
-                        document.querySelector("#editLeftPreviewEpisodeStartEdit").value = leftEpisodeJson.Preview.Start;
-                        document.querySelector("#editLeftPreviewEpisodeEndEdit").value = leftEpisodeJson.Preview.End;
-                    } catch (error) { }
+                    document.querySelector("#editLeftRecapEpisodeStartEdit").value = leftEpisodeJson.Recap.Start;
+                    document.querySelector("#editLeftRecapEpisodeEndEdit").value = leftEpisodeJson.Recap.End;
+                    document.querySelector("#editLeftPreviewEpisodeStartEdit").value = leftEpisodeJson.Preview.Start;
+                    document.querySelector("#editLeftPreviewEpisodeEndEdit").value = leftEpisodeJson.Preview.End;
                     document.querySelector("#editRightEpisodeTitle").textContent = rightEpisode.text;
                     document.querySelector("#editRightIntroEpisodeStartEdit").value = rightEpisodeJson.Introduction.Start;
                     document.querySelector("#editRightIntroEpisodeEndEdit").value = rightEpisodeJson.Introduction.End;
                     document.querySelector("#editRightCreditEpisodeStartEdit").value = rightEpisodeJson.Credits.Start;
                     document.querySelector("#editRightCreditEpisodeEndEdit").value = rightEpisodeJson.Credits.End;
-                    try {
-                        document.querySelector("#editRightRecapEpisodeStartEdit").value = rightEpisodeJson.Recap.Start;
-                        document.querySelector("#editRightRecapEpisodeEndEdit").value = rightEpisodeJson.Recap.End;
-                    } catch (error) { }
-                    try {
-                        document.querySelector("#editRightPreviewEpisodeStartEdit").value = rightEpisodeJson.Preview.Start;
-                        document.querySelector("#editRightPreviewEpisodeEndEdit").value = rightEpisodeJson.Preview.End;
-                    } catch (error) { }
+                    document.querySelector("#editRightRecapEpisodeStartEdit").value = rightEpisodeJson.Recap.Start;
+                    document.querySelector("#editRightRecapEpisodeEndEdit").value = rightEpisodeJson.Recap.End;
+                    document.querySelector("#editRightPreviewEpisodeStartEdit").value = rightEpisodeJson.Preview.Start;
+                    document.querySelector("#editRightPreviewEpisodeEndEdit").value = rightEpisodeJson.Preview.End;
                     // Update display inputs
                     const inputs = document.querySelectorAll('#timestampEditor input[type="number"]');
                     inputs.forEach((input) => {
@@ -1341,11 +1329,11 @@
                             return;
                     }
 
-                    if (offsetDelta != 0) {
+                    if (offsetDelta !== 0) {
                         txtOffset.value = Number(txtOffset.value) + Math.floor(offsetDelta);
                     }
 
-                    if (episodeDelta != 0) {
+                    if (episodeDelta !== 0) {
                         // calculate the number of episodes remaining in the LHS and RHS episode pickers
                         const lhsRemaining = selectEpisode1.selectedIndex;
                         const rhsRemaining = selectEpisode2.length - selectEpisode2.selectedIndex - 1;
