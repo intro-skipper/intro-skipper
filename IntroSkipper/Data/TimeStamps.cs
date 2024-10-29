@@ -18,5 +18,15 @@ namespace IntroSkipper.Data
         /// Gets or sets Credits.
         /// </summary>
         public Segment Credits { get; set; } = new Segment();
+
+        /// <summary>
+        /// Gets or sets Recap.
+        /// </summary>
+        public Segment Recap { get; set; } = new Segment();
+
+        /// <summary>
+        /// Gets or sets Preview.
+        /// </summary>
+        public Segment Preview { get; set; } = new Segment();
     }
 }
