@@ -304,7 +304,7 @@
                             <div id="SkipButtonContainer" class="checkboxContainer checkboxContainer-withDescription">
                                 <label class="emby-checkbox-label">
                                     <input id="SkipButtonVisible" type="checkbox" is="emby-checkbox" />
-                                    <span id="SkipButtonVisibleLabel">Show skip intro / credit button</span>
+                                    <span id="SkipButtonVisibleLabel">Show All Skip Buttons</span>
                                 </label>
 
                                 <div class="fieldDescription">
@@ -329,7 +329,7 @@
                                 <div id="PersistContainer" class="checkboxContainer checkboxContainer-withDescription">
                                     <label class="emby-checkbox-label">
                                         <input id="PersistSkipButton" type="checkbox" is="emby-checkbox" />
-                                        <span>Display button for intro duration</span>
+                                        <span>Display Button for Segment Duration</span>
                                     </label>
 
                                     <div class="fieldDescription">
@@ -733,15 +733,15 @@
                     } else if (autoSkip.checked) {
                         autoSkipClientList.style.display = "unset";
                         autoSkipClientList.style.width = "100%";
-                        skipButtonVisibleLabel.textContent = "Show skip credit button";
+                        skipButtonVisibleLabel.textContent = "Show Skip Credit Button";
                     } else if (autoSkipCredits.checked) {
                         autoSkipClientList.style.display = "unset";
                         autoSkipClientList.style.width = "100%";
-                        skipButtonVisibleLabel.textContent = "Show skip intro button";
+                        skipButtonVisibleLabel.textContent = "Show Skip Intro Button";
                     } else {
                         autoSkipClientList.style.display = "unset";
                         autoSkipClientList.style.width = "100%";
-                        skipButtonVisibleLabel.textContent = "Show skip intro / credit button";
+                        skipButtonVisibleLabel.textContent = "Show All Skip Buttons";
                     }
                     skipButtonVisibleChanged();
                 }
