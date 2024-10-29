@@ -32,7 +32,7 @@
                             <div class="checkboxContainer checkboxContainer-withDescription">
                                 <label class="emby-checkbox-label">
                                     <input id="AutoDetectIntros" type="checkbox" is="emby-checkbox" />
-                                    <span>Automatically scan newly added items</span>
+                                    <span>Automatically Analyze New Media</span>
                                 </label>
 
                                 <div class="fieldDescription">If enabled, new media will be automatically analyzed for skippable segments when added to the library
@@ -45,10 +45,14 @@
                             <div class="checkboxContainer checkboxContainer-withDescription">
                                 <label class="emby-checkbox-label">
                                     <input id="UpdateMediaSegments" type="checkbox" is="emby-checkbox" />
-                                    <span>Update Media Segments for Newly Added Files During Scan</span>
+                                    <span>Update Segments for New Media During Scan</span>
                                 </label>
 
-                                <div class="fieldDescription">Enable this option to update media segments for newly added files during a scan. <b>Warning:</b> This should be disabled if you're using media segment providers other than Intro Skipper.</div>
+                                <div class="fieldDescription">
+                                    Enable this option to update media segments for newly added files during a scan. 
+                                    <br />
+                                    <b>Warning:</b> This should be disabled if you're using media segment providers other than Intro Skipper.
+                                </div>
                             </div>
 
                             <div class="checkboxContainer">
@@ -61,13 +65,10 @@
                             <div class="checkboxContainer checkboxContainer-withDescription">
                                 <label class="emby-checkbox-label">
                                     <input id="AnalyzeSeasonZero" type="checkbox" is="emby-checkbox" />
-                                    <span>Analyze season 0</span>
+                                    <span>Analyze Season 0 (Specials / Extras)</span>
                                 </label>
 
                                 <div class="fieldDescription">
-                                    If checked, season 0 (specials / extras) will be included in analysis.
-                                    <br />
-                                    <br />
                                     Note: Shows containing both a specials and extra folder will identify extras as season 0 and ignore specials, regardless of this setting.
                                 </div>
                             </div>
@@ -268,7 +269,7 @@
                             <div class="checkboxContainer checkboxContainer-withDescription">
                                 <label class="emby-checkbox-label">
                                     <input id="AutoSkip" type="checkbox" is="emby-checkbox" />
-                                    <span>Automatically skip intros</span>
+                                    <span>Automatically Skip Intros</span>
                                 </label>
 
                                 <div class="fieldDescription">
@@ -280,7 +281,7 @@
                             <div id="divSkipFirstEpisode" class="checkboxContainer checkboxContainer-withDescription">
                                 <label class="emby-checkbox-label">
                                     <input id="SkipFirstEpisode" type="checkbox" is="emby-checkbox" />
-                                    <span>Play intro for first episode of a season</span>
+                                    <span>Play Intro for First Episode of a Season</span>
                                 </label>
 
                                 <div class="fieldDescription">If checked, auto skip will play the introduction of the first episode in a season.<br /></div>
@@ -297,7 +298,7 @@
                             <div class="checkboxContainer checkboxContainer-withDescription">
                                 <label class="emby-checkbox-label">
                                     <input id="AutoSkipCredits" type="checkbox" is="emby-checkbox" />
-                                    <span>Automatically skip credits</span>
+                                    <span>Automatically Skip Credits</span>
                                 </label>
 
                                 <div class="fieldDescription">
