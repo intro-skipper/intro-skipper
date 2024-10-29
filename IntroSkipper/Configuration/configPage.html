@@ -34,8 +34,7 @@
                                     <input id="AutoDetectIntros" type="checkbox" is="emby-checkbox" />
                                     <span>Automatically Scan Intros</span>
                                 </label>
-
-                                <div class="fieldDescription">If enabled, introductions will be automatically analyzed for new media</div>
+                                <div class="fieldDescription">If enabled, new media will be automatically analyzed for introductions</div>
                             </div>
 
                             <div class="checkboxContainer checkboxContainer-withDescription">
@@ -45,20 +44,18 @@
                                 </label>
 
                                 <div class="fieldDescription">
-                                    If enabled, credits will be automatically analyzed for new media
+                                    If enabled, new media will be automatically analyzed for credits
                                     <br />
                                     <br />
                                     Note: Not selecting at least one automatic detection type will disable automatic scans. To configure the scheduled task, see <a is="emby-linkbutton" class="button-link" href="#/dashboard/tasks">scheduled tasks</a>.
                                 </div>
                             </div>
 
-                            <div class="checkboxContainer checkboxContainer-withDescription">
+                            <div class="checkboxContainer">
                                 <label class="emby-checkbox-label">
                                     <input id="AnalyzeMovies" type="checkbox" is="emby-checkbox" />
                                     <span>Analyze Movies</span>
                                 </label>
-
-                                <div class="fieldDescription">If checked, movies will be included in analysis.</div>
                             </div>
 
                             <div class="checkboxContainer checkboxContainer-withDescription">
@@ -73,12 +70,6 @@
                                     <br />
                                     Note: Shows containing both a specials and extra folder will identify extras as season 0 and ignore specials, regardless of this setting.
                                 </div>
-                            </div>
-
-                            <div class="inputContainer">
-                                <label class="inputLabel inputLabelUnfocused" for="MaxParallelism"> Maximum degree of parallelism </label>
-                                <input id="MaxParallelism" type="number" is="emby-input" min="1" />
-                                <div class="fieldDescription">Maximum number of simultaneous async episode analysis operations.</div>
                             </div>
 
                             <div class="checkboxContainer checkboxContainer-withDescription">
@@ -211,6 +202,12 @@
                                 <summary>Process Configuration</summary>
 
                                 <br />
+                                <div class="inputContainer">
+                                    <label class="inputLabel inputLabelUnfocused" for="MaxParallelism"> Maximum degree of parallelism </label>
+                                    <input id="MaxParallelism" type="number" is="emby-input" min="1" />
+                                    <div class="fieldDescription">Maximum number of simultaneous async episode analysis operations.</div>
+                                </div>
+
                                 <div class="checkboxContainer checkboxContainer-withDescription">
                                     <label class="emby-checkbox-label">
                                         <input id="CacheFingerprints" type="checkbox" is="emby-checkbox" />
