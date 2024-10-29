@@ -35,20 +35,27 @@
                                     <span>Automatically scan newly added items</span>
                                 </label>
 
-                                <div class="fieldDescription">If enabled, segments will be automatically analyzed for new media added to the library
+                                <div class="fieldDescription">If enabled, new media will be automatically analyzed for skippable segments when added to the library
                                     <br />
                                     <br />
-                                    Note: To configure the scheduled task, see <a is="emby-linkbutton" class="button-link" href="#/dashboard/tasks">scheduled tasks.</a>.
+                                    Note: To configure the scheduled task, see <a is="emby-linkbutton" class="button-link" href="#/dashboard/tasks">scheduled tasks</a>.
                                 </div>
                             </div>
 
                             <div class="checkboxContainer checkboxContainer-withDescription">
                                 <label class="emby-checkbox-label">
+                                    <input id="UpdateMediaSegments" type="checkbox" is="emby-checkbox" />
+                                    <span>Update Media Segments for Newly Added Files During Scan</span>
+                                </label>
+
+                                <div class="fieldDescription">Enable this option to update media segments for newly added files during a scan. <b>Warning:</b> This should be disabled if you're using media segment providers other than Intro Skipper.</div>
+                            </div>
+
+                            <div class="checkboxContainer">
+                                <label class="emby-checkbox-label">
                                     <input id="AnalyzeMovies" type="checkbox" is="emby-checkbox" />
                                     <span>Analyze Movies</span>
                                 </label>
-
-                                <div class="fieldDescription">If checked, movies will be included in analysis.</div>
                             </div>
 
                             <div class="checkboxContainer checkboxContainer-withDescription">
@@ -63,12 +70,6 @@
                                     <br />
                                     Note: Shows containing both a specials and extra folder will identify extras as season 0 and ignore specials, regardless of this setting.
                                 </div>
-                            </div>
-
-                            <div class="inputContainer">
-                                <label class="inputLabel inputLabelUnfocused" for="MaxParallelism"> Maximum degree of parallelism </label>
-                                <input id="MaxParallelism" type="number" is="emby-input" min="1" />
-                                <div class="fieldDescription">Maximum number of simultaneous async episode analysis operations.</div>
                             </div>
 
                             <div class="checkboxContainer checkboxContainer-withDescription">
@@ -99,28 +100,28 @@
                                 <div class="checkboxContainer">
                                     <label class="emby-checkbox-label">
                                         <input id="ScanIntroduction" type="checkbox" is="emby-checkbox" />
-                                        <span>Scan Introductions</span>
+                                        <span>Identify Introductions</span>
                                     </label>
                                 </div>
 
                                 <div class="checkboxContainer">
                                     <label class="emby-checkbox-label">
                                         <input id="ScanCredits" type="checkbox" is="emby-checkbox" />
-                                        <span>Scan Credits</span>
+                                        <span>Identify Credits</span>
                                     </label>
                                 </div>
 
                                 <div class="checkboxContainer">
                                     <label class="emby-checkbox-label">
                                         <input id="ScanRecap" type="checkbox" is="emby-checkbox" />
-                                        <span>Scan Recaps</span>
+                                        <span>Identify Recaps</span>
                                     </label>
                                 </div>
 
                                 <div class="checkboxContainer">
                                     <label class="emby-checkbox-label">
                                         <input id="ScanPreview" type="checkbox" is="emby-checkbox" />
-                                        <span>Scan Previews</span>
+                                        <span>Identify Previews</span>
                                     </label>
                                 </div>
 
@@ -174,21 +175,7 @@
                                     <div class="fieldDescription">Segments longer than this duration will not be considered movie credits.</div>
                                     <br />
                                 </div>
-                            </details>
-
-                            <details id="mediasegment">
-                                <summary>Jellyfin MediaSegment Generation</summary>
-
-                                <br />
-                                <div class="checkboxContainer checkboxContainer-withDescription">
-                                    <label class="emby-checkbox-label">
-                                        <input id="UpdateMediaSegments" type="checkbox" is="emby-checkbox" />
-                                        <span>Update Media Segments for Newly Added Files During Scan</span>
-                                    </label>
-
-                                    <div class="fieldDescription">Enable this option to update media segments for newly added files during a scan. <b>Warning:</b> This should be disabled if you're using media segment providers other than Intro Skipper.</div>
-                                </div>
-
+                                
                                 <div class="checkboxContainer checkboxContainer-withDescription">
                                     <label class="emby-checkbox-label">
                                         <input id="RegenerateMediaSegments" type="checkbox" is="emby-checkbox" />
@@ -220,6 +207,12 @@
                                 <summary>Process Configuration</summary>
 
                                 <br />
+                                <div class="inputContainer">
+                                    <label class="inputLabel inputLabelUnfocused" for="MaxParallelism"> Maximum degree of parallelism </label>
+                                    <input id="MaxParallelism" type="number" is="emby-input" min="1" />
+                                    <div class="fieldDescription">Maximum number of simultaneous async episode analysis operations.</div>
+                                </div>
+
                                 <div class="checkboxContainer checkboxContainer-withDescription">
                                     <label class="emby-checkbox-label">
                                         <input id="CacheFingerprints" type="checkbox" is="emby-checkbox" />
