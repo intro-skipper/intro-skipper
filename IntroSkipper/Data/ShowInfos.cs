@@ -4,7 +4,7 @@
 using System;
 using System.Collections.Generic;
 
-namespace IntroSkipper.Controllers
+namespace IntroSkipper.Data
 {
     /// <summary>
     /// Contains information about a show.
