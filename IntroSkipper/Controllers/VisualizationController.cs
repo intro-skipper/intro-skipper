@@ -6,7 +6,10 @@ using System.Collections.Generic;
 using System.Globalization;
 using System.Linq;
 using System.Net.Mime;
+using System.Threading;
+using System.Threading.Tasks;
 using IntroSkipper.Data;
+using IntroSkipper.Manager;
 using MediaBrowser.Common.Api;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -21,13 +24,15 @@ namespace IntroSkipper.Controllers;
 /// Initializes a new instance of the <see cref="VisualizationController"/> class.
 /// </remarks>
 /// <param name="logger">Logger.</param>
+/// <param name="mediaSegmentUpdateManager">Media Segment Update Manager.</param>
 [Authorize(Policy = Policies.RequiresElevation)]
 [ApiController]
 [Produces(MediaTypeNames.Application.Json)]
 [Route("Intros")]
-public class VisualizationController(ILogger<VisualizationController> logger) : ControllerBase
+public class VisualizationController(ILogger<VisualizationController> logger, MediaSegmentUpdateManager mediaSegmentUpdateManager) : ControllerBase
 {
     private readonly ILogger<VisualizationController> _logger = logger;
+    private readonly MediaSegmentUpdateManager _mediaSegmentUpdateManager = mediaSegmentUpdateManager;
 
     /// <summary>
     /// Returns all show names and seasons.
@@ -180,7 +185,7 @@ public class VisualizationController(ILogger<VisualizationController> logger) : 
     /// <response code="404">Unable to find season in provided series.</response>
     /// <returns>No content.</returns>
     [HttpDelete("Show/{SeriesId}/{SeasonId}")]
-    public ActionResult EraseSeason([FromRoute] Guid seriesId, [FromRoute] Guid seasonId, [FromQuery] bool eraseCache = false)
+    public async Task<ActionResult> EraseSeason([FromRoute] Guid seriesId, [FromRoute] Guid seasonId, [FromQuery] bool eraseCache = false)
     {
         var episodes = Plugin.Instance!.QueuedMediaItems
             .Where(kvp => kvp.Key == seasonId)
@@ -206,6 +211,12 @@ public class VisualizationController(ILogger<VisualizationController> logger) : 
         }
 
         Plugin.Instance!.SaveTimestamps(AnalysisMode.Introduction | AnalysisMode.Credits);
+
+        if (Plugin.Instance.Configuration.UpdateMediaSegments)
+        {
+            using var ct = new CancellationTokenSource();
+            await _mediaSegmentUpdateManager.UpdateMediaSegmentsAsync(episodes, ct.Token).ConfigureAwait(false);
+        }
 
         return NoContent();
     }
