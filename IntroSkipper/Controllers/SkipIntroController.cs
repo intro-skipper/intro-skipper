@@ -89,7 +89,7 @@ public class SkipIntroController(MediaSegmentUpdateManager mediaSegmentUpdateMan
             var seasonId = rawItem is Episode e ? e.SeasonId : rawItem.Id;
             var episode = Plugin.Instance!.QueuedMediaItems
                 .FirstOrDefault(kvp => kvp.Key == seasonId).Value
-                .FirstOrDefault(e => e.EpisodeId == rawItem.Id);
+                .FirstOrDefault(queuedEpisode => queuedEpisode.EpisodeId == rawItem.Id);
 
             if (episode is not null)
             {
