@@ -125,14 +125,6 @@
                                     <div class="fieldDescription">Similar sounding audio which is longer than this duration will not be considered credits.</div>
                                 </div>
 
-                                <p>The amount of each episode's audio that will be analyzed is determined using both the percentage of audio and maximum runtime of audio to analyze. The minimum of (episode duration * percent, maximum runtime) is the amount of audio that will be analyzed.</p>
-
-                                <p>
-                                    If the audio percentage or maximum runtime settings are modified, the cached fingerprints and introduction timestamps for each season you want to analyze with the modified settings <b>will have to be deleted.</b>
-
-                                    Increasing either of these settings will cause episode analysis to take much longer.
-                                </p>
-
                                 <div class="inputContainer" id="movieCreditsDuration">
                                     <label class="inputLabel inputLabelUnfocused" for="MaximumMovieCreditsDuration"> Maximum movie credits duration (in seconds) </label>
                                     <input id="MaximumMovieCreditsDuration" type="number" is="emby-input" min="1" />
@@ -166,6 +158,16 @@
                                         If this value is changed after EDL files are generated, you must check the "Regenerate EDL files" checkbox below.
                                     </div>
                                 </div>
+
+                                <p>
+                                    The amount of each item's audio or content that will be analyzed is determined using both the percentage of audio and maximum runtime to analyze. The minimum of (duration * percent, maximum runtime) is the amount that will be analyzed.
+                                </p>
+
+                                <p>
+                                    If the audio percentage or maximum runtime settings are modified, the cached fingerprints and timestamps for each series, season, or movie you want to analyze with the modified settings <b>will have to be deleted</b>.
+                                    <br />
+                                    Increasing either of these settings will cause episode analysis to take much longer.
+                                </p>
 
                                 <div class="checkboxContainer checkboxContainer-withDescription">
                                     <label class="emby-checkbox-label">
