@@ -109,16 +109,18 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
 
                     using (var reader = XmlReader.Create(fileStream, settings))
                     {
-                        var oldConfig = serializer.Deserialize(reader) as PluginConfiguration;
-                        Instance.UpdateConfiguration(oldConfig);
-                        File.Delete(oldConfigFile);
+                        if (serializer.Deserialize(reader) is PluginConfiguration oldConfig)
+                        {
+                            Instance.UpdateConfiguration(oldConfig);
+                            File.Delete(oldConfigFile);
+                        }
                     }
                 }
             }
             catch (Exception ex)
             {
                 // Handle exceptions, such as file not found, deserialization errors, etc.
-                _logger.LogWarning("Something stupid happend: {Exception}", ex);
+                _logger.LogWarning("Something stupid happened: {Exception}", ex);
             }
         }
 
