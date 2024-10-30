@@ -22,11 +22,6 @@ public class PluginConfiguration : BasePluginConfiguration
     // ===== Analysis settings =====
 
     /// <summary>
-    /// Gets or sets the max degree of parallelism used when analyzing episodes.
-    /// </summary>
-    public int MaxParallelism { get; set; } = 2;
-
-    /// <summary>
     /// Gets or sets the comma separated list of library names to analyze.
     /// </summary>
     public string SelectedLibraries { get; set; } = string.Empty;
@@ -273,6 +268,11 @@ public class PluginConfiguration : BasePluginConfiguration
     /// Gets or sets the notification text sent after automatically skipping credits.
     /// </summary>
     public string AutoSkipCreditsNotificationText { get; set; } = "Credits skipped";
+
+    /// <summary>
+    /// Gets or sets the max degree of parallelism used when analyzing episodes.
+    /// </summary>
+    public int MaxParallelism { get; set; } = 2;
 
     /// <summary>
     /// Gets or sets the number of threads for a ffmpeg process.
