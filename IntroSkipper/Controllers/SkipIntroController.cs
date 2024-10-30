@@ -26,8 +26,6 @@ namespace IntroSkipper.Controllers;
 [Produces(MediaTypeNames.Application.Json)]
 public class SkipIntroController(MediaSegmentUpdateManager mediaSegmentUpdateManager) : ControllerBase
 {
-    private readonly MediaSegmentUpdateManager _mediaSegmentUpdateManager = mediaSegmentUpdateManager;
-
     /// <summary>
     /// Returns the timestamps of the introduction in a television episode. Responses are in API version 1 format.
     /// </summary>
@@ -96,7 +94,7 @@ public class SkipIntroController(MediaSegmentUpdateManager mediaSegmentUpdateMan
             if (episode is not null)
             {
                 using var ct = new CancellationTokenSource();
-                await _mediaSegmentUpdateManager.UpdateMediaSegmentsAsync([episode], ct.Token).ConfigureAwait(false);
+                await mediaSegmentUpdateManager.UpdateMediaSegmentsAsync([episode], ct.Token).ConfigureAwait(false);
             }
         }
 

@@ -31,9 +31,6 @@ namespace IntroSkipper.Controllers;
 [Route("Intros")]
 public class VisualizationController(ILogger<VisualizationController> logger, MediaSegmentUpdateManager mediaSegmentUpdateManager) : ControllerBase
 {
-    private readonly ILogger<VisualizationController> _logger = logger;
-    private readonly MediaSegmentUpdateManager _mediaSegmentUpdateManager = mediaSegmentUpdateManager;
-
     /// <summary>
     /// Returns all show names and seasons.
     /// </summary>
@@ -41,7 +38,7 @@ public class VisualizationController(ILogger<VisualizationController> logger, Me
     [HttpGet("Shows")]
     public ActionResult<Dictionary<Guid, ShowInfos>> GetShowSeasons()
     {
-        _logger.LogDebug("Returning season IDs by series name");
+        logger.LogDebug("Returning season IDs by series name");
 
         var showSeasons = new Dictionary<Guid, ShowInfos>();
 
@@ -197,7 +194,7 @@ public class VisualizationController(ILogger<VisualizationController> logger, Me
             return NotFound();
         }
 
-        _logger.LogInformation("Erasing timestamps for series {SeriesId} season {SeasonId} at user request", seriesId, seasonId);
+        logger.LogInformation("Erasing timestamps for series {SeriesId} season {SeasonId} at user request", seriesId, seasonId);
 
         foreach (var e in episodes)
         {
@@ -215,7 +212,7 @@ public class VisualizationController(ILogger<VisualizationController> logger, Me
         if (Plugin.Instance.Configuration.UpdateMediaSegments)
         {
             using var ct = new CancellationTokenSource();
-            await _mediaSegmentUpdateManager.UpdateMediaSegmentsAsync(episodes, ct.Token).ConfigureAwait(false);
+            await mediaSegmentUpdateManager.UpdateMediaSegmentsAsync(episodes, ct.Token).ConfigureAwait(false);
         }
 
         return NoContent();
