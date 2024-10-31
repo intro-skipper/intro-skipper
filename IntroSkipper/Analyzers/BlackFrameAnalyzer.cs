@@ -15,34 +15,15 @@ namespace IntroSkipper.Analyzers;
 /// Media file analyzer used to detect end credits that consist of text overlaid on a black background.
 /// Bisects the end of the video file to perform an efficient search.
 /// </summary>
-public class BlackFrameAnalyzer : IMediaFileAnalyzer
+public class BlackFrameAnalyzer(ILogger<BlackFrameAnalyzer> logger) : IMediaFileAnalyzer
 {
+    private static readonly PluginConfiguration _config = Plugin.Instance?.Configuration ?? new PluginConfiguration();
     private readonly TimeSpan _maximumError = new(0, 0, 4);
-
-    private readonly ILogger<BlackFrameAnalyzer> _logger;
-
-    private readonly int _minimumCreditsDuration;
-
-    private readonly int _maximumCreditsDuration;
-
-    private readonly int _maximumMovieCreditsDuration;
-
-    private readonly int _blackFrameMinimumPercentage;
-
-    /// <summary>
-    /// Initializes a new instance of the <see cref="BlackFrameAnalyzer"/> class.
-    /// </summary>
-    /// <param name="logger">Logger.</param>
-    public BlackFrameAnalyzer(ILogger<BlackFrameAnalyzer> logger)
-    {
-        var config = Plugin.Instance?.Configuration ?? new PluginConfiguration();
-        _minimumCreditsDuration = config.MinimumCreditsDuration;
-        _maximumCreditsDuration = config.MaximumCreditsDuration;
-        _maximumMovieCreditsDuration = config.MaximumMovieCreditsDuration;
-        _blackFrameMinimumPercentage = config.BlackFrameMinimumPercentage;
-
-        _logger = logger;
-    }
+    private readonly ILogger<BlackFrameAnalyzer> _logger = logger;
+    private readonly int _minimumCreditsDuration = _config.MinimumCreditsDuration;
+    private readonly int _maximumCreditsDuration = _config.MaximumCreditsDuration;
+    private readonly int _maximumMovieCreditsDuration = _config.MaximumMovieCreditsDuration;
+    private readonly int _blackFrameMinimumPercentage = _config.BlackFrameMinimumPercentage;
 
     /// <inheritdoc />
     public IReadOnlyList<QueuedEpisode> AnalyzeMediaFiles(

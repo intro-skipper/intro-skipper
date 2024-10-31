@@ -26,6 +26,8 @@ namespace IntroSkipper.Controllers;
 [Produces(MediaTypeNames.Application.Json)]
 public class SkipIntroController(MediaSegmentUpdateManager mediaSegmentUpdateManager) : ControllerBase
 {
+    private readonly MediaSegmentUpdateManager _mediaSegmentUpdateManager = mediaSegmentUpdateManager;
+
     /// <summary>
     /// Returns the timestamps of the introduction in a television episode. Responses are in API version 1 format.
     /// </summary>
@@ -55,12 +57,13 @@ public class SkipIntroController(MediaSegmentUpdateManager mediaSegmentUpdateMan
     /// </summary>
     /// <param name="id">Episode ID to update timestamps for.</param>
     /// <param name="timestamps">New timestamps Introduction/Credits start and end times.</param>
+    /// <param name="cancellationToken">Cancellation Token.</param>
     /// <response code="204">New timestamps saved.</response>
     /// <response code="404">Given ID is not an Episode.</response>
     /// <returns>No content.</returns>
     [Authorize(Policy = Policies.RequiresElevation)]
     [HttpPost("Episode/{Id}/Timestamps")]
-    public async Task<ActionResult> UpdateTimestampsAsync([FromRoute] Guid id, [FromBody] TimeStamps timestamps)
+    public async Task<ActionResult> UpdateTimestampsAsync([FromRoute] Guid id, [FromBody] TimeStamps timestamps, CancellationToken cancellationToken = default)
     {
         // only update existing episodes
         var rawItem = Plugin.Instance!.GetItem(id);
@@ -86,15 +89,12 @@ public class SkipIntroController(MediaSegmentUpdateManager mediaSegmentUpdateMan
 
         if (Plugin.Instance.Configuration.UpdateMediaSegments)
         {
-            var seasonId = rawItem is Episode e ? e.SeasonId : rawItem.Id;
-            var episode = Plugin.Instance!.QueuedMediaItems
-                .FirstOrDefault(kvp => kvp.Key == seasonId).Value
-                .FirstOrDefault(queuedEpisode => queuedEpisode.EpisodeId == rawItem.Id);
+            var episode = Plugin.Instance!.QueuedMediaItems[rawItem is Episode e ? e.SeasonId : rawItem.Id]
+                .FirstOrDefault(q => q.EpisodeId == rawItem.Id);
 
             if (episode is not null)
             {
-                using var ct = new CancellationTokenSource();
-                await mediaSegmentUpdateManager.UpdateMediaSegmentsAsync([episode], ct.Token).ConfigureAwait(false);
+                await _mediaSegmentUpdateManager.UpdateMediaSegmentsAsync([episode], cancellationToken).ConfigureAwait(false);
             }
         }
 

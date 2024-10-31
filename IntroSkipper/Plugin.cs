@@ -453,8 +453,8 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
             List<string> oldRepos =
             [
             "https://raw.githubusercontent.com/intro-skipper/intro-skipper/master/manifest.json",
-            "https://raw.githubusercontent.com/jumoog/intro-skipper/master/manifest.json",
-            "https://manifest.intro-skipper.workers.dev/manifest.json"
+                "https://raw.githubusercontent.com/jumoog/intro-skipper/master/manifest.json",
+                "https://manifest.intro-skipper.workers.dev/manifest.json"
             ];
             // Access the current server configuration
             var config = serverConfiguration.Configuration;

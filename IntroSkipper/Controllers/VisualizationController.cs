@@ -31,6 +31,9 @@ namespace IntroSkipper.Controllers;
 [Route("Intros")]
 public class VisualizationController(ILogger<VisualizationController> logger, MediaSegmentUpdateManager mediaSegmentUpdateManager) : ControllerBase
 {
+    private readonly ILogger<VisualizationController> _logger = logger;
+    private readonly MediaSegmentUpdateManager _mediaSegmentUpdateManager = mediaSegmentUpdateManager;
+
     /// <summary>
     /// Returns all show names and seasons.
     /// </summary>
@@ -38,7 +41,7 @@ public class VisualizationController(ILogger<VisualizationController> logger, Me
     [HttpGet("Shows")]
     public ActionResult<Dictionary<Guid, ShowInfos>> GetShowSeasons()
     {
-        logger.LogDebug("Returning season IDs by series name");
+        _logger.LogDebug("Returning season IDs by series name");
 
         var showSeasons = new Dictionary<Guid, ShowInfos>();
 
@@ -178,44 +181,51 @@ public class VisualizationController(ILogger<VisualizationController> logger, Me
     /// <param name="seriesId">Show ID.</param>
     /// <param name="seasonId">Season ID.</param>
     /// <param name="eraseCache">Erase cache.</param>
+    /// <param name="cancellationToken">Cancellation Token.</param>
     /// <response code="204">Season timestamps erased.</response>
     /// <response code="404">Unable to find season in provided series.</response>
     /// <returns>No content.</returns>
     [HttpDelete("Show/{SeriesId}/{SeasonId}")]
-    public async Task<ActionResult> EraseSeason([FromRoute] Guid seriesId, [FromRoute] Guid seasonId, [FromQuery] bool eraseCache = false)
+    public async Task<ActionResult> EraseSeasonAsync([FromRoute] Guid seriesId, [FromRoute] Guid seasonId, [FromQuery] bool eraseCache = false, CancellationToken cancellationToken = default)
     {
-        var episodes = Plugin.Instance!.QueuedMediaItems
-            .Where(kvp => kvp.Key == seasonId)
-            .SelectMany(kvp => kvp.Value.Where(e => e.SeriesId == seriesId))
-            .ToList();
+        var episodes = Plugin.Instance!.QueuedMediaItems[seasonId];
 
         if (episodes.Count == 0)
         {
             return NotFound();
         }
 
-        logger.LogInformation("Erasing timestamps for series {SeriesId} season {SeasonId} at user request", seriesId, seasonId);
+        _logger.LogInformation("Erasing timestamps for series {SeriesId} season {SeasonId} at user request", seriesId, seasonId);
 
-        foreach (var e in episodes)
+        try
         {
-            Plugin.Instance!.Intros.TryRemove(e.EpisodeId, out _);
-            Plugin.Instance!.Credits.TryRemove(e.EpisodeId, out _);
-            e.State.ResetStates();
-            if (eraseCache)
+            foreach (var episode in episodes)
             {
-                FFmpegWrapper.DeleteEpisodeCache(e.EpisodeId);
+                cancellationToken.ThrowIfCancellationRequested();
+
+                Plugin.Instance.Intros.TryRemove(episode.EpisodeId, out _);
+                Plugin.Instance.Credits.TryRemove(episode.EpisodeId, out _);
+                episode.State.ResetStates();
+
+                if (eraseCache)
+                {
+                    await Task.Run(() => FFmpegWrapper.DeleteEpisodeCache(episode.EpisodeId), cancellationToken).ConfigureAwait(false);
+                }
             }
+
+            Plugin.Instance.SaveTimestamps(AnalysisMode.Introduction | AnalysisMode.Credits);
+
+            if (Plugin.Instance.Configuration.UpdateMediaSegments)
+            {
+                await _mediaSegmentUpdateManager.UpdateMediaSegmentsAsync(episodes, cancellationToken).ConfigureAwait(false);
+            }
+
+            return NoContent();
         }
-
-        Plugin.Instance!.SaveTimestamps(AnalysisMode.Introduction | AnalysisMode.Credits);
-
-        if (Plugin.Instance.Configuration.UpdateMediaSegments)
+        catch (Exception ex)
         {
-            using var ct = new CancellationTokenSource();
-            await mediaSegmentUpdateManager.UpdateMediaSegmentsAsync(episodes, ct.Token).ConfigureAwait(false);
+            return StatusCode(500, ex.Message);
         }
-
-        return NoContent();
     }
 
     /// <summary>
