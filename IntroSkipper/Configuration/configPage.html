@@ -326,6 +326,12 @@
                                 <br />
                             </div>
 
+                            <div class="inputContainer">
+                                <label class="inputLabel inputLabelUnfocused" for="RemainingSecondsOfIntro"> Intro playback duration (in seconds) </label>
+                                <input id="RemainingSecondsOfIntro" type="number" is="emby-input" min="0" />
+                                <div class="fieldDescription">Seconds of introduction ending that should be played. Defaults to 2.</div>
+                            </div>
+
                             <div class="checkboxContainer checkboxContainer-withDescription">
                                 <label class="emby-checkbox-label">
                                     <input id="AutoSkipCredits" type="checkbox" is="emby-checkbox" />
@@ -389,7 +395,8 @@
 
                                     <div id="divShowPromptAdjustment" class="inputContainer">
                                         <label class="inputLabel inputLabelUnfocused" for="ShowPromptAdjustment"> Skip prompt offset (in seconds) </label>
-                                        <input id="ShowPromptAdjustment" type="number" is="emby-input" min="0" />                                    <div class="fieldDescription">Seconds to display skip prompt before introduction begins.</div>
+                                        <input id="ShowPromptAdjustment" type="number" is="emby-input" min="0" />
+                                        <div class="fieldDescription">Seconds to display skip prompt before introduction begins.</div>
                                         <br />
                                     </div>
 
@@ -399,12 +406,6 @@
                                         <div class="fieldDescription">Seconds after introduction before skip prompt is hidden.</div>
                                         <br />
                                     </div>
-                                </div>
-
-                                <div class="inputContainer">
-                                    <label class="inputLabel inputLabelUnfocused" for="RemainingSecondsOfIntro"> Intro playback duration (in seconds) </label>
-                                    <input id="RemainingSecondsOfIntro" type="number" is="emby-input" min="0" />
-                                    <div class="fieldDescription">Seconds of introduction ending that should be played. Defaults to 2.</div>
                                 </div>
 
                                 <div class="inputContainer">
