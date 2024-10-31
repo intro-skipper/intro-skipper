@@ -283,6 +283,12 @@
                                 <br />
                             </div>
 
+                            <div class="inputContainer">
+                                <label class="inputLabel inputLabelUnfocused" for="RemainingSecondsOfIntro"> Intro playback duration (in seconds) </label>
+                                <input id="RemainingSecondsOfIntro" type="number" is="emby-input" min="0" />
+                                <div class="fieldDescription">Seconds of introduction ending that should be played. Defaults to 2.</div>
+                            </div>
+
                             <div class="checkboxContainer checkboxContainer-withDescription">
                                 <label class="emby-checkbox-label">
                                     <input id="AutoSkipCredits" type="checkbox" is="emby-checkbox" />
@@ -326,45 +332,45 @@
                                 <input id="ClientList" type="hidden" is="emby-input" />
                             </details>
 
-                            <div id="SkipButtonSettings">
-                                <div id="PersistContainer" class="checkboxContainer checkboxContainer-withDescription">
-                                    <label class="emby-checkbox-label">
-                                        <input id="PersistSkipButton" type="checkbox" is="emby-checkbox" />
-                                        <span>Display Button for Segment Duration</span>
-                                    </label>
-
-                                    <div class="fieldDescription">
-                                        If checked, skip button will remain visible for the entire intro (offset and timeout are ignored).
-                                        <br />
-                                        Note: If unchecked, button will only appear in the player controls after the set timeout.
-                                    </div>
-                                </div>
-
-                                <div id="divShowPromptAdjustment" class="inputContainer">
-                                    <label class="inputLabel inputLabelUnfocused" for="ShowPromptAdjustment"> Skip prompt offset (in seconds) </label>
-                                    <input id="ShowPromptAdjustment" type="number" is="emby-input" min="0" />
-                                    <div class="fieldDescription">Seconds to display skip prompt before introduction begins.</div>
-                                    <br />
-                                </div>
-
-                                <div id="divHidePromptAdjustment" class="inputContainer">
-                                    <label class="inputLabel inputLabelUnfocused" for="HidePromptAdjustment"> Skip prompt timeout (in seconds) </label>
-                                    <input id="HidePromptAdjustment" type="number" is="emby-input" min="2" />
-                                    <div class="fieldDescription">Seconds after introduction before skip prompt is hidden.</div>
-                                    <br />
-                                </div>
-                            </div>
-
-                            <div class="inputContainer">
-                                <label class="inputLabel inputLabelUnfocused" for="RemainingSecondsOfIntro"> Intro playback duration (in seconds) </label>
-                                <input id="RemainingSecondsOfIntro" type="number" is="emby-input" min="0" />
-                                <div class="fieldDescription">Seconds of introduction ending that should be played. Defaults to 2.</div>
-                            </div>
-
                             <details>
                                 <summary>User Interface Customization</summary>
 
                                 <br />
+                                <div id="SkipButtonSettings">
+                                    <div id="PersistContainer" class="checkboxContainer checkboxContainer-withDescription">
+                                        <label class="emby-checkbox-label">
+                                            <input id="PersistSkipButton" type="checkbox" is="emby-checkbox" />
+                                            <span>Display Button for Segment Duration</span>
+                                        </label>
+
+                                        <div class="fieldDescription">
+                                            If checked, skip button will remain visible for the entire intro (offset and timeout are ignored).
+                                            <br />
+                                            Note: If unchecked, button will only appear in the player controls after the set timeout.
+                                        </div>
+                                    </div>
+
+                                    <div id="divShowPromptAdjustment" class="inputContainer">
+                                        <label class="inputLabel inputLabelUnfocused" for="ShowPromptAdjustment"> Skip prompt offset (in seconds) </label>
+                                        <input id="ShowPromptAdjustment" type="number" is="emby-input" min="0" />
+                                        <div class="fieldDescription">Seconds to display skip prompt before introduction begins.</div>
+                                        <br />
+                                    </div>
+
+                                    <div id="divHidePromptAdjustment" class="inputContainer">
+                                        <label class="inputLabel inputLabelUnfocused" for="HidePromptAdjustment"> Skip prompt timeout (in seconds) </label>
+                                        <input id="HidePromptAdjustment" type="number" is="emby-input" min="2" />
+                                        <div class="fieldDescription">Seconds after introduction before skip prompt is hidden.</div>
+                                        <br />
+                                    </div>
+                                </div>
+
+                                <div class="inputContainer">
+                                    <label class="inputLabel inputLabelUnfocused" for="RemainingSecondsOfIntro"> Intro playback duration (in seconds) </label>
+                                    <input id="RemainingSecondsOfIntro" type="number" is="emby-input" min="0" />
+                                    <div class="fieldDescription">Seconds of introduction ending that should be played. Defaults to 2.</div>
+                                </div>
+
                                 <div class="inputContainer">
                                     <label class="inputLabel" for="SkipButtonIntroText"> Skip intro button text </label>
                                     <input id="SkipButtonIntroText" type="text" is="emby-input" />
