@@ -206,6 +206,35 @@
                                 </div>
                             </details>
 
+                            <details id="chapters">
+                                <summary>Chapter Detection Options</summary>
+
+                                <br />
+                                <div class="inputContainer">
+                                    <label class="inputLabel inputLabelUnfocused" for="ChapterAnalyzerIntroductionPattern"> Introductions </label>
+                                    <input id="ChapterAnalyzerIntroductionPattern" type="text" placeholder="(^|\s)(Intro|Introduction|OP|Opening)(?!\sEnd)(\s|$)" is="emby-input" />
+                                    <div class="fieldDescription">The regular expression used to detect introduction chapters.</div>
+                                </div>
+
+                                <div class="inputContainer">
+                                    <label class="inputLabel inputLabelUnfocused" for="ChapterAnalyzerEndCreditsPattern"> Credits </label>
+                                    <input id="ChapterAnalyzerEndCreditsPattern" type="text" placeholder="(^|\s)(Credits?|ED|Ending|Outro)(?!\sEnd)(\s|$)" is="emby-input" />
+                                    <div class="fieldDescription">The regular expression used to detect credits chapters.</div>
+                                </div>
+
+                                <div class="inputContainer">
+                                    <label class="inputLabel inputLabelUnfocused" for="ChapterAnalyzerPreviewPattern"> Preview </label>
+                                    <input id="ChapterAnalyzerPreviewPattern" type="text" placeholder="(^|\s)(Preview|PV|Sneak\s?Peek|Coming\s?(Up|Soon)|Next\s+(time|on|episode)|Teaser|Trailer)(?!\sEnd)(\s|:|$)" is="emby-input" />
+                                    <div class="fieldDescription">The regular expression used to detect preview chapters.</div>
+                                </div>
+
+                                <div class="inputContainer">
+                                    <label class="inputLabel inputLabelUnfocused" for="ChapterAnalyzerRecapPattern"> Recaps </label>
+                                    <input id="ChapterAnalyzerRecapPattern" type="text" placeholder="(^|\s)(Re?cap|Sum{1,2}ary|Prev(ious(ly)?)?|(Last|Earlier)(\s\w+)?|Catch[ -]up)(?!\sEnd)(\s|:|$)" is="emby-input" />
+                                    <div class="fieldDescription">The regular expression used to detect recap chapters.</div>
+                                </div>
+                            </details>
+
                             <details id="detection">
                                 <summary>Process Configuration</summary>
 
@@ -723,6 +752,10 @@
                     // internals
                     "SilenceDetectionMaximumNoise",
                     "SilenceDetectionMinimumDuration",
+                    "ChapterAnalyzerIntroductionPattern",
+                    "ChapterAnalyzerEndCreditsPattern",
+                    "ChapterAnalyzerPreviewPattern",
+                    "ChapterAnalyzerRecapPattern",
                     // UI customization
                     "SkipButtonIntroText",
                     "SkipButtonEndCreditsText",

@@ -141,25 +141,25 @@ public class PluginConfiguration : BasePluginConfiguration
     /// Gets or sets the regular expression used to detect introduction chapters.
     /// </summary>
     public string ChapterAnalyzerIntroductionPattern { get; set; } =
-        @"(^|\s)(Intro|Introduction|OP|Opening)(\s|$)";
+        @"(^|\s)(Intro|Introduction|OP|Opening)(?!\sEnd)(\s|$)";
 
     /// <summary>
     /// Gets or sets the regular expression used to detect ending credit chapters.
     /// </summary>
     public string ChapterAnalyzerEndCreditsPattern { get; set; } =
-        @"(^|\s)(Credits?|ED|Ending|End|Outro)(\s|$)";
+        @"(^|\s)(Credits?|ED|Ending|Outro)(?!\sEnd)(\s|$)";
 
     /// <summary>
     /// Gets or sets the regular expression used to detect Preview chapters.
     /// </summary>
     public string ChapterAnalyzerPreviewPattern { get; set; } =
-        @"(^|\s)(Preview|PV|Sneak\s?Peek|Coming\s?(Up|Soon)|Next\s+(time|on|episode)|Teaser|Trailer)(\s|:|$)";
+        @"(^|\s)(Preview|PV|Sneak\s?Peek|Coming\s?(Up|Soon)|Next\s+(time|on|episode)|Teaser|Trailer)(?!\sEnd)(\s|:|$)";
 
     /// <summary>
     /// Gets or sets the regular expression used to detect Recap chapters.
     /// </summary>
     public string ChapterAnalyzerRecapPattern { get; set; } =
-        @"(^|\s)(Re?cap|Sum{1,2}ary|Prev(ious(ly)?)?|(Last|Earlier)(\s\w+)?|Catch[ -]up)(\s|:|$)";
+        @"(^|\s)(Re?cap|Sum{1,2}ary|Prev(ious(ly)?)?|(Last|Earlier)(\s\w+)?|Catch[ -]up)(?!\sEnd)(\s|:|$)";
 
     // ===== Playback settings =====
 
