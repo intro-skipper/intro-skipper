@@ -123,17 +123,20 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
 
         MigrateRepoUrl(serverConfiguration);
 
-        // TODO: remove when https://github.com/jellyfin/jellyfin-meta/discussions/30 is complete
+        // Initialize database, restore timestamps if available.
         try
         {
             using var db = new IntroSkipperDbContext(_dbPath);
             db.Database.EnsureCreated();
             db.ApplyMigrations();
-            RestoreTimestampsAsync(db).GetAwaiter().GetResult();
+            if (File.Exists(_introPath) || File.Exists(_creditsPath))
+            {
+                RestoreTimestampsAsync(db).GetAwaiter().GetResult();
+            }
         }
         catch (Exception ex)
         {
-            _logger.LogWarning("Unable to load introduction timestamps: {Exception}", ex);
+            _logger.LogWarning("Error initializing database: {Exception}", ex);
         }
 
         // Inject the skip intro button code into the web interface.
@@ -199,13 +202,6 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
     /// <returns>A <see cref="Task"/> representing the asynchronous operation.</returns>
     public async Task RestoreTimestampsAsync(IntroSkipperDbContext db)
     {
-        if (!File.Exists(_introPath) && !File.Exists(_creditsPath))
-        {
-            return;
-        }
-
-        ArgumentNullException.ThrowIfNull(db);
-
         // Import intros
         if (File.Exists(_introPath))
         {
@@ -306,8 +302,6 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
 
     internal async Task UpdateTimestamps(IReadOnlyDictionary<Guid, Segment> newTimestamps, AnalysisMode mode)
     {
-        ArgumentNullException.ThrowIfNull(newTimestamps);
-
         using var db = new IntroSkipperDbContext(_dbPath);
         var existingSegments = await db.DbSegment
             .Where(s => newTimestamps.Keys.Contains(s.ItemId) && s.Type == mode)
@@ -372,8 +366,6 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
 
     internal async Task UpdateAnalyzerActionAsync(Guid id, IReadOnlyDictionary<AnalysisMode, AnalyzerAction> analyzerActions)
     {
-        ArgumentNullException.ThrowIfNull(analyzerActions);
-
         using var db = new IntroSkipperDbContext(_dbPath);
         var existingEntries = await db.DbSeasonInfo
             .Where(s => s.SeasonId == id)

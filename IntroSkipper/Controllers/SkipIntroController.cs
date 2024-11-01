@@ -44,14 +44,13 @@ public class SkipIntroController(MediaSegmentUpdateManager mediaSegmentUpdateMan
         [FromRoute] Guid id,
         [FromQuery] AnalysisMode mode = AnalysisMode.Introduction)
     {
-        var intro = Plugin.Instance!.GetSegmentByMode(id, mode);
-
-        if (!intro.Valid)
+        var intros = GetIntros(id);
+        if (!intros.TryGetValue(mode, out var intro))
         {
             return NotFound();
         }
 
-        return new Intro(intro);
+        return intro;
     }
 
     /// <summary>
@@ -143,20 +142,64 @@ public class SkipIntroController(MediaSegmentUpdateManager mediaSegmentUpdateMan
     [HttpGet("Episode/{id}/IntroSkipperSegments")]
     public ActionResult<Dictionary<AnalysisMode, Intro>> GetSkippableSegments([FromRoute] Guid id)
     {
-        var segments = new Dictionary<AnalysisMode, Intro>();
-        var dbSegments = Plugin.Instance!.GetSegmentsById(id);
+        var segments = GetIntros(id);
 
-        if (dbSegments.TryGetValue(AnalysisMode.Introduction, out var introSegment))
+        if (segments.TryGetValue(AnalysisMode.Introduction, out var introSegment))
         {
-            segments[AnalysisMode.Introduction] = new Intro(introSegment);
+            segments[AnalysisMode.Introduction] = introSegment;
         }
 
-        if (dbSegments.TryGetValue(AnalysisMode.Introduction, out var creditSegment))
+        if (segments.TryGetValue(AnalysisMode.Introduction, out var creditSegment))
         {
-            segments[AnalysisMode.Credits] = new Intro(creditSegment);
+            segments[AnalysisMode.Credits] = creditSegment;
         }
 
         return segments;
+    }
+
+    /// <summary>Lookup and return the skippable timestamps for the provided item.</summary>
+    /// <param name="id">Unique identifier of this episode.</param>
+    /// <returns>Intro object if the provided item has an intro, null otherwise.</returns>
+    private static Dictionary<AnalysisMode, Intro> GetIntros(Guid id)
+    {
+        var timestamps = Plugin.Instance!.GetSegmentsById(id);
+        var intros = new Dictionary<AnalysisMode, Intro>();
+
+        foreach (var (mode, timestamp) in timestamps)
+        {
+            if (!timestamp.Valid)
+            {
+                continue;
+            }
+
+            // Create new Intro to avoid mutating the original stored in dictionary
+            var segment = new Intro(timestamp);
+            var config = Plugin.Instance.Configuration;
+
+            // Calculate intro end time based on mode
+            segment.IntroEnd = mode == AnalysisMode.Credits
+                ? GetAdjustedIntroEnd(id, segment.IntroEnd, config)
+                : segment.IntroEnd - config.RemainingSecondsOfIntro;
+
+            // Set skip button prompt visibility times
+            const double MIN_REMAINING_TIME = 3.0; // Minimum seconds before end to hide prompt
+            if (config.PersistSkipButton)
+            {
+                segment.ShowSkipPromptAt = segment.IntroStart;
+                segment.HideSkipPromptAt = segment.IntroEnd - MIN_REMAINING_TIME;
+            }
+            else
+            {
+                segment.ShowSkipPromptAt = Math.Max(0, segment.IntroStart - config.ShowPromptAdjustment);
+                segment.HideSkipPromptAt = Math.Min(
+                    segment.IntroStart + config.HidePromptAdjustment,
+                    segment.IntroEnd - MIN_REMAINING_TIME);
+            }
+
+            intros[mode] = segment;
+        }
+
+        return intros;
     }
 
     private static double GetAdjustedIntroEnd(Guid id, double segmentEnd, PluginConfiguration config)

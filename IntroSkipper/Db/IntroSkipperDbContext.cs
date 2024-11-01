@@ -30,8 +30,6 @@ public class IntroSkipperDbContext(string dbPath) : DbContext
     /// <inheritdoc/>
     protected override void OnConfiguring(DbContextOptionsBuilder optionsBuilder)
     {
-        ArgumentNullException.ThrowIfNull(optionsBuilder);
-
         optionsBuilder.UseSqlite($"Data Source={_dbPath}")
                      .EnableSensitiveDataLogging(false);
     }
@@ -39,8 +37,6 @@ public class IntroSkipperDbContext(string dbPath) : DbContext
     /// <inheritdoc/>
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
-        ArgumentNullException.ThrowIfNull(modelBuilder);
-
         modelBuilder.Entity<DbSegment>(entity =>
         {
             entity.ToTable("DbSegment");
