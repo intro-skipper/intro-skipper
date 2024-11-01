@@ -102,7 +102,7 @@ public class BaseItemAnalyzerTask
             // of the current media items were deleted from Jellyfin since the task was started.
             var (episodes, requiredModes) = queueManager.VerifyQueue(
                 season.Value,
-                _analysisModes.Where(m => !Plugin.IsIgnored(season.Key, m)).ToList());
+                _analysisModes);
 
             if (episodes.Count == 0)
             {
@@ -132,7 +132,8 @@ public class BaseItemAnalyzerTask
 
                 foreach (AnalysisMode mode in requiredModes)
                 {
-                    var analyzed = await AnalyzeItems(episodes, mode, ct).ConfigureAwait(false);
+                    var action = Plugin.Instance!.GetAnalyzerAction(season.Key, mode);
+                    var analyzed = await AnalyzeItems(episodes, mode, action, ct).ConfigureAwait(false);
                     Interlocked.Add(ref totalProcessed, analyzed);
 
                     updateManagers = analyzed > 0 || updateManagers;
@@ -177,11 +178,13 @@ public class BaseItemAnalyzerTask
     /// </summary>
     /// <param name="items">Media items to analyze.</param>
     /// <param name="mode">Analysis mode.</param>
+    /// <param name="action">Analyzer action.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>Number of items that were successfully analyzed.</returns>
     private async Task<int> AnalyzeItems(
         IReadOnlyList<QueuedEpisode> items,
         AnalysisMode mode,
+        AnalyzerAction action,
         CancellationToken cancellationToken)
     {
         var totalItems = items.Count(e => !e.GetAnalyzed(mode));
@@ -200,22 +203,24 @@ public class BaseItemAnalyzerTask
             first.SeriesName,
             first.SeasonNumber);
 
-        var analyzers = new Collection<IMediaFileAnalyzer>
-        {
-            new ChapterAnalyzer(_loggerFactory.CreateLogger<ChapterAnalyzer>())
-        };
+        var analyzers = new Collection<IMediaFileAnalyzer>();
 
-        if (first.IsAnime && Plugin.Instance!.Configuration.WithChromaprint && !first.IsMovie)
+        if (action == AnalyzerAction.Chapter || action == AnalyzerAction.Default)
+        {
+            analyzers.Add(new ChapterAnalyzer(_loggerFactory.CreateLogger<ChapterAnalyzer>()));
+        }
+
+        if (first.IsAnime && !first.IsMovie && (action == AnalyzerAction.Chromaprint || action == AnalyzerAction.Default))
         {
             analyzers.Add(new ChromaprintAnalyzer(_loggerFactory.CreateLogger<ChromaprintAnalyzer>()));
         }
 
-        if (mode == AnalysisMode.Credits)
+        if (mode == AnalysisMode.Credits && (action == AnalyzerAction.BlackFrame || action == AnalyzerAction.Default))
         {
             analyzers.Add(new BlackFrameAnalyzer(_loggerFactory.CreateLogger<BlackFrameAnalyzer>()));
         }
 
-        if (!first.IsAnime && Plugin.Instance!.Configuration.WithChromaprint && !first.IsMovie)
+        if (!first.IsAnime && !first.IsMovie && (action == AnalyzerAction.Chromaprint || action == AnalyzerAction.Default))
         {
             analyzers.Add(new ChromaprintAnalyzer(_loggerFactory.CreateLogger<ChromaprintAnalyzer>()));
         }

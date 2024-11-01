@@ -101,9 +101,9 @@
                                 <summary>Modify Segment Parameters</summary>
 
                                 <p>
-                                  <b style="color:orange">Changing segment parameters requires regenerating media segments before changes take effect.</b>
-                                  <br />
-                                  Per the jellyfin MediaSegments API, records must be updated individually and may be slow to regenerate.
+                                    <b style="color: orange">Changing segment parameters requires regenerating media segments before changes take effect.</b>
+                                    <br />
+                                    Per the jellyfin MediaSegments API, records must be updated individually and may be slow to regenerate.
                                 </p>
 
                                 <div class="inputContainer">
@@ -246,9 +246,7 @@
                                 </div>
                             </details>
 
-                            <p align="center" style="font-size: 0.75em">
-                                EDL file generation has been removed. Please use endrl's <a href="https://github.com/endrl/jellyfin-plugin-edl">EDL plugin</a>.
-                            </p>
+                            <p align="center" style="font-size: 0.75em">EDL file generation has been removed. Please use endrl's <a href="https://github.com/endrl/jellyfin-plugin-edl">EDL plugin</a>.</p>
                         </fieldset>
 
                         <fieldset class="verticalSection-extrabottompadding">
@@ -322,9 +320,7 @@
                                 </div>
                             </div>
 
-                            <div id="warningMessage" style="color: #721c24; background-color: #f7cf1f; border: 1px solid #f5c6cb; border-radius: 4px; padding: 10px; margin-bottom: 10px">
-                                Failed to add skip button to web interface. See <a href="https://github.com/intro-skipper/intro-skipper/wiki/Troubleshooting#skip-button-is-not-visible" target="_blank" rel="noopener noreferrer">troubleshooting guide</a> for the most common issues.
-                            </div>
+                            <div id="warningMessage" style="color: #721c24; background-color: #f7cf1f; border: 1px solid #f5c6cb; border-radius: 4px; padding: 10px; margin-bottom: 10px">Failed to add skip button to web interface. See <a href="https://github.com/intro-skipper/intro-skipper/wiki/Troubleshooting#skip-button-is-not-visible" target="_blank" rel="noopener noreferrer">troubleshooting guide</a> for the most common issues.</div>
 
                             <div id="SkipButtonSettings">
                                 <div id="PersistContainer" class="checkboxContainer checkboxContainer-withDescription">
@@ -413,28 +409,39 @@
                                 </div>
                                 <br />
 
-                                <div id="ignorelistSection" style="display: none">
-                                    <h3 style="margin: 0">Ignore list editor</h3>
+                                <div id="analyzerActionsSection" style="display: none">
+                                    <h3 style="margin: 0">Analyzer actions</h3>
                                     <p style="margin: 0">
-                                        Add or remove items from the ignore list. Items on the ignore list will not be analyzed.<br />
-                                        You can apply the changes for the entire series or just the selected season.
+                                        Choose how segments should be analyzed for this season.<br />
+                                        Default uses all available detection methods (Chromaprint, Chapter, and BlackFrame for credits).<br />
+                                        Select specific methods to limit analysis, or None to skip detection entirely.
                                     </p>
                                     <br />
 
-                                    <div id="ignoreListCheckboxContainer">
-                                        <label for="ignorelistIntro" style="margin-right: 1.5em; display: inline-block">
-                                            <span>Ignore intros</span>
-                                            <input type="checkbox" id="ignorelistIntro" />
+                                    <div id="analyzerActionsContainer">
+                                        <label for="actionIntro" style="margin-right: 1.5em; display: inline-block">
+                                            <span>Introduction analysis</span>
+                                            <select is="emby-select" id="actionIntro" class="emby-select-withcolor emby-select">
+                                                <option value="Default">Default</option>
+                                                <option value="Chapter">Chapter</option>
+                                                <option value="Chromaprint">Chromaprint</option>
+                                                <option value="None">None</option>
+                                            </select>
                                         </label>
-                                        <label for="ignorelistCredits" style="margin-right: 1.5em; display: inline-block">
-                                            <span>Ignore credits</span>
-                                            <input type="checkbox" id="ignorelistCredits" />
+                                        <label for="actionCredits" style="margin-right: 1.5em; display: inline-block">
+                                            <span>Credits analysis</span>
+                                            <select is="emby-select" id="actionCredits" class="emby-select-withcolor emby-select">
+                                                <option value="Default">Default</option>
+                                                <option value="Chapter">Chapter</option>
+                                                <option value="Chromaprint">Chromaprint</option>
+                                                <option value="BlackFrame">BlackFrame</option>
+                                                <option value="None">None</option>
+                                            </select>
                                         </label>
                                     </div>
                                     <br />
 
-                                    <button is="emby-button" id="saveIgnoreListSeries" class="raised button-submit block emby-button">Apply to series / movie</button>
-                                    <button is="emby-button" id="saveIgnoreListSeason" class="raised button-submit block emby-button" style="display: none">Apply to season</button>
+                                    <button is="emby-button" id="saveAnalyzerActions" class="raised button-submit block emby-button" style="display: none">Apply changes.</button>
                                 </div>
                                 <br />
 
@@ -517,7 +524,6 @@
                                 </div>
 
                                 <div id="fingerprintVisualizer" style="display: none">
-
                                     <h3>Fingerprint Visualizer</h3>
                                     <p>
                                         Interactively compare the audio fingerprints of two episodes. <br />
@@ -628,8 +634,6 @@
                 // seasons grouped by show
                 var shows = {};
 
-                var IgnoreListSeasonId;
-
                 // settings elements
                 var visualizer = document.querySelector("details#visualizer");
                 var support = document.querySelector("details#support");
@@ -671,11 +675,10 @@
                 var booleanConfigurationFields = ["AutoDetectIntros", "AutoDetectCredits", "AnalyzeMovies", "AnalyzeSeasonZero", "SelectAllLibraries", "UpdateMediaSegments", "RegenerateMediaSegments", "CacheFingerprints", "AutoSkip", "AutoSkipCredits", "SkipFirstEpisode", "PersistSkipButton", "SkipButtonEnabled"];
 
                 // visualizer elements
-                var ignorelistSection = document.querySelector("div#ignorelistSection");
-                var ignorelistIntro = ignorelistSection.querySelector("input#ignorelistIntro");
-                var ignorelistCredits = ignorelistSection.querySelector("input#ignorelistCredits");
-                var saveIgnoreListSeasonButton = ignorelistSection.querySelector("button#saveIgnoreListSeason");
-                var saveIgnoreListSeriesButton = ignorelistSection.querySelector("button#saveIgnoreListSeries");
+                var analyzerActionsSection = document.querySelector("div#analyzerActionsSection");
+                var actionIntro = analyzerActionsSection.querySelector("select#actionIntro");
+                var actionCredits = analyzerActionsSection.querySelector("select#actionCredits");
+                var saveAnalyzerActionsButton = analyzerActionsSection.querySelector("button#saveAnalyzerActions");
                 var canvas = document.querySelector("canvas#troubleshooter");
                 var selectShow = document.querySelector("select#troubleshooterShow");
                 var seasonSelection = document.getElementById("seasonSelection");
@@ -856,8 +859,8 @@
                 // when the fingerprint visualizer opens, populate show names
                 async function visualizerToggled() {
                     if (!visualizer.open) {
-                        ignorelistSection.style.display = "none";
-                        saveIgnoreListSeasonButton.style.display = "none";
+                        analyzerActionsSection.style.display = "none";
+                        saveAnalyzerActionsButton.style.display = "none";
                         return;
                     }
 
@@ -952,21 +955,10 @@
                     clearSelect(selectEpisode1);
                     clearSelect(selectEpisode2);
 
-                    // show the ignore list editor.
-                    Dashboard.showLoadingMsg();
-                    const IgnoreList = await getJson("Intros/IgnoreListSeries/" + encodeURI(selectShow.value));
-                    ignorelistIntro.checked = IgnoreList.IgnoreIntro;
-                    ignorelistCredits.checked = IgnoreList.IgnoreCredits;
-                    ignorelistSection.style.display = "unset";
-                    saveIgnoreListSeasonButton.style.display = "none";
-                    Dashboard.hideLoadingMsg();
-
                     if (shows[selectShow.value].IsMovie) {
                         movieLoaded();
                         return;
                     }
-
-                    saveIgnoreListSeriesButton.textContent = "Apply to series";
 
                     // add all seasons from this show to the season select
                     for (const season in shows[selectShow.value].Seasons) {
@@ -980,12 +972,12 @@
                 async function seasonChanged() {
                     const seasonData = encodeURI(selectShow.value) + "/" + encodeURI(selectSeason.value);
                     Dashboard.showLoadingMsg();
-                    // show the ignore list editor.
-                    saveIgnoreListSeasonButton.style.display = "block";
-                    const IgnoreList = await getJson("Intros/IgnoreListSeason/" + encodeURI(selectSeason.value));
-                    ignorelistIntro.checked = IgnoreList.IgnoreIntro;
-                    ignorelistCredits.checked = IgnoreList.IgnoreCredits;
-                    IgnoreListSeasonId = IgnoreList.SeasonId;
+                    // show the analyzer actions editor.
+                    saveAnalyzerActionsButton.style.display = "block";
+                    const analyzerActions = (await getJson("Intros/AnalyzerActions/" + encodeURI(selectSeason.value))) || { Introduction: "Default", Credits: "Default" };
+                    actionIntro.value = analyzerActions.Introduction || "Default";
+                    actionCredits.value = analyzerActions.Credits || "Default";
+                    analyzerActionsSection.style.display = "unset";
 
                     // show the erase season button
                     eraseSeasonContainer.style.display = "unset";
@@ -1053,10 +1045,9 @@
                 }
 
                 async function movieLoaded() {
-
                     Dashboard.showLoadingMsg();
 
-                    saveIgnoreListSeriesButton.textContent = "Apply to movie";
+                    saveAnalyzerActionsButton.textContent = "Apply to movie";
                     seasonSelection.style.display = "none";
                     episodeSelection.style.display = "none";
                     eraseMovieContainer.style.display = "unset";
@@ -1092,7 +1083,7 @@
                     document.querySelector("#editLeftIntroEpisodeStartEdit").value = leftEpisodeJson.Introduction.Start;
                     document.querySelector("#editLeftIntroEpisodeEndEdit").value = leftEpisodeJson.Introduction.End;
                     document.querySelector("#editLeftCreditEpisodeStartEdit").value = leftEpisodeJson.Credits.Start;
-                    document.querySelector("#editLeftCreditEpisodeEndEdit").value = leftEpisodeJson.Credits.End
+                    document.querySelector("#editLeftCreditEpisodeEndEdit").value = leftEpisodeJson.Credits.End;
 
                     // Update display inputs
                     const inputs = document.querySelectorAll('#timestampEditor input[type="number"]');
@@ -1416,33 +1407,21 @@
                         document.getElementById("eraseMovieCacheCheckbox").checked = false;
                     });
                 });
-                saveIgnoreListSeasonButton.addEventListener("click", () => {
+                saveAnalyzerActionsButton.addEventListener("click", () => {
                     Dashboard.showLoadingMsg();
 
-                    var url = "Intros/IgnoreList/UpdateSeason";
-                    const newRhs = {
-                        IgnoreIntro: ignorelistIntro.checked,
-                        IgnoreCredits: ignorelistCredits.checked,
-                        SeasonId: IgnoreListSeasonId,
+                    var url = "Intros/AnalyzerActions/UpdateSeason";
+                    const actions = {
+                        id: selectSeason.value,
+                        analyzerActions: {
+                            Introduction: actionIntro.value,
+                            Credits: actionCredits.value,
+                        },
                     };
 
-                    fetchWithAuth(url, "POST", JSON.stringify(newRhs));
+                    fetchWithAuth(url, "POST", JSON.stringify(actions));
 
-                    Dashboard.alert("Ignore list updated for " + selectSeason.value + " of " + selectShow.value);
-                    Dashboard.hideLoadingMsg();
-                });
-                saveIgnoreListSeriesButton.addEventListener("click", () => {
-                    Dashboard.showLoadingMsg();
-
-                    var url = "Intros/IgnoreList/UpdateSeries" + "/" + encodeURIComponent(selectShow.value);
-                    const newRhs = {
-                        IgnoreIntro: ignorelistIntro.checked,
-                        IgnoreCredits: ignorelistCredits.checked,
-                    };
-
-                    fetchWithAuth(url, "POST", JSON.stringify(newRhs));
-
-                    Dashboard.alert("Ignore list updated for " + selectShow.value);
+                    Dashboard.alert("Analyzer actions updated for " + selectSeason.value + " of " + selectShow.value);
                     Dashboard.hideLoadingMsg();
                 });
                 btnUpdateTimestamps.addEventListener("click", () => {

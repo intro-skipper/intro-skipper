@@ -22,6 +22,11 @@ public class IntroSkipperDbContext(string dbPath) : DbContext
     /// </summary>
     public DbSet<DbSegment> DbSegment { get; set; } = null!;
 
+    /// <summary>
+    /// Gets or sets the <see cref="DbSet{TEntity}"/> containing the season information.
+    /// </summary>
+    public DbSet<DbSeasonInfo> DbSeasonInfo { get; set; } = null!;
+
     /// <inheritdoc/>
     protected override void OnConfiguring(DbContextOptionsBuilder optionsBuilder)
     {
@@ -50,6 +55,20 @@ public class IntroSkipperDbContext(string dbPath) : DbContext
             entity.Property(e => e.Start);
 
             entity.Property(e => e.End);
+        });
+
+        modelBuilder.Entity<DbSeasonInfo>(entity =>
+        {
+            entity.ToTable("DbSeasonInfo");
+            entity.HasKey(s => new { s.SeasonId, s.Type });
+
+            entity.Property(e => e.SeasonId)
+                  .IsRequired();
+
+            entity.Property(e => e.Type)
+                  .IsRequired();
+
+            entity.Property(e => e.Action);
         });
 
         base.OnModelCreating(modelBuilder);

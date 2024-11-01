@@ -35,7 +35,6 @@ namespace IntroSkipper;
 /// </summary>
 public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
 {
-    private readonly object _serializationLock = new();
     private readonly ILibraryManager _libraryManager;
     private readonly IItemRepository _itemRepository;
     private readonly IApplicationHost _applicationHost;
@@ -43,7 +42,6 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
     private readonly string _introPath;
     private readonly string _creditsPath;
     private readonly string _dbPath;
-    private string _ignorelistPath;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="Plugin"/> class.
@@ -83,7 +81,6 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
         FingerprintCachePath = Path.Join(introsDirectory, pluginCachePath);
         _introPath = Path.Join(applicationPaths.DataPath, pluginDirName, "intros.xml");
         _creditsPath = Path.Join(applicationPaths.DataPath, pluginDirName, "credits.xml");
-        _ignorelistPath = Path.Join(applicationPaths.DataPath, pluginDirName, "ignorelist.xml");
         _dbPath = Path.Join(applicationPaths.DataPath, pluginDirName, "introskipper.db");
 
         // Create the base & cache directories (if needed).
@@ -139,15 +136,6 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
             _logger.LogWarning("Unable to load introduction timestamps: {Exception}", ex);
         }
 
-        try
-        {
-            LoadIgnoreList();
-        }
-        catch (Exception ex)
-        {
-            _logger.LogWarning("Unable to load ignore list: {Exception}", ex);
-        }
-
         // Inject the skip intro button code into the web interface.
         try
         {
@@ -172,11 +160,6 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
     /// Gets the most recent media item queue.
     /// </summary>
     public ConcurrentDictionary<Guid, List<QueuedEpisode>> QueuedMediaItems { get; } = new();
-
-    /// <summary>
-    /// Gets the ignore list.
-    /// </summary>
-    public ConcurrentDictionary<Guid, IgnoreListItem> IgnoreList { get; } = new();
 
     /// <summary>
     /// Gets or sets the total number of episodes in the queue.
@@ -208,53 +191,6 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
     /// Gets the plugin instance.
     /// </summary>
     public static Plugin? Instance { get; private set; }
-
-    /// <summary>
-    /// Save IgnoreList to disk.
-    /// </summary>
-    public void SaveIgnoreList()
-    {
-        var ignorelist = Instance!.IgnoreList.Values.ToList();
-
-        lock (_serializationLock)
-        {
-            try
-            {
-                XmlSerializationHelper.SerializeToXml(ignorelist, _ignorelistPath);
-            }
-            catch (Exception e)
-            {
-                _logger.LogError("SaveIgnoreList {Message}", e.Message);
-            }
-        }
-    }
-
-    /// <summary>
-    /// Check if an item is ignored.
-    /// </summary>
-    /// <param name="id">Item id.</param>
-    /// <param name="mode">Mode.</param>
-    /// <returns>True if ignored, false otherwise.</returns>
-    public static bool IsIgnored(Guid id, AnalysisMode mode)
-    {
-        return Instance!.IgnoreList.TryGetValue(id, out var item) && item.IsIgnored(mode);
-    }
-
-    /// <summary>
-    /// Load IgnoreList from disk.
-    /// </summary>
-    public void LoadIgnoreList()
-    {
-        if (File.Exists(_ignorelistPath))
-        {
-            var ignorelist = XmlSerializationHelper.DeserializeFromXml<IgnoreListItem>(_ignorelistPath);
-
-            foreach (var item in ignorelist)
-            {
-                Instance!.IgnoreList.TryAdd(item.SeasonId, item);
-            }
-        }
-    }
 
     /// <summary>
     /// Restore previous analysis results from disk.
@@ -370,15 +306,18 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
 
     internal async Task UpdateTimestamps(IReadOnlyDictionary<Guid, Segment> newTimestamps, AnalysisMode mode)
     {
-        using var db = new IntroSkipperDbContext(_dbPath);
-        foreach (var intro in newTimestamps)
-        {
-            var dbSegment = new DbSegment(intro.Value, mode);
-            var existing = await db.DbSegment
-                .FirstOrDefaultAsync(s => s.ItemId == intro.Key && s.Type == mode)
-                .ConfigureAwait(false);
+        ArgumentNullException.ThrowIfNull(newTimestamps);
 
-            if (existing != null)
+        using var db = new IntroSkipperDbContext(_dbPath);
+        var existingSegments = await db.DbSegment
+            .Where(s => newTimestamps.Keys.Contains(s.ItemId) && s.Type == mode)
+            .ToDictionaryAsync(s => s.ItemId)
+            .ConfigureAwait(false);
+
+        foreach (var (itemId, segment) in newTimestamps)
+        {
+            var dbSegment = new DbSegment(segment, mode);
+            if (existingSegments.TryGetValue(itemId, out var existing))
             {
                 db.Entry(existing).CurrentValues.SetValues(dbSegment);
             }
@@ -429,6 +368,54 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
                     Start = s.Start,
                     End = s.End
                 }).FirstOrDefault() ?? new Segment(id);
+    }
+
+    internal async Task UpdateAnalyzerActionAsync(Guid id, IReadOnlyDictionary<AnalysisMode, AnalyzerAction> analyzerActions)
+    {
+        ArgumentNullException.ThrowIfNull(analyzerActions);
+
+        using var db = new IntroSkipperDbContext(_dbPath);
+        var existingEntries = await db.DbSeasonInfo
+            .Where(s => s.SeasonId == id)
+            .ToDictionaryAsync(s => s.Type)
+            .ConfigureAwait(false);
+
+        foreach (var (mode, action) in analyzerActions)
+        {
+            var dbSeasonInfo = new DbSeasonInfo(id, mode, action);
+            if (existingEntries.TryGetValue(mode, out var existing))
+            {
+                db.Entry(existing).CurrentValues.SetValues(dbSeasonInfo);
+            }
+            else
+            {
+                db.DbSeasonInfo.Add(dbSeasonInfo);
+            }
+        }
+
+        await db.SaveChangesAsync().ConfigureAwait(false);
+    }
+
+    internal IReadOnlyDictionary<AnalysisMode, AnalyzerAction> GetAnalyzerAction(Guid id)
+    {
+        using var db = new IntroSkipperDbContext(_dbPath);
+        return db.DbSeasonInfo.Where(s => s.SeasonId == id).ToDictionary(s => s.Type, s => s.Action);
+    }
+
+    internal AnalyzerAction GetAnalyzerAction(Guid id, AnalysisMode mode)
+    {
+        using var db = new IntroSkipperDbContext(_dbPath);
+        return db.DbSeasonInfo.FirstOrDefault(s => s.SeasonId == id && s.Type == mode)?.Action ?? AnalyzerAction.Default;
+    }
+
+    internal async Task CleanSeasonInfoAsync()
+    {
+        using var db = new IntroSkipperDbContext(_dbPath);
+        var obsoleteSeasons = await db.DbSeasonInfo
+            .Where(s => !Instance!.QueuedMediaItems.Keys.Contains(s.SeasonId))
+            .ToListAsync().ConfigureAwait(false);
+        db.DbSeasonInfo.RemoveRange(obsoleteSeasons);
+        await db.SaveChangesAsync().ConfigureAwait(false);
     }
 
     private void MigrateRepoUrl(IServerConfigurationManager serverConfiguration)
