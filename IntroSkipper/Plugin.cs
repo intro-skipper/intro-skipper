@@ -174,11 +174,6 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
     public ConcurrentDictionary<Guid, List<QueuedEpisode>> QueuedMediaItems { get; } = new();
 
     /// <summary>
-    /// Gets all episode states.
-    /// </summary>
-    public ConcurrentDictionary<Guid, EpisodeState> EpisodeStates { get; } = new();
-
-    /// <summary>
     /// Gets the ignore list.
     /// </summary>
     public ConcurrentDictionary<Guid, IgnoreListItem> IgnoreList { get; } = new();
@@ -372,13 +367,6 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
 
         return _itemRepository.GetChapters(item);
     }
-
-    /// <summary>
-    /// Gets the state for this item.
-    /// </summary>
-    /// <param name="id">Item ID.</param>
-    /// <returns>State of this item.</returns>
-    internal EpisodeState GetState(Guid id) => EpisodeStates.GetOrAdd(id, _ => new EpisodeState());
 
     internal async Task UpdateTimestamps(IReadOnlyDictionary<Guid, Segment> newTimestamps, AnalysisMode mode)
     {

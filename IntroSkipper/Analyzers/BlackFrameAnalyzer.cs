@@ -47,7 +47,7 @@ public class BlackFrameAnalyzer(ILogger<BlackFrameAnalyzer> logger) : IMediaFile
 
         var searchDistance = 2 * _minimumCreditsDuration;
 
-        foreach (var episode in episodeAnalysisQueue.Where(e => !e.State.IsAnalyzed(mode)))
+        foreach (var episode in episodeAnalysisQueue.Where(e => !e.GetAnalyzed(mode)))
         {
             if (cancellationToken.IsCancellationRequested)
             {
@@ -117,7 +117,7 @@ public class BlackFrameAnalyzer(ILogger<BlackFrameAnalyzer> logger) : IMediaFile
             searchStart = episode.Duration - credit.Start + (0.5 * searchDistance);
 
             creditTimes.Add(episode.EpisodeId, credit);
-            episode.State.SetAnalyzed(mode, true);
+            episode.SetAnalyzed(mode, true);
         }
 
         var analyzerHelper = new AnalyzerHelper(_logger);

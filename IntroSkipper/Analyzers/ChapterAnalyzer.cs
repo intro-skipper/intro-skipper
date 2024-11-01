@@ -46,7 +46,7 @@ public class ChapterAnalyzer(ILogger<ChapterAnalyzer> logger) : IMediaFileAnalyz
             return analysisQueue;
         }
 
-        foreach (var episode in episodeAnalysisQueue.Where(e => !e.State.IsAnalyzed(mode)))
+        foreach (var episode in episodeAnalysisQueue.Where(e => !e.GetAnalyzed(mode)))
         {
             if (cancellationToken.IsCancellationRequested)
             {
@@ -65,7 +65,7 @@ public class ChapterAnalyzer(ILogger<ChapterAnalyzer> logger) : IMediaFileAnalyz
             }
 
             skippableRanges.Add(episode.EpisodeId, skipRange);
-            episode.State.SetAnalyzed(mode, true);
+            episode.SetAnalyzed(mode, true);
         }
 
         await Plugin.Instance.UpdateTimestamps(skippableRanges, mode).ConfigureAwait(false);

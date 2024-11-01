@@ -184,19 +184,13 @@ public class BaseItemAnalyzerTask
         AnalysisMode mode,
         CancellationToken cancellationToken)
     {
-        var totalItems = items.Count(e => !e.State.IsAnalyzed(mode));
+        var totalItems = items.Count(e => !e.GetAnalyzed(mode));
 
         // Only analyze specials (season 0) if the user has opted in.
         var first = items[0];
         if (!first.IsMovie && first.SeasonNumber == 0 && !Plugin.Instance!.Configuration.AnalyzeSeasonZero)
         {
             return 0;
-        }
-
-        // Remove from Blacklist
-        foreach (var item in items.Where(e => e.State.IsBlacklisted(mode)))
-        {
-            item.State.SetBlacklisted(mode, false);
         }
 
         _logger.LogInformation(
@@ -235,11 +229,9 @@ public class BaseItemAnalyzerTask
         }
 
         // Add items without intros/credits to blacklist.
-        foreach (var item in items.Where(e => !e.State.IsAnalyzed(mode)))
-        {
-            item.State.SetBlacklisted(mode, true);
-            totalItems -= 1;
-        }
+        var blacklisted = items.Where(e => !e.GetAnalyzed(mode)).ToList();
+        await Plugin.Instance!.UpdateTimestamps(blacklisted.ToDictionary(e => e.EpisodeId, e => new Segment(e.EpisodeId)), mode).ConfigureAwait(false);
+        totalItems -= blacklisted.Count;
 
         return totalItems;
     }

@@ -218,8 +218,6 @@ public class VisualizationController(ILogger<VisualizationController> logger, Me
                     db.DbSegment.Remove(new DbSegment(creditSegment, AnalysisMode.Credits));
                 }
 
-                episode.State.ResetStates();
-
                 if (eraseCache)
                 {
                     await Task.Run(() => FFmpegWrapper.DeleteEpisodeCache(episode.EpisodeId), cancellationToken).ConfigureAwait(false);

@@ -47,11 +47,9 @@ public class IntroSkipperDbContext(string dbPath) : DbContext
             entity.Property(e => e.Type)
                   .IsRequired();
 
-            entity.Property(e => e.Start)
-                  .IsRequired();
+            entity.Property(e => e.Start);
 
-            entity.Property(e => e.End)
-                  .IsRequired();
+            entity.Property(e => e.End);
         });
 
         base.OnModelCreating(modelBuilder);

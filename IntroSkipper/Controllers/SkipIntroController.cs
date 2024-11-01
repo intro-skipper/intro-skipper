@@ -69,7 +69,7 @@ public class SkipIntroController(MediaSegmentUpdateManager mediaSegmentUpdateMan
     {
         // only update existing episodes
         var rawItem = Plugin.Instance!.GetItem(id);
-        if (rawItem == null || rawItem is not Episode and not Movie)
+        if (rawItem is not Episode and not Movie)
         {
             return NotFound();
         }
@@ -113,7 +113,7 @@ public class SkipIntroController(MediaSegmentUpdateManager mediaSegmentUpdateMan
     {
         // only get return content for episodes
         var rawItem = Plugin.Instance!.GetItem(id);
-        if (rawItem == null || rawItem is not Episode and not Movie)
+        if (rawItem is not Episode and not Movie)
         {
             return NotFound();
         }
@@ -192,7 +192,6 @@ public class SkipIntroController(MediaSegmentUpdateManager mediaSegmentUpdateMan
             FFmpegWrapper.DeleteCacheFiles(mode);
         }
 
-        Plugin.Instance!.EpisodeStates.Clear();
         return NoContent();
     }
 
