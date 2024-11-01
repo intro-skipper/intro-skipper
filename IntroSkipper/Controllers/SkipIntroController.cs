@@ -9,12 +9,14 @@ using System.Threading;
 using System.Threading.Tasks;
 using IntroSkipper.Configuration;
 using IntroSkipper.Data;
+using IntroSkipper.Db;
 using IntroSkipper.Manager;
 using MediaBrowser.Common.Api;
 using MediaBrowser.Controller.Entities.Movies;
 using MediaBrowser.Controller.Entities.TV;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.EntityFrameworkCore;
 
 namespace IntroSkipper.Controllers;
 
@@ -42,14 +44,14 @@ public class SkipIntroController(MediaSegmentUpdateManager mediaSegmentUpdateMan
         [FromRoute] Guid id,
         [FromQuery] AnalysisMode mode = AnalysisMode.Introduction)
     {
-        var intro = GetIntro(id, mode);
+        var intro = Plugin.Instance!.GetSegmentByMode(id, mode);
 
-        if (intro is null || !intro.Valid)
+        if (!intro.Valid)
         {
             return NotFound();
         }
 
-        return intro;
+        return new Intro(intro);
     }
 
     /// <summary>
@@ -75,17 +77,14 @@ public class SkipIntroController(MediaSegmentUpdateManager mediaSegmentUpdateMan
         if (timestamps?.Introduction.End > 0.0)
         {
             var tr = new TimeRange(timestamps.Introduction.Start, timestamps.Introduction.End);
-            Plugin.Instance!.Intros[id] = new Segment(id, tr);
+            await Plugin.Instance!.UpdateTimestamps(new Dictionary<Guid, Segment> { [id] = new Segment(id, tr) }, AnalysisMode.Introduction).ConfigureAwait(false);
         }
 
         if (timestamps?.Credits.End > 0.0)
         {
-            var cr = new TimeRange(timestamps.Credits.Start, timestamps.Credits.End);
-            Plugin.Instance!.Credits[id] = new Segment(id, cr);
+            var tr = new TimeRange(timestamps.Credits.Start, timestamps.Credits.End);
+            await Plugin.Instance!.UpdateTimestamps(new Dictionary<Guid, Segment> { [id] = new Segment(id, tr) }, AnalysisMode.Credits).ConfigureAwait(false);
         }
-
-        Plugin.Instance!.SaveTimestamps(AnalysisMode.Introduction);
-        Plugin.Instance!.SaveTimestamps(AnalysisMode.Credits);
 
         if (Plugin.Instance.Configuration.UpdateMediaSegments)
         {
@@ -120,14 +119,16 @@ public class SkipIntroController(MediaSegmentUpdateManager mediaSegmentUpdateMan
         }
 
         var times = new TimeStamps();
-        if (Plugin.Instance!.Intros.TryGetValue(id, out var introValue))
+        var segments = Plugin.Instance!.GetSegmentsById(id);
+
+        if (segments.TryGetValue(AnalysisMode.Introduction, out var introSegment))
         {
-            times.Introduction = introValue;
+            times.Introduction = introSegment;
         }
 
-        if (Plugin.Instance!.Credits.TryGetValue(id, out var creditValue))
+        if (segments.TryGetValue(AnalysisMode.Credits, out var creditSegment))
         {
-            times.Credits = creditValue;
+            times.Credits = creditSegment;
         }
 
         return times;
@@ -143,57 +144,19 @@ public class SkipIntroController(MediaSegmentUpdateManager mediaSegmentUpdateMan
     public ActionResult<Dictionary<AnalysisMode, Intro>> GetSkippableSegments([FromRoute] Guid id)
     {
         var segments = new Dictionary<AnalysisMode, Intro>();
+        var dbSegments = Plugin.Instance!.GetSegmentsById(id);
 
-        if (GetIntro(id, AnalysisMode.Introduction) is Intro intro)
+        if (dbSegments.TryGetValue(AnalysisMode.Introduction, out var introSegment))
         {
-            segments[AnalysisMode.Introduction] = intro;
+            segments[AnalysisMode.Introduction] = new Intro(introSegment);
         }
 
-        if (GetIntro(id, AnalysisMode.Credits) is Intro credits)
+        if (dbSegments.TryGetValue(AnalysisMode.Introduction, out var creditSegment))
         {
-            segments[AnalysisMode.Credits] = credits;
+            segments[AnalysisMode.Credits] = new Intro(creditSegment);
         }
 
         return segments;
-    }
-
-    /// <summary>Lookup and return the skippable timestamps for the provided item.</summary>
-    /// <param name="id">Unique identifier of this episode.</param>
-    /// <param name="mode">Mode.</param>
-    /// <returns>Intro object if the provided item has an intro, null otherwise.</returns>
-    private static Intro? GetIntro(Guid id, AnalysisMode mode)
-    {
-        try
-        {
-            var timestamp = Plugin.GetIntroByMode(id, mode);
-
-            // Operate on a copy to avoid mutating the original Intro object stored in the dictionary.
-            var segment = new Intro(timestamp);
-
-            var config = Plugin.Instance!.Configuration;
-            segment.IntroEnd = mode == AnalysisMode.Credits
-                ? GetAdjustedIntroEnd(id, segment.IntroEnd, config)
-                : segment.IntroEnd - config.RemainingSecondsOfIntro;
-
-            if (config.PersistSkipButton)
-            {
-                segment.ShowSkipPromptAt = segment.IntroStart;
-                segment.HideSkipPromptAt = segment.IntroEnd - 3;
-            }
-            else
-            {
-                segment.ShowSkipPromptAt = Math.Max(0, segment.IntroStart - config.ShowPromptAdjustment);
-                segment.HideSkipPromptAt = Math.Min(
-                    segment.IntroStart + config.HidePromptAdjustment,
-                    segment.IntroEnd - 3);
-            }
-
-            return segment;
-        }
-        catch (KeyNotFoundException)
-        {
-            return null;
-        }
     }
 
     private static double GetAdjustedIntroEnd(Guid id, double segmentEnd, PluginConfiguration config)
@@ -213,16 +176,16 @@ public class SkipIntroController(MediaSegmentUpdateManager mediaSegmentUpdateMan
     /// <returns>No content.</returns>
     [Authorize(Policy = Policies.RequiresElevation)]
     [HttpPost("Intros/EraseTimestamps")]
-    public ActionResult ResetIntroTimestamps([FromQuery] AnalysisMode mode, [FromQuery] bool eraseCache = false)
+    public async Task<ActionResult> ResetIntroTimestamps([FromQuery] AnalysisMode mode, [FromQuery] bool eraseCache = false)
     {
-        if (mode == AnalysisMode.Introduction)
-        {
-            Plugin.Instance!.Intros.Clear();
-        }
-        else if (mode == AnalysisMode.Credits)
-        {
-            Plugin.Instance!.Credits.Clear();
-        }
+        using var db = new IntroSkipperDbContext(Plugin.Instance!.DbPath);
+        var segments = await db.DbSegment
+            .Where(s => s.Type == mode)
+            .ToListAsync()
+            .ConfigureAwait(false);
+
+        db.DbSegment.RemoveRange(segments);
+        await db.SaveChangesAsync().ConfigureAwait(false);
 
         if (eraseCache)
         {
@@ -230,7 +193,6 @@ public class SkipIntroController(MediaSegmentUpdateManager mediaSegmentUpdateMan
         }
 
         Plugin.Instance!.EpisodeStates.Clear();
-        Plugin.Instance!.SaveTimestamps(mode);
         return NoContent();
     }
 

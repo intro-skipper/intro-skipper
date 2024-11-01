@@ -306,6 +306,7 @@ namespace IntroSkipper.Manager
                     }
 
                     verified.Add(candidate);
+                    var segments = Plugin.Instance!.GetSegmentsById(candidate.EpisodeId);
 
                     foreach (var mode in modes)
                     {
@@ -314,9 +315,7 @@ namespace IntroSkipper.Manager
                             continue;
                         }
 
-                        bool isAnalyzed = mode == AnalysisMode.Introduction
-                            ? Plugin.Instance!.Intros.ContainsKey(candidate.EpisodeId)
-                            : Plugin.Instance!.Credits.ContainsKey(candidate.EpisodeId);
+                        bool isAnalyzed = segments.TryGetValue(mode, out var _);
 
                         if (isAnalyzed)
                         {

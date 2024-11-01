@@ -69,7 +69,7 @@ public class CleanCacheTask : IScheduledTask
     /// <param name="progress">Task progress.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>Task.</returns>
-    public Task ExecuteAsync(IProgress<double> progress, CancellationToken cancellationToken)
+    public async Task ExecuteAsync(IProgress<double> progress, CancellationToken cancellationToken)
     {
         if (_libraryManager is null)
         {
@@ -84,7 +84,7 @@ public class CleanCacheTask : IScheduledTask
         var queue = queueManager.GetMediaItems();
         var validEpisodeIds = new HashSet<Guid>(queue.Values.SelectMany(episodes => episodes.Select(e => e.EpisodeId)));
 
-        Plugin.Instance!.CleanTimestamps(validEpisodeIds);
+        await Plugin.Instance!.CleanTimestamps(validEpisodeIds).ConfigureAwait(false);
 
         // Identify invalid episode IDs
         var invalidEpisodeIds = Directory.EnumerateFiles(Plugin.Instance!.FingerprintCachePath)
@@ -133,7 +133,7 @@ public class CleanCacheTask : IScheduledTask
             }
         }
 
-        return Task.CompletedTask;
+        progress.Report(100);
     }
 
     /// <summary>

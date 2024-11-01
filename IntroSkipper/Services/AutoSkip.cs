@@ -8,6 +8,8 @@ using System.Threading;
 using System.Threading.Tasks;
 using System.Timers;
 using IntroSkipper.Configuration;
+using IntroSkipper.Data;
+using IntroSkipper.Db;
 using MediaBrowser.Common.Extensions;
 using MediaBrowser.Controller.Library;
 using MediaBrowser.Controller.Session;
@@ -125,7 +127,8 @@ namespace IntroSkipper.Services
                 }
 
                 // Assert that an intro was detected for this item.
-                if (!Plugin.Instance!.Intros.TryGetValue(itemId, out var intro) || !intro.Valid)
+                var intro = Plugin.Instance!.GetSegmentByMode(itemId, AnalysisMode.Introduction);
+                if (!intro.Valid)
                 {
                     continue;
                 }

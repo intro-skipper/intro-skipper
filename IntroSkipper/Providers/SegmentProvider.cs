@@ -5,6 +5,7 @@ using System;
 using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
+using IntroSkipper.Data;
 using Jellyfin.Data.Enums;
 using MediaBrowser.Controller;
 using MediaBrowser.Controller.Entities;
@@ -26,30 +27,37 @@ namespace IntroSkipper.Providers
         /// <inheritdoc/>
         public Task<IReadOnlyList<MediaSegmentDto>> GetMediaSegments(MediaSegmentGenerationRequest request, CancellationToken cancellationToken)
         {
-            var segments = new List<MediaSegmentDto>();
-            var remainingTicks = (Plugin.Instance?.Configuration.RemainingSecondsOfIntro ?? 2) * TimeSpan.TicksPerSecond;
+            ArgumentNullException.ThrowIfNull(request);
+            ArgumentNullException.ThrowIfNull(Plugin.Instance);
 
-            if (Plugin.Instance!.Intros.TryGetValue(request.ItemId, out var introValue))
+            var segments = new List<MediaSegmentDto>();
+            var remainingTicks = Plugin.Instance.Configuration.RemainingSecondsOfIntro * TimeSpan.TicksPerSecond;
+            var itemSegments = Plugin.Instance.GetSegmentsById(request.ItemId);
+
+            // Add intro segment if found
+            if (itemSegments.TryGetValue(AnalysisMode.Introduction, out var introSegment))
             {
                 segments.Add(new MediaSegmentDto
                 {
-                    StartTicks = (long)(introValue.Start * TimeSpan.TicksPerSecond),
-                    EndTicks = (long)(introValue.End * TimeSpan.TicksPerSecond) - remainingTicks,
+                    StartTicks = (long)(introSegment.Start * TimeSpan.TicksPerSecond),
+                    EndTicks = (long)(introSegment.End * TimeSpan.TicksPerSecond) - remainingTicks,
                     ItemId = request.ItemId,
                     Type = MediaSegmentType.Intro
                 });
             }
 
-            if (Plugin.Instance!.Credits.TryGetValue(request.ItemId, out var creditValue))
+            // Add outro/credits segment if found
+            if (itemSegments.TryGetValue(AnalysisMode.Introduction, out var creditSegment))
             {
-                var creditEndTicks = (long)(creditValue.End * TimeSpan.TicksPerSecond);
+                var creditEndTicks = (long)(creditSegment.End * TimeSpan.TicksPerSecond);
                 var runTimeTicks = Plugin.Instance.GetItem(request.ItemId)?.RunTimeTicks ?? long.MaxValue;
+
                 segments.Add(new MediaSegmentDto
                 {
-                    StartTicks = (long)(creditValue.Start * TimeSpan.TicksPerSecond),
+                    StartTicks = (long)(creditSegment.Start * TimeSpan.TicksPerSecond),
                     EndTicks = runTimeTicks > creditEndTicks + TimeSpan.TicksPerSecond
-                        ? creditEndTicks - remainingTicks
-                        : runTimeTicks,
+                            ? creditEndTicks - remainingTicks
+                            : runTimeTicks,
                     ItemId = request.ItemId,
                     Type = MediaSegmentType.Outro
                 });

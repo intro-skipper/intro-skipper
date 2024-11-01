@@ -9,10 +9,12 @@ using System.Net.Mime;
 using System.Threading;
 using System.Threading.Tasks;
 using IntroSkipper.Data;
+using IntroSkipper.Db;
 using IntroSkipper.Manager;
 using MediaBrowser.Common.Api;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 
 namespace IntroSkipper.Controllers;
@@ -123,8 +125,8 @@ public class VisualizationController(ILogger<VisualizationController> logger, Me
 
         return new IgnoreListItem(Guid.Empty)
         {
-            IgnoreIntro = seasonIds.All(seasonId => Plugin.Instance!.IsIgnored(seasonId, AnalysisMode.Introduction)),
-            IgnoreCredits = seasonIds.All(seasonId => Plugin.Instance!.IsIgnored(seasonId, AnalysisMode.Credits))
+            IgnoreIntro = seasonIds.All(seasonId => Plugin.IsIgnored(seasonId, AnalysisMode.Introduction)),
+            IgnoreCredits = seasonIds.All(seasonId => Plugin.IsIgnored(seasonId, AnalysisMode.Credits))
         };
     }
 
@@ -199,12 +201,23 @@ public class VisualizationController(ILogger<VisualizationController> logger, Me
 
         try
         {
+            using var db = new IntroSkipperDbContext(Plugin.Instance!.DbPath);
+
             foreach (var episode in episodes)
             {
                 cancellationToken.ThrowIfCancellationRequested();
+                var segments = Plugin.Instance!.GetSegmentsById(episode.EpisodeId);
 
-                Plugin.Instance.Intros.TryRemove(episode.EpisodeId, out _);
-                Plugin.Instance.Credits.TryRemove(episode.EpisodeId, out _);
+                if (segments.TryGetValue(AnalysisMode.Introduction, out var introSegment))
+                {
+                    db.DbSegment.Remove(new DbSegment(introSegment, AnalysisMode.Introduction));
+                }
+
+                if (segments.TryGetValue(AnalysisMode.Introduction, out var creditSegment))
+                {
+                    db.DbSegment.Remove(new DbSegment(creditSegment, AnalysisMode.Credits));
+                }
+
                 episode.State.ResetStates();
 
                 if (eraseCache)
@@ -213,7 +226,7 @@ public class VisualizationController(ILogger<VisualizationController> logger, Me
                 }
             }
 
-            Plugin.Instance.SaveTimestamps(AnalysisMode.Introduction | AnalysisMode.Credits);
+            await db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
 
             if (Plugin.Instance.Configuration.UpdateMediaSegments)
             {
@@ -284,27 +297,6 @@ public class VisualizationController(ILogger<VisualizationController> logger, Me
         }
 
         Plugin.Instance!.SaveIgnoreList();
-
-        return NoContent();
-    }
-
-    /// <summary>
-    /// Updates the introduction timestamps for the provided episode.
-    /// </summary>
-    /// <param name="id">Episode ID to update timestamps for.</param>
-    /// <param name="timestamps">New introduction start and end times.</param>
-    /// <response code="204">New introduction timestamps saved.</response>
-    /// <returns>No content.</returns>
-    [HttpPost("Episode/{Id}/UpdateIntroTimestamps")]
-    [Obsolete("deprecated use Episode/{Id}/Timestamps")]
-    public ActionResult UpdateIntroTimestamps([FromRoute] Guid id, [FromBody] Intro timestamps)
-    {
-        if (timestamps.IntroEnd > 0.0)
-        {
-            var tr = new TimeRange(timestamps.IntroStart, timestamps.IntroEnd);
-            Plugin.Instance!.Intros[id] = new Segment(id, tr);
-            Plugin.Instance.SaveTimestamps(AnalysisMode.Introduction);
-        }
 
         return NoContent();
     }

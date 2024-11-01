@@ -7,6 +7,7 @@ using System.IO;
 using System.Linq;
 using System.Numerics;
 using System.Threading;
+using System.Threading.Tasks;
 using IntroSkipper.Configuration;
 using IntroSkipper.Data;
 using Microsoft.Extensions.Logging;
@@ -52,7 +53,7 @@ public class ChromaprintAnalyzer : IMediaFileAnalyzer
     }
 
     /// <inheritdoc />
-    public IReadOnlyList<QueuedEpisode> AnalyzeMediaFiles(
+    public async Task<IReadOnlyList<QueuedEpisode>> AnalyzeMediaFiles(
         IReadOnlyList<QueuedEpisode> analysisQueue,
         AnalysisMode mode,
         CancellationToken cancellationToken)
@@ -89,7 +90,9 @@ public class ChromaprintAnalyzer : IMediaFileAnalyzer
                 .Where((episode, index) => Math.Abs(index - indexInAnalysisQueue) <= 1 && index != indexInAnalysisQueue));
         }
 
-        seasonIntros = episodesWithFingerprint.Where(e => e.State.IsAnalyzed(mode)).ToDictionary(e => e.EpisodeId, e => Plugin.GetIntroByMode(e.EpisodeId, mode));
+        seasonIntros = episodesWithFingerprint
+            .Where(e => e.State.IsAnalyzed(mode))
+            .ToDictionary(e => e.EpisodeId, e => Plugin.Instance!.GetSegmentByMode(e.EpisodeId, mode));
 
         // Compute fingerprints for all episodes in the season
         foreach (var episode in episodesWithFingerprint)
@@ -207,7 +210,7 @@ public class ChromaprintAnalyzer : IMediaFileAnalyzer
         var analyzerHelper = new AnalyzerHelper(_logger);
         seasonIntros = analyzerHelper.AdjustIntroTimes(analysisQueue, seasonIntros, _analysisMode);
 
-        Plugin.Instance!.UpdateTimestamps(seasonIntros, _analysisMode);
+        await Plugin.Instance!.UpdateTimestamps(seasonIntros, _analysisMode).ConfigureAwait(false);
 
         return episodeAnalysisQueue;
     }

@@ -5,6 +5,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
+using System.Threading.Tasks;
 using IntroSkipper.Configuration;
 using IntroSkipper.Data;
 using Microsoft.Extensions.Logging;
@@ -26,7 +27,7 @@ public class BlackFrameAnalyzer(ILogger<BlackFrameAnalyzer> logger) : IMediaFile
     private readonly int _blackFrameMinimumPercentage = _config.BlackFrameMinimumPercentage;
 
     /// <inheritdoc />
-    public IReadOnlyList<QueuedEpisode> AnalyzeMediaFiles(
+    public async Task<IReadOnlyList<QueuedEpisode>> AnalyzeMediaFiles(
         IReadOnlyList<QueuedEpisode> analysisQueue,
         AnalysisMode mode,
         CancellationToken cancellationToken)
@@ -122,7 +123,7 @@ public class BlackFrameAnalyzer(ILogger<BlackFrameAnalyzer> logger) : IMediaFile
         var analyzerHelper = new AnalyzerHelper(_logger);
         creditTimes = analyzerHelper.AdjustIntroTimes(analysisQueue, creditTimes, mode);
 
-        Plugin.Instance!.UpdateTimestamps(creditTimes, mode);
+        await Plugin.Instance!.UpdateTimestamps(creditTimes, mode).ConfigureAwait(false);
 
         return episodeAnalysisQueue;
     }

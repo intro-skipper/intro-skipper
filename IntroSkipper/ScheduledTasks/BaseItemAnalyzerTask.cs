@@ -102,7 +102,7 @@ public class BaseItemAnalyzerTask
             // of the current media items were deleted from Jellyfin since the task was started.
             var (episodes, requiredModes) = queueManager.VerifyQueue(
                 season.Value,
-                _analysisModes.Where(m => !Plugin.Instance!.IsIgnored(season.Key, m)).ToList());
+                _analysisModes.Where(m => !Plugin.IsIgnored(season.Key, m)).ToList());
 
             if (episodes.Count == 0)
             {
@@ -132,7 +132,7 @@ public class BaseItemAnalyzerTask
 
                 foreach (AnalysisMode mode in requiredModes)
                 {
-                    var analyzed = AnalyzeItems(episodes, mode, ct);
+                    var analyzed = await AnalyzeItems(episodes, mode, ct).ConfigureAwait(false);
                     Interlocked.Add(ref totalProcessed, analyzed);
 
                     updateManagers = analyzed > 0 || updateManagers;
@@ -179,7 +179,7 @@ public class BaseItemAnalyzerTask
     /// <param name="mode">Analysis mode.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>Number of items that were successfully analyzed.</returns>
-    private int AnalyzeItems(
+    private async Task<int> AnalyzeItems(
         IReadOnlyList<QueuedEpisode> items,
         AnalysisMode mode,
         CancellationToken cancellationToken)
@@ -230,7 +230,7 @@ public class BaseItemAnalyzerTask
         // analyzed items from the queue.
         foreach (var analyzer in analyzers)
         {
-            items = analyzer.AnalyzeMediaFiles(items, mode, cancellationToken);
+            items = await analyzer.AnalyzeMediaFiles(items, mode, cancellationToken).ConfigureAwait(false);
             cancellationToken.ThrowIfCancellationRequested();
         }
 
