@@ -35,7 +35,7 @@ namespace IntroSkipper.Providers
             var itemSegments = Plugin.Instance.GetSegmentsById(request.ItemId);
 
             // Add intro segment if found
-            if (itemSegments.TryGetValue(AnalysisMode.Introduction, out var introSegment))
+            if (itemSegments.TryGetValue(AnalysisMode.Introduction, out var introSegment) && introSegment.Valid)
             {
                 segments.Add(new MediaSegmentDto
                 {
@@ -47,7 +47,7 @@ namespace IntroSkipper.Providers
             }
 
             // Add outro/credits segment if found
-            if (itemSegments.TryGetValue(AnalysisMode.Introduction, out var creditSegment))
+            if (itemSegments.TryGetValue(AnalysisMode.Introduction, out var creditSegment) && creditSegment.Valid)
             {
                 var creditEndTicks = (long)(creditSegment.End * TimeSpan.TicksPerSecond);
                 var runTimeTicks = Plugin.Instance.GetItem(request.ItemId)?.RunTimeTicks ?? long.MaxValue;
