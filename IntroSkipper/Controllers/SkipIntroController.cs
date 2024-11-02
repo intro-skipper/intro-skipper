@@ -73,16 +73,28 @@ public class SkipIntroController(MediaSegmentUpdateManager mediaSegmentUpdateMan
             return NotFound();
         }
 
-        if (timestamps?.Introduction.End > 0.0)
+        if (timestamps == null)
         {
-            var tr = new TimeRange(timestamps.Introduction.Start, timestamps.Introduction.End);
-            await Plugin.Instance!.UpdateTimestamps(new Dictionary<Guid, Segment> { [id] = new Segment(id, tr) }, AnalysisMode.Introduction).ConfigureAwait(false);
+            return NoContent();
         }
 
-        if (timestamps?.Credits.End > 0.0)
+        var segmentTypes = new[]
         {
-            var tr = new TimeRange(timestamps.Credits.Start, timestamps.Credits.End);
-            await Plugin.Instance!.UpdateTimestamps(new Dictionary<Guid, Segment> { [id] = new Segment(id, tr) }, AnalysisMode.Credits).ConfigureAwait(false);
+            (timestamps.Introduction, AnalysisMode.Introduction),
+            (timestamps.Credits, AnalysisMode.Credits),
+            (timestamps.Recap, AnalysisMode.Recap),
+            (timestamps.Preview, AnalysisMode.Preview)
+        };
+
+        foreach (var (segment, mode) in segmentTypes)
+        {
+            if (segment.End > 0.0)
+            {
+                var timeRange = new TimeRange(segment.Start, segment.End);
+                await Plugin.Instance!.UpdateTimestamps(
+                    new Dictionary<Guid, Segment> { [id] = new Segment(id, timeRange) },
+                    mode).ConfigureAwait(false);
+            }
         }
 
         if (Plugin.Instance.Configuration.UpdateMediaSegments)
@@ -130,6 +142,16 @@ public class SkipIntroController(MediaSegmentUpdateManager mediaSegmentUpdateMan
             times.Credits = creditSegment;
         }
 
+        if (segments.TryGetValue(AnalysisMode.Recap, out var recapSegment))
+        {
+            times.Recap = recapSegment;
+        }
+
+        if (segments.TryGetValue(AnalysisMode.Preview, out var previewSegment))
+        {
+            times.Preview = previewSegment;
+        }
+
         return times;
     }
 
@@ -149,7 +171,7 @@ public class SkipIntroController(MediaSegmentUpdateManager mediaSegmentUpdateMan
             segments[AnalysisMode.Introduction] = introSegment;
         }
 
-        if (segments.TryGetValue(AnalysisMode.Introduction, out var creditSegment))
+        if (segments.TryGetValue(AnalysisMode.Credits, out var creditSegment))
         {
             segments[AnalysisMode.Credits] = creditSegment;
         }
@@ -164,6 +186,7 @@ public class SkipIntroController(MediaSegmentUpdateManager mediaSegmentUpdateMan
     {
         var timestamps = Plugin.Instance!.GetSegmentsById(id);
         var intros = new Dictionary<AnalysisMode, Intro>();
+        var runTime = TimeSpan.FromTicks(Plugin.Instance!.GetItem(id)?.RunTimeTicks ?? 0).TotalSeconds;
 
         foreach (var (mode, timestamp) in timestamps)
         {
@@ -176,9 +199,9 @@ public class SkipIntroController(MediaSegmentUpdateManager mediaSegmentUpdateMan
             var segment = new Intro(timestamp);
             var config = Plugin.Instance.Configuration;
 
-            // Calculate intro end time based on mode
-            segment.IntroEnd = mode == AnalysisMode.Credits
-                ? GetAdjustedIntroEnd(id, segment.IntroEnd, config)
+            // Calculate intro end time
+            segment.IntroEnd = runTime > 0 && runTime < segment.IntroEnd + 1
+                ? runTime
                 : segment.IntroEnd - config.RemainingSecondsOfIntro;
 
             // Set skip button prompt visibility times
@@ -200,14 +223,6 @@ public class SkipIntroController(MediaSegmentUpdateManager mediaSegmentUpdateMan
         }
 
         return intros;
-    }
-
-    private static double GetAdjustedIntroEnd(Guid id, double segmentEnd, PluginConfiguration config)
-    {
-        var runTime = TimeSpan.FromTicks(Plugin.Instance!.GetItem(id)?.RunTimeTicks ?? 0).TotalSeconds;
-        return runTime > 0 && runTime < segmentEnd + 1
-            ? runTime
-            : segmentEnd - config.RemainingSecondsOfIntro;
     }
 
     /// <summary>
