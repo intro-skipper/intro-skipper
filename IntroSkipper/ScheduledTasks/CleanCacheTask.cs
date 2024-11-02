@@ -86,6 +86,8 @@ public class CleanCacheTask : IScheduledTask
             .SelectMany(episodes => episodes.Select(e => e.EpisodeId))
             .ToHashSet();
 
+        await Plugin.Instance!.ClearInvalidSegments().ConfigureAwait(false);
+
         await Plugin.Instance!.CleanTimestamps(validEpisodeIds).ConfigureAwait(false);
 
         // Identify invalid episode IDs

@@ -303,10 +303,14 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
     internal async Task UpdateTimestamps(IReadOnlyDictionary<Guid, Segment> newTimestamps, AnalysisMode mode)
     {
         using var db = new IntroSkipperDbContext(_dbPath);
-        var existingSegments = await db.DbSegment
+
+        // Get all existing segments in a single query
+        var existingSegments = db.DbSegment
             .Where(s => newTimestamps.Keys.Contains(s.ItemId) && s.Type == mode)
-            .ToDictionaryAsync(s => s.ItemId)
-            .ConfigureAwait(false);
+            .ToDictionary(s => s.ItemId);
+
+        // Batch updates and inserts
+        var segmentsToAdd = new List<DbSegment>();
 
         foreach (var (itemId, segment) in newTimestamps)
         {
@@ -317,22 +321,30 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
             }
             else
             {
-                db.DbSegment.Add(dbSegment);
+                segmentsToAdd.Add(dbSegment);
             }
         }
 
+        if (segmentsToAdd.Count > 0)
+        {
+            await db.DbSegment.AddRangeAsync(segmentsToAdd).ConfigureAwait(false);
+        }
+
+        await db.SaveChangesAsync().ConfigureAwait(false);
+    }
+
+    internal async Task ClearInvalidSegments()
+    {
+        using var db = new IntroSkipperDbContext(_dbPath);
+        db.DbSegment.RemoveRange(db.DbSegment.Where(s => s.End == 0));
         await db.SaveChangesAsync().ConfigureAwait(false);
     }
 
     internal async Task CleanTimestamps(HashSet<Guid> episodeIds)
     {
         using var db = new IntroSkipperDbContext(_dbPath);
-        var obsoleteSegments = await db.DbSegment
-            .Where(s => !episodeIds.Contains(s.ItemId))
-            .ToListAsync()
-            .ConfigureAwait(false);
-
-        db.DbSegment.RemoveRange(obsoleteSegments);
+        db.DbSegment.RemoveRange(db.DbSegment
+            .Where(s => !episodeIds.Contains(s.ItemId)));
         await db.SaveChangesAsync().ConfigureAwait(false);
     }
 
