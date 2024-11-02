@@ -292,39 +292,31 @@ namespace IntroSkipper.Manager
             VerifyQueue(IReadOnlyList<QueuedEpisode> candidates, IReadOnlyCollection<AnalysisMode> modes)
         {
             var verified = new List<QueuedEpisode>();
-            var reqModes = new HashSet<AnalysisMode>();
+            var reqModes = new HashSet<AnalysisMode>(modes);  // Start with all modes and remove completed ones
 
             foreach (var candidate in candidates)
             {
                 try
                 {
                     var path = Plugin.Instance!.GetItemPath(candidate.EpisodeId);
-
                     if (!File.Exists(path))
                     {
                         continue;
                     }
 
                     verified.Add(candidate);
+                    var segments = Plugin.Instance!.GetSegmentsById(candidate.EpisodeId);
 
                     foreach (var mode in modes)
                     {
-                        if (candidate.State.IsAnalyzed(mode) || candidate.State.IsBlacklisted(mode))
+                        if (segments.TryGetValue(mode, out var segment))
                         {
-                            continue;
-                        }
+                            if (segment.Valid)
+                            {
+                                candidate.SetAnalyzed(mode, true);
+                            }
 
-                        bool isAnalyzed = mode == AnalysisMode.Introduction
-                            ? Plugin.Instance!.Intros.ContainsKey(candidate.EpisodeId)
-                            : Plugin.Instance!.Credits.ContainsKey(candidate.EpisodeId);
-
-                        if (isAnalyzed)
-                        {
-                            candidate.State.SetAnalyzed(mode, true);
-                        }
-                        else
-                        {
-                            reqModes.Add(mode);
+                            reqModes.Remove(mode);
                         }
                     }
                 }

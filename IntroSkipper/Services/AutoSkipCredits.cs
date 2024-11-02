@@ -8,6 +8,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using System.Timers;
 using IntroSkipper.Configuration;
+using IntroSkipper.Data;
 using MediaBrowser.Common.Extensions;
 using MediaBrowser.Controller.Library;
 using MediaBrowser.Controller.Session;
@@ -125,7 +126,8 @@ namespace IntroSkipper.Services
                 }
 
                 // Assert that credits were detected for this item.
-                if (!Plugin.Instance!.Credits.TryGetValue(itemId, out var credit) || !credit.Valid)
+                var credit = Plugin.Instance!.GetSegmentByMode(itemId, AnalysisMode.Credits);
+                if (!credit.Valid)
                 {
                     continue;
                 }

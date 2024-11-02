@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-only.
 
 using System;
+using System.Collections.Generic;
 
 namespace IntroSkipper.Data;
 
@@ -10,6 +11,8 @@ namespace IntroSkipper.Data;
 /// </summary>
 public class QueuedEpisode
 {
+    private readonly Dictionary<AnalysisMode, bool> _isAnalyzed = [];
+
     /// <summary>
     /// Gets or sets the series name.
     /// </summary>
@@ -31,9 +34,9 @@ public class QueuedEpisode
     public Guid SeriesId { get; set; }
 
     /// <summary>
-    /// Gets the state of the episode.
+    /// Gets a value indicating whether this media has been already analyzed.
     /// </summary>
-    public EpisodeState State => Plugin.Instance!.GetState(EpisodeId);
+    public IReadOnlyDictionary<AnalysisMode, bool> IsAnalyzed => _isAnalyzed;
 
     /// <summary>
     /// Gets or sets the full path to episode.
@@ -69,4 +72,24 @@ public class QueuedEpisode
     /// Gets or sets the total duration of this media file (in seconds).
     /// </summary>
     public int Duration { get; set; }
+
+    /// <summary>
+    /// Sets a value indicating whether this media has been already analyzed.
+    /// </summary>
+    /// <param name="mode">Analysis mode.</param>
+    /// <param name="value">Value to set.</param>
+    public void SetAnalyzed(AnalysisMode mode, bool value)
+    {
+        _isAnalyzed[mode] = value;
+    }
+
+    /// <summary>
+    /// Sets a value indicating whether this media has been already analyzed.
+    /// </summary>
+    /// <param name="mode">Analysis mode.</param>
+    /// <returns>Value of the analyzed mode.</returns>
+    public bool GetAnalyzed(AnalysisMode mode)
+    {
+        return _isAnalyzed.TryGetValue(mode, out var value) && value;
+    }
 }
