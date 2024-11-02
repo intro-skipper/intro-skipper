@@ -54,31 +54,33 @@
 
                             <div class="checkboxContainer checkboxContainer-withDescription">
                                 <label class="emby-checkbox-label">
+                                    <input id="UpdateMediaSegments" type="checkbox" is="emby-checkbox" />
+                                    <span>Update Segments for New Media During Scan</span>
+                                </label>
+
+                                <div class="fieldDescription">
+                                    Enable this option to update media segments for newly added files during a scan.
+                                    <br />
+                                    <b>Warning:</b> This should be disabled if you're using media segment providers other than Intro Skipper.
+                                </div>
+                            </div>
+
+                            <div class="checkboxContainer">
+                                <label class="emby-checkbox-label">
                                     <input id="AnalyzeMovies" type="checkbox" is="emby-checkbox" />
                                     <span>Analyze Movies</span>
                                 </label>
-
-                                <div class="fieldDescription">If checked, movies will be included in analysis.</div>
                             </div>
 
                             <div class="checkboxContainer checkboxContainer-withDescription">
                                 <label class="emby-checkbox-label">
                                     <input id="AnalyzeSeasonZero" type="checkbox" is="emby-checkbox" />
-                                    <span>Analyze season 0</span>
+                                    <span>Analyze Season 0 (Specials / Extras)</span>
                                 </label>
 
                                 <div class="fieldDescription">
-                                    If checked, season 0 (specials / extras) will be included in analysis.
-                                    <br />
-                                    <br />
                                     Note: Shows containing both a specials and extra folder will identify extras as season 0 and ignore specials, regardless of this setting.
                                 </div>
-                            </div>
-
-                            <div class="inputContainer">
-                                <label class="inputLabel inputLabelUnfocused" for="MaxParallelism"> Maximum degree of parallelism </label>
-                                <input id="MaxParallelism" type="number" is="emby-input" min="1" />
-                                <div class="fieldDescription">Maximum number of simultaneous async episode analysis operations.</div>
                             </div>
 
                             <div class="checkboxContainer checkboxContainer-withDescription">
@@ -142,34 +144,22 @@
                                     <div class="fieldDescription">Similar sounding audio which is longer than this duration will not be considered credits.</div>
                                 </div>
 
-                                <p>The amount of each episode's audio that will be analyzed is determined using both the percentage of audio and maximum runtime of audio to analyze. The minimum of (episode duration * percent, maximum runtime) is the amount of audio that will be analyzed.</p>
-
-                                <p>
-                                    If the audio percentage or maximum runtime settings are modified, the cached fingerprints and introduction timestamps for each season you want to analyze with the modified settings <b>will have to be deleted.</b>
-
-                                    Increasing either of these settings will cause episode analysis to take much longer.
-                                </p>
-
                                 <div class="inputContainer" id="movieCreditsDuration">
                                     <label class="inputLabel inputLabelUnfocused" for="MaximumMovieCreditsDuration"> Maximum movie credits duration (in seconds) </label>
                                     <input id="MaximumMovieCreditsDuration" type="number" is="emby-input" min="1" />
                                     <div class="fieldDescription">Segments longer than this duration will not be considered movie credits.</div>
                                     <br />
                                 </div>
-                            </details>
 
-                            <details id="mediasegment">
-                                <summary>Jellyfin MediaSegment Generation</summary>
+                                <p>
+                                    The amount of each item's audio or content that will be analyzed is determined using both the percentage of audio and maximum runtime to analyze. The minimum of (duration * percent, maximum runtime) is the amount that will be analyzed.
+                                </p>
 
-                                <br />
-                                <div class="checkboxContainer checkboxContainer-withDescription">
-                                    <label class="emby-checkbox-label">
-                                        <input id="UpdateMediaSegments" type="checkbox" is="emby-checkbox" />
-                                        <span>Update Media Segments for Newly Added Files During Scan</span>
-                                    </label>
-
-                                    <div class="fieldDescription">Enable this option to update media segments for newly added files during a scan. <b>Warning:</b> This should be disabled if you're using media segment providers other than Intro Skipper.</div>
-                                </div>
+                                <p>
+                                    If the audio percentage or maximum runtime settings are modified, the cached fingerprints and timestamps for each series, season, or movie you want to analyze with the modified settings <b>will have to be deleted</b>.
+                                    <br />
+                                    Increasing either of these settings will cause episode analysis to take much longer.
+                                </p>
 
                                 <div class="checkboxContainer checkboxContainer-withDescription">
                                     <label class="emby-checkbox-label">
@@ -202,6 +192,12 @@
                                 <summary>Process Configuration</summary>
 
                                 <br />
+                                <div class="inputContainer">
+                                    <label class="inputLabel inputLabelUnfocused" for="MaxParallelism"> Maximum degree of parallelism </label>
+                                    <input id="MaxParallelism" type="number" is="emby-input" min="1" />
+                                    <div class="fieldDescription">Maximum number of simultaneous async episode analysis operations.</div>
+                                </div>
+
                                 <div class="checkboxContainer checkboxContainer-withDescription">
                                     <label class="emby-checkbox-label">
                                         <input id="CacheFingerprints" type="checkbox" is="emby-checkbox" />
@@ -255,7 +251,7 @@
                             <div class="checkboxContainer checkboxContainer-withDescription">
                                 <label class="emby-checkbox-label">
                                     <input id="AutoSkip" type="checkbox" is="emby-checkbox" />
-                                    <span>Automatically skip intros</span>
+                                    <span>Automatically Skip Intros</span>
                                 </label>
 
                                 <div class="fieldDescription">
@@ -267,7 +263,7 @@
                             <div id="divSkipFirstEpisode" class="checkboxContainer checkboxContainer-withDescription">
                                 <label class="emby-checkbox-label">
                                     <input id="SkipFirstEpisode" type="checkbox" is="emby-checkbox" />
-                                    <span>Play intro for first episode of a season</span>
+                                    <span>Play Intro for First Episode of a Season</span>
                                 </label>
 
                                 <div class="fieldDescription">If checked, auto skip will play the introduction of the first episode in a season.<br /></div>
@@ -281,10 +277,16 @@
                                 <br />
                             </div>
 
+                            <div class="inputContainer">
+                                <label class="inputLabel inputLabelUnfocused" for="RemainingSecondsOfIntro"> Intro playback duration (in seconds) </label>
+                                <input id="RemainingSecondsOfIntro" type="number" is="emby-input" min="0" />
+                                <div class="fieldDescription">Seconds of introduction ending that should be played. Defaults to 2.</div>
+                            </div>
+
                             <div class="checkboxContainer checkboxContainer-withDescription">
                                 <label class="emby-checkbox-label">
                                     <input id="AutoSkipCredits" type="checkbox" is="emby-checkbox" />
-                                    <span>Automatically skip credits</span>
+                                    <span>Automatically Skip Credits</span>
                                 </label>
 
                                 <div class="fieldDescription">
@@ -311,7 +313,7 @@
                             <div id="SkipButtonContainer" class="checkboxContainer checkboxContainer-withDescription">
                                 <label class="emby-checkbox-label">
                                     <input id="SkipButtonEnabled" type="checkbox" is="emby-checkbox" />
-                                    <span id="SkipButtonVisibleLabel">Show skip intro / credit button</span>
+                                    <span id="SkipButtonVisibleLabel">Show All Skip Buttons</span>
                                 </label>
 
                                 <div class="fieldDescription">
@@ -322,45 +324,39 @@
 
                             <div id="warningMessage" style="color: #721c24; background-color: #f7cf1f; border: 1px solid #f5c6cb; border-radius: 4px; padding: 10px; margin-bottom: 10px">Failed to add skip button to web interface. See <a href="https://github.com/intro-skipper/intro-skipper/wiki/Troubleshooting#skip-button-is-not-visible" target="_blank" rel="noopener noreferrer">troubleshooting guide</a> for the most common issues.</div>
 
-                            <div id="SkipButtonSettings">
-                                <div id="PersistContainer" class="checkboxContainer checkboxContainer-withDescription">
-                                    <label class="emby-checkbox-label">
-                                        <input id="PersistSkipButton" type="checkbox" is="emby-checkbox" />
-                                        <span>Display button for intro duration</span>
-                                    </label>
-
-                                    <div class="fieldDescription">
-                                        If checked, skip button will remain visible throught the intro (offset and timeout are ignored).
-                                        <br />
-                                        Note: If unchecked, button will only appear in the player controls after the set timeout.
-                                    </div>
-                                </div>
-
-                                <div id="divShowPromptAdjustment" class="inputContainer">
-                                    <label class="inputLabel inputLabelUnfocused" for="ShowPromptAdjustment"> Skip prompt offset (in seconds) </label>
-                                    <input id="ShowPromptAdjustment" type="number" is="emby-input" min="0" />
-                                    <div class="fieldDescription">Seconds to display skip prompt before introduction begins.</div>
-                                    <br />
-                                </div>
-
-                                <div id="divHidePromptAdjustment" class="inputContainer">
-                                    <label class="inputLabel inputLabelUnfocused" for="HidePromptAdjustment"> Skip prompt timeout (in seconds) </label>
-                                    <input id="HidePromptAdjustment" type="number" is="emby-input" min="2" />
-                                    <div class="fieldDescription">Seconds after introduction before skip prompt is hidden.</div>
-                                    <br />
-                                </div>
-                            </div>
-
-                            <div class="inputContainer">
-                                <label class="inputLabel inputLabelUnfocused" for="RemainingSecondsOfIntro"> Intro playback duration (in seconds) </label>
-                                <input id="RemainingSecondsOfIntro" type="number" is="emby-input" min="0" />
-                                <div class="fieldDescription">Seconds of introduction ending that should be played. Defaults to 2.</div>
-                            </div>
-
                             <details>
                                 <summary>User Interface Customization</summary>
 
                                 <br />
+                                <div id="SkipButtonSettings">
+                                    <div id="PersistContainer" class="checkboxContainer checkboxContainer-withDescription">
+                                        <label class="emby-checkbox-label">
+                                            <input id="PersistSkipButton" type="checkbox" is="emby-checkbox" />
+                                            <span>Display Button for Segment Duration</span>
+                                        </label>
+
+                                        <div class="fieldDescription">
+                                            If checked, skip button will remain visible for the entire intro (offset and timeout are ignored).
+                                            <br />
+                                            Note: If unchecked, button will only appear in the player controls after the set timeout.
+                                        </div>
+                                    </div>
+
+                                    <div id="divShowPromptAdjustment" class="inputContainer">
+                                        <label class="inputLabel inputLabelUnfocused" for="ShowPromptAdjustment"> Skip prompt offset (in seconds) </label>
+                                        <input id="ShowPromptAdjustment" type="number" is="emby-input" min="0" />
+                                        <div class="fieldDescription">Seconds to display skip prompt before introduction begins.</div>
+                                        <br />
+                                    </div>
+
+                                    <div id="divHidePromptAdjustment" class="inputContainer">
+                                        <label class="inputLabel inputLabelUnfocused" for="HidePromptAdjustment"> Skip prompt timeout (in seconds) </label>
+                                        <input id="HidePromptAdjustment" type="number" is="emby-input" min="2" />
+                                        <div class="fieldDescription">Seconds after introduction before skip prompt is hidden.</div>
+                                        <br />
+                                    </div>
+                                </div>
+
                                 <div class="inputContainer">
                                     <label class="inputLabel" for="SkipButtonIntroText"> Skip intro button text </label>
                                     <input id="SkipButtonIntroText" type="text" is="emby-input" />
@@ -736,15 +732,15 @@
                     } else if (autoSkip.checked) {
                         autoSkipClientList.style.display = "unset";
                         autoSkipClientList.style.width = "100%";
-                        skipButtonVisibleLabel.textContent = "Show skip credit button";
+                        skipButtonVisibleLabel.textContent = "Show Skip Credit Button";
                     } else if (autoSkipCredits.checked) {
                         autoSkipClientList.style.display = "unset";
                         autoSkipClientList.style.width = "100%";
-                        skipButtonVisibleLabel.textContent = "Show skip intro button";
+                        skipButtonVisibleLabel.textContent = "Show Skip Intro Button";
                     } else {
                         autoSkipClientList.style.display = "unset";
                         autoSkipClientList.style.width = "100%";
-                        skipButtonVisibleLabel.textContent = "Show skip intro / credit button";
+                        skipButtonVisibleLabel.textContent = "Show All Skip Buttons";
                     }
                     skipButtonVisibleChanged();
                 }
