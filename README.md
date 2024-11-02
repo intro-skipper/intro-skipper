@@ -9,6 +9,9 @@
     </p>
 
 [![CodeQL](https://github.com/intro-skipper/intro-skipper/actions/workflows/codeql.yml/badge.svg)](https://github.com/intro-skipper/intro-skipper/actions/workflows/codeql.yml)
+<a href="https://github.com/intro-skipper/intro-skipper/releases">
+<img alt="Total GitHub Downloads" src="https://img.shields.io/github/downloads/intro-skipper/intro-skipper/total?label=github%20downloads"/>
+</a>
 </div>
 
 ## Manifest URL (All Jellyfin Versions)
