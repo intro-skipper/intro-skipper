@@ -489,6 +489,22 @@
                                                 <option value="None">None</option>
                                             </select>
                                         </label>
+                                        <label for="actionRecap" style="margin-right: 1.5em; display: inline-block">
+                                            <span>Recap analysis</span>
+                                            <select is="emby-select" id="actionRecap" class="emby-select-withcolor emby-select">
+                                                <option value="Default">Default</option>
+                                                <option value="Chapter">Chapter</option>
+                                                <option value="None">None</option>
+                                            </select>
+                                        </label>
+                                        <label for="actionPreview" style="margin-right: 1.5em; display: inline-block">
+                                            <span>Preview analysis</span>
+                                            <select is="emby-select" id="actionPreview" class="emby-select-withcolor emby-select">
+                                                <option value="Default">Default</option>
+                                                <option value="Chapter">Chapter</option>
+                                                <option value="None">None</option>
+                                            </select>
+                                        </label>
                                     </div>
                                     <br />
 
@@ -781,6 +797,8 @@
                 var analyzerActionsSection = document.querySelector("div#analyzerActionsSection");
                 var actionIntro = analyzerActionsSection.querySelector("select#actionIntro");
                 var actionCredits = analyzerActionsSection.querySelector("select#actionCredits");
+                var actionRecap = analyzerActionsSection.querySelector("select#actionRecap");
+                var actionPreview = analyzerActionsSection.querySelector("select#actionPreview");
                 var saveAnalyzerActionsButton = analyzerActionsSection.querySelector("button#saveAnalyzerActions");
                 var canvas = document.querySelector("canvas#troubleshooter");
                 var selectShow = document.querySelector("select#troubleshooterShow");
@@ -1077,9 +1095,11 @@
                     Dashboard.showLoadingMsg();
                     // show the analyzer actions editor.
                     saveAnalyzerActionsButton.style.display = "block";
-                    const analyzerActions = (await getJson("Intros/AnalyzerActions/" + encodeURI(selectSeason.value))) || { Introduction: "Default", Credits: "Default" };
+                    const analyzerActions = await getJson("Intros/AnalyzerActions/" + encodeURI(selectSeason.value));
                     actionIntro.value = analyzerActions.Introduction || "Default";
                     actionCredits.value = analyzerActions.Credits || "Default";
+                    actionRecap.value = analyzerActions.Recap || "Default";
+                    actionPreview.value = analyzerActions.Preview || "Default";
                     analyzerActionsSection.style.display = "unset";
 
                     // show the erase season button
@@ -1529,6 +1549,8 @@
                         analyzerActions: {
                             Introduction: actionIntro.value,
                             Credits: actionCredits.value,
+                            Recap: actionRecap.value,
+                            Preview: actionPreview.value,
                         },
                     };
 

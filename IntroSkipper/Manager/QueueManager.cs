@@ -152,9 +152,12 @@ namespace IntroSkipper.Manager
                 {
                     QueueEpisode(episode);
                 }
-                else if (_analyzeMovies && item is Movie movie)
+                else if (item is Movie movie)
                 {
-                    QueueMovie(movie);
+                    if (_analyzeMovies)
+                    {
+                        QueueMovie(movie);
+                    }
                 }
                 else
                 {

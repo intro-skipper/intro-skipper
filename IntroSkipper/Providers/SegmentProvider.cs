@@ -46,24 +46,24 @@ namespace IntroSkipper.Providers
                 });
             }
 
-            if (itemSegments.TryGetValue(AnalysisMode.Recap, request.ItemId, out var recapValue))
+            if (itemSegments.TryGetValue(AnalysisMode.Recap, out var recapSegment) && recapSegment.Valid)
             {
                 segments.Add(new MediaSegmentDto
                 {
-                    StartTicks = (long)(recapValue.Start * TimeSpan.TicksPerSecond),
-                    EndTicks = (long)(recapValue.End * TimeSpan.TicksPerSecond) - remainingTicks,
+                    StartTicks = (long)(recapSegment.Start * TimeSpan.TicksPerSecond),
+                    EndTicks = (long)(recapSegment.End * TimeSpan.TicksPerSecond) - remainingTicks,
                     ItemId = request.ItemId,
                     Type = MediaSegmentType.Recap
                 });
             }
 
             var runTimeTicks = Plugin.Instance.GetItem(request.ItemId)?.RunTimeTicks ?? long.MaxValue;
-            if (itemSegments.TryGetValue(AnalysisMode.Preview, request.ItemId, out var previewValue))
+            if (itemSegments.TryGetValue(AnalysisMode.Preview, out var previewSegment) && previewSegment.Valid)
             {
-                var previewEndTicks = (long)(previewValue.End * TimeSpan.TicksPerSecond);
+                var previewEndTicks = (long)(previewSegment.End * TimeSpan.TicksPerSecond);
                 segments.Add(new MediaSegmentDto
                 {
-                    StartTicks = (long)(previewValue.Start * TimeSpan.TicksPerSecond),
+                    StartTicks = (long)(previewSegment.Start * TimeSpan.TicksPerSecond),
                     EndTicks = runTimeTicks > previewEndTicks + TimeSpan.TicksPerSecond
                         ? previewEndTicks - remainingTicks
                         : runTimeTicks,
