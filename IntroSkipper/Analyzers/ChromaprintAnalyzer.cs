@@ -7,6 +7,7 @@ using System.IO;
 using System.Linq;
 using System.Numerics;
 using System.Threading;
+using System.Threading.Tasks;
 using IntroSkipper.Configuration;
 using IntroSkipper.Data;
 using Microsoft.Extensions.Logging;
@@ -52,7 +53,7 @@ public class ChromaprintAnalyzer : IMediaFileAnalyzer
     }
 
     /// <inheritdoc />
-    public IReadOnlyList<QueuedEpisode> AnalyzeMediaFiles(
+    public async Task<IReadOnlyList<QueuedEpisode>> AnalyzeMediaFiles(
         IReadOnlyList<QueuedEpisode> analysisQueue,
         AnalysisMode mode,
         CancellationToken cancellationToken)
@@ -67,7 +68,7 @@ public class ChromaprintAnalyzer : IMediaFileAnalyzer
         var episodeAnalysisQueue = new List<QueuedEpisode>(analysisQueue);
 
         // Episodes that were analyzed and do not have an introduction.
-        var episodesWithoutIntros = episodeAnalysisQueue.Where(e => !e.State.IsAnalyzed(mode)).ToList();
+        var episodesWithoutIntros = episodeAnalysisQueue.Where(e => !e.GetAnalyzed(mode)).ToList();
 
         _analysisMode = mode;
 
@@ -79,7 +80,7 @@ public class ChromaprintAnalyzer : IMediaFileAnalyzer
         var episodesWithFingerprint = new List<QueuedEpisode>(episodesWithoutIntros);
 
         // Load fingerprints from cache if available.
-        episodesWithFingerprint.AddRange(episodeAnalysisQueue.Where(e => e.State.IsAnalyzed(mode) && File.Exists(FFmpegWrapper.GetFingerprintCachePath(e, mode))));
+        episodesWithFingerprint.AddRange(episodeAnalysisQueue.Where(e => e.GetAnalyzed(mode) && File.Exists(FFmpegWrapper.GetFingerprintCachePath(e, mode))));
 
         // Ensure at least two fingerprints are present.
         if (episodesWithFingerprint.Count == 1)
@@ -89,7 +90,9 @@ public class ChromaprintAnalyzer : IMediaFileAnalyzer
                 .Where((episode, index) => Math.Abs(index - indexInAnalysisQueue) <= 1 && index != indexInAnalysisQueue));
         }
 
-        seasonIntros = episodesWithFingerprint.Where(e => e.State.IsAnalyzed(mode)).ToDictionary(e => e.EpisodeId, e => Plugin.GetIntroByMode(e.EpisodeId, mode));
+        seasonIntros = episodesWithFingerprint
+            .Where(e => e.GetAnalyzed(mode))
+            .ToDictionary(e => e.EpisodeId, e => Plugin.Instance!.GetSegmentByMode(e.EpisodeId, mode));
 
         // Compute fingerprints for all episodes in the season
         foreach (var episode in episodesWithFingerprint)
@@ -193,7 +196,7 @@ public class ChromaprintAnalyzer : IMediaFileAnalyzer
             if (seasonIntros.ContainsKey(currentEpisode.EpisodeId))
             {
                 episodesWithFingerprint.Add(currentEpisode);
-                episodeAnalysisQueue.FirstOrDefault(x => x.EpisodeId == currentEpisode.EpisodeId)?.State.SetAnalyzed(mode, true);
+                episodeAnalysisQueue.FirstOrDefault(x => x.EpisodeId == currentEpisode.EpisodeId)?.SetAnalyzed(mode, true);
             }
         }
 
@@ -207,7 +210,7 @@ public class ChromaprintAnalyzer : IMediaFileAnalyzer
         var analyzerHelper = new AnalyzerHelper(_logger);
         seasonIntros = analyzerHelper.AdjustIntroTimes(analysisQueue, seasonIntros, _analysisMode);
 
-        Plugin.Instance!.UpdateTimestamps(seasonIntros, _analysisMode);
+        await Plugin.Instance!.UpdateTimestamps(seasonIntros, _analysisMode).ConfigureAwait(false);
 
         return episodeAnalysisQueue;
     }

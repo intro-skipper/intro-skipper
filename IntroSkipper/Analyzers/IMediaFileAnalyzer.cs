@@ -3,6 +3,7 @@
 
 using System.Collections.Generic;
 using System.Threading;
+using System.Threading.Tasks;
 using IntroSkipper.Data;
 
 namespace IntroSkipper.Analyzers;
@@ -19,7 +20,7 @@ public interface IMediaFileAnalyzer
     /// <param name="mode">Analysis mode.</param>
     /// <param name="cancellationToken">Cancellation token from scheduled task.</param>
     /// <returns>Collection of media files that were **unsuccessfully analyzed**.</returns>
-    public IReadOnlyList<QueuedEpisode> AnalyzeMediaFiles(
+    Task<IReadOnlyList<QueuedEpisode>> AnalyzeMediaFiles(
         IReadOnlyList<QueuedEpisode> analysisQueue,
         AnalysisMode mode,
         CancellationToken cancellationToken);

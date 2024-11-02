@@ -7,10 +7,12 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Text.RegularExpressions;
+using System.Threading.Tasks;
 using System.Xml;
 using System.Xml.Serialization;
 using IntroSkipper.Configuration;
 using IntroSkipper.Data;
+using IntroSkipper.Db;
 using IntroSkipper.Helper;
 using MediaBrowser.Common;
 using MediaBrowser.Common.Configuration;
@@ -23,6 +25,7 @@ using MediaBrowser.Model.Entities;
 using MediaBrowser.Model.Plugins;
 using MediaBrowser.Model.Serialization;
 using MediaBrowser.Model.Updates;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 
 namespace IntroSkipper;
@@ -32,17 +35,13 @@ namespace IntroSkipper;
 /// </summary>
 public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
 {
-    private readonly object _serializationLock = new();
-    private readonly object _introsLock = new();
     private readonly ILibraryManager _libraryManager;
     private readonly IItemRepository _itemRepository;
     private readonly IApplicationHost _applicationHost;
     private readonly ILogger<Plugin> _logger;
     private readonly string _introPath;
     private readonly string _creditsPath;
-    private readonly string _recapPath;
-    private readonly string _previewPath;
-    private string _ignorelistPath;
+    private readonly string _dbPath;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="Plugin"/> class.
@@ -82,9 +81,7 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
         FingerprintCachePath = Path.Join(introsDirectory, pluginCachePath);
         _introPath = Path.Join(applicationPaths.DataPath, pluginDirName, "intros.xml");
         _creditsPath = Path.Join(applicationPaths.DataPath, pluginDirName, "credits.xml");
-        _recapPath = Path.Join(applicationPaths.DataPath, pluginDirName, "recaps.xml");
-        _previewPath = Path.Join(applicationPaths.DataPath, pluginDirName, "previews.xml");
-        _ignorelistPath = Path.Join(applicationPaths.DataPath, pluginDirName, "ignorelist.xml");
+        _dbPath = Path.Join(applicationPaths.DataPath, pluginDirName, "introskipper.db");
 
         // Create the base & cache directories (if needed).
         if (!Directory.Exists(FingerprintCachePath))
@@ -103,22 +100,18 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
             try
             {
                 XmlSerializer serializer = new XmlSerializer(typeof(PluginConfiguration));
-                using (FileStream fileStream = new FileStream(oldConfigFile, FileMode.Open))
+                using FileStream fileStream = new FileStream(oldConfigFile, FileMode.Open);
+                var settings = new XmlReaderSettings
                 {
-                    var settings = new XmlReaderSettings
-                    {
-                        DtdProcessing = DtdProcessing.Prohibit, // Disable DTD processing
-                        XmlResolver = null // Disable the XmlResolver
-                    };
+                    DtdProcessing = DtdProcessing.Prohibit, // Disable DTD processing
+                    XmlResolver = null // Disable the XmlResolver
+                };
 
-                    using (var reader = XmlReader.Create(fileStream, settings))
-                    {
-                        if (serializer.Deserialize(reader) is PluginConfiguration oldConfig)
-                        {
-                            Instance.UpdateConfiguration(oldConfig);
-                            File.Delete(oldConfigFile);
-                        }
-                    }
+                using var reader = XmlReader.Create(fileStream, settings);
+                if (serializer.Deserialize(reader) is PluginConfiguration oldConfig)
+                {
+                    Instance.UpdateConfiguration(oldConfig);
+                    File.Delete(oldConfigFile);
                 }
             }
             catch (Exception ex)
@@ -130,23 +123,20 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
 
         MigrateRepoUrl(serverConfiguration);
 
-        // TODO: remove when https://github.com/jellyfin/jellyfin-meta/discussions/30 is complete
+        // Initialize database, restore timestamps if available.
         try
         {
-            RestoreTimestamps();
+            using var db = new IntroSkipperDbContext(_dbPath);
+            db.Database.EnsureCreated();
+            db.ApplyMigrations();
+            if (File.Exists(_introPath) || File.Exists(_creditsPath))
+            {
+                RestoreTimestampsAsync(db).GetAwaiter().GetResult();
+            }
         }
         catch (Exception ex)
         {
-            _logger.LogWarning("Unable to load introduction timestamps: {Exception}", ex);
-        }
-
-        try
-        {
-            LoadIgnoreList();
-        }
-        catch (Exception ex)
-        {
-            _logger.LogWarning("Unable to load ignore list: {Exception}", ex);
+            _logger.LogWarning("Error initializing database: {Exception}", ex);
         }
 
         // Inject the skip intro button code into the web interface.
@@ -165,39 +155,14 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
     }
 
     /// <summary>
-    /// Gets the results of fingerprinting all episodes.
+    /// Gets the path to the database.
     /// </summary>
-    public ConcurrentDictionary<Guid, Segment> Intros { get; } = new();
-
-    /// <summary>
-    /// Gets all discovered ending credits.
-    /// </summary>
-    public ConcurrentDictionary<Guid, Segment> Credits { get; } = new();
-
-    /// <summary>
-    /// Gets all discovered recaps.
-    /// </summary>
-    public ConcurrentDictionary<Guid, Segment> Recaps { get; } = new();
-
-    /// <summary>
-    /// Gets all discovered previews.
-    /// </summary>
-    public ConcurrentDictionary<Guid, Segment> Previews { get; } = new();
+    public string DbPath => _dbPath;
 
     /// <summary>
     /// Gets the most recent media item queue.
     /// </summary>
     public ConcurrentDictionary<Guid, List<QueuedEpisode>> QueuedMediaItems { get; } = new();
-
-    /// <summary>
-    /// Gets all episode states.
-    /// </summary>
-    public ConcurrentDictionary<Guid, EpisodeState> EpisodeStates { get; } = new();
-
-    /// <summary>
-    /// Gets the ignore list.
-    /// </summary>
-    public ConcurrentDictionary<Guid, IgnoreListItem> IgnoreList { get; } = new();
 
     /// <summary>
     /// Gets or sets the total number of episodes in the queue.
@@ -231,113 +196,38 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
     public static Plugin? Instance { get; private set; }
 
     /// <summary>
-    /// Save timestamps to disk.
-    /// </summary>
-    /// <param name="mode">Mode.</param>
-    public void SaveTimestamps(AnalysisMode mode)
-    {
-        List<Segment> introList;
-        var filePath = mode switch
-        {
-            AnalysisMode.Introduction => _introPath,
-            AnalysisMode.Credits => _creditsPath,
-            AnalysisMode.Recap => _recapPath,
-            AnalysisMode.Preview => _previewPath,
-            _ => throw new ArgumentOutOfRangeException(nameof(mode), $"Unexpected analysis mode: {mode}")
-        };
-
-        lock (_introsLock)
-        {
-            introList = mode switch
-            {
-                AnalysisMode.Introduction => new List<Segment>(Instance!.Intros.Values),
-                AnalysisMode.Credits => new List<Segment>(Instance!.Credits.Values),
-                AnalysisMode.Recap => new List<Segment>(Instance!.Recaps.Values),
-                AnalysisMode.Preview => new List<Segment>(Instance!.Previews.Values),
-                _ => throw new ArgumentOutOfRangeException(nameof(mode), $"Unexpected analysis mode: {mode}")
-            };
-        }
-
-        lock (_serializationLock)
-        {
-            try
-            {
-                XmlSerializationHelper.SerializeToXml(introList, filePath);
-            }
-            catch (Exception e)
-            {
-                _logger.LogError("SaveTimestamps {Message}", e.Message);
-            }
-        }
-    }
-
-    /// <summary>
-    /// Save IgnoreList to disk.
-    /// </summary>
-    public void SaveIgnoreList()
-    {
-        var ignorelist = Instance!.IgnoreList.Values.ToList();
-
-        lock (_serializationLock)
-        {
-            try
-            {
-                XmlSerializationHelper.SerializeToXml(ignorelist, _ignorelistPath);
-            }
-            catch (Exception e)
-            {
-                _logger.LogError("SaveIgnoreList {Message}", e.Message);
-            }
-        }
-    }
-
-    /// <summary>
-    /// Check if an item is ignored.
-    /// </summary>
-    /// <param name="id">Item id.</param>
-    /// <param name="mode">Mode.</param>
-    /// <returns>True if ignored, false otherwise.</returns>
-    public bool IsIgnored(Guid id, AnalysisMode mode)
-    {
-        return Instance!.IgnoreList.TryGetValue(id, out var item) && item.IsIgnored(mode);
-    }
-
-    /// <summary>
-    /// Load IgnoreList from disk.
-    /// </summary>
-    public void LoadIgnoreList()
-    {
-        if (File.Exists(_ignorelistPath))
-        {
-            var ignorelist = XmlSerializationHelper.DeserializeFromXml<IgnoreListItem>(_ignorelistPath);
-
-            foreach (var item in ignorelist)
-            {
-                Instance!.IgnoreList.TryAdd(item.SeasonId, item);
-            }
-        }
-    }
-
-    /// <summary>
     /// Restore previous analysis results from disk.
     /// </summary>
-    private static void RestoreSegments(string path, IDictionary<Guid, Segment> dictionary)
+    /// <param name="db">IntroSkipperDbContext.</param>
+    /// <returns>A <see cref="Task"/> representing the asynchronous operation.</returns>
+    public async Task RestoreTimestampsAsync(IntroSkipperDbContext db)
     {
-        if (!File.Exists(path))
+        // Import intros
+        if (File.Exists(_introPath))
         {
-            return;
+            var introList = XmlSerializationHelper.DeserializeFromXml<Segment>(_introPath);
+            foreach (var intro in introList)
+            {
+                var dbSegment = new DbSegment(intro, AnalysisMode.Introduction);
+                db.DbSegment.Add(dbSegment);
+            }
         }
 
-        var segments = XmlSerializationHelper.DeserializeFromXml<Segment>(path);
-        segments.ForEach(segment => dictionary[segment.EpisodeId] = segment);
-    }
+        // Import credits
+        if (File.Exists(_creditsPath))
+        {
+            var creditList = XmlSerializationHelper.DeserializeFromXml<Segment>(_creditsPath);
+            foreach (var credit in creditList)
+            {
+                var dbSegment = new DbSegment(credit, AnalysisMode.Credits);
+                db.DbSegment.Add(dbSegment);
+            }
+        }
 
-    private void RestoreTimestamps()
-    {
-        RestoreSegments(_introPath, Instance!.Intros);
-        RestoreSegments(_creditsPath, Instance.Credits);
-        RestoreSegments(_recapPath, Instance.Recaps);
-        RestoreSegments(_previewPath, Instance.Previews);
+        await db.SaveChangesAsync().ConfigureAwait(false);
+
+        File.Delete(_introPath);
+        File.Delete(_creditsPath);
     }
 
     /// <inheritdoc />
@@ -361,19 +251,6 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
                 EmbeddedResourcePath = GetType().Namespace + ".Configuration.inject.js"
             }
         ];
-    }
-
-    /// <summary>
-    /// Gets the Intro for this item.
-    /// </summary>
-    /// <param name="id">Item id.</param>
-    /// <param name="mode">Mode.</param>
-    /// <returns>Intro.</returns>
-    internal static Segment GetIntroByMode(Guid id, AnalysisMode mode)
-    {
-        return mode == AnalysisMode.Introduction
-            ? Instance!.Intros[id]
-            : Instance!.Credits[id];
     }
 
     internal BaseItem? GetItem(Guid id)
@@ -423,46 +300,126 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
         return _itemRepository.GetChapters(item);
     }
 
-    /// <summary>
-    /// Gets the state for this item.
-    /// </summary>
-    /// <param name="id">Item ID.</param>
-    /// <returns>State of this item.</returns>
-    internal EpisodeState GetState(Guid id) => EpisodeStates.GetOrAdd(id, _ => new EpisodeState());
-
-    internal void UpdateTimestamps(IReadOnlyDictionary<Guid, Segment> newTimestamps, AnalysisMode mode)
+    internal async Task UpdateTimestamps(IReadOnlyDictionary<Guid, Segment> newTimestamps, AnalysisMode mode)
     {
-        var collections = mode switch
+        using var db = new IntroSkipperDbContext(_dbPath);
+
+        // Get all existing segments in a single query
+        var existingSegments = db.DbSegment
+            .Where(s => newTimestamps.Keys.Contains(s.ItemId) && s.Type == mode)
+            .ToDictionary(s => s.ItemId);
+
+        // Batch updates and inserts
+        var segmentsToAdd = new List<DbSegment>();
+
+        foreach (var (itemId, segment) in newTimestamps)
         {
-            AnalysisMode.Introduction => Instance!.Intros,
-            AnalysisMode.Credits => Instance!.Credits,
-            AnalysisMode.Recap => Instance!.Recaps,
-            AnalysisMode.Preview => Instance!.Previews,
-            _ => throw new ArgumentOutOfRangeException(nameof(mode), $"Unexpected analysis mode: {mode}")
-        };
-
-        newTimestamps.ToList().ForEach(segment =>
-            collections.AddOrUpdate(segment.Key, segment.Value, (_, _) => segment.Value));
-
-        SaveTimestamps(mode);
-    }
-
-    internal void CleanTimestamps(HashSet<Guid> validEpisodeIds)
-    {
-        var allKeys = new HashSet<Guid>(Instance!.Intros.Keys);
-        allKeys.UnionWith(Instance!.Credits.Keys);
-
-        foreach (var key in allKeys)
-        {
-            if (!validEpisodeIds.Contains(key))
+            var dbSegment = new DbSegment(segment, mode);
+            if (existingSegments.TryGetValue(itemId, out var existing))
             {
-                Instance!.Intros.TryRemove(key, out _);
-                Instance!.Credits.TryRemove(key, out _);
+                db.Entry(existing).CurrentValues.SetValues(dbSegment);
+            }
+            else
+            {
+                segmentsToAdd.Add(dbSegment);
             }
         }
 
-        SaveTimestamps(AnalysisMode.Introduction);
-        SaveTimestamps(AnalysisMode.Credits);
+        if (segmentsToAdd.Count > 0)
+        {
+            await db.DbSegment.AddRangeAsync(segmentsToAdd).ConfigureAwait(false);
+        }
+
+        await db.SaveChangesAsync().ConfigureAwait(false);
+    }
+
+    internal async Task ClearInvalidSegments()
+    {
+        using var db = new IntroSkipperDbContext(_dbPath);
+        db.DbSegment.RemoveRange(db.DbSegment.Where(s => s.End == 0));
+        await db.SaveChangesAsync().ConfigureAwait(false);
+    }
+
+    internal async Task CleanTimestamps(HashSet<Guid> episodeIds)
+    {
+        using var db = new IntroSkipperDbContext(_dbPath);
+        db.DbSegment.RemoveRange(db.DbSegment
+            .Where(s => !episodeIds.Contains(s.ItemId)));
+        await db.SaveChangesAsync().ConfigureAwait(false);
+    }
+
+    internal IReadOnlyDictionary<AnalysisMode, Segment> GetSegmentsById(Guid id)
+    {
+        using var db = new IntroSkipperDbContext(_dbPath);
+        return db.DbSegment
+                .Where(s => s.ItemId == id)
+                .ToDictionary(
+                    s => s.Type,
+                    s => new Segment
+                    {
+                        EpisodeId = s.ItemId,
+                        Start = s.Start,
+                        End = s.End
+                    });
+    }
+
+    internal Segment GetSegmentByMode(Guid id, AnalysisMode mode)
+    {
+        using var db = new IntroSkipperDbContext(_dbPath);
+        return db.DbSegment
+                .Where(s => s.ItemId == id && s.Type == mode)
+                .Select(s => new Segment
+                {
+                    EpisodeId = s.ItemId,
+                    Start = s.Start,
+                    End = s.End
+                }).FirstOrDefault() ?? new Segment(id);
+    }
+
+    internal async Task UpdateAnalyzerActionAsync(Guid id, IReadOnlyDictionary<AnalysisMode, AnalyzerAction> analyzerActions)
+    {
+        using var db = new IntroSkipperDbContext(_dbPath);
+        var existingEntries = await db.DbSeasonInfo
+            .Where(s => s.SeasonId == id)
+            .ToDictionaryAsync(s => s.Type)
+            .ConfigureAwait(false);
+
+        foreach (var (mode, action) in analyzerActions)
+        {
+            var dbSeasonInfo = new DbSeasonInfo(id, mode, action);
+            if (existingEntries.TryGetValue(mode, out var existing))
+            {
+                db.Entry(existing).CurrentValues.SetValues(dbSeasonInfo);
+            }
+            else
+            {
+                db.DbSeasonInfo.Add(dbSeasonInfo);
+            }
+        }
+
+        await db.SaveChangesAsync().ConfigureAwait(false);
+    }
+
+    internal IReadOnlyDictionary<AnalysisMode, AnalyzerAction> GetAnalyzerAction(Guid id)
+    {
+        using var db = new IntroSkipperDbContext(_dbPath);
+        return db.DbSeasonInfo.Where(s => s.SeasonId == id).ToDictionary(s => s.Type, s => s.Action);
+    }
+
+    internal AnalyzerAction GetAnalyzerAction(Guid id, AnalysisMode mode)
+    {
+        using var db = new IntroSkipperDbContext(_dbPath);
+        return db.DbSeasonInfo.FirstOrDefault(s => s.SeasonId == id && s.Type == mode)?.Action ?? AnalyzerAction.Default;
+    }
+
+    internal async Task CleanSeasonInfoAsync()
+    {
+        using var db = new IntroSkipperDbContext(_dbPath);
+        var obsoleteSeasons = await db.DbSeasonInfo
+            .Where(s => !Instance!.QueuedMediaItems.Keys.Contains(s.SeasonId))
+            .ToListAsync().ConfigureAwait(false);
+        db.DbSeasonInfo.RemoveRange(obsoleteSeasons);
+        await db.SaveChangesAsync().ConfigureAwait(false);
     }
 
     private void MigrateRepoUrl(IServerConfigurationManager serverConfiguration)

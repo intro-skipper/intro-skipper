@@ -99,7 +99,7 @@ public class BaseItemAnalyzerTask(
             // of the current media items were deleted from Jellyfin since the task was started.
             var (episodes, requiredModes) = queueManager.VerifyQueue(
                 season.Value,
-                modes.Where(m => !Plugin.Instance!.IsIgnored(season.Key, m)).ToList());
+                _analysisModes);
 
             if (episodes.Count == 0)
             {
@@ -117,7 +117,8 @@ public class BaseItemAnalyzerTask(
             {
                 foreach (AnalysisMode mode in requiredModes)
                 {
-                    var analyzed = AnalyzeItems(episodes, mode, ct);
+                    var action = Plugin.Instance!.GetAnalyzerAction(season.Key, mode);
+                    var analyzed = await AnalyzeItems(episodes, mode, action, ct).ConfigureAwait(false);
                     Interlocked.Add(ref totalProcessed, analyzed);
 
                     updateManagers = analyzed > 0 || updateManagers;
@@ -162,26 +163,22 @@ public class BaseItemAnalyzerTask(
     /// </summary>
     /// <param name="items">Media items to analyze.</param>
     /// <param name="mode">Analysis mode.</param>
+    /// <param name="action">Analyzer action.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>Number of items that were successfully analyzed.</returns>
-    private int AnalyzeItems(
+    private async Task<int> AnalyzeItems(
         IReadOnlyList<QueuedEpisode> items,
         AnalysisMode mode,
+        AnalyzerAction action,
         CancellationToken cancellationToken)
     {
-        var totalItems = items.Count(e => !e.State.IsAnalyzed(mode));
+        var totalItems = items.Count(e => !e.GetAnalyzed(mode));
 
         // Only analyze specials (season 0) if the user has opted in.
         var first = items[0];
         if (!first.IsMovie && first.SeasonNumber == 0 && !_config.AnalyzeSeasonZero)
         {
             return 0;
-        }
-
-        // Remove from Blacklist
-        foreach (var item in items.Where(e => e.State.IsBlacklisted(mode)))
-        {
-            item.State.SetBlacklisted(mode, false);
         }
 
         _logger.LogInformation(
@@ -191,22 +188,24 @@ public class BaseItemAnalyzerTask(
             first.SeriesName,
             first.SeasonNumber);
 
-        var analyzers = new Collection<IMediaFileAnalyzer>
-        {
-            new ChapterAnalyzer(_loggerFactory.CreateLogger<ChapterAnalyzer>())
-        };
+        var analyzers = new Collection<IMediaFileAnalyzer>();
 
-        if (first.IsAnime && _config.WithChromaprint && !first.IsMovie && mode != AnalysisMode.Recap && mode != AnalysisMode.Preview)
+        if (action == AnalyzerAction.Chapter || action == AnalyzerAction.Default)
+        {
+            analyzers.Add(new ChapterAnalyzer(_loggerFactory.CreateLogger<ChapterAnalyzer>()));
+        }
+
+        if (first.IsAnime && !first.IsMovie && _config.WithChromaprint && !first.IsMovie && mode != AnalysisMode.Recap && mode != AnalysisMode.Preview && (action == AnalyzerAction.Chromaprint || action == AnalyzerAction.Default))
         {
             analyzers.Add(new ChromaprintAnalyzer(_loggerFactory.CreateLogger<ChromaprintAnalyzer>()));
         }
 
-        if (mode == AnalysisMode.Credits)
+        if (mode == AnalysisMode.Credits && (action == AnalyzerAction.BlackFrame || action == AnalyzerAction.Default))
         {
             analyzers.Add(new BlackFrameAnalyzer(_loggerFactory.CreateLogger<BlackFrameAnalyzer>()));
         }
 
-        if (!first.IsAnime && _config.WithChromaprint && !first.IsMovie && mode != AnalysisMode.Recap && mode != AnalysisMode.Preview)
+        if (!first.IsAnime && !first.IsMovie && mode != AnalysisMode.Recap && mode != AnalysisMode.Preview && (action == AnalyzerAction.Chromaprint || action == AnalyzerAction.Default))
         {
             analyzers.Add(new ChromaprintAnalyzer(_loggerFactory.CreateLogger<ChromaprintAnalyzer>()));
         }
@@ -216,15 +215,13 @@ public class BaseItemAnalyzerTask(
         foreach (var analyzer in analyzers)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            items = analyzer.AnalyzeMediaFiles(items, mode, cancellationToken);
+            items = await analyzer.AnalyzeMediaFiles(items, mode, cancellationToken).ConfigureAwait(false);
         }
 
         // Add items without intros/credits to blacklist.
-        foreach (var item in items.Where(e => !e.State.IsAnalyzed(mode)))
-        {
-            item.State.SetBlacklisted(mode, true);
-            totalItems -= 1;
-        }
+        var blacklisted = items.Where(e => !e.GetAnalyzed(mode)).ToList();
+        await Plugin.Instance!.UpdateTimestamps(blacklisted.ToDictionary(e => e.EpisodeId, e => new Segment(e.EpisodeId)), mode).ConfigureAwait(false);
+        totalItems -= blacklisted.Count;
 
         return totalItems;
     }

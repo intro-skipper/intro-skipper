@@ -9,6 +9,7 @@ using System.Net.Mime;
 using System.Threading;
 using System.Threading.Tasks;
 using IntroSkipper.Data;
+using IntroSkipper.Db;
 using IntroSkipper.Manager;
 using MediaBrowser.Common.Api;
 using Microsoft.AspNetCore.Authorization;
@@ -83,49 +84,19 @@ public class VisualizationController(ILogger<VisualizationController> logger, Me
     }
 
     /// <summary>
-    /// Returns the ignore list for the provided season.
+    /// Returns the analyzer actions for the provided season.
     /// </summary>
     /// <param name="seasonId">Season ID.</param>
     /// <returns>List of episode titles.</returns>
-    [HttpGet("IgnoreListSeason/{SeasonId}")]
-    public ActionResult<IgnoreListItem> GetIgnoreListSeason([FromRoute] Guid seasonId)
+    [HttpGet("AnalyzerActions/{SeasonId}")]
+    public ActionResult<IReadOnlyDictionary<AnalysisMode, AnalyzerAction>> GetAnalyzerAction([FromRoute] Guid seasonId)
     {
         if (!Plugin.Instance!.QueuedMediaItems.ContainsKey(seasonId))
         {
             return NotFound();
         }
 
-        if (!Plugin.Instance!.IgnoreList.TryGetValue(seasonId, out _))
-        {
-            return new IgnoreListItem(seasonId);
-        }
-
-        return new IgnoreListItem(Plugin.Instance!.IgnoreList[seasonId]);
-    }
-
-    /// <summary>
-    /// Returns the ignore list for the provided series.
-    /// </summary>
-    /// <param name="seriesId">Show ID.</param>
-    /// <returns>List of episode titles.</returns>
-    [HttpGet("IgnoreListSeries/{SeriesId}")]
-    public ActionResult<IgnoreListItem> GetIgnoreListSeries([FromRoute] Guid seriesId)
-    {
-        var seasonIds = Plugin.Instance!.QueuedMediaItems
-            .Where(kvp => kvp.Value.Any(e => e.SeriesId == seriesId))
-            .Select(kvp => kvp.Key)
-            .ToList();
-
-        if (seasonIds.Count == 0)
-        {
-            return NotFound();
-        }
-
-        return new IgnoreListItem(Guid.Empty)
-        {
-            IgnoreIntro = seasonIds.All(seasonId => Plugin.Instance!.IsIgnored(seasonId, AnalysisMode.Introduction)),
-            IgnoreCredits = seasonIds.All(seasonId => Plugin.Instance!.IsIgnored(seasonId, AnalysisMode.Credits))
-        };
+        return Ok(Plugin.Instance!.GetAnalyzerAction(seasonId));
     }
 
     /// <summary>
@@ -199,13 +170,22 @@ public class VisualizationController(ILogger<VisualizationController> logger, Me
 
         try
         {
+            using var db = new IntroSkipperDbContext(Plugin.Instance!.DbPath);
+
             foreach (var episode in episodes)
             {
                 cancellationToken.ThrowIfCancellationRequested();
+                var segments = Plugin.Instance!.GetSegmentsById(episode.EpisodeId);
 
-                Plugin.Instance.Intros.TryRemove(episode.EpisodeId, out _);
-                Plugin.Instance.Credits.TryRemove(episode.EpisodeId, out _);
-                episode.State.ResetStates();
+                if (segments.TryGetValue(AnalysisMode.Introduction, out var introSegment))
+                {
+                    db.DbSegment.Remove(new DbSegment(introSegment, AnalysisMode.Introduction));
+                }
+
+                if (segments.TryGetValue(AnalysisMode.Introduction, out var creditSegment))
+                {
+                    db.DbSegment.Remove(new DbSegment(creditSegment, AnalysisMode.Credits));
+                }
 
                 if (eraseCache)
                 {
@@ -213,7 +193,7 @@ public class VisualizationController(ILogger<VisualizationController> logger, Me
                 }
             }
 
-            Plugin.Instance.SaveTimestamps(AnalysisMode.Introduction | AnalysisMode.Credits);
+            await db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
 
             if (Plugin.Instance.Configuration.UpdateMediaSegments)
             {
@@ -229,82 +209,14 @@ public class VisualizationController(ILogger<VisualizationController> logger, Me
     }
 
     /// <summary>
-    /// Updates the ignore list for the provided season.
+    /// Updates the analyzer actions for the provided season.
     /// </summary>
-    /// <param name="ignoreListItem">New ignore list items.</param>
-    /// <param name="save">Save the ignore list.</param>
+    /// <param name="request">Update analyzer actions request.</param>
     /// <returns>No content.</returns>
-    [HttpPost("IgnoreList/UpdateSeason")]
-    public ActionResult UpdateIgnoreListSeason([FromBody] IgnoreListItem ignoreListItem, bool save = true)
+    [HttpPost("AnalyzerActions/UpdateSeason")]
+    public async Task<ActionResult> UpdateAnalyzerActions([FromBody] UpdateAnalyzerActionsRequest request)
     {
-        if (!Plugin.Instance!.QueuedMediaItems.ContainsKey(ignoreListItem.SeasonId))
-        {
-            return NotFound();
-        }
-
-        if (ignoreListItem.IgnoreIntro || ignoreListItem.IgnoreCredits)
-        {
-            Plugin.Instance!.IgnoreList.AddOrUpdate(ignoreListItem.SeasonId, ignoreListItem, (_, _) => ignoreListItem);
-        }
-        else
-        {
-            Plugin.Instance!.IgnoreList.TryRemove(ignoreListItem.SeasonId, out _);
-        }
-
-        if (save)
-        {
-            Plugin.Instance!.SaveIgnoreList();
-        }
-
-        return NoContent();
-    }
-
-    /// <summary>
-    /// Updates the ignore list for the provided series.
-    /// </summary>
-    /// <param name="seriesId">Series ID.</param>
-    /// <param name="ignoreListItem">New ignore list items.</param>
-    /// <returns>No content.</returns>
-    [HttpPost("IgnoreList/UpdateSeries/{SeriesId}")]
-    public ActionResult UpdateIgnoreListSeries([FromRoute] Guid seriesId, [FromBody] IgnoreListItem ignoreListItem)
-    {
-        var seasonIds = Plugin.Instance!.QueuedMediaItems
-            .Where(kvp => kvp.Value.Any(e => e.SeriesId == seriesId))
-            .Select(kvp => kvp.Key)
-            .ToList();
-
-        if (seasonIds.Count == 0)
-        {
-            return NotFound();
-        }
-
-        foreach (var seasonId in seasonIds)
-        {
-            UpdateIgnoreListSeason(new IgnoreListItem(ignoreListItem) { SeasonId = seasonId }, false);
-        }
-
-        Plugin.Instance!.SaveIgnoreList();
-
-        return NoContent();
-    }
-
-    /// <summary>
-    /// Updates the introduction timestamps for the provided episode.
-    /// </summary>
-    /// <param name="id">Episode ID to update timestamps for.</param>
-    /// <param name="timestamps">New introduction start and end times.</param>
-    /// <response code="204">New introduction timestamps saved.</response>
-    /// <returns>No content.</returns>
-    [HttpPost("Episode/{Id}/UpdateIntroTimestamps")]
-    [Obsolete("deprecated use Episode/{Id}/Timestamps")]
-    public ActionResult UpdateIntroTimestamps([FromRoute] Guid id, [FromBody] Intro timestamps)
-    {
-        if (timestamps.IntroEnd > 0.0)
-        {
-            var tr = new TimeRange(timestamps.IntroStart, timestamps.IntroEnd);
-            Plugin.Instance!.Intros[id] = new Segment(id, tr);
-            Plugin.Instance.SaveTimestamps(AnalysisMode.Introduction);
-        }
+        await Plugin.Instance!.UpdateAnalyzerActionAsync(request.Id, request.AnalyzerActions).ConfigureAwait(false);
 
         return NoContent();
     }

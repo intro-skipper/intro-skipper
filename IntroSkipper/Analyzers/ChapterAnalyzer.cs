@@ -7,6 +7,7 @@ using System.Globalization;
 using System.Linq;
 using System.Text.RegularExpressions;
 using System.Threading;
+using System.Threading.Tasks;
 using IntroSkipper.Configuration;
 using IntroSkipper.Data;
 using MediaBrowser.Model.Entities;
@@ -26,7 +27,7 @@ public class ChapterAnalyzer(ILogger<ChapterAnalyzer> logger) : IMediaFileAnalyz
     private ILogger<ChapterAnalyzer> _logger = logger;
 
     /// <inheritdoc />
-    public IReadOnlyList<QueuedEpisode> AnalyzeMediaFiles(
+    public async Task<IReadOnlyList<QueuedEpisode>> AnalyzeMediaFiles(
         IReadOnlyList<QueuedEpisode> analysisQueue,
         AnalysisMode mode,
         CancellationToken cancellationToken)
@@ -50,7 +51,7 @@ public class ChapterAnalyzer(ILogger<ChapterAnalyzer> logger) : IMediaFileAnalyz
             return analysisQueue;
         }
 
-        foreach (var episode in episodeAnalysisQueue.Where(e => !e.State.IsAnalyzed(mode)))
+        foreach (var episode in episodeAnalysisQueue.Where(e => !e.GetAnalyzed(mode)))
         {
             if (cancellationToken.IsCancellationRequested)
             {
@@ -69,10 +70,10 @@ public class ChapterAnalyzer(ILogger<ChapterAnalyzer> logger) : IMediaFileAnalyz
             }
 
             skippableRanges.Add(episode.EpisodeId, skipRange);
-            episode.State.SetAnalyzed(mode, true);
+            episode.SetAnalyzed(mode, true);
         }
 
-        Plugin.Instance.UpdateTimestamps(skippableRanges, mode);
+        await Plugin.Instance.UpdateTimestamps(skippableRanges, mode).ConfigureAwait(false);
 
         return episodeAnalysisQueue;
     }

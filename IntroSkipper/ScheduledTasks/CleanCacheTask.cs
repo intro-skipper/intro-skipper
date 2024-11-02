@@ -59,7 +59,7 @@ public class CleanCacheTask : IScheduledTask
     /// <summary>
     /// Gets the task key.
     /// </summary>
-    public string Key => "IntroSkipperCleanCache";
+    public string Key => "CPBIntroSkipperCleanCache";
 
     /// <summary>
     /// Cleans the cache of unused files.
@@ -69,7 +69,7 @@ public class CleanCacheTask : IScheduledTask
     /// <param name="progress">Task progress.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>Task.</returns>
-    public Task ExecuteAsync(IProgress<double> progress, CancellationToken cancellationToken)
+    public async Task ExecuteAsync(IProgress<double> progress, CancellationToken cancellationToken)
     {
         if (_libraryManager is null)
         {
@@ -82,24 +82,19 @@ public class CleanCacheTask : IScheduledTask
 
         // Retrieve media items and get valid episode IDs
         var queue = queueManager.GetMediaItems();
-        var validEpisodeIds = new HashSet<Guid>(queue.Values.SelectMany(episodes => episodes.Select(e => e.EpisodeId)));
+        var validEpisodeIds = queue.Values
+            .SelectMany(episodes => episodes.Select(e => e.EpisodeId))
+            .ToHashSet();
 
-        Plugin.Instance!.CleanTimestamps(validEpisodeIds);
+        await Plugin.Instance!.ClearInvalidSegments().ConfigureAwait(false);
+
+        await Plugin.Instance!.CleanTimestamps(validEpisodeIds).ConfigureAwait(false);
 
         // Identify invalid episode IDs
         var invalidEpisodeIds = Directory.EnumerateFiles(Plugin.Instance!.FingerprintCachePath)
-            .Select(filePath =>
-            {
-                var fileName = Path.GetFileNameWithoutExtension(filePath);
-                var episodeIdStr = fileName.Split('-')[0];
-                if (Guid.TryParse(episodeIdStr, out Guid episodeId))
-                {
-                    return validEpisodeIds.Contains(episodeId) ? (Guid?)null : episodeId;
-                }
-
-                return null;
-            })
-            .OfType<Guid>()
+            .Select(filePath => Path.GetFileNameWithoutExtension(filePath).Split('-')[0])
+            .Where(episodeIdStr => Guid.TryParse(episodeIdStr, out var episodeId) && !validEpisodeIds.Contains(episodeId))
+            .Select(Guid.Parse)
             .ToHashSet();
 
         // Delete cache files for invalid episode IDs
@@ -109,32 +104,10 @@ public class CleanCacheTask : IScheduledTask
             FFmpegWrapper.DeleteEpisodeCache(episodeId);
         }
 
-        // Clean up ignore list by removing items that are no longer exist..
-        var removedItems = false;
-        foreach (var ignoredItem in Plugin.Instance.IgnoreList.Values.ToList())
-        {
-            if (!queue.ContainsKey(ignoredItem.SeasonId))
-            {
-                removedItems = true;
-                Plugin.Instance.IgnoreList.TryRemove(ignoredItem.SeasonId, out _);
-            }
-        }
-
-        // Save ignore list if at least one item was removed.
-        if (removedItems)
-        {
-            try
-            {
-                Plugin.Instance!.SaveIgnoreList();
-            }
-            catch (Exception e)
-            {
-                _logger.LogError("Failed to save ignore list: {Error}", e.Message);
-            }
-        }
+        // Clean up Season information by removing items that are no longer exist.
+        await Plugin.Instance!.CleanSeasonInfoAsync().ConfigureAwait(false);
 
         progress.Report(100);
-        return Task.CompletedTask;
     }
 
     /// <summary>
