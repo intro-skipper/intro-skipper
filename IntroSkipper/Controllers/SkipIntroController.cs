@@ -3,9 +3,13 @@
 
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Net.Mime;
+using System.Threading;
+using System.Threading.Tasks;
 using IntroSkipper.Configuration;
 using IntroSkipper.Data;
+using IntroSkipper.Manager;
 using MediaBrowser.Common.Api;
 using MediaBrowser.Controller.Entities.Movies;
 using MediaBrowser.Controller.Entities.TV;
@@ -20,14 +24,9 @@ namespace IntroSkipper.Controllers;
 [Authorize]
 [ApiController]
 [Produces(MediaTypeNames.Application.Json)]
-public class SkipIntroController : ControllerBase
+public class SkipIntroController(MediaSegmentUpdateManager mediaSegmentUpdateManager) : ControllerBase
 {
-    /// <summary>
-    /// Initializes a new instance of the <see cref="SkipIntroController"/> class.
-    /// </summary>
-    public SkipIntroController()
-    {
-    }
+    private readonly MediaSegmentUpdateManager _mediaSegmentUpdateManager = mediaSegmentUpdateManager;
 
     /// <summary>
     /// Returns the timestamps of the introduction in a television episode. Responses are in API version 1 format.
@@ -58,12 +57,13 @@ public class SkipIntroController : ControllerBase
     /// </summary>
     /// <param name="id">Episode ID to update timestamps for.</param>
     /// <param name="timestamps">New timestamps Introduction/Credits start and end times.</param>
+    /// <param name="cancellationToken">Cancellation Token.</param>
     /// <response code="204">New timestamps saved.</response>
     /// <response code="404">Given ID is not an Episode.</response>
     /// <returns>No content.</returns>
     [Authorize(Policy = Policies.RequiresElevation)]
     [HttpPost("Episode/{Id}/Timestamps")]
-    public ActionResult UpdateTimestamps([FromRoute] Guid id, [FromBody] TimeStamps timestamps)
+    public async Task<ActionResult> UpdateTimestampsAsync([FromRoute] Guid id, [FromBody] TimeStamps timestamps, CancellationToken cancellationToken = default)
     {
         // only update existing episodes
         var rawItem = Plugin.Instance!.GetItem(id);
@@ -86,6 +86,17 @@ public class SkipIntroController : ControllerBase
 
         Plugin.Instance!.SaveTimestamps(AnalysisMode.Introduction);
         Plugin.Instance!.SaveTimestamps(AnalysisMode.Credits);
+
+        if (Plugin.Instance.Configuration.UpdateMediaSegments)
+        {
+            var episode = Plugin.Instance!.QueuedMediaItems[rawItem is Episode e ? e.SeasonId : rawItem.Id]
+                .FirstOrDefault(q => q.EpisodeId == rawItem.Id);
+
+            if (episode is not null)
+            {
+                await _mediaSegmentUpdateManager.UpdateMediaSegmentsAsync([episode], cancellationToken).ConfigureAwait(false);
+            }
+        }
 
         return NoContent();
     }

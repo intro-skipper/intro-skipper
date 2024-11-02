@@ -706,7 +706,7 @@
                                 <br />
                                 <summary>Storage Usage</summary>
                                 <div class="fieldDescription">See how much space each library uses.</div>
-                                <textarea id="storage" rows="20" cols="75" readonly></textarea>
+                                <textarea id="storageText" rows="20" cols="75" readonly></textarea>
                             </details>
                         </fieldset>
                     </form>
@@ -1041,7 +1041,7 @@
                     const bundleText = await bundle.text();
 
                     // Display it to the user
-                    const ta = document.querySelector("textarea#storage");
+                    const ta = document.querySelector("textarea#storageText");
                     ta.value = bundleText;
                 }
 
