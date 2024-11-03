@@ -33,16 +33,9 @@ https://manifest.intro-skipper.org/manifest.json
 
 * SyncPlay is not (yet) compatible with any method of skipping due to the nature of how the clients are synced. 
 
-## Detection parameters
+## [Detection parameters](https://github.com/intro-skipper/intro-skipper/wiki#detection-parameters)
 
-Show introductions will be detected if they are:
-
-* Located within the first 25% of an episode or the first 10 minutes, whichever is smaller
-* Between 15 seconds and 2 minutes long
-
-Ending credits will be detected if they are shorter than 4 minutes.
-
-These parameters can be configured by opening the plugin settings
+## [Detection types](https://github.com/intro-skipper/intro-skipper/wiki#detection-types)
 
 ## [Installation](https://github.com/intro-skipper/intro-skipper/wiki/Installation)
 - #### [Install the plugin](https://github.com/intro-skipper/intro-skipper/wiki/Installation#step-1-install-the-plugin)
