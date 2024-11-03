@@ -23,16 +23,9 @@ https://manifest.intro-skipper.org/manifest.json
   * Debian Linux based native installs: provided by the `jellyfin-ffmpeg5` package
   * MacOS native installs: build ffmpeg with chromaprint support ([instructions](https://github.com/jumoog/intro-skipper/wiki/Custom-FFMPEG-(MacOS)))
 
-## Detection parameters
+## [Detection parameters](https://github.com/intro-skipper/intro-skipper/wiki#detection-parameters)
 
-Show introductions will be detected if they are:
-
-* Located within the first 25% of an episode or the first 10 minutes, whichever is smaller
-* Between 15 seconds and 2 minutes long
-
-Ending credits will be detected if they are shorter than 4 minutes.
-
-These parameters can be configured by opening the plugin settings
+## [Detection types](https://github.com/intro-skipper/intro-skipper/wiki#detection-types)
 
 ## [Installation](https://github.com/jumoog/intro-skipper/wiki/Installation)
 
