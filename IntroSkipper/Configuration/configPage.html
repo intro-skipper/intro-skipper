@@ -308,6 +308,7 @@
                                 <div class="checkboxList paperList" style="padding: 0.5em 1em" id="autoSkipCheckboxes"></div>
                                 <label class="inputLabel" for="ClientList"></label>
                                 <input id="ClientList" type="hidden" is="emby-input" />
+                                <div class="fieldDescription">Clients enabled in this list will <b>always skip automatically</b>, regardless of the button settings below.</div>
                             </details>
 
                             <div id="SkipButtonContainer" class="checkboxContainer checkboxContainer-withDescription">
@@ -317,7 +318,7 @@
                                 </label>
 
                                 <div class="fieldDescription">
-                                    (<b>Restart required!</b>) If checked, a skip button will be added <b>to the server</b> and displayed according to the settings below, while clients selected in the Auto Skip Client List will skip <b>automatically</b>.
+                                    (<b>Restart required!</b>) If checked, a skip button will be added <b>to the server</b> and displayed according to the settings below.
                                     <br />
                                     This button is <b>separate</b> from the button(s) enabled with "Ask To Skip" in Jellyfin 10.10 and compatible clients.
                                     <br />
