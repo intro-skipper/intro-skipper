@@ -22,7 +22,7 @@ https://manifest.intro-skipper.org/manifest.json
 
 ## System requirements
 
-* Jellyfin 10.10.0 (or newer)
+* Jellyfin 10.10.1 (or newer)
 * Jellyfin's [fork](https://github.com/jellyfin/jellyfin-ffmpeg) of `ffmpeg` must be installed, version `6.0.1-5` or newer
   * `jellyfin/jellyfin` 10.9.z container: preinstalled
   * `linuxserver/jellyfin` 10.9.z container: preinstalled
