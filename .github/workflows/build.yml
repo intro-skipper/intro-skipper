@@ -13,6 +13,7 @@ on:
   pull_request:
     branches:
       - '*'
+    types: [review_requested, ready_for_review]
     paths-ignore:
       - "**/README.md"
       - ".github/ISSUE_TEMPLATE/**"
