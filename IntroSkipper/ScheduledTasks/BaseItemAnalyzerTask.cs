@@ -62,12 +62,11 @@ public class BaseItemAnalyzerTask
         CancellationToken cancellationToken,
         IReadOnlyCollection<Guid>? seasonsToAnalyze = null)
     {
-        var ffmpegValid = FFmpegWrapper.CheckFFmpegVersion();
         // Assert that ffmpeg with chromaprint is installed
-        if (Plugin.Instance!.Configuration.WithChromaprint && !ffmpegValid)
+        if (Plugin.Instance!.Configuration.WithChromaprint && !FFmpegWrapper.CheckFFmpegVersion())
         {
             throw new FingerprintException(
-                "Analysis terminated! Chromaprint is not enabled in the current ffmpeg. If Jellyfin is running natively, install jellyfin-ffmpeg5. If Jellyfin is running in a container, upgrade to version 10.8.0 or newer.");
+                "Analysis terminated! Chromaprint is not enabled in the current ffmpeg. If Jellyfin is running natively, install jellyfin-ffmpeg6. If Jellyfin is running in a container, upgrade to version 10.9.0 or newer.");
         }
 
         var queueManager = new QueueManager(
