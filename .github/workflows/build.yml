@@ -96,6 +96,7 @@ jobs:
           if-no-files-found: error
 
       - name: Create archive
+        if: startsWith(github.ref_name, '10.') # only do a preview release on 10.x branches
         run: zip -j "intro-skipper-${{ env.GIT_HASH }}.zip" IntroSkipper/bin/Debug/net8.0/IntroSkipper.dll
 
       - name: Create/replace the preview release and upload artifacts
