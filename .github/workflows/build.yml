@@ -111,7 +111,7 @@ jobs:
         with:
           name: IntroSkipper-${{ env.SANITIZED_BRANCH_NAME }}.dll
           path: IntroSkipper/bin/Debug/net8.0/IntroSkipper.dll
-          retention-days: 7
+          retention-days: 3
           if-no-files-found: error
 
       - name: Create archive

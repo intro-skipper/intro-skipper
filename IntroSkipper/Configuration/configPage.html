@@ -49,8 +49,8 @@
                                 </label>
 
                                 <div class="fieldDescription">
-                                    Enable this option to update media segments for newly added files during a scan.
-                                    <br />
+                                    Enable this option to update media segments for any uncached media during a scan. <br />
+                                    This includes recently added, modified, or previously skipped (but not ignored) files.<br />
                                     <b>Warning:</b> This should be disabled if you're using media segment providers other than Intro Skipper.
                                 </div>
                             </div>
@@ -185,7 +185,7 @@
                                         <span>Regenerate All Media Segments on Next Scan</span>
                                     </label>
 
-                                    <div class="fieldDescription">When enabled, this option will <b>overwrite all existing media segments</b> for your episodes with currently detected introduction and credit timestamps during the next scan.</div>
+                                    <div class="fieldDescription">When enabled, this option will <b>overwrite all existing media segments</b> with your current Intro Skipper timestamps during the next scan. Upon completion, this option will be automatically disabled.</div>
                                 </div>
                             </details>
 
@@ -358,8 +358,8 @@
                                 </label>
 
                                 <div class="fieldDescription">
-                                    (<b>Restart required!</b>) If checked, a skip button will be displayed according to the settings below, while clients selected in the Auto Skip Client List will still skip <b>automatically</b>.
-                                    <br />
+                                    (<b>Restart required!</b>) If checked, a skip button will be added <b>to the server</b> and displayed according to the settings below.<br />
+                                    This button is <b>separate</b> from the Media Segment Actions in Jellyfin 10.10 and compatible clients.<br />
                                 </div>
                             </div>
 
@@ -368,7 +368,10 @@
                             <details>
                                 <summary>User Interface Customization</summary>
 
-                                <br />
+                                <p>
+                                    <b style="color: orange">These settings do not apply to Media Segment Actions in Jellyfin 10.10 and compatible clients.</b>
+                                </p>
+
                                 <div id="SkipButtonSettings">
                                     <div id="PersistContainer" class="checkboxContainer checkboxContainer-withDescription">
                                         <label class="emby-checkbox-label">
@@ -377,8 +380,7 @@
                                         </label>
 
                                         <div class="fieldDescription">
-                                            If checked, skip button will remain visible for the entire intro (offset and timeout are ignored).
-                                            <br />
+                                            If checked, skip button will remain visible for the entire intro (offset and timeout are ignored).<br />
                                             Note: If unchecked, button will only appear in the player controls after the set timeout.
                                         </div>
                                     </div>
@@ -459,7 +461,7 @@
                             <legend>Advanced</legend>
 
                             <details id="visualizer">
-                                <summary>Manage Timestamps & Fingerprints</summary>
+                                <summary>Edit Timestamps & Fingerprints</summary>
 
                                 <br />
                                 <label class="inputLabel" for="troubleshooterShow">Select TV series / movie to manage</label>
