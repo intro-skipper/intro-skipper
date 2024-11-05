@@ -180,7 +180,6 @@ namespace IntroSkipper.Services
         public void Dispose()
         {
             _playbackTimer.Dispose();
-            GC.SuppressFinalize(this);
         }
 
         /// <inheritdoc />
