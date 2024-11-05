@@ -304,12 +304,12 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
     {
         using var db = new IntroSkipperDbContext(_dbPath);
 
-        // Get all existing segments in a single query
+        // Retrieve existing segments
         var existingSegments = db.DbSegment
             .Where(s => newTimestamps.Keys.Contains(s.ItemId) && s.Type == mode)
             .ToDictionary(s => s.ItemId);
 
-        // Batch updates and inserts
+        // Prepare lists for batch operations
         var segmentsToAdd = new List<DbSegment>();
 
         foreach (var (itemId, segment) in newTimestamps)
@@ -317,26 +317,30 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
             var dbSegment = new DbSegment(segment, mode);
             if (existingSegments.TryGetValue(itemId, out var existing))
             {
+                // Update existing segment
                 db.Entry(existing).CurrentValues.SetValues(dbSegment);
             }
             else
             {
+                // Add new segment
                 segmentsToAdd.Add(dbSegment);
             }
         }
 
+        // Batch add new segments
         if (segmentsToAdd.Count > 0)
         {
             await db.DbSegment.AddRangeAsync(segmentsToAdd).ConfigureAwait(false);
         }
 
+        // Save all changes asynchronously
         await db.SaveChangesAsync().ConfigureAwait(false);
     }
 
     internal async Task ClearInvalidSegments()
     {
         using var db = new IntroSkipperDbContext(_dbPath);
-        db.DbSegment.RemoveRange(db.DbSegment.Where(s => s.End == 0));
+        db.DbSegment.RemoveRange(db.DbSegment.Where(s => s.End == 0.0));
         await db.SaveChangesAsync().ConfigureAwait(false);
     }
 
