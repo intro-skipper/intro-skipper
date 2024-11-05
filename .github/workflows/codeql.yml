@@ -3,16 +3,7 @@ name: "CodeQL"
 on:
   push:
     branches:
-      - '*'
-    paths-ignore:
-      - "**/README.md"
-      - ".github/ISSUE_TEMPLATE/**"
-      - "docs/**"
-      - "images/**"
-      - "manifest.json"
-  pull_request:
-    branches:
-      - '*'
+      - '*'  # Triggers on any branch push
     paths-ignore:
       - "**/README.md"
       - ".github/ISSUE_TEMPLATE/**"
