@@ -306,10 +306,8 @@
                             <div class="checkboxContainer checkboxContainer-withDescription">
                                 <label class="emby-checkbox-label">
                                     <input id="AutoSkip" type="checkbox" is="emby-checkbox" />
-                                    <span>Automatically Skip Intros for all clients</span>
+                                    <span>Automatically Skip Segments for All Client</span>
                                 </label>
-
-                                <div class="fieldDescription">If checked, intros will be automatically skipped for <b>all</b> clients.</div>
                             </div>
 
                             <div class="AutoSkipClientListContainer">
@@ -333,22 +331,22 @@
                             <div id="divSkipFirstEpisode" class="checkboxContainer checkboxContainer-withDescription">
                                 <label class="emby-checkbox-label">
                                     <input id="SkipFirstEpisode" type="checkbox" is="emby-checkbox" />
-                                    <span>Play Intro for First Episode of a Season</span>
+                                    <span>Play Segments for First Episode of a Season</span>
                                 </label>
 
-                                <div class="fieldDescription">If checked, auto skip will play the introduction of the first episode in a season.</div>
+                                <div class="fieldDescription">If checked, auto skip will play the segments of the first episode in a season.</div>
                             </div>
 
                             <div id="divSecondsOfIntroStartToPlay" class="inputContainer">
-                                <label class="inputLabel inputLabelUnfocused" for="SecondsOfIntroStartToPlay"> Intro skip delay (in seconds) </label>
+                                <label class="inputLabel inputLabelUnfocused" for="SecondsOfIntroStartToPlay"> Segment skip delay (in seconds) </label>
                                 <input id="SecondsOfIntroStartToPlay" type="number" is="emby-input" min="0" />
-                                <div class="fieldDescription">Seconds of introduction start that should be played. Defaults to 0.</div>
+                                <div class="fieldDescription">Seconds of segment start that should be played. Defaults to 0.</div>
                             </div>
 
                             <div class="inputContainer">
-                                <label class="inputLabel inputLabelUnfocused" for="RemainingSecondsOfIntro"> Intro playback duration (in seconds) </label>
+                                <label class="inputLabel inputLabelUnfocused" for="RemainingSecondsOfIntro"> Segment playback duration (in seconds) </label>
                                 <input id="RemainingSecondsOfIntro" type="number" is="emby-input" min="0" />
-                                <div class="fieldDescription">Seconds of introduction ending that should be played. Defaults to 2.</div>
+                                <div class="fieldDescription">Seconds of segment ending that should be played. Defaults to 2.</div>
                             </div>
 
                             <div id="SkipButtonContainer" class="checkboxContainer checkboxContainer-withDescription">
