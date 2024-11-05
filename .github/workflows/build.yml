@@ -3,16 +3,7 @@ name: "Build Plugin"
 on:
   push:
     branches:
-      - '*'
-    paths-ignore:
-      - "**/README.md"
-      - ".github/ISSUE_TEMPLATE/**"
-      - "docs/**"
-      - "images/**"
-      - "manifest.json"
-  pull_request:
-    branches:
-      - '*'
+      - '*'  # Triggers on any branch push
     paths-ignore:
       - "**/README.md"
       - ".github/ISSUE_TEMPLATE/**"
@@ -99,27 +90,15 @@ jobs:
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4.3.6
-        if: github.event_name != 'pull_request'
         with:
           name: IntroSkipper-${{ env.GIT_HASH }}.dll
           path: IntroSkipper/bin/Debug/net8.0/IntroSkipper.dll
           if-no-files-found: error
 
-      - name: Upload artifact
-        uses: actions/upload-artifact@v4.3.6
-        if: github.event_name == 'pull_request'
-        with:
-          name: IntroSkipper-${{ env.SANITIZED_BRANCH_NAME }}.dll
-          path: IntroSkipper/bin/Debug/net8.0/IntroSkipper.dll
-          retention-days: 3
-          if-no-files-found: error
-
       - name: Create archive
-        if: github.event_name != 'pull_request'
         run: zip -j "intro-skipper-${{ env.GIT_HASH }}.zip" IntroSkipper/bin/Debug/net8.0/IntroSkipper.dll
 
       - name: Create/replace the preview release and upload artifacts
-        if: github.event_name != 'pull_request'
         run: |
           gh release delete "${{ env.MAIN_VERSION }}/preview" --cleanup-tag --yes || true
           gh release create "${{ env.MAIN_VERSION }}/preview" "intro-skipper-${{ env.GIT_HASH }}.zip" --prerelease --title "intro-skipper-${{ env.GIT_HASH }}" --notes "This is a prerelease version."  --target ${{ env.MAIN_VERSION }}
