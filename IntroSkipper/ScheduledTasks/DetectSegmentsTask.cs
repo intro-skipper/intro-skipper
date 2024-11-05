@@ -73,7 +73,7 @@ public class DetectSegmentsTask(
         // abort automatic analyzer if running
         if (Entrypoint.AutomaticTaskState == TaskState.Running || Entrypoint.AutomaticTaskState == TaskState.Cancelling)
         {
-            _logger.LogInformation("Automatic Task is {0} and will be canceled.", Entrypoint.AutomaticTaskState);
+            _logger.LogInformation("Automatic Task is {TaskState} and will be canceled.", Entrypoint.AutomaticTaskState);
             await Entrypoint.CancelAutomaticTaskAsync(cancellationToken).ConfigureAwait(false);
         }
 
@@ -87,7 +87,7 @@ public class DetectSegmentsTask(
                 _libraryManager,
                 _mediaSegmentUpdateManager);
 
-            await baseIntroAnalyzer.AnalyzeItems(progress, cancellationToken).ConfigureAwait(false);
+            await baseIntroAnalyzer.AnalyzeItemsAsync(progress, cancellationToken).ConfigureAwait(false);
         }
     }
 

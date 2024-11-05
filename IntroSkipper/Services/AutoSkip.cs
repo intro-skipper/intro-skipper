@@ -2,15 +2,15 @@
 // SPDX-License-Identifier: GPL-3.0-only.
 
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Timers;
 using IntroSkipper.Configuration;
+using IntroSkipper.Controllers;
 using IntroSkipper.Data;
-using IntroSkipper.Db;
-using MediaBrowser.Common.Extensions;
 using MediaBrowser.Controller.Library;
 using MediaBrowser.Controller.Session;
 using MediaBrowser.Model.Entities;
@@ -18,7 +18,6 @@ using MediaBrowser.Model.Plugins;
 using MediaBrowser.Model.Session;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
-using Timer = System.Timers.Timer;
 
 namespace IntroSkipper.Services
 {
@@ -32,124 +31,105 @@ namespace IntroSkipper.Services
     /// <param name="userDataManager">User data manager.</param>
     /// <param name="sessionManager">Session manager.</param>
     /// <param name="logger">Logger.</param>
-    public class AutoSkip(
+    public sealed class AutoSkip(
         IUserDataManager userDataManager,
         ISessionManager sessionManager,
         ILogger<AutoSkip> logger) : IHostedService, IDisposable
     {
-        private readonly object _sentSeekCommandLock = new();
-
-        private ILogger<AutoSkip> _logger = logger;
-        private IUserDataManager _userDataManager = userDataManager;
-        private ISessionManager _sessionManager = sessionManager;
-        private Timer _playbackTimer = new(1000);
-        private Dictionary<string, bool> _sentSeekCommand = [];
+        private readonly IUserDataManager _userDataManager = userDataManager;
+        private readonly ISessionManager _sessionManager = sessionManager;
+        private readonly ILogger<AutoSkip> _logger = logger;
+        private readonly System.Timers.Timer _playbackTimer = new(1000);
+        private readonly ConcurrentDictionary<string, List<Intro>> _sentSeekCommand = [];
+        private PluginConfiguration _config = new();
         private HashSet<string> _clientList = [];
+        private HashSet<AnalysisMode> _segmentTypes = [];
 
         private void AutoSkipChanged(object? sender, BasePluginConfiguration e)
         {
-            var configuration = (PluginConfiguration)e;
-            _clientList = [.. configuration.ClientList.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)];
-            var newState = configuration.AutoSkip || _clientList.Count > 0;
+            _config = (PluginConfiguration)e;
+            _clientList = [.. _config.ClientList.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)];
+            _segmentTypes = [.. _config.TypeList.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).Select(Enum.Parse<AnalysisMode>)];
+            var newState = (_config.AutoSkip || _clientList.Count > 0) && _segmentTypes.Count > 0;
             _logger.LogDebug("Setting playback timer enabled to {NewState}", newState);
             _playbackTimer.Enabled = newState;
         }
 
         private void UserDataManager_UserDataSaved(object? sender, UserDataSaveEventArgs e)
         {
-            var itemId = e.Item.Id;
-            var newState = false;
-            var episodeNumber = e.Item.IndexNumber.GetValueOrDefault(-1);
-
             // Ignore all events except playback start & end
-            if (e.SaveReason != UserDataSaveReason.PlaybackStart && e.SaveReason != UserDataSaveReason.PlaybackFinished)
+            if (e.SaveReason is not UserDataSaveReason.PlaybackStart and not UserDataSaveReason.PlaybackFinished)
             {
                 return;
             }
+
+            var itemId = e.Item.Id;
 
             // Lookup the session for this item.
-            SessionInfo? session = null;
+            var session = _sessionManager.Sessions
+                    .FirstOrDefault(s => s?.UserId == e.UserId && s?.NowPlayingItem?.Id == itemId);
 
-            try
+            if (session is null)
             {
-                foreach (var needle in _sessionManager.Sessions)
-                {
-                    if (needle.UserId == e.UserId && needle.NowPlayingItem.Id == itemId)
-                    {
-                        session = needle;
-                        break;
-                    }
-                }
-
-                if (session == null)
-                {
-                    _logger.LogInformation("Unable to find session for {Item}", itemId);
-                    return;
-                }
-            }
-            catch (Exception ex) when (ex is NullReferenceException || ex is ResourceNotFoundException)
-            {
+                _logger.LogInformation("Unable to find session for {Item}", itemId);
                 return;
-            }
-
-            // If this is the first episode in the season, and SkipFirstEpisode is false, pretend that we've already sent the seek command for this playback session.
-            if (Plugin.Instance!.Configuration.SkipFirstEpisode && episodeNumber == 1)
-            {
-                newState = true;
             }
 
             // Reset the seek command state for this device.
-            lock (_sentSeekCommandLock)
+            var device = session.DeviceId;
+            _logger.LogDebug("Resetting seek command state for session {Session}", device);
+            if (e.SaveReason == UserDataSaveReason.PlaybackStart)
             {
-                var device = session.DeviceId;
-
-                _logger.LogDebug("Resetting seek command state for session {Session}", device);
-                _sentSeekCommand[device] = newState;
+                bool firstEpisode = _config.SkipFirstEpisode && e.Item.IndexNumber.GetValueOrDefault(-1) == 1;
+                var intros = SkipIntroController.GetIntros(itemId).Values
+                        .Where(i => _segmentTypes.Contains(i.SegmentType) && (!firstEpisode || i.SegmentType != AnalysisMode.Introduction)).ToList();
+                _sentSeekCommand.AddOrUpdate(device, intros, (_, _) => intros);
+            }
+            else
+            {
+                _sentSeekCommand.TryRemove(device, out _);
             }
         }
 
         private void PlaybackTimer_Elapsed(object? sender, ElapsedEventArgs e)
         {
-            foreach (var session in _sessionManager.Sessions.Where(s => Plugin.Instance!.Configuration.AutoSkip || _clientList.Contains(s.Client, StringComparer.OrdinalIgnoreCase)))
+            foreach (var session in _sessionManager.Sessions.Where(s => _config.AutoSkip || _clientList.Contains(s.Client, StringComparer.OrdinalIgnoreCase)))
             {
                 var deviceId = session.DeviceId;
                 var itemId = session.NowPlayingItem.Id;
                 var position = session.PlayState.PositionTicks / TimeSpan.TicksPerSecond;
+                Intro? intro;
 
                 // Don't send the seek command more than once in the same session.
-                lock (_sentSeekCommandLock)
-                {
-                    if (_sentSeekCommand.TryGetValue(deviceId, out var sent) && sent)
-                    {
-                        _logger.LogTrace("Already sent seek command for session {Session}", deviceId);
-                        continue;
-                    }
-                }
+                var intros = _sentSeekCommand.GetOrAdd(deviceId, _ => []);
 
-                // Assert that an intro was detected for this item.
-                var intro = Plugin.Instance!.GetSegmentByMode(itemId, AnalysisMode.Introduction);
-                if (!intro.Valid)
+                intro = intros.FirstOrDefault(i =>
+                        position >= Math.Max(1, i.IntroStart + _config.SecondsOfIntroStartToPlay) &&
+                        position < i.IntroEnd);
+
+                if (intro is null)
                 {
                     continue;
                 }
 
-                // Seek is unreliable if called at the very start of an episode.
-                var adjustedStart = Math.Max(1, intro.Start + Plugin.Instance.Configuration.SecondsOfIntroStartToPlay);
-                var adjustedEnd = intro.End - Plugin.Instance.Configuration.RemainingSecondsOfIntro;
+                intros.Remove(intro);
+
+                _logger.LogDebug("Found {Intro} for session {Session}, removing from list, {Intros} segments remaining", intro.SegmentType, deviceId, intros.Count);
 
                 _logger.LogTrace(
-                    "Playback position is {Position}, intro runs from {Start} to {End}",
-                    position,
-                    adjustedStart,
-                    adjustedEnd);
-
-                if (position < adjustedStart || position > adjustedEnd)
-                {
-                    continue;
-                }
+                    "Playback position is {Position}",
+                    position);
 
                 // Notify the user that an introduction is being skipped for them.
-                var notificationText = Plugin.Instance.Configuration.AutoSkipNotificationText;
+                var notificationText = intro.SegmentType switch
+                {
+                    AnalysisMode.Introduction => _config.AutoSkipNotificationText,
+                    AnalysisMode.Credits => _config.AutoSkipCreditsNotificationText,
+                    AnalysisMode.Recap => _config.AutoSkipRecapNotificationText,
+                    AnalysisMode.Preview => _config.AutoSkipPreviewNotificationText,
+                    _ => string.Empty
+                };
+
                 if (!string.IsNullOrWhiteSpace(notificationText))
                 {
                     _sessionManager.SendMessageCommand(
@@ -173,41 +153,22 @@ namespace IntroSkipper.Services
                     {
                         Command = PlaystateCommand.Seek,
                         ControllingUserId = session.UserId.ToString(),
-                        SeekPositionTicks = (long)adjustedEnd * TimeSpan.TicksPerSecond,
+                        SeekPositionTicks = (long)intro.IntroEnd * TimeSpan.TicksPerSecond,
                     },
                     CancellationToken.None);
 
                 // Flag that we've sent the seek command so that it's not sent repeatedly
-                lock (_sentSeekCommandLock)
-                {
-                    _logger.LogTrace("Setting seek command state for session {Session}", deviceId);
-                    _sentSeekCommand[deviceId] = true;
-                }
+                _logger.LogTrace("Setting seek command state for session {Session}", deviceId);
             }
         }
 
         /// <summary>
-        /// Dispose.
+        /// Dispose resources.
         /// </summary>
         public void Dispose()
         {
-            Dispose(true);
-            GC.SuppressFinalize(this);
-        }
-
-        /// <summary>
-        /// Protected dispose.
-        /// </summary>
-        /// <param name="disposing">Dispose.</param>
-        protected virtual void Dispose(bool disposing)
-        {
-            if (!disposing)
-            {
-                return;
-            }
-
-            _playbackTimer.Stop();
             _playbackTimer.Dispose();
+            GC.SuppressFinalize(this);
         }
 
         /// <inheritdoc />
@@ -231,6 +192,8 @@ namespace IntroSkipper.Services
         public Task StopAsync(CancellationToken cancellationToken)
         {
             _userDataManager.UserDataSaved -= UserDataManager_UserDataSaved;
+            Plugin.Instance!.ConfigurationChanged -= AutoSkipChanged;
+            _playbackTimer.Stop();
             return Task.CompletedTask;
         }
     }

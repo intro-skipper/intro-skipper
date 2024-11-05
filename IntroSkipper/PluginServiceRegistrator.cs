@@ -19,7 +19,6 @@ namespace IntroSkipper
         public void RegisterServices(IServiceCollection serviceCollection, IServerApplicationHost applicationHost)
         {
             serviceCollection.AddHostedService<AutoSkip>();
-            serviceCollection.AddHostedService<AutoSkipCredits>();
             serviceCollection.AddHostedService<Entrypoint>();
             serviceCollection.AddSingleton<IMediaSegmentProvider, SegmentProvider>();
             serviceCollection.AddSingleton<MediaSegmentUpdateManager>();

@@ -3,7 +3,6 @@
 
 using System;
 using System.Collections.Generic;
-using System.Collections.ObjectModel;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
@@ -41,21 +40,20 @@ public class BaseItemAnalyzerTask(
     /// <summary>
     /// Analyze all media items on the server.
     /// </summary>
-    /// <param name="progress">Progress.</param>
+    /// <param name="progress">Progress reporter.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
-    /// <param name="seasonsToAnalyze">Season Ids to analyze.</param>
-    /// <returns>A <see cref="Task"/> representing the asynchronous operation.</returns>
-    public async Task AnalyzeItems(
+    /// <param name="seasonsToAnalyze">Season IDs to analyze.</param>
+    /// <returns>A task representing the asynchronous operation.</returns>
+    public async Task AnalyzeItemsAsync(
         IProgress<double> progress,
         CancellationToken cancellationToken,
         IReadOnlyCollection<Guid>? seasonsToAnalyze = null)
     {
-        var ffmpegValid = FFmpegWrapper.CheckFFmpegVersion();
         // Assert that ffmpeg with chromaprint is installed
-        if (_config.WithChromaprint && !ffmpegValid)
+        if (_config.WithChromaprint && !FFmpegWrapper.CheckFFmpegVersion())
         {
             throw new FingerprintException(
-                "Analysis terminated! Chromaprint is not enabled in the current ffmpeg. If Jellyfin is running natively, install jellyfin-ffmpeg5. If Jellyfin is running in a container, upgrade to version 10.8.0 or newer.");
+                "Analysis terminated! Chromaprint is not enabled in the current ffmpeg. If Jellyfin is running natively, install jellyfin-ffmpeg7. If Jellyfin is running in a container, upgrade to version 10.10.0 or newer.");
         }
 
         HashSet<AnalysisMode> modes = [
@@ -71,10 +69,10 @@ public class BaseItemAnalyzerTask(
 
         var queue = queueManager.GetMediaItems();
 
-        // Filter the queue based on seasonsToAnalyze
-        if (seasonsToAnalyze is { Count: > 0 })
+        if (seasonsToAnalyze?.Count > 0)
         {
-            queue = queue.Where(kvp => seasonsToAnalyze.Contains(kvp.Key)).ToDictionary(kvp => kvp.Key, kvp => kvp.Value);
+            queue = queue.Where(kvp => seasonsToAnalyze.Contains(kvp.Key))
+                         .ToDictionary(kvp => kvp.Key, kvp => kvp.Value);
         }
 
         int totalQueued = queue.Sum(kvp => kvp.Value.Count) * modes.Count;
@@ -84,67 +82,59 @@ public class BaseItemAnalyzerTask(
                 "No libraries selected for analysis. Please visit the plugin settings to configure.");
         }
 
-        var totalProcessed = 0;
+        int totalProcessed = 0;
         var options = new ParallelOptions
         {
-            MaxDegreeOfParallelism = _config.MaxParallelism,
+            MaxDegreeOfParallelism = Math.Max(1, _config.MaxParallelism),
             CancellationToken = cancellationToken
         };
 
         await Parallel.ForEachAsync(queue, options, async (season, ct) =>
         {
-            var updateManagers = false;
+            var updateMediaSegments = false;
 
-            // Since the first run of the task can run for multiple hours, ensure that none
-            // of the current media items were deleted from Jellyfin since the task was started.
-            var (episodes, requiredModes) = queueManager.VerifyQueue(
-                season.Value,
-                modes);
-
+            var (episodes, requiredModes) = queueManager.VerifyQueue(season.Value, modes);
             if (episodes.Count == 0)
             {
                 return;
             }
 
-            var first = episodes[0];
-            if (modes.Count != requiredModes.Count)
-            {
-                Interlocked.Add(ref totalProcessed, episodes.Count * (modes.Count - requiredModes.Count));
-                progress.Report(totalProcessed * 100 / totalQueued); // Partial analysis some modes have already been analyzed
-            }
-
             try
             {
-                foreach (AnalysisMode mode in requiredModes)
+                var firstEpisode = episodes[0];
+                if (modes.Count != requiredModes.Count)
                 {
+                    Interlocked.Add(ref totalProcessed, episodes.Count * (modes.Count - requiredModes.Count));
+                    progress.Report((double)totalProcessed / totalQueued * 100);
+                }
+
+                foreach (var mode in requiredModes)
+                {
+                    ct.ThrowIfCancellationRequested();
+
                     var action = Plugin.Instance!.GetAnalyzerAction(season.Key, mode);
-                    var analyzed = await AnalyzeItems(episodes, mode, action, ct).ConfigureAwait(false);
+                    int analyzed = await AnalyzeItemsAsync(episodes, mode, action, ct).ConfigureAwait(false);
                     Interlocked.Add(ref totalProcessed, analyzed);
 
-                    updateManagers = analyzed > 0 || updateManagers;
-
-                    progress.Report(totalProcessed * 100 / totalQueued);
+                    updateMediaSegments = analyzed > 0 || updateMediaSegments;
+                    progress.Report((double)totalProcessed / totalQueued * 100);
                 }
             }
-            catch (OperationCanceledException ex)
+            catch (OperationCanceledException)
             {
-                _logger.LogDebug(ex, "Analysis cancelled");
+                _logger.LogInformation("Analysis was canceled.");
             }
             catch (FingerprintException ex)
             {
-                _logger.LogWarning(
-                    "Unable to analyze {Series} season {Season}: unable to fingerprint: {Ex}",
-                    first.SeriesName,
-                    first.SeasonNumber,
-                    ex);
+                _logger.LogWarning(ex, "Fingerprint exception during analysis.");
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "An unexpected error occurred during analysis");
+                _logger.LogError(ex, "An unexpected error occurred during analysis.");
                 throw;
             }
 
-            if (_config.RegenerateMediaSegments || (updateManagers && _config.UpdateMediaSegments))
+            if (_config.RegenerateMediaSegments || (updateMediaSegments && _config.UpdateMediaSegments))
             {
                 await _mediaSegmentUpdateManager.UpdateMediaSegmentsAsync(episodes, ct).ConfigureAwait(false);
             }
@@ -152,7 +142,7 @@ public class BaseItemAnalyzerTask(
 
         if (_config.RegenerateMediaSegments)
         {
-            _logger.LogInformation("Turning Mediasegment");
+            _logger.LogInformation("Regenerated media segments.");
             _config.RegenerateMediaSegments = false;
             Plugin.Instance!.SaveConfiguration();
         }
@@ -165,16 +155,15 @@ public class BaseItemAnalyzerTask(
     /// <param name="mode">Analysis mode.</param>
     /// <param name="action">Analyzer action.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
-    /// <returns>Number of items that were successfully analyzed.</returns>
-    private async Task<int> AnalyzeItems(
+    /// <returns>Number of items successfully analyzed.</returns>
+    private async Task<int> AnalyzeItemsAsync(
         IReadOnlyList<QueuedEpisode> items,
         AnalysisMode mode,
         AnalyzerAction action,
         CancellationToken cancellationToken)
     {
-        var totalItems = items.Count(e => !e.GetAnalyzed(mode));
+        int totalItems = items.Count(e => !e.GetAnalyzed(mode));
 
-        // Only analyze specials (season 0) if the user has opted in.
         var first = items[0];
         if (!first.IsMovie && first.SeasonNumber == 0 && !_config.AnalyzeSeasonZero)
         {
@@ -188,24 +177,29 @@ public class BaseItemAnalyzerTask(
             first.SeriesName,
             first.SeasonNumber);
 
-        var analyzers = new Collection<IMediaFileAnalyzer>();
+        var analyzers = new List<IMediaFileAnalyzer>();
 
-        if (action == AnalyzerAction.Chapter || action == AnalyzerAction.Default)
+        if (action == AnalyzerAction.Default || action == AnalyzerAction.Chapter)
         {
             analyzers.Add(new ChapterAnalyzer(_loggerFactory.CreateLogger<ChapterAnalyzer>()));
         }
 
-        if (first.IsAnime && !first.IsMovie && _config.WithChromaprint && !first.IsMovie && mode != AnalysisMode.Recap && mode != AnalysisMode.Preview && (action == AnalyzerAction.Chromaprint || action == AnalyzerAction.Default))
+        if (first.IsAnime && _config.WithChromaprint &&
+            mode != AnalysisMode.Recap && mode != AnalysisMode.Preview &&
+            (action == AnalyzerAction.Default || action == AnalyzerAction.Chromaprint))
         {
             analyzers.Add(new ChromaprintAnalyzer(_loggerFactory.CreateLogger<ChromaprintAnalyzer>()));
         }
 
-        if (mode == AnalysisMode.Credits && (action == AnalyzerAction.BlackFrame || action == AnalyzerAction.Default))
+        if (mode == AnalysisMode.Credits &&
+            (action == AnalyzerAction.Default || action == AnalyzerAction.BlackFrame))
         {
             analyzers.Add(new BlackFrameAnalyzer(_loggerFactory.CreateLogger<BlackFrameAnalyzer>()));
         }
 
-        if (!first.IsAnime && !first.IsMovie && mode != AnalysisMode.Recap && mode != AnalysisMode.Preview && (action == AnalyzerAction.Chromaprint || action == AnalyzerAction.Default))
+        if (!first.IsAnime && !first.IsMovie &&
+            mode != AnalysisMode.Recap && mode != AnalysisMode.Preview &&
+            (action == AnalyzerAction.Default || action == AnalyzerAction.Chromaprint))
         {
             analyzers.Add(new ChromaprintAnalyzer(_loggerFactory.CreateLogger<ChromaprintAnalyzer>()));
         }
@@ -218,10 +212,14 @@ public class BaseItemAnalyzerTask(
             items = await analyzer.AnalyzeMediaFiles(items, mode, cancellationToken).ConfigureAwait(false);
         }
 
-        // Add items without intros/credits to blacklist.
         var blacklisted = items.Where(e => !e.GetAnalyzed(mode)).ToList();
-        await Plugin.Instance!.UpdateTimestamps(blacklisted.ToDictionary(e => e.EpisodeId, e => new Segment(e.EpisodeId)), mode).ConfigureAwait(false);
-        totalItems -= blacklisted.Count;
+        if (blacklisted.Count != 0)
+        {
+            await Plugin.Instance!.UpdateTimestamps(
+                blacklisted.ToDictionary(e => e.EpisodeId, e => new Segment(e.EpisodeId)),
+                mode).ConfigureAwait(false);
+            totalItems -= blacklisted.Count;
+        }
 
         return totalItems;
     }

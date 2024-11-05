@@ -50,4 +50,9 @@ public class Intro(Segment intro)
     /// Gets or sets the recommended time to hide the skip intro prompt.
     /// </summary>
     public double HideSkipPromptAt { get; set; }
+
+    /// <summary>
+    /// Gets or sets the type of this introduction.
+    /// </summary>
+    public AnalysisMode SegmentType { get; set; }
 }

@@ -306,13 +306,28 @@
                             <div class="checkboxContainer checkboxContainer-withDescription">
                                 <label class="emby-checkbox-label">
                                     <input id="AutoSkip" type="checkbox" is="emby-checkbox" />
-                                    <span>Automatically Skip Intros</span>
+                                    <span>Automatically Skip Intros for all clients</span>
                                 </label>
 
-                                <div class="fieldDescription">
-                                    If checked, intros will be automatically skipped for <b>all</b> clients. Note: Clients cannot disable this setting from the player popup (gear icon).<br />
-                                    If you access Jellyfin through a reverse proxy, it must be configured to proxy websockets.<br />
+                                <div class="fieldDescription">If checked, intros will be automatically skipped for <b>all</b> clients.</div>
+                            </div>
+
+                            <div class="AutoSkipClientListContainer">
+                                <div class="AutoSkipClientList">
+                                    <h3 class="checkboxListLabel">Limit auto skip to the following clients</h3>
+                                    <div class="checkboxList paperList" style="padding: 0.5em 1em" id="autoSkipCheckboxes"></div>
                                 </div>
+                                <label class="inputLabel" for="ClientList"></label>
+                                <input id="ClientList" type="hidden" is="emby-input" />
+                            </div>
+
+                            <div class="AutoSkipTypeListContainer">
+                                <div class="AutoSkipTypeList">
+                                    <h3 class="checkboxListLabel">Auto skip the following types</h3>
+                                    <div class="checkboxList paperList" style="padding: 0.5em 1em" id="autoSkipTypeCheckboxes"></div>
+                                </div>
+                                <label class="inputLabel" for="TypeList"></label>
+                                <input id="TypeList" type="hidden" is="emby-input" />
                             </div>
 
                             <div id="divSkipFirstEpisode" class="checkboxContainer checkboxContainer-withDescription">
@@ -321,15 +336,13 @@
                                     <span>Play Intro for First Episode of a Season</span>
                                 </label>
 
-                                <div class="fieldDescription">If checked, auto skip will play the introduction of the first episode in a season.<br /></div>
-                                <br />
+                                <div class="fieldDescription">If checked, auto skip will play the introduction of the first episode in a season.</div>
                             </div>
 
                             <div id="divSecondsOfIntroStartToPlay" class="inputContainer">
                                 <label class="inputLabel inputLabelUnfocused" for="SecondsOfIntroStartToPlay"> Intro skip delay (in seconds) </label>
                                 <input id="SecondsOfIntroStartToPlay" type="number" is="emby-input" min="0" />
                                 <div class="fieldDescription">Seconds of introduction start that should be played. Defaults to 0.</div>
-                                <br />
                             </div>
 
                             <div class="inputContainer">
@@ -337,33 +350,6 @@
                                 <input id="RemainingSecondsOfIntro" type="number" is="emby-input" min="0" />
                                 <div class="fieldDescription">Seconds of introduction ending that should be played. Defaults to 2.</div>
                             </div>
-
-                            <div class="checkboxContainer checkboxContainer-withDescription">
-                                <label class="emby-checkbox-label">
-                                    <input id="AutoSkipCredits" type="checkbox" is="emby-checkbox" />
-                                    <span>Automatically Skip Credits</span>
-                                </label>
-
-                                <div class="fieldDescription">
-                                    If checked, credits will be automatically skipped for <b>all</b> clients. Note: Clients cannot disable this setting from the player popup (gear icon).<br />
-                                    If you access Jellyfin through a reverse proxy, it must be configured to proxy websockets.<br />
-                                </div>
-                            </div>
-
-                            <div id="divSecondsOfCreditsStartToPlay" class="inputContainer">
-                                <label class="inputLabel inputLabelUnfocused" for="SecondsOfCreditsStartToPlay"> Credit skip delay (in seconds) </label>
-                                <input id="SecondsOfCreditsStartToPlay" type="number" is="emby-input" min="0" />
-                                <div class="fieldDescription">Seconds of credits start that should be played. Defaults to 0.</div>
-                                <br />
-                            </div>
-
-                            <details id="AutoSkipClientList" style="padding-bottom: 1em">
-                                <summary>Auto Skip Client List</summary>
-                                <br />
-                                <div class="checkboxList paperList" style="padding: 0.5em 1em" id="autoSkipCheckboxes"></div>
-                                <label class="inputLabel" for="ClientList"></label>
-                                <input id="ClientList" type="hidden" is="emby-input" />
-                            </details>
 
                             <div id="SkipButtonContainer" class="checkboxContainer checkboxContainer-withDescription">
                                 <label class="emby-checkbox-label">
@@ -424,6 +410,18 @@
                                     <div class="fieldDescription">Text to display in the skip end credits button.</div>
                                 </div>
 
+                                <div class="inputContainer">
+                                    <label class="inputLabel" for="SkipButtonRecapText"> Skip recap button text </label>
+                                    <input id="SkipButtonRecapText" type="text" is="emby-input" />
+                                    <div class="fieldDescription">Text to display in the skip recap button.</div>
+                                </div>
+
+                                <div class="inputContainer">
+                                    <label class="inputLabel" for="SkipButtonPreviewText"> Skip preview button text </label>
+                                    <input id="SkipButtonPreviewText" type="text" is="emby-input" />
+                                    <div class="fieldDescription">Text to display in the skip preview button.</div>
+                                </div>
+
                                 <div id="divAutoSkipNotificationText" class="inputContainer">
                                     <label class="inputLabel" for="AutoSkipNotificationText"> Auto skip intro notification message </label>
                                     <input id="AutoSkipNotificationText" type="text" is="emby-input" />
@@ -434,6 +432,18 @@
                                     <label class="inputLabel" for="AutoSkipCreditsNotificationText"> Auto skip credits notification message </label>
                                     <input id="AutoSkipCreditsNotificationText" type="text" is="emby-input" />
                                     <div class="fieldDescription">Message shown after automatically skipping credits. Leave blank to disable notification.</div>
+                                </div>
+
+                                <div id="divAutoSkipRecapNotificationText" class="inputContainer">
+                                    <label class="inputLabel" for="AutoSkipRecapNotificationText"> Auto skip recap notification message </label>
+                                    <input id="AutoSkipRecapNotificationText" type="text" is="emby-input" />
+                                    <div class="fieldDescription">Message shown after automatically skipping a recap. Leave blank to disable notification.</div>
+                                </div>
+
+                                <div id="divAutoSkipPreviewNotificationText" class="inputContainer">
+                                    <label class="inputLabel" for="AutoSkipPreviewNotificationText"> Auto skip preview notification message </label>
+                                    <input id="AutoSkipPreviewNotificationText" type="text" is="emby-input" />
+                                    <div class="fieldDescription">Message shown after automatically skipping a preview. Leave blank to disable notification.</div>
                                 </div>
                             </details>
                         </fieldset>
@@ -776,7 +786,6 @@
                     "HidePromptAdjustment",
                     "RemainingSecondsOfIntro",
                     "SecondsOfIntroStartToPlay",
-                    "SecondsOfCreditsStartToPlay",
                     // internals
                     "SilenceDetectionMaximumNoise",
                     "SilenceDetectionMinimumDuration",
@@ -784,14 +793,19 @@
                     "ChapterAnalyzerEndCreditsPattern",
                     "ChapterAnalyzerPreviewPattern",
                     "ChapterAnalyzerRecapPattern",
+                    "TypeList",
                     // UI customization
                     "SkipButtonIntroText",
                     "SkipButtonEndCreditsText",
+                    "SkipButtonRecapText",
+                    "SkipButtonPreviewText",
                     "AutoSkipNotificationText",
                     "AutoSkipCreditsNotificationText",
+                    "AutoSkipRecapNotificationText",
+                    "AutoSkipPreviewNotificationText",
                 ];
 
-                var booleanConfigurationFields = ["AutoDetectIntros", "AnalyzeMovies", "AnalyzeSeasonZero", "SelectAllLibraries", "UpdateMediaSegments", "RegenerateMediaSegments", "ScanIntroduction", "ScanCredits", "ScanRecap", "ScanPreview", "CacheFingerprints", "AutoSkip", "AutoSkipCredits", "SkipFirstEpisode", "PersistSkipButton", "SkipButtonEnabled"];
+                var booleanConfigurationFields = ["AutoDetectIntros", "AnalyzeMovies", "AnalyzeSeasonZero", "SelectAllLibraries", "UpdateMediaSegments", "RegenerateMediaSegments", "ScanIntroduction", "ScanCredits", "ScanRecap", "ScanPreview", "CacheFingerprints", "AutoSkip", "SkipFirstEpisode", "PersistSkipButton", "SkipButtonEnabled"];
 
                 // visualizer elements
                 var analyzerActionsSection = document.querySelector("div#analyzerActionsSection");
@@ -831,15 +845,13 @@
                 var librariesContainer = document.querySelector("div.folderAccessListContainer");
                 var skipFirstEpisode = document.querySelector("div#divSkipFirstEpisode");
                 var secondsOfIntroStartToPlay = document.querySelector("div#divSecondsOfIntroStartToPlay");
-                var autoSkipClientList = document.getElementById("AutoSkipClientList");
-                var secondsOfCreditsStartToPlay = document.querySelector("div#divSecondsOfCreditsStartToPlay");
+                var autoSkipClientList = document.querySelector("div.AutoSkipClientListContainer");
                 var movieCreditsDuration = document.getElementById("movieCreditsDuration");
-                var autoSkipNotificationText = document.querySelector("div#divAutoSkipNotificationText");
-                var autoSkipCredits = document.querySelector("input#AutoSkipCredits");
-                var autoSkipCreditsNotificationText = document.querySelector("div#divAutoSkipCreditsNotificationText");
+                var autoSkipRecap = document.querySelector("input#AutoSkipRecap");
+                var autoSkipPreview = document.querySelector("input#AutoSkipPreview");
 
                 function skipButtonVisibleChanged() {
-                    if (autoSkip.checked && autoSkipCredits.checked) {
+                    if (autoSkip.checked) {
                         skipButtonSettings.style.display = "none";
                     } else if (skipButtonVisible.checked) {
                         skipButtonSettings.style.display = "unset";
@@ -850,18 +862,10 @@
 
                 skipButtonVisible.addEventListener("change", skipButtonVisibleChanged);
 
-                function skipButtonVisibleText() {
-                    if (autoSkip.checked && autoSkipCredits.checked) {
+                function autoSkipChanged() {
+                    if (autoSkip.checked) {
                         autoSkipClientList.style.display = "none";
                         skipButtonVisibleLabel.textContent = "Button unavailable due to auto skip";
-                    } else if (autoSkip.checked) {
-                        autoSkipClientList.style.display = "unset";
-                        autoSkipClientList.style.width = "100%";
-                        skipButtonVisibleLabel.textContent = "Show Skip Credit Button";
-                    } else if (autoSkipCredits.checked) {
-                        autoSkipClientList.style.display = "unset";
-                        autoSkipClientList.style.width = "100%";
-                        skipButtonVisibleLabel.textContent = "Show Skip Intro Button";
                     } else {
                         autoSkipClientList.style.display = "unset";
                         autoSkipClientList.style.width = "100%";
@@ -870,35 +874,7 @@
                     skipButtonVisibleChanged();
                 }
 
-                function autoSkipChanged() {
-                    if (autoSkip.checked) {
-                        skipFirstEpisode.style.display = "unset";
-                        autoSkipNotificationText.style.display = "unset";
-                        secondsOfIntroStartToPlay.style.display = "unset";
-                    } else {
-                        skipFirstEpisode.style.display = "none";
-                        autoSkipNotificationText.style.display = "none";
-                        secondsOfIntroStartToPlay.style.display = "none";
-                    }
-                    skipButtonVisibleText();
-                }
-
                 autoSkip.addEventListener("change", autoSkipChanged);
-
-                function autoSkipCreditsChanged() {
-                    if (autoSkipCredits.checked) {
-                        autoSkipCreditsNotificationText.style.display = "unset";
-                        secondsOfCreditsStartToPlay.style.display = "unset";
-                    } else {
-                        autoSkipCreditsNotificationText.style.display = "none";
-                        secondsOfCreditsStartToPlay.style.display = "none";
-                    }
-                    skipButtonVisibleText();
-                }
-
-                autoSkipCredits.addEventListener("change", autoSkipCreditsChanged);
-
-                skipButtonVisibleText(); // run once on launch for legacy installs
 
                 function selectAllLibrariesChanged() {
                     if (selectAllLibraries.checked) {
@@ -920,12 +896,12 @@
                     const container = document.getElementById(containerId);
                     const checkedItems = new Set(document.getElementById(textFieldId).value.split(", ").filter(Boolean));
                     const fragment = document.createDocumentFragment();
-                    items.forEach((item) => {
+                    for (const item of items) {
                         const label = document.createElement("label");
                         label.className = "emby-checkbox-label";
                         label.innerHTML = '<input type="checkbox" is="emby-checkbox"' + (checkedItems.has(item) ? " checked" : "") + ">" + '<span class="checkboxLabel">' + item + "</span>";
                         fragment.appendChild(label);
-                    });
+                    }
                     container.innerHTML = "";
                     container.appendChild(fragment);
                     container.addEventListener(
@@ -941,6 +917,11 @@
                     const response = await getJson("Devices");
                     const devices = [...new Set(response.Items.map((item) => item.AppName))];
                     generateCheckboxList(devices, "autoSkipCheckboxes", "ClientList");
+                }
+
+                async function generateAutoSkipTypeList() {
+                    const types = ["Introduction", "Credits", "Recap", "Preview"];
+                    generateCheckboxList(types, "autoSkipTypeCheckboxes", "TypeList");
                 }
 
                 async function populateLibraries() {
@@ -1463,8 +1444,8 @@
                         populateLibraries();
                         selectAllLibrariesChanged();
                         autoSkipChanged();
-                        autoSkipCreditsChanged();
                         persistSkipChanged();
+                        generateAutoSkipTypeList();
                         generateAutoSkipClientList();
 
                         Dashboard.hideLoadingMsg();

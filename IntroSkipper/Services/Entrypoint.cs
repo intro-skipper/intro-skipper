@@ -196,7 +196,7 @@ namespace IntroSkipper.Services
                     _analyzeAgain = false;
 
                     var analyzer = new BaseItemAnalyzerTask(_loggerFactory.CreateLogger<Entrypoint>(), _loggerFactory, _libraryManager, _mediaSegmentUpdateManager);
-                    await analyzer.AnalyzeItems(new Progress<double>(), _cancellationTokenSource.Token, seasonIds).ConfigureAwait(false);
+                    await analyzer.AnalyzeItemsAsync(new Progress<double>(), _cancellationTokenSource.Token, seasonIds).ConfigureAwait(false);
 
                     if (_analyzeAgain && !_cancellationTokenSource.IsCancellationRequested)
                     {

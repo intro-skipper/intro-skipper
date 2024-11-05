@@ -164,29 +164,44 @@ public class SkipIntroController(MediaSegmentUpdateManager mediaSegmentUpdateMan
     [HttpGet("Episode/{id}/IntroSkipperSegments")]
     public ActionResult<Dictionary<AnalysisMode, Intro>> GetSkippableSegments([FromRoute] Guid id)
     {
+        return GetIntros(id);
+    }
+
+    /// <summary>
+    /// Gets a dictionary of all skippable segments.
+    /// </summary>
+    /// <param name="id">Media ID.</param>
+    /// <response code="200">Skippable segments dictionary.</response>
+    /// <returns>Dictionary of skippable segments.</returns>
+    [HttpGet("Episode/{id}/IntroSkipperSegments/v2")]
+    public ActionResult<Dictionary<AnalysisMode, Intro>> GetSkippableSegmentsV2([FromRoute] Guid id)
+    {
         var segments = GetIntros(id);
+        var skippableSegments = new Dictionary<AnalysisMode, Intro>();
 
-        if (segments.TryGetValue(AnalysisMode.Introduction, out var introSegment))
+        var modes = new[] { AnalysisMode.Introduction, AnalysisMode.Credits, AnalysisMode.Recap, AnalysisMode.Preview };
+
+        foreach (var mode in modes)
         {
-            segments[AnalysisMode.Introduction] = introSegment;
+            if (segments.TryGetValue(mode, out var segment))
+            {
+                segment.SegmentType = mode;
+                skippableSegments[mode] = segment;
+            }
         }
 
-        if (segments.TryGetValue(AnalysisMode.Credits, out var creditSegment))
-        {
-            segments[AnalysisMode.Credits] = creditSegment;
-        }
-
-        return segments;
+        return skippableSegments;
     }
 
     /// <summary>Lookup and return the skippable timestamps for the provided item.</summary>
     /// <param name="id">Unique identifier of this episode.</param>
     /// <returns>Intro object if the provided item has an intro, null otherwise.</returns>
-    private static Dictionary<AnalysisMode, Intro> GetIntros(Guid id)
+    internal static Dictionary<AnalysisMode, Intro> GetIntros(Guid id)
     {
         var timestamps = Plugin.Instance!.GetSegmentsById(id);
         var intros = new Dictionary<AnalysisMode, Intro>();
         var runTime = TimeSpan.FromTicks(Plugin.Instance!.GetItem(id)?.RunTimeTicks ?? 0).TotalSeconds;
+        var config = Plugin.Instance.Configuration;
 
         foreach (var (mode, timestamp) in timestamps)
         {
@@ -196,8 +211,10 @@ public class SkipIntroController(MediaSegmentUpdateManager mediaSegmentUpdateMan
             }
 
             // Create new Intro to avoid mutating the original stored in dictionary
-            var segment = new Intro(timestamp);
-            var config = Plugin.Instance.Configuration;
+            var segment = new Intro(timestamp)
+            {
+                SegmentType = mode,
+            };
 
             // Calculate intro end time
             segment.IntroEnd = runTime > 0 && runTime < segment.IntroEnd + 1
@@ -267,8 +284,12 @@ public class SkipIntroController(MediaSegmentUpdateManager mediaSegmentUpdateMan
             config.SkipButtonEnabled,
             config.SkipButtonIntroText,
             config.SkipButtonEndCreditsText,
+            config.SkipButtonRecapText,
+            config.SkipButtonPreviewText,
             config.AutoSkip,
             config.AutoSkipCredits,
+            config.AutoSkipRecap,
+            config.AutoSkipPreview,
             config.ClientList);
     }
 }

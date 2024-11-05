@@ -1,6 +1,7 @@
 // Copyright (C) 2024 Intro-Skipper contributors <intro-skipper.org>
 // SPDX-License-Identifier: GPL-3.0-only.
 
+using System.Collections.Generic;
 using System.Diagnostics;
 using IntroSkipper.Data;
 using MediaBrowser.Model.Plugins;
@@ -166,7 +167,7 @@ public class PluginConfiguration : BasePluginConfiguration
     /// <summary>
     /// Gets or sets a value indicating whether to show the skip intro button.
     /// </summary>
-    public bool SkipButtonEnabled { get; set; } = false;
+    public bool SkipButtonEnabled { get; set; }
 
     /// <summary>
     /// Gets a value indicating whether to show the skip intro warning.
@@ -179,9 +180,24 @@ public class PluginConfiguration : BasePluginConfiguration
     public bool AutoSkip { get; set; }
 
     /// <summary>
+    /// Gets or sets the list of segment types to auto skip.
+    /// </summary>
+    public string TypeList { get; set; } = string.Empty;
+
+    /// <summary>
     /// Gets or sets a value indicating whether credits should be automatically skipped.
     /// </summary>
     public bool AutoSkipCredits { get; set; }
+
+    /// <summary>
+    /// Gets or sets a value indicating whether recap should be automatically skipped.
+    /// </summary>
+    public bool AutoSkipRecap { get; set; }
+
+    /// <summary>
+    /// Gets or sets a value indicating whether preview should be automatically skipped.
+    /// </summary>
+    public bool AutoSkipPreview { get; set; }
 
     /// <summary>
     /// Gets or sets the seconds before the intro starts to show the skip prompt at.
@@ -212,11 +228,6 @@ public class PluginConfiguration : BasePluginConfiguration
     /// Gets or sets the amount of intro at start to play (in seconds).
     /// </summary>
     public int SecondsOfIntroStartToPlay { get; set; }
-
-    /// <summary>
-    /// Gets or sets the amount of credit at start to play (in seconds).
-    /// </summary>
-    public int SecondsOfCreditsStartToPlay { get; set; }
 
     // ===== Internal algorithm settings =====
 
@@ -260,6 +271,16 @@ public class PluginConfiguration : BasePluginConfiguration
     public string SkipButtonEndCreditsText { get; set; } = "Next";
 
     /// <summary>
+    /// Gets or sets the text to display in the skip button in recap mode.
+    /// </summary>
+    public string SkipButtonRecapText { get; set; } = "Skip Recap";
+
+    /// <summary>
+    /// Gets or sets the text to display in the skip button in preview mode.
+    /// </summary>
+    public string SkipButtonPreviewText { get; set; } = "Skip Preview";
+
+    /// <summary>
     /// Gets or sets the notification text sent after automatically skipping an introduction.
     /// </summary>
     public string AutoSkipNotificationText { get; set; } = "Intro skipped";
@@ -268,6 +289,16 @@ public class PluginConfiguration : BasePluginConfiguration
     /// Gets or sets the notification text sent after automatically skipping credits.
     /// </summary>
     public string AutoSkipCreditsNotificationText { get; set; } = "Credits skipped";
+
+    /// <summary>
+    /// Gets or sets the notification text sent after automatically skipping recap.
+    /// </summary>
+    public string AutoSkipRecapNotificationText { get; set; } = "Recap skipped";
+
+    /// <summary>
+    /// Gets or sets the notification text sent after automatically skipping preview.
+    /// </summary>
+    public string AutoSkipPreviewNotificationText { get; set; } = "Preview skipped";
 
     /// <summary>
     /// Gets or sets the max degree of parallelism used when analyzing episodes.
