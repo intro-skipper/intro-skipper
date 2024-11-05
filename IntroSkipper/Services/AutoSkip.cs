@@ -98,24 +98,23 @@ namespace IntroSkipper.Services
                 var deviceId = session.DeviceId;
                 var itemId = session.NowPlayingItem.Id;
                 var position = session.PlayState.PositionTicks / TimeSpan.TicksPerSecond;
-                Intro? intro;
 
                 // Don't send the seek command more than once in the same session.
                 var intros = _sentSeekCommand.GetOrAdd(deviceId, _ => []);
                 var maxTimeSkip = _config.MaximumTimeSkip + _config.RemainingSecondsOfIntro;
 
-                intro = intros.FirstOrDefault(i =>
+                var currentIntro = intros.FirstOrDefault(i =>
                         position >= Math.Max(1, i.IntroStart + _config.SecondsOfIntroStartToPlay) &&
-                        position < i.IntroEnd - maxTimeSkip);
+                        position < i.IntroEnd - 3.0); // 3 seconds before the end of the intro
 
-                if (intro is null)
+                if (currentIntro is null)
                 {
                     continue;
                 }
 
-                var introEnd = intro.IntroEnd;
+                var introEnd = currentIntro.IntroEnd;
 
-                intros.Remove(intro);
+                intros.Remove(currentIntro);
 
                 // Check if adjacent segment is within the maximum skip range.
                 var nextIntro = intros.FirstOrDefault(i => introEnd + maxTimeSkip >= i.IntroStart &&
@@ -127,14 +126,14 @@ namespace IntroSkipper.Services
                     intros.Remove(nextIntro);
                 }
 
-                _logger.LogDebug("Found {Intro} for session {Session}, removing from list, {Intros} segments remaining", intro.SegmentType, deviceId, intros.Count);
+                _logger.LogDebug("Found {Intro} for session {Session}, removing from list, {Intros} segments remaining", currentIntro.SegmentType, deviceId, intros.Count);
 
                 _logger.LogTrace(
                     "Playback position is {Position}",
                     position);
 
                 // Notify the user that an introduction is being skipped for them.
-                var notificationText = intro.SegmentType switch
+                var notificationText = currentIntro.SegmentType switch
                 {
                     AnalysisMode.Introduction => _config.AutoSkipNotificationText,
                     AnalysisMode.Credits => _config.AutoSkipCreditsNotificationText,
@@ -166,7 +165,7 @@ namespace IntroSkipper.Services
                     {
                         Command = PlaystateCommand.Seek,
                         ControllingUserId = session.UserId.ToString(),
-                        SeekPositionTicks = (long)intro.IntroEnd * TimeSpan.TicksPerSecond,
+                        SeekPositionTicks = (long)introEnd * TimeSpan.TicksPerSecond,
                     },
                     CancellationToken.None);
 
