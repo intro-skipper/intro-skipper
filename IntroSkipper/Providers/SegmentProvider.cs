@@ -47,7 +47,7 @@ namespace IntroSkipper.Providers
             }
 
             // Add outro/credits segment if found
-            if (itemSegments.TryGetValue(AnalysisMode.Introduction, out var creditSegment) && creditSegment.Valid)
+            if (itemSegments.TryGetValue(AnalysisMode.Credits, out var creditSegment) && creditSegment.Valid)
             {
                 var creditEndTicks = (long)(creditSegment.End * TimeSpan.TicksPerSecond);
                 var runTimeTicks = Plugin.Instance.GetItem(request.ItemId)?.RunTimeTicks ?? long.MaxValue;
