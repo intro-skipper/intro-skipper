@@ -99,6 +99,7 @@ jobs:
         run: zip -j "intro-skipper-${{ env.GIT_HASH }}.zip" IntroSkipper/bin/Debug/net8.0/IntroSkipper.dll
 
       - name: Create/replace the preview release and upload artifacts
+        if: startsWith(github.ref_name, '10.') # only do a preview release on 10.x branches
         run: |
           gh release delete "${{ env.MAIN_VERSION }}/preview" --cleanup-tag --yes || true
           gh release create "${{ env.MAIN_VERSION }}/preview" "intro-skipper-${{ env.GIT_HASH }}.zip" --prerelease --title "intro-skipper-${{ env.GIT_HASH }}" --notes "This is a prerelease version."  --target ${{ env.MAIN_VERSION }}
