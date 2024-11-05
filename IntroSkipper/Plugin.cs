@@ -111,6 +111,7 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
                 if (serializer.Deserialize(reader) is PluginConfiguration oldConfig)
                 {
                     Instance.UpdateConfiguration(oldConfig);
+                    fileStream.Close();
                     File.Delete(oldConfigFile);
                 }
             }
