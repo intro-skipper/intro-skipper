@@ -33,61 +33,55 @@ namespace IntroSkipper.Providers
             var segments = new List<MediaSegmentDto>();
             var remainingTicks = Plugin.Instance.Configuration.RemainingSecondsOfIntro * TimeSpan.TicksPerSecond;
             var itemSegments = Plugin.Instance.GetSegmentsById(request.ItemId);
+            var runTimeTicks = Plugin.Instance.GetItem(request.ItemId)?.RunTimeTicks ?? 0;
 
-            // Add intro segment if found
-            if (itemSegments.TryGetValue(AnalysisMode.Introduction, out var introSegment) && introSegment.Valid)
+            // Define mappings between AnalysisMode and MediaSegmentType
+            var segmentMappings = new List<(AnalysisMode Mode, MediaSegmentType Type)>
             {
-                segments.Add(new MediaSegmentDto
-                {
-                    StartTicks = (long)(introSegment.Start * TimeSpan.TicksPerSecond),
-                    EndTicks = (long)(introSegment.End * TimeSpan.TicksPerSecond) - remainingTicks,
-                    ItemId = request.ItemId,
-                    Type = MediaSegmentType.Intro
-                });
-            }
+                (AnalysisMode.Introduction, MediaSegmentType.Intro),
+                (AnalysisMode.Recap, MediaSegmentType.Recap),
+                (AnalysisMode.Preview, MediaSegmentType.Preview),
+                (AnalysisMode.Credits, MediaSegmentType.Outro)
+            };
 
-            if (itemSegments.TryGetValue(AnalysisMode.Recap, out var recapSegment) && recapSegment.Valid)
+            foreach (var (mode, type) in segmentMappings)
             {
-                segments.Add(new MediaSegmentDto
+                if (itemSegments.TryGetValue(mode, out var segment) && segment.Valid)
                 {
-                    StartTicks = (long)(recapSegment.Start * TimeSpan.TicksPerSecond),
-                    EndTicks = (long)(recapSegment.End * TimeSpan.TicksPerSecond) - remainingTicks,
-                    ItemId = request.ItemId,
-                    Type = MediaSegmentType.Recap
-                });
-            }
+                    long startTicks = (long)(segment.Start * TimeSpan.TicksPerSecond);
+                    long endTicks = CalculateEndTicks(mode, segment, runTimeTicks, remainingTicks);
 
-            var runTimeTicks = Plugin.Instance.GetItem(request.ItemId)?.RunTimeTicks ?? long.MaxValue;
-            if (itemSegments.TryGetValue(AnalysisMode.Preview, out var previewSegment) && previewSegment.Valid)
-            {
-                var previewEndTicks = (long)(previewSegment.End * TimeSpan.TicksPerSecond);
-                segments.Add(new MediaSegmentDto
-                {
-                    StartTicks = (long)(previewSegment.Start * TimeSpan.TicksPerSecond),
-                    EndTicks = runTimeTicks > previewEndTicks + TimeSpan.TicksPerSecond
-                        ? previewEndTicks - remainingTicks
-                        : runTimeTicks,
-                    ItemId = request.ItemId,
-                    Type = MediaSegmentType.Preview
-                });
-            }
-
-            // Add outro/credits segment if found
-            if (itemSegments.TryGetValue(AnalysisMode.Introduction, out var creditSegment) && creditSegment.Valid)
-            {
-                var creditEndTicks = (long)(creditSegment.End * TimeSpan.TicksPerSecond);
-                segments.Add(new MediaSegmentDto
-                {
-                    StartTicks = (long)(creditSegment.Start * TimeSpan.TicksPerSecond),
-                    EndTicks = runTimeTicks > creditEndTicks + TimeSpan.TicksPerSecond
-                            ? creditEndTicks - remainingTicks
-                            : runTimeTicks,
-                    ItemId = request.ItemId,
-                    Type = MediaSegmentType.Outro
-                });
+                    segments.Add(new MediaSegmentDto
+                    {
+                        StartTicks = startTicks,
+                        EndTicks = endTicks,
+                        ItemId = request.ItemId,
+                        Type = type
+                    });
+                }
             }
 
             return Task.FromResult<IReadOnlyList<MediaSegmentDto>>(segments);
+        }
+
+        /// <summary>
+        /// Calculates the end ticks based on the segment type and runtime.
+        /// </summary>
+        private static long CalculateEndTicks(AnalysisMode mode, Segment segment, long runTimeTicks, long remainingTicks)
+        {
+            long endTicks = (long)(segment.End * TimeSpan.TicksPerSecond);
+
+            if (mode is AnalysisMode.Preview or AnalysisMode.Credits)
+            {
+                if (runTimeTicks > 0 && runTimeTicks < endTicks + TimeSpan.TicksPerSecond)
+                {
+                    return Math.Max(runTimeTicks, endTicks);
+                }
+
+                return endTicks - remainingTicks;
+            }
+
+            return endTicks - remainingTicks;
         }
 
         /// <inheritdoc/>

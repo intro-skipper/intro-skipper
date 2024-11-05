@@ -44,51 +44,51 @@ namespace IntroSkipper.Services
         private PluginConfiguration _config = new();
         private HashSet<string> _clientList = [];
         private HashSet<AnalysisMode> _segmentTypes = [];
+        private bool _autoSkipEnabled;
 
         private void AutoSkipChanged(object? sender, BasePluginConfiguration e)
         {
             _config = (PluginConfiguration)e;
             _clientList = [.. _config.ClientList.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)];
             _segmentTypes = [.. _config.TypeList.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).Select(Enum.Parse<AnalysisMode>)];
-            var newState = (_config.AutoSkip || _clientList.Count > 0) && _segmentTypes.Count > 0;
-            _logger.LogDebug("Setting playback timer enabled to {NewState}", newState);
-            _playbackTimer.Enabled = newState;
+            _autoSkipEnabled = (_config.AutoSkip || _clientList.Count > 0) && _segmentTypes.Count > 0;
+            _logger.LogDebug("Setting playback timer enabled to {AutoSkipEnabled}", _autoSkipEnabled);
+            _playbackTimer.Enabled = _autoSkipEnabled;
         }
 
         private void UserDataManager_UserDataSaved(object? sender, UserDataSaveEventArgs e)
         {
             // Ignore all events except playback start & end
-            if (e.SaveReason is not UserDataSaveReason.PlaybackStart and not UserDataSaveReason.PlaybackFinished)
+            if (e.SaveReason is not (UserDataSaveReason.PlaybackStart or UserDataSaveReason.PlaybackFinished) || !_autoSkipEnabled)
             {
                 return;
             }
 
             var itemId = e.Item.Id;
-
-            // Lookup the session for this item.
             var session = _sessionManager.Sessions
-                    .FirstOrDefault(s => s?.UserId == e.UserId && s?.NowPlayingItem?.Id == itemId);
+                    .FirstOrDefault(s => s.UserId == e.UserId && s.NowPlayingItem?.Id == itemId);
 
             if (session is null)
             {
-                _logger.LogInformation("Unable to find session for {Item}", itemId);
+                // Clean up orphaned sessions
+                if (!_sessionManager.Sessions
+                    .Where(s => s.UserId == e.UserId && s.NowPlayingItem is null)
+                    .Any(s => _sentSeekCommand.TryRemove(s.DeviceId, out _)))
+                {
+                    _logger.LogInformation("Unable to find active session for item {ItemId}", itemId);
+                }
+
                 return;
             }
 
             // Reset the seek command state for this device.
             var device = session.DeviceId;
-            _logger.LogDebug("Resetting seek command state for session {Session}", device);
-            if (e.SaveReason == UserDataSaveReason.PlaybackStart)
-            {
-                bool firstEpisode = _config.SkipFirstEpisode && e.Item.IndexNumber.GetValueOrDefault(-1) == 1;
-                var intros = SkipIntroController.GetIntros(itemId).Values
-                        .Where(i => _segmentTypes.Contains(i.SegmentType) && (!firstEpisode || i.SegmentType != AnalysisMode.Introduction)).ToList();
-                _sentSeekCommand.AddOrUpdate(device, intros, (_, _) => intros);
-            }
-            else
-            {
-                _sentSeekCommand.TryRemove(device, out _);
-            }
+            _logger.LogDebug("Getting intros for session {Session}", device);
+
+            bool firstEpisode = _config.SkipFirstEpisode && e.Item.IndexNumber.GetValueOrDefault(-1) == 1;
+            var intros = SkipIntroController.GetIntros(itemId).Values
+                    .Where(i => _segmentTypes.Contains(i.SegmentType) && (!firstEpisode || i.SegmentType != AnalysisMode.Introduction)).ToList();
+            _sentSeekCommand.AddOrUpdate(device, intros, (_, _) => intros);
         }
 
         private void PlaybackTimer_Elapsed(object? sender, ElapsedEventArgs e)
