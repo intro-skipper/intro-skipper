@@ -59,7 +59,7 @@
                                 </label>
 
                                 <div class="fieldDescription">
-                                    Enable this option to update media segments for any uncached media during a scan. <br />
+                                    Enable this option to update media segments for any uncached media during a library scan. <br />
                                     This includes recently added, modified, or previously skipped (but not ignored) files.<br />
                                     <b>Warning:</b> This should be disabled if you're using media segment providers other than Intro Skipper.
                                 </div>
@@ -164,10 +164,10 @@
                                 <div class="checkboxContainer checkboxContainer-withDescription">
                                     <label class="emby-checkbox-label">
                                         <input id="RegenerateMediaSegments" type="checkbox" is="emby-checkbox" />
-                                        <span>Regenerate All Media Segments on Next Scan</span>
+                                        <span>Regenerate All Media Segments on Next Run</span>
                                     </label>
 
-                                    <div class="fieldDescription">When enabled, this option will <b>overwrite all existing media segments</b> with your current Intro Skipper timestamps during the next scan. Upon completion, this option will be automatically disabled.</div>
+                                    <div class="fieldDescription">When enabled, this option will <b>overwrite all existing media segments</b> with your current Intro Skipper timestamps during the next analysis. Upon completion, this option will be automatically disabled.</div>
                                 </div>
                             </details>
 
@@ -207,7 +207,7 @@
                                     <div class="fieldDescription">
                                         If checked, episode fingerprints will be saved on the filesystem to improve analysis speed.
                                         <br />
-                                        <b>WARNING: Disabling the cache will cause all libraries to be re-scanned, which can take a very long time!</b>
+                                        <b>WARNING: Disabling the cache will cause all fingerprints to be recreated during analysis. For debug use only!</b>
                                         <br />
                                     </div>
                                 </div>
