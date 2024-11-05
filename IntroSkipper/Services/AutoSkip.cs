@@ -102,17 +102,30 @@ namespace IntroSkipper.Services
 
                 // Don't send the seek command more than once in the same session.
                 var intros = _sentSeekCommand.GetOrAdd(deviceId, _ => []);
+                var maxTimeSkip = _config.MaximumTimeSkip;
 
                 intro = intros.FirstOrDefault(i =>
                         position >= Math.Max(1, i.IntroStart + _config.SecondsOfIntroStartToPlay) &&
-                        position < i.IntroEnd);
+                        position < i.IntroEnd - maxTimeSkip);
 
                 if (intro is null)
                 {
                     continue;
                 }
 
+                var introEnd = intro.IntroEnd;
+
                 intros.Remove(intro);
+
+                // Check if adjacent segment is within the maximum skip range.
+                var nextIntro = intros.FirstOrDefault(i => introEnd + maxTimeSkip >= i.IntroStart &&
+                        introEnd + maxTimeSkip < i.IntroEnd);
+
+                if (nextIntro is not null)
+                {
+                    introEnd = nextIntro.IntroEnd;
+                    intros.Remove(nextIntro);
+                }
 
                 _logger.LogDebug("Found {Intro} for session {Session}, removing from list, {Intros} segments remaining", intro.SegmentType, deviceId, intros.Count);
 
