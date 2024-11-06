@@ -11,7 +11,7 @@ namespace IntroSkipper.Data;
 /// </summary>
 public class QueuedEpisode
 {
-    private readonly bool[] _isAnalyzed = new bool[2];
+    private readonly bool[] _isAnalyzed = new bool[4];
 
     /// <summary>
     /// Gets or sets the series name.
