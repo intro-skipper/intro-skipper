@@ -149,7 +149,7 @@ public class SkipIntroController(MediaSegmentUpdateManager mediaSegmentUpdateMan
             segments[AnalysisMode.Introduction] = introSegment;
         }
 
-        if (segments.TryGetValue(AnalysisMode.Introduction, out var creditSegment))
+        if (segments.TryGetValue(AnalysisMode.Credits, out var creditSegment))
         {
             segments[AnalysisMode.Credits] = creditSegment;
         }
