@@ -75,14 +75,14 @@ public class SkipIntroController(MediaSegmentUpdateManager mediaSegmentUpdateMan
 
         if (timestamps?.Introduction.End > 0.0)
         {
-            var tr = new TimeRange(timestamps.Introduction.Start, timestamps.Introduction.End);
-            await Plugin.Instance!.UpdateTimestamps(new Dictionary<Guid, Segment> { [id] = new Segment(id, tr) }, AnalysisMode.Introduction).ConfigureAwait(false);
+            var seg = new Segment(id, new TimeRange(timestamps.Introduction.Start, timestamps.Introduction.End));
+            await Plugin.Instance!.UpdateTimestamps([seg], AnalysisMode.Introduction).ConfigureAwait(false);
         }
 
         if (timestamps?.Credits.End > 0.0)
         {
-            var tr = new TimeRange(timestamps.Credits.Start, timestamps.Credits.End);
-            await Plugin.Instance!.UpdateTimestamps(new Dictionary<Guid, Segment> { [id] = new Segment(id, tr) }, AnalysisMode.Credits).ConfigureAwait(false);
+            var seg = new Segment(id, new TimeRange(timestamps.Credits.Start, timestamps.Credits.End));
+            await Plugin.Instance!.UpdateTimestamps([seg], AnalysisMode.Credits).ConfigureAwait(false);
         }
 
         if (Plugin.Instance.Configuration.UpdateMediaSegments)

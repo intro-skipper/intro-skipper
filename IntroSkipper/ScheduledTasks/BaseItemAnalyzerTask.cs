@@ -205,22 +205,22 @@ public class BaseItemAnalyzerTask
 
         var analyzers = new Collection<IMediaFileAnalyzer>();
 
-        if (action == AnalyzerAction.Chapter || action == AnalyzerAction.Default)
+        if (action is AnalyzerAction.Chapter or AnalyzerAction.Default)
         {
             analyzers.Add(new ChapterAnalyzer(_loggerFactory.CreateLogger<ChapterAnalyzer>()));
         }
 
-        if (first.IsAnime && !first.IsMovie && (action == AnalyzerAction.Chromaprint || action == AnalyzerAction.Default))
+        if (first.IsAnime && !first.IsMovie && action is AnalyzerAction.Chromaprint or AnalyzerAction.Default)
         {
             analyzers.Add(new ChromaprintAnalyzer(_loggerFactory.CreateLogger<ChromaprintAnalyzer>()));
         }
 
-        if (mode == AnalysisMode.Credits && (action == AnalyzerAction.BlackFrame || action == AnalyzerAction.Default))
+        if (mode is AnalysisMode.Credits && action is AnalyzerAction.BlackFrame or AnalyzerAction.Default)
         {
             analyzers.Add(new BlackFrameAnalyzer(_loggerFactory.CreateLogger<BlackFrameAnalyzer>()));
         }
 
-        if (!first.IsAnime && !first.IsMovie && (action == AnalyzerAction.Chromaprint || action == AnalyzerAction.Default))
+        if (!first.IsAnime && !first.IsMovie && action is AnalyzerAction.Chromaprint or AnalyzerAction.Default)
         {
             analyzers.Add(new ChromaprintAnalyzer(_loggerFactory.CreateLogger<ChromaprintAnalyzer>()));
         }
@@ -234,8 +234,9 @@ public class BaseItemAnalyzerTask
         }
 
         // Add items without intros/credits to blacklist.
-        var blacklisted = items.Where(e => !e.GetAnalyzed(mode)).ToList();
-        await Plugin.Instance!.UpdateTimestamps(blacklisted.ToDictionary(e => e.EpisodeId, e => new Segment(e.EpisodeId)), mode).ConfigureAwait(false);
+        var blacklisted = new List<Segment>(items.Where(e => !e.GetAnalyzed(mode)).Select(e => new Segment(e.EpisodeId)));
+        _logger.LogDebug("Blacklisting {Count} items for mode {Mode}", blacklisted.Count, mode);
+        await Plugin.Instance!.UpdateTimestamps(blacklisted, mode).ConfigureAwait(false);
         totalItems -= blacklisted.Count;
 
         return totalItems;

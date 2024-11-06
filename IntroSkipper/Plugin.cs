@@ -301,34 +301,35 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
         return _itemRepository.GetChapters(item);
     }
 
-    internal async Task UpdateTimestamps(IReadOnlyDictionary<Guid, Segment> newTimestamps, AnalysisMode mode)
+    internal async Task UpdateTimestamps(IReadOnlyList<Segment> newTimestamps, AnalysisMode mode)
     {
+        if (newTimestamps.Count == 0)
+        {
+            return;
+        }
+
+        _logger.LogDebug("Starting UpdateTimestamps with {Count} segments for mode {Mode}", newTimestamps.Count, mode);
+
         using var db = new IntroSkipperDbContext(_dbPath);
 
-        // Get all existing segments in a single query
-        var existingSegments = db.DbSegment
-            .Where(s => newTimestamps.Keys.Contains(s.ItemId) && s.Type == mode)
-            .ToDictionary(s => s.ItemId);
+        var segments = newTimestamps.Select(s => new DbSegment(s, mode)).ToList();
 
-        // Batch updates and inserts
-        var segmentsToAdd = new List<DbSegment>();
+        var newItemIds = segments.Select(s => s.ItemId).ToHashSet();
+        var existingIds = db.DbSegment
+            .Where(s => s.Type == mode && newItemIds.Contains(s.ItemId))
+            .Select(s => s.ItemId)
+            .ToHashSet();
 
-        foreach (var (itemId, segment) in newTimestamps)
+        foreach (var segment in segments)
         {
-            var dbSegment = new DbSegment(segment, mode);
-            if (existingSegments.TryGetValue(itemId, out var existing))
+            if (existingIds.Contains(segment.ItemId))
             {
-                db.Entry(existing).CurrentValues.SetValues(dbSegment);
+                db.DbSegment.Update(segment);
             }
             else
             {
-                segmentsToAdd.Add(dbSegment);
+                db.DbSegment.Add(segment);
             }
-        }
-
-        if (segmentsToAdd.Count > 0)
-        {
-            await db.DbSegment.AddRangeAsync(segmentsToAdd).ConfigureAwait(false);
         }
 
         await db.SaveChangesAsync().ConfigureAwait(false);

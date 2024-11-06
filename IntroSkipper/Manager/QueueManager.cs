@@ -292,7 +292,7 @@ namespace IntroSkipper.Manager
             VerifyQueue(IReadOnlyList<QueuedEpisode> candidates, IReadOnlyCollection<AnalysisMode> modes)
         {
             var verified = new List<QueuedEpisode>();
-            var reqModes = new HashSet<AnalysisMode>(modes);  // Start with all modes and remove completed ones
+            var reqModes = new HashSet<AnalysisMode>();
 
             foreach (var candidate in candidates)
             {
@@ -315,8 +315,10 @@ namespace IntroSkipper.Manager
                             {
                                 candidate.SetAnalyzed(mode, true);
                             }
-
-                            reqModes.Remove(mode);
+                        }
+                        else
+                        {
+                            reqModes.Add(mode);
                         }
                     }
                 }

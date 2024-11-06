@@ -11,7 +11,7 @@ namespace IntroSkipper.Data;
 /// </summary>
 public class QueuedEpisode
 {
-    private readonly Dictionary<AnalysisMode, bool> _isAnalyzed = [];
+    private readonly bool[] _isAnalyzed = new bool[2];
 
     /// <summary>
     /// Gets or sets the series name.
@@ -36,7 +36,7 @@ public class QueuedEpisode
     /// <summary>
     /// Gets a value indicating whether this media has been already analyzed.
     /// </summary>
-    public IReadOnlyDictionary<AnalysisMode, bool> IsAnalyzed => _isAnalyzed;
+    public IReadOnlyList<bool> IsAnalyzed => _isAnalyzed;
 
     /// <summary>
     /// Gets or sets the full path to episode.
@@ -80,7 +80,7 @@ public class QueuedEpisode
     /// <param name="value">Value to set.</param>
     public void SetAnalyzed(AnalysisMode mode, bool value)
     {
-        _isAnalyzed[mode] = value;
+        _isAnalyzed[(int)mode] = value;
     }
 
     /// <summary>
@@ -90,6 +90,6 @@ public class QueuedEpisode
     /// <returns>Value of the analyzed mode.</returns>
     public bool GetAnalyzed(AnalysisMode mode)
     {
-        return _isAnalyzed.TryGetValue(mode, out var value) && value;
+        return _isAnalyzed[(int)mode];
     }
 }
