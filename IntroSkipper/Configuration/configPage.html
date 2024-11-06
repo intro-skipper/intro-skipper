@@ -303,6 +303,13 @@
                         <fieldset class="verticalSection-extrabottompadding">
                             <legend>Playback</legend>
 
+                            <div class="checkboxContainer checkboxContainer-withDescription">
+                                <label class="emby-checkbox-label">
+                                    <input id="AutoSkip" type="checkbox" is="emby-checkbox" />
+                                    <span>Automatically Skip for All Clients</span>
+                                </label>
+                            </div>
+
                             <div class="AutoSkipClientListContainer">
                                 <div class="AutoSkipClientList">
                                     <h3 class="checkboxListLabel">Limit auto skip to the following clients</h3>
@@ -310,14 +317,6 @@
                                 </div>
                                 <label class="inputLabel" for="ClientList"></label>
                                 <input id="ClientList" type="hidden" is="emby-input" />
-                            </div>
-
-                            
-                            <div class="checkboxContainer checkboxContainer-withDescription">
-                                <label class="emby-checkbox-label">
-                                    <input id="AutoSkip" type="checkbox" is="emby-checkbox" />
-                                    <span>Automatically Skip for All Clients</span>
-                                </label>
                             </div>
 
                             <div class="AutoSkipTypeListContainer">
@@ -357,8 +356,7 @@
                                 </label>
 
                                 <div class="fieldDescription">
-                                    <b style="color: red">Restart required!</b><br />
-                                    If checked, a skip button will be added <b>to the server</b> and displayed according to the settings below.<br />
+                                     <b style="color: red">Restart required!</b> If checked, a skip button will be added <b>to the server</b> and displayed according to the settings below.<br />
                                     This button is <b>separate</b> from the Media Segment Actions in Jellyfin 10.10 and compatible clients.<br />
                                 </div>
                             </div>
