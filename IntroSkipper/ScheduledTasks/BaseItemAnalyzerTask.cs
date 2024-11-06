@@ -186,7 +186,7 @@ public class BaseItemAnalyzerTask(
 
         if (first.IsAnime && _config.WithChromaprint &&
             mode is not (AnalysisMode.Recap or AnalysisMode.Preview) &&
-            action is AnalyzerAction.Default or action == AnalyzerAction.Chromaprint)
+            action is AnalyzerAction.Default or AnalyzerAction.Chromaprint)
         {
             analyzers.Add(new ChromaprintAnalyzer(_loggerFactory.CreateLogger<ChromaprintAnalyzer>()));
         }
