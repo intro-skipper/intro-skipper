@@ -211,7 +211,7 @@ public class BaseItemAnalyzerTask(
             cancellationToken.ThrowIfCancellationRequested();
             items = await analyzer.AnalyzeMediaFiles(items, mode, cancellationToken).ConfigureAwait(false);
         }
-        
+
         // Add items without intros/credits to blacklist.
         var blacklisted = new List<Segment>(items.Where(e => !e.GetAnalyzed(mode)).Select(e => new Segment(e.EpisodeId)));
         _logger.LogDebug("Blacklisting {Count} items for mode {Mode}", blacklisted.Count, mode);
