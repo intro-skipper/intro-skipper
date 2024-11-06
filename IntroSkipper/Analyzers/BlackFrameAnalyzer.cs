@@ -37,9 +37,7 @@ public class BlackFrameAnalyzer(ILogger<BlackFrameAnalyzer> logger) : IMediaFile
             throw new NotImplementedException("mode must equal Credits");
         }
 
-        var creditTimes = new Dictionary<Guid, Segment>();
-
-        var episodeAnalysisQueue = new List<QueuedEpisode>(analysisQueue);
+        var creditTimes = new List<Segment>();
 
         bool isFirstEpisode = true;
 
@@ -47,7 +45,7 @@ public class BlackFrameAnalyzer(ILogger<BlackFrameAnalyzer> logger) : IMediaFile
 
         var searchDistance = 2 * _minimumCreditsDuration;
 
-        foreach (var episode in episodeAnalysisQueue.Where(e => !e.GetAnalyzed(mode)))
+        foreach (var episode in analysisQueue.Where(e => !e.GetAnalyzed(mode)))
         {
             if (cancellationToken.IsCancellationRequested)
             {
@@ -116,16 +114,16 @@ public class BlackFrameAnalyzer(ILogger<BlackFrameAnalyzer> logger) : IMediaFile
 
             searchStart = episode.Duration - credit.Start + (0.5 * searchDistance);
 
-            creditTimes.Add(episode.EpisodeId, credit);
+            creditTimes.Add(credit);
             episode.SetAnalyzed(mode, true);
         }
 
         var analyzerHelper = new AnalyzerHelper(_logger);
-        creditTimes = analyzerHelper.AdjustIntroTimes(analysisQueue, creditTimes, mode);
+        var adjustedCreditTimes = analyzerHelper.AdjustIntroTimes(analysisQueue, creditTimes, mode);
 
-        await Plugin.Instance!.UpdateTimestamps(creditTimes, mode).ConfigureAwait(false);
+        await Plugin.Instance!.UpdateTimestamps(adjustedCreditTimes, mode).ConfigureAwait(false);
 
-        return episodeAnalysisQueue;
+        return analysisQueue;
     }
 
     /// <summary>

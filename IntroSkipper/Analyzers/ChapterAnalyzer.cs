@@ -24,7 +24,7 @@ namespace IntroSkipper.Analyzers;
 /// <param name="logger">Logger.</param>
 public class ChapterAnalyzer(ILogger<ChapterAnalyzer> logger) : IMediaFileAnalyzer
 {
-    private ILogger<ChapterAnalyzer> _logger = logger;
+    private readonly ILogger<ChapterAnalyzer> _logger = logger;
 
     /// <inheritdoc />
     public async Task<IReadOnlyList<QueuedEpisode>> AnalyzeMediaFiles(
@@ -32,10 +32,7 @@ public class ChapterAnalyzer(ILogger<ChapterAnalyzer> logger) : IMediaFileAnalyz
         AnalysisMode mode,
         CancellationToken cancellationToken)
     {
-        var skippableRanges = new Dictionary<Guid, Segment>();
-
-        // Episode analysis queue.
-        var episodeAnalysisQueue = new List<QueuedEpisode>(analysisQueue);
+        var skippableRanges = new List<Segment>();
 
         var expression = mode switch
         {
@@ -51,7 +48,7 @@ public class ChapterAnalyzer(ILogger<ChapterAnalyzer> logger) : IMediaFileAnalyz
             return analysisQueue;
         }
 
-        foreach (var episode in episodeAnalysisQueue.Where(e => !e.GetAnalyzed(mode)))
+        foreach (var episode in analysisQueue.Where(e => !e.GetAnalyzed(mode)))
         {
             if (cancellationToken.IsCancellationRequested)
             {
@@ -69,13 +66,13 @@ public class ChapterAnalyzer(ILogger<ChapterAnalyzer> logger) : IMediaFileAnalyz
                 continue;
             }
 
-            skippableRanges.Add(episode.EpisodeId, skipRange);
+            skippableRanges.Add(skipRange);
             episode.SetAnalyzed(mode, true);
         }
 
         await Plugin.Instance.UpdateTimestamps(skippableRanges, mode).ConfigureAwait(false);
 
-        return episodeAnalysisQueue;
+        return analysisQueue;
     }
 
     /// <summary>

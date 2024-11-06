@@ -33,8 +33,8 @@ public class Segment
     public Segment(Guid episode)
     {
         EpisodeId = episode;
-        Start = 0;
-        End = 0;
+        Start = 0.0;
+        End = 0.0;
     }
 
     /// <summary>
@@ -88,7 +88,7 @@ public class Segment
     /// Gets a value indicating whether this introduction is valid or not.
     /// Invalid results must not be returned through the API.
     /// </summary>
-    public bool Valid => End > 0;
+    public bool Valid => End > 0.0;
 
     /// <summary>
     /// Gets the duration of this intro.

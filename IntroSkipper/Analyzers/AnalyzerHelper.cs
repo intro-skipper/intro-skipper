@@ -36,20 +36,21 @@ namespace IntroSkipper.Analyzers
         /// <param name="originalIntros">Original introductions.</param>
         /// <param name="mode">Analysis mode.</param>
         /// <returns>Modified Intro Timestamps.</returns>
-        public Dictionary<Guid, Segment> AdjustIntroTimes(
+        public IReadOnlyList<Segment> AdjustIntroTimes(
             IReadOnlyList<QueuedEpisode> episodes,
-            IReadOnlyDictionary<Guid, Segment> originalIntros,
+            IReadOnlyList<Segment> originalIntros,
             AnalysisMode mode)
         {
-            return episodes
-                .Where(episode => originalIntros.TryGetValue(episode.EpisodeId, out var _))
-                .ToDictionary(
-                    episode => episode.EpisodeId,
-                    episode => AdjustIntroForEpisode(episode, originalIntros[episode.EpisodeId], mode));
+            return originalIntros.Select(i => AdjustIntroForEpisode(episodes.FirstOrDefault(e => originalIntros.Any(i => i.EpisodeId == e.EpisodeId)), i, mode)).ToList();
         }
 
-        private Segment AdjustIntroForEpisode(QueuedEpisode episode, Segment originalIntro, AnalysisMode mode)
+        private Segment AdjustIntroForEpisode(QueuedEpisode? episode, Segment originalIntro, AnalysisMode mode)
         {
+            if (episode is null)
+            {
+                return new Segment(originalIntro.EpisodeId);
+            }
+
             _logger.LogTrace("{Name} original intro: {Start} - {End}", episode.Name, originalIntro.Start, originalIntro.End);
 
             var adjustedIntro = new Segment(originalIntro);

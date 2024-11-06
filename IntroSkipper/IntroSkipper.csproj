@@ -2,8 +2,8 @@
   <PropertyGroup>
     <TargetFramework>net8.0</TargetFramework>
     <RootNamespace>IntroSkipper</RootNamespace>
-    <AssemblyVersion>1.10.10.4</AssemblyVersion>
-    <FileVersion>1.10.10.4</FileVersion>
+    <AssemblyVersion>1.10.10.6</AssemblyVersion>
+    <FileVersion>1.10.10.6</FileVersion>
     <GenerateDocumentationFile>true</GenerateDocumentationFile>
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
     <Nullable>enable</Nullable>

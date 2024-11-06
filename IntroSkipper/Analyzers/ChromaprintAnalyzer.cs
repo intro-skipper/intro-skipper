@@ -208,9 +208,9 @@ public class ChromaprintAnalyzer : IMediaFileAnalyzer
 
         // Adjust all introduction times.
         var analyzerHelper = new AnalyzerHelper(_logger);
-        seasonIntros = analyzerHelper.AdjustIntroTimes(analysisQueue, seasonIntros, _analysisMode);
+        var adjustedSeasonIntros = analyzerHelper.AdjustIntroTimes(analysisQueue, [.. seasonIntros.Values], _analysisMode);
 
-        await Plugin.Instance!.UpdateTimestamps(seasonIntros, _analysisMode).ConfigureAwait(false);
+        await Plugin.Instance!.UpdateTimestamps(adjustedSeasonIntros, _analysisMode).ConfigureAwait(false);
 
         return episodeAnalysisQueue;
     }

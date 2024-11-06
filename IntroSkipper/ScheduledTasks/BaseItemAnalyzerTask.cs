@@ -179,27 +179,27 @@ public class BaseItemAnalyzerTask(
 
         var analyzers = new List<IMediaFileAnalyzer>();
 
-        if (action == AnalyzerAction.Default || action == AnalyzerAction.Chapter)
+        if (action is AnalyzerAction.Chapter or AnalyzerAction.Default)
         {
             analyzers.Add(new ChapterAnalyzer(_loggerFactory.CreateLogger<ChapterAnalyzer>()));
         }
 
         if (first.IsAnime && _config.WithChromaprint &&
-            mode != AnalysisMode.Recap && mode != AnalysisMode.Preview &&
-            (action == AnalyzerAction.Default || action == AnalyzerAction.Chromaprint))
+            mode is not (AnalysisMode.Recap or AnalysisMode.Preview) &&
+            action is AnalyzerAction.Default or action == AnalyzerAction.Chromaprint)
         {
             analyzers.Add(new ChromaprintAnalyzer(_loggerFactory.CreateLogger<ChromaprintAnalyzer>()));
         }
 
-        if (mode == AnalysisMode.Credits &&
-            (action == AnalyzerAction.Default || action == AnalyzerAction.BlackFrame))
+        if (mode is AnalysisMode.Credits &&
+            action is AnalyzerAction.Default or AnalyzerAction.BlackFrame)
         {
             analyzers.Add(new BlackFrameAnalyzer(_loggerFactory.CreateLogger<BlackFrameAnalyzer>()));
         }
 
         if (!first.IsAnime && !first.IsMovie &&
-            mode != AnalysisMode.Recap && mode != AnalysisMode.Preview &&
-            (action == AnalyzerAction.Default || action == AnalyzerAction.Chromaprint))
+            mode is not (AnalysisMode.Recap or AnalysisMode.Preview) &&
+            action is AnalyzerAction.Default or action == AnalyzerAction.Chromaprint)
         {
             analyzers.Add(new ChromaprintAnalyzer(_loggerFactory.CreateLogger<ChromaprintAnalyzer>()));
         }
@@ -211,15 +211,12 @@ public class BaseItemAnalyzerTask(
             cancellationToken.ThrowIfCancellationRequested();
             items = await analyzer.AnalyzeMediaFiles(items, mode, cancellationToken).ConfigureAwait(false);
         }
-
-        var blacklisted = items.Where(e => !e.GetAnalyzed(mode)).ToList();
-        if (blacklisted.Count != 0)
-        {
-            await Plugin.Instance!.UpdateTimestamps(
-                blacklisted.ToDictionary(e => e.EpisodeId, e => new Segment(e.EpisodeId)),
-                mode).ConfigureAwait(false);
-            totalItems -= blacklisted.Count;
-        }
+        
+        // Add items without intros/credits to blacklist.
+        var blacklisted = new List<Segment>(items.Where(e => !e.GetAnalyzed(mode)).Select(e => new Segment(e.EpisodeId)));
+        _logger.LogDebug("Blacklisting {Count} items for mode {Mode}", blacklisted.Count, mode);
+        await Plugin.Instance!.UpdateTimestamps(blacklisted, mode).ConfigureAwait(false);
+        totalItems -= blacklisted.Count;
 
         return totalItems;
     }
