@@ -306,7 +306,7 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
     {
         using var db = new IntroSkipperDbContext(_dbPath);
 
-        var ids = segments.Select(s => s.ItemId);
+        var ids = segments.Select(s => s.EpisodeId);
         var existingSegments = await db.DbSegment
             .Where(s => ids.Contains(s.ItemId) && s.Type == mode)
             .ToDictionaryAsync(s => s.ItemId)
@@ -315,7 +315,7 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
         foreach (var segment in segments)
         {
             var dbSegment = new DbSegment(segment, mode);
-            if (existingSegments.TryGetValue(segment.ItemId, out var existing))
+            if (existingSegments.TryGetValue(segment.EpisodeId, out var existing))
             {
                 db.Entry(existing).CurrentValues.SetValues(dbSegment);
             }

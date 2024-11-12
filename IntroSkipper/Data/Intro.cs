@@ -21,7 +21,7 @@ public class Intro(Segment intro)
     /// Gets or sets the Episode ID.
     /// </summary>
     [DataMember]
-    public Guid EpisodeId { get; set; } = intro.ItemId;
+    public Guid EpisodeId { get; set; } = intro.EpisodeId;
 
     /// <summary>
     /// Gets a value indicating whether this introduction is valid or not.

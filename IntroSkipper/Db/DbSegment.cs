@@ -12,15 +12,18 @@ namespace IntroSkipper.Db;
 /// <remarks>
 /// Initializes a new instance of the <see cref="DbSegment"/> class.
 /// </remarks>
-public class DbSegment : Segment
+public class DbSegment
 {
     /// <summary>
     /// Initializes a new instance of the <see cref="DbSegment"/> class.
     /// </summary>
     /// <param name="segment">The segment to initialize the instance with.</param>
     /// <param name="type">The type of analysis that was used to determine this segment.</param>
-    public DbSegment(Segment segment, AnalysisMode type) : base(segment.ItemId, segment.Start, segment.End)
+    public DbSegment(Segment segment, AnalysisMode type)
     {
+        ItemId = segment.EpisodeId;
+        Start = segment.Start;
+        End = segment.End;
         Type = type;
     }
 
@@ -30,6 +33,21 @@ public class DbSegment : Segment
     public DbSegment()
     {
     }
+
+    /// <summary>
+    /// Gets or sets the episode id.
+    /// </summary>
+    public Guid ItemId { get; set; }
+
+    /// <summary>
+    /// Gets or sets the start time.
+    /// </summary>
+    public double Start { get; set; }
+
+    /// <summary>
+    /// Gets or sets the end time.
+    /// </summary>
+    public double End { get; set; }
 
     /// <summary>
     /// Gets the type of analysis that was used to determine this segment.
@@ -42,6 +60,6 @@ public class DbSegment : Segment
     /// <returns>A <see cref="Segment"/> object.</returns>
     internal Segment ToSegment()
     {
-        return new Segment(ItemId, Start, End);
+        return new Segment(ItemId, new TimeRange(Start, End));
     }
 }

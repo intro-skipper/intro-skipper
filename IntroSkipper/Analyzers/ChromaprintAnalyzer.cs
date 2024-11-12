@@ -143,17 +143,17 @@ public class ChromaprintAnalyzer(ILogger<ChromaprintAnalyzer> logger) : IMediaFi
                 // - the first intro discovered for this episode
                 // - longer than the previously discovered intro
                 if (
-                    !seasonIntros.TryGetValue(currentIntro.ItemId, out var savedCurrentIntro) ||
+                    !seasonIntros.TryGetValue(currentIntro.EpisodeId, out var savedCurrentIntro) ||
                     currentIntro.Duration > savedCurrentIntro.Duration)
                 {
-                    seasonIntros[currentIntro.ItemId] = currentIntro;
+                    seasonIntros[currentIntro.EpisodeId] = currentIntro;
                 }
 
                 if (
-                    !seasonIntros.TryGetValue(remainingIntro.ItemId, out var savedRemainingIntro) ||
+                    !seasonIntros.TryGetValue(remainingIntro.EpisodeId, out var savedRemainingIntro) ||
                     remainingIntro.Duration > savedRemainingIntro.Duration)
                 {
-                    seasonIntros[remainingIntro.ItemId] = remainingIntro;
+                    seasonIntros[remainingIntro.EpisodeId] = remainingIntro;
                 }
 
                 break;

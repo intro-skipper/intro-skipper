@@ -2,6 +2,8 @@
 // SPDX-License-Identifier: GPL-3.0-only.
 
 using System;
+using System.Runtime.Serialization;
+using System.Text.Json.Serialization;
 
 namespace IntroSkipper.Data;
 
@@ -9,6 +11,7 @@ namespace IntroSkipper.Data;
 /// Result of fingerprinting and analyzing two episodes in a season.
 /// All times are measured in seconds relative to the beginning of the media file.
 /// </summary>
+[DataContract(Namespace = "http://schemas.datacontract.org/2004/07/ConfusedPolarBear.Plugin.IntroSkipper.Segment")]
 public class Segment
 {
     /// <summary>
@@ -18,7 +21,7 @@ public class Segment
     /// <param name="segment">Introduction time range.</param>
     public Segment(Guid episode, TimeRange segment)
     {
-        ItemId = episode;
+        EpisodeId = episode;
         Start = segment.Start;
         End = segment.End;
     }
@@ -27,13 +30,11 @@ public class Segment
     /// Initializes a new instance of the <see cref="Segment"/> class.
     /// </summary>
     /// <param name="episode">Episode.</param>
-    /// <param name="start">Start time.</param>
-    /// <param name="end">End time.</param>
-    public Segment(Guid episode, double start = 0.0, double end = 0.0)
+    public Segment(Guid episode)
     {
-        ItemId = episode;
-        Start = start;
-        End = end;
+        EpisodeId = episode;
+        Start = 0.0;
+        End = 0.0;
     }
 
     /// <summary>
@@ -42,7 +43,7 @@ public class Segment
     /// <param name="intro">intro.</param>
     public Segment(Segment intro)
     {
-        ItemId = intro.ItemId;
+        EpisodeId = intro.EpisodeId;
         Start = intro.Start;
         End = intro.End;
     }
@@ -53,7 +54,7 @@ public class Segment
     /// <param name="intro">intro.</param>
     public Segment(Intro intro)
     {
-        ItemId = intro.EpisodeId;
+        EpisodeId = intro.EpisodeId;
         Start = intro.IntroStart;
         End = intro.IntroEnd;
     }
@@ -68,16 +69,19 @@ public class Segment
     /// <summary>
     /// Gets or sets the Episode ID.
     /// </summary>
-    public Guid ItemId { get; set; }
+    [DataMember]
+    public Guid EpisodeId { get; set; }
 
     /// <summary>
     /// Gets or sets the introduction sequence start time.
     /// </summary>
+    [DataMember]
     public double Start { get; set; }
 
     /// <summary>
     /// Gets or sets the introduction sequence end time.
     /// </summary>
+    [DataMember]
     public double End { get; set; }
 
     /// <summary>
@@ -89,5 +93,6 @@ public class Segment
     /// <summary>
     /// Gets the duration of this intro.
     /// </summary>
+    [JsonIgnore]
     public double Duration => End - Start;
 }
