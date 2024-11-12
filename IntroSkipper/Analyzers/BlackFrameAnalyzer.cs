@@ -21,10 +21,6 @@ public class BlackFrameAnalyzer(ILogger<BlackFrameAnalyzer> logger) : IMediaFile
     private static readonly PluginConfiguration _config = Plugin.Instance?.Configuration ?? new PluginConfiguration();
     private readonly TimeSpan _maximumError = new(0, 0, 4);
     private readonly ILogger<BlackFrameAnalyzer> _logger = logger;
-    private readonly int _minimumCreditsDuration = _config.MinimumCreditsDuration;
-    private readonly int _maximumCreditsDuration = _config.MaximumCreditsDuration;
-    private readonly int _maximumMovieCreditsDuration = _config.MaximumMovieCreditsDuration;
-    private readonly int _blackFrameMinimumPercentage = _config.BlackFrameMinimumPercentage;
 
     /// <inheritdoc />
     public async Task<IReadOnlyList<QueuedEpisode>> AnalyzeMediaFiles(
@@ -37,91 +33,50 @@ public class BlackFrameAnalyzer(ILogger<BlackFrameAnalyzer> logger) : IMediaFile
             throw new NotImplementedException("mode must equal Credits");
         }
 
+        var episodesToAnalyze = analysisQueue.Where(e => !e.GetAnalyzed(mode)).ToList();
+        if (episodesToAnalyze.Count == 0)
+        {
+            return analysisQueue;
+        }
+
         var creditTimes = new List<Segment>();
 
-        bool isFirstEpisode = true;
+        var searchStart = 0.0;
 
-        double searchStart = _minimumCreditsDuration;
-
-        var searchDistance = 2 * _minimumCreditsDuration;
-
-        foreach (var episode in analysisQueue.Where(e => !e.GetAnalyzed(mode)))
+        foreach (var episode in episodesToAnalyze)
         {
             if (cancellationToken.IsCancellationRequested)
             {
                 break;
             }
 
-            var creditDuration = episode.IsMovie ? _maximumMovieCreditsDuration : _maximumCreditsDuration;
-
-            var chapters = Plugin.Instance!.GetChapters(episode.EpisodeId);
-            var lastSuitableChapter = chapters.LastOrDefault(c =>
-                {
-                    var start = TimeSpan.FromTicks(c.StartPositionTicks).TotalSeconds;
-                    return start >= _minimumCreditsDuration && start <= creditDuration;
-                });
-
-            if (lastSuitableChapter is not null)
+            if (!AnalyzeChapters(episode, out var credit))
             {
-                searchStart = TimeSpan.FromTicks(lastSuitableChapter.StartPositionTicks).TotalSeconds;
-                isFirstEpisode = false;
-            }
-
-            if (isFirstEpisode)
-            {
-                var scanTime = episode.Duration - searchStart;
-                var tr = new TimeRange(scanTime - 0.5, scanTime); // Short search range since accuracy isn't important here.
-
-                var frames = FFmpegWrapper.DetectBlackFrames(episode, tr, _blackFrameMinimumPercentage);
-
-                while (frames.Length > 0) // While black frames are found increase searchStart
+                if (searchStart < _config.MinimumCreditsDuration)
                 {
-                    searchStart += searchDistance;
-
-                    scanTime = episode.Duration - searchStart;
-                    tr = new TimeRange(scanTime - 0.5, scanTime);
-
-                    frames = FFmpegWrapper.DetectBlackFrames(episode, tr, _blackFrameMinimumPercentage);
-
-                    if (searchStart > creditDuration)
-                    {
-                        searchStart = creditDuration;
-                        break;
-                    }
+                    searchStart = FindSearchStart(episode);
                 }
 
-                if (searchStart == _minimumCreditsDuration) // Skip if no black frames were found
-                {
-                    continue;
-                }
-
-                isFirstEpisode = false;
+                credit = AnalyzeMediaFile(
+                    episode,
+                    searchStart,
+                    _config.BlackFrameMinimumPercentage);
             }
-
-            var credit = AnalyzeMediaFile(
-                episode,
-                searchStart,
-                searchDistance,
-                _blackFrameMinimumPercentage);
 
             if (credit is null || !credit.Valid)
             {
-                // If no credits were found, reset the first-episode search logic for the next episode in the sequence.
-                searchStart = _minimumCreditsDuration;
-                isFirstEpisode = true;
                 continue;
             }
 
-            searchStart = episode.Duration - credit.Start + (0.5 * searchDistance);
-
             creditTimes.Add(credit);
+            searchStart = episode.Duration - credit.Start + _config.MinimumCreditsDuration;
             episode.SetAnalyzed(mode, true);
         }
 
-        var analyzerHelper = new AnalyzerHelper(_logger);
-        var adjustedCreditTimes = analyzerHelper.AdjustIntroTimes(analysisQueue, creditTimes, mode);
-
-        await Plugin.Instance!.UpdateTimestamps(adjustedCreditTimes, mode).ConfigureAwait(false);
+        if (creditTimes.Count != 0)
+        {
+            await Plugin.Instance!.UpdateTimestampsAsync(creditTimes, mode).ConfigureAwait(false);
+        }
 
         return analysisQueue;
     }
@@ -131,19 +86,17 @@ public class BlackFrameAnalyzer(ILogger<BlackFrameAnalyzer> logger) : IMediaFile
     /// </summary>
     /// <param name="episode">Media file to analyze.</param>
     /// <param name="searchStart">Search Start Piont.</param>
-    /// <param name="searchDistance">Search Distance.</param>
     /// <param name="minimum">Percentage of the frame that must be black.</param>
     /// <returns>Credits timestamp.</returns>
-    public Segment? AnalyzeMediaFile(QueuedEpisode episode, double searchStart, int searchDistance, int minimum)
+    public Segment? AnalyzeMediaFile(QueuedEpisode episode, double searchStart, int minimum)
     {
         // Start by analyzing the last N minutes of the file.
+        var searchDistance = 2 * _config.MinimumCreditsDuration;
         var upperLimit = searchStart;
-        var lowerLimit = Math.Max(searchStart - searchDistance, _minimumCreditsDuration);
+        var lowerLimit = Math.Max(searchStart - searchDistance, _config.MinimumCreditsDuration);
         var start = TimeSpan.FromSeconds(upperLimit);
         var end = TimeSpan.FromSeconds(lowerLimit);
         var firstFrameTime = 0.0;
-
-        var creditDuration = episode.IsMovie ? _maximumMovieCreditsDuration : _maximumCreditsDuration;
 
         // Continue bisecting the end of the file until the range that contains the first black
         // frame is smaller than the maximum permitted error.
@@ -177,7 +130,7 @@ public class BlackFrameAnalyzer(ILogger<BlackFrameAnalyzer> logger) : IMediaFile
 
                 if (midpoint - TimeSpan.FromSeconds(lowerLimit) < _maximumError)
                 {
-                    lowerLimit = Math.Max(lowerLimit - (0.5 * searchDistance), _minimumCreditsDuration);
+                    lowerLimit = Math.Max(lowerLimit - (searchDistance - _maximumError.TotalSeconds), _config.MinimumCreditsDuration);
 
                     // Reset end for a new search with the increased duration
                     end = TimeSpan.FromSeconds(lowerLimit);
@@ -191,7 +144,7 @@ public class BlackFrameAnalyzer(ILogger<BlackFrameAnalyzer> logger) : IMediaFile
 
                 if (TimeSpan.FromSeconds(upperLimit) - midpoint < _maximumError)
                 {
-                    upperLimit = Math.Min(upperLimit + (0.5 * searchDistance), creditDuration);
+                    upperLimit = Math.Min(upperLimit + (searchDistance - _maximumError.TotalSeconds), episode.Duration - episode.CreditsFingerprintStart);
 
                     // Reset start for a new search with the increased duration
                     start = TimeSpan.FromSeconds(upperLimit);
@@ -205,5 +158,72 @@ public class BlackFrameAnalyzer(ILogger<BlackFrameAnalyzer> logger) : IMediaFile
         }
 
         return null;
+    }
+
+    private static bool AnalyzeChapters(QueuedEpisode episode, out Segment? segment)
+    {
+        // Get last chapter that falls within the valid credits duration range
+        var suitableChapters = Plugin.Instance!.GetChapters(episode.EpisodeId)
+            .Select(c => TimeSpan.FromTicks(c.StartPositionTicks).TotalSeconds)
+            .Where(s => s >= episode.CreditsFingerprintStart &&
+                s <= episode.Duration - _config.MinimumCreditsDuration)
+            .OrderByDescending(s => s).ToList();
+
+        // If suitable chapters found, use them to find the search start point
+        foreach (var chapterStart in suitableChapters)
+        {
+            // Check for black frames at chapter start
+            var startRange = new TimeRange(chapterStart, chapterStart + 1);
+            var hasBlackFramesAtStart = FFmpegWrapper.DetectBlackFrames(
+                episode,
+                startRange,
+                _config.BlackFrameMinimumPercentage).Length > 0;
+
+            if (!hasBlackFramesAtStart)
+            {
+                break;
+            }
+
+            // Verify no black frames before chapter start
+            var beforeRange = new TimeRange(chapterStart - 5, chapterStart - 4);
+            var hasBlackFramesBefore = FFmpegWrapper.DetectBlackFrames(
+                episode,
+                beforeRange,
+                _config.BlackFrameMinimumPercentage).Length > 0;
+
+            if (!hasBlackFramesBefore)
+            {
+                segment = new(episode.EpisodeId, new TimeRange(chapterStart, episode.Duration));
+                return true;
+            }
+        }
+
+        segment = null;
+        return false;
+    }
+
+    private static double FindSearchStart(QueuedEpisode episode)
+    {
+        var searchStart = 3 * _config.MinimumCreditsDuration;
+        var scanTime = episode.Duration - searchStart;
+        var tr = new TimeRange(scanTime - 0.5, scanTime); // Short search range since accuracy isn't important here.
+
+        // Keep increasing search start time while black frames are found, to avoid false positives
+        while (FFmpegWrapper.DetectBlackFrames(episode, tr, _config.BlackFrameMinimumPercentage).Length > 0)
+        {
+            // Increase by 2x minimum credits duration each iteration
+            searchStart += 2 * _config.MinimumCreditsDuration;
+            scanTime = episode.Duration - searchStart;
+            tr = new TimeRange(scanTime - 0.5, scanTime);
+
+            // Don't search past the required credits duration from the end
+            if (searchStart > episode.Duration - episode.CreditsFingerprintStart)
+            {
+                searchStart = episode.Duration - episode.CreditsFingerprintStart;
+                break;
+            }
+        }
+
+        return searchStart;
     }
 }

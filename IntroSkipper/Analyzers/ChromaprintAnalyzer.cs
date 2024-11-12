@@ -15,42 +15,20 @@ using Microsoft.Extensions.Logging;
 namespace IntroSkipper.Analyzers;
 
 /// <summary>
-/// Chromaprint audio analyzer.
+/// Initializes a new instance of the <see cref="ChromaprintAnalyzer"/> class.
 /// </summary>
-public class ChromaprintAnalyzer : IMediaFileAnalyzer
+/// <param name="logger">Logger.</param>
+public class ChromaprintAnalyzer(ILogger<ChromaprintAnalyzer> logger) : IMediaFileAnalyzer
 {
     /// <summary>
     /// Seconds of audio in one fingerprint point.
     /// This value is defined by the Chromaprint library and should not be changed.
     /// </summary>
     private const double SamplesToSeconds = 0.1238;
-
-    private readonly int _minimumIntroDuration;
-
-    private readonly int _maximumDifferences;
-
-    private readonly int _invertedIndexShift;
-
-    private readonly double _maximumTimeSkip;
-
-    private readonly ILogger<ChromaprintAnalyzer> _logger;
+    private static readonly PluginConfiguration _config = Plugin.Instance?.Configuration ?? new PluginConfiguration();
+    private readonly ILogger<ChromaprintAnalyzer> _logger = logger;
 
     private AnalysisMode _analysisMode;
-
-    /// <summary>
-    /// Initializes a new instance of the <see cref="ChromaprintAnalyzer"/> class.
-    /// </summary>
-    /// <param name="logger">Logger.</param>
-    public ChromaprintAnalyzer(ILogger<ChromaprintAnalyzer> logger)
-    {
-        var config = Plugin.Instance?.Configuration ?? new PluginConfiguration();
-        _maximumDifferences = config.MaximumFingerprintPointDifferences;
-        _invertedIndexShift = config.InvertedIndexShift;
-        _maximumTimeSkip = config.MaximumTimeSkip;
-        _minimumIntroDuration = config.MinimumIntroDuration;
-
-        _logger = logger;
-    }
 
     /// <inheritdoc />
     public async Task<IReadOnlyList<QueuedEpisode>> AnalyzeMediaFiles(
@@ -58,44 +36,34 @@ public class ChromaprintAnalyzer : IMediaFileAnalyzer
         AnalysisMode mode,
         CancellationToken cancellationToken)
     {
+        // Episode analysis queue based on not analyzed episodes
+        var episodesToAnalyze = analysisQueue.Where(e => !e.GetAnalyzed(mode)).ToList();
+        if (episodesToAnalyze.Count == 0 || analysisQueue.Count <= 1)
+        {
+            return analysisQueue;
+        }
+
+        _analysisMode = mode;
+
         // All intros for this season.
         var seasonIntros = new Dictionary<Guid, Segment>();
 
         // Cache of all fingerprints for this season.
         var fingerprintCache = new Dictionary<Guid, uint[]>();
 
-        // Episode analysis queue based on not analyzed episodes
-        var episodeAnalysisQueue = new List<QueuedEpisode>(analysisQueue);
-
-        // Episodes that were analyzed and do not have an introduction.
-        var episodesWithoutIntros = episodeAnalysisQueue.Where(e => !e.GetAnalyzed(mode)).ToList();
-
-        _analysisMode = mode;
-
-        if (episodesWithoutIntros.Count == 0 || episodeAnalysisQueue.Count <= 1)
-        {
-            return analysisQueue;
-        }
-
-        var episodesWithFingerprint = new List<QueuedEpisode>(episodesWithoutIntros);
-
         // Load fingerprints from cache if available.
-        episodesWithFingerprint.AddRange(episodeAnalysisQueue.Where(e => e.GetAnalyzed(mode) && File.Exists(FFmpegWrapper.GetFingerprintCachePath(e, mode))));
+        episodesToAnalyze.AddRange(analysisQueue.Where(e => e.GetAnalyzed(mode) && File.Exists(FFmpegWrapper.GetFingerprintCachePath(e, mode))));
 
-        // Ensure at least two fingerprints are present.
-        if (episodesWithFingerprint.Count == 1)
+        // Ensure at least two episodes with fingerprints are present.
+        if (episodesToAnalyze.Count == 1)
         {
-            var indexInAnalysisQueue = episodeAnalysisQueue.FindIndex(episode => episode == episodesWithoutIntros[0]);
-            episodesWithFingerprint.AddRange(episodeAnalysisQueue
+            var indexInAnalysisQueue = analysisQueue.ToList().FindIndex(episode => episode == episodesToAnalyze[0]);
+            episodesToAnalyze.AddRange(analysisQueue
                 .Where((episode, index) => Math.Abs(index - indexInAnalysisQueue) <= 1 && index != indexInAnalysisQueue));
         }
 
-        seasonIntros = episodesWithFingerprint
-            .Where(e => e.GetAnalyzed(mode))
-            .ToDictionary(e => e.EpisodeId, e => Plugin.Instance!.GetSegmentByMode(e.EpisodeId, mode));
-
         // Compute fingerprints for all episodes in the season
-        foreach (var episode in episodesWithFingerprint)
+        foreach (var episode in episodesToAnalyze)
         {
             try
             {
@@ -123,15 +91,14 @@ public class ChromaprintAnalyzer : IMediaFileAnalyzer
         }
 
         // While there are still episodes in the queue
-        while (episodesWithoutIntros.Count > 0)
+        while (episodesToAnalyze.Count > 0)
         {
             // Pop the first episode from the queue
-            var currentEpisode = episodesWithoutIntros[0];
-            episodesWithoutIntros.RemoveAt(0);
-            episodesWithFingerprint.Remove(currentEpisode);
+            var currentEpisode = episodesToAnalyze[0];
+            episodesToAnalyze.RemoveAt(0);
 
             // Search through all remaining episodes.
-            foreach (var remainingEpisode in episodesWithFingerprint)
+            foreach (var remainingEpisode in episodesToAnalyze)
             {
                 // Compare the current episode to all remaining episodes in the queue.
                 var (currentIntro, remainingIntro) = CompareEpisodes(
@@ -176,27 +143,26 @@ public class ChromaprintAnalyzer : IMediaFileAnalyzer
                 // - the first intro discovered for this episode
                 // - longer than the previously discovered intro
                 if (
-                    !seasonIntros.TryGetValue(currentIntro.EpisodeId, out var savedCurrentIntro) ||
+                    !seasonIntros.TryGetValue(currentIntro.ItemId, out var savedCurrentIntro) ||
                     currentIntro.Duration > savedCurrentIntro.Duration)
                 {
-                    seasonIntros[currentIntro.EpisodeId] = currentIntro;
+                    seasonIntros[currentIntro.ItemId] = currentIntro;
                 }
 
                 if (
-                    !seasonIntros.TryGetValue(remainingIntro.EpisodeId, out var savedRemainingIntro) ||
+                    !seasonIntros.TryGetValue(remainingIntro.ItemId, out var savedRemainingIntro) ||
                     remainingIntro.Duration > savedRemainingIntro.Duration)
                 {
-                    seasonIntros[remainingIntro.EpisodeId] = remainingIntro;
+                    seasonIntros[remainingIntro.ItemId] = remainingIntro;
                 }
 
                 break;
             }
 
-            // If no intro is found at this point, the popped episode is not reinserted into the queue.
-            if (seasonIntros.ContainsKey(currentEpisode.EpisodeId))
+            // If an intro is found for this episode, mark it as analyzed.
+            if (seasonIntros.TryGetValue(currentEpisode.EpisodeId, out var intro))
             {
-                episodesWithFingerprint.Add(currentEpisode);
-                episodeAnalysisQueue.FirstOrDefault(x => x.EpisodeId == currentEpisode.EpisodeId)?.SetAnalyzed(mode, true);
+                analysisQueue.FirstOrDefault(x => x.EpisodeId == currentEpisode.EpisodeId)?.SetAnalyzed(mode, true);
             }
         }
 
@@ -207,12 +173,11 @@ public class ChromaprintAnalyzer : IMediaFileAnalyzer
         }
 
         // Adjust all introduction times.
-        var analyzerHelper = new AnalyzerHelper(_logger);
-        var adjustedSeasonIntros = analyzerHelper.AdjustIntroTimes(analysisQueue, [.. seasonIntros.Values], _analysisMode);
+        seasonIntros = AdjustIntroTimes(analysisQueue, seasonIntros);
 
-        await Plugin.Instance!.UpdateTimestamps(adjustedSeasonIntros, _analysisMode).ConfigureAwait(false);
+        await Plugin.Instance!.UpdateTimestampsAsync(seasonIntros.Values, mode).ConfigureAwait(false);
 
-        return episodeAnalysisQueue;
+        return analysisQueue;
     }
 
     /// <summary>
@@ -312,7 +277,7 @@ public class ChromaprintAnalyzer : IMediaFileAnalyzer
         {
             var originalPoint = kvp.Key;
 
-            for (var i = -1 * _invertedIndexShift; i <= _invertedIndexShift; i++)
+            for (var i = -1 * _config.InvertedIndexShift; i <= _config.InvertedIndexShift; i++)
             {
                 var modifiedPoint = (uint)(originalPoint + i);
 
@@ -345,7 +310,7 @@ public class ChromaprintAnalyzer : IMediaFileAnalyzer
     /// <param name="lhs">First fingerprint to compare.</param>
     /// <param name="rhs">Second fingerprint to compare.</param>
     /// <param name="shiftAmount">Amount to shift one fingerprint by.</param>
-    private (TimeRange Lhs, TimeRange Rhs) FindContiguous(
+    private static (TimeRange Lhs, TimeRange Rhs) FindContiguous(
         uint[] lhs,
         uint[] rhs,
         int shiftAmount)
@@ -377,7 +342,7 @@ public class ChromaprintAnalyzer : IMediaFileAnalyzer
             var diff = lhs[lhsPosition] ^ rhs[rhsPosition];
 
             // If the difference between the samples is small, flag both times as similar.
-            if (CountBits(diff) > _maximumDifferences)
+            if (CountBits(diff) > _config.MaximumFingerprintPointDifferences)
             {
                 continue;
             }
@@ -394,15 +359,137 @@ public class ChromaprintAnalyzer : IMediaFileAnalyzer
         rhsTimes.Add(double.MaxValue);
 
         // Now that both fingerprints have been compared at this shift, see if there's a contiguous time range.
-        var lContiguous = TimeRangeHelpers.FindContiguous(lhsTimes.ToArray(), _maximumTimeSkip);
-        if (lContiguous is null || lContiguous.Duration < _minimumIntroDuration)
+        var lContiguous = TimeRangeHelpers.FindContiguous([.. lhsTimes], _config.MaximumTimeSkip);
+        if (lContiguous is null || lContiguous.Duration < _config.MinimumIntroDuration)
         {
             return (new TimeRange(), new TimeRange());
         }
 
         // Since LHS had a contiguous time range, RHS must have one also.
-        var rContiguous = TimeRangeHelpers.FindContiguous(rhsTimes.ToArray(), _maximumTimeSkip)!;
+        var rContiguous = TimeRangeHelpers.FindContiguous([.. rhsTimes], _config.MaximumTimeSkip)!;
         return (lContiguous, rContiguous);
+    }
+
+    /// <summary>
+    /// Adjusts the end timestamps of all intros so that they end at silence.
+    /// </summary>
+    /// <param name="episodes">QueuedEpisodes to adjust.</param>
+    /// <param name="originalIntros">Original introductions.</param>
+    private Dictionary<Guid, Segment> AdjustIntroTimes(
+        IReadOnlyList<QueuedEpisode> episodes,
+        Dictionary<Guid, Segment> originalIntros)
+    {
+        var modifiedIntros = new Dictionary<Guid, Segment>();
+
+        foreach (var episode in episodes)
+        {
+            _logger.LogTrace(
+                "Adjusting introduction end time for {Name} ({Id})",
+                episode.Name,
+                episode.EpisodeId);
+
+            if (!originalIntros.TryGetValue(episode.EpisodeId, out var originalIntro))
+            {
+                _logger.LogTrace("{Name} does not have an intro", episode.Name);
+                continue;
+            }
+
+            _logger.LogTrace(
+                "{Name} original intro: {Start} - {End}",
+                episode.Name,
+                originalIntro.Start,
+                originalIntro.End);
+
+            var originalIntroStart = new TimeRange(
+                Math.Max(0, (int)originalIntro.Start - 5),
+                (int)originalIntro.Start + 10);
+
+            var originalIntroEnd = new TimeRange(
+                (int)originalIntro.End - 10,
+                Math.Min(episode.Duration, (int)originalIntro.End + 5));
+
+            // Try to adjust based on chapters first, fall back to silence detection for intros
+            if (!AdjustIntroBasedOnChapters(episode, originalIntro, originalIntroStart, originalIntroEnd) &&
+                _analysisMode == AnalysisMode.Introduction)
+            {
+                AdjustIntroBasedOnSilence(episode, originalIntro, originalIntroEnd);
+            }
+
+            _logger.LogTrace(
+                "{Name} adjusted intro: {Start} - {End}",
+                episode.Name,
+                originalIntro.Start,
+                originalIntro.End);
+
+            modifiedIntros[episode.EpisodeId] = originalIntro;
+        }
+
+        return modifiedIntros;
+    }
+
+    private bool AdjustIntroBasedOnChapters(
+        QueuedEpisode episode,
+        Segment intro,
+        TimeRange originalIntroStart,
+        TimeRange originalIntroEnd)
+    {
+        var chapters = Plugin.Instance?.GetChapters(episode.EpisodeId) ?? [];
+        double previousTime = 0;
+
+        for (int i = 0; i <= chapters.Count; i++)
+        {
+            double currentTime = i < chapters.Count
+                ? TimeSpan.FromTicks(chapters[i].StartPositionTicks).TotalSeconds
+                : episode.Duration;
+
+            if (IsTimeWithinRange(previousTime, originalIntroStart))
+            {
+                intro.Start = previousTime;
+                _logger.LogTrace("{Name} chapter found close to intro start: {Start}", episode.Name, previousTime);
+            }
+
+            if (IsTimeWithinRange(currentTime, originalIntroEnd))
+            {
+                intro.End = currentTime;
+                _logger.LogTrace("{Name} chapter found close to intro end: {End}", episode.Name, currentTime);
+                return true;
+            }
+
+            previousTime = currentTime;
+        }
+
+        return false;
+    }
+
+    private void AdjustIntroBasedOnSilence(QueuedEpisode episode, Segment intro, TimeRange originalIntroEnd)
+    {
+        var silenceRanges = FFmpegWrapper.DetectSilence(episode, originalIntroEnd);
+
+        foreach (var silenceRange in silenceRanges)
+        {
+            _logger.LogTrace("{Name} silence: {Start} - {End}", episode.Name, silenceRange.Start, silenceRange.End);
+
+            if (IsValidSilenceForIntroAdjustment(silenceRange, originalIntroEnd, intro))
+            {
+                intro.End = silenceRange.Start;
+                break;
+            }
+        }
+    }
+
+    private static bool IsValidSilenceForIntroAdjustment(
+        TimeRange silenceRange,
+        TimeRange originalIntroEnd,
+        Segment adjustedIntro)
+    {
+        return originalIntroEnd.Intersects(silenceRange) &&
+               silenceRange.Duration >= _config.SilenceDetectionMinimumDuration &&
+               silenceRange.Start >= adjustedIntro.Start;
+    }
+
+    private static bool IsTimeWithinRange(double time, TimeRange range)
+    {
+        return range.Start < time && time < range.End;
     }
 
     /// <summary>
@@ -410,7 +497,7 @@ public class ChromaprintAnalyzer : IMediaFileAnalyzer
     /// </summary>
     /// <param name="number">Number to count bits in.</param>
     /// <returns>Number of bits that are equal to 1.</returns>
-    public int CountBits(uint number)
+    public static int CountBits(uint number)
     {
         return BitOperations.PopCount(number);
     }

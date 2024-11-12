@@ -86,8 +86,6 @@ public class CleanCacheTask : IScheduledTask
             .SelectMany(episodes => episodes.Select(e => e.EpisodeId))
             .ToHashSet();
 
-        await Plugin.Instance!.ClearInvalidSegments().ConfigureAwait(false);
-
         await Plugin.Instance!.CleanTimestamps(validEpisodeIds).ConfigureAwait(false);
 
         // Identify invalid episode IDs
@@ -105,7 +103,9 @@ public class CleanCacheTask : IScheduledTask
         }
 
         // Clean up Season information by removing items that are no longer exist.
-        await Plugin.Instance!.CleanSeasonInfoAsync().ConfigureAwait(false);
+        await Plugin.Instance!.CleanSeasonInfoAsync(queue.Keys).ConfigureAwait(false);
+
+        Plugin.Instance!.AnalyzeAgain = true;
 
         progress.Report(100);
     }

@@ -12,19 +12,16 @@ namespace IntroSkipper.Db;
 /// <remarks>
 /// Initializes a new instance of the <see cref="DbSegment"/> class.
 /// </remarks>
-public class DbSegment
+public class DbSegment : Segment
 {
     /// <summary>
     /// Initializes a new instance of the <see cref="DbSegment"/> class.
     /// </summary>
-    /// <param name="segment">Segment.</param>
-    /// <param name="mode">Analysis mode.</param>
-    public DbSegment(Segment segment, AnalysisMode mode)
+    /// <param name="segment">The segment to initialize the instance with.</param>
+    /// <param name="type">The type of analysis that was used to determine this segment.</param>
+    public DbSegment(Segment segment, AnalysisMode type) : base(segment.ItemId, segment.Start, segment.End)
     {
-        ItemId = segment.EpisodeId;
-        Start = segment.Start;
-        End = segment.End;
-        Type = mode;
+        Type = type;
     }
 
     /// <summary>
@@ -35,22 +32,16 @@ public class DbSegment
     }
 
     /// <summary>
-    /// Gets the item ID.
-    /// </summary>
-    public Guid ItemId { get; private set; }
-
-    /// <summary>
-    /// Gets the start time.
-    /// </summary>
-    public double Start { get; private set; }
-
-    /// <summary>
-    /// Gets the end time.
-    /// </summary>
-    public double End { get; private set; }
-
-    /// <summary>
-    /// Gets the analysis mode.
+    /// Gets the type of analysis that was used to determine this segment.
     /// </summary>
     public AnalysisMode Type { get; private set; }
+
+    /// <summary>
+    /// Converts the instance to a <see cref="Segment"/> object.
+    /// </summary>
+    /// <returns>A <see cref="Segment"/> object.</returns>
+    internal Segment ToSegment()
+    {
+        return new Segment(ItemId, Start, End);
+    }
 }

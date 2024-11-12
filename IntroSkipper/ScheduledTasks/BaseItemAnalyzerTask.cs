@@ -108,12 +108,16 @@ public class BaseItemAnalyzerTask(
                     progress.Report((double)totalProcessed / totalQueued * 100);
                 }
 
+                var actions = Plugin.Instance!.GetAnalyzerAction(season.Key);
+
                 foreach (var mode in requiredModes)
                 {
                     ct.ThrowIfCancellationRequested();
-
-                    var action = Plugin.Instance!.GetAnalyzerAction(season.Key, mode);
-                    int analyzed = await AnalyzeItemsAsync(episodes, mode, action, ct).ConfigureAwait(false);
+                    int analyzed = await AnalyzeItemsAsync(
+                        episodes,
+                        mode,
+                        actions.TryGetValue(mode, out var action) ? action : AnalyzerAction.Default,
+                        ct).ConfigureAwait(false);
                     Interlocked.Add(ref totalProcessed, analyzed);
 
                     updateMediaSegments = analyzed > 0 || updateMediaSegments;
@@ -139,6 +143,8 @@ public class BaseItemAnalyzerTask(
                 await _mediaSegmentUpdateManager.UpdateMediaSegmentsAsync(episodes, ct).ConfigureAwait(false);
             }
         }).ConfigureAwait(false);
+
+        Plugin.Instance!.AnalyzeAgain = false;
 
         if (_config.RegenerateMediaSegments)
         {
@@ -212,10 +218,9 @@ public class BaseItemAnalyzerTask(
             items = await analyzer.AnalyzeMediaFiles(items, mode, cancellationToken).ConfigureAwait(false);
         }
 
-        // Add items without intros/credits to blacklist.
-        var blacklisted = new List<Segment>(items.Where(e => !e.GetAnalyzed(mode)).Select(e => new Segment(e.EpisodeId)));
-        _logger.LogDebug("Blacklisting {Count} items for mode {Mode}", blacklisted.Count, mode);
-        await Plugin.Instance!.UpdateTimestamps(blacklisted, mode).ConfigureAwait(false);
+        // Add items without intros/credits to database without timestamps.
+        var blacklisted = items.Where(e => !e.GetAnalyzed(mode)).Select(e => new Segment(e.EpisodeId)).ToList();
+        await Plugin.Instance!.UpdateTimestampsAsync(blacklisted, mode).ConfigureAwait(false);
         totalItems -= blacklisted.Count;
 
         return totalItems;

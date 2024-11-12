@@ -260,6 +260,7 @@ namespace IntroSkipper.Manager
                 Name = movie.Name,
                 Path = movie.Path,
                 Duration = Convert.ToInt32(duration),
+                CreditsFingerprintStart = Convert.ToInt32(duration - pluginInstance.Configuration.MaximumMovieCreditsDuration),
                 IsMovie = true
             });
 
@@ -291,11 +292,11 @@ namespace IntroSkipper.Manager
         /// <param name="candidates">Queued media items.</param>
         /// <param name="modes">Analysis mode.</param>
         /// <returns>Media items that have been verified to exist in Jellyfin and in storage.</returns>
-        public (IReadOnlyList<QueuedEpisode> VerifiedItems, IReadOnlyCollection<AnalysisMode> RequiredModes)
+        internal (IReadOnlyList<QueuedEpisode> QueuedEpisodes, IReadOnlyCollection<AnalysisMode> RequiredModes)
             VerifyQueue(IReadOnlyList<QueuedEpisode> candidates, IReadOnlyCollection<AnalysisMode> modes)
         {
             var verified = new List<QueuedEpisode>();
-            var reqModes = new HashSet<AnalysisMode>();
+            var requiredModes = new HashSet<AnalysisMode>();
 
             foreach (var candidate in candidates)
             {
@@ -308,21 +309,19 @@ namespace IntroSkipper.Manager
                     }
 
                     verified.Add(candidate);
-                    var segments = Plugin.Instance!.GetSegmentsById(candidate.EpisodeId);
+
+                    // Get segments for this specific episode
+                    var segments = Plugin.Instance!.GetTimestamps(candidate.EpisodeId);
 
                     foreach (var mode in modes)
                     {
-                        if (segments.TryGetValue(mode, out var segment))
+                        if (!segments.TryGetValue(mode, out var segment) || Plugin.Instance!.AnalyzeAgain)
                         {
-                            if (segment.Valid)
-                            {
-                                candidate.SetAnalyzed(mode, true);
-                            }
+                            requiredModes.Add(mode);
+                            continue;
                         }
-                        else
-                        {
-                            reqModes.Add(mode);
-                        }
+
+                        candidate.SetAnalyzed(mode, segment.Valid);
                     }
                 }
                 catch (Exception ex)
@@ -335,7 +334,7 @@ namespace IntroSkipper.Manager
                 }
             }
 
-            return (verified, reqModes);
+            return (verified, requiredModes);
         }
     }
 }

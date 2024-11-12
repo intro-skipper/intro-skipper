@@ -175,14 +175,15 @@ public class VisualizationController(ILogger<VisualizationController> logger, Me
             foreach (var episode in episodes)
             {
                 cancellationToken.ThrowIfCancellationRequested();
-                var segments = Plugin.Instance!.GetSegmentsById(episode.EpisodeId);
+
+                var segments = Plugin.Instance!.GetTimestamps(episode.EpisodeId);
 
                 if (segments.TryGetValue(AnalysisMode.Introduction, out var introSegment))
                 {
                     db.DbSegment.Remove(new DbSegment(introSegment, AnalysisMode.Introduction));
                 }
 
-                if (segments.TryGetValue(AnalysisMode.Introduction, out var creditSegment))
+                if (segments.TryGetValue(AnalysisMode.Credits, out var creditSegment))
                 {
                     db.DbSegment.Remove(new DbSegment(creditSegment, AnalysisMode.Credits));
                 }

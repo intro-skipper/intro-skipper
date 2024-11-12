@@ -78,18 +78,12 @@ public class QueuedEpisode
     /// </summary>
     /// <param name="mode">Analysis mode.</param>
     /// <param name="value">Value to set.</param>
-    public void SetAnalyzed(AnalysisMode mode, bool value)
-    {
-        _isAnalyzed[(int)mode] = value;
-    }
+    public void SetAnalyzed(AnalysisMode mode, bool value) => _isAnalyzed[(int)mode] = value;
 
     /// <summary>
-    /// Sets a value indicating whether this media has been already analyzed.
+    /// Gets a value indicating whether this media has been already analyzed.
     /// </summary>
     /// <param name="mode">Analysis mode.</param>
     /// <returns>Value of the analyzed mode.</returns>
-    public bool GetAnalyzed(AnalysisMode mode)
-    {
-        return _isAnalyzed[(int)mode];
-    }
+    public bool GetAnalyzed(AnalysisMode mode) => _isAnalyzed[(int)mode];
 }

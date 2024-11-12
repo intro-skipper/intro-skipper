@@ -128,11 +128,10 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
         try
         {
             using var db = new IntroSkipperDbContext(_dbPath);
-            db.Database.EnsureCreated();
             db.ApplyMigrations();
             if (File.Exists(_introPath) || File.Exists(_creditsPath))
             {
-                RestoreTimestampsAsync(db).GetAwaiter().GetResult();
+                RestoreTimestamps();
             }
         }
         catch (Exception ex)
@@ -159,6 +158,11 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
     /// Gets the path to the database.
     /// </summary>
     public string DbPath => _dbPath;
+
+    /// <summary>
+    /// Gets or sets a value indicating whether to analyze again.
+    /// </summary>
+    public bool AnalyzeAgain { get; set; }
 
     /// <summary>
     /// Gets the most recent media item queue.
@@ -199,18 +203,16 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
     /// <summary>
     /// Restore previous analysis results from disk.
     /// </summary>
-    /// <param name="db">IntroSkipperDbContext.</param>
-    /// <returns>A <see cref="Task"/> representing the asynchronous operation.</returns>
-    public async Task RestoreTimestampsAsync(IntroSkipperDbContext db)
+    public void RestoreTimestamps()
     {
+        using var db = new IntroSkipperDbContext(_dbPath);
         // Import intros
         if (File.Exists(_introPath))
         {
             var introList = XmlSerializationHelper.DeserializeFromXml<Segment>(_introPath);
             foreach (var intro in introList)
             {
-                var dbSegment = new DbSegment(intro, AnalysisMode.Introduction);
-                db.DbSegment.Add(dbSegment);
+                db.DbSegment.Add(new DbSegment(intro, AnalysisMode.Introduction));
             }
         }
 
@@ -220,12 +222,11 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
             var creditList = XmlSerializationHelper.DeserializeFromXml<Segment>(_creditsPath);
             foreach (var credit in creditList)
             {
-                var dbSegment = new DbSegment(credit, AnalysisMode.Credits);
-                db.DbSegment.Add(dbSegment);
+                db.DbSegment.Add(new DbSegment(credit, AnalysisMode.Credits));
             }
         }
 
-        await db.SaveChangesAsync().ConfigureAwait(false);
+        db.SaveChanges();
 
         File.Delete(_introPath);
         File.Delete(_creditsPath);
@@ -259,7 +260,7 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
         return id != Guid.Empty ? _libraryManager.GetItemById(id) : null;
     }
 
-    internal IReadOnlyList<Folder> GetCollectionFolders(Guid id)
+    internal ICollection<Folder> GetCollectionFolders(Guid id)
     {
         var item = GetItem(id);
         return item is not null ? _libraryManager.GetCollectionFolders(item) : [];
@@ -301,81 +302,45 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
         return _itemRepository.GetChapters(item);
     }
 
-    internal async Task UpdateTimestamps(IReadOnlyList<Segment> newTimestamps, AnalysisMode mode)
+    internal async Task UpdateTimestampsAsync(IEnumerable<Segment> segments, AnalysisMode mode)
     {
-        if (newTimestamps.Count == 0)
-        {
-            return;
-        }
-
-        _logger.LogDebug("Starting UpdateTimestamps with {Count} segments for mode {Mode}", newTimestamps.Count, mode);
-
         using var db = new IntroSkipperDbContext(_dbPath);
 
-        var segments = newTimestamps.Select(s => new DbSegment(s, mode)).ToList();
-
-        var newItemIds = segments.Select(s => s.ItemId).ToHashSet();
-        var existingIds = db.DbSegment
-            .Where(s => s.Type == mode && newItemIds.Contains(s.ItemId))
-            .Select(s => s.ItemId)
-            .ToHashSet();
+        var ids = segments.Select(s => s.ItemId);
+        var existingSegments = await db.DbSegment
+            .Where(s => ids.Contains(s.ItemId) && s.Type == mode)
+            .ToDictionaryAsync(s => s.ItemId)
+            .ConfigureAwait(false);
 
         foreach (var segment in segments)
         {
-            if (existingIds.Contains(segment.ItemId))
+            var dbSegment = new DbSegment(segment, mode);
+            if (existingSegments.TryGetValue(segment.ItemId, out var existing))
             {
-                db.DbSegment.Update(segment);
+                db.Entry(existing).CurrentValues.SetValues(dbSegment);
             }
             else
             {
-                db.DbSegment.Add(segment);
+                db.DbSegment.Add(dbSegment);
             }
         }
 
         await db.SaveChangesAsync().ConfigureAwait(false);
     }
 
-    internal async Task ClearInvalidSegments()
+    internal IReadOnlyDictionary<AnalysisMode, Segment> GetTimestamps(Guid id)
     {
         using var db = new IntroSkipperDbContext(_dbPath);
-        db.DbSegment.RemoveRange(db.DbSegment.Where(s => s.End == 0.0));
-        await db.SaveChangesAsync().ConfigureAwait(false);
+        return db.DbSegment.Where(s => s.ItemId == id)
+            .ToDictionary(s => s.Type, s => s.ToSegment());
     }
 
-    internal async Task CleanTimestamps(HashSet<Guid> episodeIds)
+    internal async Task CleanTimestamps(IEnumerable<Guid> episodeIds)
     {
         using var db = new IntroSkipperDbContext(_dbPath);
         db.DbSegment.RemoveRange(db.DbSegment
             .Where(s => !episodeIds.Contains(s.ItemId)));
         await db.SaveChangesAsync().ConfigureAwait(false);
-    }
-
-    internal IReadOnlyDictionary<AnalysisMode, Segment> GetSegmentsById(Guid id)
-    {
-        using var db = new IntroSkipperDbContext(_dbPath);
-        return db.DbSegment
-                .Where(s => s.ItemId == id)
-                .ToDictionary(
-                    s => s.Type,
-                    s => new Segment
-                    {
-                        EpisodeId = s.ItemId,
-                        Start = s.Start,
-                        End = s.End
-                    });
-    }
-
-    internal Segment GetSegmentByMode(Guid id, AnalysisMode mode)
-    {
-        using var db = new IntroSkipperDbContext(_dbPath);
-        return db.DbSegment
-                .Where(s => s.ItemId == id && s.Type == mode)
-                .Select(s => new Segment
-                {
-                    EpisodeId = s.ItemId,
-                    Start = s.Start,
-                    End = s.End
-                }).FirstOrDefault() ?? new Segment(id);
     }
 
     internal async Task UpdateAnalyzerActionAsync(Guid id, IReadOnlyDictionary<AnalysisMode, AnalyzerAction> analyzerActions)
@@ -405,20 +370,15 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
     internal IReadOnlyDictionary<AnalysisMode, AnalyzerAction> GetAnalyzerAction(Guid id)
     {
         using var db = new IntroSkipperDbContext(_dbPath);
-        return db.DbSeasonInfo.Where(s => s.SeasonId == id).ToDictionary(s => s.Type, s => s.Action);
+        return db.DbSeasonInfo.Where(s => s.SeasonId == id)
+            .ToDictionary(s => s.Type, s => s.Action);
     }
 
-    internal AnalyzerAction GetAnalyzerAction(Guid id, AnalysisMode mode)
-    {
-        using var db = new IntroSkipperDbContext(_dbPath);
-        return db.DbSeasonInfo.FirstOrDefault(s => s.SeasonId == id && s.Type == mode)?.Action ?? AnalyzerAction.Default;
-    }
-
-    internal async Task CleanSeasonInfoAsync()
+    internal async Task CleanSeasonInfoAsync(IEnumerable<Guid> ids)
     {
         using var db = new IntroSkipperDbContext(_dbPath);
         var obsoleteSeasons = await db.DbSeasonInfo
-            .Where(s => !Instance!.QueuedMediaItems.Keys.Contains(s.SeasonId))
+            .Where(s => !ids.Contains(s.SeasonId))
             .ToListAsync().ConfigureAwait(false);
         db.DbSeasonInfo.RemoveRange(obsoleteSeasons);
         await db.SaveChangesAsync().ConfigureAwait(false);

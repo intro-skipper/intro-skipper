@@ -1546,18 +1546,22 @@
                     const lhsId = selectEpisode1.options[selectEpisode1.selectedIndex].value;
                     const newLhs = {
                         Introduction: {
+                            ItemId: lhsId,
                             Start: getEditValue("editLeftIntroEpisodeStartEdit"),
                             End: getEditValue("editLeftIntroEpisodeEndEdit"),
                         },
                         Credits: {
+                            ItemId: lhsId,
                             Start: getEditValue("editLeftCreditEpisodeStartEdit"),
                             End: getEditValue("editLeftCreditEpisodeEndEdit"),
                         },
                         Recap: {
+                            ItemId: lhsId,
                             Start: getEditValue("editLeftRecapEpisodeStartEdit"),
                             End: getEditValue("editLeftRecapEpisodeEndEdit"),
                         },
                         Preview: {
+                            ItemId: lhsId,
                             Start: getEditValue("editLeftPreviewEpisodeStartEdit"),
                             End: getEditValue("editLeftPreviewEpisodeEndEdit"),
                         },
@@ -1566,18 +1570,22 @@
                     const rhsId = selectEpisode2.options[selectEpisode2.selectedIndex].value;
                     const newRhs = {
                         Introduction: {
+                            ItemId: rhsId,
                             Start: getEditValue("editRightIntroEpisodeStartEdit"),
                             End: getEditValue("editRightIntroEpisodeEndEdit"),
                         },
                         Credits: {
+                            ItemId: rhsId,
                             Start: getEditValue("editRightCreditEpisodeStartEdit"),
                             End: getEditValue("editRightCreditEpisodeEndEdit"),
                         },
                         Recap: {
+                            ItemId: rhsId,
                             Start: getEditValue("editRightRecapEpisodeStartEdit"),
                             End: getEditValue("editRightRecapEpisodeEndEdit"),
                         },
                         Preview: {
+                            ItemId: rhsId,
                             Start: getEditValue("editRightPreviewEpisodeStartEdit"),
                             End: getEditValue("editRightPreviewEpisodeEndEdit"),
                         },

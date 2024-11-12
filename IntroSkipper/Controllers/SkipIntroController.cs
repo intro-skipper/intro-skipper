@@ -80,18 +80,17 @@ public class SkipIntroController(MediaSegmentUpdateManager mediaSegmentUpdateMan
 
         var segmentTypes = new[]
         {
-            (timestamps.Introduction, AnalysisMode.Introduction),
-            (timestamps.Credits, AnalysisMode.Credits),
-            (timestamps.Recap, AnalysisMode.Recap),
-            (timestamps.Preview, AnalysisMode.Preview)
+            (AnalysisMode.Introduction, timestamps.Introduction),
+            (AnalysisMode.Credits, timestamps.Credits),
+            (AnalysisMode.Recap, timestamps.Recap),
+            (AnalysisMode.Preview, timestamps.Preview)
         };
 
-        foreach (var (segment, mode) in segmentTypes)
+        foreach (var (mode, segment) in segmentTypes)
         {
-            if (segment.End > 0.0)
+            if (segment.Valid)
             {
-                var seg = new Segment(id, new TimeRange(segment.Start, segment.End));
-                await Plugin.Instance!.UpdateTimestamps([seg], mode).ConfigureAwait(false);
+                await Plugin.Instance!.UpdateTimestampsAsync([segment], mode).ConfigureAwait(false);
             }
         }
 
@@ -128,7 +127,7 @@ public class SkipIntroController(MediaSegmentUpdateManager mediaSegmentUpdateMan
         }
 
         var times = new TimeStamps();
-        var segments = Plugin.Instance!.GetSegmentsById(id);
+        var segments = Plugin.Instance!.GetTimestamps(id);
 
         if (segments.TryGetValue(AnalysisMode.Introduction, out var introSegment))
         {
@@ -165,38 +164,12 @@ public class SkipIntroController(MediaSegmentUpdateManager mediaSegmentUpdateMan
         return GetIntros(id);
     }
 
-    /// <summary>
-    /// Gets a dictionary of all skippable segments.
-    /// </summary>
-    /// <param name="id">Media ID.</param>
-    /// <response code="200">Skippable segments dictionary.</response>
-    /// <returns>Dictionary of skippable segments.</returns>
-    [HttpGet("Episode/{id}/IntroSkipperSegments/v2")]
-    public ActionResult<Dictionary<AnalysisMode, Intro>> GetSkippableSegmentsV2([FromRoute] Guid id)
-    {
-        var segments = GetIntros(id);
-        var skippableSegments = new Dictionary<AnalysisMode, Intro>();
-
-        var modes = new[] { AnalysisMode.Introduction, AnalysisMode.Credits, AnalysisMode.Recap, AnalysisMode.Preview };
-
-        foreach (var mode in modes)
-        {
-            if (segments.TryGetValue(mode, out var segment))
-            {
-                segment.SegmentType = mode;
-                skippableSegments[mode] = segment;
-            }
-        }
-
-        return skippableSegments;
-    }
-
     /// <summary>Lookup and return the skippable timestamps for the provided item.</summary>
     /// <param name="id">Unique identifier of this episode.</param>
     /// <returns>Intro object if the provided item has an intro, null otherwise.</returns>
     internal static Dictionary<AnalysisMode, Intro> GetIntros(Guid id)
     {
-        var timestamps = Plugin.Instance!.GetSegmentsById(id);
+        var timestamps = Plugin.Instance!.GetTimestamps(id);
         var intros = new Dictionary<AnalysisMode, Intro>();
         var runTime = TimeSpan.FromTicks(Plugin.Instance!.GetItem(id)?.RunTimeTicks ?? 0).TotalSeconds;
         var config = Plugin.Instance.Configuration;
@@ -209,10 +182,8 @@ public class SkipIntroController(MediaSegmentUpdateManager mediaSegmentUpdateMan
             }
 
             // Create new Intro to avoid mutating the original stored in dictionary
-            var segment = new Intro(timestamp)
-            {
-                SegmentType = mode,
-            };
+            var segment = new Intro(timestamp);
+            segment.SegmentType = mode;
 
             // Calculate intro end time
             segment.IntroEnd = runTime > 0 && runTime < segment.IntroEnd + 1

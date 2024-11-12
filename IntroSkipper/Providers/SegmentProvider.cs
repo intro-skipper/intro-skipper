@@ -32,7 +32,7 @@ namespace IntroSkipper.Providers
 
             var segments = new List<MediaSegmentDto>();
             var remainingTicks = Plugin.Instance.Configuration.RemainingSecondsOfIntro * TimeSpan.TicksPerSecond;
-            var itemSegments = Plugin.Instance.GetSegmentsById(request.ItemId);
+            var itemSegments = Plugin.Instance.GetTimestamps(request.ItemId);
             var runTimeTicks = Plugin.Instance.GetItem(request.ItemId)?.RunTimeTicks ?? 0;
 
             // Define mappings between AnalysisMode and MediaSegmentType

@@ -142,7 +142,7 @@ namespace IntroSkipper.Services
         private void OnSettingsChanged(object? sender, BasePluginConfiguration e)
         {
             _config = (PluginConfiguration)e;
-            _ = Plugin.Instance!.ClearInvalidSegments();
+            Plugin.Instance!.AnalyzeAgain = true;
         }
 
         /// <summary>
