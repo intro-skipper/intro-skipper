@@ -437,45 +437,7 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
     /// <param name="webPath">Full path to index.html.</param>
     private void InjectSkipButton(string webPath)
     {
-        string searchPattern = "dashboard-dashboard.*.chunk.js";
-        string[] filePaths = Directory.GetFiles(webPath, searchPattern, SearchOption.TopDirectoryOnly);
-        string pattern = @"buildVersion""\)\.innerText=""(?<buildVersion>\d+\.\d+\.\d+)"",.*?webVersion""\)\.innerText=""(?<webVersion>\d+\.\d+\.\d+)";
-        string webVersionString = "unknown";
-        // Create a Regex object
-        Regex regex = new Regex(pattern);
-
-        // should be only one file but this safer
-        foreach (var file in filePaths)
-        {
-            string dashBoardText = File.ReadAllText(file);
-            // Perform the match
-            Match match = regex.Match(dashBoardText);
-            // search for buildVersion and webVersion
-            if (match.Success)
-            {
-                webVersionString = match.Groups["webVersion"].Value;
-                _logger.LogInformation("Found jellyfin-web <{WebVersion}>", webVersionString);
-                break;
-            }
-        }
-
-        if (webVersionString != "unknown")
-        {
-            // append Revision
-            webVersionString += ".0";
-            if (Version.TryParse(webVersionString, out var webversion))
-            {
-                if (_applicationHost.ApplicationVersion != webversion)
-                {
-                    _logger.LogWarning("The jellyfin-web <{WebVersion}> NOT compatible with Jellyfin <{JellyfinVersion}>", webVersionString, _applicationHost.ApplicationVersion);
-                }
-                else
-                {
-                    _logger.LogInformation("The jellyfin-web <{WebVersion}> compatible with Jellyfin <{JellyfinVersion}>", webVersionString, _applicationHost.ApplicationVersion);
-                }
-            }
-        }
-
+        string pattern;
         // Inject the skip intro button code into the web interface.
         string indexPath = Path.Join(webPath, "index.html");
 

@@ -161,7 +161,19 @@ public class SkipIntroController(MediaSegmentUpdateManager mediaSegmentUpdateMan
     [HttpGet("Episode/{id}/IntroSkipperSegments")]
     public ActionResult<Dictionary<AnalysisMode, Intro>> GetSkippableSegments([FromRoute] Guid id)
     {
-        return GetIntros(id);
+        var segments = GetIntros(id);
+
+        if (segments.TryGetValue(AnalysisMode.Introduction, out var introSegment))
+        {
+            segments[AnalysisMode.Introduction] = introSegment;
+        }
+
+        if (segments.TryGetValue(AnalysisMode.Credits, out var creditSegment))
+        {
+            segments[AnalysisMode.Credits] = creditSegment;
+        }
+
+        return segments;
     }
 
     /// <summary>Lookup and return the skippable timestamps for the provided item.</summary>

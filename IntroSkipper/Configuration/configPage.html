@@ -1421,6 +1421,7 @@
                         fetchWithAuth("Intros/EraseTimestamps?mode=" + mode + "&eraseCache=" + eraseCacheChecked, "POST", null);
 
                         Dashboard.alert(mode + " timestamps erased");
+                        document.getElementById("eraseModeCacheCheckbox").checked = false;
                     });
                 }
 
