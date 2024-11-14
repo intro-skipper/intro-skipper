@@ -318,10 +318,9 @@ namespace IntroSkipper.Manager
                         if (!segments.TryGetValue(mode, out var segment) || Plugin.Instance!.AnalyzeAgain)
                         {
                             requiredModes.Add(mode);
-                            continue;
                         }
 
-                        candidate.SetAnalyzed(mode, segment.Valid);
+                        candidate.SetAnalyzed(mode, segment?.Valid ?? false);
                     }
                 }
                 catch (Exception ex)

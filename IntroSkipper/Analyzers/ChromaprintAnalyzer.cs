@@ -25,9 +25,9 @@ public class ChromaprintAnalyzer(ILogger<ChromaprintAnalyzer> logger) : IMediaFi
     /// This value is defined by the Chromaprint library and should not be changed.
     /// </summary>
     private const double SamplesToSeconds = 0.1238;
-    private static readonly PluginConfiguration _config = Plugin.Instance?.Configuration ?? new PluginConfiguration();
+    private readonly PluginConfiguration _config = Plugin.Instance?.Configuration ?? new PluginConfiguration();
     private readonly ILogger<ChromaprintAnalyzer> _logger = logger;
-
+    private readonly Dictionary<Guid, Dictionary<uint, int>> _invertedIndexCache = [];
     private AnalysisMode _analysisMode;
 
     /// <inheritdoc />
@@ -159,23 +159,13 @@ public class ChromaprintAnalyzer(ILogger<ChromaprintAnalyzer> logger) : IMediaFi
                 break;
             }
 
-            // If an intro is found for this episode, mark it as analyzed.
+            // If an intro is found for this episode, adjust its times and save it.
             if (seasonIntros.TryGetValue(currentEpisode.EpisodeId, out var intro))
             {
-                analysisQueue.FirstOrDefault(x => x.EpisodeId == currentEpisode.EpisodeId)?.SetAnalyzed(mode, true);
+                await Plugin.Instance!.UpdateTimestampAsync(intro, mode).ConfigureAwait(false);
+                currentEpisode.SetAnalyzed(mode, true);
             }
         }
-
-        // If cancellation was requested, report that no episodes were analyzed.
-        if (cancellationToken.IsCancellationRequested)
-        {
-            return analysisQueue;
-        }
-
-        // Adjust all introduction times.
-        seasonIntros = AdjustIntroTimes(analysisQueue, seasonIntros);
-
-        await Plugin.Instance!.UpdateTimestampsAsync(seasonIntros.Values, mode).ConfigureAwait(false);
 
         return analysisQueue;
     }
@@ -267,8 +257,8 @@ public class ChromaprintAnalyzer(ILogger<ChromaprintAnalyzer> logger) : IMediaFi
         var rhsRanges = new List<TimeRange>();
 
         // Generate inverted indexes for the left and right episodes.
-        var lhsIndex = FFmpegWrapper.CreateInvertedIndex(lhsId, lhsPoints, _analysisMode);
-        var rhsIndex = FFmpegWrapper.CreateInvertedIndex(rhsId, rhsPoints, _analysisMode);
+        var lhsIndex = CreateInvertedIndex(lhsId, lhsPoints);
+        var rhsIndex = CreateInvertedIndex(rhsId, rhsPoints);
         var indexShifts = new HashSet<int>();
 
         // For all audio points in the left episode, check if the right episode has a point which matches exactly.
@@ -310,7 +300,7 @@ public class ChromaprintAnalyzer(ILogger<ChromaprintAnalyzer> logger) : IMediaFi
     /// <param name="lhs">First fingerprint to compare.</param>
     /// <param name="rhs">Second fingerprint to compare.</param>
     /// <param name="shiftAmount">Amount to shift one fingerprint by.</param>
-    private static (TimeRange Lhs, TimeRange Rhs) FindContiguous(
+    private (TimeRange Lhs, TimeRange Rhs) FindContiguous(
         uint[] lhs,
         uint[] rhs,
         int shiftAmount)
@@ -373,58 +363,40 @@ public class ChromaprintAnalyzer(ILogger<ChromaprintAnalyzer> logger) : IMediaFi
     /// <summary>
     /// Adjusts the end timestamps of all intros so that they end at silence.
     /// </summary>
-    /// <param name="episodes">QueuedEpisodes to adjust.</param>
-    /// <param name="originalIntros">Original introductions.</param>
-    private Dictionary<Guid, Segment> AdjustIntroTimes(
-        IReadOnlyList<QueuedEpisode> episodes,
-        Dictionary<Guid, Segment> originalIntros)
+    /// <param name="episode">QueuedEpisode to adjust.</param>
+    /// <param name="originalIntro">Original introduction.</param>
+    private Segment AdjustIntroTimes(
+        QueuedEpisode episode,
+        Segment originalIntro)
     {
-        var modifiedIntros = new Dictionary<Guid, Segment>();
+        _logger.LogTrace(
+            "{Name} original intro: {Start} - {End}",
+            episode.Name,
+            originalIntro.Start,
+            originalIntro.End);
 
-        foreach (var episode in episodes)
+        var originalIntroStart = new TimeRange(
+            Math.Max(0, (int)originalIntro.Start - 5),
+            (int)originalIntro.Start + 10);
+
+        var originalIntroEnd = new TimeRange(
+            (int)originalIntro.End - 10,
+            Math.Min(episode.Duration, (int)originalIntro.End + 5));
+
+        // Try to adjust based on chapters first, fall back to silence detection for intros
+        if (!AdjustIntroBasedOnChapters(episode, originalIntro, originalIntroStart, originalIntroEnd) &&
+            _analysisMode == AnalysisMode.Introduction)
         {
-            _logger.LogTrace(
-                "Adjusting introduction end time for {Name} ({Id})",
-                episode.Name,
-                episode.EpisodeId);
-
-            if (!originalIntros.TryGetValue(episode.EpisodeId, out var originalIntro))
-            {
-                _logger.LogTrace("{Name} does not have an intro", episode.Name);
-                continue;
-            }
-
-            _logger.LogTrace(
-                "{Name} original intro: {Start} - {End}",
-                episode.Name,
-                originalIntro.Start,
-                originalIntro.End);
-
-            var originalIntroStart = new TimeRange(
-                Math.Max(0, (int)originalIntro.Start - 5),
-                (int)originalIntro.Start + 10);
-
-            var originalIntroEnd = new TimeRange(
-                (int)originalIntro.End - 10,
-                Math.Min(episode.Duration, (int)originalIntro.End + 5));
-
-            // Try to adjust based on chapters first, fall back to silence detection for intros
-            if (!AdjustIntroBasedOnChapters(episode, originalIntro, originalIntroStart, originalIntroEnd) &&
-                _analysisMode == AnalysisMode.Introduction)
-            {
-                AdjustIntroBasedOnSilence(episode, originalIntro, originalIntroEnd);
-            }
-
-            _logger.LogTrace(
-                "{Name} adjusted intro: {Start} - {End}",
-                episode.Name,
-                originalIntro.Start,
-                originalIntro.End);
-
-            modifiedIntros[episode.EpisodeId] = originalIntro;
+            AdjustIntroBasedOnSilence(episode, originalIntro, originalIntroEnd);
         }
 
-        return modifiedIntros;
+        _logger.LogTrace(
+            "{Name} adjusted intro: {Start} - {End}",
+            episode.Name,
+            originalIntro.Start,
+            originalIntro.End);
+
+        return originalIntro;
     }
 
     private bool AdjustIntroBasedOnChapters(
@@ -477,7 +449,7 @@ public class ChromaprintAnalyzer(ILogger<ChromaprintAnalyzer> logger) : IMediaFi
         }
     }
 
-    private static bool IsValidSilenceForIntroAdjustment(
+    private bool IsValidSilenceForIntroAdjustment(
         TimeRange silenceRange,
         TimeRange originalIntroEnd,
         Segment adjustedIntro)
@@ -490,6 +462,35 @@ public class ChromaprintAnalyzer(ILogger<ChromaprintAnalyzer> logger) : IMediaFi
     private static bool IsTimeWithinRange(double time, TimeRange range)
     {
         return range.Start < time && time < range.End;
+    }
+
+    /// <summary>
+    /// Transforms a Chromaprint into an inverted index of fingerprint points to the last index it appeared at.
+    /// </summary>
+    /// <param name="id">Episode ID.</param>
+    /// <param name="fingerprint">Chromaprint fingerprint.</param>
+    /// <returns>Inverted index.</returns>
+    public Dictionary<uint, int> CreateInvertedIndex(Guid id, uint[] fingerprint)
+    {
+        if (_invertedIndexCache.TryGetValue(id, out var cached))
+        {
+            return cached;
+        }
+
+        var invIndex = new Dictionary<uint, int>();
+
+        for (int i = 0; i < fingerprint.Length; i++)
+        {
+            // Get the current point.
+            var point = fingerprint[i];
+
+            // Append the current sample's timecode to the collection for this point.
+            invIndex[point] = i;
+        }
+
+        _invertedIndexCache[id] = invIndex;
+
+        return invIndex;
     }
 
     /// <summary>

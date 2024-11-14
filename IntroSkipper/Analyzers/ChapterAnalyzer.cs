@@ -73,13 +73,8 @@ public class ChapterAnalyzer(ILogger<ChapterAnalyzer> logger) : IMediaFileAnalyz
                 continue;
             }
 
-            skippableRanges.Add(skipRange);
+            await Plugin.Instance!.UpdateTimestampAsync(skipRange, mode).ConfigureAwait(false);
             episode.SetAnalyzed(mode, true);
-        }
-
-        if (skippableRanges.Count != 0)
-        {
-            await Plugin.Instance!.UpdateTimestampsAsync(skippableRanges, mode).ConfigureAwait(false);
         }
 
         return analysisQueue;

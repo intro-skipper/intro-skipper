@@ -31,7 +31,6 @@ public class TestAudioFingerprinting
     [InlineData(19, 2_465_585_877)]
     public void TestBitCounting(int expectedBits, uint number)
     {
-        var chromaprint = CreateChromaprintAnalyzer();
         Assert.Equal(expectedBits, ChromaprintAnalyzer.CountBits(number));
     }
 
@@ -86,7 +85,8 @@ public class TestAudioFingerprinting
             {77, 5},
         };
 
-        var actual = FFmpegWrapper.CreateInvertedIndex(Guid.NewGuid(), fpr, AnalysisMode.Introduction);
+        var analyzer = CreateChromaprintAnalyzer();
+        var actual = analyzer.CreateInvertedIndex(Guid.NewGuid(), fpr);
 
         Assert.Equal(expected, actual);
     }

@@ -88,10 +88,7 @@ public class SkipIntroController(MediaSegmentUpdateManager mediaSegmentUpdateMan
 
         foreach (var (mode, segment) in segmentTypes)
         {
-            if (segment.Valid)
-            {
-                await Plugin.Instance!.UpdateTimestampsAsync([segment], mode).ConfigureAwait(false);
-            }
+           await Plugin.Instance!.UpdateTimestampAsync(segment, mode).ConfigureAwait(false);
         }
 
         if (Plugin.Instance.Configuration.UpdateMediaSegments)

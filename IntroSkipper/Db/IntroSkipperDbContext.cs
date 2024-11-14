@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-only.
 
 using System;
+using System.Collections.Generic;
 using System.Linq;
 using IntroSkipper.Data;
 using Microsoft.EntityFrameworkCore;
@@ -64,7 +65,6 @@ public class IntroSkipperDbContext : DbContext
 
             entity.HasIndex(e => e.ItemId);
 
-            // Properties with defaults can be chained
             entity.Property(e => e.Start)
                   .HasDefaultValue(0.0)
                   .IsRequired();
@@ -81,7 +81,6 @@ public class IntroSkipperDbContext : DbContext
 
             entity.HasIndex(e => e.SeasonId);
 
-            // Action property with default and required
             entity.Property(e => e.Action)
                   .HasDefaultValue(AnalyzerAction.Default)
                   .IsRequired();
@@ -105,22 +104,31 @@ public class IntroSkipperDbContext : DbContext
         // For databases without migration history
         try
         {
-            // Add migration history table without dropping database
-            Database.ExecuteSqlRaw("CREATE TABLE IF NOT EXISTS __EFMigrationsHistory (MigrationId TEXT NOT NULL CONSTRAINT PK___EFMigrationsHistory PRIMARY KEY,ProductVersion TEXT NOT NULL);");
+            // Backup existing data
+            List<DbSegment> segments;
+            List<DbSeasonInfo> seasonInfos;
+            using (var db = new IntroSkipperDbContext(_dbPath))
+            {
+                segments = [.. db.DbSegment];
+                seasonInfos = [.. db.DbSeasonInfo];
+            }
 
-            // Insert your initial migration ID
-            Database.ExecuteSqlRaw(@"
-                CREATE INDEX IF NOT EXISTS IX_DbSegment_ItemId ON DbSegment(ItemId);
-                CREATE INDEX IF NOT EXISTS IX_DbSeasonInfo_SeasonId ON DbSeasonInfo(SeasonId);
-                INSERT INTO __EFMigrationsHistory (MigrationId, ProductVersion) VALUES ('20241112152658_InitialCreate', '8.0.10');
-            ");
+            // Delete old database
+            Database.EnsureDeleted();
 
-            // Now apply any pending migrations
+            // Create new database with proper migration history
             Database.Migrate();
+
+            // Restore the data
+            using (var db = new IntroSkipperDbContext(_dbPath))
+            {
+                db.DbSegment.AddRange(segments);
+                db.DbSeasonInfo.AddRange(seasonInfos);
+                db.SaveChanges();
+            }
         }
         catch (Exception)
         {
-            // Log or handle migration errors
             throw;
         }
     }

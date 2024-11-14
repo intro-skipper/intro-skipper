@@ -18,7 +18,7 @@ namespace IntroSkipper.Analyzers;
 /// </summary>
 public class BlackFrameAnalyzer(ILogger<BlackFrameAnalyzer> logger) : IMediaFileAnalyzer
 {
-    private static readonly PluginConfiguration _config = Plugin.Instance?.Configuration ?? new PluginConfiguration();
+    private readonly PluginConfiguration _config = Plugin.Instance?.Configuration ?? new PluginConfiguration();
     private readonly TimeSpan _maximumError = new(0, 0, 4);
     private readonly ILogger<BlackFrameAnalyzer> _logger = logger;
 
@@ -68,14 +68,9 @@ public class BlackFrameAnalyzer(ILogger<BlackFrameAnalyzer> logger) : IMediaFile
                 continue;
             }
 
-            creditTimes.Add(credit);
+            await Plugin.Instance!.UpdateTimestampAsync(credit, mode).ConfigureAwait(false);
             searchStart = episode.Duration - credit.Start + _config.MinimumCreditsDuration;
             episode.SetAnalyzed(mode, true);
-        }
-
-        if (creditTimes.Count != 0)
-        {
-            await Plugin.Instance!.UpdateTimestampsAsync(creditTimes, mode).ConfigureAwait(false);
         }
 
         return analysisQueue;
@@ -160,7 +155,7 @@ public class BlackFrameAnalyzer(ILogger<BlackFrameAnalyzer> logger) : IMediaFile
         return null;
     }
 
-    private static bool AnalyzeChapters(QueuedEpisode episode, out Segment? segment)
+    private bool AnalyzeChapters(QueuedEpisode episode, out Segment? segment)
     {
         // Get last chapter that falls within the valid credits duration range
         var suitableChapters = Plugin.Instance!.GetChapters(episode.EpisodeId)
@@ -202,7 +197,7 @@ public class BlackFrameAnalyzer(ILogger<BlackFrameAnalyzer> logger) : IMediaFile
         return false;
     }
 
-    private static double FindSearchStart(QueuedEpisode episode)
+    private double FindSearchStart(QueuedEpisode episode)
     {
         var searchStart = 3 * _config.MinimumCreditsDuration;
         var scanTime = episode.Duration - searchStart;

@@ -14,7 +14,6 @@ using IntroSkipper.Configuration;
 using IntroSkipper.Data;
 using IntroSkipper.Db;
 using IntroSkipper.Helper;
-using MediaBrowser.Common;
 using MediaBrowser.Common.Configuration;
 using MediaBrowser.Common.Plugins;
 using MediaBrowser.Controller.Configuration;
@@ -37,7 +36,6 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
 {
     private readonly ILibraryManager _libraryManager;
     private readonly IItemRepository _itemRepository;
-    private readonly IApplicationHost _applicationHost;
     private readonly ILogger<Plugin> _logger;
     private readonly string _introPath;
     private readonly string _creditsPath;
@@ -46,7 +44,6 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
     /// <summary>
     /// Initializes a new instance of the <see cref="Plugin"/> class.
     /// </summary>
-    /// <param name="applicationHost">Application host.</param>
     /// <param name="applicationPaths">Instance of the <see cref="IApplicationPaths"/> interface.</param>
     /// <param name="xmlSerializer">Instance of the <see cref="IXmlSerializer"/> interface.</param>
     /// <param name="serverConfiguration">Server configuration manager.</param>
@@ -54,7 +51,6 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
     /// <param name="itemRepository">Item repository.</param>
     /// <param name="logger">Logger.</param>
     public Plugin(
-        IApplicationHost applicationHost,
         IApplicationPaths applicationPaths,
         IXmlSerializer xmlSerializer,
         IServerConfigurationManager serverConfiguration,
@@ -65,7 +61,6 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
     {
         Instance = this;
 
-        _applicationHost = applicationHost;
         _libraryManager = libraryManager;
         _itemRepository = itemRepository;
         _logger = logger;
@@ -302,20 +297,18 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
         return _itemRepository.GetChapters(item);
     }
 
-    internal async Task UpdateTimestampsAsync(IEnumerable<Segment> segments, AnalysisMode mode)
+    internal async Task UpdateTimestampAsync(Segment segment, AnalysisMode mode)
     {
         using var db = new IntroSkipperDbContext(_dbPath);
 
-        var ids = segments.Select(s => s.EpisodeId);
-        var existingSegments = await db.DbSegment
-            .Where(s => ids.Contains(s.ItemId) && s.Type == mode)
-            .ToDictionaryAsync(s => s.ItemId)
-            .ConfigureAwait(false);
-
-        foreach (var segment in segments)
+        try
         {
+            var existing = await db.DbSegment
+                .FirstOrDefaultAsync(s => s.ItemId == segment.EpisodeId && s.Type == mode)
+                .ConfigureAwait(false);
+
             var dbSegment = new DbSegment(segment, mode);
-            if (existingSegments.TryGetValue(segment.EpisodeId, out var existing))
+            if (existing is not null)
             {
                 db.Entry(existing).CurrentValues.SetValues(dbSegment);
             }
@@ -323,9 +316,14 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
             {
                 db.DbSegment.Add(dbSegment);
             }
-        }
 
-        await db.SaveChangesAsync().ConfigureAwait(false);
+            await db.SaveChangesAsync().ConfigureAwait(false);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to update timestamp for episode {EpisodeId}", segment.EpisodeId);
+            throw;
+        }
     }
 
     internal IReadOnlyDictionary<AnalysisMode, Segment> GetTimestamps(Guid id)

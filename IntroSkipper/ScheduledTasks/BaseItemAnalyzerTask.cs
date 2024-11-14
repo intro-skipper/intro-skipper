@@ -219,9 +219,11 @@ public class BaseItemAnalyzerTask(
         }
 
         // Add items without intros/credits to database without timestamps.
-        var blacklisted = items.Where(e => !e.GetAnalyzed(mode)).Select(e => new Segment(e.EpisodeId)).ToList();
-        await Plugin.Instance!.UpdateTimestampsAsync(blacklisted, mode).ConfigureAwait(false);
-        totalItems -= blacklisted.Count;
+        foreach (var episode in items.Where(e => !e.GetAnalyzed(mode)))
+        {
+            await Plugin.Instance!.UpdateTimestampAsync(new Segment(episode.EpisodeId), mode).ConfigureAwait(false);
+            totalItems--;
+        }
 
         return totalItems;
     }
