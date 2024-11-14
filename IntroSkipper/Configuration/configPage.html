@@ -306,7 +306,7 @@
                             <div class="checkboxContainer checkboxContainer-withDescription">
                                 <label class="emby-checkbox-label">
                                     <input id="PluginSkip" type="checkbox" is="emby-checkbox" />
-                                    <span>Enable server-side skip setting</span>
+                                    <span>Enable server-side skip settings</span>
                                 </label>
                             </div>
 
@@ -847,9 +847,9 @@
                 var windowHashInterval = 0;
 
                 var analyzeMovies = document.getElementById("AnalyzeMovies");
-                var pluginSkip = document.getElementById("input#PluginSkip");
+                var pluginSkip = document.getElementById("PluginSkip");
                 var serverSkipSettings = document.getElementById("ServerSkipSettings");
-                var autoSkip = document.querySelector("input#AutoSkip");
+                var autoSkip = document.getElementById("AutoSkip");
                 var skipButtonVisible = document.getElementById("SkipButtonEnabled");
                 var skipButtonVisibleLabel = document.getElementById("SkipButtonVisibleLabel");
                 var skipButtonSettings = document.getElementById("SkipButtonSettings");
@@ -861,17 +861,6 @@
                 var movieCreditsDuration = document.getElementById("movieCreditsDuration");
                 var autoSkipRecap = document.querySelector("input#AutoSkipRecap");
                 var autoSkipPreview = document.querySelector("input#AutoSkipPreview");
-
-                function pluginSkipSettingChanged() {
-                    if (pluginSkip.checked) {
-                        serverSkipSettings.style.display = "unset";
-                    } else {
-                        serverSkipSettings.style.display = "none";
-                        // TODO: Reset everything to default
-                    }
-                }
-
-                pluginSkip.addEventListener("change", pluginSkipSettingChanged);
 
                 function skipButtonVisibleChanged() {
                     if (autoSkip.checked) {
@@ -954,7 +943,7 @@
                     generateCheckboxList(libraryNames, "libraryCheckboxes", "SelectedLibraries");
                 }
 
-                var persistSkip = document.querySelector("input#PersistSkipButton");
+                var persistSkip = document.getElementById("PersistSkipButton");
                 var showAdjustment = document.querySelector("div#divShowPromptAdjustment");
                 var hideAdjustment = document.querySelector("div#divHidePromptAdjustment");
 
@@ -970,6 +959,20 @@
                 }
 
                 persistSkip.addEventListener("change", persistSkipChanged);
+
+                function pluginSkipSettingChanged() {
+                    if (pluginSkip.checked) {
+                        serverSkipSettings.style.display = "unset";
+                    } else {
+                        serverSkipSettings.style.display = "none";
+                        // TODO: Reset everything to default
+                        autoSkip.checked = false;
+                        skipButtonVisible.checked = false;
+                        persistSkip.checked = false;
+                    }
+                }
+
+                pluginSkip.addEventListener("change", pluginSkipSettingChanged);
 
                 async function analyzeMoviesChanged() {
                     if (analyzeMovies.checked) {
