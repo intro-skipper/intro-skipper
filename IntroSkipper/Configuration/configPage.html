@@ -305,6 +305,15 @@
 
                             <div class="checkboxContainer checkboxContainer-withDescription">
                                 <label class="emby-checkbox-label">
+                                    <input id="PluginSkip" type="checkbox" is="emby-checkbox" />
+                                    <span>Enable server-side skip setting</span>
+                                </label>
+                            </div>
+
+                            <div id="ServerSkipSettings">
+
+                            <div class="checkboxContainer checkboxContainer-withDescription">
+                                <label class="emby-checkbox-label">
                                     <input id="AutoSkip" type="checkbox" is="emby-checkbox" />
                                     <span>Automatically Skip for All Clients</span>
                                 </label>
@@ -416,6 +425,7 @@
                                     <div class="fieldDescription">Message shown after automatically skipping an introduction. Leave blank to disable notification.</div>
                                 </div>
                             </details>
+                            </div>
                         </fieldset>
 
                         <div>
@@ -782,7 +792,7 @@
                     "AutoSkipNotificationText",
                 ];
 
-                var booleanConfigurationFields = ["AutoDetectIntros", "AnalyzeMovies", "AnalyzeSeasonZero", "SelectAllLibraries", "UpdateMediaSegments", "RebuildMediaSegments", "ScanIntroduction", "ScanCredits", "ScanRecap", "ScanPreview", "CacheFingerprints", "AutoSkip", "SkipFirstEpisode", "PersistSkipButton", "SkipButtonEnabled"];
+                var booleanConfigurationFields = ["AutoDetectIntros", "AnalyzeMovies", "AnalyzeSeasonZero", "SelectAllLibraries", "UpdateMediaSegments", "RebuildMediaSegments", "ScanIntroduction", "ScanCredits", "ScanRecap", "ScanPreview", "CacheFingerprints", "PluginSkip", "AutoSkip", "SkipFirstEpisode", "PersistSkipButton", "SkipButtonEnabled"];
 
                 // visualizer elements
                 var analyzerActionsSection = document.querySelector("div#analyzerActionsSection");
@@ -814,6 +824,8 @@
                 var windowHashInterval = 0;
 
                 var analyzeMovies = document.getElementById("AnalyzeMovies");
+                var pluginSkip = document.getElementById("input#PluginSkip");
+                var serverSkipSettings = document.getElementById("ServerSkipSettings");
                 var autoSkip = document.querySelector("input#AutoSkip");
                 var skipButtonVisible = document.getElementById("SkipButtonEnabled");
                 var skipButtonVisibleLabel = document.getElementById("SkipButtonVisibleLabel");
@@ -824,6 +836,17 @@
                 var secondsOfIntroStartToPlay = document.querySelector("div#divSecondsOfIntroStartToPlay");
                 var autoSkipClientList = document.querySelector("div.AutoSkipClientListContainer");
                 var movieCreditsDuration = document.getElementById("movieCreditsDuration");
+
+                function pluginSkipSettingChanged() {
+                    if (pluginSkip.checked) {
+                        serverSkipSettings.style.display = "unset";
+                    } else {
+                        serverSkipSettings.style.display = "none";
+                        // TODO: Reset everything to default
+                    }
+                }
+
+                pluginSkip.addEventListener("change", pluginSkipSettingChanged);
 
                 function skipButtonVisibleChanged() {
                     if (autoSkip.checked) {
