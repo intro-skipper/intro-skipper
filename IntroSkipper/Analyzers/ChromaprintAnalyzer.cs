@@ -36,9 +36,7 @@ public class ChromaprintAnalyzer(ILogger<ChromaprintAnalyzer> logger) : IMediaFi
         AnalysisMode mode,
         CancellationToken cancellationToken)
     {
-        // Episode analysis queue based on not analyzed episodes
-        var episodesToAnalyze = analysisQueue.Where(e => !e.GetAnalyzed(mode)).ToList();
-        if (episodesToAnalyze.Count == 0 || analysisQueue.Count <= 1)
+        if (analysisQueue.Count <= 1)
         {
             return analysisQueue;
         }
@@ -51,19 +49,14 @@ public class ChromaprintAnalyzer(ILogger<ChromaprintAnalyzer> logger) : IMediaFi
         // Cache of all fingerprints for this season.
         var fingerprintCache = new Dictionary<Guid, uint[]>();
 
-        // Load fingerprints from cache if available.
-        episodesToAnalyze.AddRange(analysisQueue.Where(e => e.GetAnalyzed(mode) && File.Exists(FFmpegWrapper.GetFingerprintCachePath(e, mode))));
+        // Episode analysis queue.
+        var episodeAnalysisQueue = new List<QueuedEpisode>(analysisQueue);
 
-        // Ensure at least two episodes with fingerprints are present.
-        if (episodesToAnalyze.Count == 1)
-        {
-            var indexInAnalysisQueue = analysisQueue.ToList().FindIndex(episode => episode == episodesToAnalyze[0]);
-            episodesToAnalyze.AddRange(analysisQueue
-                .Where((episode, index) => Math.Abs(index - indexInAnalysisQueue) <= 1 && index != indexInAnalysisQueue));
-        }
+        // Episodes that were analyzed and do not have an introduction.
+        var episodesWithoutIntros = new List<QueuedEpisode>();
 
         // Compute fingerprints for all episodes in the season
-        foreach (var episode in episodesToAnalyze)
+        foreach (var episode in episodeAnalysisQueue)
         {
             try
             {
@@ -91,14 +84,14 @@ public class ChromaprintAnalyzer(ILogger<ChromaprintAnalyzer> logger) : IMediaFi
         }
 
         // While there are still episodes in the queue
-        while (episodesToAnalyze.Count > 0)
+        while (episodeAnalysisQueue.Count > 0)
         {
             // Pop the first episode from the queue
-            var currentEpisode = episodesToAnalyze[0];
-            episodesToAnalyze.RemoveAt(0);
+            var currentEpisode = episodeAnalysisQueue[0];
+            episodeAnalysisQueue.RemoveAt(0);
 
             // Search through all remaining episodes.
-            foreach (var remainingEpisode in episodesToAnalyze)
+            foreach (var remainingEpisode in episodeAnalysisQueue)
             {
                 // Compare the current episode to all remaining episodes in the queue.
                 var (currentIntro, remainingIntro) = CompareEpisodes(
@@ -159,15 +152,18 @@ public class ChromaprintAnalyzer(ILogger<ChromaprintAnalyzer> logger) : IMediaFi
                 break;
             }
 
-            // If an intro is found for this episode, adjust its times and save it.
+            // If an intro is found for this episode, adjust its times and save it else add it to the list of episodes without intros.
             if (seasonIntros.TryGetValue(currentEpisode.EpisodeId, out var intro))
             {
                 await Plugin.Instance!.UpdateTimestampAsync(intro, mode).ConfigureAwait(false);
-                currentEpisode.SetAnalyzed(mode, true);
+            }
+            else
+            {
+                episodesWithoutIntros.Add(currentEpisode);
             }
         }
 
-        return analysisQueue;
+        return episodesWithoutIntros;
     }
 
     /// <summary>

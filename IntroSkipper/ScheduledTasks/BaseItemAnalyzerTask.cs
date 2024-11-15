@@ -168,8 +168,7 @@ public class BaseItemAnalyzerTask(
         AnalyzerAction action,
         CancellationToken cancellationToken)
     {
-        int totalItems = items.Count(e => !e.GetAnalyzed(mode));
-
+        var totalItems = items.Count;
         var first = items[0];
         if (!first.IsMovie && first.SeasonNumber == 0 && !_config.AnalyzeSeasonZero)
         {
@@ -219,12 +218,11 @@ public class BaseItemAnalyzerTask(
         }
 
         // Add items without intros/credits to database without timestamps.
-        foreach (var episode in items.Where(e => !e.GetAnalyzed(mode)))
+        foreach (var episode in items)
         {
             await Plugin.Instance!.UpdateTimestampAsync(new Segment(episode.EpisodeId), mode).ConfigureAwait(false);
-            totalItems--;
         }
 
-        return totalItems;
+        return totalItems - items.Count;
     }
 }

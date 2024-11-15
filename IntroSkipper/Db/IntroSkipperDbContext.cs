@@ -26,6 +26,8 @@ public class IntroSkipperDbContext : DbContext
     public IntroSkipperDbContext(string dbPath)
     {
         _dbPath = dbPath;
+        DbSegment = Set<DbSegment>();
+        DbSeasonInfo = Set<DbSeasonInfo>();
     }
 
     /// <summary>
@@ -37,6 +39,8 @@ public class IntroSkipperDbContext : DbContext
         var folder = Environment.SpecialFolder.LocalApplicationData;
         var path = Environment.GetFolderPath(folder);
         _dbPath = System.IO.Path.Join(path, "introskipper.db");
+        DbSegment = Set<DbSegment>();
+        DbSeasonInfo = Set<DbSeasonInfo>();
     }
 
     /// <summary>
@@ -127,9 +131,9 @@ public class IntroSkipperDbContext : DbContext
                 db.SaveChanges();
             }
         }
-        catch (Exception)
+        catch (Exception ex)
         {
-            throw;
+            throw new InvalidOperationException("Failed to apply migrations", ex);
         }
     }
 }

@@ -33,17 +33,11 @@ public class BlackFrameAnalyzer(ILogger<BlackFrameAnalyzer> logger) : IMediaFile
             throw new NotImplementedException("mode must equal Credits");
         }
 
-        var episodesToAnalyze = analysisQueue.Where(e => !e.GetAnalyzed(mode)).ToList();
-        if (episodesToAnalyze.Count == 0)
-        {
-            return analysisQueue;
-        }
-
-        var creditTimes = new List<Segment>();
+        var episodesWithoutIntros = new List<QueuedEpisode>();
 
         var searchStart = 0.0;
 
-        foreach (var episode in episodesToAnalyze)
+        foreach (var episode in analysisQueue)
         {
             if (cancellationToken.IsCancellationRequested)
             {
@@ -65,15 +59,15 @@ public class BlackFrameAnalyzer(ILogger<BlackFrameAnalyzer> logger) : IMediaFile
 
             if (credit is null || !credit.Valid)
             {
+                episodesWithoutIntros.Add(episode);
                 continue;
             }
 
             await Plugin.Instance!.UpdateTimestampAsync(credit, mode).ConfigureAwait(false);
             searchStart = episode.Duration - credit.Start + _config.MinimumCreditsDuration;
-            episode.SetAnalyzed(mode, true);
         }
 
-        return analysisQueue;
+        return episodesWithoutIntros;
     }
 
     /// <summary>

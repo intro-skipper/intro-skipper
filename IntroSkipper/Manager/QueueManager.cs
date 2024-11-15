@@ -315,12 +315,10 @@ namespace IntroSkipper.Manager
 
                     foreach (var mode in modes)
                     {
-                        if (!segments.TryGetValue(mode, out var segment) || Plugin.Instance!.AnalyzeAgain)
+                        if (!segments.TryGetValue(mode, out _) || Plugin.Instance!.AnalyzeAgain)
                         {
                             requiredModes.Add(mode);
                         }
-
-                        candidate.SetAnalyzed(mode, segment?.Valid ?? false);
                     }
                 }
                 catch (Exception ex)
