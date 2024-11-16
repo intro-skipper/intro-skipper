@@ -33,11 +33,11 @@ public class BlackFrameAnalyzer(ILogger<BlackFrameAnalyzer> logger) : IMediaFile
             throw new NotImplementedException("mode must equal Credits");
         }
 
-        var episodesWithoutIntros = new List<QueuedEpisode>();
+        var episodesWithoutIntros = analysisQueue.Where(e => !e.IsAnalyzed).ToList();
 
         var searchStart = 0.0;
 
-        foreach (var episode in analysisQueue)
+        foreach (var episode in episodesWithoutIntros)
         {
             if (cancellationToken.IsCancellationRequested)
             {
@@ -59,15 +59,15 @@ public class BlackFrameAnalyzer(ILogger<BlackFrameAnalyzer> logger) : IMediaFile
 
             if (credit is null || !credit.Valid)
             {
-                episodesWithoutIntros.Add(episode);
                 continue;
             }
 
+            episode.IsAnalyzed = true;
             await Plugin.Instance!.UpdateTimestampAsync(credit, mode).ConfigureAwait(false);
             searchStart = episode.Duration - credit.Start + _config.MinimumCreditsDuration;
         }
 
-        return episodesWithoutIntros;
+        return analysisQueue;
     }
 
     /// <summary>
@@ -119,7 +119,7 @@ public class BlackFrameAnalyzer(ILogger<BlackFrameAnalyzer> logger) : IMediaFile
 
                 if (midpoint - TimeSpan.FromSeconds(lowerLimit) < _maximumError)
                 {
-                    lowerLimit = Math.Max(lowerLimit - (searchDistance - _maximumError.TotalSeconds), _config.MinimumCreditsDuration);
+                    lowerLimit = Math.Max(lowerLimit - (0.5 * searchDistance), _config.MinimumCreditsDuration);
 
                     // Reset end for a new search with the increased duration
                     end = TimeSpan.FromSeconds(lowerLimit);
@@ -133,7 +133,7 @@ public class BlackFrameAnalyzer(ILogger<BlackFrameAnalyzer> logger) : IMediaFile
 
                 if (TimeSpan.FromSeconds(upperLimit) - midpoint < _maximumError)
                 {
-                    upperLimit = Math.Min(upperLimit + (searchDistance - _maximumError.TotalSeconds), episode.Duration - episode.CreditsFingerprintStart);
+                    upperLimit = Math.Min(upperLimit + (0.5 * searchDistance), episode.Duration - episode.CreditsFingerprintStart);
 
                     // Reset start for a new search with the increased duration
                     start = TimeSpan.FromSeconds(upperLimit);

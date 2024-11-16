@@ -17,7 +17,8 @@ namespace IntroSkipper.Migrations
                 {
                     SeasonId = table.Column<Guid>(type: "TEXT", nullable: false),
                     Type = table.Column<int>(type: "INTEGER", nullable: false),
-                    Action = table.Column<int>(type: "INTEGER", nullable: false, defaultValue: 0)
+                    Action = table.Column<int>(type: "INTEGER", nullable: false, defaultValue: 0),
+                    EpisodeIds = table.Column<string>(type: "TEXT", nullable: false)
                 },
                 constraints: table =>
                 {

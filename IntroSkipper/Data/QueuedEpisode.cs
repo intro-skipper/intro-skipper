@@ -26,6 +26,11 @@ public class QueuedEpisode
     public Guid EpisodeId { get; set; }
 
     /// <summary>
+    /// Gets or sets the season id.
+    /// </summary>
+    public Guid SeasonId { get; set; }
+
+    /// <summary>
     /// Gets or sets the series id.
     /// </summary>
     public Guid SeriesId { get; set; }
@@ -49,6 +54,11 @@ public class QueuedEpisode
     /// Gets or sets a value indicating whether an item is a movie.
     /// </summary>
     public bool IsMovie { get; set; }
+
+    /// <summary>
+    /// Gets or sets a value indicating whether an episode has been analyzed.
+    /// </summary>
+    public bool IsAnalyzed { get; set; }
 
     /// <summary>
     /// Gets or sets the timestamp (in seconds) to stop searching for an introduction at.

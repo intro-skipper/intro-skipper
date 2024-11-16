@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-only.
 
 using System;
+using System.Collections.Generic;
 using IntroSkipper.Data;
 
 namespace IntroSkipper.Db;
@@ -20,11 +21,13 @@ public class DbSeasonInfo
     /// <param name="seasonId">Season ID.</param>
     /// <param name="mode">Analysis mode.</param>
     /// <param name="action">Analyzer action.</param>
-    public DbSeasonInfo(Guid seasonId, AnalysisMode mode, AnalyzerAction action)
+    /// <param name="episodeIds">Episode IDs.</param>
+    public DbSeasonInfo(Guid seasonId, AnalysisMode mode, AnalyzerAction action, IEnumerable<Guid>? episodeIds = null)
     {
         SeasonId = seasonId;
         Type = mode;
         Action = action;
+        EpisodeIds = episodeIds ?? [];
     }
 
     /// <summary>
@@ -48,4 +51,9 @@ public class DbSeasonInfo
     /// Gets the analyzer action.
     /// </summary>
     public AnalyzerAction Action { get; private set; }
+
+    /// <summary>
+    /// Gets the season number.
+    /// </summary>
+    public IEnumerable<Guid> EpisodeIds { get; private set; } = [];
 }

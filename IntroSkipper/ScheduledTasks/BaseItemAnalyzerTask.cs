@@ -9,6 +9,7 @@ using System.Threading.Tasks;
 using IntroSkipper.Analyzers;
 using IntroSkipper.Configuration;
 using IntroSkipper.Data;
+using IntroSkipper.Db;
 using IntroSkipper.Manager;
 using MediaBrowser.Controller.Library;
 using Microsoft.Extensions.Logging;
@@ -108,15 +109,12 @@ public class BaseItemAnalyzerTask(
                     progress.Report((double)totalProcessed / totalQueued * 100);
                 }
 
-                var actions = Plugin.Instance!.GetAnalyzerAction(season.Key);
-
                 foreach (var mode in requiredModes)
                 {
                     ct.ThrowIfCancellationRequested();
                     int analyzed = await AnalyzeItemsAsync(
                         episodes,
                         mode,
-                        actions.TryGetValue(mode, out var action) ? action : AnalyzerAction.Default,
                         ct).ConfigureAwait(false);
                     Interlocked.Add(ref totalProcessed, analyzed);
 
@@ -159,21 +157,27 @@ public class BaseItemAnalyzerTask(
     /// </summary>
     /// <param name="items">Media items to analyze.</param>
     /// <param name="mode">Analysis mode.</param>
-    /// <param name="action">Analyzer action.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>Number of items successfully analyzed.</returns>
     private async Task<int> AnalyzeItemsAsync(
         IReadOnlyList<QueuedEpisode> items,
         AnalysisMode mode,
-        AnalyzerAction action,
         CancellationToken cancellationToken)
     {
-        var totalItems = items.Count;
         var first = items[0];
         if (!first.IsMovie && first.SeasonNumber == 0 && !_config.AnalyzeSeasonZero)
         {
             return 0;
         }
+
+        // Reset the IsAnalyzed flag for all items
+        foreach (var item in items)
+        {
+            item.IsAnalyzed = false;
+        }
+
+        // Get the analyzer action for the current mode
+        var action = Plugin.Instance!.GetAnalyzerAction(first.SeasonId, mode);
 
         _logger.LogInformation(
             "[Mode: {Mode}] Analyzing {Count} files from {Name} season {Season}",
@@ -182,6 +186,7 @@ public class BaseItemAnalyzerTask(
             first.SeriesName,
             first.SeasonNumber);
 
+        // Create a list of analyzers to use for the current mode
         var analyzers = new List<IMediaFileAnalyzer>();
 
         if (action is AnalyzerAction.Chapter or AnalyzerAction.Default)
@@ -217,12 +222,9 @@ public class BaseItemAnalyzerTask(
             items = await analyzer.AnalyzeMediaFiles(items, mode, cancellationToken).ConfigureAwait(false);
         }
 
-        // Add items without intros/credits to database without timestamps.
-        foreach (var episode in items)
-        {
-            await Plugin.Instance!.UpdateTimestampAsync(new Segment(episode.EpisodeId), mode).ConfigureAwait(false);
-        }
+        // Set the episode IDs for the analyzed items
+        await Plugin.Instance!.SetEpisodeIdsAsync(first.SeasonId, mode, items.Select(i => i.EpisodeId)).ConfigureAwait(false);
 
-        return totalItems - items.Count;
+        return items.Where(i => i.IsAnalyzed).Count();
     }
 }

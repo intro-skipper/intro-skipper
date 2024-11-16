@@ -3,7 +3,6 @@
 
 using System;
 using System.Collections.Generic;
-using System.IO;
 using System.Linq;
 using System.Numerics;
 using System.Threading;
@@ -36,7 +35,10 @@ public class ChromaprintAnalyzer(ILogger<ChromaprintAnalyzer> logger) : IMediaFi
         AnalysisMode mode,
         CancellationToken cancellationToken)
     {
-        if (analysisQueue.Count <= 1)
+        // Episodes that were not analyzed.
+        var episodeAnalysisQueue = analysisQueue.Where(e => !e.IsAnalyzed).ToList();
+
+        if (episodeAnalysisQueue.Count <= 1)
         {
             return analysisQueue;
         }
@@ -48,12 +50,6 @@ public class ChromaprintAnalyzer(ILogger<ChromaprintAnalyzer> logger) : IMediaFi
 
         // Cache of all fingerprints for this season.
         var fingerprintCache = new Dictionary<Guid, uint[]>();
-
-        // Episode analysis queue.
-        var episodeAnalysisQueue = new List<QueuedEpisode>(analysisQueue);
-
-        // Episodes that were analyzed and do not have an introduction.
-        var episodesWithoutIntros = new List<QueuedEpisode>();
 
         // Compute fingerprints for all episodes in the season
         foreach (var episode in episodeAnalysisQueue)
@@ -155,15 +151,12 @@ public class ChromaprintAnalyzer(ILogger<ChromaprintAnalyzer> logger) : IMediaFi
             // If an intro is found for this episode, adjust its times and save it else add it to the list of episodes without intros.
             if (seasonIntros.TryGetValue(currentEpisode.EpisodeId, out var intro))
             {
+                currentEpisode.IsAnalyzed = true;
                 await Plugin.Instance!.UpdateTimestampAsync(intro, mode).ConfigureAwait(false);
-            }
-            else
-            {
-                episodesWithoutIntros.Add(currentEpisode);
             }
         }
 
-        return episodesWithoutIntros;
+        return analysisQueue;
     }
 
     /// <summary>

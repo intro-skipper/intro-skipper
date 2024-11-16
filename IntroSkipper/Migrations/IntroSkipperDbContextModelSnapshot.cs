@@ -29,6 +29,10 @@ namespace IntroSkipper.Migrations
                         .HasColumnType("INTEGER")
                         .HasDefaultValue(0);
 
+                    b.Property<string>("EpisodeIds")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
                     b.HasKey("SeasonId", "Type");
 
                     b.HasIndex("SeasonId");
