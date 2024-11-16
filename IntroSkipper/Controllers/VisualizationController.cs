@@ -96,7 +96,13 @@ public class VisualizationController(ILogger<VisualizationController> logger, Me
             return NotFound();
         }
 
-        return Ok(Plugin.Instance!.GetAnalyzerAction(seasonId));
+        var analyzerActions = new Dictionary<AnalysisMode, AnalyzerAction>();
+        foreach (var mode in Enum.GetValues<AnalysisMode>())
+        {
+            analyzerActions[mode] = Plugin.Instance!.GetAnalyzerAction(seasonId, mode);
+        }
+
+        return Ok(analyzerActions);
     }
 
     /// <summary>
