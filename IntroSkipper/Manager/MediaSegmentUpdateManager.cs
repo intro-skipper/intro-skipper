@@ -41,7 +41,7 @@ namespace IntroSkipper.Manager
                 {
                     try
                     {
-                        var existingSegments = await _mediaSegmentManager.GetSegmentsAsync(episode.EpisodeId, null, false).ConfigureAwait(false);
+                        var existingSegments = await _mediaSegmentManager.GetSegmentsAsync(episode.EpisodeId, null, true).ConfigureAwait(false);
                         await Task.WhenAll(existingSegments.Select(s => _mediaSegmentManager.DeleteSegmentAsync(s.Id))).ConfigureAwait(false);
                     }
                     catch (Exception vs)
