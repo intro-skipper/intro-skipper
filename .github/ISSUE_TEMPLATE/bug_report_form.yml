@@ -13,7 +13,7 @@ body:
         Many servers have permission issues that can be resolved with a few extra steps.
         If your skip button is not shown, please see [Troubleshooting](https://github.com/intro-skipper/intro-skipper/wiki/Troubleshooting#skip-button-is-not-visible) before reporting.
       options:
-        - label: I use Jellyfin 10.10.1 (or newer) and my permissions are correct
+        - label: I use Jellyfin 10.10.2 (or newer) and my permissions are correct
           required: true
   - type: textarea
     attributes:
