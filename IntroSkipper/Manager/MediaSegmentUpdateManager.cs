@@ -39,17 +39,8 @@ namespace IntroSkipper.Manager
                 cancellationToken.ThrowIfCancellationRequested();
                 try
                 {
-                    try
-                    {
-                        var existingSegments = await _mediaSegmentManager.GetSegmentsAsync(episode.EpisodeId, null, true).ConfigureAwait(false);
-                        await Task.WhenAll(existingSegments.Select(s => _mediaSegmentManager.DeleteSegmentAsync(s.Id))).ConfigureAwait(false);
-                    }
-                    catch (Exception vs)
-                    {
-                        _logger.LogError(vs, "GetSegmentsAsync failed. 10.10.1 compatibility enabled.");
-                        var existingSegments = await _mediaSegmentManager.GetSegmentsAsync(episode.EpisodeId, null).ConfigureAwait(false);
-                        await Task.WhenAll(existingSegments.Select(s => _mediaSegmentManager.DeleteSegmentAsync(s.Id))).ConfigureAwait(false);
-                    }
+                    var existingSegments = await _mediaSegmentManager.GetSegmentsAsync(episode.EpisodeId, null, false).ConfigureAwait(false);
+                    await Task.WhenAll(existingSegments.Select(s => _mediaSegmentManager.DeleteSegmentAsync(s.Id))).ConfigureAwait(false);
 
                     var newSegments = await _segmentProvider.GetMediaSegments(new MediaSegmentGenerationRequest { ItemId = episode.EpisodeId }, cancellationToken).ConfigureAwait(false);
 
