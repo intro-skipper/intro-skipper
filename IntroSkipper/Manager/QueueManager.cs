@@ -222,6 +222,7 @@ namespace IntroSkipper.Manager
                 SeriesName = episode.SeriesName,
                 SeasonNumber = episode.AiredSeasonNumber ?? 0,
                 SeriesId = episode.SeriesId,
+                SeasonId = episode.SeasonId,
                 EpisodeId = episode.Id,
                 Name = episode.Name,
                 IsAnime = isAnime,
@@ -256,6 +257,7 @@ namespace IntroSkipper.Manager
             {
                 SeriesName = movie.Name,
                 SeriesId = movie.Id,
+                SeasonId = movie.Id,
                 EpisodeId = movie.Id,
                 Name = movie.Name,
                 Path = movie.Path,
@@ -298,6 +300,8 @@ namespace IntroSkipper.Manager
             var verified = new List<QueuedEpisode>();
             var requiredModes = new HashSet<AnalysisMode>();
 
+            var episodeIds = Plugin.Instance!.GetEpisodeIds(candidates[0].SeasonId);
+
             foreach (var candidate in candidates)
             {
                 try
@@ -310,17 +314,12 @@ namespace IntroSkipper.Manager
 
                     verified.Add(candidate);
 
-                    // Get segments for this specific episode
-                    var segments = Plugin.Instance!.GetTimestamps(candidate.EpisodeId);
-
                     foreach (var mode in modes)
                     {
-                        if (!segments.TryGetValue(mode, out var segment) || Plugin.Instance!.AnalyzeAgain)
+                        if (!episodeIds.TryGetValue(mode, out var ids) || !ids.Contains(candidate.EpisodeId) || Plugin.Instance!.AnalyzeAgain)
                         {
                             requiredModes.Add(mode);
                         }
-
-                        candidate.SetAnalyzed(mode, segment?.Valid ?? false);
                     }
                 }
                 catch (Exception ex)

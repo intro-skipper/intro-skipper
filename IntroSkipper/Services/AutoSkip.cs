@@ -96,12 +96,14 @@ namespace IntroSkipper.Services
             foreach (var session in _sessionManager.Sessions.Where(s => _config.AutoSkip || _clientList.Contains(s.Client, StringComparer.OrdinalIgnoreCase)))
             {
                 var deviceId = session.DeviceId;
-                var itemId = session.NowPlayingItem.Id;
-                var position = session.PlayState.PositionTicks / TimeSpan.TicksPerSecond;
 
                 // Don't send the seek command more than once in the same session.
-                var intros = _sentSeekCommand.GetOrAdd(deviceId, _ => []);
-                var maxTimeSkip = _config.MaximumTimeSkip + _config.RemainingSecondsOfIntro;
+                if (!_sentSeekCommand.TryGetValue(deviceId, out var intros))
+                {
+                    continue;
+                }
+
+                var position = session.PlayState.PositionTicks / TimeSpan.TicksPerSecond;
 
                 var currentIntro = intros.FirstOrDefault(i =>
                         position >= Math.Max(1, i.IntroStart + _config.SecondsOfIntroStartToPlay) &&
@@ -117,6 +119,7 @@ namespace IntroSkipper.Services
                 intros.Remove(currentIntro);
 
                 // Check if adjacent segment is within the maximum skip range.
+                var maxTimeSkip = _config.MaximumTimeSkip + _config.RemainingSecondsOfIntro;
                 var nextIntro = intros.FirstOrDefault(i => introEnd + maxTimeSkip >= i.IntroStart &&
                         introEnd < i.IntroEnd);
 

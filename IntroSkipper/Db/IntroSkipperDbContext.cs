@@ -4,8 +4,10 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Text.Json;
 using IntroSkipper.Data;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.ChangeTracking;
 
 namespace IntroSkipper.Db;
 
@@ -26,6 +28,8 @@ public class IntroSkipperDbContext : DbContext
     public IntroSkipperDbContext(string dbPath)
     {
         _dbPath = dbPath;
+        DbSegment = Set<DbSegment>();
+        DbSeasonInfo = Set<DbSeasonInfo>();
     }
 
     /// <summary>
@@ -37,6 +41,8 @@ public class IntroSkipperDbContext : DbContext
         var folder = Environment.SpecialFolder.LocalApplicationData;
         var path = Environment.GetFolderPath(folder);
         _dbPath = System.IO.Path.Join(path, "introskipper.db");
+        DbSegment = Set<DbSegment>();
+        DbSeasonInfo = Set<DbSeasonInfo>();
     }
 
     /// <summary>
@@ -84,6 +90,15 @@ public class IntroSkipperDbContext : DbContext
             entity.Property(e => e.Action)
                   .HasDefaultValue(AnalyzerAction.Default)
                   .IsRequired();
+
+            entity.Property(e => e.EpisodeIds)
+                  .HasConversion(
+                      v => JsonSerializer.Serialize(v, (JsonSerializerOptions?)null),
+                      v => JsonSerializer.Deserialize<IEnumerable<Guid>>(v, (JsonSerializerOptions?)null) ?? new List<Guid>(),
+                      new ValueComparer<IEnumerable<Guid>>(
+                          (c1, c2) => (c1 ?? new List<Guid>()).SequenceEqual(c2 ?? new List<Guid>()),
+                          c => c.Aggregate(0, (a, v) => HashCode.Combine(a, v.GetHashCode())),
+                          c => c.ToList()));
         });
 
         base.OnModelCreating(modelBuilder);
@@ -106,11 +121,9 @@ public class IntroSkipperDbContext : DbContext
         {
             // Backup existing data
             List<DbSegment> segments;
-            List<DbSeasonInfo> seasonInfos;
             using (var db = new IntroSkipperDbContext(_dbPath))
             {
-                segments = [.. db.DbSegment];
-                seasonInfos = [.. db.DbSeasonInfo];
+                segments = [.. db.DbSegment.Where(s => s.ToSegment().Valid)];
             }
 
             // Delete old database
@@ -123,13 +136,12 @@ public class IntroSkipperDbContext : DbContext
             using (var db = new IntroSkipperDbContext(_dbPath))
             {
                 db.DbSegment.AddRange(segments);
-                db.DbSeasonInfo.AddRange(seasonInfos);
                 db.SaveChanges();
             }
         }
-        catch (Exception)
+        catch (Exception ex)
         {
-            throw;
+            throw new InvalidOperationException("Failed to apply migrations", ex);
         }
     }
 }

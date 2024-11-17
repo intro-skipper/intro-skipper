@@ -2,7 +2,6 @@
 // SPDX-License-Identifier: GPL-3.0-only.
 
 using System;
-using System.Collections.Generic;
 
 namespace IntroSkipper.Data;
 
@@ -11,8 +10,6 @@ namespace IntroSkipper.Data;
 /// </summary>
 public class QueuedEpisode
 {
-    private readonly bool[] _isAnalyzed = new bool[4];
-
     /// <summary>
     /// Gets or sets the series name.
     /// </summary>
@@ -29,14 +26,14 @@ public class QueuedEpisode
     public Guid EpisodeId { get; set; }
 
     /// <summary>
+    /// Gets or sets the season id.
+    /// </summary>
+    public Guid SeasonId { get; set; }
+
+    /// <summary>
     /// Gets or sets the series id.
     /// </summary>
     public Guid SeriesId { get; set; }
-
-    /// <summary>
-    /// Gets a value indicating whether this media has been already analyzed.
-    /// </summary>
-    public IReadOnlyList<bool> IsAnalyzed => _isAnalyzed;
 
     /// <summary>
     /// Gets or sets the full path to episode.
@@ -59,6 +56,11 @@ public class QueuedEpisode
     public bool IsMovie { get; set; }
 
     /// <summary>
+    /// Gets or sets a value indicating whether an episode has been analyzed.
+    /// </summary>
+    public bool IsAnalyzed { get; set; }
+
+    /// <summary>
     /// Gets or sets the timestamp (in seconds) to stop searching for an introduction at.
     /// </summary>
     public int IntroFingerprintEnd { get; set; }
@@ -72,18 +74,4 @@ public class QueuedEpisode
     /// Gets or sets the total duration of this media file (in seconds).
     /// </summary>
     public int Duration { get; set; }
-
-    /// <summary>
-    /// Sets a value indicating whether this media has been already analyzed.
-    /// </summary>
-    /// <param name="mode">Analysis mode.</param>
-    /// <param name="value">Value to set.</param>
-    public void SetAnalyzed(AnalysisMode mode, bool value) => _isAnalyzed[(int)mode] = value;
-
-    /// <summary>
-    /// Gets a value indicating whether this media has been already analyzed.
-    /// </summary>
-    /// <param name="mode">Analysis mode.</param>
-    /// <returns>Value of the analyzed mode.</returns>
-    public bool GetAnalyzed(AnalysisMode mode) => _isAnalyzed[(int)mode];
 }

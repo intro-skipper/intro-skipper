@@ -10,7 +10,7 @@ using Microsoft.EntityFrameworkCore.Migrations;
 namespace IntroSkipper.Migrations
 {
     [DbContext(typeof(IntroSkipperDbContext))]
-    [Migration("20241112152658_InitialCreate")]
+    [Migration("20241116153434_InitialCreate")]
     partial class InitialCreate
     {
         /// <inheritdoc />
@@ -31,6 +31,10 @@ namespace IntroSkipper.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("INTEGER")
                         .HasDefaultValue(0);
+
+                    b.Property<string>("EpisodeIds")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
 
                     b.HasKey("SeasonId", "Type");
 

@@ -341,7 +341,7 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
         await db.SaveChangesAsync().ConfigureAwait(false);
     }
 
-    internal async Task UpdateAnalyzerActionAsync(Guid id, IReadOnlyDictionary<AnalysisMode, AnalyzerAction> analyzerActions)
+    internal async Task SetAnalyzerActionAsync(Guid id, IReadOnlyDictionary<AnalysisMode, AnalyzerAction> analyzerActions)
     {
         using var db = new IntroSkipperDbContext(_dbPath);
         var existingEntries = await db.DbSeasonInfo
@@ -351,25 +351,48 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
 
         foreach (var (mode, action) in analyzerActions)
         {
-            var dbSeasonInfo = new DbSeasonInfo(id, mode, action);
             if (existingEntries.TryGetValue(mode, out var existing))
             {
-                db.Entry(existing).CurrentValues.SetValues(dbSeasonInfo);
+                db.Entry(existing).Property(s => s.Action).CurrentValue = action;
             }
             else
             {
-                db.DbSeasonInfo.Add(dbSeasonInfo);
+                db.DbSeasonInfo.Add(new DbSeasonInfo(id, mode, action));
             }
         }
 
         await db.SaveChangesAsync().ConfigureAwait(false);
     }
 
-    internal IReadOnlyDictionary<AnalysisMode, AnalyzerAction> GetAnalyzerAction(Guid id)
+    internal async Task SetEpisodeIdsAsync(Guid id, AnalysisMode mode, IEnumerable<Guid> episodeIds)
+    {
+        using var db = new IntroSkipperDbContext(_dbPath);
+        var seasonInfo = db.DbSeasonInfo.FirstOrDefault(s => s.SeasonId == id && s.Type == mode);
+
+        if (seasonInfo is null)
+        {
+            seasonInfo = new DbSeasonInfo(id, mode, AnalyzerAction.Default, episodeIds);
+            db.DbSeasonInfo.Add(seasonInfo);
+        }
+        else
+        {
+            db.Entry(seasonInfo).Property(s => s.EpisodeIds).CurrentValue = episodeIds;
+        }
+
+        await db.SaveChangesAsync().ConfigureAwait(false);
+    }
+
+    internal IReadOnlyDictionary<AnalysisMode, IEnumerable<Guid>> GetEpisodeIds(Guid id)
     {
         using var db = new IntroSkipperDbContext(_dbPath);
         return db.DbSeasonInfo.Where(s => s.SeasonId == id)
-            .ToDictionary(s => s.Type, s => s.Action);
+            .ToDictionary(s => s.Type, s => s.EpisodeIds);
+    }
+
+    internal AnalyzerAction GetAnalyzerAction(Guid id, AnalysisMode mode)
+    {
+        using var db = new IntroSkipperDbContext(_dbPath);
+        return db.DbSeasonInfo.FirstOrDefault(s => s.SeasonId == id && s.Type == mode)?.Action ?? AnalyzerAction.Default;
     }
 
     internal async Task CleanSeasonInfoAsync(IEnumerable<Guid> ids)
