@@ -159,16 +159,16 @@ public class BaseItemAnalyzerTask
                 throw;
             }
 
-            if (Plugin.Instance.Configuration.RegenerateMediaSegments || (updateManagers && Plugin.Instance.Configuration.UpdateMediaSegments))
+            if (Plugin.Instance.Configuration.RebuildMediaSegments || (updateManagers && Plugin.Instance.Configuration.UpdateMediaSegments))
             {
                 await _mediaSegmentUpdateManager.UpdateMediaSegmentsAsync(episodes, ct).ConfigureAwait(false);
             }
         }).ConfigureAwait(false);
 
-        if (Plugin.Instance.Configuration.RegenerateMediaSegments)
+        if (Plugin.Instance.Configuration.RebuildMediaSegments)
         {
             _logger.LogInformation("Turning Mediasegment");
-            Plugin.Instance.Configuration.RegenerateMediaSegments = false;
+            Plugin.Instance.Configuration.RebuildMediaSegments = false;
             Plugin.Instance.SaveConfiguration();
         }
     }
