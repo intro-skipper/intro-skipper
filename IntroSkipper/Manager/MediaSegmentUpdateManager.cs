@@ -3,10 +3,12 @@
 
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using IntroSkipper.Data;
+using MediaBrowser.Common.Extensions;
 using MediaBrowser.Controller;
 using MediaBrowser.Model;
 using Microsoft.Extensions.Logging;
@@ -24,7 +26,9 @@ namespace IntroSkipper.Manager
         private readonly IMediaSegmentManager _mediaSegmentManager = mediaSegmentManager;
         private readonly ILogger<MediaSegmentUpdateManager> _logger = logger;
         private readonly IMediaSegmentProvider _segmentProvider = segmentProvider;
-        private readonly string _name = Plugin.Instance!.Name;
+        private readonly string _id = Plugin.Instance!.Name.ToLowerInvariant()
+                        .GetMD5()
+                        .ToString("N", CultureInfo.InvariantCulture);
 
         /// <summary>
         /// Updates all media items in a List.
@@ -50,7 +54,7 @@ namespace IntroSkipper.Manager
                         continue;
                     }
 
-                    await Task.WhenAll(newSegments.Select(s => _mediaSegmentManager.CreateSegmentAsync(s, _name))).ConfigureAwait(false);
+                    await Task.WhenAll(newSegments.Select(s => _mediaSegmentManager.CreateSegmentAsync(s, _id))).ConfigureAwait(false);
 
                     _logger.LogDebug("Updated {SegmentCount} segments for episode {EpisodeId}", newSegments.Count, episode.EpisodeId);
                 }
