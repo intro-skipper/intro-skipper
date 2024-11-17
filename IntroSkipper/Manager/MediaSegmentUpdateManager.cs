@@ -3,10 +3,12 @@
 
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using IntroSkipper.Data;
+using MediaBrowser.Common.Extensions;
 using MediaBrowser.Controller;
 using MediaBrowser.Model;
 using Microsoft.Extensions.Logging;
@@ -24,7 +26,9 @@ namespace IntroSkipper.Manager
         private readonly IMediaSegmentManager _mediaSegmentManager = mediaSegmentManager;
         private readonly ILogger<MediaSegmentUpdateManager> _logger = logger;
         private readonly IMediaSegmentProvider _segmentProvider = segmentProvider;
-        private readonly string _name = Plugin.Instance!.Name;
+        private readonly string _id = Plugin.Instance!.Name.ToLowerInvariant()
+                        .GetMD5()
+                        .ToString("N", CultureInfo.InvariantCulture);
 
         /// <summary>
         /// Updates all media items in a List.
@@ -39,17 +43,8 @@ namespace IntroSkipper.Manager
                 cancellationToken.ThrowIfCancellationRequested();
                 try
                 {
-                    try
-                    {
-                        var existingSegments = await _mediaSegmentManager.GetSegmentsAsync(episode.EpisodeId, null, true).ConfigureAwait(false);
-                        await Task.WhenAll(existingSegments.Select(s => _mediaSegmentManager.DeleteSegmentAsync(s.Id))).ConfigureAwait(false);
-                    }
-                    catch (Exception vs)
-                    {
-                        _logger.LogError(vs, "GetSegmentsAsync failed. 10.10.1 compatibility enabled.");
-                        var existingSegments = await _mediaSegmentManager.GetSegmentsAsync(episode.EpisodeId, null).ConfigureAwait(false);
-                        await Task.WhenAll(existingSegments.Select(s => _mediaSegmentManager.DeleteSegmentAsync(s.Id))).ConfigureAwait(false);
-                    }
+                    var existingSegments = await _mediaSegmentManager.GetSegmentsAsync(episode.EpisodeId, null, false).ConfigureAwait(false);
+                    await Task.WhenAll(existingSegments.Select(s => _mediaSegmentManager.DeleteSegmentAsync(s.Id))).ConfigureAwait(false);
 
                     var newSegments = await _segmentProvider.GetMediaSegments(new MediaSegmentGenerationRequest { ItemId = episode.EpisodeId }, cancellationToken).ConfigureAwait(false);
 
@@ -59,7 +54,7 @@ namespace IntroSkipper.Manager
                         continue;
                     }
 
-                    await Task.WhenAll(newSegments.Select(s => _mediaSegmentManager.CreateSegmentAsync(s, _name))).ConfigureAwait(false);
+                    await Task.WhenAll(newSegments.Select(s => _mediaSegmentManager.CreateSegmentAsync(s, _id))).ConfigureAwait(false);
 
                     _logger.LogDebug("Updated {SegmentCount} segments for episode {EpisodeId}", newSegments.Count, episode.EpisodeId);
                 }

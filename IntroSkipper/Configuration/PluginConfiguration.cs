@@ -74,7 +74,7 @@ public class PluginConfiguration : BasePluginConfiguration
     /// By default, Media Segments are only written for a season if the season had at least one newly analyzed episode.
     /// If this is set, all Media Segments will be regenerated and overwrite any existing Media Segemnts.
     /// </summary>
-    public bool RegenerateMediaSegments { get; set; } = true;
+    public bool RebuildMediaSegments { get; set; } = true;
 
     // ===== Custom analysis settings =====
 

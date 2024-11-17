@@ -136,7 +136,7 @@ public class BaseItemAnalyzerTask(
                 throw;
             }
 
-            if (_config.RegenerateMediaSegments || (updateMediaSegments && _config.UpdateMediaSegments))
+            if (_config.RebuildMediaSegments || (updateMediaSegments && _config.UpdateMediaSegments))
             {
                 await _mediaSegmentUpdateManager.UpdateMediaSegmentsAsync(episodes, ct).ConfigureAwait(false);
             }
@@ -144,10 +144,10 @@ public class BaseItemAnalyzerTask(
 
         Plugin.Instance!.AnalyzeAgain = false;
 
-        if (_config.RegenerateMediaSegments)
+        if (_config.RebuildMediaSegments)
         {
             _logger.LogInformation("Regenerated media segments.");
-            _config.RegenerateMediaSegments = false;
+            _config.RebuildMediaSegments = false;
             Plugin.Instance!.SaveConfiguration();
         }
     }
