@@ -972,6 +972,8 @@
 
                 pluginSkip.addEventListener("change", pluginSkipSettingChanged);
 
+                pluginSkipSettingChanged();
+
                 async function analyzeMoviesChanged() {
                     if (analyzeMovies.checked) {
                         movieCreditsDuration.style.display = "unset";
