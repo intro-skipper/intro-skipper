@@ -123,7 +123,7 @@ public class IntroSkipperDbContext : DbContext
             List<DbSegment> segments;
             using (var db = new IntroSkipperDbContext(_dbPath))
             {
-                segments = [.. db.DbSegment.Where(s => s.ToSegment().Valid)];
+                segments = [.. db.DbSegment.AsEnumerable().Where(s => s.ToSegment().Valid)];
             }
 
             // Delete old database
