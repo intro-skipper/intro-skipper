@@ -300,17 +300,10 @@
                             <p align="center" style="font-size: 0.75em">EDL file generation has been removed. Please use endrl's <a href="https://github.com/endrl/jellyfin-plugin-edl">EDL plugin</a>.</p>
                         </fieldset>
 
+                        <div id="ServerSkipSettings">
+
                         <fieldset class="verticalSection-extrabottompadding">
                             <legend>Playback</legend>
-
-                            <div class="checkboxContainer checkboxContainer-withDescription">
-                                <label class="emby-checkbox-label">
-                                    <input id="PluginSkip" type="checkbox" is="emby-checkbox" />
-                                    <span>Enable server-side skip settings</span>
-                                </label>
-                            </div>
-
-                            <div id="ServerSkipSettings">
 
                             <div class="checkboxContainer checkboxContainer-withDescription">
                                 <label class="emby-checkbox-label">
@@ -425,8 +418,9 @@
                                     <div class="fieldDescription">Message shown after automatically skipping an introduction. Leave blank to disable notification.</div>
                                 </div>
                             </details>
-                            </div>
                         </fieldset>
+
+                        </div>
 
                         <div>
                             <button is="emby-button" type="submit" class="raised button-submit block emby-button">
@@ -730,6 +724,13 @@
                                 <div class="fieldDescription">See how much space each library uses.</div>
                                 <textarea id="storageText" rows="20" cols="75" readonly></textarea>
                             </details>
+
+                            <div class="checkboxContainer checkboxContainer-withDescription">
+                                <label class="emby-checkbox-label">
+                                    <input id="PluginSkip" type="checkbox" is="emby-checkbox" />
+                                    <span>Enable server-side skip settings</span>
+                                </label>
+                            </div>
                         </fieldset>
                     </form>
                 </div>
