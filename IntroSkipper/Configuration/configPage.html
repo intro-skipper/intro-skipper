@@ -32,30 +32,20 @@
                             <div class="checkboxContainer checkboxContainer-withDescription">
                                 <label class="emby-checkbox-label">
                                     <input id="AutoDetectIntros" type="checkbox" is="emby-checkbox" />
-                                    <span>Automatically Scan Intros</span>
+                                    <span>Automatically Analyze New Media</span>
                                 </label>
 
-                                <div class="fieldDescription">If enabled, introductions will be automatically analyzed for new media</div>
-                            </div>
-
-                            <div class="checkboxContainer checkboxContainer-withDescription">
-                                <label class="emby-checkbox-label">
-                                    <input id="AutoDetectCredits" type="checkbox" is="emby-checkbox" />
-                                    <span>Automatically Scan Credits</span>
-                                </label>
-
-                                <div class="fieldDescription">
-                                    If enabled, credits will be automatically analyzed for new media
+                                <div class="fieldDescription">If enabled, new media will be automatically analyzed for skippable segments when added to the library
                                     <br />
                                     <br />
-                                    Note: Not selecting at least one automatic detection type will disable automatic scans. To configure the scheduled task, see <a is="emby-linkbutton" class="button-link" href="#/dashboard/tasks">scheduled tasks</a>.
+                                    Note: To configure the scheduled task, see <a is="emby-linkbutton" class="button-link" href="#/dashboard/tasks">scheduled tasks</a>.
                                 </div>
                             </div>
 
                             <div class="checkboxContainer checkboxContainer-withDescription">
                                 <label class="emby-checkbox-label">
                                     <input id="UpdateMediaSegments" type="checkbox" is="emby-checkbox" />
-                                    <span>Update Segments for New Media During Scan</span>
+                                    <span>Update Missing Segments During Scan</span>
                                 </label>
 
                                 <div class="fieldDescription">
@@ -107,6 +97,34 @@
                                     <br />
                                     Per the jellyfin MediaSegments API, records must be updated individually and may be slow to regenerate.
                                 </p>
+
+                                <div class="checkboxContainer">
+                                    <label class="emby-checkbox-label">
+                                        <input id="ScanIntroduction" type="checkbox" is="emby-checkbox" />
+                                        <span>Identify Introductions</span>
+                                    </label>
+                                </div>
+
+                                <div class="checkboxContainer">
+                                    <label class="emby-checkbox-label">
+                                        <input id="ScanCredits" type="checkbox" is="emby-checkbox" />
+                                        <span>Identify Credits</span>
+                                    </label>
+                                </div>
+
+                                <div class="checkboxContainer">
+                                    <label class="emby-checkbox-label">
+                                        <input id="ScanRecap" type="checkbox" is="emby-checkbox" />
+                                        <span>Identify Recaps</span>
+                                    </label>
+                                </div>
+
+                                <div class="checkboxContainer">
+                                    <label class="emby-checkbox-label">
+                                        <input id="ScanPreview" type="checkbox" is="emby-checkbox" />
+                                        <span>Identify Previews</span>
+                                    </label>
+                                </div>
 
                                 <div class="inputContainer">
                                     <label class="inputLabel inputLabelUnfocused" for="AnalysisPercent"> Percent of audio to analyze </label>
@@ -188,6 +206,43 @@
                                 </div>
                             </details>
 
+                            <details id="chapters">
+                                <summary>Chapter Detection Options</summary>
+
+                                <br />
+                                <div class="inputContainer">
+                                    <label class="inputLabel inputLabelUnfocused" for="ChapterAnalyzerIntroductionPattern"> Introductions </label>
+                                    <input id="ChapterAnalyzerIntroductionPattern" type="text" placeholder="(^|\s)(Intro|Introduction|OP|Opening)(?!\sEnd)(\s|$)" is="emby-input" />
+                                    <div class="fieldDescription">Enter a regular expression to detect introduction chapters.
+                                        <br />Default: <code>(^|\s)(Intro|Introduction|OP|Opening)(?!\sEnd)(\s|$)</code>
+                                    </div>
+                                </div>
+
+                                <div class="inputContainer">
+                                    <label class="inputLabel inputLabelUnfocused" for="ChapterAnalyzerEndCreditsPattern"> Credits </label>
+                                    <input id="ChapterAnalyzerEndCreditsPattern" type="text" placeholder="(^|\s)(Credits?|ED|Ending|Outro)(?!\sEnd)(\s|$)" is="emby-input" />
+                                    <div class="fieldDescription">Enter a regular expression to detect credits chapters.
+                                        <br />Default: <code>(^|\s)(Credits?|ED|Ending|Outro)(?!\sEnd)(\s|$)</code>
+                                    </div>
+                                </div>
+
+                                <div class="inputContainer">
+                                    <label class="inputLabel inputLabelUnfocused" for="ChapterAnalyzerPreviewPattern"> Preview </label>
+                                    <input id="ChapterAnalyzerPreviewPattern" type="text" placeholder="(^|\s)(Preview|PV|Sneak\s?Peek|Coming\s?(Up|Soon)|Next\s+(time|on|episode)|Teaser|Trailer)(?!\sEnd)(\s|:|$)" is="emby-input" />
+                                    <div class="fieldDescription">Enter a regular expression to detect preview chapters.
+                                        <br />Default: <code>(^|\s)(Preview|PV|Sneak\s?Peek|Coming\s?(Up|Soon)|Next\s+(time|on|episode)|Teaser|Trailer)(?!\sEnd)(\s|:|$)</code>
+                                    </div>
+                                </div>
+
+                                <div class="inputContainer">
+                                    <label class="inputLabel inputLabelUnfocused" for="ChapterAnalyzerRecapPattern"> Recaps </label>
+                                    <input id="ChapterAnalyzerRecapPattern" type="text" placeholder="(^|\s)(Re?cap|Sum{1,2}ary|Prev(ious(ly)?)?|(Last|Earlier)(\s\w+)?|Catch[ -]up)(?!\sEnd)(\s|:|$)" is="emby-input" />
+                                    <div class="fieldDescription">Enter a regular expression to detect recap chapters.
+                                        <br />Default: <code>(^|\s)(Re?cap|Sum{1,2}ary|Prev(ious(ly)?)?|(Last|Earlier)(\s\w+)?|Catch[ -]up)(?!\sEnd)(\s|:|$)</code>
+                                    </div>
+                                </div>
+                            </details>
+
                             <details id="detection">
                                 <summary>Process Configuration</summary>
 
@@ -251,76 +306,57 @@
                             <div class="checkboxContainer checkboxContainer-withDescription">
                                 <label class="emby-checkbox-label">
                                     <input id="AutoSkip" type="checkbox" is="emby-checkbox" />
-                                    <span>Automatically Skip Intros</span>
+                                    <span>Automatically Skip for All Clients</span>
                                 </label>
+                            </div>
 
-                                <div class="fieldDescription">
-                                    If checked, intros will be automatically skipped for <b>all</b> clients.<br />
-                                    Note: Cannot be disabled from client popup (gear icon) settings.<br />
-                                    If you access Jellyfin through a reverse proxy, it must be configured to proxy websockets.<br />
+                            <div class="AutoSkipClientListContainer">
+                                <div class="AutoSkipClientList">
+                                    <h3 class="checkboxListLabel">Limit auto skip to the following clients</h3>
+                                    <div class="checkboxList paperList" style="padding: 0.5em 1em" id="autoSkipCheckboxes"></div>
                                 </div>
+                                <label class="inputLabel" for="ClientList"></label>
+                                <input id="ClientList" type="hidden" is="emby-input" />
+                            </div>
+
+                            <div class="AutoSkipTypeListContainer">
+                                <div class="AutoSkipTypeList">
+                                    <h3 class="checkboxListLabel">Auto skip the following types</h3>
+                                    <div class="checkboxList paperList" style="padding: 0.5em 1em" id="autoSkipTypeCheckboxes"></div>
+                                </div>
+                                <label class="inputLabel" for="TypeList"></label>
+                                <input id="TypeList" type="hidden" is="emby-input" />
                             </div>
 
                             <div id="divSkipFirstEpisode" class="checkboxContainer checkboxContainer-withDescription">
                                 <label class="emby-checkbox-label">
                                     <input id="SkipFirstEpisode" type="checkbox" is="emby-checkbox" />
-                                    <span>Play Intro for First Episode of a Season</span>
+                                    <span>Play Segments for First Episode of a Season</span>
                                 </label>
 
-                                <div class="fieldDescription">If checked, auto skip will play the introduction of the first episode in a season.<br /></div>
-                                <br />
+                                <div class="fieldDescription">If checked, auto skip will play the segments of the first episode in a season.</div>
                             </div>
 
                             <div id="divSecondsOfIntroStartToPlay" class="inputContainer">
-                                <label class="inputLabel inputLabelUnfocused" for="SecondsOfIntroStartToPlay"> Intro skip delay (in seconds) </label>
+                                <label class="inputLabel inputLabelUnfocused" for="SecondsOfIntroStartToPlay"> Segment skip delay (in seconds) </label>
                                 <input id="SecondsOfIntroStartToPlay" type="number" is="emby-input" min="0" />
-                                <div class="fieldDescription">Seconds of introduction start that should be played. Defaults to 0.</div>
-                                <br />
+                                <div class="fieldDescription">Seconds of segment start that should be played. Defaults to 0.</div>
                             </div>
 
                             <div class="inputContainer">
-                                <label class="inputLabel inputLabelUnfocused" for="RemainingSecondsOfIntro"> Intro playback duration (in seconds) </label>
+                                <label class="inputLabel inputLabelUnfocused" for="RemainingSecondsOfIntro"> Segment playback duration (in seconds) </label>
                                 <input id="RemainingSecondsOfIntro" type="number" is="emby-input" min="0" />
-                                <div class="fieldDescription">Seconds of introduction ending that should be played. Defaults to 2.</div>
+                                <div class="fieldDescription">Seconds of segment ending that should be played. Defaults to 2.</div>
                             </div>
-
-                            <div class="checkboxContainer checkboxContainer-withDescription">
-                                <label class="emby-checkbox-label">
-                                    <input id="AutoSkipCredits" type="checkbox" is="emby-checkbox" />
-                                    <span>Automatically Skip Credits</span>
-                                </label>
-
-                                <div class="fieldDescription">
-                                    If checked, credits will be automatically skipped for <b>all</b> clients.<br />
-                                    Note: Cannot be disabled from client popup (gear icon) settings.<br />
-                                    If you access Jellyfin through a reverse proxy, it must be configured to proxy websockets.<br />
-                                </div>
-                            </div>
-
-                            <div id="divSecondsOfCreditsStartToPlay" class="inputContainer">
-                                <label class="inputLabel inputLabelUnfocused" for="SecondsOfCreditsStartToPlay"> Credit skip delay (in seconds) </label>
-                                <input id="SecondsOfCreditsStartToPlay" type="number" is="emby-input" min="0" />
-                                <div class="fieldDescription">Seconds of credits start that should be played. Defaults to 0.</div>
-                                <br />
-                            </div>
-
-                            <details id="AutoSkipClientList" style="padding-bottom: 1em">
-                                <summary>Auto Skip Client List</summary>
-                                <br />
-                                <div class="checkboxList paperList" style="padding: 0.5em 1em" id="autoSkipCheckboxes"></div>
-                                <label class="inputLabel" for="ClientList"></label>
-                                <input id="ClientList" type="hidden" is="emby-input" />
-                                <div class="fieldDescription">Clients enabled in this list will <b>always skip automatically</b>, regardless of the button settings below.</div>
-                            </details>
 
                             <div id="SkipButtonContainer" class="checkboxContainer checkboxContainer-withDescription">
                                 <label class="emby-checkbox-label">
                                     <input id="SkipButtonEnabled" type="checkbox" is="emby-checkbox" />
-                                    <span id="SkipButtonVisibleLabel">Show All Skip Buttons</span>
+                                    <span id="SkipButtonVisibleLabel">Show Segment Skip Buttons</span>
                                 </label>
 
                                 <div class="fieldDescription">
-                                    (<b>Restart required!</b>) If checked, a skip button will be added <b>to the server</b> and displayed according to the settings below.<br />
+                                     <b style="color: red">Restart required!</b> If checked, a skip button will be added <b>to the server</b> according to the UI settings.<br />
                                     This button is <b>separate</b> from the Media Segment Actions in Jellyfin 10.10 and compatible clients.<br />
                                 </div>
                             </div>
@@ -379,12 +415,6 @@
                                     <input id="AutoSkipNotificationText" type="text" is="emby-input" />
                                     <div class="fieldDescription">Message shown after automatically skipping an introduction. Leave blank to disable notification.</div>
                                 </div>
-
-                                <div id="divAutoSkipCreditsNotificationText" class="inputContainer">
-                                    <label class="inputLabel" for="AutoSkipCreditsNotificationText"> Auto skip credits notification message </label>
-                                    <input id="AutoSkipCreditsNotificationText" type="text" is="emby-input" />
-                                    <div class="fieldDescription">Message shown after automatically skipping credits. Leave blank to disable notification.</div>
-                                </div>
                             </details>
                         </fieldset>
 
@@ -439,10 +469,26 @@
                                                 <option value="None">None</option>
                                             </select>
                                         </label>
+                                        <label for="actionRecap" style="margin-right: 1.5em; display: inline-block">
+                                            <span>Recap analysis</span>
+                                            <select is="emby-select" id="actionRecap" class="emby-select-withcolor emby-select">
+                                                <option value="Default">Default</option>
+                                                <option value="Chapter">Chapter</option>
+                                                <option value="None">None</option>
+                                            </select>
+                                        </label>
+                                        <label for="actionPreview" style="margin-right: 1.5em; display: inline-block">
+                                            <span>Preview analysis</span>
+                                            <select is="emby-select" id="actionPreview" class="emby-select-withcolor emby-select">
+                                                <option value="Default">Default</option>
+                                                <option value="Chapter">Chapter</option>
+                                                <option value="None">None</option>
+                                            </select>
+                                        </label>
                                     </div>
                                     <br />
 
-                                    <button is="emby-button" id="saveAnalyzerActions" class="raised button-submit block emby-button" style="display: none">Apply changes.</button>
+                                    <button is="emby-button" id="saveAnalyzerActions" class="raised button-submit block emby-button" style="display: none">Apply Changes</button>
                                 </div>
                                 <br />
 
@@ -483,6 +529,30 @@
                                             <input type="number" id="editLeftCreditEpisodeEndEdit" class="emby-input custom-time-input" style="display: none" step="any" min="0" />
                                         </div>
                                     </div>
+                                    <div class="inlineForm">
+                                        <div class="inputContainer">
+                                            <label class="inputLabel inputLabelUnfocused" for="recapStart">Recap Start</label>
+                                            <input type="text" id="editLeftRecapEpisodeStartDisplay" class="emby-input custom-time-input" readonly />
+                                            <input type="number" id="editLeftRecapEpisodeStartEdit" class="emby-input custom-time-input" style="display: none" step="any" min="0" />
+                                        </div>
+                                        <div class="inputContainer">
+                                            <label class="inputLabel inputLabelUnfocused" for="recapEnd">Recap End</label>
+                                            <input type="text" id="editLeftRecapEpisodeEndDisplay" class="emby-input custom-time-input" readonly />
+                                            <input type="number" id="editLeftRecapEpisodeEndEdit" class="emby-input custom-time-input" style="display: none" step="any" min="0" />
+                                        </div>
+                                    </div>
+                                    <div class="inlineForm">
+                                        <div class="inputContainer">
+                                            <label class="inputLabel inputLabelUnfocused" for="previewStart">Preview Start</label>
+                                            <input type="text" id="editLeftPreviewEpisodeStartDisplay" class="emby-input custom-time-input" readonly />
+                                            <input type="number" id="editLeftPreviewEpisodeStartEdit" class="emby-input custom-time-input" style="display: none" step="any" min="0" />
+                                        </div>
+                                        <div class="inputContainer">
+                                            <label class="inputLabel inputLabelUnfocused" for="previewEnd">Preview End</label>
+                                            <input type="text" id="editLeftPreviewEpisodeEndDisplay" class="emby-input custom-time-input" readonly />
+                                            <input type="number" id="editLeftPreviewEpisodeEndEdit" class="emby-input custom-time-input" style="display: none" step="any" min="0" />
+                                        </div>
+                                    </div>
                                     <br />
                                     <div id="rightEpisodeEditor">
                                         <h4 style="margin: 0" id="editRightEpisodeTitle"></h4>
@@ -509,6 +579,30 @@
                                                 <label class="inputLabel inputLabelUnfocused" for="creditsEnd">Credits End</label>
                                                 <input type="text" id="editRightCreditEpisodeEndDisplay" class="emby-input custom-time-input" readonly />
                                                 <input type="number" id="editRightCreditEpisodeEndEdit" class="emby-input custom-time-input" style="display: none" step="any" min="0" />
+                                            </div>
+                                        </div>
+                                        <div class="inlineForm">
+                                            <div class="inputContainer">
+                                                <label class="inputLabel inputLabelUnfocused" for="recapStart">Recap Start</label>
+                                                <input type="text" id="editRightRecapEpisodeStartDisplay" class="emby-input custom-time-input" readonly />
+                                                <input type="number" id="editRightRecapEpisodeStartEdit" class="emby-input custom-time-input" style="display: none" step="any" min="0" />
+                                            </div>
+                                            <div class="inputContainer">
+                                                <label class="inputLabel inputLabelUnfocused" for="recapEnd">Recap End</label>
+                                                <input type="text" id="editRightRecapEpisodeEndDisplay" class="emby-input custom-time-input" readonly />
+                                                <input type="number" id="editRightRecapEpisodeEndEdit" class="emby-input custom-time-input" style="display: none" step="any" min="0" />
+                                            </div>
+                                        </div>
+                                        <div class="inlineForm">
+                                            <div class="inputContainer">
+                                                <label class="inputLabel inputLabelUnfocused" for="previewStart">Preview Start</label>
+                                                <input type="text" id="editRightPreviewEpisodeStartDisplay" class="emby-input custom-time-input" readonly />
+                                                <input type="number" id="editRightPreviewEpisodeStartEdit" class="emby-input custom-time-input" style="display: none" step="any" min="0" />
+                                            </div>
+                                            <div class="inputContainer">
+                                                <label class="inputLabel inputLabelUnfocused" for="previewEnd">Preview End</label>
+                                                <input type="text" id="editRightPreviewEpisodeEndDisplay" class="emby-input custom-time-input" readonly />
+                                                <input type="number" id="editRightPreviewEpisodeEndEdit" class="emby-input custom-time-input" style="display: none" step="any" min="0" />
                                             </div>
                                         </div>
                                         <br />
@@ -592,14 +686,24 @@
                                     <br />
                                 </div>
 
-                                <button is="emby-button" class="button-submit emby-button" id="btnEraseIntroTimestamps">Erase all introduction timestamps (globally)</button>
-                                <br />
+                                <div style="display: flex; align-items: center;">
+                                    <div>
+                                        <button is="emby-button" class="button-submit emby-button" id="btnEraseIntroTimestamps">Erase all introduction timestamps (globally)</button>
+                                        <br />
 
-                                <button is="emby-button" class="button-submit emby-button" id="btnEraseCreditTimestamps">Erase all end credits timestamps (globally)</button>
-                                <br />
-                                <br />
-                                <input type="checkbox" id="eraseModeCacheCheckbox" style="margin-left: 10px" />
-                                <label for="eraseModeCacheCheckbox" style="margin-left: 5px">Erase cached fingerprint files</label>
+                                        <button is="emby-button" class="button-submit emby-button" id="btnEraseRecapTimestamps">Erase all recap timestamps (globally)</button>
+                                        <br />
+
+                                        <button is="emby-button" class="button-submit emby-button" id="btnEraseCreditTimestamps">Erase all end credits timestamps (globally)</button>
+                                        <br />
+
+                                        <button is="emby-button" class="button-submit emby-button" id="btnErasePreviewTimestamps">Erase all preview timestamps (globally)</button>
+                                    </div>
+                                    <div>
+                                        <input type="checkbox" id="eraseModeCacheCheckbox" style="margin-left: 10px" />
+                                        <label for="eraseModeCacheCheckbox" style="margin-left: 5px">Erase global cached fingerprint files</label>
+                                    </div>
+                                </div>
                                 <br />
                                 <br />
                             </details>
@@ -640,7 +744,9 @@
                 var support = document.querySelector("details#support");
                 var storage = document.querySelector("details#storage");
                 var btnEraseIntroTimestamps = document.querySelector("button#btnEraseIntroTimestamps");
+                var btnEraseRecapTimestamps = document.querySelector("button#btnEraseRecapTimestamps");
                 var btnEraseCreditTimestamps = document.querySelector("button#btnEraseCreditTimestamps");
+                var btnErasePreviewTimestamps = document.querySelector("button#btnErasePreviewTimestamps");
 
                 // all plugin configuration fields that can be get or set with .value (i.e. strings or numbers).
                 var configurationFields = [
@@ -662,23 +768,28 @@
                     "HidePromptAdjustment",
                     "RemainingSecondsOfIntro",
                     "SecondsOfIntroStartToPlay",
-                    "SecondsOfCreditsStartToPlay",
                     // internals
                     "SilenceDetectionMaximumNoise",
                     "SilenceDetectionMinimumDuration",
+                    "ChapterAnalyzerIntroductionPattern",
+                    "ChapterAnalyzerEndCreditsPattern",
+                    "ChapterAnalyzerPreviewPattern",
+                    "ChapterAnalyzerRecapPattern",
+                    "TypeList",
                     // UI customization
                     "SkipButtonIntroText",
                     "SkipButtonEndCreditsText",
                     "AutoSkipNotificationText",
-                    "AutoSkipCreditsNotificationText",
                 ];
 
-                var booleanConfigurationFields = ["AutoDetectIntros", "AutoDetectCredits", "AnalyzeMovies", "AnalyzeSeasonZero", "SelectAllLibraries", "UpdateMediaSegments", "RebuildMediaSegments", "CacheFingerprints", "AutoSkip", "AutoSkipCredits", "SkipFirstEpisode", "PersistSkipButton", "SkipButtonEnabled"];
+                var booleanConfigurationFields = ["AutoDetectIntros", "AnalyzeMovies", "AnalyzeSeasonZero", "SelectAllLibraries", "UpdateMediaSegments", "RebuildMediaSegments", "ScanIntroduction", "ScanCredits", "ScanRecap", "ScanPreview", "CacheFingerprints", "AutoSkip", "SkipFirstEpisode", "PersistSkipButton", "SkipButtonEnabled"];
 
                 // visualizer elements
                 var analyzerActionsSection = document.querySelector("div#analyzerActionsSection");
                 var actionIntro = analyzerActionsSection.querySelector("select#actionIntro");
                 var actionCredits = analyzerActionsSection.querySelector("select#actionCredits");
+                var actionRecap = analyzerActionsSection.querySelector("select#actionRecap");
+                var actionPreview = analyzerActionsSection.querySelector("select#actionPreview");
                 var saveAnalyzerActionsButton = analyzerActionsSection.querySelector("button#saveAnalyzerActions");
                 var canvas = document.querySelector("canvas#troubleshooter");
                 var selectShow = document.querySelector("select#troubleshooterShow");
@@ -711,15 +822,11 @@
                 var librariesContainer = document.querySelector("div.folderAccessListContainer");
                 var skipFirstEpisode = document.querySelector("div#divSkipFirstEpisode");
                 var secondsOfIntroStartToPlay = document.querySelector("div#divSecondsOfIntroStartToPlay");
-                var autoSkipClientList = document.getElementById("AutoSkipClientList");
-                var secondsOfCreditsStartToPlay = document.querySelector("div#divSecondsOfCreditsStartToPlay");
+                var autoSkipClientList = document.querySelector("div.AutoSkipClientListContainer");
                 var movieCreditsDuration = document.getElementById("movieCreditsDuration");
-                var autoSkipNotificationText = document.querySelector("div#divAutoSkipNotificationText");
-                var autoSkipCredits = document.querySelector("input#AutoSkipCredits");
-                var autoSkipCreditsNotificationText = document.querySelector("div#divAutoSkipCreditsNotificationText");
 
                 function skipButtonVisibleChanged() {
-                    if (autoSkip.checked && autoSkipCredits.checked) {
+                    if (autoSkip.checked) {
                         skipButtonSettings.style.display = "none";
                     } else if (skipButtonVisible.checked) {
                         skipButtonSettings.style.display = "unset";
@@ -730,55 +837,19 @@
 
                 skipButtonVisible.addEventListener("change", skipButtonVisibleChanged);
 
-                function skipButtonVisibleText() {
-                    if (autoSkip.checked && autoSkipCredits.checked) {
+                function autoSkipChanged() {
+                    if (autoSkip.checked) {
                         autoSkipClientList.style.display = "none";
                         skipButtonVisibleLabel.textContent = "Button unavailable due to auto skip";
-                    } else if (autoSkip.checked) {
-                        autoSkipClientList.style.display = "unset";
-                        autoSkipClientList.style.width = "100%";
-                        skipButtonVisibleLabel.textContent = "Show Skip Credit Button";
-                    } else if (autoSkipCredits.checked) {
-                        autoSkipClientList.style.display = "unset";
-                        autoSkipClientList.style.width = "100%";
-                        skipButtonVisibleLabel.textContent = "Show Skip Intro Button";
                     } else {
                         autoSkipClientList.style.display = "unset";
                         autoSkipClientList.style.width = "100%";
-                        skipButtonVisibleLabel.textContent = "Show All Skip Buttons";
+                        skipButtonVisibleLabel.textContent = "Show Segment Skip Buttons";
                     }
                     skipButtonVisibleChanged();
                 }
 
-                function autoSkipChanged() {
-                    if (autoSkip.checked) {
-                        skipFirstEpisode.style.display = "unset";
-                        autoSkipNotificationText.style.display = "unset";
-                        secondsOfIntroStartToPlay.style.display = "unset";
-                    } else {
-                        skipFirstEpisode.style.display = "none";
-                        autoSkipNotificationText.style.display = "none";
-                        secondsOfIntroStartToPlay.style.display = "none";
-                    }
-                    skipButtonVisibleText();
-                }
-
                 autoSkip.addEventListener("change", autoSkipChanged);
-
-                function autoSkipCreditsChanged() {
-                    if (autoSkipCredits.checked) {
-                        autoSkipCreditsNotificationText.style.display = "unset";
-                        secondsOfCreditsStartToPlay.style.display = "unset";
-                    } else {
-                        autoSkipCreditsNotificationText.style.display = "none";
-                        secondsOfCreditsStartToPlay.style.display = "none";
-                    }
-                    skipButtonVisibleText();
-                }
-
-                autoSkipCredits.addEventListener("change", autoSkipCreditsChanged);
-
-                skipButtonVisibleText(); // run once on launch for legacy installs
 
                 function selectAllLibrariesChanged() {
                     if (selectAllLibraries.checked) {
@@ -800,12 +871,12 @@
                     const container = document.getElementById(containerId);
                     const checkedItems = new Set(document.getElementById(textFieldId).value.split(", ").filter(Boolean));
                     const fragment = document.createDocumentFragment();
-                    items.forEach((item) => {
+                    for (const item of items) {
                         const label = document.createElement("label");
                         label.className = "emby-checkbox-label";
                         label.innerHTML = '<input type="checkbox" is="emby-checkbox"' + (checkedItems.has(item) ? " checked" : "") + ">" + '<span class="checkboxLabel">' + item + "</span>";
                         fragment.appendChild(label);
-                    });
+                    }
                     container.innerHTML = "";
                     container.appendChild(fragment);
                     container.addEventListener(
@@ -821,6 +892,11 @@
                     const response = await getJson("Devices");
                     const devices = [...new Set(response.Items.map((item) => item.AppName))];
                     generateCheckboxList(devices, "autoSkipCheckboxes", "ClientList");
+                }
+
+                async function generateAutoSkipTypeList() {
+                    const types = ["Introduction", "Credits", "Recap", "Preview"];
+                    generateCheckboxList(types, "autoSkipTypeCheckboxes", "TypeList");
                 }
 
                 async function populateLibraries() {
@@ -975,9 +1051,11 @@
                     Dashboard.showLoadingMsg();
                     // show the analyzer actions editor.
                     saveAnalyzerActionsButton.style.display = "block";
-                    const analyzerActions = (await getJson("Intros/AnalyzerActions/" + encodeURI(selectSeason.value))) || { Introduction: "Default", Credits: "Default" };
+                    const analyzerActions = await getJson("Intros/AnalyzerActions/" + encodeURI(selectSeason.value));
                     actionIntro.value = analyzerActions.Introduction || "Default";
                     actionCredits.value = analyzerActions.Credits || "Default";
+                    actionRecap.value = analyzerActions.Recap || "Default";
+                    actionPreview.value = analyzerActions.Preview || "Default";
                     analyzerActionsSection.style.display = "unset";
 
                     // show the erase season button
@@ -1030,7 +1108,7 @@
                         timestampError.value += selectEpisode2.value + " fingerprints missing or incomplete.\n";
                     }
 
-                    if (timestampError.value == "") {
+                    if (timestampError.value === "") {
                         timestampErrorDiv.style.display = "none";
                     } else {
                         timestampErrorDiv.style.display = "unset";
@@ -1065,7 +1143,7 @@
 
                     rightEpisodeEditor.style.display = "none";
 
-                    if (timestampError.value == "") {
+                    if (timestampError.value === "") {
                         timestampErrorDiv.style.display = "none";
                     } else {
                         timestampErrorDiv.style.display = "unset";
@@ -1078,13 +1156,17 @@
                     // Try to get the timestamps of each intro, falling back a default value of zero if no intro was found
                     const leftEpisodeJson = await getJson("Episode/" + selectShow.value + "/Timestamps");
 
-                    // Update the editor for the first and second episodes
+                    // Update the editor for the movie
                     timestampEditor.style.display = "unset";
                     document.querySelector("#editLeftEpisodeTitle").textContent = selectShow.value;
                     document.querySelector("#editLeftIntroEpisodeStartEdit").value = leftEpisodeJson.Introduction.Start;
                     document.querySelector("#editLeftIntroEpisodeEndEdit").value = leftEpisodeJson.Introduction.End;
                     document.querySelector("#editLeftCreditEpisodeStartEdit").value = leftEpisodeJson.Credits.Start;
                     document.querySelector("#editLeftCreditEpisodeEndEdit").value = leftEpisodeJson.Credits.End;
+                    document.querySelector("#editLeftRecapEpisodeStartEdit").value = leftEpisodeJson.Recap.Start;
+                    document.querySelector("#editLeftRecapEpisodeEndEdit").value = leftEpisodeJson.Recap.End;
+                    document.querySelector("#editLeftPreviewEpisodeStartEdit").value = leftEpisodeJson.Preview.Start;
+                    document.querySelector("#editLeftPreviewEpisodeEndEdit").value = leftEpisodeJson.Preview.End;
 
                     // Update display inputs
                     const inputs = document.querySelectorAll('#timestampEditor input[type="number"]');
@@ -1149,13 +1231,19 @@
                     document.querySelector("#editLeftIntroEpisodeEndEdit").value = leftEpisodeJson.Introduction.End;
                     document.querySelector("#editLeftCreditEpisodeStartEdit").value = leftEpisodeJson.Credits.Start;
                     document.querySelector("#editLeftCreditEpisodeEndEdit").value = leftEpisodeJson.Credits.End;
-
+                    document.querySelector("#editLeftRecapEpisodeStartEdit").value = leftEpisodeJson.Recap.Start;
+                    document.querySelector("#editLeftRecapEpisodeEndEdit").value = leftEpisodeJson.Recap.End;
+                    document.querySelector("#editLeftPreviewEpisodeStartEdit").value = leftEpisodeJson.Preview.Start;
+                    document.querySelector("#editLeftPreviewEpisodeEndEdit").value = leftEpisodeJson.Preview.End;
                     document.querySelector("#editRightEpisodeTitle").textContent = rightEpisode.text;
                     document.querySelector("#editRightIntroEpisodeStartEdit").value = rightEpisodeJson.Introduction.Start;
                     document.querySelector("#editRightIntroEpisodeEndEdit").value = rightEpisodeJson.Introduction.End;
                     document.querySelector("#editRightCreditEpisodeStartEdit").value = rightEpisodeJson.Credits.Start;
                     document.querySelector("#editRightCreditEpisodeEndEdit").value = rightEpisodeJson.Credits.End;
-
+                    document.querySelector("#editRightRecapEpisodeStartEdit").value = rightEpisodeJson.Recap.Start;
+                    document.querySelector("#editRightRecapEpisodeEndEdit").value = rightEpisodeJson.Recap.End;
+                    document.querySelector("#editRightPreviewEpisodeStartEdit").value = rightEpisodeJson.Preview.Start;
+                    document.querySelector("#editRightPreviewEpisodeEndEdit").value = rightEpisodeJson.Preview.End;
                     // Update display inputs
                     const inputs = document.querySelectorAll('#timestampEditor input[type="number"]');
                     inputs.forEach((input) => {
@@ -1227,14 +1315,14 @@
 
                     switch (e.key) {
                         case "ArrowDown":
-                            if (timestampError.value != "") {
+                            if (timestampError.value !== "") {
                                 // if the control key is pressed, shift LHS by 10s. Otherwise, shift by 1.
                                 offsetDelta = e.ctrlKey ? 10 / 0.1238 : 1;
                             }
                             break;
 
                         case "ArrowUp":
-                            if (timestampError.value != "") {
+                            if (timestampError.value !== "") {
                                 offsetDelta = e.ctrlKey ? -10 / 0.1238 : -1;
                             }
                             break;
@@ -1251,11 +1339,11 @@
                             return;
                     }
 
-                    if (offsetDelta != 0) {
+                    if (offsetDelta !== 0) {
                         txtOffset.value = Number(txtOffset.value) + Math.floor(offsetDelta);
                     }
 
-                    if (episodeDelta != 0) {
+                    if (episodeDelta !== 0) {
                         // calculate the number of episodes remaining in the LHS and RHS episode pickers
                         const lhsRemaining = selectEpisode1.selectedIndex;
                         const rhsRemaining = selectEpisode2.length - selectEpisode2.selectedIndex - 1;
@@ -1332,8 +1420,8 @@
                         populateLibraries();
                         selectAllLibrariesChanged();
                         autoSkipChanged();
-                        autoSkipCreditsChanged();
                         persistSkipChanged();
+                        generateAutoSkipTypeList();
                         generateAutoSkipClientList();
 
                         Dashboard.hideLoadingMsg();
@@ -1372,8 +1460,16 @@
                     eraseTimestamps("Introduction");
                     e.preventDefault();
                 });
+                btnEraseRecapTimestamps.addEventListener("click", (e) => {
+                    eraseTimestamps("Recap");
+                    e.preventDefault();
+                });
                 btnEraseCreditTimestamps.addEventListener("click", (e) => {
                     eraseTimestamps("Credits");
+                    e.preventDefault();
+                });
+                btnErasePreviewTimestamps.addEventListener("click", (e) => {
+                    eraseTimestamps("Preview");
                     e.preventDefault();
                 });
                 btnSeasonEraseTimestamps.addEventListener("click", () => {
@@ -1418,6 +1514,8 @@
                         analyzerActions: {
                             Introduction: actionIntro.value,
                             Credits: actionCredits.value,
+                            Recap: actionRecap.value,
+                            Preview: actionPreview.value,
                         },
                     };
 
@@ -1432,24 +1530,48 @@
                     const lhsId = selectEpisode1.options[selectEpisode1.selectedIndex].value;
                     const newLhs = {
                         Introduction: {
+                            ItemId: lhsId,
                             Start: getEditValue("editLeftIntroEpisodeStartEdit"),
                             End: getEditValue("editLeftIntroEpisodeEndEdit"),
                         },
                         Credits: {
+                            ItemId: lhsId,
                             Start: getEditValue("editLeftCreditEpisodeStartEdit"),
                             End: getEditValue("editLeftCreditEpisodeEndEdit"),
+                        },
+                        Recap: {
+                            ItemId: lhsId,
+                            Start: getEditValue("editLeftRecapEpisodeStartEdit"),
+                            End: getEditValue("editLeftRecapEpisodeEndEdit"),
+                        },
+                        Preview: {
+                            ItemId: lhsId,
+                            Start: getEditValue("editLeftPreviewEpisodeStartEdit"),
+                            End: getEditValue("editLeftPreviewEpisodeEndEdit"),
                         },
                     };
 
                     const rhsId = selectEpisode2.options[selectEpisode2.selectedIndex].value;
                     const newRhs = {
                         Introduction: {
+                            ItemId: rhsId,
                             Start: getEditValue("editRightIntroEpisodeStartEdit"),
                             End: getEditValue("editRightIntroEpisodeEndEdit"),
                         },
                         Credits: {
+                            ItemId: rhsId,
                             Start: getEditValue("editRightCreditEpisodeStartEdit"),
                             End: getEditValue("editRightCreditEpisodeEndEdit"),
+                        },
+                        Recap: {
+                            ItemId: rhsId,
+                            Start: getEditValue("editRightRecapEpisodeStartEdit"),
+                            End: getEditValue("editRightRecapEpisodeEndEdit"),
+                        },
+                        Preview: {
+                            ItemId: rhsId,
+                            Start: getEditValue("editRightPreviewEpisodeStartEdit"),
+                            End: getEditValue("editRightPreviewEpisodeEndEdit"),
                         },
                     };
 

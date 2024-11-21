@@ -25,6 +25,7 @@ namespace IntroSkipper.Analyzers;
 public class ChapterAnalyzer(ILogger<ChapterAnalyzer> logger) : IMediaFileAnalyzer
 {
     private readonly ILogger<ChapterAnalyzer> _logger = logger;
+    private readonly PluginConfiguration _config = Plugin.Instance?.Configuration ?? new PluginConfiguration();
 
     /// <inheritdoc />
     public async Task<IReadOnlyList<QueuedEpisode>> AnalyzeMediaFiles(
@@ -32,18 +33,23 @@ public class ChapterAnalyzer(ILogger<ChapterAnalyzer> logger) : IMediaFileAnalyz
         AnalysisMode mode,
         CancellationToken cancellationToken)
     {
-        var skippableRanges = new List<Segment>();
-
-        var expression = mode == AnalysisMode.Introduction ?
-            Plugin.Instance!.Configuration.ChapterAnalyzerIntroductionPattern :
-            Plugin.Instance!.Configuration.ChapterAnalyzerEndCreditsPattern;
+        var expression = mode switch
+        {
+            AnalysisMode.Introduction => _config.ChapterAnalyzerIntroductionPattern,
+            AnalysisMode.Credits => _config.ChapterAnalyzerEndCreditsPattern,
+            AnalysisMode.Recap => _config.ChapterAnalyzerRecapPattern,
+            AnalysisMode.Preview => _config.ChapterAnalyzerPreviewPattern,
+            _ => throw new ArgumentOutOfRangeException(nameof(mode), $"Unexpected analysis mode: {mode}")
+        };
 
         if (string.IsNullOrWhiteSpace(expression))
         {
             return analysisQueue;
         }
 
-        foreach (var episode in analysisQueue.Where(e => !e.GetAnalyzed(mode)))
+        var episodesWithoutIntros = analysisQueue.Where(e => !e.IsAnalyzed).ToList();
+
+        foreach (var episode in episodesWithoutIntros)
         {
             if (cancellationToken.IsCancellationRequested)
             {
@@ -52,7 +58,7 @@ public class ChapterAnalyzer(ILogger<ChapterAnalyzer> logger) : IMediaFileAnalyz
 
             var skipRange = FindMatchingChapter(
                 episode,
-                Plugin.Instance.GetChapters(episode.EpisodeId),
+                Plugin.Instance!.GetChapters(episode.EpisodeId),
                 expression,
                 mode);
 
@@ -61,11 +67,9 @@ public class ChapterAnalyzer(ILogger<ChapterAnalyzer> logger) : IMediaFileAnalyz
                 continue;
             }
 
-            skippableRanges.Add(skipRange);
-            episode.SetAnalyzed(mode, true);
+            episode.IsAnalyzed = true;
+            await Plugin.Instance!.UpdateTimestampAsync(skipRange, mode).ConfigureAwait(false);
         }
-
-        await Plugin.Instance.UpdateTimestamps(skippableRanges, mode).ConfigureAwait(false);
 
         return analysisQueue;
     }
@@ -91,12 +95,11 @@ public class ChapterAnalyzer(ILogger<ChapterAnalyzer> logger) : IMediaFileAnalyz
             return null;
         }
 
-        var config = Plugin.Instance?.Configuration ?? new PluginConfiguration();
-        var creditDuration = episode.IsMovie ? config.MaximumMovieCreditsDuration : config.MaximumCreditsDuration;
-        var reversed = mode != AnalysisMode.Introduction;
+        var creditDuration = episode.IsMovie ? _config.MaximumMovieCreditsDuration : _config.MaximumCreditsDuration;
+        var reversed = mode == AnalysisMode.Credits;
         var (minDuration, maxDuration) = reversed
-            ? (config.MinimumCreditsDuration, creditDuration)
-            : (config.MinimumIntroDuration, config.MaximumIntroDuration);
+            ? (_config.MinimumCreditsDuration, creditDuration)
+            : (_config.MinimumIntroDuration, _config.MaximumIntroDuration);
 
         // Check all chapters
         for (int i = reversed ? count - 1 : 0; reversed ? i >= 0 : i < count; i += reversed ? -1 : 1)
@@ -133,7 +136,7 @@ public class ChapterAnalyzer(ILogger<ChapterAnalyzer> logger) : IMediaFileAnalyz
             var match = Regex.IsMatch(
                 chapter.Name,
                 expression,
-                RegexOptions.None,
+                RegexOptions.IgnoreCase,
                 TimeSpan.FromSeconds(1));
 
             if (!match)

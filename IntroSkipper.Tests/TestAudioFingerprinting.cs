@@ -31,8 +31,7 @@ public class TestAudioFingerprinting
     [InlineData(19, 2_465_585_877)]
     public void TestBitCounting(int expectedBits, uint number)
     {
-        var chromaprint = CreateChromaprintAnalyzer();
-        Assert.Equal(expectedBits, chromaprint.CountBits(number));
+        Assert.Equal(expectedBits, ChromaprintAnalyzer.CountBits(number));
     }
 
     [FactSkipFFmpegTests]
@@ -86,7 +85,8 @@ public class TestAudioFingerprinting
             {77, 5},
         };
 
-        var actual = FFmpegWrapper.CreateInvertedIndex(Guid.NewGuid(), fpr, AnalysisMode.Introduction);
+        var analyzer = CreateChromaprintAnalyzer();
+        var actual = analyzer.CreateInvertedIndex(Guid.NewGuid(), fpr);
 
         Assert.Equal(expected, actual);
     }
@@ -127,12 +127,12 @@ public class TestAudioFingerprinting
 
         var expected = new TimeRange[]
         {
-            new(44.6310, 44.8072),
-            new(53.5905, 53.8070),
-            new(53.8458, 54.2024),
-            new(54.2611, 54.5935),
-            new(54.7098, 54.9293),
-            new(54.9294, 55.2590),
+            new(44.631042, 44.807167),
+            new(53.590521, 53.806979),
+            new(53.845833, 54.202417),
+            new(54.261104, 54.593479),
+            new(54.709792, 54.929312),
+            new(54.929396, 55.258979),
         };
 
         var range = new TimeRange(0, 60);

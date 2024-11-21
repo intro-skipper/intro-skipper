@@ -14,8 +14,10 @@ namespace IntroSkipper.Configuration;
 /// <param name="creditsText">Skip button end credits text.</param>
 /// <param name="autoSkip">Auto Skip Intro.</param>
 /// <param name="autoSkipCredits">Auto Skip Credits.</param>
+/// <param name="autoSkipRecap">Auto Skip Recap.</param>
+/// <param name="autoSkipPreview">Auto Skip Preview.</param>
 /// <param name="clientList">Auto Skip Clients.</param>
-public class UserInterfaceConfiguration(bool visible, string introText, string creditsText, bool autoSkip, bool autoSkipCredits, string clientList)
+public class UserInterfaceConfiguration(bool visible, string introText, string creditsText, bool autoSkip, bool autoSkipCredits, bool autoSkipRecap, bool autoSkipPreview, string clientList)
 {
     /// <summary>
     /// Gets or sets a value indicating whether to show the skip intro button.
@@ -41,6 +43,16 @@ public class UserInterfaceConfiguration(bool visible, string introText, string c
     /// Gets or sets a value indicating whether auto skip credits.
     /// </summary>
     public bool AutoSkipCredits { get; set; } = autoSkipCredits;
+
+    /// <summary>
+    /// Gets or sets a value indicating whether auto skip recap.
+    /// </summary>
+    public bool AutoSkipRecap { get; set; } = autoSkipRecap;
+
+    /// <summary>
+    /// Gets or sets a value indicating whether auto skip preview.
+    /// </summary>
+    public bool AutoSkipPreview { get; set; } = autoSkipPreview;
 
     /// <summary>
     /// Gets or sets a value indicating clients to auto skip for.

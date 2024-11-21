@@ -36,8 +36,6 @@ public static partial class FFmpegWrapper
 
     private static Dictionary<string, string> ChromaprintLogs { get; set; } = [];
 
-    private static ConcurrentDictionary<(Guid Id, AnalysisMode Mode), Dictionary<uint, int>> InvertedIndexCache { get; set; } = new();
-
     /// <summary>
     /// Check that the installed version of ffmpeg supports chromaprint.
     /// </summary>
@@ -132,36 +130,6 @@ public static partial class FFmpegWrapper
         }
 
         return Fingerprint(episode, mode, start, end);
-    }
-
-    /// <summary>
-    /// Transforms a Chromaprint into an inverted index of fingerprint points to the last index it appeared at.
-    /// </summary>
-    /// <param name="id">Episode ID.</param>
-    /// <param name="fingerprint">Chromaprint fingerprint.</param>
-    /// <param name="mode">Mode.</param>
-    /// <returns>Inverted index.</returns>
-    public static Dictionary<uint, int> CreateInvertedIndex(Guid id, uint[] fingerprint, AnalysisMode mode)
-    {
-        if (InvertedIndexCache.TryGetValue((id, mode), out var cached))
-        {
-            return cached;
-        }
-
-        var invIndex = new Dictionary<uint, int>();
-
-        for (int i = 0; i < fingerprint.Length; i++)
-        {
-            // Get the current point.
-            var point = fingerprint[i];
-
-            // Append the current sample's timecode to the collection for this point.
-            invIndex[point] = i;
-        }
-
-        InvertedIndexCache[(id, mode)] = invIndex;
-
-        return invIndex;
     }
 
     /// <summary>

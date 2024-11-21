@@ -5,7 +5,6 @@ using System;
 using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
-using IntroSkipper.Data;
 using IntroSkipper.Manager;
 using IntroSkipper.Services;
 using MediaBrowser.Controller.Library;
@@ -15,23 +14,22 @@ using Microsoft.Extensions.Logging;
 namespace IntroSkipper.ScheduledTasks;
 
 /// <summary>
-/// Analyze all television episodes for credits.
-/// TODO: analyze all media files.
+/// Analyze all television episodes for media segments.
 /// </summary>
 /// <remarks>
-/// Initializes a new instance of the <see cref="DetectCreditsTask"/> class.
+/// Initializes a new instance of the <see cref="DetectSegmentsTask"/> class.
 /// </remarks>
 /// <param name="loggerFactory">Logger factory.</param>
 /// <param name="libraryManager">Library manager.</param>
 /// <param name="logger">Logger.</param>
 /// <param name="mediaSegmentUpdateManager">MediaSegment Update Manager.</param>
-public class DetectCreditsTask(
-    ILogger<DetectCreditsTask> logger,
+public class DetectSegmentsTask(
+    ILogger<DetectSegmentsTask> logger,
     ILoggerFactory loggerFactory,
     ILibraryManager libraryManager,
     MediaSegmentUpdateManager mediaSegmentUpdateManager) : IScheduledTask
 {
-    private readonly ILogger<DetectCreditsTask> _logger = logger;
+    private readonly ILogger<DetectSegmentsTask> _logger = logger;
 
     private readonly ILoggerFactory _loggerFactory = loggerFactory;
 
@@ -42,7 +40,7 @@ public class DetectCreditsTask(
     /// <summary>
     /// Gets the task name.
     /// </summary>
-    public string Name => "Detect Credits";
+    public string Name => "Detect and Analyze Media Segments";
 
     /// <summary>
     /// Gets the task category.
@@ -52,12 +50,12 @@ public class DetectCreditsTask(
     /// <summary>
     /// Gets the task description.
     /// </summary>
-    public string Description => "Analyzes media to determine the timestamp and length of credits";
+    public string Description => "Analyzes media to determine the timestamp and length of intros and credits.";
 
     /// <summary>
     /// Gets the task key.
     /// </summary>
-    public string Key => "CPBIntroSkipperDetectCredits";
+    public string Key => "IntroSkipperDetectSegmentsTask";
 
     /// <summary>
     /// Analyze all episodes in the queue. Only one instance of this task should be run at a time.
@@ -75,7 +73,7 @@ public class DetectCreditsTask(
         // abort automatic analyzer if running
         if (Entrypoint.AutomaticTaskState == TaskState.Running || Entrypoint.AutomaticTaskState == TaskState.Cancelling)
         {
-            _logger.LogInformation("Automatic Task is {0} and will be canceled.", Entrypoint.AutomaticTaskState);
+            _logger.LogInformation("Automatic Task is {TaskState} and will be canceled.", Entrypoint.AutomaticTaskState);
             await Entrypoint.CancelAutomaticTaskAsync(cancellationToken).ConfigureAwait(false);
         }
 
@@ -83,16 +81,13 @@ public class DetectCreditsTask(
         {
             _logger.LogInformation("Scheduled Task is starting");
 
-            var modes = new List<AnalysisMode> { AnalysisMode.Credits };
-
-            var baseCreditAnalyzer = new BaseItemAnalyzerTask(
-                modes,
-                _loggerFactory.CreateLogger<DetectCreditsTask>(),
+            var baseIntroAnalyzer = new BaseItemAnalyzerTask(
+                _loggerFactory.CreateLogger<DetectSegmentsTask>(),
                 _loggerFactory,
                 _libraryManager,
                 _mediaSegmentUpdateManager);
 
-            await baseCreditAnalyzer.AnalyzeItems(progress, cancellationToken).ConfigureAwait(false);
+            await baseIntroAnalyzer.AnalyzeItemsAsync(progress, cancellationToken).ConfigureAwait(false);
         }
     }
 
@@ -102,6 +97,13 @@ public class DetectCreditsTask(
     /// <returns>Task triggers.</returns>
     public IEnumerable<TaskTriggerInfo> GetDefaultTriggers()
     {
-        return [];
+        return
+        [
+            new TaskTriggerInfo
+            {
+                Type = TaskTriggerInfo.TriggerDaily,
+                TimeOfDayTicks = TimeSpan.FromHours(0).Ticks
+            }
+        ];
     }
 }

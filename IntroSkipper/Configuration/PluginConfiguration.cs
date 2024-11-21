@@ -1,6 +1,7 @@
 // Copyright (C) 2024 Intro-Skipper contributors <intro-skipper.org>
 // SPDX-License-Identifier: GPL-3.0-only.
 
+using System.Collections.Generic;
 using System.Diagnostics;
 using IntroSkipper.Data;
 using MediaBrowser.Model.Plugins;
@@ -20,11 +21,6 @@ public class PluginConfiguration : BasePluginConfiguration
     }
 
     // ===== Analysis settings =====
-
-    /// <summary>
-    /// Gets or sets the max degree of parallelism used when analyzing episodes.
-    /// </summary>
-    public int MaxParallelism { get; set; } = 2;
 
     /// <summary>
     /// Gets or sets the comma separated list of library names to analyze.
@@ -47,14 +43,9 @@ public class PluginConfiguration : BasePluginConfiguration
     public string ClientList { get; set; } = string.Empty;
 
     /// <summary>
-    /// Gets or sets a value indicating whether to scan for intros during a scheduled task.
+    /// Gets or sets a value indicating whether to automatically scan newly added items.
     /// </summary>
     public bool AutoDetectIntros { get; set; } = true;
-
-    /// <summary>
-    /// Gets or sets a value indicating whether to scan for credits during a scheduled task.
-    /// </summary>
-    public bool AutoDetectCredits { get; set; } = true;
 
     /// <summary>
     /// Gets or sets a value indicating whether to analyze season 0.
@@ -86,6 +77,26 @@ public class PluginConfiguration : BasePluginConfiguration
     public bool RebuildMediaSegments { get; set; } = true;
 
     // ===== Custom analysis settings =====
+
+    /// <summary>
+    /// Gets or sets a value indicating whether Introductions should be analyzed.
+    /// </summary>
+    public bool ScanIntroduction { get; set; } = true;
+
+    /// <summary>
+    /// Gets or sets a value indicating whether Credits should be analyzed.
+    /// </summary>
+    public bool ScanCredits { get; set; } = true;
+
+    /// <summary>
+    /// Gets or sets a value indicating whether Recaps should be analyzed.
+    /// </summary>
+    public bool ScanRecap { get; set; } = true;
+
+    /// <summary>
+    /// Gets or sets a value indicating whether Previews should be analyzed.
+    /// </summary>
+    public bool ScanPreview { get; set; } = true;
 
     /// <summary>
     /// Gets or sets the percentage of each episode's audio track to analyze.
@@ -131,20 +142,32 @@ public class PluginConfiguration : BasePluginConfiguration
     /// Gets or sets the regular expression used to detect introduction chapters.
     /// </summary>
     public string ChapterAnalyzerIntroductionPattern { get; set; } =
-        @"(^|\s)(Intro|Introduction|OP|Opening)(\s|$)";
+        @"(^|\s)(Intro|Introduction|OP|Opening)(?!\sEnd)(\s|$)";
 
     /// <summary>
     /// Gets or sets the regular expression used to detect ending credit chapters.
     /// </summary>
     public string ChapterAnalyzerEndCreditsPattern { get; set; } =
-        @"(^|\s)(Credits?|ED|Ending|End|Outro)(\s|$)";
+        @"(^|\s)(Credits?|ED|Ending|Outro)(?!\sEnd)(\s|$)";
+
+    /// <summary>
+    /// Gets or sets the regular expression used to detect Preview chapters.
+    /// </summary>
+    public string ChapterAnalyzerPreviewPattern { get; set; } =
+        @"(^|\s)(Preview|PV|Sneak\s?Peek|Coming\s?(Up|Soon)|Next\s+(time|on|episode)|Extra|Teaser|Trailer)(?!\sEnd)(\s|:|$)";
+
+    /// <summary>
+    /// Gets or sets the regular expression used to detect Recap chapters.
+    /// </summary>
+    public string ChapterAnalyzerRecapPattern { get; set; } =
+        @"(^|\s)(Re?cap|Sum{1,2}ary|Prev(ious(ly)?)?|(Last|Earlier)(\s\w+)?|Catch[ -]up)(?!\sEnd)(\s|:|$)";
 
     // ===== Playback settings =====
 
     /// <summary>
     /// Gets or sets a value indicating whether to show the skip intro button.
     /// </summary>
-    public bool SkipButtonEnabled { get; set; } = false;
+    public bool SkipButtonEnabled { get; set; }
 
     /// <summary>
     /// Gets a value indicating whether to show the skip intro warning.
@@ -157,9 +180,24 @@ public class PluginConfiguration : BasePluginConfiguration
     public bool AutoSkip { get; set; }
 
     /// <summary>
+    /// Gets or sets the list of segment types to auto skip.
+    /// </summary>
+    public string TypeList { get; set; } = string.Empty;
+
+    /// <summary>
     /// Gets or sets a value indicating whether credits should be automatically skipped.
     /// </summary>
     public bool AutoSkipCredits { get; set; }
+
+    /// <summary>
+    /// Gets or sets a value indicating whether recap should be automatically skipped.
+    /// </summary>
+    public bool AutoSkipRecap { get; set; }
+
+    /// <summary>
+    /// Gets or sets a value indicating whether preview should be automatically skipped.
+    /// </summary>
+    public bool AutoSkipPreview { get; set; }
 
     /// <summary>
     /// Gets or sets the seconds before the intro starts to show the skip prompt at.
@@ -190,11 +228,6 @@ public class PluginConfiguration : BasePluginConfiguration
     /// Gets or sets the amount of intro at start to play (in seconds).
     /// </summary>
     public int SecondsOfIntroStartToPlay { get; set; }
-
-    /// <summary>
-    /// Gets or sets the amount of credit at start to play (in seconds).
-    /// </summary>
-    public int SecondsOfCreditsStartToPlay { get; set; }
 
     // ===== Internal algorithm settings =====
 
@@ -240,12 +273,12 @@ public class PluginConfiguration : BasePluginConfiguration
     /// <summary>
     /// Gets or sets the notification text sent after automatically skipping an introduction.
     /// </summary>
-    public string AutoSkipNotificationText { get; set; } = "Intro skipped";
+    public string AutoSkipNotificationText { get; set; } = "Segment skipped";
 
     /// <summary>
-    /// Gets or sets the notification text sent after automatically skipping credits.
+    /// Gets or sets the max degree of parallelism used when analyzing episodes.
     /// </summary>
-    public string AutoSkipCreditsNotificationText { get; set; } = "Credits skipped";
+    public int MaxParallelism { get; set; } = 2;
 
     /// <summary>
     /// Gets or sets the number of threads for a ffmpeg process.

@@ -96,7 +96,13 @@ public class VisualizationController(ILogger<VisualizationController> logger, Me
             return NotFound();
         }
 
-        return Ok(Plugin.Instance!.GetAnalyzerAction(seasonId));
+        var analyzerActions = new Dictionary<AnalysisMode, AnalyzerAction>();
+        foreach (var mode in Enum.GetValues<AnalysisMode>())
+        {
+            analyzerActions[mode] = Plugin.Instance!.GetAnalyzerAction(seasonId, mode);
+        }
+
+        return Ok(analyzerActions);
     }
 
     /// <summary>
@@ -175,22 +181,22 @@ public class VisualizationController(ILogger<VisualizationController> logger, Me
             foreach (var episode in episodes)
             {
                 cancellationToken.ThrowIfCancellationRequested();
-                var segments = Plugin.Instance!.GetSegmentsById(episode.EpisodeId);
 
-                if (segments.TryGetValue(AnalysisMode.Introduction, out var introSegment))
-                {
-                    db.DbSegment.Remove(new DbSegment(introSegment, AnalysisMode.Introduction));
-                }
+                var existingSegments = db.DbSegment.Where(s => s.ItemId == episode.EpisodeId);
 
-                if (segments.TryGetValue(AnalysisMode.Credits, out var creditSegment))
-                {
-                    db.DbSegment.Remove(new DbSegment(creditSegment, AnalysisMode.Credits));
-                }
+                db.DbSegment.RemoveRange(existingSegments);
 
                 if (eraseCache)
                 {
                     await Task.Run(() => FFmpegWrapper.DeleteEpisodeCache(episode.EpisodeId), cancellationToken).ConfigureAwait(false);
                 }
+            }
+
+            var seasonInfo = db.DbSeasonInfo.Where(s => s.SeasonId == seasonId);
+
+            foreach (var info in seasonInfo)
+            {
+                db.Entry(info).Property(s => s.EpisodeIds).CurrentValue = [];
             }
 
             await db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
@@ -216,7 +222,7 @@ public class VisualizationController(ILogger<VisualizationController> logger, Me
     [HttpPost("AnalyzerActions/UpdateSeason")]
     public async Task<ActionResult> UpdateAnalyzerActions([FromBody] UpdateAnalyzerActionsRequest request)
     {
-        await Plugin.Instance!.UpdateAnalyzerActionAsync(request.Id, request.AnalyzerActions).ConfigureAwait(false);
+        await Plugin.Instance!.SetAnalyzerActionAsync(request.Id, request.AnalyzerActions).ConfigureAwait(false);
 
         return NoContent();
     }

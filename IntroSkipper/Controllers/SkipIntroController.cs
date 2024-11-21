@@ -73,16 +73,25 @@ public class SkipIntroController(MediaSegmentUpdateManager mediaSegmentUpdateMan
             return NotFound();
         }
 
-        if (timestamps?.Introduction.End > 0.0)
+        if (timestamps == null)
         {
-            var seg = new Segment(id, new TimeRange(timestamps.Introduction.Start, timestamps.Introduction.End));
-            await Plugin.Instance!.UpdateTimestamps([seg], AnalysisMode.Introduction).ConfigureAwait(false);
+            return NoContent();
         }
 
-        if (timestamps?.Credits.End > 0.0)
+        var segmentTypes = new[]
         {
-            var seg = new Segment(id, new TimeRange(timestamps.Credits.Start, timestamps.Credits.End));
-            await Plugin.Instance!.UpdateTimestamps([seg], AnalysisMode.Credits).ConfigureAwait(false);
+            (AnalysisMode.Introduction, timestamps.Introduction),
+            (AnalysisMode.Credits, timestamps.Credits),
+            (AnalysisMode.Recap, timestamps.Recap),
+            (AnalysisMode.Preview, timestamps.Preview)
+        };
+
+        foreach (var (mode, segment) in segmentTypes)
+        {
+            if (segment.Valid)
+            {
+                await Plugin.Instance!.UpdateTimestampAsync(segment, mode).ConfigureAwait(false);
+            }
         }
 
         if (Plugin.Instance.Configuration.UpdateMediaSegments)
@@ -118,7 +127,7 @@ public class SkipIntroController(MediaSegmentUpdateManager mediaSegmentUpdateMan
         }
 
         var times = new TimeStamps();
-        var segments = Plugin.Instance!.GetSegmentsById(id);
+        var segments = Plugin.Instance!.GetTimestamps(id);
 
         if (segments.TryGetValue(AnalysisMode.Introduction, out var introSegment))
         {
@@ -128,6 +137,16 @@ public class SkipIntroController(MediaSegmentUpdateManager mediaSegmentUpdateMan
         if (segments.TryGetValue(AnalysisMode.Credits, out var creditSegment))
         {
             times.Credits = creditSegment;
+        }
+
+        if (segments.TryGetValue(AnalysisMode.Recap, out var recapSegment))
+        {
+            times.Recap = recapSegment;
+        }
+
+        if (segments.TryGetValue(AnalysisMode.Preview, out var previewSegment))
+        {
+            times.Preview = previewSegment;
         }
 
         return times;
@@ -143,27 +162,30 @@ public class SkipIntroController(MediaSegmentUpdateManager mediaSegmentUpdateMan
     public ActionResult<Dictionary<AnalysisMode, Intro>> GetSkippableSegments([FromRoute] Guid id)
     {
         var segments = GetIntros(id);
+        var result = new Dictionary<AnalysisMode, Intro>();
 
         if (segments.TryGetValue(AnalysisMode.Introduction, out var introSegment))
         {
-            segments[AnalysisMode.Introduction] = introSegment;
+            result[AnalysisMode.Introduction] = introSegment;
         }
 
         if (segments.TryGetValue(AnalysisMode.Credits, out var creditSegment))
         {
-            segments[AnalysisMode.Credits] = creditSegment;
+            result[AnalysisMode.Credits] = creditSegment;
         }
 
-        return segments;
+        return result;
     }
 
     /// <summary>Lookup and return the skippable timestamps for the provided item.</summary>
     /// <param name="id">Unique identifier of this episode.</param>
     /// <returns>Intro object if the provided item has an intro, null otherwise.</returns>
-    private static Dictionary<AnalysisMode, Intro> GetIntros(Guid id)
+    internal static Dictionary<AnalysisMode, Intro> GetIntros(Guid id)
     {
-        var timestamps = Plugin.Instance!.GetSegmentsById(id);
+        var timestamps = Plugin.Instance!.GetTimestamps(id);
         var intros = new Dictionary<AnalysisMode, Intro>();
+        var runTime = TimeSpan.FromTicks(Plugin.Instance!.GetItem(id)?.RunTimeTicks ?? 0).TotalSeconds;
+        var config = Plugin.Instance.Configuration;
 
         foreach (var (mode, timestamp) in timestamps)
         {
@@ -174,11 +196,10 @@ public class SkipIntroController(MediaSegmentUpdateManager mediaSegmentUpdateMan
 
             // Create new Intro to avoid mutating the original stored in dictionary
             var segment = new Intro(timestamp);
-            var config = Plugin.Instance.Configuration;
 
-            // Calculate intro end time based on mode
-            segment.IntroEnd = mode == AnalysisMode.Credits
-                ? GetAdjustedIntroEnd(id, segment.IntroEnd, config)
+            // Calculate intro end time
+            segment.IntroEnd = runTime > 0 && runTime < segment.IntroEnd + 1
+                ? runTime
                 : segment.IntroEnd - config.RemainingSecondsOfIntro;
 
             // Set skip button prompt visibility times
@@ -202,14 +223,6 @@ public class SkipIntroController(MediaSegmentUpdateManager mediaSegmentUpdateMan
         return intros;
     }
 
-    private static double GetAdjustedIntroEnd(Guid id, double segmentEnd, PluginConfiguration config)
-    {
-        var runTime = TimeSpan.FromTicks(Plugin.Instance!.GetItem(id)?.RunTimeTicks ?? 0).TotalSeconds;
-        return runTime > 0 && runTime < segmentEnd + 1
-            ? runTime
-            : segmentEnd - config.RemainingSecondsOfIntro;
-    }
-
     /// <summary>
     /// Erases all previously discovered introduction timestamps.
     /// </summary>
@@ -230,9 +243,9 @@ public class SkipIntroController(MediaSegmentUpdateManager mediaSegmentUpdateMan
         db.DbSegment.RemoveRange(segments);
         await db.SaveChangesAsync().ConfigureAwait(false);
 
-        if (eraseCache)
+        if (eraseCache && mode is AnalysisMode.Introduction or AnalysisMode.Credits)
         {
-            FFmpegWrapper.DeleteCacheFiles(mode);
+            await Task.Run(() => FFmpegWrapper.DeleteCacheFiles(mode)).ConfigureAwait(false);
         }
 
         return NoContent();
@@ -254,6 +267,8 @@ public class SkipIntroController(MediaSegmentUpdateManager mediaSegmentUpdateMan
             config.SkipButtonEndCreditsText,
             config.AutoSkip,
             config.AutoSkipCredits,
+            config.AutoSkipRecap,
+            config.AutoSkipPreview,
             config.ClientList);
     }
 }

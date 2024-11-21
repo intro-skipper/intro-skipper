@@ -152,9 +152,12 @@ namespace IntroSkipper.Manager
                 {
                     QueueEpisode(episode);
                 }
-                else if (_analyzeMovies && item is Movie movie)
+                else if (item is Movie movie)
                 {
-                    QueueMovie(movie);
+                    if (_analyzeMovies)
+                    {
+                        QueueMovie(movie);
+                    }
                 }
                 else
                 {
@@ -219,6 +222,7 @@ namespace IntroSkipper.Manager
                 SeriesName = episode.SeriesName,
                 SeasonNumber = episode.AiredSeasonNumber ?? 0,
                 SeriesId = episode.SeriesId,
+                SeasonId = episode.SeasonId,
                 EpisodeId = episode.Id,
                 Name = episode.Name,
                 IsAnime = isAnime,
@@ -253,10 +257,12 @@ namespace IntroSkipper.Manager
             {
                 SeriesName = movie.Name,
                 SeriesId = movie.Id,
+                SeasonId = movie.Id,
                 EpisodeId = movie.Id,
                 Name = movie.Name,
                 Path = movie.Path,
                 Duration = Convert.ToInt32(duration),
+                CreditsFingerprintStart = Convert.ToInt32(duration - pluginInstance.Configuration.MaximumMovieCreditsDuration),
                 IsMovie = true
             });
 
@@ -288,11 +294,13 @@ namespace IntroSkipper.Manager
         /// <param name="candidates">Queued media items.</param>
         /// <param name="modes">Analysis mode.</param>
         /// <returns>Media items that have been verified to exist in Jellyfin and in storage.</returns>
-        public (IReadOnlyList<QueuedEpisode> VerifiedItems, IReadOnlyCollection<AnalysisMode> RequiredModes)
+        internal (IReadOnlyList<QueuedEpisode> QueuedEpisodes, IReadOnlyCollection<AnalysisMode> RequiredModes)
             VerifyQueue(IReadOnlyList<QueuedEpisode> candidates, IReadOnlyCollection<AnalysisMode> modes)
         {
             var verified = new List<QueuedEpisode>();
-            var reqModes = new HashSet<AnalysisMode>();
+            var requiredModes = new HashSet<AnalysisMode>();
+
+            var episodeIds = Plugin.Instance!.GetEpisodeIds(candidates[0].SeasonId);
 
             foreach (var candidate in candidates)
             {
@@ -305,20 +313,12 @@ namespace IntroSkipper.Manager
                     }
 
                     verified.Add(candidate);
-                    var segments = Plugin.Instance!.GetSegmentsById(candidate.EpisodeId);
 
                     foreach (var mode in modes)
                     {
-                        if (segments.TryGetValue(mode, out var segment))
+                        if (!episodeIds.TryGetValue(mode, out var ids) || !ids.Contains(candidate.EpisodeId) || Plugin.Instance!.AnalyzeAgain)
                         {
-                            if (segment.Valid)
-                            {
-                                candidate.SetAnalyzed(mode, true);
-                            }
-                        }
-                        else
-                        {
-                            reqModes.Add(mode);
+                            requiredModes.Add(mode);
                         }
                     }
                 }
@@ -332,7 +332,7 @@ namespace IntroSkipper.Manager
                 }
             }
 
-            return (verified, reqModes);
+            return (verified, requiredModes);
         }
     }
 }

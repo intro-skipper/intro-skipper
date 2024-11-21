@@ -2,7 +2,12 @@
 // SPDX-License-Identifier: GPL-3.0-only.
 
 using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Text.Json;
+using IntroSkipper.Data;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.ChangeTracking;
 
 namespace IntroSkipper.Db;
 
@@ -12,26 +17,48 @@ namespace IntroSkipper.Db;
 /// <remarks>
 /// Initializes a new instance of the <see cref="IntroSkipperDbContext"/> class.
 /// </remarks>
-/// <param name="dbPath">The path to the SQLite database file.</param>
-public class IntroSkipperDbContext(string dbPath) : DbContext
+public class IntroSkipperDbContext : DbContext
 {
-    private readonly string _dbPath = dbPath ?? throw new ArgumentNullException(nameof(dbPath));
+    private readonly string _dbPath;
+
+    /// <summary>
+    /// Initializes a new instance of the <see cref="IntroSkipperDbContext"/> class.
+    /// </summary>
+    /// <param name="dbPath">The path to the SQLite database file.</param>
+    public IntroSkipperDbContext(string dbPath)
+    {
+        _dbPath = dbPath;
+        DbSegment = Set<DbSegment>();
+        DbSeasonInfo = Set<DbSeasonInfo>();
+    }
+
+    /// <summary>
+    /// Initializes a new instance of the <see cref="IntroSkipperDbContext"/> class.
+    /// </summary>
+    /// <param name="options">The options.</param>
+    public IntroSkipperDbContext(DbContextOptions<IntroSkipperDbContext> options) : base(options)
+    {
+        var folder = Environment.SpecialFolder.LocalApplicationData;
+        var path = Environment.GetFolderPath(folder);
+        _dbPath = System.IO.Path.Join(path, "introskipper.db");
+        DbSegment = Set<DbSegment>();
+        DbSeasonInfo = Set<DbSeasonInfo>();
+    }
 
     /// <summary>
     /// Gets or sets the <see cref="DbSet{TEntity}"/> containing the segments.
     /// </summary>
-    public DbSet<DbSegment> DbSegment { get; set; } = null!;
+    public DbSet<DbSegment> DbSegment { get; set; }
 
     /// <summary>
     /// Gets or sets the <see cref="DbSet{TEntity}"/> containing the season information.
     /// </summary>
-    public DbSet<DbSeasonInfo> DbSeasonInfo { get; set; } = null!;
+    public DbSet<DbSeasonInfo> DbSeasonInfo { get; set; }
 
     /// <inheritdoc/>
     protected override void OnConfiguring(DbContextOptionsBuilder optionsBuilder)
     {
-        optionsBuilder.UseSqlite($"Data Source={_dbPath}")
-                     .EnableSensitiveDataLogging(false);
+        optionsBuilder.UseSqlite($"Data Source={_dbPath}");
     }
 
     /// <inheritdoc/>
@@ -42,15 +69,15 @@ public class IntroSkipperDbContext(string dbPath) : DbContext
             entity.ToTable("DbSegment");
             entity.HasKey(s => new { s.ItemId, s.Type });
 
-            entity.Property(e => e.ItemId)
+            entity.HasIndex(e => e.ItemId);
+
+            entity.Property(e => e.Start)
+                  .HasDefaultValue(0.0)
                   .IsRequired();
 
-            entity.Property(e => e.Type)
+            entity.Property(e => e.End)
+                  .HasDefaultValue(0.0)
                   .IsRequired();
-
-            entity.Property(e => e.Start);
-
-            entity.Property(e => e.End);
         });
 
         modelBuilder.Entity<DbSeasonInfo>(entity =>
@@ -58,13 +85,20 @@ public class IntroSkipperDbContext(string dbPath) : DbContext
             entity.ToTable("DbSeasonInfo");
             entity.HasKey(s => new { s.SeasonId, s.Type });
 
-            entity.Property(e => e.SeasonId)
+            entity.HasIndex(e => e.SeasonId);
+
+            entity.Property(e => e.Action)
+                  .HasDefaultValue(AnalyzerAction.Default)
                   .IsRequired();
 
-            entity.Property(e => e.Type)
-                  .IsRequired();
-
-            entity.Property(e => e.Action);
+            entity.Property(e => e.EpisodeIds)
+                  .HasConversion(
+                      v => JsonSerializer.Serialize(v, (JsonSerializerOptions?)null),
+                      v => JsonSerializer.Deserialize<IEnumerable<Guid>>(v, (JsonSerializerOptions?)null) ?? new List<Guid>(),
+                      new ValueComparer<IEnumerable<Guid>>(
+                          (c1, c2) => (c1 ?? new List<Guid>()).SequenceEqual(c2 ?? new List<Guid>()),
+                          c => c.Aggregate(0, (a, v) => HashCode.Combine(a, v.GetHashCode())),
+                          c => c.ToList()));
         });
 
         base.OnModelCreating(modelBuilder);
@@ -75,6 +109,39 @@ public class IntroSkipperDbContext(string dbPath) : DbContext
     /// </summary>
     public void ApplyMigrations()
     {
-        Database.Migrate();
+        // If migrations table exists, just apply pending migrations normally
+        if (Database.GetAppliedMigrations().Any() || !Database.CanConnect())
+        {
+            Database.Migrate();
+            return;
+        }
+
+        // For databases without migration history
+        try
+        {
+            // Backup existing data
+            List<DbSegment> segments;
+            using (var db = new IntroSkipperDbContext(_dbPath))
+            {
+                segments = [.. db.DbSegment.AsEnumerable().Where(s => s.ToSegment().Valid)];
+            }
+
+            // Delete old database
+            Database.EnsureDeleted();
+
+            // Create new database with proper migration history
+            Database.Migrate();
+
+            // Restore the data
+            using (var db = new IntroSkipperDbContext(_dbPath))
+            {
+                db.DbSegment.AddRange(segments);
+                db.SaveChanges();
+            }
+        }
+        catch (Exception ex)
+        {
+            throw new InvalidOperationException("Failed to apply migrations", ex);
+        }
     }
 }

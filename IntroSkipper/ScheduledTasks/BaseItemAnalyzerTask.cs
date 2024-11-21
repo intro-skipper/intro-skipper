@@ -3,12 +3,13 @@
 
 using System;
 using System.Collections.Generic;
-using System.Collections.ObjectModel;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using IntroSkipper.Analyzers;
+using IntroSkipper.Configuration;
 using IntroSkipper.Data;
+using IntroSkipper.Db;
 using IntroSkipper.Manager;
 using MediaBrowser.Controller.Library;
 using Microsoft.Extensions.Logging;
@@ -18,55 +19,50 @@ namespace IntroSkipper.ScheduledTasks;
 /// <summary>
 /// Common code shared by all media item analyzer tasks.
 /// </summary>
-public class BaseItemAnalyzerTask
+/// <remarks>
+/// Initializes a new instance of the <see cref="BaseItemAnalyzerTask"/> class.
+/// </remarks>
+/// <param name="logger">Task logger.</param>
+/// <param name="loggerFactory">Logger factory.</param>
+/// <param name="libraryManager">Library manager.</param>
+/// <param name="mediaSegmentUpdateManager">MediaSegmentUpdateManager.</param>
+public class BaseItemAnalyzerTask(
+    ILogger logger,
+    ILoggerFactory loggerFactory,
+    ILibraryManager libraryManager,
+    MediaSegmentUpdateManager mediaSegmentUpdateManager)
 {
-    private readonly IReadOnlyCollection<AnalysisMode> _analysisModes;
-    private readonly ILogger _logger;
-    private readonly ILoggerFactory _loggerFactory;
-    private readonly ILibraryManager _libraryManager;
-    private readonly MediaSegmentUpdateManager _mediaSegmentUpdateManager;
-
-    /// <summary>
-    /// Initializes a new instance of the <see cref="BaseItemAnalyzerTask"/> class.
-    /// </summary>
-    /// <param name="modes">Analysis mode.</param>
-    /// <param name="logger">Task logger.</param>
-    /// <param name="loggerFactory">Logger factory.</param>
-    /// <param name="libraryManager">Library manager.</param>
-    /// <param name="mediaSegmentUpdateManager">MediaSegmentUpdateManager.</param>
-    public BaseItemAnalyzerTask(
-        IReadOnlyCollection<AnalysisMode> modes,
-        ILogger logger,
-        ILoggerFactory loggerFactory,
-        ILibraryManager libraryManager,
-        MediaSegmentUpdateManager mediaSegmentUpdateManager)
-    {
-        _analysisModes = modes;
-        _logger = logger;
-        _loggerFactory = loggerFactory;
-        _libraryManager = libraryManager;
-        _mediaSegmentUpdateManager = mediaSegmentUpdateManager;
-    }
+    private readonly ILogger _logger = logger;
+    private readonly ILoggerFactory _loggerFactory = loggerFactory;
+    private readonly ILibraryManager _libraryManager = libraryManager;
+    private readonly MediaSegmentUpdateManager _mediaSegmentUpdateManager = mediaSegmentUpdateManager;
+    private readonly PluginConfiguration _config = Plugin.Instance?.Configuration ?? new PluginConfiguration();
 
     /// <summary>
     /// Analyze all media items on the server.
     /// </summary>
-    /// <param name="progress">Progress.</param>
+    /// <param name="progress">Progress reporter.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
-    /// <param name="seasonsToAnalyze">Season Ids to analyze.</param>
-    /// <returns>A <see cref="Task"/> representing the asynchronous operation.</returns>
-    public async Task AnalyzeItems(
+    /// <param name="seasonsToAnalyze">Season IDs to analyze.</param>
+    /// <returns>A task representing the asynchronous operation.</returns>
+    public async Task AnalyzeItemsAsync(
         IProgress<double> progress,
         CancellationToken cancellationToken,
         IReadOnlyCollection<Guid>? seasonsToAnalyze = null)
     {
-        var ffmpegValid = FFmpegWrapper.CheckFFmpegVersion();
         // Assert that ffmpeg with chromaprint is installed
-        if (Plugin.Instance!.Configuration.WithChromaprint && !ffmpegValid)
+        if (_config.WithChromaprint && !FFmpegWrapper.CheckFFmpegVersion())
         {
             throw new FingerprintException(
-                "Analysis terminated! Chromaprint is not enabled in the current ffmpeg. If Jellyfin is running natively, install jellyfin-ffmpeg5. If Jellyfin is running in a container, upgrade to version 10.8.0 or newer.");
+                "Analysis terminated! Chromaprint is not enabled in the current ffmpeg. If Jellyfin is running natively, install jellyfin-ffmpeg7. If Jellyfin is running in a container, upgrade to version 10.10.0 or newer.");
         }
+
+        HashSet<AnalysisMode> modes = [
+            .. _config.ScanIntroduction ? [AnalysisMode.Introduction] : Array.Empty<AnalysisMode>(),
+            .. _config.ScanCredits ? [AnalysisMode.Credits] : Array.Empty<AnalysisMode>(),
+            .. _config.ScanRecap ? [AnalysisMode.Recap] : Array.Empty<AnalysisMode>(),
+            .. _config.ScanPreview ? [AnalysisMode.Preview] : Array.Empty<AnalysisMode>()
+        ];
 
         var queueManager = new QueueManager(
             _loggerFactory.CreateLogger<QueueManager>(),
@@ -74,102 +70,85 @@ public class BaseItemAnalyzerTask
 
         var queue = queueManager.GetMediaItems();
 
-        // Filter the queue based on seasonsToAnalyze
-        if (seasonsToAnalyze is { Count: > 0 })
+        if (seasonsToAnalyze?.Count > 0)
         {
-            queue = queue.Where(kvp => seasonsToAnalyze.Contains(kvp.Key)).ToDictionary(kvp => kvp.Key, kvp => kvp.Value);
+            queue = queue.Where(kvp => seasonsToAnalyze.Contains(kvp.Key))
+                         .ToDictionary(kvp => kvp.Key, kvp => kvp.Value);
         }
 
-        int totalQueued = queue.Sum(kvp => kvp.Value.Count) * _analysisModes.Count;
+        int totalQueued = queue.Sum(kvp => kvp.Value.Count) * modes.Count;
         if (totalQueued == 0)
         {
             throw new FingerprintException(
                 "No libraries selected for analysis. Please visit the plugin settings to configure.");
         }
 
-        var totalProcessed = 0;
+        int totalProcessed = 0;
         var options = new ParallelOptions
         {
-            MaxDegreeOfParallelism = Plugin.Instance.Configuration.MaxParallelism,
+            MaxDegreeOfParallelism = Math.Max(1, _config.MaxParallelism),
             CancellationToken = cancellationToken
         };
 
         await Parallel.ForEachAsync(queue, options, async (season, ct) =>
         {
-            var updateManagers = false;
+            var updateMediaSegments = false;
 
-            // Since the first run of the task can run for multiple hours, ensure that none
-            // of the current media items were deleted from Jellyfin since the task was started.
-            var (episodes, requiredModes) = queueManager.VerifyQueue(
-                season.Value,
-                _analysisModes);
-
+            var (episodes, requiredModes) = queueManager.VerifyQueue(season.Value, modes);
             if (episodes.Count == 0)
             {
                 return;
             }
 
-            var first = episodes[0];
-            if (requiredModes.Count == 0)
-            {
-                _logger.LogDebug(
-                    "All episodes in {Name} season {Season} have already been analyzed",
-                    first.SeriesName,
-                    first.SeasonNumber);
-
-                Interlocked.Add(ref totalProcessed, episodes.Count * _analysisModes.Count); // Update total Processed directly
-                progress.Report(totalProcessed * 100 / totalQueued);
-            }
-            else if (_analysisModes.Count != requiredModes.Count)
-            {
-                Interlocked.Add(ref totalProcessed, episodes.Count);
-                progress.Report(totalProcessed * 100 / totalQueued); // Partial analysis some modes have already been analyzed
-            }
-
             try
             {
-                ct.ThrowIfCancellationRequested();
-
-                foreach (AnalysisMode mode in requiredModes)
+                var firstEpisode = episodes[0];
+                if (modes.Count != requiredModes.Count)
                 {
-                    var action = Plugin.Instance!.GetAnalyzerAction(season.Key, mode);
-                    var analyzed = await AnalyzeItems(episodes, mode, action, ct).ConfigureAwait(false);
+                    Interlocked.Add(ref totalProcessed, episodes.Count * (modes.Count - requiredModes.Count));
+                    progress.Report((double)totalProcessed / totalQueued * 100);
+                }
+
+                foreach (var mode in requiredModes)
+                {
+                    ct.ThrowIfCancellationRequested();
+                    int analyzed = await AnalyzeItemsAsync(
+                        episodes,
+                        mode,
+                        ct).ConfigureAwait(false);
                     Interlocked.Add(ref totalProcessed, analyzed);
 
-                    updateManagers = analyzed > 0 || updateManagers;
-
-                    progress.Report(totalProcessed * 100 / totalQueued);
+                    updateMediaSegments = analyzed > 0 || updateMediaSegments;
+                    progress.Report((double)totalProcessed / totalQueued * 100);
                 }
             }
-            catch (OperationCanceledException ex)
+            catch (OperationCanceledException)
             {
-                _logger.LogDebug(ex, "Analysis cancelled");
+                _logger.LogInformation("Analysis was canceled.");
             }
             catch (FingerprintException ex)
             {
-                _logger.LogWarning(
-                    "Unable to analyze {Series} season {Season}: unable to fingerprint: {Ex}",
-                    first.SeriesName,
-                    first.SeasonNumber,
-                    ex);
+                _logger.LogWarning(ex, "Fingerprint exception during analysis.");
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "An unexpected error occurred during analysis");
+                _logger.LogError(ex, "An unexpected error occurred during analysis.");
                 throw;
             }
 
-            if (Plugin.Instance.Configuration.RebuildMediaSegments || (updateManagers && Plugin.Instance.Configuration.UpdateMediaSegments))
+            if (_config.RebuildMediaSegments || (updateMediaSegments && _config.UpdateMediaSegments))
             {
                 await _mediaSegmentUpdateManager.UpdateMediaSegmentsAsync(episodes, ct).ConfigureAwait(false);
             }
         }).ConfigureAwait(false);
 
-        if (Plugin.Instance.Configuration.RebuildMediaSegments)
+        Plugin.Instance!.AnalyzeAgain = false;
+
+        if (_config.RebuildMediaSegments)
         {
-            _logger.LogInformation("Turning Mediasegment");
-            Plugin.Instance.Configuration.RebuildMediaSegments = false;
-            Plugin.Instance.SaveConfiguration();
+            _logger.LogInformation("Regenerated media segments.");
+            _config.RebuildMediaSegments = false;
+            Plugin.Instance!.SaveConfiguration();
         }
     }
 
@@ -178,23 +157,27 @@ public class BaseItemAnalyzerTask
     /// </summary>
     /// <param name="items">Media items to analyze.</param>
     /// <param name="mode">Analysis mode.</param>
-    /// <param name="action">Analyzer action.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
-    /// <returns>Number of items that were successfully analyzed.</returns>
-    private async Task<int> AnalyzeItems(
+    /// <returns>Number of items successfully analyzed.</returns>
+    private async Task<int> AnalyzeItemsAsync(
         IReadOnlyList<QueuedEpisode> items,
         AnalysisMode mode,
-        AnalyzerAction action,
         CancellationToken cancellationToken)
     {
-        var totalItems = items.Count(e => !e.GetAnalyzed(mode));
-
-        // Only analyze specials (season 0) if the user has opted in.
         var first = items[0];
-        if (!first.IsMovie && first.SeasonNumber == 0 && !Plugin.Instance!.Configuration.AnalyzeSeasonZero)
+        if (!first.IsMovie && first.SeasonNumber == 0 && !_config.AnalyzeSeasonZero)
         {
             return 0;
         }
+
+        // Reset the IsAnalyzed flag for all items
+        foreach (var item in items)
+        {
+            item.IsAnalyzed = false;
+        }
+
+        // Get the analyzer action for the current mode
+        var action = Plugin.Instance!.GetAnalyzerAction(first.SeasonId, mode);
 
         _logger.LogInformation(
             "[Mode: {Mode}] Analyzing {Count} files from {Name} season {Season}",
@@ -203,24 +186,30 @@ public class BaseItemAnalyzerTask
             first.SeriesName,
             first.SeasonNumber);
 
-        var analyzers = new Collection<IMediaFileAnalyzer>();
+        // Create a list of analyzers to use for the current mode
+        var analyzers = new List<IMediaFileAnalyzer>();
 
         if (action is AnalyzerAction.Chapter or AnalyzerAction.Default)
         {
             analyzers.Add(new ChapterAnalyzer(_loggerFactory.CreateLogger<ChapterAnalyzer>()));
         }
 
-        if (first.IsAnime && !first.IsMovie && action is AnalyzerAction.Chromaprint or AnalyzerAction.Default)
+        if (first.IsAnime && _config.WithChromaprint &&
+            mode is not (AnalysisMode.Recap or AnalysisMode.Preview) &&
+            action is AnalyzerAction.Default or AnalyzerAction.Chromaprint)
         {
             analyzers.Add(new ChromaprintAnalyzer(_loggerFactory.CreateLogger<ChromaprintAnalyzer>()));
         }
 
-        if (mode is AnalysisMode.Credits && action is AnalyzerAction.BlackFrame or AnalyzerAction.Default)
+        if (mode is AnalysisMode.Credits &&
+            action is AnalyzerAction.Default or AnalyzerAction.BlackFrame)
         {
             analyzers.Add(new BlackFrameAnalyzer(_loggerFactory.CreateLogger<BlackFrameAnalyzer>()));
         }
 
-        if (!first.IsAnime && !first.IsMovie && action is AnalyzerAction.Chromaprint or AnalyzerAction.Default)
+        if (!first.IsAnime && !first.IsMovie &&
+            mode is not (AnalysisMode.Recap or AnalysisMode.Preview) &&
+            action is AnalyzerAction.Default or AnalyzerAction.Chromaprint)
         {
             analyzers.Add(new ChromaprintAnalyzer(_loggerFactory.CreateLogger<ChromaprintAnalyzer>()));
         }
@@ -229,16 +218,13 @@ public class BaseItemAnalyzerTask
         // analyzed items from the queue.
         foreach (var analyzer in analyzers)
         {
-            items = await analyzer.AnalyzeMediaFiles(items, mode, cancellationToken).ConfigureAwait(false);
             cancellationToken.ThrowIfCancellationRequested();
+            items = await analyzer.AnalyzeMediaFiles(items, mode, cancellationToken).ConfigureAwait(false);
         }
 
-        // Add items without intros/credits to blacklist.
-        var blacklisted = new List<Segment>(items.Where(e => !e.GetAnalyzed(mode)).Select(e => new Segment(e.EpisodeId)));
-        _logger.LogDebug("Blacklisting {Count} items for mode {Mode}", blacklisted.Count, mode);
-        await Plugin.Instance!.UpdateTimestamps(blacklisted, mode).ConfigureAwait(false);
-        totalItems -= blacklisted.Count;
+        // Set the episode IDs for the analyzed items
+        await Plugin.Instance!.SetEpisodeIdsAsync(first.SeasonId, mode, items.Select(i => i.EpisodeId)).ConfigureAwait(false);
 
-        return totalItems;
+        return items.Where(i => i.IsAnalyzed).Count();
     }
 }
