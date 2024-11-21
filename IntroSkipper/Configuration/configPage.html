@@ -950,10 +950,6 @@
 
                 pluginSkip.addEventListener("change", pluginSkipSettingChanged);
 
-                if (pluginSkip.checked) {
-                    serverSkipSettings.style.display = "unset";
-                }
-
                 async function analyzeMoviesChanged() {
                     if (analyzeMovies.checked) {
                         movieCreditsDuration.style.display = "unset";
@@ -1454,6 +1450,10 @@
                         persistSkipChanged();
                         generateAutoSkipTypeList();
                         generateAutoSkipClientList();
+
+                        if (config["PluginSkip"]) {
+                            document.getElementById("ServerSkipSettings").style.display = "unset";
+                        }
 
                         Dashboard.hideLoadingMsg();
                     });
