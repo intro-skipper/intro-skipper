@@ -300,126 +300,133 @@
                             <p align="center" style="font-size: 0.75em">EDL file generation has been removed. Please use endrl's <a href="https://github.com/endrl/jellyfin-plugin-edl">EDL plugin</a>.</p>
                         </fieldset>
 
-                        <div id="ServerSkipSettings">
+                        <p>
+                        <div class="checkboxContainer checkboxContainer-withDescription">
+                            <label class="emby-checkbox-label">
+                                <input id="PluginSkip" type="checkbox" is="emby-checkbox" />
+                                <span>Enable server-side skip settings</span>
+                            </label>
+                        </div>
+                        </p>
 
-                        <fieldset class="verticalSection-extrabottompadding">
-                            <legend>Playback</legend>
+                        <div id="ServerSkipSettings" style="display: none">
+                            <fieldset class="verticalSection-extrabottompadding">
+                                <legend>Playback</legend>
 
-                            <div class="checkboxContainer checkboxContainer-withDescription">
-                                <label class="emby-checkbox-label">
-                                    <input id="AutoSkip" type="checkbox" is="emby-checkbox" />
-                                    <span>Automatically Skip for All Clients</span>
-                                </label>
-                            </div>
-
-                            <div class="AutoSkipClientListContainer">
-                                <div class="AutoSkipClientList">
-                                    <h3 class="checkboxListLabel">Limit auto skip to the following clients</h3>
-                                    <div class="checkboxList paperList" style="padding: 0.5em 1em" id="autoSkipCheckboxes"></div>
+                                <div class="checkboxContainer checkboxContainer-withDescription">
+                                    <label class="emby-checkbox-label">
+                                        <input id="AutoSkip" type="checkbox" is="emby-checkbox" />
+                                        <span>Automatically Skip for All Clients</span>
+                                    </label>
                                 </div>
-                                <label class="inputLabel" for="ClientList"></label>
-                                <input id="ClientList" type="hidden" is="emby-input" />
-                            </div>
 
-                            <div class="AutoSkipTypeListContainer">
-                                <div class="AutoSkipTypeList">
-                                    <h3 class="checkboxListLabel">Auto skip the following types</h3>
-                                    <div class="checkboxList paperList" style="padding: 0.5em 1em" id="autoSkipTypeCheckboxes"></div>
+                                <div class="AutoSkipClientListContainer">
+                                    <div class="AutoSkipClientList">
+                                        <h3 class="checkboxListLabel">Limit auto skip to the following clients</h3>
+                                        <div class="checkboxList paperList" style="padding: 0.5em 1em" id="autoSkipCheckboxes"></div>
+                                    </div>
+                                    <label class="inputLabel" for="ClientList"></label>
+                                    <input id="ClientList" type="hidden" is="emby-input" />
                                 </div>
-                                <label class="inputLabel" for="TypeList"></label>
-                                <input id="TypeList" type="hidden" is="emby-input" />
-                            </div>
 
-                            <div id="divSkipFirstEpisode" class="checkboxContainer checkboxContainer-withDescription">
-                                <label class="emby-checkbox-label">
-                                    <input id="SkipFirstEpisode" type="checkbox" is="emby-checkbox" />
-                                    <span>Play Segments for First Episode of a Season</span>
-                                </label>
-
-                                <div class="fieldDescription">If checked, auto skip will play the segments of the first episode in a season.</div>
-                            </div>
-
-                            <div id="divSecondsOfIntroStartToPlay" class="inputContainer">
-                                <label class="inputLabel inputLabelUnfocused" for="SecondsOfIntroStartToPlay"> Segment skip delay (in seconds) </label>
-                                <input id="SecondsOfIntroStartToPlay" type="number" is="emby-input" min="0" />
-                                <div class="fieldDescription">Seconds of segment start that should be played. Defaults to 0.</div>
-                            </div>
-
-                            <div class="inputContainer">
-                                <label class="inputLabel inputLabelUnfocused" for="RemainingSecondsOfIntro"> Segment playback duration (in seconds) </label>
-                                <input id="RemainingSecondsOfIntro" type="number" is="emby-input" min="0" />
-                                <div class="fieldDescription">Seconds of segment ending that should be played. Defaults to 2.</div>
-                            </div>
-
-                            <div id="SkipButtonContainer" class="checkboxContainer checkboxContainer-withDescription">
-                                <label class="emby-checkbox-label">
-                                    <input id="SkipButtonEnabled" type="checkbox" is="emby-checkbox" />
-                                    <span id="SkipButtonVisibleLabel">Show Segment Skip Buttons</span>
-                                </label>
-
-                                <div class="fieldDescription">
-                                     <b style="color: red">Restart required!</b> If checked, a skip button will be added <b>to the server</b> according to the UI settings.<br />
-                                    This button is <b>separate</b> from the Media Segment Actions in Jellyfin 10.10 and compatible clients.<br />
+                                <div class="AutoSkipTypeListContainer">
+                                    <div class="AutoSkipTypeList">
+                                        <h3 class="checkboxListLabel">Auto skip the following types</h3>
+                                        <div class="checkboxList paperList" style="padding: 0.5em 1em" id="autoSkipTypeCheckboxes"></div>
+                                    </div>
+                                    <label class="inputLabel" for="TypeList"></label>
+                                    <input id="TypeList" type="hidden" is="emby-input" />
                                 </div>
-                            </div>
 
-                            <div id="warningMessage" style="color: #721c24; background-color: #f7cf1f; border: 1px solid #f5c6cb; border-radius: 4px; padding: 10px; margin-bottom: 10px">Failed to add skip button to web interface. See <a href="https://github.com/intro-skipper/intro-skipper/wiki/Troubleshooting#skip-button-is-not-visible" target="_blank" rel="noopener noreferrer">troubleshooting guide</a> for the most common issues.</div>
+                                <div id="divSkipFirstEpisode" class="checkboxContainer checkboxContainer-withDescription">
+                                    <label class="emby-checkbox-label">
+                                        <input id="SkipFirstEpisode" type="checkbox" is="emby-checkbox" />
+                                        <span>Play Segments for First Episode of a Season</span>
+                                    </label>
 
-                            <details>
-                                <summary>User Interface Customization</summary>
+                                    <div class="fieldDescription">If checked, auto skip will play the segments of the first episode in a season.</div>
+                                </div>
 
-                                <p>
-                                    <b style="color: orange">These settings do not apply to Media Segment Actions in Jellyfin 10.10 and compatible clients.</b>
-                                </p>
+                                <div id="divSecondsOfIntroStartToPlay" class="inputContainer">
+                                    <label class="inputLabel inputLabelUnfocused" for="SecondsOfIntroStartToPlay"> Segment skip delay (in seconds) </label>
+                                    <input id="SecondsOfIntroStartToPlay" type="number" is="emby-input" min="0" />
+                                    <div class="fieldDescription">Seconds of segment start that should be played. Defaults to 0.</div>
+                                </div>
 
-                                <div id="SkipButtonSettings">
-                                    <div id="PersistContainer" class="checkboxContainer checkboxContainer-withDescription">
-                                        <label class="emby-checkbox-label">
-                                            <input id="PersistSkipButton" type="checkbox" is="emby-checkbox" />
-                                            <span>Display Button for Segment Duration</span>
-                                        </label>
+                                <div class="inputContainer">
+                                    <label class="inputLabel inputLabelUnfocused" for="RemainingSecondsOfIntro"> Segment playback duration (in seconds) </label>
+                                    <input id="RemainingSecondsOfIntro" type="number" is="emby-input" min="0" />
+                                    <div class="fieldDescription">Seconds of segment ending that should be played. Defaults to 2.</div>
+                                </div>
 
-                                        <div class="fieldDescription">
-                                            If checked, skip button will remain visible for the entire intro (offset and timeout are ignored).<br />
-                                            Note: If unchecked, button will only appear in the player controls after the set timeout.
+                                <div id="SkipButtonContainer" class="checkboxContainer checkboxContainer-withDescription">
+                                    <label class="emby-checkbox-label">
+                                        <input id="SkipButtonEnabled" type="checkbox" is="emby-checkbox" />
+                                        <span id="SkipButtonVisibleLabel">Show Segment Skip Buttons</span>
+                                    </label>
+
+                                    <div class="fieldDescription">
+                                        <b style="color: red">Restart required!</b> If checked, a skip button will be added <b>to the server</b> according to the UI settings.<br />
+                                        This button is <b>separate</b> from the Media Segment Actions in Jellyfin 10.10 and compatible clients.<br />
+                                    </div>
+                                </div>
+
+                                <div id="warningMessage" style="color: #721c24; background-color: #f7cf1f; border: 1px solid #f5c6cb; border-radius: 4px; padding: 10px; margin-bottom: 10px">Failed to add skip button to web interface. See <a href="https://github.com/intro-skipper/intro-skipper/wiki/Troubleshooting#skip-button-is-not-visible" target="_blank" rel="noopener noreferrer">troubleshooting guide</a> for the most common issues.</div>
+
+                                <details>
+                                    <summary>User Interface Customization</summary>
+
+                                    <p>
+                                        <b style="color: orange">These settings do not apply to Media Segment Actions in Jellyfin 10.10 and compatible clients.</b>
+                                    </p>
+
+                                    <div id="SkipButtonSettings">
+                                        <div id="PersistContainer" class="checkboxContainer checkboxContainer-withDescription">
+                                            <label class="emby-checkbox-label">
+                                                <input id="PersistSkipButton" type="checkbox" is="emby-checkbox" />
+                                                <span>Display Button for Segment Duration</span>
+                                            </label>
+
+                                            <div class="fieldDescription">
+                                                If checked, skip button will remain visible for the entire intro (offset and timeout are ignored).<br />
+                                                Note: If unchecked, button will only appear in the player controls after the set timeout.
+                                            </div>
+                                        </div>
+
+                                        <div id="divShowPromptAdjustment" class="inputContainer">
+                                            <label class="inputLabel inputLabelUnfocused" for="ShowPromptAdjustment"> Skip prompt offset (in seconds) </label>
+                                            <input id="ShowPromptAdjustment" type="number" is="emby-input" min="0" />
+                                            <div class="fieldDescription">Seconds to display skip prompt before introduction begins.</div>
+                                            <br />
+                                        </div>
+
+                                        <div id="divHidePromptAdjustment" class="inputContainer">
+                                            <label class="inputLabel inputLabelUnfocused" for="HidePromptAdjustment"> Skip prompt timeout (in seconds) </label>
+                                            <input id="HidePromptAdjustment" type="number" is="emby-input" min="2" />
+                                            <div class="fieldDescription">Seconds after introduction before skip prompt is hidden.</div>
+                                            <br />
+                                        </div>
+
+                                        <div class="inputContainer">
+                                            <label class="inputLabel" for="SkipButtonIntroText"> Skip intro button text </label>
+                                            <input id="SkipButtonIntroText" type="text" is="emby-input" />
+                                            <div class="fieldDescription">Text to display in the skip intro button.</div>
+                                        </div>
+
+                                        <div class="inputContainer">
+                                            <label class="inputLabel" for="SkipButtonEndCreditsText"> Skip end credits button text </label>
+                                            <input id="SkipButtonEndCreditsText" type="text" is="emby-input" />
+                                            <div class="fieldDescription">Text to display in the skip end credits button.</div>
                                         </div>
                                     </div>
 
-                                    <div id="divShowPromptAdjustment" class="inputContainer">
-                                        <label class="inputLabel inputLabelUnfocused" for="ShowPromptAdjustment"> Skip prompt offset (in seconds) </label>
-                                        <input id="ShowPromptAdjustment" type="number" is="emby-input" min="0" />
-                                        <div class="fieldDescription">Seconds to display skip prompt before introduction begins.</div>
-                                        <br />
+                                    <div id="divAutoSkipNotificationText" class="inputContainer">
+                                        <label class="inputLabel" for="AutoSkipNotificationText"> Auto skip intro notification message </label>
+                                        <input id="AutoSkipNotificationText" type="text" is="emby-input" />
+                                        <div class="fieldDescription">Message shown after automatically skipping an introduction. Leave blank to disable notification.</div>
                                     </div>
-
-                                    <div id="divHidePromptAdjustment" class="inputContainer">
-                                        <label class="inputLabel inputLabelUnfocused" for="HidePromptAdjustment"> Skip prompt timeout (in seconds) </label>
-                                        <input id="HidePromptAdjustment" type="number" is="emby-input" min="2" />
-                                        <div class="fieldDescription">Seconds after introduction before skip prompt is hidden.</div>
-                                        <br />
-                                    </div>
-
-                                    <div class="inputContainer">
-                                        <label class="inputLabel" for="SkipButtonIntroText"> Skip intro button text </label>
-                                        <input id="SkipButtonIntroText" type="text" is="emby-input" />
-                                        <div class="fieldDescription">Text to display in the skip intro button.</div>
-                                    </div>
-
-                                    <div class="inputContainer">
-                                        <label class="inputLabel" for="SkipButtonEndCreditsText"> Skip end credits button text </label>
-                                        <input id="SkipButtonEndCreditsText" type="text" is="emby-input" />
-                                        <div class="fieldDescription">Text to display in the skip end credits button.</div>
-                                    </div>
-                                </div>
-
-                                <div id="divAutoSkipNotificationText" class="inputContainer">
-                                    <label class="inputLabel" for="AutoSkipNotificationText"> Auto skip intro notification message </label>
-                                    <input id="AutoSkipNotificationText" type="text" is="emby-input" />
-                                    <div class="fieldDescription">Message shown after automatically skipping an introduction. Leave blank to disable notification.</div>
-                                </div>
-                            </details>
-                        </fieldset>
-
+                                </details>
+                            </fieldset>
                         </div>
 
                         <div>
@@ -724,13 +731,6 @@
                                 <div class="fieldDescription">See how much space each library uses.</div>
                                 <textarea id="storageText" rows="20" cols="75" readonly></textarea>
                             </details>
-
-                            <div class="checkboxContainer checkboxContainer-withDescription">
-                                <label class="emby-checkbox-label">
-                                    <input id="PluginSkip" type="checkbox" is="emby-checkbox" />
-                                    <span>Enable server-side skip settings</span>
-                                </label>
-                            </div>
                         </fieldset>
                     </form>
                 </div>
@@ -949,8 +949,6 @@
                 }
 
                 pluginSkip.addEventListener("change", pluginSkipSettingChanged);
-
-                pluginSkipSettingChanged();
 
                 async function analyzeMoviesChanged() {
                     if (analyzeMovies.checked) {
