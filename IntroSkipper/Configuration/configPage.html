@@ -305,6 +305,7 @@
                             <label class="emby-checkbox-label">
                                 <input id="PluginSkip" type="checkbox" is="emby-checkbox" />
                                 <span>Enable injected server-side skip settings</span>
+                                <b id="PluginReboot" style="color: red; display: none">Jellyfin server restart required!</b>
                             </label>
                         </div>
                         </p>
@@ -826,6 +827,7 @@
 
                 var analyzeMovies = document.getElementById("AnalyzeMovies");
                 var pluginSkip = document.getElementById("PluginSkip");
+                var pluginReboot = document.getElementById("PluginReboot");
                 var serverSkipSettings = document.getElementById("ServerSkipSettings");
                 var autoSkip = document.getElementById("AutoSkip");
                 var skipButtonVisible = document.getElementById("SkipButtonEnabled");
@@ -941,6 +943,7 @@
                         serverSkipSettings.style.display = "unset";
                     } else {
                         serverSkipSettings.style.display = "none";
+                        pluginReboot.style.display = "unset";
                         // TODO: Reset everything to default
                         autoSkip.checked = false;
                         skipButtonVisible.checked = false;
