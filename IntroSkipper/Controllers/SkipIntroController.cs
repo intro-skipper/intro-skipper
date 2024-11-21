@@ -243,7 +243,7 @@ public class SkipIntroController(MediaSegmentUpdateManager mediaSegmentUpdateMan
         db.DbSegment.RemoveRange(segments);
         await db.SaveChangesAsync().ConfigureAwait(false);
 
-        if (eraseCache)
+        if (eraseCache && mode is AnalysisMode.Introduction or AnalysisMode.Credits)
         {
             await Task.Run(() => FFmpegWrapper.DeleteCacheFiles(mode)).ConfigureAwait(false);
         }
