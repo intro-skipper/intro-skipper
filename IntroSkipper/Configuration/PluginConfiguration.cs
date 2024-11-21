@@ -154,7 +154,7 @@ public class PluginConfiguration : BasePluginConfiguration
     /// Gets or sets the regular expression used to detect Preview chapters.
     /// </summary>
     public string ChapterAnalyzerPreviewPattern { get; set; } =
-        @"(^|\s)(Preview|PV|Sneak\s?Peek|Coming\s?(Up|Soon)|Next\s+(time|on|episode)|Teaser|Trailer)(?!\sEnd)(\s|:|$)";
+        @"(^|\s)(Preview|PV|Sneak\s?Peek|Coming\s?(Up|Soon)|Next\s+(time|on|episode)|Extra|Teaser|Trailer)(?!\sEnd)(\s|:|$)";
 
     /// <summary>
     /// Gets or sets the regular expression used to detect Recap chapters.
