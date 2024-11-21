@@ -936,7 +936,7 @@
 
                 persistSkip.addEventListener("change", persistSkipChanged);
 
-                function pluginSkipSettingChanged() {
+                async function pluginSkipSettingChanged() {
                     if (pluginSkip.checked) {
                         serverSkipSettings.style.display = "unset";
                     } else {
