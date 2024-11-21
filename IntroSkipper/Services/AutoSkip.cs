@@ -86,8 +86,11 @@ namespace IntroSkipper.Services
             _logger.LogDebug("Getting intros for session {Session}", device);
 
             bool firstEpisode = _config.SkipFirstEpisode && e.Item.IndexNumber.GetValueOrDefault(-1) == 1;
-            var intros = SkipIntroController.GetIntros(itemId).Values
-                    .Where(i => _segmentTypes.Contains(i.SegmentType) && (!firstEpisode || i.SegmentType != AnalysisMode.Introduction)).ToList();
+            var intros = SkipIntroController.GetIntros(itemId)
+                    .Where(i => _segmentTypes.Contains(i.Key) && (!firstEpisode || i.Key != AnalysisMode.Introduction))
+                    .Select(i => i.Value)
+                    .ToList();
+
             _sentSeekCommand.AddOrUpdate(device, intros, (_, _) => intros);
         }
 
@@ -106,8 +109,8 @@ namespace IntroSkipper.Services
                 var position = session.PlayState.PositionTicks / TimeSpan.TicksPerSecond;
 
                 var currentIntro = intros.FirstOrDefault(i =>
-                        position >= Math.Max(1, i.IntroStart + _config.SecondsOfIntroStartToPlay) &&
-                        position < i.IntroEnd - 3.0); // 3 seconds before the end of the intro
+                    position >= Math.Max(1, i.IntroStart + _config.SecondsOfIntroStartToPlay) &&
+                    position < i.IntroEnd - 3.0); // 3 seconds before the end of the intro
 
                 if (currentIntro is null)
                 {
@@ -129,21 +132,14 @@ namespace IntroSkipper.Services
                     intros.Remove(nextIntro);
                 }
 
-                _logger.LogDebug("Found {Intro} for session {Session}, removing from list, {Intros} segments remaining", currentIntro.SegmentType, deviceId, intros.Count);
+                _logger.LogDebug("Found segment for session {Session}, removing from list, {Intros} segments remaining", deviceId, intros.Count);
 
                 _logger.LogTrace(
                     "Playback position is {Position}",
                     position);
 
                 // Notify the user that an introduction is being skipped for them.
-                var notificationText = currentIntro.SegmentType switch
-                {
-                    AnalysisMode.Introduction => _config.AutoSkipNotificationText,
-                    AnalysisMode.Credits => _config.AutoSkipCreditsNotificationText,
-                    AnalysisMode.Recap => _config.AutoSkipRecapNotificationText,
-                    AnalysisMode.Preview => _config.AutoSkipPreviewNotificationText,
-                    _ => string.Empty
-                };
+                var notificationText = _config.AutoSkipNotificationText;
 
                 if (!string.IsNullOrWhiteSpace(notificationText))
                 {

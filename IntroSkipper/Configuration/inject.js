@@ -233,6 +233,7 @@ const introSkipper = {
 					position > segment.IntroStart &&
 					position < segment.IntroEnd - 3)
 			) {
+				segment["SegmentType"] = key;
 				return segment;
 			}
 		}

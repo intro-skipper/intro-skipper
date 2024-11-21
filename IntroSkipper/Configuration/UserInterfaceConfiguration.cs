@@ -12,14 +12,12 @@ namespace IntroSkipper.Configuration;
 /// <param name="visible">Skip button visibility.</param>
 /// <param name="introText">Skip button intro text.</param>
 /// <param name="creditsText">Skip button end credits text.</param>
-/// <param name="recapText">Skip button recap text.</param>
-/// <param name="previewText">Skip button preview text.</param>
 /// <param name="autoSkip">Auto Skip Intro.</param>
 /// <param name="autoSkipCredits">Auto Skip Credits.</param>
 /// <param name="autoSkipRecap">Auto Skip Recap.</param>
 /// <param name="autoSkipPreview">Auto Skip Preview.</param>
 /// <param name="clientList">Auto Skip Clients.</param>
-public class UserInterfaceConfiguration(bool visible, string introText, string creditsText, string recapText, string previewText, bool autoSkip, bool autoSkipCredits, bool autoSkipRecap, bool autoSkipPreview, string clientList)
+public class UserInterfaceConfiguration(bool visible, string introText, string creditsText, bool autoSkip, bool autoSkipCredits, bool autoSkipRecap, bool autoSkipPreview, string clientList)
 {
     /// <summary>
     /// Gets or sets a value indicating whether to show the skip intro button.
@@ -35,16 +33,6 @@ public class UserInterfaceConfiguration(bool visible, string introText, string c
     /// Gets or sets the text to display in the skip intro button in end credits mode.
     /// </summary>
     public string SkipButtonEndCreditsText { get; set; } = creditsText;
-
-    /// <summary>
-    /// Gets or sets the text to display in the skip recap button.
-    /// </summary>
-    public string SkipButtonRecapText { get; set; } = recapText;
-
-    /// <summary>
-    /// Gets or sets the text to display in the skip preview button.
-    /// </summary>
-    public string SkipButtonPreviewText { get; set; } = previewText;
 
     /// <summary>
     /// Gets or sets a value indicating whether auto skip intro.

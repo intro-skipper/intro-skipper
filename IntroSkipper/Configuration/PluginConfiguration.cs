@@ -271,34 +271,9 @@ public class PluginConfiguration : BasePluginConfiguration
     public string SkipButtonEndCreditsText { get; set; } = "Next";
 
     /// <summary>
-    /// Gets or sets the text to display in the skip button in recap mode.
-    /// </summary>
-    public string SkipButtonRecapText { get; set; } = "Skip Recap";
-
-    /// <summary>
-    /// Gets or sets the text to display in the skip button in preview mode.
-    /// </summary>
-    public string SkipButtonPreviewText { get; set; } = "Skip Preview";
-
-    /// <summary>
     /// Gets or sets the notification text sent after automatically skipping an introduction.
     /// </summary>
-    public string AutoSkipNotificationText { get; set; } = "Intro skipped";
-
-    /// <summary>
-    /// Gets or sets the notification text sent after automatically skipping credits.
-    /// </summary>
-    public string AutoSkipCreditsNotificationText { get; set; } = "Credits skipped";
-
-    /// <summary>
-    /// Gets or sets the notification text sent after automatically skipping recap.
-    /// </summary>
-    public string AutoSkipRecapNotificationText { get; set; } = "Recap skipped";
-
-    /// <summary>
-    /// Gets or sets the notification text sent after automatically skipping preview.
-    /// </summary>
-    public string AutoSkipPreviewNotificationText { get; set; } = "Preview skipped";
+    public string AutoSkipNotificationText { get; set; } = "Segment skipped";
 
     /// <summary>
     /// Gets or sets the max degree of parallelism used when analyzing episodes.

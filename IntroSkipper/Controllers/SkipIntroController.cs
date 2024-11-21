@@ -88,7 +88,10 @@ public class SkipIntroController(MediaSegmentUpdateManager mediaSegmentUpdateMan
 
         foreach (var (mode, segment) in segmentTypes)
         {
-           await Plugin.Instance!.UpdateTimestampAsync(segment, mode).ConfigureAwait(false);
+            if (segment.Valid)
+            {
+                await Plugin.Instance!.UpdateTimestampAsync(segment, mode).ConfigureAwait(false);
+            }
         }
 
         if (Plugin.Instance.Configuration.UpdateMediaSegments)
@@ -159,18 +162,19 @@ public class SkipIntroController(MediaSegmentUpdateManager mediaSegmentUpdateMan
     public ActionResult<Dictionary<AnalysisMode, Intro>> GetSkippableSegments([FromRoute] Guid id)
     {
         var segments = GetIntros(id);
+        var result = new Dictionary<AnalysisMode, Intro>();
 
         if (segments.TryGetValue(AnalysisMode.Introduction, out var introSegment))
         {
-            segments[AnalysisMode.Introduction] = introSegment;
+            result[AnalysisMode.Introduction] = introSegment;
         }
 
         if (segments.TryGetValue(AnalysisMode.Credits, out var creditSegment))
         {
-            segments[AnalysisMode.Credits] = creditSegment;
+            result[AnalysisMode.Credits] = creditSegment;
         }
 
-        return segments;
+        return result;
     }
 
     /// <summary>Lookup and return the skippable timestamps for the provided item.</summary>
@@ -192,7 +196,6 @@ public class SkipIntroController(MediaSegmentUpdateManager mediaSegmentUpdateMan
 
             // Create new Intro to avoid mutating the original stored in dictionary
             var segment = new Intro(timestamp);
-            segment.SegmentType = mode;
 
             // Calculate intro end time
             segment.IntroEnd = runTime > 0 && runTime < segment.IntroEnd + 1
@@ -242,7 +245,7 @@ public class SkipIntroController(MediaSegmentUpdateManager mediaSegmentUpdateMan
 
         if (eraseCache)
         {
-            FFmpegWrapper.DeleteCacheFiles(mode);
+            await Task.Run(() => FFmpegWrapper.DeleteCacheFiles(mode)).ConfigureAwait(false);
         }
 
         return NoContent();
@@ -262,8 +265,6 @@ public class SkipIntroController(MediaSegmentUpdateManager mediaSegmentUpdateMan
             config.SkipButtonEnabled,
             config.SkipButtonIntroText,
             config.SkipButtonEndCreditsText,
-            config.SkipButtonRecapText,
-            config.SkipButtonPreviewText,
             config.AutoSkip,
             config.AutoSkipCredits,
             config.AutoSkipRecap,
