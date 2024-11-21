@@ -950,6 +950,10 @@
 
                 pluginSkip.addEventListener("change", pluginSkipSettingChanged);
 
+                if (pluginSkip.checked) {
+                    serverSkipSettings.style.display = "unset";
+                }
+
                 async function analyzeMoviesChanged() {
                     if (analyzeMovies.checked) {
                         movieCreditsDuration.style.display = "unset";
