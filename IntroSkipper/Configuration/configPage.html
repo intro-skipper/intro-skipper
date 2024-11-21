@@ -678,7 +678,7 @@
                                     <br />
                                 </div>
 
-                                <div id="eraseMovieContainer" style="display: none">
+                                <div id="eraseMovieContainer" style="display: flex">
                                     <button is="emby-button" id="btnEraseMovieTimestamps" class="button-submit emby-button" type="button">Erase all timestamps for this movie</button>
 
                                     <input type="checkbox" id="eraseMovieCacheCheckbox" style="margin-left: 10px" />
@@ -686,14 +686,24 @@
                                     <br />
                                 </div>
 
-                                <button is="emby-button" class="button-submit emby-button" id="btnEraseIntroTimestamps">Erase all introduction timestamps (globally)</button>
-                                <br />
+                                <div style="display: flex; align-items: center;">
+                                    <div>
+                                        <button is="emby-button" class="button-submit emby-button" id="btnEraseIntroTimestamps">Erase all introduction timestamps (globally)</button>
+                                        <br />
 
-                                <button is="emby-button" class="button-submit emby-button" id="btnEraseCreditTimestamps">Erase all end credits timestamps (globally)</button>
-                                <br />
-                                <br />
-                                <input type="checkbox" id="eraseModeCacheCheckbox" style="margin-left: 10px" />
-                                <label for="eraseModeCacheCheckbox" style="margin-left: 5px">Erase cached fingerprint files</label>
+                                        <button is="emby-button" class="button-submit emby-button" id="btnEraseRecapTimestamps">Erase all recap timestamps (globally)</button>
+                                        <br />
+
+                                        <button is="emby-button" class="button-submit emby-button" id="btnEraseCreditTimestamps">Erase all end credits timestamps (globally)</button>
+                                        <br />
+
+                                        <button is="emby-button" class="button-submit emby-button" id="btnErasePreviewTimestamps">Erase all preview timestamps (globally)</button>
+                                    </div>
+                                    <div>
+                                        <input type="checkbox" id="eraseModeCacheCheckbox" style="margin-left: 10px" />
+                                        <label for="eraseModeCacheCheckbox" style="margin-left: 5px">Erase global cached fingerprint files</label>
+                                    </div>
+                                </div>
                                 <br />
                                 <br />
                             </details>
@@ -734,7 +744,9 @@
                 var support = document.querySelector("details#support");
                 var storage = document.querySelector("details#storage");
                 var btnEraseIntroTimestamps = document.querySelector("button#btnEraseIntroTimestamps");
+                var btnEraseRecapTimestamps = document.querySelector("button#btnEraseRecapTimestamps");
                 var btnEraseCreditTimestamps = document.querySelector("button#btnEraseCreditTimestamps");
+                var btnErasePreviewTimestamps = document.querySelector("button#btnErasePreviewTimestamps");
 
                 // all plugin configuration fields that can be get or set with .value (i.e. strings or numbers).
                 var configurationFields = [
@@ -1448,8 +1460,16 @@
                     eraseTimestamps("Introduction");
                     e.preventDefault();
                 });
+                btnEraseRecapTimestamps.addEventListener("click", (e) => {
+                    eraseTimestamps("Recap");
+                    e.preventDefault();
+                });
                 btnEraseCreditTimestamps.addEventListener("click", (e) => {
                     eraseTimestamps("Credits");
+                    e.preventDefault();
+                });
+                btnErasePreviewTimestamps.addEventListener("click", (e) => {
+                    eraseTimestamps("Preview");
                     e.preventDefault();
                 });
                 btnSeasonEraseTimestamps.addEventListener("click", () => {
