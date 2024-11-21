@@ -175,6 +175,11 @@ public class PluginConfiguration : BasePluginConfiguration
     public bool SkipButtonWarning { get => WarningManager.HasFlag(PluginWarning.UnableToAddSkipButton); }
 
     /// <summary>
+    /// Gets or sets a value indicating whether plugin options are presented to the user.
+    /// </summary>
+    public bool PluginSkip { get; set; }
+
+    /// <summary>
     /// Gets or sets a value indicating whether introductions should be automatically skipped.
     /// </summary>
     public bool AutoSkip { get; set; }
