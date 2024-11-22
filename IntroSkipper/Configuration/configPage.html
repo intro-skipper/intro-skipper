@@ -461,6 +461,14 @@
                                     <br />
 
                                     <div id="analyzerActionsContainer">
+                                        <label for="actionRecap" style="margin-right: 1.5em; display: inline-block">
+                                            <span>Recap analysis</span>
+                                            <select is="emby-select" id="actionRecap" class="emby-select-withcolor emby-select">
+                                                <option value="Default">Default</option>
+                                                <option value="Chapter">Chapter</option>
+                                                <option value="None">None</option>
+                                            </select>
+                                        </label>
                                         <label for="actionIntro" style="margin-right: 1.5em; display: inline-block">
                                             <span>Introduction analysis</span>
                                             <select is="emby-select" id="actionIntro" class="emby-select-withcolor emby-select">
@@ -471,20 +479,12 @@
                                             </select>
                                         </label>
                                         <label for="actionCredits" style="margin-right: 1.5em; display: inline-block">
-                                            <span>Credits analysis</span>
+                                            <span>Credits (Outro) analysis</span>
                                             <select is="emby-select" id="actionCredits" class="emby-select-withcolor emby-select">
                                                 <option value="Default">Default</option>
                                                 <option value="Chapter">Chapter</option>
                                                 <option value="Chromaprint">Chromaprint</option>
                                                 <option value="BlackFrame">BlackFrame</option>
-                                                <option value="None">None</option>
-                                            </select>
-                                        </label>
-                                        <label for="actionRecap" style="margin-right: 1.5em; display: inline-block">
-                                            <span>Recap analysis</span>
-                                            <select is="emby-select" id="actionRecap" class="emby-select-withcolor emby-select">
-                                                <option value="Default">Default</option>
-                                                <option value="Chapter">Chapter</option>
                                                 <option value="None">None</option>
                                             </select>
                                         </label>
@@ -542,12 +542,12 @@
                                     </div>
                                     <div class="inlineForm">
                                         <div class="inputContainer">
-                                            <label class="inputLabel inputLabelUnfocused" for="creditsStart">Credits Start</label>
+                                            <label class="inputLabel inputLabelUnfocused" for="creditsStart">Credits (Outro) Start</label>
                                             <input type="text" id="editLeftCreditEpisodeStartDisplay" class="emby-input custom-time-input" readonly />
                                             <input type="number" id="editLeftCreditEpisodeStartEdit" class="emby-input custom-time-input" style="display: none" step="any" min="0" />
                                         </div>
                                         <div class="inputContainer">
-                                            <label class="inputLabel inputLabelUnfocused" for="creditsEnd">Credits End</label>
+                                            <label class="inputLabel inputLabelUnfocused" for="creditsEnd">Credits (Outro) End</label>
                                             <input type="text" id="editLeftCreditEpisodeEndDisplay" class="emby-input custom-time-input" readonly />
                                             <input type="number" id="editLeftCreditEpisodeEndEdit" class="emby-input custom-time-input" style="display: none" step="any" min="0" />
                                         </div>
@@ -594,12 +594,12 @@
                                         </div>
                                         <div class="inlineForm">
                                             <div class="inputContainer">
-                                                <label class="inputLabel inputLabelUnfocused" for="creditsStart">Credits Start</label>
+                                                <label class="inputLabel inputLabelUnfocused" for="creditsStart">Credits (Outro) Start</label>
                                                 <input type="text" id="editRightCreditEpisodeStartDisplay" class="emby-input custom-time-input" readonly />
                                                 <input type="number" id="editRightCreditEpisodeStartEdit" class="emby-input custom-time-input" style="display: none" step="any" min="0" />
                                             </div>
                                             <div class="inputContainer">
-                                                <label class="inputLabel inputLabelUnfocused" for="creditsEnd">Credits End</label>
+                                                <label class="inputLabel inputLabelUnfocused" for="creditsEnd">Credits (Outro) End</label>
                                                 <input type="text" id="editRightCreditEpisodeEndDisplay" class="emby-input custom-time-input" readonly />
                                                 <input type="number" id="editRightCreditEpisodeEndEdit" class="emby-input custom-time-input" style="display: none" step="any" min="0" />
                                             </div>
