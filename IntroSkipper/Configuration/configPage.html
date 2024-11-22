@@ -1409,7 +1409,7 @@
                 }
 
                 // erase all intro/credits timestamps
-                function eraseTimestamps(mode) {
+                function eraseTimestamps(mode, isEpisode = null) {
                     const lower = mode.toLocaleLowerCase();
                     const title = "Confirm timestamp erasure";
                     const body = "Are you sure you want to erase all previously discovered " + mode.toLocaleLowerCase() + " timestamps?";
@@ -1420,7 +1420,12 @@
                             return;
                         }
 
-                        fetchWithAuth("Intros/EraseTimestamps?mode=" + mode + "&eraseCache=" + eraseCacheChecked, "POST", null);
+                        // Let C default to null rather than trying to ensure cast consistency
+                        if (isEpisode != null) {
+                            fetchWithAuth("Intros/EraseTimestamps?mode=" + mode + "&isEpisode=" + isEpisode + "&eraseCache=" + eraseCacheChecked, "POST", null);
+                        } else {
+                            fetchWithAuth("Intros/EraseTimestamps?mode=" + mode + "&eraseCache=" + eraseCacheChecked, "POST", null);
+                        }
 
                         Dashboard.alert(mode + " timestamps erased");
                         document.getElementById("eraseModeCacheCheckbox").checked = false;
