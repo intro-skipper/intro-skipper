@@ -709,6 +709,9 @@
                                         <br />
 
                                         <button is="emby-button" class="button-submit emby-button" id="btnErasePreviewTimestamps">Erase all preview timestamps (globally)</button>
+                                        <br />
+
+                                        <button is="emby-button" class="button-submit emby-button" id="btnEraseMovieTimestamps">Erase all movie timestamps (globally)</button>
                                     </div>
                                     <div>
                                         <input type="checkbox" id="eraseModeCacheCheckbox" style="margin-left: 10px" />
@@ -758,6 +761,7 @@
                 var btnEraseRecapTimestamps = document.querySelector("button#btnEraseRecapTimestamps");
                 var btnEraseCreditTimestamps = document.querySelector("button#btnEraseCreditTimestamps");
                 var btnErasePreviewTimestamps = document.querySelector("button#btnErasePreviewTimestamps");
+                var btnEraseMovieTimestamps = document.querySelector("button#btnEraseMovieTimestamps");
 
                 // all plugin configuration fields that can be get or set with .value (i.e. strings or numbers).
                 var configurationFields = [
@@ -1409,8 +1413,7 @@
                 }
 
                 // erase all intro/credits timestamps
-                function eraseTimestamps(mode, isEpisode = null) {
-                    const lower = mode.toLocaleLowerCase();
+                function eraseTimestamps(mode) {
                     const title = "Confirm timestamp erasure";
                     const body = "Are you sure you want to erase all previously discovered " + mode.toLocaleLowerCase() + " timestamps?";
                     const eraseCacheChecked = document.getElementById("eraseModeCacheCheckbox").checked;
@@ -1420,14 +1423,25 @@
                             return;
                         }
 
-                        // Let C default to null rather than trying to ensure cast consistency
-                        if (isEpisode != null) {
-                            fetchWithAuth("Intros/EraseTimestamps?mode=" + mode + "&isEpisode=" + isEpisode + "&eraseCache=" + eraseCacheChecked, "POST", null);
-                        } else {
-                            fetchWithAuth("Intros/EraseTimestamps?mode=" + mode + "&eraseCache=" + eraseCacheChecked, "POST", null);
-                        }
+                        fetchWithAuth("Intros/EraseTimestamps?mode=" + mode + "&eraseCache=" + eraseCacheChecked, "POST", null);
 
                         Dashboard.alert(mode + " timestamps erased");
+                        document.getElementById("eraseModeCacheCheckbox").checked = false;
+                    });
+                }
+
+                function eraseMovieTimestamps() {
+                    const title = "Confirm timestamp erasure";
+                    const body = "Are you sure you want to erase all previously discovered movie timestamps?";
+
+                    Dashboard.confirm(body, title, (result) => {
+                        if (!result) {
+                            return;
+                        }
+
+                        fetchWithAuth("Intros/EraseMovieTimestamps", "POST", null);
+
+                        Dashboard.alert("Movie timestamps erased");
                         document.getElementById("eraseModeCacheCheckbox").checked = false;
                     });
                 }
@@ -1503,6 +1517,10 @@
                 });
                 btnErasePreviewTimestamps.addEventListener("click", (e) => {
                     eraseTimestamps("Preview");
+                    e.preventDefault();
+                });
+                btnEraseMovieTimestamps.addEventListener("click", (e) => {
+                    eraseMovieTimestamps();
                     e.preventDefault();
                 });
                 btnSeasonEraseTimestamps.addEventListener("click", () => {

@@ -11,7 +11,6 @@ using IntroSkipper.Configuration;
 using IntroSkipper.Data;
 using IntroSkipper.Db;
 using IntroSkipper.Manager;
-using Jellyfin.Extensions;
 using MediaBrowser.Common.Api;
 using MediaBrowser.Controller.Entities.Movies;
 using MediaBrowser.Controller.Entities.TV;
@@ -228,17 +227,16 @@ public class SkipIntroController(MediaSegmentUpdateManager mediaSegmentUpdateMan
     /// Erases all previously discovered introduction timestamps.
     /// </summary>
     /// <param name="mode">Mode.</param>
-    /// <param name="isEpisode">True if item is television episode.</param>
     /// <param name="eraseCache">Erase cache.</param>
     /// <response code="204">Operation successful.</response>
     /// <returns>No content.</returns>
     [Authorize(Policy = Policies.RequiresElevation)]
     [HttpPost("Intros/EraseTimestamps")]
-    public async Task<ActionResult> ResetIntroTimestamps([FromQuery] AnalysisMode mode, [FromQuery] bool? isEpisode = null, [FromQuery] bool eraseCache = false)
+    public async Task<ActionResult> ResetIntroTimestamps([FromQuery] AnalysisMode mode, [FromQuery] bool eraseCache = false)
     {
         using var db = new IntroSkipperDbContext(Plugin.Instance!.DbPath);
         var segments = await db.DbSegment
-            .Where(s => s.Type == mode && (isEpisode == null || Plugin.Instance!.GetItem(s.ToSegment().EpisodeId) is Episode == isEpisode))
+            .Where(s => s.Type == mode)
             .ToListAsync()
             .ConfigureAwait(false);
 
@@ -249,6 +247,27 @@ public class SkipIntroController(MediaSegmentUpdateManager mediaSegmentUpdateMan
         {
             await Task.Run(() => FFmpegWrapper.DeleteCacheFiles(mode)).ConfigureAwait(false);
         }
+
+        return NoContent();
+    }
+
+    /// <summary>
+    /// Erases all previously discovered movie timestamps.
+    /// </summary>
+    /// <response code="204">Operation successful.</response>
+    /// <returns>No content.</returns>
+    [Authorize(Policy = Policies.RequiresElevation)]
+    [HttpPost("Intros/EraseMovieTimestamps")]
+    public async Task<ActionResult> ResetMovieTimestamps()
+    {
+        using var db = new IntroSkipperDbContext(Plugin.Instance!.DbPath);
+        var segments = await db.DbSegment
+            .Where(s => Plugin.Instance!.GetItem(s.ToSegment().EpisodeId) is Movie)
+            .ToListAsync()
+            .ConfigureAwait(false);
+
+        db.DbSegment.RemoveRange(segments);
+        await db.SaveChangesAsync().ConfigureAwait(false);
 
         return NoContent();
     }
