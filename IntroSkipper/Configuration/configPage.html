@@ -937,7 +937,8 @@
                 persistSkip.addEventListener("change", persistSkipChanged);
 
                 async function pluginSkipSettingChanged() {
-                    if (pluginSkip.checked || autoSkip.checked || skipButtonVisible.checked) {
+                    pluginSkip.checked = pluginSkip.checked || autoSkip.checked || skipButtonVisible.checked
+                    if (pluginSkip.checked) {
                         serverSkipSettings.style.display = "unset";
                     } else {
                         serverSkipSettings.style.display = "none";
