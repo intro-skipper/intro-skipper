@@ -247,6 +247,28 @@ internal static class LegacyMigrations
                 plugin.Configuration.SelectedLibraries = string.Empty;
                 plugin.SaveConfiguration();
             }
+
+            if (!plugin.Configuration.AnalyzeMovies)
+            {
+                logger.LogInformation("Migration of your old Movie settings to Jellyfin");
+                foreach (var folder in libraryManager.GetVirtualFolders())
+                {
+                    if (folder.CollectionType is CollectionTypeOptions.movies or CollectionTypeOptions.mixed)
+                    {
+                        // only add if not already disabled
+                        if (!folder.LibraryOptions.DisabledMediaSegmentProviders.Contains(plugin.Name))
+                        {
+                            // ppend in case there other disabled media segment providers
+                            folder.LibraryOptions.DisabledMediaSegmentProviders = [.. folder.LibraryOptions.DisabledMediaSegmentProviders, plugin.Name];
+                            logger.LogInformation("Disable Media Segment Provider <{Name}> for Library <{Name}>", plugin.Name, folder.Name);
+                        }
+                    }
+                }
+
+                // reset to default
+                plugin.Configuration.AnalyzeMovies = true;
+                plugin.SaveConfiguration();
+            }
         }
         catch (Exception ex)
         {

@@ -30,7 +30,6 @@ namespace IntroSkipper.Manager
         private readonly ILogger<QueueManager> _logger = logger;
         private readonly Dictionary<Guid, List<QueuedEpisode>> _queuedEpisodes = [];
         private double _analysisPercent;
-        private bool _analyzeMovies;
 
         /// <summary>
         /// Gets all media items on the server.
@@ -91,8 +90,6 @@ namespace IntroSkipper.Manager
             // Store the analysis percent
             _analysisPercent = Convert.ToDouble(config.AnalysisPercent) / 100;
 
-            _analyzeMovies = config.AnalyzeMovies;
-
             // If analysis settings have been changed from the default, log the modified settings.
             if (config.AnalysisLengthLimit != 10 || config.AnalysisPercent != 25 || config.MinimumIntroDuration != 15)
             {
@@ -137,10 +134,7 @@ namespace IntroSkipper.Manager
                 }
                 else if (item is Movie movie)
                 {
-                    if (_analyzeMovies)
-                    {
-                        QueueMovie(movie);
-                    }
+                    QueueMovie(movie);
                 }
                 else
                 {

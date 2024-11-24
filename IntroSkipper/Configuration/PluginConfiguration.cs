@@ -22,11 +22,6 @@ public class PluginConfiguration : BasePluginConfiguration
     // ===== Analysis settings =====
 
     /// <summary>
-    /// Gets or sets a value indicating whether movies should be analyzed.
-    /// </summary>
-    public bool AnalyzeMovies { get; set; }
-
-    /// <summary>
     /// Gets or sets the list of client to auto skip for.
     /// </summary>
     public string ClientList { get; set; } = string.Empty;
@@ -300,4 +295,9 @@ public class PluginConfiguration : BasePluginConfiguration
     /// Gets or sets a value indicating whether all libraries should be analyzed.
     /// </summary>
     public bool SelectAllLibraries { get; set; } = true;
+
+    /// <summary>
+    /// Gets or sets a value indicating whether movies should be analyzed.
+    /// </summary>
+    public bool AnalyzeMovies { get; set; }
 }

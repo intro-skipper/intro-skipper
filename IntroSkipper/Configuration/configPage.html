@@ -55,13 +55,6 @@
                                 </div>
                             </div>
 
-                            <div class="checkboxContainer">
-                                <label class="emby-checkbox-label">
-                                    <input id="AnalyzeMovies" type="checkbox" is="emby-checkbox" />
-                                    <span>Analyze Movies</span>
-                                </label>
-                            </div>
-
                             <div class="checkboxContainer checkboxContainer-withDescription">
                                 <label class="emby-checkbox-label">
                                     <input id="AnalyzeSeasonZero" type="checkbox" is="emby-checkbox" />
@@ -778,7 +771,6 @@
 
                 var booleanConfigurationFields = [
                     "AutoDetectIntros",
-                    "AnalyzeMovies",
                     "AnalyzeSeasonZero",
                     "UpdateMediaSegments",
                     "RebuildMediaSegments",
@@ -823,7 +815,6 @@
 
                 var windowHashInterval = 0;
 
-                var analyzeMovies = document.getElementById("AnalyzeMovies");
                 var pluginSkip = document.getElementById("PluginSkip");
                 var serverSkipSettings = document.getElementById("ServerSkipSettings");
                 var autoSkip = document.getElementById("AutoSkip");
@@ -929,16 +920,6 @@
                 }
 
                 pluginSkip.addEventListener("change", pluginSkipSettingChanged);
-
-                async function analyzeMoviesChanged() {
-                    if (analyzeMovies.checked) {
-                        movieCreditsDuration.style.display = "unset";
-                    } else {
-                        movieCreditsDuration.style.display = "none";
-                    }
-                }
-
-                analyzeMovies.addEventListener("change", analyzeMoviesChanged);
 
                 // when the fingerprint visualizer opens, populate show names
                 async function visualizerToggled() {
