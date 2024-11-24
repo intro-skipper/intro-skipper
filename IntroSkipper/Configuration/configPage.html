@@ -937,7 +937,6 @@
                 persistSkip.addEventListener("change", persistSkipChanged);
 
                 async function pluginSkipSettingChanged() {
-                    pluginSkip.checked = pluginSkip.checked || autoSkip.checked || skipButtonVisible.checked
                     if (pluginSkip.checked) {
                         serverSkipSettings.style.display = "unset";
                     } else {
@@ -1451,6 +1450,10 @@
                         persistSkipChanged();
                         generateAutoSkipTypeList();
                         generateAutoSkipClientList();
+                        const pluginSkip = document.getElementById("PluginSkip");
+                        pluginSkip.checked = pluginSkip.checked
+                            || document.getElementById("AutoSkip").checked
+                            || document.getElementById("SkipButtonEnabled").checked
                         pluginSkipSettingChanged();
 
                         Dashboard.hideLoadingMsg();
