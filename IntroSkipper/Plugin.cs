@@ -6,10 +6,7 @@ using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
-using System.Text.RegularExpressions;
 using System.Threading.Tasks;
-using System.Xml;
-using System.Xml.Serialization;
 using IntroSkipper.Configuration;
 using IntroSkipper.Data;
 using IntroSkipper.Db;
@@ -23,7 +20,6 @@ using MediaBrowser.Controller.Persistence;
 using MediaBrowser.Model.Entities;
 using MediaBrowser.Model.Plugins;
 using MediaBrowser.Model.Serialization;
-using MediaBrowser.Model.Updates;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 
@@ -37,8 +33,6 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
     private readonly ILibraryManager _libraryManager;
     private readonly IItemRepository _itemRepository;
     private readonly ILogger<Plugin> _logger;
-    private readonly string _introPath;
-    private readonly string _creditsPath;
     private readonly string _dbPath;
 
     /// <summary>
@@ -74,8 +68,7 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
 
         var introsDirectory = Path.Join(applicationPaths.DataPath, pluginDirName);
         FingerprintCachePath = Path.Join(introsDirectory, pluginCachePath);
-        _introPath = Path.Join(applicationPaths.DataPath, pluginDirName, "intros.xml");
-        _creditsPath = Path.Join(applicationPaths.DataPath, pluginDirName, "credits.xml");
+
         _dbPath = Path.Join(applicationPaths.DataPath, pluginDirName, "introskipper.db");
 
         // Create the base & cache directories (if needed).
@@ -84,66 +77,24 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
             Directory.CreateDirectory(FingerprintCachePath);
         }
 
-        // migrate from XMLSchema to DataContract
-        XmlSerializationHelper.MigrateXML(_introPath);
-        XmlSerializationHelper.MigrateXML(_creditsPath);
-
-        var oldConfigFile = Path.Join(applicationPaths.PluginConfigurationsPath, "ConfusedPolarBear.Plugin.IntroSkipper.xml");
-
-        if (File.Exists(oldConfigFile))
+        try
         {
-            try
-            {
-                XmlSerializer serializer = new XmlSerializer(typeof(PluginConfiguration));
-                using FileStream fileStream = new FileStream(oldConfigFile, FileMode.Open);
-                var settings = new XmlReaderSettings
-                {
-                    DtdProcessing = DtdProcessing.Prohibit, // Disable DTD processing
-                    XmlResolver = null // Disable the XmlResolver
-                };
-
-                using var reader = XmlReader.Create(fileStream, settings);
-                if (serializer.Deserialize(reader) is PluginConfiguration oldConfig)
-                {
-                    Instance.UpdateConfiguration(oldConfig);
-                    fileStream.Close();
-                    File.Delete(oldConfigFile);
-                }
-            }
-            catch (Exception ex)
-            {
-                // Handle exceptions, such as file not found, deserialization errors, etc.
-                _logger.LogWarning("Something stupid happened: {Exception}", ex);
-            }
+            LegacyMigrations.MigrateAll(this, serverConfiguration, logger, applicationPaths);
         }
-
-        MigrateRepoUrl(serverConfiguration);
+        catch (Exception ex)
+        {
+            logger.LogError("Failed to perform migrations. Error: {Error}", ex);
+        }
 
         // Initialize database, restore timestamps if available.
         try
         {
             using var db = new IntroSkipperDbContext(_dbPath);
             db.ApplyMigrations();
-            if (File.Exists(_introPath) || File.Exists(_creditsPath))
-            {
-                RestoreTimestamps();
-            }
         }
         catch (Exception ex)
         {
-            _logger.LogWarning("Error initializing database: {Exception}", ex);
-        }
-
-        // Inject the skip intro button code into the web interface.
-        try
-        {
-            InjectSkipButton(applicationPaths.WebPath);
-        }
-        catch (Exception ex)
-        {
-            WarningManager.SetFlag(PluginWarning.UnableToAddSkipButton);
-
-            _logger.LogError("Failed to add skip button to web interface. See https://github.com/intro-skipper/intro-skipper/wiki/Troubleshooting#skip-button-is-not-visible for the most common issues. Error: {Error}", ex);
+            logger.LogWarning("Error initializing database: {Exception}", ex);
         }
 
         FFmpegWrapper.CheckFFmpegVersion();
@@ -194,38 +145,6 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
     /// Gets the plugin instance.
     /// </summary>
     public static Plugin? Instance { get; private set; }
-
-    /// <summary>
-    /// Restore previous analysis results from disk.
-    /// </summary>
-    public void RestoreTimestamps()
-    {
-        using var db = new IntroSkipperDbContext(_dbPath);
-        // Import intros
-        if (File.Exists(_introPath))
-        {
-            var introList = XmlSerializationHelper.DeserializeFromXml<Segment>(_introPath);
-            foreach (var intro in introList)
-            {
-                db.DbSegment.Add(new DbSegment(intro, AnalysisMode.Introduction));
-            }
-        }
-
-        // Import credits
-        if (File.Exists(_creditsPath))
-        {
-            var creditList = XmlSerializationHelper.DeserializeFromXml<Segment>(_creditsPath);
-            foreach (var credit in creditList)
-            {
-                db.DbSegment.Add(new DbSegment(credit, AnalysisMode.Credits));
-            }
-        }
-
-        db.SaveChanges();
-
-        File.Delete(_introPath);
-        File.Delete(_creditsPath);
-    }
 
     /// <inheritdoc />
     public IEnumerable<PluginPageInfo> GetPages()
@@ -403,106 +322,5 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
             .ToListAsync().ConfigureAwait(false);
         db.DbSeasonInfo.RemoveRange(obsoleteSeasons);
         await db.SaveChangesAsync().ConfigureAwait(false);
-    }
-
-    private void MigrateRepoUrl(IServerConfigurationManager serverConfiguration)
-    {
-        try
-        {
-            List<string> oldRepos =
-            [
-            "https://raw.githubusercontent.com/intro-skipper/intro-skipper/master/manifest.json",
-                "https://raw.githubusercontent.com/jumoog/intro-skipper/master/manifest.json",
-                "https://manifest.intro-skipper.workers.dev/manifest.json"
-            ];
-            // Access the current server configuration
-            var config = serverConfiguration.Configuration;
-
-            // Get the list of current plugin repositories
-            var pluginRepositories = config.PluginRepositories.ToList();
-
-            // check if old plugins exits
-            if (pluginRepositories.Exists(repo => repo.Url != null && oldRepos.Contains(repo.Url)))
-            {
-                // remove all old plugins
-                pluginRepositories.RemoveAll(repo => repo.Url != null && oldRepos.Contains(repo.Url));
-
-                // Add repository only if it does not exit and the OverideManifestUrl Option is activated
-                if (!pluginRepositories.Exists(repo => repo.Url == "https://manifest.intro-skipper.org/manifest.json") && Instance!.Configuration.OverrideManifestUrl)
-                {
-                    // Add the new repository to the list
-                    pluginRepositories.Add(new RepositoryInfo
-                    {
-                        Name = "intro skipper (automatically migrated by plugin)",
-                        Url = "https://manifest.intro-skipper.org/manifest.json",
-                        Enabled = true,
-                    });
-                }
-
-                // Update the configuration with the new repository list
-                config.PluginRepositories = [.. pluginRepositories];
-
-                // Save the updated configuration
-                serverConfiguration.SaveConfiguration();
-            }
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error occurred while migrating repo URL");
-        }
-    }
-
-    /// <summary>
-    /// Inject the skip button script into the web interface.
-    /// </summary>
-    /// <param name="webPath">Full path to index.html.</param>
-    private void InjectSkipButton(string webPath)
-    {
-        string pattern;
-        // Inject the skip intro button code into the web interface.
-        string indexPath = Path.Join(webPath, "index.html");
-
-        // Parts of this code are based off of JellyScrub's script injection code.
-        // https://github.com/nicknsy/jellyscrub/blob/main/Nick.Plugin.Jellyscrub/JellyscrubPlugin.cs#L38
-
-        _logger.LogDebug("Reading index.html from {Path}", indexPath);
-        string contents = File.ReadAllText(indexPath);
-
-        if (!Instance!.Configuration.SkipButtonEnabled)
-        {
-            pattern = @"<script src=""configurationpage\?name=skip-intro-button\.js.*<\/script>";
-            if (!Regex.IsMatch(contents, pattern, RegexOptions.IgnoreCase))
-            {
-                return;
-            }
-
-            contents = Regex.Replace(contents, pattern, string.Empty, RegexOptions.IgnoreCase);
-            File.WriteAllText(indexPath, contents);
-            return; // Button is disabled, so remove and abort
-        }
-
-        // change URL with every release to prevent the Browsers from caching
-        string scriptTag = "<script src=\"configurationpage?name=skip-intro-button.js&release=" + GetType().Assembly.GetName().Version + "\"></script>";
-
-        // Only inject the script tag once
-        if (contents.Contains(scriptTag, StringComparison.OrdinalIgnoreCase))
-        {
-            _logger.LogInformation("The skip button has already been injected.");
-            return;
-        }
-
-        // remove old version if necessary
-        pattern = @"<script src=""configurationpage\?name=skip-intro-button\.js.*<\/script>";
-        contents = Regex.Replace(contents, pattern, string.Empty, RegexOptions.IgnoreCase);
-
-        // Inject a link to the script at the end of the <head> section.
-        // A regex is used here to ensure the replacement is only done once.
-        Regex headEnd = new Regex(@"</head>", RegexOptions.IgnoreCase, TimeSpan.FromSeconds(1));
-        contents = headEnd.Replace(contents, scriptTag + "</head>", 1);
-
-        // Write the modified file contents
-        File.WriteAllText(indexPath, contents);
-
-        _logger.LogInformation("Skip button added successfully.");
     }
 }
