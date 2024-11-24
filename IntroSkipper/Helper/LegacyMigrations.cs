@@ -126,7 +126,7 @@ internal static class LegacyMigrations
             // If skip button is disabled and we can't access the file, just return silently
             if (!plugin.Configuration.SkipButtonEnabled)
             {
-                logger.LogInformation("Skip button disabled and no permission to access index.html. Assuming its a fresh install.");
+                logger.LogDebug("Skip button disabled and no permission to access index.html. Assuming its a fresh install.");
                 return;
             }
 
@@ -137,7 +137,7 @@ internal static class LegacyMigrations
 
         if (!canAccessFile)
         {
-            logger.LogInformation("Jellyfin running as nowebclient");
+            logger.LogDebug("Jellyfin running as nowebclient");
             return;
         }
 
@@ -150,10 +150,11 @@ internal static class LegacyMigrations
             {
                 if (!Regex.IsMatch(contents, pattern, RegexOptions.IgnoreCase))
                 {
-                    logger.LogInformation("Skip button not found. Assuming its a fresh install.");
+                    logger.LogDebug("Skip button not found. Assuming its a fresh install.");
                     return;
                 }
 
+                logger.LogInformation("Skip button found. Removing the Skip button.");
                 contents = Regex.Replace(contents, pattern, string.Empty, RegexOptions.IgnoreCase);
                 File.WriteAllText(indexPath, contents);
                 return;
@@ -162,7 +163,7 @@ internal static class LegacyMigrations
             string scriptTag = "<script src=\"configurationpage?name=skip-intro-button.js&release=" + plugin.GetType().Assembly.GetName().Version + "\"></script>";
             if (contents.Contains(scriptTag, StringComparison.OrdinalIgnoreCase))
             {
-                logger.LogInformation("The skip button has already been injected.");
+                logger.LogDebug("The skip button has already been injected.");
                 return;
             }
 
