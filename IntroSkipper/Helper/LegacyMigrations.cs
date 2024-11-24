@@ -108,55 +108,81 @@ internal static class LegacyMigrations
 
     private static void InjectSkipButton(Plugin plugin, string webPath, ILogger logger)
     {
-        string pattern;
+        string pattern = @"<script src=""configurationpage\?name=skip-intro-button\.js.*<\/script>";
         string indexPath = Path.Join(webPath, "index.html");
 
+        // Check if we can actually access the file
+        bool canAccessFile = false;
         try
         {
             if (File.Exists(indexPath))
             {
-                logger.LogDebug("Reading index.html from {Path}", indexPath);
-                string contents = File.ReadAllText(indexPath);
-
-                if (!plugin.Configuration.SkipButtonEnabled)
-                {
-                    pattern = @"<script src=""configurationpage\?name=skip-intro-button\.js.*<\/script>";
-                    if (!Regex.IsMatch(contents, pattern, RegexOptions.IgnoreCase))
-                    {
-                        return;
-                    }
-
-                    contents = Regex.Replace(contents, pattern, string.Empty, RegexOptions.IgnoreCase);
-                    File.WriteAllText(indexPath, contents);
-                    return;
-                }
-
-                string scriptTag = "<script src=\"configurationpage?name=skip-intro-button.js&release=" + plugin.GetType().Assembly.GetName().Version + "\"></script>";
-
-                if (contents.Contains(scriptTag, StringComparison.OrdinalIgnoreCase))
-                {
-                    logger.LogInformation("The skip button has already been injected.");
-                    return;
-                }
-
-                pattern = @"<script src=""configurationpage\?name=skip-intro-button\.js.*<\/script>";
-                contents = Regex.Replace(contents, pattern, string.Empty, RegexOptions.IgnoreCase);
-
-                Regex headEnd = new Regex(@"</head>", RegexOptions.IgnoreCase, TimeSpan.FromSeconds(1));
-                contents = headEnd.Replace(contents, scriptTag + "</head>", 1);
-
-                File.WriteAllText(indexPath, contents);
-                logger.LogInformation("Skip button added successfully.");
-            }
-            else
-            {
-                logger.LogInformation("Jellyfin running as nowebclient");
+                using var fs = File.Open(indexPath, FileMode.Open, FileAccess.ReadWrite);
+                canAccessFile = true;
             }
         }
-        catch (Exception ex)
+        catch (Exception)
+        {
+            // If skip button is disabled and we can't access the file, just return silently
+            if (!plugin.Configuration.SkipButtonEnabled)
+            {
+                logger.LogInformation("Skip button disabled and no permission to access index.html. Assuming its a fresh install.");
+                return;
+            }
+
+            WarningManager.SetFlag(PluginWarning.UnableToAddSkipButton);
+            logger.LogError("Failed to add skip button to web interface. See https://github.com/intro-skipper/intro-skipper/wiki/Troubleshooting#skip-button-is-not-visible for the most common issues.");
+            return;
+        }
+
+        if (!canAccessFile)
+        {
+            logger.LogInformation("Jellyfin running as nowebclient");
+            return;
+        }
+
+        try
+        {
+            logger.LogInformation("Reading index.html from {Path}", indexPath);
+            string contents = File.ReadAllText(indexPath);
+
+            if (!plugin.Configuration.SkipButtonEnabled)
+            {
+                if (!Regex.IsMatch(contents, pattern, RegexOptions.IgnoreCase))
+                {
+                    logger.LogInformation("Skip button not found. Assuming its a fresh install.");
+                    return;
+                }
+
+                contents = Regex.Replace(contents, pattern, string.Empty, RegexOptions.IgnoreCase);
+                File.WriteAllText(indexPath, contents);
+                return;
+            }
+
+            string scriptTag = "<script src=\"configurationpage?name=skip-intro-button.js&release=" + plugin.GetType().Assembly.GetName().Version + "\"></script>";
+            if (contents.Contains(scriptTag, StringComparison.OrdinalIgnoreCase))
+            {
+                logger.LogInformation("The skip button has already been injected.");
+                return;
+            }
+
+            contents = Regex.Replace(contents, pattern, string.Empty, RegexOptions.IgnoreCase);
+
+            Regex headEnd = new Regex(@"</head>", RegexOptions.IgnoreCase, TimeSpan.FromSeconds(1));
+            contents = headEnd.Replace(contents, scriptTag + "</head>", 1);
+
+            File.WriteAllText(indexPath, contents);
+            logger.LogInformation("Skip button added successfully.");
+        }
+        catch (UnauthorizedAccessException)
         {
             WarningManager.SetFlag(PluginWarning.UnableToAddSkipButton);
-            logger.LogError("Failed to add skip button to web interface. See https://github.com/intro-skipper/intro-skipper/wiki/Troubleshooting#skip-button-is-not-visible for the most common issues. Error: {Error}", ex);
+            logger.LogError("Failed to add skip button to web interface. See https://github.com/intro-skipper/intro-skipper/wiki/Troubleshooting#skip-button-is-not-visible for the most common issues.");
+        }
+        catch (IOException)
+        {
+            WarningManager.SetFlag(PluginWarning.UnableToAddSkipButton);
+            logger.LogError("Failed to add skip button to web interface. See https://github.com/intro-skipper/intro-skipper/wiki/Troubleshooting#skip-button-is-not-visible for the most common issues.");
         }
     }
 
