@@ -63,7 +63,7 @@ internal static class LegacyMigrations
             catch (Exception ex)
             {
                 // Handle exceptions, such as file not found, deserialization errors, etc.
-                logger.LogWarning("Something stupid happened: {Exception}", ex);
+                logger.LogWarning("Failed to migrate from the ConfusedPolarBear Config {Exception}", ex);
             }
         }
     }
@@ -111,44 +111,52 @@ internal static class LegacyMigrations
         string pattern;
         string indexPath = Path.Join(webPath, "index.html");
 
-        if (File.Exists(indexPath))
+        try
         {
-            logger.LogDebug("Reading index.html from {Path}", indexPath);
-            string contents = File.ReadAllText(indexPath);
-
-            if (!plugin.Configuration.SkipButtonEnabled)
+            if (File.Exists(indexPath))
             {
-                pattern = @"<script src=""configurationpage\?name=skip-intro-button\.js.*<\/script>";
-                if (!Regex.IsMatch(contents, pattern, RegexOptions.IgnoreCase))
+                logger.LogDebug("Reading index.html from {Path}", indexPath);
+                string contents = File.ReadAllText(indexPath);
+
+                if (!plugin.Configuration.SkipButtonEnabled)
                 {
+                    pattern = @"<script src=""configurationpage\?name=skip-intro-button\.js.*<\/script>";
+                    if (!Regex.IsMatch(contents, pattern, RegexOptions.IgnoreCase))
+                    {
+                        return;
+                    }
+
+                    contents = Regex.Replace(contents, pattern, string.Empty, RegexOptions.IgnoreCase);
+                    File.WriteAllText(indexPath, contents);
                     return;
                 }
 
+                string scriptTag = "<script src=\"configurationpage?name=skip-intro-button.js&release=" + plugin.GetType().Assembly.GetName().Version + "\"></script>";
+
+                if (contents.Contains(scriptTag, StringComparison.OrdinalIgnoreCase))
+                {
+                    logger.LogInformation("The skip button has already been injected.");
+                    return;
+                }
+
+                pattern = @"<script src=""configurationpage\?name=skip-intro-button\.js.*<\/script>";
                 contents = Regex.Replace(contents, pattern, string.Empty, RegexOptions.IgnoreCase);
+
+                Regex headEnd = new Regex(@"</head>", RegexOptions.IgnoreCase, TimeSpan.FromSeconds(1));
+                contents = headEnd.Replace(contents, scriptTag + "</head>", 1);
+
                 File.WriteAllText(indexPath, contents);
-                return;
+                logger.LogInformation("Skip button added successfully.");
             }
-
-            string scriptTag = "<script src=\"configurationpage?name=skip-intro-button.js&release=" + plugin.GetType().Assembly.GetName().Version + "\"></script>";
-
-            if (contents.Contains(scriptTag, StringComparison.OrdinalIgnoreCase))
+            else
             {
-                logger.LogInformation("The skip button has already been injected.");
-                return;
+                logger.LogInformation("Jellyfin running as nowebclient");
             }
-
-            pattern = @"<script src=""configurationpage\?name=skip-intro-button\.js.*<\/script>";
-            contents = Regex.Replace(contents, pattern, string.Empty, RegexOptions.IgnoreCase);
-
-            Regex headEnd = new Regex(@"</head>", RegexOptions.IgnoreCase, TimeSpan.FromSeconds(1));
-            contents = headEnd.Replace(contents, scriptTag + "</head>", 1);
-
-            File.WriteAllText(indexPath, contents);
-            logger.LogInformation("Skip button added successfully.");
         }
-        else
+        catch (Exception ex)
         {
-            logger.LogInformation("Jellyfin running as nowebclient");
+            WarningManager.SetFlag(PluginWarning.UnableToAddSkipButton);
+            logger.LogError("Failed to add skip button to web interface. See https://github.com/intro-skipper/intro-skipper/wiki/Troubleshooting#skip-button-is-not-visible for the most common issues. Error: {Error}", ex);
         }
     }
 
