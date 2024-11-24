@@ -1,7 +1,6 @@
 // Copyright (C) 2024 Intro-Skipper contributors <intro-skipper.org>
 // SPDX-License-Identifier: GPL-3.0-only.
 
-using System.Collections.Generic;
 using System.Diagnostics;
 using IntroSkipper.Data;
 using MediaBrowser.Model.Plugins;
@@ -21,16 +20,6 @@ public class PluginConfiguration : BasePluginConfiguration
     }
 
     // ===== Analysis settings =====
-
-    /// <summary>
-    /// Gets or sets the comma separated list of library names to analyze.
-    /// </summary>
-    public string SelectedLibraries { get; set; } = string.Empty;
-
-    /// <summary>
-    /// Gets or sets a value indicating whether all libraries should be analyzed.
-    /// </summary>
-    public bool SelectAllLibraries { get; set; } = true;
 
     /// <summary>
     /// Gets or sets a value indicating whether movies should be analyzed.
@@ -299,4 +288,16 @@ public class PluginConfiguration : BasePluginConfiguration
     /// Gets or sets a value indicating whether the ManifestUrl is self-managed, e.g. for mainland China.
     /// </summary>
     public bool OverrideManifestUrl { get; set; }
+
+    // ===== Deprecated =====
+
+    /// <summary>
+    /// Gets or sets the comma separated list of library names to analyze.
+    /// </summary>
+    public string SelectedLibraries { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Gets or sets a value indicating whether all libraries should be analyzed.
+    /// </summary>
+    public bool SelectAllLibraries { get; set; } = true;
 }
