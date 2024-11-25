@@ -106,6 +106,28 @@ public class VisualizationController(ILogger<VisualizationController> logger, Me
     }
 
     /// <summary>
+    /// Returns the analyzer actions for the provided season.
+    /// </summary>
+    /// <param name="seasonId">Season ID.</param>
+    /// <returns>List of episode titles.</returns>
+    [HttpGet("AnalyzerRegexs/{SeasonId}")]
+    public ActionResult<IReadOnlyDictionary<AnalysisMode, string>> GetSeasonRegexs([FromRoute] Guid seasonId)
+    {
+        if (!Plugin.Instance!.QueuedMediaItems.ContainsKey(seasonId))
+        {
+            return NotFound();
+        }
+
+        var seasonRegexs = new Dictionary<AnalysisMode, string>();
+        foreach (var mode in Enum.GetValues<AnalysisMode>())
+        {
+            seasonRegexs[mode] = Plugin.Instance!.GetSeasonRegex(seasonId, mode);
+        }
+
+        return Ok(seasonRegexs);
+    }
+
+    /// <summary>
     /// Returns the names and unique identifiers of all episodes in the provided season.
     /// </summary>
     /// <param name="seriesId">Show ID.</param>
@@ -223,6 +245,20 @@ public class VisualizationController(ILogger<VisualizationController> logger, Me
     public async Task<ActionResult> UpdateAnalyzerActions([FromBody] UpdateAnalyzerActionsRequest request)
     {
         await Plugin.Instance!.SetAnalyzerActionAsync(request.Id, request.AnalyzerActions).ConfigureAwait(false);
+
+        return NoContent();
+    }
+
+    /// <summary>
+    /// Updates the analyzer regexs for the provided season.
+    /// </summary>
+    /// <param name="request">Update analyzer regexs request.</param>
+    /// <returns>No content.</returns>
+    [HttpPost("AnalyzerRegexs/UpdateSeason")]
+    public async Task<ActionResult> UpdateAnalyzerRegexs([FromBody] UpdateSeasonRegexRequest request)
+    {
+        _logger.LogInformation("Updating analyzer regexs for {SeasonId} with {SeasonRegexs}", request.Id, request.SeasonRegexs);
+        await Plugin.Instance!.SetSeasonRegexAsync(request.Id, request.SeasonRegexs).ConfigureAwait(false);
 
         return NoContent();
     }
