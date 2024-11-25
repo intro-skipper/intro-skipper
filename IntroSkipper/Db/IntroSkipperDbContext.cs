@@ -109,39 +109,73 @@ public class IntroSkipperDbContext : DbContext
     /// </summary>
     public void ApplyMigrations()
     {
-        // If migrations table exists, just apply pending migrations normally
-        if (Database.GetAppliedMigrations().Any() || !Database.CanConnect())
+        // If database doesn't exist or can't connect, create it with migrations
+        if (!Database.CanConnect())
+        {
+            Database.Migrate();
+            return;
+        }
+
+        // If migrations table exists, apply pending migrations normally
+        if (Database.GetAppliedMigrations().Any())
         {
             Database.Migrate();
             return;
         }
 
         // For databases without migration history
-        try
+        RebuildDatabase();
+    }
+
+    /// <summary>
+    /// Rebuilds the database while preserving valid segments and season information.
+    /// </summary>
+    public void RebuildDatabase()
+    {
+        // Backup existing data
+        List<DbSegment> segments = [];
+        List<DbSeasonInfo> seasonInfos = [];
+        using (var db = new IntroSkipperDbContext(_dbPath))
         {
-            // Backup existing data
-            List<DbSegment> segments;
-            using (var db = new IntroSkipperDbContext(_dbPath))
+            try
             {
                 segments = [.. db.DbSegment.AsEnumerable().Where(s => s.ToSegment().Valid)];
             }
-
-            // Delete old database
-            Database.EnsureDeleted();
-
-            // Create new database with proper migration history
-            Database.Migrate();
-
-            // Restore the data
-            using (var db = new IntroSkipperDbContext(_dbPath))
+            catch (Exception ex)
             {
-                db.DbSegment.AddRange(segments);
-                db.SaveChanges();
+                throw new InvalidOperationException("Failed to read DbSegment data", ex);
+            }
+
+            try
+            {
+                seasonInfos = [.. db.DbSeasonInfo];
+            }
+            catch (Exception ex)
+            {
+                throw new InvalidOperationException("Failed to read DbSeasonInfo data", ex);
             }
         }
-        catch (Exception ex)
+
+        // Delete old database
+        Database.EnsureDeleted();
+
+        // Create new database with proper migration history
+        Database.Migrate();
+
+        // Restore the data
+        using (var db = new IntroSkipperDbContext(_dbPath))
         {
-            throw new InvalidOperationException("Failed to apply migrations", ex);
+            if (segments.Count > 0)
+            {
+                db.DbSegment.AddRange(segments);
+            }
+
+            if (seasonInfos.Count > 0)
+            {
+                db.DbSeasonInfo.AddRange(seasonInfos);
+            }
+
+            db.SaveChanges();
         }
     }
 }

@@ -252,6 +252,20 @@ public class SkipIntroController(MediaSegmentUpdateManager mediaSegmentUpdateMan
     }
 
     /// <summary>
+    /// Rebuilds the database.
+    /// </summary>
+    /// <response code="204">Database rebuilt.</response>
+    /// <returns>No content.</returns>
+    [Authorize(Policy = Policies.RequiresElevation)]
+    [HttpPost("Intros/RebuildDatabase")]
+    public ActionResult RebuildDatabase()
+    {
+        using var db = new IntroSkipperDbContext(Plugin.Instance!.DbPath);
+        db.RebuildDatabase();
+        return NoContent();
+    }
+
+    /// <summary>
     /// Gets the user interface configuration.
     /// </summary>
     /// <response code="200">UserInterfaceConfiguration returned.</response>
