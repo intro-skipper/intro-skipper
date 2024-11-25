@@ -257,7 +257,6 @@ public class VisualizationController(ILogger<VisualizationController> logger, Me
     [HttpPost("AnalyzerRegexs/UpdateSeason")]
     public async Task<ActionResult> UpdateAnalyzerRegexs([FromBody] UpdateSeasonRegexRequest request)
     {
-        _logger.LogInformation("Updating analyzer regexs for {SeasonId} with {SeasonRegexs}", request.Id, request.SeasonRegexs);
         await Plugin.Instance!.SetSeasonRegexAsync(request.Id, request.SeasonRegexs).ConfigureAwait(false);
 
         return NoContent();
