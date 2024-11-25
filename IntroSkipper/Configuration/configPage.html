@@ -624,7 +624,7 @@
 
                                 <div id="timestampErrorDiv" style="display: none">
                                     <p>
-                                    <textarea id="timestampError" rows="2" cols="75" readonly></textarea>
+                                        <textarea id="timestampError" rows="2" cols="75" readonly></textarea>
                                     </p>
                                 </div>
 
@@ -664,12 +664,11 @@
 
                                     <span>Shift amount:</span>
                                     <input type="number" min="-3000" max="3000" value="0" id="offset" />
-                                    <br />
+                                    <p>
                                     <span id="suggestedShifts">
                                         <span>Suggested shifts: </span>
                                     </span>
-                                    <br />
-                                    <br />
+                                    </p>
                                     <canvas id="troubleshooter" style="display: none"></canvas>
                                     <span id="timestampContainer">
                                         <span id="timestamps"></span>
@@ -678,26 +677,26 @@
                                     </span>
                                     <br />
                                 </div>
-                                <br />
 
                                 <div id="eraseSeasonContainer" style="display: none">
                                     <p>
-                                    <button is="emby-button" id="btnEraseSeasonTimestamps" class="button-submit emby-button" type="button">Erase all timestamps for this season</button>
+                                        <button is="emby-button" id="btnEraseSeasonTimestamps" class="button-submit emby-button" type="button">Erase all timestamps for this season</button>
 
-                                    <input type="checkbox" id="eraseSeasonCacheCheckbox" style="margin-left: 10px" />
-                                    <label for="eraseSeasonCacheCheckbox" style="margin-left: 5px">Erase cached fingerprint files</label>
+                                        <input type="checkbox" id="eraseSeasonCacheCheckbox" style="margin-left: 10px" />
+                                        <label for="eraseSeasonCacheCheckbox" style="margin-left: 5px">Erase cached fingerprint files</label>
                                     </p>
                                 </div>
 
                                 <div id="eraseMovieContainer" style="display: none">
                                     <p>
-                                    <button is="emby-button" id="btnEraseMovieTimestamps" class="button-submit emby-button" type="button">Erase all timestamps for this movie</button>
+                                        <button is="emby-button" id="btnEraseMovieTimestamps" class="button-submit emby-button" type="button">Erase all timestamps for this movie</button>
 
-                                    <input type="checkbox" id="eraseMovieCacheCheckbox" style="margin-left: 10px" />
-                                    <label for="eraseMovieCacheCheckbox" style="margin-left: 5px">Erase cached fingerprint files</label>
+                                        <input type="checkbox" id="eraseMovieCacheCheckbox" style="margin-left: 10px" />
+                                        <label for="eraseMovieCacheCheckbox" style="margin-left: 5px">Erase cached fingerprint files</label>
                                     </p>
                                 </div>
 
+                                <p>
                                 <div style="display: flex; align-items: center;">
                                     <div>
                                         <button is="emby-button" class="button-submit emby-button" id="btnEraseIntroTimestamps">Erase all introduction timestamps (globally)</button>
@@ -716,8 +715,7 @@
                                         <label for="eraseModeCacheCheckbox" style="margin-left: 5px">Erase global cached fingerprint files</label>
                                     </div>
                                 </div>
-                                <br />
-                                <br />
+                                </p>
                             </details>
 
                             <details id="support">
