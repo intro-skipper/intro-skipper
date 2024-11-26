@@ -455,8 +455,10 @@
                                     <h3 style="margin: 0">Analyzer actions</h3>
                                     <p style="margin: 0">
                                         Choose how segments should be analyzed for this season.<br />
-                                        Default uses all available detection methods (Chromaprint, Chapter, and BlackFrame for credits).<br />
-                                        Select specific methods to limit analysis, or None to skip detection entirely.
+                                        <i>
+                                            Default uses all available detection methods (Chromaprint, Chapter, and BlackFrame for credits).<br />
+                                            Select specific methods to limit analysis, or None to skip detection entirely.
+                                        </i>
                                     </p>
                                     <br />
 
@@ -643,10 +645,9 @@
                                 </div>
 
                                 <div id="timestampErrorDiv" style="display: none">
-                                    <br />
-                                    <textarea id="timestampError" rows="2" cols="75" readonly></textarea>
-                                    <br />
-                                    <br />
+                                    <p>
+                                        <textarea id="timestampError" rows="2" cols="75" readonly></textarea>
+                                    </p>
                                 </div>
 
                                 <div id="fingerprintVisualizer" style="display: none">
@@ -685,12 +686,11 @@
 
                                     <span>Shift amount:</span>
                                     <input type="number" min="-3000" max="3000" value="0" id="offset" />
-                                    <br />
+                                    <p>
                                     <span id="suggestedShifts">
                                         <span>Suggested shifts: </span>
                                     </span>
-                                    <br />
-                                    <br />
+                                    </p>
                                     <canvas id="troubleshooter" style="display: none"></canvas>
                                     <span id="timestampContainer">
                                         <span id="timestamps"></span>
@@ -699,28 +699,27 @@
                                     </span>
                                     <br />
                                 </div>
-                                <br />
 
                                 <div id="eraseSeasonContainer" style="display: none">
-                                    <button is="emby-button" id="btnEraseSeasonTimestamps" class="button-submit emby-button" type="button">Erase all timestamps for this season</button>
+                                    <p>
+                                        <button is="emby-button" id="btnEraseSeasonTimestamps" class="button-submit emby-button" type="button">Erase all timestamps for this season</button>
 
-                                    <input type="checkbox" id="eraseSeasonCacheCheckbox" style="margin-left: 10px" />
-                                    <label for="eraseSeasonCacheCheckbox" style="margin-left: 5px">Erase cached fingerprint files</label>
-                                    <br />
-                                    <br />
+                                        <input type="checkbox" id="eraseSeasonCacheCheckbox" style="margin-left: 10px" />
+                                        <label for="eraseSeasonCacheCheckbox" style="margin-left: 5px">Erase cached fingerprint files</label>
+                                    </p>
                                 </div>
 
                                 <div id="eraseMovieContainer" style="display: none">
-                                    <button is="emby-button" id="btnEraseMovieTimestamps" class="button-submit emby-button" type="button">Erase all timestamps for this movie</button>
+                                    <p>
+                                        <button is="emby-button" id="btnEraseMovieTimestamps" class="button-submit emby-button" type="button">Erase all timestamps for this movie</button>
 
-                                    <input type="checkbox" id="eraseMovieCacheCheckbox" style="margin-left: 10px" />
-                                    <label for="eraseMovieCacheCheckbox" style="margin-left: 5px">Erase cached fingerprint files</label>
-                                    <br />
-                                    <br />
+                                        <input type="checkbox" id="eraseMovieCacheCheckbox" style="margin-left: 10px" />
+                                        <label for="eraseMovieCacheCheckbox" style="margin-left: 5px">Erase cached fingerprint files</label>
+                                    </p>
                                 </div>
 
                                 <div style="display: flex; align-items: center;">
-                                    <div>
+                                    <p>
                                         <button is="emby-button" class="button-submit emby-button" id="btnEraseIntroTimestamps">Erase all introduction timestamps (globally)</button>
                                         <br />
 
@@ -731,18 +730,16 @@
                                         <br />
 
                                         <button is="emby-button" class="button-submit emby-button" id="btnErasePreviewTimestamps">Erase all preview timestamps (globally)</button>
-                                    </div>
+                                    </p>
                                     <div>
                                         <input type="checkbox" id="eraseModeCacheCheckbox" style="margin-left: 10px" />
                                         <label for="eraseModeCacheCheckbox" style="margin-left: 5px">Erase global cached fingerprint files</label>
                                     </div>
                                 </div>
-                                <br />
-                                <br />
                             </details>
 
                             <details id="support">
-                                <summary>Support Bundle Info</summary>
+                                <summary>Intro Skipper Support Log</summary>
 
                                 <textarea id="supportBundle" rows="20" cols="75" readonly></textarea>
                             </details>
