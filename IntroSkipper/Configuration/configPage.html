@@ -935,6 +935,8 @@
 
                 persistSkip.addEventListener("change", persistSkipChanged);
 
+                var remainingSecondsOfIntro = document.getElementById("RemainingSecondsOfIntro")
+
                 async function pluginSkipSettingChanged() {
                     if (pluginSkip.checked) {
                         serverSkipSettings.style.display = "unset";
@@ -944,6 +946,7 @@
                         autoSkip.checked = false;
                         skipButtonVisible.checked = false;
                         persistSkip.checked = false;
+                        remainingSecondsOfIntro.value = 0;
                     }
                 }
 
