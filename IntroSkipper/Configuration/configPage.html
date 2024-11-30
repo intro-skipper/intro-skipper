@@ -1612,7 +1612,7 @@
                     fetchWithAuth("Episode/" + lhsId + "/Timestamps", "POST", JSON.stringify(newLhs));
                     fetchWithAuth("Episode/" + rhsId + "/Timestamps", "POST", JSON.stringify(newRhs));
 
-                    Dashboard.alert("New introduction timestamps saved");
+                    Dashboard.alert("New segment timestamps saved");
                 });
                 document.addEventListener("keydown", keyDown);
                 windowHashInterval = setInterval(checkWindowHash, 2500);
