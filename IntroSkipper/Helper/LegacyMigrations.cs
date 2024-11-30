@@ -127,7 +127,7 @@ internal static class LegacyMigrations
         }
         catch (Exception)
         {
-            // If skip button is disabled and we can't access the file, just return silently
+            // If skip button is disabled, and we can't access the file, just return silently
             if (!plugin.Configuration.SkipButtonEnabled)
             {
                 logger.LogDebug("Skip button disabled and no permission to access index.html. Assuming its a fresh install.");
@@ -235,7 +235,7 @@ internal static class LegacyMigrations
                         // only add if not already disabled
                         if (!folder.LibraryOptions.DisabledMediaSegmentProviders.Contains(plugin.Name))
                         {
-                            // ppend in case there other disabled media segment providers
+                            // append in case there other disabled media segment providers
                             folder.LibraryOptions.DisabledMediaSegmentProviders = [.. folder.LibraryOptions.DisabledMediaSegmentProviders, plugin.Name];
                             logger.LogInformation("Disable Media Segment Provider <{Name}> for Library <{Name}>", plugin.Name, folder.Name);
                         }
@@ -258,7 +258,7 @@ internal static class LegacyMigrations
                         // only add if not already disabled
                         if (!folder.LibraryOptions.DisabledMediaSegmentProviders.Contains(plugin.Name))
                         {
-                            // ppend in case there other disabled media segment providers
+                            // append in case there other disabled media segment providers
                             folder.LibraryOptions.DisabledMediaSegmentProviders = [.. folder.LibraryOptions.DisabledMediaSegmentProviders, plugin.Name];
                             logger.LogInformation("Disable Media Segment Provider <{Name}> for Library <{Name}>", plugin.Name, folder.Name);
                         }
