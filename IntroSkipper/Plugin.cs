@@ -77,15 +77,6 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
             Directory.CreateDirectory(FingerprintCachePath);
         }
 
-        try
-        {
-            LegacyMigrations.MigrateAll(this, serverConfiguration, logger, applicationPaths, _libraryManager);
-        }
-        catch (Exception ex)
-        {
-            logger.LogError("Failed to perform migrations. Error: {Error}", ex);
-        }
-
         // Initialize database, restore timestamps if available.
         try
         {
@@ -95,6 +86,15 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
         catch (Exception ex)
         {
             logger.LogWarning("Error initializing database: {Exception}", ex);
+        }
+
+        try
+        {
+            LegacyMigrations.MigrateAll(this, serverConfiguration, logger, applicationPaths, _libraryManager);
+        }
+        catch (Exception ex)
+        {
+            logger.LogError("Failed to perform migrations. Error: {Error}", ex);
         }
 
         FFmpegWrapper.CheckFFmpegVersion();

@@ -22,7 +22,7 @@ https://manifest.intro-skipper.org/manifest.json
 
 ## System requirements
 
-* Jellyfin 10.10.2 (or newer)
+* Jellyfin 10.10.3 (or newer)
 * Jellyfin's [fork](https://github.com/jellyfin/jellyfin-ffmpeg) of `ffmpeg` must be installed, version `7.0.2-5` or newer
   * `jellyfin/jellyfin` 10.10.z container: preinstalled
   * `linuxserver/jellyfin` 10.10.z container: preinstalled
@@ -48,7 +48,7 @@ https://manifest.intro-skipper.org/manifest.json
 - #### [Scheduled tasks fail instantly](https://github.com/intro-skipper/intro-skipper/wiki/Troubleshooting#scheduled-tasks-fail-instantly)
 - #### [Plugin settings not saved](https://github.com/intro-skipper/intro-skipper/wiki/Troubleshooting#plugin-settings-not-saved)
 - #### [Skip button is not visible](https://github.com/intro-skipper/intro-skipper/wiki/Troubleshooting#skip-button-is-not-visible)
-- #### [Autoskip is not working](https://github.com/intro-skipper/intro-skipper/wiki/Troubleshooting#autoskip-is-not-working)
+- #### [Auto skip is not working](https://github.com/intro-skipper/intro-skipper/wiki/Troubleshooting#auto-skip-is-not-working)
 
 ## [API Documentation](https://github.com/intro-skipper/intro-skipper/blob/master/docs/api.md)
 
