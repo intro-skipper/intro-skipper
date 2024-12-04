@@ -935,6 +935,8 @@
 
                 persistSkip.addEventListener("change", persistSkipChanged);
 
+                var remainingSecondsOfIntro = document.getElementById("RemainingSecondsOfIntro")
+
                 async function pluginSkipSettingChanged() {
                     if (pluginSkip.checked) {
                         serverSkipSettings.style.display = "unset";
@@ -944,6 +946,7 @@
                         autoSkip.checked = false;
                         skipButtonVisible.checked = false;
                         persistSkip.checked = false;
+                        remainingSecondsOfIntro.value = 0;
                     }
                 }
 
@@ -1609,7 +1612,7 @@
                     fetchWithAuth("Episode/" + lhsId + "/Timestamps", "POST", JSON.stringify(newLhs));
                     fetchWithAuth("Episode/" + rhsId + "/Timestamps", "POST", JSON.stringify(newRhs));
 
-                    Dashboard.alert("New introduction timestamps saved");
+                    Dashboard.alert("New segment timestamps saved");
                 });
                 document.addEventListener("keydown", keyDown);
                 windowHashInterval = setInterval(checkWindowHash, 2500);

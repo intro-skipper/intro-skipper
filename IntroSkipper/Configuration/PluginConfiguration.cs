@@ -227,7 +227,7 @@ public class PluginConfiguration : BasePluginConfiguration
     /// <summary>
     /// Gets or sets the amount of intro to play (in seconds).
     /// </summary>
-    public int RemainingSecondsOfIntro { get; set; } = 2;
+    public int RemainingSecondsOfIntro { get; set; }
 
     /// <summary>
     /// Gets or sets the amount of intro at start to play (in seconds).
