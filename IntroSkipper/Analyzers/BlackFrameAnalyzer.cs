@@ -37,13 +37,8 @@ public class BlackFrameAnalyzer(ILogger<BlackFrameAnalyzer> logger) : IMediaFile
 
         var searchStart = 0.0;
 
-        foreach (var episode in episodesWithoutIntros)
+        foreach (var episode in episodesWithoutIntros.TakeWhile(episode => !cancellationToken.IsCancellationRequested))
         {
-            if (cancellationToken.IsCancellationRequested)
-            {
-                break;
-            }
-
             if (!AnalyzeChapters(episode, out var credit))
             {
                 if (searchStart < _config.MinimumCreditsDuration)
