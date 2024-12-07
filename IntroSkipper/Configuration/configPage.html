@@ -15,7 +15,6 @@
                         margin: auto;
                         border: none;
                         text-align: center;
-                        outline: none;
                         font-size: 1em;
                         outline: 2px solid rgba(155, 155, 155, 0.5);
                     }
@@ -283,7 +282,7 @@
                                         <option value="RealTime">Highest</option>
                                     </select>
 
-                                    <div class="fieldDescription">Sets the relative priority of the analysis ffmpeg process to other parallel operations (ie. transcoding, chapter detection, etc).</div>
+                                    <div class="fieldDescription">Sets the relative priority of the analysis ffmpeg process to other parallel operations (i.e. transcoding, chapter detection, etc).</div>
                                 </div>
 
                                 <div class="inputContainer">
@@ -508,7 +507,7 @@
                                 <div id="episodeSelection">
                                     <label class="inputLabel" for="troubleshooterEpisode1">Select the first episode</label>
                                     <select is="emby-select" id="troubleshooterEpisode1" class="emby-select-withcolor emby-select"></select>
-                                    <label class="inputLabel" for="troubleshooterEpisode1">Select the second episode</label>
+                                    <label class="inputLabel" for="troubleshooterEpisode2">Select the second episode</label>
                                     <select is="emby-select" id="troubleshooterEpisode2" class="emby-select-withcolor emby-select"></select>
                                     <br />
                                 </div>
@@ -739,27 +738,27 @@
 
             <script>
                 // first and second episodes to fingerprint & compare
-                var lhs = [];
-                var rhs = [];
+                let lhs = [];
+                let rhs = [];
 
                 // fingerprint point comparison & miminum similarity threshold (at most 6 bits out of 32 can be different)
-                var fprDiffs = [];
-                var fprDiffMinimum = (1 - 6 / 32) * 100;
+                let fprDiffs = [];
+                const fprDiffMinimum = (1 - 6 / 32) * 100;
 
                 // seasons grouped by show
-                var shows = {};
+                let shows = {};
 
                 // settings elements
-                var visualizer = document.querySelector("details#visualizer");
-                var support = document.querySelector("details#support");
-                var storage = document.querySelector("details#storage");
-                var btnEraseIntroTimestamps = document.querySelector("button#btnEraseIntroTimestamps");
-                var btnEraseRecapTimestamps = document.querySelector("button#btnEraseRecapTimestamps");
-                var btnEraseCreditTimestamps = document.querySelector("button#btnEraseCreditTimestamps");
-                var btnErasePreviewTimestamps = document.querySelector("button#btnErasePreviewTimestamps");
+                const visualizer = document.querySelector("details#visualizer");
+                const support = document.querySelector("details#support");
+                const storage = document.querySelector("details#storage");
+                const btnEraseIntroTimestamps = document.querySelector("button#btnEraseIntroTimestamps");
+                const btnEraseRecapTimestamps = document.querySelector("button#btnEraseRecapTimestamps");
+                const btnEraseCreditTimestamps = document.querySelector("button#btnEraseCreditTimestamps");
+                const btnErasePreviewTimestamps = document.querySelector("button#btnErasePreviewTimestamps");
 
                 // all plugin configuration fields that can be get or set with .value (i.e. strings or numbers).
-                var configurationFields = [
+                const configurationFields = [
                     // analysis
                     "MaxParallelism",
                     "SelectedLibraries",
@@ -792,50 +791,50 @@
                     "AutoSkipNotificationText",
                 ];
 
-                var booleanConfigurationFields = ["AutoDetectIntros", "AnalyzeMovies", "AnalyzeSeasonZero", "SelectAllLibraries", "UpdateMediaSegments", "RebuildMediaSegments", "ScanIntroduction", "ScanCredits", "ScanRecap", "ScanPreview", "CacheFingerprints", "PluginSkip", "AutoSkip", "SkipFirstEpisode", "PersistSkipButton", "SkipButtonEnabled"];
+                const booleanConfigurationFields = ["AutoDetectIntros", "AnalyzeMovies", "AnalyzeSeasonZero", "SelectAllLibraries", "UpdateMediaSegments", "RebuildMediaSegments", "ScanIntroduction", "ScanCredits", "ScanRecap", "ScanPreview", "CacheFingerprints", "PluginSkip", "AutoSkip", "SkipFirstEpisode", "PersistSkipButton", "SkipButtonEnabled"];
 
                 // visualizer elements
-                var analyzerActionsSection = document.querySelector("div#analyzerActionsSection");
-                var actionIntro = analyzerActionsSection.querySelector("select#actionIntro");
-                var actionCredits = analyzerActionsSection.querySelector("select#actionCredits");
-                var actionRecap = analyzerActionsSection.querySelector("select#actionRecap");
-                var actionPreview = analyzerActionsSection.querySelector("select#actionPreview");
-                var saveAnalyzerActionsButton = analyzerActionsSection.querySelector("button#saveAnalyzerActions");
-                var canvas = document.querySelector("canvas#troubleshooter");
-                var selectShow = document.querySelector("select#troubleshooterShow");
-                var seasonSelection = document.getElementById("seasonSelection");
-                var selectSeason = document.querySelector("select#troubleshooterSeason");
-                var episodeSelection = document.getElementById("episodeSelection");
-                var selectEpisode1 = document.querySelector("select#troubleshooterEpisode1");
-                var selectEpisode2 = document.querySelector("select#troubleshooterEpisode2");
-                var txtOffset = document.querySelector("input#offset");
-                var txtSuggested = document.querySelector("span#suggestedShifts");
-                var btnSeasonEraseTimestamps = document.querySelector("button#btnEraseSeasonTimestamps");
-                var eraseSeasonContainer = document.getElementById("eraseSeasonContainer");
-                var btnMovieEraseTimestamps = document.querySelector("button#btnEraseMovieTimestamps");
-                var eraseMovieContainer = document.getElementById("eraseMovieContainer");
-                var timestampError = document.querySelector("textarea#timestampError");
-                var timestampEditor = document.querySelector("#timestampEditor");
-                var rightEpisodeEditor = document.getElementById("rightEpisodeEditor");
-                var btnUpdateTimestamps = document.querySelector("button#btnUpdateTimestamps");
-                var timeContainer = document.querySelector("span#timestampContainer");
-                var fingerprintVisualizer = document.getElementById("fingerprintVisualizer");
+                const analyzerActionsSection = document.querySelector("div#analyzerActionsSection");
+                const actionIntro = analyzerActionsSection.querySelector("select#actionIntro");
+                const actionCredits = analyzerActionsSection.querySelector("select#actionCredits");
+                const actionRecap = analyzerActionsSection.querySelector("select#actionRecap");
+                const actionPreview = analyzerActionsSection.querySelector("select#actionPreview");
+                const saveAnalyzerActionsButton = analyzerActionsSection.querySelector("button#saveAnalyzerActions");
+                const canvas = document.querySelector("canvas#troubleshooter");
+                const selectShow = document.querySelector("select#troubleshooterShow");
+                const seasonSelection = document.getElementById("seasonSelection");
+                const selectSeason = document.querySelector("select#troubleshooterSeason");
+                const episodeSelection = document.getElementById("episodeSelection");
+                const selectEpisode1 = document.querySelector("select#troubleshooterEpisode1");
+                const selectEpisode2 = document.querySelector("select#troubleshooterEpisode2");
+                const txtOffset = document.querySelector("input#offset");
+                const txtSuggested = document.querySelector("span#suggestedShifts");
+                const btnSeasonEraseTimestamps = document.querySelector("button#btnEraseSeasonTimestamps");
+                const eraseSeasonContainer = document.getElementById("eraseSeasonContainer");
+                const btnMovieEraseTimestamps = document.querySelector("button#btnEraseMovieTimestamps");
+                const eraseMovieContainer = document.getElementById("eraseMovieContainer");
+                const timestampError = document.querySelector("textarea#timestampError");
+                const timestampEditor = document.querySelector("#timestampEditor");
+                const rightEpisodeEditor = document.getElementById("rightEpisodeEditor");
+                const btnUpdateTimestamps = document.querySelector("button#btnUpdateTimestamps");
+                const timeContainer = document.querySelector("span#timestampContainer");
+                const fingerprintVisualizer = document.getElementById("fingerprintVisualizer");
 
-                var windowHashInterval = 0;
+                let windowHashInterval = 0;
 
-                var analyzeMovies = document.getElementById("AnalyzeMovies");
-                var pluginSkip = document.getElementById("PluginSkip");
-                var serverSkipSettings = document.getElementById("ServerSkipSettings");
-                var autoSkip = document.getElementById("AutoSkip");
-                var skipButtonVisible = document.getElementById("SkipButtonEnabled");
-                var skipButtonVisibleLabel = document.getElementById("SkipButtonVisibleLabel");
-                var skipButtonSettings = document.getElementById("SkipButtonSettings");
-                var selectAllLibraries = document.querySelector("input#SelectAllLibraries");
-                var librariesContainer = document.querySelector("div.folderAccessListContainer");
-                var skipFirstEpisode = document.getElementById("divSkipFirstEpisode");
-                var secondsOfIntroStartToPlay = document.getElementById("divSecondsOfIntroStartToPlay");
-                var autoSkipClientList = document.querySelector("div.AutoSkipClientListContainer");
-                var movieCreditsDuration = document.getElementById("movieCreditsDuration");
+                const analyzeMovies = document.getElementById("AnalyzeMovies");
+                const pluginSkip = document.getElementById("PluginSkip");
+                const serverSkipSettings = document.getElementById("ServerSkipSettings");
+                const autoSkip = document.getElementById("AutoSkip");
+                const skipButtonVisible = document.getElementById("SkipButtonEnabled");
+                const skipButtonVisibleLabel = document.getElementById("SkipButtonVisibleLabel");
+                const skipButtonSettings = document.getElementById("SkipButtonSettings");
+                const selectAllLibraries = document.querySelector("input#SelectAllLibraries");
+                const librariesContainer = document.querySelector("div.folderAccessListContainer");
+                const skipFirstEpisode = document.getElementById("divSkipFirstEpisode");
+                const secondsOfIntroStartToPlay = document.getElementById("divSecondsOfIntroStartToPlay");
+                const autoSkipClientList = document.querySelector("div.AutoSkipClientListContainer");
+                const movieCreditsDuration = document.getElementById("movieCreditsDuration");
 
                 function skipButtonVisibleChanged() {
                     if (autoSkip.checked) {
@@ -918,9 +917,9 @@
                     generateCheckboxList(libraryNames, "libraryCheckboxes", "SelectedLibraries");
                 }
 
-                var persistSkip = document.getElementById("PersistSkipButton");
-                var showAdjustment = document.querySelector("div#divShowPromptAdjustment");
-                var hideAdjustment = document.querySelector("div#divHidePromptAdjustment");
+                const persistSkip = document.getElementById("PersistSkipButton");
+                const showAdjustment = document.querySelector("div#divShowPromptAdjustment");
+                const hideAdjustment = document.querySelector("div#divHidePromptAdjustment");
 
                 // prevent setting unavailable options
                 async function persistSkipChanged() {
@@ -935,7 +934,7 @@
 
                 persistSkip.addEventListener("change", persistSkipChanged);
 
-                var remainingSecondsOfIntro = document.getElementById("RemainingSecondsOfIntro")
+                const remainingSecondsOfIntro = document.getElementById("RemainingSecondsOfIntro");
 
                 async function pluginSkipSettingChanged() {
                     if (pluginSkip.checked) {
@@ -1062,7 +1061,7 @@
                     clearSelect(selectEpisode2);
 
                     if (shows[selectShow.value].IsMovie) {
-                        movieLoaded();
+                        await movieLoaded();
                         return;
                     }
 
@@ -1149,7 +1148,7 @@
                     refreshBounds();
                     renderTroubleshooter();
                     findExactMatches();
-                    updateTimestampEditor();
+                    await updateTimestampEditor();
                 }
 
                 async function movieLoaded() {
@@ -1289,7 +1288,7 @@
                     select.add(item);
                 }
 
-                // clear a select of items
+                // clear selection of items
                 function clearSelect(select) {
                     timestampError.value = "";
                     timestampErrorDiv.style.display = "none";
@@ -1542,7 +1541,7 @@
                 saveAnalyzerActionsButton.addEventListener("click", () => {
                     Dashboard.showLoadingMsg();
 
-                    var url = "Intros/AnalyzerActions/UpdateSeason";
+                    const url = "Intros/AnalyzerActions/UpdateSeason";
                     const actions = {
                         id: selectSeason.value,
                         analyzerActions: {
@@ -1658,11 +1657,8 @@
                     let minutes = Math.floor((seconds % 3600) / 60);
                     let remainingSeconds = seconds % 60;
 
-                    // Format as HH:MM:SS
-                    let formattedTime = String(hours).padStart(2, "0") + ":" + String(minutes).padStart(2, "0") + ":" + String(remainingSeconds).padStart(2, "0");
-
-                    // Set the value of the time input
-                    return formattedTime;
+                    // Format as HH:MM:SS and set the value of the time input
+                    return String(hours).padStart(2, "0") + ":" + String(minutes).padStart(2, "0") + ":" + String(remainingSeconds).padStart(2, "0");
                 }
 
                 function getTimeInSeconds(time) {
