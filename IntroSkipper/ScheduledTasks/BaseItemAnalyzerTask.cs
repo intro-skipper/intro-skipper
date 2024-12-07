@@ -79,8 +79,8 @@ public class BaseItemAnalyzerTask(
         int totalQueued = queue.Sum(kvp => kvp.Value.Count) * modes.Count;
         if (totalQueued == 0)
         {
-            throw new FingerprintException(
-                "No libraries selected for analysis. Please visit the plugin settings to configure.");
+            _logger.LogInformation("No libraries selected for analysis. To enable, check library configuration > Media Segment Providers.");
+            return;
         }
 
         int totalProcessed = 0;

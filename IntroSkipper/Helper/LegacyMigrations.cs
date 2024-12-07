@@ -10,6 +10,8 @@ using IntroSkipper.Data;
 using IntroSkipper.Db;
 using MediaBrowser.Common.Configuration;
 using MediaBrowser.Controller.Configuration;
+using MediaBrowser.Controller.Library;
+using MediaBrowser.Model.Entities;
 using MediaBrowser.Model.Updates;
 using Microsoft.Extensions.Logging;
 
@@ -21,7 +23,8 @@ internal static class LegacyMigrations
         Plugin plugin,
         IServerConfigurationManager serverConfiguration,
         ILogger logger,
-        IApplicationPaths applicationPaths)
+        IApplicationPaths applicationPaths,
+        ILibraryManager libraryManager)
     {
         var pluginDirName = "introskipper";
         var introPath = Path.Join(applicationPaths.DataPath, pluginDirName, "intros.xml");
@@ -32,6 +35,7 @@ internal static class LegacyMigrations
 
         MigrateConfig(plugin, applicationPaths.PluginConfigurationsPath, logger);
         MigrateRepoUrl(plugin, serverConfiguration, logger);
+        MigrateSettingsToJellyfin(plugin, logger, libraryManager);
         InjectSkipButton(plugin, applicationPaths.WebPath, logger);
         RestoreTimestamps(plugin.DbPath, introPath, creditsPath);
     }
@@ -123,7 +127,7 @@ internal static class LegacyMigrations
         }
         catch (Exception)
         {
-            // If skip button is disabled and we can't access the file, just return silently
+            // If skip button is disabled, and we can't access the file, just return silently
             if (!plugin.Configuration.SkipButtonEnabled)
             {
                 logger.LogDebug("Skip button disabled and no permission to access index.html. Assuming its a fresh install.");
@@ -214,5 +218,68 @@ internal static class LegacyMigrations
 
         File.Delete(introPath);
         File.Delete(creditsPath);
+    }
+
+    private static void MigrateSettingsToJellyfin(Plugin plugin, ILogger logger, ILibraryManager libraryManager)
+    {
+        try
+        {
+            if (!plugin.Configuration.SelectAllLibraries)
+            {
+                logger.LogInformation("Migration of your old library settings to Jellyfin");
+                List<string> selectedLibraries = [.. plugin.Configuration.SelectedLibraries.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)];
+                foreach (var folder in libraryManager.GetVirtualFolders())
+                {
+                    if (!selectedLibraries.Contains(folder.Name) && folder.CollectionType is CollectionTypeOptions.tvshows or CollectionTypeOptions.movies or CollectionTypeOptions.mixed)
+                    {
+                        // only add if not already disabled
+                        if (!folder.LibraryOptions.DisabledMediaSegmentProviders.Contains(plugin.Name))
+                        {
+                            // append in case there other disabled media segment providers
+                            folder.LibraryOptions.DisabledMediaSegmentProviders = [.. folder.LibraryOptions.DisabledMediaSegmentProviders, plugin.Name];
+                            logger.LogInformation("Disable Media Segment Provider <{Name}> for Library <{Name}>", plugin.Name, folder.Name);
+                        }
+                    }
+                }
+
+                // reset to default
+                plugin.Configuration.SelectAllLibraries = true;
+                plugin.Configuration.SelectedLibraries = string.Empty;
+                plugin.SaveConfiguration();
+            }
+
+            if (!plugin.Configuration.AnalyzeMovies)
+            {
+                logger.LogInformation("Migration of your old Movie settings to Jellyfin");
+                foreach (var folder in libraryManager.GetVirtualFolders())
+                {
+                    if (folder.CollectionType is CollectionTypeOptions.movies or CollectionTypeOptions.mixed)
+                    {
+                        // only add if not already disabled
+                        if (!folder.LibraryOptions.DisabledMediaSegmentProviders.Contains(plugin.Name))
+                        {
+                            // append in case there other disabled media segment providers
+                            folder.LibraryOptions.DisabledMediaSegmentProviders = [.. folder.LibraryOptions.DisabledMediaSegmentProviders, plugin.Name];
+                            logger.LogInformation("Disable Media Segment Provider <{Name}> for Library <{Name}>", plugin.Name, folder.Name);
+                        }
+                    }
+                }
+
+                // reset to default
+                plugin.Configuration.AnalyzeMovies = true;
+                plugin.SaveConfiguration();
+            }
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning("The migration of your old library settings to Jellyfin has failed: {Exception}", ex);
+        }
+        finally
+        {
+            // reset to default
+            plugin.Configuration.SelectAllLibraries = true;
+            plugin.Configuration.SelectedLibraries = string.Empty;
+            plugin.SaveConfiguration();
+        }
     }
 }
