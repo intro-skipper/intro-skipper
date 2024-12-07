@@ -117,13 +117,15 @@ public class BlackFrameAnalyzer(ILogger<BlackFrameAnalyzer> logger) : IMediaFile
                 // Since no black frames were found, slide the range closer to the end
                 start = midpoint - TimeSpan.FromSeconds(2);
 
-                if (midpoint - TimeSpan.FromSeconds(lowerLimit) < _maximumError)
+                if (midpoint - TimeSpan.FromSeconds(lowerLimit) >= _maximumError)
                 {
-                    lowerLimit = Math.Max(lowerLimit - (0.5 * searchDistance), _config.MinimumCreditsDuration);
-
-                    // Reset end for a new search with the increased duration
-                    end = TimeSpan.FromSeconds(lowerLimit);
+                    continue;
                 }
+
+                lowerLimit = Math.Max(lowerLimit - (0.5 * searchDistance), _config.MinimumCreditsDuration);
+
+                // Reset end for a new search with the increased duration
+                end = TimeSpan.FromSeconds(lowerLimit);
             }
             else
             {
@@ -131,13 +133,15 @@ public class BlackFrameAnalyzer(ILogger<BlackFrameAnalyzer> logger) : IMediaFile
                 end = midpoint;
                 firstFrameTime = frames[0].Time + scanTime;
 
-                if (TimeSpan.FromSeconds(upperLimit) - midpoint < _maximumError)
+                if (TimeSpan.FromSeconds(upperLimit) - midpoint >= _maximumError)
                 {
-                    upperLimit = Math.Min(upperLimit + (0.5 * searchDistance), episode.Duration - episode.CreditsFingerprintStart);
-
-                    // Reset start for a new search with the increased duration
-                    start = TimeSpan.FromSeconds(upperLimit);
+                    continue;
                 }
+
+                upperLimit = Math.Min(upperLimit + (0.5 * searchDistance), episode.Duration - episode.CreditsFingerprintStart);
+
+                // Reset start for a new search with the increased duration
+                start = TimeSpan.FromSeconds(upperLimit);
             }
         }
 
@@ -180,11 +184,13 @@ public class BlackFrameAnalyzer(ILogger<BlackFrameAnalyzer> logger) : IMediaFile
                 beforeRange,
                 _config.BlackFrameMinimumPercentage).Length > 0;
 
-            if (!hasBlackFramesBefore)
+            if (hasBlackFramesBefore)
             {
-                segment = new(episode.EpisodeId, new TimeRange(chapterStart, episode.Duration));
-                return true;
+                continue;
             }
+
+            segment = new Segment(episode.EpisodeId, new TimeRange(chapterStart, episode.Duration));
+            return true;
         }
 
         segment = null;
@@ -206,11 +212,13 @@ public class BlackFrameAnalyzer(ILogger<BlackFrameAnalyzer> logger) : IMediaFile
             tr = new TimeRange(scanTime - 0.5, scanTime);
 
             // Don't search past the required credits duration from the end
-            if (searchStart > episode.Duration - episode.CreditsFingerprintStart)
+            if (searchStart <= episode.Duration - episode.CreditsFingerprintStart)
             {
-                searchStart = episode.Duration - episode.CreditsFingerprintStart;
-                break;
+                continue;
             }
+
+            searchStart = episode.Duration - episode.CreditsFingerprintStart;
+            break;
         }
 
         return searchStart;
