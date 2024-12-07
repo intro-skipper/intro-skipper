@@ -149,11 +149,13 @@ public class ChromaprintAnalyzer(ILogger<ChromaprintAnalyzer> logger) : IMediaFi
             }
 
             // If an intro is found for this episode, adjust its times and save it else add it to the list of episodes without intros.
-            if (seasonIntros.TryGetValue(currentEpisode.EpisodeId, out var intro))
+            if (!seasonIntros.TryGetValue(currentEpisode.EpisodeId, out var intro))
             {
-                currentEpisode.IsAnalyzed = true;
-                await Plugin.Instance!.UpdateTimestampAsync(intro, mode).ConfigureAwait(false);
+                continue;
             }
+
+            currentEpisode.IsAnalyzed = true;
+            await Plugin.Instance!.UpdateTimestampAsync(intro, mode).ConfigureAwait(false);
         }
 
         return analysisQueue;
