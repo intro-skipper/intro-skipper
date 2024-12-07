@@ -147,7 +147,7 @@ public class BlackFrameAnalyzer(ILogger<BlackFrameAnalyzer> logger) : IMediaFile
 
         if (firstFrameTime > 0)
         {
-            return new(episode.EpisodeId, new TimeRange(firstFrameTime, episode.Duration));
+            return new Segment(episode.EpisodeId, new TimeRange(firstFrameTime, episode.Duration));
         }
 
         return null;
