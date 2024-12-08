@@ -126,19 +126,19 @@
                                 </div>
 
                                 <div class="inputContainer">
-                                    <label class="inputLabel inputLabelUnfocused" for="AnalysisPercent"> Percent of episode to analyze </label>
+                                    <label class="inputLabel inputLabelUnfocused" for="AnalysisPercent"> Percent of media to analyze </label>
                                     <input id="AnalysisPercent" type="number" is="emby-input" min="1" max="90" />
-                                    <div class="fieldDescription">Analysis will be limited to this percentage of each episode's runtime. For example, a value of 25 (the default) will limit analysis to the first quarter of each episode.</div>
+                                    <div class="fieldDescription">Analysis will be limited to this percentage of each item's runtime. For example, a value of 25 (the default) will limit analysis to the first quarter of each item.</div>
                                 </div>
 
                                 <div class="inputContainer">
                                     <label class="inputLabel inputLabelUnfocused" for="AnalysisLengthLimit"> Maximum runtime to analyze (in minutes) </label>
                                     <input id="AnalysisLengthLimit" type="number" is="emby-input" min="1" />
-                                    <div class="fieldDescription">Analysis will be limited to this amount of each episode's runtime. For example, a value of 10 (the default) will limit analysis to the first 10 minutes of each episode.</div>
+                                    <div class="fieldDescription">Analysis will be limited to this amount of each item's runtime. For example, a value of 10 (the default) will limit analysis to the first 10 minutes of each item.</div>
                                 </div>
 
                                 <p>
-                                    The amount of each item's content that will be analyzed is determined using both the percentage and maximum runtime to analyze. The minimum of (duration * percent, maximum runtime) is the amount that will be analyzed.
+                                    The amount of each item's content that will be analyzed is determined using the percentage and maximum runtime. The minimum of (duration * percent, maximum runtime) is the amount that will be analyzed.
                                 </p>
                                 <p>
                                     If the percentage or maximum runtime settings are modified, the cached fingerprints and timestamps for each series, season, or movie you want to analyze with the modified settings <b>will have to be recreated</b>.
