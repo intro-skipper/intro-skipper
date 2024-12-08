@@ -76,7 +76,7 @@ public class BlackFrameAnalyzer(ILogger<BlackFrameAnalyzer> logger) : IMediaFile
     {
         // Start by analyzing the last N minutes of the file.
         var searchDistance = 2 * _config.MinimumCreditsDuration;
-        var upperLimit = searchStart;
+        var upperLimit = Math.Min(searchStart, episode.Duration - episode.CreditsFingerprintStart);
         var lowerLimit = Math.Max(searchStart - searchDistance, _config.MinimumCreditsDuration);
         var start = TimeSpan.FromSeconds(upperLimit);
         var end = TimeSpan.FromSeconds(lowerLimit);
