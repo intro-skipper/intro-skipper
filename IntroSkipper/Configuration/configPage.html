@@ -137,6 +137,16 @@
                                     <div class="fieldDescription">Analysis will be limited to this amount of each episode's runtime. For example, a value of 10 (the default) will limit analysis to the first 10 minutes of each episode.</div>
                                 </div>
 
+                                <p>
+                                    The amount of each item's audio or content that will be analyzed is determined using both the percentage of audio and maximum runtime to analyze. The minimum of (duration * percent, maximum runtime) is the amount that will be analyzed.
+                                </p>
+                                <p>
+                                    If the audio percentage or maximum runtime settings are modified, the cached fingerprints and timestamps for each series, season, or movie you want to analyze with the modified settings <b>will have to be deleted</b>.
+                                </p>
+                                <p>
+                                    Increasing either of these settings will cause episode analysis to take much longer.
+                                </p>
+
                                 <div class="inputContainer">
                                     <label class="inputLabel inputLabelUnfocused" for="MinimumIntroDuration"> Minimum introduction duration (in seconds) </label>
                                     <input id="MinimumIntroDuration" type="number" is="emby-input" min="1" />
@@ -165,19 +175,9 @@
                                     <label class="inputLabel inputLabelUnfocused" for="MaximumMovieCreditsDuration"> Maximum movie credits duration (in seconds) </label>
                                     <input id="MaximumMovieCreditsDuration" type="number" is="emby-input" min="1" />
                                     <div class="fieldDescription">Segments longer than this duration will not be considered movie credits.</div>
-                                    <br />
                                 </div>
 
-                                <p>
-                                    The amount of each item's audio or content that will be analyzed is determined using both the percentage of audio and maximum runtime to analyze. The minimum of (duration * percent, maximum runtime) is the amount that will be analyzed.
-                                </p>
-
-                                <p>
-                                    If the audio percentage or maximum runtime settings are modified, the cached fingerprints and timestamps for each series, season, or movie you want to analyze with the modified settings <b>will have to be deleted</b>.
-                                    <br />
-                                    Increasing either of these settings will cause episode analysis to take much longer.
-                                </p>
-
+                                <br />
                                 <div class="checkboxContainer checkboxContainer-withDescription">
                                     <label class="emby-checkbox-label">
                                         <input id="RebuildMediaSegments" type="checkbox" is="emby-checkbox" />
