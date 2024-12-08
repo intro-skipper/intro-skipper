@@ -57,11 +57,6 @@ public class PluginConfiguration : BasePluginConfiguration
     /// </summary>
     public bool CacheFingerprints { get; set; } = true;
 
-    /// <summary>
-    /// Gets or sets a value indicating whether analysis will use Chromaprint to determine fingerprints.
-    /// </summary>
-    public bool WithChromaprint { get; set; } = true;
-
     // ===== Media Segment handling =====
 
     /// <summary>
