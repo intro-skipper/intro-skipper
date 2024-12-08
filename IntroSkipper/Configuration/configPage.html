@@ -128,37 +128,37 @@
                                 <div class="inputContainer">
                                     <label class="inputLabel inputLabelUnfocused" for="AnalysisPercent"> Percent of audio to analyze </label>
                                     <input id="AnalysisPercent" type="number" is="emby-input" min="1" max="90" />
-                                    <div class="fieldDescription">Analysis will be limited to this percentage of each episode's audio. For example, a value of 25 (the default) will limit analysis to the first quarter of each episode.</div>
+                                    <div class="fieldDescription">Analysis will be limited to this percentage of each episode's runtime. For example, a value of 25 (the default) will limit analysis to the first quarter of each episode.</div>
                                 </div>
 
                                 <div class="inputContainer">
                                     <label class="inputLabel inputLabelUnfocused" for="AnalysisLengthLimit"> Maximum runtime of audio to analyze (in minutes) </label>
                                     <input id="AnalysisLengthLimit" type="number" is="emby-input" min="1" />
-                                    <div class="fieldDescription">Analysis will be limited to this amount of each episode's audio. For example, a value of 10 (the default) will limit analysis to the first 10 minutes of each episode.</div>
+                                    <div class="fieldDescription">Analysis will be limited to this amount of each episode's runtime. For example, a value of 10 (the default) will limit analysis to the first 10 minutes of each episode.</div>
                                 </div>
 
                                 <div class="inputContainer">
                                     <label class="inputLabel inputLabelUnfocused" for="MinimumIntroDuration"> Minimum introduction duration (in seconds) </label>
                                     <input id="MinimumIntroDuration" type="number" is="emby-input" min="1" />
-                                    <div class="fieldDescription">Similar sounding audio which is shorter than this duration will not be considered an introduction.</div>
+                                    <div class="fieldDescription">Segments or similar sounding audio which is shorter than this duration will not be considered an introduction.</div>
                                 </div>
 
                                 <div class="inputContainer">
                                     <label class="inputLabel inputLabelUnfocused" for="MaximumIntroDuration"> Maximum introduction duration (in seconds) </label>
                                     <input id="MaximumIntroDuration" type="number" is="emby-input" min="1" />
-                                    <div class="fieldDescription">Similar sounding audio which is longer than this duration will not be considered an introduction.</div>
+                                    <div class="fieldDescription">Segments or similar sounding audio which is longer than this duration will not be considered an introduction.</div>
                                 </div>
 
                                 <div class="inputContainer">
                                     <label class="inputLabel inputLabelUnfocused" for="MinimumCreditsDuration"> Minimum credits duration (in seconds) </label>
                                     <input id="MinimumCreditsDuration" type="number" is="emby-input" min="1" />
-                                    <div class="fieldDescription">Similar sounding audio which is shorter than this duration will not be considered credits.</div>
+                                    <div class="fieldDescription">Segments or similar sounding audio which is shorter than this duration will not be considered credits.</div>
                                 </div>
 
                                 <div class="inputContainer">
                                     <label class="inputLabel inputLabelUnfocused" for="MaximumCreditsDuration"> Maximum credits duration (in seconds) </label>
                                     <input id="MaximumCreditsDuration" type="number" is="emby-input" min="1" />
-                                    <div class="fieldDescription">Similar sounding audio which is longer than this duration will not be considered credits.</div>
+                                    <div class="fieldDescription">Segments or similar sounding audio which is longer than this duration will not be considered credits.</div>
                                 </div>
 
                                 <div class="inputContainer" id="movieCreditsDuration">
