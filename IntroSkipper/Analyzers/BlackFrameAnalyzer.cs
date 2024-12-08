@@ -57,7 +57,7 @@ public class BlackFrameAnalyzer(ILogger<BlackFrameAnalyzer> logger) : IMediaFile
                 continue;
             }
 
-            episode.IsAnalyzed = episode.IsMovie;
+            episode.IsAnalyzed = true;
             await Plugin.Instance!.UpdateTimestampAsync(credit, mode).ConfigureAwait(false);
             searchStart = episode.Duration - credit.Start + _config.MinimumCreditsDuration;
         }
