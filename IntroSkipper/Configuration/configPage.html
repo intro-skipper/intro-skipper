@@ -243,7 +243,7 @@
                             </details>
 
                             <details id="detection">
-                                <summary>Process Configuration</summary>
+                                <summary>FFmpeg Process Configuration</summary>
 
                                 <br />
                                 <div class="inputContainer">
@@ -267,7 +267,7 @@
                                 </div>
 
                                 <div class="selectContainer">
-                                    <label class="selectLabel" for="ProcessPriority">ffmpeg Priority</label>
+                                    <label class="selectLabel" for="ProcessPriority">FFmpeg Priority</label>
                                     <select is="emby-select" id="ProcessPriority" class="emby-select-withcolor emby-select">
                                         <option value="Idle">Idle</option>
 
@@ -282,14 +282,14 @@
                                         <option value="RealTime">Highest</option>
                                     </select>
 
-                                    <div class="fieldDescription">Sets the relative priority of the analysis ffmpeg process to other parallel operations (i.e. transcoding, chapter detection, etc).</div>
+                                    <div class="fieldDescription">Sets the relative priority of the analysis FFmpeg process to other parallel operations (i.e. transcoding, chapter detection, etc).</div>
                                 </div>
 
                                 <div class="inputContainer">
-                                    <label class="inputLabel inputLabelUnfocused" for="ProcessThreads"> ffmpeg Threads </label>
+                                    <label class="inputLabel inputLabelUnfocused" for="ProcessThreads"> FFmpeg Threads </label>
                                     <input id="ProcessThreads" type="number" is="emby-input" min="0" max="16" />
                                     <div class="fieldDescription">
-                                        Number of simultaneous processes to use for ffmpeg operations.
+                                        Number of simultaneous processes to use for FFmpeg operations.
                                         <br />
                                         This value is most often defined as 1 thread per CPU core, but setting a value of 0 (default) will use the maximum threads available.
                                     </div>
