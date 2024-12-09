@@ -50,13 +50,6 @@ public class BaseItemAnalyzerTask(
         CancellationToken cancellationToken,
         IReadOnlyCollection<Guid>? seasonsToAnalyze = null)
     {
-        // Assert that ffmpeg with chromaprint is installed
-        if (_config.WithChromaprint && !FFmpegWrapper.CheckFFmpegVersion())
-        {
-            throw new FingerprintException(
-                "Analysis terminated! Chromaprint is not enabled in the current ffmpeg. If Jellyfin is running natively, install jellyfin-ffmpeg7. If Jellyfin is running in a container, upgrade to version 10.10.0 or newer.");
-        }
-
         HashSet<AnalysisMode> modes = [
             .. _config.ScanIntroduction ? [AnalysisMode.Introduction] : Array.Empty<AnalysisMode>(),
             .. _config.ScanCredits ? [AnalysisMode.Credits] : Array.Empty<AnalysisMode>(),
@@ -194,10 +187,17 @@ public class BaseItemAnalyzerTask(
             analyzers.Add(new ChapterAnalyzer(_loggerFactory.CreateLogger<ChapterAnalyzer>()));
         }
 
-        if (first.IsAnime && _config.WithChromaprint &&
+        if (first.IsAnime &&
             mode is not (AnalysisMode.Recap or AnalysisMode.Preview) &&
             action is AnalyzerAction.Default or AnalyzerAction.Chromaprint)
         {
+            // Assert that ffmpeg with chromaprint is installed
+            if (!FFmpegWrapper.CheckFFmpegVersion())
+            {
+                throw new FingerprintException(
+                    "Analysis terminated! Chromaprint is not enabled in the current ffmpeg. If Jellyfin is running natively, install jellyfin-ffmpeg7. If Jellyfin is running in a container, upgrade to version 10.10.0 or newer.");
+            }
+
             analyzers.Add(new ChromaprintAnalyzer(_loggerFactory.CreateLogger<ChromaprintAnalyzer>()));
         }
 
@@ -211,6 +211,13 @@ public class BaseItemAnalyzerTask(
             mode is not (AnalysisMode.Recap or AnalysisMode.Preview) &&
             action is AnalyzerAction.Default or AnalyzerAction.Chromaprint)
         {
+            // Assert that ffmpeg with chromaprint is installed
+            if (!FFmpegWrapper.CheckFFmpegVersion())
+            {
+                throw new FingerprintException(
+                    "Analysis terminated! Chromaprint is not enabled in the current ffmpeg. If Jellyfin is running natively, install jellyfin-ffmpeg7. If Jellyfin is running in a container, upgrade to version 10.10.0 or newer.");
+            }
+
             analyzers.Add(new ChromaprintAnalyzer(_loggerFactory.CreateLogger<ChromaprintAnalyzer>()));
         }
 

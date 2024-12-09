@@ -28,11 +28,11 @@ https://manifest.intro-skipper.org/manifest.json
   * `linuxserver/jellyfin` 10.10.z container: preinstalled
   * Debian Linux based native installs: provided by the `jellyfin-ffmpeg7` package
   * MacOS native installs: build ffmpeg with chromaprint support ([instructions](https://github.com/intro-skipper/intro-skipper/wiki/Custom-FFMPEG-(MacOS)))
-  * Gentoo Linux native installs: enable xarblu-overlay and install media-video/jellyfin-ffmpeg
+  * Gentoo Linux native installs: enable `xarblu-overlay` and install `media-video/jellyfin-ffmpeg`
 
 ## Limitations
 
-* SyncPlay is not (yet) compatible with any method of skipping due to the nature of how the clients are synced. 
+* SyncPlay is not (yet) compatible with any method of skipping due to the nature of how the clients are synced.
 
 ## [Detection parameters](https://github.com/intro-skipper/intro-skipper/wiki#detection-parameters)
 
