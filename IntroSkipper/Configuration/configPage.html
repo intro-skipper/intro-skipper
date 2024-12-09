@@ -253,20 +253,6 @@
                                     <div class="fieldDescription">Maximum number of simultaneous async episode analysis operations.</div>
                                 </div>
 
-                                <div class="checkboxContainer checkboxContainer-withDescription">
-                                    <label class="emby-checkbox-label">
-                                        <input id="CacheFingerprints" type="checkbox" is="emby-checkbox" />
-                                        <span>Cache episode fingerprints</span>
-                                    </label>
-
-                                    <div class="fieldDescription">
-                                        If checked, episode fingerprints will be saved on the filesystem to improve analysis speed.
-                                        <br />
-                                        <b>WARNING: Disabling the cache will cause all fingerprints to be recreated during analysis. For debug use only!</b>
-                                        <br />
-                                    </div>
-                                </div>
-
                                 <div class="selectContainer">
                                     <label class="selectLabel" for="ProcessPriority">FFmpeg Priority</label>
                                     <select is="emby-select" id="ProcessPriority" class="emby-select-withcolor emby-select">
@@ -293,6 +279,20 @@
                                         Number of simultaneous processes to use for FFmpeg operations.
                                         <br />
                                         This value is most often defined as 1 thread per CPU core, but setting a value of 0 (default) will use the maximum threads available.
+                                    </div>
+                                </div>
+
+                                <div class="checkboxContainer checkboxContainer-withDescription">
+                                    <label class="emby-checkbox-label">
+                                        <input id="CacheFingerprints" type="checkbox" is="emby-checkbox" />
+                                        <span>Cache analysis fingerprints</span>
+                                    </label>
+
+                                    <div class="fieldDescription">
+                                        <b>Debug use only!</b> If checked, fingerprints will be saved on the filesystem to improve analysis speed.
+                                        <br />
+                                        <b>WARNING: Disabling the cache will cause all fingerprints to be recreated and not saved during analysis.</b>
+                                        <br />
                                     </div>
                                 </div>
                             </details>
