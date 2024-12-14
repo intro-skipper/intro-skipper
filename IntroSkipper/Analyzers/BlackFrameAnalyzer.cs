@@ -37,13 +37,8 @@ public class BlackFrameAnalyzer(ILogger<BlackFrameAnalyzer> logger) : IMediaFile
 
         var searchStart = 0.0;
 
-        foreach (var episode in episodesWithoutIntros)
+        foreach (var episode in episodesWithoutIntros.TakeWhile(episode => !cancellationToken.IsCancellationRequested))
         {
-            if (cancellationToken.IsCancellationRequested)
-            {
-                break;
-            }
-
             if (!AnalyzeChapters(episode, out var credit))
             {
                 if (searchStart < _config.MinimumCreditsDuration)
@@ -81,7 +76,7 @@ public class BlackFrameAnalyzer(ILogger<BlackFrameAnalyzer> logger) : IMediaFile
     {
         // Start by analyzing the last N minutes of the file.
         var searchDistance = 2 * _config.MinimumCreditsDuration;
-        var upperLimit = searchStart;
+        var upperLimit = Math.Min(searchStart, episode.Duration - episode.CreditsFingerprintStart);
         var lowerLimit = Math.Max(searchStart - searchDistance, _config.MinimumCreditsDuration);
         var start = TimeSpan.FromSeconds(upperLimit);
         var end = TimeSpan.FromSeconds(lowerLimit);
@@ -143,7 +138,7 @@ public class BlackFrameAnalyzer(ILogger<BlackFrameAnalyzer> logger) : IMediaFile
 
         if (firstFrameTime > 0)
         {
-            return new(episode.EpisodeId, new TimeRange(firstFrameTime, episode.Duration));
+            return new Segment(episode.EpisodeId, new TimeRange(firstFrameTime, episode.Duration));
         }
 
         return null;
@@ -182,7 +177,7 @@ public class BlackFrameAnalyzer(ILogger<BlackFrameAnalyzer> logger) : IMediaFile
 
             if (!hasBlackFramesBefore)
             {
-                segment = new(episode.EpisodeId, new TimeRange(chapterStart, episode.Duration));
+                segment = new Segment(episode.EpisodeId, new TimeRange(chapterStart, episode.Duration));
                 return true;
             }
         }
