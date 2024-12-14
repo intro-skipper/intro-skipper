@@ -1571,31 +1571,23 @@
                 saveAnalyzerActionsButton.addEventListener("click", () => {
                     Dashboard.showLoadingMsg();
 
-                    const urlActions = "Intros/AnalyzerActions/UpdateSeason";
                     const actions = {
-                        id: selectSeason.value,
-                        analyzerActions: {
-                            Introduction: actionIntro.value,
-                            Credits: actionCredits.value,
-                            Recap: actionRecap.value,
-                            Preview: actionPreview.value,
-                        },
+                        Introduction: actionIntro.value,
+                        Credits: actionCredits.value,
+                        Recap: actionRecap.value,
+                        Preview: actionPreview.value,
                     };
-
-                    const urlRegex = "Intros/AnalyzerRegexs/UpdateSeason";
                     const regexs = {
-                        id: selectSeason.value,
-                        regexs: {
-                            Introduction: regexIntro.value,
-                            Credits: regexCredits.value,
-                            Recap: regexRecap.value,
-                            Preview: regexPreview.value,
-                        },
+                        Introduction: regexIntro.value,
+                        Credits: regexCredits.value,
+                        Recap: regexRecap.value,
+                        Preview: regexPreview.value,
                     };
 
-                    fetchWithAuth(urlActions, "POST", JSON.stringify(actions));
-                    fetchWithAuth(urlRegex, "POST", JSON.stringify(regexs));
-
+                    fetchWithAuth("Intros/UpdateSeasonConfig/" + encodeURIComponent(selectSeason.value), "POST", JSON.stringify({
+                        AnalyzerActions: actions,
+                        SeasonRegexs: regexs,
+                    }));
                     Dashboard.alert("Analyzer actions updated for " + selectSeason.value + " of " + selectShow.value);
                     Dashboard.hideLoadingMsg();
                 });

@@ -6,12 +6,12 @@ namespace IntroSkipper.Data
     /// <summary>
     /// /// Update analyzer actions request.
     /// </summary>
-    public class UpdateSeasonRegexRequest
+    public class UpdateSeasonConfigRequest
     {
         /// <summary>
-        /// Gets or sets season ID.
+        /// Gets or sets analyzer actions.
         /// </summary>
-        public Guid Id { get; set; }
+        public IReadOnlyDictionary<AnalysisMode, AnalyzerAction> AnalyzerActions { get; set; } = new Dictionary<AnalysisMode, AnalyzerAction>();
 
         /// <summary>
         /// Gets or sets analyzer actions.

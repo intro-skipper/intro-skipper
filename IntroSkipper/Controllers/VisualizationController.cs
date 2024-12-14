@@ -237,27 +237,16 @@ public class VisualizationController(ILogger<VisualizationController> logger, Me
     }
 
     /// <summary>
-    /// Updates the analyzer actions for the provided season.
+    /// Updates the analyzer actions and regexs for the provided season.
     /// </summary>
-    /// <param name="request">Update analyzer actions request.</param>
-    /// <returns>No content.</returns>
-    [HttpPost("AnalyzerActions/UpdateSeason")]
-    public async Task<ActionResult> UpdateAnalyzerActions([FromBody] UpdateAnalyzerActionsRequest request)
-    {
-        await Plugin.Instance!.SetAnalyzerActionAsync(request.Id, request.AnalyzerActions).ConfigureAwait(false);
-
-        return NoContent();
-    }
-
-    /// <summary>
-    /// Updates the analyzer regexs for the provided season.
-    /// </summary>
+    /// <param name="seasonId">Season ID.</param>
     /// <param name="request">Update analyzer regexs request.</param>
     /// <returns>No content.</returns>
-    [HttpPost("AnalyzerRegexs/UpdateSeason")]
-    public async Task<ActionResult> UpdateAnalyzerRegexs([FromBody] UpdateSeasonRegexRequest request)
+    [HttpPost("UpdateSeasonConfig/{SeasonId}")]
+    public async Task<ActionResult> UpdateSeasonConfig([FromRoute] Guid seasonId, [FromBody] UpdateSeasonConfigRequest request)
     {
-        await Plugin.Instance!.SetSeasonRegexAsync(request.Id, request.SeasonRegexs).ConfigureAwait(false);
+        await Plugin.Instance!.SetAnalyzerActionAsync(seasonId, request.AnalyzerActions).ConfigureAwait(false);
+        await Plugin.Instance!.SetSeasonRegexAsync(seasonId, request.SeasonRegexs).ConfigureAwait(false);
 
         return NoContent();
     }
