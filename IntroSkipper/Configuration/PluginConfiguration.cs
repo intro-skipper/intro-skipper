@@ -28,6 +28,11 @@ public class PluginConfiguration : BasePluginConfiguration
     public string SelectedLibraries { get; set; } = string.Empty;
 
     /// <summary>
+    /// Gets or sets the comma separated list of series names to exclude from analysis.
+    /// </summary>
+    public string ExcludeSeries { get; set; } = string.Empty;
+
+    /// <summary>
     /// Gets or sets a value indicating whether all libraries should be analyzed.
     /// </summary>
     public bool SelectAllLibraries { get; set; } = true;

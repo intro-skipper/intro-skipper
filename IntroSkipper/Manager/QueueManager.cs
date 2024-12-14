@@ -33,6 +33,7 @@ namespace IntroSkipper.Manager
         private List<string> _selectedLibraries = [];
         private bool _selectAllLibraries;
         private bool _analyzeMovies;
+        private List<string> _excludeSeries = [];
 
         /// <summary>
         /// Gets all media items on the server.
@@ -97,6 +98,8 @@ namespace IntroSkipper.Manager
 
             _analyzeMovies = config.AnalyzeMovies;
 
+            _excludeSeries = [.. config.ExcludeSeries.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)];
+
             if (!_selectAllLibraries)
             {
                 // Get the list of library names which have been selected for analysis, ignoring whitespace and empty entries.
@@ -148,20 +151,27 @@ namespace IntroSkipper.Manager
 
             foreach (var item in items)
             {
-                if (item is Episode episode)
+                try
                 {
-                    QueueEpisode(episode);
-                }
-                else if (item is Movie movie)
-                {
-                    if (_analyzeMovies)
+                    if (item is Episode episode && !_excludeSeries.Contains(episode.SeriesName))
                     {
-                        QueueMovie(movie);
+                        QueueEpisode(episode);
+                    }
+                    else if (item is Movie movie && !_excludeSeries.Contains(movie.Name))
+                    {
+                        if (_analyzeMovies)
+                        {
+                            QueueMovie(movie);
+                        }
+                    }
+                    else
+                    {
+                        _logger.LogDebug("Item {Name} is not an episode or movie", item.Name);
                     }
                 }
-                else
+                catch (Exception ex)
                 {
-                    _logger.LogDebug("Item {Name} is not an episode or movie", item.Name);
+                    _logger.LogError(ex, "Error processing item {Name} ({Id})", item.Name, item.Id);
                 }
             }
 
@@ -227,9 +237,9 @@ namespace IntroSkipper.Manager
                 Name = episode.Name,
                 IsAnime = isAnime,
                 Path = episode.Path,
-                Duration = Convert.ToInt32(duration),
-                IntroFingerprintEnd = Convert.ToInt32(fingerprintDuration),
-                CreditsFingerprintStart = Convert.ToInt32(duration - maxCreditsDuration),
+                Duration = (int)duration,
+                IntroFingerprintEnd = (int)(duration - fingerprintDuration),
+                CreditsFingerprintStart = (int)(duration - maxCreditsDuration),
             });
 
             pluginInstance.TotalQueued++;
