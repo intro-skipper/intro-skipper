@@ -9,6 +9,14 @@
         "imageUrl": "https://raw.githubusercontent.com/intro-skipper/intro-skipper/master/images/logo.png",
         "versions": [
             {
+                "version": "1.10.10.12",
+                "changelog": "- See the full changelog at [GitHub](https://github.com/intro-skipper/intro-skipper/releases/tag/10.10/v1.10.10.12)\n",
+                "targetAbi": "10.10.3.0",
+                "sourceUrl": "https://github.com/intro-skipper/intro-skipper/releases/download/10.10/v1.10.10.12/intro-skipper-v1.10.10.12.zip",
+                "checksum": "b9f01628c0959fbcb94957cf1da3bd75",
+                "timestamp": "2024-12-14T13:34:00Z"
+            },
+            {
                 "version": "1.10.10.11",
                 "changelog": "- See the full changelog at [GitHub](https://github.com/intro-skipper/intro-skipper/releases/tag/10.10/v1.10.10.11)\n",
                 "targetAbi": "10.10.3.0",
