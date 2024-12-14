@@ -28,10 +28,11 @@ https://manifest.intro-skipper.org/manifest.json
   * `linuxserver/jellyfin` 10.10.z container: preinstalled
   * Debian Linux based native installs: provided by the `jellyfin-ffmpeg7` package
   * MacOS native installs: build ffmpeg with chromaprint support ([instructions](https://github.com/intro-skipper/intro-skipper/wiki/Custom-FFMPEG-(MacOS)))
+  * Gentoo Linux native installs: enable `xarblu-overlay` and install `media-video/jellyfin-ffmpeg`
 
 ## Limitations
 
-* SyncPlay is not (yet) compatible with any method of skipping due to the nature of how the clients are synced. 
+* SyncPlay is not (yet) compatible with any method of skipping due to the nature of how the clients are synced.
 
 ## [Detection parameters](https://github.com/intro-skipper/intro-skipper/wiki#detection-parameters)
 
@@ -48,7 +49,7 @@ https://manifest.intro-skipper.org/manifest.json
 - #### [Scheduled tasks fail instantly](https://github.com/intro-skipper/intro-skipper/wiki/Troubleshooting#scheduled-tasks-fail-instantly)
 - #### [Plugin settings not saved](https://github.com/intro-skipper/intro-skipper/wiki/Troubleshooting#plugin-settings-not-saved)
 - #### [Skip button is not visible](https://github.com/intro-skipper/intro-skipper/wiki/Troubleshooting#skip-button-is-not-visible)
-- #### [Autoskip is not working](https://github.com/intro-skipper/intro-skipper/wiki/Troubleshooting#autoskip-is-not-working)
+- #### [Auto skip is not working](https://github.com/intro-skipper/intro-skipper/wiki/Troubleshooting#auto-skip-is-not-working)
 
 ## [API Documentation](https://github.com/intro-skipper/intro-skipper/blob/master/docs/api.md)
 

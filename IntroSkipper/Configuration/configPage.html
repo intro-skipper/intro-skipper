@@ -15,7 +15,6 @@
                         margin: auto;
                         border: none;
                         text-align: center;
-                        outline: none;
                         font-size: 1em;
                         outline: 2px solid rgba(155, 155, 155, 0.5);
                     }
@@ -127,58 +126,59 @@
                                 </div>
 
                                 <div class="inputContainer">
-                                    <label class="inputLabel inputLabelUnfocused" for="AnalysisPercent"> Percent of audio to analyze </label>
+                                    <label class="inputLabel inputLabelUnfocused" for="AnalysisPercent"> Percent of media to analyze </label>
                                     <input id="AnalysisPercent" type="number" is="emby-input" min="1" max="90" />
-                                    <div class="fieldDescription">Analysis will be limited to this percentage of each episode's audio. For example, a value of 25 (the default) will limit analysis to the first quarter of each episode.</div>
+                                    <div class="fieldDescription">Analysis will be limited to this percentage of each item's runtime. For example, a value of 25 (the default) will limit analysis to the first quarter of each item.</div>
                                 </div>
 
                                 <div class="inputContainer">
-                                    <label class="inputLabel inputLabelUnfocused" for="AnalysisLengthLimit"> Maximum runtime of audio to analyze (in minutes) </label>
+                                    <label class="inputLabel inputLabelUnfocused" for="AnalysisLengthLimit"> Maximum runtime to analyze (in minutes) </label>
                                     <input id="AnalysisLengthLimit" type="number" is="emby-input" min="1" />
-                                    <div class="fieldDescription">Analysis will be limited to this amount of each episode's audio. For example, a value of 10 (the default) will limit analysis to the first 10 minutes of each episode.</div>
+                                    <div class="fieldDescription">Analysis will be limited to this amount of each item's runtime. For example, a value of 10 (the default) will limit analysis to the first 10 minutes of each item.</div>
                                 </div>
+
+                                <p>
+                                    The amount of each item's content that will be analyzed is determined using the percentage and maximum runtime. The minimum of (duration * percent, maximum runtime) is the amount that will be analyzed.
+                                </p>
+                                <p>
+                                    If the percentage or maximum runtime settings are modified, the cached fingerprints and timestamps for each series, season, or movie you want to analyze with the modified settings <b>will have to be recreated</b>.
+                                </p>
+                                <p>
+                                    Increasing either of the above settings will cause episode analysis to take much longer.
+                                </p>
+                                <br />
 
                                 <div class="inputContainer">
                                     <label class="inputLabel inputLabelUnfocused" for="MinimumIntroDuration"> Minimum introduction duration (in seconds) </label>
                                     <input id="MinimumIntroDuration" type="number" is="emby-input" min="1" />
-                                    <div class="fieldDescription">Similar sounding audio which is shorter than this duration will not be considered an introduction.</div>
+                                    <div class="fieldDescription">Segments or similar sounding audio which is shorter than this duration will not be considered an introduction.</div>
                                 </div>
 
                                 <div class="inputContainer">
                                     <label class="inputLabel inputLabelUnfocused" for="MaximumIntroDuration"> Maximum introduction duration (in seconds) </label>
                                     <input id="MaximumIntroDuration" type="number" is="emby-input" min="1" />
-                                    <div class="fieldDescription">Similar sounding audio which is longer than this duration will not be considered an introduction.</div>
+                                    <div class="fieldDescription">Segments or similar sounding audio which is longer than this duration will not be considered an introduction.</div>
                                 </div>
 
                                 <div class="inputContainer">
                                     <label class="inputLabel inputLabelUnfocused" for="MinimumCreditsDuration"> Minimum credits duration (in seconds) </label>
                                     <input id="MinimumCreditsDuration" type="number" is="emby-input" min="1" />
-                                    <div class="fieldDescription">Similar sounding audio which is shorter than this duration will not be considered credits.</div>
+                                    <div class="fieldDescription">Segments or similar sounding audio which is shorter than this duration will not be considered credits.</div>
                                 </div>
 
                                 <div class="inputContainer">
                                     <label class="inputLabel inputLabelUnfocused" for="MaximumCreditsDuration"> Maximum credits duration (in seconds) </label>
                                     <input id="MaximumCreditsDuration" type="number" is="emby-input" min="1" />
-                                    <div class="fieldDescription">Similar sounding audio which is longer than this duration will not be considered credits.</div>
+                                    <div class="fieldDescription">Segments or similar sounding audio which is longer than this duration will not be considered credits.</div>
                                 </div>
 
                                 <div class="inputContainer" id="movieCreditsDuration">
                                     <label class="inputLabel inputLabelUnfocused" for="MaximumMovieCreditsDuration"> Maximum movie credits duration (in seconds) </label>
                                     <input id="MaximumMovieCreditsDuration" type="number" is="emby-input" min="1" />
                                     <div class="fieldDescription">Segments longer than this duration will not be considered movie credits.</div>
-                                    <br />
                                 </div>
 
-                                <p>
-                                    The amount of each item's audio or content that will be analyzed is determined using both the percentage of audio and maximum runtime to analyze. The minimum of (duration * percent, maximum runtime) is the amount that will be analyzed.
-                                </p>
-
-                                <p>
-                                    If the audio percentage or maximum runtime settings are modified, the cached fingerprints and timestamps for each series, season, or movie you want to analyze with the modified settings <b>will have to be deleted</b>.
-                                    <br />
-                                    Increasing either of these settings will cause episode analysis to take much longer.
-                                </p>
-
+                                <br />
                                 <div class="checkboxContainer checkboxContainer-withDescription">
                                     <label class="emby-checkbox-label">
                                         <input id="RebuildMediaSegments" type="checkbox" is="emby-checkbox" />
@@ -228,9 +228,9 @@
 
                                 <div class="inputContainer">
                                     <label class="inputLabel inputLabelUnfocused" for="ChapterAnalyzerPreviewPattern"> Preview </label>
-                                    <input id="ChapterAnalyzerPreviewPattern" type="text" placeholder="(^|\s)(Preview|PV|Sneak\s?Peek|Coming\s?(Up|Soon)|Next\s+(time|on|episode)|Teaser|Trailer)(?!\sEnd)(\s|:|$)" is="emby-input" />
+                                    <input id="ChapterAnalyzerPreviewPattern" type="text" placeholder="(^|\s)(Preview|PV|Sneak\s?Peek|Coming\s?(Up|Soon)|Next\s+(time|on|episode)|Extra|Teaser|Trailer)(?!\sEnd)(\s|:|$)" is="emby-input" />
                                     <div class="fieldDescription">Enter a regular expression to detect preview chapters.
-                                        <br />Default: <code>(^|\s)(Preview|PV|Sneak\s?Peek|Coming\s?(Up|Soon)|Next\s+(time|on|episode)|Teaser|Trailer)(?!\sEnd)(\s|:|$)</code>
+                                        <br />Default: <code>(^|\s)(Preview|PV|Sneak\s?Peek|Coming\s?(Up|Soon)|Next\s+(time|on|episode)|Extra|Teaser|Trailer)(?!\sEnd)(\s|:|$)</code>
                                     </div>
                                 </div>
 
@@ -244,7 +244,7 @@
                             </details>
 
                             <details id="detection">
-                                <summary>Process Configuration</summary>
+                                <summary>FFmpeg Process Configuration</summary>
 
                                 <br />
                                 <div class="inputContainer">
@@ -253,22 +253,8 @@
                                     <div class="fieldDescription">Maximum number of simultaneous async episode analysis operations.</div>
                                 </div>
 
-                                <div class="checkboxContainer checkboxContainer-withDescription">
-                                    <label class="emby-checkbox-label">
-                                        <input id="CacheFingerprints" type="checkbox" is="emby-checkbox" />
-                                        <span>Cache episode fingerprints</span>
-                                    </label>
-
-                                    <div class="fieldDescription">
-                                        If checked, episode fingerprints will be saved on the filesystem to improve analysis speed.
-                                        <br />
-                                        <b>WARNING: Disabling the cache will cause all fingerprints to be recreated during analysis. For debug use only!</b>
-                                        <br />
-                                    </div>
-                                </div>
-
                                 <div class="selectContainer">
-                                    <label class="selectLabel" for="ProcessPriority">ffmpeg Priority</label>
+                                    <label class="selectLabel" for="ProcessPriority">FFmpeg Priority</label>
                                     <select is="emby-select" id="ProcessPriority" class="emby-select-withcolor emby-select">
                                         <option value="Idle">Idle</option>
 
@@ -283,21 +269,35 @@
                                         <option value="RealTime">Highest</option>
                                     </select>
 
-                                    <div class="fieldDescription">Sets the relative priority of the analysis ffmpeg process to other parallel operations (ie. transcoding, chapter detection, etc).</div>
+                                    <div class="fieldDescription">Sets the relative priority of the analysis FFmpeg process to other parallel operations (i.e. transcoding, chapter detection, etc).</div>
                                 </div>
 
                                 <div class="inputContainer">
-                                    <label class="inputLabel inputLabelUnfocused" for="ProcessThreads"> ffmpeg Threads </label>
+                                    <label class="inputLabel inputLabelUnfocused" for="ProcessThreads"> FFmpeg Threads </label>
                                     <input id="ProcessThreads" type="number" is="emby-input" min="0" max="16" />
                                     <div class="fieldDescription">
-                                        Number of simultaneous processes to use for ffmpeg operations.
+                                        Number of simultaneous processes to use for FFmpeg operations.
                                         <br />
                                         This value is most often defined as 1 thread per CPU core, but setting a value of 0 (default) will use the maximum threads available.
                                     </div>
                                 </div>
+
+                                <div class="checkboxContainer checkboxContainer-withDescription">
+                                    <label class="emby-checkbox-label">
+                                        <input id="CacheFingerprints" type="checkbox" is="emby-checkbox" />
+                                        <span>Cache analysis fingerprints</span>
+                                    </label>
+
+                                    <div class="fieldDescription">
+                                        <b>Debug use only!</b> If checked, fingerprints will be saved on the filesystem to improve analysis speed.
+                                        <br />
+                                        <b>WARNING: Disabling the cache will cause all fingerprints to be recreated and not saved during analysis.</b>
+                                        <br />
+                                    </div>
+                                </div>
                             </details>
 
-                            <p align="center" style="font-size: 0.75em">EDL file generation has been removed. Please use endrl's <a href="https://github.com/endrl/jellyfin-plugin-edl">EDL plugin</a>.</p>
+                            <p align="center" style="font-size: 0.75em">EDL file generation has been removed. Please use endrl's <a href="https://github.com/intro-skipper/jellyfin-plugin-edl">EDL plugin</a>.</p>
                         </fieldset>
 
                         <p>
@@ -528,7 +528,7 @@
                                 <div id="episodeSelection">
                                     <label class="inputLabel" for="troubleshooterEpisode1">Select the first episode</label>
                                     <select is="emby-select" id="troubleshooterEpisode1" class="emby-select-withcolor emby-select"></select>
-                                    <label class="inputLabel" for="troubleshooterEpisode1">Select the second episode</label>
+                                    <label class="inputLabel" for="troubleshooterEpisode2">Select the second episode</label>
                                     <select is="emby-select" id="troubleshooterEpisode2" class="emby-select-withcolor emby-select"></select>
                                     <br />
                                 </div>
@@ -540,48 +540,48 @@
                                     <br />
                                     <div class="inlineForm">
                                         <div class="inputContainer">
-                                            <label class="inputLabel inputLabelUnfocused" for="recapStart">Recap Start</label>
+                                            <label class="inputLabel inputLabelUnfocused">Recap Start</label>
                                             <input type="text" id="editLeftRecapEpisodeStartDisplay" class="emby-input custom-time-input" readonly />
                                             <input type="number" id="editLeftRecapEpisodeStartEdit" class="emby-input custom-time-input" style="display: none" step="any" min="0" />
                                         </div>
                                         <div class="inputContainer">
-                                            <label class="inputLabel inputLabelUnfocused" for="recapEnd">Recap End</label>
+                                            <label class="inputLabel inputLabelUnfocused">Recap End</label>
                                             <input type="text" id="editLeftRecapEpisodeEndDisplay" class="emby-input custom-time-input" readonly />
                                             <input type="number" id="editLeftRecapEpisodeEndEdit" class="emby-input custom-time-input" style="display: none" step="any" min="0" />
                                         </div>
                                     </div>
                                     <div class="inlineForm">
                                         <div class="inputContainer">
-                                            <label class="inputLabel inputLabelUnfocused" for="introStart">Intro Start</label>
+                                            <label class="inputLabel inputLabelUnfocused">Intro Start</label>
                                             <input type="text" id="editLeftIntroEpisodeStartDisplay" class="emby-input custom-time-input" readonly />
                                             <input type="number" id="editLeftIntroEpisodeStartEdit" class="emby-input custom-time-input" style="display: none" step="any" min="0" />
                                         </div>
                                         <div class="inputContainer">
-                                            <label class="inputLabel inputLabelUnfocused" for="introEnd">Intro End</label>
+                                            <label class="inputLabel inputLabelUnfocused">Intro End</label>
                                             <input type="text" id="editLeftIntroEpisodeEndDisplay" class="emby-input custom-time-input" readonly />
                                             <input type="number" id="editLeftIntroEpisodeEndEdit" class="emby-input custom-time-input" style="display: none" step="any" min="0" />
                                         </div>
                                     </div>
                                     <div class="inlineForm">
                                         <div class="inputContainer">
-                                            <label class="inputLabel inputLabelUnfocused" for="creditsStart">Credits (Outro) Start</label>
+                                            <label class="inputLabel inputLabelUnfocused">Credits (Outro) Start</label>
                                             <input type="text" id="editLeftCreditEpisodeStartDisplay" class="emby-input custom-time-input" readonly />
                                             <input type="number" id="editLeftCreditEpisodeStartEdit" class="emby-input custom-time-input" style="display: none" step="any" min="0" />
                                         </div>
                                         <div class="inputContainer">
-                                            <label class="inputLabel inputLabelUnfocused" for="creditsEnd">Credits (Outro) End</label>
+                                            <label class="inputLabel inputLabelUnfocused">Credits (Outro) End</label>
                                             <input type="text" id="editLeftCreditEpisodeEndDisplay" class="emby-input custom-time-input" readonly />
                                             <input type="number" id="editLeftCreditEpisodeEndEdit" class="emby-input custom-time-input" style="display: none" step="any" min="0" />
                                         </div>
                                     </div>
                                     <div class="inlineForm">
                                         <div class="inputContainer">
-                                            <label class="inputLabel inputLabelUnfocused" for="previewStart">Preview Start</label>
+                                            <label class="inputLabel inputLabelUnfocused">Preview Start</label>
                                             <input type="text" id="editLeftPreviewEpisodeStartDisplay" class="emby-input custom-time-input" readonly />
                                             <input type="number" id="editLeftPreviewEpisodeStartEdit" class="emby-input custom-time-input" style="display: none" step="any" min="0" />
                                         </div>
                                         <div class="inputContainer">
-                                            <label class="inputLabel inputLabelUnfocused" for="previewEnd">Preview End</label>
+                                            <label class="inputLabel inputLabelUnfocused">Preview End</label>
                                             <input type="text" id="editLeftPreviewEpisodeEndDisplay" class="emby-input custom-time-input" readonly />
                                             <input type="number" id="editLeftPreviewEpisodeEndEdit" class="emby-input custom-time-input" style="display: none" step="any" min="0" />
                                         </div>
@@ -592,48 +592,48 @@
                                         <br />
                                         <div class="inlineForm">
                                             <div class="inputContainer">
-                                                <label class="inputLabel inputLabelUnfocused" for="recapStart">Recap Start</label>
+                                                <label class="inputLabel inputLabelUnfocused">Recap Start</label>
                                                 <input type="text" id="editRightRecapEpisodeStartDisplay" class="emby-input custom-time-input" readonly />
                                                 <input type="number" id="editRightRecapEpisodeStartEdit" class="emby-input custom-time-input" style="display: none" step="any" min="0" />
                                             </div>
                                             <div class="inputContainer">
-                                                <label class="inputLabel inputLabelUnfocused" for="recapEnd">Recap End</label>
+                                                <label class="inputLabel inputLabelUnfocused">Recap End</label>
                                                 <input type="text" id="editRightRecapEpisodeEndDisplay" class="emby-input custom-time-input" readonly />
                                                 <input type="number" id="editRightRecapEpisodeEndEdit" class="emby-input custom-time-input" style="display: none" step="any" min="0" />
                                             </div>
                                         </div>
                                         <div class="inlineForm">
                                             <div class="inputContainer">
-                                                <label class="inputLabel inputLabelUnfocused" for="introStart">Intro Start</label>
+                                                <label class="inputLabel inputLabelUnfocused">Intro Start</label>
                                                 <input type="text" id="editRightIntroEpisodeStartDisplay" class="emby-input custom-time-input" readonly />
                                                 <input type="number" id="editRightIntroEpisodeStartEdit" class="emby-input custom-time-input" style="display: none" step="any" min="0" />
                                             </div>
                                             <div class="inputContainer">
-                                                <label class="inputLabel inputLabelUnfocused" for="introEnd">Intro End</label>
+                                                <label class="inputLabel inputLabelUnfocused">Intro End</label>
                                                 <input type="text" id="editRightIntroEpisodeEndDisplay" class="emby-input custom-time-input" readonly />
                                                 <input type="number" id="editRightIntroEpisodeEndEdit" class="emby-input custom-time-input" style="display: none" step="any" min="0" />
                                             </div>
                                         </div>
                                         <div class="inlineForm">
                                             <div class="inputContainer">
-                                                <label class="inputLabel inputLabelUnfocused" for="creditsStart">Credits (Outro) Start</label>
+                                                <label class="inputLabel inputLabelUnfocused">Credits (Outro) Start</label>
                                                 <input type="text" id="editRightCreditEpisodeStartDisplay" class="emby-input custom-time-input" readonly />
                                                 <input type="number" id="editRightCreditEpisodeStartEdit" class="emby-input custom-time-input" style="display: none" step="any" min="0" />
                                             </div>
                                             <div class="inputContainer">
-                                                <label class="inputLabel inputLabelUnfocused" for="creditsEnd">Credits (Outro) End</label>
+                                                <label class="inputLabel inputLabelUnfocused">Credits (Outro) End</label>
                                                 <input type="text" id="editRightCreditEpisodeEndDisplay" class="emby-input custom-time-input" readonly />
                                                 <input type="number" id="editRightCreditEpisodeEndEdit" class="emby-input custom-time-input" style="display: none" step="any" min="0" />
                                             </div>
                                         </div>
                                         <div class="inlineForm">
                                             <div class="inputContainer">
-                                                <label class="inputLabel inputLabelUnfocused" for="previewStart">Preview Start</label>
+                                                <label class="inputLabel inputLabelUnfocused">Preview Start</label>
                                                 <input type="text" id="editRightPreviewEpisodeStartDisplay" class="emby-input custom-time-input" readonly />
                                                 <input type="number" id="editRightPreviewEpisodeStartEdit" class="emby-input custom-time-input" style="display: none" step="any" min="0" />
                                             </div>
                                             <div class="inputContainer">
-                                                <label class="inputLabel inputLabelUnfocused" for="previewEnd">Preview End</label>
+                                                <label class="inputLabel inputLabelUnfocused">Preview End</label>
                                                 <input type="text" id="editRightPreviewEpisodeEndDisplay" class="emby-input custom-time-input" readonly />
                                                 <input type="number" id="editRightPreviewEpisodeEndEdit" class="emby-input custom-time-input" style="display: none" step="any" min="0" />
                                             </div>
@@ -759,27 +759,27 @@
 
             <script>
                 // first and second episodes to fingerprint & compare
-                var lhs = [];
-                var rhs = [];
+                let lhs = [];
+                let rhs = [];
 
                 // fingerprint point comparison & miminum similarity threshold (at most 6 bits out of 32 can be different)
-                var fprDiffs = [];
-                var fprDiffMinimum = (1 - 6 / 32) * 100;
+                let fprDiffs = [];
+                const fprDiffMinimum = (1 - 6 / 32) * 100;
 
                 // seasons grouped by show
-                var shows = {};
+                let shows = {};
 
                 // settings elements
-                var visualizer = document.querySelector("details#visualizer");
-                var support = document.querySelector("details#support");
-                var storage = document.querySelector("details#storage");
-                var btnEraseIntroTimestamps = document.querySelector("button#btnEraseIntroTimestamps");
-                var btnEraseRecapTimestamps = document.querySelector("button#btnEraseRecapTimestamps");
-                var btnEraseCreditTimestamps = document.querySelector("button#btnEraseCreditTimestamps");
-                var btnErasePreviewTimestamps = document.querySelector("button#btnErasePreviewTimestamps");
+                const visualizer = document.querySelector("details#visualizer");
+                const support = document.querySelector("details#support");
+                const storage = document.querySelector("details#storage");
+                const btnEraseIntroTimestamps = document.querySelector("button#btnEraseIntroTimestamps");
+                const btnEraseRecapTimestamps = document.querySelector("button#btnEraseRecapTimestamps");
+                const btnEraseCreditTimestamps = document.querySelector("button#btnEraseCreditTimestamps");
+                const btnErasePreviewTimestamps = document.querySelector("button#btnErasePreviewTimestamps");
 
                 // all plugin configuration fields that can be get or set with .value (i.e. strings or numbers).
-                var configurationFields = [
+                const configurationFields = [
                     // analysis
                     "MaxParallelism",
                     "SelectedLibraries",
@@ -812,54 +812,54 @@
                     "AutoSkipNotificationText",
                 ];
 
-                var booleanConfigurationFields = ["AutoDetectIntros", "AnalyzeMovies", "AnalyzeSeasonZero", "SelectAllLibraries", "UpdateMediaSegments", "RebuildMediaSegments", "ScanIntroduction", "ScanCredits", "ScanRecap", "ScanPreview", "CacheFingerprints", "PluginSkip", "AutoSkip", "SkipFirstEpisode", "PersistSkipButton", "SkipButtonEnabled"];
+                const booleanConfigurationFields = ["AutoDetectIntros", "AnalyzeMovies", "AnalyzeSeasonZero", "SelectAllLibraries", "UpdateMediaSegments", "RebuildMediaSegments", "ScanIntroduction", "ScanCredits", "ScanRecap", "ScanPreview", "CacheFingerprints", "PluginSkip", "AutoSkip", "SkipFirstEpisode", "PersistSkipButton", "SkipButtonEnabled"];
 
                 // visualizer elements
-                var analyzerActionsSection = document.querySelector("div#analyzerActionsSection");
-                var actionIntro = analyzerActionsSection.querySelector("select#actionIntro");
-                var regexIntro = analyzerActionsSection.querySelector("input#regexIntro");
-                var actionCredits = analyzerActionsSection.querySelector("select#actionCredits");
-                var regexCredits = analyzerActionsSection.querySelector("input#regexCredits");
-                var actionRecap = analyzerActionsSection.querySelector("select#actionRecap");
-                var regexRecap = analyzerActionsSection.querySelector("input#regexRecap");
-                var actionPreview = analyzerActionsSection.querySelector("select#actionPreview");
-                var regexPreview = analyzerActionsSection.querySelector("input#regexPreview");
-                var saveAnalyzerActionsButton = analyzerActionsSection.querySelector("button#saveAnalyzerActions");
-                var canvas = document.querySelector("canvas#troubleshooter");
-                var selectShow = document.querySelector("select#troubleshooterShow");
-                var seasonSelection = document.getElementById("seasonSelection");
-                var selectSeason = document.querySelector("select#troubleshooterSeason");
-                var episodeSelection = document.getElementById("episodeSelection");
-                var selectEpisode1 = document.querySelector("select#troubleshooterEpisode1");
-                var selectEpisode2 = document.querySelector("select#troubleshooterEpisode2");
-                var txtOffset = document.querySelector("input#offset");
-                var txtSuggested = document.querySelector("span#suggestedShifts");
-                var btnSeasonEraseTimestamps = document.querySelector("button#btnEraseSeasonTimestamps");
-                var eraseSeasonContainer = document.getElementById("eraseSeasonContainer");
-                var btnMovieEraseTimestamps = document.querySelector("button#btnEraseMovieTimestamps");
-                var eraseMovieContainer = document.getElementById("eraseMovieContainer");
-                var timestampError = document.querySelector("textarea#timestampError");
-                var timestampEditor = document.querySelector("#timestampEditor");
-                var rightEpisodeEditor = document.getElementById("rightEpisodeEditor");
-                var btnUpdateTimestamps = document.querySelector("button#btnUpdateTimestamps");
-                var timeContainer = document.querySelector("span#timestampContainer");
-                var fingerprintVisualizer = document.getElementById("fingerprintVisualizer");
+                const analyzerActionsSection = document.querySelector("div#analyzerActionsSection");
+                const actionIntro = analyzerActionsSection.querySelector("select#actionIntro");
+                const regexIntro = analyzerActionsSection.querySelector("input#regexIntro");
+                const actionCredits = analyzerActionsSection.querySelector("select#actionCredits");
+                const regexCredits = analyzerActionsSection.querySelector("input#regexCredits");
+                const actionRecap = analyzerActionsSection.querySelector("select#actionRecap");
+                const regexRecap = analyzerActionsSection.querySelector("input#regexRecap");
+                const actionPreview = analyzerActionsSection.querySelector("select#actionPreview");
+                const regexPreview = analyzerActionsSection.querySelector("input#regexPreview");
+                const saveAnalyzerActionsButton = analyzerActionsSection.querySelector("button#saveAnalyzerActions");
+                const canvas = document.querySelector("canvas#troubleshooter");
+                const selectShow = document.querySelector("select#troubleshooterShow");
+                const seasonSelection = document.getElementById("seasonSelection");
+                const selectSeason = document.querySelector("select#troubleshooterSeason");
+                const episodeSelection = document.getElementById("episodeSelection");
+                const selectEpisode1 = document.querySelector("select#troubleshooterEpisode1");
+                const selectEpisode2 = document.querySelector("select#troubleshooterEpisode2");
+                const txtOffset = document.querySelector("input#offset");
+                const txtSuggested = document.querySelector("span#suggestedShifts");
+                const btnSeasonEraseTimestamps = document.querySelector("button#btnEraseSeasonTimestamps");
+                const eraseSeasonContainer = document.getElementById("eraseSeasonContainer");
+                const btnMovieEraseTimestamps = document.querySelector("button#btnEraseMovieTimestamps");
+                const eraseMovieContainer = document.getElementById("eraseMovieContainer");
+                const timestampError = document.querySelector("textarea#timestampError");
+                const timestampEditor = document.querySelector("#timestampEditor");
+                const rightEpisodeEditor = document.getElementById("rightEpisodeEditor");
+                const btnUpdateTimestamps = document.querySelector("button#btnUpdateTimestamps");
+                const timeContainer = document.querySelector("span#timestampContainer");
+                const fingerprintVisualizer = document.getElementById("fingerprintVisualizer");
 
-                var windowHashInterval = 0;
+                let windowHashInterval = 0;
 
-                var analyzeMovies = document.getElementById("AnalyzeMovies");
-                var pluginSkip = document.getElementById("PluginSkip");
-                var serverSkipSettings = document.getElementById("ServerSkipSettings");
-                var autoSkip = document.getElementById("AutoSkip");
-                var skipButtonVisible = document.getElementById("SkipButtonEnabled");
-                var skipButtonVisibleLabel = document.getElementById("SkipButtonVisibleLabel");
-                var skipButtonSettings = document.getElementById("SkipButtonSettings");
-                var selectAllLibraries = document.querySelector("input#SelectAllLibraries");
-                var librariesContainer = document.querySelector("div.folderAccessListContainer");
-                var skipFirstEpisode = document.getElementById("divSkipFirstEpisode");
-                var secondsOfIntroStartToPlay = document.getElementById("divSecondsOfIntroStartToPlay");
-                var autoSkipClientList = document.querySelector("div.AutoSkipClientListContainer");
-                var movieCreditsDuration = document.getElementById("movieCreditsDuration");
+                const analyzeMovies = document.getElementById("AnalyzeMovies");
+                const pluginSkip = document.getElementById("PluginSkip");
+                const serverSkipSettings = document.getElementById("ServerSkipSettings");
+                const autoSkip = document.getElementById("AutoSkip");
+                const skipButtonVisible = document.getElementById("SkipButtonEnabled");
+                const skipButtonVisibleLabel = document.getElementById("SkipButtonVisibleLabel");
+                const skipButtonSettings = document.getElementById("SkipButtonSettings");
+                const selectAllLibraries = document.querySelector("input#SelectAllLibraries");
+                const librariesContainer = document.querySelector("div.folderAccessListContainer");
+                const skipFirstEpisode = document.getElementById("divSkipFirstEpisode");
+                const secondsOfIntroStartToPlay = document.getElementById("divSecondsOfIntroStartToPlay");
+                const autoSkipClientList = document.querySelector("div.AutoSkipClientListContainer");
+                const movieCreditsDuration = document.getElementById("movieCreditsDuration");
 
                 function skipButtonVisibleChanged() {
                     if (autoSkip.checked) {
@@ -942,9 +942,9 @@
                     generateCheckboxList(libraryNames, "libraryCheckboxes", "SelectedLibraries");
                 }
 
-                var persistSkip = document.getElementById("PersistSkipButton");
-                var showAdjustment = document.querySelector("div#divShowPromptAdjustment");
-                var hideAdjustment = document.querySelector("div#divHidePromptAdjustment");
+                const persistSkip = document.getElementById("PersistSkipButton");
+                const showAdjustment = document.querySelector("div#divShowPromptAdjustment");
+                const hideAdjustment = document.querySelector("div#divHidePromptAdjustment");
 
                 // prevent setting unavailable options
                 async function persistSkipChanged() {
@@ -959,6 +959,8 @@
 
                 persistSkip.addEventListener("change", persistSkipChanged);
 
+                const remainingSecondsOfIntro = document.getElementById("RemainingSecondsOfIntro");
+
                 async function pluginSkipSettingChanged() {
                     if (pluginSkip.checked) {
                         serverSkipSettings.style.display = "unset";
@@ -968,6 +970,7 @@
                         autoSkip.checked = false;
                         skipButtonVisible.checked = false;
                         persistSkip.checked = false;
+                        remainingSecondsOfIntro.value = 0;
                     }
                 }
 
@@ -1083,7 +1086,7 @@
                     clearSelect(selectEpisode2);
 
                     if (shows[selectShow.value].IsMovie) {
-                        movieLoaded();
+                        await movieLoaded();
                         return;
                     }
 
@@ -1175,7 +1178,7 @@
                     refreshBounds();
                     renderTroubleshooter();
                     findExactMatches();
-                    updateTimestampEditor();
+                    await updateTimestampEditor();
                 }
 
                 async function movieLoaded() {
@@ -1315,7 +1318,7 @@
                     select.add(item);
                 }
 
-                // clear a select of items
+                // clear selection of items
                 function clearSelect(select) {
                     timestampError.value = "";
                     timestampErrorDiv.style.display = "none";
@@ -1568,7 +1571,7 @@
                 saveAnalyzerActionsButton.addEventListener("click", () => {
                     Dashboard.showLoadingMsg();
 
-                    var url1 = "Intros/AnalyzerActions/UpdateSeason";
+                    const urlActions = "Intros/AnalyzerActions/UpdateSeason";
                     const actions = {
                         id: selectSeason.value,
                         analyzerActions: {
@@ -1579,8 +1582,7 @@
                         },
                     };
 
-                    var url2 = "Intros/AnalyzerRegexs/UpdateSeason";
-
+                    const urlRegex = "Intros/AnalyzerRegexs/UpdateSeason";
                     const regexs = {
                         id: selectSeason.value,
                         regexs: {
@@ -1591,8 +1593,8 @@
                         },
                     };
 
-                    fetchWithAuth(url1, "POST", JSON.stringify(actions));
-                    fetchWithAuth(url2, "POST", JSON.stringify(regexs));
+                    fetchWithAuth(urlActions, "POST", JSON.stringify(actions));
+                    fetchWithAuth(urlRegex, "POST", JSON.stringify(regexs));
 
                     Dashboard.alert("Analyzer actions updated for " + selectSeason.value + " of " + selectShow.value);
                     Dashboard.hideLoadingMsg();
@@ -1651,7 +1653,7 @@
                     fetchWithAuth("Episode/" + lhsId + "/Timestamps", "POST", JSON.stringify(newLhs));
                     fetchWithAuth("Episode/" + rhsId + "/Timestamps", "POST", JSON.stringify(newRhs));
 
-                    Dashboard.alert("New introduction timestamps saved");
+                    Dashboard.alert("New segment timestamps saved");
                 });
                 document.addEventListener("keydown", keyDown);
                 windowHashInterval = setInterval(checkWindowHash, 2500);
@@ -1697,11 +1699,8 @@
                     let minutes = Math.floor((seconds % 3600) / 60);
                     let remainingSeconds = seconds % 60;
 
-                    // Format as HH:MM:SS
-                    let formattedTime = String(hours).padStart(2, "0") + ":" + String(minutes).padStart(2, "0") + ":" + String(remainingSeconds).padStart(2, "0");
-
-                    // Set the value of the time input
-                    return formattedTime;
+                    // Format as HH:MM:SS and set the value of the time input
+                    return String(hours).padStart(2, "0") + ":" + String(minutes).padStart(2, "0") + ":" + String(remainingSeconds).padStart(2, "0");
                 }
 
                 function getTimeInSeconds(time) {

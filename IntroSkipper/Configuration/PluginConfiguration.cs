@@ -57,11 +57,6 @@ public class PluginConfiguration : BasePluginConfiguration
     /// </summary>
     public bool CacheFingerprints { get; set; } = true;
 
-    /// <summary>
-    /// Gets or sets a value indicating whether analysis will use Chromaprint to determine fingerprints.
-    /// </summary>
-    public bool WithChromaprint { get; set; } = true;
-
     // ===== Media Segment handling =====
 
     /// <summary>
@@ -227,7 +222,7 @@ public class PluginConfiguration : BasePluginConfiguration
     /// <summary>
     /// Gets or sets the amount of intro to play (in seconds).
     /// </summary>
-    public int RemainingSecondsOfIntro { get; set; } = 2;
+    public int RemainingSecondsOfIntro { get; set; }
 
     /// <summary>
     /// Gets or sets the amount of intro at start to play (in seconds).
