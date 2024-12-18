@@ -129,7 +129,14 @@ namespace IntroSkipper.Services
                 if (id.HasValue)
                 {
                     _seasonsToAnalyze.Add(id.Value);
-                    StartTimer();
+                    if (itemChangeEventArgs.UpdateReason == 0)
+                    {
+                        StartTimer(120);
+                    }
+                    else
+                    {
+                        StartTimer();
+                    }
                 }
             }
         }
@@ -158,7 +165,7 @@ namespace IntroSkipper.Services
         /// <summary>
         /// Start timer to debounce analyzing.
         /// </summary>
-        private void StartTimer()
+        private void StartTimer(int delay = 60)
         {
             if (AutomaticTaskState == TaskState.Running)
             {
@@ -167,7 +174,7 @@ namespace IntroSkipper.Services
             else if (AutomaticTaskState == TaskState.Idle)
             {
                 _logger.LogDebug("Media Library changed, analysis will start soon!");
-                _queueTimer.Change(TimeSpan.FromSeconds(60), Timeout.InfiniteTimeSpan);
+                _queueTimer.Change(TimeSpan.FromSeconds(delay), Timeout.InfiniteTimeSpan);
             }
         }
 
