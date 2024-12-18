@@ -111,6 +111,11 @@ namespace IntroSkipper.Services
         /// <param name="itemChangeEventArgs">The <see cref="ItemChangeEventArgs"/>.</param>
         private void OnItemChanged(object? sender, ItemChangeEventArgs itemChangeEventArgs)
         {
+            if (itemChangeEventArgs.UpdateReason == ItemUpdateType.ImageUpdate)
+            {
+                return;
+            }
+
             if (_config.AutoDetectIntros &&
                 itemChangeEventArgs.Item is { LocationType: not LocationType.Virtual } item)
             {
