@@ -166,7 +166,7 @@ namespace IntroSkipper.Services
             }
             else if (AutomaticTaskState == TaskState.Idle)
             {
-                _logger.LogDebug("Media Library changed, analyzis will start soon!");
+                _logger.LogDebug("Media Library changed, analysis will start soon!");
                 _queueTimer.Change(TimeSpan.FromSeconds(60), Timeout.InfiniteTimeSpan);
             }
         }
