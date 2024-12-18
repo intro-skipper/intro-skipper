@@ -128,15 +128,10 @@ namespace IntroSkipper.Services
 
                 if (id.HasValue)
                 {
+                    var delay = itemChangeEventArgs.UpdateReason == 0 ? 120 : 60;
+
                     _seasonsToAnalyze.Add(id.Value);
-                    if (itemChangeEventArgs.UpdateReason == 0)
-                    {
-                        StartTimer(120);
-                    }
-                    else
-                    {
-                        StartTimer();
-                    }
+                    StartTimer(delay);
                 }
             }
         }
