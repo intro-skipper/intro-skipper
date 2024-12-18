@@ -119,7 +119,12 @@ namespace IntroSkipper.Services
             if (_config.AutoDetectIntros &&
                 itemChangeEventArgs.Item is { LocationType: not LocationType.Virtual } item)
             {
-                Guid? id = item is Episode episode ? episode.SeasonId : (item is Movie movie ? movie.Id : null);
+                Guid? id = item switch
+                {
+                    Episode episode => episode.SeasonId,
+                    Movie movie => movie.Id,
+                    _ => null
+                };
 
                 if (id.HasValue)
                 {
