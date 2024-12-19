@@ -715,6 +715,9 @@
                                         <input type="checkbox" id="eraseModeCacheCheckbox" style="margin-left: 10px" />
                                         <label for="eraseModeCacheCheckbox" style="margin-left: 5px">Erase global cached fingerprint files</label>
                                     </div>
+                                    <div>
+                                        <button is="emby-button" class="button-submit emby-button" id="btnRebuildDatabase">Rebuild database</button>
+                                    </div>
                                 </div>
                             </details>
 
@@ -757,6 +760,7 @@
                 const btnEraseRecapTimestamps = document.querySelector("button#btnEraseRecapTimestamps");
                 const btnEraseCreditTimestamps = document.querySelector("button#btnEraseCreditTimestamps");
                 const btnErasePreviewTimestamps = document.querySelector("button#btnErasePreviewTimestamps");
+                const btnRebuildDatabase = document.querySelector("button#btnRebuildDatabase");
 
                 // all plugin configuration fields that can be get or set with .value (i.e. strings or numbers).
                 const configurationFields = [
@@ -1505,6 +1509,9 @@
                 btnErasePreviewTimestamps.addEventListener("click", (e) => {
                     eraseTimestamps("Preview");
                     e.preventDefault();
+                });
+                btnRebuildDatabase.addEventListener("click", () => {
+                    fetchWithAuth("Intros/RebuildDatabase", "POST", null);
                 });
                 btnSeasonEraseTimestamps.addEventListener("click", () => {
                     Dashboard.confirm("Are you sure you want to erase all timestamps for this season?", "Confirm timestamp erasure", (result) => {
