@@ -3,16 +3,18 @@ using System;
 using IntroSkipper.Db;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
-using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
+using Microsoft.EntityFrameworkCore.Migrations;
 
 #nullable disable
 
 namespace IntroSkipper.Migrations
 {
     [DbContext(typeof(IntroSkipperDbContext))]
-    partial class IntroSkipperDbContextModelSnapshot : ModelSnapshot
+    [Migration("20241125172633_SeasonRegex")]
+    partial class SeasonRegex
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder.HasAnnotation("ProductVersion", "8.0.11");
