@@ -232,6 +232,6 @@ public class BaseItemAnalyzerTask(
         // Set the episode IDs for the analyzed items
         await Plugin.Instance!.SetEpisodeIdsAsync(first.SeasonId, mode, items.Select(i => i.EpisodeId)).ConfigureAwait(false);
 
-        return items.Where(i => i.IsAnalyzed).Count();
+        return items.Count(i => i.IsAnalyzed);
     }
 }
