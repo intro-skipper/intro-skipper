@@ -111,15 +111,27 @@ namespace IntroSkipper.Services
         /// <param name="itemChangeEventArgs">The <see cref="ItemChangeEventArgs"/>.</param>
         private void OnItemChanged(object? sender, ItemChangeEventArgs itemChangeEventArgs)
         {
+            if (itemChangeEventArgs.UpdateReason == ItemUpdateType.ImageUpdate)
+            {
+                return;
+            }
+
             if (_config.AutoDetectIntros &&
                 itemChangeEventArgs.Item is { LocationType: not LocationType.Virtual } item)
             {
-                Guid? id = item is Episode episode ? episode.SeasonId : (item is Movie movie ? movie.Id : null);
+                Guid? id = item switch
+                {
+                    Episode episode => episode.SeasonId,
+                    Movie movie => movie.Id,
+                    _ => null
+                };
 
                 if (id.HasValue)
                 {
+                    var delay = itemChangeEventArgs.UpdateReason == 0 ? 120 : 60;
+
                     _seasonsToAnalyze.Add(id.Value);
-                    StartTimer();
+                    StartTimer(delay);
                 }
             }
         }
@@ -148,7 +160,7 @@ namespace IntroSkipper.Services
         /// <summary>
         /// Start timer to debounce analyzing.
         /// </summary>
-        private void StartTimer()
+        private void StartTimer(int delay = 60)
         {
             if (AutomaticTaskState == TaskState.Running)
             {
@@ -156,8 +168,8 @@ namespace IntroSkipper.Services
             }
             else if (AutomaticTaskState == TaskState.Idle)
             {
-                _logger.LogDebug("Media Library changed, analyzis will start soon!");
-                _queueTimer.Change(TimeSpan.FromSeconds(60), Timeout.InfiniteTimeSpan);
+                _logger.LogDebug("Media Library changed, analysis will start soon!");
+                _queueTimer.Change(TimeSpan.FromSeconds(delay), Timeout.InfiniteTimeSpan);
             }
         }
 
