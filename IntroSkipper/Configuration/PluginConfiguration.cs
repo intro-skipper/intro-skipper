@@ -134,6 +134,11 @@ public class PluginConfiguration : BasePluginConfiguration
     public int MaximumCreditsDuration { get; set; } = 450;
 
     /// <summary>
+    /// Gets or sets the upper limit (in seconds) on the length of a movie segment that will be analyzed when searching for ending credits.
+    /// </summary>
+    public int MaximumMovieCreditsDuration { get; set; } = 900;
+
+    /// <summary>
     /// Gets or sets the minimum length of similar audio that will be considered a recap.
     /// </summary>
     public int MinimumRecapDuration { get; set; } = 15;
@@ -152,11 +157,6 @@ public class PluginConfiguration : BasePluginConfiguration
     /// Gets or sets the maximum length of similar audio that will be considered a preview.
     /// </summary>
     public int MaximumPreviewDuration { get; set; } = 120;
-
-    /// <summary>
-    /// Gets or sets the upper limit (in seconds) on the length of a movie segment that will be analyzed when searching for ending credits.
-    /// </summary>
-    public int MaximumMovieCreditsDuration { get; set; } = 900;
 
     /// <summary>
     /// Gets or sets the minimum percentage of a frame that must consist of black pixels before it is considered a black frame.
