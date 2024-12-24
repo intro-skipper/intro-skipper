@@ -33,14 +33,19 @@ public class ChapterAnalyzer(ILogger<ChapterAnalyzer> logger) : IMediaFileAnalyz
         AnalysisMode mode,
         CancellationToken cancellationToken)
     {
-        var expression = mode switch
+        var expression = Plugin.Instance!.GetSeasonRegex(analysisQueue[0].SeasonId, mode);
+
+        if (string.IsNullOrWhiteSpace(expression))
         {
-            AnalysisMode.Introduction => _config.ChapterAnalyzerIntroductionPattern,
-            AnalysisMode.Credits => _config.ChapterAnalyzerEndCreditsPattern,
-            AnalysisMode.Recap => _config.ChapterAnalyzerRecapPattern,
-            AnalysisMode.Preview => _config.ChapterAnalyzerPreviewPattern,
-            _ => throw new ArgumentOutOfRangeException(nameof(mode), $"Unexpected analysis mode: {mode}")
-        };
+            expression = mode switch
+            {
+                AnalysisMode.Introduction => _config.ChapterAnalyzerIntroductionPattern,
+                AnalysisMode.Credits => _config.ChapterAnalyzerEndCreditsPattern,
+                AnalysisMode.Recap => _config.ChapterAnalyzerRecapPattern,
+                AnalysisMode.Preview => _config.ChapterAnalyzerPreviewPattern,
+                _ => throw new ArgumentOutOfRangeException(nameof(mode), $"Unexpected analysis mode: {mode}")
+            };
+        }
 
         if (string.IsNullOrWhiteSpace(expression))
         {

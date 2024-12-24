@@ -22,12 +22,14 @@ public class DbSeasonInfo
     /// <param name="mode">Analysis mode.</param>
     /// <param name="action">Analyzer action.</param>
     /// <param name="episodeIds">Episode IDs.</param>
-    public DbSeasonInfo(Guid seasonId, AnalysisMode mode, AnalyzerAction action, IEnumerable<Guid>? episodeIds = null)
+    /// <param name="regex">Regex.</param>
+    public DbSeasonInfo(Guid seasonId, AnalysisMode mode, AnalyzerAction action, IEnumerable<Guid>? episodeIds = null, string? regex = null)
     {
         SeasonId = seasonId;
         Type = mode;
         Action = action;
         EpisodeIds = episodeIds ?? [];
+        Regex = regex ?? string.Empty;
     }
 
     /// <summary>
@@ -56,4 +58,9 @@ public class DbSeasonInfo
     /// Gets the season number.
     /// </summary>
     public IEnumerable<Guid> EpisodeIds { get; private set; } = [];
+
+    /// <summary>
+    /// Gets the season number.
+    /// </summary>
+    public string Regex { get; private set; } = string.Empty;
 }

@@ -99,6 +99,9 @@ public class IntroSkipperDbContext : DbContext
                           (c1, c2) => (c1 ?? new List<Guid>()).SequenceEqual(c2 ?? new List<Guid>()),
                           c => c.Aggregate(0, (a, v) => HashCode.Combine(a, v.GetHashCode())),
                           c => c.ToList()));
+
+            entity.Property(e => e.Regex)
+                  .HasDefaultValue(string.Empty);
         });
 
         base.OnModelCreating(modelBuilder);

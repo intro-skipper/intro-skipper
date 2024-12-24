@@ -477,6 +477,12 @@
                                                 <option value="None">None</option>
                                             </select>
                                         </label>
+                                        <label for="regexRecap" style="margin-right: 1.5em; display: inline-block">
+                                            <span>Recap Chapter Regex</span>
+                                            <input type="text" id="regexRecap" class="emby-input" />
+                                        </label>
+                                        </label>
+                                        <br />
                                         <label for="actionIntro" style="margin-right: 1.5em; display: inline-block">
                                             <span>Introduction analysis</span>
                                             <select is="emby-select" id="actionIntro" class="emby-select-withcolor emby-select">
@@ -486,6 +492,11 @@
                                                 <option value="None">None</option>
                                             </select>
                                         </label>
+                                        <label for="regexIntro" style="margin-right: 1.5em; display: inline-block">
+                                            <span>Introduction Chapter Regex</span>
+                                            <input type="text" id="regexIntro" class="emby-input" />
+                                        </label>
+                                        <br />
                                         <label for="actionCredits" style="margin-right: 1.5em; display: inline-block">
                                             <span>Credits (Outro) analysis</span>
                                             <select is="emby-select" id="actionCredits" class="emby-select-withcolor emby-select">
@@ -496,6 +507,11 @@
                                                 <option value="None">None</option>
                                             </select>
                                         </label>
+                                        <label for="regexCredits" style="margin-right: 1.5em; display: inline-block">
+                                            <span>Credits (Outro) Chapter Regex</span>
+                                            <input type="text" id="regexCredits" class="emby-input" />
+                                        </label>
+                                        <br />
                                         <label for="actionPreview" style="margin-right: 1.5em; display: inline-block">
                                             <span>Preview analysis</span>
                                             <select is="emby-select" id="actionPreview" class="emby-select-withcolor emby-select">
@@ -503,6 +519,10 @@
                                                 <option value="Chapter">Chapter</option>
                                                 <option value="None">None</option>
                                             </select>
+                                        </label>
+                                        <label for="regexPreview" style="margin-right: 1.5em; display: inline-block">
+                                            <span>Preview Chapter Regex</span>
+                                            <input type="text" id="regexPreview" class="emby-input" />
                                         </label>
                                     </div>
                                     <br />
@@ -808,9 +828,13 @@
                 // visualizer elements
                 const analyzerActionsSection = document.querySelector("div#analyzerActionsSection");
                 const actionIntro = analyzerActionsSection.querySelector("select#actionIntro");
+                const regexIntro = analyzerActionsSection.querySelector("input#regexIntro");
                 const actionCredits = analyzerActionsSection.querySelector("select#actionCredits");
+                const regexCredits = analyzerActionsSection.querySelector("input#regexCredits");
                 const actionRecap = analyzerActionsSection.querySelector("select#actionRecap");
+                const regexRecap = analyzerActionsSection.querySelector("input#regexRecap");
                 const actionPreview = analyzerActionsSection.querySelector("select#actionPreview");
+                const regexPreview = analyzerActionsSection.querySelector("input#regexPreview");
                 const saveAnalyzerActionsButton = analyzerActionsSection.querySelector("button#saveAnalyzerActions");
                 const canvas = document.querySelector("canvas#troubleshooter");
                 const selectShow = document.querySelector("select#troubleshooterShow");
@@ -1096,6 +1120,11 @@
                     actionCredits.value = analyzerActions.Credits || "Default";
                     actionRecap.value = analyzerActions.Recap || "Default";
                     actionPreview.value = analyzerActions.Preview || "Default";
+                    const analyzerRegexs = await getJson("Intros/AnalyzerRegexs/" + encodeURI(selectSeason.value));
+                    regexIntro.value = analyzerRegexs.Introduction || "";
+                    regexCredits.value = analyzerRegexs.Credits || "";
+                    regexRecap.value = analyzerRegexs.Recap || "";
+                    regexPreview.value = analyzerRegexs.Preview || "";
                     analyzerActionsSection.style.display = "unset";
 
                     // show the erase season button
@@ -1556,19 +1585,23 @@
                 saveAnalyzerActionsButton.addEventListener("click", () => {
                     Dashboard.showLoadingMsg();
 
-                    const url = "Intros/AnalyzerActions/UpdateSeason";
                     const actions = {
-                        id: selectSeason.value,
-                        analyzerActions: {
-                            Introduction: actionIntro.value,
-                            Credits: actionCredits.value,
-                            Recap: actionRecap.value,
-                            Preview: actionPreview.value,
-                        },
+                        Introduction: actionIntro.value,
+                        Credits: actionCredits.value,
+                        Recap: actionRecap.value,
+                        Preview: actionPreview.value,
+                    };
+                    const regexs = {
+                        Introduction: regexIntro.value,
+                        Credits: regexCredits.value,
+                        Recap: regexRecap.value,
+                        Preview: regexPreview.value,
                     };
 
-                    fetchWithAuth(url, "POST", JSON.stringify(actions));
-
+                    fetchWithAuth("Intros/UpdateSeasonConfig/" + encodeURIComponent(selectSeason.value), "POST", JSON.stringify({
+                        AnalyzerActions: actions,
+                        SeasonRegexs: regexs,
+                    }));
                     Dashboard.alert("Analyzer actions updated for " + selectSeason.value + " of " + selectShow.value);
                     Dashboard.hideLoadingMsg();
                 });

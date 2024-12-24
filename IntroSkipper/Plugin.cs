@@ -308,6 +308,35 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
             .ToDictionary(s => s.Type, s => s.EpisodeIds);
     }
 
+    internal string GetSeasonRegex(Guid id, AnalysisMode mode)
+    {
+        using var db = new IntroSkipperDbContext(_dbPath);
+        return db.DbSeasonInfo.FirstOrDefault(s => s.SeasonId == id && s.Type == mode)?.Regex ?? string.Empty;
+    }
+
+    internal async Task SetSeasonRegexAsync(Guid id, IReadOnlyDictionary<AnalysisMode, string> regexs)
+    {
+        using var db = new IntroSkipperDbContext(_dbPath);
+        var existingEntries = await db.DbSeasonInfo
+            .Where(s => s.SeasonId == id)
+            .ToDictionaryAsync(s => s.Type)
+            .ConfigureAwait(false);
+
+        foreach (var (mode, regex) in regexs)
+        {
+            if (existingEntries.TryGetValue(mode, out var existing))
+            {
+                db.Entry(existing).Property(s => s.Regex).CurrentValue = regex;
+            }
+            else
+            {
+                db.DbSeasonInfo.Add(new DbSeasonInfo(id, mode, AnalyzerAction.Default, regex: regex));
+            }
+        }
+
+        await db.SaveChangesAsync().ConfigureAwait(false);
+    }
+
     internal AnalyzerAction GetAnalyzerAction(Guid id, AnalysisMode mode)
     {
         using var db = new IntroSkipperDbContext(_dbPath);
