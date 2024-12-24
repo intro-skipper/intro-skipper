@@ -94,6 +94,7 @@ public class ChapterAnalyzer(ILogger<ChapterAnalyzer> logger) : IMediaFileAnalyz
         {
             return null;
         }
+
         var reversed = mode == AnalysisMode.Credits;
         var (minDuration, maxDuration) = (1, episode.Duration - 1);
 
