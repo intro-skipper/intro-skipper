@@ -98,8 +98,8 @@ public class ChapterAnalyzer(ILogger<ChapterAnalyzer> logger) : IMediaFileAnalyz
         var creditDuration = episode.IsMovie ? _config.MaximumMovieCreditsDuration : _config.MaximumCreditsDuration;
         var reversed = mode == AnalysisMode.Credits;
         var (minDuration, maxDuration) = reversed
-            ? (_config.MinimumCreditsDuration, creditDuration)
-            : (_config.MinimumIntroDuration, _config.MaximumIntroDuration);
+            ? (1, creditDuration)
+            : (1, _config.MaximumIntroDuration);
 
         // Check all chapters
         for (int i = reversed ? count - 1 : 0; reversed ? i >= 0 : i < count; i += reversed ? -1 : 1)
