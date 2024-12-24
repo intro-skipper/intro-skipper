@@ -95,12 +95,26 @@ public class ChapterAnalyzer(ILogger<ChapterAnalyzer> logger) : IMediaFileAnalyz
             return null;
         }
 
-        var creditDuration = episode.IsMovie ? _config.MaximumMovieCreditsDuration : _config.MaximumCreditsDuration;
-        var reversed = mode == AnalysisMode.Credits;
-        var (minDuration, maxDuration) = _config.FullLengthChapters ?
-            (1, episode.Duration - 1) : reversed
-            ? (_config.MinimumCreditsDuration, creditDuration)
-            : (_config.MinimumIntroDuration, _config.MaximumIntroDuration);
+        var reversed = mode == AnalysisMode.Credits || mode == AnalysisMode.Preview;
+        var minimumuration = mode switch
+        {
+            AnalysisMode.Introduction => _config.MinimumIntroDuration,
+            AnalysisMode.Credits => _config.MinimumCreditsDuration,
+            AnalysisMode.Recap => _config.MinimumRecapDuration,
+            AnalysisMode.Preview => _config.MinimumPreviewDuration,
+            _ => throw new ArgumentOutOfRangeException(nameof(mode), $"Unexpected analysis mode: {mode}")
+        };
+        var maximumDuration = mode switch
+        {
+            AnalysisMode.Introduction => _config.MaximumIntroDuration,
+            AnalysisMode.Credits => episode.IsMovie ? _config.MaximumMovieCreditsDuration : _config.MaximumCreditsDuration,
+            AnalysisMode.Recap => _config.MaximumRecapDuration,
+            AnalysisMode.Preview => _config.MaximumPreviewDuration,
+            _ => throw new ArgumentOutOfRangeException(nameof(mode), $"Unexpected analysis mode: {mode}")
+        };
+        var (minDuration, maxDuration) = _config.FullLengthChapters
+            ? (1, episode.Duration - 1)
+            : (minimumuration, maximumDuration);
 
         // Check all chapters
         for (int i = reversed ? count - 1 : 0; reversed ? i >= 0 : i < count; i += reversed ? -1 : 1)

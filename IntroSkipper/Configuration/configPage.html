@@ -179,6 +179,30 @@
                                     <div class="fieldDescription">Segments or similar sounding audio which is longer than this duration will not be considered credits.</div>
                                 </div>
 
+                                <div class="inputContainer">
+                                    <label class="inputLabel inputLabelUnfocused" for="MinimumRecapDuration"> Minimum recap duration (in seconds) </label>
+                                    <input id="MinimumRecapDuration" type="number" is="emby-input" min="1" />
+                                    <div class="fieldDescription">Segments which are shorter than this duration will not be considered a recap.</div>
+                                </div>
+
+                                <div class="inputContainer">
+                                    <label class="inputLabel inputLabelUnfocused" for="MaximumRecapDuration"> Maximum recap duration (in seconds) </label>
+                                    <input id="MaximumRecapDuration" type="number" is="emby-input" min="1" />
+                                    <div class="fieldDescription">Segments which are longer than this duration will not be considered a recap.</div>
+                                </div>
+
+                                <div class="inputContainer">
+                                    <label class="inputLabel inputLabelUnfocused" for="MinimumPreviewDuration"> Minimum preview duration (in seconds) </label>
+                                    <input id="MinimumPreviewDuration" type="number" is="emby-input" min="1" />
+                                    <div class="fieldDescription">Segments which are shorter than this duration will not be considered a preview.</div>
+                                </div>
+
+                                <div class="inputContainer">
+                                    <label class="inputLabel inputLabelUnfocused" for="MaximumPreviewDuration"> Maximum preview duration (in seconds) </label>
+                                    <input id="MaximumPreviewDuration" type="number" is="emby-input" min="1" />
+                                    <div class="fieldDescription">Segments which are longer than this duration will not be considered a preview.</div>
+                                </div>
+
                                 <div class="inputContainer" id="movieCreditsDuration">
                                     <label class="inputLabel inputLabelUnfocused" for="MaximumMovieCreditsDuration"> Maximum movie credits duration (in seconds) </label>
                                     <input id="MaximumMovieCreditsDuration" type="number" is="emby-input" min="1" />
@@ -788,6 +812,10 @@
                     "MaximumIntroDuration",
                     "MinimumCreditsDuration",
                     "MaximumCreditsDuration",
+                    "MinimumRecapDuration",
+                    "MaximumRecapDuration",
+                    "MinimumPreviewDuration",
+                    "MaximumPreviewDuration",
                     "MaximumMovieCreditsDuration",
                     "ProcessPriority",
                     "ProcessThreads",
