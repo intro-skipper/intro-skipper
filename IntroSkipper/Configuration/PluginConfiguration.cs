@@ -109,6 +109,11 @@ public class PluginConfiguration : BasePluginConfiguration
     public int AnalysisLengthLimit { get; set; } = 10;
 
     /// <summary>
+    /// Gets or sets whether to use the minimum and maximum duration for chapters.
+    /// </summary>
+    public bool FullLengthChapters { get; set; } = true;
+
+    /// <summary>
     /// Gets or sets the minimum length of similar audio that will be considered an introduction.
     /// </summary>
     public int MinimumIntroDuration { get; set; } = 15;

@@ -95,8 +95,12 @@ public class ChapterAnalyzer(ILogger<ChapterAnalyzer> logger) : IMediaFileAnalyz
             return null;
         }
 
+        var creditDuration = episode.IsMovie ? _config.MaximumMovieCreditsDuration : _config.MaximumCreditsDuration;
         var reversed = mode == AnalysisMode.Credits;
-        var (minDuration, maxDuration) = (1, episode.Duration - 1);
+        var (minDuration, maxDuration) = _config.FullLengthChapters ?
+            (1, episode.Duration - 1) : reversed
+            ? (_config.MinimumCreditsDuration, creditDuration)
+            : (_config.MinimumIntroDuration, _config.MaximumIntroDuration);
 
         // Check all chapters
         for (int i = reversed ? count - 1 : 0; reversed ? i >= 0 : i < count; i += reversed ? -1 : 1)
