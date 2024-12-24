@@ -99,7 +99,9 @@ public class ChapterAnalyzer(ILogger<ChapterAnalyzer> logger) : IMediaFileAnalyz
         Dictionary<AnalysisMode, Func<(double Min, double Max)>> durationBounds = new()
         {
             [AnalysisMode.Introduction] = () => (_config.MinimumIntroDuration, _config.MaximumIntroDuration),
-            [AnalysisMode.Credits] = () => (_config.MinimumCreditsDuration, _config.MaximumCreditsDuration),
+            [AnalysisMode.Credits] = () => (_config.MinimumCreditsDuration, episode.IsMovie
+                ? _config.MaximumMovieCreditsDuration
+                : _config.MaximumCreditsDuration),
             [AnalysisMode.Recap] = () => (_config.MinimumRecapDuration, _config.MaximumRecapDuration),
             [AnalysisMode.Preview] = () => (_config.MinimumPreviewDuration, _config.MaximumPreviewDuration)
         };
@@ -107,7 +109,7 @@ public class ChapterAnalyzer(ILogger<ChapterAnalyzer> logger) : IMediaFileAnalyz
         var bounds = boundsFunc(); // Call the function to get the values
         var (minDuration, maxDuration) = _config.FullLengthChapters
             ? (1, episode.Duration - 1)
-            : (bounds.Min, mode == AnalysisMode.Credits && episode.IsMovie ? _config.MaximumMovieCreditsDuration : bounds.Max);
+            : (bounds.Min, bounds.Max);
 
         // Check all chapters
         for (int i = reversed ? count - 1 : 0; reversed ? i >= 0 : i < count; i += reversed ? -1 : 1)
