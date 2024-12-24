@@ -27,6 +27,14 @@ public class ChapterAnalyzer(ILogger<ChapterAnalyzer> logger) : IMediaFileAnalyz
     private readonly ILogger<ChapterAnalyzer> _logger = logger;
     private readonly PluginConfiguration _config = Plugin.Instance?.Configuration ?? new PluginConfiguration();
 
+    private readonly Dictionary<AnalysisMode, Func<(double Min, double Max)>> _durationBounds = new()
+    {
+        [AnalysisMode.Introduction] = () => (_config.MinimumIntroDuration, _config.MaximumIntroDuration),
+        [AnalysisMode.Credits] = () => (_config.MinimumCreditsDuration, _config.MaximumCreditsDuration),
+        [AnalysisMode.Recap] = () => (_config.MinimumRecapDuration, _config.MaximumRecapDuration),
+        [AnalysisMode.Preview] = () => (_config.MinimumPreviewDuration, _config.MaximumPreviewDuration)
+    };
+
     /// <inheritdoc />
     public async Task<IReadOnlyList<QueuedEpisode>> AnalyzeMediaFiles(
         IReadOnlyList<QueuedEpisode> analysisQueue,
@@ -96,25 +104,14 @@ public class ChapterAnalyzer(ILogger<ChapterAnalyzer> logger) : IMediaFileAnalyz
         }
 
         var reversed = mode == AnalysisMode.Credits || mode == AnalysisMode.Preview;
-        var minimumuration = mode switch
-        {
-            AnalysisMode.Introduction => _config.MinimumIntroDuration,
-            AnalysisMode.Credits => _config.MinimumCreditsDuration,
-            AnalysisMode.Recap => _config.MinimumRecapDuration,
-            AnalysisMode.Preview => _config.MinimumPreviewDuration,
-            _ => throw new ArgumentOutOfRangeException(nameof(mode), $"Unexpected analysis mode: {mode}")
-        };
-        var maximumDuration = mode switch
-        {
-            AnalysisMode.Introduction => _config.MaximumIntroDuration,
-            AnalysisMode.Credits => episode.IsMovie ? _config.MaximumMovieCreditsDuration : _config.MaximumCreditsDuration,
-            AnalysisMode.Recap => _config.MaximumRecapDuration,
-            AnalysisMode.Preview => _config.MaximumPreviewDuration,
-            _ => throw new ArgumentOutOfRangeException(nameof(mode), $"Unexpected analysis mode: {mode}")
-        };
+        var boundsFunc = _durationBounds.GetValueOrDefault(mode) ?? throw new ArgumentOutOfRangeException(nameof(mode));
+        var bounds = boundsFunc(); // Call the function to get the values
+        var maximumDuration = mode == AnalysisMode.Credits && episode.IsMovie
+            ? _config.MaximumMovieCreditsDuration
+            : bounds.Max;
         var (minDuration, maxDuration) = _config.FullLengthChapters
             ? (1, episode.Duration - 1)
-            : (minimumuration, maximumDuration);
+            : (bounds.Min, maximumDuration);
 
         // Check all chapters
         for (int i = reversed ? count - 1 : 0; reversed ? i >= 0 : i < count; i += reversed ? -1 : 1)
