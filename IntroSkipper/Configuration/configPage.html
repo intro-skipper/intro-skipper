@@ -148,6 +148,13 @@
                                 </p>
                                 <br />
 
+                                <div class="checkboxContainer checkboxContainer-withDescription">
+                                    <label class="emby-checkbox-label">
+                                        <input id="FullLengthChapters" type="checkbox" is="emby-checkbox" />
+                                        <span>Ignore duration limits for chapters</span>
+                                    </label>
+                                </div>
+
                                 <div class="inputContainer">
                                     <label class="inputLabel inputLabelUnfocused" for="MinimumIntroDuration"> Minimum introduction duration (in seconds) </label>
                                     <input id="MinimumIntroDuration" type="number" is="emby-input" min="1" />
@@ -176,6 +183,30 @@
                                     <label class="inputLabel inputLabelUnfocused" for="MaximumMovieCreditsDuration"> Maximum movie credits duration (in seconds) </label>
                                     <input id="MaximumMovieCreditsDuration" type="number" is="emby-input" min="1" />
                                     <div class="fieldDescription">Segments longer than this duration will not be considered movie credits.</div>
+                                </div>
+
+                                <div class="inputContainer" id="MinimumRecapDurationContainer">
+                                    <label class="inputLabel inputLabelUnfocused" for="MinimumRecapDuration"> Minimum recap duration (in seconds) </label>
+                                    <input id="MinimumRecapDuration" type="number" is="emby-input" min="1" />
+                                    <div class="fieldDescription">Segments which are shorter than this duration will not be considered a recap.</div>
+                                </div>
+
+                                <div class="inputContainer" id="MaximumRecapDurationContainer">
+                                    <label class="inputLabel inputLabelUnfocused" for="MaximumRecapDuration"> Maximum recap duration (in seconds) </label>
+                                    <input id="MaximumRecapDuration" type="number" is="emby-input" min="1" />
+                                    <div class="fieldDescription">Segments which are longer than this duration will not be considered a recap.</div>
+                                </div>
+
+                                <div class="inputContainer" id="MinimumPreviewDurationContainer">
+                                    <label class="inputLabel inputLabelUnfocused" for="MinimumPreviewDuration"> Minimum preview duration (in seconds) </label>
+                                    <input id="MinimumPreviewDuration" type="number" is="emby-input" min="1" />
+                                    <div class="fieldDescription">Segments which are shorter than this duration will not be considered a preview.</div>
+                                </div>
+
+                                <div class="inputContainer" id="MaximumPreviewDurationContainer">
+                                    <label class="inputLabel inputLabelUnfocused" for="MaximumPreviewDuration"> Maximum preview duration (in seconds) </label>
+                                    <input id="MaximumPreviewDuration" type="number" is="emby-input" min="1" />
+                                    <div class="fieldDescription">Segments which are longer than this duration will not be considered a preview.</div>
                                 </div>
 
                                 <div class="inputContainer" id="excludeSeries">
@@ -782,6 +813,10 @@
                     "MinimumCreditsDuration",
                     "MaximumCreditsDuration",
                     "MaximumMovieCreditsDuration",
+                    "MinimumRecapDuration",
+                    "MaximumRecapDuration",
+                    "MinimumPreviewDuration",
+                    "MaximumPreviewDuration",
                     "ProcessPriority",
                     "ProcessThreads",
                     // playback
@@ -803,7 +838,7 @@
                     "AutoSkipNotificationText",
                 ];
 
-                const booleanConfigurationFields = ["AutoDetectIntros", "AnalyzeMovies", "AnalyzeSeasonZero", "SelectAllLibraries", "UpdateMediaSegments", "RebuildMediaSegments", "ScanIntroduction", "ScanCredits", "ScanRecap", "ScanPreview", "CacheFingerprints", "PluginSkip", "AutoSkip", "SkipFirstEpisode", "PersistSkipButton", "SkipButtonEnabled"];
+                const booleanConfigurationFields = ["AutoDetectIntros", "AnalyzeMovies", "AnalyzeSeasonZero", "SelectAllLibraries", "UpdateMediaSegments", "FullLengthChapters", "RebuildMediaSegments", "ScanIntroduction", "ScanCredits", "ScanRecap", "ScanPreview", "CacheFingerprints", "PluginSkip", "AutoSkip", "SkipFirstEpisode", "PersistSkipButton", "SkipButtonEnabled"];
 
                 // visualizer elements
                 const analyzerActionsSection = document.querySelector("div#analyzerActionsSection");
@@ -846,6 +881,7 @@
                 const skipFirstEpisode = document.getElementById("divSkipFirstEpisode");
                 const secondsOfIntroStartToPlay = document.getElementById("divSecondsOfIntroStartToPlay");
                 const autoSkipClientList = document.querySelector("div.AutoSkipClientListContainer");
+                const fullLengthChapters = document.getElementById("FullLengthChapters");
                 const movieCreditsDuration = document.getElementById("movieCreditsDuration");
 
                 function skipButtonVisibleChanged() {
@@ -883,6 +919,28 @@
                 }
 
                 selectAllLibraries.addEventListener("change", selectAllLibrariesChanged);
+
+                const minimumRecapDuration = document.getElementById("MinimumRecapDurationContainer");
+                const maximumRecapDuration = document.getElementById("MaximumRecapDurationContainer");
+                const minimumPreviewDuration = document.getElementById("MinimumPreviewDurationContainer");
+                const maximumPreviewDuration = document.getElementById("MaximumPreviewDurationContainer");
+
+                // Hide or show durations for segments that are exclusively analyzed by chapters
+                function fullLengthChaptersChanged() {
+                    if (fullLengthChapters.checked) {
+                        minimumRecapDuration.style.display = "none";
+                        maximumRecapDuration.style.display = "none";
+                        minimumPreviewDuration.style.display = "none";
+                        maximumPreviewDuration.style.display = "none";
+                    } else {
+                        minimumRecapDuration.style.display = "unset";
+                        maximumRecapDuration.style.display = "unset";
+                        minimumPreviewDuration.style.display = "unset";
+                        maximumPreviewDuration.style.display = "unset";
+                    }
+                }
+
+                fullLengthChapters.addEventListener("change", fullLengthChaptersChanged);
 
                 function updateList(textField, container) {
                     textField.value = Array.from(container.querySelectorAll('input[type="checkbox"]:checked'))
@@ -1459,6 +1517,7 @@
 
                         populateLibraries();
                         selectAllLibrariesChanged();
+                        fullLengthChaptersChanged();
                         autoSkipChanged();
                         persistSkipChanged();
                         generateAutoSkipTypeList();

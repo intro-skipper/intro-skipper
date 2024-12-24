@@ -109,6 +109,11 @@ public class PluginConfiguration : BasePluginConfiguration
     public int AnalysisLengthLimit { get; set; } = 10;
 
     /// <summary>
+    /// Gets or sets a value indicating whether to use the minimum and maximum duration for chapters.
+    /// </summary>
+    public bool FullLengthChapters { get; set; } = true;
+
+    /// <summary>
     /// Gets or sets the minimum length of similar audio that will be considered an introduction.
     /// </summary>
     public int MinimumIntroDuration { get; set; } = 15;
@@ -132,6 +137,26 @@ public class PluginConfiguration : BasePluginConfiguration
     /// Gets or sets the upper limit (in seconds) on the length of a movie segment that will be analyzed when searching for ending credits.
     /// </summary>
     public int MaximumMovieCreditsDuration { get; set; } = 900;
+
+    /// <summary>
+    /// Gets or sets the minimum length of similar audio that will be considered a recap.
+    /// </summary>
+    public int MinimumRecapDuration { get; set; } = 15;
+
+    /// <summary>
+    /// Gets or sets the maximum length of similar audio that will be considered a recap.
+    /// </summary>
+    public int MaximumRecapDuration { get; set; } = 120;
+
+    /// <summary>
+    /// Gets or sets the minimum length of similar audio that will be considered a preview.
+    /// </summary>
+    public int MinimumPreviewDuration { get; set; } = 15;
+
+    /// <summary>
+    /// Gets or sets the maximum length of similar audio that will be considered a preview.
+    /// </summary>
+    public int MaximumPreviewDuration { get; set; } = 120;
 
     /// <summary>
     /// Gets or sets the minimum percentage of a frame that must consist of black pixels before it is considered a black frame.
