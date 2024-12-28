@@ -345,10 +345,6 @@ namespace IntroSkipper.Manager
                                 candidate.SetAnalyzed(mode, EpisodeState.NoSegments);
                             }
                         }
-                        else
-                        {
-                            candidate.SetAnalyzed(mode, EpisodeState.NotAnalyzed);
-                        }
                     }
                 }
                 catch (Exception ex)
