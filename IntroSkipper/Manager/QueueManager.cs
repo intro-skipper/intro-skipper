@@ -233,6 +233,7 @@ namespace IntroSkipper.Manager
                 SeasonNumber = episode.AiredSeasonNumber ?? 0,
                 SeriesId = episode.SeriesId,
                 SeasonId = episode.SeasonId,
+                EpisodeNumber = episode.IndexNumber ?? 0,
                 EpisodeId = episode.Id,
                 Name = episode.Name,
                 IsAnime = isAnime,
@@ -302,33 +303,51 @@ namespace IntroSkipper.Manager
         /// This is done to ensure that we don't analyze items that were deleted between the call to GetMediaItems() and popping them from the queue.
         /// </summary>
         /// <param name="candidates">Queued media items.</param>
-        /// <param name="modes">Analysis mode.</param>
+        /// <param name="modes">Analysis modes.</param>
         /// <returns>Media items that have been verified to exist in Jellyfin and in storage.</returns>
-        internal (IReadOnlyList<QueuedEpisode> QueuedEpisodes, IReadOnlyCollection<AnalysisMode> RequiredModes)
-            VerifyQueue(IReadOnlyList<QueuedEpisode> candidates, IReadOnlyCollection<AnalysisMode> modes)
+        internal IReadOnlyList<QueuedEpisode> VerifyQueue(IReadOnlyList<QueuedEpisode> candidates, IReadOnlyCollection<AnalysisMode> modes)
         {
-            var verified = new List<QueuedEpisode>();
-            var requiredModes = new HashSet<AnalysisMode>();
+            if (candidates == null || candidates.Count == 0)
+            {
+                return [];
+            }
 
-            var episodeIds = Plugin.Instance!.GetEpisodeIds(candidates[0].SeasonId);
+            var verified = new List<QueuedEpisode>(candidates.Count);
+            var plugin = Plugin.Instance ?? throw new InvalidOperationException("Plugin instance is null");
+            var episodeIds = plugin.GetEpisodeIds(candidates[0].SeasonId);
 
             foreach (var candidate in candidates)
             {
                 try
                 {
-                    var path = Plugin.Instance!.GetItemPath(candidate.EpisodeId);
-                    if (!File.Exists(path))
+                    var path = plugin.GetItemPath(candidate.EpisodeId);
+
+                    if (string.IsNullOrEmpty(path) || !File.Exists(path))
                     {
+                        _logger.LogDebug("Skipping {Name} ({Id}): file not found", candidate.Name, candidate.EpisodeId);
                         continue;
                     }
 
                     verified.Add(candidate);
 
+                    var hasSegments = plugin.GetTimestamps(candidate.EpisodeId);
+
                     foreach (var mode in modes)
                     {
-                        if (!episodeIds.TryGetValue(mode, out var ids) || !ids.Contains(candidate.EpisodeId) || Plugin.Instance!.AnalyzeAgain)
+                        if (episodeIds.TryGetValue(mode, out var ids) && ids.Contains(candidate.EpisodeId))
                         {
-                            requiredModes.Add(mode);
+                            if (hasSegments.TryGetValue(mode, out _))
+                            {
+                                candidate.SetAnalyzed(mode, EpisodeState.Analyzed);
+                            }
+                            else if (!plugin.AnalyzeAgain)
+                            {
+                                candidate.SetAnalyzed(mode, EpisodeState.NoSegments);
+                            }
+                        }
+                        else
+                        {
+                            candidate.SetAnalyzed(mode, EpisodeState.NotAnalyzed);
                         }
                     }
                 }
@@ -342,7 +361,7 @@ namespace IntroSkipper.Manager
                 }
             }
 
-            return (verified, requiredModes);
+            return verified;
         }
     }
 }

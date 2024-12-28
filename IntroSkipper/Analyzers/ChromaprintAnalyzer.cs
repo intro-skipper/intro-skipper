@@ -3,6 +3,7 @@
 
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 using System.Numerics;
 using System.Threading;
@@ -35,10 +36,10 @@ public class ChromaprintAnalyzer(ILogger<ChromaprintAnalyzer> logger) : IMediaFi
         AnalysisMode mode,
         CancellationToken cancellationToken)
     {
-        // Episodes that were not analyzed.
-        var episodeAnalysisQueue = analysisQueue.Where(e => !e.IsAnalyzed).ToList();
+        // Episodes that were not analyzed or have a fingerprint cache.
+        var episodeAnalysisQueue = analysisQueue.Where(e => e.GetAnalyzed(mode) != EpisodeState.Analyzed || File.Exists(FFmpegWrapper.GetFingerprintCachePath(e, mode))).ToList();
 
-        if (episodeAnalysisQueue.Count <= 1)
+        if (analysisQueue.Count <= 1 || episodeAnalysisQueue.Any(e => e.GetAnalyzed(mode) != EpisodeState.Analyzed))
         {
             return analysisQueue;
         }
@@ -50,6 +51,13 @@ public class ChromaprintAnalyzer(ILogger<ChromaprintAnalyzer> logger) : IMediaFi
 
         // Cache of all fingerprints for this season.
         var fingerprintCache = new Dictionary<Guid, uint[]>();
+
+        // Ensure at least two fingerprints are present.
+        if (episodeAnalysisQueue.Count == 1)
+        {
+            episodeAnalysisQueue.AddRange(analysisQueue
+                .Where(episode => Math.Abs(episode.EpisodeNumber - episodeAnalysisQueue[0].EpisodeNumber) <= 1));
+        }
 
         // Compute fingerprints for all episodes in the season
         foreach (var episode in episodeAnalysisQueue)
@@ -151,7 +159,7 @@ public class ChromaprintAnalyzer(ILogger<ChromaprintAnalyzer> logger) : IMediaFi
             // If an intro is found for this episode, adjust its times and save it else add it to the list of episodes without intros.
             if (seasonIntros.TryGetValue(currentEpisode.EpisodeId, out var intro))
             {
-                currentEpisode.IsAnalyzed = true;
+                currentEpisode.SetAnalyzed(mode, EpisodeState.Analyzed);
                 await Plugin.Instance!.UpdateTimestampAsync(intro, mode).ConfigureAwait(false);
             }
         }
