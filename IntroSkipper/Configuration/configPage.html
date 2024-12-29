@@ -749,13 +749,13 @@
                                     <p>
                                         <label class="selectLabel" for="GlobalTimestamps" style="display: none"></label>
                                         <select is="emby-select" id="GlobalTimestamps" class="emby-select-withcolor block emby-select">
-                                            <option value="intros">Global Introduction Timestamps</option>
+                                            <option value="introduction">Global Introduction Timestamps</option>
 
-                                            <option value="recaps">Global Recap Timestamps</option>
+                                            <option value="recap">Global Recap Timestamps</option>
 
                                             <option value="credits">Gloabl Credits Timestamps</option>
 
-                                            <option value="previews">Global Preview Timestamps</option>
+                                            <option value="preview">Global Preview Timestamps</option>
                                         </select>
                                         <div class="checkboxContainer checkboxContainer" style="margin: 0;">
                                             <label class="emby-checkbox-label">
@@ -1581,18 +1581,25 @@
                     eraseTimestamps("Preview");
                     e.preventDefault();
                 });
+
+                function globalTimestampChanged() {
+                    btnEraseGlobalTimestamps.textContent = "Erase all " + globalTimestamps.value + " timestamps (globally)";
+                }
+
+                globalTimestamps.addEventListener("change", globalTimestampChanged);
+
                 btnEraseGlobalTimestamps.addEventListener("click", (e) => {
                   switch (globalTimestamps.value) {
-                    case "intros":
+                    case "introduction":
                         eraseTimestamps("Introduction");
                         break;
-                    case "recaps":
+                    case "recap":
                         eraseTimestamps("Recap");
                         break;
                     case "credits":
                         eraseTimestamps("Credits");
                         break;
-                    case "previews":
+                    case "preview":
                         eraseTimestamps("Preview");
                         break;
                     default:
