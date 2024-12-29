@@ -747,22 +747,21 @@
 
                                 <div>
                                     <p>
-                                        <label class="selectLabel" for="GlobalTimestamps">Global Timestamps: </label>
-                                        <select is="emby-select" id="GlobalTimestamps" class="emby-select-withcolor block emby-select">
-                                            <option value="intro">Intro</option>
-
-                                            <option value="recap">Recap</option>
-
-                                            <option value="credits">Credits</option>
-
-                                            <option value="preview">Preview</option>
-                                        </select>
-                                        <div class="checkboxContainer checkboxContainer">
+                                        <<div class="checkboxContainer checkboxContainer" style="margin: 0;">
                                             <label class="emby-checkbox-label">
                                                 <input id="eraseModeCacheCheckbox" type="checkbox" is="emby-checkbox" />
                                                 <span>Include global cached fingerprint files</span>
                                             </label>
                                         </div>
+                                        <select is="emby-select" id="GlobalTimestamps" class="emby-select-withcolor block emby-select">
+                                            <option value="intro">Global Intro Timestamps</option>
+
+                                            <option value="recap">Global Recap Timestamps</option>
+
+                                            <option value="credits">Gloabl Credits Timestamps</option>
+
+                                            <option value="preview">Global Preview Timestamps</option>
+                                        </select>
                                         <button is="emby-button" class="raised button-submit block emby-button" id="btnEraseGlobalTimestamps">Erase all selected timestamps (globally)</button>
                                     </p>
                                 </div>
