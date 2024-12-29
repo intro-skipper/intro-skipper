@@ -721,23 +721,32 @@
 
                                 <div id="eraseSeasonContainer" style="display: none">
                                     <p>
-                                        <input type="checkbox" id="eraseSeasonCacheCheckbox" />
-                                        <label for="eraseSeasonCacheCheckbox" style="margin-left: 5px">Erase cached fingerprint files</label>
-
-                                        <button is="emby-button" id="btnEraseSeasonTimestamps" class="raised button-submit block emby-button" type="button">Erase all timestamps for this season</button>
+                                        <div style="display: flex; align-items: center; gap: 1em;">
+                                            <button is="emby-button" id="btnEraseSeasonTimestamps" class="raised button-submit emby-button" type="button">Erase all timestamps for this season</button>
+                                            <div class="checkboxContainer checkboxContainer" style="margin: 0;">
+                                                <label class="emby-checkbox-label">
+                                                    <input id="eraseSeasonCacheCheckbox" type="checkbox" is="emby-checkbox" />
+                                                <span>Erase cached fingerprint files</span>
+                                            </label>
+                                        </div>
                                     </p>
                                 </div>
 
                                 <div id="eraseMovieContainer" style="display: none">
                                     <p>
-                                        <input type="checkbox" id="eraseMovieCacheCheckbox" style="margin-left: 10px" />
-                                        <label for="eraseMovieCacheCheckbox" style="margin-left: 5px">Erase cached fingerprint files</label>
-
-                                        <button is="emby-button" id="btnEraseMovieTimestamps" class="raised button-submit block emby-button" type="button">Erase all timestamps for this movie</button>
+                                        <div style="display: flex; align-items: center; gap: 1em;">
+                                            <button is="emby-button" id="btnEraseMovieTimestamps" class="raised button-submit emby-button" type="button">Erase all timestamps for this movie</button>
+                                            <div class="checkboxContainer checkboxContainer" style="margin: 0;">
+                                                <label class="emby-checkbox-label">
+                                                    <input id="eraseMovieCacheCheckbox" type="checkbox" is="emby-checkbox" />
+                                                    <span>Erase cached fingerprint files</span>
+                                                </label>
+                                            </div>
+                                        </div>
                                     </p>
                                 </div>
 
-                                <hr>
+                                <hr style="border: none; border-top: 1px solid #ccc; margin: 20px 0;" />
 
                                 <div>
                                     <p>
@@ -751,16 +760,15 @@
 
                                             <option value="preview">Preview</option>
                                           </select>
-                                          <br />
-                                          <input type="checkbox" id="eraseModeCacheCheckbox"/>
-                                          <label for="eraseModeCacheCheckbox" style="margin-left: 5px">Erase global cached fingerprint files</label>
-
-                                          <button is="emby-button" class="raised button-submit block emby-button" id="btnEraseGlobalTimestamps">Erase all selected timestamps (globally)</button>
+                                          <div class="checkboxContainer checkboxContainer">
+                                            <label class="emby-checkbox-label">
+                                                <input id="eraseModeCacheCheckbox" type="checkbox" is="emby-checkbox" />
+                                                <span>Erase global cached fingerprint files</span>
+                                            </label>
+                                        </div>
                                     </p>
                                 </div>
-
-                                <br />
-
+                                <button is="emby-button" class="raised button-submit block emby-button" id="btnEraseGlobalTimestamps">Erase all selected timestamps (globally)</button>
                                 <div>
                                     <p>
                                         <button is="emby-button" class="raised button-submit block emby-button" id="btnRebuildDatabase">Rebuild database</button>
