@@ -739,22 +739,23 @@
 
                                 <div style="display: flex; align-items: center;">
                                     <p>
-                                        <button is="emby-button" class="button-submit block emby-button" id="btnEraseIntroTimestamps">Erase all introduction timestamps (globally)</button>
-                                        <br />
+                                      <label class="selectLabel" for="GlobalTimsstamps">Global Timestamps: </label>
+                                      <select is="emby-select" id="GlobalTimsstamps" class="emby-select-withcolor block emby-select">
+                                          <option value="intro">Intro</option>
 
-                                        <button is="emby-button" class="button-submit block emby-button" id="btnEraseRecapTimestamps">Erase all recap timestamps (globally)</button>
-                                        <br />
+                                          <option value="recap">Recap</option>
 
-                                        <button is="emby-button" class="button-submit block emby-button" id="btnEraseCreditTimestamps">Erase all credits (outro) timestamps (globally)</button>
-                                        <br />
+                                          <option value="credits">Credits</option>
 
-                                        <button is="emby-button" class="button-submit block emby-button" id="btnErasePreviewTimestamps">Erase all preview timestamps (globally)</button>
+                                          <option value="preview">Preview</option>
+                                      </select>
                                     </p>
                                     <div style="width: 50%; margin: auto;">
                                         <input type="checkbox" id="eraseModeCacheCheckbox" style="margin-left: 10px" />
                                         <label for="eraseModeCacheCheckbox" style="margin-left: 5px">Erase global cached fingerprint files</label>
                                     </div>
                                 </div>
+                                <button is="emby-button" class="button-submit block emby-button" id="btnEraseGlobalTimestamps">Erase all selected timestamps (globally)</button>
                                 <div>
                                   <p>
                                     <button is="emby-button" class="button-submit block emby-button" id="btnRebuildDatabase">Rebuild database</button>
@@ -797,10 +798,8 @@
                 const visualizer = document.querySelector("details#visualizer");
                 const support = document.querySelector("details#support");
                 const storage = document.querySelector("details#storage");
-                const btnEraseIntroTimestamps = document.querySelector("button#btnEraseIntroTimestamps");
-                const btnEraseRecapTimestamps = document.querySelector("button#btnEraseRecapTimestamps");
-                const btnEraseCreditTimestamps = document.querySelector("button#btnEraseCreditTimestamps");
-                const btnErasePreviewTimestamps = document.querySelector("button#btnErasePreviewTimestamps");
+                const globalTimsstamps = document.getElementById("GlobalTimsstamps");
+                const btnEraseGlobalTimestamps = document.querySelector("button#btnEraseGlobalTimestamps");
                 const btnRebuildDatabase = document.querySelector("button#btnRebuildDatabase");
 
                 // all plugin configuration fields that can be get or set with .value (i.e. strings or numbers).
@@ -1570,6 +1569,25 @@
                 btnErasePreviewTimestamps.addEventListener("click", (e) => {
                     eraseTimestamps("Preview");
                     e.preventDefault();
+                });
+                btnEraseGlobalTimestamps.addEventListener("click", (e) => {
+                  switch (globalTimsstamps.value) {
+                    case "intro":
+                        eraseTimestamps("Introduction");
+                        break;
+                    case "recap":
+                        eraseTimestamps("Recap");
+                        break;
+                    case "credits":
+                        eraseTimestamps("Credits");
+                        break;
+                    case "preview":
+                        eraseTimestamps("Preview");
+                        break;
+                    default:
+                        return;
+                  }
+                  e.preventDefault();
                 });
                 btnRebuildDatabase.addEventListener("click", () => {
                     fetchWithAuth("Intros/RebuildDatabase", "POST", null);
