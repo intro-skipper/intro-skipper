@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-only.
 
 using System;
+using System.Collections.Generic;
 
 namespace IntroSkipper.Data;
 
@@ -10,6 +11,8 @@ namespace IntroSkipper.Data;
 /// </summary>
 public class QueuedEpisode
 {
+    private readonly EpisodeState[] _isAnalyzed = new EpisodeState[Enum.GetValues(typeof(AnalysisMode)).Length];
+
     /// <summary>
     /// Gets or sets the series name.
     /// </summary>
@@ -19,6 +22,11 @@ public class QueuedEpisode
     /// Gets or sets the season number.
     /// </summary>
     public int SeasonNumber { get; set; }
+
+    /// <summary>
+    /// Gets or sets the episode number.
+    /// </summary>
+    public int EpisodeNumber { get; set; }
 
     /// <summary>
     /// Gets or sets the episode id.
@@ -34,6 +42,11 @@ public class QueuedEpisode
     /// Gets or sets the series id.
     /// </summary>
     public Guid SeriesId { get; set; }
+
+    /// <summary>
+    /// Gets a value indicating whether this media has been already analyzed.
+    /// </summary>
+    public IReadOnlyList<EpisodeState> IsAnalyzed => _isAnalyzed;
 
     /// <summary>
     /// Gets or sets the full path to episode.
@@ -56,11 +69,6 @@ public class QueuedEpisode
     public bool IsMovie { get; set; }
 
     /// <summary>
-    /// Gets or sets a value indicating whether an episode has been analyzed.
-    /// </summary>
-    public bool IsAnalyzed { get; set; }
-
-    /// <summary>
     /// Gets or sets the timestamp (in seconds) to stop searching for an introduction at.
     /// </summary>
     public int IntroFingerprintEnd { get; set; }
@@ -74,4 +82,24 @@ public class QueuedEpisode
     /// Gets or sets the total duration of this media file (in seconds).
     /// </summary>
     public int Duration { get; set; }
+
+    /// <summary>
+    /// Sets a value indicating whether this media has been already analyzed.
+    /// </summary>
+    /// <param name="mode">Analysis mode.</param>
+    /// <param name="value">Value to set.</param>
+    public void SetAnalyzed(AnalysisMode mode, EpisodeState value)
+    {
+        _isAnalyzed[(int)mode] = value;
+    }
+
+    /// <summary>
+    /// Sets a value indicating whether this media has been already analyzed.
+    /// </summary>
+    /// <param name="mode">Analysis mode.</param>
+    /// <returns>Value of the analyzed mode.</returns>
+    public EpisodeState GetAnalyzed(AnalysisMode mode)
+    {
+        return _isAnalyzed[(int)mode];
+    }
 }
