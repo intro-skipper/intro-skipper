@@ -1565,28 +1565,12 @@
                 selectSeason.addEventListener("change", seasonChanged);
                 selectEpisode1.addEventListener("change", episodeChanged);
                 selectEpisode2.addEventListener("change", episodeChanged);
-                btnEraseIntroTimestamps.addEventListener("click", (e) => {
-                    eraseTimestamps("Introduction");
-                    e.preventDefault();
-                });
-                btnEraseRecapTimestamps.addEventListener("click", (e) => {
-                    eraseTimestamps("Recap");
-                    e.preventDefault();
-                });
-                btnEraseCreditTimestamps.addEventListener("click", (e) => {
-                    eraseTimestamps("Credits");
-                    e.preventDefault();
-                });
-                btnErasePreviewTimestamps.addEventListener("click", (e) => {
-                    eraseTimestamps("Preview");
-                    e.preventDefault();
-                });
 
                 function globalTimestampChanged() {
                     btnEraseGlobalTimestamps.textContent = "Erase all " + globalTimestamps.value + " timestamps (globally)";
                 }
 
-                globalTimestamps.addEventListener("change", globalTimestampChanged);
+                globalTimestamps.addEventListener("select", globalTimestampChanged);
 
                 btnEraseGlobalTimestamps.addEventListener("click", (e) => {
                   switch (globalTimestamps.value) {
