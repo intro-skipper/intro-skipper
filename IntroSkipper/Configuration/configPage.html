@@ -747,8 +747,8 @@
 
                                 <div>
                                     <p>
-                                        <label class="selectLabel" for="GlobalTimsstamps">Global Timestamps: </label>
-                                        <select is="emby-select" id="GlobalTimsstamps" class="emby-select-withcolor block emby-select">
+                                        <label class="selectLabel" for="GlobalTimestamps">Global Timestamps: </label>
+                                        <select is="emby-select" id="GlobalTimestamps" class="emby-select-withcolor block emby-select">
                                             <option value="intro">Intro</option>
 
                                             <option value="recap">Recap</option>
@@ -809,8 +809,6 @@
                 const visualizer = document.querySelector("details#visualizer");
                 const support = document.querySelector("details#support");
                 const storage = document.querySelector("details#storage");
-                const globalTimsstamps = document.getElementById("GlobalTimsstamps");
-                const btnEraseGlobalTimestamps = document.querySelector("button#btnEraseGlobalTimestamps");
                 const btnRebuildDatabase = document.querySelector("button#btnRebuildDatabase");
 
                 // all plugin configuration fields that can be get or set with .value (i.e. strings or numbers).
@@ -897,6 +895,8 @@
                 const autoSkipClientList = document.querySelector("div.AutoSkipClientListContainer");
                 const fullLengthChapters = document.getElementById("FullLengthChapters");
                 const movieCreditsDuration = document.getElementById("movieCreditsDuration");
+                const globalTimsstamps = document.getElementById("GlobalTimestamps");
+                const btnEraseGlobalTimestamps = document.getElementById("btnEraseGlobalTimestamps");
 
                 function skipButtonVisibleChanged() {
                     if (autoSkip.checked) {
