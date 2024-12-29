@@ -501,8 +501,8 @@
                                     </p>
                                     <br />
 
-                                    <div id="analyzerActionsContainer">
-                                        <label for="actionRecap" style="margin-right: 1.5em; display: inline-block">
+                                    <div id="analyzerActionsContainer" style="display: flex; align-items: center; gap: 1.5em;">>
+                                        <label for="actionRecap" style="display: inline-block">
                                             <span>Recap analysis</span>
                                             <select is="emby-select" id="actionRecap" class="emby-select-withcolor emby-select">
                                                 <option value="Default">Default</option>
@@ -510,7 +510,7 @@
                                                 <option value="None">None</option>
                                             </select>
                                         </label>
-                                        <label for="actionIntro" style="margin-right: 1.5em; display: inline-block">
+                                        <label for="actionIntro" style="display: inline-block">
                                             <span>Introduction analysis</span>
                                             <select is="emby-select" id="actionIntro" class="emby-select-withcolor emby-select">
                                                 <option value="Default">Default</option>
@@ -519,7 +519,7 @@
                                                 <option value="None">None</option>
                                             </select>
                                         </label>
-                                        <label for="actionCredits" style="margin-right: 1.5em; display: inline-block">
+                                        <label for="actionCredits" style="display: inline-block">
                                             <span>Credits (Outro) analysis</span>
                                             <select is="emby-select" id="actionCredits" class="emby-select-withcolor emby-select">
                                                 <option value="Default">Default</option>
@@ -529,7 +529,7 @@
                                                 <option value="None">None</option>
                                             </select>
                                         </label>
-                                        <label for="actionPreview" style="margin-right: 1.5em; display: inline-block">
+                                        <label for="actionPreview" style="display: inline-block">
                                             <span>Preview analysis</span>
                                             <select is="emby-select" id="actionPreview" class="emby-select-withcolor emby-select">
                                                 <option value="Default">Default</option>
@@ -721,29 +721,25 @@
 
                                 <div id="eraseSeasonContainer" style="display: none">
                                     <p>
-                                        <div style="display: flex; align-items: center; gap: 1em;">
-                                            <button is="emby-button" id="btnEraseSeasonTimestamps" class="raised button-submit emby-button" type="button">Erase all timestamps for this season</button>
-                                            <div class="checkboxContainer checkboxContainer" style="margin: 0;">
-                                                <label class="emby-checkbox-label">
-                                                    <input id="eraseSeasonCacheCheckbox" type="checkbox" is="emby-checkbox" />
-                                                    <span>Erase cached fingerprint files</span>
-                                                </label>
-                                            </div>
+                                        <div class="checkboxContainer checkboxContainer" style="margin: 0;">
+                                            <label class="emby-checkbox-label">
+                                                <input id="eraseSeasonCacheCheckbox" type="checkbox" is="emby-checkbox" />
+                                                <span>Erase cached fingerprint files</span>
+                                            </label>
                                         </div>
+                                        <button is="emby-button" id="btnEraseSeasonTimestamps" class="raised button-submit block emby-button" type="button">Erase all timestamps for this season</button>
                                     </p>
                                 </div>
 
                                 <div id="eraseMovieContainer" style="display: none">
                                     <p>
-                                        <div style="display: flex; align-items: center; gap: 1em;">
-                                            <button is="emby-button" id="btnEraseMovieTimestamps" class="raised button-submit emby-button" type="button">Erase all timestamps for this movie</button>
-                                            <div class="checkboxContainer checkboxContainer" style="margin: 0;">
-                                                <label class="emby-checkbox-label">
-                                                    <input id="eraseMovieCacheCheckbox" type="checkbox" is="emby-checkbox" />
-                                                    <span>Erase cached fingerprint files</span>
-                                                </label>
-                                            </div>
+                                        <div class="checkboxContainer checkboxContainer" style="margin: 0;">
+                                            <label class="emby-checkbox-label">
+                                                <input id="eraseMovieCacheCheckbox" type="checkbox" is="emby-checkbox" />
+                                                <span>Erase cached fingerprint files</span>
+                                            </label>
                                         </div>
+                                        <button is="emby-button" id="btnEraseMovieTimestamps" class="raised button-submit block emby-button" type="button">Erase all timestamps for this movie</button>
                                     </p>
                                 </div>
 
@@ -761,15 +757,13 @@
 
                                             <option value="preview">Preview</option>
                                         </select>
-                                        <div style="display: flex; align-items: center; gap: 1em;">
-                                            <button is="emby-button" class="raised button-submit block emby-button" id="btnEraseGlobalTimestamps">Erase all selected timestamps (globally)</button>
-                                            <div class="checkboxContainer checkboxContainer">
-                                                <label class="emby-checkbox-label">
-                                                    <input id="eraseModeCacheCheckbox" type="checkbox" is="emby-checkbox" />
-                                                    <span>Erase global cached fingerprint files</span>
-                                                </label>
-                                            </div>
+                                        <div class="checkboxContainer checkboxContainer">
+                                            <label class="emby-checkbox-label">
+                                                <input id="eraseModeCacheCheckbox" type="checkbox" is="emby-checkbox" />
+                                                <span>Erase global cached fingerprint files</span>
+                                            </label>
                                         </div>
+                                        <button is="emby-button" class="raised button-submit block emby-button" id="btnEraseGlobalTimestamps">Erase all selected timestamps (globally)</button>
                                     </p>
                                 </div>
                                 <br />
