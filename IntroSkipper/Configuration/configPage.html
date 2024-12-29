@@ -1036,6 +1036,15 @@
 
                 analyzeMovies.addEventListener("change", analyzeMoviesChanged);
 
+                function globalTimestampChanged() {
+                    btnEraseGlobalTimestamps.textContent = "Erase all " + globalTimestamps.value + " timestamps (globally)";
+                }
+
+                // https://stackoverflow.com/a/72161208/461982
+                globalTimestamps.addEventListener("click", () => {
+                    globalTimestamps.addEventListener("change", globalTimestampChanged);
+                });
+
                 // when the fingerprint visualizer opens, populate show names
                 async function visualizerToggled() {
                     if (!visualizer.open) {
@@ -1532,6 +1541,7 @@
                             || document.getElementById("AutoSkip").checked
                             || document.getElementById("SkipButtonEnabled").checked
                         pluginSkipSettingChanged();
+                        globalTimestampChanged();
 
                         Dashboard.hideLoadingMsg();
                     });
@@ -1566,67 +1576,6 @@
                 selectEpisode1.addEventListener("change", episodeChanged);
                 selectEpisode2.addEventListener("change", episodeChanged);
 
-                function globalTimestampChanged() {
-                    btnEraseGlobalTimestamps.textContent = "Erase all " + globalTimestamps.value + " timestamps (globally)";
-                }
-
-                globalTimestamps.addEventListener("select", globalTimestampChanged);
-
-                btnEraseGlobalTimestamps.addEventListener("click", (e) => {
-                  switch (globalTimestamps.value) {
-                    case "introduction":
-                        eraseTimestamps("Introduction");
-                        break;
-                    case "recap":
-                        eraseTimestamps("Recap");
-                        break;
-                    case "credits":
-                        eraseTimestamps("Credits");
-                        break;
-                    case "preview":
-                        eraseTimestamps("Preview");
-                        break;
-                    default:
-                        return;
-                  }
-                  e.preventDefault();
-                });
-                btnRebuildDatabase.addEventListener("click", () => {
-                    fetchWithAuth("Intros/RebuildDatabase", "POST", null);
-                });
-                btnSeasonEraseTimestamps.addEventListener("click", () => {
-                    Dashboard.confirm("Are you sure you want to erase all timestamps for this season?", "Confirm timestamp erasure", (result) => {
-                        if (!result) {
-                            return;
-                        }
-
-                        const show = selectShow.value;
-                        const season = selectSeason.value;
-                        const eraseCacheChecked = document.getElementById("eraseSeasonCacheCheckbox").checked;
-
-                        const url = "Intros/Show/" + encodeURIComponent(show) + "/" + encodeURIComponent(season);
-                        fetchWithAuth(url + "?eraseCache=" + eraseCacheChecked, "DELETE", null);
-
-                        Dashboard.alert("Erased timestamps for " + season + " of " + show);
-                        document.getElementById("eraseSeasonCacheCheckbox").checked = false;
-                    });
-                });
-                btnMovieEraseTimestamps.addEventListener("click", () => {
-                    Dashboard.confirm("Are you sure you want to erase all timestamps for this movie?", "Confirm timestamp erasure", (result) => {
-                        if (!result) {
-                            return;
-                        }
-
-                        const show = selectShow.value;
-                        const eraseCacheChecked = document.getElementById("eraseMovieCacheCheckbox").checked;
-
-                        const url = "Intros/Show/" + encodeURIComponent(show);
-                        fetchWithAuth(url + "?eraseCache=" + eraseCacheChecked, "DELETE", null);
-
-                        Dashboard.alert("Erased timestamps for " + show);
-                        document.getElementById("eraseMovieCacheCheckbox").checked = false;
-                    });
-                });
                 saveAnalyzerActionsButton.addEventListener("click", () => {
                     Dashboard.showLoadingMsg();
 
@@ -1646,6 +1595,7 @@
                     Dashboard.alert("Analyzer actions updated for " + selectSeason.value + " of " + selectShow.value);
                     Dashboard.hideLoadingMsg();
                 });
+
                 btnUpdateTimestamps.addEventListener("click", () => {
                     const getEditValue = (id) => parseFloat(document.getElementById(id).value) || 0;
 
@@ -1702,6 +1652,66 @@
 
                     Dashboard.alert("New segment timestamps saved");
                 });
+
+                btnSeasonEraseTimestamps.addEventListener("click", () => {
+                    Dashboard.confirm("Are you sure you want to erase all timestamps for this season?", "Confirm timestamp erasure", (result) => {
+                        if (!result) {
+                            return;
+                        }
+
+                        const show = selectShow.value;
+                        const season = selectSeason.value;
+                        const eraseCacheChecked = document.getElementById("eraseSeasonCacheCheckbox").checked;
+
+                        const url = "Intros/Show/" + encodeURIComponent(show) + "/" + encodeURIComponent(season);
+                        fetchWithAuth(url + "?eraseCache=" + eraseCacheChecked, "DELETE", null);
+
+                        Dashboard.alert("Erased timestamps for " + season + " of " + show);
+                        document.getElementById("eraseSeasonCacheCheckbox").checked = false;
+                    });
+                });
+
+                btnMovieEraseTimestamps.addEventListener("click", () => {
+                    Dashboard.confirm("Are you sure you want to erase all timestamps for this movie?", "Confirm timestamp erasure", (result) => {
+                        if (!result) {
+                            return;
+                        }
+
+                        const show = selectShow.value;
+                        const eraseCacheChecked = document.getElementById("eraseMovieCacheCheckbox").checked;
+
+                        const url = "Intros/Show/" + encodeURIComponent(show);
+                        fetchWithAuth(url + "?eraseCache=" + eraseCacheChecked, "DELETE", null);
+
+                        Dashboard.alert("Erased timestamps for " + show);
+                        document.getElementById("eraseMovieCacheCheckbox").checked = false;
+                    });
+                });
+
+                btnEraseGlobalTimestamps.addEventListener("click", (e) => {
+                  switch (globalTimestamps.value) {
+                    case "introduction":
+                        eraseTimestamps("Introduction");
+                        break;
+                    case "recap":
+                        eraseTimestamps("Recap");
+                        break;
+                    case "credits":
+                        eraseTimestamps("Credits");
+                        break;
+                    case "preview":
+                        eraseTimestamps("Preview");
+                        break;
+                    default:
+                        return;
+                  }
+                  e.preventDefault();
+                });
+
+                btnRebuildDatabase.addEventListener("click", () => {
+                    fetchWithAuth("Intros/RebuildDatabase", "POST", null);
+                });
+
                 document.addEventListener("keydown", keyDown);
                 windowHashInterval = setInterval(checkWindowHash, 2500);
 
