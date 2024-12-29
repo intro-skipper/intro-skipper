@@ -753,7 +753,7 @@
 
                                             <option value="recap">Global Recap Timestamps</option>
 
-                                            <option value="credits">Gloabl Credits Timestamps</option>
+                                            <option value="credits">Global Credits Timestamps</option>
 
                                             <option value="preview">Global Preview Timestamps</option>
                                         </select>
@@ -1040,8 +1040,12 @@
                     btnEraseGlobalTimestamps.textContent = "Erase all " + globalTimestamps.value + " timestamps (globally)";
                 }
 
-                // https://stackoverflow.com/a/72161208/461982
                 globalTimestamps.addEventListener("click", () => {
+                    try {
+                        globalTimestamps.removeEventListener("change", globalTimestampChanged)
+                    } catch {
+                        // https://stackoverflow.com/a/72161208/461982
+                    }
                     globalTimestamps.addEventListener("change", globalTimestampChanged);
                 });
 
