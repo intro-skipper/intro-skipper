@@ -501,8 +501,8 @@
                                     </p>
                                     <br />
 
-                                    <div id="analyzerActionsContainer">
-                                        <label for="actionRecap" style="margin-right: 1.5em; display: inline-block">
+                                    <div id="analyzerActionsContainer" style="display: flex; align-items: center; gap: 1.5em;">
+                                        <label for="actionRecap" style="width: 23%;">
                                             <span>Recap analysis</span>
                                             <select is="emby-select" id="actionRecap" class="emby-select-withcolor emby-select">
                                                 <option value="Default">Default</option>
@@ -510,7 +510,7 @@
                                                 <option value="None">None</option>
                                             </select>
                                         </label>
-                                        <label for="actionIntro" style="margin-right: 1.5em; display: inline-block">
+                                        <label for="actionIntro" style="width: 23%;">
                                             <span>Introduction analysis</span>
                                             <select is="emby-select" id="actionIntro" class="emby-select-withcolor emby-select">
                                                 <option value="Default">Default</option>
@@ -519,7 +519,7 @@
                                                 <option value="None">None</option>
                                             </select>
                                         </label>
-                                        <label for="actionCredits" style="margin-right: 1.5em; display: inline-block">
+                                        <label for="actionCredits" style="width: 23%;">
                                             <span>Credits (Outro) analysis</span>
                                             <select is="emby-select" id="actionCredits" class="emby-select-withcolor emby-select">
                                                 <option value="Default">Default</option>
@@ -529,7 +529,7 @@
                                                 <option value="None">None</option>
                                             </select>
                                         </label>
-                                        <label for="actionPreview" style="margin-right: 1.5em; display: inline-block">
+                                        <label for="actionPreview"  style="width: 23%;">
                                             <span>Preview analysis</span>
                                             <select is="emby-select" id="actionPreview" class="emby-select-withcolor emby-select">
                                                 <option value="Default">Default</option>
@@ -721,44 +721,56 @@
 
                                 <div id="eraseSeasonContainer" style="display: none">
                                     <p>
-                                        <button is="emby-button" id="btnEraseSeasonTimestamps" class="raised button-submit emby-button" type="button">Erase all timestamps for this season</button>
-
-                                        <input type="checkbox" id="eraseSeasonCacheCheckbox" style="margin-left: 10px" />
-                                        <label for="eraseSeasonCacheCheckbox" style="margin-left: 5px">Erase cached fingerprint files</label>
+                                        <div class="checkboxContainer checkboxContainer" style="margin: 0;">
+                                            <label class="emby-checkbox-label">
+                                                <input id="eraseSeasonCacheCheckbox" type="checkbox" is="emby-checkbox" />
+                                                <span>Include cached fingerprint files</span>
+                                            </label>
+                                        </div>
+                                        <button is="emby-button" id="btnEraseSeasonTimestamps" class="raised button-submit block emby-button" type="button">Erase all timestamps for this season</button>
                                     </p>
                                 </div>
 
                                 <div id="eraseMovieContainer" style="display: none">
                                     <p>
-                                        <button is="emby-button" id="btnEraseMovieTimestamps" class="raised button-submit emby-button" type="button">Erase all timestamps for this movie</button>
-
-                                        <input type="checkbox" id="eraseMovieCacheCheckbox" style="margin-left: 10px" />
-                                        <label for="eraseMovieCacheCheckbox" style="margin-left: 5px">Erase cached fingerprint files</label>
+                                        <div class="checkboxContainer checkboxContainer" style="margin: 0;">
+                                            <label class="emby-checkbox-label">
+                                                <input id="eraseMovieCacheCheckbox" type="checkbox" is="emby-checkbox" />
+                                                <span>Include cached fingerprint files</span>
+                                            </label>
+                                        </div>
+                                        <button is="emby-button" id="btnEraseMovieTimestamps" class="raised button-submit block emby-button" type="button">Erase all timestamps for this movie</button>
                                     </p>
                                 </div>
 
-                                <div style="display: flex; align-items: center;">
-                                    <p>
-                                        <button is="emby-button" class="raised button-submit emby-button" id="btnEraseIntroTimestamps">Erase all introduction timestamps (globally)</button>
-                                        <br />
+                                <hr style="border: none; border-top: 1px solid #ccc; margin: 20px 0;" />
 
-                                        <button is="emby-button" class="raised button-submit emby-button" id="btnEraseRecapTimestamps">Erase all recap timestamps (globally)</button>
-                                        <br />
-
-                                        <button is="emby-button" class="raised button-submit emby-button" id="btnEraseCreditTimestamps">Erase all credits (outro) timestamps (globally)</button>
-                                        <br />
-
-                                        <button is="emby-button" class="raised button-submit emby-button" id="btnErasePreviewTimestamps">Erase all preview timestamps (globally)</button>
-                                    </p>
-                                    <div>
-                                        <input type="checkbox" id="eraseModeCacheCheckbox" style="margin-left: 10px" />
-                                        <label for="eraseModeCacheCheckbox" style="margin-left: 5px">Erase global cached fingerprint files</label>
-                                    </div>
-                                </div>
                                 <div>
-                                  <p>
-                                    <button is="emby-button" class="raised button-submit block emby-button" id="btnRebuildDatabase">Rebuild database</button>
-                                  </p>
+                                    <p>
+                                        <label class="selectLabel" for="GlobalTimestamps" style="display: none"></label>
+                                        <select is="emby-select" id="GlobalTimestamps" class="emby-select-withcolor block emby-select">
+                                            <option value="introduction">Global Introduction Timestamps</option>
+
+                                            <option value="recap">Global Recap Timestamps</option>
+
+                                            <option value="credits">Global Credits Timestamps</option>
+
+                                            <option value="preview">Global Preview Timestamps</option>
+                                        </select>
+                                        <div class="checkboxContainer checkboxContainer" style="margin: 0;">
+                                            <label class="emby-checkbox-label">
+                                                <input id="eraseModeCacheCheckbox" type="checkbox" is="emby-checkbox" />
+                                                <span>Include global cached fingerprint files</span>
+                                            </label>
+                                        </div>
+                                        <button is="emby-button" class="raised button-submit block emby-button" id="btnEraseGlobalTimestamps">Erase all selected timestamps (globally)</button>
+                                    </p>
+                                </div>
+                                <br />
+                                <div>
+                                    <p>
+                                        <button is="emby-button" class="raised button-submit block emby-button" id="btnRebuildDatabase">Rebuild database</button>
+                                    </p>
                                 </div>
                             </details>
 
@@ -797,10 +809,6 @@
                 const visualizer = document.querySelector("details#visualizer");
                 const support = document.querySelector("details#support");
                 const storage = document.querySelector("details#storage");
-                const btnEraseIntroTimestamps = document.querySelector("button#btnEraseIntroTimestamps");
-                const btnEraseRecapTimestamps = document.querySelector("button#btnEraseRecapTimestamps");
-                const btnEraseCreditTimestamps = document.querySelector("button#btnEraseCreditTimestamps");
-                const btnErasePreviewTimestamps = document.querySelector("button#btnErasePreviewTimestamps");
                 const btnRebuildDatabase = document.querySelector("button#btnRebuildDatabase");
 
                 // all plugin configuration fields that can be get or set with .value (i.e. strings or numbers).
@@ -887,6 +895,8 @@
                 const autoSkipClientList = document.querySelector("div.AutoSkipClientListContainer");
                 const fullLengthChapters = document.getElementById("FullLengthChapters");
                 const movieCreditsDuration = document.getElementById("movieCreditsDuration");
+                const globalTimestamps = document.getElementById("GlobalTimestamps");
+                const btnEraseGlobalTimestamps = document.getElementById("btnEraseGlobalTimestamps");
 
                 function skipButtonVisibleChanged() {
                     if (autoSkip.checked) {
@@ -1025,6 +1035,19 @@
                 }
 
                 analyzeMovies.addEventListener("change", analyzeMoviesChanged);
+
+                function globalTimestampChanged() {
+                    btnEraseGlobalTimestamps.textContent = "Erase all " + globalTimestamps.value + " timestamps (globally)";
+                }
+
+                globalTimestamps.addEventListener("click", () => {
+                    try {
+                        globalTimestamps.removeEventListener("change", globalTimestampChanged)
+                    } catch {
+                        // https://stackoverflow.com/a/72161208/461982
+                    }
+                    globalTimestamps.addEventListener("change", globalTimestampChanged);
+                });
 
                 // when the fingerprint visualizer opens, populate show names
                 async function visualizerToggled() {
@@ -1522,6 +1545,7 @@
                             || document.getElementById("AutoSkip").checked
                             || document.getElementById("SkipButtonEnabled").checked
                         pluginSkipSettingChanged();
+                        globalTimestampChanged();
 
                         Dashboard.hideLoadingMsg();
                     });
@@ -1555,58 +1579,7 @@
                 selectSeason.addEventListener("change", seasonChanged);
                 selectEpisode1.addEventListener("change", episodeChanged);
                 selectEpisode2.addEventListener("change", episodeChanged);
-                btnEraseIntroTimestamps.addEventListener("click", (e) => {
-                    eraseTimestamps("Introduction");
-                    e.preventDefault();
-                });
-                btnEraseRecapTimestamps.addEventListener("click", (e) => {
-                    eraseTimestamps("Recap");
-                    e.preventDefault();
-                });
-                btnEraseCreditTimestamps.addEventListener("click", (e) => {
-                    eraseTimestamps("Credits");
-                    e.preventDefault();
-                });
-                btnErasePreviewTimestamps.addEventListener("click", (e) => {
-                    eraseTimestamps("Preview");
-                    e.preventDefault();
-                });
-                btnRebuildDatabase.addEventListener("click", () => {
-                    fetchWithAuth("Intros/RebuildDatabase", "POST", null);
-                });
-                btnSeasonEraseTimestamps.addEventListener("click", () => {
-                    Dashboard.confirm("Are you sure you want to erase all timestamps for this season?", "Confirm timestamp erasure", (result) => {
-                        if (!result) {
-                            return;
-                        }
 
-                        const show = selectShow.value;
-                        const season = selectSeason.value;
-                        const eraseCacheChecked = document.getElementById("eraseSeasonCacheCheckbox").checked;
-
-                        const url = "Intros/Show/" + encodeURIComponent(show) + "/" + encodeURIComponent(season);
-                        fetchWithAuth(url + "?eraseCache=" + eraseCacheChecked, "DELETE", null);
-
-                        Dashboard.alert("Erased timestamps for " + season + " of " + show);
-                        document.getElementById("eraseSeasonCacheCheckbox").checked = false;
-                    });
-                });
-                btnMovieEraseTimestamps.addEventListener("click", () => {
-                    Dashboard.confirm("Are you sure you want to erase all timestamps for this movie?", "Confirm timestamp erasure", (result) => {
-                        if (!result) {
-                            return;
-                        }
-
-                        const show = selectShow.value;
-                        const eraseCacheChecked = document.getElementById("eraseMovieCacheCheckbox").checked;
-
-                        const url = "Intros/Show/" + encodeURIComponent(show);
-                        fetchWithAuth(url + "?eraseCache=" + eraseCacheChecked, "DELETE", null);
-
-                        Dashboard.alert("Erased timestamps for " + show);
-                        document.getElementById("eraseMovieCacheCheckbox").checked = false;
-                    });
-                });
                 saveAnalyzerActionsButton.addEventListener("click", () => {
                     Dashboard.showLoadingMsg();
 
@@ -1626,6 +1599,7 @@
                     Dashboard.alert("Analyzer actions updated for " + selectSeason.value + " of " + selectShow.value);
                     Dashboard.hideLoadingMsg();
                 });
+
                 btnUpdateTimestamps.addEventListener("click", () => {
                     const getEditValue = (id) => parseFloat(document.getElementById(id).value) || 0;
 
@@ -1682,6 +1656,66 @@
 
                     Dashboard.alert("New segment timestamps saved");
                 });
+
+                btnSeasonEraseTimestamps.addEventListener("click", () => {
+                    Dashboard.confirm("Are you sure you want to erase all timestamps for this season?", "Confirm timestamp erasure", (result) => {
+                        if (!result) {
+                            return;
+                        }
+
+                        const show = selectShow.value;
+                        const season = selectSeason.value;
+                        const eraseCacheChecked = document.getElementById("eraseSeasonCacheCheckbox").checked;
+
+                        const url = "Intros/Show/" + encodeURIComponent(show) + "/" + encodeURIComponent(season);
+                        fetchWithAuth(url + "?eraseCache=" + eraseCacheChecked, "DELETE", null);
+
+                        Dashboard.alert("Erased timestamps for " + season + " of " + show);
+                        document.getElementById("eraseSeasonCacheCheckbox").checked = false;
+                    });
+                });
+
+                btnMovieEraseTimestamps.addEventListener("click", () => {
+                    Dashboard.confirm("Are you sure you want to erase all timestamps for this movie?", "Confirm timestamp erasure", (result) => {
+                        if (!result) {
+                            return;
+                        }
+
+                        const show = selectShow.value;
+                        const eraseCacheChecked = document.getElementById("eraseMovieCacheCheckbox").checked;
+
+                        const url = "Intros/Show/" + encodeURIComponent(show);
+                        fetchWithAuth(url + "?eraseCache=" + eraseCacheChecked, "DELETE", null);
+
+                        Dashboard.alert("Erased timestamps for " + show);
+                        document.getElementById("eraseMovieCacheCheckbox").checked = false;
+                    });
+                });
+
+                btnEraseGlobalTimestamps.addEventListener("click", (e) => {
+                  switch (globalTimestamps.value) {
+                    case "introduction":
+                        eraseTimestamps("Introduction");
+                        break;
+                    case "recap":
+                        eraseTimestamps("Recap");
+                        break;
+                    case "credits":
+                        eraseTimestamps("Credits");
+                        break;
+                    case "preview":
+                        eraseTimestamps("Preview");
+                        break;
+                    default:
+                        return;
+                  }
+                  e.preventDefault();
+                });
+
+                btnRebuildDatabase.addEventListener("click", () => {
+                    fetchWithAuth("Intros/RebuildDatabase", "POST", null);
+                });
+
                 document.addEventListener("keydown", keyDown);
                 windowHashInterval = setInterval(checkWindowHash, 2500);
 
