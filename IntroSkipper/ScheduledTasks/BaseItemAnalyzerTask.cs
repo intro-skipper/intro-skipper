@@ -9,7 +9,6 @@ using System.Threading.Tasks;
 using IntroSkipper.Analyzers;
 using IntroSkipper.Configuration;
 using IntroSkipper.Data;
-using IntroSkipper.Db;
 using IntroSkipper.Manager;
 using MediaBrowser.Controller.Library;
 using Microsoft.Extensions.Logging;
@@ -37,6 +36,7 @@ public class BaseItemAnalyzerTask(
     private readonly ILibraryManager _libraryManager = libraryManager;
     private readonly MediaSegmentUpdateManager _mediaSegmentUpdateManager = mediaSegmentUpdateManager;
     private readonly PluginConfiguration _config = Plugin.Instance?.Configuration ?? new PluginConfiguration();
+    private readonly bool _ffmpegValid = FFmpegWrapper.CheckFFmpegVersion();
 
     /// <summary>
     /// Analyze all media items on the server.
@@ -76,6 +76,14 @@ public class BaseItemAnalyzerTask(
                 "No libraries selected for analysis. Please visit the plugin settings to configure.");
         }
 
+        if (!_ffmpegValid)
+        {
+            _logger.LogInformation(
+                "Skipping Chromaprint analysis! Chromaprint is not enabled in the current ffmpeg. " +
+                "If Jellyfin is running natively, install jellyfin-ffmpeg7. " +
+                "If Jellyfin is running in a container, upgrade to version 10.10.0 or newer.");
+        }
+
         int totalProcessed = 0;
         var options = new ParallelOptions
         {
@@ -87,7 +95,7 @@ public class BaseItemAnalyzerTask(
         {
             var updateMediaSegments = false;
 
-            var (episodes, requiredModes) = queueManager.VerifyQueue(season.Value, modes);
+            var episodes = queueManager.VerifyQueue(season.Value, modes);
             if (episodes.Count == 0)
             {
                 return;
@@ -96,20 +104,15 @@ public class BaseItemAnalyzerTask(
             try
             {
                 var firstEpisode = episodes[0];
-                if (modes.Count != requiredModes.Count)
-                {
-                    Interlocked.Add(ref totalProcessed, episodes.Count * (modes.Count - requiredModes.Count));
-                    progress.Report((double)totalProcessed / totalQueued * 100);
-                }
 
-                foreach (var mode in requiredModes)
+                foreach (var mode in modes)
                 {
                     ct.ThrowIfCancellationRequested();
                     int analyzed = await AnalyzeItemsAsync(
                         episodes,
                         mode,
                         ct).ConfigureAwait(false);
-                    Interlocked.Add(ref totalProcessed, analyzed);
+                    Interlocked.Add(ref totalProcessed, episodes.Count);
 
                     updateMediaSegments = analyzed > 0 || updateMediaSegments;
                     progress.Report((double)totalProcessed / totalQueued * 100);
@@ -157,20 +160,20 @@ public class BaseItemAnalyzerTask(
         AnalysisMode mode,
         CancellationToken cancellationToken)
     {
+        if (!items.Any(e => e.GetAnalyzed(mode) == EpisodeState.NotAnalyzed))
+        {
+            return 0;
+        }
+
         var first = items[0];
         if (!first.IsMovie && first.SeasonNumber == 0 && !_config.AnalyzeSeasonZero)
         {
             return 0;
         }
 
-        // Reset the IsAnalyzed flag for all items
-        foreach (var item in items)
-        {
-            item.IsAnalyzed = false;
-        }
-
-        // Get the analyzer action for the current mode
-        var action = Plugin.Instance!.GetAnalyzerAction(first.SeasonId, mode);
+        var totalItems = items.Count(e => e.GetAnalyzed(mode) != EpisodeState.Analyzed);
+        var plugin = Plugin.Instance ?? throw new InvalidOperationException("Plugin instance is null");
+        var action = plugin.GetAnalyzerAction(first.SeasonId, mode);
 
         _logger.LogInformation(
             "[Mode: {Mode}] Analyzing {Count} files from {Name} season {Season}",
@@ -179,45 +182,27 @@ public class BaseItemAnalyzerTask(
             first.SeriesName,
             first.SeasonNumber);
 
-        // Create a list of analyzers to use for the current mode
+        // Create analyzers list
         var analyzers = new List<IMediaFileAnalyzer>();
 
+        // Add analyzers based on conditions
         if (action is AnalyzerAction.Chapter or AnalyzerAction.Default)
         {
             analyzers.Add(new ChapterAnalyzer(_loggerFactory.CreateLogger<ChapterAnalyzer>()));
         }
 
-        if (first.IsAnime &&
-            mode is not (AnalysisMode.Recap or AnalysisMode.Preview) &&
-            action is AnalyzerAction.Default or AnalyzerAction.Chromaprint)
+        if (first.IsAnime && mode is AnalysisMode.Introduction or AnalysisMode.Credits && action is AnalyzerAction.Default or AnalyzerAction.Chromaprint && _ffmpegValid)
         {
-            // Assert that ffmpeg with chromaprint is installed
-            if (!FFmpegWrapper.CheckFFmpegVersion())
-            {
-                throw new FingerprintException(
-                    "Analysis terminated! Chromaprint is not enabled in the current ffmpeg. If Jellyfin is running natively, install jellyfin-ffmpeg7. If Jellyfin is running in a container, upgrade to version 10.10.0 or newer.");
-            }
-
             analyzers.Add(new ChromaprintAnalyzer(_loggerFactory.CreateLogger<ChromaprintAnalyzer>()));
         }
 
-        if (mode is AnalysisMode.Credits &&
-            action is AnalyzerAction.Default or AnalyzerAction.BlackFrame)
+        if (mode is AnalysisMode.Credits && action is AnalyzerAction.Default or AnalyzerAction.BlackFrame)
         {
             analyzers.Add(new BlackFrameAnalyzer(_loggerFactory.CreateLogger<BlackFrameAnalyzer>()));
         }
 
-        if (!first.IsAnime && !first.IsMovie &&
-            mode is not (AnalysisMode.Recap or AnalysisMode.Preview) &&
-            action is AnalyzerAction.Default or AnalyzerAction.Chromaprint)
+        if (!first.IsAnime && !first.IsMovie && mode is AnalysisMode.Introduction or AnalysisMode.Credits && action is AnalyzerAction.Default or AnalyzerAction.Chromaprint && _ffmpegValid)
         {
-            // Assert that ffmpeg with chromaprint is installed
-            if (!FFmpegWrapper.CheckFFmpegVersion())
-            {
-                throw new FingerprintException(
-                    "Analysis terminated! Chromaprint is not enabled in the current ffmpeg. If Jellyfin is running natively, install jellyfin-ffmpeg7. If Jellyfin is running in a container, upgrade to version 10.10.0 or newer.");
-            }
-
             analyzers.Add(new ChromaprintAnalyzer(_loggerFactory.CreateLogger<ChromaprintAnalyzer>()));
         }
 
@@ -232,6 +217,6 @@ public class BaseItemAnalyzerTask(
         // Set the episode IDs for the analyzed items
         await Plugin.Instance!.SetEpisodeIdsAsync(first.SeasonId, mode, items.Select(i => i.EpisodeId)).ConfigureAwait(false);
 
-        return items.Count(i => i.IsAnalyzed);
+        return totalItems - items.Count(e => e.GetAnalyzed(mode) != EpisodeState.Analyzed);
     }
 }

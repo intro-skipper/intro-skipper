@@ -47,7 +47,7 @@ public class ChapterAnalyzer(ILogger<ChapterAnalyzer> logger) : IMediaFileAnalyz
             return analysisQueue;
         }
 
-        var episodesWithoutIntros = analysisQueue.Where(e => !e.IsAnalyzed).ToList();
+        var episodesWithoutIntros = analysisQueue.Where(e => e.GetAnalyzed(mode) != EpisodeState.Analyzed).ToList();
 
         foreach (var episode in episodesWithoutIntros)
         {
@@ -67,7 +67,7 @@ public class ChapterAnalyzer(ILogger<ChapterAnalyzer> logger) : IMediaFileAnalyz
                 continue;
             }
 
-            episode.IsAnalyzed = true;
+            episode.SetAnalyzed(mode, EpisodeState.Analyzed);
             await Plugin.Instance!.UpdateTimestampAsync(skipRange, mode).ConfigureAwait(false);
         }
 
