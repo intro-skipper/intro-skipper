@@ -1040,12 +1040,10 @@
                     btnEraseGlobalTimestamps.textContent = "Erase all " + globalTimestamps.value + " timestamps (globally)";
                 }
 
+                globalTimestamps.addEventListener("change", globalTimestampChanged);
+                // https://stackoverflow.com/a/72161208/461982
                 globalTimestamps.addEventListener("click", () => {
-                    try {
-                        globalTimestamps.removeEventListener("change", globalTimestampChanged)
-                    } catch {
-                        // https://stackoverflow.com/a/72161208/461982
-                    }
+                    globalTimestamps.removeEventListener("change", globalTimestampChanged)
                     globalTimestamps.addEventListener("change", globalTimestampChanged);
                 });
 
