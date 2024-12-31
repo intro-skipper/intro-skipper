@@ -484,13 +484,15 @@
                                 <br />
                                 <label class="inputLabel" for="troubleshooterShow">Select TV series / movie to manage</label>
                                 <select is="emby-select" id="troubleshooterShow" class="emby-select-withcolor emby-select"></select>
-                                <div id="seasonSelection">
-                                    <label class="inputLabel" for="troubleshooterSeason">Select season to manage</label>
-                                    <select is="emby-select" id="troubleshooterSeason" class="emby-select-withcolor emby-select"></select>
+                                <div id="seasonSelection" style="display: none">
+                                    <p>
+                                        <label class="inputLabel" for="troubleshooterSeason">Select season to manage</label>
+                                        <select is="emby-select" id="troubleshooterSeason" class="emby-select-withcolor emby-select"></select>
+                                    </p>
                                 </div>
-                                <br />
 
                                 <div id="analyzerActionsSection" style="display: none">
+                                    <br />
                                     <h3 style="margin: 0">Analyzer actions</h3>
                                     <p style="margin: 0">
                                         Choose how segments should be analyzed for this season.<br />
@@ -538,21 +540,23 @@
                                             </select>
                                         </label>
                                     </div>
+                                    <p>
+                                        <button is="emby-button" id="saveAnalyzerActions" class="raised button-submit block emby-button" style="display: none">Apply Changes</button>
+                                    </p>
                                     <br />
-
-                                    <button is="emby-button" id="saveAnalyzerActions" class="raised button-submit block emby-button" style="display: none">Apply Changes</button>
                                 </div>
-                                <br />
 
-                                <div id="episodeSelection">
-                                    <label class="inputLabel" for="troubleshooterEpisode1">Select the first episode</label>
-                                    <select is="emby-select" id="troubleshooterEpisode1" class="emby-select-withcolor emby-select"></select>
-                                    <label class="inputLabel" for="troubleshooterEpisode2">Select the second episode</label>
-                                    <select is="emby-select" id="troubleshooterEpisode2" class="emby-select-withcolor emby-select"></select>
-                                    <br />
+                                <div id="episodeSelection" style="display: none">
+                                    <p>
+                                        <label class="inputLabel" for="troubleshooterEpisode1">Select a first and second episode</label>
+                                        <select is="emby-select" id="troubleshooterEpisode1" class="emby-select-withcolor emby-select"></select>
+                                        <label class="inputLabel" for="troubleshooterEpisode2"> </label>
+                                        <select is="emby-select" id="troubleshooterEpisode2" class="emby-select-withcolor emby-select"></select>
+                                    </p>
                                 </div>
 
                                 <div id="timestampEditor" style="display: none">
+                                    <br />
                                     <h3 style="margin: 0">Introduction timestamp editor</h3>
                                     <br />
                                     <h4 style="margin: 0" id="editLeftEpisodeTitle"></h4>
@@ -605,8 +609,8 @@
                                             <input type="number" id="editLeftPreviewEpisodeEndEdit" class="emby-input custom-time-input" style="display: none" step="any" min="0" />
                                         </div>
                                     </div>
-                                    <br />
                                     <div id="rightEpisodeEditor">
+                                        <br />
                                         <h4 style="margin: 0" id="editRightEpisodeTitle"></h4>
                                         <br />
                                         <div class="inlineForm">
@@ -657,10 +661,10 @@
                                                 <input type="number" id="editRightPreviewEpisodeEndEdit" class="emby-input custom-time-input" style="display: none" step="any" min="0" />
                                             </div>
                                         </div>
-                                        <br />
                                     </div>
-                                    <button is="emby-button" id="btnUpdateTimestamps" class="raised button-submit block emby-button" type="button">Update timestamps</button>
-                                    <br />
+                                    <p style="margin: 20px 0">
+                                        <button is="emby-button" id="btnUpdateTimestamps" class="raised button-submit block emby-button" type="button">Update timestamps</button>
+                                    </p>
                                 </div>
 
                                 <div id="timestampErrorDiv" style="display: none">
@@ -670,6 +674,8 @@
                                 </div>
 
                                 <div id="fingerprintVisualizer" style="display: none">
+                                    <hr style="border: none; border-top: 1px solid #ccc; margin: 20px 0;" />
+
                                     <h3>Fingerprint Visualizer</h3>
                                     <p>
                                         Interactively compare the audio fingerprints of two episodes. <br />
@@ -706,9 +712,9 @@
                                     <span>Shift amount:</span>
                                     <input type="number" min="-3000" max="3000" value="0" id="offset" />
                                     <p>
-                                    <span id="suggestedShifts">
-                                        <span>Suggested shifts: </span>
-                                    </span>
+                                        <span id="suggestedShifts">
+                                            <span>Suggested shifts: </span>
+                                        </span>
                                     </p>
                                     <canvas id="troubleshooter" style="display: none"></canvas>
                                     <span id="timestampContainer">
@@ -1040,12 +1046,10 @@
                     btnEraseGlobalTimestamps.textContent = "Erase all " + globalTimestamps.value + " timestamps (globally)";
                 }
 
+                globalTimestamps.addEventListener("change", globalTimestampChanged);
+                // https://stackoverflow.com/a/72161208/461982
                 globalTimestamps.addEventListener("click", () => {
-                    try {
-                        globalTimestamps.removeEventListener("change", globalTimestampChanged)
-                    } catch {
-                        // https://stackoverflow.com/a/72161208/461982
-                    }
+                    globalTimestamps.removeEventListener("change", globalTimestampChanged)
                     globalTimestamps.addEventListener("change", globalTimestampChanged);
                 });
 
