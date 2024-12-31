@@ -485,11 +485,11 @@
                                 <label class="inputLabel" for="troubleshooterShow">Select TV series / movie to manage</label>
                                 <select is="emby-select" id="troubleshooterShow" class="emby-select-withcolor emby-select"></select>
                                 <div id="seasonSelection" style="display: none">
-                                    <br />
-                                    <label class="inputLabel" for="troubleshooterSeason">Select season to manage</label>
-                                    <select is="emby-select" id="troubleshooterSeason" class="emby-select-withcolor emby-select"></select>
+                                    <p>
+                                        <label class="inputLabel" for="troubleshooterSeason">Select season to manage</label>
+                                        <select is="emby-select" id="troubleshooterSeason" class="emby-select-withcolor emby-select"></select>
+                                    </p>
                                 </div>
-                                <br />
 
                                 <div id="analyzerActionsSection" style="display: none">
                                     <h3 style="margin: 0">Analyzer actions</h3>
@@ -540,20 +540,20 @@
                                         </label>
                                     </div>
                                     <br />
-
                                     <button is="emby-button" id="saveAnalyzerActions" class="raised button-submit block emby-button" style="display: none">Apply Changes</button>
                                 </div>
-                                <br />
 
                                 <div id="episodeSelection" style="display: none">
-                                    <label class="inputLabel" for="troubleshooterEpisode1">Select a first and second episode</label>
-                                    <select is="emby-select" id="troubleshooterEpisode1" class="emby-select-withcolor emby-select"></select>
-                                    <label class="inputLabel" for="troubleshooterEpisode2" style="display: none"></label>
-                                    <select is="emby-select" id="troubleshooterEpisode2" class="emby-select-withcolor emby-select"></select>
-                                    <br />
+                                    <p>
+                                        <label class="inputLabel" for="troubleshooterEpisode1">Select a first and second episode</label>
+                                        <select is="emby-select" id="troubleshooterEpisode1" class="emby-select-withcolor emby-select"></select>
+                                        <label class="inputLabel" for="troubleshooterEpisode2"> </label>
+                                        <select is="emby-select" id="troubleshooterEpisode2" class="emby-select-withcolor emby-select"></select>
+                                    </p>
                                 </div>
 
                                 <div id="timestampEditor" style="display: none">
+                                    <br />
                                     <h3 style="margin: 0">Introduction timestamp editor</h3>
                                     <br />
                                     <h4 style="margin: 0" id="editLeftEpisodeTitle"></h4>
@@ -707,9 +707,9 @@
                                     <span>Shift amount:</span>
                                     <input type="number" min="-3000" max="3000" value="0" id="offset" />
                                     <p>
-                                    <span id="suggestedShifts">
-                                        <span>Suggested shifts: </span>
-                                    </span>
+                                        <span id="suggestedShifts">
+                                            <span>Suggested shifts: </span>
+                                        </span>
                                     </p>
                                     <canvas id="troubleshooter" style="display: none"></canvas>
                                     <span id="timestampContainer">
