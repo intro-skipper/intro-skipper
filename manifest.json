@@ -33,5 +33,43 @@
                 "timestamp": "2024-11-25T17:07:33Z"
             }
         ]
+    },
+    {
+        "guid": "6B0E323A-4AEE-4B10-813F-1E060488AE90",
+        "name": "EDL Creator",
+        "overview": "Create .edl files from Media Segments",
+        "description": "These files can be used by Kodi and other players to skip content like commercials and are stored next to your media. Therefore you need write access.",
+        "owner": "Intro Skipper (forked from Endrl)",
+        "category": "General",
+        "imageUrl": "https://raw.githubusercontent.com/intro-skipper/jellyfin-plugin-edl/master/images/logo.png",
+        "versions": [
+            {
+                "version": "0.3.1.0",
+                "changelog": "- See the full changelog at [GitHub](https://github.com/intro-skipper/jellyfin-plugin-edl/blob/10.10.2/CHANGELOG.md)",
+                "targetAbi": "10.10.2.0",
+                "sourceUrl": "https://github.com/intro-skipper/jellyfin-plugin-edl/releases/download/0.3.1-0b873bc/Jellyfin.Plugin.Edl-0.3.1.zip",
+                "checksum": "770d3c6fc0c06b63b3edb2abd1e4049f",
+                "timestamp": "2024-12-02T10:23:32Z"
+            }
+        ]
+    },
+    {
+        "guid": "6F0AAAB5-E251-4A6D-B8D5-BC8C65222051",
+        "name": "MediaSegments API",
+        "overview": "Create and delete Media Segments",
+        "description": "Provide an extended HTTP API to create and delete MediaSegments",
+        "owner": "Intro Skipper (forked from Endrl)",
+        "category": "General",
+        "imageUrl": "https://raw.githubusercontent.com/intro-skipper/jellyfin-plugin-ms-api/10.10.2/images/logo.png",
+        "versions": [
+            {
+                "version": "1.0.1",
+                "changelog": "- See the full changelog at [GitHub](https://github.com/intro-skipper/jellyfin-plugin-ms-api/blob/10.10.2/CHANGELOG.md)",
+                "targetAbi": "10.10.2.0",
+                "sourceUrl": "https://github.com/intro-skipper/jellyfin-plugin-ms-api/releases/download/1.0.1-73cf1af/Jellyfin.Plugin.MediaSegmentsApi-1.0.1.zip",
+                "checksum": "eaf2c3cac7104f7da838b5fa91ed2b07",
+                "timestamp": "2024-12-02T10:23:36Z"
+            }
+        ]
     }
 ]
