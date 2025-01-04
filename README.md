@@ -46,7 +46,7 @@ https://manifest.intro-skipper.org/manifest.json
 ## [Jellyfin Skip Options](https://github.com/intro-skipper/intro-skipper/wiki/Jellyfin-Skip-Options)
 
 ## [Troubleshooting](https://github.com/intro-skipper/intro-skipper/wiki/Troubleshooting)
-- #### [No plugin in Catalog](https://github.com/intro-skipper/intro-skipper/wiki/Troubleshooting#no-plugin-in-catalog)
+- #### [Plugin not shown in Catalog](https://github.com/intro-skipper/intro-skipper/wiki/Troubleshooting#no-plugin-in-catalog)
 - #### [Scheduled tasks fail instantly](https://github.com/intro-skipper/intro-skipper/wiki/Troubleshooting#scheduled-tasks-fail-instantly)
 - #### [Plugin settings not saved](https://github.com/intro-skipper/intro-skipper/wiki/Troubleshooting#plugin-settings-not-saved)
 - #### [Skip button is not visible](https://github.com/intro-skipper/intro-skipper/wiki/Troubleshooting#skip-button-is-not-visible)
