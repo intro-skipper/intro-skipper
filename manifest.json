@@ -82,11 +82,11 @@
         "imageUrl": "https://raw.githubusercontent.com/intro-skipper/jellyfin-plugin-ms-chapter/master/images/logo.png",
         "versions": [
             {
-                "version": "0.4.0.1",
+                "version": "0.4.0.2",
                 "changelog": "- See the full changelog at [GitHub](https://github.com/intro-skipper/jellyfin-plugin-ms-chapter/blob/master/CHANGELOG.md)",
                 "targetAbi": "10.10.3.0",
-                "sourceUrl": "https://github.com/intro-skipper/jellyfin-plugin-ms-chapter/releases/download/0.4.0-0483f74/ChapterCreator-0.4.0.zip",
-                "checksum": "d27b4f3fa70389d8e7b088ab460415e8",
+                "sourceUrl": "https://github.com/intro-skipper/jellyfin-plugin-ms-chapter/releases/download/0.4.0-820a08f/ChapterCreator-0.4.0.zip",
+                "checksum": "d9d0d68874338fc74540f7e27909e2af",
                 "timestamp": "2025-01-05T10:38:00Z"
             }
         ]
