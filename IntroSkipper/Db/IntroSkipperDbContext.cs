@@ -135,36 +135,30 @@ public class IntroSkipperDbContext : DbContext
         // Backup existing data
         List<DbSegment> segments = [];
         List<DbSeasonInfo> seasonInfos = [];
-        using (var db = new IntroSkipperDbContext(_dbPath))
-        {
-            try
-            {
-                segments = [.. db.DbSegment.AsEnumerable().Where(s => s.ToSegment().Valid)];
-            }
-            catch (Exception ex)
-            {
-                throw new InvalidOperationException("Failed to read DbSegment data", ex);
-            }
 
-            try
-            {
-                seasonInfos = [.. db.DbSeasonInfo];
-            }
-            catch (Exception ex)
-            {
-                throw new InvalidOperationException("Failed to read DbSeasonInfo data", ex);
-            }
+        try
+        {
+            using var db = new IntroSkipperDbContext(_dbPath);
+            segments = [.. db.DbSegment.AsEnumerable().Where(s => s.ToSegment().Valid)];
+            seasonInfos = [.. db.DbSeasonInfo];
+        }
+        catch (Exception ex)
+        {
+            throw new InvalidOperationException("Failed to read database data", ex);
+        }
+        finally
+        {
+            // Delete old database
+            Database.EnsureDeleted();
+
+            // Create new database with proper migration history
+            Database.Migrate();
         }
 
-        // Delete old database
-        Database.EnsureDeleted();
-
-        // Create new database with proper migration history
-        Database.Migrate();
-
         // Restore the data
-        using (var db = new IntroSkipperDbContext(_dbPath))
+        if (segments.Count > 0 || seasonInfos.Count > 0)
         {
+            using var db = new IntroSkipperDbContext(_dbPath);
             if (segments.Count > 0)
             {
                 db.DbSegment.AddRange(segments);
