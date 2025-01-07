@@ -3,6 +3,7 @@
 
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 using System.Text.Json;
 using IntroSkipper.Data;
@@ -132,50 +133,62 @@ public class IntroSkipperDbContext : DbContext
     /// </summary>
     public void RebuildDatabase()
     {
-        // Backup existing data
+        // Check if database file exists
+        if (!File.Exists(_dbPath))
+        {
+            Database.EnsureCreated();
+            Database.Migrate();
+            return;
+        }
+
         List<DbSegment> segments = [];
         List<DbSeasonInfo> seasonInfos = [];
+
+        // Try to backup existing data if possible
         using (var db = new IntroSkipperDbContext(_dbPath))
         {
             try
             {
-                segments = [.. db.DbSegment.AsEnumerable().Where(s => s.ToSegment().Valid)];
+                // Check if tables exist
+                if (Database.GetAppliedMigrations().Any())
+                {
+                    segments = [.. db.DbSegment.AsEnumerable().Where(s => s.ToSegment().Valid)];
+                    seasonInfos = [.. db.DbSeasonInfo];
+                }
             }
             catch (Exception ex)
             {
-                throw new InvalidOperationException("Failed to read DbSegment data", ex);
-            }
-
-            try
-            {
-                seasonInfos = [.. db.DbSeasonInfo];
-            }
-            catch (Exception ex)
-            {
-                throw new InvalidOperationException("Failed to read DbSeasonInfo data", ex);
+                // Log and ignore errors when reading old data
+                System.Diagnostics.Debug.WriteLine($"Failed to read existing data: {ex.Message}");
             }
         }
 
-        // Delete old database
-        Database.EnsureDeleted();
-
-        // Create new database with proper migration history
-        Database.Migrate();
-
-        // Restore the data
-        using (var db = new IntroSkipperDbContext(_dbPath))
+        try
         {
+            // Delete and recreate database
+            Database.EnsureDeleted();
+            Database.Migrate();
+
+            // Restore data if available
+            using var newDb = new IntroSkipperDbContext(_dbPath);
             if (segments.Count > 0)
             {
-                db.DbSegment.AddRange(segments);
+                newDb.DbSegment.AddRange(segments);
             }
 
             if (seasonInfos.Count > 0)
             {
-                db.DbSeasonInfo.AddRange(seasonInfos);
+                newDb.DbSeasonInfo.AddRange(seasonInfos);
             }
 
-            db.SaveChanges();
+            newDb.SaveChanges();
+        }
+        catch (Exception ex)
+        {
+            // Last resort: Create new empty database
+            Database.EnsureDeleted();
+            Database.Migrate();
+            throw new InvalidOperationException("Failed to rebuild database, created empty one", ex);
         }
     }
 }
