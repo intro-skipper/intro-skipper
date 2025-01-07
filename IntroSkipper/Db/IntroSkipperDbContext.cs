@@ -136,6 +136,7 @@ public class IntroSkipperDbContext : DbContext
         // Check if database file exists
         if (!File.Exists(_dbPath))
         {
+            Database.EnsureDeleted();
             Database.EnsureCreated();
             Database.Migrate();
             return;
