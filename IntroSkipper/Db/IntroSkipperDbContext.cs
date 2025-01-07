@@ -137,6 +137,17 @@ public class IntroSkipperDbContext : DbContext
         if (!File.Exists(_dbPath))
         {
             Database.EnsureDeleted();
+
+            try
+            {
+                using var context = new IntroSkipperDbContext(_dbPath);
+                context.Database.Migrate();
+            }
+            catch (Exception ex)
+            {
+                throw new InvalidOperationException($"Failed to rebuild database: {ex.Message}", ex);
+            }
+
             Database.EnsureCreated();
             Database.Migrate();
             return;
