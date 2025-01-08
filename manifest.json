@@ -60,7 +60,7 @@
         "description": "Provide an extended HTTP API to create and delete MediaSegments",
         "owner": "Intro Skipper (forked from Endrl)",
         "category": "General",
-        "imageUrl": "https://raw.githubusercontent.com/intro-skipper/jellyfin-plugin-ms-api/10.10.2/images/logo.png",
+        "imageUrl": "https://raw.githubusercontent.com/intro-skipper/jellyfin-plugin-ms-api/master/images/logo.png",
         "versions": [
             {
                 "version": "1.0.1",
