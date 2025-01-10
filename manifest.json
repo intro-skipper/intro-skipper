@@ -5,7 +5,7 @@
         "overview": "Automatically detect and skip intros in television episodes",
         "description": "Analyzes the audio of television episodes and detects introduction sequences.",
         "owner": "AbandonedCart, rlauuzo, jumoog (forked from ConfusedPolarBear)",
-        "category": "General",
+        "category": "Intro-Skipper",
         "imageUrl": "https://raw.githubusercontent.com/intro-skipper/intro-skipper/10.10/images/logo.png",
         "versions": [
             {
@@ -40,7 +40,7 @@
         "overview": "Create .edl files from Media Segments",
         "description": "These files can be used by Kodi and other players to skip content like commercials and are stored next to your media. Therefore you need write access.",
         "owner": "Intro Skipper (forked from Endrl)",
-        "category": "General",
+        "category": "Intro-Skipper",
         "imageUrl": "https://raw.githubusercontent.com/intro-skipper/jellyfin-plugin-edl/master/images/logo.png",
         "versions": [
             {
@@ -59,7 +59,7 @@
         "overview": "Create and delete Media Segments",
         "description": "Provide an extended HTTP API to create and delete MediaSegments",
         "owner": "Intro Skipper (forked from Endrl)",
-        "category": "General",
+        "category": "Intro-Skipper",
         "imageUrl": "https://raw.githubusercontent.com/intro-skipper/jellyfin-plugin-ms-api/master/images/logo720.png",
         "versions": [
             {
@@ -78,7 +78,7 @@
         "overview": "Automatically convert Jellyfin media segments into Matroska chapter XML files for enhanced media navigation",
         "description": "This plugin converts existing media segments (like Intros and Outros) into standardized Matroska chapter XML files",
         "owner": "Intro Skipper",
-        "category": "General",
+        "category": "Intro-Skipper",
         "imageUrl": "https://raw.githubusercontent.com/intro-skipper/jellyfin-plugin-ms-chapter/master/images/logo.png",
         "versions": [
             {
