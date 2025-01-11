@@ -373,12 +373,12 @@ public class ChromaprintAnalyzer(ILogger<ChromaprintAnalyzer> logger) : IMediaFi
             originalIntro.End);
 
         var originalIntroStart = new TimeRange(
-            Math.Max(0, (int)originalIntro.Start - 5),
-            (int)originalIntro.Start + 10);
+            Math.Max(0, originalIntro.Start - 5),
+            originalIntro.Start + 10);
 
         var originalIntroEnd = new TimeRange(
-            (int)originalIntro.End - 10,
-            Math.Min(episode.Duration, (int)originalIntro.End + 5));
+            originalIntro.End - 10,
+            Math.Min(episode.Duration, originalIntro.End + 5));
 
         // Try to adjust based on chapters first, fall back to silence detection for intros
         if (!AdjustIntroBasedOnChapters(episode, originalIntro, originalIntroStart, originalIntroEnd) &&

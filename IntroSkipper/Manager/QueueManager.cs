@@ -238,9 +238,9 @@ namespace IntroSkipper.Manager
                 Name = episode.Name,
                 IsAnime = isAnime,
                 Path = episode.Path,
-                Duration = (int)duration,
-                IntroFingerprintEnd = (int)fingerprintDuration,
-                CreditsFingerprintStart = (int)(duration - maxCreditsDuration),
+                Duration = duration,
+                IntroFingerprintEnd = fingerprintDuration,
+                CreditsFingerprintStart = duration - maxCreditsDuration,
             });
 
             pluginInstance.TotalQueued++;
@@ -272,8 +272,8 @@ namespace IntroSkipper.Manager
                 EpisodeId = movie.Id,
                 Name = movie.Name,
                 Path = movie.Path,
-                Duration = (int)duration,
-                CreditsFingerprintStart = (int)(duration - pluginInstance.Configuration.MaximumMovieCreditsDuration),
+                Duration = duration,
+                CreditsFingerprintStart = duration - pluginInstance.Configuration.MaximumMovieCreditsDuration,
                 IsMovie = true
             });
 
