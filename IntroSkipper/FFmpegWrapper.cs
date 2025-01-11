@@ -112,7 +112,7 @@ public static partial class FFmpegWrapper
     /// <returns>Numerical fingerprint points.</returns>
     public static uint[] Fingerprint(QueuedEpisode episode, AnalysisMode mode)
     {
-        int start, end;
+        double start, end;
 
         if (mode == AnalysisMode.Introduction)
         {
@@ -439,7 +439,7 @@ public static partial class FFmpegWrapper
     /// <param name="start">Time (in seconds) relative to the start of the file to start fingerprinting from.</param>
     /// <param name="end">Time (in seconds) relative to the start of the file to stop fingerprinting at.</param>
     /// <returns>Numerical fingerprint points.</returns>
-    private static uint[] Fingerprint(QueuedEpisode episode, AnalysisMode mode, int start, int end)
+    private static uint[] Fingerprint(QueuedEpisode episode, AnalysisMode mode, double start, double end)
     {
         // Try to load this episode from cache before running ffmpeg.
         if (LoadCachedFingerprint(episode, mode, out uint[] cachedFingerprint))
