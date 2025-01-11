@@ -188,7 +188,7 @@ public class BlackFrameAnalyzer(ILogger<BlackFrameAnalyzer> logger) : IMediaFile
 
     private double FindSearchStart(QueuedEpisode episode)
     {
-        var searchStart = 3 * _config.MinimumCreditsDuration;
+        var searchStart = 3d * _config.MinimumCreditsDuration;
         var scanTime = episode.Duration - searchStart;
         var tr = new TimeRange(scanTime - 0.5, scanTime); // Short search range since accuracy isn't important here.
 
@@ -196,7 +196,7 @@ public class BlackFrameAnalyzer(ILogger<BlackFrameAnalyzer> logger) : IMediaFile
         while (FFmpegWrapper.DetectBlackFrames(episode, tr, _config.BlackFrameMinimumPercentage).Length > 0)
         {
             // Increase by 2x minimum credits duration each iteration
-            searchStart += 2 * _config.MinimumCreditsDuration;
+            searchStart += 2d * _config.MinimumCreditsDuration;
             scanTime = episode.Duration - searchStart;
             tr = new TimeRange(scanTime - 0.5, scanTime);
 
