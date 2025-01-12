@@ -44,7 +44,7 @@ namespace IntroSkipper.Manager
                 try
                 {
                     var existingSegments = await _mediaSegmentManager.GetSegmentsAsync(episode.EpisodeId, null, false).ConfigureAwait(false);
-                    await Task.WhenAll(existingSegments.Select(s => _mediaSegmentManager.DeleteSegmentAsync(s.Id))).ConfigureAwait(false);
+                    await Task.WhenAll(existingSegments.Select(s => DeleteSegmentAsync(s.Id))).ConfigureAwait(false);
 
                     var newSegments = await _segmentProvider.GetMediaSegments(new MediaSegmentGenerationRequest { ItemId = episode.EpisodeId }, cancellationToken).ConfigureAwait(false);
 
@@ -63,6 +63,16 @@ namespace IntroSkipper.Manager
                     _logger.LogError(ex, "Error processing episode {EpisodeId}", episode.EpisodeId);
                 }
             }
+        }
+
+        /// <summary>
+        /// Deletes a segment.
+        /// </summary>
+        /// <param name="segmentId">The Id of the segment.</param>
+        /// <returns>A <see cref="Task"/> representing the asynchronous operation.</returns>
+        public async Task DeleteSegmentAsync(Guid segmentId)
+        {
+            await _mediaSegmentManager.DeleteSegmentAsync(segmentId).ConfigureAwait(false);
         }
     }
 }

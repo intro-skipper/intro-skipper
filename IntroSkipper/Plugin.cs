@@ -11,6 +11,7 @@ using IntroSkipper.Configuration;
 using IntroSkipper.Data;
 using IntroSkipper.Db;
 using IntroSkipper.Helper;
+using Jellyfin.Data.Enums;
 using MediaBrowser.Common.Configuration;
 using MediaBrowser.Common.Plugins;
 using MediaBrowser.Controller.Configuration;
@@ -322,5 +323,17 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
             .ToListAsync().ConfigureAwait(false);
         db.DbSeasonInfo.RemoveRange(obsoleteSeasons);
         await db.SaveChangesAsync().ConfigureAwait(false);
+    }
+
+    internal AnalysisMode MapSegmentTypeToMode(MediaSegmentType type)
+    {
+        return type switch
+        {
+            MediaSegmentType.Intro => AnalysisMode.Introduction,
+            MediaSegmentType.Recap => AnalysisMode.Recap,
+            MediaSegmentType.Preview => AnalysisMode.Preview,
+            MediaSegmentType.Outro => AnalysisMode.Credits,
+            _ => throw new NotImplementedException(),
+        };
     }
 }

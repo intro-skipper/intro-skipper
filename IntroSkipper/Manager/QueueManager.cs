@@ -153,20 +153,17 @@ namespace IntroSkipper.Manager
             {
                 try
                 {
-                    if (item is Episode episode && !_excludeSeries.Contains(episode.SeriesName))
+                    switch (item)
                     {
-                        QueueEpisode(episode);
-                    }
-                    else if (item is Movie movie && !_excludeSeries.Contains(movie.Name))
-                    {
-                        if (_analyzeMovies)
-                        {
+                        case Episode episode when !_excludeSeries.Contains(episode.SeriesName):
+                            QueueEpisode(episode);
+                            break;
+                        case Movie movie when _analyzeMovies && !_excludeSeries.Contains(movie.Name):
                             QueueMovie(movie);
-                        }
-                    }
-                    else
-                    {
-                        _logger.LogDebug("Item {Name} is not an episode or movie", item.Name);
+                            break;
+                        default:
+                            _logger.LogDebug("Item {Name} is not an episode or movie", item.Name);
+                            break;
                     }
                 }
                 catch (Exception ex)
@@ -185,7 +182,7 @@ namespace IntroSkipper.Manager
             if (string.IsNullOrEmpty(episode.Path))
             {
                 _logger.LogWarning(
-                    "Not queuing episode \"{Name}\" from series \"{Series}\" ({Id}) as no path was provided by Jellyfin",
+                    "Not queuing episode \"{Name}\" from series \"{Series}\" ({Id}) as no path was provided",
                     episode.Name,
                     episode.SeriesName,
                     episode.Id);
@@ -200,6 +197,7 @@ namespace IntroSkipper.Manager
                 _queuedEpisodes[seasonId] = seasonEpisodes;
             }
 
+            // Early return if already queued
             if (seasonEpisodes.Any(e => e.EpisodeId == episode.Id))
             {
                 _logger.LogDebug(
@@ -212,8 +210,8 @@ namespace IntroSkipper.Manager
 
             var isAnime = seasonEpisodes.FirstOrDefault()?.IsAnime ??
                 (pluginInstance.GetItem(episode.SeriesId) is Series series &&
-                    (series.Tags.Contains("anime", StringComparison.OrdinalIgnoreCase) ||
-                    series.Genres.Contains("anime", StringComparison.OrdinalIgnoreCase)));
+                (series.Tags.Contains("anime", StringComparison.OrdinalIgnoreCase) ||
+                 series.Genres.Contains("anime", StringComparison.OrdinalIgnoreCase)));
 
             // Limit analysis to the first X% of the episode and at most Y minutes.
             // X and Y default to 25% and 10 minutes.
@@ -334,16 +332,13 @@ namespace IntroSkipper.Manager
 
                     foreach (var mode in modes)
                     {
-                        if (episodeIds.TryGetValue(mode, out var ids) && ids.Contains(candidate.EpisodeId))
+                        if (hasSegments.TryGetValue(mode, out var seg))
                         {
-                            if (hasSegments.TryGetValue(mode, out _))
-                            {
-                                candidate.SetAnalyzed(mode, EpisodeState.Analyzed);
-                            }
-                            else if (!plugin.AnalyzeAgain)
-                            {
-                                candidate.SetAnalyzed(mode, EpisodeState.NoSegments);
-                            }
+                            candidate.SetAnalyzed(mode, EpisodeState.Analyzed);
+                        }
+                        else if (!plugin.AnalyzeAgain && episodeIds.TryGetValue(mode, out var ids) && ids.Contains(candidate.EpisodeId))
+                        {
+                            candidate.SetAnalyzed(mode, EpisodeState.NoSegments);
                         }
                     }
                 }
