@@ -178,6 +178,7 @@ public class QueueManager(ILogger<QueueManager> logger, ILibraryManager libraryM
             _queuedEpisodes[seasonId] = seasonEpisodes;
         }
 
+        // Early return if already queued
         if (seasonEpisodes.Any(e => e.EpisodeId == episode.Id))
         {
             _logger.LogDebug(
@@ -216,9 +217,9 @@ public class QueueManager(ILogger<QueueManager> logger, ILibraryManager libraryM
             Name = episode.Name,
             IsAnime = isAnime,
             Path = episode.Path,
-            Duration = duration,
-            IntroFingerprintEnd = fingerprintDuration,
-            CreditsFingerprintStart = duration - maxCreditsDuration,
+            Duration = (int)duration,
+            IntroFingerprintEnd = (int)fingerprintDuration,
+            CreditsFingerprintStart = (int)(duration - maxCreditsDuration),
         });
 
         pluginInstance.TotalQueued++;
@@ -250,8 +251,8 @@ public class QueueManager(ILogger<QueueManager> logger, ILibraryManager libraryM
             EpisodeId = movie.Id,
             Name = movie.Name,
             Path = movie.Path,
-            Duration = duration,
-            CreditsFingerprintStart = duration - pluginInstance.Configuration.MaximumMovieCreditsDuration,
+            Duration = (int)duration,
+            CreditsFingerprintStart = (int)(duration - pluginInstance.Configuration.MaximumMovieCreditsDuration),
             IsMovie = true
         });
 
@@ -312,16 +313,13 @@ public class QueueManager(ILogger<QueueManager> logger, ILibraryManager libraryM
 
                 foreach (var mode in modes)
                 {
-                    if (episodeIds.TryGetValue(mode, out var ids) && ids.Contains(candidate.EpisodeId))
+                    if (hasSegments.TryGetValue(mode, out var seg))
                     {
-                        if (hasSegments.TryGetValue(mode, out _))
-                        {
-                            candidate.SetAnalyzed(mode, EpisodeState.Analyzed);
-                        }
-                        else if (!plugin.AnalyzeAgain)
-                        {
-                            candidate.SetAnalyzed(mode, EpisodeState.NoSegments);
-                        }
+                        candidate.SetAnalyzed(mode, EpisodeState.Analyzed);
+                    }
+                    else if (!plugin.AnalyzeAgain && episodeIds.TryGetValue(mode, out var ids) && ids.Contains(candidate.EpisodeId))
+                    {
+                        candidate.SetAnalyzed(mode, EpisodeState.NoSegments);
                     }
                 }
             }
