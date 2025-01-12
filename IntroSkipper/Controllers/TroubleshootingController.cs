@@ -47,6 +47,22 @@ public class TroubleshootingController : ControllerBase
     }
 
     /// <summary>
+    /// Plugin meta endpoint.
+    /// </summary>
+    /// <returns>The version info.</returns>
+    [HttpGet]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    public JsonResult GetPluginMetadata()
+    {
+        var json = new
+        {
+            version = Plugin.Instance!.Version.ToString(3),
+        };
+
+        return new JsonResult(json);
+    }
+
+    /// <summary>
     /// Gets a Markdown formatted support bundle.
     /// </summary>
     /// <response code="200">Support bundle created.</response>
