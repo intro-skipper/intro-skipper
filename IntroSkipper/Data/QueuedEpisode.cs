@@ -71,17 +71,17 @@ public class QueuedEpisode
     /// <summary>
     /// Gets or sets the timestamp (in seconds) to stop searching for an introduction at.
     /// </summary>
-    public int IntroFingerprintEnd { get; set; }
+    public double IntroFingerprintEnd { get; set; }
 
     /// <summary>
     /// Gets or sets the timestamp (in seconds) to start looking for end credits at.
     /// </summary>
-    public int CreditsFingerprintStart { get; set; }
+    public double CreditsFingerprintStart { get; set; }
 
     /// <summary>
     /// Gets or sets the total duration of this media file (in seconds).
     /// </summary>
-    public int Duration { get; set; }
+    public double Duration { get; set; }
 
     /// <summary>
     /// Sets a value indicating whether this media has been already analyzed.
