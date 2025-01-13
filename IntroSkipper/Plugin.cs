@@ -90,7 +90,7 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
 
         try
         {
-            LegacyMigrations.MigrateAll(this, serverConfiguration, logger, applicationPaths);
+            LegacyMigrations.MigrateAll(this, serverConfiguration, logger, applicationPaths, _libraryManager);
         }
         catch (Exception ex)
         {
