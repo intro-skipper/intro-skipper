@@ -904,19 +904,6 @@
                 const showAdjustment = document.querySelector("div#divShowPromptAdjustment");
                 const hideAdjustment = document.querySelector("div#divHidePromptAdjustment");
 
-                // prevent setting unavailable options
-                async function persistSkipChanged() {
-                    if (persistSkip.checked) {
-                        showAdjustment.style.display = "none";
-                        hideAdjustment.style.display = "none";
-                    } else {
-                        showAdjustment.style.display = "unset";
-                        hideAdjustment.style.display = "unset";
-                    }
-                }
-
-                persistSkip.addEventListener("change", persistSkipChanged);
-
                 const remainingSecondsOfIntro = document.getElementById("RemainingSecondsOfIntro");
 
                 async function pluginSkipSettingChanged() {
@@ -926,8 +913,6 @@
                         serverSkipSettings.style.display = "none";
                         // TODO: Reset everything to default
                         autoSkip.checked = false;
-                        skipButtonVisible.checked = false;
-                        persistSkip.checked = false;
                         remainingSecondsOfIntro.value = 0;
                     }
                 }
@@ -1431,13 +1416,11 @@
 
                         fullLengthChaptersChanged();
                         autoSkipChanged();
-                        persistSkipChanged();
                         generateAutoSkipTypeList();
                         generateAutoSkipClientList();
                         const pluginSkip = document.getElementById("PluginSkip");
                         pluginSkip.checked = pluginSkip.checked
-                            || document.getElementById("AutoSkip").checked
-                            || document.getElementById("SkipButtonEnabled").checked
+                            || document.getElementById("AutoSkip").checked;
                         pluginSkipSettingChanged();
                         globalTimestampChanged();
 
