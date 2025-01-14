@@ -188,7 +188,7 @@
                                     </div>
                               </div>
 
-                                <div class="inputContainer" id="excludeSeries">
+                                <div class="inputContainer" id="excludedSeries">
                                     <label class="inputLabel inputLabelUnfocused" for="ExcludeSeries"> Exclude series </label>
                                     <input id="ExcludeSeries" type="text" is="emby-input" />
                                     <div class="fieldDescription">Exclude series from analysis. Enter a comma-separated list of series names to exclude.</div>
@@ -375,35 +375,11 @@
                                     <div class="fieldDescription">Seconds of segment ending that should be played. Defaults to 2.</div>
                                 </div>
 
-                                <details>
-                                    <summary>User Interface Customization</summary>
-
-                                    <p>
-                                        <b style="color: orange">These settings do not apply to Media Segment Actions in Jellyfin 10.10 and compatible clients.</b>
-                                    </p>
-
-                                    <div id="SkipButtonSettings">
-                                        <div id="divShowPromptAdjustment" class="inputContainer">
-                                            <label class="inputLabel inputLabelUnfocused" for="ShowPromptAdjustment"> Skip prompt offset (in seconds) </label>
-                                            <input id="ShowPromptAdjustment" type="number" is="emby-input" min="0" />
-                                            <div class="fieldDescription">Seconds to display skip prompt before introduction begins.</div>
-                                            <br />
-                                        </div>
-
-                                        <div id="divHidePromptAdjustment" class="inputContainer">
-                                            <label class="inputLabel inputLabelUnfocused" for="HidePromptAdjustment"> Skip prompt timeout (in seconds) </label>
-                                            <input id="HidePromptAdjustment" type="number" is="emby-input" min="2" />
-                                            <div class="fieldDescription">Seconds after introduction before skip prompt is hidden.</div>
-                                            <br />
-                                        </div>
-                                    </div>
-
-                                    <div id="divAutoSkipNotificationText" class="inputContainer">
-                                        <label class="inputLabel" for="AutoSkipNotificationText"> Auto skip intro notification message </label>
-                                        <input id="AutoSkipNotificationText" type="text" is="emby-input" />
-                                        <div class="fieldDescription">Message shown after automatically skipping an introduction. Leave blank to disable notification.</div>
-                                    </div>
-                                </details>
+                                <div id="divAutoSkipNotificationText" class="inputContainer">
+                                    <label class="inputLabel" for="AutoSkipNotificationText"> Auto skip intro notification message </label>
+                                    <input id="AutoSkipNotificationText" type="text" is="emby-input" />
+                                    <div class="fieldDescription">Message shown after automatically skipping an introduction. Leave blank to disable notification.</div>
+                                </div>
                             </fieldset>
                         </div>
 
@@ -829,12 +805,8 @@
                 const pluginSkip = document.getElementById("PluginSkip");
                 const serverSkipSettings = document.getElementById("ServerSkipSettings");
                 const autoSkip = document.getElementById("AutoSkip");
-                const skipButtonSettings = document.getElementById("SkipButtonSettings");
-                const skipFirstEpisode = document.getElementById("divSkipFirstEpisode");
-                const secondsOfIntroStartToPlay = document.getElementById("divSecondsOfIntroStartToPlay");
                 const autoSkipClientList = document.querySelector("div.AutoSkipClientListContainer");
                 const fullLengthChapters = document.getElementById("FullLengthChapters");
-                const movieCreditsDuration = document.getElementById("movieCreditsDuration");
                 const globalTimestamps = document.getElementById("GlobalTimestamps");
                 const btnEraseGlobalTimestamps = document.getElementById("btnEraseGlobalTimestamps");
 

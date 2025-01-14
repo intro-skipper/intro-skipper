@@ -174,16 +174,6 @@ public class PluginConfiguration : BasePluginConfiguration
     // ===== Playback settings =====
 
     /// <summary>
-    /// Gets or sets a value indicating whether to show the skip intro button.
-    /// </summary>
-    public bool SkipButtonEnabled { get; set; }
-
-    /// <summary>
-    /// Gets a value indicating whether to show the skip intro warning.
-    /// </summary>
-    public bool SkipButtonWarning { get => WarningManager.HasFlag(PluginWarning.UnableToAddSkipButton); }
-
-    /// <summary>
     /// Gets or sets a value indicating whether plugin options are presented to the user.
     /// </summary>
     public bool PluginSkip { get; set; }
@@ -214,24 +204,9 @@ public class PluginConfiguration : BasePluginConfiguration
     public bool AutoSkipPreview { get; set; }
 
     /// <summary>
-    /// Gets or sets the seconds before the intro starts to show the skip prompt at.
-    /// </summary>
-    public int ShowPromptAdjustment { get; set; } = 5;
-
-    /// <summary>
-    /// Gets or sets the seconds after the intro starts to hide the skip prompt at.
-    /// </summary>
-    public int HidePromptAdjustment { get; set; } = 10;
-
-    /// <summary>
     /// Gets or sets a value indicating whether the introduction in the first episode of a season should be ignored.
     /// </summary>
     public bool SkipFirstEpisode { get; set; } = true;
-
-    /// <summary>
-    /// Gets or sets a value indicating whether the skip button should be displayed for the duration of the intro.
-    /// </summary>
-    public bool PersistSkipButton { get; set; } = true;
 
     /// <summary>
     /// Gets or sets the amount of intro to play (in seconds).
@@ -273,16 +248,6 @@ public class PluginConfiguration : BasePluginConfiguration
     public double SilenceDetectionMinimumDuration { get; set; } = 0.33;
 
     // ===== Localization support =====
-
-    /// <summary>
-    /// Gets or sets the text to display in the skip button in introduction mode.
-    /// </summary>
-    public string SkipButtonIntroText { get; set; } = "Skip Intro";
-
-    /// <summary>
-    /// Gets or sets the text to display in the skip button in end credits mode.
-    /// </summary>
-    public string SkipButtonEndCreditsText { get; set; } = "Next";
 
     /// <summary>
     /// Gets or sets the notification text sent after automatically skipping an introduction.
