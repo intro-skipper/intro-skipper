@@ -19,7 +19,7 @@ public class TestFlags
     public void TestSingleFlagSerialization()
     {
         WarningManager.Clear();
-        WarningManager.SetFlag(PluginWarning.UnableToAddSkipButton);
+        WarningManager.SetFlag(PluginWarning.IncompatibleFFmpegBuild);
         Assert.Equal("IncompatibleFFmpegBuild", WarningManager.GetWarnings());
         Assert.True(WarningManager.HasFlag(PluginWarning.IncompatibleFFmpegBuild));
     }
