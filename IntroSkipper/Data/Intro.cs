@@ -44,10 +44,12 @@ public class Intro(Segment intro)
     /// <summary>
     /// Gets the recommended time to display the skip intro prompt.
     /// </summary>
+    [Obsolete("It's only for legacy purposes.")]
     public double ShowSkipPromptAt { get; } = intro.Start;
 
     /// <summary>
     /// Gets the recommended time to hide the skip intro prompt.
     /// </summary>
+    [Obsolete("It's only for legacy purposes.")]
     public double HideSkipPromptAt { get; } = intro.End - 3.0;
 }
