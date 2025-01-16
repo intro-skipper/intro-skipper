@@ -1500,6 +1500,8 @@
                         globalTimestampChanged();
 
                         Dashboard.hideLoadingMsg();
+                    }).catch(error => {
+                        Dashboard.hideLoadingMsg();
                     });
                 });
 
@@ -1516,7 +1518,12 @@
 
                         ApiClient.updatePluginConfiguration("c83d86bb-a1e0-4c35-a113-e2101cf4ee6b", config).then(function (result) {
                             Dashboard.processPluginConfigurationUpdateResult(result);
+                            Dashboard.hideLoadingMsg();
+                        }).catch(error => {
+                            Dashboard.hideLoadingMsg();
                         });
+                    }).catch(error => {
+                        Dashboard.hideLoadingMsg();
                     });
 
                     e.preventDefault();
