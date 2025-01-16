@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Text.RegularExpressions;
 using System.Xml;
 using System.Xml.Serialization;
 using IntroSkipper.Configuration;
@@ -35,6 +36,7 @@ internal static class LegacyMigrations
         MigrateConfig(plugin, applicationPaths.PluginConfigurationsPath, logger);
         MigrateRepoUrl(plugin, serverConfiguration, logger);
         MigrateSettingsToJellyfin(plugin, logger, libraryManager);
+        RemoveSkipButton(plugin, applicationPaths.WebPath, logger);
         RestoreTimestamps(plugin.DbPath, introPath, creditsPath);
     }
 
@@ -105,6 +107,60 @@ internal static class LegacyMigrations
         catch (Exception ex)
         {
             logger.LogError(ex, "Error occurred while migrating repo URL");
+        }
+    }
+
+    private static void RemoveSkipButton(Plugin plugin, string webPath, ILogger logger)
+    {
+        string pattern = @"<script src=""configurationpage\?name=skip-intro-button\.js.*<\/script>";
+        string indexPath = Path.Join(webPath, "index.html");
+
+        // Check if we can actually access the file
+        bool canAccessFile = false;
+        try
+        {
+            if (File.Exists(indexPath))
+            {
+                using var fs = File.Open(indexPath, FileMode.Open, FileAccess.ReadWrite);
+                canAccessFile = true;
+            }
+        }
+        catch (Exception)
+        {
+            // If skip button is disabled, and we can't access the file, just return silently
+            logger.LogDebug("index.html permission denied. No action required.");
+            return;
+        }
+
+        if (!canAccessFile)
+        {
+            logger.LogDebug("Jellyfin running as nowebclient. No action required.");
+            return;
+        }
+
+        try
+        {
+            logger.LogInformation("Reading index.html from {Path}", indexPath);
+            string contents = File.ReadAllText(indexPath);
+
+            if (!Regex.IsMatch(contents, pattern, RegexOptions.IgnoreCase))
+            {
+                logger.LogDebug("Skip button not found. No action required.");
+                return;
+            }
+
+            logger.LogInformation("Skip button found. Removing the Skip button.");
+            contents = Regex.Replace(contents, pattern, string.Empty, RegexOptions.IgnoreCase);
+            File.WriteAllText(indexPath, contents);
+            return;
+        }
+        catch (UnauthorizedAccessException)
+        {
+            logger.LogError("UnauthorizedAccessException. No action possible.");
+        }
+        catch (IOException)
+        {
+            logger.LogError("IOException. No action possible.");
         }
     }
 
