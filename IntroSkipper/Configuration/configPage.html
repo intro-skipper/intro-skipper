@@ -1379,12 +1379,6 @@
                             document.querySelector("#" + field).checked = config[field];
                         }
 
-                        if (config["SkipButtonWarning"]) {
-                            document.getElementById("warningMessage").style.display = "unset";
-                        } else {
-                            document.getElementById("warningMessage").style.display = "none";
-                        }
-
                         const pluginSkip = document.getElementById("PluginSkip");
                         const autoSkip = document.getElementById("AutoSkip");
                         pluginSkip.checked = pluginSkip.checked || autoSkip.checked;
@@ -1414,7 +1408,7 @@
                         }
 
                         ApiClient.updatePluginConfiguration("c83d86bb-a1e0-4c35-a113-e2101cf4ee6b", config).then(function (result) {
-                            Dashboard.hideLoadingMsg();
+                            Dashboard.hideLoadingMsg(); // Necessry?
                             Dashboard.processPluginConfigurationUpdateResult(result);
                         }).catch(error => {
                             Dashboard.hideLoadingMsg();
