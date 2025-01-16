@@ -1516,8 +1516,8 @@
                         }
 
                         ApiClient.updatePluginConfiguration("c83d86bb-a1e0-4c35-a113-e2101cf4ee6b", config).then(function (result) {
-                            Dashboard.processPluginConfigurationUpdateResult(result);
                             Dashboard.hideLoadingMsg();
+                            Dashboard.processPluginConfigurationUpdateResult(result);
                         }).catch(error => {
                             Dashboard.hideLoadingMsg();
                         });
