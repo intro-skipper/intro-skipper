@@ -11,7 +11,6 @@ using System.Timers;
 using IntroSkipper.Configuration;
 using IntroSkipper.Controllers;
 using IntroSkipper.Data;
-using MediaBrowser.Common.Extensions;
 using MediaBrowser.Controller.Entities.TV;
 using MediaBrowser.Controller.Library;
 using MediaBrowser.Controller.Session;
@@ -67,33 +66,37 @@ public sealed class AutoSkip(
         }
 
         var itemId = e.Item.Id;
-        var session = _sessionManager.Sessions
-                        .FirstOrDefault(s => s.UserId == e.UserId && s.NowPlayingItem != null && s.NowPlayingItem.Id == itemId);
 
-        try
+        var userSessions = _sessionManager.Sessions
+            .Where(s => s.UserId == e.UserId).ToList();
+
+        _logger.LogDebug("User {UserId} has {Count} sessions.", e.UserId, userSessions.Count);
+
+        // Attempt to find the active session
+        var session = userSessions
+            .FirstOrDefault(s => s.NowPlayingItem is not null && s.NowPlayingItem.Id == itemId);
+
+        if (session is null)
         {
-            if (session is null)
+            _logger.LogInformation("Unable to find active session for user {UserId} and item {ItemId}", e.UserId, itemId);
+
+            // Retrieve all orphaned sessions for the user
+            var orphanedSessions = userSessions
+                .Where(s => s.NowPlayingItem is null);
+
+            // Attempt to remove each orphaned session
+            foreach (var orphan in orphanedSessions)
             {
-                _logger.LogInformation("Unable to find active session for user {UserId} and item {ItemId}", e.UserId, itemId);
-
-                // Clean up orphaned sessions
-                var removed = _sessionManager.Sessions
-                    .Where(s => s.UserId == e.UserId && s.NowPlayingItem is null)
-                    .Any(s => _sentSeekCommand.TryRemove(s.DeviceId, out _));
-
-                if (!removed)
+                if (_sentSeekCommand.TryRemove(orphan.DeviceId, out _))
                 {
-                    _logger.LogInformation("No orphaned sessions found to clean for user {UserId}", e.UserId);
+                    _logger.LogDebug("Removed orphaned session for device {DeviceId}", orphan.DeviceId);
                 }
-
-                return;
             }
-        }
-        catch (Exception ex) when (ex is NullReferenceException || ex is ResourceNotFoundException)
-        {
-            _logger.LogError(ex, "Error finding session for user {UserId} and item {ItemId}", e.UserId, itemId);
+
             return;
         }
+
+        _logger.LogInformation("Found active session {SessionId} for user {UserId} and item {ItemId}", session.Id, e.UserId, itemId);
 
         // Reset the seek command state for this device.
         var device = session.DeviceId;
