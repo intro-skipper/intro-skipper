@@ -1385,13 +1385,14 @@
                             document.getElementById("warningMessage").style.display = "none";
                         }
 
+                        const pluginSkip = document.getElementById("PluginSkip");
+                        const autoSkip = document.getElementById("AutoSkip");
+                        pluginSkip.checked = pluginSkip.checked || autoSkip.checked;
+
                         fullLengthChaptersChanged();
                         autoSkipChanged();
                         generateAutoSkipTypeList();
                         generateAutoSkipClientList();
-                        const pluginSkip = document.getElementById("PluginSkip");
-                        pluginSkip.checked = pluginSkip.checked
-                            || document.getElementById("AutoSkip").checked;
                         pluginSkipSettingChanged();
                         globalTimestampChanged();
 
