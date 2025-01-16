@@ -320,7 +320,7 @@
                         <div class="checkboxContainer checkboxContainer-withDescription">
                             <label class="emby-checkbox-label">
                                 <input id="PluginSkip" type="checkbox" is="emby-checkbox" />
-                                <span>Enable injected server-side skip <b style="color: red;">Restart required!</b></span>
+                                <span>Enable injected server-side skip &nbsp; <b style="color: red;">Restart required!</b></span>
                             </label>
                         </div>
                         </p>
@@ -754,8 +754,8 @@
                                     <p>
                                         <button is="emby-button" class="raised button-submit block emby-button" id="btnRebuildDatabase">Rebuild Local Database</button>
                                     </p>
-                                    <p>
-                                      <b style="color: orange">Rebuilding requires a full Jellyfin restart to complete, <i>NOT</i> a dashboard restart.</b>
+                                    <p align="center">
+                                      <b style="color: red">Rebuilding database requires a full Jellyfin restart to complete, <i>NOT</i> a dashboard restart!</b>
                                     </p>
                                 </div>
                             </details>
@@ -801,7 +801,6 @@
                 const configurationFields = [
                     // analysis
                     "MaxParallelism",
-                    "SelectedLibraries",
                     "ExcludeSeries",
                     "ClientList",
                     "AnalysisPercent",
@@ -1500,6 +1499,8 @@
                         globalTimestampChanged();
 
                         Dashboard.hideLoadingMsg();
+                    }).catch(error => {
+                        Dashboard.hideLoadingMsg();
                     });
                 });
 
@@ -1515,8 +1516,13 @@
                         }
 
                         ApiClient.updatePluginConfiguration("c83d86bb-a1e0-4c35-a113-e2101cf4ee6b", config).then(function (result) {
+                            Dashboard.hideLoadingMsg();
                             Dashboard.processPluginConfigurationUpdateResult(result);
+                        }).catch(error => {
+                            Dashboard.hideLoadingMsg();
                         });
+                    }).catch(error => {
+                        Dashboard.hideLoadingMsg();
                     });
 
                     e.preventDefault();
