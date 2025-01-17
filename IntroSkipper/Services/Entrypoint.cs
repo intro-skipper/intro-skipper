@@ -143,7 +143,9 @@ namespace IntroSkipper.Services
         /// <param name="eventArgs">The <see cref="TaskCompletionEventArgs"/>.</param>
         private void OnLibraryRefresh(object? sender, TaskCompletionEventArgs eventArgs)
         {
+            // We only want to trigger this when nothing was added or changed
             if (_config.AutoDetectIntros &&
+                _analyzeAgain != true
                 eventArgs.Result is { Key: "RefreshLibrary", Status: TaskCompletionStatus.Completed } &&
                 AutomaticTaskState != TaskState.Running)
             {
