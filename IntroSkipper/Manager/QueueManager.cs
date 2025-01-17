@@ -14,327 +14,326 @@ using MediaBrowser.Controller.Entities.TV;
 using MediaBrowser.Controller.Library;
 using Microsoft.Extensions.Logging;
 
-namespace IntroSkipper.Manager
+namespace IntroSkipper.Manager;
+
+/// <summary>
+/// Manages enqueuing library items for analysis.
+/// </summary>
+/// <remarks>
+/// Initializes a new instance of the <see cref="QueueManager"/> class.
+/// </remarks>
+/// <param name="logger">Logger.</param>
+/// <param name="libraryManager">Library manager.</param>
+public class QueueManager(ILogger<QueueManager> logger, ILibraryManager libraryManager)
 {
+    private readonly ILibraryManager _libraryManager = libraryManager;
+    private readonly ILogger<QueueManager> _logger = logger;
+    private readonly Dictionary<Guid, List<QueuedEpisode>> _queuedEpisodes = [];
+    private double _analysisPercent;
+    private List<string> _excludeSeries = [];
+
     /// <summary>
-    /// Manages enqueuing library items for analysis.
+    /// Gets all media items on the server.
     /// </summary>
-    /// <remarks>
-    /// Initializes a new instance of the <see cref="QueueManager"/> class.
-    /// </remarks>
-    /// <param name="logger">Logger.</param>
-    /// <param name="libraryManager">Library manager.</param>
-    public class QueueManager(ILogger<QueueManager> logger, ILibraryManager libraryManager)
+    /// <returns>Queued media items.</returns>
+    public IReadOnlyDictionary<Guid, List<QueuedEpisode>> GetMediaItems()
     {
-        private readonly ILibraryManager _libraryManager = libraryManager;
-        private readonly ILogger<QueueManager> _logger = logger;
-        private readonly Dictionary<Guid, List<QueuedEpisode>> _queuedEpisodes = [];
-        private double _analysisPercent;
-        private List<string> _excludeSeries = [];
+        Plugin.Instance!.TotalQueued = 0;
 
-        /// <summary>
-        /// Gets all media items on the server.
-        /// </summary>
-        /// <returns>Queued media items.</returns>
-        public IReadOnlyDictionary<Guid, List<QueuedEpisode>> GetMediaItems()
+        LoadAnalysisSettings();
+
+        // For all selected libraries, enqueue all contained episodes.
+        foreach (var folder in _libraryManager.GetVirtualFolders())
         {
-            Plugin.Instance!.TotalQueued = 0;
-
-            LoadAnalysisSettings();
-
-            // For all selected libraries, enqueue all contained episodes.
-            foreach (var folder in _libraryManager.GetVirtualFolders())
+            // If libraries have been selected for analysis, ensure this library was selected.
+            if (folder.LibraryOptions.DisabledMediaSegmentProviders.Contains(Plugin.Instance.Name))
             {
-                // If libraries have been selected for analysis, ensure this library was selected.
-                if (folder.LibraryOptions.DisabledMediaSegmentProviders.Contains(Plugin.Instance.Name))
-                {
-                    _logger.LogDebug("Not analyzing library \"{Name}\": Intro Skipper is disabled in library settings. To enable, check library configuration > Media Segment Providers", folder.Name);
-                    continue;
-                }
-
-                _logger.LogInformation("Running enqueue of items in library {Name}", folder.Name);
-
-                // Some virtual folders don't have a proper item id.
-                if (!Guid.TryParse(folder.ItemId, out var folderId))
-                {
-                    continue;
-                }
-
-                try
-                {
-                    QueueLibraryContents(folderId);
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogError("Failed to enqueue items from library {Name}: {Exception}", folder.Name, ex);
-                }
+                _logger.LogDebug("Not analyzing library \"{Name}\": Intro Skipper is disabled in library settings. To enable, check library configuration > Media Segment Providers", folder.Name);
+                continue;
             }
 
-            Plugin.Instance.TotalSeasons = _queuedEpisodes.Count;
-            Plugin.Instance.QueuedMediaItems.Clear();
+            _logger.LogInformation("Running enqueue of items in library {Name}", folder.Name);
+
+            // Some virtual folders don't have a proper item id.
+            if (!Guid.TryParse(folder.ItemId, out var folderId))
+            {
+                continue;
+            }
+
+            try
+            {
+                QueueLibraryContents(folderId);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError("Failed to enqueue items from library {Name}: {Exception}", folder.Name, ex);
+            }
+        }
+
+        Plugin.Instance.TotalSeasons = _queuedEpisodes.Count;
+        Plugin.Instance.QueuedMediaItems.Clear();
+        foreach (var kvp in _queuedEpisodes)
+        {
+            Plugin.Instance.QueuedMediaItems.TryAdd(kvp.Key, kvp.Value);
+        }
+
+        return _queuedEpisodes;
+    }
+
+    /// <summary>
+    /// Loads the list of libraries which have been selected for analysis and the minimum intro duration.
+    /// Settings which have been modified from the defaults are logged.
+    /// </summary>
+    private void LoadAnalysisSettings()
+    {
+        var config = Plugin.Instance!.Configuration;
+
+        // Store the analysis percent
+        _analysisPercent = Convert.ToDouble(config.AnalysisPercent) / 100;
+
+        _excludeSeries = [.. config.ExcludeSeries.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)];
+
+        // If analysis settings have been changed from the default, log the modified settings.
+        if (config.AnalysisLengthLimit != 10 || config.AnalysisPercent != 25 || config.MinimumIntroDuration != 15)
+        {
+            _logger.LogInformation(
+                "Analysis settings have been changed to: {Percent}% / {Minutes}m and a minimum of {Minimum}s",
+                config.AnalysisPercent,
+                config.AnalysisLengthLimit,
+                config.MinimumIntroDuration);
+        }
+    }
+
+    private void QueueLibraryContents(Guid id)
+    {
+        _logger.LogDebug("Constructing anonymous internal query");
+
+        var query = new InternalItemsQuery
+        {
+            // Order by series name, season, and then episode number so that status updates are logged in order
+            ParentId = id,
+            OrderBy = [(ItemSortBy.SeriesSortName, SortOrder.Ascending), (ItemSortBy.ParentIndexNumber, SortOrder.Descending), (ItemSortBy.IndexNumber, SortOrder.Ascending),],
+            IncludeItemTypes = [BaseItemKind.Episode, BaseItemKind.Movie],
+            Recursive = true,
+            IsVirtualItem = false
+        };
+
+        var items = _libraryManager.GetItemList(query, false);
+
+        if (items is null)
+        {
+            _logger.LogError("Library query result is null");
+            return;
+        }
+
+        // Queue all episodes on the server for fingerprinting.
+        _logger.LogDebug("Iterating through library items");
+
+        foreach (var item in items)
+        {
+            try
+            {
+                if (item is Episode episode && !_excludeSeries.Contains(episode.SeriesName))
+                {
+                    QueueEpisode(episode);
+                }
+                else if (item is Movie movie && !_excludeSeries.Contains(movie.Name))
+                {
+                    QueueMovie(movie);
+                }
+                else
+                {
+                    _logger.LogDebug("Item {Name} is not an episode or movie", item.Name);
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error processing item {Name} ({Id})", item.Name, item.Id);
+            }
+        }
+
+        _logger.LogDebug("Queued {Count} episodes", items.Count);
+    }
+
+    private void QueueEpisode(Episode episode)
+    {
+        var pluginInstance = Plugin.Instance ?? throw new InvalidOperationException("Plugin instance was null");
+
+        if (string.IsNullOrEmpty(episode.Path))
+        {
+            _logger.LogWarning(
+                "Not queuing episode \"{Name}\" from series \"{Series}\" ({Id}) as no path was provided by Jellyfin",
+                episode.Name,
+                episode.SeriesName,
+                episode.Id);
+            return;
+        }
+
+        // Allocate a new list for each new season
+        var seasonId = GetSeasonId(episode);
+        if (!_queuedEpisodes.TryGetValue(seasonId, out var seasonEpisodes))
+        {
+            seasonEpisodes = [];
+            _queuedEpisodes[seasonId] = seasonEpisodes;
+        }
+
+        if (seasonEpisodes.Any(e => e.EpisodeId == episode.Id))
+        {
+            _logger.LogDebug(
+                "\"{Name}\" from series \"{Series}\" ({Id}) is already queued",
+                episode.Name,
+                episode.SeriesName,
+                episode.Id);
+            return;
+        }
+
+        var isAnime = seasonEpisodes.FirstOrDefault()?.IsAnime ??
+            (pluginInstance.GetItem(episode.SeriesId) is Series series &&
+                (series.Tags.Contains("anime", StringComparison.OrdinalIgnoreCase) ||
+                series.Genres.Contains("anime", StringComparison.OrdinalIgnoreCase)));
+
+        // Limit analysis to the first X% of the episode and at most Y minutes.
+        // X and Y default to 25% and 10 minutes.
+        var duration = TimeSpan.FromTicks(episode.RunTimeTicks ?? 0).TotalSeconds;
+        var fingerprintDuration = Math.Min(
+            duration >= 5 * 60 ? duration * _analysisPercent : duration,
+            60 * pluginInstance.Configuration.AnalysisLengthLimit);
+
+        var maxCreditsDuration = Math.Min(
+            duration >= 5 * 60 ? duration * _analysisPercent : duration,
+            60 * pluginInstance.Configuration.MaximumCreditsDuration);
+
+        // Queue the episode for analysis
+        seasonEpisodes.Add(new QueuedEpisode
+        {
+            SeriesName = episode.SeriesName,
+            SeasonNumber = episode.AiredSeasonNumber ?? 0,
+            SeriesId = episode.SeriesId,
+            SeasonId = episode.SeasonId,
+            EpisodeNumber = episode.IndexNumber ?? 0,
+            EpisodeId = episode.Id,
+            Name = episode.Name,
+            IsAnime = isAnime,
+            Path = episode.Path,
+            Duration = duration,
+            IntroFingerprintEnd = fingerprintDuration,
+            CreditsFingerprintStart = duration - maxCreditsDuration,
+        });
+
+        pluginInstance.TotalQueued++;
+    }
+
+    private void QueueMovie(Movie movie)
+    {
+        var pluginInstance = Plugin.Instance ?? throw new InvalidOperationException("Plugin instance was null");
+
+        if (string.IsNullOrEmpty(movie.Path))
+        {
+            _logger.LogWarning(
+                "Not queuing movie \"{Name}\" ({Id}) as no path was provided by Jellyfin",
+                movie.Name,
+                movie.Id);
+            return;
+        }
+
+        // Allocate a new list for each Movie
+        _queuedEpisodes.TryAdd(movie.Id, []);
+
+        var duration = TimeSpan.FromTicks(movie.RunTimeTicks ?? 0).TotalSeconds;
+
+        _queuedEpisodes[movie.Id].Add(new QueuedEpisode
+        {
+            SeriesName = movie.Name,
+            SeriesId = movie.Id,
+            SeasonId = movie.Id,
+            EpisodeId = movie.Id,
+            Name = movie.Name,
+            Path = movie.Path,
+            Duration = duration,
+            CreditsFingerprintStart = duration - pluginInstance.Configuration.MaximumMovieCreditsDuration,
+            IsMovie = true
+        });
+
+        pluginInstance.TotalQueued++;
+    }
+
+    private Guid GetSeasonId(Episode episode)
+    {
+        if (episode.ParentIndexNumber == 0 && episode.AiredSeasonNumber != 0) // In-season special
+        {
             foreach (var kvp in _queuedEpisodes)
             {
-                Plugin.Instance.QueuedMediaItems.TryAdd(kvp.Key, kvp.Value);
-            }
-
-            return _queuedEpisodes;
-        }
-
-        /// <summary>
-        /// Loads the list of libraries which have been selected for analysis and the minimum intro duration.
-        /// Settings which have been modified from the defaults are logged.
-        /// </summary>
-        private void LoadAnalysisSettings()
-        {
-            var config = Plugin.Instance!.Configuration;
-
-            // Store the analysis percent
-            _analysisPercent = Convert.ToDouble(config.AnalysisPercent) / 100;
-
-            _excludeSeries = [.. config.ExcludeSeries.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)];
-
-            // If analysis settings have been changed from the default, log the modified settings.
-            if (config.AnalysisLengthLimit != 10 || config.AnalysisPercent != 25 || config.MinimumIntroDuration != 15)
-            {
-                _logger.LogInformation(
-                    "Analysis settings have been changed to: {Percent}% / {Minutes}m and a minimum of {Minimum}s",
-                    config.AnalysisPercent,
-                    config.AnalysisLengthLimit,
-                    config.MinimumIntroDuration);
-            }
-        }
-
-        private void QueueLibraryContents(Guid id)
-        {
-            _logger.LogDebug("Constructing anonymous internal query");
-
-            var query = new InternalItemsQuery
-            {
-                // Order by series name, season, and then episode number so that status updates are logged in order
-                ParentId = id,
-                OrderBy = [(ItemSortBy.SeriesSortName, SortOrder.Ascending), (ItemSortBy.ParentIndexNumber, SortOrder.Descending), (ItemSortBy.IndexNumber, SortOrder.Ascending),],
-                IncludeItemTypes = [BaseItemKind.Episode, BaseItemKind.Movie],
-                Recursive = true,
-                IsVirtualItem = false
-            };
-
-            var items = _libraryManager.GetItemList(query, false);
-
-            if (items is null)
-            {
-                _logger.LogError("Library query result is null");
-                return;
-            }
-
-            // Queue all episodes on the server for fingerprinting.
-            _logger.LogDebug("Iterating through library items");
-
-            foreach (var item in items)
-            {
-                try
+                var first = kvp.Value.FirstOrDefault();
+                if (first?.SeriesId == episode.SeriesId &&
+                    first.SeasonNumber == episode.AiredSeasonNumber)
                 {
-                    if (item is Episode episode && !_excludeSeries.Contains(episode.SeriesName))
-                    {
-                        QueueEpisode(episode);
-                    }
-                    else if (item is Movie movie && !_excludeSeries.Contains(movie.Name))
-                    {
-                        QueueMovie(movie);
-                    }
-                    else
-                    {
-                        _logger.LogDebug("Item {Name} is not an episode or movie", item.Name);
-                    }
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogError(ex, "Error processing item {Name} ({Id})", item.Name, item.Id);
+                    return kvp.Key;
                 }
             }
-
-            _logger.LogDebug("Queued {Count} episodes", items.Count);
         }
 
-        private void QueueEpisode(Episode episode)
+        return episode.SeasonId;
+    }
+
+    /// <summary>
+    /// Verify that a collection of queued media items still exist in Jellyfin and in storage.
+    /// This is done to ensure that we don't analyze items that were deleted between the call to GetMediaItems() and popping them from the queue.
+    /// </summary>
+    /// <param name="candidates">Queued media items.</param>
+    /// <param name="modes">Analysis modes.</param>
+    /// <returns>Media items that have been verified to exist in Jellyfin and in storage.</returns>
+    internal IReadOnlyList<QueuedEpisode> VerifyQueue(IReadOnlyList<QueuedEpisode> candidates, IReadOnlyCollection<AnalysisMode> modes)
+    {
+        if (candidates == null || candidates.Count == 0)
         {
-            var pluginInstance = Plugin.Instance ?? throw new InvalidOperationException("Plugin instance was null");
-
-            if (string.IsNullOrEmpty(episode.Path))
-            {
-                _logger.LogWarning(
-                    "Not queuing episode \"{Name}\" from series \"{Series}\" ({Id}) as no path was provided by Jellyfin",
-                    episode.Name,
-                    episode.SeriesName,
-                    episode.Id);
-                return;
-            }
-
-            // Allocate a new list for each new season
-            var seasonId = GetSeasonId(episode);
-            if (!_queuedEpisodes.TryGetValue(seasonId, out var seasonEpisodes))
-            {
-                seasonEpisodes = [];
-                _queuedEpisodes[seasonId] = seasonEpisodes;
-            }
-
-            if (seasonEpisodes.Any(e => e.EpisodeId == episode.Id))
-            {
-                _logger.LogDebug(
-                    "\"{Name}\" from series \"{Series}\" ({Id}) is already queued",
-                    episode.Name,
-                    episode.SeriesName,
-                    episode.Id);
-                return;
-            }
-
-            var isAnime = seasonEpisodes.FirstOrDefault()?.IsAnime ??
-                (pluginInstance.GetItem(episode.SeriesId) is Series series &&
-                    (series.Tags.Contains("anime", StringComparison.OrdinalIgnoreCase) ||
-                    series.Genres.Contains("anime", StringComparison.OrdinalIgnoreCase)));
-
-            // Limit analysis to the first X% of the episode and at most Y minutes.
-            // X and Y default to 25% and 10 minutes.
-            var duration = TimeSpan.FromTicks(episode.RunTimeTicks ?? 0).TotalSeconds;
-            var fingerprintDuration = Math.Min(
-                duration >= 5 * 60 ? duration * _analysisPercent : duration,
-                60 * pluginInstance.Configuration.AnalysisLengthLimit);
-
-            var maxCreditsDuration = Math.Min(
-                duration >= 5 * 60 ? duration * _analysisPercent : duration,
-                60 * pluginInstance.Configuration.MaximumCreditsDuration);
-
-            // Queue the episode for analysis
-            seasonEpisodes.Add(new QueuedEpisode
-            {
-                SeriesName = episode.SeriesName,
-                SeasonNumber = episode.AiredSeasonNumber ?? 0,
-                SeriesId = episode.SeriesId,
-                SeasonId = episode.SeasonId,
-                EpisodeNumber = episode.IndexNumber ?? 0,
-                EpisodeId = episode.Id,
-                Name = episode.Name,
-                IsAnime = isAnime,
-                Path = episode.Path,
-                Duration = duration,
-                IntroFingerprintEnd = fingerprintDuration,
-                CreditsFingerprintStart = duration - maxCreditsDuration,
-            });
-
-            pluginInstance.TotalQueued++;
+            return [];
         }
 
-        private void QueueMovie(Movie movie)
+        var verified = new List<QueuedEpisode>(candidates.Count);
+        var plugin = Plugin.Instance ?? throw new InvalidOperationException("Plugin instance is null");
+        var episodeIds = plugin.GetEpisodeIds(candidates[0].SeasonId);
+
+        foreach (var candidate in candidates)
         {
-            var pluginInstance = Plugin.Instance ?? throw new InvalidOperationException("Plugin instance was null");
-
-            if (string.IsNullOrEmpty(movie.Path))
+            try
             {
-                _logger.LogWarning(
-                    "Not queuing movie \"{Name}\" ({Id}) as no path was provided by Jellyfin",
-                    movie.Name,
-                    movie.Id);
-                return;
-            }
+                var path = plugin.GetItemPath(candidate.EpisodeId);
 
-            // Allocate a new list for each Movie
-            _queuedEpisodes.TryAdd(movie.Id, []);
-
-            var duration = TimeSpan.FromTicks(movie.RunTimeTicks ?? 0).TotalSeconds;
-
-            _queuedEpisodes[movie.Id].Add(new QueuedEpisode
-            {
-                SeriesName = movie.Name,
-                SeriesId = movie.Id,
-                SeasonId = movie.Id,
-                EpisodeId = movie.Id,
-                Name = movie.Name,
-                Path = movie.Path,
-                Duration = duration,
-                CreditsFingerprintStart = duration - pluginInstance.Configuration.MaximumMovieCreditsDuration,
-                IsMovie = true
-            });
-
-            pluginInstance.TotalQueued++;
-        }
-
-        private Guid GetSeasonId(Episode episode)
-        {
-            if (episode.ParentIndexNumber == 0 && episode.AiredSeasonNumber != 0) // In-season special
-            {
-                foreach (var kvp in _queuedEpisodes)
+                if (string.IsNullOrEmpty(path) || !File.Exists(path))
                 {
-                    var first = kvp.Value.FirstOrDefault();
-                    if (first?.SeriesId == episode.SeriesId &&
-                        first.SeasonNumber == episode.AiredSeasonNumber)
-                    {
-                        return kvp.Key;
-                    }
+                    _logger.LogDebug("Skipping {Name} ({Id}): file not found", candidate.Name, candidate.EpisodeId);
+                    continue;
                 }
-            }
 
-            return episode.SeasonId;
-        }
+                verified.Add(candidate);
 
-        /// <summary>
-        /// Verify that a collection of queued media items still exist in Jellyfin and in storage.
-        /// This is done to ensure that we don't analyze items that were deleted between the call to GetMediaItems() and popping them from the queue.
-        /// </summary>
-        /// <param name="candidates">Queued media items.</param>
-        /// <param name="modes">Analysis modes.</param>
-        /// <returns>Media items that have been verified to exist in Jellyfin and in storage.</returns>
-        internal IReadOnlyList<QueuedEpisode> VerifyQueue(IReadOnlyList<QueuedEpisode> candidates, IReadOnlyCollection<AnalysisMode> modes)
-        {
-            if (candidates == null || candidates.Count == 0)
-            {
-                return [];
-            }
+                var hasSegments = plugin.GetTimestamps(candidate.EpisodeId);
 
-            var verified = new List<QueuedEpisode>(candidates.Count);
-            var plugin = Plugin.Instance ?? throw new InvalidOperationException("Plugin instance is null");
-            var episodeIds = plugin.GetEpisodeIds(candidates[0].SeasonId);
-
-            foreach (var candidate in candidates)
-            {
-                try
+                foreach (var mode in modes)
                 {
-                    var path = plugin.GetItemPath(candidate.EpisodeId);
-
-                    if (string.IsNullOrEmpty(path) || !File.Exists(path))
+                    if (episodeIds.TryGetValue(mode, out var ids) && ids.Contains(candidate.EpisodeId))
                     {
-                        _logger.LogDebug("Skipping {Name} ({Id}): file not found", candidate.Name, candidate.EpisodeId);
-                        continue;
-                    }
-
-                    verified.Add(candidate);
-
-                    var hasSegments = plugin.GetTimestamps(candidate.EpisodeId);
-
-                    foreach (var mode in modes)
-                    {
-                        if (episodeIds.TryGetValue(mode, out var ids) && ids.Contains(candidate.EpisodeId))
+                        if (hasSegments.TryGetValue(mode, out _))
                         {
-                            if (hasSegments.TryGetValue(mode, out _))
-                            {
-                                candidate.SetAnalyzed(mode, EpisodeState.Analyzed);
-                            }
-                            else if (!plugin.AnalyzeAgain)
-                            {
-                                candidate.SetAnalyzed(mode, EpisodeState.NoSegments);
-                            }
+                            candidate.SetAnalyzed(mode, EpisodeState.Analyzed);
+                        }
+                        else if (!plugin.AnalyzeAgain)
+                        {
+                            candidate.SetAnalyzed(mode, EpisodeState.NoSegments);
                         }
                     }
                 }
-                catch (Exception ex)
-                {
-                    _logger.LogDebug(
-                        "Skipping analysis of {Name} ({Id}): {Exception}",
-                        candidate.Name,
-                        candidate.EpisodeId,
-                        ex);
-                }
             }
-
-            return verified;
+            catch (Exception ex)
+            {
+                _logger.LogDebug(
+                    "Skipping analysis of {Name} ({Id}): {Exception}",
+                    candidate.Name,
+                    candidate.EpisodeId,
+                    ex);
+            }
         }
+
+        return verified;
     }
 }
