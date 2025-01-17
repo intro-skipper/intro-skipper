@@ -52,8 +52,6 @@ https://manifest.intro-skipper.org/manifest.json
 - #### [Skip button is not visible](https://github.com/intro-skipper/intro-skipper/wiki/Troubleshooting#skip-button-is-not-visible)
 - #### [Auto skip is not working](https://github.com/intro-skipper/intro-skipper/wiki/Troubleshooting#auto-skip-is-not-working)
 
-## [API Documentation](https://github.com/intro-skipper/intro-skipper/blob/master/docs/api.md)
-
 <br />
 <p align="center">
   <a href="https://discord.gg/AYZ7RJ3BuA"><img src="https://invidget.switchblade.xyz/AYZ7RJ3BuA"></a>
