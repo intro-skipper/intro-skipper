@@ -44,12 +44,12 @@
         "imageUrl": "https://raw.githubusercontent.com/intro-skipper/jellyfin-plugin-edl/master/images/logo.png",
         "versions": [
             {
-                "version": "0.4.0.0",
+                "version": "0.4.1.0",
                 "changelog": "- See the full changelog at [GitHub](https://github.com/intro-skipper/jellyfin-plugin-edl/blob/10.10.2/CHANGELOG.md)",
                 "targetAbi": "10.10.3.0",
-                "sourceUrl": "https://github.com/intro-skipper/jellyfin-plugin-edl/releases/download/0.4.0-2eb789f/Jellyfin.Plugin.Edl-0.4.0.zip",
-                "checksum": "c1bb3ef824cdb979c4200975cfc329f2",
-                "timestamp": "2025-01-17T20:56:32Z"
+                "sourceUrl": "https://github.com/intro-skipper/jellyfin-plugin-edl/releases/download/0.4.1-00cd9ce/Jellyfin.Plugin.Edl-0.4.1.zip",
+                "checksum": "e72d4415912ca2b0afcdcff5aa24ceb3",
+                "timestamp": "2025-01-17T21:08:32Z"
             },
             {
                 "version": "0.3.1.0",
