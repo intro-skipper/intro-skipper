@@ -876,7 +876,7 @@
                 const remainingSecondsOfIntro = document.getElementById("RemainingSecondsOfIntro");
 
                 async function pluginSkipSettingChanged() {
-                    if (pluginSkip.checked) {
+                    if (pluginSkip.checked || autoSkip.checked) {
                         serverSkipSettings.style.display = "unset";
                     } else {
                         serverSkipSettings.style.display = "none";
@@ -1376,10 +1376,6 @@
                         for (const field of booleanConfigurationFields) {
                             document.querySelector("#" + field).checked = config[field];
                         }
-
-                        const pluginSkip = document.getElementById("PluginSkip");
-                        const autoSkip = document.getElementById("AutoSkip");
-                        pluginSkip.checked = pluginSkip.checked || autoSkip.checked;
 
                         fullLengthChaptersChanged();
                         autoSkipChanged();
