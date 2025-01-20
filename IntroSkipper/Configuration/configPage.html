@@ -879,6 +879,7 @@
 
                 async function pluginSkipSettingVisible() {
                     if (pluginSkip.checked || autoSkip.checked) {
+                        pluginSkip.checked = true;
                         serverSkipSettings.style.display = "unset";
                     } else {
                         serverSkipSettings.style.display = "none";
@@ -887,7 +888,6 @@
 
                 async function pluginSkipSettingChanged() {
                     if (!pluginSkip.checked) {
-                        // TODO: Reset everything to default
                         autoSkip.checked = false;
                         skipFirstEpisode.checked = false;
                         secondsOfIntroStartToPlay.value = 0;
