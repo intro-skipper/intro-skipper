@@ -875,15 +875,21 @@
 
                 const remainingSecondsOfIntro = document.getElementById("RemainingSecondsOfIntro");
 
-                async function pluginSkipSettingChanged() {
+                async function pluginSkipSettingVisible() {
                     if (pluginSkip.checked || autoSkip.checked) {
                         serverSkipSettings.style.display = "unset";
                     } else {
                         serverSkipSettings.style.display = "none";
+                    }
+                }
+
+                async function pluginSkipSettingChanged() {
+                    if (!pluginSkip.checked) {
                         // TODO: Reset everything to default
                         autoSkip.checked = false;
                         remainingSecondsOfIntro.value = 0;
                     }
+                     pluginSkipSettingVisible()
                 }
 
                 pluginSkip.addEventListener("change", pluginSkipSettingChanged);
@@ -1381,7 +1387,7 @@
                         autoSkipChanged();
                         generateAutoSkipTypeList();
                         generateAutoSkipClientList();
-                        pluginSkipSettingChanged();
+                        pluginSkipSettingVisible();
                         globalTimestampChanged();
 
                         Dashboard.hideLoadingMsg();
