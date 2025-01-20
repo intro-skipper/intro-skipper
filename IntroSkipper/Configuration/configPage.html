@@ -873,6 +873,8 @@
                     generateCheckboxList(types, "autoSkipTypeCheckboxes", "TypeList");
                 }
 
+                const skipFirstEpisode = document.getElementById("SkipFirstEpisode");
+                const secondsOfIntroStartToPlay = document.getElementById("SecondsOfIntroStartToPlay");
                 const remainingSecondsOfIntro = document.getElementById("RemainingSecondsOfIntro");
 
                 async function pluginSkipSettingVisible() {
@@ -887,6 +889,8 @@
                     if (!pluginSkip.checked) {
                         // TODO: Reset everything to default
                         autoSkip.checked = false;
+                        skipFirstEpisode.checked = false;
+                        secondsOfIntroStartToPlay.value = 0;
                         remainingSecondsOfIntro.value = 0;
                     }
                      pluginSkipSettingVisible()
