@@ -35,7 +35,7 @@ internal static class LegacyMigrations
 
         MigrateConfig(plugin, applicationPaths.PluginConfigurationsPath, logger);
         MigrateRepoUrl(plugin, serverConfiguration, logger);
-        MigrateSettingsToJellyfin(plugin, logger, libraryManager);
+        // MigrateSettingsToJellyfin(plugin, logger, libraryManager);
         InjectSkipButton(plugin, applicationPaths.WebPath, logger);
         RestoreTimestamps(plugin.DbPath, introPath, creditsPath);
     }
