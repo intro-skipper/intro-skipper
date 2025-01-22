@@ -35,8 +35,8 @@ internal static class LegacyMigrations
 
         MigrateConfig(plugin, applicationPaths.PluginConfigurationsPath, logger);
         MigrateRepoUrl(plugin, serverConfiguration, logger);
-        // MigrateSettingsToJellyfin(plugin, logger, libraryManager);
-        InjectSkipButton(plugin, applicationPaths.WebPath, logger);
+
+        RemoveSkipButton(plugin, applicationPaths.WebPath, logger);
         RestoreTimestamps(plugin.DbPath, introPath, creditsPath);
     }
 
@@ -110,7 +110,7 @@ internal static class LegacyMigrations
         }
     }
 
-    private static void InjectSkipButton(Plugin plugin, string webPath, ILogger logger)
+    private static void RemoveSkipButton(Plugin plugin, string webPath, ILogger logger)
     {
         string pattern = @"<script src=""configurationpage\?name=skip-intro-button\.js.*<\/script>";
         string indexPath = Path.Join(webPath, "index.html");
@@ -128,20 +128,13 @@ internal static class LegacyMigrations
         catch (Exception)
         {
             // If skip button is disabled, and we can't access the file, just return silently
-            if (!plugin.Configuration.SkipButtonEnabled)
-            {
-                logger.LogDebug("Skip button disabled and no permission to access index.html. Assuming its a fresh install.");
-                return;
-            }
-
-            WarningManager.SetFlag(PluginWarning.UnableToAddSkipButton);
-            logger.LogError("Failed to add skip button to web interface. See https://github.com/intro-skipper/intro-skipper/wiki/Troubleshooting#skip-button-is-not-visible for the most common issues.");
+            logger.LogDebug("index.html permission denied. No action required.");
             return;
         }
 
         if (!canAccessFile)
         {
-            logger.LogDebug("Jellyfin running as nowebclient");
+            logger.LogDebug("Jellyfin running as nowebclient. No action required.");
             return;
         }
 
@@ -150,44 +143,24 @@ internal static class LegacyMigrations
             logger.LogInformation("Reading index.html from {Path}", indexPath);
             string contents = File.ReadAllText(indexPath);
 
-            if (!plugin.Configuration.SkipButtonEnabled)
+            if (!Regex.IsMatch(contents, pattern, RegexOptions.IgnoreCase))
             {
-                if (!Regex.IsMatch(contents, pattern, RegexOptions.IgnoreCase))
-                {
-                    logger.LogDebug("Skip button not found. Assuming its a fresh install.");
-                    return;
-                }
-
-                logger.LogInformation("Skip button found. Removing the Skip button.");
-                contents = Regex.Replace(contents, pattern, string.Empty, RegexOptions.IgnoreCase);
-                File.WriteAllText(indexPath, contents);
+                logger.LogDebug("Skip button not found. No action required.");
                 return;
             }
 
-            string scriptTag = "<script src=\"configurationpage?name=skip-intro-button.js&release=" + plugin.GetType().Assembly.GetName().Version + "\"></script>";
-            if (contents.Contains(scriptTag, StringComparison.OrdinalIgnoreCase))
-            {
-                logger.LogDebug("The skip button has already been injected.");
-                return;
-            }
-
+            logger.LogInformation("Skip button found. Removing the Skip button.");
             contents = Regex.Replace(contents, pattern, string.Empty, RegexOptions.IgnoreCase);
-
-            Regex headEnd = new Regex(@"</head>", RegexOptions.IgnoreCase, TimeSpan.FromSeconds(1));
-            contents = headEnd.Replace(contents, scriptTag + "</head>", 1);
-
             File.WriteAllText(indexPath, contents);
-            logger.LogInformation("Skip button added successfully.");
+            return;
         }
         catch (UnauthorizedAccessException)
         {
-            WarningManager.SetFlag(PluginWarning.UnableToAddSkipButton);
-            logger.LogError("Failed to add skip button to web interface. See https://github.com/intro-skipper/intro-skipper/wiki/Troubleshooting#skip-button-is-not-visible for the most common issues.");
+            logger.LogError("UnauthorizedAccessException. No action possible.");
         }
         catch (IOException)
         {
-            WarningManager.SetFlag(PluginWarning.UnableToAddSkipButton);
-            logger.LogError("Failed to add skip button to web interface. See https://github.com/intro-skipper/intro-skipper/wiki/Troubleshooting#skip-button-is-not-visible for the most common issues.");
+            logger.LogError("IOException. No action possible.");
         }
     }
 

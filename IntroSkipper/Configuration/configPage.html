@@ -210,7 +210,7 @@
                                     </div>
                               </div>
 
-                                <div class="inputContainer" id="excludeSeries">
+                                <div class="inputContainer" id="excludedSeries">
                                     <label class="inputLabel inputLabelUnfocused" for="ExcludeSeries"> Exclude series </label>
                                     <input id="ExcludeSeries" type="text" is="emby-input" />
                                     <div class="fieldDescription">Exclude series from analysis. Enter a comma-separated list of series names to exclude.</div>
@@ -342,7 +342,7 @@
                         <div class="checkboxContainer checkboxContainer-withDescription">
                             <label class="emby-checkbox-label">
                                 <input id="PluginSkip" type="checkbox" is="emby-checkbox" />
-                                <span>Enable injected server-side skip &nbsp; <b style="color: red;">Restart required!</b></span>
+                                <span>Enable <b style="color: red;">Server-side</b> Auto Skip</span>
                             </label>
                         </div>
                         </p>
@@ -397,73 +397,14 @@
                                     <div class="fieldDescription">Seconds of segment ending that should be played. Defaults to 2.</div>
                                 </div>
 
-                                <div id="SkipButtonContainer" class="checkboxContainer checkboxContainer-withDescription">
-                                    <label class="emby-checkbox-label">
-                                        <input id="SkipButtonEnabled" type="checkbox" is="emby-checkbox" />
-                                        <span id="SkipButtonVisibleLabel">Show Segment Skip Buttons</span>
-                                    </label>
-
-                                    <div class="fieldDescription">
-                                        <b style="color: red">Restart required!</b> If checked, a skip button will be added <b>to the server</b> according to the UI settings.<br />
-                                        This button is <b>separate</b> from the Media Segment Actions in Jellyfin 10.10 and compatible clients.<br />
-                                    </div>
-                                </div>
-
-                                <div id="warningMessage" style="color: #721c24; background-color: #f7cf1f; border: 1px solid #f5c6cb; border-radius: 4px; padding: 10px; margin-bottom: 10px">Failed to add skip button to web interface. See <a href="https://github.com/intro-skipper/intro-skipper/wiki/Troubleshooting#skip-button-is-not-visible" target="_blank" rel="noopener noreferrer">troubleshooting guide</a> for the most common issues.</div>
-
-                                <details>
-                                    <summary>User Interface Customization</summary>
-
+                                <div id="divAutoSkipNotificationText" class="inputContainer">
+                                    <label class="inputLabel" for="AutoSkipNotificationText"> Auto skip notification message </label>
+                                    <input id="AutoSkipNotificationText" type="text" is="emby-input" />
+                                    <div class="fieldDescription">Message shown after automatically skipping a segment. Leave blank to disable notification.</div>
                                     <p>
-                                        <b style="color: orange">These settings do not apply to Media Segment Actions in Jellyfin 10.10 and compatible clients.</b>
+                                        <b style="color: orange">This setting does not apply to Media Segment Actions in Jellyfin 10.10 and compatible clients.</b>
                                     </p>
-
-                                    <div id="SkipButtonSettings">
-                                        <div id="PersistContainer" class="checkboxContainer checkboxContainer-withDescription">
-                                            <label class="emby-checkbox-label">
-                                                <input id="PersistSkipButton" type="checkbox" is="emby-checkbox" />
-                                                <span>Display Button for Segment Duration</span>
-                                            </label>
-
-                                            <div class="fieldDescription">
-                                                If checked, skip button will remain visible for the entire intro (offset and timeout are ignored).<br />
-                                                Note: If unchecked, button will only appear in the player controls after the set timeout.
-                                            </div>
-                                        </div>
-
-                                        <div id="divShowPromptAdjustment" class="inputContainer">
-                                            <label class="inputLabel inputLabelUnfocused" for="ShowPromptAdjustment"> Skip prompt offset (in seconds) </label>
-                                            <input id="ShowPromptAdjustment" type="number" is="emby-input" min="0" />
-                                            <div class="fieldDescription">Seconds to display skip prompt before introduction begins.</div>
-                                            <br />
-                                        </div>
-
-                                        <div id="divHidePromptAdjustment" class="inputContainer">
-                                            <label class="inputLabel inputLabelUnfocused" for="HidePromptAdjustment"> Skip prompt timeout (in seconds) </label>
-                                            <input id="HidePromptAdjustment" type="number" is="emby-input" min="2" />
-                                            <div class="fieldDescription">Seconds after introduction before skip prompt is hidden.</div>
-                                            <br />
-                                        </div>
-
-                                        <div class="inputContainer">
-                                            <label class="inputLabel" for="SkipButtonIntroText"> Skip intro button text </label>
-                                            <input id="SkipButtonIntroText" type="text" is="emby-input" />
-                                            <div class="fieldDescription">Text to display in the skip intro button.</div>
-                                        </div>
-
-                                        <div class="inputContainer">
-                                            <label class="inputLabel" for="SkipButtonEndCreditsText"> Skip end credits button text </label>
-                                            <input id="SkipButtonEndCreditsText" type="text" is="emby-input" />
-                                            <div class="fieldDescription">Text to display in the skip end credits button.</div>
-                                        </div>
-                                    </div>
-
-                                    <div id="divAutoSkipNotificationText" class="inputContainer">
-                                        <label class="inputLabel" for="AutoSkipNotificationText"> Auto skip intro notification message </label>
-                                        <input id="AutoSkipNotificationText" type="text" is="emby-input" />
-                                        <div class="fieldDescription">Message shown after automatically skipping an introduction. Leave blank to disable notification.</div>
-                                    </div>
-                                </details>
+                                </div>
                             </fieldset>
                         </div>
 
@@ -840,8 +781,6 @@
                     "ProcessPriority",
                     "ProcessThreads",
                     // playback
-                    "ShowPromptAdjustment",
-                    "HidePromptAdjustment",
                     "RemainingSecondsOfIntro",
                     "SecondsOfIntroStartToPlay",
                     // internals
@@ -853,15 +792,13 @@
                     "ChapterAnalyzerRecapPattern",
                     "TypeList",
                     // UI customization
-                    "SkipButtonIntroText",
-                    "SkipButtonEndCreditsText",
                     "AutoSkipNotificationText",
                 ];
 
-                const booleanConfigurationFields = ["AutoDetectIntros", "AnalyzeMovies", "AnalyzeSeasonZero", "SelectAllLibraries", "UpdateMediaSegments", "FullLengthChapters", "RebuildMediaSegments", "ScanIntroduction", "ScanCredits", "ScanRecap", "ScanPreview", "CacheFingerprints", "PluginSkip", "AutoSkip", "SkipFirstEpisode", "PersistSkipButton", "SkipButtonEnabled"];
+                const booleanConfigurationFields = ["AutoDetectIntros", "AnalyzeMovies", "AnalyzeSeasonZero", "SelectAllLibraries", "UpdateMediaSegments", "FullLengthChapters", "RebuildMediaSegments", "ScanIntroduction", "ScanCredits", "ScanRecap", "ScanPreview", "CacheFingerprints", "PluginSkip", "AutoSkip", "SkipFirstEpisode"];
 
                 // visualizer elements
-				const analyzeMovies = document.getElementById("AnalyzeMovies");
+                const analyzeMovies = document.getElementById("AnalyzeMovies");
                 const analyzerActionsSection = document.querySelector("div#analyzerActionsSection");
                 const actionIntro = analyzerActionsSection.querySelector("select#actionIntro");
                 const actionCredits = analyzerActionsSection.querySelector("select#actionCredits");
@@ -893,41 +830,20 @@
                 const pluginSkip = document.getElementById("PluginSkip");
                 const serverSkipSettings = document.getElementById("ServerSkipSettings");
                 const autoSkip = document.getElementById("AutoSkip");
-                const skipButtonVisible = document.getElementById("SkipButtonEnabled");
-                const skipButtonVisibleLabel = document.getElementById("SkipButtonVisibleLabel");
-                const skipButtonSettings = document.getElementById("SkipButtonSettings");
                 const selectAllLibraries = document.querySelector("input#SelectAllLibraries");
                 const librariesContainer = document.querySelector("div.folderAccessListContainer");
-                const skipFirstEpisode = document.getElementById("divSkipFirstEpisode");
-                const secondsOfIntroStartToPlay = document.getElementById("divSecondsOfIntroStartToPlay");
                 const autoSkipClientList = document.querySelector("div.AutoSkipClientListContainer");
                 const fullLengthChapters = document.getElementById("FullLengthChapters");
-                const movieCreditsDuration = document.getElementById("movieCreditsDuration");
                 const globalTimestamps = document.getElementById("GlobalTimestamps");
                 const btnEraseGlobalTimestamps = document.getElementById("btnEraseGlobalTimestamps");
-
-                function skipButtonVisibleChanged() {
-                    if (autoSkip.checked) {
-                        skipButtonSettings.style.display = "none";
-                    } else if (skipButtonVisible.checked) {
-                        skipButtonSettings.style.display = "unset";
-                    } else {
-                        skipButtonSettings.style.display = "none";
-                    }
-                }
-
-                skipButtonVisible.addEventListener("change", skipButtonVisibleChanged);
 
                 function autoSkipChanged() {
                     if (autoSkip.checked) {
                         autoSkipClientList.style.display = "none";
-                        skipButtonVisibleLabel.textContent = "Button unavailable due to auto skip";
                     } else {
                         autoSkipClientList.style.display = "unset";
                         autoSkipClientList.style.width = "100%";
-                        skipButtonVisibleLabel.textContent = "Show Segment Skip Buttons";
                     }
-                    skipButtonVisibleChanged();
                 }
 
                 autoSkip.addEventListener("change", autoSkipChanged);
@@ -992,43 +908,34 @@
                     generateCheckboxList(types, "autoSkipTypeCheckboxes", "TypeList");
                 }
 
+                const skipFirstEpisode = document.getElementById("divSkipFirstEpisode");
+                const secondsOfIntroStartToPlay = document.getElementById("SecondsOfIntroStartToPlay");
+
                 async function populateLibraries() {
                     const response = await getJson("Library/VirtualFolders");
                     const tvLibraries = response.filter((item) => item.CollectionType === undefined || item.CollectionType === "tvshows" || item.CollectionType === "movies");
                     const libraryNames = tvLibraries.map((lib) => lib.Name || "Unnamed Library");
                     generateCheckboxList(libraryNames, "libraryCheckboxes", "SelectedLibraries");
                 }
-
-                const persistSkip = document.getElementById("PersistSkipButton");
-                const showAdjustment = document.querySelector("div#divShowPromptAdjustment");
-                const hideAdjustment = document.querySelector("div#divHidePromptAdjustment");
-
-                // prevent setting unavailable options
-                async function persistSkipChanged() {
-                    if (persistSkip.checked) {
-                        showAdjustment.style.display = "none";
-                        hideAdjustment.style.display = "none";
-                    } else {
-                        showAdjustment.style.display = "unset";
-                        hideAdjustment.style.display = "unset";
-                    }
-                }
-
-                persistSkip.addEventListener("change", persistSkipChanged);
-
                 const remainingSecondsOfIntro = document.getElementById("RemainingSecondsOfIntro");
 
-                async function pluginSkipSettingChanged() {
-                    if (pluginSkip.checked) {
+                async function pluginSkipSettingVisible() {
+                    if (pluginSkip.checked || autoSkip.checked) {
+                        pluginSkip.checked = true;
                         serverSkipSettings.style.display = "unset";
                     } else {
                         serverSkipSettings.style.display = "none";
-                        // TODO: Reset everything to default
+                    }
+                }
+
+                async function pluginSkipSettingChanged() {
+                    if (!pluginSkip.checked) {
                         autoSkip.checked = false;
-                        skipButtonVisible.checked = false;
-                        persistSkip.checked = false;
+                        skipFirstEpisode.checked = false;
+                        secondsOfIntroStartToPlay.value = 0;
                         remainingSecondsOfIntro.value = 0;
                     }
+                     pluginSkipSettingVisible()
                 }
 
                 pluginSkip.addEventListener("change", pluginSkipSettingChanged);
@@ -1531,24 +1438,14 @@
                             document.querySelector("#" + field).checked = config[field];
                         }
 
-                        if (config["SkipButtonWarning"]) {
-                            document.getElementById("warningMessage").style.display = "unset";
-                        } else {
-                            document.getElementById("warningMessage").style.display = "none";
-                        }
-
+                        analyzeMoviesChanged();
                         populateLibraries();
                         selectAllLibrariesChanged();
                         fullLengthChaptersChanged();
                         autoSkipChanged();
-                        persistSkipChanged();
                         generateAutoSkipTypeList();
                         generateAutoSkipClientList();
-                        const pluginSkip = document.getElementById("PluginSkip");
-                        pluginSkip.checked = pluginSkip.checked
-                            || document.getElementById("AutoSkip").checked
-                            || document.getElementById("SkipButtonEnabled").checked
-                        pluginSkipSettingChanged();
+                        pluginSkipSettingVisible();
                         globalTimestampChanged();
 
                         Dashboard.hideLoadingMsg();
