@@ -54,6 +54,13 @@
                                 </div>
                             </div>
 
+                            <div class="checkboxContainer">
+                                <label class="emby-checkbox-label">
+                                    <input id="AnalyzeMovies" type="checkbox" is="emby-checkbox" />
+                                    <span>Analyze Movies</span>
+                                </label>
+                            </div>
+
                             <div class="checkboxContainer checkboxContainer-withDescription">
                                 <label class="emby-checkbox-label">
                                     <input id="AnalyzeSeasonZero" type="checkbox" is="emby-checkbox" />
@@ -62,6 +69,21 @@
 
                                 <div class="fieldDescription">
                                     Note: Shows containing both a specials and extra folder will identify extras as season 0 and ignore specials, regardless of this setting.
+                                </div>
+                            </div>
+
+                            <div class="checkboxContainer checkboxContainer-withDescription">
+                                <label class="emby-checkbox-label">
+                                    <input id="SelectAllLibraries" type="checkbox" is="emby-checkbox" />
+                                    <span>Enable analysis for all libraries containing television episodes</span>
+                                </label>
+                                <div class="folderAccessListContainer">
+                                    <div class="folderAccess">
+                                        <h3 class="checkboxListLabel">Limit analysis to the following libraries</h3>
+                                        <div class="checkboxList paperList" style="padding: 0.5em 1em" id="libraryCheckboxes"></div>
+                                    </div>
+                                    <label class="inputLabel" for="SelectedLibraries"></label>
+                                    <input id="SelectedLibraries" type="hidden" is="emby-input" />
                                 </div>
                             </div>
 
@@ -313,7 +335,7 @@
                                 </div>
                             </details>
 
-                            <p align="center" style="font-size: 0.75em">EDL file generation has been removed. Please use endrl's <a href="https://github.com/intro-skipper/jellyfin-plugin-edl">EDL plugin</a>.</p>
+                            <p align="center" style="font-size: 0.75em">EDL file generation has been removed. Please use the <a href="https://github.com/intro-skipper/jellyfin-plugin-edl">EDL plugin</a>.</p>
                         </fieldset>
 
                         <p>
@@ -742,6 +764,7 @@
                 const configurationFields = [
                     // analysis
                     "MaxParallelism",
+					"SelectedLibraries",
                     "ExcludeSeries",
                     "ClientList",
                     "AnalysisPercent",
@@ -772,9 +795,10 @@
                     "AutoSkipNotificationText",
                 ];
 
-                const booleanConfigurationFields = ["AutoDetectIntros", "AnalyzeSeasonZero", "UpdateMediaSegments", "FullLengthChapters", "RebuildMediaSegments", "ScanIntroduction", "ScanCredits", "ScanRecap", "ScanPreview", "CacheFingerprints", "PluginSkip", "AutoSkip", "SkipFirstEpisode"];
+                const booleanConfigurationFields = ["AutoDetectIntros", "AnalyzeMovies", "AnalyzeSeasonZero", "SelectAllLibraries", "UpdateMediaSegments", "FullLengthChapters", "RebuildMediaSegments", "ScanIntroduction", "ScanCredits", "ScanRecap", "ScanPreview", "CacheFingerprints", "PluginSkip", "AutoSkip", "SkipFirstEpisode"];
 
                 // visualizer elements
+				const analyzeMovies = document.getElementById("AnalyzeMovies");
                 const analyzerActionsSection = document.querySelector("div#analyzerActionsSection");
                 const actionIntro = analyzerActionsSection.querySelector("select#actionIntro");
                 const actionCredits = analyzerActionsSection.querySelector("select#actionCredits");
@@ -806,6 +830,9 @@
                 const pluginSkip = document.getElementById("PluginSkip");
                 const serverSkipSettings = document.getElementById("ServerSkipSettings");
                 const autoSkip = document.getElementById("AutoSkip");
+                const selectAllLibraries = document.querySelector("input#SelectAllLibraries");
+                const librariesContainer = document.querySelector("div.folderAccessListContainer");
+                const skipFirstEpisode = document.getElementById("divSkipFirstEpisode");
                 const autoSkipClientList = document.querySelector("div.AutoSkipClientListContainer");
                 const fullLengthChapters = document.getElementById("FullLengthChapters");
                 const globalTimestamps = document.getElementById("GlobalTimestamps");
@@ -821,6 +848,15 @@
                 }
 
                 autoSkip.addEventListener("change", autoSkipChanged);
+
+                function selectAllLibrariesChanged() {
+                    if (selectAllLibraries.checked) {
+                        librariesContainer.style.display = "none";
+                    } else {
+                        librariesContainer.style.display = "unset";
+                    }
+                }
+                selectAllLibraries.addEventListener("change", selectAllLibrariesChanged);
 
                 const recapPreviewDurations = document.getElementById("RecapPreviewDurations");
 
@@ -873,8 +909,14 @@
                     generateCheckboxList(types, "autoSkipTypeCheckboxes", "TypeList");
                 }
 
-                const skipFirstEpisode = document.getElementById("SkipFirstEpisode");
                 const secondsOfIntroStartToPlay = document.getElementById("SecondsOfIntroStartToPlay");
+
+                async function populateLibraries() {
+                    const response = await getJson("Library/VirtualFolders");
+                    const tvLibraries = response.filter((item) => item.CollectionType === undefined || item.CollectionType === "tvshows" || item.CollectionType === "movies");
+                    const libraryNames = tvLibraries.map((lib) => lib.Name || "Unnamed Library");
+                    generateCheckboxList(libraryNames, "libraryCheckboxes", "SelectedLibraries");
+                }
                 const remainingSecondsOfIntro = document.getElementById("RemainingSecondsOfIntro");
 
                 async function pluginSkipSettingVisible() {
@@ -897,6 +939,15 @@
                 }
 
                 pluginSkip.addEventListener("change", pluginSkipSettingChanged);
+
+                async function analyzeMoviesChanged() {
+                    if (analyzeMovies.checked) {
+                        movieCreditsDuration.style.display = "unset";
+                    } else {
+                        movieCreditsDuration.style.display = "none";
+                    }
+                }
+                analyzeMovies.addEventListener("change", analyzeMoviesChanged);
 
                 function globalTimestampChanged() {
                     btnEraseGlobalTimestamps.textContent = "Erase all " + globalTimestamps.value + " timestamps (globally)";
@@ -1387,6 +1438,8 @@
                             document.querySelector("#" + field).checked = config[field];
                         }
 
+                        populateLibraries();
+                        selectAllLibrariesChanged();
                         fullLengthChaptersChanged();
                         autoSkipChanged();
                         generateAutoSkipTypeList();
