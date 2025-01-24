@@ -69,7 +69,16 @@
         "owner": "Intro Skipper (forked from Endrl)",
         "category": "Intro-Skipper",
         "imageUrl": "https://raw.githubusercontent.com/intro-skipper/jellyfin-plugin-ms-api/master/images/logo720.png",
-        "versions": []
+        "versions": [
+            {
+                "version": "1.0.1",
+                "changelog": "- See the full changelog at [GitHub](https://github.com/intro-skipper/jellyfin-plugin-ms-api/blob/10.10.2/CHANGELOG.md)",
+                "targetAbi": "10.10.2.0",
+                "sourceUrl": "https://github.com/intro-skipper/jellyfin-plugin-ms-api/releases/download/1.0.1-73cf1af/Jellyfin.Plugin.MediaSegmentsApi-1.0.1.zip",
+                "checksum": "eaf2c3cac7104f7da838b5fa91ed2b07",
+                "timestamp": "2024-12-02T10:23:36Z"
+            }
+        ]
     },
     {
         "guid": "e22fb8f5-bc98-4f76-9be4-87de302a97ea",
