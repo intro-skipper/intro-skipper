@@ -1,16 +1,16 @@
 name: "Feature request"
 description: "Suggest a change to help us improve"
 title: "[Request]: "
-labels: [enhancement]
+labels: [feature, enhancement]
 body:
   - type: checkboxes
     id: requirements
     attributes:
       label: Plugin scope disclaimer
       description: |
-        Please make sure you are requesting a feature of the plugin, not the Jellyfin server or clients
+        Please make sure you are requesting an Intro Skipper feature, not one for Jellyfin or its clients.
 
-        Intro Skipper no longer provides the buttons or determines the type of segments to be skipped. 
+        Intro Skipper no longer provides the skip buttons or determines the type of segments to be skipped. 
       options:
         - label: This feature is meant for Intro Skipper
           required: true
