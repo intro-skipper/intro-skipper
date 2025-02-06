@@ -67,6 +67,13 @@ public class ChapterAnalyzer(ILogger<ChapterAnalyzer> logger) : IMediaFileAnalyz
                 continue;
             }
 
+            if (_config.SnapToKeyframe)
+            {
+                var adjustedEnd = ChromaprintAnalyzer.SnapToNearestKeyframe(episode, skipRange.End);
+                _logger.LogDebug("Snapped end {End} of segment to nearest keyframe: {Keyframe}", skipRange.End, adjustedEnd);
+                skipRange.End = adjustedEnd;
+            }
+
             episode.SetAnalyzed(mode, EpisodeState.Analyzed);
             await Plugin.Instance!.UpdateTimestampAsync(skipRange, mode).ConfigureAwait(false);
         }

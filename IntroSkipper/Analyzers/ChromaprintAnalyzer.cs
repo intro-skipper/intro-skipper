@@ -159,8 +159,9 @@ public class ChromaprintAnalyzer(ILogger<ChromaprintAnalyzer> logger) : IMediaFi
             // If an intro is found for this episode, adjust its times and save it else add it to the list of episodes without intros.
             if (seasonIntros.TryGetValue(currentEpisode.EpisodeId, out var intro))
             {
+                var adjustedIntro = AdjustIntroTimes(currentEpisode, intro);
                 currentEpisode.SetAnalyzed(mode, EpisodeState.Analyzed);
-                await Plugin.Instance!.UpdateTimestampAsync(intro, mode).ConfigureAwait(false);
+                await Plugin.Instance!.UpdateTimestampAsync(adjustedIntro, mode).ConfigureAwait(false);
             }
         }
 
@@ -387,6 +388,11 @@ public class ChromaprintAnalyzer(ILogger<ChromaprintAnalyzer> logger) : IMediaFi
             AdjustIntroBasedOnSilence(episode, originalIntro, originalIntroEnd);
         }
 
+        if (_config.SnapToKeyframe)
+        {
+            originalIntro.End = SnapToNearestKeyframe(episode, originalIntro.End);
+        }
+
         _logger.LogTrace(
             "{Name} adjusted intro: {Start} - {End}",
             episode.Name,
@@ -459,6 +465,31 @@ public class ChromaprintAnalyzer(ILogger<ChromaprintAnalyzer> logger) : IMediaFi
     private static bool IsTimeWithinRange(double time, TimeRange range)
     {
         return range.Start < time && time < range.End;
+    }
+
+    /// <summary>
+    /// Snaps a timestamp to the nearest keyframe, preferring keyframes before the timestamp.
+    /// </summary>
+    /// <param name="episode">Episode to search.</param>
+    /// <param name="time">Time to snap to nearest keyframe.</param>
+    /// <returns>The nearest keyframe or original time if no suitable keyframe found.</returns>
+    public static double SnapToNearestKeyframe(QueuedEpisode episode, double time)
+    {
+        var duration = episode.Duration;
+        if (time > duration - 2)
+        {
+            return duration;
+        }
+
+        var searchRange = new TimeRange(time - 3, time + 1);
+        var keyframes = FFmpegWrapper.DetectKeyFrames(episode, searchRange);
+
+        // Prefer keyframes before the time, otherwise take the first keyframe after
+        return keyframes
+            .OrderBy(kf => kf > time + 0.01) // Frames before time first (false before true)
+            .ThenBy(kf => Math.Abs(kf - time)) // Then by closest to target time
+            .DefaultIfEmpty(time)
+            .First();
     }
 
     /// <summary>

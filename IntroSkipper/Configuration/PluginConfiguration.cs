@@ -148,6 +148,11 @@ public class PluginConfiguration : BasePluginConfiguration
     public int BlackFrameMinimumPercentage { get; set; } = 85;
 
     /// <summary>
+    /// Gets or sets a value indicating whether to snap the end of a segm to the nearest keyframe.
+    /// </summary>
+    public bool SnapToKeyframe { get; set; }
+
+    /// <summary>
     /// Gets or sets the regular expression used to detect introduction chapters.
     /// </summary>
     public string ChapterAnalyzerIntroductionPattern { get; set; } =
