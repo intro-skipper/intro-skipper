@@ -210,6 +210,12 @@
                                     </div>
                               </div>
 
+                                <div class="inputContainer">
+                                    <label class="inputLabel inputLabelUnfocused" for="RemainingSecondsOfIntro"> Segment playback duration (in seconds) </label>
+                                    <input id="RemainingSecondsOfIntro" type="number" is="emby-input" min="0" />
+                                    <div class="fieldDescription">Seconds of segment ending that should be played. Defaults to 2.</div>
+                                </div>
+
                                 <div class="inputContainer" id="excludedSeries">
                                     <label class="inputLabel inputLabelUnfocused" for="ExcludeSeries"> Exclude series </label>
                                     <input id="ExcludeSeries" type="text" is="emby-input" />
@@ -389,12 +395,6 @@
                                     <label class="inputLabel inputLabelUnfocused" for="SecondsOfIntroStartToPlay"> Segment skip delay (in seconds) </label>
                                     <input id="SecondsOfIntroStartToPlay" type="number" is="emby-input" min="0" />
                                     <div class="fieldDescription">Seconds of segment start that should be played. Defaults to 0.</div>
-                                </div>
-
-                                <div class="inputContainer">
-                                    <label class="inputLabel inputLabelUnfocused" for="RemainingSecondsOfIntro"> Segment playback duration (in seconds) </label>
-                                    <input id="RemainingSecondsOfIntro" type="number" is="emby-input" min="0" />
-                                    <div class="fieldDescription">Seconds of segment ending that should be played. Defaults to 2.</div>
                                 </div>
 
                                 <div id="divAutoSkipNotificationText" class="inputContainer">
@@ -917,7 +917,6 @@
                     const libraryNames = tvLibraries.map((lib) => lib.Name || "Unnamed Library");
                     generateCheckboxList(libraryNames, "libraryCheckboxes", "SelectedLibraries");
                 }
-                const remainingSecondsOfIntro = document.getElementById("RemainingSecondsOfIntro");
 
                 async function pluginSkipSettingVisible() {
                     if (pluginSkip.checked || autoSkip.checked) {
@@ -933,7 +932,6 @@
                         autoSkip.checked = false;
                         skipFirstEpisode.checked = false;
                         secondsOfIntroStartToPlay.value = 0;
-                        remainingSecondsOfIntro.value = 0;
                     }
                      pluginSkipSettingVisible()
                 }
