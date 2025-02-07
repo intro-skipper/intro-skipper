@@ -2,7 +2,6 @@
 // SPDX-License-Identifier: GPL-3.0-only.
 
 using System;
-using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Globalization;
@@ -287,21 +286,29 @@ public static partial class FFmpegWrapper
         var keyframes = new List<double>();
         var raw = Encoding.UTF8.GetString(GetOutput(args, cacheKey, stderr: true));
 
-        // Parse the output to extract timestamps
-        foreach (var line in raw.Split('\n'))
+        foreach (var line in raw.Split('\n', StringSplitOptions.RemoveEmptyEntries))
         {
-            // Look for frames that are both I-frames and keyframes
-            if (line.Contains("type:I", StringComparison.OrdinalIgnoreCase) &&
-                line.Contains("iskey:1", StringComparison.OrdinalIgnoreCase))
+            if (!line.Contains("type:I", StringComparison.OrdinalIgnoreCase) ||
+                !line.Contains("iskey:1", StringComparison.OrdinalIgnoreCase))
             {
-                var ptsTimeStart = line.IndexOf("pts_time:", StringComparison.OrdinalIgnoreCase) + 9;
-                var ptsTimeEnd = line.IndexOf(' ', ptsTimeStart);
-                var ptsTimeStr = line[ptsTimeStart..ptsTimeEnd];
+                continue;
+            }
 
-                if (double.TryParse(ptsTimeStr, CultureInfo.InvariantCulture, out double timestamp))
-                {
-                    keyframes.Add(timestamp + range.Start);
-                }
+            var ptsIndex = line.IndexOf("pts_time:", StringComparison.OrdinalIgnoreCase);
+            if (ptsIndex == -1)
+            {
+                continue;
+            }
+
+            var ptsTimeStr = line[(ptsIndex + 9)..].Split(' ', 2)[0];
+
+            if (double.TryParse(ptsTimeStr, CultureInfo.InvariantCulture, out double timestamp))
+            {
+                keyframes.Add(timestamp + range.Start);
+            }
+            else
+            {
+                Logger?.LogWarning("Failed to parse timestamp: {PtsTimeStr} from line: {Line}", ptsTimeStr, line);
             }
         }
 

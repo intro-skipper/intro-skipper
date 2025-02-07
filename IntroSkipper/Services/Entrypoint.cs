@@ -8,6 +8,7 @@ using System.Threading.Tasks;
 using IntroSkipper.Configuration;
 using IntroSkipper.Manager;
 using IntroSkipper.ScheduledTasks;
+using MediaBrowser.Controller;
 using MediaBrowser.Controller.Entities.Movies;
 using MediaBrowser.Controller.Entities.TV;
 using MediaBrowser.Controller.Library;
@@ -28,7 +29,7 @@ namespace IntroSkipper.Services
         private readonly ILibraryManager _libraryManager;
         private readonly ILogger<Entrypoint> _logger;
         private readonly ILoggerFactory _loggerFactory;
-        private readonly MediaSegmentUpdateManager _mediaSegmentUpdateManager;
+        private readonly IMediaSegmentManager _mediaSegmentManager;
         private readonly HashSet<Guid> _seasonsToAnalyze = [];
         private readonly Timer _queueTimer;
         private static readonly SemaphoreSlim _analysisSemaphore = new(1, 1);
@@ -43,19 +44,19 @@ namespace IntroSkipper.Services
         /// <param name="taskManager">Task manager.</param>
         /// <param name="logger">Logger.</param>
         /// <param name="loggerFactory">Logger factory.</param>
-        /// <param name="mediaSegmentUpdateManager">MediaSegment Update Manager.</param>
+        /// <param name="mediaSegmentManager">Media segment manager.</param>
         public Entrypoint(
             ILibraryManager libraryManager,
             ITaskManager taskManager,
             ILogger<Entrypoint> logger,
             ILoggerFactory loggerFactory,
-            MediaSegmentUpdateManager mediaSegmentUpdateManager)
+            IMediaSegmentManager mediaSegmentManager)
         {
             _libraryManager = libraryManager;
             _taskManager = taskManager;
             _logger = logger;
             _loggerFactory = loggerFactory;
-            _mediaSegmentUpdateManager = mediaSegmentUpdateManager;
+            _mediaSegmentManager = mediaSegmentManager;
 
             _config = Plugin.Instance?.Configuration ?? new PluginConfiguration();
             _queueTimer = new Timer(
@@ -207,7 +208,7 @@ namespace IntroSkipper.Services
                     _seasonsToAnalyze.Clear();
                     _analyzeAgain = false;
 
-                    var analyzer = new BaseItemAnalyzerTask(_loggerFactory.CreateLogger<Entrypoint>(), _loggerFactory, _libraryManager, _mediaSegmentUpdateManager);
+                    var analyzer = new BaseItemAnalyzerTask(_loggerFactory.CreateLogger<Entrypoint>(), _loggerFactory, _libraryManager, _mediaSegmentManager);
                     await analyzer.AnalyzeItemsAsync(new Progress<double>(), _cancellationTokenSource.Token, seasonIds).ConfigureAwait(false);
 
                     if (_analyzeAgain && !_cancellationTokenSource.IsCancellationRequested)

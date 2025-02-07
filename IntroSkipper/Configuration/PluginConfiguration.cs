@@ -295,4 +295,20 @@ public class PluginConfiguration : BasePluginConfiguration
     /// Gets or sets a value indicating whether movies should be analyzed.
     /// </summary>
     public bool AnalyzeMovies { get; set; }
+
+    /// <summary>
+    /// Gets or sets window in seconds to snap chapters to the start or end of the episode.
+    /// This gets applied at the very end.
+    /// </summary>
+    public double EndSnapThreshold { get; set; } = 2.0;
+
+    /// <summary>
+    /// Gets or sets the number of seconds to search before a keyframe.
+    /// </summary>
+    public double KeyframeWindowBefore { get; set; } = 3.0;
+
+    /// <summary>
+    /// Gets or sets the number of seconds to search after a keyframe.
+    /// </summary>
+    public double KeyframeWindowAfter { get; set; } = 1.0;
 }

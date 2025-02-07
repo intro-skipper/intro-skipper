@@ -221,6 +221,24 @@
                                     <div class="fieldDescription">When enabled, this option will snap the end of a segment to the nearest keyframe.</div>
                                 </div>
 
+                                <div class="inputContainer">
+                                    <label class="inputLabel inputLabelUnfocused" for="KeyframeWindowBefore"> Keyframe search range before </label>
+                                    <input id="KeyframeWindowBefore" type="number" is="emby-input" min="0" />
+                                    <div class="fieldDescription">Number of seconds to search before a keyframe.</div>
+                                </div>
+
+                                <div class="inputContainer">
+                                    <label class="inputLabel inputLabelUnfocused" for="KeyframeWindowAfter"> Keyframe search range after </label>
+                                    <input id="KeyframeWindowAfter" type="number" is="emby-input" min="0" />
+                                    <div class="fieldDescription">Number of seconds to search after a keyframe.</div>
+                                </div>
+
+                                <div class="inputContainer">
+                                    <label class="inputLabel inputLabelUnfocused" for="EndSnapThreshold"> Episode end snap threshold </label>
+                                    <input id="EndSnapThreshold" type="number" is="emby-input" min="0" />
+                                    <div class="fieldDescription">Number of seconds to snap the end of a segment to the episode end.</div>
+                                </div>
+
                                 <br />
                                 <div class="inputContainer" id="excludedSeries">
                                     <label class="inputLabel inputLabelUnfocused" for="ExcludeSeries"> Exclude series </label>
@@ -406,7 +424,7 @@
                                 <div class="inputContainer">
                                     <label class="inputLabel inputLabelUnfocused" for="RemainingSecondsOfIntro"> Segment playback duration (in seconds) </label>
                                     <input id="RemainingSecondsOfIntro" type="number" is="emby-input" min="0" />
-                                    <div class="fieldDescription">Seconds of segment ending that should be played. Defaults to 2.</div>
+                                    <div class="fieldDescription">Seconds of segment ending that should be played. Defaults to 0.</div>
                                 </div>
 
                                 <div id="divAutoSkipNotificationText" class="inputContainer">
@@ -777,6 +795,9 @@
                     // analysis
                     "MaxParallelism",
 					"SelectedLibraries",
+                    "KeyframeWindowBefore",
+                    "KeyframeWindowAfter",
+                    "EndSnapThreshold",
                     "ExcludeSeries",
                     "ClientList",
                     "AnalysisPercent",

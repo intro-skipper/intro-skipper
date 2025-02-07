@@ -12,11 +12,13 @@ using IntroSkipper.Data;
 using IntroSkipper.Db;
 using IntroSkipper.Manager;
 using MediaBrowser.Common.Api;
+using MediaBrowser.Controller;
 using MediaBrowser.Controller.Entities.Movies;
 using MediaBrowser.Controller.Entities.TV;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging;
 
 namespace IntroSkipper.Controllers;
 
@@ -26,9 +28,10 @@ namespace IntroSkipper.Controllers;
 [Authorize]
 [ApiController]
 [Produces(MediaTypeNames.Application.Json)]
-public class SkipIntroController(MediaSegmentUpdateManager mediaSegmentUpdateManager) : ControllerBase
+public class SkipIntroController(IMediaSegmentManager mediaSegmentManager, ILoggerFactory loggerFactory) : ControllerBase
 {
-    private readonly MediaSegmentUpdateManager _mediaSegmentUpdateManager = mediaSegmentUpdateManager;
+    private readonly IMediaSegmentManager _mediaSegmentManager = mediaSegmentManager;
+    private readonly ILoggerFactory _loggerFactory = loggerFactory;
 
     /// <summary>
     /// Returns the timestamps of the introduction in a television episode. Responses are in API version 1 format.
@@ -102,7 +105,8 @@ public class SkipIntroController(MediaSegmentUpdateManager mediaSegmentUpdateMan
 
             if (episode is not null)
             {
-                await _mediaSegmentUpdateManager.UpdateMediaSegmentsAsync([episode], cancellationToken).ConfigureAwait(false);
+                var mediaSegmentUpdateManager = new MediaSegmentUpdateManager(_mediaSegmentManager, _loggerFactory.CreateLogger<MediaSegmentUpdateManager>());
+                await mediaSegmentUpdateManager.UpdateMediaSegmentsAsync([episode], cancellationToken).ConfigureAwait(false);
             }
         }
 
@@ -185,8 +189,6 @@ public class SkipIntroController(MediaSegmentUpdateManager mediaSegmentUpdateMan
     {
         var timestamps = Plugin.Instance!.GetTimestamps(id);
         var intros = new Dictionary<AnalysisMode, Intro>();
-        var runTime = TimeSpan.FromTicks(Plugin.Instance!.GetItem(id)?.RunTimeTicks ?? 0).TotalSeconds;
-        var config = Plugin.Instance.Configuration;
 
         foreach (var (mode, timestamp) in timestamps)
         {
@@ -197,11 +199,6 @@ public class SkipIntroController(MediaSegmentUpdateManager mediaSegmentUpdateMan
 
             // Create new Intro to avoid mutating the original stored in dictionary
             var segment = new Intro(timestamp);
-
-            // Calculate intro end time
-            segment.IntroEnd = runTime > 0 && runTime < segment.IntroEnd + 1
-                ? runTime
-                : segment.IntroEnd - config.RemainingSecondsOfIntro;
 
             intros[mode] = segment;
         }

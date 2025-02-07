@@ -390,7 +390,11 @@ public class ChromaprintAnalyzer(ILogger<ChromaprintAnalyzer> logger) : IMediaFi
 
         if (_config.SnapToKeyframe)
         {
-            originalIntro.End = SnapToNearestKeyframe(episode, originalIntro.End);
+            originalIntro.End = SnapToNearestKeyframe(episode, originalIntro.End - _config.RemainingSecondsOfIntro);
+        }
+        else
+        {
+            originalIntro.End -= _config.RemainingSecondsOfIntro;
         }
 
         _logger.LogTrace(
@@ -475,13 +479,17 @@ public class ChromaprintAnalyzer(ILogger<ChromaprintAnalyzer> logger) : IMediaFi
     /// <returns>The nearest keyframe or original time if no suitable keyframe found.</returns>
     public static double SnapToNearestKeyframe(QueuedEpisode episode, double time)
     {
+        var config = Plugin.Instance?.Configuration ?? new PluginConfiguration();
         var duration = episode.Duration;
-        if (time > duration - 2)
+        // If the time is within the configured threshold of the end, return the duration
+        if (time > duration - config.EndSnapThreshold)
         {
             return duration;
         }
 
-        var searchRange = new TimeRange(time - 3, time + 1);
+        var searchRange = new TimeRange(
+            time - config.KeyframeWindowBefore,
+            time + config.KeyframeWindowAfter);
         var keyframes = FFmpegWrapper.DetectKeyFrames(episode, searchRange);
 
         // Prefer keyframes before the time, otherwise take the first keyframe after

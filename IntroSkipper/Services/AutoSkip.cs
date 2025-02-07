@@ -147,7 +147,7 @@ public sealed class AutoSkip(
             intros.Remove(currentIntro);
 
             // Check if adjacent segment is within the maximum skip range.
-            var maxTimeSkip = _config.MaximumTimeSkip + _config.RemainingSecondsOfIntro;
+            var maxTimeSkip = _config.MaximumTimeSkip;
             var nextIntro = intros.FirstOrDefault(i => introEnd + maxTimeSkip >= i.IntroStart &&
                     introEnd < i.IntroEnd);
 

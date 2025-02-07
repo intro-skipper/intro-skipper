@@ -69,9 +69,11 @@ public class ChapterAnalyzer(ILogger<ChapterAnalyzer> logger) : IMediaFileAnalyz
 
             if (_config.SnapToKeyframe)
             {
-                var adjustedEnd = ChromaprintAnalyzer.SnapToNearestKeyframe(episode, skipRange.End);
-                _logger.LogDebug("Snapped end {End} of segment to nearest keyframe: {Keyframe}", skipRange.End, adjustedEnd);
-                skipRange.End = adjustedEnd;
+                skipRange.End = ChromaprintAnalyzer.SnapToNearestKeyframe(episode, skipRange.End - _config.RemainingSecondsOfIntro);
+            }
+            else
+            {
+                skipRange.End -= _config.RemainingSecondsOfIntro;
             }
 
             episode.SetAnalyzed(mode, EpisodeState.Analyzed);
@@ -103,20 +105,7 @@ public class ChapterAnalyzer(ILogger<ChapterAnalyzer> logger) : IMediaFileAnalyz
         }
 
         var reversed = mode == AnalysisMode.Credits || mode == AnalysisMode.Preview;
-        Dictionary<AnalysisMode, Func<(double Min, double Max)>> durationBounds = new()
-        {
-            [AnalysisMode.Introduction] = () => (_config.MinimumIntroDuration, _config.MaximumIntroDuration),
-            [AnalysisMode.Credits] = () => (_config.MinimumCreditsDuration, episode.IsMovie
-                ? _config.MaximumMovieCreditsDuration
-                : _config.MaximumCreditsDuration),
-            [AnalysisMode.Recap] = () => (_config.MinimumRecapDuration, _config.MaximumRecapDuration),
-            [AnalysisMode.Preview] = () => (_config.MinimumPreviewDuration, _config.MaximumPreviewDuration)
-        };
-        var boundsFunc = durationBounds.GetValueOrDefault(mode) ?? throw new ArgumentOutOfRangeException(nameof(mode));
-        var bounds = boundsFunc(); // Call the function to get the values
-        var (minDuration, maxDuration) = _config.FullLengthChapters
-            ? (1, episode.Duration - 1)
-            : (bounds.Min, bounds.Max);
+        var (minDuration, maxDuration) = GetBounds(mode, episode);
 
         // Check all chapters
         for (int i = reversed ? count - 1 : 0; reversed ? i >= 0 : i < count; i += reversed ? -1 : 1)
@@ -185,5 +174,27 @@ public class ChapterAnalyzer(ILogger<ChapterAnalyzer> logger) : IMediaFileAnalyz
         }
 
         return null;
+    }
+
+    private (double Min, double Max) GetBounds(AnalysisMode mode, QueuedEpisode episode)
+    {
+        ArgumentNullException.ThrowIfNull(episode);
+
+        if (_config.FullLengthChapters)
+        {
+            // Leave 1 second buffer at start and end
+            return (1, episode.Duration - 1);
+        }
+
+        // Map analysis mode to duration bounds
+        return mode switch
+            {
+                AnalysisMode.Introduction => (_config.MinimumIntroDuration, _config.MaximumIntroDuration),
+                AnalysisMode.Credits => (_config.MinimumCreditsDuration,
+                    episode.IsMovie ? _config.MaximumMovieCreditsDuration : _config.MaximumCreditsDuration),
+                AnalysisMode.Recap => (_config.MinimumRecapDuration, _config.MaximumRecapDuration),
+                AnalysisMode.Preview => (_config.MinimumPreviewDuration, _config.MaximumPreviewDuration),
+                _ => throw new ArgumentOutOfRangeException(nameof(mode), $"Unsupported analysis mode: {mode}")
+            };
     }
 }

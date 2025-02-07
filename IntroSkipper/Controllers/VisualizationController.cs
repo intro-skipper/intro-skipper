@@ -12,6 +12,7 @@ using IntroSkipper.Data;
 using IntroSkipper.Db;
 using IntroSkipper.Manager;
 using MediaBrowser.Common.Api;
+using MediaBrowser.Controller;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Logging;
@@ -25,15 +26,17 @@ namespace IntroSkipper.Controllers;
 /// Initializes a new instance of the <see cref="VisualizationController"/> class.
 /// </remarks>
 /// <param name="logger">Logger.</param>
-/// <param name="mediaSegmentUpdateManager">Media Segment Update Manager.</param>
+/// <param name="mediaSegmentManager">Media segment manager.</param>
+/// <param name="loggerFactory">Logger factory.</param>
 [Authorize(Policy = Policies.RequiresElevation)]
 [ApiController]
 [Produces(MediaTypeNames.Application.Json)]
 [Route("Intros")]
-public class VisualizationController(ILogger<VisualizationController> logger, MediaSegmentUpdateManager mediaSegmentUpdateManager) : ControllerBase
+public class VisualizationController(ILogger<VisualizationController> logger, IMediaSegmentManager mediaSegmentManager, ILoggerFactory loggerFactory) : ControllerBase
 {
     private readonly ILogger<VisualizationController> _logger = logger;
-    private readonly MediaSegmentUpdateManager _mediaSegmentUpdateManager = mediaSegmentUpdateManager;
+    private readonly IMediaSegmentManager _mediaSegmentManager = mediaSegmentManager;
+    private readonly ILoggerFactory _loggerFactory = loggerFactory;
 
     /// <summary>
     /// Returns all show names and seasons.
@@ -203,7 +206,8 @@ public class VisualizationController(ILogger<VisualizationController> logger, Me
 
             if (Plugin.Instance.Configuration.UpdateMediaSegments)
             {
-                await _mediaSegmentUpdateManager.UpdateMediaSegmentsAsync(episodes, cancellationToken).ConfigureAwait(false);
+                var mediaSegmentUpdateManager = new MediaSegmentUpdateManager(_mediaSegmentManager, _loggerFactory.CreateLogger<MediaSegmentUpdateManager>());
+                await mediaSegmentUpdateManager.UpdateMediaSegmentsAsync(episodes, cancellationToken).ConfigureAwait(false);
             }
 
             return NoContent();
