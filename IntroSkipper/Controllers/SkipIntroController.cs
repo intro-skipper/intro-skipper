@@ -12,13 +12,11 @@ using IntroSkipper.Data;
 using IntroSkipper.Db;
 using IntroSkipper.Manager;
 using MediaBrowser.Common.Api;
-using MediaBrowser.Controller;
 using MediaBrowser.Controller.Entities.Movies;
 using MediaBrowser.Controller.Entities.TV;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
-using Microsoft.Extensions.Logging;
 
 namespace IntroSkipper.Controllers;
 
@@ -28,10 +26,9 @@ namespace IntroSkipper.Controllers;
 [Authorize]
 [ApiController]
 [Produces(MediaTypeNames.Application.Json)]
-public class SkipIntroController(IMediaSegmentManager mediaSegmentManager, ILoggerFactory loggerFactory) : ControllerBase
+public class SkipIntroController(MediaSegmentUpdateManager mediaSegmentUpdateManager) : ControllerBase
 {
-    private readonly IMediaSegmentManager _mediaSegmentManager = mediaSegmentManager;
-    private readonly ILoggerFactory _loggerFactory = loggerFactory;
+    private readonly MediaSegmentUpdateManager _mediaSegmentUpdateManager = mediaSegmentUpdateManager;
 
     /// <summary>
     /// Returns the timestamps of the introduction in a television episode. Responses are in API version 1 format.
@@ -105,8 +102,7 @@ public class SkipIntroController(IMediaSegmentManager mediaSegmentManager, ILogg
 
             if (episode is not null)
             {
-                var mediaSegmentUpdateManager = new MediaSegmentUpdateManager(_mediaSegmentManager, _loggerFactory.CreateLogger<MediaSegmentUpdateManager>());
-                await mediaSegmentUpdateManager.UpdateMediaSegmentsAsync([episode], cancellationToken).ConfigureAwait(false);
+                await _mediaSegmentUpdateManager.UpdateMediaSegmentsAsync([episode], cancellationToken).ConfigureAwait(false);
             }
         }
 

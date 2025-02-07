@@ -10,7 +10,6 @@ using IntroSkipper.Analyzers;
 using IntroSkipper.Configuration;
 using IntroSkipper.Data;
 using IntroSkipper.Manager;
-using MediaBrowser.Controller;
 using MediaBrowser.Controller.Library;
 using Microsoft.Extensions.Logging;
 
@@ -25,17 +24,17 @@ namespace IntroSkipper.ScheduledTasks;
 /// <param name="logger">Task logger.</param>
 /// <param name="loggerFactory">Logger factory.</param>
 /// <param name="libraryManager">Library manager.</param>
-/// <param name="mediaSegmentManager">Media segment manager.</param>
+/// <param name="mediaSegmentUpdateManager">Media segment update manager.</param>
 public class BaseItemAnalyzerTask(
     ILogger logger,
     ILoggerFactory loggerFactory,
     ILibraryManager libraryManager,
-    IMediaSegmentManager mediaSegmentManager)
+    MediaSegmentUpdateManager mediaSegmentUpdateManager)
 {
     private readonly ILogger _logger = logger;
     private readonly ILoggerFactory _loggerFactory = loggerFactory;
     private readonly ILibraryManager _libraryManager = libraryManager;
-    private readonly IMediaSegmentManager _mediaSegmentManager = mediaSegmentManager;
+    private readonly MediaSegmentUpdateManager _mediaSegmentUpdateManager = mediaSegmentUpdateManager;
     private readonly PluginConfiguration _config = Plugin.Instance?.Configuration ?? new PluginConfiguration();
     private readonly bool _ffmpegValid = FFmpegWrapper.CheckFFmpegVersion();
 
@@ -63,10 +62,6 @@ public class BaseItemAnalyzerTask(
             _libraryManager);
 
         var queue = queueManager.GetMediaItems();
-
-        var mediaSegmentUpdateManager = new MediaSegmentUpdateManager(
-            _mediaSegmentManager,
-            _loggerFactory.CreateLogger<MediaSegmentUpdateManager>());
 
         if (seasonsToAnalyze?.Count > 0)
         {
@@ -139,7 +134,7 @@ public class BaseItemAnalyzerTask(
 
             if (_config.RebuildMediaSegments || (updateMediaSegments && _config.UpdateMediaSegments))
             {
-                await mediaSegmentUpdateManager.UpdateMediaSegmentsAsync(episodes, ct).ConfigureAwait(false);
+                await _mediaSegmentUpdateManager.UpdateMediaSegmentsAsync(episodes, ct).ConfigureAwait(false);
             }
         }).ConfigureAwait(false);
 

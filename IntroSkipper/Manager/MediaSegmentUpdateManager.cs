@@ -23,7 +23,6 @@ namespace IntroSkipper.Manager
     /// <param name="logger">logger.</param>
     public class MediaSegmentUpdateManager(IMediaSegmentManager mediaSegmentManager, ILogger<MediaSegmentUpdateManager> logger)
     {
-        private const int DefaultMaxParallelism = 3;
         private readonly IMediaSegmentManager _mediaSegmentManager = mediaSegmentManager;
         private readonly ILogger<MediaSegmentUpdateManager> _logger = logger;
         private readonly SegmentProvider _segmentProvider = new();
@@ -46,7 +45,7 @@ namespace IntroSkipper.Manager
                 new ParallelOptions
                 {
                     CancellationToken = cancellationToken,
-                    MaxDegreeOfParallelism = DefaultMaxParallelism
+                    MaxDegreeOfParallelism = Plugin.Instance!.Configuration.MaxParallelism
                 },
                 async (episode, ct) =>
                 {

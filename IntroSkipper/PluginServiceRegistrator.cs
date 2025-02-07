@@ -1,6 +1,7 @@
 // Copyright (C) 2024 Intro-Skipper contributors <intro-skipper.org>
 // SPDX-License-Identifier: GPL-3.0-only.
 
+using IntroSkipper.Manager;
 using IntroSkipper.Providers;
 using IntroSkipper.Services;
 using MediaBrowser.Controller;
@@ -20,6 +21,7 @@ namespace IntroSkipper
             serviceCollection.AddHostedService<AutoSkip>();
             serviceCollection.AddHostedService<Entrypoint>();
             serviceCollection.AddSingleton<IMediaSegmentProvider, SegmentProvider>();
+            serviceCollection.AddTransient<MediaSegmentUpdateManager>();
         }
     }
 }
