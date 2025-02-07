@@ -297,18 +297,18 @@ public class PluginConfiguration : BasePluginConfiguration
     public bool AnalyzeMovies { get; set; }
 
     /// <summary>
-    /// Gets or sets window in seconds to snap chapters to the start or end of the episode.
+    /// Gets or sets window in seconds to snap segments to the end of the episode.
     /// This gets applied at the very end.
     /// </summary>
     public double EndSnapThreshold { get; set; } = 2.0;
 
     /// <summary>
-    /// Gets or sets the number of seconds to search before a keyframe.
+    /// Gets or sets the number of seconds to search before segment end to find a keyframe.
     /// </summary>
     public double KeyframeWindowBefore { get; set; } = 3.0;
 
     /// <summary>
-    /// Gets or sets the number of seconds to search after a keyframe.
+    /// Gets or sets the number of seconds to search after segment end to find a keyframe.
     /// </summary>
     public double KeyframeWindowAfter { get; set; } = 1.0;
 }
