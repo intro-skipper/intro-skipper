@@ -41,6 +41,9 @@ jobs:
           sudo apt install -y curl
           curl -fsSLO https://repo.jellyfin.org/files/ffmpeg/ubuntu/latest-7.x/amd64/jellyfin-ffmpeg7_7.0.2-9-noble_amd64.deb
           sudo apt install -y ./jellyfin-ffmpeg7_7.0.2-9-noble_amd64.deb
+          sudo ln -s /usr/lib/jellyfin-ffmpeg/ffmpeg /usr/local/bin/ffmpeg
+          sudo ln -s /usr/lib/jellyfin-ffmpeg/ffprobe /usr/local/bin/ffprobe
+          ffmpeg -version
 
       - name: Restore Beta dependencies
         if: ${{env.IS_BETA == 'true' }}
