@@ -76,7 +76,7 @@ public class TimeRange : IComparable
     /// Tests if this TimeRange object intersects the provided TimeRange.
     /// </summary>
     /// <param name="tr">Second TimeRange object to test.</param>
-    /// <returns>true if tr intersects the current TimeRange, false otherwise.</returns>
+    /// <returns>true if time range intersects the current TimeRange, false otherwise.</returns>
     public bool Intersects(TimeRange tr)
     {
         return

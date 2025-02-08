@@ -77,7 +77,7 @@
                                     <input id="SelectAllLibraries" type="checkbox" is="emby-checkbox" />
                                     <span>Enable analysis for all libraries containing television episodes</span>
                                 </label>
-                                <div class="folderAccessListContainer">
+                                <div class="folderAccessListContainer" style="margin-bottom: -1em;">
                                     <div class="folderAccess">
                                         <h3 class="checkboxListLabel">Limit analysis to the following libraries</h3>
                                         <div class="checkboxList paperList" style="padding: 0.5em 1em" id="libraryCheckboxes"></div>
@@ -85,6 +85,12 @@
                                     <label class="inputLabel" for="SelectedLibraries"></label>
                                     <input id="SelectedLibraries" type="hidden" is="emby-input" />
                                 </div>
+                            </div>
+
+                            <div class="inputContainer" id="excludedSeries">
+                                <label class="inputLabel inputLabelUnfocused" for="ExcludeSeries"> Exclude series </label>
+                                <input id="ExcludeSeries" type="text" is="emby-input" />
+                                <div class="fieldDescription">Exclude series from analysis. Enter a comma-separated list of series names to exclude.</div>
                             </div>
 
                             <details id="intro_reqs">
@@ -214,10 +220,10 @@
                                 <div class="checkboxContainer checkboxContainer-withDescription">
                                     <label class="emby-checkbox-label">
                                         <input id="SnapToKeyframe" type="checkbox" is="emby-checkbox" />
-                                        <span>Enable keyframe snapping for smooth playback transitions</span>
+                                        <span>Enable keyframe snapping for smooth seek transitions</span>
                                     </label>
 
-                                    <div class="fieldDescription">When enabled, segment endpoints will be adjusted to the nearest video keyframe for smoother playback transitions during skipping.</div>
+                                    <div class="fieldDescription">When enabled, segment endpoints will be adjusted to the nearest video keyframe for smoother seek transitions during skipping.</div>
                                 </div>
 
                                 <div id="snapSettings">
@@ -240,11 +246,10 @@
                                     </div>
                                 </div>
 
-                                <br />
-                                <div class="inputContainer" id="excludedSeries">
-                                    <label class="inputLabel inputLabelUnfocused" for="ExcludeSeries"> Exclude series </label>
-                                    <input id="ExcludeSeries" type="text" is="emby-input" />
-                                    <div class="fieldDescription">Exclude series from analysis. Enter a comma-separated list of series names to exclude.</div>
+                                <div class="inputContainer">
+                                    <label class="inputLabel inputLabelUnfocused" for="RemainingSecondsOfIntro"> Seek to segment end offset (in seconds) </label>
+                                    <input id="RemainingSecondsOfIntro" type="number" is="emby-input" min="0" />
+                                    <div class="fieldDescription">Number of seconds before a segment's end to seek to. For example, setting this to 3 will seek to 3 seconds before the end of an intro. Defaults to 0 (seeks to the exact end).</div>
                                 </div>
 
                                 <br />
@@ -369,14 +374,12 @@
                             <p align="center" style="font-size: 0.75em">EDL file generation has been removed. Please use the <a href="https://github.com/intro-skipper/jellyfin-plugin-edl">EDL plugin</a>.</p>
                         </fieldset>
 
-                        <p>
                         <div class="checkboxContainer checkboxContainer-withDescription">
                             <label class="emby-checkbox-label">
                                 <input id="PluginSkip" type="checkbox" is="emby-checkbox" />
                                 <span>Enable <b style="color: red;">Server-side</b> Auto Skip</span>
                             </label>
                         </div>
-                        </p>
 
                         <div id="ServerSkipSettings" style="display: none">
                             <fieldset class="verticalSection-extrabottompadding">
@@ -420,12 +423,6 @@
                                     <label class="inputLabel inputLabelUnfocused" for="SecondsOfIntroStartToPlay"> Segment skip delay (in seconds) </label>
                                     <input id="SecondsOfIntroStartToPlay" type="number" is="emby-input" min="0" />
                                     <div class="fieldDescription">Seconds of segment start that should be played. Defaults to 0.</div>
-                                </div>
-
-                                <div class="inputContainer">
-                                    <label class="inputLabel inputLabelUnfocused" for="RemainingSecondsOfIntro"> Segment playback duration (in seconds) </label>
-                                    <input id="RemainingSecondsOfIntro" type="number" is="emby-input" min="0" />
-                                    <div class="fieldDescription">Seconds of segment ending that should be played. Defaults to 0.</div>
                                 </div>
 
                                 <div id="divAutoSkipNotificationText" class="inputContainer">
@@ -697,15 +694,13 @@
                                 </div>
 
                                 <div id="eraseSeasonContainer" style="display: none">
-                                    <p>
-                                        <div class="checkboxContainer checkboxContainer" style="margin: 0;">
-                                            <label class="emby-checkbox-label">
-                                                <input id="eraseSeasonCacheCheckbox" type="checkbox" is="emby-checkbox" />
-                                                <span>Include cached fingerprint files</span>
-                                            </label>
-                                        </div>
-                                        <button is="emby-button" id="btnEraseSeasonTimestamps" class="raised button-submit block emby-button" type="button">Erase all timestamps for this season</button>
-                                    </p>
+                                    <div class="checkboxContainer checkboxContainer" style="margin: 0;">
+                                        <label class="emby-checkbox-label">
+                                            <input id="eraseSeasonCacheCheckbox" type="checkbox" is="emby-checkbox" />
+                                            <span>Include cached fingerprint files</span>
+                                        </label>
+                                    </div>
+                                    <button is="emby-button" id="btnEraseSeasonTimestamps" class="raised button-submit block emby-button" type="button">Erase all timestamps for this season</button>
                                 </div>
 
                                 <div id="eraseMovieContainer" style="display: none">
@@ -953,7 +948,6 @@
                     const libraryNames = tvLibraries.map((lib) => lib.Name || "Unnamed Library");
                     generateCheckboxList(libraryNames, "libraryCheckboxes", "SelectedLibraries");
                 }
-                const remainingSecondsOfIntro = document.getElementById("RemainingSecondsOfIntro");
 
                 async function pluginSkipSettingVisible() {
                     if (pluginSkip.checked || autoSkip.checked) {
@@ -979,7 +973,6 @@
                         autoSkip.checked = false;
                         skipFirstEpisode.checked = false;
                         secondsOfIntroStartToPlay.value = 0;
-                        remainingSecondsOfIntro.value = 0;
                     }
                      pluginSkipSettingVisible()
                 }
