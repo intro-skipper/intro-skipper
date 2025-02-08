@@ -2,7 +2,6 @@
 // SPDX-License-Identifier: GPL-3.0-only.
 
 using System.Diagnostics;
-using IntroSkipper.Data;
 using MediaBrowser.Model.Plugins;
 
 namespace IntroSkipper.Configuration;

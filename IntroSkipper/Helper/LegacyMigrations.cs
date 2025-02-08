@@ -152,7 +152,6 @@ internal static class LegacyMigrations
             logger.LogInformation("Skip button found. Removing the Skip button.");
             contents = Regex.Replace(contents, pattern, string.Empty, RegexOptions.IgnoreCase);
             File.WriteAllText(indexPath, contents);
-            return;
         }
         catch (UnauthorizedAccessException)
         {

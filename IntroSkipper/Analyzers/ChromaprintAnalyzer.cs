@@ -39,7 +39,7 @@ public class ChromaprintAnalyzer(ILogger<ChromaprintAnalyzer> logger) : IMediaFi
         // Episodes that were not analyzed or have a fingerprint cache.
         var episodeAnalysisQueue = analysisQueue.Where(e => e.GetAnalyzed(mode) != EpisodeState.Analyzed || File.Exists(FFmpegWrapper.GetFingerprintCachePath(e, mode))).ToList();
 
-        if (analysisQueue.Count <= 1 || !episodeAnalysisQueue.Any(e => e.GetAnalyzed(mode) != EpisodeState.Analyzed))
+        if (analysisQueue.Count <= 1 || episodeAnalysisQueue.All(e => e.GetAnalyzed(mode) == EpisodeState.Analyzed))
         {
             return analysisQueue;
         }

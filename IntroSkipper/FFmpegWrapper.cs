@@ -357,7 +357,7 @@ public static partial class FFmpegWrapper
     /// the provided string.
     /// </summary>
     /// <param name="arguments">Arguments to pass to FFmpeg.</param>
-    /// <param name="mustContain">String that the output must contain. Case insensitive.</param>
+    /// <param name="mustContain">String that the output must contain. Case-insensitive.</param>
     /// <param name="bundleName">Support bundle key to store FFmpeg's output under.</param>
     /// <param name="errorMessage">Error message to log if this requirement is not met.</param>
     /// <returns>true on success, false on error.</returns>
@@ -427,7 +427,7 @@ public static partial class FFmpegWrapper
             Logger?.LogTrace("Not returning contents of cache {Cache} (not found)", cacheFilename);
         }
 
-        // Prepend some flags to prevent FFmpeg from logging it's banner and progress information
+        // Prepend some flags to prevent FFmpeg from logging its banner and progress information
         // for each file that is fingerprinted.
         var prependArgument = string.Format(
             CultureInfo.InvariantCulture,
@@ -462,10 +462,10 @@ public static partial class FFmpegWrapper
 
         using var ms = new MemoryStream();
         var buf = new byte[4096];
-        int bytesRead;
 
         using (var streamReader = stderr ? ffmpeg.StandardError : ffmpeg.StandardOutput)
         {
+            int bytesRead;
             while ((bytesRead = streamReader.BaseStream.Read(buf, 0, buf.Length)) > 0)
             {
                 ms.Write(buf, 0, bytesRead);
@@ -516,7 +516,7 @@ public static partial class FFmpegWrapper
             episode.Path,
             end - start);
 
-        // Returns all fingerprint points as raw 32 bit unsigned integers (little endian).
+        // Returns all fingerprint points as raw 32-bit unsigned integers (little endian).
         var rawPoints = GetOutput(args, string.Empty);
         if (rawPoints.Length == 0 || rawPoints.Length % 4 != 0)
         {
