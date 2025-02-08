@@ -37,12 +37,10 @@ jobs:
 
       - name: Install jellyfin-ffmpeg
         run: |
-          sudo add-apt-repository universe
           sudo apt update
-          sudo apt install -y extrepo
-          sudo extrepo enable jellyfin
-          sudo apt update
-          sudo apt install -y jellyfin-ffmpeg
+          sudo apt install -y curl
+          curl -fsSLO https://repo.jellyfin.org/files/ffmpeg/ubuntu/latest-7.x/amd64/jellyfin-ffmpeg7_7.0.2-9-noble_amd64.deb
+          sudo apt install -y ./jellyfin-ffmpeg7_7.0.2-9-noble_amd64.deb
 
       - name: Restore Beta dependencies
         if: ${{env.IS_BETA == 'true' }}
