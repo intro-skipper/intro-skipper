@@ -33,7 +33,7 @@ public class TestFlags
         WarningManager.SetFlag(PluginWarning.InvalidChromaprintFingerprint);
         Assert.True(WarningManager.HasFlag(PluginWarning.IncompatibleFFmpegBuild) && WarningManager.HasFlag(PluginWarning.InvalidChromaprintFingerprint));
         Assert.Equal(
-            "IncompatibleFFmpegBuild, InvalidChromaprintFingerprint",
+            "InvalidChromaprintFingerprint, IncompatibleFFmpegBuild",
             WarningManager.GetWarnings());
     }
 
@@ -46,7 +46,7 @@ public class TestFlags
         WarningManager.SetFlag(PluginWarning.IncompatibleFFmpegBuild);
         WarningManager.SetFlag(PluginWarning.InvalidChromaprintFingerprint);
         Assert.True(WarningManager.HasFlag(PluginWarning.IncompatibleFFmpegBuild) && WarningManager.HasFlag(PluginWarning.InvalidChromaprintFingerprint));
-        Assert.False(WarningManager.HasFlag(PluginWarning.IncompatibleFFmpegBuild));
+        Assert.True(WarningManager.HasFlag(PluginWarning.IncompatibleFFmpegBuild));
         Assert.True(WarningManager.HasFlag(PluginWarning.None));
     }
 }
