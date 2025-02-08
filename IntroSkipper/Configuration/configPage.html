@@ -374,14 +374,12 @@
                             <p align="center" style="font-size: 0.75em">EDL file generation has been removed. Please use the <a href="https://github.com/intro-skipper/jellyfin-plugin-edl">EDL plugin</a>.</p>
                         </fieldset>
 
-                        <p>
                         <div class="checkboxContainer checkboxContainer-withDescription">
                             <label class="emby-checkbox-label">
                                 <input id="PluginSkip" type="checkbox" is="emby-checkbox" />
                                 <span>Enable <b style="color: red;">Server-side</b> Auto Skip</span>
                             </label>
                         </div>
-                        </p>
 
                         <div id="ServerSkipSettings" style="display: none">
                             <fieldset class="verticalSection-extrabottompadding">
@@ -696,15 +694,13 @@
                                 </div>
 
                                 <div id="eraseSeasonContainer" style="display: none">
-                                    <p>
-                                        <div class="checkboxContainer checkboxContainer" style="margin: 0;">
-                                            <label class="emby-checkbox-label">
-                                                <input id="eraseSeasonCacheCheckbox" type="checkbox" is="emby-checkbox" />
-                                                <span>Include cached fingerprint files</span>
-                                            </label>
-                                        </div>
-                                        <button is="emby-button" id="btnEraseSeasonTimestamps" class="raised button-submit block emby-button" type="button">Erase all timestamps for this season</button>
-                                    </p>
+                                    <div class="checkboxContainer checkboxContainer" style="margin: 0;">
+                                        <label class="emby-checkbox-label">
+                                            <input id="eraseSeasonCacheCheckbox" type="checkbox" is="emby-checkbox" />
+                                            <span>Include cached fingerprint files</span>
+                                        </label>
+                                    </div>
+                                    <button is="emby-button" id="btnEraseSeasonTimestamps" class="raised button-submit block emby-button" type="button">Erase all timestamps for this season</button>
                                 </div>
 
                                 <div id="eraseMovieContainer" style="display: none">
