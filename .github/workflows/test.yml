@@ -38,7 +38,9 @@ jobs:
       - name: Install jellyfin-ffmpeg
         run: |
           sudo add-apt-repository universe
-          sudo add-apt-repository ppa:jellyfin/jellyfin
+          sudo apt update
+          sudo apt install -y extrepo
+          sudo extrepo enable jellyfin
           sudo apt update
           sudo apt install -y jellyfin-ffmpeg
 
