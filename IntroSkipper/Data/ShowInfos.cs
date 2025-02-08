@@ -27,7 +27,7 @@ namespace IntroSkipper.Data
         public required string LibraryName { get; set; }
 
         /// <summary>
-        /// Gets or sets a value indicating whether its a movie.
+        /// Gets or sets a value indicating whether it's a movie.
         /// </summary>
         public required bool IsMovie { get; set; }
 
