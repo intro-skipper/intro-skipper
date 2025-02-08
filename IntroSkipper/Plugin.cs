@@ -160,11 +160,6 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
             {
                 Name = "visualizer.js",
                 EmbeddedResourcePath = GetType().Namespace + ".Configuration.visualizer.js"
-            },
-            new PluginPageInfo
-            {
-                Name = "skip-intro-button.js",
-                EmbeddedResourcePath = GetType().Namespace + ".Configuration.inject.js"
             }
         ];
     }

@@ -17,11 +17,6 @@ public enum PluginWarning
     None = 0,
 
     /// <summary>
-    /// Attempted to add skip button to web interface, but was unable to.
-    /// </summary>
-    UnableToAddSkipButton = 1,
-
-    /// <summary>
     /// At least one media file on the server was unable to be fingerprinted by Chromaprint.
     /// </summary>
     InvalidChromaprintFingerprint = 2,

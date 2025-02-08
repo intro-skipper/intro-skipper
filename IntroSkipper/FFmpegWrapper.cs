@@ -2,7 +2,6 @@
 // SPDX-License-Identifier: GPL-3.0-only.
 
 using System;
-using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Globalization;
@@ -191,7 +190,7 @@ public static partial class FFmpegWrapper
             }
         }
 
-        return silenceRanges.ToArray();
+        return [.. silenceRanges];
     }
 
     /// <summary>
@@ -259,7 +258,61 @@ public static partial class FFmpegWrapper
             }
         }
 
-        return blackFrames.ToArray();
+        return [.. blackFrames];
+    }
+
+    /// <summary>
+    /// Detects key frames in a media file within a time range.
+    /// </summary>
+    /// <param name="episode">Media file to analyze.</param>
+    /// <param name="range">Time range to search.</param>
+    /// <returns>Array of timestamps of key frames.</returns>
+    public static double[] DetectKeyFrames(QueuedEpisode episode, TimeRange range)
+    {
+        var args = string.Format(
+            CultureInfo.InvariantCulture,
+            "-ss {0} -i \"{1}\" -to {2} -an -dn -sn -vf \"select='eq(pict_type,I)',showinfo\" -f null -",
+            range.Start,
+            episode.Path,
+            range.End - range.Start);
+
+        var cacheKey = string.Format(
+            CultureInfo.InvariantCulture,
+            "{0}-keyframes-{1}-{2}-v1",
+            episode.EpisodeId.ToString("N"),
+            range.Start,
+            range.End);
+
+        var keyframes = new List<double>();
+        var raw = Encoding.UTF8.GetString(GetOutput(args, cacheKey, stderr: true));
+
+        foreach (var line in raw.Split('\n', StringSplitOptions.RemoveEmptyEntries))
+        {
+            if (!line.Contains("type:I", StringComparison.OrdinalIgnoreCase) ||
+                !line.Contains("iskey:1", StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            var ptsIndex = line.IndexOf("pts_time:", StringComparison.OrdinalIgnoreCase);
+            if (ptsIndex == -1)
+            {
+                continue;
+            }
+
+            var ptsTimeStr = line[(ptsIndex + 9)..].Split(' ', 2)[0];
+
+            if (double.TryParse(ptsTimeStr, CultureInfo.InvariantCulture, out double timestamp))
+            {
+                keyframes.Add(timestamp + range.Start);
+            }
+            else
+            {
+                Logger?.LogWarning("Failed to parse timestamp: {PtsTimeStr} from line: {Line}", ptsTimeStr, line);
+            }
+        }
+
+        return [.. keyframes];
     }
 
     /// <summary>
@@ -304,7 +357,7 @@ public static partial class FFmpegWrapper
     /// the provided string.
     /// </summary>
     /// <param name="arguments">Arguments to pass to FFmpeg.</param>
-    /// <param name="mustContain">String that the output must contain. Case insensitive.</param>
+    /// <param name="mustContain">String that the output must contain. Case-insensitive.</param>
     /// <param name="bundleName">Support bundle key to store FFmpeg's output under.</param>
     /// <param name="errorMessage">Error message to log if this requirement is not met.</param>
     /// <returns>true on success, false on error.</returns>
@@ -349,7 +402,8 @@ public static partial class FFmpegWrapper
 
         // The silencedetect and blackframe filters output data at the info log level.
         var useInfoLevel = args.Contains("silencedetect", StringComparison.OrdinalIgnoreCase) ||
-            args.Contains("blackframe", StringComparison.OrdinalIgnoreCase);
+            args.Contains("blackframe", StringComparison.OrdinalIgnoreCase) ||
+            args.Contains("showinfo", StringComparison.OrdinalIgnoreCase);
 
         var logLevel = useInfoLevel ? "info" : "warning";
 
@@ -373,7 +427,7 @@ public static partial class FFmpegWrapper
             Logger?.LogTrace("Not returning contents of cache {Cache} (not found)", cacheFilename);
         }
 
-        // Prepend some flags to prevent FFmpeg from logging it's banner and progress information
+        // Prepend some flags to prevent FFmpeg from logging its banner and progress information
         // for each file that is fingerprinted.
         var prependArgument = string.Format(
             CultureInfo.InvariantCulture,
@@ -387,7 +441,6 @@ public static partial class FFmpegWrapper
             CreateNoWindow = true,
             UseShellExecute = false,
             ErrorDialog = false,
-
             RedirectStandardOutput = !stderr,
             RedirectStandardError = stderr
         };
@@ -408,10 +461,10 @@ public static partial class FFmpegWrapper
 
         using var ms = new MemoryStream();
         var buf = new byte[4096];
-        int bytesRead;
 
         using (var streamReader = stderr ? ffmpeg.StandardError : ffmpeg.StandardOutput)
         {
+            int bytesRead;
             while ((bytesRead = streamReader.BaseStream.Read(buf, 0, buf.Length)) > 0)
             {
                 ms.Write(buf, 0, bytesRead);
@@ -462,7 +515,7 @@ public static partial class FFmpegWrapper
             episode.Path,
             end - start);
 
-        // Returns all fingerprint points as raw 32 bit unsigned integers (little endian).
+        // Returns all fingerprint points as raw 32-bit unsigned integers (little endian).
         var rawPoints = GetOutput(args, string.Empty);
         if (rawPoints.Length == 0 || rawPoints.Length % 4 != 0)
         {
@@ -480,7 +533,7 @@ public static partial class FFmpegWrapper
         // Try to cache this fingerprint.
         CacheFingerprint(episode, mode, results);
 
-        return results.ToArray();
+        return [.. results];
     }
 
     /// <summary>
@@ -496,7 +549,7 @@ public static partial class FFmpegWrapper
         AnalysisMode mode,
         out uint[] fingerprint)
     {
-        fingerprint = Array.Empty<uint>();
+        fingerprint = [];
 
         // If fingerprint caching isn't enabled, don't try to load anything.
         if (!(Plugin.Instance?.Configuration.CacheFingerprints ?? false))
@@ -512,31 +565,42 @@ public static partial class FFmpegWrapper
             return false;
         }
 
-        var raw = File.ReadAllLines(path, Encoding.UTF8);
-        var result = new List<uint>();
-
-        // Read each stringified uint.
-        result.EnsureCapacity(raw.Length);
-
+        string[] raw;
         try
         {
-            foreach (var rawNumber in raw)
-            {
-                result.Add(Convert.ToUInt32(rawNumber, CultureInfo.InvariantCulture));
-            }
+            raw = File.ReadAllLines(path, Encoding.UTF8);
         }
-        catch (FormatException)
+        catch (IOException ex)
         {
-            // Occurs when the cached fingerprint is corrupt.
-            Logger?.LogDebug(
-                "Cached fingerprint for {Path} ({Id}) is corrupt, ignoring cache",
-                episode.Path,
-                episode.EpisodeId);
-
+            Logger?.LogError(ex, "I/O error while reading fingerprint cache from {Path}", path);
+            return false;
+        }
+        catch (UnauthorizedAccessException ex)
+        {
+            Logger?.LogError(ex, "Access error while reading fingerprint cache from {Path}", path);
             return false;
         }
 
-        fingerprint = result.ToArray();
+        var result = new List<uint>(raw.Length);
+
+        foreach (var rawNumber in raw)
+        {
+            if (uint.TryParse(rawNumber, NumberStyles.Integer, CultureInfo.InvariantCulture, out uint number))
+            {
+                result.Add(number);
+            }
+            else
+            {
+                Logger?.LogDebug(
+                    "Invalid fingerprint entry '{RawNumber}' found in cache for {Path} ({Id}), ignoring cache",
+                    rawNumber,
+                    episode.Path,
+                    episode.EpisodeId);
+                return false;
+            }
+        }
+
+        fingerprint = [.. result];
         return true;
     }
 

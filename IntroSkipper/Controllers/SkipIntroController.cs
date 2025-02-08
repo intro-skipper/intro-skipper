@@ -185,8 +185,6 @@ public class SkipIntroController(MediaSegmentUpdateManager mediaSegmentUpdateMan
     {
         var timestamps = Plugin.Instance!.GetTimestamps(id);
         var intros = new Dictionary<AnalysisMode, Intro>();
-        var runTime = TimeSpan.FromTicks(Plugin.Instance!.GetItem(id)?.RunTimeTicks ?? 0).TotalSeconds;
-        var config = Plugin.Instance.Configuration;
 
         foreach (var (mode, timestamp) in timestamps)
         {
@@ -197,26 +195,6 @@ public class SkipIntroController(MediaSegmentUpdateManager mediaSegmentUpdateMan
 
             // Create new Intro to avoid mutating the original stored in dictionary
             var segment = new Intro(timestamp);
-
-            // Calculate intro end time
-            segment.IntroEnd = runTime > 0 && runTime < segment.IntroEnd + 1
-                ? runTime
-                : segment.IntroEnd - config.RemainingSecondsOfIntro;
-
-            // Set skip button prompt visibility times
-            const double MIN_REMAINING_TIME = 3.0; // Minimum seconds before end to hide prompt
-            if (config.PersistSkipButton)
-            {
-                segment.ShowSkipPromptAt = segment.IntroStart;
-                segment.HideSkipPromptAt = segment.IntroEnd - MIN_REMAINING_TIME;
-            }
-            else
-            {
-                segment.ShowSkipPromptAt = Math.Max(0, segment.IntroStart - config.ShowPromptAdjustment);
-                segment.HideSkipPromptAt = Math.Min(
-                    segment.IntroStart + config.HidePromptAdjustment,
-                    segment.IntroEnd - MIN_REMAINING_TIME);
-            }
 
             intros[mode] = segment;
         }
@@ -277,9 +255,6 @@ public class SkipIntroController(MediaSegmentUpdateManager mediaSegmentUpdateMan
     {
         var config = Plugin.Instance!.Configuration;
         return new UserInterfaceConfiguration(
-            config.SkipButtonEnabled,
-            config.SkipButtonIntroText,
-            config.SkipButtonEndCreditsText,
             config.AutoSkip,
             config.AutoSkipCredits,
             config.AutoSkipRecap,

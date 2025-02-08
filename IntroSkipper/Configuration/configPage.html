@@ -54,6 +54,13 @@
                                 </div>
                             </div>
 
+                            <div class="checkboxContainer">
+                                <label class="emby-checkbox-label">
+                                    <input id="AnalyzeMovies" type="checkbox" is="emby-checkbox" />
+                                    <span>Analyze Movies</span>
+                                </label>
+                            </div>
+
                             <div class="checkboxContainer checkboxContainer-withDescription">
                                 <label class="emby-checkbox-label">
                                     <input id="AnalyzeSeasonZero" type="checkbox" is="emby-checkbox" />
@@ -63,6 +70,27 @@
                                 <div class="fieldDescription">
                                     Note: Shows containing both a specials and extra folder will identify extras as season 0 and ignore specials, regardless of this setting.
                                 </div>
+                            </div>
+
+                            <div class="checkboxContainer checkboxContainer-withDescription">
+                                <label class="emby-checkbox-label">
+                                    <input id="SelectAllLibraries" type="checkbox" is="emby-checkbox" />
+                                    <span>Enable analysis for all libraries containing television episodes</span>
+                                </label>
+                                <div class="folderAccessListContainer" style="margin-bottom: -1em;">
+                                    <div class="folderAccess">
+                                        <h3 class="checkboxListLabel">Limit analysis to the following libraries</h3>
+                                        <div class="checkboxList paperList" style="padding: 0.5em 1em" id="libraryCheckboxes"></div>
+                                    </div>
+                                    <label class="inputLabel" for="SelectedLibraries"></label>
+                                    <input id="SelectedLibraries" type="hidden" is="emby-input" />
+                                </div>
+                            </div>
+
+                            <div class="inputContainer" id="excludedSeries">
+                                <label class="inputLabel inputLabelUnfocused" for="ExcludeSeries"> Exclude series </label>
+                                <input id="ExcludeSeries" type="text" is="emby-input" />
+                                <div class="fieldDescription">Exclude series from analysis. Enter a comma-separated list of series names to exclude.</div>
                             </div>
 
                             <details id="intro_reqs">
@@ -186,12 +214,42 @@
                                         <input id="MaximumPreviewDuration" type="number" is="emby-input" min="1" />
                                         <div class="fieldDescription">Segments which are longer than this duration will not be considered a preview.</div>
                                     </div>
-                              </div>
+                                </div>
 
-                                <div class="inputContainer" id="excludeSeries">
-                                    <label class="inputLabel inputLabelUnfocused" for="ExcludeSeries"> Exclude series </label>
-                                    <input id="ExcludeSeries" type="text" is="emby-input" />
-                                    <div class="fieldDescription">Exclude series from analysis. Enter a comma-separated list of series names to exclude.</div>
+                                <br />
+                                <div class="checkboxContainer checkboxContainer-withDescription">
+                                    <label class="emby-checkbox-label">
+                                        <input id="SnapToKeyframe" type="checkbox" is="emby-checkbox" />
+                                        <span>Enable keyframe snapping for smooth seek transitions</span>
+                                    </label>
+
+                                    <div class="fieldDescription">When enabled, segment endpoints will be adjusted to the nearest video keyframe for smoother seek transitions during skipping.</div>
+                                </div>
+
+                                <div id="snapSettings">
+                                    <div class="inputContainer">
+                                        <label class="inputLabel inputLabelUnfocused" for="KeyframeWindowBefore"> Keyframe search window (before) </label>
+                                        <input id="KeyframeWindowBefore" type="number" is="emby-input" min="0" />
+                                        <div class="fieldDescription">Maximum number of seconds to look backwards from a segment endpoint to find a suitable keyframe. A larger window increases the chance of finding an optimal keyframe.</div>
+                                    </div>
+
+                                    <div class="inputContainer">
+                                        <label class="inputLabel inputLabelUnfocused" for="KeyframeWindowAfter"> Keyframe search window (after) </label>
+                                        <input id="KeyframeWindowAfter" type="number" is="emby-input" min="0" />
+                                        <div class="fieldDescription">Maximum number of seconds to look forward from a segment endpoint to find a suitable keyframe. A larger window increases the chance of finding an optimal keyframe.</div>
+                                    </div>
+
+                                    <div class="inputContainer">
+                                        <label class="inputLabel inputLabelUnfocused" for="EndSnapThreshold"> End credits snap threshold </label>
+                                        <input id="EndSnapThreshold" type="number" is="emby-input" min="0" />
+                                        <div class="fieldDescription">If the end of a credits segment is within this many seconds of the episode end, it will be automatically extended to the episode end. Set to 0 to disable.</div>
+                                    </div>
+                                </div>
+
+                                <div class="inputContainer">
+                                    <label class="inputLabel inputLabelUnfocused" for="RemainingSecondsOfIntro"> Seek to segment end offset (in seconds) </label>
+                                    <input id="RemainingSecondsOfIntro" type="number" is="emby-input" min="0" />
+                                    <div class="fieldDescription">Number of seconds before a segment's end to seek to. For example, setting this to 3 will seek to 3 seconds before the end of an intro. Defaults to 0 (seeks to the exact end).</div>
                                 </div>
 
                                 <br />
@@ -313,17 +371,15 @@
                                 </div>
                             </details>
 
-                            <p align="center" style="font-size: 0.75em">EDL file generation has been removed. Please use endrl's <a href="https://github.com/intro-skipper/jellyfin-plugin-edl">EDL plugin</a>.</p>
+                            <p align="center" style="font-size: 0.75em">EDL file generation has been removed. Please use the <a href="https://github.com/intro-skipper/jellyfin-plugin-edl">EDL plugin</a>.</p>
                         </fieldset>
 
-                        <p>
                         <div class="checkboxContainer checkboxContainer-withDescription">
                             <label class="emby-checkbox-label">
                                 <input id="PluginSkip" type="checkbox" is="emby-checkbox" />
-                                <span>Enable injected server-side skip &nbsp; <b style="color: red;">Restart required!</b></span>
+                                <span>Enable <b style="color: red;">Server-side</b> Auto Skip</span>
                             </label>
                         </div>
-                        </p>
 
                         <div id="ServerSkipSettings" style="display: none">
                             <fieldset class="verticalSection-extrabottompadding">
@@ -369,79 +425,14 @@
                                     <div class="fieldDescription">Seconds of segment start that should be played. Defaults to 0.</div>
                                 </div>
 
-                                <div class="inputContainer">
-                                    <label class="inputLabel inputLabelUnfocused" for="RemainingSecondsOfIntro"> Segment playback duration (in seconds) </label>
-                                    <input id="RemainingSecondsOfIntro" type="number" is="emby-input" min="0" />
-                                    <div class="fieldDescription">Seconds of segment ending that should be played. Defaults to 2.</div>
-                                </div>
-
-                                <div id="SkipButtonContainer" class="checkboxContainer checkboxContainer-withDescription">
-                                    <label class="emby-checkbox-label">
-                                        <input id="SkipButtonEnabled" type="checkbox" is="emby-checkbox" />
-                                        <span id="SkipButtonVisibleLabel">Show Segment Skip Buttons</span>
-                                    </label>
-
-                                    <div class="fieldDescription">
-                                        <b style="color: red">Restart required!</b> If checked, a skip button will be added <b>to the server</b> according to the UI settings.<br />
-                                        This button is <b>separate</b> from the Media Segment Actions in Jellyfin 10.10 and compatible clients.<br />
-                                    </div>
-                                </div>
-
-                                <div id="warningMessage" style="color: #721c24; background-color: #f7cf1f; border: 1px solid #f5c6cb; border-radius: 4px; padding: 10px; margin-bottom: 10px">Failed to add skip button to web interface. See <a href="https://github.com/intro-skipper/intro-skipper/wiki/Troubleshooting#skip-button-is-not-visible" target="_blank" rel="noopener noreferrer">troubleshooting guide</a> for the most common issues.</div>
-
-                                <details>
-                                    <summary>User Interface Customization</summary>
-
+                                <div id="divAutoSkipNotificationText" class="inputContainer">
+                                    <label class="inputLabel" for="AutoSkipNotificationText"> Auto skip notification message </label>
+                                    <input id="AutoSkipNotificationText" type="text" is="emby-input" />
+                                    <div class="fieldDescription">Message shown after automatically skipping a segment. Leave blank to disable notification.</div>
                                     <p>
-                                        <b style="color: orange">These settings do not apply to Media Segment Actions in Jellyfin 10.10 and compatible clients.</b>
+                                        <b style="color: orange">This setting does not apply to Media Segment Actions in Jellyfin 10.10 and compatible clients.</b>
                                     </p>
-
-                                    <div id="SkipButtonSettings">
-                                        <div id="PersistContainer" class="checkboxContainer checkboxContainer-withDescription">
-                                            <label class="emby-checkbox-label">
-                                                <input id="PersistSkipButton" type="checkbox" is="emby-checkbox" />
-                                                <span>Display Button for Segment Duration</span>
-                                            </label>
-
-                                            <div class="fieldDescription">
-                                                If checked, skip button will remain visible for the entire intro (offset and timeout are ignored).<br />
-                                                Note: If unchecked, button will only appear in the player controls after the set timeout.
-                                            </div>
-                                        </div>
-
-                                        <div id="divShowPromptAdjustment" class="inputContainer">
-                                            <label class="inputLabel inputLabelUnfocused" for="ShowPromptAdjustment"> Skip prompt offset (in seconds) </label>
-                                            <input id="ShowPromptAdjustment" type="number" is="emby-input" min="0" />
-                                            <div class="fieldDescription">Seconds to display skip prompt before introduction begins.</div>
-                                            <br />
-                                        </div>
-
-                                        <div id="divHidePromptAdjustment" class="inputContainer">
-                                            <label class="inputLabel inputLabelUnfocused" for="HidePromptAdjustment"> Skip prompt timeout (in seconds) </label>
-                                            <input id="HidePromptAdjustment" type="number" is="emby-input" min="2" />
-                                            <div class="fieldDescription">Seconds after introduction before skip prompt is hidden.</div>
-                                            <br />
-                                        </div>
-
-                                        <div class="inputContainer">
-                                            <label class="inputLabel" for="SkipButtonIntroText"> Skip intro button text </label>
-                                            <input id="SkipButtonIntroText" type="text" is="emby-input" />
-                                            <div class="fieldDescription">Text to display in the skip intro button.</div>
-                                        </div>
-
-                                        <div class="inputContainer">
-                                            <label class="inputLabel" for="SkipButtonEndCreditsText"> Skip end credits button text </label>
-                                            <input id="SkipButtonEndCreditsText" type="text" is="emby-input" />
-                                            <div class="fieldDescription">Text to display in the skip end credits button.</div>
-                                        </div>
-                                    </div>
-
-                                    <div id="divAutoSkipNotificationText" class="inputContainer">
-                                        <label class="inputLabel" for="AutoSkipNotificationText"> Auto skip intro notification message </label>
-                                        <input id="AutoSkipNotificationText" type="text" is="emby-input" />
-                                        <div class="fieldDescription">Message shown after automatically skipping an introduction. Leave blank to disable notification.</div>
-                                    </div>
-                                </details>
+                                </div>
                             </fieldset>
                         </div>
 
@@ -703,15 +694,13 @@
                                 </div>
 
                                 <div id="eraseSeasonContainer" style="display: none">
-                                    <p>
-                                        <div class="checkboxContainer checkboxContainer" style="margin: 0;">
-                                            <label class="emby-checkbox-label">
-                                                <input id="eraseSeasonCacheCheckbox" type="checkbox" is="emby-checkbox" />
-                                                <span>Include cached fingerprint files</span>
-                                            </label>
-                                        </div>
-                                        <button is="emby-button" id="btnEraseSeasonTimestamps" class="raised button-submit block emby-button" type="button">Erase all timestamps for this season</button>
-                                    </p>
+                                    <div class="checkboxContainer checkboxContainer" style="margin: 0;">
+                                        <label class="emby-checkbox-label">
+                                            <input id="eraseSeasonCacheCheckbox" type="checkbox" is="emby-checkbox" />
+                                            <span>Include cached fingerprint files</span>
+                                        </label>
+                                    </div>
+                                    <button is="emby-button" id="btnEraseSeasonTimestamps" class="raised button-submit block emby-button" type="button">Erase all timestamps for this season</button>
                                 </div>
 
                                 <div id="eraseMovieContainer" style="display: none">
@@ -801,6 +790,10 @@
                 const configurationFields = [
                     // analysis
                     "MaxParallelism",
+					"SelectedLibraries",
+                    "KeyframeWindowBefore",
+                    "KeyframeWindowAfter",
+                    "EndSnapThreshold",
                     "ExcludeSeries",
                     "ClientList",
                     "AnalysisPercent",
@@ -817,8 +810,6 @@
                     "ProcessPriority",
                     "ProcessThreads",
                     // playback
-                    "ShowPromptAdjustment",
-                    "HidePromptAdjustment",
                     "RemainingSecondsOfIntro",
                     "SecondsOfIntroStartToPlay",
                     // internals
@@ -830,14 +821,13 @@
                     "ChapterAnalyzerRecapPattern",
                     "TypeList",
                     // UI customization
-                    "SkipButtonIntroText",
-                    "SkipButtonEndCreditsText",
                     "AutoSkipNotificationText",
                 ];
 
-                const booleanConfigurationFields = ["AutoDetectIntros", "AnalyzeSeasonZero", "UpdateMediaSegments", "FullLengthChapters", "RebuildMediaSegments", "ScanIntroduction", "ScanCredits", "ScanRecap", "ScanPreview", "CacheFingerprints", "PluginSkip", "AutoSkip", "SkipFirstEpisode", "PersistSkipButton", "SkipButtonEnabled"];
+                const booleanConfigurationFields = ["AutoDetectIntros", "AnalyzeMovies", "AnalyzeSeasonZero", "SelectAllLibraries", "UpdateMediaSegments", "FullLengthChapters", "RebuildMediaSegments", "ScanIntroduction", "ScanCredits", "ScanRecap", "ScanPreview", "CacheFingerprints", "PluginSkip", "AutoSkip", "SkipFirstEpisode", "SnapToKeyframe"];
 
                 // visualizer elements
+                const analyzeMovies = document.getElementById("AnalyzeMovies");
                 const analyzerActionsSection = document.querySelector("div#analyzerActionsSection");
                 const actionIntro = analyzerActionsSection.querySelector("select#actionIntro");
                 const actionCredits = analyzerActionsSection.querySelector("select#actionCredits");
@@ -863,48 +853,40 @@
                 const btnUpdateTimestamps = document.querySelector("button#btnUpdateTimestamps");
                 const timeContainer = document.querySelector("span#timestampContainer");
                 const fingerprintVisualizer = document.getElementById("fingerprintVisualizer");
+                const snapSettings = document.getElementById("snapSettings");
 
                 let windowHashInterval = 0;
 
                 const pluginSkip = document.getElementById("PluginSkip");
                 const serverSkipSettings = document.getElementById("ServerSkipSettings");
                 const autoSkip = document.getElementById("AutoSkip");
-                const skipButtonVisible = document.getElementById("SkipButtonEnabled");
-                const skipButtonVisibleLabel = document.getElementById("SkipButtonVisibleLabel");
-                const skipButtonSettings = document.getElementById("SkipButtonSettings");
-                const skipFirstEpisode = document.getElementById("divSkipFirstEpisode");
-                const secondsOfIntroStartToPlay = document.getElementById("divSecondsOfIntroStartToPlay");
+                const selectAllLibraries = document.querySelector("input#SelectAllLibraries");
+                const librariesContainer = document.querySelector("div.folderAccessListContainer");
                 const autoSkipClientList = document.querySelector("div.AutoSkipClientListContainer");
                 const fullLengthChapters = document.getElementById("FullLengthChapters");
-                const movieCreditsDuration = document.getElementById("movieCreditsDuration");
+                const snapToKeyframe = document.getElementById("SnapToKeyframe");
                 const globalTimestamps = document.getElementById("GlobalTimestamps");
                 const btnEraseGlobalTimestamps = document.getElementById("btnEraseGlobalTimestamps");
-
-                function skipButtonVisibleChanged() {
-                    if (autoSkip.checked) {
-                        skipButtonSettings.style.display = "none";
-                    } else if (skipButtonVisible.checked) {
-                        skipButtonSettings.style.display = "unset";
-                    } else {
-                        skipButtonSettings.style.display = "none";
-                    }
-                }
-
-                skipButtonVisible.addEventListener("change", skipButtonVisibleChanged);
 
                 function autoSkipChanged() {
                     if (autoSkip.checked) {
                         autoSkipClientList.style.display = "none";
-                        skipButtonVisibleLabel.textContent = "Button unavailable due to auto skip";
                     } else {
                         autoSkipClientList.style.display = "unset";
                         autoSkipClientList.style.width = "100%";
-                        skipButtonVisibleLabel.textContent = "Show Segment Skip Buttons";
                     }
-                    skipButtonVisibleChanged();
                 }
 
                 autoSkip.addEventListener("change", autoSkipChanged);
+
+                function selectAllLibrariesChanged() {
+                    if (selectAllLibraries.checked) {
+                        librariesContainer.style.display = "none";
+                    } else {
+                        librariesContainer.style.display = "unset";
+                    }
+                }
+                selectAllLibraries.addEventListener("change", selectAllLibrariesChanged);
 
                 const recapPreviewDurations = document.getElementById("RecapPreviewDurations");
 
@@ -957,39 +939,54 @@
                     generateCheckboxList(types, "autoSkipTypeCheckboxes", "TypeList");
                 }
 
-                const persistSkip = document.getElementById("PersistSkipButton");
-                const showAdjustment = document.querySelector("div#divShowPromptAdjustment");
-                const hideAdjustment = document.querySelector("div#divHidePromptAdjustment");
+                const skipFirstEpisode = document.getElementById("divSkipFirstEpisode");
+                const secondsOfIntroStartToPlay = document.getElementById("SecondsOfIntroStartToPlay");
 
-                // prevent setting unavailable options
-                async function persistSkipChanged() {
-                    if (persistSkip.checked) {
-                        showAdjustment.style.display = "none";
-                        hideAdjustment.style.display = "none";
-                    } else {
-                        showAdjustment.style.display = "unset";
-                        hideAdjustment.style.display = "unset";
-                    }
+                async function populateLibraries() {
+                    const response = await getJson("Library/VirtualFolders");
+                    const tvLibraries = response.filter((item) => item.CollectionType === undefined || item.CollectionType === "tvshows" || item.CollectionType === "movies");
+                    const libraryNames = tvLibraries.map((lib) => lib.Name || "Unnamed Library");
+                    generateCheckboxList(libraryNames, "libraryCheckboxes", "SelectedLibraries");
                 }
 
-                persistSkip.addEventListener("change", persistSkipChanged);
-
-                const remainingSecondsOfIntro = document.getElementById("RemainingSecondsOfIntro");
-
-                async function pluginSkipSettingChanged() {
-                    if (pluginSkip.checked) {
+                async function pluginSkipSettingVisible() {
+                    if (pluginSkip.checked || autoSkip.checked) {
+                        pluginSkip.checked = true;
                         serverSkipSettings.style.display = "unset";
                     } else {
                         serverSkipSettings.style.display = "none";
-                        // TODO: Reset everything to default
-                        autoSkip.checked = false;
-                        skipButtonVisible.checked = false;
-                        persistSkip.checked = false;
-                        remainingSecondsOfIntro.value = 0;
                     }
                 }
 
+                async function snapSettingsVisible() {
+                    if (snapToKeyframe.checked) {
+                        snapSettings.style.display = "unset";
+                    } else {
+                        snapSettings.style.display = "none";
+                    }
+                }
+
+                snapToKeyframe.addEventListener("change", snapSettingsVisible);
+
+                async function pluginSkipSettingChanged() {
+                    if (!pluginSkip.checked) {
+                        autoSkip.checked = false;
+                        skipFirstEpisode.checked = false;
+                        secondsOfIntroStartToPlay.value = 0;
+                    }
+                     pluginSkipSettingVisible()
+                }
+
                 pluginSkip.addEventListener("change", pluginSkipSettingChanged);
+
+                async function analyzeMoviesChanged() {
+                    if (analyzeMovies.checked) {
+                        movieCreditsDuration.style.display = "unset";
+                    } else {
+                        movieCreditsDuration.style.display = "none";
+                    }
+                }
+                analyzeMovies.addEventListener("change", analyzeMoviesChanged);
 
                 function globalTimestampChanged() {
                     btnEraseGlobalTimestamps.textContent = "Erase all " + globalTimestamps.value + " timestamps (globally)";
@@ -1480,22 +1477,15 @@
                             document.querySelector("#" + field).checked = config[field];
                         }
 
-                        if (config["SkipButtonWarning"]) {
-                            document.getElementById("warningMessage").style.display = "unset";
-                        } else {
-                            document.getElementById("warningMessage").style.display = "none";
-                        }
-
+                        analyzeMoviesChanged();
+                        populateLibraries();
+                        selectAllLibrariesChanged();
                         fullLengthChaptersChanged();
                         autoSkipChanged();
-                        persistSkipChanged();
                         generateAutoSkipTypeList();
                         generateAutoSkipClientList();
-                        const pluginSkip = document.getElementById("PluginSkip");
-                        pluginSkip.checked = pluginSkip.checked
-                            || document.getElementById("AutoSkip").checked
-                            || document.getElementById("SkipButtonEnabled").checked
-                        pluginSkipSettingChanged();
+                        pluginSkipSettingVisible();
+                        snapSettingsVisible();
                         globalTimestampChanged();
 
                         Dashboard.hideLoadingMsg();

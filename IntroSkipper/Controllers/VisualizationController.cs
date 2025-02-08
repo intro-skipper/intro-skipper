@@ -25,7 +25,7 @@ namespace IntroSkipper.Controllers;
 /// Initializes a new instance of the <see cref="VisualizationController"/> class.
 /// </remarks>
 /// <param name="logger">Logger.</param>
-/// <param name="mediaSegmentUpdateManager">Media Segment Update Manager.</param>
+/// <param name="mediaSegmentUpdateManager">Media segment update manager.</param>
 [Authorize(Policy = Policies.RequiresElevation)]
 [ApiController]
 [Produces(MediaTypeNames.Application.Json)]
@@ -48,20 +48,22 @@ public class VisualizationController(ILogger<VisualizationController> logger, Me
 
         foreach (var kvp in Plugin.Instance!.QueuedMediaItems)
         {
-            if (kvp.Value.FirstOrDefault() is QueuedEpisode first)
+            if (kvp.Value.FirstOrDefault() is not QueuedEpisode first)
             {
-                var seriesId = first.SeriesId;
-                var seasonId = kvp.Key;
-
-                var seasonNumber = first.SeasonNumber;
-                if (!showSeasons.TryGetValue(seriesId, out var showInfo))
-                {
-                    showInfo = new ShowInfos { SeriesName = first.SeriesName, ProductionYear = GetProductionYear(seriesId), LibraryName = GetLibraryName(seriesId), IsMovie = first.IsMovie, Seasons = [] };
-                    showSeasons[seriesId] = showInfo;
-                }
-
-                showInfo.Seasons[seasonId] = seasonNumber;
+                continue;
             }
+
+            var seriesId = first.SeriesId;
+            var seasonId = kvp.Key;
+
+            var seasonNumber = first.SeasonNumber;
+            if (!showSeasons.TryGetValue(seriesId, out var showInfo))
+            {
+                showInfo = new ShowInfos { SeriesName = first.SeriesName, ProductionYear = GetProductionYear(seriesId), LibraryName = GetLibraryName(seriesId), IsMovie = first.IsMovie, Seasons = [] };
+                showSeasons[seriesId] = showInfo;
+            }
+
+            showInfo.Seasons[seasonId] = seasonNumber;
         }
 
         // Sort the dictionary by SeriesName and the seasons by SeasonName

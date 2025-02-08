@@ -24,7 +24,7 @@ namespace IntroSkipper.ScheduledTasks;
 /// <param name="logger">Task logger.</param>
 /// <param name="loggerFactory">Logger factory.</param>
 /// <param name="libraryManager">Library manager.</param>
-/// <param name="mediaSegmentUpdateManager">MediaSegmentUpdateManager.</param>
+/// <param name="mediaSegmentUpdateManager">Media segment update manager.</param>
 public class BaseItemAnalyzerTask(
     ILogger logger,
     ILoggerFactory loggerFactory,

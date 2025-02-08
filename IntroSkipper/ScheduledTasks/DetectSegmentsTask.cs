@@ -22,7 +22,7 @@ namespace IntroSkipper.ScheduledTasks;
 /// <param name="loggerFactory">Logger factory.</param>
 /// <param name="libraryManager">Library manager.</param>
 /// <param name="logger">Logger.</param>
-/// <param name="mediaSegmentUpdateManager">MediaSegment Update Manager.</param>
+/// <param name="mediaSegmentUpdateManager">Media segment update manager.</param>
 public class DetectSegmentsTask(
     ILogger<DetectSegmentsTask> logger,
     ILoggerFactory loggerFactory,

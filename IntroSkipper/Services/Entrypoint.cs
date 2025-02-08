@@ -43,7 +43,7 @@ namespace IntroSkipper.Services
         /// <param name="taskManager">Task manager.</param>
         /// <param name="logger">Logger.</param>
         /// <param name="loggerFactory">Logger factory.</param>
-        /// <param name="mediaSegmentUpdateManager">MediaSegment Update Manager.</param>
+        /// <param name="mediaSegmentUpdateManager">Media segment update manager.</param>
         public Entrypoint(
             ILibraryManager libraryManager,
             ITaskManager taskManager,

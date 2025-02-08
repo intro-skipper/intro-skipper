@@ -19,21 +19,21 @@ public class TestFlags
     public void TestSingleFlagSerialization()
     {
         WarningManager.Clear();
-        WarningManager.SetFlag(PluginWarning.UnableToAddSkipButton);
-        Assert.Equal("UnableToAddSkipButton", WarningManager.GetWarnings());
-        Assert.True(WarningManager.HasFlag(PluginWarning.UnableToAddSkipButton));
+        WarningManager.SetFlag(PluginWarning.IncompatibleFFmpegBuild);
+        Assert.Equal("IncompatibleFFmpegBuild", WarningManager.GetWarnings());
+        Assert.True(WarningManager.HasFlag(PluginWarning.IncompatibleFFmpegBuild));
     }
 
     [Fact]
     public void TestDoubleFlagSerialization()
     {
         WarningManager.Clear();
-        WarningManager.SetFlag(PluginWarning.UnableToAddSkipButton);
+        WarningManager.SetFlag(PluginWarning.IncompatibleFFmpegBuild);
         WarningManager.SetFlag(PluginWarning.InvalidChromaprintFingerprint);
         WarningManager.SetFlag(PluginWarning.InvalidChromaprintFingerprint);
-        Assert.True(WarningManager.HasFlag(PluginWarning.UnableToAddSkipButton) && WarningManager.HasFlag(PluginWarning.InvalidChromaprintFingerprint));
+        Assert.True(WarningManager.HasFlag(PluginWarning.IncompatibleFFmpegBuild) && WarningManager.HasFlag(PluginWarning.InvalidChromaprintFingerprint));
         Assert.Equal(
-            "UnableToAddSkipButton, InvalidChromaprintFingerprint",
+            "InvalidChromaprintFingerprint, IncompatibleFFmpegBuild",
             WarningManager.GetWarnings());
     }
 
@@ -42,11 +42,11 @@ public class TestFlags
     {
         WarningManager.Clear();
         Assert.True(WarningManager.HasFlag(PluginWarning.None));
-        Assert.False(WarningManager.HasFlag(PluginWarning.UnableToAddSkipButton) && WarningManager.HasFlag(PluginWarning.InvalidChromaprintFingerprint));
-        WarningManager.SetFlag(PluginWarning.UnableToAddSkipButton);
+        Assert.False(WarningManager.HasFlag(PluginWarning.IncompatibleFFmpegBuild) && WarningManager.HasFlag(PluginWarning.InvalidChromaprintFingerprint));
+        WarningManager.SetFlag(PluginWarning.IncompatibleFFmpegBuild);
         WarningManager.SetFlag(PluginWarning.InvalidChromaprintFingerprint);
-        Assert.True(WarningManager.HasFlag(PluginWarning.UnableToAddSkipButton) && WarningManager.HasFlag(PluginWarning.InvalidChromaprintFingerprint));
-        Assert.False(WarningManager.HasFlag(PluginWarning.IncompatibleFFmpegBuild));
+        Assert.True(WarningManager.HasFlag(PluginWarning.IncompatibleFFmpegBuild) && WarningManager.HasFlag(PluginWarning.InvalidChromaprintFingerprint));
+        Assert.True(WarningManager.HasFlag(PluginWarning.IncompatibleFFmpegBuild));
         Assert.True(WarningManager.HasFlag(PluginWarning.None));
     }
 }

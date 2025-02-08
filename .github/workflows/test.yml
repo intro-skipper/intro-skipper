@@ -1,9 +1,9 @@
-name: "CodeQL"
+name: "Run Tests"
 
 on:
   push:
     branches:
-      - '*'  # Triggers on any branch push
+      - '*'
     paths-ignore:
       - "**/README.md"
       - ".github/ISSUE_TEMPLATE/**"
@@ -11,20 +11,9 @@ on:
       - "images/**"
       - "manifest.json"
 
-permissions: write-all
-
 jobs:
-  analyze:
-    name: Analyze
+  test:
     runs-on: ubuntu-latest
-
-    # This job will only run if the repository is public
-    if: ${{ github.event.repository.private == false }}
-
-    strategy:
-      fail-fast: false
-      matrix:
-        language: ["csharp"]
 
     steps:
       - uses: actions/checkout@v4
@@ -43,6 +32,16 @@ jobs:
         with:
           dotnet-version: 8.0.x
 
+      - name: Install jellyfin-ffmpeg
+        run: |
+          sudo apt update
+          sudo apt install -y curl
+          curl -fsSLO https://repo.jellyfin.org/files/ffmpeg/ubuntu/latest-7.x/amd64/jellyfin-ffmpeg7_7.0.2-9-noble_amd64.deb
+          sudo apt install -y ./jellyfin-ffmpeg7_7.0.2-9-noble_amd64.deb
+          sudo ln -s /usr/lib/jellyfin-ffmpeg/ffmpeg /usr/local/bin/ffmpeg
+          sudo ln -s /usr/lib/jellyfin-ffmpeg/ffprobe /usr/local/bin/ffprobe
+          ffmpeg -version
+
       - name: Restore Beta dependencies
         if: ${{env.IS_BETA == 'true' }}
         run: |
@@ -54,14 +53,5 @@ jobs:
         if: ${{env.IS_BETA == 'false' }}
         run: dotnet restore
 
-      - name: Initialize CodeQL
-        uses: github/codeql-action/init@dd746615b3b9d728a6a37ca2045b68ca76d4841a # v3.28.8
-        with:
-          languages: ${{ matrix.language }}
-          queries: +security-extended
-
-      - name: Autobuild
-        uses: github/codeql-action/autobuild@dd746615b3b9d728a6a37ca2045b68ca76d4841a # v3.28.8
-
-      - name: Perform CodeQL Analysis
-        uses: github/codeql-action/analyze@dd746615b3b9d728a6a37ca2045b68ca76d4841a # v3.28.8
+      - name: Run tests
+        run: dotnet test --no-restore --verbosity normal

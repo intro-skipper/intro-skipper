@@ -2,8 +2,8 @@
   <PropertyGroup>
     <TargetFramework>net8.0</TargetFramework>
     <RootNamespace>IntroSkipper</RootNamespace>
-    <AssemblyVersion>1.10.10.13</AssemblyVersion>
-    <FileVersion>1.10.10.13</FileVersion>
+    <AssemblyVersion>1.10.10.14</AssemblyVersion>
+    <FileVersion>1.10.10.14</FileVersion>
     <GenerateDocumentationFile>true</GenerateDocumentationFile>
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
     <Nullable>enable</Nullable>
@@ -23,6 +23,5 @@
     <None Remove="Configuration\configPage.html" />
     <EmbeddedResource Include="Configuration\configPage.html" />
     <EmbeddedResource Include="Configuration\visualizer.js" />
-    <EmbeddedResource Include="Configuration\inject.js" />
   </ItemGroup>
 </Project>
