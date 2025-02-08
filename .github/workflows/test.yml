@@ -35,6 +35,13 @@ jobs:
         with:
           dotnet-version: 8.0.x
 
+      - name: Install jellyfin-ffmpeg
+        run: |
+          sudo add-apt-repository universe
+          sudo add-apt-repository ppa:jellyfin/jellyfin
+          sudo apt update
+          sudo apt install -y jellyfin-ffmpeg
+
       - name: Restore Beta dependencies
         if: ${{env.IS_BETA == 'true' }}
         run: |
