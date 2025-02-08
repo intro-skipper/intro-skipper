@@ -354,7 +354,7 @@ public static partial class FFmpegWrapper
         var logLevel = useInfoLevel ? "info" : "warning";
 
         var cacheOutput =
-            (Plugin.Instance?.Configuration.CacheFingerprints ?? false) &&
+            (Plugin.Instance?.Configuration.CacheFingerprints ?? true) &&
             !string.IsNullOrEmpty(cacheFilename);
 
         // If caching is enabled, try to load the output of this command from the cached file.
@@ -499,7 +499,7 @@ public static partial class FFmpegWrapper
         fingerprint = Array.Empty<uint>();
 
         // If fingerprint caching isn't enabled, don't try to load anything.
-        if (!(Plugin.Instance?.Configuration.CacheFingerprints ?? false))
+        if (!(Plugin.Instance?.Configuration.CacheFingerprints ?? true))
         {
             return false;
         }
@@ -553,7 +553,7 @@ public static partial class FFmpegWrapper
         List<uint> fingerprint)
     {
         // Bail out if caching isn't enabled.
-        if (!(Plugin.Instance?.Configuration.CacheFingerprints ?? false))
+        if (!(Plugin.Instance?.Configuration.CacheFingerprints ?? true))
         {
             return;
         }
