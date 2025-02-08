@@ -148,6 +148,27 @@ public class PluginConfiguration : BasePluginConfiguration
     public int BlackFrameMinimumPercentage { get; set; } = 85;
 
     /// <summary>
+    /// Gets or sets a value indicating whether to snap the end of a segm to the nearest keyframe.
+    /// </summary>
+    public bool SnapToKeyframe { get; set; } = true;
+
+    /// <summary>
+    /// Gets or sets window in seconds to snap segments to the end of the episode.
+    /// This gets applied at the very end.
+    /// </summary>
+    public double EndSnapThreshold { get; set; } = 2.0;
+
+    /// <summary>
+    /// Gets or sets the number of seconds to search before segment end to find a keyframe.
+    /// </summary>
+    public double KeyframeWindowBefore { get; set; } = 3.0;
+
+    /// <summary>
+    /// Gets or sets the number of seconds to search after segment end to find a keyframe.
+    /// </summary>
+    public double KeyframeWindowAfter { get; set; } = 1.0;
+
+    /// <summary>
     /// Gets or sets the regular expression used to detect introduction chapters.
     /// </summary>
     public string ChapterAnalyzerIntroductionPattern { get; set; } =

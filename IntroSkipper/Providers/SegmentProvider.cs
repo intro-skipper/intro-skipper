@@ -31,9 +31,7 @@ namespace IntroSkipper.Providers
             ArgumentNullException.ThrowIfNull(Plugin.Instance);
 
             var segments = new List<MediaSegmentDto>();
-            var remainingTicks = Plugin.Instance.Configuration.RemainingSecondsOfIntro * TimeSpan.TicksPerSecond;
             var itemSegments = Plugin.Instance.GetTimestamps(request.ItemId);
-            var runTimeTicks = Plugin.Instance.GetItem(request.ItemId)?.RunTimeTicks ?? 0;
 
             // Define mappings between AnalysisMode and MediaSegmentType
             var segmentMappings = new List<(AnalysisMode Mode, MediaSegmentType Type)>
@@ -49,7 +47,7 @@ namespace IntroSkipper.Providers
                 if (itemSegments.TryGetValue(mode, out var segment) && segment.Valid)
                 {
                     long startTicks = (long)(segment.Start * TimeSpan.TicksPerSecond);
-                    long endTicks = CalculateEndTicks(mode, segment, runTimeTicks, remainingTicks);
+                    long endTicks = (long)(segment.End * TimeSpan.TicksPerSecond);
 
                     segments.Add(new MediaSegmentDto
                     {
@@ -62,26 +60,6 @@ namespace IntroSkipper.Providers
             }
 
             return Task.FromResult<IReadOnlyList<MediaSegmentDto>>(segments);
-        }
-
-        /// <summary>
-        /// Calculates the end ticks based on the segment type and runtime.
-        /// </summary>
-        private static long CalculateEndTicks(AnalysisMode mode, Segment segment, long runTimeTicks, long remainingTicks)
-        {
-            long endTicks = (long)(segment.End * TimeSpan.TicksPerSecond);
-
-            if (mode is AnalysisMode.Preview or AnalysisMode.Credits)
-            {
-                if (runTimeTicks > 0 && runTimeTicks < endTicks + TimeSpan.TicksPerSecond)
-                {
-                    return Math.Max(runTimeTicks, endTicks);
-                }
-
-                return endTicks - remainingTicks;
-            }
-
-            return endTicks - remainingTicks;
         }
 
         /// <inheritdoc/>
