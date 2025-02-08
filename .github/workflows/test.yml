@@ -10,9 +10,6 @@ on:
       - "docs/**"
       - "images/**"
       - "manifest.json"
-  pull_request:
-    branches:
-      - '*'
 
 jobs:
   test:
