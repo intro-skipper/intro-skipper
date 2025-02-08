@@ -214,29 +214,30 @@
                                 <div class="checkboxContainer checkboxContainer-withDescription">
                                     <label class="emby-checkbox-label">
                                         <input id="SnapToKeyframe" type="checkbox" is="emby-checkbox" />
-                                        <span>Snap segment end to nearest keyframe</span>
+                                        <span>Enable keyframe snapping for smooth playback transitions</span>
                                     </label>
 
-
-                                    <div class="fieldDescription">When enabled, this option will snap the end of a segment to the nearest keyframe.</div>
+                                    <div class="fieldDescription">When enabled, segment endpoints will be adjusted to the nearest video keyframe for smoother playback transitions during skipping.</div>
                                 </div>
 
-                                <div class="inputContainer">
-                                    <label class="inputLabel inputLabelUnfocused" for="KeyframeWindowBefore"> Keyframe search range before </label>
-                                    <input id="KeyframeWindowBefore" type="number" is="emby-input" min="0" />
-                                    <div class="fieldDescription">Number of seconds to search before segment end to find a keyframe.</div>
-                                </div>
+                                <div id="snapSettings">
+                                    <div class="inputContainer">
+                                        <label class="inputLabel inputLabelUnfocused" for="KeyframeWindowBefore"> Keyframe search window (before) </label>
+                                        <input id="KeyframeWindowBefore" type="number" is="emby-input" min="0" />
+                                        <div class="fieldDescription">Maximum number of seconds to look backwards from a segment endpoint to find a suitable keyframe. A larger window increases the chance of finding an optimal keyframe.</div>
+                                    </div>
 
-                                <div class="inputContainer">
-                                    <label class="inputLabel inputLabelUnfocused" for="KeyframeWindowAfter"> Keyframe search range after </label>
-                                    <input id="KeyframeWindowAfter" type="number" is="emby-input" min="0" />
-                                    <div class="fieldDescription">Number of seconds to search after segment end to find a keyframe.</div>
-                                </div>
+                                    <div class="inputContainer">
+                                        <label class="inputLabel inputLabelUnfocused" for="KeyframeWindowAfter"> Keyframe search window (after) </label>
+                                        <input id="KeyframeWindowAfter" type="number" is="emby-input" min="0" />
+                                        <div class="fieldDescription">Maximum number of seconds to look forward from a segment endpoint to find a suitable keyframe. A larger window increases the chance of finding an optimal keyframe.</div>
+                                    </div>
 
-                                <div class="inputContainer">
-                                    <label class="inputLabel inputLabelUnfocused" for="EndSnapThreshold"> Episode end snap threshold </label>
-                                    <input id="EndSnapThreshold" type="number" is="emby-input" min="0" />
-                                    <div class="fieldDescription">Number of seconds to snap the end of a segment to the episode end.</div>
+                                    <div class="inputContainer">
+                                        <label class="inputLabel inputLabelUnfocused" for="EndSnapThreshold"> End credits snap threshold </label>
+                                        <input id="EndSnapThreshold" type="number" is="emby-input" min="0" />
+                                        <div class="fieldDescription">If the end of a credits segment is within this many seconds of the episode end, it will be automatically extended to the episode end. Set to 0 to disable.</div>
+                                    </div>
                                 </div>
 
                                 <br />
@@ -857,6 +858,7 @@
                 const btnUpdateTimestamps = document.querySelector("button#btnUpdateTimestamps");
                 const timeContainer = document.querySelector("span#timestampContainer");
                 const fingerprintVisualizer = document.getElementById("fingerprintVisualizer");
+                const snapSettings = document.getElementById("snapSettings");
 
                 let windowHashInterval = 0;
 
@@ -867,6 +869,7 @@
                 const librariesContainer = document.querySelector("div.folderAccessListContainer");
                 const autoSkipClientList = document.querySelector("div.AutoSkipClientListContainer");
                 const fullLengthChapters = document.getElementById("FullLengthChapters");
+                const snapToKeyframe = document.getElementById("SnapToKeyframe");
                 const globalTimestamps = document.getElementById("GlobalTimestamps");
                 const btnEraseGlobalTimestamps = document.getElementById("btnEraseGlobalTimestamps");
 
@@ -960,6 +963,16 @@
                         serverSkipSettings.style.display = "none";
                     }
                 }
+
+                async function snapSettingsVisible() {
+                    if (snapToKeyframe.checked) {
+                        snapSettings.style.display = "unset";
+                    } else {
+                        snapSettings.style.display = "none";
+                    }
+                }
+
+                snapToKeyframe.addEventListener("change", snapSettingsVisible);
 
                 async function pluginSkipSettingChanged() {
                     if (!pluginSkip.checked) {
@@ -1479,6 +1492,7 @@
                         generateAutoSkipTypeList();
                         generateAutoSkipClientList();
                         pluginSkipSettingVisible();
+                        snapSettingsVisible();
                         globalTimestampChanged();
 
                         Dashboard.hideLoadingMsg();
