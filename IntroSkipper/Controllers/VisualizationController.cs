@@ -25,7 +25,7 @@ namespace IntroSkipper.Controllers;
 /// Initializes a new instance of the <see cref="VisualizationController"/> class.
 /// </remarks>
 /// <param name="logger">Logger.</param>
-/// <param name="mediaSegmentUpdateManager">Media Segment Update Manager.</param>
+/// <param name="mediaSegmentUpdateManager">Media segment update manager.</param>
 [Authorize(Policy = Policies.RequiresElevation)]
 [ApiController]
 [Produces(MediaTypeNames.Application.Json)]

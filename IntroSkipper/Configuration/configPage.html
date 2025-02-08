@@ -214,7 +214,37 @@
                                         <input id="MaximumPreviewDuration" type="number" is="emby-input" min="1" />
                                         <div class="fieldDescription">Segments which are longer than this duration will not be considered a preview.</div>
                                     </div>
-                              </div>
+                                </div>
+
+                                <br />
+                                <div class="checkboxContainer checkboxContainer-withDescription">
+                                    <label class="emby-checkbox-label">
+                                        <input id="SnapToKeyframe" type="checkbox" is="emby-checkbox" />
+                                        <span>Enable keyframe snapping for smooth playback transitions</span>
+                                    </label>
+
+                                    <div class="fieldDescription">When enabled, segment endpoints will be adjusted to the nearest video keyframe for smoother playback transitions during skipping.</div>
+                                </div>
+
+                                <div id="snapSettings">
+                                    <div class="inputContainer">
+                                        <label class="inputLabel inputLabelUnfocused" for="KeyframeWindowBefore"> Keyframe search window (before) </label>
+                                        <input id="KeyframeWindowBefore" type="number" is="emby-input" min="0" />
+                                        <div class="fieldDescription">Maximum number of seconds to look backwards from a segment endpoint to find a suitable keyframe. A larger window increases the chance of finding an optimal keyframe.</div>
+                                    </div>
+
+                                    <div class="inputContainer">
+                                        <label class="inputLabel inputLabelUnfocused" for="KeyframeWindowAfter"> Keyframe search window (after) </label>
+                                        <input id="KeyframeWindowAfter" type="number" is="emby-input" min="0" />
+                                        <div class="fieldDescription">Maximum number of seconds to look forward from a segment endpoint to find a suitable keyframe. A larger window increases the chance of finding an optimal keyframe.</div>
+                                    </div>
+
+                                    <div class="inputContainer">
+                                        <label class="inputLabel inputLabelUnfocused" for="EndSnapThreshold"> End credits snap threshold </label>
+                                        <input id="EndSnapThreshold" type="number" is="emby-input" min="0" />
+                                        <div class="fieldDescription">If the end of a credits segment is within this many seconds of the episode end, it will be automatically extended to the episode end. Set to 0 to disable.</div>
+                                    </div>
+                                </div>
 
                                 <div class="inputContainer">
                                     <label class="inputLabel inputLabelUnfocused" for="RemainingSecondsOfIntro"> Segment playback duration (in seconds) </label>
@@ -765,6 +795,9 @@
                     // analysis
                     "MaxParallelism",
 					"SelectedLibraries",
+                    "KeyframeWindowBefore",
+                    "KeyframeWindowAfter",
+                    "EndSnapThreshold",
                     "ExcludeSeries",
                     "ClientList",
                     "AnalysisPercent",
@@ -795,7 +828,7 @@
                     "AutoSkipNotificationText",
                 ];
 
-                const booleanConfigurationFields = ["AutoDetectIntros", "AnalyzeMovies", "AnalyzeSeasonZero", "SelectAllLibraries", "UpdateMediaSegments", "FullLengthChapters", "RebuildMediaSegments", "ScanIntroduction", "ScanCredits", "ScanRecap", "ScanPreview", "CacheFingerprints", "PluginSkip", "AutoSkip", "SkipFirstEpisode"];
+                const booleanConfigurationFields = ["AutoDetectIntros", "AnalyzeMovies", "AnalyzeSeasonZero", "SelectAllLibraries", "UpdateMediaSegments", "FullLengthChapters", "RebuildMediaSegments", "ScanIntroduction", "ScanCredits", "ScanRecap", "ScanPreview", "CacheFingerprints", "PluginSkip", "AutoSkip", "SkipFirstEpisode", "SnapToKeyframe"];
 
                 // visualizer elements
                 const analyzeMovies = document.getElementById("AnalyzeMovies");
@@ -824,6 +857,7 @@
                 const btnUpdateTimestamps = document.querySelector("button#btnUpdateTimestamps");
                 const timeContainer = document.querySelector("span#timestampContainer");
                 const fingerprintVisualizer = document.getElementById("fingerprintVisualizer");
+                const snapSettings = document.getElementById("snapSettings");
 
                 let windowHashInterval = 0;
 
@@ -834,6 +868,7 @@
                 const librariesContainer = document.querySelector("div.folderAccessListContainer");
                 const autoSkipClientList = document.querySelector("div.AutoSkipClientListContainer");
                 const fullLengthChapters = document.getElementById("FullLengthChapters");
+                const snapToKeyframe = document.getElementById("SnapToKeyframe");
                 const globalTimestamps = document.getElementById("GlobalTimestamps");
                 const btnEraseGlobalTimestamps = document.getElementById("btnEraseGlobalTimestamps");
 
@@ -926,6 +961,16 @@
                         serverSkipSettings.style.display = "none";
                     }
                 }
+
+                async function snapSettingsVisible() {
+                    if (snapToKeyframe.checked) {
+                        snapSettings.style.display = "unset";
+                    } else {
+                        snapSettings.style.display = "none";
+                    }
+                }
+
+                snapToKeyframe.addEventListener("change", snapSettingsVisible);
 
                 async function pluginSkipSettingChanged() {
                     if (!pluginSkip.checked) {
@@ -1444,6 +1489,7 @@
                         generateAutoSkipTypeList();
                         generateAutoSkipClientList();
                         pluginSkipSettingVisible();
+                        snapSettingsVisible();
                         globalTimestampChanged();
 
                         Dashboard.hideLoadingMsg();
