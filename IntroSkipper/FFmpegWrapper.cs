@@ -8,7 +8,9 @@ using System.Globalization;
 using System.IO;
 using System.Text;
 using System.Text.RegularExpressions;
+using System.Threading.Tasks;
 using IntroSkipper.Data;
+using IntroSkipper.Helper;
 using Microsoft.Extensions.Logging;
 
 namespace IntroSkipper;
@@ -39,16 +41,16 @@ public static partial class FFmpegWrapper
     /// Check that the installed version of ffmpeg supports chromaprint.
     /// </summary>
     /// <returns>true if a compatible version of ffmpeg is installed, false on any error.</returns>
-    public static bool CheckFFmpegVersion()
+    public static async Task<bool> CheckFFmpegVersion()
     {
         try
         {
             // Always log ffmpeg's version information.
-            if (!CheckFFmpegRequirement(
+            if (!await CheckFFmpegRequirementAsync(
                 "-version",
                 "ffmpeg",
                 "version",
-                "Unknown error with FFmpeg version"))
+                "Unknown error with FFmpeg version").ConfigureAwait(false))
             {
                 ChromaprintLogs["error"] = "unknown_error";
                 WarningManager.SetFlag(PluginWarning.IncompatibleFFmpegBuild);
@@ -56,11 +58,11 @@ public static partial class FFmpegWrapper
             }
 
             // First, validate that the installed version of ffmpeg supports chromaprint at all.
-            if (!CheckFFmpegRequirement(
+            if (!await CheckFFmpegRequirementAsync(
                 "-muxers",
                 "chromaprint",
                 "muxer list",
-                "The installed version of ffmpeg does not support chromaprint"))
+                "The installed version of ffmpeg does not support chromaprint").ConfigureAwait(false))
             {
                 ChromaprintLogs["error"] = "chromaprint_not_supported";
                 WarningManager.SetFlag(PluginWarning.IncompatibleFFmpegBuild);
@@ -68,11 +70,11 @@ public static partial class FFmpegWrapper
             }
 
             // Second, validate that the Chromaprint muxer understands the "-fp_format raw" option.
-            if (!CheckFFmpegRequirement(
+            if (!await CheckFFmpegRequirementAsync(
                 "-h muxer=chromaprint",
                 "binary raw fingerprint",
                 "chromaprint options",
-                "The installed version of ffmpeg does not support raw binary fingerprints"))
+                "The installed version of ffmpeg does not support raw binary fingerprints").ConfigureAwait(false))
             {
                 ChromaprintLogs["error"] = "fp_format_not_supported";
                 WarningManager.SetFlag(PluginWarning.IncompatibleFFmpegBuild);
@@ -80,11 +82,11 @@ public static partial class FFmpegWrapper
             }
 
             // Third, validate that ffmpeg supports of the all required silencedetect options.
-            if (!CheckFFmpegRequirement(
+            if (!await CheckFFmpegRequirementAsync(
                 "-h filter=silencedetect",
                 "noise tolerance",
                 "silencedetect options",
-                "The installed version of ffmpeg does not support the silencedetect filter"))
+                "The installed version of ffmpeg does not support the silencedetect filter").ConfigureAwait(false))
             {
                 ChromaprintLogs["error"] = "silencedetect_not_supported";
                 WarningManager.SetFlag(PluginWarning.IncompatibleFFmpegBuild);
@@ -109,7 +111,7 @@ public static partial class FFmpegWrapper
     /// <param name="episode">Queued episode to fingerprint.</param>
     /// <param name="mode">Portion of media file to fingerprint. Introduction = first 25% / 10 minutes and Credits = last 4 minutes.</param>
     /// <returns>Numerical fingerprint points.</returns>
-    public static uint[] Fingerprint(QueuedEpisode episode, AnalysisMode mode)
+    public static async Task<uint[]> Fingerprint(QueuedEpisode episode, AnalysisMode mode)
     {
         double start, end;
 
@@ -128,7 +130,7 @@ public static partial class FFmpegWrapper
             throw new ArgumentException("Unknown analysis mode " + mode);
         }
 
-        return Fingerprint(episode, mode, start, end);
+        return await Fingerprint(episode, mode, start, end).ConfigureAwait(false);
     }
 
     /// <summary>
@@ -137,7 +139,7 @@ public static partial class FFmpegWrapper
     /// <param name="episode">Queued episode.</param>
     /// <param name="range">Time range to search.</param>
     /// <returns>Array of TimeRange objects that are silent in the queued episode.</returns>
-    public static TimeRange[] DetectSilence(QueuedEpisode episode, TimeRange range)
+    public static async Task<TimeRange[]> DetectSilence(QueuedEpisode episode, TimeRange range)
     {
         Logger?.LogTrace(
             "Detecting silence in \"{File}\" (range {Start}-{End}, id {Id})",
@@ -173,7 +175,7 @@ public static partial class FFmpegWrapper
          * [silencedetect @ 0x000000000000] silence_start: 12.34
          * [silencedetect @ 0x000000000000] silence_end: 56.123 | silence_duration: 43.783
         */
-        var raw = Encoding.UTF8.GetString(GetOutput(args, cacheKey, true));
+        var raw = Encoding.UTF8.GetString((await GetOutputAsync(args, cacheKey, true).ConfigureAwait(false)).Span);
         foreach (Match match in _silenceDetectionExpression.Matches(raw))
         {
             var isStart = match.Groups["type"].Value == "start";
@@ -200,7 +202,7 @@ public static partial class FFmpegWrapper
     /// <param name="range">Time range to search.</param>
     /// <param name="minimum">Percentage of the frame that must be black.</param>
     /// <returns>Array of frames that are mostly black.</returns>
-    public static BlackFrame[] DetectBlackFrames(
+    public static async Task<BlackFrame[]> DetectBlackFrames(
         QueuedEpisode episode,
         TimeRange range,
         int minimum)
@@ -229,7 +231,7 @@ public static partial class FFmpegWrapper
          * [Parsed_blackframe_0 @ 0x0000000] frame:1 pblack:99 pts:43 t:0.043000 type:B last_keyframe:0
          * [Parsed_blackframe_0 @ 0x0000000] frame:2 pblack:99 pts:85 t:0.085000 type:B last_keyframe:0
          */
-        var raw = Encoding.UTF8.GetString(GetOutput(args, cacheKey, true));
+        var raw = Encoding.UTF8.GetString((await GetOutputAsync(args, cacheKey, true).ConfigureAwait(false)).Span);
         foreach (var line in raw.Split('\n'))
         {
             // There is no FFmpeg flag to hide metadata such as description
@@ -267,7 +269,7 @@ public static partial class FFmpegWrapper
     /// <param name="episode">Media file to analyze.</param>
     /// <param name="range">Time range to search.</param>
     /// <returns>Array of timestamps of key frames.</returns>
-    public static double[] DetectKeyFrames(QueuedEpisode episode, TimeRange range)
+    public static async Task<double[]> DetectKeyFrames(QueuedEpisode episode, TimeRange range)
     {
         var args = string.Format(
             CultureInfo.InvariantCulture,
@@ -284,7 +286,7 @@ public static partial class FFmpegWrapper
             range.End);
 
         var keyframes = new List<double>();
-        var raw = Encoding.UTF8.GetString(GetOutput(args, cacheKey, stderr: true));
+        var raw = Encoding.UTF8.GetString((await GetOutputAsync(args, cacheKey, stderr: true).ConfigureAwait(false)).Span);
 
         foreach (var line in raw.Split('\n', StringSplitOptions.RemoveEmptyEntries))
         {
@@ -361,7 +363,7 @@ public static partial class FFmpegWrapper
     /// <param name="bundleName">Support bundle key to store FFmpeg's output under.</param>
     /// <param name="errorMessage">Error message to log if this requirement is not met.</param>
     /// <returns>true on success, false on error.</returns>
-    private static bool CheckFFmpegRequirement(
+    private static async Task<bool> CheckFFmpegRequirementAsync(
         string arguments,
         string mustContain,
         string bundleName,
@@ -369,7 +371,7 @@ public static partial class FFmpegWrapper
     {
         Logger?.LogDebug("Checking FFmpeg requirement {Arguments}", arguments);
 
-        var output = Encoding.UTF8.GetString(GetOutput(arguments, string.Empty, false, 2000));
+        var output = Encoding.UTF8.GetString((await GetOutputAsync(arguments, string.Empty, false, 2000).ConfigureAwait(false)).Span);
         Logger?.LogTrace("Output of ffmpeg {Arguments}: {Output}", arguments, output);
         ChromaprintLogs[bundleName] = output;
 
@@ -392,7 +394,7 @@ public static partial class FFmpegWrapper
     /// <param name="cacheFilename">Filename to cache the output of this command to, or string.Empty if this command should not be cached.</param>
     /// <param name="stderr">If standard error should be returned.</param>
     /// <param name="timeout">Timeout (in miliseconds) to wait for ffmpeg to exit.</param>
-    private static ReadOnlySpan<byte> GetOutput(
+    private static async Task<ReadOnlyMemory<byte>> GetOutputAsync(
         string args,
         string cacheFilename,
         bool stderr = false,
@@ -417,18 +419,24 @@ public static partial class FFmpegWrapper
             // Calculate the absolute path to the cached file.
             cacheFilename = Path.Join(Plugin.Instance!.FingerprintCachePath, cacheFilename);
 
-            // If the cached file exists, return whatever it holds.
-            if (File.Exists(cacheFilename))
+            try
             {
-                Logger?.LogTrace("Returning contents of cache {Cache}", cacheFilename);
-                return File.ReadAllBytes(cacheFilename);
+                // If the cached file exists, return whatever it holds.
+                if (File.Exists(cacheFilename))
+                {
+                    Logger?.LogTrace("Returning contents of cache {Cache}", cacheFilename);
+                    return await File.ReadAllBytesAsync(cacheFilename).ConfigureAwait(false);
+                }
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                Logger?.LogWarning(ex, "Failed to read cache file {Cache}", cacheFilename);
             }
 
             Logger?.LogTrace("Not returning contents of cache {Cache} (not found)", cacheFilename);
         }
 
-        // Prepend some flags to prevent FFmpeg from logging its banner and progress information
-        // for each file that is fingerprinted.
+        // Prepend some flags to prevent FFmpeg from logging it's banner and progress information
         var prependArgument = string.Format(
             CultureInfo.InvariantCulture,
             "-hide_banner -loglevel {0} -threads {1} ",
@@ -448,40 +456,87 @@ public static partial class FFmpegWrapper
         using var ffmpeg = new Process { StartInfo = info };
         Logger?.LogDebug("Starting ffmpeg with the following arguments: {Arguments}", ffmpeg.StartInfo.Arguments);
 
-        ffmpeg.Start();
-
         try
         {
-            ffmpeg.PriorityClass = Plugin.Instance?.Configuration.ProcessPriority ?? ProcessPriorityClass.BelowNormal;
-        }
-        catch (Exception e)
-        {
-            Logger?.LogDebug("ffmpeg priority could not be modified. {Message}", e.Message);
-        }
-
-        using var ms = new MemoryStream();
-        var buf = new byte[4096];
-
-        using (var streamReader = stderr ? ffmpeg.StandardError : ffmpeg.StandardOutput)
-        {
-            int bytesRead;
-            while ((bytesRead = streamReader.BaseStream.Read(buf, 0, buf.Length)) > 0)
+            if (!ffmpeg.Start())
             {
-                ms.Write(buf, 0, bytesRead);
+                throw new InvalidOperationException("Failed to start FFmpeg process");
             }
+
+            try
+            {
+                ffmpeg.PriorityClass = Plugin.Instance?.Configuration.ProcessPriority ?? ProcessPriorityClass.BelowNormal;
+            }
+            catch (Exception e)
+            {
+                Logger?.LogDebug("ffmpeg priority could not be modified. {Message}", e.Message);
+            }
+
+            using var ms = new MemoryStream();
+            var buf = new byte[4096];
+            int bytesRead;
+
+            using (var streamReader = stderr ? ffmpeg.StandardError : ffmpeg.StandardOutput)
+            {
+                while ((bytesRead = await streamReader.BaseStream.ReadAsync(buf).ConfigureAwait(false)) > 0)
+                {
+                    await ms.WriteAsync(buf.AsMemory(0, bytesRead)).ConfigureAwait(false);
+                }
+            }
+
+            try
+            {
+                await Task.WhenAny(
+                    Task.Run(ffmpeg.WaitForExit),
+                    Task.Delay(timeout)).ConfigureAwait(false);
+
+                if (!ffmpeg.HasExited)
+                {
+                    try
+                    {
+                        ffmpeg.Kill();
+                    }
+                    catch (Exception ex)
+                    {
+                        Logger?.LogWarning(ex, "Failed to kill FFmpeg process after timeout");
+                    }
+
+                    throw new TimeoutException($"FFmpeg process did not complete within {timeout}ms timeout");
+                }
+
+                if (ffmpeg.ExitCode != 0)
+                {
+                    throw new InvalidOperationException($"FFmpeg process exited with code {ffmpeg.ExitCode}");
+                }
+            }
+            catch (Exception) when (ffmpeg.HasExited)
+            {
+                // Process already exited, ignore any exceptions from killing it
+            }
+
+            var output = ms.ToArray();
+
+            // If caching is enabled, cache the output of this command.
+            if (cacheOutput)
+            {
+                try
+                {
+                    await File.WriteAllBytesAsync(cacheFilename, output).ConfigureAwait(false);
+                    Logger?.LogTrace("Successfully cached output to {Cache}", cacheFilename);
+                }
+                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+                {
+                    Logger?.LogWarning(ex, "Failed to write cache file {Cache}", cacheFilename);
+                }
+            }
+
+            return output;
         }
-
-        ffmpeg.WaitForExit(timeout);
-
-        var output = ms.ToArray();
-
-        // If caching is enabled, cache the output of this command.
-        if (cacheOutput)
+        catch (Exception ex)
         {
-            File.WriteAllBytes(cacheFilename, output);
+            Logger?.LogError(ex, "Error executing FFmpeg command: {Arguments}", info.Arguments);
+            throw;
         }
-
-        return output;
     }
 
     /// <summary>
@@ -492,10 +547,10 @@ public static partial class FFmpegWrapper
     /// <param name="start">Time (in seconds) relative to the start of the file to start fingerprinting from.</param>
     /// <param name="end">Time (in seconds) relative to the start of the file to stop fingerprinting at.</param>
     /// <returns>Numerical fingerprint points.</returns>
-    private static uint[] Fingerprint(QueuedEpisode episode, AnalysisMode mode, double start, double end)
+    private static async Task<uint[]> Fingerprint(QueuedEpisode episode, AnalysisMode mode, double start, double end)
     {
         // Try to load this episode from cache before running ffmpeg.
-        if (LoadCachedFingerprint(episode, mode, out uint[] cachedFingerprint))
+        if ((await LoadCachedFingerprintAsync(episode, mode).ConfigureAwait(false)).TryOut(out uint[] cachedFingerprint))
         {
             Logger?.LogTrace("Fingerprint cache hit on {File}", episode.Path);
             return cachedFingerprint;
@@ -515,8 +570,8 @@ public static partial class FFmpegWrapper
             episode.Path,
             end - start);
 
-        // Returns all fingerprint points as raw 32-bit unsigned integers (little endian).
-        var rawPoints = GetOutput(args, string.Empty);
+        // Returns all fingerprint points as raw 32 bit unsigned integers (little endian).
+        var rawPoints = await GetOutputAsync(args, string.Empty).ConfigureAwait(false);
         if (rawPoints.Length == 0 || rawPoints.Length % 4 != 0)
         {
             Logger?.LogWarning("Chromaprint returned {Count} points for \"{Path}\"", rawPoints.Length, episode.Path);
@@ -526,12 +581,12 @@ public static partial class FFmpegWrapper
         var results = new List<uint>();
         for (var i = 0; i < rawPoints.Length; i += 4)
         {
-            var rawPoint = rawPoints.Slice(i, 4);
+            var rawPoint = rawPoints.Slice(i, 4).ToArray();
             results.Add(BitConverter.ToUInt32(rawPoint));
         }
 
         // Try to cache this fingerprint.
-        CacheFingerprint(episode, mode, results);
+        await CacheFingerprintAsync(episode, mode, results).ConfigureAwait(false);
 
         return [.. results];
     }
@@ -542,19 +597,15 @@ public static partial class FFmpegWrapper
     /// </summary>
     /// <param name="episode">Episode to try to load from cache.</param>
     /// <param name="mode">Analysis mode.</param>
-    /// <param name="fingerprint">Array to store the fingerprint in.</param>
     /// <returns>true if the episode was successfully loaded from cache, false on any other error.</returns>
-    private static bool LoadCachedFingerprint(
+    private static async Task<(bool Success, uint[] Fingerprint)> LoadCachedFingerprintAsync(
         QueuedEpisode episode,
-        AnalysisMode mode,
-        out uint[] fingerprint)
+        AnalysisMode mode)
     {
-        fingerprint = [];
-
         // If fingerprint caching isn't enabled, don't try to load anything.
         if (!(Plugin.Instance?.Configuration.CacheFingerprints ?? false))
         {
-            return false;
+            return (false, []);
         }
 
         var path = GetFingerprintCachePath(episode, mode);
@@ -562,23 +613,23 @@ public static partial class FFmpegWrapper
         // If this episode isn't cached, bail out.
         if (!File.Exists(path))
         {
-            return false;
+            return (false, []);
         }
 
         string[] raw;
         try
         {
-            raw = File.ReadAllLines(path, Encoding.UTF8);
+            raw = await File.ReadAllLinesAsync(path, Encoding.UTF8).ConfigureAwait(false);
         }
         catch (IOException ex)
         {
             Logger?.LogError(ex, "I/O error while reading fingerprint cache from {Path}", path);
-            return false;
+            return (false, []);
         }
         catch (UnauthorizedAccessException ex)
         {
             Logger?.LogError(ex, "Access error while reading fingerprint cache from {Path}", path);
-            return false;
+            return (false, []);
         }
 
         var result = new List<uint>(raw.Length);
@@ -596,12 +647,11 @@ public static partial class FFmpegWrapper
                     rawNumber,
                     episode.Path,
                     episode.EpisodeId);
-                return false;
+                return (false, []);
             }
         }
 
-        fingerprint = [.. result];
-        return true;
+        return (true, [.. result]);
     }
 
     /// <summary>
@@ -611,7 +661,7 @@ public static partial class FFmpegWrapper
     /// <param name="episode">Episode to store in cache.</param>
     /// <param name="mode">Analysis mode.</param>
     /// <param name="fingerprint">Fingerprint of the episode to store.</param>
-    private static void CacheFingerprint(
+    private static async Task CacheFingerprintAsync(
         QueuedEpisode episode,
         AnalysisMode mode,
         List<uint> fingerprint)
@@ -622,18 +672,25 @@ public static partial class FFmpegWrapper
             return;
         }
 
-        // Stringify each data point.
-        var lines = new List<string>();
-        foreach (var number in fingerprint)
-        {
-            lines.Add(number.ToString(CultureInfo.InvariantCulture));
-        }
+        var path = GetFingerprintCachePath(episode, mode);
 
-        // Cache the episode.
-        File.WriteAllLinesAsync(
-            GetFingerprintCachePath(episode, mode),
-            lines,
-            Encoding.UTF8).ConfigureAwait(false);
+        try
+        {
+            // Use StringBuilder for more efficient string concatenation
+            var sb = new StringBuilder(fingerprint.Count * 11); // Estimate ~11 chars per number
+            foreach (var number in fingerprint)
+            {
+                sb.AppendLine(number.ToString(CultureInfo.InvariantCulture));
+            }
+
+            await File.WriteAllTextAsync(path, sb.ToString(), Encoding.UTF8).ConfigureAwait(false);
+
+            Logger?.LogTrace("Successfully cached fingerprint for {Path}", episode.Path);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            Logger?.LogError(ex, "Failed to cache fingerprint for {Path} to {CachePath}", episode.Path, path);
+        }
     }
 
     /// <summary>

@@ -8,6 +8,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using IntroSkipper.Configuration;
 using IntroSkipper.Data;
+using IntroSkipper.Helper;
 using Microsoft.Extensions.Logging;
 
 namespace IntroSkipper.Analyzers;
@@ -39,17 +40,17 @@ public class BlackFrameAnalyzer(ILogger<BlackFrameAnalyzer> logger) : IMediaFile
 
         foreach (var episode in episodesWithoutIntros.TakeWhile(episode => !cancellationToken.IsCancellationRequested))
         {
-            if (!AnalyzeChapters(episode, out var credit))
+            if (!(await AnalyzeChaptersAsync(episode).ConfigureAwait(false)).TryOut(out var credit))
             {
                 if (searchStart < _config.MinimumCreditsDuration)
                 {
-                    searchStart = FindSearchStart(episode);
+                    searchStart = await FindSearchStartAsync(episode).ConfigureAwait(false);
                 }
 
-                credit = AnalyzeMediaFile(
+                credit = await AnalyzeMediaFileAsync(
                     episode,
                     searchStart,
-                    _config.BlackFrameMinimumPercentage);
+                    _config.BlackFrameMinimumPercentage).ConfigureAwait(false);
             }
 
             if (credit is null || !credit.Valid)
@@ -72,7 +73,7 @@ public class BlackFrameAnalyzer(ILogger<BlackFrameAnalyzer> logger) : IMediaFile
     /// <param name="searchStart">Search Start Piont.</param>
     /// <param name="minimum">Percentage of the frame that must be black.</param>
     /// <returns>Credits timestamp.</returns>
-    public Segment? AnalyzeMediaFile(QueuedEpisode episode, double searchStart, int minimum)
+    public async Task<Segment?> AnalyzeMediaFileAsync(QueuedEpisode episode, double searchStart, int minimum)
     {
         // Start by analyzing the last N minutes of the file.
         var searchDistance = 2 * _config.MinimumCreditsDuration;
@@ -100,7 +101,7 @@ public class BlackFrameAnalyzer(ILogger<BlackFrameAnalyzer> logger) : IMediaFile
                 tr.Start,
                 tr.End);
 
-            var frames = FFmpegWrapper.DetectBlackFrames(episode, tr, minimum);
+            var frames = await FFmpegWrapper.DetectBlackFrames(episode, tr, minimum).ConfigureAwait(false);
             _logger.LogTrace(
                 "{Episode} at {Start} has {Count} black frames",
                 episode.Name,
@@ -144,7 +145,7 @@ public class BlackFrameAnalyzer(ILogger<BlackFrameAnalyzer> logger) : IMediaFile
         return null;
     }
 
-    private bool AnalyzeChapters(QueuedEpisode episode, out Segment? segment)
+    private async Task<(bool Success, Segment? Segment)> AnalyzeChaptersAsync(QueuedEpisode episode)
     {
         // Get last chapter that falls within the valid credits duration range
         var suitableChapters = Plugin.Instance!.GetChapters(episode.EpisodeId)
@@ -158,10 +159,10 @@ public class BlackFrameAnalyzer(ILogger<BlackFrameAnalyzer> logger) : IMediaFile
         {
             // Check for black frames at chapter start
             var startRange = new TimeRange(chapterStart, chapterStart + 1);
-            var hasBlackFramesAtStart = FFmpegWrapper.DetectBlackFrames(
+            var hasBlackFramesAtStart = (await FFmpegWrapper.DetectBlackFrames(
                 episode,
                 startRange,
-                _config.BlackFrameMinimumPercentage).Length > 0;
+                _config.BlackFrameMinimumPercentage).ConfigureAwait(false)).Length > 0;
 
             if (!hasBlackFramesAtStart)
             {
@@ -170,30 +171,28 @@ public class BlackFrameAnalyzer(ILogger<BlackFrameAnalyzer> logger) : IMediaFile
 
             // Verify no black frames before chapter start
             var beforeRange = new TimeRange(chapterStart - 5, chapterStart - 4);
-            var hasBlackFramesBefore = FFmpegWrapper.DetectBlackFrames(
+            var hasBlackFramesBefore = (await FFmpegWrapper.DetectBlackFrames(
                 episode,
                 beforeRange,
-                _config.BlackFrameMinimumPercentage).Length > 0;
+                _config.BlackFrameMinimumPercentage).ConfigureAwait(false)).Length > 0;
 
             if (!hasBlackFramesBefore)
             {
-                segment = new Segment(episode.EpisodeId, new TimeRange(chapterStart, episode.Duration));
-                return true;
+                return (true, new Segment(episode.EpisodeId, new TimeRange(chapterStart, episode.Duration)));
             }
         }
 
-        segment = null;
-        return false;
+        return (false, null);
     }
 
-    private double FindSearchStart(QueuedEpisode episode)
+    private async Task<double> FindSearchStartAsync(QueuedEpisode episode)
     {
         var searchStart = 3d * _config.MinimumCreditsDuration;
         var scanTime = episode.Duration - searchStart;
         var tr = new TimeRange(scanTime - 0.5, scanTime); // Short search range since accuracy isn't important here.
 
         // Keep increasing search start time while black frames are found, to avoid false positives
-        while (FFmpegWrapper.DetectBlackFrames(episode, tr, _config.BlackFrameMinimumPercentage).Length > 0)
+        while ((await FFmpegWrapper.DetectBlackFrames(episode, tr, _config.BlackFrameMinimumPercentage).ConfigureAwait(false)).Length > 0)
         {
             // Increase by 2x minimum credits duration each iteration
             searchStart += 2d * _config.MinimumCreditsDuration;

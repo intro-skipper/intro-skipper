@@ -97,7 +97,7 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
             logger.LogError("Failed to perform migrations. Error: {Error}", ex);
         }
 
-        FFmpegWrapper.CheckFFmpegVersion();
+        _ = FFmpegWrapper.CheckFFmpegVersion();
     }
 
     /// <summary>

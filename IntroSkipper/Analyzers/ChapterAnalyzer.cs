@@ -69,7 +69,7 @@ public class ChapterAnalyzer(ILogger<ChapterAnalyzer> logger) : IMediaFileAnalyz
 
             if (_config.SnapToKeyframe)
             {
-                skipRange.End = ChromaprintAnalyzer.SnapToNearestKeyframe(episode, skipRange.End - _config.RemainingSecondsOfIntro);
+                skipRange.End = await ChromaprintAnalyzer.SnapToNearestKeyframeAsync(episode, skipRange.End - _config.RemainingSecondsOfIntro).ConfigureAwait(false);
             }
             else
             {

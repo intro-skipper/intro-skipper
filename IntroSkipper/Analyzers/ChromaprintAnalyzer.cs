@@ -64,7 +64,7 @@ public class ChromaprintAnalyzer(ILogger<ChromaprintAnalyzer> logger) : IMediaFi
         {
             try
             {
-                fingerprintCache[episode.EpisodeId] = FFmpegWrapper.Fingerprint(episode, mode);
+                fingerprintCache[episode.EpisodeId] = await FFmpegWrapper.Fingerprint(episode, mode).ConfigureAwait(false);
 
                 // Use reversed fingerprints for credits
                 if (_analysisMode == AnalysisMode.Credits)
@@ -159,7 +159,7 @@ public class ChromaprintAnalyzer(ILogger<ChromaprintAnalyzer> logger) : IMediaFi
             // If an intro is found for this episode, adjust its times and save it else add it to the list of episodes without intros.
             if (seasonIntros.TryGetValue(currentEpisode.EpisodeId, out var intro))
             {
-                var adjustedIntro = AdjustIntroTimes(currentEpisode, intro);
+                var adjustedIntro = await AdjustIntroTimesAsync(currentEpisode, intro).ConfigureAwait(false);
                 currentEpisode.SetAnalyzed(mode, EpisodeState.Analyzed);
                 await Plugin.Instance!.UpdateTimestampAsync(adjustedIntro, mode).ConfigureAwait(false);
             }
@@ -363,7 +363,7 @@ public class ChromaprintAnalyzer(ILogger<ChromaprintAnalyzer> logger) : IMediaFi
     /// </summary>
     /// <param name="episode">QueuedEpisode to adjust.</param>
     /// <param name="originalIntro">Original introduction.</param>
-    private Segment AdjustIntroTimes(
+    private async Task<Segment> AdjustIntroTimesAsync(
         QueuedEpisode episode,
         Segment originalIntro)
     {
@@ -385,12 +385,12 @@ public class ChromaprintAnalyzer(ILogger<ChromaprintAnalyzer> logger) : IMediaFi
         if (!AdjustIntroBasedOnChapters(episode, originalIntro, originalIntroStart, originalIntroEnd) &&
             _analysisMode == AnalysisMode.Introduction)
         {
-            AdjustIntroBasedOnSilence(episode, originalIntro, originalIntroEnd);
+            await AdjustIntroBasedOnSilenceAsync(episode, originalIntro, originalIntroEnd).ConfigureAwait(false);
         }
 
         if (_config.SnapToKeyframe)
         {
-            originalIntro.End = SnapToNearestKeyframe(episode, originalIntro.End - _config.RemainingSecondsOfIntro);
+            originalIntro.End = await SnapToNearestKeyframeAsync(episode, originalIntro.End - _config.RemainingSecondsOfIntro).ConfigureAwait(false);
         }
         else
         {
@@ -440,9 +440,9 @@ public class ChromaprintAnalyzer(ILogger<ChromaprintAnalyzer> logger) : IMediaFi
         return false;
     }
 
-    private void AdjustIntroBasedOnSilence(QueuedEpisode episode, Segment intro, TimeRange originalIntroEnd)
+    private async Task AdjustIntroBasedOnSilenceAsync(QueuedEpisode episode, Segment intro, TimeRange originalIntroEnd)
     {
-        var silenceRanges = FFmpegWrapper.DetectSilence(episode, originalIntroEnd);
+        var silenceRanges = await FFmpegWrapper.DetectSilence(episode, originalIntroEnd).ConfigureAwait(false);
 
         foreach (var silenceRange in silenceRanges)
         {
@@ -477,7 +477,7 @@ public class ChromaprintAnalyzer(ILogger<ChromaprintAnalyzer> logger) : IMediaFi
     /// <param name="episode">Episode to search.</param>
     /// <param name="time">Time to snap to nearest keyframe.</param>
     /// <returns>The nearest keyframe or original time if no suitable keyframe found.</returns>
-    public static double SnapToNearestKeyframe(QueuedEpisode episode, double time)
+    public static async Task<double> SnapToNearestKeyframeAsync(QueuedEpisode episode, double time)
     {
         var config = Plugin.Instance?.Configuration ?? new PluginConfiguration();
         var duration = episode.Duration;
@@ -490,7 +490,7 @@ public class ChromaprintAnalyzer(ILogger<ChromaprintAnalyzer> logger) : IMediaFi
         var searchRange = new TimeRange(
             time - config.KeyframeWindowBefore,
             time + config.KeyframeWindowAfter);
-        var keyframes = FFmpegWrapper.DetectKeyFrames(episode, searchRange);
+        var keyframes = await FFmpegWrapper.DetectKeyFrames(episode, searchRange).ConfigureAwait(false);
 
         // Prefer keyframes before the time, otherwise take the first keyframe after
         return keyframes

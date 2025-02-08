@@ -36,7 +36,8 @@ public class BaseItemAnalyzerTask(
     private readonly ILibraryManager _libraryManager = libraryManager;
     private readonly MediaSegmentUpdateManager _mediaSegmentUpdateManager = mediaSegmentUpdateManager;
     private readonly PluginConfiguration _config = Plugin.Instance?.Configuration ?? new PluginConfiguration();
-    private readonly bool _ffmpegValid = FFmpegWrapper.CheckFFmpegVersion();
+
+    private bool _ffmpegValid;
 
     /// <summary>
     /// Analyze all media items on the server.
@@ -76,6 +77,7 @@ public class BaseItemAnalyzerTask(
             return;
         }
 
+        _ffmpegValid = await FFmpegWrapper.CheckFFmpegVersion().ConfigureAwait(false);
         if (!_ffmpegValid)
         {
             _logger.LogInformation(

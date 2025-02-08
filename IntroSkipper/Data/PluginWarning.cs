@@ -19,10 +19,10 @@ public enum PluginWarning
     /// <summary>
     /// At least one media file on the server was unable to be fingerprinted by Chromaprint.
     /// </summary>
-    InvalidChromaprintFingerprint = 2,
+    InvalidChromaprintFingerprint = 1,
 
     /// <summary>
     /// The version of ffmpeg installed on the system is not compatible with the plugin.
     /// </summary>
-    IncompatibleFFmpegBuild = 4,
+    IncompatibleFFmpegBuild = 2,
 }

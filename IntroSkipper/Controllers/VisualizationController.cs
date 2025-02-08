@@ -137,7 +137,7 @@ public class VisualizationController(ILogger<VisualizationController> logger, Me
     /// <param name="id">Episode id.</param>
     /// <returns>Read only collection of fingerprint points.</returns>
     [HttpGet("Episode/{Id}/Chromaprint")]
-    public ActionResult<uint[]> GetEpisodeFingerprint([FromRoute] Guid id)
+    public async Task<ActionResult<uint[]>> GetEpisodeFingerprintAsync([FromRoute] Guid id)
     {
         // Search through all queued episodes to find the requested id
         foreach (var season in Plugin.Instance!.QueuedMediaItems)
@@ -146,7 +146,7 @@ public class VisualizationController(ILogger<VisualizationController> logger, Me
             {
                 if (needle.EpisodeId == id)
                 {
-                    return FFmpegWrapper.Fingerprint(needle, AnalysisMode.Introduction);
+                    return await FFmpegWrapper.Fingerprint(needle, AnalysisMode.Introduction).ConfigureAwait(false);
                 }
             }
         }

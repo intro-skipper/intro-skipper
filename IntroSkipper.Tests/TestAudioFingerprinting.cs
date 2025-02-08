@@ -7,6 +7,7 @@
 
 using System;
 using System.Collections.Generic;
+using System.Threading.Tasks;
 using IntroSkipper.Analyzers;
 using IntroSkipper.Data;
 using Microsoft.Extensions.Logging;
@@ -17,9 +18,9 @@ namespace IntroSkipper.Tests;
 public class TestAudioFingerprinting
 {
     [FactSkipFFmpegTests]
-    public void TestInstallationCheck()
+    public async Task TestInstallationCheck()
     {
-        Assert.True(FFmpegWrapper.CheckFFmpegVersion());
+        Assert.True(await FFmpegWrapper.CheckFFmpegVersion().ConfigureAwait(false));
     }
 
     [Theory]
@@ -35,7 +36,7 @@ public class TestAudioFingerprinting
     }
 
     [FactSkipFFmpegTests]
-    public void TestFingerprinting()
+    public async Task TestFingerprinting()
     {
         // Generated with `fpcalc -raw audio/big_buck_bunny_intro.mp3`
         var expected = new uint[]{
@@ -63,9 +64,9 @@ public class TestAudioFingerprinting
             3472417825, 3395841056, 3458735136, 3341420624, 1076496560, 1076501168, 1076501136, 1076497024
         };
 
-        var actual = FFmpegWrapper.Fingerprint(
+        var actual = await FFmpegWrapper.Fingerprint(
             QueueEpisode("audio/big_buck_bunny_intro.mp3"),
-            AnalysisMode.Introduction);
+            AnalysisMode.Introduction).ConfigureAwait(false);
 
         Assert.Equal(expected, actual);
     }
@@ -92,14 +93,14 @@ public class TestAudioFingerprinting
     }
 
     [FactSkipFFmpegTests]
-    public void TestIntroDetection()
+    public async Task TestIntroDetection()
     {
         var chromaprint = CreateChromaprintAnalyzer();
 
         var lhsEpisode = QueueEpisode("audio/big_buck_bunny_intro.mp3");
         var rhsEpisode = QueueEpisode("audio/big_buck_bunny_clip.mp3");
-        var lhsFingerprint = FFmpegWrapper.Fingerprint(lhsEpisode, AnalysisMode.Introduction);
-        var rhsFingerprint = FFmpegWrapper.Fingerprint(rhsEpisode, AnalysisMode.Introduction);
+        var lhsFingerprint = await FFmpegWrapper.Fingerprint(lhsEpisode, AnalysisMode.Introduction).ConfigureAwait(false);
+        var rhsFingerprint = await FFmpegWrapper.Fingerprint(rhsEpisode, AnalysisMode.Introduction).ConfigureAwait(false);
 
         var (lhs, rhs) = chromaprint.CompareEpisodes(
             lhsEpisode.EpisodeId,
@@ -121,7 +122,7 @@ public class TestAudioFingerprinting
     /// Test that the silencedetect wrapper is working.
     /// </summary>
     [FactSkipFFmpegTests]
-    public void TestSilenceDetection()
+    public async Task TestSilenceDetection()
     {
         var clip = QueueEpisode("audio/big_buck_bunny_clip.mp3");
 
@@ -136,7 +137,7 @@ public class TestAudioFingerprinting
         };
 
         var range = new TimeRange(0, 60);
-        var actual = FFmpegWrapper.DetectSilence(clip, range);
+        var actual = await FFmpegWrapper.DetectSilence(clip, range).ConfigureAwait(false);
 
         Assert.Equal(expected, actual);
     }
