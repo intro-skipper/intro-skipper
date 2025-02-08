@@ -87,6 +87,12 @@
                                 </div>
                             </div>
 
+                            <div class="inputContainer" id="excludedSeries">
+                                <label class="inputLabel inputLabelUnfocused" for="ExcludeSeries"> Exclude series </label>
+                                <input id="ExcludeSeries" type="text" is="emby-input" />
+                                <div class="fieldDescription">Exclude series from analysis. Enter a comma-separated list of series names to exclude.</div>
+                            </div>
+
                             <details id="intro_reqs">
                                 <summary>Modify Segment Parameters</summary>
 
@@ -214,12 +220,6 @@
                                     <label class="inputLabel inputLabelUnfocused" for="RemainingSecondsOfIntro"> Segment playback duration (in seconds) </label>
                                     <input id="RemainingSecondsOfIntro" type="number" is="emby-input" min="0" />
                                     <div class="fieldDescription">Seconds of segment ending that should be played. Defaults to 2.</div>
-                                </div>
-
-                                <div class="inputContainer" id="excludedSeries">
-                                    <label class="inputLabel inputLabelUnfocused" for="ExcludeSeries"> Exclude series </label>
-                                    <input id="ExcludeSeries" type="text" is="emby-input" />
-                                    <div class="fieldDescription">Exclude series from analysis. Enter a comma-separated list of series names to exclude.</div>
                                 </div>
 
                                 <br />
