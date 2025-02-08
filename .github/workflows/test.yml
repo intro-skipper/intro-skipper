@@ -58,11 +58,3 @@ jobs:
 
       - name: Run tests
         run: dotnet test --no-restore --verbosity normal
-
-      - name: Upload test results
-        if: always()
-        uses: actions/upload-artifact@v4.3.6
-        with:
-          name: test-results
-          path: "**/TestResults/*.trx"
-          if-no-files-found: ignore
