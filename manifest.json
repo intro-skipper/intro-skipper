@@ -55,12 +55,12 @@
         "imageUrl": "https://raw.githubusercontent.com/intro-skipper/jellyfin-plugin-ms-api/master/images/logo720.png",
         "versions": [
             {
-                "version": "1.0.1",
+                "version": "1.0.2",
                 "changelog": "- See the full changelog at [GitHub](https://github.com/intro-skipper/jellyfin-plugin-ms-api/blob/10.10.2/CHANGELOG.md)",
                 "targetAbi": "10.10.2.0",
-                "sourceUrl": "https://github.com/intro-skipper/jellyfin-plugin-ms-api/releases/download/1.0.1-73cf1af/Jellyfin.Plugin.MediaSegmentsApi-1.0.1.zip",
-                "checksum": "eaf2c3cac7104f7da838b5fa91ed2b07",
-                "timestamp": "2024-12-02T10:23:36Z"
+                "sourceUrl": "https://github.com/intro-skipper/jellyfin-plugin-ms-api/releases/download/1.0.2-125cb33/Jellyfin.Plugin.MediaSegmentsApi-1.0.2.zip",
+                "checksum": "608b8512e70d48799ec03d6245c8e2ad",
+                "timestamp": "2025-02-13T07:46:36Z"
             }
         ]
     },
