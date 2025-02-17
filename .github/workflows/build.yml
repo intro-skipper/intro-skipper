@@ -63,12 +63,16 @@ jobs:
           npx html-minifier-terser --collapse-boolean-attributes --collapse-whitespace --remove-comments --remove-optional-tags --remove-redundant-attributes --remove-script-type-attributes --remove-tag-whitespace --use-short-doctype --minify-css true --minify-js true -o IntroSkipper/Configuration/configPage.html IntroSkipper/Configuration/configPage.html
           npx terser IntroSkipper/Configuration/visualizer.js -o IntroSkipper/Configuration/visualizer.js -c -m
 
-      - name: Restore Beta dependencies
-        if: ${{env.IS_BETA == 'true' }}
+      - name: Download Jellyfin dependencies
+        if: ${{ env.IS_BETA == 'true' }}
         run: |
-          dotnet nuget add source --username ${{ github.repository_owner }} --password ${{ secrets.GITHUB_TOKEN }} --store-password-in-clear-text --name jellyfin-pre "https://nuget.pkg.github.com/jellyfin/index.json"
-          dotnet tool install --global dotnet-outdated-tool
-          dotnet outdated -pre Always -u -inc Jellyfin
+          echo "Downloading Jellyfin repository for beta build..."
+          # Change directory to the parent of the checked-out repository
+          cd $GITHUB_WORKSPACE/..
+          # Remove any existing jellyfin folder (if present)
+          rm -rf jellyfin
+          # Clone the Jellyfin repository (shallow clone for faster checkout)
+          git clone --depth 1 https://github.com/jellyfin/jellyfin.git jellyfin
 
       - name: Restore dependencies
         if: ${{env.IS_BETA == 'false' }}
