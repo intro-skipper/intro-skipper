@@ -54,13 +54,6 @@
                                 </div>
                             </div>
 
-                            <div class="checkboxContainer">
-                                <label class="emby-checkbox-label">
-                                    <input id="AnalyzeMovies" type="checkbox" is="emby-checkbox" />
-                                    <span>Analyze Movies</span>
-                                </label>
-                            </div>
-
                             <div class="checkboxContainer checkboxContainer-withDescription">
                                 <label class="emby-checkbox-label">
                                     <input id="AnalyzeSeasonZero" type="checkbox" is="emby-checkbox" />
@@ -69,21 +62,6 @@
 
                                 <div class="fieldDescription">
                                     Note: Shows containing both a specials and extra folder will identify extras as season 0 and ignore specials, regardless of this setting.
-                                </div>
-                            </div>
-
-                            <div class="checkboxContainer checkboxContainer-withDescription">
-                                <label class="emby-checkbox-label">
-                                    <input id="SelectAllLibraries" type="checkbox" is="emby-checkbox" />
-                                    <span>Enable analysis for all libraries containing television episodes</span>
-                                </label>
-                                <div class="folderAccessListContainer" style="margin-bottom: -1em;">
-                                    <div class="folderAccess">
-                                        <h3 class="checkboxListLabel">Limit analysis to the following libraries</h3>
-                                        <div class="checkboxList paperList" style="padding: 0.5em 1em" id="libraryCheckboxes"></div>
-                                    </div>
-                                    <label class="inputLabel" for="SelectedLibraries"></label>
-                                    <input id="SelectedLibraries" type="hidden" is="emby-input" />
                                 </div>
                             </div>
 
@@ -790,7 +768,6 @@
                 const configurationFields = [
                     // analysis
                     "MaxParallelism",
-					"SelectedLibraries",
                     "KeyframeWindowBefore",
                     "KeyframeWindowAfter",
                     "EndSnapThreshold",
@@ -824,10 +801,9 @@
                     "AutoSkipNotificationText",
                 ];
 
-                const booleanConfigurationFields = ["AutoDetectIntros", "AnalyzeMovies", "AnalyzeSeasonZero", "SelectAllLibraries", "UpdateMediaSegments", "FullLengthChapters", "RebuildMediaSegments", "ScanIntroduction", "ScanCredits", "ScanRecap", "ScanPreview", "CacheFingerprints", "PluginSkip", "AutoSkip", "SkipFirstEpisode", "SnapToKeyframe"];
+                const booleanConfigurationFields = ["AutoDetectIntros", "AnalyzeSeasonZero", "UpdateMediaSegments", "FullLengthChapters", "RebuildMediaSegments", "ScanIntroduction", "ScanCredits", "ScanRecap", "ScanPreview", "CacheFingerprints", "PluginSkip", "AutoSkip", "SkipFirstEpisode", "SnapToKeyframe"];
 
                 // visualizer elements
-                const analyzeMovies = document.getElementById("AnalyzeMovies");
                 const analyzerActionsSection = document.querySelector("div#analyzerActionsSection");
                 const actionIntro = analyzerActionsSection.querySelector("select#actionIntro");
                 const actionCredits = analyzerActionsSection.querySelector("select#actionCredits");
@@ -860,8 +836,6 @@
                 const pluginSkip = document.getElementById("PluginSkip");
                 const serverSkipSettings = document.getElementById("ServerSkipSettings");
                 const autoSkip = document.getElementById("AutoSkip");
-                const selectAllLibraries = document.querySelector("input#SelectAllLibraries");
-                const librariesContainer = document.querySelector("div.folderAccessListContainer");
                 const autoSkipClientList = document.querySelector("div.AutoSkipClientListContainer");
                 const fullLengthChapters = document.getElementById("FullLengthChapters");
                 const snapToKeyframe = document.getElementById("SnapToKeyframe");
@@ -878,15 +852,6 @@
                 }
 
                 autoSkip.addEventListener("change", autoSkipChanged);
-
-                function selectAllLibrariesChanged() {
-                    if (selectAllLibraries.checked) {
-                        librariesContainer.style.display = "none";
-                    } else {
-                        librariesContainer.style.display = "unset";
-                    }
-                }
-                selectAllLibraries.addEventListener("change", selectAllLibrariesChanged);
 
                 const recapPreviewDurations = document.getElementById("RecapPreviewDurations");
 
@@ -942,13 +907,6 @@
                 const skipFirstEpisode = document.getElementById("divSkipFirstEpisode");
                 const secondsOfIntroStartToPlay = document.getElementById("SecondsOfIntroStartToPlay");
 
-                async function populateLibraries() {
-                    const response = await getJson("Library/VirtualFolders");
-                    const tvLibraries = response.filter((item) => item.CollectionType === undefined || item.CollectionType === "tvshows" || item.CollectionType === "movies");
-                    const libraryNames = tvLibraries.map((lib) => lib.Name || "Unnamed Library");
-                    generateCheckboxList(libraryNames, "libraryCheckboxes", "SelectedLibraries");
-                }
-
                 async function pluginSkipSettingVisible() {
                     if (pluginSkip.checked || autoSkip.checked) {
                         pluginSkip.checked = true;
@@ -978,15 +936,6 @@
                 }
 
                 pluginSkip.addEventListener("change", pluginSkipSettingChanged);
-
-                async function analyzeMoviesChanged() {
-                    if (analyzeMovies.checked) {
-                        movieCreditsDuration.style.display = "unset";
-                    } else {
-                        movieCreditsDuration.style.display = "none";
-                    }
-                }
-                analyzeMovies.addEventListener("change", analyzeMoviesChanged);
 
                 function globalTimestampChanged() {
                     btnEraseGlobalTimestamps.textContent = "Erase all " + globalTimestamps.value + " timestamps (globally)";
@@ -1477,9 +1426,6 @@
                             document.querySelector("#" + field).checked = config[field];
                         }
 
-                        analyzeMoviesChanged();
-                        populateLibraries();
-                        selectAllLibrariesChanged();
                         fullLengthChaptersChanged();
                         autoSkipChanged();
                         generateAutoSkipTypeList();
