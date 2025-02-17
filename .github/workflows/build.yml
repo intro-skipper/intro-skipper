@@ -75,7 +75,6 @@ jobs:
           git clone --depth 1 https://github.com/jellyfin/jellyfin.git jellyfin
 
       - name: Restore dependencies
-        if: ${{env.IS_BETA == 'false' }}
         run: dotnet restore
 
       - name: Embed version info
