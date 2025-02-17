@@ -101,7 +101,7 @@ public class DetectSegmentsTask(
         [
             new TaskTriggerInfo
             {
-                Type = TaskTriggerInfo.TriggerDaily,
+                Type = TaskTriggerInfoType.DailyTrigger,
                 TimeOfDayTicks = TimeSpan.FromHours(0).Ticks
             }
         ];

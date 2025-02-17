@@ -42,7 +42,7 @@ public sealed class AutoSkip(
     private readonly ISessionManager _sessionManager = sessionManager;
     private readonly ILogger<AutoSkip> _logger = logger;
     private readonly System.Timers.Timer _playbackTimer = new(1000);
-    private readonly ConcurrentDictionary<string, List<Intro>> _sentSeekCommand = [];
+    private readonly ConcurrentDictionary<string, List<Segment>> _sentSeekCommand = [];
     private PluginConfiguration _config = new();
     private HashSet<string> _clientList = [];
     private HashSet<AnalysisMode> _segmentTypes = [];
@@ -111,7 +111,7 @@ public sealed class AutoSkip(
         _logger.LogDebug("Getting intros for session {Session}", device);
 
         bool firstEpisode = e.Item is Episode episode && _config.SkipFirstEpisode && episode.IndexNumber == 1;
-        var intros = SkipIntroController.GetIntros(itemId)
+        var intros = Plugin.Instance!.GetTimestamps(itemId)
                 .Where(i => _segmentTypes.Contains(i.Key) && (!firstEpisode || i.Key != AnalysisMode.Introduction))
                 .Select(i => i.Value)
                 .ToList();
@@ -134,26 +134,26 @@ public sealed class AutoSkip(
             var position = session.PlayState.PositionTicks / TimeSpan.TicksPerSecond;
 
             var currentIntro = intros.FirstOrDefault(i =>
-                position >= Math.Max(1, i.IntroStart + _config.SecondsOfIntroStartToPlay) &&
-                position < i.IntroEnd - 3.0); // 3 seconds before the end of the intro
+                position >= Math.Max(1, i.Start + _config.SecondsOfIntroStartToPlay) &&
+                position < i.End - 3.0); // 3 seconds before the end of the intro
 
             if (currentIntro is null)
             {
                 continue;
             }
 
-            var introEnd = currentIntro.IntroEnd;
+            var introEnd = currentIntro.End;
 
             intros.Remove(currentIntro);
 
             // Check if adjacent segment is within the maximum skip range.
             var maxTimeSkip = _config.MaximumTimeSkip;
-            var nextIntro = intros.FirstOrDefault(i => introEnd + maxTimeSkip >= i.IntroStart &&
-                    introEnd < i.IntroEnd);
+            var nextIntro = intros.FirstOrDefault(i => introEnd + maxTimeSkip >= i.Start &&
+                    introEnd < i.End);
 
             if (nextIntro is not null)
             {
-                introEnd = nextIntro.IntroEnd;
+                introEnd = nextIntro.End;
                 intros.Remove(nextIntro);
             }
 

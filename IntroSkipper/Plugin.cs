@@ -10,13 +10,12 @@ using System.Threading.Tasks;
 using IntroSkipper.Configuration;
 using IntroSkipper.Data;
 using IntroSkipper.Db;
-using IntroSkipper.Helper;
 using MediaBrowser.Common.Configuration;
 using MediaBrowser.Common.Plugins;
+using MediaBrowser.Controller.Chapters;
 using MediaBrowser.Controller.Configuration;
 using MediaBrowser.Controller.Entities;
 using MediaBrowser.Controller.Library;
-using MediaBrowser.Controller.Persistence;
 using MediaBrowser.Model.Entities;
 using MediaBrowser.Model.Plugins;
 using MediaBrowser.Model.Serialization;
@@ -31,7 +30,7 @@ namespace IntroSkipper;
 public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
 {
     private readonly ILibraryManager _libraryManager;
-    private readonly IItemRepository _itemRepository;
+    private readonly IChapterRepository _chapterRepository;
     private readonly ILogger<Plugin> _logger;
     private readonly string _dbPath;
 
@@ -42,21 +41,21 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
     /// <param name="xmlSerializer">Instance of the <see cref="IXmlSerializer"/> interface.</param>
     /// <param name="serverConfiguration">Server configuration manager.</param>
     /// <param name="libraryManager">Library manager.</param>
-    /// <param name="itemRepository">Item repository.</param>
+    /// <param name="chapterRepository">Chapter repository.</param>
     /// <param name="logger">Logger.</param>
     public Plugin(
         IApplicationPaths applicationPaths,
         IXmlSerializer xmlSerializer,
         IServerConfigurationManager serverConfiguration,
         ILibraryManager libraryManager,
-        IItemRepository itemRepository,
+        IChapterRepository chapterRepository,
         ILogger<Plugin> logger)
         : base(applicationPaths, xmlSerializer)
     {
         Instance = this;
 
         _libraryManager = libraryManager;
-        _itemRepository = itemRepository;
+        _chapterRepository = chapterRepository;
         _logger = logger;
 
         FFmpegPath = serverConfiguration.GetEncodingOptions().EncoderAppPathDisplay;
@@ -87,17 +86,6 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
         {
             logger.LogWarning("Error initializing database: {Exception}", ex);
         }
-
-        try
-        {
-            LegacyMigrations.MigrateAll(this, serverConfiguration, logger, applicationPaths, _libraryManager);
-        }
-        catch (Exception ex)
-        {
-            logger.LogError("Failed to perform migrations. Error: {Error}", ex);
-        }
-
-        FFmpegWrapper.CheckFFmpegVersion();
     }
 
     /// <summary>
@@ -164,52 +152,13 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
         ];
     }
 
-    internal BaseItem? GetItem(Guid id)
-    {
-        return id != Guid.Empty ? _libraryManager.GetItemById(id) : null;
-    }
+    internal BaseItem? GetItem(Guid id) => id != Guid.Empty ? _libraryManager.GetItemById(id) : null;
 
-    internal ICollection<Folder> GetCollectionFolders(Guid id)
-    {
-        var item = GetItem(id);
-        return item is not null ? _libraryManager.GetCollectionFolders(item) : [];
-    }
+    internal ICollection<Folder> GetCollectionFolders(Guid id) => GetItem(id) is var item && item is not null ? _libraryManager.GetCollectionFolders(item) : [];
 
-    /// <summary>
-    /// Gets the full path for an item.
-    /// </summary>
-    /// <param name="id">Item id.</param>
-    /// <returns>Full path to item.</returns>
-    internal string GetItemPath(Guid id)
-    {
-        var item = GetItem(id);
-        if (item == null)
-        {
-            // Handle the case where the item is not found
-            _logger.LogWarning("Item with ID {Id} not found.", id);
-            return string.Empty;
-        }
+    internal string GetItemPath(Guid id) => GetItem(id) is var item && item is not null ? item.Path : string.Empty;
 
-        return item.Path;
-    }
-
-    /// <summary>
-    /// Gets all chapters for this item.
-    /// </summary>
-    /// <param name="id">Item id.</param>
-    /// <returns>List of chapters.</returns>
-    internal IReadOnlyList<ChapterInfo> GetChapters(Guid id)
-    {
-        var item = GetItem(id);
-        if (item == null)
-        {
-            // Handle the case where the item is not found
-            _logger.LogWarning("Item with ID {Id} not found.", id);
-            return [];
-        }
-
-        return _itemRepository.GetChapters(item);
-    }
+    internal IReadOnlyList<ChapterInfo> GetChapters(Guid id) => _chapterRepository.GetChapters(id);
 
     internal async Task UpdateTimestampAsync(Segment segment, AnalysisMode mode)
     {

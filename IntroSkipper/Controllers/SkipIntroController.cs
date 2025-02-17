@@ -7,7 +7,6 @@ using System.Linq;
 using System.Net.Mime;
 using System.Threading;
 using System.Threading.Tasks;
-using IntroSkipper.Configuration;
 using IntroSkipper.Data;
 using IntroSkipper.Db;
 using IntroSkipper.Manager;
@@ -29,29 +28,6 @@ namespace IntroSkipper.Controllers;
 public class SkipIntroController(MediaSegmentUpdateManager mediaSegmentUpdateManager) : ControllerBase
 {
     private readonly MediaSegmentUpdateManager _mediaSegmentUpdateManager = mediaSegmentUpdateManager;
-
-    /// <summary>
-    /// Returns the timestamps of the introduction in a television episode. Responses are in API version 1 format.
-    /// </summary>
-    /// <param name="id">ID of the episode. Required.</param>
-    /// <param name="mode">Timestamps to return. Optional. Defaults to Introduction for backwards compatibility.</param>
-    /// <response code="200">Episode contains an intro.</response>
-    /// <response code="404">Failed to find an intro in the provided episode.</response>
-    /// <returns>Detected intro.</returns>
-    [HttpGet("Episode/{id}/IntroTimestamps")]
-    [HttpGet("Episode/{id}/IntroTimestamps/v1")]
-    public ActionResult<Intro> GetIntroTimestamps(
-        [FromRoute] Guid id,
-        [FromQuery] AnalysisMode mode = AnalysisMode.Introduction)
-    {
-        var intros = GetIntros(id);
-        if (!intros.TryGetValue(mode, out var intro))
-        {
-            return NotFound();
-        }
-
-        return intro;
-    }
 
     /// <summary>
     /// Updates the timestamps for the provided episode.
@@ -160,10 +136,10 @@ public class SkipIntroController(MediaSegmentUpdateManager mediaSegmentUpdateMan
     /// <response code="200">Skippable segments dictionary.</response>
     /// <returns>Dictionary of skippable segments.</returns>
     [HttpGet("Episode/{id}/IntroSkipperSegments")]
-    public ActionResult<Dictionary<AnalysisMode, Intro>> GetSkippableSegments([FromRoute] Guid id)
+    public ActionResult<Dictionary<AnalysisMode, Segment>> GetSkippableSegments([FromRoute] Guid id)
     {
-        var segments = GetIntros(id);
-        var result = new Dictionary<AnalysisMode, Intro>();
+        var segments = Plugin.Instance!.GetTimestamps(id);
+        var result = new Dictionary<AnalysisMode, Segment>();
 
         if (segments.TryGetValue(AnalysisMode.Introduction, out var introSegment))
         {
@@ -176,30 +152,6 @@ public class SkipIntroController(MediaSegmentUpdateManager mediaSegmentUpdateMan
         }
 
         return result;
-    }
-
-    /// <summary>Lookup and return the skippable timestamps for the provided item.</summary>
-    /// <param name="id">Unique identifier of this episode.</param>
-    /// <returns>Intro object if the provided item has an intro, null otherwise.</returns>
-    internal static Dictionary<AnalysisMode, Intro> GetIntros(Guid id)
-    {
-        var timestamps = Plugin.Instance!.GetTimestamps(id);
-        var intros = new Dictionary<AnalysisMode, Intro>();
-
-        foreach (var (mode, timestamp) in timestamps)
-        {
-            if (!timestamp.Valid)
-            {
-                continue;
-            }
-
-            // Create new Intro to avoid mutating the original stored in dictionary
-            var segment = new Intro(timestamp);
-
-            intros[mode] = segment;
-        }
-
-        return intros;
     }
 
     /// <summary>
@@ -242,23 +194,5 @@ public class SkipIntroController(MediaSegmentUpdateManager mediaSegmentUpdateMan
         using var db = new IntroSkipperDbContext(Plugin.Instance!.DbPath);
         db.RebuildDatabase();
         return NoContent();
-    }
-
-    /// <summary>
-    /// Gets the user interface configuration.
-    /// </summary>
-    /// <response code="200">UserInterfaceConfiguration returned.</response>
-    /// <returns>UserInterfaceConfiguration.</returns>
-    [HttpGet]
-    [Route("Intros/UserInterfaceConfiguration")]
-    public ActionResult<UserInterfaceConfiguration> GetUserInterfaceConfiguration()
-    {
-        var config = Plugin.Instance!.Configuration;
-        return new UserInterfaceConfiguration(
-            config.AutoSkip,
-            config.AutoSkipCredits,
-            config.AutoSkipRecap,
-            config.AutoSkipPreview,
-            config.ClientList);
     }
 }

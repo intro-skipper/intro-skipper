@@ -11,7 +11,7 @@ namespace IntroSkipper.Data;
 /// </summary>
 public class QueuedEpisode
 {
-    private readonly EpisodeState[] _isAnalyzed = new EpisodeState[Enum.GetValues(typeof(AnalysisMode)).Length];
+    private readonly EpisodeState[] _isAnalyzed = new EpisodeState[Enum.GetValues<AnalysisMode>().Length];
 
     /// <summary>
     /// Gets or sets the series name.

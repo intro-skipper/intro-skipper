@@ -84,6 +84,7 @@ namespace IntroSkipper.Services
             Plugin.Instance!.ConfigurationChanged += OnSettingsChanged;
 
             FFmpegWrapper.Logger = _logger;
+            FFmpegWrapper.CheckFFmpegVersion();
 
             // Enqueue all episodes at startup to ensure any FFmpeg errors appear as early as possible
             _logger.LogInformation("Running startup enqueue");

@@ -51,17 +51,6 @@ public class Segment
     /// <summary>
     /// Initializes a new instance of the <see cref="Segment"/> class.
     /// </summary>
-    /// <param name="intro">intro.</param>
-    public Segment(Intro intro)
-    {
-        EpisodeId = intro.EpisodeId;
-        Start = intro.IntroStart;
-        End = intro.IntroEnd;
-    }
-
-    /// <summary>
-    /// Initializes a new instance of the <see cref="Segment"/> class.
-    /// </summary>
     public Segment()
     {
     }
