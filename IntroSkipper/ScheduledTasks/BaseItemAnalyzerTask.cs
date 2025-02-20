@@ -175,7 +175,7 @@ public class BaseItemAnalyzerTask(
         var plugin = Plugin.Instance ?? throw new InvalidOperationException("Plugin instance is null");
         var action = plugin.GetAnalyzerAction(first.SeasonId, mode);
 
-        var chromaprintOnly = _ffmpegValid && plugin.Configuration.PreferChromaprint && action is AnalyzerAction.Default or AnalyzerAction.Chromaprint;
+        var chromaprintOnly = _ffmpegValid && _config.PreferChromaprint && action is AnalyzerAction.Default or AnalyzerAction.Chromaprint;
 
         _logger.LogInformation(
             "[Mode: {Mode}] Analyzing {Count} files from {Name} season {Season}",
