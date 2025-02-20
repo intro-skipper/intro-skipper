@@ -175,6 +175,8 @@ public class BaseItemAnalyzerTask(
         var plugin = Plugin.Instance ?? throw new InvalidOperationException("Plugin instance is null");
         var action = plugin.GetAnalyzerAction(first.SeasonId, mode);
 
+        var chromaprintOnly = _ffmpegValid && plugin.Configuration.PreferChromaprint && action is AnalyzerAction.Default or AnalyzerAction.Chromaprint;
+
         _logger.LogInformation(
             "[Mode: {Mode}] Analyzing {Count} files from {Name} season {Season}",
             mode,
@@ -186,7 +188,7 @@ public class BaseItemAnalyzerTask(
         var analyzers = new List<IMediaFileAnalyzer>();
 
         // Add analyzers based on conditions
-        if (action is AnalyzerAction.Chapter or AnalyzerAction.Default)
+        if (!chromaprintOnly && action is AnalyzerAction.Chapter or AnalyzerAction.Default)
         {
             analyzers.Add(new ChapterAnalyzer(_loggerFactory.CreateLogger<ChapterAnalyzer>()));
         }
@@ -196,7 +198,7 @@ public class BaseItemAnalyzerTask(
             analyzers.Add(new ChromaprintAnalyzer(_loggerFactory.CreateLogger<ChromaprintAnalyzer>()));
         }
 
-        if (mode is AnalysisMode.Credits && action is AnalyzerAction.Default or AnalyzerAction.BlackFrame)
+        if (!chromaprintOnly && mode is AnalysisMode.Credits && action is AnalyzerAction.Default or AnalyzerAction.BlackFrame)
         {
             analyzers.Add(new BlackFrameAnalyzer(_loggerFactory.CreateLogger<BlackFrameAnalyzer>()));
         }

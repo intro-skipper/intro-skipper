@@ -130,6 +130,14 @@
                                     </label>
                                 </div>
 
+                                <div class="checkboxContainer">
+                                    <label class="emby-checkbox-label">
+                                        <input id="PreferChromaprint" type="checkbox" is="emby-checkbox" />
+                                        <span>Prefer Chromaprint</span>
+                                        <div class="fieldDescription">Setting an analysis mode in the advanced options will override this setting.</div>
+                                    </label>
+                                </div>
+
                                 <div class="inputContainer">
                                     <label class="inputLabel inputLabelUnfocused" for="AnalysisPercent"> Percent of media to analyze </label>
                                     <input id="AnalysisPercent" type="number" is="emby-input" min="1" max="90" />
@@ -824,7 +832,7 @@
                     "AutoSkipNotificationText",
                 ];
 
-                const booleanConfigurationFields = ["AutoDetectIntros", "AnalyzeMovies", "AnalyzeSeasonZero", "SelectAllLibraries", "UpdateMediaSegments", "FullLengthChapters", "RebuildMediaSegments", "ScanIntroduction", "ScanCredits", "ScanRecap", "ScanPreview", "CacheFingerprints", "PluginSkip", "AutoSkip", "SkipFirstEpisode", "SnapToKeyframe"];
+                const booleanConfigurationFields = ["AutoDetectIntros", "AnalyzeMovies", "AnalyzeSeasonZero", "SelectAllLibraries", "UpdateMediaSegments", "FullLengthChapters", "RebuildMediaSegments", "ScanIntroduction", "ScanCredits", "ScanRecap", "ScanPreview", "PreferChromaprint", "CacheFingerprints", "PluginSkip", "AutoSkip", "SkipFirstEpisode", "SnapToKeyframe"];
 
                 // visualizer elements
                 const analyzeMovies = document.getElementById("AnalyzeMovies");

@@ -41,6 +41,11 @@ public class PluginConfiguration : BasePluginConfiguration
     public bool AnalyzeSeasonZero { get; set; }
 
     /// <summary>
+    /// Gets or sets a value indicating whether to only use chromaprint.
+    /// </summary>
+    public bool PreferChromaprint { get; set; }
+
+    /// <summary>
     /// Gets or sets a value indicating whether the episode's fingerprint should be cached to the filesystem.
     /// </summary>
     public bool CacheFingerprints { get; set; } = true;
