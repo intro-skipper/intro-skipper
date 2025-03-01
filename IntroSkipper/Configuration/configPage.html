@@ -266,6 +266,28 @@
                                 </div>
                             </details>
 
+                            <details id="blackframe">
+                                <summary>Black Frame Detection Options</summary>
+
+                                <br />
+                                <div class="checkboxContainer checkboxContainer-withDescription">
+                                    <label class="emby-checkbox-label">
+                                        <input id="UseChapterMarkersBlackFrame" type="checkbox" is="emby-checkbox" />
+                                        <span>Use chapter markers for credits detection</span>
+                                    </label>
+
+                                    <div class="fieldDescription">
+                                        If enabled, chapter markers will be used to identify credits segments.
+                                    </div>
+                                </div>
+
+                                <div class="inputContainer">
+                                    <label class="inputLabel inputLabelUnfocused" for="BlackFrameMinimumPercentage"> Minimum percentage of black pixels </label>
+                                    <input id="BlackFrameMinimumPercentage" type="number" is="emby-input" min="0" max="100" />
+                                    <div class="fieldDescription">Minimum percentage of black pixels in a frame before it is considered a black frame.</div>
+                                </div>
+                            </details>
+
                             <details id="chapters">
                                 <summary>Chapter Detection Options</summary>
 
@@ -800,6 +822,7 @@
                     // internals
                     "SilenceDetectionMaximumNoise",
                     "SilenceDetectionMinimumDuration",
+                    "BlackFrameMinimumPercentage",
                     "ChapterAnalyzerIntroductionPattern",
                     "ChapterAnalyzerEndCreditsPattern",
                     "ChapterAnalyzerPreviewPattern",
@@ -809,7 +832,7 @@
                     "AutoSkipNotificationText",
                 ];
 
-                const booleanConfigurationFields = ["AutoDetectIntros", "AnalyzeSeasonZero", "UpdateMediaSegments", "FullLengthChapters", "RebuildMediaSegments", "ScanIntroduction", "ScanCredits", "ScanRecap", "ScanPreview", "PreferChromaprint", "CacheFingerprints", "PluginSkip", "AutoSkip", "SkipFirstEpisode", "SnapToKeyframe"];
+                const booleanConfigurationFields = ["AutoDetectIntros", "AnalyzeSeasonZero", "UpdateMediaSegments", "UseChapterMarkersBlackFrame", "FullLengthChapters", "RebuildMediaSegments", "ScanIntroduction", "ScanCredits", "ScanRecap", "ScanPreview", "PreferChromaprint", "CacheFingerprints", "PluginSkip", "AutoSkip", "SkipFirstEpisode", "SnapToKeyframe"];
 
                 // visualizer elements
                 const analyzerActionsSection = document.querySelector("div#analyzerActionsSection");

@@ -11,3 +11,4 @@ docker/dist
 
 # JetBrains Rider
 .idea/
+/.cursor
