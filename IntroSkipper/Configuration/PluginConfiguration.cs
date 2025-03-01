@@ -152,6 +152,11 @@ public class PluginConfiguration : BasePluginConfiguration
     public int BlackFrameMinimumPercentage { get; set; } = 85;
 
     /// <summary>
+    /// Gets or sets a value indicating whether to use chapter markers for credits detection.
+    /// </summary>
+    public bool UseChapterMarkersBlackFrame { get; set; } = true;
+
+    /// <summary>
     /// Gets or sets a value indicating whether to snap the end of a segm to the nearest keyframe.
     /// </summary>
     public bool SnapToKeyframe { get; set; } = true;
