@@ -36,12 +36,12 @@
         "imageUrl": "https://raw.githubusercontent.com/intro-skipper/jellyfin-plugin-edl/master/images/logo.png",
         "versions": [
             {
-                "version": "0.4.1.0",
+                "version": "0.4.2.0",
                 "changelog": "- See the full changelog at [GitHub](https://github.com/intro-skipper/jellyfin-plugin-edl/blob/10.10.2/CHANGELOG.md)",
                 "targetAbi": "10.10.3.0",
-                "sourceUrl": "https://github.com/intro-skipper/jellyfin-plugin-edl/releases/download/0.4.1-00cd9ce/Jellyfin.Plugin.Edl-0.4.1.zip",
-                "checksum": "e72d4415912ca2b0afcdcff5aa24ceb3",
-                "timestamp": "2025-01-17T21:08:32Z"
+                "sourceUrl": "https://github.com/intro-skipper/jellyfin-plugin-edl/releases/download/0.4.2-f3e405c/Jellyfin.Plugin.Edl-0.4.2.zip",
+                "checksum": "9cb77fe37f3fea215b9b33a9dc3b2842",
+                "timestamp": "2025-03-01T12:00:32Z"
             }
         ]
     },
@@ -74,12 +74,12 @@
         "imageUrl": "https://raw.githubusercontent.com/intro-skipper/jellyfin-plugin-ms-chapter/master/images/logo.png",
         "versions": [
             {
-                "version": "0.4.1.0",
+                "version": "0.4.2.0",
                 "changelog": "- See the full changelog at [GitHub](https://github.com/intro-skipper/jellyfin-plugin-ms-chapter/blob/master/CHANGELOG.md)",
                 "targetAbi": "10.10.3.0",
-                "sourceUrl": "https://github.com/intro-skipper/jellyfin-plugin-ms-chapter/releases/download/0.4.1-e474d12/ChapterCreator-0.4.1.zip",
-                "checksum": "7d48a7dc8cd5b9cfa92b995b047328df",
-                "timestamp": "2025-01-11T14:16:00Z"
+                "sourceUrl": "https://github.com/intro-skipper/jellyfin-plugin-ms-chapter/releases/download/0.4.2-68bd752/ChapterCreator-0.4.2.zip",
+                "checksum": "ee0f90e803ea247f7917a6fa52f6ab4c",
+                "timestamp": "2025-03-01T12:00:00Z"
             }
         ]
     }
