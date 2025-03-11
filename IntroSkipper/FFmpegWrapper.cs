@@ -271,7 +271,7 @@ public static partial class FFmpegWrapper
     {
         var args = string.Format(
             CultureInfo.InvariantCulture,
-            "-ss {0} -i \"{1}\" -to {2} -an -dn -sn -vf \"select='eq(pict_type,I)',showinfo\" -f null -",
+            "-skip_frame nokey -ss {0} -i \"{1}\" -to {2} -an -dn -sn -vf \"showinfo\" -f null -",
             range.Start,
             episode.Path,
             range.End - range.Start);
@@ -288,12 +288,6 @@ public static partial class FFmpegWrapper
 
         foreach (var line in raw.Split('\n', StringSplitOptions.RemoveEmptyEntries))
         {
-            if (!line.Contains("type:I", StringComparison.OrdinalIgnoreCase) ||
-                !line.Contains("iskey:1", StringComparison.OrdinalIgnoreCase))
-            {
-                continue;
-            }
-
             var ptsIndex = line.IndexOf("pts_time:", StringComparison.OrdinalIgnoreCase);
             if (ptsIndex == -1)
             {
