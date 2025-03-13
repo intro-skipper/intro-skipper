@@ -150,7 +150,7 @@ public static partial class FFmpegWrapper
         var args = string.Format(
             CultureInfo.InvariantCulture,
             "-vn -sn -dn " +
-                "-ss {0} -i \"{1}\" -to {2} -af \"silencedetect=noise={3}dB:duration=0.1\" -f null -",
+                "-ss {0} -i \"{1}\" -to {2} -vn -dn -sn -af \"silencedetect=noise={3}dB:duration=0.1\" -f null -",
             range.Start,
             episode.Path,
             range.End - range.Start,
