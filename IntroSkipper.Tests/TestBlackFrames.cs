@@ -64,7 +64,7 @@ public class TestBlackFrames
 
         for (var i = start; i < end; i += 0.04)
         {
-            frames.Add(new(100, i));
+            frames.Add(new(100, i, 0));
         }
 
         return [.. frames];

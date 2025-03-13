@@ -294,6 +294,17 @@
                                 <br />
                                 <div class="checkboxContainer checkboxContainer-withDescription">
                                     <label class="emby-checkbox-label">
+                                        <input id="UseAlternativeBlackFrameAnalyzer" type="checkbox" is="emby-checkbox" />
+                                        <span>Use alternative black frame analyzer</span>
+                                    </label>
+
+                                    <div class="fieldDescription">
+                                        If enabled, the alternative black frame analyzer will be used.
+                                    </div>
+                                </div>
+
+                                <div class="checkboxContainer checkboxContainer-withDescription">
+                                    <label class="emby-checkbox-label">
                                         <input id="UseChapterMarkersBlackFrame" type="checkbox" is="emby-checkbox" />
                                         <span>Use chapter markers for credits detection</span>
                                     </label>
@@ -855,7 +866,7 @@
                     "AutoSkipNotificationText",
                 ];
 
-                const booleanConfigurationFields = ["AutoDetectIntros", "AnalyzeMovies", "AnalyzeSeasonZero", "SelectAllLibraries", "UpdateMediaSegments", "UseChapterMarkersBlackFrame", "FullLengthChapters", "RebuildMediaSegments", "ScanIntroduction", "ScanCredits", "ScanRecap", "ScanPreview", "PreferChromaprint", "CacheFingerprints", "PluginSkip", "AutoSkip", "SkipFirstEpisode", "SnapToKeyframe"];
+                const booleanConfigurationFields = ["AutoDetectIntros", "AnalyzeMovies", "AnalyzeSeasonZero", "SelectAllLibraries", "UpdateMediaSegments","UseAlternativeBlackFrameAnalyzer", "UseChapterMarkersBlackFrame", "FullLengthChapters", "RebuildMediaSegments", "ScanIntroduction", "ScanCredits", "ScanRecap", "ScanPreview", "PreferChromaprint", "CacheFingerprints", "PluginSkip", "AutoSkip", "SkipFirstEpisode", "SnapToKeyframe"];
 
                 // visualizer elements
                 const analyzeMovies = document.getElementById("AnalyzeMovies");

@@ -187,6 +187,10 @@ public class BaseItemAnalyzerTask(
         // Create analyzers list
         var analyzers = new List<IMediaFileAnalyzer>();
 
+        IMediaFileAnalyzer blackFrameAnalyzer = _config.UseAlternativeBlackFrameAnalyzer
+            ? new BlackFrameAltAnalyzer(_loggerFactory.CreateLogger<BlackFrameAltAnalyzer>())
+            : new BlackFrameAnalyzer(_loggerFactory.CreateLogger<BlackFrameAnalyzer>());
+
         // Add analyzers based on conditions
         if (!chromaprintOnly && action is AnalyzerAction.Chapter or AnalyzerAction.Default)
         {
@@ -200,7 +204,7 @@ public class BaseItemAnalyzerTask(
 
         if (!chromaprintOnly && mode is AnalysisMode.Credits && action is AnalyzerAction.Default or AnalyzerAction.BlackFrame)
         {
-            analyzers.Add(new BlackFrameAnalyzer(_loggerFactory.CreateLogger<BlackFrameAnalyzer>()));
+            analyzers.Add(blackFrameAnalyzer);
         }
 
         if (!first.IsAnime && !first.IsMovie && mode is AnalysisMode.Introduction or AnalysisMode.Credits && action is AnalyzerAction.Default or AnalyzerAction.Chromaprint && _ffmpegValid)

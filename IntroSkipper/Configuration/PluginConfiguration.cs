@@ -50,6 +50,11 @@ public class PluginConfiguration : BasePluginConfiguration
     /// </summary>
     public bool CacheFingerprints { get; set; } = true;
 
+    /// <summary>
+    /// Gets or sets a value indicating whether to use the alternative black frame analyzer.
+    /// </summary>
+    public bool UseAlternativeBlackFrameAnalyzer { get; set; }
+
     // ===== Media Segment handling =====
 
     /// <summary>
