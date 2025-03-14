@@ -47,18 +47,16 @@ public sealed class BlackFrameAltAnalyzer(ILogger<BlackFrameAltAnalyzer> logger)
 
         _logger.LogDebug("Analyzing {Count} episodes for credits using black frame detection", unanalyzedEpisodes.Count);
 
+        var minimumPercentage = _config.BlackFrameMinimumPercentage;
+        var plugin = Plugin.Instance ?? throw new InvalidOperationException("Plugin instance is null");
+
         foreach (var episode in unanalyzedEpisodes)
         {
-            if (cancellationToken.IsCancellationRequested)
-            {
-                break;
-            }
+            cancellationToken.ThrowIfCancellationRequested();
 
             try
             {
-                var credit = DetectCredits(
-                        episode,
-                        _config.BlackFrameMinimumPercentage);
+                var credit = DetectCredits(episode, minimumPercentage);
 
                 if (credit is null || !credit.Valid)
                 {
@@ -69,7 +67,12 @@ public sealed class BlackFrameAltAnalyzer(ILogger<BlackFrameAltAnalyzer> logger)
                 _logger.LogDebug("Found credits for {Episode} at {Start:F2}s", episode.Name, credit.Start);
 
                 episode.SetAnalyzed(mode, EpisodeState.Analyzed);
-                await Plugin.Instance!.UpdateTimestampAsync(credit, mode).ConfigureAwait(false);
+                await plugin.UpdateTimestampAsync(credit, mode).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException)
+            {
+                _logger.LogInformation("Analysis cancelled by user");
+                break;
             }
             catch (Exception ex)
             {
@@ -89,33 +92,55 @@ public sealed class BlackFrameAltAnalyzer(ILogger<BlackFrameAltAnalyzer> logger)
     public Segment? DetectCredits(QueuedEpisode episode, int minimum)
     {
         var blackFrames = FFmpegWrapper.DetectBlackFrames(episode);
-        _logger.LogDebug("Detected {Count} black frames for {Episode}", blackFrames.Length, episode.Name);
+
         if (blackFrames.Length == 0)
         {
             return null;
         }
 
         var scenes = DetectCreditScenes(blackFrames, minimum);
-        if (scenes.Length == 0)
+        if (scenes.Count == 0)
         {
             return null;
         }
 
-        var lastScene = scenes[^1];
-        var start = lastScene.StartTime + episode.CreditsFingerprintStart;
-        var end = lastScene.EndTime == blackFrames[^1].Time ? episode.Duration : lastScene.EndTime + episode.CreditsFingerprintStart;
+        var lastFrameTime = blackFrames[^1].Time;
+        var minimumDuration = _config.MinimumCreditsDuration;
 
-        return new Segment(episode.EpisodeId, new TimeRange(start, end));
+        // Start from the last scene and work backwards to find the first valid credits segment
+        for (var i = scenes.Count - 1; i >= 0; i--)
+        {
+            var scene = scenes[i];
+            var start = scene.StartTime + episode.CreditsFingerprintStart;
+            var end = scene.EndTime == lastFrameTime ? episode.Duration : scene.EndTime + episode.CreditsFingerprintStart;
+            var duration = end - start;
+
+            if (duration >= minimumDuration)
+            {
+                _logger.LogTrace(
+                    "Found valid credits segment: start={Start:F2}s, end={End:F2}s, duration={Duration:F2}s",
+                    start,
+                    end,
+                    duration);
+
+                return new Segment(episode.EpisodeId, new TimeRange(start, end));
+            }
+        }
+
+        return null;
     }
 
-    private static CreditScene[] DetectCreditScenes(BlackFrame[] blackFrames, int minimum = 85)
+    private static List<CreditScene> DetectCreditScenes(BlackFrame[] blackFrames, int minimum = 85)
     {
         var scenes = new List<CreditScene>();
         BlackFrame? sceneStart = null;
         BlackFrame? lastBlack = null;
 
-        foreach (var frame in blackFrames)
+        Span<BlackFrame> frames = blackFrames;
+
+        for (var i = 0; i < frames.Length; i++)
         {
+            var frame = frames[i];
             var isBlack = frame.Percentage >= minimum;
 
             // Start new scene
@@ -131,8 +156,9 @@ public sealed class BlackFrameAltAnalyzer(ILogger<BlackFrameAltAnalyzer> logger)
                 lastBlack = frame;
             }
 
-            // End scene if gap is too large
-            else if (sceneStart is not null && lastBlack is not null && frame.Frame - lastBlack.Frame > 5)
+            // End scene if gap is too large or we're at the last frame
+            else if (sceneStart is not null && lastBlack is not null &&
+                    (i == frames.Length - 1 || frame.Frame - lastBlack.Frame > 5))
             {
                 if (lastBlack.Frame - sceneStart.Frame >= 5)
                 {
@@ -150,16 +176,17 @@ public sealed class BlackFrameAltAnalyzer(ILogger<BlackFrameAltAnalyzer> logger)
         }
 
         // Merge scenes that are close together
-        if (scenes.Count == 0)
+        if (scenes.Count <= 1)
         {
-            return [];
+            return scenes;
         }
 
-        var merged = new List<CreditScene>();
+        var merged = new List<CreditScene>(scenes.Count);
         var current = scenes[0];
 
-        foreach (var scene in scenes.Skip(1))
+        for (var i = 1; i < scenes.Count; i++)
         {
+            var scene = scenes[i];
             if (scene.StartFrame - current.EndFrame <= 10)
             {
                 current = new CreditScene(current.StartFrame, scene.EndFrame, current.StartTime, scene.EndTime);
@@ -173,6 +200,30 @@ public sealed class BlackFrameAltAnalyzer(ILogger<BlackFrameAltAnalyzer> logger)
 
         merged.Add(current);
 
-        return [.. merged];
+        // Find the transition frame for each merged scene
+        var finalScenes = new List<CreditScene>(merged.Count);
+        foreach (var scene in merged)
+        {
+            var startFrame = scene.StartFrame;
+            var endFrame = scene.EndFrame;
+            var startTime = scene.StartTime;
+            var endTime = scene.EndTime;
+
+            // Look for a transition frame (95% black) in the first part of the scene
+            for (var i = 0; i < frames.Length; i++)
+            {
+                var frame = frames[i];
+                if (frame.Frame >= startFrame && frame.Frame <= endFrame && frame.Percentage >= 95)
+                {
+                    startFrame = frame.Frame;
+                    startTime = frame.Time;
+                    break;
+                }
+            }
+
+            finalScenes.Add(new CreditScene(startFrame, endFrame, startTime, endTime));
+        }
+
+        return finalScenes;
     }
 }
