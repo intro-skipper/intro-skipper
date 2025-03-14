@@ -107,7 +107,7 @@ public class ChromaprintAnalyzer(ILogger<ChromaprintAnalyzer> logger) : IMediaFi
 
                 var maxDuration = _analysisMode == AnalysisMode.Introduction
                     ? Plugin.Instance!.Configuration.MaximumIntroDuration
-                    : (remainingEpisode.Duration - remainingEpisode.CreditsFingerprintStart) * 0.9; // dont allow perfect matches to avoid false positives from duplicates
+                    : (int)(remainingEpisode.Duration - remainingEpisode.CreditsFingerprintStart - 1); // dont allow perfect matches to avoid false positives from duplicates
 
                 // Ignore this comparison result if:
                 // - one of the intros isn't valid, or
