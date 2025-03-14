@@ -29,7 +29,7 @@
             "Override": {
                 "Microsoft": "Warning",
                 "System": "Warning",                // be sure to add the trailing comma after "Warning",
-                "ConfusedPolarBear": "Debug"        // newly added line
+                "IntroSkipper": "Debug"             // newly added line
             }
         },
         // rest of file ommited for brevity
