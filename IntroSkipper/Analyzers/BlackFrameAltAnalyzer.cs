@@ -56,7 +56,7 @@ public sealed class BlackFrameAltAnalyzer(ILogger<BlackFrameAltAnalyzer> logger)
 
             try
             {
-                var credit = DetectCredits(episode, minimumPercentage);
+                var credit = DetectCredits(episode);
 
                 if (credit is null || !credit.Valid)
                 {
@@ -87,18 +87,17 @@ public sealed class BlackFrameAltAnalyzer(ILogger<BlackFrameAltAnalyzer> logger)
     /// Detects the start of blackframe credits from FFmpeg blackframe filter output.
     /// </summary>
     /// <param name="episode">Media file to analyze.</param>
-    /// <param name="minimum">Minimum percentage of black pixels to consider a frame a black frame.</param>
     /// <returns>Time range of the detected credits.</returns>
-    public Segment? DetectCredits(QueuedEpisode episode, int minimum)
+    public Segment? DetectCredits(QueuedEpisode episode)
     {
-        var blackFrames = FFmpegWrapper.DetectBlackFrames(episode);
+        var blackFrames = FFmpegWrapper.DetectBlackFrames(episode).ToList();
 
-        if (blackFrames.Length == 0)
+        if (blackFrames.Count == 0)
         {
             return null;
         }
 
-        var scenes = DetectCreditScenes(blackFrames, minimum);
+        var scenes = DetectCreditScenes(blackFrames);
         if (scenes.Count == 0)
         {
             return null;
@@ -130,15 +129,19 @@ public sealed class BlackFrameAltAnalyzer(ILogger<BlackFrameAltAnalyzer> logger)
         return null;
     }
 
-    private static List<CreditScene> DetectCreditScenes(BlackFrame[] blackFrames, int minimum = 85)
+    private List<CreditScene> DetectCreditScenes(List<BlackFrame> frames)
     {
         var scenes = new List<CreditScene>();
         BlackFrame? sceneStart = null;
         BlackFrame? lastBlack = null;
 
-        Span<BlackFrame> frames = blackFrames;
+        // Normalize the threshold based on consistent dark elements, capping floor at 30%
+        // Adapts the detection sensitivity to the video's natural black levels
+        var floor = Math.Min(frames.Min(f => f.Percentage), 30);
+        var minimum = (_config.BlackFrameMinimumPercentage * (100 - floor) / 100) + floor;
+        var sceneChange = (95 * (100 - floor) / 100) + floor;
 
-        for (var i = 0; i < frames.Length; i++)
+        for (var i = 0; i < frames.Count; i++)
         {
             var frame = frames[i];
             var isBlack = frame.Percentage >= minimum;
@@ -158,7 +161,7 @@ public sealed class BlackFrameAltAnalyzer(ILogger<BlackFrameAltAnalyzer> logger)
 
             // End scene if gap is too large or we're at the last frame
             else if (sceneStart is not null && lastBlack is not null &&
-                    (i == frames.Length - 1 || frame.Frame - lastBlack.Frame > 5))
+                    (i == frames.Count - 1 || frame.Frame - lastBlack.Frame > 5))
             {
                 if (lastBlack.Frame - sceneStart.Frame >= 5)
                 {
@@ -209,11 +212,11 @@ public sealed class BlackFrameAltAnalyzer(ILogger<BlackFrameAltAnalyzer> logger)
             var startTime = scene.StartTime;
             var endTime = scene.EndTime;
 
-            // Look for a transition frame (95% black) in the first part of the scene
-            for (var i = 0; i < frames.Length; i++)
+            // Look for a scene change in the first part of the scene
+            for (var i = 0; i < frames.Count; i++)
             {
                 var frame = frames[i];
-                if (frame.Frame >= startFrame && frame.Frame <= endFrame && frame.Percentage >= 95)
+                if (frame.Frame >= startFrame && frame.Frame <= endFrame && frame.Percentage >= sceneChange)
                 {
                     startFrame = frame.Frame;
                     startTime = frame.Time;
