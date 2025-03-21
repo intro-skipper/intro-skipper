@@ -199,19 +199,22 @@ public static partial class FFmpegWrapper
     /// <param name="episode">Media file to analyze.</param>
     /// <param name="range">Time range to search.</param>
     /// <param name="minimum">Percentage of the frame that must be black.</param>
+    /// <param name="threshold">Threshold for black frame detection.</param>
     /// <returns>Array of frames that are mostly black.</returns>
     public static BlackFrame[] DetectBlackFrames(
         QueuedEpisode episode,
         TimeRange range,
-        int minimum)
+        int minimum,
+        int threshold)
     {
         // Seek to the start of the time range and find frames that are at least 50% black.
         var args = string.Format(
             CultureInfo.InvariantCulture,
-            "-ss {0} -i \"{1}\" -to {2} -an -dn -sn -vf \"blackframe=amount=50\" -f null -",
+            "-ss {0} -i \"{1}\" -to {2} -an -dn -sn -vf \"blackframe=amount=50:threshold={3}\" -f null -",
             range.Start,
             episode.Path,
-            range.End - range.Start);
+            range.End - range.Start,
+            threshold);
 
         // Cache the results to GUID-blackframes-START-END-v1.
         var cacheKey = string.Format(
@@ -230,17 +233,19 @@ public static partial class FFmpegWrapper
     /// Finds the location of all black frames in a media file starting at a given time.
     /// </summary>
     /// <param name="episode">Media file to analyze.</param>
+    /// <param name="threshold">Threshold for black frame detection.</param>
     /// <returns>Array of frames that are mostly black.</returns>
-    public static BlackFrame[] DetectBlackFrames(QueuedEpisode episode)
+    public static BlackFrame[] DetectBlackFrames(QueuedEpisode episode, int threshold)
     {
         ArgumentNullException.ThrowIfNull(episode);
 
-        // Seek to the start of the time range and find frames that are at least 50% black.
+        // Seek to the start of the time range and get the black level of each frame.
         var args = string.Format(
             CultureInfo.InvariantCulture,
-            "-skip_frame nokey -ss {0} -i \"{1}\" -an -dn -sn -vf \"blackframe=amount=0\" -f null -",
+            "-skip_frame nokey -ss {0} -i \"{1}\" -an -dn -sn -vf \"blackframe=amount=0:threshold={2}\" -f null -",
             episode.CreditsFingerprintStart,
-            episode.Path);
+            episode.Path,
+            threshold);
 
         // Cache the results to GUID-blackframes-START-END-v1.
         var cacheKey = string.Format(

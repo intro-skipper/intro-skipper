@@ -157,6 +157,11 @@ public class PluginConfiguration : BasePluginConfiguration
     public int BlackFrameMinimumPercentage { get; set; } = 85;
 
     /// <summary>
+    /// Gets or sets the threshold for black frame detection.
+    /// </summary>
+    public int BlackFrameThreshold { get; set; } = 32;
+
+    /// <summary>
     /// Gets or sets a value indicating whether to use chapter markers for credits detection.
     /// </summary>
     public bool UseChapterMarkersBlackFrame { get; set; } = true;

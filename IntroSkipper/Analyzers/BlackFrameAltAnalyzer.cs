@@ -48,6 +48,8 @@ public sealed class BlackFrameAltAnalyzer(ILogger<BlackFrameAltAnalyzer> logger)
         _logger.LogDebug("Analyzing {Count} episodes for credits using black frame detection", unanalyzedEpisodes.Count);
 
         var minimumPercentage = _config.BlackFrameMinimumPercentage;
+        var threshold = _config.BlackFrameThreshold;
+        var minimumDuration = _config.MinimumCreditsDuration;
         var plugin = Plugin.Instance ?? throw new InvalidOperationException("Plugin instance is null");
 
         foreach (var episode in unanalyzedEpisodes)
@@ -56,7 +58,7 @@ public sealed class BlackFrameAltAnalyzer(ILogger<BlackFrameAltAnalyzer> logger)
 
             try
             {
-                var credit = DetectCredits(episode);
+                var credit = DetectCredits(episode, minimumPercentage, threshold, minimumDuration);
 
                 if (credit is null || !credit.Valid)
                 {
@@ -87,24 +89,26 @@ public sealed class BlackFrameAltAnalyzer(ILogger<BlackFrameAltAnalyzer> logger)
     /// Detects the start of blackframe credits from FFmpeg blackframe filter output.
     /// </summary>
     /// <param name="episode">Media file to analyze.</param>
+    /// <param name="minimumPercentage">Minimum percentage of the frame that must be black.</param>
+    /// <param name="threshold">Threshold for black frame detection.</param>
+    /// <param name="minimumDuration">Minimum duration of the credits.</param>
     /// <returns>Time range of the detected credits.</returns>
-    public Segment? DetectCredits(QueuedEpisode episode)
+    public Segment? DetectCredits(QueuedEpisode episode, int minimumPercentage, int threshold, int minimumDuration)
     {
-        var blackFrames = FFmpegWrapper.DetectBlackFrames(episode).ToList();
+        var blackFrames = FFmpegWrapper.DetectBlackFrames(episode, threshold).ToList();
 
         if (blackFrames.Count == 0)
         {
             return null;
         }
 
-        var scenes = DetectCreditScenes(blackFrames);
+        var scenes = DetectCreditScenes(blackFrames, minimumPercentage);
         if (scenes.Count == 0)
         {
             return null;
         }
 
         var lastFrameTime = blackFrames[^1].Time;
-        var minimumDuration = _config.MinimumCreditsDuration;
 
         // Start from the last scene and work backwards to find the first valid credits segment
         for (var i = scenes.Count - 1; i >= 0; i--)
@@ -129,7 +133,7 @@ public sealed class BlackFrameAltAnalyzer(ILogger<BlackFrameAltAnalyzer> logger)
         return null;
     }
 
-    private List<CreditScene> DetectCreditScenes(List<BlackFrame> frames)
+    private static List<CreditScene> DetectCreditScenes(List<BlackFrame> frames, int minimumPercentage)
     {
         var scenes = new List<CreditScene>();
         BlackFrame? sceneStart = null;
@@ -137,8 +141,10 @@ public sealed class BlackFrameAltAnalyzer(ILogger<BlackFrameAltAnalyzer> logger)
 
         // Normalize the threshold based on consistent dark elements, capping floor at 30%
         // Adapts the detection sensitivity to the video's natural black levels
-        var floor = Math.Min(frames.Min(f => f.Percentage), 30);
-        var minimum = (_config.BlackFrameMinimumPercentage * (100 - floor) / 100) + floor;
+        var orderedFrames = frames.OrderBy(f => f.Percentage).ToList();
+        var percentileIndex = (int)(frames.Count * 0.01); // 1st percentile
+        var floor = Math.Min(orderedFrames[percentileIndex].Percentage, 30);
+        var minimum = (minimumPercentage * (100 - floor) / 100) + floor;
         var sceneChange = (95 * (100 - floor) / 100) + floor;
 
         for (var i = 0; i < frames.Count; i++)

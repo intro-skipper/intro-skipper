@@ -318,7 +318,13 @@
                                 <div class="inputContainer">
                                     <label class="inputLabel inputLabelUnfocused" for="BlackFrameMinimumPercentage"> Minimum percentage of black pixels </label>
                                     <input id="BlackFrameMinimumPercentage" type="number" is="emby-input" min="0" max="100" />
-                                    <div class="fieldDescription">Minimum percentage of black pixels in a frame before it is considered a black frame.</div>
+                                    <div class="fieldDescription">Minimum percentage of black pixels in a frame before it is considered a black frame. Defaults to 85.</div>
+                                </div>
+
+                                <div class="inputContainer">
+                                    <label class="inputLabel inputLabelUnfocused" for="BlackFrameThreshold"> Black frame threshold </label>
+                                    <input id="BlackFrameThreshold" type="number" is="emby-input" min="16" max="255" />
+                                    <div class="fieldDescription">The threshold below which a pixel value is considered black. Defaults to 32.</div>
                                 </div>
                             </details>
 
@@ -858,6 +864,7 @@
                     "SilenceDetectionMaximumNoise",
                     "SilenceDetectionMinimumDuration",
                     "BlackFrameMinimumPercentage",
+                    "BlackFrameThreshold",
                     "ChapterAnalyzerIntroductionPattern",
                     "ChapterAnalyzerEndCreditsPattern",
                     "ChapterAnalyzerPreviewPattern",
