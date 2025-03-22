@@ -41,11 +41,6 @@ public class PluginConfiguration : BasePluginConfiguration
     public bool AnalyzeSeasonZero { get; set; }
 
     /// <summary>
-    /// Gets or sets a value indicating whether to only use chromaprint.
-    /// </summary>
-    public bool PreferChromaprint { get; set; }
-
-    /// <summary>
     /// Gets or sets a value indicating whether the episode's fingerprint should be cached to the filesystem.
     /// </summary>
     public bool CacheFingerprints { get; set; } = true;
@@ -67,14 +62,19 @@ public class PluginConfiguration : BasePluginConfiguration
     // ===== Custom analysis settings =====
 
     /// <summary>
-    /// Gets or sets a value indicating whether Introductions should be analyzed.
+    /// Gets or sets the list of analyzers to use for introductions.
     /// </summary>
-    public bool ScanIntroduction { get; set; } = true;
+    public string IntroAnalyzerOrderList { get; set; } = "Chapter:true, Chromaprint:true";
 
     /// <summary>
-    /// Gets or sets a value indicating whether Credits should be analyzed.
+    /// Gets or sets the list of analyzers to use for credits.
     /// </summary>
-    public bool ScanCredits { get; set; } = true;
+    public string CreditsAnalyzerOrderList { get; set; } = "Chapter:true, BlackFrame:true, Chromaprint:true";
+
+    /// <summary>
+    /// Gets or sets a value indicating whether to always prefer Chromaprint for anime.
+    /// </summary>
+    public bool AnimeChromaprint { get; set; } = true;
 
     /// <summary>
     /// Gets or sets a value indicating whether Recaps should be analyzed.

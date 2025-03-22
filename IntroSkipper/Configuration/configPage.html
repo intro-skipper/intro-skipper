@@ -87,14 +87,6 @@
                                 </div>
                             </div>
 
-                            <div class="checkboxContainer checkboxContainer-withDescription">
-                                <label class="emby-checkbox-label">
-                                    <input id="PreferChromaprint" type="checkbox" is="emby-checkbox" />
-                                    <span>Prefer Chromaprint Analysis</span>
-                                </label>
-                                <div class="fieldDescription">Setting an analysis mode in the advanced options will override this setting.</div>
-                            </div>
-
                             <div class="inputContainer" id="excludedSeries">
                                 <label class="inputLabel inputLabelUnfocused" for="ExcludeSeries"> Exclude series </label>
                                 <input id="ExcludeSeries" type="text" is="emby-input" />
@@ -110,18 +102,16 @@
                                     Per the jellyfin MediaSegments API, records must be updated individually and may be slow to regenerate.
                                 </p>
 
-                                <div class="checkboxContainer">
-                                    <label class="emby-checkbox-label">
-                                        <input id="ScanIntroduction" type="checkbox" is="emby-checkbox" />
-                                        <span>Identify Introductions</span>
-                                    </label>
+                                <div id="introAnalyzerOrderContainer" style="margin-bottom: -1.5em;">
+                                    <h3 class="checkboxListLabel"><b>Identify Introductions</b> <br />Drag to reorder analyzers (highest priority first):</h3>
+                                    <div class="checkboxList paperList sortableList" style="padding: 0.5em 1em" id="introAnalyzerOrderList"></div>
+                                    <input id="IntroAnalyzerOrderList" type="hidden" is="emby-input" />
                                 </div>
 
-                                <div class="checkboxContainer">
-                                    <label class="emby-checkbox-label">
-                                        <input id="ScanCredits" type="checkbox" is="emby-checkbox" />
-                                        <span>Identify Credits</span>
-                                    </label>
+                                <div id="creditsAnalyzerOrderContainer" style="margin-bottom: -0.5em;">
+                                    <h3 class="checkboxListLabel"><b>Identify Credits</b> <br />Drag to reorder analyzers (highest priority first):</h3>
+                                    <div class="checkboxList paperList sortableList" style="padding: 0.5em 1em" id="creditsAnalyzerOrderList"></div>
+                                    <input id="CreditsAnalyzerOrderList" type="hidden" is="emby-input" />
                                 </div>
 
                                 <div class="checkboxContainer">
@@ -851,11 +841,13 @@
                     "ChapterAnalyzerPreviewPattern",
                     "ChapterAnalyzerRecapPattern",
                     "TypeList",
+                    "IntroAnalyzerOrderList",
+                    "CreditsAnalyzerOrderList",
                     // UI customization
                     "AutoSkipNotificationText",
                 ];
 
-                const booleanConfigurationFields = ["AutoDetectIntros", "AnalyzeMovies", "AnalyzeSeasonZero", "SelectAllLibraries", "UpdateMediaSegments", "UseChapterMarkersBlackFrame", "FullLengthChapters", "RebuildMediaSegments", "ScanIntroduction", "ScanCredits", "ScanRecap", "ScanPreview", "PreferChromaprint", "CacheFingerprints", "PluginSkip", "AutoSkip", "SkipFirstEpisode", "SnapToKeyframe"];
+                const booleanConfigurationFields = ["AutoDetectIntros", "AnalyzeMovies", "AnalyzeSeasonZero", "SelectAllLibraries", "UpdateMediaSegments", "UseChapterMarkersBlackFrame", "FullLengthChapters", "RebuildMediaSegments", "ScanRecap", "ScanPreview", "CacheFingerprints", "PluginSkip", "AutoSkip", "SkipFirstEpisode", "SnapToKeyframe"];
 
                 // visualizer elements
                 const analyzeMovies = document.getElementById("AnalyzeMovies");
@@ -936,6 +928,183 @@
                     textField.value = Array.from(container.querySelectorAll('input[type="checkbox"]:checked'))
                         .map((checkbox) => checkbox.nextElementSibling.textContent)
                         .join(", ");
+                }
+
+                function generateSortableCheckboxList(items, containerId, textFieldId) {
+                    const container = document.getElementById(containerId);
+                    const savedOrderText = document.getElementById(textFieldId).value;
+
+                    // Parse the saved format like "Chapter:true, BlackFrame:false, Chromaprint:true"
+                    const savedItems = new Map();
+                    if (savedOrderText) {
+                        savedOrderText.split(", ").forEach(item => {
+                            if (item.includes(":")) {
+                                const [name, enabledStr] = item.split(":");
+                                savedItems.set(name, enabledStr.toLowerCase() === "true");
+                            } else {
+                                // Legacy format support
+                                savedItems.set(item, true);
+                            }
+                        });
+                    }
+
+                    // Create ordered array - first use saved order, then add any remaining items
+                    let orderedItems = [...savedItems.keys()];
+                    items.forEach(item => {
+                        if (!orderedItems.includes(item)) {
+                            orderedItems.push(item);
+                            savedItems.set(item, false); // Default to disabled for items not in saved list
+                        }
+                    });
+
+                    const fragment = document.createDocumentFragment();
+                    for (const item of orderedItems) {
+                        const div = document.createElement("div");
+                        div.className = "sortable-item";
+                        div.draggable = true;
+                        div.style.cursor = "move";
+                        div.style.padding = "5px";
+                        div.style.marginBottom = "5px";
+                        div.style.background = "rgba(0, 0, 0, 0.1)";
+                        div.style.borderRadius = "4px";
+                        div.style.display = "flex";
+                        div.style.alignItems = "center";
+
+                        // Add drag handle
+                        const handle = document.createElement("span");
+                        handle.innerHTML = "&#8801;"; // Unicode hamburger icon
+                        handle.style.marginRight = "10px";
+                        handle.style.cursor = "move";
+                        handle.style.fontSize = "1.2em";
+                        div.appendChild(handle);
+
+                        const label = document.createElement("label");
+                        label.className = "emby-checkbox-label";
+                        label.style.margin = "0";
+                        label.style.flex = "1";
+                        label.innerHTML = '<input type="checkbox" is="emby-checkbox"' +
+                                         (savedItems.get(item) ? " checked" : "") + '>' +
+                                         '<span class="checkboxLabel">' + item + "</span>";
+                        div.appendChild(label);
+
+                        // Add drag and drop event listeners
+                        div.addEventListener("dragstart", handleDragStart);
+                        div.addEventListener("dragover", handleDragOver);
+                        div.addEventListener("dragenter", handleDragEnter);
+                        div.addEventListener("dragleave", handleDragLeave);
+                        div.addEventListener("drop", handleDrop);
+                        div.addEventListener("dragend", handleDragEnd);
+
+                        fragment.appendChild(div);
+                    }
+
+                    container.innerHTML = "";
+                    container.appendChild(fragment);
+
+                    container.addEventListener("change", (e) => {
+                        if (e.target.type === "checkbox") {
+                            updateSortableList(document.getElementById(textFieldId), container);
+                        }
+                    }, { passive: true });
+
+                    // Initialize the list
+                    updateSortableList(document.getElementById(textFieldId), container);
+                }
+
+                function updateSortableList(textField, container) {
+                    const items = Array.from(container.querySelectorAll('.sortable-item'));
+                    const result = items.map(item => {
+                        const checkbox = item.querySelector('input[type="checkbox"]');
+                        const label = item.querySelector('.checkboxLabel');
+                        return label.textContent + ":" + (checkbox.checked ? "true" : "false");
+                    }).join(", ");
+
+                    textField.value = result;
+                }
+
+                // Drag and drop handlers
+                let dragSrcEl = null;
+
+                function handleDragStart(e) {
+                    dragSrcEl = this;
+                    e.dataTransfer.effectAllowed = 'move';
+                    e.dataTransfer.setData('text/html', this.innerHTML);
+                    this.style.opacity = '0.4';
+                }
+
+                function handleDragOver(e) {
+                    if (e.preventDefault) {
+                        e.preventDefault();
+                    }
+                    e.dataTransfer.dropEffect = 'move';
+                    return false;
+                }
+
+                function handleDragEnter(e) {
+                    this.classList.add('over');
+                    this.style.borderTop = '2px solid #38c';
+                }
+
+                function handleDragLeave(e) {
+                    this.classList.remove('over');
+                    this.style.borderTop = '';
+                }
+
+                function handleDrop(e) {
+                    if (e.stopPropagation) {
+                        e.stopPropagation();
+                    }
+
+                    if (dragSrcEl !== this) {
+                        const list = this.parentNode;
+                        const items = Array.from(list.children);
+                        const fromIndex = items.indexOf(dragSrcEl);
+                        const toIndex = items.indexOf(this);
+
+                        if (fromIndex < toIndex) {
+                            list.insertBefore(dragSrcEl, this.nextSibling);
+                        } else {
+                            list.insertBefore(dragSrcEl, this);
+                        }
+
+                        // Update the hidden field with the new order
+                        const containerId = list.id;
+                        let textFieldId = '';
+
+                        // Map container IDs to their corresponding hidden fields
+                        switch (containerId) {
+                            case 'introAnalyzerOrderList':
+                                textFieldId = 'IntroAnalyzerOrderList';
+                                break;
+                            case 'creditsAnalyzerOrderList':
+                                textFieldId = 'CreditsAnalyzerOrderList';
+                                break;
+                        }
+
+                        if (textFieldId) {
+                            updateSortableList(document.getElementById(textFieldId), list);
+                        }
+                    }
+
+                    return false;
+                }
+
+                function handleDragEnd(e) {
+                    this.style.opacity = '1';
+                    this.style.borderTop = '';
+
+                    const items = document.querySelectorAll('.sortable-item');
+                    items.forEach(item => {
+                        item.classList.remove('over');
+                        item.style.borderTop = '';
+                    });
+                }
+
+                function generateAnalyzerOrderLists() {
+                    const introAnalyzers = ["Chapter", "Chromaprint"];
+                    const creditsAnalyzers = ["Chapter", "BlackFrame", "Chromaprint"];
+                    generateSortableCheckboxList(introAnalyzers, "introAnalyzerOrderList", "IntroAnalyzerOrderList");
+                    generateSortableCheckboxList(creditsAnalyzers, "creditsAnalyzerOrderList", "CreditsAnalyzerOrderList");
                 }
 
                 function generateCheckboxList(items, containerId, textFieldId) {
@@ -1515,6 +1684,7 @@
                         autoSkipChanged();
                         generateAutoSkipTypeList();
                         generateAutoSkipClientList();
+                        generateAnalyzerOrderLists();
                         pluginSkipSettingVisible();
                         snapSettingsVisible();
                         globalTimestampChanged();
