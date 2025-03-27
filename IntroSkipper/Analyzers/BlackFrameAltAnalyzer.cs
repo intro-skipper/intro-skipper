@@ -108,14 +108,19 @@ public sealed class BlackFrameAltAnalyzer(ILogger<BlackFrameAltAnalyzer> logger)
             return null;
         }
 
-        var lastFrameTime = blackFrames[^1].Time;
+        const double EndTolerance = 7.5; // 7.5 seconds from the end
 
         // Start from the last scene and work backwards to find the first valid credits segment
         for (var i = scenes.Count - 1; i >= 0; i--)
         {
             var scene = scenes[i];
             var start = scene.StartTime + episode.CreditsFingerprintStart;
-            var end = scene.EndTime == lastFrameTime ? episode.Duration : scene.EndTime + episode.CreditsFingerprintStart;
+
+            // Check if scene end is close to episode end
+            var end = episode.Duration - scene.EndTime < EndTolerance
+                ? episode.Duration
+                : scene.EndTime + episode.CreditsFingerprintStart;
+
             var duration = end - start;
 
             if (duration >= minimumDuration)
