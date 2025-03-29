@@ -22,6 +22,8 @@ namespace IntroSkipper.Analyzers;
 /// <param name="logger">Logger for the analyzer.</param>
 public sealed class BlackFrameAltAnalyzer(ILogger<BlackFrameAltAnalyzer> logger) : IMediaFileAnalyzer
 {
+    private const int MaximumTimeSkip = 15;
+    private const double EndTolerance = MaximumTimeSkip / 2;
     private readonly PluginConfiguration _config = Plugin.Instance?.Configuration ?? new PluginConfiguration();
     private readonly ILogger<BlackFrameAltAnalyzer> _logger = logger ?? throw new ArgumentNullException(nameof(logger));
 
@@ -107,8 +109,6 @@ public sealed class BlackFrameAltAnalyzer(ILogger<BlackFrameAltAnalyzer> logger)
         {
             return null;
         }
-
-        const double EndTolerance = 7.5; // 7.5 seconds from the end
 
         // Start from the last scene and work backwards to find the first valid credits segment
         for (var i = scenes.Count - 1; i >= 0; i--)
@@ -201,7 +201,7 @@ public sealed class BlackFrameAltAnalyzer(ILogger<BlackFrameAltAnalyzer> logger)
         for (var i = 1; i < scenes.Count; i++)
         {
             var scene = scenes[i];
-            if (scene.StartFrame - current.EndFrame <= 10)
+            if (scene.StartTime - current.EndTime <= MaximumTimeSkip)
             {
                 current = new CreditScene(current.StartFrame, scene.EndFrame, current.StartTime, scene.EndTime);
             }
