@@ -294,19 +294,37 @@
                                 <br />
                                 <div class="checkboxContainer checkboxContainer-withDescription">
                                     <label class="emby-checkbox-label">
+                                        <input id="UseAlternativeBlackFrameAnalyzer" type="checkbox" is="emby-checkbox" />
+                                        <span>Use alternative black frame analyzer (experimental)</span>
+                                    </label>
+
+                                    <div class="fieldDescription">
+                                        If enabled, the alternative black frame analyzer will be used. This analyzer is experimental and may not work as expected.
+                                    </div>
+                                </div>
+
+                                <div class="checkboxContainer checkboxContainer-withDescription" id="ChapterMarkersBlackFrameSetting">
+                                    <label class="emby-checkbox-label">
                                         <input id="UseChapterMarkersBlackFrame" type="checkbox" is="emby-checkbox" />
                                         <span>Use chapter markers for credits detection</span>
                                     </label>
 
                                     <div class="fieldDescription">
-                                        If enabled, chapter markers will be used to identify credits segments.
+                                        If enabled, chapter markers will be used to identify credits segments. Tries to detect credits by looking for a black frames close to chapter markers.
                                     </div>
+                                    <br />
                                 </div>
 
                                 <div class="inputContainer">
                                     <label class="inputLabel inputLabelUnfocused" for="BlackFrameMinimumPercentage"> Minimum percentage of black pixels </label>
                                     <input id="BlackFrameMinimumPercentage" type="number" is="emby-input" min="0" max="100" />
-                                    <div class="fieldDescription">Minimum percentage of black pixels in a frame before it is considered a black frame.</div>
+                                    <div class="fieldDescription">Minimum percentage of black pixels in a frame before it is considered a black frame. Defaults to 85.</div>
+                                </div>
+
+                                <div class="inputContainer">
+                                    <label class="inputLabel inputLabelUnfocused" for="BlackFrameThreshold"> Black frame threshold </label>
+                                    <input id="BlackFrameThreshold" type="number" is="emby-input" min="16" max="255" />
+                                    <div class="fieldDescription">The threshold below which a pixel value is considered black. Defaults to 32.</div>
                                 </div>
                             </details>
 
@@ -846,6 +864,7 @@
                     "SilenceDetectionMaximumNoise",
                     "SilenceDetectionMinimumDuration",
                     "BlackFrameMinimumPercentage",
+                    "BlackFrameThreshold",
                     "ChapterAnalyzerIntroductionPattern",
                     "ChapterAnalyzerEndCreditsPattern",
                     "ChapterAnalyzerPreviewPattern",
@@ -855,7 +874,7 @@
                     "AutoSkipNotificationText",
                 ];
 
-                const booleanConfigurationFields = ["AutoDetectIntros", "AnalyzeMovies", "AnalyzeSeasonZero", "SelectAllLibraries", "UpdateMediaSegments", "UseChapterMarkersBlackFrame", "FullLengthChapters", "RebuildMediaSegments", "ScanIntroduction", "ScanCredits", "ScanRecap", "ScanPreview", "PreferChromaprint", "CacheFingerprints", "PluginSkip", "AutoSkip", "SkipFirstEpisode", "SnapToKeyframe"];
+                const booleanConfigurationFields = ["AutoDetectIntros", "AnalyzeMovies", "AnalyzeSeasonZero", "SelectAllLibraries", "UpdateMediaSegments","UseAlternativeBlackFrameAnalyzer", "UseChapterMarkersBlackFrame", "FullLengthChapters", "RebuildMediaSegments", "ScanIntroduction", "ScanCredits", "ScanRecap", "ScanPreview", "PreferChromaprint", "CacheFingerprints", "PluginSkip", "AutoSkip", "SkipFirstEpisode", "SnapToKeyframe"];
 
                 // visualizer elements
                 const analyzeMovies = document.getElementById("AnalyzeMovies");
@@ -895,6 +914,8 @@
                 const librariesContainer = document.querySelector("div.folderAccessListContainer");
                 const autoSkipClientList = document.querySelector("div.AutoSkipClientListContainer");
                 const fullLengthChapters = document.getElementById("FullLengthChapters");
+                const useAlternativeBlackFrameAnalyzer = document.getElementById("UseAlternativeBlackFrameAnalyzer");
+                const chapterMarkersBlackFrameSetting = document.getElementById("ChapterMarkersBlackFrameSetting");
                 const snapToKeyframe = document.getElementById("SnapToKeyframe");
                 const globalTimestamps = document.getElementById("GlobalTimestamps");
                 const btnEraseGlobalTimestamps = document.getElementById("btnEraseGlobalTimestamps");
@@ -988,6 +1009,16 @@
                         serverSkipSettings.style.display = "none";
                     }
                 }
+
+                async function alternativeBlackFrameAnalyzerSettingsVisible() {
+                    if (useAlternativeBlackFrameAnalyzer.checked) {
+                        chapterMarkersBlackFrameSetting.style.display = "none";
+                    } else {
+                        chapterMarkersBlackFrameSetting.style.display = "unset";
+                    }
+                }
+
+                useAlternativeBlackFrameAnalyzer.addEventListener("change", alternativeBlackFrameAnalyzerSettingsVisible);
 
                 async function snapSettingsVisible() {
                     if (snapToKeyframe.checked) {
@@ -1516,6 +1547,7 @@
                         generateAutoSkipTypeList();
                         generateAutoSkipClientList();
                         pluginSkipSettingVisible();
+                        alternativeBlackFrameAnalyzerSettingsVisible();
                         snapSettingsVisible();
                         globalTimestampChanged();
 
