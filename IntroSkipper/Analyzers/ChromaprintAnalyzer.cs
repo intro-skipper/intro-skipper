@@ -55,8 +55,9 @@ public class ChromaprintAnalyzer(ILogger<ChromaprintAnalyzer> logger) : IMediaFi
         // Ensure at least two fingerprints are present.
         if (episodeAnalysisQueue.Count == 1)
         {
+            var currentEpisode = episodeAnalysisQueue[0];
             episodeAnalysisQueue.AddRange(analysisQueue
-                .Where(episode => Math.Abs(episode.EpisodeNumber - episodeAnalysisQueue[0].EpisodeNumber) <= 1));
+                .Where(episode => episode != currentEpisode && Math.Abs(episode.EpisodeNumber - currentEpisode.EpisodeNumber) <= 1));
         }
 
         // Compute fingerprints for all episodes in the season
@@ -104,12 +105,16 @@ public class ChromaprintAnalyzer(ILogger<ChromaprintAnalyzer> logger) : IMediaFi
                     remainingEpisode.EpisodeId,
                     fingerprintCache[remainingEpisode.EpisodeId]);
 
+                var maxDuration = _analysisMode == AnalysisMode.Introduction
+                    ? Plugin.Instance!.Configuration.MaximumIntroDuration
+                    : (int)(remainingEpisode.Duration - remainingEpisode.CreditsFingerprintStart - 1); // dont allow perfect matches to avoid false positives from duplicates
+
                 // Ignore this comparison result if:
                 // - one of the intros isn't valid, or
                 // - the introduction exceeds the configured limit
                 if (
                     !remainingIntro.Valid ||
-                    (_analysisMode == AnalysisMode.Introduction && remainingIntro.Duration > Plugin.Instance!.Configuration.MaximumIntroDuration))
+                    remainingIntro.Duration > maxDuration)
                 {
                     continue;
                 }

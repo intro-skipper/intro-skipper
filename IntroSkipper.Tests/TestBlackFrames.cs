@@ -22,7 +22,7 @@ public class TestBlackFrames
         expected.AddRange(CreateFrameSequence(5, 6));
         expected.AddRange(CreateFrameSequence(8, 9.96));
 
-        var actual = FFmpegWrapper.DetectBlackFrames(QueueFile("rainbow.mp4"), new(0, 10), 85);
+        var actual = FFmpegWrapper.DetectBlackFrames(QueueFile("rainbow.mp4"), new(0, 10), 85, 32);
 
         for (var i = 0; i < expected.Count; i++)
         {
@@ -43,7 +43,7 @@ public class TestBlackFrames
         var episode = QueueFile("credits.mp4");
         episode.Duration = (int)new TimeSpan(0, 5, 30).TotalSeconds;
 
-        var result = analyzer.AnalyzeMediaFile(episode, 240, 85);
+        var result = analyzer.AnalyzeMediaFile(episode, 240, 85, 32);
         Assert.NotNull(result);
         Assert.InRange(result.Start, 300 - range, 300 + range);
     }
@@ -64,7 +64,7 @@ public class TestBlackFrames
 
         for (var i = start; i < end; i += 0.04)
         {
-            frames.Add(new(100, i));
+            frames.Add(new(100, i, 0));
         }
 
         return [.. frames];

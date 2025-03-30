@@ -50,6 +50,9 @@ public sealed class BlackFrameAnalyzer(ILogger<BlackFrameAnalyzer> logger) : IMe
 
         double searchStart = 0.0;
 
+        var percentage = _config.BlackFrameMinimumPercentage;
+        var threshold = _config.BlackFrameThreshold;
+
         foreach (var episode in unanalyzedEpisodes)
         {
             if (cancellationToken.IsCancellationRequested)
@@ -60,18 +63,19 @@ public sealed class BlackFrameAnalyzer(ILogger<BlackFrameAnalyzer> logger) : IMe
             try
             {
                 // First try to use chapter markers if available
-                if (!_config.UseChapterMarkersBlackFrame || !TryAnalyzeChapters(episode, out var credit))
+                if (!_config.UseChapterMarkersBlackFrame || !TryAnalyzeChapters(episode, percentage, threshold, out var credit))
                 {
                     // If no suitable chapters found, use black frame detection
                     if (searchStart < _config.MinimumCreditsDuration)
                     {
-                        searchStart = FindSearchStart(episode);
+                        searchStart = FindSearchStart(episode, percentage, threshold);
                     }
 
                     credit = AnalyzeMediaFile(
                         episode,
                         searchStart,
-                        _config.BlackFrameMinimumPercentage);
+                        percentage,
+                        threshold);
                 }
 
                 if (credit is null || !credit.Valid)
@@ -103,8 +107,9 @@ public sealed class BlackFrameAnalyzer(ILogger<BlackFrameAnalyzer> logger) : IMe
     /// <param name="episode">Media file to analyze.</param>
     /// <param name="initialStart">Initial search position from the end of the file.</param>
     /// <param name="minimumBlackPercentage">Minimum percentage of the frame that must be black.</param>
+    /// <param name="threshold">Threshold for black frame detection.</param>
     /// <returns>Credits segment if found; otherwise null.</returns>
-    public Segment? AnalyzeMediaFile(QueuedEpisode episode, double initialStart, int minimumBlackPercentage)
+    public Segment? AnalyzeMediaFile(QueuedEpisode episode, double initialStart, int minimumBlackPercentage, int threshold)
     {
         ArgumentNullException.ThrowIfNull(episode);
 
@@ -130,7 +135,7 @@ public sealed class BlackFrameAnalyzer(ILogger<BlackFrameAnalyzer> logger) : IMe
                 var timeRange = new TimeRange(scanTime, scanTime + 2);
 
                 // Detect black frames in the current time range
-                var blackFrames = FFmpegWrapper.DetectBlackFrames(episode, timeRange, minimumBlackPercentage);
+                var blackFrames = FFmpegWrapper.DetectBlackFrames(episode, timeRange, minimumBlackPercentage, threshold);
 
                 _logger.LogTrace(
                     "{Episode} at {Start:F2}s has {Count} black frames",
@@ -192,9 +197,11 @@ public sealed class BlackFrameAnalyzer(ILogger<BlackFrameAnalyzer> logger) : IMe
     /// Attempts to find credits by analyzing chapter markers.
     /// </summary>
     /// <param name="episode">Episode to analyze.</param>
+    /// <param name="percentage">Minimum percentage of the frame that must be black.</param>
+    /// <param name="threshold">Threshold for black frame detection.</param>
     /// <param name="segment">Output segment if credits are found.</param>
     /// <returns>True if credits were found using chapters; otherwise false.</returns>
-    private bool TryAnalyzeChapters(QueuedEpisode episode, out Segment? segment)
+    private bool TryAnalyzeChapters(QueuedEpisode episode, int percentage, int threshold, out Segment? segment)
     {
         ArgumentNullException.ThrowIfNull(episode);
 
@@ -221,7 +228,8 @@ public sealed class BlackFrameAnalyzer(ILogger<BlackFrameAnalyzer> logger) : IMe
             var hasBlackFramesAtStart = FFmpegWrapper.DetectBlackFrames(
                 episode,
                 startRange,
-                _config.BlackFrameMinimumPercentage).Length > 0;
+                percentage,
+                threshold).Length > 0;
 
             if (!hasBlackFramesAtStart)
             {
@@ -234,7 +242,8 @@ public sealed class BlackFrameAnalyzer(ILogger<BlackFrameAnalyzer> logger) : IMe
             var hasBlackFramesBefore = FFmpegWrapper.DetectBlackFrames(
                 episode,
                 beforeRange,
-                _config.BlackFrameMinimumPercentage).Length > 0;
+                percentage,
+                threshold).Length > 0;
 
             if (!hasBlackFramesBefore)
             {
@@ -252,8 +261,10 @@ public sealed class BlackFrameAnalyzer(ILogger<BlackFrameAnalyzer> logger) : IMe
     /// Finds an optimal starting point for the credits search to avoid false positives.
     /// </summary>
     /// <param name="episode">Episode to analyze.</param>
+    /// <param name="percentage">Minimum percentage of the frame that must be black.</param>
+    /// <param name="threshold">Threshold for black frame detection.</param>
     /// <returns>Search start position in seconds from the end of the file.</returns>
-    private double FindSearchStart(QueuedEpisode episode)
+    private double FindSearchStart(QueuedEpisode episode, int percentage, int threshold)
     {
         ArgumentNullException.ThrowIfNull(episode);
 
@@ -269,7 +280,7 @@ public sealed class BlackFrameAnalyzer(ILogger<BlackFrameAnalyzer> logger) : IMe
 
             var timeRange = new TimeRange(scanTime - 1.0, scanTime);
 
-            var blackFrames = FFmpegWrapper.DetectBlackFrames(episode, timeRange, _config.BlackFrameMinimumPercentage);
+            var blackFrames = FFmpegWrapper.DetectBlackFrames(episode, timeRange, percentage, threshold);
 
             _logger.LogTrace(
                 "Search: scanning at {Position:F2}s ({DistanceFromEnd:F2}s from end), found {Count} black frames",

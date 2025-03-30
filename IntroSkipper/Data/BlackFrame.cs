@@ -9,17 +9,7 @@ namespace IntroSkipper.Data;
 /// <remarks>
 /// Initializes a new instance of the <see cref="BlackFrame"/> class.
 /// </remarks>
-/// <param name="percent">Percentage of the frame that is black.</param>
-/// <param name="time">Time this frame appears at.</param>
-public class BlackFrame(int percent, double time)
-{
-    /// <summary>
-    /// Gets or sets the percentage of the frame that is black.
-    /// </summary>
-    public int Percentage { get; set; } = percent;
-
-    /// <summary>
-    /// Gets or sets the time (in seconds) this frame appeared at.
-    /// </summary>
-    public double Time { get; set; } = time;
-}
+/// <param name="Percentage">Percentage of the frame that is black.</param>
+/// <param name="Time">Time this frame appears at.</param>
+/// <param name="Frame">Frame number.</param>
+public record BlackFrame(int Percentage, double Time, int Frame);

@@ -150,7 +150,7 @@ public static partial class FFmpegWrapper
         var args = string.Format(
             CultureInfo.InvariantCulture,
             "-vn -sn -dn " +
-                "-ss {0} -i \"{1}\" -to {2} -af \"silencedetect=noise={3}dB:duration=0.1\" -f null -",
+                "-ss {0} -i \"{1}\" -to {2} -vn -dn -sn -af \"silencedetect=noise={3}dB:duration=0.1\" -f null -",
             range.Start,
             episode.Path,
             range.End - range.Start,
@@ -199,19 +199,22 @@ public static partial class FFmpegWrapper
     /// <param name="episode">Media file to analyze.</param>
     /// <param name="range">Time range to search.</param>
     /// <param name="minimum">Percentage of the frame that must be black.</param>
+    /// <param name="threshold">Threshold for black frame detection.</param>
     /// <returns>Array of frames that are mostly black.</returns>
     public static BlackFrame[] DetectBlackFrames(
         QueuedEpisode episode,
         TimeRange range,
-        int minimum)
+        int minimum,
+        int threshold)
     {
         // Seek to the start of the time range and find frames that are at least 50% black.
         var args = string.Format(
             CultureInfo.InvariantCulture,
-            "-ss {0} -i \"{1}\" -to {2} -an -dn -sn -vf \"blackframe=amount=50\" -f null -",
+            "-ss {0} -i \"{1}\" -to {2} -an -dn -sn -vf \"blackframe=amount=50:threshold={3}\" -f null -",
             range.Start,
             episode.Path,
-            range.End - range.Start);
+            range.End - range.Start,
+            threshold);
 
         // Cache the results to GUID-blackframes-START-END-v1.
         var cacheKey = string.Format(
@@ -221,40 +224,67 @@ public static partial class FFmpegWrapper
             range.Start,
             range.End);
 
-        var blackFrames = new List<BlackFrame>();
+        var raw = Encoding.UTF8.GetString(GetOutput(args, cacheKey, true));
 
+        return ParseBlackFrame(raw, minimum);
+    }
+
+    /// <summary>
+    /// Finds the location of all black frames in a media file starting at a given time.
+    /// </summary>
+    /// <param name="episode">Media file to analyze.</param>
+    /// <param name="threshold">Threshold for black frame detection.</param>
+    /// <returns>Array of frames that are mostly black.</returns>
+    public static BlackFrame[] DetectBlackFrames(QueuedEpisode episode, int threshold)
+    {
+        ArgumentNullException.ThrowIfNull(episode);
+
+        // Seek to the start of the time range and get the black level of each frame.
+        var args = string.Format(
+            CultureInfo.InvariantCulture,
+            "-skip_frame nokey -ss {0} -i \"{1}\" -an -dn -sn -vf \"blackframe=amount=0:threshold={2}\" -f null -",
+            episode.CreditsFingerprintStart,
+            episode.Path,
+            threshold);
+
+        // Cache the results to GUID-blackframes-START-END-v1.
+        var cacheKey = string.Format(
+            CultureInfo.InvariantCulture,
+            "{0}-blackframes-{1}-alt",
+            episode.EpisodeId.ToString("N"),
+            episode.CreditsFingerprintStart);
+
+        var raw = Encoding.UTF8.GetString(GetOutput(args, cacheKey, true));
+
+        return ParseBlackFrame(raw);
+    }
+
+    private static BlackFrame[] ParseBlackFrame(string raw, int minimum = 0)
+    {
+        var blackFrames = new List<BlackFrame>();
         /* Run the blackframe filter.
          *
          * Sample output:
          * [Parsed_blackframe_0 @ 0x0000000] frame:1 pblack:99 pts:43 t:0.043000 type:B last_keyframe:0
          * [Parsed_blackframe_0 @ 0x0000000] frame:2 pblack:99 pts:85 t:0.085000 type:B last_keyframe:0
          */
-        var raw = Encoding.UTF8.GetString(GetOutput(args, cacheKey, true));
         foreach (var line in raw.Split('\n'))
         {
-            // There is no FFmpeg flag to hide metadata such as description
-            // In our case, the metadata contained something that matched the regex.
-            if (line.StartsWith("[Parsed_blackframe_", StringComparison.OrdinalIgnoreCase))
+            var match = _blackFrameRegex.Match(line);
+            if (!match.Success)
             {
-                var matches = _blackFrameRegex.Matches(line);
-                if (matches.Count != 2)
-                {
-                    continue;
-                }
+                continue;
+            }
 
-                var (strPercent, strTime) = (
-                    matches[0].Value.Split(':')[1],
-                    matches[1].Value.Split(':')[1]
-                );
+            var frame = int.Parse(match.Groups[1].Value, CultureInfo.InvariantCulture);
+            var percentage = int.Parse(match.Groups[2].Value, CultureInfo.InvariantCulture);
+            var time = double.Parse(match.Groups[3].Value, CultureInfo.InvariantCulture);
 
-                var bf = new BlackFrame(
-                    Convert.ToInt32(strPercent, CultureInfo.InvariantCulture),
-                    Convert.ToDouble(strTime, CultureInfo.InvariantCulture));
+            var bf = new BlackFrame(percentage, time, frame);
 
-                if (bf.Percentage > minimum)
-                {
-                    blackFrames.Add(bf);
-                }
+            if (bf.Percentage >= minimum)
+            {
+                blackFrames.Add(bf);
             }
         }
 
@@ -271,7 +301,7 @@ public static partial class FFmpegWrapper
     {
         var args = string.Format(
             CultureInfo.InvariantCulture,
-            "-ss {0} -i \"{1}\" -to {2} -an -dn -sn -vf \"select='eq(pict_type,I)',showinfo\" -f null -",
+            "-skip_frame nokey -ss {0} -i \"{1}\" -to {2} -an -dn -sn -vf \"showinfo\" -f null -",
             range.Start,
             episode.Path,
             range.End - range.Start);
@@ -288,12 +318,6 @@ public static partial class FFmpegWrapper
 
         foreach (var line in raw.Split('\n', StringSplitOptions.RemoveEmptyEntries))
         {
-            if (!line.Contains("type:I", StringComparison.OrdinalIgnoreCase) ||
-                !line.Contains("iskey:1", StringComparison.OrdinalIgnoreCase))
-            {
-                continue;
-            }
-
             var ptsIndex = line.IndexOf("pts_time:", StringComparison.OrdinalIgnoreCase);
             if (ptsIndex == -1)
             {
@@ -731,6 +755,6 @@ public static partial class FFmpegWrapper
     [GeneratedRegex("silence_(?<type>start|end): (?<time>[0-9\\.]+)")]
     private static partial Regex SilenceRegex();
 
-    [GeneratedRegex("(pblack|t):[0-9.]+")]
+    [GeneratedRegex(@"\[Parsed_blackframe_0 @ [^\]]+\] frame:(\d+) pblack:(\d+) .*? t:([\d.]+)")]
     private static partial Regex BlackFrameRegex();
 }

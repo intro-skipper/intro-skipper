@@ -50,6 +50,11 @@ public class PluginConfiguration : BasePluginConfiguration
     /// </summary>
     public bool CacheFingerprints { get; set; } = true;
 
+    /// <summary>
+    /// Gets or sets a value indicating whether to use the alternative black frame analyzer.
+    /// </summary>
+    public bool UseAlternativeBlackFrameAnalyzer { get; set; }
+
     // ===== Media Segment handling =====
 
     /// <summary>
@@ -150,6 +155,11 @@ public class PluginConfiguration : BasePluginConfiguration
     /// Gets or sets the minimum percentage of a frame that must consist of black pixels before it is considered a black frame.
     /// </summary>
     public int BlackFrameMinimumPercentage { get; set; } = 85;
+
+    /// <summary>
+    /// Gets or sets the threshold for black frame detection.
+    /// </summary>
+    public int BlackFrameThreshold { get; set; } = 32;
 
     /// <summary>
     /// Gets or sets a value indicating whether to use chapter markers for credits detection.
