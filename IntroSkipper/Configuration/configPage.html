@@ -1620,7 +1620,7 @@
 
                 scanSeasonButton.addEventListener("click", () => {
                     Dashboard.showLoadingMsg();
-                    console.log("(Re-) Scan task stared.");
+                    console.log("(Re-) Scan task started.");
                     fetchWithAuth("Intros/ScanSeason/" + selectShow.value + "/" + selectSeason.value, "POST", null);
                     Dashboard.hideLoadingMsg();
                 });

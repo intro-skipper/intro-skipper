@@ -255,13 +255,6 @@ public class VisualizationController(ILogger<VisualizationController> logger, Me
         // Erase season timestamps
         await EraseSeasonAsync(seriesId, seasonId, true, cancellationToken).ConfigureAwait(false);
 
-        // abort automatic analyzer if running
-        if (Entrypoint.AutomaticTaskState == TaskState.Running || Entrypoint.AutomaticTaskState == TaskState.Cancelling)
-        {
-            _logger.LogInformation("Automatic Task is {TaskState} and will be canceled.", Entrypoint.AutomaticTaskState);
-            await Entrypoint.CancelAutomaticTaskAsync(cancellationToken).ConfigureAwait(false);
-        }
-
         using (await ScheduledTaskSemaphore.AcquireAsync(cancellationToken).ConfigureAwait(false))
         {
             _logger.LogInformation("Start (Re-) scan of season/movie {Season}", seasonId);
