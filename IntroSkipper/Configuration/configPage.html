@@ -506,7 +506,10 @@
                                         <select is="emby-select" id="troubleshooterSeason" class="emby-select-withcolor emby-select"></select>
                                     </p>
                                 </div>
-
+                                <br />
+                                <p>
+                                    <button is="emby-button" id="scanSeason" class="raised button-submit block emby-button" style="display: none">Scan Season</button>
+                                </p>
                                 <div id="analyzerActionsSection" style="display: none">
                                     <br />
                                     <h3 style="margin: 0">Analyzer actions</h3>
@@ -560,9 +563,6 @@
                                         <button is="emby-button" id="saveAnalyzerActions" class="raised button-submit block emby-button" style="display: none">Apply Changes</button>
                                     </p>
                                     <br />
-                                    <p>
-                                        <button is="emby-button" id="scanSeason" class="raised button-submit block emby-button" style="display: none">Scan Season</button>
-                                    </p>
                                 </div>
 
                                 <div id="episodeSelection" style="display: none">
@@ -887,7 +887,7 @@
                 const actionRecap = analyzerActionsSection.querySelector("select#actionRecap");
                 const actionPreview = analyzerActionsSection.querySelector("select#actionPreview");
                 const saveAnalyzerActionsButton = analyzerActionsSection.querySelector("button#saveAnalyzerActions");
-                const scanSeasonButton = analyzerActionsSection.querySelector("button#scanSeason");
+                const scanSeasonButton = document.querySelector("button#scanSeason");
                 const canvas = document.querySelector("canvas#troubleshooter");
                 const selectShow = document.querySelector("select#troubleshooterShow");
                 const seasonSelection = document.getElementById("seasonSelection");
@@ -1184,7 +1184,9 @@
                     Dashboard.showLoadingMsg();
                     // show the analyzer actions editor.
                     saveAnalyzerActionsButton.style.display = "block";
+                    saveAnalyzerActionsButton.textContent = "Apply to season";
                     scanSeasonButton.style.display = "block";
+                    scanSeasonButton.textContent = "Scan season";
                     const analyzerActions = await getJson("Intros/AnalyzerActions/" + encodeURI(selectSeason.value));
                     actionIntro.value = analyzerActions.Introduction || "Default";
                     actionCredits.value = analyzerActions.Credits || "Default";
@@ -1265,17 +1267,10 @@
                     seasonSelection.style.display = "none";
                     episodeSelection.style.display = "none";
                     eraseMovieContainer.style.display = "unset";
+                    scanSeasonButton.style.display = "block";
 
                     timestampError.value = "";
                     fingerprintVisualizer.style.display = "none";
-
-                    lhs = await getJson("Intros/Episode/" + selectShow.value + "/Chromaprint");
-                    if (lhs === undefined) {
-                        timestampError.value += "Error: " + selectShow.value + " fingerprints failed!\n";
-                    } else if (lhs === null) {
-                        timestampError.value += selectShow.value + " fingerprints missing or incomplete.\n";
-                    }
-
                     rightEpisodeEditor.style.display = "none";
 
                     if (timestampError.value === "") {
@@ -1618,10 +1613,11 @@
                     Dashboard.hideLoadingMsg();
                 });
 
-                scanSeasonButton.addEventListener("click", () => {
+                scanSeasonButton.addEventListener("click", async () => {
                     Dashboard.showLoadingMsg();
                     console.log("(Re-) Scan task started.");
-                    fetchWithAuth("Intros/ScanSeason/" + selectShow.value + "/" + selectSeason.value, "POST", null);
+                    await fetchWithAuth("Intros/ScanSeason/" + selectShow.value + "/" + selectSeason.value, "POST", null);
+                    await updateTimestampEditor();
                     Dashboard.hideLoadingMsg();
                 });
 
