@@ -34,7 +34,8 @@
                                     <span>Automatically Analyze New Media</span>
                                 </label>
 
-                                <div class="fieldDescription">If enabled, new media will be automatically analyzed for skippable segments when added to the library
+                                <div class="fieldDescription">
+                                    If enabled, new media will be automatically analyzed for skippable segments when added to the library
                                     <br />
                                     <br />
                                     Note: To configure the scheduled task, see <a is="emby-linkbutton" class="button-link" href="#/dashboard/tasks">scheduled tasks</a>.
@@ -67,9 +68,7 @@
                                     <span>Analyze Season 0 (Specials / Extras)</span>
                                 </label>
 
-                                <div class="fieldDescription">
-                                    Note: Shows containing both a specials and extra folder will identify extras as season 0 and ignore specials, regardless of this setting.
-                                </div>
+                                <div class="fieldDescription">Note: Shows containing both a specials and extra folder will identify extras as season 0 and ignore specials, regardless of this setting.</div>
                             </div>
 
                             <div class="checkboxContainer checkboxContainer-withDescription">
@@ -77,7 +76,7 @@
                                     <input id="SelectAllLibraries" type="checkbox" is="emby-checkbox" />
                                     <span>Enable analysis for all libraries containing television episodes</span>
                                 </label>
-                                <div class="folderAccessListContainer" style="margin-bottom: -1em;">
+                                <div class="folderAccessListContainer" style="margin-bottom: -1em">
                                     <div class="folderAccess">
                                         <h3 class="checkboxListLabel">Limit analysis to the following libraries</h3>
                                         <div class="checkboxList paperList" style="padding: 0.5em 1em" id="libraryCheckboxes"></div>
@@ -150,15 +149,9 @@
                                     <div class="fieldDescription">Analysis will be limited to this amount of each item's runtime. For example, a value of 10 (the default) will limit analysis to the first 10 minutes of each item.</div>
                                 </div>
 
-                                <p>
-                                    The amount of each item's content that will be analyzed is determined using the percentage and maximum runtime. The minimum of (duration * percent, maximum runtime) is the amount that will be analyzed.
-                                </p>
-                                <p>
-                                    If the percentage or maximum runtime settings are modified, the cached fingerprints and timestamps for each series, season, or movie you want to analyze with the modified settings <b>will have to be recreated</b>.
-                                </p>
-                                <p>
-                                    Increasing either of the above settings will cause episode analysis to take much longer.
-                                </p>
+                                <p>The amount of each item's content that will be analyzed is determined using the percentage and maximum runtime. The minimum of (duration * percent, maximum runtime) is the amount that will be analyzed.</p>
+                                <p>If the percentage or maximum runtime settings are modified, the cached fingerprints and timestamps for each series, season, or movie you want to analyze with the modified settings <b>will have to be recreated</b>.</p>
+                                <p>Increasing either of the above settings will cause episode analysis to take much longer.</p>
                                 <br />
 
                                 <div class="checkboxContainer checkboxContainer-withDescription">
@@ -298,9 +291,7 @@
                                         <span>Use alternative black frame analyzer (experimental)</span>
                                     </label>
 
-                                    <div class="fieldDescription">
-                                        If enabled, the alternative black frame analyzer will be used. This analyzer is experimental and may not work as expected.
-                                    </div>
+                                    <div class="fieldDescription">If enabled, the alternative black frame analyzer will be used. This analyzer is experimental and may not work as expected.</div>
                                 </div>
 
                                 <div class="checkboxContainer checkboxContainer-withDescription" id="ChapterMarkersBlackFrameSetting">
@@ -309,9 +300,7 @@
                                         <span>Use chapter markers for credits detection</span>
                                     </label>
 
-                                    <div class="fieldDescription">
-                                        If enabled, chapter markers will be used to identify credits segments. Tries to detect credits by looking for a black frames close to chapter markers.
-                                    </div>
+                                    <div class="fieldDescription">If enabled, chapter markers will be used to identify credits segments. Tries to detect credits by looking for a black frames close to chapter markers.</div>
                                     <br />
                                 </div>
 
@@ -335,33 +324,25 @@
                                 <div class="inputContainer">
                                     <label class="inputLabel inputLabelUnfocused" for="ChapterAnalyzerIntroductionPattern"> Introductions </label>
                                     <input id="ChapterAnalyzerIntroductionPattern" type="text" placeholder="(^|\s)(Intro|Introduction|OP|Opening)(?!\sEnd)(\s|$)" is="emby-input" />
-                                    <div class="fieldDescription">Enter a regular expression to detect introduction chapters.
-                                        <br />Default: <code>(^|\s)(Intro|Introduction|OP|Opening)(?!\sEnd)(\s|$)</code>
-                                    </div>
+                                    <div class="fieldDescription">Enter a regular expression to detect introduction chapters. <br />Default: <code>(^|\s)(Intro|Introduction|OP|Opening)(?!\sEnd)(\s|$)</code></div>
                                 </div>
 
                                 <div class="inputContainer">
                                     <label class="inputLabel inputLabelUnfocused" for="ChapterAnalyzerEndCreditsPattern"> Credits </label>
                                     <input id="ChapterAnalyzerEndCreditsPattern" type="text" placeholder="(^|\s)(Credits?|ED|Ending|Outro)(?!\sEnd)(\s|$)" is="emby-input" />
-                                    <div class="fieldDescription">Enter a regular expression to detect credits chapters.
-                                        <br />Default: <code>(^|\s)(Credits?|ED|Ending|Outro)(?!\sEnd)(\s|$)</code>
-                                    </div>
+                                    <div class="fieldDescription">Enter a regular expression to detect credits chapters. <br />Default: <code>(^|\s)(Credits?|ED|Ending|Outro)(?!\sEnd)(\s|$)</code></div>
                                 </div>
 
                                 <div class="inputContainer">
                                     <label class="inputLabel inputLabelUnfocused" for="ChapterAnalyzerPreviewPattern"> Preview </label>
                                     <input id="ChapterAnalyzerPreviewPattern" type="text" placeholder="(^|\s)(Preview|PV|Sneak\s?Peek|Coming\s?(Up|Soon)|Next\s+(time|on|episode)|Extra|Teaser|Trailer)(?!\sEnd)(\s|:|$)" is="emby-input" />
-                                    <div class="fieldDescription">Enter a regular expression to detect preview chapters.
-                                        <br />Default: <code>(^|\s)(Preview|PV|Sneak\s?Peek|Coming\s?(Up|Soon)|Next\s+(time|on|episode)|Extra|Teaser|Trailer)(?!\sEnd)(\s|:|$)</code>
-                                    </div>
+                                    <div class="fieldDescription">Enter a regular expression to detect preview chapters. <br />Default: <code>(^|\s)(Preview|PV|Sneak\s?Peek|Coming\s?(Up|Soon)|Next\s+(time|on|episode)|Extra|Teaser|Trailer)(?!\sEnd)(\s|:|$)</code></div>
                                 </div>
 
                                 <div class="inputContainer">
                                     <label class="inputLabel inputLabelUnfocused" for="ChapterAnalyzerRecapPattern"> Recaps </label>
                                     <input id="ChapterAnalyzerRecapPattern" type="text" placeholder="(^|\s)(Re?cap|Sum{1,2}ary|Prev(ious(ly)?)?|(Last|Earlier)(\s\w+)?|Catch[ -]up)(?!\sEnd)(\s|:|$)" is="emby-input" />
-                                    <div class="fieldDescription">Enter a regular expression to detect recap chapters.
-                                        <br />Default: <code>(^|\s)(Re?cap|Sum{1,2}ary|Prev(ious(ly)?)?|(Last|Earlier)(\s\w+)?|Catch[ -]up)(?!\sEnd)(\s|:|$)</code>
-                                    </div>
+                                    <div class="fieldDescription">Enter a regular expression to detect recap chapters. <br />Default: <code>(^|\s)(Re?cap|Sum{1,2}ary|Prev(ious(ly)?)?|(Last|Earlier)(\s\w+)?|Catch[ -]up)(?!\sEnd)(\s|:|$)</code></div>
                                 </div>
                             </details>
 
@@ -425,7 +406,7 @@
                         <div class="checkboxContainer checkboxContainer-withDescription">
                             <label class="emby-checkbox-label">
                                 <input id="PluginSkip" type="checkbox" is="emby-checkbox" />
-                                <span>Enable <b style="color: red;">Server-side</b> Auto Skip</span>
+                                <span>Enable <b style="color: red">Server-side</b> Auto Skip</span>
                             </label>
                         </div>
 
@@ -519,8 +500,8 @@
                                     </p>
                                     <br />
 
-                                    <div id="analyzerActionsContainer" style="display: flex; align-items: center; gap: 1.5em;">
-                                        <label for="actionRecap" style="width: 23%;">
+                                    <div id="analyzerActionsContainer" style="display: flex; align-items: center; gap: 1.5em">
+                                        <label for="actionRecap" style="width: 23%">
                                             <span>Recap analysis</span>
                                             <select is="emby-select" id="actionRecap" class="emby-select-withcolor emby-select">
                                                 <option value="Default">Default</option>
@@ -528,7 +509,7 @@
                                                 <option value="None">None</option>
                                             </select>
                                         </label>
-                                        <label for="actionIntro" style="width: 23%;">
+                                        <label for="actionIntro" style="width: 23%">
                                             <span>Introduction analysis</span>
                                             <select is="emby-select" id="actionIntro" class="emby-select-withcolor emby-select">
                                                 <option value="Default">Default</option>
@@ -537,7 +518,7 @@
                                                 <option value="None">None</option>
                                             </select>
                                         </label>
-                                        <label for="actionCredits" style="width: 23%;">
+                                        <label for="actionCredits" style="width: 23%">
                                             <span>Credits (Outro) analysis</span>
                                             <select is="emby-select" id="actionCredits" class="emby-select-withcolor emby-select">
                                                 <option value="Default">Default</option>
@@ -547,7 +528,7 @@
                                                 <option value="None">None</option>
                                             </select>
                                         </label>
-                                        <label for="actionPreview"  style="width: 23%;">
+                                        <label for="actionPreview" style="width: 23%">
                                             <span>Preview analysis</span>
                                             <select is="emby-select" id="actionPreview" class="emby-select-withcolor emby-select">
                                                 <option value="Default">Default</option>
@@ -682,6 +663,9 @@
                                         <button is="emby-button" id="btnUpdateTimestamps" class="raised button-submit block emby-button" type="button">Update timestamps</button>
                                     </p>
                                 </div>
+                                <p>
+                                    <button is="emby-button" id="scanSeason" class="raised button-submit block emby-button" style="display: none">Scan Season</button>
+                                </p>
 
                                 <div id="timestampErrorDiv" style="display: none">
                                     <p>
@@ -690,7 +674,7 @@
                                 </div>
 
                                 <div id="fingerprintVisualizer" style="display: none">
-                                    <hr style="border: none; border-top: 1px solid #ccc; margin: 20px 0;" />
+                                    <hr style="border: none; border-top: 1px solid #ccc; margin: 20px 0" />
 
                                     <h3>Fingerprint Visualizer</h3>
                                     <p>
@@ -742,7 +726,7 @@
                                 </div>
 
                                 <div id="eraseSeasonContainer" style="display: none">
-                                    <div class="checkboxContainer checkboxContainer" style="margin: 0;">
+                                    <div class="checkboxContainer checkboxContainer" style="margin: 0">
                                         <label class="emby-checkbox-label">
                                             <input id="eraseSeasonCacheCheckbox" type="checkbox" is="emby-checkbox" />
                                             <span>Include cached fingerprint files</span>
@@ -752,39 +736,35 @@
                                 </div>
 
                                 <div id="eraseMovieContainer" style="display: none">
-                                    <p>
-                                        <div class="checkboxContainer checkboxContainer" style="margin: 0;">
-                                            <label class="emby-checkbox-label">
-                                                <input id="eraseMovieCacheCheckbox" type="checkbox" is="emby-checkbox" />
-                                                <span>Include cached fingerprint files</span>
-                                            </label>
-                                        </div>
-                                        <button is="emby-button" id="btnEraseMovieTimestamps" class="raised button-submit block emby-button" type="button">Erase all timestamps for this movie</button>
-                                    </p>
+                                    <div class="checkboxContainer checkboxContainer" style="margin: 0">
+                                        <label class="emby-checkbox-label">
+                                            <input id="eraseMovieCacheCheckbox" type="checkbox" is="emby-checkbox" />
+                                            <span>Include cached fingerprint files</span>
+                                        </label>
+                                    </div>
+                                    <button is="emby-button" id="btnEraseMovieTimestamps" class="raised button-submit block emby-button" type="button">Erase all timestamps for this movie</button>
                                 </div>
 
-                                <hr style="border: none; border-top: 1px solid #ccc; margin: 20px 0;" />
+                                <hr style="border: none; border-top: 1px solid #ccc; margin: 20px 0" />
 
                                 <div>
-                                    <p>
-                                        <label class="selectLabel" for="GlobalTimestamps" style="display: none"></label>
-                                        <select is="emby-select" id="GlobalTimestamps" class="emby-select-withcolor block emby-select">
-                                            <option value="introduction">Global Introduction Timestamps</option>
+                                    <label class="selectLabel" for="GlobalTimestamps" style="display: none"></label>
+                                    <select is="emby-select" id="GlobalTimestamps" class="emby-select-withcolor block emby-select">
+                                        <option value="introduction">Global Introduction Timestamps</option>
 
-                                            <option value="recap">Global Recap Timestamps</option>
+                                        <option value="recap">Global Recap Timestamps</option>
 
-                                            <option value="credits">Global Credits Timestamps</option>
+                                        <option value="credits">Global Credits Timestamps</option>
 
-                                            <option value="preview">Global Preview Timestamps</option>
-                                        </select>
-                                        <div class="checkboxContainer checkboxContainer" style="margin: 0;">
-                                            <label class="emby-checkbox-label">
-                                                <input id="eraseModeCacheCheckbox" type="checkbox" is="emby-checkbox" />
-                                                <span>Include global cached fingerprint files</span>
-                                            </label>
-                                        </div>
-                                        <button is="emby-button" class="raised button-submit block emby-button" id="btnEraseGlobalTimestamps">Erase all selected timestamps (globally)</button>
-                                    </p>
+                                        <option value="preview">Global Preview Timestamps</option>
+                                    </select>
+                                    <div class="checkboxContainer checkboxContainer" style="margin: 0">
+                                        <label class="emby-checkbox-label">
+                                            <input id="eraseModeCacheCheckbox" type="checkbox" is="emby-checkbox" />
+                                            <span>Include global cached fingerprint files</span>
+                                        </label>
+                                    </div>
+                                    <button is="emby-button" class="raised button-submit block emby-button" id="btnEraseGlobalTimestamps">Erase all selected timestamps (globally)</button>
                                 </div>
                                 <br />
                                 <div>
@@ -792,7 +772,7 @@
                                         <button is="emby-button" class="raised button-submit block emby-button" id="btnRebuildDatabase">Rebuild Local Database</button>
                                     </p>
                                     <p align="center">
-                                      <b style="color: red">Rebuilding database requires a full Jellyfin restart to complete, <i>NOT</i> a dashboard restart!</b>
+                                        <b style="color: red">Rebuilding database requires a full Jellyfin restart to complete, <i>NOT</i> a dashboard restart!</b>
                                     </p>
                                 </div>
                             </details>
@@ -838,7 +818,7 @@
                 const configurationFields = [
                     // analysis
                     "MaxParallelism",
-					"SelectedLibraries",
+                    "SelectedLibraries",
                     "KeyframeWindowBefore",
                     "KeyframeWindowAfter",
                     "EndSnapThreshold",
@@ -874,7 +854,7 @@
                     "AutoSkipNotificationText",
                 ];
 
-                const booleanConfigurationFields = ["AutoDetectIntros", "AnalyzeMovies", "AnalyzeSeasonZero", "SelectAllLibraries", "UpdateMediaSegments","UseAlternativeBlackFrameAnalyzer", "UseChapterMarkersBlackFrame", "FullLengthChapters", "RebuildMediaSegments", "ScanIntroduction", "ScanCredits", "ScanRecap", "ScanPreview", "PreferChromaprint", "CacheFingerprints", "PluginSkip", "AutoSkip", "SkipFirstEpisode", "SnapToKeyframe"];
+                const booleanConfigurationFields = ["AutoDetectIntros", "AnalyzeMovies", "AnalyzeSeasonZero", "SelectAllLibraries", "UpdateMediaSegments", "UseAlternativeBlackFrameAnalyzer", "UseChapterMarkersBlackFrame", "FullLengthChapters", "RebuildMediaSegments", "ScanIntroduction", "ScanCredits", "ScanRecap", "ScanPreview", "PreferChromaprint", "CacheFingerprints", "PluginSkip", "AutoSkip", "SkipFirstEpisode", "SnapToKeyframe"];
 
                 // visualizer elements
                 const analyzeMovies = document.getElementById("AnalyzeMovies");
@@ -884,6 +864,7 @@
                 const actionRecap = analyzerActionsSection.querySelector("select#actionRecap");
                 const actionPreview = analyzerActionsSection.querySelector("select#actionPreview");
                 const saveAnalyzerActionsButton = analyzerActionsSection.querySelector("button#saveAnalyzerActions");
+                const scanSeasonButton = document.querySelector("button#scanSeason");
                 const canvas = document.querySelector("canvas#troubleshooter");
                 const selectShow = document.querySelector("select#troubleshooterShow");
                 const seasonSelection = document.getElementById("seasonSelection");
@@ -1036,7 +1017,7 @@
                         skipFirstEpisode.checked = false;
                         secondsOfIntroStartToPlay.value = 0;
                     }
-                     pluginSkipSettingVisible()
+                    pluginSkipSettingVisible();
                 }
 
                 pluginSkip.addEventListener("change", pluginSkipSettingChanged);
@@ -1057,7 +1038,7 @@
                 globalTimestamps.addEventListener("change", globalTimestampChanged);
                 // https://stackoverflow.com/a/72161208/461982
                 globalTimestamps.addEventListener("click", () => {
-                    globalTimestamps.removeEventListener("change", globalTimestampChanged)
+                    globalTimestamps.removeEventListener("change", globalTimestampChanged);
                     globalTimestamps.addEventListener("change", globalTimestampChanged);
                 });
 
@@ -1066,6 +1047,7 @@
                     if (!visualizer.open) {
                         analyzerActionsSection.style.display = "none";
                         saveAnalyzerActionsButton.style.display = "none";
+                        scanSeasonButton.style.display = "none";
                         return;
                     }
 
@@ -1179,6 +1161,9 @@
                     Dashboard.showLoadingMsg();
                     // show the analyzer actions editor.
                     saveAnalyzerActionsButton.style.display = "block";
+                    saveAnalyzerActionsButton.textContent = "Apply to season";
+                    scanSeasonButton.style.display = "block";
+                    scanSeasonButton.textContent = "Scan season";
                     const analyzerActions = await getJson("Intros/AnalyzerActions/" + encodeURI(selectSeason.value));
                     actionIntro.value = analyzerActions.Introduction || "Default";
                     actionCredits.value = analyzerActions.Credits || "Default";
@@ -1255,20 +1240,14 @@
                     Dashboard.showLoadingMsg();
 
                     saveAnalyzerActionsButton.textContent = "Apply to movie";
+                    scanSeasonButton.textContent = "Scan movie";
                     seasonSelection.style.display = "none";
                     episodeSelection.style.display = "none";
                     eraseMovieContainer.style.display = "unset";
+                    scanSeasonButton.style.display = "block";
 
                     timestampError.value = "";
                     fingerprintVisualizer.style.display = "none";
-
-                    lhs = await getJson("Intros/Episode/" + selectShow.value + "/Chromaprint");
-                    if (lhs === undefined) {
-                        timestampError.value += "Error: " + selectShow.value + " fingerprints failed!\n";
-                    } else if (lhs === null) {
-                        timestampError.value += selectShow.value + " fingerprints missing or incomplete.\n";
-                    }
-
                     rightEpisodeEditor.style.display = "none";
 
                     if (timestampError.value === "") {
@@ -1281,29 +1260,7 @@
 
                     txtOffset.value = "0";
 
-                    // Try to get the timestamps of each intro, falling back a default value of zero if no intro was found
-                    const leftEpisodeJson = await getJson("Episode/" + selectShow.value + "/Timestamps");
-
-                    // Update the editor for the movie
-                    timestampEditor.style.display = "unset";
-                    document.querySelector("#editLeftEpisodeTitle").textContent = selectShow.value;
-                    document.querySelector("#editLeftIntroEpisodeStartEdit").value = leftEpisodeJson.Introduction.Start;
-                    document.querySelector("#editLeftIntroEpisodeEndEdit").value = leftEpisodeJson.Introduction.End;
-                    document.querySelector("#editLeftCreditEpisodeStartEdit").value = leftEpisodeJson.Credits.Start;
-                    document.querySelector("#editLeftCreditEpisodeEndEdit").value = leftEpisodeJson.Credits.End;
-                    document.querySelector("#editLeftRecapEpisodeStartEdit").value = leftEpisodeJson.Recap.Start;
-                    document.querySelector("#editLeftRecapEpisodeEndEdit").value = leftEpisodeJson.Recap.End;
-                    document.querySelector("#editLeftPreviewEpisodeStartEdit").value = leftEpisodeJson.Preview.Start;
-                    document.querySelector("#editLeftPreviewEpisodeEndEdit").value = leftEpisodeJson.Preview.End;
-
-                    // Update display inputs
-                    const inputs = document.querySelectorAll('#timestampEditor input[type="number"]');
-                    inputs.forEach((input) => {
-                        const displayInput = document.getElementById(input.id.replace("Edit", "Display"));
-                        displayInput.value = formatTime(parseFloat(input.value) || 0);
-                    });
-
-                    setupTimeInputs();
+                    await updateTimestampEditor();
                 }
 
                 function setupTimeInputs() {
@@ -1346,13 +1303,12 @@
                 // updates the timestamp editor
                 async function updateTimestampEditor() {
                     // Get the title and ID of the left and right episodes
-                    const leftEpisode = selectEpisode1.options[selectEpisode1.selectedIndex];
-                    const rightEpisode = selectEpisode2.options[selectEpisode2.selectedIndex];
+                    const leftEpisode = selectEpisode1.options[selectEpisode1.selectedIndex] || selectShow;
+
                     // Try to get the timestamps of each intro, falling back a default value of zero if no intro was found
                     const leftEpisodeJson = await getJson("Episode/" + leftEpisode.value + "/Timestamps");
-                    const rightEpisodeJson = await getJson("Episode/" + rightEpisode.value + "/Timestamps");
 
-                    // Update the editor for the first and second episodes
+                    // Update the editor for the first episode
                     timestampEditor.style.display = "unset";
                     document.querySelector("#editLeftEpisodeTitle").textContent = leftEpisode.text;
                     document.querySelector("#editLeftIntroEpisodeStartEdit").value = leftEpisodeJson.Introduction.Start;
@@ -1363,15 +1319,26 @@
                     document.querySelector("#editLeftRecapEpisodeEndEdit").value = leftEpisodeJson.Recap.End;
                     document.querySelector("#editLeftPreviewEpisodeStartEdit").value = leftEpisodeJson.Preview.Start;
                     document.querySelector("#editLeftPreviewEpisodeEndEdit").value = leftEpisodeJson.Preview.End;
-                    document.querySelector("#editRightEpisodeTitle").textContent = rightEpisode.text;
-                    document.querySelector("#editRightIntroEpisodeStartEdit").value = rightEpisodeJson.Introduction.Start;
-                    document.querySelector("#editRightIntroEpisodeEndEdit").value = rightEpisodeJson.Introduction.End;
-                    document.querySelector("#editRightCreditEpisodeStartEdit").value = rightEpisodeJson.Credits.Start;
-                    document.querySelector("#editRightCreditEpisodeEndEdit").value = rightEpisodeJson.Credits.End;
-                    document.querySelector("#editRightRecapEpisodeStartEdit").value = rightEpisodeJson.Recap.Start;
-                    document.querySelector("#editRightRecapEpisodeEndEdit").value = rightEpisodeJson.Recap.End;
-                    document.querySelector("#editRightPreviewEpisodeStartEdit").value = rightEpisodeJson.Preview.Start;
-                    document.querySelector("#editRightPreviewEpisodeEndEdit").value = rightEpisodeJson.Preview.End;
+
+                    // Update the editor for the second episode
+                    if (rightEpisodeEditor.style.display !== "none") {
+                        const rightEpisode = selectEpisode2.options[selectEpisode2.selectedIndex];
+
+                        // Try to get the timestamps of each intro, falling back a default value of zero if no intro was found
+                        const rightEpisodeJson = await getJson("Episode/" + rightEpisode.value + "/Timestamps");
+
+                        // Update the editor for the second episode
+                        document.querySelector("#editRightEpisodeTitle").textContent = rightEpisode.text;
+                        document.querySelector("#editRightIntroEpisodeStartEdit").value = rightEpisodeJson.Introduction.Start;
+                        document.querySelector("#editRightIntroEpisodeEndEdit").value = rightEpisodeJson.Introduction.End;
+                        document.querySelector("#editRightCreditEpisodeStartEdit").value = rightEpisodeJson.Credits.Start;
+                        document.querySelector("#editRightCreditEpisodeEndEdit").value = rightEpisodeJson.Credits.End;
+                        document.querySelector("#editRightRecapEpisodeStartEdit").value = rightEpisodeJson.Recap.Start;
+                        document.querySelector("#editRightRecapEpisodeEndEdit").value = rightEpisodeJson.Recap.End;
+                        document.querySelector("#editRightPreviewEpisodeStartEdit").value = rightEpisodeJson.Preview.Start;
+                        document.querySelector("#editRightPreviewEpisodeEndEdit").value = rightEpisodeJson.Preview.End;
+                    }
+
                     // Update display inputs
                     const inputs = document.querySelectorAll('#timestampEditor input[type="number"]');
                     inputs.forEach((input) => {
@@ -1530,53 +1497,59 @@
 
                 document.querySelector("#TemplateConfigPage").addEventListener("pageshow", function () {
                     Dashboard.showLoadingMsg();
-                    ApiClient.getPluginConfiguration("c83d86bb-a1e0-4c35-a113-e2101cf4ee6b").then(function (config) {
-                        for (const field of configurationFields) {
-                            document.querySelector("#" + field).value = config[field];
-                        }
+                    ApiClient.getPluginConfiguration("c83d86bb-a1e0-4c35-a113-e2101cf4ee6b")
+                        .then(function (config) {
+                            for (const field of configurationFields) {
+                                document.querySelector("#" + field).value = config[field];
+                            }
 
-                        for (const field of booleanConfigurationFields) {
-                            document.querySelector("#" + field).checked = config[field];
-                        }
+                            for (const field of booleanConfigurationFields) {
+                                document.querySelector("#" + field).checked = config[field];
+                            }
 
-                        analyzeMoviesChanged();
-                        populateLibraries();
-                        selectAllLibrariesChanged();
-                        fullLengthChaptersChanged();
-                        autoSkipChanged();
-                        generateAutoSkipTypeList();
-                        generateAutoSkipClientList();
-                        pluginSkipSettingVisible();
-                        alternativeBlackFrameAnalyzerSettingsVisible();
-                        snapSettingsVisible();
-                        globalTimestampChanged();
+                            analyzeMoviesChanged();
+                            populateLibraries();
+                            selectAllLibrariesChanged();
+                            fullLengthChaptersChanged();
+                            autoSkipChanged();
+                            generateAutoSkipTypeList();
+                            generateAutoSkipClientList();
+                            pluginSkipSettingVisible();
+                            alternativeBlackFrameAnalyzerSettingsVisible();
+                            snapSettingsVisible();
+                            globalTimestampChanged();
 
-                        Dashboard.hideLoadingMsg();
-                    }).catch(error => {
-                        Dashboard.hideLoadingMsg();
-                    });
+                            Dashboard.hideLoadingMsg();
+                        })
+                        .catch((error) => {
+                            Dashboard.hideLoadingMsg();
+                        });
                 });
 
                 document.querySelector("#FingerprintConfigForm").addEventListener("submit", function (e) {
                     Dashboard.showLoadingMsg();
-                    ApiClient.getPluginConfiguration("c83d86bb-a1e0-4c35-a113-e2101cf4ee6b").then(function (config) {
-                        for (const field of configurationFields) {
-                            config[field] = document.querySelector("#" + field).value;
-                        }
+                    ApiClient.getPluginConfiguration("c83d86bb-a1e0-4c35-a113-e2101cf4ee6b")
+                        .then(function (config) {
+                            for (const field of configurationFields) {
+                                config[field] = document.querySelector("#" + field).value;
+                            }
 
-                        for (const field of booleanConfigurationFields) {
-                            config[field] = document.querySelector("#" + field).checked;
-                        }
+                            for (const field of booleanConfigurationFields) {
+                                config[field] = document.querySelector("#" + field).checked;
+                            }
 
-                        ApiClient.updatePluginConfiguration("c83d86bb-a1e0-4c35-a113-e2101cf4ee6b", config).then(function (result) {
-                            Dashboard.hideLoadingMsg();
-                            Dashboard.processPluginConfigurationUpdateResult(result);
-                        }).catch(error => {
+                            ApiClient.updatePluginConfiguration("c83d86bb-a1e0-4c35-a113-e2101cf4ee6b", config)
+                                .then(function (result) {
+                                    Dashboard.hideLoadingMsg();
+                                    Dashboard.processPluginConfigurationUpdateResult(result);
+                                })
+                                .catch((error) => {
+                                    Dashboard.hideLoadingMsg();
+                                });
+                        })
+                        .catch((error) => {
                             Dashboard.hideLoadingMsg();
                         });
-                    }).catch(error => {
-                        Dashboard.hideLoadingMsg();
-                    });
 
                     e.preventDefault();
                     return false;
@@ -1608,6 +1581,14 @@
                     fetchWithAuth(url, "POST", JSON.stringify(actions));
 
                     Dashboard.alert("Analyzer actions updated for " + selectSeason.value + " of " + selectShow.value);
+                    Dashboard.hideLoadingMsg();
+                });
+
+                scanSeasonButton.addEventListener("click", async () => {
+                    Dashboard.showLoadingMsg();
+                    console.log("(Re-) Scan task started.");
+                    await fetchWithAuth("Intros/ScanSeason/" + selectShow.value + "/" + (selectSeason.value || selectShow.value), "POST", null);
+                    await updateTimestampEditor();
                     Dashboard.hideLoadingMsg();
                 });
 
@@ -1704,23 +1685,23 @@
                 });
 
                 btnEraseGlobalTimestamps.addEventListener("click", (e) => {
-                  switch (globalTimestamps.value) {
-                    case "introduction":
-                        eraseTimestamps("Introduction");
-                        break;
-                    case "recap":
-                        eraseTimestamps("Recap");
-                        break;
-                    case "credits":
-                        eraseTimestamps("Credits");
-                        break;
-                    case "preview":
-                        eraseTimestamps("Preview");
-                        break;
-                    default:
-                        return;
-                  }
-                  e.preventDefault();
+                    switch (globalTimestamps.value) {
+                        case "introduction":
+                            eraseTimestamps("Introduction");
+                            break;
+                        case "recap":
+                            eraseTimestamps("Recap");
+                            break;
+                        case "credits":
+                            eraseTimestamps("Credits");
+                            break;
+                        case "preview":
+                            eraseTimestamps("Preview");
+                            break;
+                        default:
+                            return;
+                    }
+                    e.preventDefault();
                 });
 
                 btnRebuildDatabase.addEventListener("click", () => {
