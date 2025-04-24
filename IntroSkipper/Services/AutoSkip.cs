@@ -43,16 +43,18 @@ public sealed class AutoSkip(
     private readonly ILogger<AutoSkip> _logger = logger;
     private readonly System.Timers.Timer _playbackTimer = new(1000);
     private readonly ConcurrentDictionary<string, Dictionary<AnalysisMode, Intro>> _sentSeekCommand = [];
+    private readonly HashSet<string> _clientList = [];
+    private readonly HashSet<AnalysisMode> _segmentTypes = [];
     private PluginConfiguration _config = new();
-    private HashSet<string> _clientList = [];
-    private HashSet<AnalysisMode> _segmentTypes = [];
     private bool _autoSkipEnabled;
 
     private void AutoSkipChanged(object? sender, BasePluginConfiguration e)
     {
         _config = (PluginConfiguration)e;
-        _clientList = [.. _config.ClientList.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)];
-        _segmentTypes = [.. _config.TypeList.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).Select(Enum.Parse<AnalysisMode>)];
+        _clientList.Clear();
+        _clientList.UnionWith(_config.ClientList.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries));
+        _segmentTypes.Clear();
+        _segmentTypes.UnionWith(_config.TypeList.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).Select(Enum.Parse<AnalysisMode>));
         _autoSkipEnabled = (_config.AutoSkip || _clientList.Count > 0) && _segmentTypes.Count > 0;
         _logger.LogDebug("Setting playback timer enabled to {AutoSkipEnabled}", _autoSkipEnabled);
         _playbackTimer.Enabled = _autoSkipEnabled;
@@ -118,7 +120,15 @@ public sealed class AutoSkip(
         _sentSeekCommand.AddOrUpdate(device, intros, (_, _) => intros);
     }
 
-    private static string FormatNotificationText(string template, AnalysisMode segmentType, double start, double end)
+    /// <summary>
+    /// Format the notification text for the user.
+    /// </summary>
+    /// <param name="template">The template to format.</param>
+    /// <param name="segmentType">The type of segment being skipped.</param>
+    /// <param name="start">The start time of the segment.</param>
+    /// <param name="end">The end time of the segment.</param>
+    /// <returns>The formatted notification text.</returns>
+    public static string FormatNotificationText(string? template, AnalysisMode segmentType, double start, double end)
     {
         if (string.IsNullOrWhiteSpace(template))
         {
@@ -133,6 +143,18 @@ public sealed class AutoSkip(
             .Replace("%duration", $"{duration:F0}", StringComparison.Ordinal);
     }
 
+    private bool IsSegmentPlayingAt(KeyValuePair<AnalysisMode, Intro> segment, double position)
+    {
+        return position >= Math.Max(1, segment.Value.IntroStart + _config.SecondsOfIntroStartToPlay) &&
+               position < segment.Value.IntroEnd - 3.0;
+    }
+
+    private bool IsAdjacentSegment(KeyValuePair<AnalysisMode, Intro> segment, double introEnd)
+    {
+        return introEnd + _config.MaximumTimeSkip >= segment.Value.IntroStart &&
+               introEnd < segment.Value.IntroEnd;
+    }
+
     private void PlaybackTimer_Elapsed(object? sender, ElapsedEventArgs e)
     {
         foreach (var session in _sessionManager.Sessions.Where(s => _config.AutoSkip || _clientList.Contains(s.Client, StringComparer.OrdinalIgnoreCase)))
@@ -145,11 +167,14 @@ public sealed class AutoSkip(
                 continue;
             }
 
-            var position = session.PlayState.PositionTicks / TimeSpan.TicksPerSecond;
+            if (session.PlayState.PositionTicks is null)
+            {
+                continue;
+            }
 
-            var currentSegment = intros.FirstOrDefault(i =>
-                position >= Math.Max(1, i.Value.IntroStart + _config.SecondsOfIntroStartToPlay) &&
-                position < i.Value.IntroEnd - 3.0); // 3 seconds before the end of the intro
+            var position = (double)(session.PlayState.PositionTicks.Value / TimeSpan.TicksPerSecond);
+
+            var currentSegment = intros.FirstOrDefault(i => IsSegmentPlayingAt(i, position));
 
             if (currentSegment.Value is null)
             {
@@ -164,8 +189,7 @@ public sealed class AutoSkip(
 
             // Check if adjacent segment is within the maximum skip range.
             var maxTimeSkip = _config.MaximumTimeSkip;
-            var nextSegment = intros.FirstOrDefault(i => introEnd + maxTimeSkip >= i.Value.IntroStart &&
-                    introEnd < i.Value.IntroEnd);
+            var nextSegment = intros.FirstOrDefault(i => IsAdjacentSegment(i, introEnd));
 
             if (nextSegment.Value is not null)
             {

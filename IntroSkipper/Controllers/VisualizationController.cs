@@ -245,7 +245,7 @@ public class VisualizationController(ILogger<VisualizationController> logger, Me
     /// <param name="cancellationToken">cancellationToken.</param>
     /// <returns>No content.</returns>
     [HttpPost("ScanSeason/{SeriesId}/{SeasonId}")]
-    public async Task<ActionResult> ScanSeason([FromRoute] Guid seriesId, [FromRoute] Guid seasonId,  CancellationToken cancellationToken = default)
+    public async Task<ActionResult> ScanSeason([FromRoute] Guid seriesId, [FromRoute] Guid seasonId, CancellationToken cancellationToken = default)
     {
         if (_libraryManager is null)
         {
