@@ -292,7 +292,7 @@ public class PluginConfiguration : BasePluginConfiguration
     /// <summary>
     /// Gets or sets the notification text sent after automatically skipping an introduction.
     /// </summary>
-    public string AutoSkipNotificationText { get; set; } = "Segment skipped";
+    public string AutoSkipNotificationText { get; set; } = "%duration seconds of %segmenttype skipped";
 
     /// <summary>
     /// Gets or sets the max degree of parallelism used when analyzing episodes.

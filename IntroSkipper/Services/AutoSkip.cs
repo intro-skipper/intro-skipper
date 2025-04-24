@@ -11,7 +11,6 @@ using System.Timers;
 using IntroSkipper.Configuration;
 using IntroSkipper.Controllers;
 using IntroSkipper.Data;
-using MediaBrowser.Common.Extensions;
 using MediaBrowser.Controller.Entities.TV;
 using MediaBrowser.Controller.Library;
 using MediaBrowser.Controller.Session;
@@ -38,21 +37,25 @@ public sealed class AutoSkip(
     ISessionManager sessionManager,
     ILogger<AutoSkip> logger) : IHostedService, IDisposable
 {
+    private const int PlaybackTimerInterval = 1000; // 1 second interval
+    private const int NotificationTimeoutMs = 2000;
     private readonly IUserDataManager _userDataManager = userDataManager;
     private readonly ISessionManager _sessionManager = sessionManager;
     private readonly ILogger<AutoSkip> _logger = logger;
-    private readonly System.Timers.Timer _playbackTimer = new(1000);
-    private readonly ConcurrentDictionary<string, List<Intro>> _sentSeekCommand = [];
+    private readonly System.Timers.Timer _playbackTimer = new(PlaybackTimerInterval) { AutoReset = true };
+    private readonly ConcurrentDictionary<string, Dictionary<AnalysisMode, Intro>> _sentSeekCommand = [];
+    private readonly HashSet<string> _clientList = [];
+    private readonly HashSet<AnalysisMode> _segmentTypes = [];
     private PluginConfiguration _config = new();
-    private HashSet<string> _clientList = [];
-    private HashSet<AnalysisMode> _segmentTypes = [];
     private bool _autoSkipEnabled;
 
     private void AutoSkipChanged(object? sender, BasePluginConfiguration e)
     {
         _config = (PluginConfiguration)e;
-        _clientList = [.. _config.ClientList.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)];
-        _segmentTypes = [.. _config.TypeList.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).Select(Enum.Parse<AnalysisMode>)];
+        _clientList.Clear();
+        _clientList.UnionWith(_config.ClientList.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries));
+        _segmentTypes.Clear();
+        _segmentTypes.UnionWith(_config.TypeList.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).Select(Enum.Parse<AnalysisMode>));
         _autoSkipEnabled = (_config.AutoSkip || _clientList.Count > 0) && _segmentTypes.Count > 0;
         _logger.LogDebug("Setting playback timer enabled to {AutoSkipEnabled}", _autoSkipEnabled);
         _playbackTimer.Enabled = _autoSkipEnabled;
@@ -67,40 +70,25 @@ public sealed class AutoSkip(
         }
 
         var itemId = e.Item.Id;
+        var userSessions = _sessionManager.Sessions.Where(s => s.UserId == e.UserId).ToList();
+        _logger.LogDebug("Found {Count} sessions for user {UserId}", userSessions.Count, e.UserId);
 
-        SessionInfo? session = null;
+        // Clean up orphaned sessions first
+        var orphaned = userSessions
+            .Where(s => s.NowPlayingItem is null)
+            .Where(s => _sentSeekCommand.TryRemove(s.DeviceId, out _))
+            .ToList();
 
-        try
+        if (orphaned.Count > 0)
         {
-            var userSessions = _sessionManager.Sessions
-                .Where(s => s.UserId == e.UserId).ToList();
-
-            _logger.LogDebug("Found {Count} sessions for user {UserId}", userSessions.Count, e.UserId);
-
-            session = userSessions
-                .FirstOrDefault(s => s.NowPlayingItem?.Id == itemId);
-
-            if (session is null)
-            {
-                _logger.LogInformation("Unable to find active session for user {UserId} and item {ItemId}", e.UserId, itemId);
-
-                // Clean up orphaned sessions
-                var orphaned = userSessions
-                    .Where(s => s.NowPlayingItem is null)
-                    .Where(s => _sentSeekCommand.TryRemove(s.DeviceId, out _))
-                    .ToList();
-
-                if (orphaned.Count > 0)
-                {
-                    _logger.LogDebug("Removed {Count} orphaned sessions for devices: {Devices}", orphaned.Count, string.Join(", ", orphaned.Select(s => s.DeviceId)));
-                }
-
-                return;
-            }
+            _logger.LogDebug("Removed {Count} orphaned sessions for devices: {Devices}", orphaned.Count, string.Join(", ", orphaned.Select(s => s.DeviceId)));
         }
-        catch (ResourceNotFoundException ex)
+
+        // Find active session for the current item
+        var session = userSessions.FirstOrDefault(s => s.NowPlayingItem?.Id == itemId);
+        if (session is null)
         {
-            _logger.LogWarning(ex, "Resource not found while processing session");
+            _logger.LogInformation("Unable to find active session for user {UserId} and item {ItemId}", e.UserId, itemId);
             return;
         }
 
@@ -113,75 +101,103 @@ public sealed class AutoSkip(
         bool firstEpisode = e.Item is Episode episode && _config.SkipFirstEpisode && episode.IndexNumber == 1;
         var intros = SkipIntroController.GetIntros(itemId)
                 .Where(i => _segmentTypes.Contains(i.Key) && (!firstEpisode || i.Key != AnalysisMode.Introduction))
-                .Select(i => i.Value)
-                .ToList();
+                .ToDictionary(i => i.Key, i => i.Value);
 
         _sentSeekCommand.AddOrUpdate(device, intros, (_, _) => intros);
     }
 
+    /// <summary>
+    /// Format the notification text for the user.
+    /// </summary>
+    /// <param name="template">The template to format.</param>
+    /// <param name="segmentType">The type of segment being skipped.</param>
+    /// <param name="start">The start time of the segment.</param>
+    /// <param name="end">The end time of the segment.</param>
+    /// <returns>The formatted notification text.</returns>
+    public static string FormatNotificationText(string? template, AnalysisMode segmentType, double start, double end)
+    {
+        if (string.IsNullOrWhiteSpace(template))
+        {
+            return string.Empty;
+        }
+
+        var duration = end - start;
+        return template
+            .Replace("%segmenttype", segmentType.ToString(), StringComparison.Ordinal)
+            .Replace("%start", $"{start:F0}", StringComparison.Ordinal)
+            .Replace("%end", $"{end:F0}", StringComparison.Ordinal)
+            .Replace("%duration", $"{duration:F0}", StringComparison.Ordinal);
+    }
+
+    private bool IsSegmentPlayingAt(KeyValuePair<AnalysisMode, Intro> segment, double position)
+    {
+        return position >= Math.Max(1, segment.Value.IntroStart + _config.SecondsOfIntroStartToPlay) &&
+               position < segment.Value.IntroEnd - 3.0;
+    }
+
+    private bool IsAdjacentSegment(KeyValuePair<AnalysisMode, Intro> segment, double introEnd)
+    {
+        return introEnd + _config.MaximumTimeSkip >= segment.Value.IntroStart &&
+               introEnd < segment.Value.IntroEnd;
+    }
+
     private void PlaybackTimer_Elapsed(object? sender, ElapsedEventArgs e)
     {
-        foreach (var session in _sessionManager.Sessions.Where(s => _config.AutoSkip || _clientList.Contains(s.Client, StringComparer.OrdinalIgnoreCase)))
+        var eligibleSessions = _sessionManager.Sessions
+            .Where(s => s.PlayState?.PositionTicks.HasValue == true) // Ensure PlayState and PositionTicks are valid
+            .Where(s => _config.AutoSkip || _clientList.Contains(s.Client, StringComparer.OrdinalIgnoreCase))
+            .Where(s => _sentSeekCommand.ContainsKey(s.DeviceId))
+            .ToList();
+
+        foreach (var session in eligibleSessions)
         {
-            var deviceId = session.DeviceId;
-
-            // Don't send the seek command more than once in the same session.
-            if (!_sentSeekCommand.TryGetValue(deviceId, out var intros))
+            if (!_sentSeekCommand.TryGetValue(session.DeviceId, out var intros) || intros.Count == 0)
             {
                 continue;
             }
 
-            var position = session.PlayState.PositionTicks / TimeSpan.TicksPerSecond;
+            var position = (double)(session.PlayState.PositionTicks!.Value / TimeSpan.TicksPerSecond);
+            var currentSegment = intros.FirstOrDefault(i => IsSegmentPlayingAt(i, position));
 
-            var currentIntro = intros.FirstOrDefault(i =>
-                position >= Math.Max(1, i.IntroStart + _config.SecondsOfIntroStartToPlay) &&
-                position < i.IntroEnd - 3.0); // 3 seconds before the end of the intro
-
-            if (currentIntro is null)
+            if (currentSegment.Value is null)
             {
                 continue;
             }
 
+            var currentSegmentType = currentSegment.Key;
+            var currentIntro = currentSegment.Value;
             var introEnd = currentIntro.IntroEnd;
 
-            intros.Remove(currentIntro);
+            intros.Remove(currentSegmentType);
 
             // Check if adjacent segment is within the maximum skip range.
-            var maxTimeSkip = _config.MaximumTimeSkip;
-            var nextIntro = intros.FirstOrDefault(i => introEnd + maxTimeSkip >= i.IntroStart &&
-                    introEnd < i.IntroEnd);
-
-            if (nextIntro is not null)
+            var nextSegment = intros.FirstOrDefault(i => IsAdjacentSegment(i, introEnd));
+            if (nextSegment.Value is not null)
             {
-                introEnd = nextIntro.IntroEnd;
-                intros.Remove(nextIntro);
+                introEnd = nextSegment.Value.IntroEnd;
+                intros.Remove(nextSegment.Key);
             }
 
-            _logger.LogDebug("Found segment for session {Session}, removing from list, {Intros} segments remaining", deviceId, intros.Count);
-
-            _logger.LogTrace(
-                "Playback position is {Position}",
-                position);
+            _logger.LogDebug("Found segment for session {Session}, removing from list, {Intros} segments remaining", session.DeviceId, intros.Count);
+            _logger.LogTrace("Playback position is {Position}", position);
 
             // Notify the user that an introduction is being skipped for them.
-            var notificationText = _config.AutoSkipNotificationText;
-
+            var notificationText = FormatNotificationText(_config.AutoSkipNotificationText, currentSegmentType, currentIntro.IntroStart, currentIntro.IntroEnd);
             if (!string.IsNullOrWhiteSpace(notificationText))
             {
                 _sessionManager.SendMessageCommand(
-                session.Id,
-                session.Id,
-                new MessageCommand
-                {
-                    Header = string.Empty,      // some clients require header to be a string instead of null
-                    Text = notificationText,
-                    TimeoutMs = 2000,
-                },
-                CancellationToken.None);
+                    session.Id,
+                    session.Id,
+                    new MessageCommand
+                    {
+                        Header = string.Empty,
+                        Text = notificationText,
+                        TimeoutMs = NotificationTimeoutMs,
+                    },
+                    CancellationToken.None);
             }
 
-            _logger.LogDebug("Sending seek command to {Session}", deviceId);
-
+            _logger.LogDebug("Sending seek command to {Session}", session.DeviceId);
             _sessionManager.SendPlaystateCommand(
                 session.Id,
                 session.Id,
@@ -193,8 +209,7 @@ public sealed class AutoSkip(
                 },
                 CancellationToken.None);
 
-            // Flag that we've sent the seek command so that it's not sent repeatedly
-            _logger.LogTrace("Setting seek command state for session {Session}", deviceId);
+            _logger.LogTrace("Setting seek command state for session {Session}", session.DeviceId);
         }
     }
 
