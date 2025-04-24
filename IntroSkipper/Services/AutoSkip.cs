@@ -42,7 +42,7 @@ public sealed class AutoSkip(
     private readonly ISessionManager _sessionManager = sessionManager;
     private readonly ILogger<AutoSkip> _logger = logger;
     private readonly System.Timers.Timer _playbackTimer = new(1000);
-    private readonly ConcurrentDictionary<string, List<Intro>> _sentSeekCommand = [];
+    private readonly ConcurrentDictionary<string, Dictionary<AnalysisMode, Intro>> _sentSeekCommand = [];
     private PluginConfiguration _config = new();
     private HashSet<string> _clientList = [];
     private HashSet<AnalysisMode> _segmentTypes = [];
@@ -113,10 +113,24 @@ public sealed class AutoSkip(
         bool firstEpisode = e.Item is Episode episode && _config.SkipFirstEpisode && episode.IndexNumber == 1;
         var intros = SkipIntroController.GetIntros(itemId)
                 .Where(i => _segmentTypes.Contains(i.Key) && (!firstEpisode || i.Key != AnalysisMode.Introduction))
-                .Select(i => i.Value)
-                .ToList();
+                .ToDictionary(i => i.Key, i => i.Value);
 
         _sentSeekCommand.AddOrUpdate(device, intros, (_, _) => intros);
+    }
+
+    private static string FormatNotificationText(string template, AnalysisMode segmentType, double start, double end)
+    {
+        if (string.IsNullOrWhiteSpace(template))
+        {
+            return string.Empty;
+        }
+
+        var duration = end - start;
+        return template
+            .Replace("%segmenttype", segmentType.ToString(), StringComparison.Ordinal)
+            .Replace("%start", $"{start:F0}", StringComparison.Ordinal)
+            .Replace("%end", $"{end:F0}", StringComparison.Ordinal)
+            .Replace("%duration", $"{duration:F0}", StringComparison.Ordinal);
     }
 
     private void PlaybackTimer_Elapsed(object? sender, ElapsedEventArgs e)
@@ -133,28 +147,30 @@ public sealed class AutoSkip(
 
             var position = session.PlayState.PositionTicks / TimeSpan.TicksPerSecond;
 
-            var currentIntro = intros.FirstOrDefault(i =>
-                position >= Math.Max(1, i.IntroStart + _config.SecondsOfIntroStartToPlay) &&
-                position < i.IntroEnd - 3.0); // 3 seconds before the end of the intro
+            var currentSegment = intros.FirstOrDefault(i =>
+                position >= Math.Max(1, i.Value.IntroStart + _config.SecondsOfIntroStartToPlay) &&
+                position < i.Value.IntroEnd - 3.0); // 3 seconds before the end of the intro
 
-            if (currentIntro is null)
+            if (currentSegment.Value is null)
             {
                 continue;
             }
 
+            var currentSegmentType = currentSegment.Key;
+            var currentIntro = currentSegment.Value;
             var introEnd = currentIntro.IntroEnd;
 
-            intros.Remove(currentIntro);
+            intros.Remove(currentSegmentType);
 
             // Check if adjacent segment is within the maximum skip range.
             var maxTimeSkip = _config.MaximumTimeSkip;
-            var nextIntro = intros.FirstOrDefault(i => introEnd + maxTimeSkip >= i.IntroStart &&
-                    introEnd < i.IntroEnd);
+            var nextSegment = intros.FirstOrDefault(i => introEnd + maxTimeSkip >= i.Value.IntroStart &&
+                    introEnd < i.Value.IntroEnd);
 
-            if (nextIntro is not null)
+            if (nextSegment.Value is not null)
             {
-                introEnd = nextIntro.IntroEnd;
-                intros.Remove(nextIntro);
+                introEnd = nextSegment.Value.IntroEnd;
+                intros.Remove(nextSegment.Key);
             }
 
             _logger.LogDebug("Found segment for session {Session}, removing from list, {Intros} segments remaining", deviceId, intros.Count);
@@ -164,7 +180,7 @@ public sealed class AutoSkip(
                 position);
 
             // Notify the user that an introduction is being skipped for them.
-            var notificationText = _config.AutoSkipNotificationText;
+            var notificationText = FormatNotificationText(_config.AutoSkipNotificationText, currentSegmentType, currentIntro.IntroStart, currentIntro.IntroEnd);
 
             if (!string.IsNullOrWhiteSpace(notificationText))
             {
