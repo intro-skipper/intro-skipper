@@ -220,42 +220,6 @@
                                 <br />
                                 <div class="checkboxContainer checkboxContainer-withDescription">
                                     <label class="emby-checkbox-label">
-                                        <input id="SnapToKeyframe" type="checkbox" is="emby-checkbox" />
-                                        <span>Enable keyframe snapping for smooth seek transitions</span>
-                                    </label>
-
-                                    <div class="fieldDescription">When enabled, segment endpoints will be adjusted to the nearest video keyframe for smoother seek transitions during skipping.</div>
-                                </div>
-
-                                <div id="snapSettings">
-                                    <div class="inputContainer">
-                                        <label class="inputLabel inputLabelUnfocused" for="KeyframeWindowBefore"> Keyframe search window (before) </label>
-                                        <input id="KeyframeWindowBefore" type="number" is="emby-input" min="0" />
-                                        <div class="fieldDescription">Maximum number of seconds to look backwards from a segment endpoint to find a suitable keyframe. A larger window increases the chance of finding an optimal keyframe.</div>
-                                    </div>
-
-                                    <div class="inputContainer">
-                                        <label class="inputLabel inputLabelUnfocused" for="KeyframeWindowAfter"> Keyframe search window (after) </label>
-                                        <input id="KeyframeWindowAfter" type="number" is="emby-input" min="0" />
-                                        <div class="fieldDescription">Maximum number of seconds to look forward from a segment endpoint to find a suitable keyframe. A larger window increases the chance of finding an optimal keyframe.</div>
-                                    </div>
-
-                                    <div class="inputContainer">
-                                        <label class="inputLabel inputLabelUnfocused" for="EndSnapThreshold"> End credits snap threshold </label>
-                                        <input id="EndSnapThreshold" type="number" is="emby-input" min="0" />
-                                        <div class="fieldDescription">If the end of a credits segment is within this many seconds of the episode end, it will be automatically extended to the episode end. Set to 0 to disable.</div>
-                                    </div>
-                                </div>
-
-                                <div class="inputContainer">
-                                    <label class="inputLabel inputLabelUnfocused" for="RemainingSecondsOfIntro"> Seek to segment end offset (in seconds) </label>
-                                    <input id="RemainingSecondsOfIntro" type="number" is="emby-input" min="0" />
-                                    <div class="fieldDescription">Number of seconds before a segment's end to seek to. For example, setting this to 3 will seek to 3 seconds before the end of an intro. Defaults to 0 (seeks to the exact end).</div>
-                                </div>
-
-                                <br />
-                                <div class="checkboxContainer checkboxContainer-withDescription">
-                                    <label class="emby-checkbox-label">
                                         <input id="RebuildMediaSegments" type="checkbox" is="emby-checkbox" />
                                         <span>Regenerate All Media Segments on Next Run</span>
                                     </label>
@@ -264,20 +228,77 @@
                                 </div>
                             </details>
 
-                            <details id="silence">
-                                <summary>Silence Detection Options</summary>
+                            <details id="adjustment">
+                                <summary>Detection Adjustment Options</summary>
 
                                 <br />
-                                <div class="inputContainer">
-                                    <label class="inputLabel inputLabelUnfocused" for="SilenceDetectionMaximumNoise"> Noise tolerance </label>
-                                    <input id="SilenceDetectionMaximumNoise" type="number" is="emby-input" min="-90" max="0" />
-                                    <div class="fieldDescription">Noise tolerance in negative decibels.</div>
+                                <div class="checkboxContainer checkboxContainer-withDescription">
+                                    <label class="emby-checkbox-label">
+                                        <input id="AdjustIntroBasedOnSilence" type="checkbox" is="emby-checkbox" />
+                                        <span>Enable silence detection</span>
+                                    </label>
+
+                                    <div class="fieldDescription">When enabled, segment endpoints will be adjusted to the nearest silence point.</div>
+                                </div>
+                                <div id="silenceSettings">
+                                    <div class="inputContainer">
+                                        <label class="inputLabel inputLabelUnfocused" for="SilenceDetectionMaximumNoise"> Noise tolerance </label>
+                                        <input id="SilenceDetectionMaximumNoise" type="number" is="emby-input" min="-90" max="0" />
+                                        <div class="fieldDescription">Noise tolerance in negative decibels.</div>
+                                    </div>
+
+                                    <div class="inputContainer">
+                                        <label class="inputLabel inputLabelUnfocused" for="SilenceDetectionMinimumDuration"> Minimum silence duration </label>
+                                        <input id="SilenceDetectionMinimumDuration" type="number" is="emby-input" min="0" step="0.01" />
+                                        <div class="fieldDescription">Minimum silence duration in seconds before adjusting introduction end time.</div>
+                                    </div>
+                                    <br />
+                                </div>
+                                <div class="checkboxContainer checkboxContainer-withDescription">
+                                    <label class="emby-checkbox-label">
+                                        <input id="SnapToKeyframe" type="checkbox" is="emby-checkbox" />
+                                        <span>Enable keyframe snapping</span>
+                                    </label>
+
+                                    <div class="fieldDescription">When enabled, segment endpoints will be adjusted to the nearest video keyframe for smoother seek transitions during skipping.</div>
+                                </div>
+                                <div class="checkboxContainer checkboxContainer-withDescription">
+                                    <label class="emby-checkbox-label">
+                                        <input id="AdjustIntroBasedOnChapters" type="checkbox" is="emby-checkbox" />
+                                        <span>Enable chapter snapping</span>
+                                    </label>
+
+                                    <div class="fieldDescription">When enabled, segment start and end times will be adjusted to the nearest chapter boundary.</div>
                                 </div>
 
                                 <div class="inputContainer">
-                                    <label class="inputLabel inputLabelUnfocused" for="SilenceDetectionMinimumDuration"> Minimum silence duration </label>
-                                    <input id="SilenceDetectionMinimumDuration" type="number" is="emby-input" min="0" step="0.01" />
-                                    <div class="fieldDescription">Minimum silence duration in seconds before adjusting introduction end time.</div>
+                                    <label class="inputLabel inputLabelUnfocused" for="AdjustWindowBefore"> Adjustment window (before) </label>
+                                    <input id="AdjustWindowBefore" type="number" is="emby-input" min="0" />
+                                    <div class="fieldDescription">Maximum number of seconds to search before a segment’s start or end for a better adjustment point (such as a keyframe or silence).</div>
+                                </div>
+
+                                <div class="inputContainer">
+                                    <label class="inputLabel inputLabelUnfocused" for="AdjustWindowAfter"> Adjustment window (after) </label>
+                                    <input id="AdjustWindowAfter" type="number" is="emby-input" min="0" />
+                                    <div class="fieldDescription">Maximum number of seconds to search after a segment’s start or end for a better adjustment point (such as a keyframe or silence).</div>
+                                </div>
+
+                                <div class="inputContainer">
+                                    <label class="inputLabel inputLabelUnfocused" for="EndSnapThreshold"> Snap to episode start/end threshold </label>
+                                    <input id="EndSnapThreshold" type="number" is="emby-input" min="0" />
+                                    <div class="fieldDescription">If a segment's start or end is within this many seconds of the episode's start or end, it will be automatically adjusted (snapped) to match the episode boundary. Set to 0 to disable snapping.</div>
+                                </div>
+
+                                <div class="inputContainer">
+                                    <label class="inputLabel inputLabelUnfocused" for="SecondsOfIntroStartToPlay"> Time to play at the beginning of the Segment (in seconds) </label>
+                                    <input id="SecondsOfIntroStartToPlay" type="number" is="emby-input" min="0" />
+                                    <div class="fieldDescription">Number of seconds from the start of the segment to play before skipping the rest. For example, setting this to 3 will play the first 3 seconds of the segment before skipping. Defaults to 0 (skips the segment immediately). Useful for auto skipping intros.</div>
+                                </div>
+
+                                <div class="inputContainer">
+                                    <label class="inputLabel inputLabelUnfocused" for="RemainingSecondsOfIntro"> Time to play at the end of the Segment (in seconds) </label>
+                                    <input id="RemainingSecondsOfIntro" type="number" is="emby-input" min="0" />
+                                    <div class="fieldDescription">Number of seconds before a segment's end to seek to. For example, setting this to 3 will seek to 3 seconds before the end of a segment. Defaults to 0 (seeks to the exact end).</div>
                                 </div>
                             </details>
 
@@ -819,8 +840,8 @@
                     // analysis
                     "MaxParallelism",
                     "SelectedLibraries",
-                    "KeyframeWindowBefore",
-                    "KeyframeWindowAfter",
+                    "AdjustWindowBefore",
+                    "AdjustWindowAfter",
                     "EndSnapThreshold",
                     "ExcludeSeries",
                     "ClientList",
@@ -854,7 +875,7 @@
                     "AutoSkipNotificationText",
                 ];
 
-                const booleanConfigurationFields = ["AutoDetectIntros", "AnalyzeMovies", "AnalyzeSeasonZero", "SelectAllLibraries", "UpdateMediaSegments", "UseAlternativeBlackFrameAnalyzer", "UseChapterMarkersBlackFrame", "FullLengthChapters", "RebuildMediaSegments", "ScanIntroduction", "ScanCredits", "ScanRecap", "ScanPreview", "PreferChromaprint", "CacheFingerprints", "PluginSkip", "AutoSkip", "SkipFirstEpisode", "SnapToKeyframe"];
+                const booleanConfigurationFields = ["AutoDetectIntros", "AnalyzeMovies", "AnalyzeSeasonZero", "SelectAllLibraries", "UpdateMediaSegments", "UseAlternativeBlackFrameAnalyzer", "UseChapterMarkersBlackFrame", "FullLengthChapters", "RebuildMediaSegments", "ScanIntroduction", "ScanCredits", "ScanRecap", "ScanPreview", "PreferChromaprint", "CacheFingerprints", "PluginSkip", "AutoSkip", "SkipFirstEpisode", "SnapToKeyframe", "AdjustIntroBasedOnSilence", "AdjustIntroBasedOnChapters"];
 
                 // visualizer elements
                 const analyzeMovies = document.getElementById("AnalyzeMovies");
@@ -884,7 +905,7 @@
                 const btnUpdateTimestamps = document.querySelector("button#btnUpdateTimestamps");
                 const timeContainer = document.querySelector("span#timestampContainer");
                 const fingerprintVisualizer = document.getElementById("fingerprintVisualizer");
-                const snapSettings = document.getElementById("snapSettings");
+                const silenceSettings = document.getElementById("silenceSettings");
 
                 let windowHashInterval = 0;
 
@@ -898,6 +919,8 @@
                 const useAlternativeBlackFrameAnalyzer = document.getElementById("UseAlternativeBlackFrameAnalyzer");
                 const chapterMarkersBlackFrameSetting = document.getElementById("ChapterMarkersBlackFrameSetting");
                 const snapToKeyframe = document.getElementById("SnapToKeyframe");
+                const adjustIntroBasedOnSilence = document.getElementById("AdjustIntroBasedOnSilence");
+                const adjustIntroBasedOnChapters = document.getElementById("AdjustIntroBasedOnChapters");
                 const globalTimestamps = document.getElementById("GlobalTimestamps");
                 const btnEraseGlobalTimestamps = document.getElementById("btnEraseGlobalTimestamps");
 
@@ -1001,15 +1024,15 @@
 
                 useAlternativeBlackFrameAnalyzer.addEventListener("change", alternativeBlackFrameAnalyzerSettingsVisible);
 
-                async function snapSettingsVisible() {
-                    if (snapToKeyframe.checked) {
-                        snapSettings.style.display = "unset";
+                async function adjustSettingsVisible() {
+                    if (adjustIntroBasedOnSilence.checked) {
+                        silenceSettings.style.display = "unset";
                     } else {
-                        snapSettings.style.display = "none";
+                        silenceSettings.style.display = "none";
                     }
                 }
 
-                snapToKeyframe.addEventListener("change", snapSettingsVisible);
+                adjustIntroBasedOnSilence.addEventListener("change", adjustSettingsVisible);
 
                 async function pluginSkipSettingChanged() {
                     if (!pluginSkip.checked) {
@@ -1516,7 +1539,7 @@
                             generateAutoSkipClientList();
                             pluginSkipSettingVisible();
                             alternativeBlackFrameAnalyzerSettingsVisible();
-                            snapSettingsVisible();
+                            adjustSettingsVisible();
                             globalTimestampChanged();
 
                             Dashboard.hideLoadingMsg();

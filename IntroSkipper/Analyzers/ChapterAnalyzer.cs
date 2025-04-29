@@ -47,6 +47,8 @@ public class ChapterAnalyzer(ILogger<ChapterAnalyzer> logger) : IMediaFileAnalyz
             return analysisQueue;
         }
 
+        var timeAdjustmentHelper = new TimeAdjustmentHelper(_logger, _config);
+
         var episodesWithoutIntros = analysisQueue.Where(e => e.GetAnalyzed(mode) != EpisodeState.Analyzed).ToList();
 
         foreach (var episode in episodesWithoutIntros)
@@ -67,14 +69,7 @@ public class ChapterAnalyzer(ILogger<ChapterAnalyzer> logger) : IMediaFileAnalyz
                 continue;
             }
 
-            if (_config.SnapToKeyframe)
-            {
-                skipRange.End = ChromaprintAnalyzer.SnapToNearestKeyframe(episode, skipRange.End - _config.RemainingSecondsOfIntro);
-            }
-            else
-            {
-                skipRange.End -= _config.RemainingSecondsOfIntro;
-            }
+            skipRange = timeAdjustmentHelper.AdjustIntroTimes(episode, skipRange, false);
 
             episode.SetAnalyzed(mode, EpisodeState.Analyzed);
             await Plugin.Instance!.UpdateTimestampAsync(skipRange, mode).ConfigureAwait(false);

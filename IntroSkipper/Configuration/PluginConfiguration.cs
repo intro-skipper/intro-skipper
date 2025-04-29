@@ -167,7 +167,17 @@ public class PluginConfiguration : BasePluginConfiguration
     public bool UseChapterMarkersBlackFrame { get; set; } = true;
 
     /// <summary>
-    /// Gets or sets a value indicating whether to snap the end of a segm to the nearest keyframe.
+    /// Gets or sets a value indicating whether to adjust segment based on chapter marks.
+    /// </summary>
+    public bool AdjustIntroBasedOnChapters { get; set; } = true;
+
+    /// <summary>
+    /// Gets or sets a value indicating whether to adjust the end of a segment based on silence.
+    /// </summary>
+    public bool AdjustIntroBasedOnSilence { get; set; } = true;
+
+    /// <summary>
+    /// Gets or sets a value indicating whether to snap the end of a segment to the nearest keyframe.
     /// </summary>
     public bool SnapToKeyframe { get; set; } = true;
 
@@ -180,12 +190,12 @@ public class PluginConfiguration : BasePluginConfiguration
     /// <summary>
     /// Gets or sets the number of seconds to search before segment end to find a keyframe.
     /// </summary>
-    public double KeyframeWindowBefore { get; set; } = 3.0;
+    public double AdjustWindowBefore { get; set; } = 5.0;
 
     /// <summary>
     /// Gets or sets the number of seconds to search after segment end to find a keyframe.
     /// </summary>
-    public double KeyframeWindowAfter { get; set; } = 1.0;
+    public double AdjustWindowAfter { get; set; } = 2.0;
 
     /// <summary>
     /// Gets or sets the regular expression used to detect introduction chapters.

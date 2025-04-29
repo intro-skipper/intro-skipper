@@ -46,6 +46,8 @@ public class ChromaprintAnalyzer(ILogger<ChromaprintAnalyzer> logger) : IMediaFi
 
         _analysisMode = mode;
 
+        var timeAdjustmentHelper = new TimeAdjustmentHelper(_logger, _config);
+
         // All intros for this season.
         var seasonIntros = new Dictionary<Guid, Segment>();
 
@@ -164,7 +166,7 @@ public class ChromaprintAnalyzer(ILogger<ChromaprintAnalyzer> logger) : IMediaFi
             // If an intro is found for this episode, adjust its times and save it else add it to the list of episodes without intros.
             if (seasonIntros.TryGetValue(currentEpisode.EpisodeId, out var intro))
             {
-                var adjustedIntro = AdjustIntroTimes(currentEpisode, intro);
+                var adjustedIntro = timeAdjustmentHelper.AdjustIntroTimes(currentEpisode, intro);
                 currentEpisode.SetAnalyzed(mode, EpisodeState.Analyzed);
                 await Plugin.Instance!.UpdateTimestampAsync(adjustedIntro, mode).ConfigureAwait(false);
             }
@@ -361,148 +363,6 @@ public class ChromaprintAnalyzer(ILogger<ChromaprintAnalyzer> logger) : IMediaFi
         // Since LHS had a contiguous time range, RHS must have one also.
         var rContiguous = TimeRangeHelpers.FindContiguous([.. rhsTimes], _config.MaximumTimeSkip)!;
         return (lContiguous, rContiguous);
-    }
-
-    /// <summary>
-    /// Adjusts the end timestamps of all intros so that they end at silence.
-    /// </summary>
-    /// <param name="episode">QueuedEpisode to adjust.</param>
-    /// <param name="originalIntro">Original introduction.</param>
-    private Segment AdjustIntroTimes(
-        QueuedEpisode episode,
-        Segment originalIntro)
-    {
-        _logger.LogTrace(
-            "{Name} original intro: {Start} - {End}",
-            episode.Name,
-            originalIntro.Start,
-            originalIntro.End);
-
-        var originalIntroStart = new TimeRange(
-            Math.Max(0, originalIntro.Start - 5),
-            originalIntro.Start + 10);
-
-        var originalIntroEnd = new TimeRange(
-            originalIntro.End - 10,
-            Math.Min(episode.Duration, originalIntro.End + 5));
-
-        // Try to adjust based on chapters first, fall back to silence detection for intros
-        if (!AdjustIntroBasedOnChapters(episode, originalIntro, originalIntroStart, originalIntroEnd) &&
-            _analysisMode == AnalysisMode.Introduction)
-        {
-            AdjustIntroBasedOnSilence(episode, originalIntro, originalIntroEnd);
-        }
-
-        if (_config.SnapToKeyframe)
-        {
-            originalIntro.End = SnapToNearestKeyframe(episode, originalIntro.End - _config.RemainingSecondsOfIntro);
-        }
-        else
-        {
-            originalIntro.End -= _config.RemainingSecondsOfIntro;
-        }
-
-        _logger.LogTrace(
-            "{Name} adjusted intro: {Start} - {End}",
-            episode.Name,
-            originalIntro.Start,
-            originalIntro.End);
-
-        return originalIntro;
-    }
-
-    private bool AdjustIntroBasedOnChapters(
-        QueuedEpisode episode,
-        Segment intro,
-        TimeRange originalIntroStart,
-        TimeRange originalIntroEnd)
-    {
-        var chapters = Plugin.Instance?.GetChapters(episode.EpisodeId) ?? [];
-        double previousTime = 0;
-
-        for (int i = 0; i <= chapters.Count; i++)
-        {
-            double currentTime = i < chapters.Count
-                ? TimeSpan.FromTicks(chapters[i].StartPositionTicks).TotalSeconds
-                : episode.Duration;
-
-            if (IsTimeWithinRange(previousTime, originalIntroStart))
-            {
-                intro.Start = previousTime;
-                _logger.LogTrace("{Name} chapter found close to intro start: {Start}", episode.Name, previousTime);
-            }
-
-            if (IsTimeWithinRange(currentTime, originalIntroEnd))
-            {
-                intro.End = currentTime;
-                _logger.LogTrace("{Name} chapter found close to intro end: {End}", episode.Name, currentTime);
-                return true;
-            }
-
-            previousTime = currentTime;
-        }
-
-        return false;
-    }
-
-    private void AdjustIntroBasedOnSilence(QueuedEpisode episode, Segment intro, TimeRange originalIntroEnd)
-    {
-        var silenceRanges = FFmpegWrapper.DetectSilence(episode, originalIntroEnd);
-
-        foreach (var silenceRange in silenceRanges)
-        {
-            _logger.LogTrace("{Name} silence: {Start} - {End}", episode.Name, silenceRange.Start, silenceRange.End);
-
-            if (IsValidSilenceForIntroAdjustment(silenceRange, originalIntroEnd, intro))
-            {
-                intro.End = silenceRange.Start;
-                break;
-            }
-        }
-    }
-
-    private bool IsValidSilenceForIntroAdjustment(
-        TimeRange silenceRange,
-        TimeRange originalIntroEnd,
-        Segment adjustedIntro)
-    {
-        return originalIntroEnd.Intersects(silenceRange) &&
-               silenceRange.Duration >= _config.SilenceDetectionMinimumDuration &&
-               silenceRange.Start >= adjustedIntro.Start;
-    }
-
-    private static bool IsTimeWithinRange(double time, TimeRange range)
-    {
-        return range.Start < time && time < range.End;
-    }
-
-    /// <summary>
-    /// Snaps a timestamp to the nearest keyframe, preferring keyframes before the timestamp.
-    /// </summary>
-    /// <param name="episode">Episode to search.</param>
-    /// <param name="time">Time to snap to nearest keyframe.</param>
-    /// <returns>The nearest keyframe or original time if no suitable keyframe found.</returns>
-    public static double SnapToNearestKeyframe(QueuedEpisode episode, double time)
-    {
-        var config = Plugin.Instance?.Configuration ?? new PluginConfiguration();
-        var duration = episode.Duration;
-        // If the time is within the configured threshold of the end, return the duration
-        if (time > duration - config.EndSnapThreshold)
-        {
-            return duration;
-        }
-
-        var searchRange = new TimeRange(
-            time - config.KeyframeWindowBefore,
-            time + config.KeyframeWindowAfter);
-        var keyframes = FFmpegWrapper.DetectKeyFrames(episode, searchRange);
-
-        // Prefer keyframes before the time, otherwise take the first keyframe after
-        return keyframes
-            .OrderBy(kf => kf > time + 0.01) // Frames before time first (false before true)
-            .ThenBy(kf => Math.Abs(kf - time)) // Then by closest to target time
-            .DefaultIfEmpty(time)
-            .First();
     }
 
     /// <summary>

@@ -23,7 +23,6 @@ namespace IntroSkipper.Analyzers;
 public sealed class BlackFrameAltAnalyzer(ILogger<BlackFrameAltAnalyzer> logger) : IMediaFileAnalyzer
 {
     private const int MaximumTimeSkip = 15;
-    private const double EndTolerance = MaximumTimeSkip / 2;
     private readonly PluginConfiguration _config = Plugin.Instance?.Configuration ?? new PluginConfiguration();
     private readonly ILogger<BlackFrameAltAnalyzer> _logger = logger ?? throw new ArgumentNullException(nameof(logger));
 
@@ -47,6 +46,8 @@ public sealed class BlackFrameAltAnalyzer(ILogger<BlackFrameAltAnalyzer> logger)
             return analysisQueue;
         }
 
+        var timeAdjustmentHelper = new TimeAdjustmentHelper(_logger, _config);
+
         _logger.LogDebug("Analyzing {Count} episodes for credits using black frame detection", unanalyzedEpisodes.Count);
 
         var minimumPercentage = _config.BlackFrameMinimumPercentage;
@@ -68,6 +69,7 @@ public sealed class BlackFrameAltAnalyzer(ILogger<BlackFrameAltAnalyzer> logger)
                     continue;
                 }
 
+                credit = timeAdjustmentHelper.AdjustIntroTimes(episode, credit);
                 _logger.LogDebug("Found credits for {Episode} at {Start:F2}s", episode.Name, credit.Start);
 
                 episode.SetAnalyzed(mode, EpisodeState.Analyzed);
@@ -114,24 +116,17 @@ public sealed class BlackFrameAltAnalyzer(ILogger<BlackFrameAltAnalyzer> logger)
         for (var i = scenes.Count - 1; i >= 0; i--)
         {
             var scene = scenes[i];
-            var start = scene.StartTime + episode.CreditsFingerprintStart;
+            var segment = new Segment(episode.EpisodeId, new TimeRange(scene.StartTime + episode.CreditsFingerprintStart, scene.EndTime + episode.CreditsFingerprintStart));
 
-            // Check if scene end is close to episode end
-            var end = episode.Duration - scene.EndTime < EndTolerance
-                ? episode.Duration
-                : scene.EndTime + episode.CreditsFingerprintStart;
-
-            var duration = end - start;
-
-            if (duration >= minimumDuration)
+            if (segment.Duration >= minimumDuration)
             {
                 _logger.LogTrace(
                     "Found valid credits segment: start={Start:F2}s, end={End:F2}s, duration={Duration:F2}s",
-                    start,
-                    end,
-                    duration);
+                    segment.Start,
+                    segment.End,
+                    segment.Duration);
 
-                return new Segment(episode.EpisodeId, new TimeRange(start, end));
+                return segment;
             }
         }
 
