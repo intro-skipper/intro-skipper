@@ -48,8 +48,8 @@
     {
         "guid": "6F0AAAB5-E251-4A6D-B8D5-BC8C65222051",
         "name": "MediaSegments API",
-        "overview": "Create and delete Media Segments",
-        "description": "Provide an extended HTTP API to create and delete MediaSegments",
+        "overview": "Create and delete Media Segments in Jellyfin Segment Editor",
+        "description": "Provides an extended HTTP API to create and delete MediaSegments. This plugin is only necessary if you are using the Jellyfin Segment Editor: https://github.com/intro-skipper/segment-editor",
         "owner": "Intro Skipper (forked from Endrl)",
         "category": "Intro-Skipper",
         "imageUrl": "https://raw.githubusercontent.com/intro-skipper/jellyfin-plugin-ms-api/master/images/logo720.png",
