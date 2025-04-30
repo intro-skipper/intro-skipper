@@ -56,3 +56,12 @@ https://manifest.intro-skipper.org/manifest.json
 <p align="center">
   <a href="https://discord.gg/AYZ7RJ3BuA"><img src="https://invidget.switchblade.xyz/AYZ7RJ3BuA"></a>
 </p>
+
+## Acknowledgments
+
+<p>This project is proudly supported by:</p>
+<p>
+  <a href="https://www.digitalocean.com/">
+    <img src="https://opensource.nyc3.cdn.digitaloceanspaces.com/attribution/assets/SVG/DO_Logo_horizontal_blue.svg" width="201px">
+  </a>
+</p>
