@@ -61,7 +61,7 @@ https://manifest.intro-skipper.org/manifest.json
 
 <p>This project is proudly supported by:</p>
 <p>
-  <a href="https://www.digitalocean.com/">
+  <a href="https://www.digitalocean.com/?refcode=8471e96eb6dd">
     <img src="https://opensource.nyc3.cdn.digitaloceanspaces.com/attribution/assets/SVG/DO_Logo_horizontal_blue.svg" width="201px">
   </a>
 </p>
