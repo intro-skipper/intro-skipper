@@ -1100,7 +1100,7 @@
                         const optgroup = document.createElement("optgroup");
                         optgroup.label = library;
 
-                        showsByLibrary[library].forEach(function (show) {
+                        showsByLibrary[library].forEach((show) => {
                             const option = document.createElement("option");
                             option.value = show.value;
                             option.textContent = show.text;
@@ -1202,7 +1202,10 @@
                     let i = 1;
                     const episodes = await getJson("Intros/Show/" + seasonData);
                     for (const episode in episodes) {
-                        const strI = i.toLocaleString("en", { minimumIntegerDigits: 2, maximumFractionDigits: 0 });
+                        const strI = i.toLocaleString("en", {
+                            minimumIntegerDigits: 2,
+                            maximumFractionDigits: 0,
+                        });
                         addItem(selectEpisode1, strI + ": " + episodes[episode].Name, episodes[episode].Id);
                         addItem(selectEpisode2, strI + ": " + episodes[episode].Name, episodes[episode].Id);
                         i++;
@@ -1518,10 +1521,10 @@
                     });
                 }
 
-                document.querySelector("#TemplateConfigPage").addEventListener("pageshow", function () {
+                document.querySelector("#TemplateConfigPage").addEventListener("pageshow", () => {
                     Dashboard.showLoadingMsg();
                     ApiClient.getPluginConfiguration("c83d86bb-a1e0-4c35-a113-e2101cf4ee6b")
-                        .then(function (config) {
+                        .then((config) => {
                             for (const field of configurationFields) {
                                 document.querySelector("#" + field).value = config[field];
                             }
@@ -1549,10 +1552,10 @@
                         });
                 });
 
-                document.querySelector("#FingerprintConfigForm").addEventListener("submit", function (e) {
+                document.querySelector("#FingerprintConfigForm").addEventListener("submit", (e) => {
                     Dashboard.showLoadingMsg();
                     ApiClient.getPluginConfiguration("c83d86bb-a1e0-4c35-a113-e2101cf4ee6b")
-                        .then(function (config) {
+                        .then((config) => {
                             for (const field of configurationFields) {
                                 config[field] = document.querySelector("#" + field).value;
                             }
@@ -1562,7 +1565,7 @@
                             }
 
                             ApiClient.updatePluginConfiguration("c83d86bb-a1e0-4c35-a113-e2101cf4ee6b", config)
-                                .then(function (result) {
+                                .then((result) => {
                                     Dashboard.hideLoadingMsg();
                                     Dashboard.processPluginConfigurationUpdateResult(result);
                                 })
