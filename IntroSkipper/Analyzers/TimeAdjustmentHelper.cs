@@ -33,9 +33,9 @@ public class TimeAdjustmentHelper(ILogger logger, PluginConfiguration config)
         ArgumentNullException.ThrowIfNull(originalIntro);
 
         // Config checks
-        if (_config.EndSnapThreshold < 0 || _config.AdjustWindowBefore < 0 || _config.AdjustWindowAfter < 0)
+        if (_config.EndSnapThreshold < 0 || _config.AdjustWindowInward < 0 || _config.AdjustWindowOutward < 0)
         {
-            _logger.LogError("Invalid configuration: EndSnapThreshold, AdjustWindowBefore, or AdjustWindowAfter is negative. Using defaults.");
+            _logger.LogError("Invalid configuration: EndSnapThreshold, AdjustWindowInward, or AdjustWindowOutward is negative. Using defaults.");
             return new Segment(episode.EpisodeId) { Start = originalIntro.Start, End = originalIntro.End };
         }
 
@@ -62,7 +62,7 @@ public class TimeAdjustmentHelper(ILogger logger, PluginConfiguration config)
         }
         else if (useChapters && chapters.Count > 0)
         {
-            var searchRange = GetSearchRange(originalIntro.Start, duration, _config.AdjustWindowAfter, _config.AdjustWindowBefore); // Swap windowBefore and windowAfter, search inwards the segment to find the nearest chapter boundary
+            var searchRange = GetSearchRange(originalIntro.Start, duration, _config.AdjustWindowOutward, _config.AdjustWindowInward);
             adjustedStart = GetChapterBoundary(chapters, originalIntro.Start, searchRange);
         }
 
@@ -78,13 +78,13 @@ public class TimeAdjustmentHelper(ILogger logger, PluginConfiguration config)
         {
             if (useChapters && chapters.Count > 0)
             {
-                var searchRange = GetSearchRange(adjustedEnd, duration, _config.AdjustWindowBefore, _config.AdjustWindowAfter);
+                var searchRange = GetSearchRange(adjustedEnd, duration, _config.AdjustWindowInward, _config.AdjustWindowOutward);
                 adjustedEnd = GetChapterBoundary(chapters, adjustedEnd, searchRange);
             }
 
-            adjustedEnd += _config.IntroEndOffset;
+            adjustedEnd -= _config.IntroEndOffset;
 
-            var silenceRange = GetSearchRange(adjustedEnd, duration, _config.AdjustWindowBefore, _config.AdjustWindowAfter);
+            var silenceRange = GetSearchRange(adjustedEnd, duration, _config.AdjustWindowInward, _config.AdjustWindowOutward);
             if (_config.AdjustIntroBasedOnSilence)
             {
                 var silenceAdjusted = AdjustIntroEndBasedOnSilence(episode, adjustedEnd, silenceRange, _config.SilenceDetectionMinimumDuration);
@@ -199,9 +199,9 @@ public class TimeAdjustmentHelper(ILogger logger, PluginConfiguration config)
     /// <summary>
     /// Gets a search range around a given time.
     /// </summary>
-    private static TimeRange GetSearchRange(double time, double duration, double windowBefore, double windowAfter) =>
+    private static TimeRange GetSearchRange(double time, double duration, double windowStart, double windowEnd) =>
         new(
-            Math.Max(time - windowBefore, 0),
-            Math.Min(time + windowAfter, duration)
+            Math.Max(time - windowStart, 0),
+            Math.Min(time + windowEnd, duration)
         );
 }

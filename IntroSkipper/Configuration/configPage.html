@@ -272,15 +272,15 @@
                                 </div>
 
                                 <div class="inputContainer">
-                                    <label class="inputLabel inputLabelUnfocused" for="AdjustWindowBefore"> Adjustment window (before) </label>
-                                    <input id="AdjustWindowBefore" type="number" is="emby-input" min="0" />
-                                    <div class="fieldDescription">Maximum number of seconds to search before a segment's start or end for a better adjustment point (such as a keyframe or silence).</div>
+                                    <label class="inputLabel inputLabelUnfocused" for="AdjustWindowInward">Adjustment window (inward)</label>
+                                    <input id="AdjustWindowInward" type="number" is="emby-input" min="0" />
+                                    <div class="fieldDescription">Maximum number of seconds to search toward a segment's interior for adjustment points (like chapter boundaries, silence, or keyframes). Used to tighten segment boundaries.</div>
                                 </div>
 
                                 <div class="inputContainer">
-                                    <label class="inputLabel inputLabelUnfocused" for="AdjustWindowAfter"> Adjustment window (after) </label>
-                                    <input id="AdjustWindowAfter" type="number" is="emby-input" min="0" />
-                                    <div class="fieldDescription">Maximum number of seconds to search after a segment's start or end for a better adjustment point (such as a keyframe or silence).</div>
+                                    <label class="inputLabel inputLabelUnfocused" for="AdjustWindowOutward">Adjustment window (outward)</label>
+                                    <input id="AdjustWindowOutward" type="number" is="emby-input" min="0" />
+                                    <div class="fieldDescription">Maximum number of seconds to search away from a segment for adjustment points (like chapter boundaries, silence, or keyframes). Used to expand segment boundaries.</div>
                                 </div>
 
                                 <div class="inputContainer">
@@ -847,8 +847,8 @@
                     // analysis
                     "MaxParallelism",
                     "SelectedLibraries",
-                    "AdjustWindowBefore",
-                    "AdjustWindowAfter",
+                    "AdjustWindowInward",
+                    "AdjustWindowOutward",
                     "EndSnapThreshold",
                     "ExcludeSeries",
                     "ClientList",

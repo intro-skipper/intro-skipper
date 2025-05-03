@@ -188,14 +188,18 @@ public class PluginConfiguration : BasePluginConfiguration
     public double EndSnapThreshold { get; set; } = 2.0;
 
     /// <summary>
-    /// Gets or sets the number of seconds to search before segment end to find a keyframe.
+    /// Gets or sets the number of seconds to search toward the interior of a segment
+    /// when looking for adjustment points (like chapter boundaries, silence, or keyframes).
+    /// Used to narrow or tighten segment boundaries.
     /// </summary>
-    public double AdjustWindowBefore { get; set; } = 5.0;
+    public double AdjustWindowInward { get; set; } = 5.0;
 
     /// <summary>
-    /// Gets or sets the number of seconds to search after segment end to find a keyframe.
+    /// Gets or sets the number of seconds to search away from a segment
+    /// when looking for adjustment points (like chapter boundaries, silence, or keyframes).
+    /// Used to expand or widen segment boundaries.
     /// </summary>
-    public double AdjustWindowAfter { get; set; } = 2.0;
+    public double AdjustWindowOutward { get; set; } = 2.0;
 
     /// <summary>
     /// Gets or sets the regular expression used to detect introduction chapters.
