@@ -29,29 +29,45 @@ public class TimeAdjustmentHelper(ILogger logger, PluginConfiguration config)
         Segment originalIntro,
         bool? adjustIntroBasedOnChapters = null)
     {
+        ArgumentNullException.ThrowIfNull(episode);
+        ArgumentNullException.ThrowIfNull(originalIntro);
+
+        // Config checks
+        if (_config.EndSnapThreshold < 0 || _config.AdjustWindowBefore < 0 || _config.AdjustWindowAfter < 0)
+        {
+            _logger.LogError("Invalid configuration: EndSnapThreshold, AdjustWindowBefore, or AdjustWindowAfter is negative. Using defaults.");
+            return new Segment(episode.EpisodeId) { Start = originalIntro.Start, End = originalIntro.End };
+        }
+
         bool useChapters = adjustIntroBasedOnChapters ?? _config.AdjustIntroBasedOnChapters;
         var duration = episode.Duration;
         var chapters = useChapters ? Plugin.Instance?.GetChapters(episode.EpisodeId) ?? [] : [];
 
         _logger.LogTrace(
-            "{Name} original intro: {Start} - {End}",
+            "{EpisodeId} {Name} original intro: {Start} - {End}",
+            episode.EpisodeId,
             episode.Name,
             originalIntro.Start,
             originalIntro.End);
 
         double adjustedStart = originalIntro.Start;
-        if (adjustedStart < _config.EndSnapThreshold)
+        if (adjustedStart < 0)
+        {
+            _logger.LogWarning("{EpisodeId} {Name}: Negative intro start {Start}, resetting to 0", episode.EpisodeId, episode.Name, adjustedStart);
+            adjustedStart = 0;
+        }
+        else if (adjustedStart < _config.EndSnapThreshold)
         {
             adjustedStart = 0;
         }
         else if (useChapters && chapters.Count > 0)
         {
-            var searchRange = GetSearchRange(originalIntro.Start, duration, _config.AdjustWindowBefore, _config.AdjustWindowAfter);
+            var searchRange = GetSearchRange(originalIntro.Start, duration, _config.AdjustWindowAfter, _config.AdjustWindowBefore); // Swap windowBefore and windowAfter, search inwards the segment to find the nearest chapter boundary
             adjustedStart = GetChapterBoundary(chapters, originalIntro.Start, searchRange);
         }
 
-        // Apply _configurable start offset after all other start logic
-        adjustedStart += _config.SecondsOfIntroStartToPlay;
+        // Apply configurable start offset after all other start logic
+        adjustedStart += _config.IntroStartOffset;
 
         double adjustedEnd = originalIntro.End;
         if (adjustedEnd > duration - _config.EndSnapThreshold)
@@ -66,7 +82,7 @@ public class TimeAdjustmentHelper(ILogger logger, PluginConfiguration config)
                 adjustedEnd = GetChapterBoundary(chapters, adjustedEnd, searchRange);
             }
 
-            adjustedEnd += _config.RemainingSecondsOfIntro;
+            adjustedEnd += _config.IntroEndOffset;
 
             var silenceRange = GetSearchRange(adjustedEnd, duration, _config.AdjustWindowBefore, _config.AdjustWindowAfter);
             if (_config.AdjustIntroBasedOnSilence)
@@ -78,7 +94,7 @@ public class TimeAdjustmentHelper(ILogger logger, PluginConfiguration config)
                 }
                 else
                 {
-                    _logger.LogTrace("No suitable silence found for intro end in range {Start}-{End}", silenceRange.Start, silenceRange.End);
+                    _logger.LogTrace("{EpisodeId} {Name}: No suitable silence found for intro end in range {Start}-{End}", episode.EpisodeId, episode.Name, silenceRange.Start, silenceRange.End);
                 }
             }
 
@@ -91,12 +107,13 @@ public class TimeAdjustmentHelper(ILogger logger, PluginConfiguration config)
         // Ensure start < end after all adjustments
         if (adjustedStart >= adjustedEnd)
         {
-            _logger.LogWarning("{Name}: Adjusted start time {Start} >= end time {End}, reverting to original", episode.Name, adjustedStart, adjustedEnd);
+            _logger.LogWarning("{EpisodeId} {Name}: Adjusted start time {Start} >= end time {End}, reverting to original", episode.EpisodeId, episode.Name, adjustedStart, adjustedEnd);
             return new Segment(episode.EpisodeId) { Start = originalIntro.Start, End = originalIntro.End };
         }
 
         _logger.LogTrace(
-            "{Name} adjusted intro: {Start} - {End}",
+            "{EpisodeId} {Name} adjusted intro: {Start} - {End}",
+            episode.EpisodeId,
             episode.Name,
             adjustedStart,
             adjustedEnd);
@@ -134,16 +151,17 @@ public class TimeAdjustmentHelper(ILogger logger, PluginConfiguration config)
         try
         {
             var silence = FFmpegWrapper.DetectSilence(episode, searchRange);
-            if (silence.Length == 0)
+            if (silence is not { Length: > 0 })
             {
-                _logger.LogTrace("No silence detected for {Name}", episode.Name);
+                _logger.LogTrace("{EpisodeId} {Name}: No silence detected", episode.EpisodeId, episode.Name);
                 return currentEnd;
             }
 
             foreach (var currentRange in silence)
             {
                 _logger.LogTrace(
-                    "{Name} silence: {Start} - {End}",
+                    "{EpisodeId} {Name} silence: {Start} - {End}",
+                    episode.EpisodeId,
                     episode.Name,
                     currentRange.Start,
                     currentRange.End);
@@ -160,7 +178,7 @@ public class TimeAdjustmentHelper(ILogger logger, PluginConfiguration config)
         }
         catch (Exception ex)
         {
-            _logger.LogWarning("Error detecting silence: {Error}", ex.Message);
+            _logger.LogWarning("{EpisodeId} {Name}: Error detecting silence: {Error}", episode.EpisodeId, episode.Name, ex.Message);
         }
 
         return currentEnd;
@@ -181,10 +199,9 @@ public class TimeAdjustmentHelper(ILogger logger, PluginConfiguration config)
     /// <summary>
     /// Gets a search range around a given time.
     /// </summary>
-    private static TimeRange GetSearchRange(double time, double duration, double windowBefore, double windowAfter)
-    {
-        return new TimeRange(
+    private static TimeRange GetSearchRange(double time, double duration, double windowBefore, double windowAfter) =>
+        new(
             Math.Max(time - windowBefore, 0),
-            Math.Min(time + windowAfter, duration));
-    }
+            Math.Min(time + windowAfter, duration)
+        );
 }

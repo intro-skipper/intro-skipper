@@ -274,13 +274,13 @@
                                 <div class="inputContainer">
                                     <label class="inputLabel inputLabelUnfocused" for="AdjustWindowBefore"> Adjustment window (before) </label>
                                     <input id="AdjustWindowBefore" type="number" is="emby-input" min="0" />
-                                    <div class="fieldDescription">Maximum number of seconds to search before a segment’s start or end for a better adjustment point (such as a keyframe or silence).</div>
+                                    <div class="fieldDescription">Maximum number of seconds to search before a segment's start or end for a better adjustment point (such as a keyframe or silence).</div>
                                 </div>
 
                                 <div class="inputContainer">
                                     <label class="inputLabel inputLabelUnfocused" for="AdjustWindowAfter"> Adjustment window (after) </label>
                                     <input id="AdjustWindowAfter" type="number" is="emby-input" min="0" />
-                                    <div class="fieldDescription">Maximum number of seconds to search after a segment’s start or end for a better adjustment point (such as a keyframe or silence).</div>
+                                    <div class="fieldDescription">Maximum number of seconds to search after a segment's start or end for a better adjustment point (such as a keyframe or silence).</div>
                                 </div>
 
                                 <div class="inputContainer">
@@ -289,17 +289,24 @@
                                     <div class="fieldDescription">If a segment's start or end is within this many seconds of the episode's start or end, it will be automatically adjusted (snapped) to match the episode boundary. Set to 0 to disable snapping.</div>
                                 </div>
 
-                                <div class="inputContainer">
-                                    <label class="inputLabel inputLabelUnfocused" for="SecondsOfIntroStartToPlay"> Time to play at the beginning of the Segment (in seconds) </label>
-                                    <input id="SecondsOfIntroStartToPlay" type="number" is="emby-input" min="0" />
-                                    <div class="fieldDescription">Number of seconds from the start of the segment to play before skipping the rest. For example, setting this to 3 will play the first 3 seconds of the segment before skipping. Defaults to 0 (skips the segment immediately). Useful for auto skipping intros.</div>
-                                </div>
-
-                                <div class="inputContainer">
-                                    <label class="inputLabel inputLabelUnfocused" for="RemainingSecondsOfIntro"> Time to play at the end of the Segment (in seconds) </label>
-                                    <input id="RemainingSecondsOfIntro" type="number" is="emby-input" min="0" />
-                                    <div class="fieldDescription">Number of seconds before a segment's end to seek to. For example, setting this to 3 will seek to 3 seconds before the end of a segment. Defaults to 0 (seeks to the exact end).</div>
-                                </div>
+                                <fieldset>
+                                  <legend>Segment Offset Adjustment</legend>
+                                  <div class="inputContainer">
+                                    <label class="inputLabel inputLabelUnfocused" for="IntroStartOffset">Intro Start Offset (seconds)</label>
+                                    <input id="IntroStartOffset" is="emby-input" type="number" min="0" value="0" step="0.5" />
+                                    <div class="fieldDescription">
+                                      Default: 0. Example: If set to 3, the first 3 seconds of the intro will play before skipping.
+                                    </div>
+                                  </div>
+                                  <div class="inputContainer">
+                                    <label for="IntroEndOffset">Intro End Offset (seconds)</label>
+                                    <input id="IntroEndOffset" is="emby-input" type="number" min="0" value="0" step="0.5" />
+                                    <div class="fieldDescription">
+                                      Default: 0. Example: If set to 3, playback will resume 3 seconds before the end of the intro.
+                                    </div>
+                                  </div>
+                                </fieldset>
+                                <br />
                             </details>
 
                             <details id="blackframe">
@@ -469,9 +476,9 @@
                                     <div class="fieldDescription">If checked, auto skip will play the segments of the first episode in a season.</div>
                                 </div>
 
-                                <div id="divSecondsOfIntroStartToPlay" class="inputContainer">
-                                    <label class="inputLabel inputLabelUnfocused" for="SecondsOfIntroStartToPlay"> Segment skip delay (in seconds) </label>
-                                    <input id="SecondsOfIntroStartToPlay" type="number" is="emby-input" min="0" />
+                                <div id="divIntroStartOffset" class="inputContainer">
+                                    <label class="inputLabel inputLabelUnfocused" for="IntroStartOffset"> Segment skip delay (in seconds) </label>
+                                    <input id="IntroStartOffset" type="number" is="emby-input" min="0" />
                                     <div class="fieldDescription">Seconds of segment start that should be played. Defaults to 0.</div>
                                 </div>
 
@@ -859,8 +866,8 @@
                     "ProcessPriority",
                     "ProcessThreads",
                     // playback
-                    "RemainingSecondsOfIntro",
-                    "SecondsOfIntroStartToPlay",
+                    "IntroEndOffset",
+                    "IntroStartOffset",
                     // internals
                     "SilenceDetectionMaximumNoise",
                     "SilenceDetectionMinimumDuration",
@@ -996,7 +1003,7 @@
                 }
 
                 const skipFirstEpisode = document.getElementById("divSkipFirstEpisode");
-                const secondsOfIntroStartToPlay = document.getElementById("SecondsOfIntroStartToPlay");
+                const IntroStartOffset = document.getElementById("IntroStartOffset");
 
                 async function populateLibraries() {
                     const response = await getJson("Library/VirtualFolders");
@@ -1038,7 +1045,7 @@
                     if (!pluginSkip.checked) {
                         autoSkip.checked = false;
                         skipFirstEpisode.checked = false;
-                        secondsOfIntroStartToPlay.value = 0;
+                        IntroStartOffset.value = 0;
                     }
                     pluginSkipSettingVisible();
                 }
