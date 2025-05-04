@@ -119,6 +119,41 @@ public sealed class AutoSkip(
         _sentSeekCommand.AddOrUpdate(device, intros, (_, _) => intros);
     }
 
+    /// <summary>
+    /// Format the notification text for the user.
+    /// </summary>
+    /// <param name="template">The template to format.</param>
+    /// <param name="segmentType">The type of segment being skipped.</param>
+    /// <param name="start">The start time of the segment.</param>
+    /// <param name="end">The end time of the segment.</param>
+    /// <returns>The formatted notification text.</returns>
+    public static string FormatNotificationText(string? template, AnalysisMode segmentType, double start, double end)
+    {
+        if (string.IsNullOrWhiteSpace(template))
+        {
+            return string.Empty;
+        }
+
+        var duration = end - start;
+        return template
+            .Replace("%segmenttype", segmentType.ToString(), StringComparison.Ordinal)
+            .Replace("%start", $"{start:F0}", StringComparison.Ordinal)
+            .Replace("%end", $"{end:F0}", StringComparison.Ordinal)
+            .Replace("%duration", $"{duration:F0}", StringComparison.Ordinal);
+    }
+
+    private bool IsSegmentPlayingAt(KeyValuePair<AnalysisMode, Intro> segment, double position)
+    {
+        return position >= Math.Max(1, segment.Value.IntroStart) &&
+               position < segment.Value.IntroEnd - 3.0;
+    }
+
+    private bool IsAdjacentSegment(KeyValuePair<AnalysisMode, Intro> segment, double introEnd)
+    {
+        return introEnd + _config.MaximumTimeSkip >= segment.Value.IntroStart &&
+               introEnd < segment.Value.IntroEnd;
+    }
+
     private void PlaybackTimer_Elapsed(object? sender, ElapsedEventArgs e)
     {
         foreach (var session in _sessionManager.Sessions.Where(s => _config.AutoSkip || _clientList.Contains(s.Client, StringComparer.OrdinalIgnoreCase)))

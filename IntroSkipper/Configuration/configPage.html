@@ -205,42 +205,6 @@
                                 <br />
                                 <div class="checkboxContainer checkboxContainer-withDescription">
                                     <label class="emby-checkbox-label">
-                                        <input id="SnapToKeyframe" type="checkbox" is="emby-checkbox" />
-                                        <span>Enable keyframe snapping for smooth seek transitions</span>
-                                    </label>
-
-                                    <div class="fieldDescription">When enabled, segment endpoints will be adjusted to the nearest video keyframe for smoother seek transitions during skipping.</div>
-                                </div>
-
-                                <div id="snapSettings">
-                                    <div class="inputContainer">
-                                        <label class="inputLabel inputLabelUnfocused" for="KeyframeWindowBefore"> Keyframe search window (before) </label>
-                                        <input id="KeyframeWindowBefore" type="number" is="emby-input" min="0" />
-                                        <div class="fieldDescription">Maximum number of seconds to look backwards from a segment endpoint to find a suitable keyframe. A larger window increases the chance of finding an optimal keyframe.</div>
-                                    </div>
-
-                                    <div class="inputContainer">
-                                        <label class="inputLabel inputLabelUnfocused" for="KeyframeWindowAfter"> Keyframe search window (after) </label>
-                                        <input id="KeyframeWindowAfter" type="number" is="emby-input" min="0" />
-                                        <div class="fieldDescription">Maximum number of seconds to look forward from a segment endpoint to find a suitable keyframe. A larger window increases the chance of finding an optimal keyframe.</div>
-                                    </div>
-
-                                    <div class="inputContainer">
-                                        <label class="inputLabel inputLabelUnfocused" for="EndSnapThreshold"> End credits snap threshold </label>
-                                        <input id="EndSnapThreshold" type="number" is="emby-input" min="0" />
-                                        <div class="fieldDescription">If the end of a credits segment is within this many seconds of the episode end, it will be automatically extended to the episode end. Set to 0 to disable.</div>
-                                    </div>
-                                </div>
-
-                                <div class="inputContainer">
-                                    <label class="inputLabel inputLabelUnfocused" for="RemainingSecondsOfIntro"> Seek to segment end offset (in seconds) </label>
-                                    <input id="RemainingSecondsOfIntro" type="number" is="emby-input" min="0" />
-                                    <div class="fieldDescription">Number of seconds before a segment's end to seek to. For example, setting this to 3 will seek to 3 seconds before the end of an intro. Defaults to 0 (seeks to the exact end).</div>
-                                </div>
-
-                                <br />
-                                <div class="checkboxContainer checkboxContainer-withDescription">
-                                    <label class="emby-checkbox-label">
                                         <input id="RebuildMediaSegments" type="checkbox" is="emby-checkbox" />
                                         <span>Regenerate All Media Segments on Next Run</span>
                                     </label>
@@ -249,21 +213,85 @@
                                 </div>
                             </details>
 
-                            <details id="silence">
-                                <summary>Silence Detection Options</summary>
+                            <details id="adjustment">
+                                <summary>Detection Adjustment Options</summary>
 
                                 <br />
-                                <div class="inputContainer">
-                                    <label class="inputLabel inputLabelUnfocused" for="SilenceDetectionMaximumNoise"> Noise tolerance </label>
-                                    <input id="SilenceDetectionMaximumNoise" type="number" is="emby-input" min="-90" max="0" />
-                                    <div class="fieldDescription">Noise tolerance in negative decibels.</div>
+                                <div class="checkboxContainer checkboxContainer-withDescription">
+                                    <label class="emby-checkbox-label">
+                                        <input id="AdjustIntroBasedOnSilence" type="checkbox" is="emby-checkbox" />
+                                        <span>Enable silence detection</span>
+                                    </label>
+
+                                    <div class="fieldDescription">When enabled, segment endpoints will be adjusted to the nearest silence point.</div>
+                                </div>
+                                <div id="silenceSettings">
+                                    <div class="inputContainer">
+                                        <label class="inputLabel inputLabelUnfocused" for="SilenceDetectionMaximumNoise"> Noise tolerance </label>
+                                        <input id="SilenceDetectionMaximumNoise" type="number" is="emby-input" min="-90" max="0" />
+                                        <div class="fieldDescription">Noise tolerance in negative decibels.</div>
+                                    </div>
+
+                                    <div class="inputContainer">
+                                        <label class="inputLabel inputLabelUnfocused" for="SilenceDetectionMinimumDuration"> Minimum silence duration </label>
+                                        <input id="SilenceDetectionMinimumDuration" type="number" is="emby-input" min="0" step="0.01" />
+                                        <div class="fieldDescription">Minimum silence duration in seconds before adjusting introduction end time.</div>
+                                    </div>
+                                    <br />
+                                </div>
+                                <div class="checkboxContainer checkboxContainer-withDescription">
+                                    <label class="emby-checkbox-label">
+                                        <input id="SnapToKeyframe" type="checkbox" is="emby-checkbox" />
+                                        <span>Enable keyframe snapping</span>
+                                    </label>
+
+                                    <div class="fieldDescription">When enabled, segment endpoints will be adjusted to the nearest video keyframe for smoother seek transitions during skipping.</div>
+                                </div>
+                                <div class="checkboxContainer checkboxContainer-withDescription">
+                                    <label class="emby-checkbox-label">
+                                        <input id="AdjustIntroBasedOnChapters" type="checkbox" is="emby-checkbox" />
+                                        <span>Enable chapter snapping</span>
+                                    </label>
+
+                                    <div class="fieldDescription">When enabled, segment start and end times will be adjusted to the nearest chapter boundary.</div>
                                 </div>
 
                                 <div class="inputContainer">
-                                    <label class="inputLabel inputLabelUnfocused" for="SilenceDetectionMinimumDuration"> Minimum silence duration </label>
-                                    <input id="SilenceDetectionMinimumDuration" type="number" is="emby-input" min="0" step="0.01" />
-                                    <div class="fieldDescription">Minimum silence duration in seconds before adjusting introduction end time.</div>
+                                    <label class="inputLabel inputLabelUnfocused" for="AdjustWindowInward">Adjustment window (inward)</label>
+                                    <input id="AdjustWindowInward" type="number" is="emby-input" min="0" />
+                                    <div class="fieldDescription">Maximum number of seconds to search toward a segment's interior for adjustment points (like chapter boundaries, silence, or keyframes). Used to tighten segment boundaries.</div>
                                 </div>
+
+                                <div class="inputContainer">
+                                    <label class="inputLabel inputLabelUnfocused" for="AdjustWindowOutward">Adjustment window (outward)</label>
+                                    <input id="AdjustWindowOutward" type="number" is="emby-input" min="0" />
+                                    <div class="fieldDescription">Maximum number of seconds to search away from a segment for adjustment points (like chapter boundaries, silence, or keyframes). Used to expand segment boundaries.</div>
+                                </div>
+
+                                <div class="inputContainer">
+                                    <label class="inputLabel inputLabelUnfocused" for="EndSnapThreshold"> Snap to episode start/end threshold </label>
+                                    <input id="EndSnapThreshold" type="number" is="emby-input" min="0" />
+                                    <div class="fieldDescription">If a segment's start or end is within this many seconds of the episode's start or end, it will be automatically adjusted (snapped) to match the episode boundary. Set to 0 to disable snapping.</div>
+                                </div>
+
+                                <fieldset>
+                                  <legend>Segment Offset Adjustment</legend>
+                                  <div class="inputContainer">
+                                    <label class="inputLabel inputLabelUnfocused" for="IntroStartOffset">Intro Start Offset (seconds)</label>
+                                    <input id="IntroStartOffset" is="emby-input" type="number" min="0" value="0" step="0.5" />
+                                    <div class="fieldDescription">
+                                      Default: 0. Example: If set to 3, the first 3 seconds of the intro will play before skipping.
+                                    </div>
+                                  </div>
+                                  <div class="inputContainer">
+                                    <label for="IntroEndOffset">Intro End Offset (seconds)</label>
+                                    <input id="IntroEndOffset" is="emby-input" type="number" min="0" value="0" step="0.5" />
+                                    <div class="fieldDescription">
+                                      Default: 0. Example: If set to 3, playback will resume 3 seconds before the end of the intro.
+                                    </div>
+                                  </div>
+                                </fieldset>
+                                <br />
                             </details>
 
                             <details id="blackframe">
@@ -445,9 +473,9 @@
                                     <div class="fieldDescription">If checked, auto skip will play the segments of the first episode in a season.</div>
                                 </div>
 
-                                <div id="divSecondsOfIntroStartToPlay" class="inputContainer">
-                                    <label class="inputLabel inputLabelUnfocused" for="SecondsOfIntroStartToPlay"> Segment skip delay (in seconds) </label>
-                                    <input id="SecondsOfIntroStartToPlay" type="number" is="emby-input" min="0" />
+                                <div id="divIntroStartOffset" class="inputContainer">
+                                    <label class="inputLabel inputLabelUnfocused" for="IntroStartOffset"> Segment skip delay (in seconds) </label>
+                                    <input id="IntroStartOffset" type="number" is="emby-input" min="0" />
                                     <div class="fieldDescription">Seconds of segment start that should be played. Defaults to 0.</div>
                                 </div>
 
@@ -816,8 +844,8 @@
                 const configurationFields = [
                     // analysis
                     "MaxParallelism",
-                    "KeyframeWindowBefore",
-                    "KeyframeWindowAfter",
+                    "AdjustWindowInward",
+                    "AdjustWindowOutward",
                     "EndSnapThreshold",
                     "ExcludeSeries",
                     "ClientList",
@@ -835,8 +863,8 @@
                     "ProcessPriority",
                     "ProcessThreads",
                     // playback
-                    "RemainingSecondsOfIntro",
-                    "SecondsOfIntroStartToPlay",
+                    "IntroEndOffset",
+                    "IntroStartOffset",
                     // internals
                     "SilenceDetectionMaximumNoise",
                     "SilenceDetectionMinimumDuration",
@@ -851,7 +879,7 @@
                     "AutoSkipNotificationText",
                 ];
 
-                const booleanConfigurationFields = ["AutoDetectIntros", "AnalyzeSeasonZero", "UpdateMediaSegments","UseAlternativeBlackFrameAnalyzer", "UseChapterMarkersBlackFrame", "FullLengthChapters", "RebuildMediaSegments", "ScanIntroduction", "ScanCredits", "ScanRecap", "ScanPreview", "PreferChromaprint", "CacheFingerprints", "PluginSkip", "AutoSkip", "SkipFirstEpisode", "SnapToKeyframe"];
+                const booleanConfigurationFields = ["AutoDetectIntros", "AnalyzeSeasonZero", "UpdateMediaSegments","UseAlternativeBlackFrameAnalyzer", "UseChapterMarkersBlackFrame", "FullLengthChapters", "RebuildMediaSegments", "ScanIntroduction", "ScanCredits", "ScanRecap", "ScanPreview", "PreferChromaprint", "CacheFingerprints", "PluginSkip", "AutoSkip", "SkipFirstEpisode", "SnapToKeyframe", "AdjustIntroBasedOnSilence", "AdjustIntroBasedOnChapters"];
 
                 // visualizer elements
                 const analyzerActionsSection = document.querySelector("div#analyzerActionsSection");
@@ -879,7 +907,7 @@
                 const btnUpdateTimestamps = document.querySelector("button#btnUpdateTimestamps");
                 const timeContainer = document.querySelector("span#timestampContainer");
                 const fingerprintVisualizer = document.getElementById("fingerprintVisualizer");
-                const snapSettings = document.getElementById("snapSettings");
+                const silenceSettings = document.getElementById("silenceSettings");
 
                 let windowHashInterval = 0;
 
@@ -891,6 +919,8 @@
                 const useAlternativeBlackFrameAnalyzer = document.getElementById("UseAlternativeBlackFrameAnalyzer");
                 const chapterMarkersBlackFrameSetting = document.getElementById("ChapterMarkersBlackFrameSetting");
                 const snapToKeyframe = document.getElementById("SnapToKeyframe");
+                const adjustIntroBasedOnSilence = document.getElementById("AdjustIntroBasedOnSilence");
+                const adjustIntroBasedOnChapters = document.getElementById("AdjustIntroBasedOnChapters");
                 const globalTimestamps = document.getElementById("GlobalTimestamps");
                 const btnEraseGlobalTimestamps = document.getElementById("btnEraseGlobalTimestamps");
 
@@ -957,7 +987,7 @@
                 }
 
                 const skipFirstEpisode = document.getElementById("divSkipFirstEpisode");
-                const secondsOfIntroStartToPlay = document.getElementById("SecondsOfIntroStartToPlay");
+                const IntroStartOffset = document.getElementById("IntroStartOffset");
 
                 async function pluginSkipSettingVisible() {
                     if (pluginSkip.checked || autoSkip.checked) {
@@ -978,21 +1008,21 @@
 
                 useAlternativeBlackFrameAnalyzer.addEventListener("change", alternativeBlackFrameAnalyzerSettingsVisible);
 
-                async function snapSettingsVisible() {
-                    if (snapToKeyframe.checked) {
-                        snapSettings.style.display = "unset";
+                async function adjustSettingsVisible() {
+                    if (adjustIntroBasedOnSilence.checked) {
+                        silenceSettings.style.display = "unset";
                     } else {
-                        snapSettings.style.display = "none";
+                        silenceSettings.style.display = "none";
                     }
                 }
 
-                snapToKeyframe.addEventListener("change", snapSettingsVisible);
+                adjustIntroBasedOnSilence.addEventListener("change", adjustSettingsVisible);
 
                 async function pluginSkipSettingChanged() {
                     if (!pluginSkip.checked) {
                         autoSkip.checked = false;
                         skipFirstEpisode.checked = false;
-                        secondsOfIntroStartToPlay.value = 0;
+                        IntroStartOffset.value = 0;
                     }
                      pluginSkipSettingVisible()
                 }
@@ -1044,7 +1074,7 @@
                         const optgroup = document.createElement("optgroup");
                         optgroup.label = library;
 
-                        showsByLibrary[library].forEach(function (show) {
+                        showsByLibrary[library].forEach((show) => {
                             const option = document.createElement("option");
                             option.value = show.value;
                             option.textContent = show.text;
@@ -1143,7 +1173,10 @@
                     let i = 1;
                     const episodes = await getJson("Intros/Show/" + seasonData);
                     for (const episode in episodes) {
-                        const strI = i.toLocaleString("en", { minimumIntegerDigits: 2, maximumFractionDigits: 0 });
+                        const strI = i.toLocaleString("en", {
+                            minimumIntegerDigits: 2,
+                            maximumFractionDigits: 0,
+                        });
                         addItem(selectEpisode1, strI + ": " + episodes[episode].Name, episodes[episode].Id);
                         addItem(selectEpisode2, strI + ": " + episodes[episode].Name, episodes[episode].Id);
                         i++;
@@ -1477,52 +1510,57 @@
                     });
                 }
 
-                document.querySelector("#TemplateConfigPage").addEventListener("pageshow", function () {
+                document.querySelector("#TemplateConfigPage").addEventListener("pageshow", () => {
                     Dashboard.showLoadingMsg();
-                    ApiClient.getPluginConfiguration("c83d86bb-a1e0-4c35-a113-e2101cf4ee6b").then(function (config) {
-                        for (const field of configurationFields) {
-                            document.querySelector("#" + field).value = config[field];
-                        }
+                    ApiClient.getPluginConfiguration("c83d86bb-a1e0-4c35-a113-e2101cf4ee6b")
+                        .then((config) => {
+                            for (const field of configurationFields) {
+                                document.querySelector("#" + field).value = config[field];
+                            }
 
-                        for (const field of booleanConfigurationFields) {
-                            document.querySelector("#" + field).checked = config[field];
-                        }
+                            for (const field of booleanConfigurationFields) {
+                                document.querySelector("#" + field).checked = config[field];
+                            }
 
-                        fullLengthChaptersChanged();
-                        autoSkipChanged();
-                        generateAutoSkipTypeList();
-                        generateAutoSkipClientList();
-                        pluginSkipSettingVisible();
-                        alternativeBlackFrameAnalyzerSettingsVisible();
-                        snapSettingsVisible();
-                        globalTimestampChanged();
+                            fullLengthChaptersChanged();
+                            autoSkipChanged();
+                            generateAutoSkipTypeList();
+                            generateAutoSkipClientList();
+                            pluginSkipSettingVisible();
+                            alternativeBlackFrameAnalyzerSettingsVisible();
+                            adjustSettingsVisible();
+                            globalTimestampChanged();
 
-                        Dashboard.hideLoadingMsg();
-                    }).catch(error => {
-                        Dashboard.hideLoadingMsg();
-                    });
-                });
-
-                document.querySelector("#FingerprintConfigForm").addEventListener("submit", function (e) {
-                    Dashboard.showLoadingMsg();
-                    ApiClient.getPluginConfiguration("c83d86bb-a1e0-4c35-a113-e2101cf4ee6b").then(function (config) {
-                        for (const field of configurationFields) {
-                            config[field] = document.querySelector("#" + field).value;
-                        }
-
-                        for (const field of booleanConfigurationFields) {
-                            config[field] = document.querySelector("#" + field).checked;
-                        }
-
-                        ApiClient.updatePluginConfiguration("c83d86bb-a1e0-4c35-a113-e2101cf4ee6b", config).then(function (result) {
                             Dashboard.hideLoadingMsg();
-                            Dashboard.processPluginConfigurationUpdateResult(result);
                         }).catch(error => {
                             Dashboard.hideLoadingMsg();
                         });
-                    }).catch(error => {
-                        Dashboard.hideLoadingMsg();
-                    });
+                });
+
+                document.querySelector("#FingerprintConfigForm").addEventListener("submit", (e) => {
+                    Dashboard.showLoadingMsg();
+                    ApiClient.getPluginConfiguration("c83d86bb-a1e0-4c35-a113-e2101cf4ee6b")
+                        .then((config) => {
+                            for (const field of configurationFields) {
+                                config[field] = document.querySelector("#" + field).value;
+                            }
+
+                            for (const field of booleanConfigurationFields) {
+                                config[field] = document.querySelector("#" + field).checked;
+                            }
+
+                            ApiClient.updatePluginConfiguration("c83d86bb-a1e0-4c35-a113-e2101cf4ee6b", config)
+                                .then((result) => {
+                                    Dashboard.hideLoadingMsg();
+                                    Dashboard.processPluginConfigurationUpdateResult(result);
+                                })
+                                .catch((error) => {
+                                    Dashboard.hideLoadingMsg();
+                                });
+                        })
+                        .catch((error) => {
+                            Dashboard.hideLoadingMsg();
+                        });
 
                     e.preventDefault();
                     return false;
