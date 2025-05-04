@@ -104,7 +104,7 @@ public class PluginConfiguration : BasePluginConfiguration
     /// <summary>
     /// Gets or sets a value indicating whether to use the minimum and maximum duration for chapters.
     /// </summary>
-    public bool FullLengthChapters { get; set; } = true;
+    public bool FullLengthChapters { get; set; } = false;
 
     /// <summary>
     /// Gets or sets the minimum length of similar audio that will be considered an introduction.
