@@ -30,7 +30,7 @@ namespace IntroSkipper;
 public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
 {
     private readonly ILibraryManager _libraryManager;
-    private readonly IChapterRepository _chapterRepository;
+    private readonly IChapterManager _chapterRepository;
     private readonly ILogger<Plugin> _logger;
     private readonly string _dbPath;
 
@@ -48,7 +48,7 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
         IXmlSerializer xmlSerializer,
         IServerConfigurationManager serverConfiguration,
         ILibraryManager libraryManager,
-        IChapterRepository chapterRepository,
+        IChapterManager chapterRepository,
         ILogger<Plugin> logger)
         : base(applicationPaths, xmlSerializer)
     {
