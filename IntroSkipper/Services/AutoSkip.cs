@@ -43,7 +43,7 @@ public sealed class AutoSkip(
     private readonly ISessionManager _sessionManager = sessionManager;
     private readonly ILogger<AutoSkip> _logger = logger;
     private readonly System.Timers.Timer _playbackTimer = new(PlaybackTimerInterval) { AutoReset = true };
-    private readonly ConcurrentDictionary<string, Dictionary<AnalysisMode, Intro>> _sentSeekCommand = [];
+    private readonly ConcurrentDictionary<string, Dictionary<AnalysisMode, Segment>> _sentSeekCommand = [];
     private readonly HashSet<string> _clientList = [];
     private readonly HashSet<AnalysisMode> _segmentTypes = [];
     private PluginConfiguration _config = new();
@@ -129,16 +129,16 @@ public sealed class AutoSkip(
             .Replace("%duration", $"{duration:F0}", StringComparison.Ordinal);
     }
 
-    private bool IsSegmentPlayingAt(KeyValuePair<AnalysisMode, Intro> segment, double position)
+    private bool IsSegmentPlayingAt(KeyValuePair<AnalysisMode, Segment> segment, double position)
     {
-        return position >= Math.Max(1, segment.Value.IntroStart) &&
-               position < segment.Value.IntroEnd - 3.0;
+        return position >= Math.Max(1, segment.Value.Start) &&
+               position < segment.Value.End - 3.0;
     }
 
-    private bool IsAdjacentSegment(KeyValuePair<AnalysisMode, Intro> segment, double introEnd)
+    private bool IsAdjacentSegment(KeyValuePair<AnalysisMode, Segment> segment, double introEnd)
     {
-        return introEnd + _config.MaximumTimeSkip >= segment.Value.IntroStart &&
-               introEnd < segment.Value.IntroEnd;
+        return introEnd + _config.MaximumTimeSkip >= segment.Value.Start &&
+               introEnd < segment.Value.End;
     }
 
     private void PlaybackTimer_Elapsed(object? sender, ElapsedEventArgs e)
@@ -166,7 +166,7 @@ public sealed class AutoSkip(
 
             var currentSegmentType = currentSegment.Key;
             var currentIntro = currentSegment.Value;
-            var introEnd = currentIntro.IntroEnd;
+            var introEnd = currentIntro.End;
 
             intros.Remove(currentSegmentType);
 
@@ -174,7 +174,7 @@ public sealed class AutoSkip(
             var nextSegment = intros.FirstOrDefault(i => IsAdjacentSegment(i, introEnd));
             if (nextSegment.Value is not null)
             {
-                introEnd = nextSegment.Value.IntroEnd;
+                introEnd = nextSegment.Value.End;
                 intros.Remove(nextSegment.Key);
             }
 
@@ -182,7 +182,7 @@ public sealed class AutoSkip(
             _logger.LogTrace("Playback position is {Position}", position);
 
             // Notify the user that an introduction is being skipped for them.
-            var notificationText = FormatNotificationText(_config.AutoSkipNotificationText, currentSegmentType, currentIntro.IntroStart, currentIntro.IntroEnd);
+            var notificationText = FormatNotificationText(_config.AutoSkipNotificationText, currentSegmentType, currentIntro.Start, currentIntro.End);
             if (!string.IsNullOrWhiteSpace(notificationText))
             {
                 _sessionManager.SendMessageCommand(
