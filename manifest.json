@@ -9,20 +9,20 @@
         "imageUrl": "https://raw.githubusercontent.com/intro-skipper/intro-skipper/10.10/images/logo.png",
         "versions": [
             {
+                "version": "1.10.10.18",
+                "changelog": "- See the full changelog at [GitHub](https://github.com/intro-skipper/intro-skipper/releases/tag/10.10/v1.10.10.18)\n",
+                "targetAbi": "10.10.7.0",
+                "sourceUrl": "https://github.com/intro-skipper/intro-skipper/releases/download/10.10/v1.10.10.18/intro-skipper-v1.10.10.18.zip",
+                "checksum": "08b9198ccff231651228d6a86007f7f1",
+                "timestamp": "2025-05-04T12:47:31Z"
+            },
+            {
                 "version": "1.10.10.17",
                 "changelog": "- See the full changelog at [GitHub](https://github.com/intro-skipper/intro-skipper/releases/tag/10.10/v1.10.10.17)\n",
                 "targetAbi": "10.10.6.0",
                 "sourceUrl": "https://github.com/intro-skipper/intro-skipper/releases/download/10.10/v1.10.10.17/intro-skipper-v1.10.10.17.zip",
                 "checksum": "7933e1d2307c1d5f36d940142842563d",
                 "timestamp": "2025-03-29T13:28:13Z"
-            },
-            {
-                "version": "1.10.10.15",
-                "changelog": "- See the full changelog at [GitHub](https://github.com/intro-skipper/intro-skipper/releases/tag/10.10/v1.10.10.15)\n",
-                "targetAbi": "10.10.5.0",
-                "sourceUrl": "https://github.com/intro-skipper/intro-skipper/releases/download/10.10/v1.10.10.15/intro-skipper-v1.10.10.15.zip",
-                "checksum": "2d2bf06a6f8073222887f182e988ac18",
-                "timestamp": "2025-02-08T19:25:55Z"
             }
         ]
     },
