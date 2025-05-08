@@ -73,7 +73,7 @@ const addItem = (select, text, value) => {
 };
 const clearSelect = (select) => {
     timestampError.value = "";
-    if (typeof timestampErrorDiv !== 'undefined') timestampErrorDiv.style.display = "none";
+    if (typeof timestampErrorDiv !== 'undefined') {
     if (typeof timestampEditor !== 'undefined') timestampEditor.style.display = "none";
     if (typeof timeContainer !== 'undefined') timeContainer.style.display = "none";
     if (typeof canvas !== 'undefined') canvas.style.display = "none";
