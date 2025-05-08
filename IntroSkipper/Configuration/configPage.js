@@ -550,7 +550,7 @@ const keyDown = (e) => {
         case "ArrowLeft": episodeDelta = -2; break;
         default: return;
     }
-    if (offsetDelta !== 0) txtOffset.value = Number(txtOffset.value) + Math.floor(offsetDelta);
+    if (offsetDelta !== 0) {
     if (episodeDelta !== 0) {
         const lhsRemaining = selectEpisode1.selectedIndex;
         const rhsRemaining = selectEpisode2.length - selectEpisode2.selectedIndex - 1;
