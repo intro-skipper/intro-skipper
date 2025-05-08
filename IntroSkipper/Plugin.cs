@@ -160,6 +160,11 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
             {
                 Name = "visualizer.js",
                 EmbeddedResourcePath = GetType().Namespace + ".Configuration.visualizer.js"
+            },
+            new PluginPageInfo
+            {
+                Name = "configPage.js",
+                EmbeddedResourcePath = GetType().Namespace + ".Configuration.configPage.js"
             }
         ];
     }

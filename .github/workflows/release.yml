@@ -44,6 +44,7 @@ jobs:
         run: |
           npx html-minifier-terser --collapse-boolean-attributes --collapse-whitespace --remove-comments --remove-optional-tags --remove-redundant-attributes --remove-script-type-attributes --remove-tag-whitespace --use-short-doctype --minify-css true --minify-js true -o IntroSkipper/Configuration/configPage.html IntroSkipper/Configuration/configPage.html
           npx terser IntroSkipper/Configuration/visualizer.js -o IntroSkipper/Configuration/visualizer.js -c -m
+          npx terser IntroSkipper/Configuration/configPage.js -o IntroSkipper/Configuration/configPage.js -c -m
 
       - name: Restore Beta dependencies
         if: ${{env.IS_BETA == 'true' }}
