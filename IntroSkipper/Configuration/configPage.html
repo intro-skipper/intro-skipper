@@ -55,6 +55,47 @@
                                 </div>
                             </div>
 
+                            <div class="inputContainer" id="excludedSeries">
+                                <label class="inputLabel inputLabelUnfocused" for="ExcludeSeries"> Exclude series </label>
+                                <input id="ExcludeSeries" type="text" is="emby-input" />
+                                <div class="fieldDescription">Exclude series from analysis. Enter a comma-separated list of series names to exclude.</div>
+                            </div>
+
+                            <div class="checkboxContainer">
+                                <label class="emby-checkbox-label">
+                                    <input id="ScanIntroduction" type="checkbox" is="emby-checkbox" />
+                                    <span>Identify Introductions</span>
+                                </label>
+                            </div>
+
+                            <div class="checkboxContainer">
+                                <label class="emby-checkbox-label">
+                                    <input id="ScanCredits" type="checkbox" is="emby-checkbox" />
+                                    <span>Identify Credits</span>
+                                </label>
+                            </div>
+
+                            <div class="checkboxContainer">
+                                <label class="emby-checkbox-label">
+                                    <input id="ScanRecap" type="checkbox" is="emby-checkbox" />
+                                    <span>Identify Recaps</span>
+                                </label>
+                            </div>
+
+                            <div class="checkboxContainer">
+                                <label class="emby-checkbox-label">
+                                    <input id="ScanPreview" type="checkbox" is="emby-checkbox" />
+                                    <span>Identify Previews</span>
+                                </label>
+                            </div>
+
+                            <div class="checkboxContainer">
+                                <label class="emby-checkbox-label">
+                                    <input id="AnalyzeMovies" type="checkbox" is="emby-checkbox" />
+                                    <span>Analyze Movies</span>
+                                </label>
+                            </div>
+
                             <div class="checkboxContainer checkboxContainer-withDescription">
                                 <label class="emby-checkbox-label">
                                     <input id="AnalyzeSeasonZero" type="checkbox" is="emby-checkbox" />
@@ -64,47 +105,23 @@
                                 <div class="fieldDescription">Note: Shows containing both a specials and extra folder will identify extras as season 0 and ignore specials, regardless of this setting.</div>
                             </div>
 
-                            <div class="inputContainer" id="excludedSeries">
-                                <label class="inputLabel inputLabelUnfocused" for="ExcludeSeries"> Exclude series </label>
-                                <input id="ExcludeSeries" type="text" is="emby-input" />
-                                <div class="fieldDescription">Exclude series from analysis. Enter a comma-separated list of series names to exclude.</div>
+                            <div class="checkboxContainer checkboxContainer-withDescription">
+                                <label class="emby-checkbox-label">
+                                    <input id="PreferChromaprint" type="checkbox" is="emby-checkbox" />
+                                    <span>Prefer Chromaprint Analysis</span>
+                                </label>
+                                <div class="fieldDescription">Setting an analysis mode in the advanced options will override this setting.</div>
                             </div>
 
                             <details id="intro_reqs">
                                 <summary>Modify Analysis Parameters</summary>
 
-                                <p>
-                                    <b style="color: orange">Changing segment parameters requires regenerating media segments before changes take effect.</b>
-                                    <br />
-                                    Per the jellyfin MediaSegments API, records must be updated individually and may be slow to regenerate.
-                                </p>
-
-                                <div class="checkboxContainer">
+                                <div class="checkboxContainer checkboxContainer-withDescription">
                                     <label class="emby-checkbox-label">
-                                        <input id="ScanIntroduction" type="checkbox" is="emby-checkbox" />
-                                        <span>Identify Introductions</span>
+                                        <input id="FullLengthChapters" type="checkbox" is="emby-checkbox" />
+                                        <span>Ignore duration limits for chapters</span>
                                     </label>
-                                </div>
-
-                                <div class="checkboxContainer">
-                                    <label class="emby-checkbox-label">
-                                        <input id="ScanCredits" type="checkbox" is="emby-checkbox" />
-                                        <span>Identify Credits</span>
-                                    </label>
-                                </div>
-
-                                <div class="checkboxContainer">
-                                    <label class="emby-checkbox-label">
-                                        <input id="ScanRecap" type="checkbox" is="emby-checkbox" />
-                                        <span>Identify Recaps</span>
-                                    </label>
-                                </div>
-
-                                <div class="checkboxContainer">
-                                    <label class="emby-checkbox-label">
-                                        <input id="ScanPreview" type="checkbox" is="emby-checkbox" />
-                                        <span>Identify Previews</span>
-                                    </label>
+                                    <div class="fieldDescription">Allow segments to extend to the end of a chapter when the marker exceeds other user settings, such as percentage or duration.</div>
                                 </div>
 
                                 <div class="inputContainer">
@@ -123,21 +140,6 @@
                                 <p>If the percentage or maximum runtime settings are modified, the cached fingerprints and timestamps for each series, season, or movie you want to analyze with the modified settings <b>will have to be recreated</b>.</p>
                                 <p>Increasing either of the above settings will cause episode analysis to take much longer.</p>
                                 <br />
-
-                                <div class="checkboxContainer checkboxContainer-withDescription">
-                                    <label class="emby-checkbox-label">
-                                        <input id="PreferChromaprint" type="checkbox" is="emby-checkbox" />
-                                        <span>Prefer Chromaprint Analysis</span>
-                                    </label>
-                                    <div class="fieldDescription">Setting an analysis mode in the advanced options will override this setting.</div>
-                                </div>
-
-                                <div class="checkboxContainer checkboxContainer-withDescription">
-                                    <label class="emby-checkbox-label">
-                                        <input id="FullLengthChapters" type="checkbox" is="emby-checkbox" />
-                                        <span>Ignore duration limits for chapters</span>
-                                    </label>
-                                </div>
 
                                 <div class="inputContainer">
                                     <label class="inputLabel inputLabelUnfocused" for="MinimumIntroDuration"> Minimum introduction duration (in seconds) </label>
@@ -194,6 +196,7 @@
                                         <div class="fieldDescription">Segments which are longer than this duration will not be considered a preview.</div>
                                     </div>
                                 </div>
+                                <br />
                             </details>
 
                             <details id="adjustment">
@@ -396,7 +399,12 @@
                                 </div>
                             </details>
 
-                            <br />
+                            <p>
+                                <b style="color: orange">Changing analysis or detection requires regenerating media segments before changes take effect.</b>
+                                <br />
+                                Per the jellyfin MediaSegments API, records must be updated individually and may be slow to regenerate.
+                            </p>
+
                             <div class="checkboxContainer checkboxContainer-withDescription">
                                 <label class="emby-checkbox-label">
                                     <input id="RebuildMediaSegments" type="checkbox" is="emby-checkbox" />
