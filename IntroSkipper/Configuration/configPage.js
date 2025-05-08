@@ -555,7 +555,7 @@ const keyDown = (e) => {
         const lhsRemaining = selectEpisode1.selectedIndex;
         const rhsRemaining = selectEpisode2.length - selectEpisode2.selectedIndex - 1;
         if (episodeDelta > 0 && rhsRemaining <= 1) return;
-        else if (episodeDelta < 0 && lhsRemaining <= 1) return;
+        else if (episodeDelta < 0 && lhsRemaining <= 1) {
         selectEpisode1.selectedIndex += episodeDelta;
         selectEpisode2.selectedIndex += episodeDelta;
         episodeChanged();
