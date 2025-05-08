@@ -73,10 +73,10 @@ const addItem = (select, text, value) => {
 };
 const clearSelect = (select) => {
     timestampError.value = "";
-    if (typeof timestampErrorDiv !== 'undefined') {
-    if (typeof timestampEditor !== 'undefined') {
-    if (typeof timeContainer !== 'undefined') {
-    if (typeof canvas !== 'undefined') {
+    if (typeof timestampErrorDiv !== 'undefined') timestampErrorDiv.style.display = "none";
+    if (typeof timestampEditor !== 'undefined') timestampEditor.style.display = "none";
+    if (typeof timeContainer !== 'undefined') timeContainer.style.display = "none";
+    if (typeof canvas !== 'undefined') canvas.style.display = "none";
     for (let i = select.options.length - 1; i >= 0; i--) select.remove(i);
 };
 
@@ -544,18 +544,18 @@ const keyDown = (e) => {
             if (timestampError.value !== "") offsetDelta = e.ctrlKey ? 10 / 0.1238 : 1;
             break;
         case "ArrowUp":
-            if (timestampError.value !== "") {
+            if (timestampError.value !== "") offsetDelta = e.ctrlKey ? -10 / 0.1238 : -1;
             break;
         case "ArrowRight": episodeDelta = 2; break;
         case "ArrowLeft": episodeDelta = -2; break;
         default: return;
     }
-    if (offsetDelta !== 0) {
+    if (offsetDelta !== 0) txtOffset.value = Number(txtOffset.value) + Math.floor(offsetDelta);
     if (episodeDelta !== 0) {
         const lhsRemaining = selectEpisode1.selectedIndex;
         const rhsRemaining = selectEpisode2.length - selectEpisode2.selectedIndex - 1;
         if (episodeDelta > 0 && rhsRemaining <= 1) return;
-        else if (episodeDelta < 0 && lhsRemaining <= 1) {
+        else if (episodeDelta < 0 && lhsRemaining <= 1) return;
         selectEpisode1.selectedIndex += episodeDelta;
         selectEpisode2.selectedIndex += episodeDelta;
         episodeChanged();
@@ -566,7 +566,7 @@ const keyDown = (e) => {
 
 const checkWindowHash = () => {
     const h = location.hash;
-    if (h === "#!/configurationpage?name=Intro%20Skipper" || h.includes("#!/dialog")) {
+    if (h === "#!/configurationpage?name=Intro%20Skipper" || h.includes("#!/dialog")) return;
     document.removeEventListener("keydown", keyDown);
     clearInterval(windowHashInterval);
 };
