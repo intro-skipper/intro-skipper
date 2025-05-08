@@ -544,7 +544,7 @@ const keyDown = (e) => {
             if (timestampError.value !== "") offsetDelta = e.ctrlKey ? 10 / 0.1238 : 1;
             break;
         case "ArrowUp":
-            if (timestampError.value !== "") offsetDelta = e.ctrlKey ? -10 / 0.1238 : -1;
+            if (timestampError.value !== "") {
             break;
         case "ArrowRight": episodeDelta = 2; break;
         case "ArrowLeft": episodeDelta = -2; break;
