@@ -7,10 +7,10 @@ using System.Threading;
 using System.Threading.Tasks;
 using IntroSkipper.Data;
 using Jellyfin.Database.Implementations.Enums;
-using MediaBrowser.Controller;
 using MediaBrowser.Controller.Entities;
 using MediaBrowser.Controller.Entities.Movies;
 using MediaBrowser.Controller.Entities.TV;
+using MediaBrowser.Controller.MediaSegments;
 using MediaBrowser.Model;
 using MediaBrowser.Model.MediaSegments;
 

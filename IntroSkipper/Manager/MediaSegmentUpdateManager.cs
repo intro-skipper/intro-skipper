@@ -10,7 +10,7 @@ using System.Threading.Tasks;
 using IntroSkipper.Data;
 using IntroSkipper.Providers;
 using MediaBrowser.Common.Extensions;
-using MediaBrowser.Controller;
+using MediaBrowser.Controller.MediaSegments;
 using MediaBrowser.Model;
 using Microsoft.Extensions.Logging;
 

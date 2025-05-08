@@ -5,6 +5,7 @@ using IntroSkipper.Manager;
 using IntroSkipper.Providers;
 using IntroSkipper.Services;
 using MediaBrowser.Controller;
+using MediaBrowser.Controller.MediaSegments;
 using MediaBrowser.Controller.Plugins;
 using Microsoft.Extensions.DependencyInjection;
 
