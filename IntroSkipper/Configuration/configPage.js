@@ -566,7 +566,7 @@ const keyDown = (e) => {
 
 const checkWindowHash = () => {
     const h = location.hash;
-    if (h === "#!/configurationpage?name=Intro%20Skipper" || h.includes("#!/dialog")) return;
+    if (h === "#!/configurationpage?name=Intro%20Skipper" || h.includes("#!/dialog")) {
     document.removeEventListener("keydown", keyDown);
     clearInterval(windowHashInterval);
 };
