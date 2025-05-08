@@ -101,7 +101,7 @@
                             </div>
 
                             <details id="intro_reqs">
-                                <summary>Modify Segment Parameters</summary>
+                                <summary>Modify Analysis Parameters</summary>
 
                                 <p>
                                     <b style="color: orange">Changing segment parameters requires regenerating media segments before changes take effect.</b>
@@ -215,16 +215,6 @@
                                         <input id="MaximumPreviewDuration" type="number" is="emby-input" min="1" />
                                         <div class="fieldDescription">Segments which are longer than this duration will not be considered a preview.</div>
                                     </div>
-                                </div>
-
-                                <br />
-                                <div class="checkboxContainer checkboxContainer-withDescription">
-                                    <label class="emby-checkbox-label">
-                                        <input id="RebuildMediaSegments" type="checkbox" is="emby-checkbox" />
-                                        <span>Regenerate All Media Segments on Next Run</span>
-                                    </label>
-
-                                    <div class="fieldDescription">When enabled, this option will <b>overwrite all existing media segments</b> with your current Intro Skipper timestamps during the next analysis. Upon completion, this option will be automatically disabled.</div>
                                 </div>
                             </details>
 
@@ -427,6 +417,17 @@
                                     </div>
                                 </div>
                             </details>
+
+                            <br />
+                            <div class="checkboxContainer checkboxContainer-withDescription">
+                                <label class="emby-checkbox-label">
+                                    <input id="RebuildMediaSegments" type="checkbox" is="emby-checkbox" />
+                                    <span>Regenerate All Media Segments on Next Run</span>
+                                </label>
+
+                                <div class="fieldDescription">When enabled, this option will <b>overwrite all existing media segments</b> with your current Intro Skipper timestamps during the next analysis. Upon completion, this option will be automatically disabled.</div>
+                            </div>
+                            <br />
 
                             <p align="center" style="font-size: 0.75em">EDL file generation has been removed. Please use the <a href="https://github.com/intro-skipper/jellyfin-plugin-edl">EDL plugin</a>.</p>
                         </fieldset>
