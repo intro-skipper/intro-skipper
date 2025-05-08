@@ -476,10 +476,10 @@
                                     <div class="fieldDescription">If checked, auto skip will play the segments of the first episode in a season.</div>
                                 </div>
 
-                                <div id="divIntroStartOffset" class="inputContainer">
-                                    <label class="inputLabel inputLabelUnfocused" for="IntroStartOffset"> Segment skip delay (in seconds) </label>
-                                    <input id="IntroStartOffset" type="number" is="emby-input" min="0" />
-                                    <div class="fieldDescription">Seconds of segment start that should be played. Defaults to 0.</div>
+                                <div id="divAutoSkipDelay" class="inputContainer">
+                                    <label class="inputLabel inputLabelUnfocused" for="AutoSkipDelay"> Auto skip delay (in seconds) </label>
+                                    <input id="AutoSkipDelay" type="number" is="emby-input" min="0" />
+                                    <div class="fieldDescription">Seconds at the start of a segment that should be played before skipping. Defaults to 0.</div>
                                 </div>
 
                                 <div id="divAutoSkipNotificationText" class="inputContainer">
@@ -868,6 +868,7 @@
                     // playback
                     "IntroEndOffset",
                     "IntroStartOffset",
+                    "AutoSkipDelay",
                     // internals
                     "SilenceDetectionMaximumNoise",
                     "SilenceDetectionMinimumDuration",
@@ -1004,6 +1005,7 @@
 
                 const skipFirstEpisode = document.getElementById("divSkipFirstEpisode");
                 const IntroStartOffset = document.getElementById("IntroStartOffset");
+                const AutoSkipDelay = document.getElementById("AutoSkipDelay");
 
                 async function populateLibraries() {
                     const response = await getJson("Library/VirtualFolders");
