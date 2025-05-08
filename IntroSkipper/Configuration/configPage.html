@@ -86,14 +86,6 @@
                                 </div>
                             </div>
 
-                            <div class="checkboxContainer checkboxContainer-withDescription">
-                                <label class="emby-checkbox-label">
-                                    <input id="PreferChromaprint" type="checkbox" is="emby-checkbox" />
-                                    <span>Prefer Chromaprint Analysis</span>
-                                </label>
-                                <div class="fieldDescription">Setting an analysis mode in the advanced options will override this setting.</div>
-                            </div>
-
                             <div class="inputContainer" id="excludedSeries">
                                 <label class="inputLabel inputLabelUnfocused" for="ExcludeSeries"> Exclude series </label>
                                 <input id="ExcludeSeries" type="text" is="emby-input" />
@@ -153,6 +145,14 @@
                                 <p>If the percentage or maximum runtime settings are modified, the cached fingerprints and timestamps for each series, season, or movie you want to analyze with the modified settings <b>will have to be recreated</b>.</p>
                                 <p>Increasing either of the above settings will cause episode analysis to take much longer.</p>
                                 <br />
+
+                                <div class="checkboxContainer checkboxContainer-withDescription">
+                                    <label class="emby-checkbox-label">
+                                        <input id="PreferChromaprint" type="checkbox" is="emby-checkbox" />
+                                        <span>Prefer Chromaprint Analysis</span>
+                                    </label>
+                                    <div class="fieldDescription">Setting an analysis mode in the advanced options will override this setting.</div>
+                                </div>
 
                                 <div class="checkboxContainer checkboxContainer-withDescription">
                                     <label class="emby-checkbox-label">
