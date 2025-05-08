@@ -76,7 +76,7 @@ const clearSelect = (select) => {
     if (typeof timestampErrorDiv !== 'undefined') {
     if (typeof timestampEditor !== 'undefined') {
     if (typeof timeContainer !== 'undefined') {
-    if (typeof canvas !== 'undefined') canvas.style.display = "none";
+    if (typeof canvas !== 'undefined') {
     for (let i = select.options.length - 1; i >= 0; i--) select.remove(i);
 };
 
