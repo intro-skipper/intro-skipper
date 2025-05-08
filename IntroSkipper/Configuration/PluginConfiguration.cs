@@ -272,6 +272,11 @@ public class PluginConfiguration : BasePluginConfiguration
     /// </summary>
     public int IntroStartOffset { get; set; }
 
+    /// <summary>
+    /// Gets or sets the amount of seconds to wait before skipping an intro.
+    /// </summary>
+    public int AutoSkipDelay { get; set; }
+
     // ===== Internal algorithm settings =====
 
     /// <summary>

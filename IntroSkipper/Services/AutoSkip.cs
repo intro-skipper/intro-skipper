@@ -131,7 +131,7 @@ public sealed class AutoSkip(
 
     private bool IsSegmentPlayingAt(KeyValuePair<AnalysisMode, Segment> segment, double position)
     {
-        return position >= Math.Max(1, segment.Value.Start) &&
+        return position >= Math.Max(1, segment.Value.Start + _config.AutoSkipDelay) &&
                position < segment.Value.End - 3.0;
     }
 

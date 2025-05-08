@@ -11,7 +11,11 @@ using System.Threading.Tasks;
 using IntroSkipper.Data;
 using IntroSkipper.Db;
 using IntroSkipper.Manager;
+using IntroSkipper.ScheduledTasks;
+using IntroSkipper.Services;
 using MediaBrowser.Common.Api;
+using MediaBrowser.Controller.Library;
+using MediaBrowser.Model.Tasks;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Logging;
@@ -26,14 +30,18 @@ namespace IntroSkipper.Controllers;
 /// </remarks>
 /// <param name="logger">Logger.</param>
 /// <param name="mediaSegmentUpdateManager">Media segment update manager.</param>
+/// <param name="libraryManager">libraryManager.</param>
+/// <param name="loggerFactory">loggerFactory.</param>
 [Authorize(Policy = Policies.RequiresElevation)]
 [ApiController]
 [Produces(MediaTypeNames.Application.Json)]
 [Route("Intros")]
-public class VisualizationController(ILogger<VisualizationController> logger, MediaSegmentUpdateManager mediaSegmentUpdateManager) : ControllerBase
+public class VisualizationController(ILogger<VisualizationController> logger, MediaSegmentUpdateManager mediaSegmentUpdateManager, ILibraryManager libraryManager, ILoggerFactory loggerFactory) : ControllerBase
 {
     private readonly ILogger<VisualizationController> _logger = logger;
     private readonly MediaSegmentUpdateManager _mediaSegmentUpdateManager = mediaSegmentUpdateManager;
+    private readonly ILibraryManager _libraryManager = libraryManager;
+    private readonly ILoggerFactory _loggerFactory = loggerFactory;
 
     /// <summary>
     /// Returns all show names and seasons.
@@ -225,6 +233,40 @@ public class VisualizationController(ILogger<VisualizationController> logger, Me
     public async Task<ActionResult> UpdateAnalyzerActions([FromBody] UpdateAnalyzerActionsRequest request)
     {
         await Plugin.Instance!.SetAnalyzerActionAsync(request.Id, request.AnalyzerActions).ConfigureAwait(false);
+
+        return NoContent();
+    }
+
+    /// <summary>
+    /// Scans the provided season for intros.
+    /// </summary>
+    /// <param name="seriesId">Show ID.</param>
+    /// <param name="seasonId">Season ID.</param>
+    /// <param name="cancellationToken">cancellationToken.</param>
+    /// <returns>No content.</returns>
+    [HttpPost("ScanSeason/{SeriesId}/{SeasonId}")]
+    public async Task<ActionResult> ScanSeason([FromRoute] Guid seriesId, [FromRoute] Guid seasonId, CancellationToken cancellationToken = default)
+    {
+        if (_libraryManager is null)
+        {
+            throw new InvalidOperationException("Library manager was null");
+        }
+
+        // Erase season timestamps
+        await EraseSeasonAsync(seriesId, seasonId, true, cancellationToken).ConfigureAwait(false);
+
+        using (await ScheduledTaskSemaphore.AcquireAsync(cancellationToken).ConfigureAwait(false))
+        {
+            _logger.LogInformation("Start (Re-) scan of season/movie {Season}", seasonId);
+
+            var baseIntroAnalyzer = new BaseItemAnalyzerTask(
+                _loggerFactory.CreateLogger<DetectSegmentsTask>(),
+                _loggerFactory,
+                _libraryManager,
+                _mediaSegmentUpdateManager);
+
+            await baseIntroAnalyzer.AnalyzeItemsAsync(new Progress<double>(), cancellationToken, [seasonId]).ConfigureAwait(false);
+        }
 
         return NoContent();
     }
