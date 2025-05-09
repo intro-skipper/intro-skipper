@@ -48,7 +48,6 @@ https://manifest.intro-skipper.org/manifest.json
 ## [Troubleshooting](https://github.com/intro-skipper/intro-skipper/wiki/Troubleshooting)
 - #### [Plugin not shown in Catalog](https://github.com/intro-skipper/intro-skipper/wiki/Troubleshooting#plugin-not-shown-in-catalog)
 - #### [Scheduled tasks fail instantly](https://github.com/intro-skipper/intro-skipper/wiki/Troubleshooting#scheduled-tasks-fail-instantly)
-- #### [Plugin settings not saved](https://github.com/intro-skipper/intro-skipper/wiki/Troubleshooting#plugin-settings-not-saved)
 - #### [Skip button is not visible](https://github.com/intro-skipper/intro-skipper/wiki/Troubleshooting#skip-button-is-not-visible)
 - #### [Auto skip is not working](https://github.com/intro-skipper/intro-skipper/wiki/Troubleshooting#auto-skip-is-not-working)
 
