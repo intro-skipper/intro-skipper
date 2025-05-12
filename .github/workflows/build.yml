@@ -53,16 +53,28 @@ jobs:
         with:
           dotnet-version: 8.0.x
 
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: "lts/*"
+          cache: 'pnpm'
 
-      - name: Minify HTML
+      - name: Build frontend
         run: |
-          npx html-minifier-terser --collapse-boolean-attributes --collapse-whitespace --remove-comments --remove-optional-tags --remove-redundant-attributes --remove-script-type-attributes --remove-tag-whitespace --use-short-doctype --minify-css true --minify-js true -o IntroSkipper/Configuration/configPage.html IntroSkipper/Configuration/configPage.html
-          npx terser IntroSkipper/Configuration/visualizer.js -o IntroSkipper/Configuration/visualizer.js -c -m
-          npx terser IntroSkipper/Configuration/configPage.js -o IntroSkipper/Configuration/configPage.js -c -m
+          cd ConfigPage
+          pnpm install
+          pnpm build
+
+      - name: Copy frontend files
+        run: |
+          cd ConfigPage
+          cp -r dist/main.js ../IntroSkipper/Configuration/
+          cp -r dist/main.css ../IntroSkipper/Configuration/
 
       - name: Restore Beta dependencies
         if: ${{env.IS_BETA == 'true' }}

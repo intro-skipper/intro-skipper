@@ -1,0 +1,11 @@
+{
+  "projectName": "ConfigPage",
+  "mode": "code-router",
+  "typescript": false,
+  "tailwind": false,
+  "packageManager": "pnpm",
+  "git": true,
+  "version": 1,
+  "framework": "react-cra",
+  "chosenAddOns": []
+}

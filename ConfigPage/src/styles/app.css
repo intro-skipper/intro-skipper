@@ -1,0 +1,100 @@
+/* Common styles for the Intro Skipper config page */
+
+/* Override some Jellyfin defaults to match theme better */
+.tabs {
+  display: flex;
+  margin-bottom: 2rem;
+}
+
+.tabItem {
+  padding: 0.75rem 1.5rem;
+  margin-right: 0.5rem;
+  background-color: rgba(0, 0, 0, 0.1);
+  border-radius: 4px;
+  text-decoration: none;
+  color: inherit;
+  transition: background-color 0.3s ease;
+}
+
+.tabItem:hover {
+  background-color: rgba(0, 0, 0, 0.2);
+}
+
+.tabItem-active {
+  background-color: rgba(0, 0, 0, 0.3);
+  font-weight: bold;
+}
+
+/* Form styling */
+.verticalSection {
+  margin-bottom: 2rem;
+}
+
+.verticalSection-extrabottompadding {
+  margin-bottom: 3rem;
+}
+
+fieldset {
+  border: none;
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
+  padding-top: 1rem;
+  margin-top: 1rem;
+}
+
+legend {
+  font-size: 1.5rem;
+  padding: 0 1rem;
+  margin-bottom: 1rem;
+  font-weight: bold;
+}
+
+.checkboxContainer {
+  margin-bottom: 1rem;
+}
+
+.checkboxContainer-withDescription {
+  margin-bottom: 1.5rem;
+}
+
+.inputContainer {
+  margin-bottom: 1.5rem;
+}
+
+.fieldDescription {
+  margin-top: 0.5rem;
+  opacity: 0.7;
+  font-size: 0.9rem;
+}
+
+/* Collapsible sections */
+details {
+  margin-bottom: 2rem;
+}
+
+summary {
+  cursor: pointer;
+  padding: 10px;
+  width: inherit;
+  margin: auto;
+  border: none;
+  text-align: center;
+  font-size: 1em;
+  outline: 2px solid rgba(155, 155, 155, 0.5);
+  margin-bottom: 1rem;
+}
+
+/* Loading and error states */
+.loading {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  height: 100px;
+}
+
+.error {
+  color: #e74c3c;
+  padding: 1rem;
+  border-left: 3px solid #e74c3c;
+  background-color: rgba(231, 76, 60, 0.1);
+  margin-bottom: 1rem;
+}
