@@ -63,6 +63,8 @@ jobs:
         with:
           node-version: "lts/*"
           cache: 'pnpm'
+          cache-dependency-path: 'ConfigPage/pnpm-lock.yaml'
+
 
       - name: Build frontend
         run: |
