@@ -75,8 +75,8 @@ jobs:
       - name: Copy frontend files
         run: |
           cd ConfigPage
-          cp -r dist/main.js ../IntroSkipper/Configuration/
-          cp -r dist/main.css ../IntroSkipper/Configuration/
+          cp -r dist/assets/main.js ../IntroSkipper/Configuration/
+          cp -r dist/assets/main.css ../IntroSkipper/Configuration/
 
       - name: Restore Beta dependencies
         if: ${{env.IS_BETA == 'true' }}
