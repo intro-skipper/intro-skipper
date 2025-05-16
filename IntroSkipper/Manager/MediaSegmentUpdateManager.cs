@@ -10,6 +10,7 @@ using System.Threading.Tasks;
 using IntroSkipper.Data;
 using IntroSkipper.Providers;
 using MediaBrowser.Common.Extensions;
+using MediaBrowser.Controller.Library;
 using MediaBrowser.Controller.MediaSegments;
 using MediaBrowser.Model;
 using Microsoft.Extensions.Logging;
@@ -20,10 +21,12 @@ namespace IntroSkipper.Manager
     /// Initializes a new instance of the <see cref="MediaSegmentUpdateManager" /> class.
     /// </summary>
     /// <param name="mediaSegmentManager">MediaSegmentManager.</param>
+    /// <param name="libraryManager">LibraryManager.</param>
     /// <param name="logger">logger.</param>
-    public class MediaSegmentUpdateManager(IMediaSegmentManager mediaSegmentManager, ILogger<MediaSegmentUpdateManager> logger)
+    public class MediaSegmentUpdateManager(IMediaSegmentManager mediaSegmentManager, ILibraryManager libraryManager, ILogger<MediaSegmentUpdateManager> logger)
     {
         private readonly IMediaSegmentManager _mediaSegmentManager = mediaSegmentManager;
+        private readonly ILibraryManager _libraryManager = libraryManager;
         private readonly ILogger<MediaSegmentUpdateManager> _logger = logger;
         private readonly SegmentProvider _segmentProvider = new();
         private readonly string _id = Plugin.Instance!.Name.ToLowerInvariant()
@@ -52,8 +55,17 @@ namespace IntroSkipper.Manager
                     try
                     {
                         // Retrieve the existing segments for the episode.
+                        var item = Plugin.Instance!.GetItem(episode.EpisodeId);
+                        if (item is null)
+                        {
+                            _logger.LogError("Item not found for episode {EpisodeId}", episode.EpisodeId);
+                            return;
+                        }
+
+                        var libraryOptions = _libraryManager.GetLibraryOptions(item);
+
                         var existingSegments = await _mediaSegmentManager
-                            .GetSegmentsAsync(episode.EpisodeId, null, false)
+                            .GetSegmentsAsync(item, null, libraryOptions, false)
                             .ConfigureAwait(false);
 
                         // Start deletion of existing segments concurrently.
