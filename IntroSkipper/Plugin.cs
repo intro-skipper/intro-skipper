@@ -10,6 +10,7 @@ using System.Threading.Tasks;
 using IntroSkipper.Configuration;
 using IntroSkipper.Data;
 using IntroSkipper.Db;
+using IntroSkipper.Helper;
 using MediaBrowser.Common.Configuration;
 using MediaBrowser.Common.Plugins;
 using MediaBrowser.Controller.Chapters;
@@ -74,6 +75,15 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
         if (!Directory.Exists(FingerprintCachePath))
         {
             Directory.CreateDirectory(FingerprintCachePath);
+        }
+
+        try
+        {
+            LegacyMigrations.MigrateAll(this, serverConfiguration, logger, _libraryManager);
+        }
+        catch (Exception ex)
+        {
+            logger.LogError("Failed to perform migrations. Error: {Error}", ex);
         }
 
         // Initialize database, restore timestamps if available.
