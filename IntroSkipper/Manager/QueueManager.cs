@@ -5,6 +5,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Text.RegularExpressions;
 using IntroSkipper.Data;
 using Jellyfin.Data.Enums;
 using Jellyfin.Extensions;
@@ -24,7 +25,7 @@ namespace IntroSkipper.Manager;
 /// </remarks>
 /// <param name="logger">Logger.</param>
 /// <param name="libraryManager">Library manager.</param>
-public class QueueManager(ILogger<QueueManager> logger, ILibraryManager libraryManager)
+public partial class QueueManager(ILogger<QueueManager> logger, ILibraryManager libraryManager)
 {
     private readonly ILibraryManager _libraryManager = libraryManager;
     private readonly ILogger<QueueManager> _logger = logger;
@@ -33,7 +34,7 @@ public class QueueManager(ILogger<QueueManager> logger, ILibraryManager libraryM
     private List<string> _selectedLibraries = [];
     private bool _selectAllLibraries;
     private bool _analyzeMovies;
-    private List<string> _excludeSeries = [];
+    private HashSet<string> _excludeSeries = [];
 
     /// <summary>
     /// Gets all media items on the server.
@@ -96,7 +97,10 @@ public class QueueManager(ILogger<QueueManager> logger, ILibraryManager libraryM
 
         _selectAllLibraries = config.SelectAllLibraries;
         _analyzeMovies = config.AnalyzeMovies;
-        _excludeSeries = [.. config.ExcludeSeries.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)];
+
+        // Split excluded series once, use for both regular and normalized lists
+        var excluded = config.ExcludeSeries.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        _excludeSeries = [.. excluded.Select(NormalizeSeriesName).Where(s => !string.IsNullOrWhiteSpace(s))];
 
         if (!_selectAllLibraries)
         {
@@ -150,13 +154,28 @@ public class QueueManager(ILogger<QueueManager> logger, ILibraryManager libraryM
         {
             try
             {
-                if (item is Episode episode && !_excludeSeries.Contains(episode.SeriesName))
+                if (item is Episode episode)
                 {
-                    QueueEpisode(episode);
+                    if (!IsSeriesExcluded(episode.SeriesName))
+                    {
+                        QueueEpisode(episode);
+                    }
+                    else
+                    {
+                        _logger.LogDebug("Skipping excluded series: {Series}", episode.SeriesName);
+                    }
                 }
-                else if (item is Movie movie && !_excludeSeries.Contains(movie.Name))
+                else if (item is Movie movie)
                 {
-                    if (_analyzeMovies)
+                    if (!_analyzeMovies)
+                    {
+                        _logger.LogDebug("Skipping movie {Name}: movie analysis is disabled", movie.Name);
+                    }
+                    else if (IsSeriesExcluded(movie.Name))
+                    {
+                        _logger.LogDebug("Skipping excluded movie: {Name}", movie.Name);
+                    }
+                    else
                     {
                         QueueMovie(movie);
                     }
@@ -173,6 +192,43 @@ public class QueueManager(ILogger<QueueManager> logger, ILibraryManager libraryM
         }
 
         _logger.LogDebug("Queued {Count} episodes", items.Count);
+    }
+
+    /// <summary>
+    /// Normalizes a series name by removing punctuation and converting to lowercase
+    /// to make comparisons more robust.
+    /// </summary>
+    /// <param name="name">The series name to normalize.</param>
+    /// <returns>Normalized series name.</returns>
+    private static string NormalizeSeriesName(string name)
+    {
+        if (string.IsNullOrEmpty(name))
+        {
+            return string.Empty;
+        }
+
+        // Remove all punctuation and convert to lowercase
+        return NormalizeSeriesNameRegex().Replace(name, string.Empty)
+            .ToLowerInvariant()
+            .Trim();
+    }
+
+    /// <summary>
+    /// Checks if a series is in the excluded list, using normalized name comparison
+    /// to handle differences in punctuation.
+    /// </summary>
+    /// <param name="seriesName">The series name to check.</param>
+    /// <returns>True if the series should be excluded, false otherwise.</returns>
+    private bool IsSeriesExcluded(string seriesName)
+    {
+        if (string.IsNullOrEmpty(seriesName))
+        {
+            return false;
+        }
+
+        // Then check normalized match
+        var normalizedName = NormalizeSeriesName(seriesName);
+        return _excludeSeries.Contains(normalizedName);
     }
 
     private void QueueEpisode(Episode episode)
@@ -356,4 +412,7 @@ public class QueueManager(ILogger<QueueManager> logger, ILibraryManager libraryM
 
         return verified;
     }
+
+    [GeneratedRegex(@"[^\w\s]")]
+    private static partial Regex NormalizeSeriesNameRegex();
 }
