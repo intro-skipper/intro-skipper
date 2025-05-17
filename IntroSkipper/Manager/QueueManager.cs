@@ -100,7 +100,7 @@ public partial class QueueManager(ILogger<QueueManager> logger, ILibraryManager 
 
         // Split excluded series once, use for both regular and normalized lists
         var excluded = config.ExcludeSeries.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
-        _excludeSeries = [.. excluded.Select(NormalizeSeriesName)];
+        _excludeSeries = [.. excluded.Select(NormalizeSeriesName).Where(s => !string.IsNullOrWhiteSpace(s))];
 
         if (!_selectAllLibraries)
         {
@@ -167,7 +167,11 @@ public partial class QueueManager(ILogger<QueueManager> logger, ILibraryManager 
                 }
                 else if (item is Movie movie)
                 {
-                    if (!_analyzeMovies || IsSeriesExcluded(movie.Name))
+                    if (!_analyzeMovies)
+                    {
+                        _logger.LogDebug("Skipping movie {Name}: movie analysis is disabled", movie.Name);
+                    }
+                    else if (IsSeriesExcluded(movie.Name))
                     {
                         _logger.LogDebug("Skipping excluded movie: {Name}", movie.Name);
                     }
