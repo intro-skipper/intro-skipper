@@ -34,7 +34,7 @@ public partial class QueueManager(ILogger<QueueManager> logger, ILibraryManager 
     private List<string> _selectedLibraries = [];
     private bool _selectAllLibraries;
     private bool _analyzeMovies;
-    private List<string> _excludeSeries = [];
+    private HashSet<string> _excludeSeries = [];
 
     /// <summary>
     /// Gets all media items on the server.
@@ -167,13 +167,13 @@ public partial class QueueManager(ILogger<QueueManager> logger, ILibraryManager 
                 }
                 else if (item is Movie movie)
                 {
-                    if (!IsSeriesExcluded(movie.Name) && _analyzeMovies)
-                    {
-                        QueueMovie(movie);
-                    }
-                    else if (IsSeriesExcluded(movie.Name))
+                    if (!_analyzeMovies || IsSeriesExcluded(movie.Name))
                     {
                         _logger.LogDebug("Skipping excluded movie: {Name}", movie.Name);
+                    }
+                    else
+                    {
+                        QueueMovie(movie);
                     }
                 }
                 else
