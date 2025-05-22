@@ -129,28 +129,45 @@ public class TroubleshootingController : ControllerBase
         var libraries = _libraryManager.GetVirtualFolders();
         foreach (var library in libraries)
         {
-            try
+            bundle.AppendFormat(CultureInfo.CurrentCulture, "Library: {0}\n", library.Name);
+
+            if (library.Locations.Length == 0)
             {
-                DriveInfo driveInfo = new DriveInfo(library.Locations[0]);
-                // Get available free space in bytes
-                long availableFreeSpace = driveInfo.AvailableFreeSpace;
-
-                // Get total size of the drive in bytes
-                long totalSize = driveInfo.TotalSize;
-
-                // Get total used space in Percentage
-                double usedSpacePercentage = totalSize > 0 ? (totalSize - availableFreeSpace) / (double)totalSize * 100 : 0;
-
-                bundle.Append(CultureInfo.CurrentCulture, $"Library: {library.Name}\n");
-                bundle.Append(CultureInfo.CurrentCulture, $"Drive: {driveInfo.Name}\n");
-                bundle.Append(CultureInfo.CurrentCulture, $"Total Size: {GetHumanReadableSize(totalSize)}\n");
-                bundle.Append(CultureInfo.CurrentCulture, $"Available Free Space: {GetHumanReadableSize(availableFreeSpace)}\n");
-                bundle.Append(CultureInfo.CurrentCulture, $"Total used in Percentage: {Math.Round(usedSpacePercentage, 2)}%\n\n");
+                bundle.Append("No locations found for this library.\n\n");
+                continue;
             }
-            catch (Exception ex)
+
+            foreach (var location in library.Locations)
             {
-                _logger.LogWarning("Unable to get DriveInfo: {Exception}", ex);
+                try
+                {
+                    DriveInfo driveInfo = new DriveInfo(location);
+                    // Get available free space in bytes
+                    long availableFreeSpace = driveInfo.AvailableFreeSpace;
+
+                    // Get total size of the drive in bytes
+                    long totalSize = driveInfo.TotalSize;
+
+                    // Get total used space in Percentage
+                    double usedSpacePercentage = totalSize > 0 ? (totalSize - availableFreeSpace) / (double)totalSize * 100 : 0;
+
+                    bundle.AppendFormat(CultureInfo.CurrentCulture, "Location: {0}\n", location);
+                    bundle.AppendFormat(CultureInfo.CurrentCulture, "Drive: {0}\n", driveInfo.Name);
+                    bundle.AppendFormat(CultureInfo.CurrentCulture, "Total Size: {0}\n", GetHumanReadableSize(totalSize));
+                    bundle.AppendFormat(CultureInfo.CurrentCulture, "Available Free Space: {0}\n", GetHumanReadableSize(availableFreeSpace));
+                    bundle.AppendFormat(CultureInfo.CurrentCulture, "Total used in Percentage: {0}%\n", Math.Round(usedSpacePercentage, 2));
+                    bundle.Append("-----\n");
+                }
+                catch (Exception ex)
+                {
+                    bundle.AppendFormat(CultureInfo.CurrentCulture, "Location: {0}\n", location);
+                    bundle.AppendFormat(CultureInfo.CurrentCulture, "Unable to get drive information: {0}\n", ex.Message);
+                    bundle.Append("-----\n");
+                    _logger.LogWarning("Unable to get DriveInfo for location {Location}: {Exception}", location, ex);
+                }
             }
+
+            bundle.Append('\n');
         }
 
         return bundle.ToString().TrimEnd('\n');
