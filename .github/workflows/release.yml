@@ -91,6 +91,7 @@ jobs:
         env:
           GITHUB_REPO_VISIBILITY: ${{ github.event.repository.visibility }}
           MAIN_VERSION: ${{ env.MAIN_VERSION }}
+          GITHUB_PAT: ${{ secrets.PAT }}
 
       - name: Commit changes
         if: success()
