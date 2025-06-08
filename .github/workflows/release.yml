@@ -91,12 +91,13 @@ jobs:
         env:
           GITHUB_REPO_VISIBILITY: ${{ github.event.repository.visibility }}
           MAIN_VERSION: ${{ env.MAIN_VERSION }}
+          GITHUB_PAT: ${{ secrets.PAT }}
 
       - name: Commit changes
         if: success()
         run: |
           git config --global user.name "github-actions[bot]"
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
-          git add README.md manifest.json IntroSkipper/IntroSkipper.csproj .github/ISSUE_TEMPLATE/bug_report_form.yml
+          git add README.md IntroSkipper/IntroSkipper.csproj .github/ISSUE_TEMPLATE/bug_report_form.yml
           git commit -m "release v${{ env.NEW_FILE_VERSION }}"
           git push

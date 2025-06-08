@@ -64,17 +64,14 @@ jobs:
           npx terser IntroSkipper/Configuration/visualizer.js -o IntroSkipper/Configuration/visualizer.js -c -m
 
       - name: Download Jellyfin dependencies
-        if: ${{ env.IS_BETA == 'true' }}
+        if: ${{env.IS_BETA == 'true' }}
         run: |
-          echo "Downloading Jellyfin repository for beta build..."
-          # Change directory to the parent of the checked-out repository
-          cd $GITHUB_WORKSPACE/..
-          # Remove any existing jellyfin folder (if present)
-          rm -rf jellyfin
-          # Clone the Jellyfin repository (shallow clone for faster checkout)
-          git clone --depth 1 https://github.com/jellyfin/jellyfin.git jellyfin
+          dotnet nuget add source --username ${{ github.repository_owner }} --password ${{ secrets.GITHUB_TOKEN }} --store-password-in-clear-text --name jellyfin-pre "https://nuget.pkg.github.com/jellyfin/index.json"
+          dotnet tool install --global dotnet-outdated-tool
+          dotnet outdated -pre Always -u -inc Jellyfin
 
       - name: Restore dependencies
+        if: ${{env.IS_BETA == 'false' }}
         run: dotnet restore
 
       - name: Embed version info
