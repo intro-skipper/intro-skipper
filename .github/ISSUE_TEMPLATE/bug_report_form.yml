@@ -12,7 +12,7 @@ body:
 
         If you are unable to skip segments, please see [Troubleshooting](https://github.com/intro-skipper/intro-skipper/wiki/Troubleshooting) before reporting.
       options:
-        - label: I use Jellyfin 10.10.7 (or newer) and my permissions are correct
+        - label: I use Jellyfin 10.11.0-rc1 (or newer) and my permissions are correct
           required: true
   - type: textarea
     attributes:
