@@ -1570,7 +1570,7 @@
                 btnUpdateTimestamps.addEventListener("click", () => {
                     const getEditValue = (id) => parseFloat(document.getElementById(id).value) || 0;
 
-                    const lhsId = selectEpisode1.options[selectEpisode1.selectedIndex].value;
+                    const lhsId = (selectEpisode1.options[selectEpisode1.selectedIndex] || selectShow).value;
                     const newLhs = {
                         Introduction: {
                             ItemId: lhsId,
@@ -1593,34 +1593,33 @@
                             End: getEditValue("editLeftPreviewEpisodeEndEdit"),
                         },
                     };
-
-                    const rhsId = selectEpisode2.options[selectEpisode2.selectedIndex].value;
-                    const newRhs = {
-                        Introduction: {
-                            ItemId: rhsId,
-                            Start: getEditValue("editRightIntroEpisodeStartEdit"),
-                            End: getEditValue("editRightIntroEpisodeEndEdit"),
-                        },
-                        Credits: {
-                            ItemId: rhsId,
-                            Start: getEditValue("editRightCreditEpisodeStartEdit"),
-                            End: getEditValue("editRightCreditEpisodeEndEdit"),
-                        },
-                        Recap: {
-                            ItemId: rhsId,
-                            Start: getEditValue("editRightRecapEpisodeStartEdit"),
-                            End: getEditValue("editRightRecapEpisodeEndEdit"),
-                        },
-                        Preview: {
-                            ItemId: rhsId,
-                            Start: getEditValue("editRightPreviewEpisodeStartEdit"),
-                            End: getEditValue("editRightPreviewEpisodeEndEdit"),
-                        },
-                    };
-
+                    if (rightEpisodeEditor.style.display !== "none") {
+						const rhsId = selectEpisode2.options[selectEpisode2.selectedIndex].value;
+						const newRhs = {
+							Introduction: {
+								ItemId: rhsId,
+								Start: getEditValue("editRightIntroEpisodeStartEdit"),
+								End: getEditValue("editRightIntroEpisodeEndEdit"),
+							},
+							Credits: {
+								ItemId: rhsId,
+								Start: getEditValue("editRightCreditEpisodeStartEdit"),
+								End: getEditValue("editRightCreditEpisodeEndEdit"),
+							},
+							Recap: {
+								ItemId: rhsId,
+								Start: getEditValue("editRightRecapEpisodeStartEdit"),
+								End: getEditValue("editRightRecapEpisodeEndEdit"),
+							},
+							Preview: {
+								ItemId: rhsId,
+								Start: getEditValue("editRightPreviewEpisodeStartEdit"),
+								End: getEditValue("editRightPreviewEpisodeEndEdit"),
+							},
+						};
+						fetchWithAuth("Episode/" + rhsId + "/Timestamps", "POST", JSON.stringify(newRhs));
+					}
                     fetchWithAuth("Episode/" + lhsId + "/Timestamps", "POST", JSON.stringify(newLhs));
-                    fetchWithAuth("Episode/" + rhsId + "/Timestamps", "POST", JSON.stringify(newRhs));
-
                     Dashboard.alert("New segment timestamps saved");
                 });
 
