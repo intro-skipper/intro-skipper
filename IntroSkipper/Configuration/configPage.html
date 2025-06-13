@@ -782,6 +782,13 @@
 
                                 <textarea id="supportBundle" rows="20" cols="75" readonly></textarea>
                             </details>
+
+                            <details id="storage">
+                                <br />
+                                <summary>Storage Usage</summary>
+                                <div class="fieldDescription">See how much space each library uses.</div>
+                                <textarea id="storageText" rows="20" cols="75" readonly></textarea>
+                            </details>
                         </fieldset>
                     </form>
                 </div>
@@ -804,6 +811,7 @@
                 // settings elements
                 const visualizer = document.querySelector("details#visualizer");
                 const support = document.querySelector("details#support");
+                const storage = document.querySelector("details#storage");
                 const btnRebuildDatabase = document.querySelector("button#btnRebuildDatabase");
 
                 // all plugin configuration fields that can be get or set with .value (i.e. strings or numbers).
@@ -1082,6 +1090,21 @@
                     } catch {
                         Dashboard.alert("Press Ctrl+C to copy support bundle");
                     }
+                }
+
+                // fetch the storage whenever the detail section is opened.
+                async function storageToggled() {
+                    if (!storage.open) {
+                        return;
+                    }
+
+                    // Fetch the support bundle
+                    const bundle = await fetchWithAuth("IntroSkipper/Storage", "GET", null);
+                    const bundleText = await bundle.text();
+
+                    // Display it to the user
+                    const ta = document.querySelector("textarea#storageText");
+                    ta.value = bundleText;
                 }
 
                 // show changed, populate seasons
@@ -1509,6 +1532,7 @@
 
                 visualizer.addEventListener("toggle", visualizerToggled);
                 support.addEventListener("toggle", supportToggled);
+                storage.addEventListener("toggle", storageToggled);
                 txtOffset.addEventListener("change", renderTroubleshooter);
                 selectShow.addEventListener("change", showChanged);
                 selectSeason.addEventListener("change", seasonChanged);
