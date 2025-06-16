@@ -11,69 +11,68 @@ using MediaBrowser.Controller.MediaSegments;
 using MediaBrowser.Model.Configuration;
 using Microsoft.Extensions.Logging;
 
-namespace IntroSkipper.Manager
+namespace IntroSkipper.Manager;
+
+/// <summary>
+/// Initializes a new instance of the <see cref="MediaSegmentUpdateManager" /> class.
+/// </summary>
+/// <param name="mediaSegmentManager">The Jellyfin <see cref="IMediaSegmentManager"/> used to update segments.</param>
+/// <param name="externalSegmentProviders">Registry providing access to external segment providers to be disabled.</param>
+/// <param name="logger">Application logger.</param>
+public class MediaSegmentUpdateManager(
+    IMediaSegmentManager mediaSegmentManager,
+    IExternalSegmentProviders externalSegmentProviders,
+    ILogger<MediaSegmentUpdateManager> logger)
 {
+    private readonly IMediaSegmentManager _mediaSegmentManager = mediaSegmentManager;
+    private readonly ILogger<MediaSegmentUpdateManager> _logger = logger;
+    private readonly LibraryOptions _externalProviders = externalSegmentProviders.Providers;
+
     /// <summary>
-    /// Initializes a new instance of the <see cref="MediaSegmentUpdateManager" /> class.
+    /// Updates all media items in a List.
     /// </summary>
-    /// <param name="mediaSegmentManager">The Jellyfin <see cref="IMediaSegmentManager"/> used to update segments.</param>
-    /// <param name="externalSegmentProviders">Registry providing access to external segment providers to be disabled.</param>
-    /// <param name="logger">Application logger.</param>
-    public class MediaSegmentUpdateManager(
-        IMediaSegmentManager mediaSegmentManager,
-        IExternalSegmentProviders externalSegmentProviders,
-        ILogger<MediaSegmentUpdateManager> logger)
+    /// <param name="episodes">Queued media items.</param>
+    /// <param name="cancellationToken">CancellationToken.</param>
+    /// <returns>A <see cref="Task"/> representing the asynchronous operation.</returns>
+    public async Task UpdateMediaSegmentsAsync(
+        IReadOnlyList<QueuedEpisode> episodes,
+        CancellationToken cancellationToken)
     {
-        private readonly IMediaSegmentManager _mediaSegmentManager = mediaSegmentManager;
-        private readonly ILogger<MediaSegmentUpdateManager> _logger = logger;
-        private readonly LibraryOptions _libraryOptions = externalSegmentProviders.Providers;
+        _logger.LogDebug("External segment providers: {Providers}", string.Join(", ", _externalProviders.DisabledMediaSegmentProviders));
 
-        /// <summary>
-        /// Updates all media items in a List.
-        /// </summary>
-        /// <param name="episodes">Queued media items.</param>
-        /// <param name="cancellationToken">CancellationToken.</param>
-        /// <returns>A <see cref="Task"/> representing the asynchronous operation.</returns>
-        public async Task UpdateMediaSegmentsAsync(
-            IReadOnlyList<QueuedEpisode> episodes,
-            CancellationToken cancellationToken)
-        {
-            _logger.LogDebug("External segment providers: {Providers}", string.Join(", ", _libraryOptions.DisabledMediaSegmentProviders));
-
-            var maxParallelism = Plugin.Instance!.Configuration.MaxParallelism;
-            await Parallel.ForEachAsync(
-                episodes,
-                new ParallelOptions
+        var maxParallelism = Plugin.Instance!.Configuration.MaxParallelism;
+        await Parallel.ForEachAsync(
+            episodes,
+            new ParallelOptions
+            {
+                CancellationToken = cancellationToken,
+                MaxDegreeOfParallelism = maxParallelism
+            },
+            async (episode, ct) =>
+            {
+                try
                 {
-                    CancellationToken = cancellationToken,
-                    MaxDegreeOfParallelism = maxParallelism
-                },
-                async (episode, ct) =>
+                    // Retrieve the existing segments for the episode.
+                    var item = Plugin.Instance!.GetItem(episode.EpisodeId);
+                    if (item is null)
+                    {
+                        _logger.LogError("Item not found for episode {EpisodeId}", episode.EpisodeId);
+                        return;
+                    }
+
+                    await _mediaSegmentManager.RunSegmentPluginProviders(item, _externalProviders, true, ct).ConfigureAwait(false);
+
+                    _logger.LogDebug("Updated segments for episode {EpisodeId}", episode.EpisodeId);
+                }
+                catch (OperationCanceledException)
                 {
-                    try
-                    {
-                        // Retrieve the existing segments for the episode.
-                        var item = Plugin.Instance!.GetItem(episode.EpisodeId);
-                        if (item is null)
-                        {
-                            _logger.LogError("Item not found for episode {EpisodeId}", episode.EpisodeId);
-                            return;
-                        }
-
-                        await _mediaSegmentManager.RunSegmentPluginProviders(item, _libraryOptions, true, ct).ConfigureAwait(false);
-
-                        _logger.LogDebug("Updated segments for episode {EpisodeId}", episode.EpisodeId);
-                    }
-                    catch (OperationCanceledException)
-                    {
-                        _logger.LogDebug("Processing for episode {EpisodeId} was canceled.", episode.EpisodeId);
-                        throw;
-                    }
-                    catch (Exception ex)
-                    {
-                        _logger.LogError(ex, "Error processing episode {EpisodeId}", episode.EpisodeId);
-                    }
-                }).ConfigureAwait(false);
-        }
+                    _logger.LogDebug("Processing for episode {EpisodeId} was canceled.", episode.EpisodeId);
+                    throw;
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "Error processing episode {EpisodeId}", episode.EpisodeId);
+                }
+            }).ConfigureAwait(false);
     }
 }
