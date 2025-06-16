@@ -6,7 +6,6 @@ using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
 using IntroSkipper.Data;
-using IntroSkipper.Providers;
 using MediaBrowser.Controller.MediaSegments;
 using MediaBrowser.Model.Configuration;
 using Microsoft.Extensions.Logging;
@@ -17,16 +16,17 @@ namespace IntroSkipper.Manager;
 /// Initializes a new instance of the <see cref="MediaSegmentUpdateManager" /> class.
 /// </summary>
 /// <param name="mediaSegmentManager">The Jellyfin <see cref="IMediaSegmentManager"/> used to update segments.</param>
-/// <param name="externalSegmentProviders">Registry providing access to external segment providers to be disabled.</param>
 /// <param name="logger">Application logger.</param>
 public class MediaSegmentUpdateManager(
     IMediaSegmentManager mediaSegmentManager,
-    IExternalSegmentProviders externalSegmentProviders,
     ILogger<MediaSegmentUpdateManager> logger)
 {
     private readonly IMediaSegmentManager _mediaSegmentManager = mediaSegmentManager;
     private readonly ILogger<MediaSegmentUpdateManager> _logger = logger;
-    private readonly LibraryOptions _externalProviders = externalSegmentProviders.Providers;
+    private readonly LibraryOptions _externalProviders = new()
+    {
+        DisabledMediaSegmentProviders = ["Chapter Segments Provider"]
+    };
 
     /// <summary>
     /// Updates all media items in a List.
@@ -38,8 +38,6 @@ public class MediaSegmentUpdateManager(
         IReadOnlyList<QueuedEpisode> episodes,
         CancellationToken cancellationToken)
     {
-        _logger.LogDebug("External segment providers: {Providers}", string.Join(", ", _externalProviders.DisabledMediaSegmentProviders));
-
         var maxParallelism = Plugin.Instance!.Configuration.MaxParallelism;
         await Parallel.ForEachAsync(
             episodes,
