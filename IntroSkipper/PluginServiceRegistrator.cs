@@ -21,7 +21,14 @@ namespace IntroSkipper
         {
             serviceCollection.AddHostedService<AutoSkip>();
             serviceCollection.AddHostedService<Entrypoint>();
+
+            // Register all external segment providers (already added individually elsewhere).
             serviceCollection.AddSingleton<IMediaSegmentProvider, SegmentProvider>();
+
+            // Register registry exposing the providers to consumers.
+            serviceCollection.AddSingleton<IExternalSegmentProviders, ExternalSegmentProviders>();
+
+            // Manager depends on IExternalSegmentProviders, use transient lifetime.
             serviceCollection.AddTransient<MediaSegmentUpdateManager>();
         }
     }

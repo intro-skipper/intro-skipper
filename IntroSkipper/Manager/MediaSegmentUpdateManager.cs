@@ -3,16 +3,12 @@
 
 using System;
 using System.Collections.Generic;
-using System.Globalization;
-using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using IntroSkipper.Data;
 using IntroSkipper.Providers;
-using MediaBrowser.Common.Extensions;
-using MediaBrowser.Controller.Library;
 using MediaBrowser.Controller.MediaSegments;
-using MediaBrowser.Model;
+using MediaBrowser.Model.Configuration;
 using Microsoft.Extensions.Logging;
 
 namespace IntroSkipper.Manager
@@ -20,18 +16,17 @@ namespace IntroSkipper.Manager
     /// <summary>
     /// Initializes a new instance of the <see cref="MediaSegmentUpdateManager" /> class.
     /// </summary>
-    /// <param name="mediaSegmentManager">MediaSegmentManager.</param>
-    /// <param name="libraryManager">LibraryManager.</param>
-    /// <param name="logger">logger.</param>
-    public class MediaSegmentUpdateManager(IMediaSegmentManager mediaSegmentManager, ILibraryManager libraryManager, ILogger<MediaSegmentUpdateManager> logger)
+    /// <param name="mediaSegmentManager">The Jellyfin <see cref="IMediaSegmentManager"/> used to update segments.</param>
+    /// <param name="externalSegmentProviders">Registry providing access to external segment providers to be disabled.</param>
+    /// <param name="logger">Application logger.</param>
+    public class MediaSegmentUpdateManager(
+        IMediaSegmentManager mediaSegmentManager,
+        IExternalSegmentProviders externalSegmentProviders,
+        ILogger<MediaSegmentUpdateManager> logger)
     {
         private readonly IMediaSegmentManager _mediaSegmentManager = mediaSegmentManager;
-        private readonly ILibraryManager _libraryManager = libraryManager;
         private readonly ILogger<MediaSegmentUpdateManager> _logger = logger;
-        private readonly SegmentProvider _segmentProvider = new();
-        private readonly string _id = Plugin.Instance!.Name.ToLowerInvariant()
-                        .GetMD5()
-                        .ToString("N", CultureInfo.InvariantCulture);
+        private readonly LibraryOptions _libraryOptions = externalSegmentProviders.Providers;
 
         /// <summary>
         /// Updates all media items in a List.
@@ -43,12 +38,15 @@ namespace IntroSkipper.Manager
             IReadOnlyList<QueuedEpisode> episodes,
             CancellationToken cancellationToken)
         {
+            _logger.LogDebug("External segment providers: {Providers}", string.Join(", ", _libraryOptions.DisabledMediaSegmentProviders));
+
+            var maxParallelism = Plugin.Instance!.Configuration.MaxParallelism;
             await Parallel.ForEachAsync(
                 episodes,
                 new ParallelOptions
                 {
                     CancellationToken = cancellationToken,
-                    MaxDegreeOfParallelism = Plugin.Instance!.Configuration.MaxParallelism
+                    MaxDegreeOfParallelism = maxParallelism
                 },
                 async (episode, ct) =>
                 {
@@ -62,41 +60,9 @@ namespace IntroSkipper.Manager
                             return;
                         }
 
-                        var libraryOptions = _libraryManager.GetLibraryOptions(item);
+                        await _mediaSegmentManager.RunSegmentPluginProviders(item, _libraryOptions, true, ct).ConfigureAwait(false);
 
-                        var existingSegments = await _mediaSegmentManager
-                            .GetSegmentsAsync(item, null, libraryOptions, false)
-                            .ConfigureAwait(false);
-
-                        // Start deletion of existing segments concurrently.
-                        var deleteTask = Task.WhenAll(
-                            existingSegments.Select(segment => _mediaSegmentManager.DeleteSegmentAsync(segment.Id)));
-
-                        // Start generating new segments concurrently.
-                        var newSegmentsTask = _segmentProvider
-                            .GetMediaSegments(new MediaSegmentGenerationRequest { ItemId = episode.EpisodeId }, ct);
-
-                        // Await both deletion and generation concurrently.
-                        await Task.WhenAll(deleteTask, newSegmentsTask).ConfigureAwait(false);
-
-                        // Check cancellation before proceeding.
-                        ct.ThrowIfCancellationRequested();
-
-                        // Retrieve the newly generated segments.
-                        var newSegments = await newSegmentsTask.ConfigureAwait(false);
-
-                        if (newSegments.Count == 0)
-                        {
-                            _logger.LogDebug("No segments found for episode {EpisodeId}", episode.EpisodeId);
-                            return;
-                        }
-
-                        // Insert the new segments concurrently.
-                        await Task.WhenAll(
-                            newSegments.Select(segment => _mediaSegmentManager.CreateSegmentAsync(segment, _id)))
-                            .ConfigureAwait(false);
-
-                        _logger.LogDebug("Updated {SegmentCount} segments for episode {EpisodeId}", newSegments.Count, episode.EpisodeId);
+                        _logger.LogDebug("Updated segments for episode {EpisodeId}", episode.EpisodeId);
                     }
                     catch (OperationCanceledException)
                     {

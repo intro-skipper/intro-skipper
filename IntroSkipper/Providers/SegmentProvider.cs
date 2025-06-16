@@ -21,6 +21,17 @@ namespace IntroSkipper.Providers
     /// </summary>
     public class SegmentProvider : IMediaSegmentProvider
     {
+        /// <summary>
+        /// Mappings between AnalysisMode and MediaSegmentType.
+        /// </summary>
+        private static readonly Dictionary<AnalysisMode, MediaSegmentType> _segmentMappings = new()
+        {
+            [AnalysisMode.Introduction] = MediaSegmentType.Intro,
+            [AnalysisMode.Recap] = MediaSegmentType.Recap,
+            [AnalysisMode.Preview] = MediaSegmentType.Preview,
+            [AnalysisMode.Credits] = MediaSegmentType.Outro
+        };
+
         /// <inheritdoc/>
         public string Name => Plugin.Instance!.Name;
 
@@ -33,16 +44,7 @@ namespace IntroSkipper.Providers
             var segments = new List<MediaSegmentDto>();
             var itemSegments = Plugin.Instance.GetTimestamps(request.ItemId);
 
-            // Define mappings between AnalysisMode and MediaSegmentType
-            var segmentMappings = new List<(AnalysisMode Mode, MediaSegmentType Type)>
-            {
-                (AnalysisMode.Introduction, MediaSegmentType.Intro),
-                (AnalysisMode.Recap, MediaSegmentType.Recap),
-                (AnalysisMode.Preview, MediaSegmentType.Preview),
-                (AnalysisMode.Credits, MediaSegmentType.Outro)
-            };
-
-            foreach (var (mode, type) in segmentMappings)
+            foreach (var (mode, type) in _segmentMappings)
             {
                 if (itemSegments.TryGetValue(mode, out var segment) && segment.Valid)
                 {
