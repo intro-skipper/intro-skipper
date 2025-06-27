@@ -10,7 +10,7 @@ This document describes how this project collects, handles, and processes data.
 - User preferences and settings are stored locally on your device.
 
 ## Network Communications
-- No tracking or analytics services are implemented.
+- No tracking or analytics services are implemented. As is common with **any** service, anonymous statistics about the devices or connection types may be recorded during the download process. This includes, but is not limited to, the version of the Jellyfin server requesting a download. This information is used for the purpose of maintaining support for these versions throughout their perceived lifetime.
 
 ## Third-Party Services
 - Server hosting services (https://intro-skipper.org/manifest.json) collect no sensitive data.
