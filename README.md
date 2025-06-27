@@ -19,7 +19,6 @@
 ```
 https://intro-skipper.org/manifest.json
 ```
-
 ## System requirements
 
 * Jellyfin 10.11.0-rc2 (or newer)
@@ -29,6 +28,10 @@ https://intro-skipper.org/manifest.json
   * Debian Linux based native installs: provided by the `jellyfin-ffmpeg7` package
   * MacOS native installs: build ffmpeg with chromaprint support ([instructions](https://github.com/intro-skipper/intro-skipper/wiki/Custom-FFMPEG-(MacOS)))
   * Gentoo Linux native installs: enable `xarblu-overlay` and install `media-video/jellyfin-ffmpeg`
+
+## Policies
+- [Code of conduct](CODE_OF_CONDUCT.md)
+- [Privacy policy](PRIVACY.md)
 
 ## Limitations
 
