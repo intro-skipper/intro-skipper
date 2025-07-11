@@ -797,16 +797,17 @@
             <script src="configurationpage?name=visualizer.js"></script>
 
             <script>
-                // first and second episodes to fingerprint & compare
-                let lhs = [];
-                let rhs = [];
+                (function() {
+                    // first and second episodes to fingerprint & compare
+                    let lhs = [];
+                    let rhs = [];
 
-                // fingerprint point comparison & miminum similarity threshold (at most 6 bits out of 32 can be different)
-                let fprDiffs = [];
-                const fprDiffMinimum = (1 - 6 / 32) * 100;
+                    // fingerprint point comparison & miminum similarity threshold (at most 6 bits out of 32 can be different)
+                    let fprDiffs = [];
+                    const fprDiffMinimum = (1 - 6 / 32) * 100;
 
-                // seasons grouped by show
-                let shows = {};
+                    // seasons grouped by show
+                    let shows = {};
 
                 // settings elements
                 const visualizer = document.querySelector("details#visualizer");
@@ -1473,7 +1474,7 @@
                     });
                 }
 
-                document.querySelector("#TemplateConfigPage").addEventListener("pageshow", () => {
+                function loadConfiguration() {
                     Dashboard.showLoadingMsg();
                     ApiClient.getPluginConfiguration("c83d86bb-a1e0-4c35-a113-e2101cf4ee6b")
                         .then((config) => {
@@ -1499,7 +1500,10 @@
                         .catch((error) => {
                             Dashboard.hideLoadingMsg();
                         });
-                });
+                }
+
+                // Initial load
+                document.querySelector("#TemplateConfigPage").addEventListener("pageshow", loadConfiguration);
 
                 document.querySelector("#FingerprintConfigForm").addEventListener("submit", (e) => {
                     Dashboard.showLoadingMsg();
@@ -1734,6 +1738,7 @@
                     let [hours, minutes, seconds] = time.split(":").map(Number);
                     return hours * 3600 + minutes * 60 + seconds;
                 }
+                })();
             </script>
         </div>
     </body>
