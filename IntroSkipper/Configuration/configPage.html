@@ -797,7 +797,14 @@
             <script src="configurationpage?name=visualizer.js"></script>
 
             <script>
-                (function() {
+                // Create namespace
+                window.IntroSkipper = window.IntroSkipper || {};
+
+                // Config module
+                IntroSkipper.Config = (function() {
+                    'use strict';
+
+                    // Private variables
                     // first and second episodes to fingerprint & compare
                     let lhs = [];
                     let rhs = [];
@@ -1209,9 +1216,9 @@
                     Dashboard.hideLoadingMsg();
 
                     txtOffset.value = "0";
-                    refreshBounds();
-                    renderTroubleshooter();
-                    findExactMatches();
+                    IntroSkipper.Visualizer.refreshBounds();
+                    IntroSkipper.Visualizer.renderTroubleshooter();
+                    IntroSkipper.Visualizer.findExactMatches();
                     await updateTimestampEditor();
                 }
 
@@ -1434,7 +1441,7 @@
                         episodeChanged();
                     }
 
-                    renderTroubleshooter();
+                    IntroSkipper.Visualizer.renderTroubleshooter();
                     e.preventDefault();
                 }
 
@@ -1537,7 +1544,9 @@
                 visualizer.addEventListener("toggle", visualizerToggled);
                 support.addEventListener("toggle", supportToggled);
                 storage.addEventListener("toggle", storageToggled);
-                txtOffset.addEventListener("change", renderTroubleshooter);
+                txtOffset.addEventListener("change", function() {
+                    IntroSkipper.Visualizer.renderTroubleshooter();
+                });
                 selectShow.addEventListener("change", showChanged);
                 selectSeason.addEventListener("change", seasonChanged);
                 selectEpisode1.addEventListener("change", episodeChanged);
@@ -1738,6 +1747,41 @@
                     let [hours, minutes, seconds] = time.split(":").map(Number);
                     return hours * 3600 + minutes * 60 + seconds;
                 }
+
+                // Public API
+                return {
+                    // Expose state for visualizer
+                    getState: function() {
+                        return {
+                            lhs: lhs,
+                            rhs: rhs,
+                            fprDiffs: fprDiffs,
+                            fprDiffMinimum: fprDiffMinimum
+                        };
+                    },
+
+                    // Expose DOM elements
+                    getElements: function() {
+                        return {
+                            canvas: canvas,
+                            txtOffset: txtOffset,
+                            selectEpisode1: selectEpisode1,
+                            selectEpisode2: selectEpisode2,
+                            txtSuggested: txtSuggested,
+                            timeContainer: timeContainer
+                        };
+                    },
+
+                    // Expose utility functions
+                    utils: {
+                        secondsToString: secondsToString
+                    },
+
+                    // Setter for visualizer to update state
+                    setFprDiffs: function(diffs) {
+                        fprDiffs = diffs;
+                    }
+                };
                 })();
             </script>
         </div>
