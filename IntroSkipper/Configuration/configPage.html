@@ -1583,7 +1583,23 @@
                 btnUpdateTimestamps.addEventListener("click", () => {
                     const getEditValue = (id) => parseFloat(document.getElementById(id).value) || 0;
 
-                    const lhsId = (selectEpisode1.options[selectEpisode1.selectedIndex] || selectShow).value;
+                    // Check if we're dealing with a movie or TV show
+                    const isMovie = selectShow.value && shows[selectShow.value] && shows[selectShow.value].IsMovie;
+
+                    let lhsId;
+                    if (isMovie) {
+                        // For movies, use the show ID directly
+                        lhsId = selectShow.value;
+                    } else {
+                        // For TV shows, use the selected episode
+                        const selectedOption = selectEpisode1.options[selectEpisode1.selectedIndex];
+                        if (!selectedOption) {
+                            Dashboard.alert("Please select an episode first");
+                            return;
+                        }
+                        lhsId = selectedOption.value;
+                    }
+
                     const newLhs = {
                         Introduction: {
                             ItemId: lhsId,
@@ -1606,33 +1622,41 @@
                             End: getEditValue("editLeftPreviewEpisodeEndEdit"),
                         },
                     };
-                    if (rightEpisodeEditor.style.display !== "none") {
-						const rhsId = selectEpisode2.options[selectEpisode2.selectedIndex].value;
-						const newRhs = {
-							Introduction: {
-								ItemId: rhsId,
-								Start: getEditValue("editRightIntroEpisodeStartEdit"),
-								End: getEditValue("editRightIntroEpisodeEndEdit"),
-							},
-							Credits: {
-								ItemId: rhsId,
-								Start: getEditValue("editRightCreditEpisodeStartEdit"),
-								End: getEditValue("editRightCreditEpisodeEndEdit"),
-							},
-							Recap: {
-								ItemId: rhsId,
-								Start: getEditValue("editRightRecapEpisodeStartEdit"),
-								End: getEditValue("editRightRecapEpisodeEndEdit"),
-							},
-							Preview: {
-								ItemId: rhsId,
-								Start: getEditValue("editRightPreviewEpisodeStartEdit"),
-								End: getEditValue("editRightPreviewEpisodeEndEdit"),
-							},
-						};
-						fetchWithAuth("Episode/" + rhsId + "/Timestamps", "POST", JSON.stringify(newRhs));
-					}
+
+                    // Save the first/left timestamps
                     fetchWithAuth("Episode/" + lhsId + "/Timestamps", "POST", JSON.stringify(newLhs));
+
+                    // For TV shows, also save the second episode's timestamps
+                    if (!isMovie && rightEpisodeEditor.style.display !== "none") {
+                        const rhsSelectedOption = selectEpisode2.options[selectEpisode2.selectedIndex];
+                        if (rhsSelectedOption) {
+                            const rhsId = rhsSelectedOption.value;
+                            const newRhs = {
+                                Introduction: {
+                                    ItemId: rhsId,
+                                    Start: getEditValue("editRightIntroEpisodeStartEdit"),
+                                    End: getEditValue("editRightIntroEpisodeEndEdit"),
+                                },
+                                Credits: {
+                                    ItemId: rhsId,
+                                    Start: getEditValue("editRightCreditEpisodeStartEdit"),
+                                    End: getEditValue("editRightCreditEpisodeEndEdit"),
+                                },
+                                Recap: {
+                                    ItemId: rhsId,
+                                    Start: getEditValue("editRightRecapEpisodeStartEdit"),
+                                    End: getEditValue("editRightRecapEpisodeEndEdit"),
+                                },
+                                Preview: {
+                                    ItemId: rhsId,
+                                    Start: getEditValue("editRightPreviewEpisodeStartEdit"),
+                                    End: getEditValue("editRightPreviewEpisodeEndEdit"),
+                                },
+                            };
+                            fetchWithAuth("Episode/" + rhsId + "/Timestamps", "POST", JSON.stringify(newRhs));
+                        }
+                    }
+
                     Dashboard.alert("New segment timestamps saved");
                 });
 
