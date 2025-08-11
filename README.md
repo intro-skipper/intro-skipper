@@ -16,9 +16,13 @@
 
 ## Manifest URL (All Jellyfin Versions)
 
+**Important: This URL returns a manifest based on the Jellyfin version used to access it.
+<br />
+It will NOT return a manifest when viewed in a browser, as no Jellyfin version is provided.**
 ```
 https://intro-skipper.org/manifest.json
 ```
+
 ## System requirements
 
 * Jellyfin 10.11.0-rc2 (or newer)
