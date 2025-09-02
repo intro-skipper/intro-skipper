@@ -349,4 +349,14 @@ public class PluginConfiguration : BasePluginConfiguration
     /// Gets or sets a value indicating whether movies should be analyzed.
     /// </summary>
     public bool AnalyzeMovies { get; set; }
+
+    /// <summary>
+    /// Gets or sets the amount of seconds to wait before hiding the skip button.
+    /// </summary>
+    public int SkipbuttonHideDelay { get; set; } = 8;
+
+    /// <summary>
+    /// Gets a value indicating whether the File Transformation plugin is enabled.
+    /// </summary>
+    public bool FileTransformationPluginEnabled => Plugin.Instance?.FileTransformationPluginEnabled ?? false;
 }

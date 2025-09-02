@@ -90,6 +90,21 @@
                                 <div class="fieldDescription">Note: Shows containing both a specials and extra folder will identify extras as season 0 and ignore specials, regardless of this setting.</div>
                             </div>
 
+                            <div id="divSkipbuttonHideDelay" class="inputContainer">
+                                <label class="inputLabel inputLabelUnfocused" for="SkipbuttonHideDelay"> Skip button hide delay (in seconds) </label>
+                                <input id="SkipbuttonHideDelay" type="number" is="emby-input" min="0" max="1000"/>
+                                <div class="fieldDescription">
+                                    <span id="skipButtonDescription">Time in seconds before the skip button automatically hides. Set to 0 for persistent skip button (never hides).</span>
+                                    <div id="fileTransformationWarning" style="display: none; color: #f44336; margin-top: 8px;">
+                                        <strong>⚠️ File Transformation Plugin Required</strong><br />
+                                        This feature requires the File Transformation plugin to work.
+                                        <a href="https://github.com/IAmParadox27/jellyfin-plugin-file-transformation" target="_blank" style="color: #2196f3;">
+                                            Install it here
+                                        </a>
+                                    </div>
+                                </div>
+                            </div>
+
                             <details id="intro_reqs">
                                 <summary>Modify Analysis Parameters</summary>
 
@@ -848,6 +863,7 @@
                     "IntroEndOffset",
                     "IntroStartOffset",
                     "AutoSkipDelay",
+                    "SkipbuttonHideDelay",
                     // internals
                     "SilenceDetectionMaximumNoise",
                     "SilenceDetectionMinimumDuration",
@@ -1462,6 +1478,25 @@
                     return new Date(seconds * 1000).toISOString().slice(14, 19);
                 }
 
+                // Check if File Transformation plugin is available and enable/disable skip button settings
+                function checkFileTransformationPlugin(config) {
+                    const skipButtonField = document.querySelector("#SkipbuttonHideDelay");
+                    const skipButtonContainer = document.querySelector("#divSkipbuttonHideDelay");
+                    const warning = document.querySelector("#fileTransformationWarning");
+
+                    if (config.FileTransformationPluginEnabled) {
+                        // Plugin is available - enable the field
+                        skipButtonField.disabled = false;
+                        skipButtonContainer.style.opacity = "1";
+                        warning.style.display = "none";
+                    } else {
+                        // Plugin is not available - disable the field and show warning
+                        skipButtonField.disabled = true;
+                        skipButtonContainer.style.opacity = "0.5";
+                        warning.style.display = "block";
+                    }
+                }
+
                 // erase all intro/credits timestamps
                 function eraseTimestamps(mode) {
                     const lower = mode.toLocaleLowerCase();
@@ -1501,6 +1536,7 @@
                             alternativeBlackFrameAnalyzerSettingsVisible();
                             adjustSettingsVisible();
                             globalTimestampChanged();
+                            checkFileTransformationPlugin(config);
 
                             Dashboard.hideLoadingMsg();
                         })
