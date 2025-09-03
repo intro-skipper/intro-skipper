@@ -1,6 +1,5 @@
 using System;
 using System.Collections.Generic;
-using System.Linq;
 using IntroSkipper.Configuration;
 using IntroSkipper.Data;
 using MediaBrowser.Model.Entities;
@@ -13,6 +12,7 @@ namespace IntroSkipper.Analyzers;
 /// </summary>
 public class TimeAdjustmentHelper(ILogger logger, PluginConfiguration config)
 {
+    private const double Epsilon = 1e-3; // 1 ms tolerance for floating point comparisons
     private readonly ILogger _logger = logger;
     private readonly PluginConfiguration _config = config;
 
@@ -50,27 +50,53 @@ public class TimeAdjustmentHelper(ILogger logger, PluginConfiguration config)
             originalIntro.Start,
             originalIntro.End);
 
-        double adjustedStart = originalIntro.Start;
+        // Clamp original bounds to the media duration to avoid downstream surprises
+        double adjustedStart = Math.Clamp(originalIntro.Start, 0, duration);
+        bool snapToEpisodeStart = false;
+
         if (adjustedStart < 0)
         {
             _logger.LogWarning("{EpisodeId} {Name}: Negative intro start {Start}, resetting to 0", episode.EpisodeId, episode.Name, adjustedStart);
-            adjustedStart = 0;
+            snapToEpisodeStart = true;
         }
-        else if (adjustedStart < _config.EndSnapThreshold)
+        else if (adjustedStart <= _config.EndSnapThreshold + Epsilon)
         {
-            adjustedStart = 0;
+            // If the detected start is within threshold of episode start, snap
+            snapToEpisodeStart = true;
         }
         else if (useChapters && chapters.Count > 0)
         {
+            // Only adjust to chapter boundaries if we're not snapping to start
             var searchRange = GetSearchRange(originalIntro.Start, duration, _config.AdjustWindowOutward, _config.AdjustWindowInward);
-            adjustedStart = GetChapterBoundary(chapters, originalIntro.Start, searchRange);
+            adjustedStart = GetChapterBoundary(chapters, adjustedStart, searchRange);
         }
 
-        // Apply configurable start offset after all other start logic
-        adjustedStart += _config.IntroStartOffset;
+        if (snapToEpisodeStart)
+        {
+            // When snapping to episode start, do NOT apply IntroStartOffset
+            _logger.LogTrace(
+                "{EpisodeId} {Name}: Snapping intro start to 0 (within threshold {Threshold}), skipping IntroStartOffset",
+                episode.EpisodeId,
+                episode.Name,
+                _config.EndSnapThreshold);
+            adjustedStart = 0;
+        }
+        else
+        {
+            // Apply configurable start offset only if we are not snapping to the episode start
+            adjustedStart += _config.IntroStartOffset;
+            if (adjustedStart < 0)
+            {
+                adjustedStart = 0;
+            }
+            else if (adjustedStart > duration)
+            {
+                adjustedStart = duration;
+            }
+        }
 
-        double adjustedEnd = originalIntro.End;
-        if (adjustedEnd > duration - _config.EndSnapThreshold)
+        double adjustedEnd = Math.Clamp(originalIntro.End, 0, duration);
+        if (adjustedEnd >= duration - _config.EndSnapThreshold - Epsilon)
         {
             adjustedEnd = duration;
         }
@@ -83,6 +109,8 @@ public class TimeAdjustmentHelper(ILogger logger, PluginConfiguration config)
             }
 
             adjustedEnd -= _config.IntroEndOffset;
+            // Keep end inside media duration after offset
+            adjustedEnd = Math.Clamp(adjustedEnd, 0, duration);
 
             var silenceRange = GetSearchRange(adjustedEnd, duration, _config.AdjustWindowInward, _config.AdjustWindowOutward);
             if (_config.AdjustIntroBasedOnSilence)
@@ -131,16 +159,24 @@ public class TimeAdjustmentHelper(ILogger logger, PluginConfiguration config)
     /// </summary>
     private static double GetChapterBoundary(IReadOnlyList<ChapterInfo> chapters, double currentEnd, TimeRange searchRange)
     {
+        // Consider chapters within range inclusively with a small epsilon, and choose the closest to currentEnd
+        double? best = null;
+        double bestDist = double.MaxValue;
         foreach (var chapter in chapters)
         {
             var chapterTime = TimeSpan.FromTicks(chapter.StartPositionTicks).TotalSeconds;
-            if (chapterTime > searchRange.Start && chapterTime < searchRange.End)
+            if (chapterTime + Epsilon >= searchRange.Start && chapterTime - Epsilon <= searchRange.End)
             {
-                return chapterTime;
+                var dist = Math.Abs(chapterTime - currentEnd);
+                if (dist < bestDist)
+                {
+                    bestDist = dist;
+                    best = chapterTime;
+                }
             }
         }
 
-        return currentEnd;
+        return best ?? currentEnd;
     }
 
     /// <summary>
@@ -190,10 +226,20 @@ public class TimeAdjustmentHelper(ILogger logger, PluginConfiguration config)
     private static double SnapToNearestKeyframe(QueuedEpisode episode, double time, TimeRange searchRange)
     {
         var keyframes = FFmpegWrapper.DetectKeyFrames(episode, searchRange);
-        return keyframes
-            .OrderBy(kf => Math.Abs(kf - time))
-            .DefaultIfEmpty(time)
-            .First();
+        double nearest = time;
+        double best = double.MaxValue;
+
+        foreach (var kf in keyframes)
+        {
+            double d = Math.Abs(kf - time);
+            if (d < best)
+            {
+                best = d;
+                nearest = kf;
+            }
+        }
+
+        return nearest;
     }
 
     /// <summary>
