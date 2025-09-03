@@ -60,7 +60,7 @@ public class TimeAdjustmentHelper(ILogger logger, PluginConfiguration config)
             _logger.LogWarning("{EpisodeId} {Name}: Negative intro start {Start}, resetting to 0", episode.EpisodeId, episode.Name, rawStart);
             snapToEpisodeStart = true;
         }
-        else if (rawStart <= _config.EndSnapThreshold)
+        else if (rawStart <= _config.EndSnapThreshold + Epsilon)
         {
             // If the detected start is within threshold of episode start, snap
             snapToEpisodeStart = true;
@@ -69,7 +69,8 @@ public class TimeAdjustmentHelper(ILogger logger, PluginConfiguration config)
         {
             // Only adjust to chapter boundaries if we're not snapping to start
             var searchRange = GetSearchRange(rawStart, duration, _config.AdjustWindowOutward, _config.AdjustWindowInward);
-            adjustedStart = GetChapterBoundary(chapters, adjustedStart, searchRange);
+            // Match the reference time to the range center to avoid mismatches
+            adjustedStart = GetChapterBoundary(chapters, rawStart, searchRange);
         }
 
         if (snapToEpisodeStart)
@@ -90,7 +91,7 @@ public class TimeAdjustmentHelper(ILogger logger, PluginConfiguration config)
 
         double rawEnd = originalIntro.End;
         double adjustedEnd = rawEnd;
-        if (rawEnd >= duration - _config.EndSnapThreshold)
+        if (rawEnd >= duration - _config.EndSnapThreshold - Epsilon)
         {
             adjustedEnd = duration;
         }
@@ -151,26 +152,25 @@ public class TimeAdjustmentHelper(ILogger logger, PluginConfiguration config)
     /// Finds the chapter boundary (start time in seconds) within the given search range.
     /// Returns currentEnd if no chapter is found.
     /// </summary>
-    private static double GetChapterBoundary(IReadOnlyList<ChapterInfo> chapters, double currentEnd, TimeRange searchRange)
+    private static double GetChapterBoundary(IReadOnlyList<ChapterInfo> chapters, double referenceTime, TimeRange searchRange)
     {
-        // Consider chapters within range inclusively with a small epsilon, and choose the closest to currentEnd
-        double? best = null;
-        double bestDist = double.MaxValue;
+        // Collect candidate chapter times within the inclusive range
+        var candidates = new List<double>();
         foreach (var chapter in chapters)
         {
             var chapterTime = TimeSpan.FromTicks(chapter.StartPositionTicks).TotalSeconds;
             if (chapterTime + Epsilon >= searchRange.Start && chapterTime - Epsilon <= searchRange.End)
             {
-                var dist = Math.Abs(chapterTime - currentEnd);
-                if (dist < bestDist)
-                {
-                    bestDist = dist;
-                    best = chapterTime;
-                }
+                candidates.Add(chapterTime);
             }
         }
 
-        return best ?? currentEnd;
+        if (candidates.Count == 0)
+        {
+            return referenceTime;
+        }
+
+        return SelectNearest(candidates, referenceTime);
     }
 
     /// <summary>
@@ -220,16 +220,24 @@ public class TimeAdjustmentHelper(ILogger logger, PluginConfiguration config)
     private static double SnapToNearestKeyframe(QueuedEpisode episode, double time, TimeRange searchRange)
     {
         var keyframes = FFmpegWrapper.DetectKeyFrames(episode, searchRange);
-        double nearest = time;
+        return SelectNearest(keyframes, time);
+    }
+
+    /// <summary>
+    /// Selects the value in candidates nearest to the reference; returns reference if no candidates.
+    /// </summary>
+    private static double SelectNearest(IEnumerable<double> candidates, double reference)
+    {
+        double nearest = reference;
         double best = double.MaxValue;
 
-        foreach (var kf in keyframes)
+        foreach (var v in candidates)
         {
-            double d = Math.Abs(kf - time);
+            double d = Math.Abs(v - reference);
             if (d < best)
             {
                 best = d;
-                nearest = kf;
+                nearest = v;
             }
         }
 
