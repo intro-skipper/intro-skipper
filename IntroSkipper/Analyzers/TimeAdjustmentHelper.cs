@@ -50,16 +50,17 @@ public class TimeAdjustmentHelper(ILogger logger, PluginConfiguration config)
             originalIntro.Start,
             originalIntro.End);
 
-        // Clamp original bounds to the media duration to avoid downstream surprises
-        double adjustedStart = Math.Clamp(originalIntro.Start, 0, duration);
+        // Evaluate negativity and snap threshold against the raw start before any clamping
+        double rawStart = originalIntro.Start;
+        double adjustedStart = rawStart;
         bool snapToEpisodeStart = false;
 
-        if (adjustedStart < 0)
+        if (rawStart < 0)
         {
-            _logger.LogWarning("{EpisodeId} {Name}: Negative intro start {Start}, resetting to 0", episode.EpisodeId, episode.Name, adjustedStart);
+            _logger.LogWarning("{EpisodeId} {Name}: Negative intro start {Start}, resetting to 0", episode.EpisodeId, episode.Name, rawStart);
             snapToEpisodeStart = true;
         }
-        else if (adjustedStart <= _config.EndSnapThreshold + Epsilon)
+        else if (rawStart <= _config.EndSnapThreshold)
         {
             // If the detected start is within threshold of episode start, snap
             snapToEpisodeStart = true;
@@ -67,7 +68,7 @@ public class TimeAdjustmentHelper(ILogger logger, PluginConfiguration config)
         else if (useChapters && chapters.Count > 0)
         {
             // Only adjust to chapter boundaries if we're not snapping to start
-            var searchRange = GetSearchRange(originalIntro.Start, duration, _config.AdjustWindowOutward, _config.AdjustWindowInward);
+            var searchRange = GetSearchRange(rawStart, duration, _config.AdjustWindowOutward, _config.AdjustWindowInward);
             adjustedStart = GetChapterBoundary(chapters, adjustedStart, searchRange);
         }
 
@@ -84,19 +85,12 @@ public class TimeAdjustmentHelper(ILogger logger, PluginConfiguration config)
         else
         {
             // Apply configurable start offset only if we are not snapping to the episode start
-            adjustedStart += _config.IntroStartOffset;
-            if (adjustedStart < 0)
-            {
-                adjustedStart = 0;
-            }
-            else if (adjustedStart > duration)
-            {
-                adjustedStart = duration;
-            }
+            adjustedStart = Math.Clamp(adjustedStart + _config.IntroStartOffset, 0, duration);
         }
 
-        double adjustedEnd = Math.Clamp(originalIntro.End, 0, duration);
-        if (adjustedEnd >= duration - _config.EndSnapThreshold - Epsilon)
+        double rawEnd = originalIntro.End;
+        double adjustedEnd = rawEnd;
+        if (rawEnd >= duration - _config.EndSnapThreshold)
         {
             adjustedEnd = duration;
         }
