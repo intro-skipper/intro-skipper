@@ -103,7 +103,7 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
 
         FileTransformationPluginEnabled = _pluginManager
             .Plugins
-            .Any(p => p.Name.Equals("File Transformation", StringComparison.OrdinalIgnoreCase));
+            .Any(p => p.Id == Guid.Parse("5e87cc92-571a-4d8d-8d98-d2d4147f9f90")); // File Transformation plugin ID
     }
 
     /// <summary>

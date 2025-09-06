@@ -22,6 +22,19 @@
                         font-size: 1em;
                         margin-bottom: 4px;
                     }
+                    /* Disabled state styling */
+                    .disabled-block {
+                        opacity: .6;
+                    }
+                    .disabled-block input,
+                    .disabled-block select,
+                    .disabled-block button {
+                        pointer-events: none;
+                    }
+                    .disabled-block .inputLabel,
+                    .disabled-block label.emby-checkbox-label span {
+                        font-style: italic;
+                    }
                 </style>
                 <div class="content-primary">
                     <form id="FingerprintConfigForm">
@@ -95,7 +108,9 @@
                                 <input id="SkipbuttonHideDelay" type="number" is="emby-input" min="0" max="1000"/>
                                 <div class="fieldDescription">
                                     <span id="skipButtonDescription">Time in seconds before the skip button automatically hides. Set to 0 for persistent skip button (never hides).</span>
-                                    <div id="fileTransformationWarning" style="display: none; color: #f44336; margin-top: 8px;">
+                                    <br />
+                                    <span style="font-size: 0.85em; color: #ffa500; display: inline-block; margin-top: 4px;">Note: This setting only affects clients using the web client player (web browsers, Android when using the web player, LG webOS, etc). If changes don't appear, refresh the page or clear the browser cache.</span>
+                                    <div id="fileTransformationWarning" style="display: none; color: orange; margin-top: 8px;">
                                         <strong>⚠️ File Transformation Plugin Required</strong><br />
                                         This feature requires the File Transformation plugin to work.
                                         <a href="https://github.com/IAmParadox27/jellyfin-plugin-file-transformation" target="_blank" style="color: #2196f3;">
@@ -1487,12 +1502,12 @@
                     if (config.FileTransformationPluginEnabled) {
                         // Plugin is available - enable the field
                         skipButtonField.disabled = false;
-                        skipButtonContainer.style.opacity = "1";
+                        skipButtonContainer.classList.remove("disabled-block");
                         warning.style.display = "none";
                     } else {
                         // Plugin is not available - disable the field and show warning
                         skipButtonField.disabled = true;
-                        skipButtonContainer.style.opacity = "0.5";
+                        skipButtonContainer.classList.add("disabled-block");
                         warning.style.display = "block";
                     }
                 }

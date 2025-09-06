@@ -191,7 +191,6 @@ namespace IntroSkipper.Services
         {
             _config = (PluginConfiguration)e;
             Plugin.Instance!.AnalyzeAgain = true;
-            InitializeWebInjector();
         }
 
         /// <summary>
