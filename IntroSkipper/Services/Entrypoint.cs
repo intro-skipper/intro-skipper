@@ -93,7 +93,10 @@ namespace IntroSkipper.Services
             FFmpegWrapper.CheckFFmpegVersion();
 
             // Initialize web injector for skip button timeout modification
-            InitializeWebInjector();
+            if (Plugin.Instance?.FileTransformationPluginEnabled == true)
+            {
+                InitializeWebInjector();
+            }
 
             // Enqueue all episodes at startup to ensure any FFmpeg errors appear as early as possible
             _logger.LogInformation("Running startup enqueue");
