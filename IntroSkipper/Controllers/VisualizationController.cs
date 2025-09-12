@@ -175,7 +175,10 @@ public class VisualizationController(ILogger<VisualizationController> logger, Me
     [HttpDelete("Show/{SeriesId}/{SeasonId}")]
     public async Task<ActionResult> EraseSeasonAsync([FromRoute] Guid seriesId, [FromRoute] Guid seasonId, [FromQuery] bool eraseCache = false, CancellationToken cancellationToken = default)
     {
-        var episodes = Plugin.Instance!.QueuedMediaItems[seasonId];
+        if (!Plugin.Instance!.QueuedMediaItems.TryGetValue(seasonId, out var episodes))
+        {
+            return NotFound();
+        }
 
         if (episodes.Count == 0)
         {
@@ -245,30 +248,49 @@ public class VisualizationController(ILogger<VisualizationController> logger, Me
     /// <param name="cancellationToken">cancellationToken.</param>
     /// <returns>No content.</returns>
     [HttpPost("ScanSeason/{SeriesId}/{SeasonId}")]
-    public async Task<ActionResult> ScanSeason([FromRoute] Guid seriesId, [FromRoute] Guid seasonId, CancellationToken cancellationToken = default)
+    public ActionResult ScanSeason([FromRoute] Guid seriesId, [FromRoute] Guid seasonId, CancellationToken cancellationToken = default)
     {
         if (_libraryManager is null)
         {
             throw new InvalidOperationException("Library manager was null");
         }
 
-        // Erase season timestamps
-        await EraseSeasonAsync(seriesId, seasonId, true, cancellationToken).ConfigureAwait(false);
+        // Run erase + analyze in background so it doesn't get canceled when the HTTP request ends/timeouts
+        _ = Task.Run(
+            async () =>
+            {
+                try
+                {
+                    // Do not bind to the HTTP request cancellation; long-running job should complete even if client disconnects
+                    using (await ScheduledTaskSemaphore.AcquireAsync(CancellationToken.None).ConfigureAwait(false))
+                    {
+                        _logger.LogInformation("Start (Re-) scan of season/movie {Season}", seasonId);
 
-        using (await ScheduledTaskSemaphore.AcquireAsync(cancellationToken).ConfigureAwait(false))
-        {
-            _logger.LogInformation("Start (Re-) scan of season/movie {Season}", seasonId);
+                        // Erase season timestamps and cache first
+                        await EraseSeasonAsync(seriesId, seasonId, true, CancellationToken.None).ConfigureAwait(false);
 
-            var baseIntroAnalyzer = new BaseItemAnalyzerTask(
-                _loggerFactory.CreateLogger<DetectSegmentsTask>(),
-                _loggerFactory,
-                _libraryManager,
-                _mediaSegmentUpdateManager);
+                        var baseIntroAnalyzer = new BaseItemAnalyzerTask(
+                            _loggerFactory.CreateLogger<DetectSegmentsTask>(),
+                            _loggerFactory,
+                            _libraryManager,
+                            _mediaSegmentUpdateManager);
 
-            await baseIntroAnalyzer.AnalyzeItemsAsync(new Progress<double>(), cancellationToken, [seasonId]).ConfigureAwait(false);
-        }
+                        await baseIntroAnalyzer.AnalyzeItemsAsync(new Progress<double>(), CancellationToken.None, [seasonId]).ConfigureAwait(false);
+                    }
+                }
+                catch (OperationCanceledException)
+                {
+                    _logger.LogInformation("Manual season rescan for {SeasonId} was canceled.", seasonId);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "Error during manual season rescan for {SeasonId}", seasonId);
+                }
+            },
+            CancellationToken.None);
 
-        return NoContent();
+        // Immediately return to the client; background task continues
+        return Accepted();
     }
 
     private static string GetProductionYear(Guid seriesId)
