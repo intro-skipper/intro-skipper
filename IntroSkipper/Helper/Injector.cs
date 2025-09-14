@@ -56,7 +56,7 @@ namespace IntroSkipper.Helper
             }
 
             var config = Plugin.Instance?.Configuration;
-            if (config is null)
+            if (config is null || !config.UseFileTransformationPlugin)
             {
                 return contents;
             }
