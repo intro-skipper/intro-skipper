@@ -357,7 +357,7 @@ public partial class QueueManager(ILogger<QueueManager> logger, ILibraryManager 
     /// <returns>Media items that have been verified to exist in Jellyfin and in storage.</returns>
     internal IReadOnlyList<QueuedEpisode> VerifyQueue(IReadOnlyList<QueuedEpisode> candidates, IReadOnlyCollection<AnalysisMode> modes)
     {
-        if (candidates == null || candidates.Count == 0 || candidates[0].IsExcluded)
+        if (candidates == null || candidates.Count == 0)
         {
             return [];
         }
@@ -368,6 +368,11 @@ public partial class QueueManager(ILogger<QueueManager> logger, ILibraryManager 
 
         foreach (var candidate in candidates)
         {
+            if (candidate.IsExcluded)
+            {
+                continue;
+            }
+
             try
             {
                 var path = plugin.GetItemPath(candidate.EpisodeId);

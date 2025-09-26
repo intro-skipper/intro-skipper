@@ -320,5 +320,5 @@ public class VisualizationController(ILogger<VisualizationController> logger, Me
             : "Unknown";
     }
 
-    private static bool IsMovie(QueuedEpisode episode) => episode.SeriesId == episode.SeasonId;
+    private static bool IsMovie(QueuedEpisode episode) => episode.Category == QueuedMediaCategory.Movie;
 }
