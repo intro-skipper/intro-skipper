@@ -100,11 +100,16 @@ public class BaseItemAnalyzerTask(
             {
                 return;
             }
+            else if (episodes[0].IsExcluded)
+            {
+                Interlocked.Add(ref totalProcessed, episodes.Count * modes.Count);
+                progress.Report((double)totalProcessed / totalQueued * 100);
+                _logger.LogInformation("Skipping excluded season {Season} of {Series}", episodes[0].SeasonNumber, episodes[0].SeriesName);
+                return;
+            }
 
             try
             {
-                var firstEpisode = episodes[0];
-
                 foreach (var mode in modes)
                 {
                     ct.ThrowIfCancellationRequested();

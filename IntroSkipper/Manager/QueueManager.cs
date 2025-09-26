@@ -372,11 +372,6 @@ public partial class QueueManager(ILogger<QueueManager> logger, ILibraryManager 
 
         foreach (var candidate in candidates)
         {
-            if (candidate.IsExcluded)
-            {
-                continue;
-            }
-
             try
             {
                 var path = plugin.GetItemPath(candidate.EpisodeId);
