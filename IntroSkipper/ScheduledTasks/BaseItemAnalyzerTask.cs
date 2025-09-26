@@ -166,7 +166,11 @@ public class BaseItemAnalyzerTask(
         }
 
         var first = items[0];
-        if (!first.IsMovie && first.SeasonNumber == 0 && !_config.AnalyzeSeasonZero)
+        var category = first.Category;
+        var isMovie = category == QueuedMediaCategory.Movie;
+        var isAnime = category == QueuedMediaCategory.AnimeEpisode;
+
+        if (!isMovie && first.SeasonNumber == 0 && !_config.AnalyzeSeasonZero)
         {
             return 0;
         }
@@ -197,7 +201,7 @@ public class BaseItemAnalyzerTask(
             analyzers.Add(new ChapterAnalyzer(_loggerFactory.CreateLogger<ChapterAnalyzer>()));
         }
 
-        if (first.IsAnime && mode is AnalysisMode.Introduction or AnalysisMode.Credits && action is AnalyzerAction.Default or AnalyzerAction.Chromaprint && _ffmpegValid)
+        if (isAnime && mode is AnalysisMode.Introduction or AnalysisMode.Credits && action is AnalyzerAction.Default or AnalyzerAction.Chromaprint && _ffmpegValid)
         {
             analyzers.Add(new ChromaprintAnalyzer(_loggerFactory.CreateLogger<ChromaprintAnalyzer>()));
         }
@@ -207,7 +211,7 @@ public class BaseItemAnalyzerTask(
             analyzers.Add(blackFrameAnalyzer);
         }
 
-        if (!first.IsAnime && !first.IsMovie && mode is AnalysisMode.Introduction or AnalysisMode.Credits && action is AnalyzerAction.Default or AnalyzerAction.Chromaprint && _ffmpegValid)
+        if (!isAnime && !isMovie && mode is AnalysisMode.Introduction or AnalysisMode.Credits && action is AnalyzerAction.Default or AnalyzerAction.Chromaprint && _ffmpegValid)
         {
             analyzers.Add(new ChromaprintAnalyzer(_loggerFactory.CreateLogger<ChromaprintAnalyzer>()));
         }

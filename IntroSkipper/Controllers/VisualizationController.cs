@@ -67,7 +67,14 @@ public class VisualizationController(ILogger<VisualizationController> logger, Me
             var seasonNumber = first.SeasonNumber;
             if (!showSeasons.TryGetValue(seriesId, out var showInfo))
             {
-                showInfo = new ShowInfos { SeriesName = first.SeriesName, ProductionYear = GetProductionYear(seriesId), LibraryName = GetLibraryName(seriesId), IsMovie = first.IsMovie, Seasons = [] };
+                showInfo = new ShowInfos
+                {
+                    SeriesName = first.SeriesName,
+                    ProductionYear = GetProductionYear(seriesId),
+                    LibraryName = GetLibraryName(seriesId),
+                    IsMovie = IsMovie(first),
+                    Seasons = []
+                };
                 showSeasons[seriesId] = showInfo;
             }
 
@@ -312,4 +319,6 @@ public class VisualizationController(ILogger<VisualizationController> logger, Me
             ? string.Join(", ", collectionFolders.Select(folder => folder.Name))
             : "Unknown";
     }
+
+    private static bool IsMovie(QueuedEpisode episode) => episode.SeriesId == episode.SeasonId;
 }
