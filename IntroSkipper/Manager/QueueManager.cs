@@ -278,6 +278,8 @@ public partial class QueueManager(ILogger<QueueManager> logger, ILibraryManager 
             IntroFingerprintEnd = fingerprintDuration,
             CreditsFingerprintStart = Math.Max(0, duration - maxCreditsDuration),
         });
+
+        pluginInstance.TotalQueued++;
     }
 
     private static QueuedMediaCategory ResolveEpisodeCategory(Episode episode, IReadOnlyList<QueuedEpisode> seasonEpisodes, Plugin pluginInstance)
@@ -328,6 +330,8 @@ public partial class QueueManager(ILogger<QueueManager> logger, ILibraryManager 
             Category = QueuedMediaCategory.Movie,
             IsExcluded = IsSeriesExcluded(movie.Name),
         });
+
+        pluginInstance.TotalQueued++;
     }
 
     private Guid GetSeasonId(Episode episode)
