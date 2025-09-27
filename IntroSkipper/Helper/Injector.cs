@@ -18,10 +18,20 @@ namespace IntroSkipper.Helper
         private const string TimeoutAssignmentPattern = @"\(t\.hideTimeout=setTimeout\(t\.hideSkipButton\.bind\(t\)\,8e3\)\)";
 
         /// <summary>
+        /// Pattern to match the timeout check in the hideSkipButton method.
+        /// </summary>
+        private const string TimeoutOsdChangePattern = @"\:this\.hideTimeout\|\|this\.hideSkipButton\(\)";
+
+        /// <summary>
         /// Regex to match the focusability check.
         /// </summary>
         private const string FocusabilityAssignmentPattern =
             @"(?:(?:var)\s+)?r\s*=\s*document\.activeElement\s*&&\s*pe\.A\.isCurrentlyFocusable\(document\.activeElement\)";
+
+        /// <summary>
+        /// Pattern to identify the playback stop handler to avoid modifying it.
+        /// </summary>
+        private const string PlaybackStopPattern = @"t\.prototype\.onPlaybackStop=function\(\){this\.currentSegment=null\,this\.hideSkipButton\(\),";
 
         /// <summary>
         /// Number of milliseconds per second.
@@ -36,8 +46,14 @@ namespace IntroSkipper.Helper
         [GeneratedRegex(TimeoutAssignmentPattern)]
         private static partial Regex TimeoutAssignmentRegex();
 
+        [GeneratedRegex(TimeoutOsdChangePattern)]
+        private static partial Regex TimeoutOsdChangeRegex();
+
         [GeneratedRegex(FocusabilityAssignmentPattern, RegexOptions.CultureInvariant)]
         private static partial Regex FocusabilityAssignmentRegex();
+
+        [GeneratedRegex(PlaybackStopPattern)]
+        private static partial Regex PlaybackStopRegex();
 
         /// <summary>
         /// Transforms the file contents by modifying JavaScript timeout values.
@@ -63,12 +79,19 @@ namespace IntroSkipper.Helper
 
             // Validate and get the timeout value
             bool persist = !TryGetValidTimeoutMs(config.SkipbuttonHideDelay, out var hideDelayMs);
+            string persistStr = persist ? "true" : "false";
 
             // Replace the hardcoded 8e3 (8000 ms) timeout with our configurable value
-            var updated = ReplaceTimeoutAssignment(contents, persist ? "true" : "false", hideDelayMs.ToString(CultureInfo.InvariantCulture));
+            var updated = ReplaceTimeoutAssignment(contents, persistStr, hideDelayMs.ToString(CultureInfo.InvariantCulture));
+
+            // Replace the timeout check in hideSkipButton to respect the persist setting
+            updated = ReplaceTimeoutOsdChange(updated, persistStr);
 
             // Add playback time condition to focusability check to gate skip button behavior
             updated = ReplaceFocusabilityCheck(updated);
+
+            // Ensure we did not modify the playback stop handler
+            updated = ReplacePlaybackStopHandler(updated);
 
             return updated;
         }
@@ -83,11 +106,24 @@ namespace IntroSkipper.Helper
         private static string ReplaceTimeoutAssignment(string contents, string persist, string hideDelayMs) => TimeoutAssignmentRegex().Replace(contents, $"{persist}||(t.hideTimeout=setTimeout(t.hideSkipButton.bind(t),{hideDelayMs}))");
 
         /// <summary>
+        /// Makes the skip button persistent by removing the setTimeout call that auto-hides it.
+        /// </summary>
+        /// <param name="contents">The JavaScript content to modify.</param>
+        /// <param name="persist">true if the skip button should be persistent; otherwise, false.</param>
+        /// <returns>The modified content.</returns>
+        private static string ReplaceTimeoutOsdChange(string contents, string persist) => TimeoutOsdChangeRegex().Replace(contents, $":{persist}||this.hideTimeout||this.hideSkipButton()");
+
+        /// <summary>
         /// Adds a current time check to the focusability condition.
         /// </summary>
         /// <param name="contents">The JavaScript content to modify.</param>
         /// <returns>The modified content.</returns>
-        private static string ReplaceFocusabilityCheck(string contents) => FocusabilityAssignmentRegex().Replace(contents, m => m.Value + "&&t.playbackManager.currentTime()>3000");
+        private static string ReplaceFocusabilityCheck(string contents) => FocusabilityAssignmentRegex().Replace(contents, m => m.Value + $"&&t.playbackManager.currentTime()>{MillisecondsPerSecond}");
+
+        /// <summary>
+        /// Ensures that the playback stop handler is valid.
+        /// </summary>
+        private static string ReplacePlaybackStopHandler(string contents) => PlaybackStopRegex().Replace(contents, "t.prototype.onPlaybackStop=function(e,t){this.currentSegment=null,this.hideSkipButton(),t.nextItem||");
 
         /// <summary>
         /// Attempts to convert seconds to milliseconds with validation and overflow protection.

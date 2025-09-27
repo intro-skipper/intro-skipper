@@ -11,8 +11,8 @@
     <CodeAnalysisRuleSet>../jellyfin.ruleset</CodeAnalysisRuleSet>
   </PropertyGroup>
   <ItemGroup>
-    <PackageReference Include="Jellyfin.Controller" Version="10.11.*-*" />
-    <PackageReference Include="Jellyfin.Model" Version="10.11.*-*" />
+    <PackageReference Include="Jellyfin.Controller" Version="10.11.0-rc5" />
+    <PackageReference Include="Jellyfin.Model" Version="10.11.0-rc5" />
     <PackageReference Include="Microsoft.EntityFrameworkCore.Sqlite" Version="9.0.8" />
     <PackageReference Include="Microsoft.EntityFrameworkCore.Design" Version="9.0.8" />
     <PackageReference Include="SerilogAnalyzer" Version="0.15.0" PrivateAssets="All" />
