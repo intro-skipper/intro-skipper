@@ -12,10 +12,8 @@ using IntroSkipper.Data;
 using IntroSkipper.Db;
 using IntroSkipper.Manager;
 using IntroSkipper.ScheduledTasks;
-using IntroSkipper.Services;
 using MediaBrowser.Common.Api;
 using MediaBrowser.Controller.Library;
-using MediaBrowser.Model.Tasks;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Logging;
@@ -51,6 +49,9 @@ public class VisualizationController(ILogger<VisualizationController> logger, Me
     public ActionResult<Dictionary<Guid, ShowInfos>> GetShowSeasons()
     {
         _logger.LogDebug("Returning season IDs by series name");
+
+        // Ensure the queue is up to date
+        new QueueManager(_loggerFactory.CreateLogger<QueueManager>(), _libraryManager).GetMediaItems();
 
         var showSeasons = new Dictionary<Guid, ShowInfos>();
 
