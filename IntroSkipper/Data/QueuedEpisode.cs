@@ -59,14 +59,14 @@ public class QueuedEpisode
     public string Name { get; set; } = string.Empty;
 
     /// <summary>
-    /// Gets or sets a value indicating whether an episode is Anime.
+    /// Gets or sets the category for this media item.
     /// </summary>
-    public bool IsAnime { get; set; }
+    public QueuedMediaCategory Category { get; set; } = QueuedMediaCategory.Episode;
 
     /// <summary>
-    /// Gets or sets a value indicating whether an item is a movie.
+    /// Gets or sets a value indicating whether this media item should be excluded from analysis.
     /// </summary>
-    public bool IsMovie { get; set; }
+    public bool IsExcluded { get; set; }
 
     /// <summary>
     /// Gets or sets the timestamp (in seconds) to stop searching for an introduction at.

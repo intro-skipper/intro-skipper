@@ -156,24 +156,13 @@ public partial class QueueManager(ILogger<QueueManager> logger, ILibraryManager 
             {
                 if (item is Episode episode)
                 {
-                    if (!IsSeriesExcluded(episode.SeriesName))
-                    {
-                        QueueEpisode(episode);
-                    }
-                    else
-                    {
-                        _logger.LogDebug("Skipping excluded series: {Series}", episode.SeriesName);
-                    }
+                    QueueEpisode(episode);
                 }
                 else if (item is Movie movie)
                 {
                     if (!_analyzeMovies)
                     {
                         _logger.LogDebug("Skipping movie {Name}: movie analysis is disabled", movie.Name);
-                    }
-                    else if (IsSeriesExcluded(movie.Name))
-                    {
-                        _logger.LogDebug("Skipping excluded movie: {Name}", movie.Name);
                     }
                     else
                     {
@@ -263,13 +252,6 @@ public partial class QueueManager(ILogger<QueueManager> logger, ILibraryManager 
             return;
         }
 
-        var isAnime = seasonEpisodes.FirstOrDefault()?.IsAnime ??
-            (pluginInstance.GetItem(episode.SeriesId) is Series series &&
-                (series.Tags.Contains("anime", StringComparison.OrdinalIgnoreCase) ||
-                series.Genres.Contains("anime", StringComparison.OrdinalIgnoreCase)));
-
-        // Limit analysis to the first X% of the episode and at most Y minutes.
-        // X and Y default to 25% and 10 minutes.
         var duration = TimeSpan.FromTicks(episode.RunTimeTicks ?? 0).TotalSeconds;
         var fingerprintDuration = Math.Min(
             duration >= 5 * 60 ? duration * _analysisPercent : duration,
@@ -289,14 +271,32 @@ public partial class QueueManager(ILogger<QueueManager> logger, ILibraryManager 
             EpisodeNumber = episode.IndexNumber ?? 0,
             EpisodeId = episode.Id,
             Name = episode.Name,
-            IsAnime = isAnime,
+            Category = ResolveEpisodeCategory(episode, seasonEpisodes, pluginInstance),
+            IsExcluded = IsSeriesExcluded(episode.SeriesName),
             Path = episode.Path,
             Duration = duration,
             IntroFingerprintEnd = fingerprintDuration,
-            CreditsFingerprintStart = duration - maxCreditsDuration,
+            CreditsFingerprintStart = Math.Max(0, duration - maxCreditsDuration),
         });
 
         pluginInstance.TotalQueued++;
+    }
+
+    private static QueuedMediaCategory ResolveEpisodeCategory(Episode episode, IReadOnlyList<QueuedEpisode> seasonEpisodes, Plugin pluginInstance)
+    {
+        if (seasonEpisodes.FirstOrDefault()?.Category is QueuedMediaCategory cat && (cat == QueuedMediaCategory.AnimeEpisode || cat == QueuedMediaCategory.Episode))
+        {
+            return cat;
+        }
+
+        if (pluginInstance.GetItem(episode.SeriesId) is Series series &&
+            (series.Tags.Contains("anime", StringComparison.OrdinalIgnoreCase) ||
+             series.Genres.Contains("anime", StringComparison.OrdinalIgnoreCase)))
+        {
+            return QueuedMediaCategory.AnimeEpisode;
+        }
+
+        return QueuedMediaCategory.Episode;
     }
 
     private void QueueMovie(Movie movie)
@@ -326,8 +326,9 @@ public partial class QueueManager(ILogger<QueueManager> logger, ILibraryManager 
             Name = movie.Name,
             Path = movie.Path,
             Duration = duration,
-            CreditsFingerprintStart = duration - pluginInstance.Configuration.MaximumMovieCreditsDuration,
-            IsMovie = true
+            CreditsFingerprintStart = Math.Max(0, duration - pluginInstance.Configuration.MaximumMovieCreditsDuration),
+            Category = QueuedMediaCategory.Movie,
+            IsExcluded = IsSeriesExcluded(movie.Name),
         });
 
         pluginInstance.TotalQueued++;

@@ -12,10 +12,8 @@ using IntroSkipper.Data;
 using IntroSkipper.Db;
 using IntroSkipper.Manager;
 using IntroSkipper.ScheduledTasks;
-using IntroSkipper.Services;
 using MediaBrowser.Common.Api;
 using MediaBrowser.Controller.Library;
-using MediaBrowser.Model.Tasks;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Logging;
@@ -52,6 +50,9 @@ public class VisualizationController(ILogger<VisualizationController> logger, Me
     {
         _logger.LogDebug("Returning season IDs by series name");
 
+        // Ensure the queue is up to date
+        new QueueManager(_loggerFactory.CreateLogger<QueueManager>(), _libraryManager).GetMediaItems();
+
         var showSeasons = new Dictionary<Guid, ShowInfos>();
 
         foreach (var kvp in Plugin.Instance!.QueuedMediaItems)
@@ -67,7 +68,14 @@ public class VisualizationController(ILogger<VisualizationController> logger, Me
             var seasonNumber = first.SeasonNumber;
             if (!showSeasons.TryGetValue(seriesId, out var showInfo))
             {
-                showInfo = new ShowInfos { SeriesName = first.SeriesName, ProductionYear = GetProductionYear(seriesId), LibraryName = GetLibraryName(seriesId), IsMovie = first.IsMovie, Seasons = [] };
+                showInfo = new ShowInfos
+                {
+                    SeriesName = first.SeriesName,
+                    ProductionYear = GetProductionYear(seriesId),
+                    LibraryName = GetLibraryName(seriesId),
+                    IsMovie = IsMovie(first),
+                    Seasons = []
+                };
                 showSeasons[seriesId] = showInfo;
             }
 
@@ -312,4 +320,6 @@ public class VisualizationController(ILogger<VisualizationController> logger, Me
             ? string.Join(", ", collectionFolders.Select(folder => folder.Name))
             : "Unknown";
     }
+
+    private static bool IsMovie(QueuedEpisode episode) => episode.Category == QueuedMediaCategory.Movie;
 }
