@@ -9,7 +9,6 @@ using System.Threading;
 using System.Threading.Tasks;
 using System.Timers;
 using IntroSkipper.Configuration;
-using IntroSkipper.Controllers;
 using IntroSkipper.Data;
 using MediaBrowser.Controller.Entities.TV;
 using MediaBrowser.Controller.Library;

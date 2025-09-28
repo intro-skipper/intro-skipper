@@ -22,6 +22,19 @@
                         font-size: 1em;
                         margin-bottom: 4px;
                     }
+                    /* Disabled state styling */
+                    .disabled-block {
+                        opacity: .6;
+                    }
+                    .disabled-block input,
+                    .disabled-block select,
+                    .disabled-block button {
+                        pointer-events: none;
+                    }
+                    .disabled-block .inputLabel,
+                    .disabled-block label.emby-checkbox-label span {
+                        font-style: italic;
+                    }
                 </style>
                 <div class="content-primary">
                     <form id="FingerprintConfigForm">
@@ -88,6 +101,29 @@
                                 </label>
 
                                 <div class="fieldDescription">Note: Shows containing both a specials and extra folder will identify extras as season 0 and ignore specials, regardless of this setting.</div>
+                            </div>
+
+                            <div id="divSkipbuttonHideDelay" class="inputContainer">
+                                <label class="emby-checkbox-label">
+                                    <input id="UseFileTransformationPlugin" type="checkbox" is="emby-checkbox" />
+                                    <span>Use File Transformation Plugin to patch the web interface</span>
+                                </label>
+                                <div id="divSkipbuttonHideDelayContent">
+                                    <label class="inputLabel inputLabelUnfocused" for="SkipbuttonHideDelay"> Skip button hide delay (in seconds) </label>
+                                    <input id="SkipbuttonHideDelay" type="number" is="emby-input" min="0" max="1000"/>
+                                    <div class="fieldDescription">
+                                        <span id="skipButtonDescription">Time in seconds before the skip button automatically hides. Set to 0 for persistent skip button (never hides).</span>
+                                    </div>
+                                </div>
+                                <br />
+                                <span style="font-size: 0.85em; color: #ffa500; display: inline-block; margin-top: 4px;">Note: This setting only affects clients using the web client player (web browsers, Android when using the web player, LG webOS, etc). If changes don't appear, refresh the page or clear the browser cache.</span>
+                                <div id="fileTransformationWarning" style="display: none; color: orange; margin-top: 8px;">
+                                    <strong>File Transformation Plugin Required</strong><br />
+                                    This feature requires the File Transformation plugin to work.
+                                    <a href="https://github.com/IAmParadox27/jellyfin-plugin-file-transformation" target="_blank" style="color: #2196f3;">
+                                        Install it here
+                                    </a>
+                                </div>
                             </div>
 
                             <details id="intro_reqs">
@@ -848,6 +884,7 @@
                     "IntroEndOffset",
                     "IntroStartOffset",
                     "AutoSkipDelay",
+                    "SkipbuttonHideDelay",
                     // internals
                     "SilenceDetectionMaximumNoise",
                     "SilenceDetectionMinimumDuration",
@@ -862,7 +899,7 @@
                     "AutoSkipNotificationText",
                 ];
 
-                const booleanConfigurationFields = ["AutoDetectIntros", "AnalyzeSeasonZero", "UpdateMediaSegments","UseAlternativeBlackFrameAnalyzer", "UseChapterMarkersBlackFrame", "FullLengthChapters", "RebuildMediaSegments", "ScanIntroduction", "ScanCredits", "ScanRecap", "ScanPreview", "PreferChromaprint", "CacheFingerprints", "PluginSkip", "AutoSkip", "SkipFirstEpisode", "SnapToKeyframe", "AdjustIntroBasedOnSilence", "AdjustIntroBasedOnChapters"];
+                const booleanConfigurationFields = ["AutoDetectIntros", "AnalyzeSeasonZero", "UpdateMediaSegments","UseAlternativeBlackFrameAnalyzer", "UseChapterMarkersBlackFrame", "FullLengthChapters", "RebuildMediaSegments", "ScanIntroduction", "ScanCredits", "ScanRecap", "ScanPreview", "PreferChromaprint", "CacheFingerprints", "PluginSkip", "AutoSkip", "SkipFirstEpisode", "SnapToKeyframe", "AdjustIntroBasedOnSilence", "AdjustIntroBasedOnChapters", "UseFileTransformationPlugin"];
 
                 // visualizer elements
                 const analyzerActionsSection = document.querySelector("div#analyzerActionsSection");
@@ -870,6 +907,8 @@
                 const actionCredits = analyzerActionsSection.querySelector("select#actionCredits");
                 const actionRecap = analyzerActionsSection.querySelector("select#actionRecap");
                 const actionPreview = analyzerActionsSection.querySelector("select#actionPreview");
+                const actionFileTransformation = document.getElementById("UseFileTransformationPlugin");
+                const divSkipbuttonHideDelayContent = document.getElementById("divSkipbuttonHideDelayContent");
                 const saveAnalyzerActionsButton = analyzerActionsSection.querySelector("button#saveAnalyzerActions");
                 const scanSeasonButton = document.querySelector("button#scanSeason");
                 const canvas = document.querySelector("canvas#troubleshooter");
@@ -927,6 +966,16 @@
                         recapPreviewDurations.style.display = "none";
                     } else {
                         recapPreviewDurations.style.display = "unset";
+                    }
+                }
+
+                actionFileTransformation.addEventListener("change", fileTransformationChanged);
+
+                function fileTransformationChanged() {
+                    if (actionFileTransformation.checked) {
+                        divSkipbuttonHideDelayContent.style.display = "unset";
+                    } else {
+                        divSkipbuttonHideDelayContent.style.display = "none";
                     }
                 }
 
@@ -1462,6 +1511,27 @@
                     return new Date(seconds * 1000).toISOString().slice(14, 19);
                 }
 
+                // Check if File Transformation plugin is available and enable/disable skip button settings
+                function checkFileTransformationPlugin(config) {
+                    const skipButtonField = document.querySelector("#SkipbuttonHideDelay");
+                    const skipButtonContainer = document.querySelector("#divSkipbuttonHideDelay");
+                    const warning = document.querySelector("#fileTransformationWarning");
+
+                    if (config.FileTransformationPluginEnabled) {
+                        // Plugin is available - enable the field
+                        skipButtonField.disabled = false;
+                        skipButtonContainer.classList.remove("disabled-block");
+                        warning.style.display = "none";
+                    } else {
+                        // Plugin is not available - disable the field and show warning
+                        skipButtonField.disabled = true;
+                        actionFileTransformation.disabled = true;
+                        actionFileTransformation.checked = false;
+                        skipButtonContainer.classList.add("disabled-block");
+                        warning.style.display = "block";
+                    }
+                }
+
                 // erase all intro/credits timestamps
                 function eraseTimestamps(mode) {
                     const lower = mode.toLocaleLowerCase();
@@ -1498,9 +1568,11 @@
                             generateAutoSkipTypeList();
                             generateAutoSkipClientList();
                             pluginSkipSettingVisible();
+                            fileTransformationChanged();
                             alternativeBlackFrameAnalyzerSettingsVisible();
                             adjustSettingsVisible();
                             globalTimestampChanged();
+                            checkFileTransformationPlugin(config);
 
                             Dashboard.hideLoadingMsg();
                         })

@@ -3,11 +3,16 @@
 
 using System;
 using System.Collections.Generic;
+using System.Linq;
+using System.Reflection;
+using System.Runtime.Loader;
 using System.Threading;
 using System.Threading.Tasks;
 using IntroSkipper.Configuration;
+using IntroSkipper.Helper;
 using IntroSkipper.Manager;
 using IntroSkipper.ScheduledTasks;
+using MediaBrowser.Common.Configuration;
 using MediaBrowser.Controller.Entities.Movies;
 using MediaBrowser.Controller.Entities.TV;
 using MediaBrowser.Controller.Library;
@@ -16,6 +21,7 @@ using MediaBrowser.Model.Plugins;
 using MediaBrowser.Model.Tasks;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
+using Newtonsoft.Json.Linq;
 
 namespace IntroSkipper.Services
 {
@@ -86,6 +92,12 @@ namespace IntroSkipper.Services
             FFmpegWrapper.Logger = _logger;
             FFmpegWrapper.CheckFFmpegVersion();
 
+            // Initialize web injector for skip button timeout modification
+            if (Plugin.Instance?.FileTransformationPluginEnabled == true)
+            {
+                InitializeWebInjector();
+            }
+
             // Enqueue all episodes at startup to ensure any FFmpeg errors appear as early as possible
             _logger.LogInformation("Running startup enqueue");
             new QueueManager(_loggerFactory.CreateLogger<QueueManager>(), _libraryManager).GetMediaItems();
@@ -103,6 +115,32 @@ namespace IntroSkipper.Services
 
             _queueTimer.Change(Timeout.Infinite, 0);
             return Task.CompletedTask;
+        }
+
+        /// <summary>
+        /// Initializes the web injector for skip button timeout modification.
+        /// </summary>
+        private void InitializeWebInjector()
+        {
+            JObject payload = new JObject
+            {
+                { "id", "c83d86bb-a1e0-4c35-a113-e2101cf4ee6b" },
+                { "fileNamePattern", "main.jellyfin.bundle.js" },
+                { "callbackAssembly", GetType().Assembly.FullName },
+                { "callbackClass", typeof(Injector).FullName },
+                { "callbackMethod", nameof(Injector.FileTransformer) }
+            };
+
+            Assembly? fileTransformationAssembly =
+                AssemblyLoadContext.All.SelectMany(x => x.Assemblies).FirstOrDefault(x =>
+                    x.FullName?.Contains(".FileTransformation", StringComparison.Ordinal) ?? false);
+
+            if (fileTransformationAssembly is not null)
+            {
+                Type? pluginInterfaceType = fileTransformationAssembly.GetType("Jellyfin.Plugin.FileTransformation.PluginInterface");
+
+                pluginInterfaceType?.GetMethod("RegisterTransformation")?.Invoke(null, [payload]);
+            }
         }
 
         /// <summary>
