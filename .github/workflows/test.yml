@@ -36,8 +36,8 @@ jobs:
         run: |
           sudo apt update
           sudo apt install -y curl
-          curl -fsSLO https://github.com/jellyfin/jellyfin-ffmpeg/releases/download/v7.1.1-5/jellyfin-ffmpeg7_7.1.1-5-noble_amd64.deb
-          sudo apt install -y ./jellyfin-ffmpeg7_7.1.1-5-noble_amd64.deb
+          curl -fsSLO https://github.com/jellyfin/jellyfin-ffmpeg/releases/download/v7.1.2-2/jellyfin-ffmpeg7_7.1.2-2-noble_amd64.deb
+          sudo apt install -y ./jellyfin-ffmpeg7_7.1.2-2-noble_amd64.deb
           sudo ln -s /usr/lib/jellyfin-ffmpeg/ffmpeg /usr/local/bin/ffmpeg
           sudo ln -s /usr/lib/jellyfin-ffmpeg/ffprobe /usr/local/bin/ffprobe
           ffmpeg -version
