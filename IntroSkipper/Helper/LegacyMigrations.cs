@@ -6,6 +6,7 @@ using MediaBrowser.Controller.Library;
 using MediaBrowser.Model.Entities;
 using MediaBrowser.Model.Updates;
 using Microsoft.Extensions.Logging;
+using static System.Net.WebRequestMethods;
 
 namespace IntroSkipper.Helper;
 
@@ -29,7 +30,8 @@ internal static class LegacyMigrations
             [
                 "https://raw.githubusercontent.com/intro-skipper/intro-skipper/master/manifest.json",
                 "https://raw.githubusercontent.com/jumoog/intro-skipper/master/manifest.json",
-                "https://manifest.intro-skipper.workers.dev/manifest.json"
+                "https://manifest.intro-skipper.workers.dev/manifest.json",
+                "https://manifest.intro-skipper.org/manifest.json"
             ];
 
             var config = serverConfiguration.Configuration;
@@ -39,12 +41,12 @@ internal static class LegacyMigrations
             {
                 pluginRepositories.RemoveAll(repo => repo.Url != null && oldRepos.Contains(repo.Url));
 
-                if (!pluginRepositories.Exists(repo => repo.Url == "https://manifest.intro-skipper.org/manifest.json") && plugin.Configuration.OverrideManifestUrl)
+                if (!pluginRepositories.Exists(repo => repo.Url == "https://intro-skipper.org/manifest.json") && plugin.Configuration.OverrideManifestUrl)
                 {
                     pluginRepositories.Add(new RepositoryInfo
                     {
-                        Name = "intro skipper (automatically migrated by plugin)",
-                        Url = "https://manifest.intro-skipper.org/manifest.json",
+                        Name = "intro skipper Plugin Repository (automatically migrated by plugin)",
+                        Url = "https://intro-skipper.org/manifest.json",
                         Enabled = true,
                     });
                 }
