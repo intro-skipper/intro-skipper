@@ -6,7 +6,6 @@ using MediaBrowser.Controller.Library;
 using MediaBrowser.Model.Entities;
 using MediaBrowser.Model.Updates;
 using Microsoft.Extensions.Logging;
-using static System.Net.WebRequestMethods;
 
 namespace IntroSkipper.Helper;
 
