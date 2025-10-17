@@ -186,7 +186,7 @@ public class ChapterAnalyzer(ILogger<ChapterAnalyzer> logger) : IMediaFileAnalyz
         {
             AnalysisMode.Introduction => (_config.MinimumIntroDuration, _config.MaximumIntroDuration),
             AnalysisMode.Credits => (_config.MinimumCreditsDuration,
-                episode.IsMovie ? _config.MaximumMovieCreditsDuration : _config.MaximumCreditsDuration),
+                episode.Category == QueuedMediaCategory.Movie ? _config.MaximumMovieCreditsDuration : _config.MaximumCreditsDuration),
             AnalysisMode.Recap => (_config.MinimumRecapDuration, _config.MaximumRecapDuration),
             AnalysisMode.Preview => (_config.MinimumPreviewDuration, _config.MaximumPreviewDuration),
             _ => throw new ArgumentOutOfRangeException(nameof(mode), $"Unsupported analysis mode: {mode}")

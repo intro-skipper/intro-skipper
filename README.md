@@ -23,9 +23,18 @@ It will NOT return a manifest when viewed in a browser, as no Jellyfin version i
 https://intro-skipper.org/manifest.json
 ```
 
+## Optional: File Transformation plugin
+
+Some web UI features (for example, adjusting the skip-button timeout) require the File Transformation plugin. If it’s not installed, Intro Skipper will still work, but those enhancements won’t be applied.
+
+- Plugin repo: https://github.com/IAmParadox27/jellyfin-plugin-file-transformation
+- Easiest way to install:
+  1. Add `https://www.iamparadox.dev/jellyfin/plugins/manifest.json` as a plugin source repository to your Jellyfin server.
+  2. Find "File Transformation" in the Catalog and install it.
+
 ## System requirements
 
-* Jellyfin 10.11.0-rc2 (or newer)
+* Jellyfin 10.11.0-rc8 (or newer)
 * Jellyfin's [fork](https://github.com/jellyfin/jellyfin-ffmpeg) of `ffmpeg` must be installed, version `7.1.1-7` or newer
   * `jellyfin/jellyfin` 10.11.z container: preinstalled
   * `linuxserver/jellyfin` 10.11.z container: preinstalled

@@ -33,6 +33,7 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
 {
     private readonly ILibraryManager _libraryManager;
     private readonly IChapterManager _chapterRepository;
+    private readonly IPluginManager _pluginManager;
     private readonly ILogger<Plugin> _logger;
     private readonly string _dbPath;
 
@@ -44,6 +45,7 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
     /// <param name="serverConfiguration">Server configuration manager.</param>
     /// <param name="libraryManager">Library manager.</param>
     /// <param name="chapterRepository">Chapter repository.</param>
+    /// <param name="pluginManager">Plugin manager.</param>
     /// <param name="logger">Logger.</param>
     public Plugin(
         IApplicationPaths applicationPaths,
@@ -51,6 +53,7 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
         IServerConfigurationManager serverConfiguration,
         ILibraryManager libraryManager,
         IChapterManager chapterRepository,
+        IPluginManager pluginManager,
         ILogger<Plugin> logger)
         : base(applicationPaths, xmlSerializer)
     {
@@ -58,6 +61,7 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
 
         _libraryManager = libraryManager;
         _chapterRepository = chapterRepository;
+        _pluginManager = pluginManager;
         _logger = logger;
 
         FFmpegPath = serverConfiguration.GetEncodingOptions().EncoderAppPathDisplay;
@@ -97,6 +101,10 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
         {
             logger.LogWarning("Error initializing database: {Exception}", ex);
         }
+
+        FileTransformationPluginEnabled = _pluginManager
+            .Plugins
+            .Any(p => p.Id == Guid.Parse("5e87cc92-571a-4d8d-8d98-d2d4147f9f90")); // File Transformation plugin ID
     }
 
     /// <summary>
@@ -133,6 +141,11 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
     /// Gets the full path to FFmpeg.
     /// </summary>
     public string FFmpegPath { get; private set; }
+
+    /// <summary>
+    /// Gets a value indicating whether the File Transformation plugin is enabled.
+    /// </summary>
+    public bool FileTransformationPluginEnabled { get; private set; }
 
     /// <inheritdoc />
     public override string Name => "Intro Skipper";

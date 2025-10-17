@@ -5,6 +5,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Text.RegularExpressions;
 using IntroSkipper.Data;
 using Jellyfin.Data.Enums;
 using Jellyfin.Database.Implementations.Enums;
@@ -25,7 +26,7 @@ namespace IntroSkipper.Manager;
 /// </remarks>
 /// <param name="logger">Logger.</param>
 /// <param name="libraryManager">Library manager.</param>
-public class QueueManager(ILogger<QueueManager> logger, ILibraryManager libraryManager)
+public partial class QueueManager(ILogger<QueueManager> logger, ILibraryManager libraryManager)
 {
     private readonly ILibraryManager _libraryManager = libraryManager;
     private readonly ILogger<QueueManager> _logger = logger;
@@ -134,11 +135,18 @@ public class QueueManager(ILogger<QueueManager> logger, ILibraryManager libraryM
         {
             try
             {
-                if (item is Episode episode && !_excludeSeries.Contains(episode.SeriesName))
+                if (item is Episode episode)
                 {
-                    QueueEpisode(episode);
+                    if (!IsSeriesExcluded(episode.SeriesName))
+                    {
+                        QueueEpisode(episode);
+                    }
+                    else
+                    {
+                        _logger.LogDebug("Skipping excluded series: {Series}", episode.SeriesName);
+                    }
                 }
-                else if (item is Movie movie && !_excludeSeries.Contains(movie.Name))
+                else if (item is Movie movie)
                 {
                     QueueMovie(movie);
                 }
@@ -154,6 +162,43 @@ public class QueueManager(ILogger<QueueManager> logger, ILibraryManager libraryM
         }
 
         _logger.LogDebug("Queued {Count} episodes", items.Count);
+    }
+
+    /// <summary>
+    /// Normalizes a series name by removing punctuation and converting to lowercase
+    /// to make comparisons more robust.
+    /// </summary>
+    /// <param name="name">The series name to normalize.</param>
+    /// <returns>Normalized series name.</returns>
+    private static string NormalizeSeriesName(string name)
+    {
+        if (string.IsNullOrEmpty(name))
+        {
+            return string.Empty;
+        }
+
+        // Remove all punctuation and convert to lowercase
+        return NormalizeSeriesNameRegex().Replace(name, string.Empty)
+            .ToLowerInvariant()
+            .Trim();
+    }
+
+    /// <summary>
+    /// Checks if a series is in the excluded list, using normalized name comparison
+    /// to handle differences in punctuation.
+    /// </summary>
+    /// <param name="seriesName">The series name to check.</param>
+    /// <returns>True if the series should be excluded, false otherwise.</returns>
+    private bool IsSeriesExcluded(string seriesName)
+    {
+        if (string.IsNullOrEmpty(seriesName))
+        {
+            return false;
+        }
+
+        // Then check normalized match
+        var normalizedName = NormalizeSeriesName(seriesName);
+        return _excludeSeries.Contains(normalizedName);
     }
 
     private void QueueEpisode(Episode episode)
@@ -188,13 +233,6 @@ public class QueueManager(ILogger<QueueManager> logger, ILibraryManager libraryM
             return;
         }
 
-        var isAnime = seasonEpisodes.FirstOrDefault()?.IsAnime ??
-            (pluginInstance.GetItem(episode.SeriesId) is Series series &&
-                (series.Tags.Contains("anime", StringComparison.OrdinalIgnoreCase) ||
-                series.Genres.Contains("anime", StringComparison.OrdinalIgnoreCase)));
-
-        // Limit analysis to the first X% of the episode and at most Y minutes.
-        // X and Y default to 25% and 10 minutes.
         var duration = TimeSpan.FromTicks(episode.RunTimeTicks ?? 0).TotalSeconds;
         var fingerprintDuration = Math.Min(
             duration >= 5 * 60 ? duration * _analysisPercent : duration,
@@ -214,14 +252,32 @@ public class QueueManager(ILogger<QueueManager> logger, ILibraryManager libraryM
             EpisodeNumber = episode.IndexNumber ?? 0,
             EpisodeId = episode.Id,
             Name = episode.Name,
-            IsAnime = isAnime,
+            Category = ResolveEpisodeCategory(episode, seasonEpisodes, pluginInstance),
+            IsExcluded = IsSeriesExcluded(episode.SeriesName),
             Path = episode.Path,
             Duration = duration,
             IntroFingerprintEnd = fingerprintDuration,
-            CreditsFingerprintStart = duration - maxCreditsDuration,
+            CreditsFingerprintStart = Math.Max(0, duration - maxCreditsDuration),
         });
 
         pluginInstance.TotalQueued++;
+    }
+
+    private static QueuedMediaCategory ResolveEpisodeCategory(Episode episode, IReadOnlyList<QueuedEpisode> seasonEpisodes, Plugin pluginInstance)
+    {
+        if (seasonEpisodes.FirstOrDefault()?.Category is QueuedMediaCategory cat && (cat == QueuedMediaCategory.AnimeEpisode || cat == QueuedMediaCategory.Episode))
+        {
+            return cat;
+        }
+
+        if (pluginInstance.GetItem(episode.SeriesId) is Series series &&
+            (series.Tags.Contains("anime", StringComparison.OrdinalIgnoreCase) ||
+             series.Genres.Contains("anime", StringComparison.OrdinalIgnoreCase)))
+        {
+            return QueuedMediaCategory.AnimeEpisode;
+        }
+
+        return QueuedMediaCategory.Episode;
     }
 
     private void QueueMovie(Movie movie)
@@ -251,8 +307,9 @@ public class QueueManager(ILogger<QueueManager> logger, ILibraryManager libraryM
             Name = movie.Name,
             Path = movie.Path,
             Duration = duration,
-            CreditsFingerprintStart = duration - pluginInstance.Configuration.MaximumMovieCreditsDuration,
-            IsMovie = true
+            CreditsFingerprintStart = Math.Max(0, duration - pluginInstance.Configuration.MaximumMovieCreditsDuration),
+            Category = QueuedMediaCategory.Movie,
+            IsExcluded = IsSeriesExcluded(movie.Name),
         });
 
         pluginInstance.TotalQueued++;
@@ -334,4 +391,7 @@ public class QueueManager(ILogger<QueueManager> logger, ILibraryManager libraryM
 
         return verified;
     }
+
+    [GeneratedRegex(@"[^\w\s]")]
+    private static partial Regex NormalizeSeriesNameRegex();
 }
