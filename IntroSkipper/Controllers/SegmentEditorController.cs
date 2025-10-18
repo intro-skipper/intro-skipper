@@ -66,7 +66,7 @@ public class SegmentEditorController(MediaSegmentUpdateManager mediaSegmentUpdat
         }
 
         var seg = new Segment(itemId, new TimeRange(TimeSpan.FromTicks(segment.StartTicks).TotalSeconds, TimeSpan.FromTicks(segment.EndTicks).TotalSeconds));
-        var mode = Plugin.Instance!.MapSegmentTypeToMode(segment.Type);
+        var mode = Plugin.MapSegmentTypeToMode(segment.Type);
 
         await Plugin.Instance!.UpdateTimestampAsync(seg, mode).ConfigureAwait(false);
 
@@ -80,15 +80,31 @@ public class SegmentEditorController(MediaSegmentUpdateManager mediaSegmentUpdat
     /// <summary>
     /// Delete MediaSgment by segment id.
     /// </summary>
-    /// <param name="segmentId">The Id of the segment.</param>
-    /// <returns>Always 200.</returns>
+    /// <param name="segmentId">The Id of the media segment to delete.</param>
+    /// <param name="itemId">The item id the segment belongs to (used to remove plugin DB entry).</param>
+    /// <param name="type">The media segment type name (Intro/Recap/Preview/Outro).</param>
+    /// <returns>HTTP 200 on success, 404 when item not found.</returns>
     [HttpDelete("{segmentId}")]
     [ProducesResponseType(StatusCodes.Status200OK)]
-    public async Task DeleteSegmentAsync(
-        [FromRoute, Required] Guid segmentId)
+    public async Task<ActionResult> DeleteSegmentAsync(
+        [FromRoute, Required] Guid segmentId,
+        [FromQuery, Required] Guid itemId,
+        [FromQuery, Required] string type)
     {
-        // TODO: Delete segment from DB, need to add itemId and type to parameters
+        // Delete the segment from Jellyfin's media segment manager
         await _mediaSegmentUpdateManager.DeleteSegmentAsync(segmentId).ConfigureAwait(false);
-        Ok();
+
+        AnalysisMode mode = type.ToLowerInvariant() switch
+        {
+            "intro" => AnalysisMode.Introduction,
+            "recap" => AnalysisMode.Recap,
+            "preview" => AnalysisMode.Preview,
+            "outro" or "credits" => AnalysisMode.Credits,
+            _ => throw new ArgumentOutOfRangeException(nameof(type), $"Unknown segment type '{type}'")
+        };
+
+        await Plugin.Instance!.DeleteTimestampAsync(itemId, mode).ConfigureAwait(false);
+
+        return Ok();
     }
 }

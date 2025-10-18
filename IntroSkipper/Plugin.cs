@@ -292,7 +292,7 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
         await db.SaveChangesAsync().ConfigureAwait(false);
     }
 
-    internal AnalysisMode MapSegmentTypeToMode(MediaSegmentType type)
+    internal static AnalysisMode MapSegmentTypeToMode(MediaSegmentType type)
     {
         return type switch
         {
@@ -302,5 +302,22 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
             MediaSegmentType.Outro => AnalysisMode.Credits,
             _ => throw new NotImplementedException(),
         };
+    }
+
+    /// <summary>
+    /// Deletes a stored timestamp (DbSegment) for the specified item and analysis mode.
+    /// </summary>
+    /// <param name="itemId">The item id whose timestamp should be removed.</param>
+    /// <param name="mode">The analysis mode representing the segment type.</param>
+    /// <returns>A <see cref="Task"/> representing the asynchronous operation.</returns>
+    internal async Task DeleteTimestampAsync(Guid itemId, AnalysisMode mode)
+    {
+        using var db = new IntroSkipperDbContext(_dbPath);
+        var entry = await db.DbSegment.FirstOrDefaultAsync(s => s.ItemId == itemId && s.Type == mode).ConfigureAwait(false);
+        if (entry is not null)
+        {
+            db.DbSegment.Remove(entry);
+            await db.SaveChangesAsync().ConfigureAwait(false);
+        }
     }
 }
