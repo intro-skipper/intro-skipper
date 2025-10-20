@@ -99,7 +99,7 @@ public sealed class AutoSkip(
 
         bool firstEpisode = e.Item is Episode episode && _config.SkipFirstEpisode && episode.IndexNumber == 1;
         var intros = Plugin.Instance!.GetTimestamps(itemId)
-                .Where(i => _segmentTypes.Contains(i.Key) && (!firstEpisode || i.Key != AnalysisMode.Introduction))
+                .Where(i => _segmentTypes.Contains(i.Key) && !firstEpisode)
                 .ToDictionary(i => i.Key, i => i.Value);
 
         _sentSeekCommand.AddOrUpdate(device, intros, (_, _) => intros);
