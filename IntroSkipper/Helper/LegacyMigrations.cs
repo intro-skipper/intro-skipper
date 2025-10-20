@@ -29,8 +29,7 @@ internal static class LegacyMigrations
             [
                 "https://raw.githubusercontent.com/intro-skipper/intro-skipper/master/manifest.json",
                 "https://raw.githubusercontent.com/jumoog/intro-skipper/master/manifest.json",
-                "https://manifest.intro-skipper.workers.dev/manifest.json",
-                "https://manifest.intro-skipper.org/manifest.json"
+                "https://manifest.intro-skipper.workers.dev/manifest.json"
             ];
 
             var config = serverConfiguration.Configuration;
@@ -40,12 +39,12 @@ internal static class LegacyMigrations
             {
                 pluginRepositories.RemoveAll(repo => repo.Url != null && oldRepos.Contains(repo.Url));
 
-                if (!pluginRepositories.Exists(repo => repo.Url == "https://intro-skipper.org/manifest.json") && plugin.Configuration.OverrideManifestUrl)
+                if (!pluginRepositories.Exists(repo => repo.Url == "https://manifest.intro-skipper.org/manifest.json") && plugin.Configuration.OverrideManifestUrl)
                 {
                     pluginRepositories.Add(new RepositoryInfo
                     {
-                        Name = "intro skipper Plugin Repository (automatically migrated by plugin)",
-                        Url = "https://intro-skipper.org/manifest.json",
+                        Name = "intro skipper (automatically migrated by plugin)",
+                        Url = "https://manifest.intro-skipper.org/manifest.json",
                         Enabled = true,
                     });
                 }
