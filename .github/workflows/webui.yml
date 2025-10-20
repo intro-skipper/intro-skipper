@@ -13,13 +13,13 @@ jobs:
       matrix:
         jellyfin-web-version: [10.9.11]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: Setup Node.js environment
         uses: actions/setup-node@v6
         with:
           node-version: ">=20"
       - name: Checkout official jellyfin-web
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           repository: jellyfin/jellyfin-web
           ref: v${{ matrix.jellyfin-web-version }}
