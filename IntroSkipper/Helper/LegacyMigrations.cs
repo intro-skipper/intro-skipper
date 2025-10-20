@@ -18,7 +18,8 @@ internal static class LegacyMigrations
         ILibraryManager libraryManager)
     {
         MigrateSettingsToJellyfin(plugin, logger, libraryManager);
-        MigrateRepoUrl(plugin, serverConfiguration, logger);
+        // No longer works
+        // MigrateRepoUrl(plugin, serverConfiguration, logger);
     }
 
     private static void MigrateRepoUrl(Plugin plugin, IServerConfigurationManager serverConfiguration, ILogger logger)
