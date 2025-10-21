@@ -12,7 +12,6 @@ using IntroSkipper.Configuration;
 using IntroSkipper.Helper;
 using IntroSkipper.Manager;
 using IntroSkipper.ScheduledTasks;
-using MediaBrowser.Common.Configuration;
 using MediaBrowser.Controller.Entities.Movies;
 using MediaBrowser.Controller.Entities.TV;
 using MediaBrowser.Controller.Library;
@@ -97,10 +96,6 @@ namespace IntroSkipper.Services
             {
                 InitializeWebInjector();
             }
-
-            // Enqueue all episodes at startup to ensure any FFmpeg errors appear as early as possible
-            _logger.LogInformation("Running startup enqueue");
-            new QueueManager(_loggerFactory.CreateLogger<QueueManager>(), _libraryManager).GetMediaItems();
 
             return Task.CompletedTask;
         }
