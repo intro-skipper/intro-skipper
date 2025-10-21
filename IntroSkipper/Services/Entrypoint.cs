@@ -135,7 +135,12 @@ namespace IntroSkipper.Services
             _libraryManager.ItemAdded -= OnItemChanged;
             _libraryManager.ItemUpdated -= OnItemChanged;
             _taskManager.TaskCompleted -= OnLibraryRefresh;
-            Plugin.Instance!.ConfigurationChanged -= OnSettingsChanged;
+
+            // Null-Check
+            if (Plugin.Instance != null)
+            {
+                Plugin.Instance.ConfigurationChanged -= OnSettingsChanged;
+            }
 
             _queueTimer.Change(Timeout.Infinite, 0);
             return Task.CompletedTask;
