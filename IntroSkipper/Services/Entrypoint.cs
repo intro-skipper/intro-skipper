@@ -115,17 +115,6 @@ namespace IntroSkipper.Services
                 InitializeWebInjector();
             }
 
-            // Enqueue all episodes at startup to ensure any FFmpeg errors appear as early as possible
-            _logger.LogInformation("Running startup enqueue");
-            try
-            {
-                new QueueManager(_loggerFactory.CreateLogger<QueueManager>(), _libraryManager).GetMediaItems();
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Error while executing the initial enqueue.");
-            }
-
             return Task.CompletedTask;
         }
 
