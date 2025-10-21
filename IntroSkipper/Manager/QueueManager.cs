@@ -40,7 +40,14 @@ public partial class QueueManager(ILogger<QueueManager> logger, ILibraryManager 
     /// <returns>Queued media items.</returns>
     public IReadOnlyDictionary<Guid, List<QueuedEpisode>> GetMediaItems()
     {
-        Plugin.Instance!.TotalQueued = 0;
+        var pluginInstance = Plugin.Instance;
+        if (pluginInstance == null)
+        {
+            _logger.LogError("Plugin.Instance is null. The GetMediaItems method cannot be executed.");
+            return new Dictionary<Guid, List<QueuedEpisode>>();
+        }
+
+        pluginInstance.TotalQueued = 0;
 
         LoadAnalysisSettings();
 
@@ -48,7 +55,7 @@ public partial class QueueManager(ILogger<QueueManager> logger, ILibraryManager 
         foreach (var folder in _libraryManager.GetVirtualFolders())
         {
             // If libraries have been selected for analysis, ensure this library was selected.
-            if (folder.LibraryOptions.DisabledMediaSegmentProviders.Contains(Plugin.Instance.Name))
+            if (folder.LibraryOptions.DisabledMediaSegmentProviders.Contains(Plugin.Instance?.Name))
             {
                 _logger.LogDebug("Not analyzing library \"{Name}\": Intro Skipper is disabled in library settings. To enable, check library configuration > Media Segment Providers", folder.Name);
                 continue;
@@ -72,11 +79,11 @@ public partial class QueueManager(ILogger<QueueManager> logger, ILibraryManager 
             }
         }
 
-        Plugin.Instance.TotalSeasons = _queuedEpisodes.Count;
-        Plugin.Instance.QueuedMediaItems.Clear();
+        Plugin.Instance?.TotalSeasons = _queuedEpisodes.Count;
+        Plugin.Instance?.QueuedMediaItems.Clear();
         foreach (var kvp in _queuedEpisodes)
         {
-            Plugin.Instance.QueuedMediaItems.TryAdd(kvp.Key, kvp.Value);
+            Plugin.Instance?.QueuedMediaItems.TryAdd(kvp.Key, kvp.Value);
         }
 
         return _queuedEpisodes;
@@ -88,7 +95,16 @@ public partial class QueueManager(ILogger<QueueManager> logger, ILibraryManager 
     /// </summary>
     private void LoadAnalysisSettings()
     {
-        var config = Plugin.Instance!.Configuration;
+        var pluginInstance = Plugin.Instance;
+        if (pluginInstance == null)
+        {
+            _logger.LogError("LoadAnalysisSettings Plugin.Instance is null. The analysis settings cannot be loaded.");
+            _analysisPercent = 0.25; // Default
+            _excludeSeries = [];
+            return;
+        }
+
+        var config = pluginInstance.Configuration;
 
         // Store the analysis percent
         _analysisPercent = Convert.ToDouble(config.AnalysisPercent) / 100;

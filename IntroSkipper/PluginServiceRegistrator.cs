@@ -19,10 +19,10 @@ namespace IntroSkipper
         /// <inheritdoc />
         public void RegisterServices(IServiceCollection serviceCollection, IServerApplicationHost applicationHost)
         {
+            serviceCollection.AddSingleton<QueueManager>();
             serviceCollection.AddHostedService<AutoSkip>();
             serviceCollection.AddHostedService<Entrypoint>();
             serviceCollection.AddSingleton<IMediaSegmentProvider, SegmentProvider>();
-            serviceCollection.AddSingleton<QueueManager>();
             serviceCollection.AddTransient<MediaSegmentUpdateManager>();
         }
     }

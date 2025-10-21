@@ -63,7 +63,17 @@ namespace IntroSkipper.Services
             _loggerFactory = loggerFactory;
             _mediaSegmentUpdateManager = mediaSegmentUpdateManager;
 
-            _config = Plugin.Instance?.Configuration ?? new PluginConfiguration();
+            var pluginInstance = Plugin.Instance;
+            if (pluginInstance == null)
+            {
+                _logger.LogWarning("Plugin.Instance is null when initializing entry point.");
+                _config = new PluginConfiguration();
+            }
+            else
+            {
+                _config = pluginInstance.Configuration ?? new PluginConfiguration();
+            }
+
             _queueTimer = new Timer(
                     OnTimerCallback,
                     null,
@@ -87,20 +97,34 @@ namespace IntroSkipper.Services
             _libraryManager.ItemAdded += OnItemChanged;
             _libraryManager.ItemUpdated += OnItemChanged;
             _taskManager.TaskCompleted += OnLibraryRefresh;
-            Plugin.Instance!.ConfigurationChanged += OnSettingsChanged;
+
+            if (Plugin.Instance == null)
+            {
+                _logger.LogError("Plugin.Instance is null. The entry point service cannot be initialized properly.");
+                return Task.CompletedTask;
+            }
+
+            Plugin.Instance.ConfigurationChanged += OnSettingsChanged;
 
             FFmpegWrapper.Logger = _logger;
             FFmpegWrapper.CheckFFmpegVersion();
 
             // Initialize web injector for skip button timeout modification
-            if (Plugin.Instance?.FileTransformationPluginEnabled == true)
+            if (Plugin.Instance.FileTransformationPluginEnabled == true)
             {
                 InitializeWebInjector();
             }
 
             // Enqueue all episodes at startup to ensure any FFmpeg errors appear as early as possible
             _logger.LogInformation("Running startup enqueue");
-            new QueueManager(_loggerFactory.CreateLogger<QueueManager>(), _libraryManager).GetMediaItems();
+            try
+            {
+                new QueueManager(_loggerFactory.CreateLogger<QueueManager>(), _libraryManager).GetMediaItems();
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error while executing the initial enqueue.");
+            }
 
             return Task.CompletedTask;
         }
