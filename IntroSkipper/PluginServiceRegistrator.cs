@@ -22,6 +22,7 @@ namespace IntroSkipper
             serviceCollection.AddHostedService<AutoSkip>();
             serviceCollection.AddHostedService<Entrypoint>();
             serviceCollection.AddSingleton<IMediaSegmentProvider, SegmentProvider>();
+            serviceCollection.AddSingleton<QueueManager>();
             serviceCollection.AddTransient<MediaSegmentUpdateManager>();
         }
     }
