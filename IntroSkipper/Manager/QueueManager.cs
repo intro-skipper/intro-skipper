@@ -40,15 +40,29 @@ public partial class QueueManager(ILogger<QueueManager> logger, ILibraryManager 
     /// <returns>Queued media items.</returns>
     public IReadOnlyDictionary<Guid, List<QueuedEpisode>> GetMediaItems()
     {
-        Plugin.Instance!.TotalQueued = 0;
+        var plugin = Plugin.Instance;
+        if (plugin is null)
+        {
+            _logger.LogError("Plugin instance is null in GetMediaItems()");
+            return _queuedEpisodes;
+        }
 
-        LoadAnalysisSettings();
+        plugin.TotalQueued = 0;
+
+        LoadAnalysisSettings(plugin);
 
         // For all selected libraries, enqueue all contained episodes.
-        foreach (var folder in _libraryManager.GetVirtualFolders())
+        var virtualFolders = _libraryManager.GetVirtualFolders();
+        if (virtualFolders is null)
+        {
+            _logger.LogError("Library manager returned null when requesting virtual folders");
+            return _queuedEpisodes;
+        }
+
+        foreach (var folder in virtualFolders)
         {
             // If libraries have been selected for analysis, ensure this library was selected.
-            if (folder.LibraryOptions.DisabledMediaSegmentProviders.Contains(Plugin.Instance.Name))
+            if (folder.LibraryOptions?.DisabledMediaSegmentProviders?.Contains(plugin.Name) == true)
             {
                 _logger.LogDebug("Not analyzing library \"{Name}\": Intro Skipper is disabled in library settings. To enable, check library configuration > Media Segment Providers", folder.Name);
                 continue;
@@ -72,11 +86,11 @@ public partial class QueueManager(ILogger<QueueManager> logger, ILibraryManager 
             }
         }
 
-        Plugin.Instance.TotalSeasons = _queuedEpisodes.Count;
-        Plugin.Instance.QueuedMediaItems.Clear();
+        plugin.TotalSeasons = _queuedEpisodes.Count;
+        plugin.QueuedMediaItems.Clear();
         foreach (var kvp in _queuedEpisodes)
         {
-            Plugin.Instance.QueuedMediaItems.TryAdd(kvp.Key, kvp.Value);
+            plugin.QueuedMediaItems.TryAdd(kvp.Key, kvp.Value);
         }
 
         return _queuedEpisodes;
@@ -86,9 +100,9 @@ public partial class QueueManager(ILogger<QueueManager> logger, ILibraryManager 
     /// Loads the list of libraries which have been selected for analysis and the minimum intro duration.
     /// Settings which have been modified from the defaults are logged.
     /// </summary>
-    private void LoadAnalysisSettings()
+    private void LoadAnalysisSettings(Plugin plugin)
     {
-        var config = Plugin.Instance!.Configuration;
+        var config = plugin.Configuration;
 
         // Store the analysis percent
         _analysisPercent = Convert.ToDouble(config.AnalysisPercent) / 100;
