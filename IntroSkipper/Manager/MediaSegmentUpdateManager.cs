@@ -73,4 +73,14 @@ public class MediaSegmentUpdateManager(
                 }
             }).ConfigureAwait(false);
     }
+
+    /// <summary>
+    /// Deletes a segment.
+    /// </summary>
+    /// <param name="segmentId">The Id of the segment.</param>
+    /// <returns>A <see cref="Task"/> representing the asynchronous operation.</returns>
+    public async Task DeleteSegmentAsync(Guid segmentId)
+    {
+        await _mediaSegmentManager.DeleteSegmentAsync(segmentId).ConfigureAwait(false);
+    }
 }

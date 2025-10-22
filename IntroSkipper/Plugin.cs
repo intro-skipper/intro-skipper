@@ -11,6 +11,7 @@ using IntroSkipper.Configuration;
 using IntroSkipper.Data;
 using IntroSkipper.Db;
 using IntroSkipper.Helper;
+using Jellyfin.Database.Implementations.Enums;
 using MediaBrowser.Common.Configuration;
 using MediaBrowser.Common.Plugins;
 using MediaBrowser.Controller.Chapters;
@@ -289,5 +290,34 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
             .ToListAsync().ConfigureAwait(false);
         db.DbSeasonInfo.RemoveRange(obsoleteSeasons);
         await db.SaveChangesAsync().ConfigureAwait(false);
+    }
+
+    internal static AnalysisMode MapSegmentTypeToMode(MediaSegmentType type)
+    {
+        return type switch
+        {
+            MediaSegmentType.Intro => AnalysisMode.Introduction,
+            MediaSegmentType.Recap => AnalysisMode.Recap,
+            MediaSegmentType.Preview => AnalysisMode.Preview,
+            MediaSegmentType.Outro => AnalysisMode.Credits,
+            _ => throw new NotImplementedException(),
+        };
+    }
+
+    /// <summary>
+    /// Deletes a stored timestamp (DbSegment) for the specified item and analysis mode.
+    /// </summary>
+    /// <param name="itemId">The item id whose timestamp should be removed.</param>
+    /// <param name="mode">The analysis mode representing the segment type.</param>
+    /// <returns>A <see cref="Task"/> representing the asynchronous operation.</returns>
+    internal async Task DeleteTimestampAsync(Guid itemId, AnalysisMode mode)
+    {
+        using var db = new IntroSkipperDbContext(_dbPath);
+        var entry = await db.DbSegment.FirstOrDefaultAsync(s => s.ItemId == itemId && s.Type == mode).ConfigureAwait(false);
+        if (entry is not null)
+        {
+            db.DbSegment.Remove(entry);
+            await db.SaveChangesAsync().ConfigureAwait(false);
+        }
     }
 }

@@ -383,16 +383,13 @@ public partial class QueueManager(ILogger<QueueManager> logger, ILibraryManager 
 
                 foreach (var mode in modes)
                 {
-                    if (episodeIds.TryGetValue(mode, out var ids) && ids.Contains(candidate.EpisodeId))
+                    if (hasSegments.TryGetValue(mode, out var seg))
                     {
-                        if (hasSegments.TryGetValue(mode, out _))
-                        {
-                            candidate.SetAnalyzed(mode, EpisodeState.Analyzed);
-                        }
-                        else if (!plugin.AnalyzeAgain)
-                        {
-                            candidate.SetAnalyzed(mode, EpisodeState.NoSegments);
-                        }
+                        candidate.SetAnalyzed(mode, EpisodeState.Analyzed);
+                    }
+                    else if (!plugin.AnalyzeAgain && episodeIds.TryGetValue(mode, out var ids) && ids.Contains(candidate.EpisodeId))
+                    {
+                        candidate.SetAnalyzed(mode, EpisodeState.NoSegments);
                     }
                 }
             }
