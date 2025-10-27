@@ -27,4 +27,9 @@ public enum AnalysisMode
     /// Detect recaps.
     /// </summary>
     Recap,
+
+    /// <summary>
+    /// Detect commercials. Only for Segment editor.
+    /// </summary>
+    Commercial
 }

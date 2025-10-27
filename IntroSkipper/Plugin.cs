@@ -300,6 +300,7 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
             MediaSegmentType.Recap => AnalysisMode.Recap,
             MediaSegmentType.Preview => AnalysisMode.Preview,
             MediaSegmentType.Outro => AnalysisMode.Credits,
+            MediaSegmentType.Commercial => AnalysisMode.Commercial,
             _ => throw new NotImplementedException(),
         };
     }
