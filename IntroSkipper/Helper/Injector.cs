@@ -26,12 +26,7 @@ namespace IntroSkipper.Helper
         /// Regex to match the focusability check.
         /// </summary>
         private const string FocusabilityAssignmentPattern =
-            @"(?:(?:var)\s+)?r\s*=\s*document\.activeElement\s*&&\s*pe\.A\.isCurrentlyFocusable\(document\.activeElement\)";
-
-        /// <summary>
-        /// Pattern to identify the playback stop handler to avoid modifying it.
-        /// </summary>
-        private const string PlaybackStopPattern = @"t\.prototype\.onPlaybackStop=function\(\){this\.currentSegment=null\,this\.hideSkipButton\(\),";
+            @"(?:(?:var)\s+)?r\s*=\s*document\.activeElement\s*&&\s*[A-Za-z_$][\w$]*\.A\.isCurrentlyFocusable\(document\.activeElement\)";
 
         /// <summary>
         /// Number of milliseconds per second.
@@ -51,9 +46,6 @@ namespace IntroSkipper.Helper
 
         [GeneratedRegex(FocusabilityAssignmentPattern, RegexOptions.CultureInvariant)]
         private static partial Regex FocusabilityAssignmentRegex();
-
-        [GeneratedRegex(PlaybackStopPattern)]
-        private static partial Regex PlaybackStopRegex();
 
         /// <summary>
         /// Transforms the file contents by modifying JavaScript timeout values.
@@ -90,9 +82,6 @@ namespace IntroSkipper.Helper
             // Add playback time condition to focusability check to gate skip button behavior
             updated = ReplaceFocusabilityCheck(updated);
 
-            // Ensure we did not modify the playback stop handler
-            updated = ReplacePlaybackStopHandler(updated);
-
             return updated;
         }
 
@@ -119,11 +108,6 @@ namespace IntroSkipper.Helper
         /// <param name="contents">The JavaScript content to modify.</param>
         /// <returns>The modified content.</returns>
         private static string ReplaceFocusabilityCheck(string contents) => FocusabilityAssignmentRegex().Replace(contents, m => m.Value + $"&&t.playbackManager.currentTime()>{MillisecondsPerSecond}");
-
-        /// <summary>
-        /// Ensures that the playback stop handler is valid.
-        /// </summary>
-        private static string ReplacePlaybackStopHandler(string contents) => PlaybackStopRegex().Replace(contents, "t.prototype.onPlaybackStop=function(e,t){this.currentSegment=null,this.hideSkipButton(),t.nextItem||");
 
         /// <summary>
         /// Attempts to convert seconds to milliseconds with validation and overflow protection.
