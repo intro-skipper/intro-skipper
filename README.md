@@ -12,6 +12,10 @@
 <a href="https://github.com/intro-skipper/intro-skipper/releases">
 <img alt="Total GitHub Downloads" src="https://img.shields.io/github/downloads/intro-skipper/intro-skipper/total?label=github%20downloads"/>
 </a>
+<br />
+<p align="center">
+  <a href="https://discord.gg/AYZ7RJ3BuA"><img src="https://invidget.switchblade.xyz/AYZ7RJ3BuA"></a>
+</p>
 </div>
 
 ## Manifest URL (All Jellyfin Versions)
@@ -66,11 +70,6 @@ Some web UI features (for example, adjusting the skip-button timeout) require th
 - #### [Scheduled tasks fail instantly](https://github.com/intro-skipper/intro-skipper/wiki/Troubleshooting#scheduled-tasks-fail-instantly)
 - #### [Skip button is not visible](https://github.com/intro-skipper/intro-skipper/wiki/Troubleshooting#skip-button-is-not-visible)
 - #### [Auto skip is not working](https://github.com/intro-skipper/intro-skipper/wiki/Troubleshooting#auto-skip-is-not-working)
-
-<br />
-<p align="center">
-  <a href="https://discord.gg/AYZ7RJ3BuA"><img src="https://invidget.switchblade.xyz/AYZ7RJ3BuA"></a>
-</p>
 
 ## Acknowledgments
 
