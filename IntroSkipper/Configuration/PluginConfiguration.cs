@@ -92,6 +92,11 @@ public class PluginConfiguration : BasePluginConfiguration
     public bool ScanPreview { get; set; } = true;
 
     /// <summary>
+    /// Gets or sets a value indicating whether Commercials should be analyzed.
+    /// </summary>
+    public bool ScanCommercial { get; set; } = true;
+
+    /// <summary>
     /// Gets or sets the percentage of each episode's audio track to analyze.
     /// </summary>
     public int AnalysisPercent { get; set; } = 25;
@@ -150,6 +155,16 @@ public class PluginConfiguration : BasePluginConfiguration
     /// Gets or sets the maximum length of similar audio that will be considered a preview.
     /// </summary>
     public int MaximumPreviewDuration { get; set; } = 120;
+
+    /// <summary>
+    /// Gets or sets the minimum length of similar audio that will be considered a commercial.
+    /// </summary>
+    public int MinimumCommercialDuration { get; set; } = 15;
+
+    /// <summary>
+    /// Gets or sets the maximum length of similar audio that will be considered a commercial.
+    /// </summary>
+    public int MaximumCommercialDuration { get; set; } = 120;
 
     /// <summary>
     /// Gets or sets the minimum percentage of a frame that must consist of black pixels before it is considered a black frame.
@@ -225,6 +240,11 @@ public class PluginConfiguration : BasePluginConfiguration
     public string ChapterAnalyzerRecapPattern { get; set; } =
         @"(^|\s)(Re?cap|Sum{1,2}ary|Prev(ious(ly)?)?|(Last|Earlier)(\s\w+)?|Catch[ -]up)(?!\sEnd)(\s|:|$)";
 
+    /// <summary>
+    /// Gets or sets the regular expression used to detect Commercial chapters.
+    /// </summary>
+    public string ChapterAnalyzerCommercialPattern { get; set; }
+
     // ===== Playback settings =====
 
     /// <summary>
@@ -256,6 +276,11 @@ public class PluginConfiguration : BasePluginConfiguration
     /// Gets or sets a value indicating whether preview should be automatically skipped.
     /// </summary>
     public bool AutoSkipPreview { get; set; }
+
+    /// <summary>
+    /// Gets or sets a value indicating whether commercial should be automatically skipped.
+    /// </summary>
+    public bool AutoSkipCommercial { get; set; }
 
     /// <summary>
     /// Gets or sets a value indicating whether the introduction in the first episode of a season should be ignored.

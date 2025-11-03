@@ -92,6 +92,10 @@
                                     <input id="ScanPreview" type="checkbox" is="emby-checkbox" />
                                     <span>Previews</span>
                                 </label>
+                                <label class="emby-checkbox-label">
+                                    <input id="ScanCommercial" type="checkbox" is="emby-checkbox" />
+                                    <span>Commercials</span>
+                                </label>
                             </div>
 
                             <div class="checkboxContainer checkboxContainer-withDescription">
@@ -216,6 +220,18 @@
                                         <label class="inputLabel inputLabelUnfocused" for="MaximumPreviewDuration"> Maximum preview duration (in seconds) </label>
                                         <input id="MaximumPreviewDuration" type="number" is="emby-input" min="1" />
                                         <div class="fieldDescription">Segments which are longer than this duration will not be considered a preview.</div>
+                                    </div>
+
+                                    <div class="inputContainer">
+                                        <label class="inputLabel inputLabelUnfocused" for="MinimumCommercialDuration"> Minimum commercial duration (in seconds) </label>
+                                        <input id="MinimumCommercialDuration" type="number" is="emby-input" min="1" />
+                                        <div class="fieldDescription">Segments which are shorter than this duration will not be considered a commercial.</div>
+                                    </div>
+
+                                    <div class="inputContainer">
+                                        <label class="inputLabel inputLabelUnfocused" for="MaximumCommercialDuration"> Maximum commercial duration (in seconds) </label>
+                                        <input id="MaximumCommercialDuration" type="number" is="emby-input" min="1" />
+                                        <div class="fieldDescription">Segments which are longer than this duration will not be considered a commercial.</div>
                                     </div>
                                 </div>
                                 <br />
@@ -364,6 +380,12 @@
                                     <label class="inputLabel inputLabelUnfocused" for="ChapterAnalyzerRecapPattern"> Recaps </label>
                                     <input id="ChapterAnalyzerRecapPattern" type="text" placeholder="(^|\s)(Re?cap|Sum{1,2}ary|Prev(ious(ly)?)?|(Last|Earlier)(\s\w+)?|Catch[ -]up)(?!\sEnd)(\s|:|$)" is="emby-input" />
                                     <div class="fieldDescription">Enter a regular expression to detect recap chapters. <br />Default: <code>(^|\s)(Re?cap|Sum{1,2}ary|Prev(ious(ly)?)?|(Last|Earlier)(\s\w+)?|Catch[ -]up)(?!\sEnd)(\s|:|$)</code></div>
+                                </div>
+
+                                <div class="inputContainer">
+                                    <label class="inputLabel inputLabelUnfocused" for="ChapterAnalyzerCommercialPattern"> Commercials </label>
+                                    <input id="ChapterAnalyzerCommercialPattern" type="text" placeholder="" is="emby-input" />
+                                    <div class="fieldDescription">Enter a regular expression to detect commercial chapters. <br />Default: <code></code></div>
                                 </div>
                             </details>
 
@@ -567,6 +589,14 @@
                                         <label for="actionPreview" style="width: 23%">
                                             <span>Preview analysis</span>
                                             <select is="emby-select" id="actionPreview" class="emby-select-withcolor emby-select">
+                                                <option value="Default">Default</option>
+                                                <option value="Chapter">Chapter</option>
+                                                <option value="None">None</option>
+                                            </select>
+                                        </label>
+                                        <label for="actionCommercial" style="width: 23%">
+                                            <span>Commercial analysis</span>
+                                            <select is="emby-select" id="actionCommercial" class="emby-select-withcolor emby-select">
                                                 <option value="Default">Default</option>
                                                 <option value="Chapter">Chapter</option>
                                                 <option value="None">None</option>
@@ -793,6 +823,8 @@
                                         <option value="credits">Global Credits Timestamps</option>
 
                                         <option value="preview">Global Preview Timestamps</option>
+
+                                        <option value="commercial">Global Commercial Timestamps</option>
                                     </select>
                                     <div class="checkboxContainer checkboxContainer" style="margin: 0">
                                         <label class="emby-checkbox-label">
@@ -878,6 +910,8 @@
                     "MaximumRecapDuration",
                     "MinimumPreviewDuration",
                     "MaximumPreviewDuration",
+                    "MinimumCommercialDuration",
+                    "MaximumCommercialDuration",
                     "ProcessPriority",
                     "ProcessThreads",
                     // playback
@@ -894,12 +928,13 @@
                     "ChapterAnalyzerEndCreditsPattern",
                     "ChapterAnalyzerPreviewPattern",
                     "ChapterAnalyzerRecapPattern",
+                    "ChapterAnalyzerCommercialPattern",
                     "TypeList",
                     // UI customization
                     "AutoSkipNotificationText",
                 ];
 
-                const booleanConfigurationFields = ["AutoDetectIntros", "AnalyzeSeasonZero", "UpdateMediaSegments","UseAlternativeBlackFrameAnalyzer", "UseChapterMarkersBlackFrame", "FullLengthChapters", "RebuildMediaSegments", "ScanIntroduction", "ScanCredits", "ScanRecap", "ScanPreview", "PreferChromaprint", "CacheFingerprints", "PluginSkip", "AutoSkip", "SkipFirstEpisode", "SnapToKeyframe", "AdjustIntroBasedOnSilence", "AdjustIntroBasedOnChapters", "UseFileTransformationPlugin"];
+                const booleanConfigurationFields = ["AutoDetectIntros", "AnalyzeSeasonZero", "UpdateMediaSegments","UseAlternativeBlackFrameAnalyzer", "UseChapterMarkersBlackFrame", "FullLengthChapters", "RebuildMediaSegments", "ScanIntroduction", "ScanCredits", "ScanRecap", "ScanPreview", "ScanCommercial", "PreferChromaprint", "CacheFingerprints", "PluginSkip", "AutoSkip", "SkipFirstEpisode", "SnapToKeyframe", "AdjustIntroBasedOnSilence", "AdjustIntroBasedOnChapters", "UseFileTransformationPlugin"];
 
                 // visualizer elements
                 const analyzerActionsSection = document.querySelector("div#analyzerActionsSection");
@@ -907,6 +942,7 @@
                 const actionCredits = analyzerActionsSection.querySelector("select#actionCredits");
                 const actionRecap = analyzerActionsSection.querySelector("select#actionRecap");
                 const actionPreview = analyzerActionsSection.querySelector("select#actionPreview");
+                const actionCommercial = analyzerActionsSection.querySelector("select#actionCommercial");
                 const actionFileTransformation = document.getElementById("UseFileTransformationPlugin");
                 const divSkipbuttonHideDelayContent = document.getElementById("divSkipbuttonHideDelayContent");
                 const saveAnalyzerActionsButton = analyzerActionsSection.querySelector("button#saveAnalyzerActions");
@@ -1015,7 +1051,7 @@
                 }
 
                 async function generateAutoSkipTypeList() {
-                    const types = ["Introduction", "Credits", "Recap", "Preview"];
+                    const types = ["Introduction", "Credits", "Recap", "Preview", "Commercial"];
                     generateCheckboxList(types, "autoSkipTypeCheckboxes", "TypeList");
                 }
 
@@ -1201,6 +1237,7 @@
                     actionCredits.value = analyzerActions.Credits || "Default";
                     actionRecap.value = analyzerActions.Recap || "Default";
                     actionPreview.value = analyzerActions.Preview || "Default";
+                    actionCommercial.value = analyzerActions.Commercial || "Default";
                     analyzerActionsSection.style.display = "unset";
 
                     // show the erase season button
@@ -1635,6 +1672,7 @@
                             Credits: actionCredits.value,
                             Recap: actionRecap.value,
                             Preview: actionPreview.value,
+                            Commercial: actionCommercial.value,
                         },
                     };
 
@@ -1780,6 +1818,9 @@
                             break;
                         case "preview":
                             eraseTimestamps("Preview");
+                            break;
+                        case "commercial":
+                            eraseTimestamps("Commercial");
                             break;
                         default:
                             return;
