@@ -384,8 +384,8 @@
 
                                 <div class="inputContainer">
                                     <label class="inputLabel inputLabelUnfocused" for="ChapterAnalyzerCommercialPattern"> Commercials </label>
-                                    <input id="ChapterAnalyzerCommercialPattern" type="text" placeholder="" is="emby-input" />
-                                    <div class="fieldDescription">Enter a regular expression to detect commercial chapters. <br />Default: <code></code></div>
+                                    <input id="ChapterAnalyzerCommercialPattern" type="text" placeholder="(^|\s)(Ad(vert(isement)?)?|Commercial)(?!\sEnd)(\s|$)" is="emby-input" />
+                                    <div class="fieldDescription">Enter a regular expression to detect commercial chapters. <br />Default: <code>(^|\s)(Ad(vert(isement)?)?|Commercial)(?!\sEnd)(\s|$)</code></div>
                                 </div>
                             </details>
 
