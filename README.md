@@ -27,6 +27,8 @@ It will NOT return a manifest when viewed in a browser, as no Jellyfin version i
 https://intro-skipper.org/manifest.json
 ```
 
+## Important: As of Jellyfin 10.10, Intro Skipper does **NOT** modify the UI.
+
 ## System requirements
 
 * Jellyfin 10.10.7 (or newer)
