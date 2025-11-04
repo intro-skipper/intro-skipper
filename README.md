@@ -27,6 +27,8 @@ It will NOT return a manifest when viewed in a browser, as no Jellyfin version i
 https://intro-skipper.org/manifest.json
 ```
 
+## Important: As of Jellyfin 10.10, Intro Skipper does **NOT** modify the UI.
+
 ## Optional: File Transformation plugin
 
 Some web UI features (for example, adjusting the skip-button timeout) require the File Transformation plugin. If it’s not installed, Intro Skipper will still work, but those enhancements won’t be applied.
