@@ -59,7 +59,8 @@ public class SkipIntroController(MediaSegmentUpdateManager mediaSegmentUpdateMan
             (AnalysisMode.Introduction, timestamps.Introduction),
             (AnalysisMode.Credits, timestamps.Credits),
             (AnalysisMode.Recap, timestamps.Recap),
-            (AnalysisMode.Preview, timestamps.Preview)
+            (AnalysisMode.Preview, timestamps.Preview),
+            (AnalysisMode.Commercial, timestamps.Commercial)
         };
 
         foreach (var (mode, segment) in segmentTypes)
@@ -126,6 +127,11 @@ public class SkipIntroController(MediaSegmentUpdateManager mediaSegmentUpdateMan
             times.Preview = previewSegment;
         }
 
+        if (segments.TryGetValue(AnalysisMode.Commercial, out var commercialSegment))
+        {
+            times.Commercial = commercialSegment;
+        }
+
         return times;
     }
 
@@ -149,6 +155,21 @@ public class SkipIntroController(MediaSegmentUpdateManager mediaSegmentUpdateMan
         if (segments.TryGetValue(AnalysisMode.Credits, out var creditSegment))
         {
             result[AnalysisMode.Credits] = creditSegment;
+        }
+
+        if (segments.TryGetValue(AnalysisMode.Recap, out var recapSegment))
+        {
+            result[AnalysisMode.Recap] = recapSegment;
+        }
+
+        if (segments.TryGetValue(AnalysisMode.Preview, out var previewSegment))
+        {
+            result[AnalysisMode.Preview] = previewSegment;
+        }
+
+        if (segments.TryGetValue(AnalysisMode.Commercial, out var commercialSegment))
+        {
+            result[AnalysisMode.Commercial] = commercialSegment;
         }
 
         return result;
