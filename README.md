@@ -24,7 +24,7 @@
 <br />
 It will NOT return a manifest when viewed in a browser, as no Jellyfin version is provided.**
 ```
-https://intro-skipper.org/manifest.json
+https://manifest.intro-skipper.org/manifest.json
 ```
 
 ### As of Jellyfin 10.10, Intro Skipper does **NOT** modify the UI.
