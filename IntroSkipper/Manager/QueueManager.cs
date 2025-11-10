@@ -134,7 +134,9 @@ public partial class QueueManager(ILogger<QueueManager> logger, ILibraryManager 
             IsVirtualItem = false
         };
 
-        var items = _libraryManager.GetItemList(query, false);
+        var items = _libraryManager.GetItemList(query, false)
+            .DistinctBy(e => e.Id)
+            .ToList();
 
         if (items is null)
         {
@@ -235,16 +237,6 @@ public partial class QueueManager(ILogger<QueueManager> logger, ILibraryManager 
         {
             seasonEpisodes = [];
             _queuedEpisodes[seasonId] = seasonEpisodes;
-        }
-
-        if (seasonEpisodes.Any(e => e.EpisodeId == episode.Id))
-        {
-            _logger.LogDebug(
-                "\"{Name}\" from series \"{Series}\" ({Id}) is already queued",
-                episode.Name,
-                episode.SeriesName,
-                episode.Id);
-            return;
         }
 
         var duration = TimeSpan.FromTicks(episode.RunTimeTicks ?? 0).TotalSeconds;
