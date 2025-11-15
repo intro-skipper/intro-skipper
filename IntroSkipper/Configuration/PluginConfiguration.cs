@@ -41,6 +41,11 @@ public class PluginConfiguration : BasePluginConfiguration
     public bool AnalyzeSeasonZero { get; set; }
 
     /// <summary>
+    /// Gets or sets a value indicating whether to process IsShortcut videos.
+    /// </summary>
+    public bool ProcessShortcutVideos { get; set; } = false;
+
+    /// <summary>
     /// Gets or sets a value indicating whether to only use chromaprint.
     /// </summary>
     public bool PreferChromaprint { get; set; }

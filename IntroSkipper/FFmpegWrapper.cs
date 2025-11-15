@@ -152,7 +152,7 @@ public static partial class FFmpegWrapper
             "-vn -sn -dn " +
                 "-ss {0} -i \"{1}\" -to {2} -vn -dn -sn -af \"silencedetect=noise={3}dB:duration=0.1\" -f null -",
             range.Start,
-            episode.Path,
+            episode.IsShortcut ? episode.ShortcutPath : episode.Path,
             range.End - range.Start,
             Plugin.Instance?.Configuration.SilenceDetectionMaximumNoise ?? -50);
 
@@ -212,7 +212,7 @@ public static partial class FFmpegWrapper
             CultureInfo.InvariantCulture,
             "-ss {0} -i \"{1}\" -to {2} -an -dn -sn -vf \"blackframe=amount=50:threshold={3}\" -f null -",
             range.Start,
-            episode.Path,
+            episode.IsShortcut ? episode.ShortcutPath : episode.Path,
             range.End - range.Start,
             threshold);
 
@@ -244,7 +244,7 @@ public static partial class FFmpegWrapper
             CultureInfo.InvariantCulture,
             "-skip_frame nokey -ss {0} -i \"{1}\" -an -dn -sn -vf \"blackframe=amount=0:threshold={2}\" -f null -",
             episode.CreditsFingerprintStart,
-            episode.Path,
+            episode.IsShortcut ? episode.ShortcutPath : episode.Path,
             threshold);
 
         // Cache the results to GUID-blackframes-START-END-v1.
@@ -303,7 +303,7 @@ public static partial class FFmpegWrapper
             CultureInfo.InvariantCulture,
             "-skip_frame nokey -ss {0} -i \"{1}\" -to {2} -an -dn -sn -vf \"showinfo\" -f null -",
             range.Start,
-            episode.Path,
+            episode.IsShortcut ? episode.ShortcutPath : episode.Path,
             range.End - range.Start);
 
         var cacheKey = string.Format(
@@ -509,6 +509,91 @@ public static partial class FFmpegWrapper
     }
 
     /// <summary>
+    /// Get media duration as runtime ticks via ffprobe.
+    /// Does not use cache.
+    /// Returns 0 when duration cannot be parsed from output.
+    /// </summary>
+    /// <param name="path">Full path of the media to probe.</param>
+    /// <returns>Duration (seconds).</returns>
+    public static double ProbeDuration(string path)
+    {
+        ArgumentException.ThrowIfNullOrEmpty(path);
+
+        Logger?.LogTrace("Probing duration for \"{File}\"", path);
+
+        // Use ffprobe to get duration in seconds
+        var args = string.Format(
+            CultureInfo.InvariantCulture,
+            "-v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 \"{0}\"",
+            path);
+
+        var raw = Encoding.UTF8.GetString(GetProbeOutput(args, timeout: 15_000));
+
+        // Try to parse the duration as a double (seconds)
+        if (!double.TryParse(raw.Trim(), NumberStyles.Float, CultureInfo.InvariantCulture, out var durationSeconds))
+        {
+            Logger?.LogDebug("Duration not found or N/A for \"{File}\"", path);
+            return 0L;
+        }
+
+        return durationSeconds;
+    }
+
+    /// <summary>
+    /// Runs ffprobe and returns standard output.
+    /// </summary>
+    /// <param name="args">Arguments to pass to ffprobe.</param>
+    /// <param name="timeout">Timeout (in milliseconds) to wait for ffprobe to exit.</param>
+    private static ReadOnlySpan<byte> GetProbeOutput(
+        string args,
+        int timeout = 60 * 1000)
+    {
+        var ffprobePath = Plugin.Instance?.FFmpegPath != null
+            ? Regex.Replace(Plugin.Instance.FFmpegPath, @"ffmpeg$", "ffprobe", RegexOptions.IgnoreCase)
+            : "ffprobe";
+
+        var info = new ProcessStartInfo(ffprobePath, args)
+        {
+            WindowStyle = ProcessWindowStyle.Hidden,
+            CreateNoWindow = true,
+            UseShellExecute = false,
+            ErrorDialog = false,
+            RedirectStandardOutput = true,
+            RedirectStandardError = false
+        };
+
+        using var ffprobe = new Process { StartInfo = info };
+        Logger?.LogDebug("Starting ffprobe with the following arguments: {Arguments}", ffprobe.StartInfo.Arguments);
+
+        ffprobe.Start();
+
+        try
+        {
+            ffprobe.PriorityClass = Plugin.Instance?.Configuration.ProcessPriority ?? ProcessPriorityClass.BelowNormal;
+        }
+        catch (Exception e)
+        {
+            Logger?.LogDebug("ffprobe priority could not be modified. {Message}", e.Message);
+        }
+
+        using var ms = new MemoryStream();
+        var buf = new byte[4096];
+
+        using (var streamReader = ffprobe.StandardOutput)
+        {
+            int bytesRead;
+            while ((bytesRead = streamReader.BaseStream.Read(buf, 0, buf.Length)) > 0)
+            {
+                ms.Write(buf, 0, bytesRead);
+            }
+        }
+
+        ffprobe.WaitForExit(timeout);
+
+        return ms.ToArray();
+    }
+
+    /// <summary>
     /// Fingerprint a queued episode.
     /// </summary>
     /// <param name="episode">Queued episode to fingerprint.</param>
@@ -536,7 +621,7 @@ public static partial class FFmpegWrapper
             CultureInfo.InvariantCulture,
             "-ss {0} -i \"{1}\" -to {2} -ac 2 -f chromaprint -fp_format raw -",
             start,
-            episode.Path,
+            episode.IsShortcut ? episode.ShortcutPath : episode.Path,
             end - start);
 
         // Returns all fingerprint points as raw 32-bit unsigned integers (little endian).

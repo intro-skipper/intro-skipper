@@ -54,6 +54,11 @@ public class QueuedEpisode
     public string Path { get; set; } = string.Empty;
 
     /// <summary>
+    /// Gets or sets the shortcut path to episode.
+    /// </summary>
+    public string ShortcutPath { get; set; } = string.Empty;
+
+    /// <summary>
     /// Gets or sets the name of the episode.
     /// </summary>
     public string Name { get; set; } = string.Empty;
@@ -67,6 +72,11 @@ public class QueuedEpisode
     /// Gets or sets a value indicating whether this media item should be excluded from analysis.
     /// </summary>
     public bool IsExcluded { get; set; }
+
+    /// <summary>
+    /// Gets or sets a value indicating whether this media item is a shortcut.
+    /// </summary>
+    public bool IsShortcut { get; set; }
 
     /// <summary>
     /// Gets or sets the timestamp (in seconds) to stop searching for an introduction at.
