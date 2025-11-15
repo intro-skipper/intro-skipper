@@ -590,6 +590,21 @@ public static partial class FFmpegWrapper
 
         ffprobe.WaitForExit(timeout);
 
+        if (!ffprobe.HasExited)
+        {
+            // Handle timeout: kill process and log error
+            try
+            {
+                ffprobe.Kill();
+            }
+            catch { /* ignore if already exited */ }
+        }
+
+        if (ffprobe.ExitCode != 0)
+        {
+            Logger?.LogWarning("ffprobe exited with code {ExitCode} for arguments: {Arguments}", ffprobe.ExitCode, ffprobe.StartInfo.Arguments);
+        }
+
         return ms.ToArray();
     }
 
