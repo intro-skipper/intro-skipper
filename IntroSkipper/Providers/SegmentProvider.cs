@@ -29,7 +29,8 @@ namespace IntroSkipper.Providers
             [AnalysisMode.Introduction] = MediaSegmentType.Intro,
             [AnalysisMode.Recap] = MediaSegmentType.Recap,
             [AnalysisMode.Preview] = MediaSegmentType.Preview,
-            [AnalysisMode.Credits] = MediaSegmentType.Outro
+            [AnalysisMode.Credits] = MediaSegmentType.Outro,
+            [AnalysisMode.Commercial] = MediaSegmentType.Commercial
         };
 
         /// <inheritdoc/>

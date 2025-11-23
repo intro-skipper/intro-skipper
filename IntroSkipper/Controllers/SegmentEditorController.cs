@@ -100,6 +100,7 @@ public class SegmentEditorController(MediaSegmentUpdateManager mediaSegmentUpdat
             "recap" => AnalysisMode.Recap,
             "preview" => AnalysisMode.Preview,
             "outro" or "credits" => AnalysisMode.Credits,
+            "commercial" => AnalysisMode.Commercial,
             _ => throw new ArgumentOutOfRangeException(nameof(type), $"Unknown segment type '{type}'")
         };
 

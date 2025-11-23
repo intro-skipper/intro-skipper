@@ -28,5 +28,10 @@ namespace IntroSkipper.Data
         /// Gets or sets Preview.
         /// </summary>
         public Segment Preview { get; set; } = new Segment();
+
+        /// <summary>
+        /// Gets or sets Commercial.
+        /// </summary>
+        public Segment Commercial { get; set; } = new Segment();
     }
 }

@@ -39,6 +39,7 @@ public class ChapterAnalyzer(ILogger<ChapterAnalyzer> logger) : IMediaFileAnalyz
             AnalysisMode.Credits => _config.ChapterAnalyzerEndCreditsPattern,
             AnalysisMode.Recap => _config.ChapterAnalyzerRecapPattern,
             AnalysisMode.Preview => _config.ChapterAnalyzerPreviewPattern,
+            AnalysisMode.Commercial => _config.ChapterAnalyzerCommercialPattern,
             _ => throw new ArgumentOutOfRangeException(nameof(mode), $"Unexpected analysis mode: {mode}")
         };
 
@@ -189,6 +190,7 @@ public class ChapterAnalyzer(ILogger<ChapterAnalyzer> logger) : IMediaFileAnalyz
                 episode.Category == QueuedMediaCategory.Movie ? _config.MaximumMovieCreditsDuration : _config.MaximumCreditsDuration),
             AnalysisMode.Recap => (_config.MinimumRecapDuration, _config.MaximumRecapDuration),
             AnalysisMode.Preview => (_config.MinimumPreviewDuration, _config.MaximumPreviewDuration),
+            AnalysisMode.Commercial => (_config.MinimumCommercialDuration, _config.MaximumCommercialDuration),
             _ => throw new ArgumentOutOfRangeException(nameof(mode), $"Unsupported analysis mode: {mode}")
         };
     }

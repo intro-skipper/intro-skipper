@@ -14,6 +14,7 @@ public class TestAutoSkip
     [InlineData("%segmenttype from %start to %end", AnalysisMode.Credits, 65.7, 125.2, "Credits from 66 to 125")]
     [InlineData("%segmenttype detected (%duration seconds)", AnalysisMode.Recap, 30.4, 90.2, "Recap detected (60 seconds)")]
     [InlineData("", AnalysisMode.Preview, 10, 20, "")]
+    [InlineData("Now skipping %segmenttype", AnalysisMode.Commercial, 5.1, 35.9, "Now skipping Commercial")]
     [InlineData(null, AnalysisMode.Introduction, 10, 20, "")]
     public void FormatNotificationText_ReplacesPlaceholdersCorrectly(string? template, AnalysisMode segmentType, double start, double end, string expected)
     {
