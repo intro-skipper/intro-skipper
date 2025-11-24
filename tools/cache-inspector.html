@@ -1,0 +1,235 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Intro Skipper Cache Inspector</title>
+  <style>
+    body { font-family: system-ui, sans-serif; margin: 2rem; background: #f7f7f7; color: #222; }
+    h1 { margin-bottom: 0.5rem; }
+    .dropzone { position: relative; box-sizing: border-box; border: 2px dashed #9aa4b2; border-radius: 12px; padding: 2.5rem 2rem; max-width: 520px; margin: 2rem auto; text-align: center; background: #fff; cursor: pointer; display: flex; flex-direction: column; align-items: center; gap: 0.75rem; transition: border-color 0.2s ease, box-shadow 0.2s ease, transform 0.2s ease; }
+    .dropzone:hover, .dropzone:focus-within { border-color: #0066cc; box-shadow: 0 10px 24px rgba(0, 0, 0, 0.08); transform: translateY(-2px); }
+    .dropzone.dragover { border-color: #0066cc; box-shadow: 0 10px 24px rgba(0, 102, 204, 0.18); color: #0066cc; }
+    .dropzone-title { font-size: 1.25rem; font-weight: 600; }
+    .dropzone-subtitle { color: #45515f; }
+    .dropzone-hint { color: #6b7684; font-size: 0.95rem; }
+    .dropzone input[type="file"] { position: absolute; inset: 0; width: 100%; height: 100%; opacity: 0; cursor: pointer; }
+    pre { background: #111; color: #0f0; padding: 1rem; border-radius: 6px; overflow: auto; }
+    table { width: 100%; border-collapse: collapse; margin-top: 1.5rem; background: #fff; }
+    th, td { padding: 0.6rem; border: 1px solid #ddd; text-align: left; }
+    th { background: #efefef; }
+    .hidden { display: none; }
+  </style>
+</head>
+<body>
+  <h1>Intro Skipper Cache Inspector</h1>
+  <p>Select or drop an Intro Skipper cache file (<code>.ifch</code>, <code>.ifbc</code>, <code>.ifsc</code>) and the contents will be decoded.</p>
+
+  <label class="dropzone" id="dropzone">
+    <div class="dropzone-title">Drop cache file here</div>
+    <div class="dropzone-subtitle">Drag a cache file onto this area or click to browse</div>
+    <div class="dropzone-hint">Accepts .ifch, .ifbc, .ifsc files</div>
+    <input type="file" id="fileInput" accept=".ifch,.ifbc,.ifsc,.txt,.log" />
+  </label>
+
+  <section id="summary" class="hidden"></section>
+  <section id="output" class="hidden"></section>
+
+  <script>
+    const MAGIC_FINGERPRINT = 0x49464348; // IFCH
+    const MAGIC_BLACKFRAME = 0x49464243; // IFBC
+    const MAGIC_SILENCE = 0x49465343; // IFSC
+
+    const dropzone = document.getElementById('dropzone');
+    const fileInput = document.getElementById('fileInput');
+    const summary = document.getElementById('summary');
+    const output = document.getElementById('output');
+
+    function formatNumber(value, fractionDigits = 3) {
+      return Number.isFinite(value) ? value.toFixed(fractionDigits) : 'n/a';
+    }
+
+    function detectFormat(buffer) {
+      if (buffer.byteLength < 10) {
+        return { type: 'unknown' };
+      }
+
+      const view = new DataView(buffer, 0, 10);
+      const magic = view.getUint32(0, true);
+      const version = view.getUint16(4, true);
+
+      switch (magic) {
+        case MAGIC_FINGERPRINT:
+          return { type: 'fingerprint', version };
+        case MAGIC_BLACKFRAME:
+          return { type: 'blackframe', version };
+        case MAGIC_SILENCE:
+          return { type: 'silence', version };
+        default:
+          return { type: 'legacy-text' };
+      }
+    }
+
+    function parseFingerprint(buffer) {
+      const view = new DataView(buffer);
+      const count = view.getUint32(6, true);
+      const points = new Array(count);
+      let offset = 10;
+      for (let i = 0; i < count; i += 1) {
+        points[i] = view.getUint32(offset, true);
+        offset += 4;
+      }
+      return points;
+    }
+
+    function parseBlackframe(buffer) {
+      const view = new DataView(buffer);
+      const count = view.getInt32(6, true);
+      const rows = [];
+      let offset = 10;
+      for (let i = 0; i < count; i += 1) {
+        const percentage = view.getInt32(offset, true); offset += 4;
+        const time = view.getFloat64(offset, true); offset += 8;
+        const frame = view.getInt32(offset, true); offset += 4;
+        rows.push({ percentage, time, frame });
+      }
+      return rows;
+    }
+
+    function parseSilence(buffer) {
+      const view = new DataView(buffer);
+      const count = view.getInt32(6, true);
+      const ranges = [];
+      let offset = 10;
+      for (let i = 0; i < count; i += 1) {
+        const start = view.getFloat64(offset, true); offset += 8;
+        const end = view.getFloat64(offset, true); offset += 8;
+        ranges.push({ start, end, duration: end - start });
+      }
+      return ranges;
+    }
+
+    function parseLegacyText(text) {
+      const lines = text.split(/\r?\n/).filter(Boolean);
+      return { lines };
+    }
+
+    function renderFingerprint(points) {
+      summary.innerHTML = `<h2>Fingerprint Summary</h2><p>Points: <strong>${points.length}</strong></p>`;
+      output.innerHTML = `<pre>${points.map((p, idx) => `${idx.toString().padStart(6)}: ${p}`).join('\n')}</pre>`;
+    }
+
+    function renderBlackframe(rows) {
+      summary.innerHTML = `<h2>Blackframe Summary</h2><p>Frames: <strong>${rows.length}</strong></p>`;
+      const rowsHtml = rows.map(row => `
+        <tr>
+          <td>${row.frame}</td>
+          <td>${row.percentage}</td>
+          <td>${formatNumber(row.time)}</td>
+        </tr>`).join('');
+      output.innerHTML = `
+        <table>
+          <thead>
+            <tr><th>Frame</th><th>% Black</th><th>Time (s)</th></tr>
+          </thead>
+          <tbody>${rowsHtml}</tbody>
+        </table>`;
+    }
+
+    function renderSilence(ranges) {
+      summary.innerHTML = `<h2>Silence Summary</h2><p>Ranges: <strong>${ranges.length}</strong></p>`;
+      const rowsHtml = ranges.map((range, idx) => `
+        <tr>
+          <td>${idx + 1}</td>
+          <td>${formatNumber(range.start)}</td>
+          <td>${formatNumber(range.end)}</td>
+          <td>${formatNumber(range.duration)}</td>
+        </tr>`).join('');
+      output.innerHTML = `
+        <table>
+          <thead>
+            <tr><th>#</th><th>Start (s)</th><th>End (s)</th><th>Duration (s)</th></tr>
+          </thead>
+          <tbody>${rowsHtml}</tbody>
+        </table>`;
+    }
+
+    function renderLegacyText(data) {
+      summary.innerHTML = `<h2>Legacy Text Cache</h2><p>Lines: <strong>${data.lines.length}</strong></p>`;
+      output.innerHTML = `<pre>${data.lines.join('\n')}</pre>`;
+    }
+
+    function clearOutput() {
+      summary.classList.add('hidden');
+      output.classList.add('hidden');
+      summary.innerHTML = '';
+      output.innerHTML = '';
+    }
+
+    function showOutput() {
+      summary.classList.remove('hidden');
+      output.classList.remove('hidden');
+    }
+
+    async function handleFile(file) {
+      if (!file) {
+        return;
+      }
+
+      const arrayBuffer = await file.arrayBuffer();
+      const format = detectFormat(arrayBuffer);
+      clearOutput();
+
+      try {
+        switch (format.type) {
+          case 'fingerprint':
+            renderFingerprint(parseFingerprint(arrayBuffer));
+            break;
+          case 'blackframe':
+            renderBlackframe(parseBlackframe(arrayBuffer));
+            break;
+          case 'silence':
+            renderSilence(parseSilence(arrayBuffer));
+            break;
+          case 'legacy-text': {
+            const text = new TextDecoder().decode(arrayBuffer);
+            renderLegacyText(parseLegacyText(text));
+            break;
+          }
+          default:
+            summary.innerHTML = `<h2>Unknown Cache Format</h2><p>File: ${file.name}</p>`;
+            output.innerHTML = '<pre>Unable to detect cache format.</pre>';
+        }
+        showOutput();
+      } catch (error) {
+        summary.innerHTML = `<h2>Error Parsing File</h2><p>${file.name}</p>`;
+        output.innerHTML = `<pre>${error?.message ?? error}</pre>`;
+        showOutput();
+      }
+    }
+
+    dropzone.addEventListener('click', () => fileInput.click());
+
+    dropzone.addEventListener('dragover', event => {
+      event.preventDefault();
+      dropzone.classList.add('dragover');
+    });
+
+    dropzone.addEventListener('dragleave', () => {
+      dropzone.classList.remove('dragover');
+    });
+
+    dropzone.addEventListener('drop', event => {
+      event.preventDefault();
+      dropzone.classList.remove('dragover');
+      const [file] = event.dataTransfer.files;
+      handleFile(file);
+    });
+
+    fileInput.addEventListener('change', event => {
+      const [file] = event.target.files;
+      handleFile(file);
+      fileInput.value = '';
+    });
+  </script>
+</body>
+</html>
