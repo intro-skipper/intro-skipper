@@ -20,6 +20,12 @@ public static partial class FFmpegWrapper
 {
     private const uint FingerprintCacheMagic = 0x49464348; // IFCH -> Intro Fingerprint Cache
     private const ushort FingerprintCacheVersion = 1;
+    private const uint BlackFrameCacheMagic = 0x49464243; // IFBC -> Intro BlackFrame Cache
+    private const ushort BlackFrameCacheVersion = 1;
+    private const uint SilenceCacheMagic = 0x49465343; // IFSC -> Intro Silence Cache
+    private const ushort SilenceCacheVersion = 1;
+    private const string BlackFrameCacheExtension = ".ifbc";
+    private const string SilenceCacheExtension = ".ifsc";
 
     /// <summary>
     /// Used with FFmpeg's silencedetect filter to extract the start and end times of silence.
@@ -167,8 +173,10 @@ public static partial class FFmpegWrapper
             range.Start,
             range.End);
 
-        var currentRange = new TimeRange();
-        var silenceRanges = new List<TimeRange>();
+        if (TryLoadSilenceCache(cacheKey, out var cachedRanges))
+        {
+            return cachedRanges;
+        }
 
         /* Each match will have a type (either "start" or "end") and a timecode (a double).
          *
@@ -176,7 +184,9 @@ public static partial class FFmpegWrapper
          * [silencedetect @ 0x000000000000] silence_start: 12.34
          * [silencedetect @ 0x000000000000] silence_end: 56.123 | silence_duration: 43.783
         */
-        var raw = Encoding.UTF8.GetString(GetOutput(args, cacheKey, true));
+        var currentRange = new TimeRange();
+        var silenceRanges = new List<TimeRange>();
+        var raw = Encoding.UTF8.GetString(GetOutput(args, string.Empty, true));
         foreach (Match match in _silenceDetectionExpression.Matches(raw))
         {
             var isStart = match.Groups["type"].Value == "start";
@@ -193,9 +203,9 @@ public static partial class FFmpegWrapper
             }
         }
 
-        TryRewriteSilenceCache(cacheKey, SanitizeSilenceOutput(raw), raw);
-
-        return [.. silenceRanges];
+        var result = silenceRanges.ToArray();
+        StoreSilenceCache(cacheKey, result);
+        return result;
     }
 
     /// <summary>
@@ -229,11 +239,16 @@ public static partial class FFmpegWrapper
             range.Start,
             range.End);
 
-        var raw = Encoding.UTF8.GetString(GetOutput(args, cacheKey, true));
-        var sanitized = SanitizeBlackFrameOutput(raw);
-        TryRewriteBlackFrameCache(cacheKey, sanitized, raw);
+        if (TryLoadBlackFrameCache(cacheKey, out var cachedFrames))
+        {
+            return FilterBlackFrames(cachedFrames, minimum);
+        }
 
-        return ParseBlackFrame(sanitized, minimum);
+        var raw = Encoding.UTF8.GetString(GetOutput(args, string.Empty, true));
+        var frames = ParseBlackFrame(raw);
+        StoreBlackFrameCache(cacheKey, frames);
+
+        return FilterBlackFrames(frames, minimum);
     }
 
     /// <summary>
@@ -261,11 +276,16 @@ public static partial class FFmpegWrapper
             episode.EpisodeId.ToString("N"),
             episode.CreditsFingerprintStart);
 
-        var raw = Encoding.UTF8.GetString(GetOutput(args, cacheKey, true));
-        var sanitized = SanitizeBlackFrameOutput(raw);
-        TryRewriteBlackFrameCache(cacheKey, sanitized, raw);
+        if (TryLoadBlackFrameCache(cacheKey, out var cachedFrames))
+        {
+            return cachedFrames;
+        }
 
-        return ParseBlackFrame(sanitized);
+        var raw = Encoding.UTF8.GetString(GetOutput(args, string.Empty, true));
+        var frames = ParseBlackFrame(raw);
+        StoreBlackFrameCache(cacheKey, frames);
+
+        return frames;
     }
 
     private static BlackFrame[] ParseBlackFrame(string raw, int minimum = 0)
@@ -300,93 +320,276 @@ public static partial class FFmpegWrapper
         return [.. blackFrames];
     }
 
-    internal static string SanitizeBlackFrameOutput(string raw)
+    private static BlackFrame[] FilterBlackFrames(IReadOnlyList<BlackFrame> frames, int minimum)
     {
-        if (string.IsNullOrEmpty(raw))
+        if (minimum <= 0)
         {
-            return raw;
+            return frames is BlackFrame[] arr ? arr : [.. frames];
         }
 
-        using var reader = new StringReader(raw);
-        var builder = new StringBuilder(raw.Length);
-        string? line;
-        var hasFiltered = false;
-
-        while ((line = reader.ReadLine()) != null)
+        var list = new List<BlackFrame>();
+        foreach (var frame in frames)
         {
-            if (_blackFrameRegex.IsMatch(line))
+            if (frame.Percentage >= minimum)
             {
-                builder.Append(line.TrimEnd('\r'));
-                builder.Append('\n');
-            }
-            else
-            {
-                hasFiltered = true;
+                list.Add(frame);
             }
         }
 
-        return hasFiltered ? builder.ToString() : raw;
+        return list.ToArray();
     }
 
-    internal static string SanitizeSilenceOutput(string raw)
+    internal static bool TryLoadBlackFrameCache(string cacheKey, out BlackFrame[] frames, string? cacheDirectoryOverride = null)
     {
-        if (string.IsNullOrEmpty(raw))
+        frames = [];
+
+        if (!TryGetCacheBasePath(cacheDirectoryOverride, requireCachingEnabled: true, out var basePath))
         {
-            return raw;
+            return false;
         }
 
-        using var reader = new StringReader(raw);
-        var builder = new StringBuilder(raw.Length);
-        string? line;
-        var hasFiltered = false;
-
-        while ((line = reader.ReadLine()) != null)
+        var path = Path.Join(basePath, cacheKey); // existing caches lack extension
+        if (!File.Exists(path))
         {
-            if (_silenceDetectionExpression.IsMatch(line))
+            path = Path.Join(basePath, cacheKey + BlackFrameCacheExtension);
+            if (!File.Exists(path))
             {
-                builder.Append(line.TrimEnd('\r'));
-                builder.Append('\n');
-            }
-            else
-            {
-                hasFiltered = true;
+                return false;
             }
         }
-
-        return hasFiltered ? builder.ToString() : raw;
-    }
-
-    private static void TryRewriteBlackFrameCache(string cacheKey, string sanitized, string original)
-        => TryRewriteTextCache(cacheKey, sanitized, original, "blackframe");
-
-    private static void TryRewriteSilenceCache(string cacheKey, string sanitized, string original)
-        => TryRewriteTextCache(cacheKey, sanitized, original, "silence");
-
-    private static void TryRewriteTextCache(string cacheKey, string sanitized, string original, string cacheType)
-    {
-        if (string.IsNullOrEmpty(cacheKey) || string.Equals(sanitized, original, StringComparison.Ordinal))
-        {
-            return;
-        }
-
-        var plugin = Plugin.Instance;
-        if (plugin is null || !plugin.Configuration.CacheFingerprints)
-        {
-            return;
-        }
-
-        var cacheDirectory = plugin.FingerprintCachePath;
-        var cachePath = Path.Join(cacheDirectory, cacheKey);
 
         try
         {
-            var tempPath = cachePath + ".tmp";
-            File.WriteAllText(tempPath, sanitized, Encoding.UTF8);
-            File.Move(tempPath, cachePath, true);
+            using var stream = File.Open(path, FileMode.Open, FileAccess.Read, FileShare.Read);
+            using var reader = new BinaryReader(stream, Encoding.UTF8, leaveOpen: false);
+
+            var magic = reader.ReadUInt32();
+            if (magic != BlackFrameCacheMagic)
+            {
+                return false;
+            }
+
+            var version = reader.ReadUInt16();
+            if (version != BlackFrameCacheVersion)
+            {
+                Logger?.LogDebug("Unsupported blackframe cache version {Version}", version);
+                return false;
+            }
+
+            var count = reader.ReadInt32();
+            if (count < 0)
+            {
+                Logger?.LogDebug("Blackframe cache count negative ({Count})", count);
+                return false;
+            }
+
+            var result = new BlackFrame[count];
+            for (var i = 0; i < count; i++)
+            {
+                var percentage = reader.ReadInt32();
+                var time = reader.ReadDouble();
+                var frame = reader.ReadInt32();
+                result[i] = new BlackFrame(percentage, time, frame);
+            }
+
+            frames = result;
+            return true;
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or EndOfStreamException)
+        {
+            Logger?.LogDebug(ex, "Failed to read blackframe cache {Path}", path);
+            return false;
+        }
+    }
+
+    internal static bool TryLoadSilenceCache(string cacheKey, out TimeRange[] ranges, string? cacheDirectoryOverride = null)
+    {
+        ranges = [];
+
+        if (!TryGetCacheBasePath(cacheDirectoryOverride, requireCachingEnabled: true, out var basePath))
+        {
+            return false;
+        }
+
+        var path = Path.Join(basePath, cacheKey); // existing caches lack extension
+        if (!File.Exists(path))
+        {
+            path = Path.Join(basePath, cacheKey + SilenceCacheExtension);
+            if (!File.Exists(path))
+            {
+                return false;
+            }
+        }
+
+        try
+        {
+            using var stream = File.Open(path, FileMode.Open, FileAccess.Read, FileShare.Read);
+            using var reader = new BinaryReader(stream, Encoding.UTF8, leaveOpen: false);
+
+            var magic = reader.ReadUInt32();
+            if (magic != SilenceCacheMagic)
+            {
+                return false;
+            }
+
+            var version = reader.ReadUInt16();
+            if (version != SilenceCacheVersion)
+            {
+                Logger?.LogDebug("Unsupported silence cache version {Version}", version);
+                return false;
+            }
+
+            var count = reader.ReadInt32();
+            if (count < 0)
+            {
+                Logger?.LogDebug("Silence cache count negative ({Count})", count);
+                return false;
+            }
+
+            var result = new TimeRange[count];
+            for (var i = 0; i < count; i++)
+            {
+                var start = reader.ReadDouble();
+                var end = reader.ReadDouble();
+                result[i] = new TimeRange(start, end);
+            }
+
+            ranges = result;
+            return true;
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or EndOfStreamException)
+        {
+            Logger?.LogDebug(ex, "Failed to read silence cache {Path}", path);
+            return false;
+        }
+    }
+
+    internal static void StoreBlackFrameCache(string cacheKey, IReadOnlyList<BlackFrame> frames, string? cacheDirectoryOverride = null)
+    {
+        if (!TryGetCacheBasePath(cacheDirectoryOverride, requireCachingEnabled: true, out var basePath))
+        {
+            return;
+        }
+
+        var path = Path.Join(basePath, cacheKey + BlackFrameCacheExtension);
+        var directory = Path.GetDirectoryName(path);
+        if (!string.IsNullOrEmpty(directory) && !Directory.Exists(directory))
+        {
+            Directory.CreateDirectory(directory);
+        }
+
+        var tempPath = path + ".tmp";
+
+        try
+        {
+            using (var stream = new FileStream(tempPath, FileMode.Create, FileAccess.Write, FileShare.None))
+            using (var writer = new BinaryWriter(stream, Encoding.UTF8, leaveOpen: false))
+            {
+                writer.Write(BlackFrameCacheMagic);
+                writer.Write(BlackFrameCacheVersion);
+                writer.Write(frames.Count);
+
+                foreach (var frame in frames)
+                {
+                    writer.Write(frame.Percentage);
+                    writer.Write(frame.Time);
+                    writer.Write(frame.Frame);
+                }
+
+                writer.Flush();
+                stream.Flush(true);
+            }
+
+            File.Move(tempPath, path, true);
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
-            Logger?.LogDebug(ex, "Failed to rewrite {CacheType} cache {Path}", cacheType, cachePath);
+            Logger?.LogDebug(ex, "Failed to write blackframe cache {Path}", path);
+            TryDeleteFile(tempPath);
+        }
+    }
+
+    internal static void StoreSilenceCache(string cacheKey, IReadOnlyList<TimeRange> ranges, string? cacheDirectoryOverride = null)
+    {
+        if (!TryGetCacheBasePath(cacheDirectoryOverride, requireCachingEnabled: true, out var basePath))
+        {
+            return;
+        }
+
+        var path = Path.Join(basePath, cacheKey + SilenceCacheExtension);
+        var directory = Path.GetDirectoryName(path);
+        if (!string.IsNullOrEmpty(directory) && !Directory.Exists(directory))
+        {
+            Directory.CreateDirectory(directory);
+        }
+
+        var tempPath = path + ".tmp";
+
+        try
+        {
+            using (var stream = new FileStream(tempPath, FileMode.Create, FileAccess.Write, FileShare.None))
+            using (var writer = new BinaryWriter(stream, Encoding.UTF8, leaveOpen: false))
+            {
+                writer.Write(SilenceCacheMagic);
+                writer.Write(SilenceCacheVersion);
+                writer.Write(ranges.Count);
+
+                foreach (var range in ranges)
+                {
+                    writer.Write(range.Start);
+                    writer.Write(range.End);
+                }
+
+                writer.Flush();
+                stream.Flush(true);
+            }
+
+            File.Move(tempPath, path, true);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            Logger?.LogDebug(ex, "Failed to write silence cache {Path}", path);
+            TryDeleteFile(tempPath);
+        }
+    }
+
+    private static bool TryGetCacheBasePath(string? cacheDirectoryOverride, bool requireCachingEnabled, out string basePath)
+    {
+        if (!string.IsNullOrEmpty(cacheDirectoryOverride))
+        {
+            basePath = cacheDirectoryOverride;
+            return true;
+        }
+
+        var plugin = Plugin.Instance;
+        if (plugin is null)
+        {
+            basePath = string.Empty;
+            return false;
+        }
+
+        if (requireCachingEnabled && !plugin.Configuration.CacheFingerprints)
+        {
+            basePath = string.Empty;
+            return false;
+        }
+
+        basePath = plugin.FingerprintCachePath;
+        return true;
+    }
+
+    private static void TryDeleteFile(string path)
+    {
+        try
+        {
+            if (File.Exists(path))
+            {
+                File.Delete(path);
+            }
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            Logger?.LogDebug(ex, "Failed to delete cache file {Path}", path);
         }
     }
 

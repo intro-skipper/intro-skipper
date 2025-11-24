@@ -4,7 +4,6 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
-using IntroSkipper;
 using IntroSkipper.Data;
 using Xunit;
 
@@ -46,36 +45,66 @@ public class FFmpegWrapperTests
     }
 
     [Fact]
-    public void SanitizeBlackFrameOutput_FiltersNonMatchingLines()
+    public void BlackFrameCache_RoundTripsBinaryStructure()
     {
-        var raw = "Input #0, matroska\n" +
-                  "[Parsed_blackframe_0 @ 0x1] frame:0 pblack:69 pts:0 t:0.000000 type:I last_keyframe:0\n" +
-                  "Stream mapping:\n" +
-                  "[Parsed_blackframe_0 @ 0x1] frame:1 pblack:77 pts:40 t:0.040000 type:B last_keyframe:0\n";
+        var testDirectory = Path.Combine(Path.GetTempPath(), "IntroSkipperTests", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(testDirectory);
 
-        var sanitized = FFmpegWrapper.SanitizeBlackFrameOutput(raw);
+        try
+        {
+            var cacheKey = "blackframe-test";
+            var frames = new List<BlackFrame>
+            {
+                new(96, 0.0, 0),
+                new(88, 0.5, 12),
+                new(100, 1.0, 24)
+            };
 
-        Assert.NotEqual(raw, sanitized);
-        Assert.Contains("frame:0", sanitized, StringComparison.Ordinal);
-        Assert.Contains("frame:1", sanitized, StringComparison.Ordinal);
-        Assert.DoesNotContain("Input #0", sanitized, StringComparison.Ordinal);
-        Assert.DoesNotContain("Stream mapping", sanitized, StringComparison.Ordinal);
+            FFmpegWrapper.StoreBlackFrameCache(cacheKey, frames, testDirectory);
+
+            Assert.True(FFmpegWrapper.TryLoadBlackFrameCache(cacheKey, out var restored, testDirectory));
+            Assert.Equal(frames, restored);
+        }
+        finally
+        {
+            if (Directory.Exists(testDirectory))
+            {
+                Directory.Delete(testDirectory, true);
+            }
+        }
     }
 
     [Fact]
-    public void SanitizeSilenceOutput_FiltersNonMatchingLines()
+    public void SilenceCache_RoundTripsBinaryStructure()
     {
-        var raw = "Input #0, audio\n" +
-                  "[silencedetect @ 0x1] silence_start: 12.34\n" +
-                  "Random noise\n" +
-                  "[silencedetect @ 0x1] silence_end: 56.789 | silence_duration: 44.449\n";
+        var testDirectory = Path.Combine(Path.GetTempPath(), "IntroSkipperTests", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(testDirectory);
 
-        var sanitized = FFmpegWrapper.SanitizeSilenceOutput(raw);
+        try
+        {
+            var cacheKey = "silence-test";
+            var ranges = new List<TimeRange>
+            {
+                new(12.34, 20.00),
+                new(46.5, 55.5)
+            };
 
-        Assert.NotEqual(raw, sanitized);
-        Assert.Contains("silence_start", sanitized, StringComparison.Ordinal);
-        Assert.Contains("silence_end", sanitized, StringComparison.Ordinal);
-        Assert.DoesNotContain("Input #0", sanitized, StringComparison.Ordinal);
-        Assert.DoesNotContain("Random noise", sanitized, StringComparison.Ordinal);
+            FFmpegWrapper.StoreSilenceCache(cacheKey, ranges, testDirectory);
+
+            Assert.True(FFmpegWrapper.TryLoadSilenceCache(cacheKey, out var restored, testDirectory));
+            Assert.Equal(ranges.Count, restored.Length);
+            for (var i = 0; i < ranges.Count; i++)
+            {
+                Assert.Equal(ranges[i].Start, restored[i].Start, 3);
+                Assert.Equal(ranges[i].End, restored[i].End, 3);
+            }
+        }
+        finally
+        {
+            if (Directory.Exists(testDirectory))
+            {
+                Directory.Delete(testDirectory, true);
+            }
+        }
     }
 }
