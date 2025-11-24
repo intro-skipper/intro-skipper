@@ -30,7 +30,7 @@ jobs:
           # Export it as an environment variable
           echo "SANITIZED_BRANCH_NAME=$SANITIZED_BRANCH_NAME" >> $GITHUB_ENV
 
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6
 
       - name: Read version from VERSION.txt
         id: read-version
