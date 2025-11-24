@@ -18,6 +18,9 @@ namespace IntroSkipper;
 /// </summary>
 public static partial class FFmpegWrapper
 {
+    private const uint FingerprintCacheMagic = 0x49464348; // IFCH -> Intro Fingerprint Cache
+    private const ushort FingerprintCacheVersion = 1;
+
     /// <summary>
     /// Used with FFmpeg's silencedetect filter to extract the start and end times of silence.
     /// </summary>
@@ -575,57 +578,59 @@ public static partial class FFmpegWrapper
     {
         fingerprint = [];
 
-        // If fingerprint caching isn't enabled, don't try to load anything.
         if (!(Plugin.Instance?.Configuration.CacheFingerprints ?? false))
         {
             return false;
         }
 
         var path = GetFingerprintCachePath(episode, mode);
-
-        // If this episode isn't cached, bail out.
         if (!File.Exists(path))
         {
             return false;
         }
 
-        string[] raw;
+        List<uint>? legacyFingerprint = null;
+
         try
         {
-            raw = File.ReadAllLines(path, Encoding.UTF8);
-        }
-        catch (IOException ex)
-        {
-            Logger?.LogError(ex, "I/O error while reading fingerprint cache from {Path}", path);
+            using var stream = File.Open(path, FileMode.Open, FileAccess.Read, FileShare.Read);
+
+            if (TryReadBinaryFingerprint(stream, out var binaryResult))
+            {
+                fingerprint = binaryResult;
+                return true;
+            }
+
+            stream.Seek(0, SeekOrigin.Begin);
+
+            if (TryReadLegacyFingerprint(stream, out var legacyResult))
+            {
+                fingerprint = legacyResult;
+                legacyFingerprint = [.. legacyResult];
+                return true;
+            }
+
             return false;
         }
-        catch (UnauthorizedAccessException ex)
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
-            Logger?.LogError(ex, "Access error while reading fingerprint cache from {Path}", path);
+            Logger?.LogError(ex, "Error while reading fingerprint cache from {Path}", path);
             return false;
         }
-
-        var result = new List<uint>(raw.Length);
-
-        foreach (var rawNumber in raw)
+        finally
         {
-            if (uint.TryParse(rawNumber, NumberStyles.Integer, CultureInfo.InvariantCulture, out uint number))
+            if (legacyFingerprint is not null)
             {
-                result.Add(number);
-            }
-            else
-            {
-                Logger?.LogDebug(
-                    "Invalid fingerprint entry '{RawNumber}' found in cache for {Path} ({Id}), ignoring cache",
-                    rawNumber,
-                    episode.Path,
-                    episode.EpisodeId);
-                return false;
+                try
+                {
+                    CacheFingerprint(episode, mode, legacyFingerprint);
+                }
+                catch (Exception ex)
+                {
+                    Logger?.LogDebug(ex, "Failed to upgrade legacy fingerprint cache for {Path}", path);
+                }
             }
         }
-
-        fingerprint = [.. result];
-        return true;
     }
 
     /// <summary>
@@ -646,18 +651,158 @@ public static partial class FFmpegWrapper
             return;
         }
 
-        // Stringify each data point.
-        var lines = new List<string>();
-        foreach (var number in fingerprint)
-        {
-            lines.Add(number.ToString(CultureInfo.InvariantCulture));
-        }
+        var path = GetFingerprintCachePath(episode, mode);
+        var tempPath = path + ".tmp";
 
-        // Cache the episode.
-        File.WriteAllLinesAsync(
-            GetFingerprintCachePath(episode, mode),
-            lines,
-            Encoding.UTF8).ConfigureAwait(false);
+        try
+        {
+            var directory = Path.GetDirectoryName(path);
+            if (!string.IsNullOrEmpty(directory) && !Directory.Exists(directory))
+            {
+                Directory.CreateDirectory(directory);
+            }
+
+            using (var stream = new FileStream(tempPath, FileMode.Create, FileAccess.Write, FileShare.None))
+            using (var writer = new BinaryWriter(stream, Encoding.UTF8, leaveOpen: false))
+            {
+                writer.Write(FingerprintCacheMagic);
+                writer.Write(FingerprintCacheVersion);
+                writer.Write(fingerprint.Count);
+
+                foreach (var point in fingerprint)
+                {
+                    writer.Write(point);
+                }
+
+                writer.Flush();
+                stream.Flush(true);
+            }
+
+            File.Move(tempPath, path, true);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            Logger?.LogWarning(ex, "Failed to write fingerprint cache to {Path}", path);
+        }
+        catch (Exception)
+        {
+            // Clean up temp file on unexpected errors
+            if (File.Exists(tempPath))
+            {
+                File.Delete(tempPath);
+            }
+
+            throw;
+        }
+    }
+
+    private static bool TryReadBinaryFingerprint(Stream stream, out uint[] fingerprint)
+    {
+        fingerprint = [];
+
+        var startPosition = stream.Position;
+
+        try
+        {
+            using var reader = new BinaryReader(stream, Encoding.UTF8, leaveOpen: true);
+
+            var magic = reader.ReadUInt32();
+            if (magic != FingerprintCacheMagic)
+            {
+                stream.Seek(startPosition, SeekOrigin.Begin);
+                return false;
+            }
+
+            var version = reader.ReadUInt16();
+            if (version != FingerprintCacheVersion)
+            {
+                Logger?.LogDebug("Unsupported fingerprint cache version {Version}", version);
+                stream.Seek(startPosition, SeekOrigin.Begin);
+                return false;
+            }
+
+            var count = reader.ReadInt32();
+            if (count < 0)
+            {
+                Logger?.LogDebug("Fingerprint cache reported negative entry count {Count}", count);
+                stream.Seek(startPosition, SeekOrigin.Begin);
+                return false;
+            }
+
+            // Ensure the stream has enough data remaining
+            var remainingBytes = stream.Length - stream.Position;
+            if (remainingBytes < count * sizeof(uint))
+            {
+                Logger?.LogDebug("Fingerprint cache truncated: expected {Expected} bytes, got {Actual}", count * sizeof(uint), remainingBytes);
+                stream.Seek(startPosition, SeekOrigin.Begin);
+                return false;
+            }
+
+            var result = new uint[count];
+            for (var i = 0; i < count; i++)
+            {
+                result[i] = reader.ReadUInt32();
+            }
+
+            fingerprint = result;
+            return true;
+        }
+        catch (EndOfStreamException)
+        {
+            Logger?.LogDebug("Encountered unexpected end of fingerprint cache stream");
+            stream.Seek(startPosition, SeekOrigin.Begin);
+            return false;
+        }
+        catch (IOException ex)
+        {
+            Logger?.LogDebug(ex, "I/O error while reading fingerprint cache stream");
+            stream.Seek(startPosition, SeekOrigin.Begin);
+            return false;
+        }
+        catch (UnauthorizedAccessException ex)
+        {
+            Logger?.LogDebug(ex, "Access error while reading fingerprint cache stream");
+            stream.Seek(startPosition, SeekOrigin.Begin);
+            return false;
+        }
+        catch (Exception ex)
+        {
+            Logger?.LogDebug(ex, "Unexpected error while reading fingerprint cache stream");
+            stream.Seek(startPosition, SeekOrigin.Begin);
+            return false;
+        }
+    }
+
+    private static bool TryReadLegacyFingerprint(Stream stream, out uint[] fingerprint)
+    {
+        fingerprint = [];
+
+        try
+        {
+            using var reader = new StreamReader(stream, Encoding.UTF8, leaveOpen: true);
+            var result = new List<uint>();
+
+            while (reader.ReadLine() is { } line)
+            {
+                if (uint.TryParse(line, NumberStyles.Integer, CultureInfo.InvariantCulture, out var value))
+                {
+                    result.Add(value);
+                }
+                else
+                {
+                    Logger?.LogDebug("Invalid legacy fingerprint entry '{Line}'", line);
+                    return false;
+                }
+            }
+
+            fingerprint = [.. result];
+            return true;
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            Logger?.LogDebug(ex, "Error while reading legacy fingerprint cache");
+            return false;
+        }
     }
 
     /// <summary>
