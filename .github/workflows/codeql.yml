@@ -27,7 +27,7 @@ jobs:
         language: ["csharp"]
 
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6
 
       - name: Check for BETA file
         id: check-beta
