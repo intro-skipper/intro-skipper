@@ -640,18 +640,22 @@ public static partial class FFmpegWrapper
     /// <param name="episode">Episode to store in cache.</param>
     /// <param name="mode">Analysis mode.</param>
     /// <param name="fingerprint">Fingerprint of the episode to store.</param>
-    private static void CacheFingerprint(
+    /// <param name="cacheDirectoryOverride">Optional cache directory to use instead of the plugin default.</param>
+    internal static void CacheFingerprint(
         QueuedEpisode episode,
         AnalysisMode mode,
-        List<uint> fingerprint)
+        List<uint> fingerprint,
+        string? cacheDirectoryOverride = null)
     {
         // Bail out if caching isn't enabled.
-        if (!(Plugin.Instance?.Configuration.CacheFingerprints ?? false))
+        var usingOverride = !string.IsNullOrEmpty(cacheDirectoryOverride);
+        if (!usingOverride && !(Plugin.Instance?.Configuration.CacheFingerprints ?? false))
         {
             return;
         }
 
-        var path = GetFingerprintCachePath(episode, mode);
+        var basePath = cacheDirectoryOverride ?? Plugin.Instance!.FingerprintCachePath;
+        var path = GetFingerprintCachePath(episode, mode, basePath);
         var tempPath = path + ".tmp";
 
         try
@@ -696,7 +700,7 @@ public static partial class FFmpegWrapper
         }
     }
 
-    private static bool TryReadBinaryFingerprint(Stream stream, out uint[] fingerprint)
+    internal static bool TryReadBinaryFingerprint(Stream stream, out uint[] fingerprint)
     {
         fingerprint = [];
 
@@ -856,22 +860,18 @@ public static partial class FFmpegWrapper
     /// <param name="mode">Analysis mode.</param>
     /// <returns>Path.</returns>
     public static string GetFingerprintCachePath(QueuedEpisode episode, AnalysisMode mode)
+        => GetFingerprintCachePath(episode, mode, Plugin.Instance!.FingerprintCachePath);
+
+    internal static string GetFingerprintCachePath(QueuedEpisode episode, AnalysisMode mode, string baseDirectory)
     {
-        var basePath = Path.Join(
-            Plugin.Instance!.FingerprintCachePath,
-            episode.EpisodeId.ToString("N"));
+        var basePath = Path.Join(baseDirectory, episode.EpisodeId.ToString("N"));
 
-        if (mode == AnalysisMode.Introduction)
+        return mode switch
         {
-            return basePath;
-        }
-
-        if (mode == AnalysisMode.Credits)
-        {
-            return basePath + "-credits";
-        }
-
-        throw new ArgumentException("Unknown analysis mode " + mode);
+            AnalysisMode.Introduction => basePath,
+            AnalysisMode.Credits => basePath + "-credits",
+            _ => throw new ArgumentException("Unknown analysis mode " + mode)
+        };
     }
 
     private static string FormatFFmpegLog(string key)
