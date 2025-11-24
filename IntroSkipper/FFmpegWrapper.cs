@@ -20,6 +20,7 @@ public static partial class FFmpegWrapper
 {
     private const uint FingerprintCacheMagic = 0x49464348; // IFCH -> Intro Fingerprint Cache
     private const ushort FingerprintCacheVersion = 1;
+    private const string FingerprintCacheExtension = ".ifch";
     private const uint BlackFrameCacheMagic = 0x49464243; // IFBC -> Intro BlackFrame Cache
     private const ushort BlackFrameCacheVersion = 1;
     private const uint SilenceCacheMagic = 0x49465343; // IFSC -> Intro Silence Cache
@@ -882,21 +883,38 @@ public static partial class FFmpegWrapper
             return false;
         }
 
-        var path = GetFingerprintCachePath(episode, mode);
-        if (!File.Exists(path))
+        var primaryPath = GetFingerprintCachePath(episode, mode);
+        var legacyPath = RemoveFingerprintCacheExtension(primaryPath);
+
+        string? resolvedPath = null;
+        if (File.Exists(primaryPath))
+        {
+            resolvedPath = primaryPath;
+        }
+        else if (!string.Equals(primaryPath, legacyPath, StringComparison.OrdinalIgnoreCase) && File.Exists(legacyPath))
+        {
+            resolvedPath = legacyPath;
+        }
+        else
         {
             return false;
         }
 
-        List<uint>? legacyFingerprint = null;
+        var upgradeFromLegacyPath = !string.Equals(resolvedPath, primaryPath, StringComparison.OrdinalIgnoreCase);
+        List<uint>? fingerprintToUpgrade = null;
 
         try
         {
-            using var stream = File.Open(path, FileMode.Open, FileAccess.Read, FileShare.Read);
+            using var stream = File.Open(resolvedPath, FileMode.Open, FileAccess.Read, FileShare.Read);
 
             if (TryReadBinaryFingerprint(stream, out var binaryResult))
             {
                 fingerprint = binaryResult;
+                if (upgradeFromLegacyPath)
+                {
+                    fingerprintToUpgrade = [.. binaryResult];
+                }
+
                 return true;
             }
 
@@ -905,7 +923,8 @@ public static partial class FFmpegWrapper
             if (TryReadLegacyFingerprint(stream, out var legacyResult))
             {
                 fingerprint = legacyResult;
-                legacyFingerprint = [.. legacyResult];
+                fingerprintToUpgrade = [.. legacyResult];
+
                 return true;
             }
 
@@ -913,20 +932,20 @@ public static partial class FFmpegWrapper
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
-            Logger?.LogError(ex, "Error while reading fingerprint cache from {Path}", path);
+            Logger?.LogError(ex, "Error while reading fingerprint cache from {Path}", resolvedPath);
             return false;
         }
         finally
         {
-            if (legacyFingerprint is not null)
+            if (fingerprintToUpgrade is not null)
             {
                 try
                 {
-                    CacheFingerprint(episode, mode, legacyFingerprint);
+                    CacheFingerprint(episode, mode, fingerprintToUpgrade);
                 }
                 catch (Exception ex)
                 {
-                    Logger?.LogDebug(ex, "Failed to upgrade legacy fingerprint cache for {Path}", path);
+                    Logger?.LogDebug(ex, "Failed to upgrade legacy fingerprint cache for {Path}", resolvedPath);
                 }
             }
         }
@@ -953,8 +972,9 @@ public static partial class FFmpegWrapper
             return;
         }
 
-        var basePath = cacheDirectoryOverride ?? Plugin.Instance!.FingerprintCachePath;
-        var path = GetFingerprintCachePath(episode, mode, basePath);
+        var baseDirectory = cacheDirectoryOverride ?? Plugin.Instance!.FingerprintCachePath;
+        var path = GetFingerprintCachePath(episode, mode, baseDirectory);
+        var legacyPath = RemoveFingerprintCacheExtension(path);
         var tempPath = path + ".tmp";
 
         try
@@ -982,6 +1002,12 @@ public static partial class FFmpegWrapper
             }
 
             File.Move(tempPath, path, true);
+
+            if (!string.Equals(path, legacyPath, StringComparison.OrdinalIgnoreCase))
+            {
+                TryDeleteFile(legacyPath);
+                TryDeleteFile(legacyPath + ".tmp");
+            }
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
@@ -1163,6 +1189,29 @@ public static partial class FFmpegWrapper
 
     internal static string GetFingerprintCachePath(QueuedEpisode episode, AnalysisMode mode, string baseDirectory)
     {
+        var basePath = BuildFingerprintCacheBasePath(episode, mode, baseDirectory);
+        return AppendFingerprintCacheExtension(basePath);
+    }
+
+    internal static bool FingerprintCacheExists(QueuedEpisode episode, AnalysisMode mode, string? cacheDirectoryOverride = null)
+    {
+        if (!TryGetCacheBasePath(cacheDirectoryOverride, requireCachingEnabled: false, out var basePath))
+        {
+            return false;
+        }
+
+        var path = GetFingerprintCachePath(episode, mode, basePath);
+        if (File.Exists(path))
+        {
+            return true;
+        }
+
+        var legacyPath = RemoveFingerprintCacheExtension(path);
+        return !string.Equals(legacyPath, path, StringComparison.OrdinalIgnoreCase) && File.Exists(legacyPath);
+    }
+
+    private static string BuildFingerprintCacheBasePath(QueuedEpisode episode, AnalysisMode mode, string baseDirectory)
+    {
         var basePath = Path.Join(baseDirectory, episode.EpisodeId.ToString("N"));
 
         return mode switch
@@ -1172,6 +1221,16 @@ public static partial class FFmpegWrapper
             _ => throw new ArgumentException("Unknown analysis mode " + mode)
         };
     }
+
+    private static string AppendFingerprintCacheExtension(string path)
+        => path.EndsWith(FingerprintCacheExtension, StringComparison.OrdinalIgnoreCase)
+            ? path
+            : path + FingerprintCacheExtension;
+
+    private static string RemoveFingerprintCacheExtension(string path)
+        => path.EndsWith(FingerprintCacheExtension, StringComparison.OrdinalIgnoreCase)
+            ? path[..^FingerprintCacheExtension.Length]
+            : path;
 
     private static string FormatFFmpegLog(string key)
     {
