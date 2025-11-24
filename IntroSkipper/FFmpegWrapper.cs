@@ -193,6 +193,8 @@ public static partial class FFmpegWrapper
             }
         }
 
+        TryRewriteSilenceCache(cacheKey, SanitizeSilenceOutput(raw), raw);
+
         return [.. silenceRanges];
     }
 
@@ -228,8 +230,10 @@ public static partial class FFmpegWrapper
             range.End);
 
         var raw = Encoding.UTF8.GetString(GetOutput(args, cacheKey, true));
+        var sanitized = SanitizeBlackFrameOutput(raw);
+        TryRewriteBlackFrameCache(cacheKey, sanitized, raw);
 
-        return ParseBlackFrame(raw, minimum);
+        return ParseBlackFrame(sanitized, minimum);
     }
 
     /// <summary>
@@ -258,8 +262,10 @@ public static partial class FFmpegWrapper
             episode.CreditsFingerprintStart);
 
         var raw = Encoding.UTF8.GetString(GetOutput(args, cacheKey, true));
+        var sanitized = SanitizeBlackFrameOutput(raw);
+        TryRewriteBlackFrameCache(cacheKey, sanitized, raw);
 
-        return ParseBlackFrame(raw);
+        return ParseBlackFrame(sanitized);
     }
 
     private static BlackFrame[] ParseBlackFrame(string raw, int minimum = 0)
@@ -292,6 +298,96 @@ public static partial class FFmpegWrapper
         }
 
         return [.. blackFrames];
+    }
+
+    internal static string SanitizeBlackFrameOutput(string raw)
+    {
+        if (string.IsNullOrEmpty(raw))
+        {
+            return raw;
+        }
+
+        using var reader = new StringReader(raw);
+        var builder = new StringBuilder(raw.Length);
+        string? line;
+        var hasFiltered = false;
+
+        while ((line = reader.ReadLine()) != null)
+        {
+            if (_blackFrameRegex.IsMatch(line))
+            {
+                builder.Append(line.TrimEnd('\r'));
+                builder.Append('\n');
+            }
+            else
+            {
+                hasFiltered = true;
+            }
+        }
+
+        return hasFiltered ? builder.ToString() : raw;
+    }
+
+    internal static string SanitizeSilenceOutput(string raw)
+    {
+        if (string.IsNullOrEmpty(raw))
+        {
+            return raw;
+        }
+
+        using var reader = new StringReader(raw);
+        var builder = new StringBuilder(raw.Length);
+        string? line;
+        var hasFiltered = false;
+
+        while ((line = reader.ReadLine()) != null)
+        {
+            if (_silenceDetectionExpression.IsMatch(line))
+            {
+                builder.Append(line.TrimEnd('\r'));
+                builder.Append('\n');
+            }
+            else
+            {
+                hasFiltered = true;
+            }
+        }
+
+        return hasFiltered ? builder.ToString() : raw;
+    }
+
+    private static void TryRewriteBlackFrameCache(string cacheKey, string sanitized, string original)
+        => TryRewriteTextCache(cacheKey, sanitized, original, "blackframe");
+
+    private static void TryRewriteSilenceCache(string cacheKey, string sanitized, string original)
+        => TryRewriteTextCache(cacheKey, sanitized, original, "silence");
+
+    private static void TryRewriteTextCache(string cacheKey, string sanitized, string original, string cacheType)
+    {
+        if (string.IsNullOrEmpty(cacheKey) || string.Equals(sanitized, original, StringComparison.Ordinal))
+        {
+            return;
+        }
+
+        var plugin = Plugin.Instance;
+        if (plugin is null || !plugin.Configuration.CacheFingerprints)
+        {
+            return;
+        }
+
+        var cacheDirectory = plugin.FingerprintCachePath;
+        var cachePath = Path.Join(cacheDirectory, cacheKey);
+
+        try
+        {
+            var tempPath = cachePath + ".tmp";
+            File.WriteAllText(tempPath, sanitized, Encoding.UTF8);
+            File.Move(tempPath, cachePath, true);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            Logger?.LogDebug(ex, "Failed to rewrite {CacheType} cache {Path}", cacheType, cachePath);
+        }
     }
 
     /// <summary>
