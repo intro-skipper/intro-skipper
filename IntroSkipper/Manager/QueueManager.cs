@@ -6,6 +6,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Text.RegularExpressions;
+using System.Threading;
 using IntroSkipper.Data;
 using Jellyfin.Data.Enums;
 using Jellyfin.Database.Implementations.Enums;
@@ -14,6 +15,8 @@ using MediaBrowser.Controller.Entities;
 using MediaBrowser.Controller.Entities.Movies;
 using MediaBrowser.Controller.Entities.TV;
 using MediaBrowser.Controller.Library;
+using MediaBrowser.Controller.Providers;
+using MediaBrowser.Model.IO;
 using Microsoft.Extensions.Logging;
 
 namespace IntroSkipper.Manager;
@@ -26,9 +29,13 @@ namespace IntroSkipper.Manager;
 /// </remarks>
 /// <param name="logger">Logger.</param>
 /// <param name="libraryManager">Library manager.</param>
-public partial class QueueManager(ILogger<QueueManager> logger, ILibraryManager libraryManager)
+/// <param name="providerManager">Provider manager.</param>
+/// <param name="fileSystem">File system.</param>
+public partial class QueueManager(ILogger<QueueManager> logger, ILibraryManager libraryManager, IProviderManager providerManager, IFileSystem fileSystem)
 {
     private readonly ILibraryManager _libraryManager = libraryManager;
+    private readonly IFileSystem _fileSystem = fileSystem;
+    private readonly IProviderManager _providerManager = providerManager;
     private readonly ILogger<QueueManager> _logger = logger;
     private readonly Dictionary<Guid, List<QueuedEpisode>> _queuedEpisodes = [];
     private double _analysisPercent;
@@ -334,6 +341,27 @@ public partial class QueueManager(ILogger<QueueManager> logger, ILibraryManager 
                     return kvp.Key;
                 }
             }
+        }
+
+        if (episode.SeasonId == Guid.Empty && episode.IndexNumber != 0)
+        {
+            _logger.LogInformation("Episode {Name} ({Id}) has an invalid SeasonId", episode.Name, episode.Id);
+
+            var refreshOptions = new MetadataRefreshOptions(new DirectoryService(_fileSystem))
+            {
+                MetadataRefreshMode = MetadataRefreshMode.Default,
+                ImageRefreshMode = MetadataRefreshMode.None,
+                ReplaceAllImages = false,
+                ReplaceAllMetadata = false,
+                ForceSave = false,
+                IsAutomated = false,
+                RemoveOldMetadata = false,
+                RegenerateTrickplay = false
+            };
+
+            _providerManager.RefreshSingleItem(episode, refreshOptions, CancellationToken.None);
+
+            _logger.LogInformation("Updated metadata for episode {Name} ({Id}) to refresh SeasonId {SeasonId}", episode.Name, episode.Id, episode.SeasonId);
         }
 
         return episode.SeasonId;

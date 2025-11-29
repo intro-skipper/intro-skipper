@@ -8,6 +8,8 @@ using System.Threading.Tasks;
 using IntroSkipper.Manager;
 using IntroSkipper.Services;
 using MediaBrowser.Controller.Library;
+using MediaBrowser.Controller.Providers;
+using MediaBrowser.Model.IO;
 using MediaBrowser.Model.Tasks;
 using Microsoft.Extensions.Logging;
 
@@ -21,20 +23,23 @@ namespace IntroSkipper.ScheduledTasks;
 /// </remarks>
 /// <param name="loggerFactory">Logger factory.</param>
 /// <param name="libraryManager">Library manager.</param>
+/// <param name="providerManager">Provider manager.</param>
+/// <param name="fileSystem">File system.</param>
 /// <param name="logger">Logger.</param>
 /// <param name="mediaSegmentUpdateManager">Media segment update manager.</param>
 public class DetectSegmentsTask(
     ILogger<DetectSegmentsTask> logger,
     ILoggerFactory loggerFactory,
     ILibraryManager libraryManager,
+    IProviderManager providerManager,
+    IFileSystem fileSystem,
     MediaSegmentUpdateManager mediaSegmentUpdateManager) : IScheduledTask
 {
     private readonly ILogger<DetectSegmentsTask> _logger = logger;
-
     private readonly ILoggerFactory _loggerFactory = loggerFactory;
-
     private readonly ILibraryManager _libraryManager = libraryManager;
-
+    private readonly IProviderManager _providerManager = providerManager;
+    private readonly IFileSystem _fileSystem = fileSystem;
     private readonly MediaSegmentUpdateManager _mediaSegmentUpdateManager = mediaSegmentUpdateManager;
 
     /// <summary>
@@ -85,6 +90,8 @@ public class DetectSegmentsTask(
                 _loggerFactory.CreateLogger<DetectSegmentsTask>(),
                 _loggerFactory,
                 _libraryManager,
+                _providerManager,
+                _fileSystem,
                 _mediaSegmentUpdateManager);
 
             await baseIntroAnalyzer.AnalyzeItemsAsync(progress, cancellationToken).ConfigureAwait(false);

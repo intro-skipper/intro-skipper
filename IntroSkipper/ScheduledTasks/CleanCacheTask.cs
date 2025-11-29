@@ -9,6 +9,8 @@ using System.Threading;
 using System.Threading.Tasks;
 using IntroSkipper.Manager;
 using MediaBrowser.Controller.Library;
+using MediaBrowser.Controller.Providers;
+using MediaBrowser.Model.IO;
 using MediaBrowser.Model.Tasks;
 using Microsoft.Extensions.Logging;
 
@@ -20,10 +22,10 @@ namespace IntroSkipper.ScheduledTasks;
 public class CleanCacheTask : IScheduledTask
 {
     private readonly ILogger<CleanCacheTask> _logger;
-
     private readonly ILoggerFactory _loggerFactory;
-
     private readonly ILibraryManager _libraryManager;
+    private readonly IProviderManager _providerManager;
+    private readonly IFileSystem _fileSystem;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="CleanCacheTask"/> class.
@@ -31,14 +33,20 @@ public class CleanCacheTask : IScheduledTask
     /// <param name="loggerFactory">Logger factory.</param>
     /// <param name="libraryManager">Library manager.</param>
     /// <param name="logger">Logger.</param>
+    /// <param name="providerManager">Provider manager.</param>
+    /// <param name="fileSystem">File system.</param>
     public CleanCacheTask(
         ILogger<CleanCacheTask> logger,
         ILoggerFactory loggerFactory,
-        ILibraryManager libraryManager)
+        ILibraryManager libraryManager,
+        IProviderManager providerManager,
+        IFileSystem fileSystem)
     {
         _logger = logger;
         _loggerFactory = loggerFactory;
         _libraryManager = libraryManager;
+        _providerManager = providerManager;
+        _fileSystem = fileSystem;
     }
 
     /// <summary>
@@ -78,7 +86,9 @@ public class CleanCacheTask : IScheduledTask
 
         var queueManager = new QueueManager(
             _loggerFactory.CreateLogger<QueueManager>(),
-            _libraryManager);
+            _libraryManager,
+            _providerManager,
+            _fileSystem);
 
         // Retrieve media items and get valid episode IDs
         var queue = queueManager.GetMediaItems();
