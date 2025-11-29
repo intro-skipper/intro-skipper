@@ -10,7 +10,7 @@
 
 [![CodeQL](https://github.com/intro-skipper/intro-skipper/actions/workflows/codeql.yml/badge.svg)](https://github.com/intro-skipper/intro-skipper/actions/workflows/codeql.yml)
 [![Downloads](https://img.shields.io/github/downloads/intro-skipper/intro-skipper/total?label=github%20downloads)](https://github.com/intro-skipper/intro-skipper/releases)
-[![](https://data.jsdelivr.com/v1/package/gh/intro-skipper/manifest/badge)](https://www.jsdelivr.com/package/gh/intro-skipper/manifest)
+[![](https://data.jsdelivr.com/v1/package/gh/intro-skipper/manifest/badge?style=rounded)](https://www.jsdelivr.com/package/gh/intro-skipper/manifest)
 <p align="center">
   <a href="https://discord.gg/AYZ7RJ3BuA"><img src="https://invidget.switchblade.xyz/AYZ7RJ3BuA"></a>
 </p>
