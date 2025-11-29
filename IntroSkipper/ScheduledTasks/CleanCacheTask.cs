@@ -91,7 +91,7 @@ public class CleanCacheTask : IScheduledTask
             _fileSystem);
 
         // Retrieve media items and get valid episode IDs
-        var queue = queueManager.GetMediaItems();
+        var queue = await queueManager.GetMediaItems(cancellationToken).ConfigureAwait(false);
         var validEpisodeIds = queue.Values
             .SelectMany(episodes => episodes.Select(e => e.EpisodeId))
             .ToHashSet();

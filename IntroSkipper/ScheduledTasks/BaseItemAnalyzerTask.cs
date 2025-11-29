@@ -72,7 +72,7 @@ public class BaseItemAnalyzerTask(
             _providerManager,
             _fileSystem);
 
-        var queue = queueManager.GetMediaItems();
+        var queue = await queueManager.GetMediaItems(cancellationToken).ConfigureAwait(false);
 
         if (seasonsToAnalyze?.Count > 0)
         {

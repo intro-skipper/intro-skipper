@@ -7,6 +7,7 @@ using System.IO;
 using System.Linq;
 using System.Text.RegularExpressions;
 using System.Threading;
+using System.Threading.Tasks;
 using IntroSkipper.Data;
 using Jellyfin.Data.Enums;
 using Jellyfin.Database.Implementations.Enums;
@@ -38,14 +39,16 @@ public partial class QueueManager(ILogger<QueueManager> logger, ILibraryManager 
     private readonly IProviderManager _providerManager = providerManager;
     private readonly ILogger<QueueManager> _logger = logger;
     private readonly Dictionary<Guid, List<QueuedEpisode>> _queuedEpisodes = [];
+    private readonly HashSet<Guid> _refreshedEpisodes = [];
     private double _analysisPercent;
     private List<string> _excludeSeries = [];
 
     /// <summary>
     /// Gets all media items on the server.
     /// </summary>
+    /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>Queued media items.</returns>
-    public IReadOnlyDictionary<Guid, List<QueuedEpisode>> GetMediaItems()
+    public async Task<IReadOnlyDictionary<Guid, List<QueuedEpisode>>> GetMediaItems(CancellationToken cancellationToken = default)
     {
         var plugin = Plugin.Instance;
         if (plugin is null)
@@ -85,12 +88,17 @@ public partial class QueueManager(ILogger<QueueManager> logger, ILibraryManager 
 
             try
             {
-                QueueLibraryContents(folderId);
+                await QueueLibraryContents(folderId, cancellationToken).ConfigureAwait(false);
             }
             catch (Exception ex)
             {
                 _logger.LogError("Failed to enqueue items from library {Name}: {Exception}", folder.Name, ex);
             }
+        }
+
+        if (_refreshedEpisodes.Count > 0)
+        {
+            _logger.LogInformation("Refreshed metadata for {Count} episodes with invalid SeasonIds", _refreshedEpisodes.Count);
         }
 
         plugin.TotalSeasons = _queuedEpisodes.Count;
@@ -127,7 +135,7 @@ public partial class QueueManager(ILogger<QueueManager> logger, ILibraryManager 
         }
     }
 
-    private void QueueLibraryContents(Guid id)
+    private async Task QueueLibraryContents(Guid id, CancellationToken cancellationToken)
     {
         _logger.LogDebug("Constructing anonymous internal query");
 
@@ -162,7 +170,7 @@ public partial class QueueManager(ILogger<QueueManager> logger, ILibraryManager 
                 {
                     if (!IsSeriesExcluded(episode.SeriesName))
                     {
-                        QueueEpisode(episode);
+                        await QueueEpisode(episode, cancellationToken).ConfigureAwait(false);
                     }
                     else
                     {
@@ -224,7 +232,7 @@ public partial class QueueManager(ILogger<QueueManager> logger, ILibraryManager 
         return _excludeSeries.Contains(normalizedName);
     }
 
-    private void QueueEpisode(Episode episode)
+    private async Task QueueEpisode(Episode episode, CancellationToken cancellationToken)
     {
         var pluginInstance = Plugin.Instance ?? throw new InvalidOperationException("Plugin instance was null");
 
@@ -239,7 +247,17 @@ public partial class QueueManager(ILogger<QueueManager> logger, ILibraryManager 
         }
 
         // Allocate a new list for each new season
-        var seasonId = GetSeasonId(episode);
+        var seasonId = await GetSeasonId(episode, cancellationToken).ConfigureAwait(false);
+        if (seasonId == Guid.Empty)
+        {
+            _logger.LogWarning(
+                "Not queuing episode \"{Name}\" from series \"{Series}\" ({Id}) as SeasonId could not be resolved",
+                episode.Name,
+                episode.SeriesName,
+                episode.Id);
+            return;
+        }
+
         if (!_queuedEpisodes.TryGetValue(seasonId, out var seasonEpisodes))
         {
             seasonEpisodes = [];
@@ -328,7 +346,7 @@ public partial class QueueManager(ILogger<QueueManager> logger, ILibraryManager 
         pluginInstance.TotalQueued++;
     }
 
-    private Guid GetSeasonId(Episode episode)
+    private async Task<Guid> GetSeasonId(Episode episode, CancellationToken cancellationToken)
     {
         if (episode.ParentIndexNumber == 0 && episode.AiredSeasonNumber != 0) // In-season special
         {
@@ -343,9 +361,10 @@ public partial class QueueManager(ILogger<QueueManager> logger, ILibraryManager 
             }
         }
 
-        if (episode.SeasonId == Guid.Empty && episode.IndexNumber != 0)
+        if (episode.SeasonId == Guid.Empty && episode.ParentIndexNumber is not null && !_refreshedEpisodes.Contains(episode.Id))
         {
             _logger.LogInformation("Episode {Name} ({Id}) has an invalid SeasonId", episode.Name, episode.Id);
+            _refreshedEpisodes.Add(episode.Id);
 
             var refreshOptions = new MetadataRefreshOptions(new DirectoryService(_fileSystem))
             {
@@ -359,9 +378,16 @@ public partial class QueueManager(ILogger<QueueManager> logger, ILibraryManager 
                 RegenerateTrickplay = false
             };
 
-            _providerManager.RefreshSingleItem(episode, refreshOptions, CancellationToken.None);
+            await _providerManager.RefreshSingleItem(episode, refreshOptions, cancellationToken).ConfigureAwait(false);
 
-            _logger.LogInformation("Updated metadata for episode {Name} ({Id}) to refresh SeasonId {SeasonId}", episode.Name, episode.Id, episode.SeasonId);
+            if (episode.SeasonId == Guid.Empty)
+            {
+                _logger.LogWarning("Failed to resolve SeasonId for episode {Name} ({Id}) after metadata refresh", episode.Name, episode.Id);
+            }
+            else
+            {
+                _logger.LogDebug("Successfully resolved SeasonId {SeasonId} for episode {Name} ({Id})", episode.SeasonId, episode.Name, episode.Id);
+            }
         }
 
         return episode.SeasonId;

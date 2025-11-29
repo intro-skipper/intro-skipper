@@ -50,14 +50,15 @@ public class VisualizationController(ILogger<VisualizationController> logger, Me
     /// <summary>
     /// Returns all show names and seasons.
     /// </summary>
+    /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>Dictionary of show names to a list of season names.</returns>
     [HttpGet("Shows")]
-    public ActionResult<Dictionary<Guid, ShowInfos>> GetShowSeasons()
+    public async Task<ActionResult<Dictionary<Guid, ShowInfos>>> GetShowSeasons(CancellationToken cancellationToken = default)
     {
         _logger.LogDebug("Returning season IDs by series name");
 
         // Ensure the queue is up to date
-        new QueueManager(_loggerFactory.CreateLogger<QueueManager>(), _libraryManager, _providerManager, _fileSystem).GetMediaItems();
+        await new QueueManager(_loggerFactory.CreateLogger<QueueManager>(), _libraryManager, _providerManager, _fileSystem).GetMediaItems(cancellationToken).ConfigureAwait(false);
 
         var showSeasons = new Dictionary<Guid, ShowInfos>();
 
