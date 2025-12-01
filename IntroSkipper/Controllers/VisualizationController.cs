@@ -14,6 +14,8 @@ using IntroSkipper.Manager;
 using IntroSkipper.ScheduledTasks;
 using MediaBrowser.Common.Api;
 using MediaBrowser.Controller.Library;
+using MediaBrowser.Controller.Providers;
+using MediaBrowser.Model.IO;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Logging;
@@ -29,29 +31,34 @@ namespace IntroSkipper.Controllers;
 /// <param name="logger">Logger.</param>
 /// <param name="mediaSegmentUpdateManager">Media segment update manager.</param>
 /// <param name="libraryManager">libraryManager.</param>
+/// <param name="providerManager">providerManager.</param>
+/// <param name="fileSystem">fileSystem.</param>
 /// <param name="loggerFactory">loggerFactory.</param>
 [Authorize(Policy = Policies.RequiresElevation)]
 [ApiController]
 [Produces(MediaTypeNames.Application.Json)]
 [Route("Intros")]
-public class VisualizationController(ILogger<VisualizationController> logger, MediaSegmentUpdateManager mediaSegmentUpdateManager, ILibraryManager libraryManager, ILoggerFactory loggerFactory) : ControllerBase
+public class VisualizationController(ILogger<VisualizationController> logger, MediaSegmentUpdateManager mediaSegmentUpdateManager, ILibraryManager libraryManager, IProviderManager providerManager, IFileSystem fileSystem, ILoggerFactory loggerFactory) : ControllerBase
 {
     private readonly ILogger<VisualizationController> _logger = logger;
     private readonly MediaSegmentUpdateManager _mediaSegmentUpdateManager = mediaSegmentUpdateManager;
     private readonly ILibraryManager _libraryManager = libraryManager;
+    private readonly IProviderManager _providerManager = providerManager;
+    private readonly IFileSystem _fileSystem = fileSystem;
     private readonly ILoggerFactory _loggerFactory = loggerFactory;
 
     /// <summary>
     /// Returns all show names and seasons.
     /// </summary>
+    /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>Dictionary of show names to a list of season names.</returns>
     [HttpGet("Shows")]
-    public ActionResult<Dictionary<Guid, ShowInfos>> GetShowSeasons()
+    public async Task<ActionResult<Dictionary<Guid, ShowInfos>>> GetShowSeasons(CancellationToken cancellationToken = default)
     {
         _logger.LogDebug("Returning season IDs by series name");
 
         // Ensure the queue is up to date
-        new QueueManager(_loggerFactory.CreateLogger<QueueManager>(), _libraryManager).GetMediaItems();
+        await new QueueManager(_loggerFactory.CreateLogger<QueueManager>(), _libraryManager, _providerManager, _fileSystem).GetMediaItems(cancellationToken).ConfigureAwait(false);
 
         var showSeasons = new Dictionary<Guid, ShowInfos>();
 
@@ -281,6 +288,8 @@ public class VisualizationController(ILogger<VisualizationController> logger, Me
                             _loggerFactory.CreateLogger<DetectSegmentsTask>(),
                             _loggerFactory,
                             _libraryManager,
+                            _providerManager,
+                            _fileSystem,
                             _mediaSegmentUpdateManager);
 
                         await baseIntroAnalyzer.AnalyzeItemsAsync(new Progress<double>(), CancellationToken.None, [seasonId]).ConfigureAwait(false);

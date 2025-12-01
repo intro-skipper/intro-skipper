@@ -11,6 +11,8 @@ using IntroSkipper.Configuration;
 using IntroSkipper.Data;
 using IntroSkipper.Manager;
 using MediaBrowser.Controller.Library;
+using MediaBrowser.Controller.Providers;
+using MediaBrowser.Model.IO;
 using Microsoft.Extensions.Logging;
 
 namespace IntroSkipper.ScheduledTasks;
@@ -24,16 +26,22 @@ namespace IntroSkipper.ScheduledTasks;
 /// <param name="logger">Task logger.</param>
 /// <param name="loggerFactory">Logger factory.</param>
 /// <param name="libraryManager">Library manager.</param>
+/// <param name="providerManager">Provider manager.</param>
+/// <param name="fileSystem">File system.</param>
 /// <param name="mediaSegmentUpdateManager">Media segment update manager.</param>
 public class BaseItemAnalyzerTask(
     ILogger logger,
     ILoggerFactory loggerFactory,
     ILibraryManager libraryManager,
+    IProviderManager providerManager,
+    IFileSystem fileSystem,
     MediaSegmentUpdateManager mediaSegmentUpdateManager)
 {
     private readonly ILogger _logger = logger;
     private readonly ILoggerFactory _loggerFactory = loggerFactory;
     private readonly ILibraryManager _libraryManager = libraryManager;
+    private readonly IProviderManager _providerManager = providerManager;
+    private readonly IFileSystem _fileSystem = fileSystem;
     private readonly MediaSegmentUpdateManager _mediaSegmentUpdateManager = mediaSegmentUpdateManager;
     private readonly PluginConfiguration _config = Plugin.Instance?.Configuration ?? new PluginConfiguration();
     private readonly bool _ffmpegValid = FFmpegWrapper.CheckFFmpegVersion();
@@ -60,9 +68,11 @@ public class BaseItemAnalyzerTask(
 
         var queueManager = new QueueManager(
             _loggerFactory.CreateLogger<QueueManager>(),
-            _libraryManager);
+            _libraryManager,
+            _providerManager,
+            _fileSystem);
 
-        var queue = queueManager.GetMediaItems();
+        var queue = await queueManager.GetMediaItems(cancellationToken).ConfigureAwait(false);
 
         if (seasonsToAnalyze?.Count > 0)
         {
