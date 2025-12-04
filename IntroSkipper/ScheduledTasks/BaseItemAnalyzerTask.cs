@@ -209,6 +209,7 @@ public class BaseItemAnalyzerTask(
         }
 
         var totalItems = items.Count;
+        var allEpisodeIds = items.Select(i => i.EpisodeId).ToList();
         var plugin = Plugin.Instance ?? throw new InvalidOperationException("Plugin instance is null");
         var action = plugin.GetAnalyzerAction(first.SeasonId, mode);
 
@@ -258,7 +259,7 @@ public class BaseItemAnalyzerTask(
         }
 
         // Set the episode IDs for all episodes in this season (marks them as processed)
-        await plugin.SetEpisodeIdsAsync(first.SeasonId, mode, items.Select(i => i.EpisodeId)).ConfigureAwait(false);
+        await plugin.SetEpisodeIdsAsync(first.SeasonId, mode, allEpisodeIds).ConfigureAwait(false);
 
         // Return count of episodes that found segments (total minus those still in queue)
         return totalItems - items.Count;
