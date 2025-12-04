@@ -102,11 +102,13 @@ public class BaseItemAnalyzerTask(
             CancellationToken = cancellationToken
         };
 
+        var plugin = Plugin.Instance ?? throw new InvalidOperationException("Plugin instance is null");
+
         await Parallel.ForEachAsync(queue, options, async (season, ct) =>
         {
             var updateMediaSegments = false;
 
-            var episodes = queueManager.VerifyQueue(season.Value, modes);
+            var episodes = queueManager.VerifyQueue(season.Value);
             if (episodes.Count == 0)
             {
                 return;
@@ -121,11 +123,29 @@ public class BaseItemAnalyzerTask(
                 return;
             }
 
+            var episodeIds = episodes.Select(e => e.EpisodeId).ToHashSet();
+            var processedIds = plugin.GetEpisodeIds(first.SeasonId);
+
             try
             {
                 foreach (var mode in modes)
                 {
                     ct.ThrowIfCancellationRequested();
+
+                    if (!plugin.AnalyzeAgain &&
+                        processedIds.TryGetValue(mode, out var ids) &&
+                        episodeIds.IsSubsetOf(ids))
+                    {
+                        _logger.LogDebug(
+                            "Skipping {Mode} analysis of {Series} season {Season}: all episodes already processed",
+                            mode,
+                            first.SeriesName,
+                            first.SeasonNumber);
+                        Interlocked.Add(ref totalProcessed, episodes.Count);
+                        progress.Report((double)totalProcessed / totalQueued * 100);
+                        continue;
+                    }
+
                     int analyzed = await AnalyzeItemsAsync(
                         episodes,
                         mode,
@@ -156,13 +176,13 @@ public class BaseItemAnalyzerTask(
             }
         }).ConfigureAwait(false);
 
-        Plugin.Instance!.AnalyzeAgain = false;
+        plugin.AnalyzeAgain = false;
 
         if (_config.RebuildMediaSegments)
         {
             _logger.LogInformation("Regenerated media segments.");
             _config.RebuildMediaSegments = false;
-            Plugin.Instance!.SaveConfiguration();
+            plugin.SaveConfiguration();
         }
     }
 
@@ -178,11 +198,6 @@ public class BaseItemAnalyzerTask(
         AnalysisMode mode,
         CancellationToken cancellationToken)
     {
-        if (!items.Any(e => e.GetAnalyzed(mode) == EpisodeState.NotAnalyzed))
-        {
-            return 0;
-        }
-
         var first = items[0];
         var category = first.Category;
         var isMovie = category == QueuedMediaCategory.Movie;
@@ -193,7 +208,7 @@ public class BaseItemAnalyzerTask(
             return 0;
         }
 
-        var totalItems = items.Count(e => e.GetAnalyzed(mode) != EpisodeState.Analyzed);
+        var totalItems = items.Count;
         var plugin = Plugin.Instance ?? throw new InvalidOperationException("Plugin instance is null");
         var action = plugin.GetAnalyzerAction(first.SeasonId, mode);
 
@@ -234,17 +249,18 @@ public class BaseItemAnalyzerTask(
             analyzers.Add(new ChromaprintAnalyzer(_loggerFactory.CreateLogger<ChromaprintAnalyzer>()));
         }
 
-        // Use each analyzer to find skippable ranges in all media files, removing successfully
-        // analyzed items from the queue.
+        // Use each analyzer to find skippable ranges in all media files.
+        // Analyzers return episodes that still need analysis (no segments found yet).
         foreach (var analyzer in analyzers)
         {
             cancellationToken.ThrowIfCancellationRequested();
             items = await analyzer.AnalyzeMediaFiles(items, mode, cancellationToken).ConfigureAwait(false);
         }
 
-        // Set the episode IDs for the analyzed items
-        await Plugin.Instance!.SetEpisodeIdsAsync(first.SeasonId, mode, items.Select(i => i.EpisodeId)).ConfigureAwait(false);
+        // Set the episode IDs for all episodes in this season (marks them as processed)
+        await plugin.SetEpisodeIdsAsync(first.SeasonId, mode, items.Select(i => i.EpisodeId)).ConfigureAwait(false);
 
-        return totalItems - items.Count(e => e.GetAnalyzed(mode) != EpisodeState.Analyzed);
+        // Return count of episodes that found segments (total minus those still in queue)
+        return totalItems - items.Count;
     }
 }

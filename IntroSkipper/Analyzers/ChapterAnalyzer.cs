@@ -48,11 +48,10 @@ public class ChapterAnalyzer(ILogger<ChapterAnalyzer> logger) : IMediaFileAnalyz
             return analysisQueue;
         }
 
+        var remaining = new List<QueuedEpisode>();
         var timeAdjustmentHelper = new TimeAdjustmentHelper(_logger, _config);
 
-        var episodesWithoutIntros = analysisQueue.Where(e => e.GetAnalyzed(mode) != EpisodeState.Analyzed).ToList();
-
-        foreach (var episode in episodesWithoutIntros)
+        foreach (var episode in analysisQueue)
         {
             if (cancellationToken.IsCancellationRequested)
             {
@@ -67,16 +66,16 @@ public class ChapterAnalyzer(ILogger<ChapterAnalyzer> logger) : IMediaFileAnalyz
 
             if (skipRange is null || !skipRange.Valid)
             {
+                remaining.Add(episode);
                 continue;
             }
 
             skipRange = timeAdjustmentHelper.AdjustIntroTimes(episode, skipRange, false);
 
-            episode.SetAnalyzed(mode, EpisodeState.Analyzed);
             await Plugin.Instance!.UpdateTimestampAsync(skipRange, mode).ConfigureAwait(false);
         }
 
-        return analysisQueue;
+        return remaining;
     }
 
     /// <summary>

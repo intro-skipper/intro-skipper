@@ -395,12 +395,10 @@ public partial class QueueManager(ILogger<QueueManager> logger, ILibraryManager 
 
     /// <summary>
     /// Verify that a collection of queued media items still exist in Jellyfin and in storage.
-    /// This is done to ensure that we don't analyze items that were deleted between the call to GetMediaItems() and popping them from the queue.
     /// </summary>
     /// <param name="candidates">Queued media items.</param>
-    /// <param name="modes">Analysis modes.</param>
     /// <returns>Media items that have been verified to exist in Jellyfin and in storage.</returns>
-    internal IReadOnlyList<QueuedEpisode> VerifyQueue(IReadOnlyList<QueuedEpisode> candidates, IReadOnlyCollection<AnalysisMode> modes)
+    internal IReadOnlyList<QueuedEpisode> VerifyQueue(IReadOnlyList<QueuedEpisode> candidates)
     {
         if (candidates == null || candidates.Count == 0)
         {
@@ -409,7 +407,6 @@ public partial class QueueManager(ILogger<QueueManager> logger, ILibraryManager 
 
         var verified = new List<QueuedEpisode>(candidates.Count);
         var plugin = Plugin.Instance ?? throw new InvalidOperationException("Plugin instance is null");
-        var episodeIds = plugin.GetEpisodeIds(candidates[0].SeasonId);
 
         foreach (var candidate in candidates)
         {
@@ -424,20 +421,6 @@ public partial class QueueManager(ILogger<QueueManager> logger, ILibraryManager 
                 }
 
                 verified.Add(candidate);
-
-                var hasSegments = plugin.GetTimestamps(candidate.EpisodeId);
-
-                foreach (var mode in modes)
-                {
-                    if (hasSegments.TryGetValue(mode, out var seg))
-                    {
-                        candidate.SetAnalyzed(mode, EpisodeState.Analyzed);
-                    }
-                    else if (!plugin.AnalyzeAgain && episodeIds.TryGetValue(mode, out var ids) && ids.Contains(candidate.EpisodeId))
-                    {
-                        candidate.SetAnalyzed(mode, EpisodeState.NoSegments);
-                    }
-                }
             }
             catch (Exception ex)
             {

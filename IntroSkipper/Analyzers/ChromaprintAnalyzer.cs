@@ -3,7 +3,6 @@
 
 using System;
 using System.Collections.Generic;
-using System.IO;
 using System.Linq;
 using System.Numerics;
 using System.Threading;
@@ -36,10 +35,7 @@ public class ChromaprintAnalyzer(ILogger<ChromaprintAnalyzer> logger) : IMediaFi
         AnalysisMode mode,
         CancellationToken cancellationToken)
     {
-        // Episodes that were not analyzed or have a fingerprint cache.
-        var episodeAnalysisQueue = analysisQueue.Where(e => e.GetAnalyzed(mode) != EpisodeState.Analyzed || File.Exists(FFmpegWrapper.GetFingerprintCachePath(e, mode))).ToList();
-
-        if (analysisQueue.Count <= 1 || episodeAnalysisQueue.All(e => e.GetAnalyzed(mode) == EpisodeState.Analyzed))
+        if (analysisQueue.Count <= 1)
         {
             return analysisQueue;
         }
@@ -54,13 +50,8 @@ public class ChromaprintAnalyzer(ILogger<ChromaprintAnalyzer> logger) : IMediaFi
         // Cache of all fingerprints for this season.
         var fingerprintCache = new Dictionary<Guid, uint[]>();
 
-        // Ensure at least two fingerprints are present.
-        if (episodeAnalysisQueue.Count == 1)
-        {
-            var currentEpisode = episodeAnalysisQueue[0];
-            episodeAnalysisQueue.AddRange(analysisQueue
-                .Where(episode => episode != currentEpisode && Math.Abs(episode.EpisodeNumber - currentEpisode.EpisodeNumber) <= 1));
-        }
+        // Episodes to analyze (include those with cached fingerprints for comparison)
+        var episodeAnalysisQueue = analysisQueue.ToList();
 
         // Compute fingerprints for all episodes in the season
         foreach (var episode in episodeAnalysisQueue)
@@ -163,16 +154,16 @@ public class ChromaprintAnalyzer(ILogger<ChromaprintAnalyzer> logger) : IMediaFi
                 break;
             }
 
-            // If an intro is found for this episode, adjust its times and save it else add it to the list of episodes without intros.
+            // If an intro is found for this episode, adjust its times and save it
             if (seasonIntros.TryGetValue(currentEpisode.EpisodeId, out var intro))
             {
                 var adjustedIntro = timeAdjustmentHelper.AdjustIntroTimes(currentEpisode, intro);
-                currentEpisode.SetAnalyzed(mode, EpisodeState.Analyzed);
                 await Plugin.Instance!.UpdateTimestampAsync(adjustedIntro, mode).ConfigureAwait(false);
             }
         }
 
-        return analysisQueue;
+        // Return episodes that didn't find segments
+        return analysisQueue.Where(e => !seasonIntros.ContainsKey(e.EpisodeId)).ToList();
     }
 
     /// <summary>

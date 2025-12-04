@@ -37,23 +37,20 @@ public sealed class BlackFrameAnalyzer(ILogger<BlackFrameAnalyzer> logger) : IMe
             throw new NotImplementedException($"{nameof(BlackFrameAnalyzer)} only supports {nameof(AnalysisMode.Credits)} mode");
         }
 
-        var unanalyzedEpisodes = analysisQueue
-            .Where(e => e.GetAnalyzed(mode) != EpisodeState.Analyzed)
-            .ToList();
-
-        if (unanalyzedEpisodes.Count == 0)
+        if (analysisQueue.Count == 0)
         {
             return analysisQueue;
         }
 
-        _logger.LogDebug("Analyzing {Count} episodes for credits using black frame detection", unanalyzedEpisodes.Count);
+        var dominated = new List<QueuedEpisode>();
+        _logger.LogDebug("Analyzing {Count} episodes for credits using black frame detection", analysisQueue.Count);
 
         double searchStart = 0.0;
 
         var percentage = _config.BlackFrameMinimumPercentage;
         var threshold = _config.BlackFrameThreshold;
 
-        foreach (var episode in unanalyzedEpisodes)
+        foreach (var episode in analysisQueue)
         {
             if (cancellationToken.IsCancellationRequested)
             {
@@ -81,12 +78,12 @@ public sealed class BlackFrameAnalyzer(ILogger<BlackFrameAnalyzer> logger) : IMe
                 if (credit is null || !credit.Valid)
                 {
                     _logger.LogDebug("No valid credits found for {Episode}", episode.Name);
+                    dominated.Add(episode);
                     continue;
                 }
 
                 _logger.LogDebug("Found credits for {Episode} at {Start:F2}s", episode.Name, credit.Start);
 
-                episode.SetAnalyzed(mode, EpisodeState.Analyzed);
                 await Plugin.Instance!.UpdateTimestampAsync(credit, mode).ConfigureAwait(false);
 
                 // Update search start for next episode based on this result
@@ -95,10 +92,11 @@ public sealed class BlackFrameAnalyzer(ILogger<BlackFrameAnalyzer> logger) : IMe
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Error analyzing {Episode} for credits", episode.Name);
+                dominated.Add(episode);
             }
         }
 
-        return analysisQueue;
+        return dominated;
     }
 
     /// <summary>

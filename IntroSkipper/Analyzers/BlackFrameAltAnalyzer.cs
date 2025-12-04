@@ -37,25 +37,22 @@ public sealed class BlackFrameAltAnalyzer(ILogger<BlackFrameAltAnalyzer> logger)
             throw new NotImplementedException($"{nameof(BlackFrameAltAnalyzer)} only supports {nameof(AnalysisMode.Credits)} mode");
         }
 
-        var unanalyzedEpisodes = analysisQueue
-            .Where(e => e.GetAnalyzed(mode) != EpisodeState.Analyzed)
-            .ToList();
-
-        if (unanalyzedEpisodes.Count == 0)
+        if (analysisQueue.Count == 0)
         {
             return analysisQueue;
         }
 
+        var remaining = new List<QueuedEpisode>();
         var timeAdjustmentHelper = new TimeAdjustmentHelper(_logger, _config);
 
-        _logger.LogDebug("Analyzing {Count} episodes for credits using black frame detection", unanalyzedEpisodes.Count);
+        _logger.LogDebug("Analyzing {Count} episodes for credits using black frame detection", analysisQueue.Count);
 
         var minimumPercentage = _config.BlackFrameMinimumPercentage;
         var threshold = _config.BlackFrameThreshold;
         var minimumDuration = _config.MinimumCreditsDuration;
         var plugin = Plugin.Instance ?? throw new InvalidOperationException("Plugin instance is null");
 
-        foreach (var episode in unanalyzedEpisodes)
+        foreach (var episode in analysisQueue)
         {
             cancellationToken.ThrowIfCancellationRequested();
 
@@ -66,13 +63,13 @@ public sealed class BlackFrameAltAnalyzer(ILogger<BlackFrameAltAnalyzer> logger)
                 if (credit is null || !credit.Valid)
                 {
                     _logger.LogDebug("No valid credits found for {Episode}", episode.Name);
+                    remaining.Add(episode);
                     continue;
                 }
 
                 credit = timeAdjustmentHelper.AdjustIntroTimes(episode, credit);
                 _logger.LogDebug("Found credits for {Episode} at {Start:F2}s", episode.Name, credit.Start);
 
-                episode.SetAnalyzed(mode, EpisodeState.Analyzed);
                 await plugin.UpdateTimestampAsync(credit, mode).ConfigureAwait(false);
             }
             catch (OperationCanceledException)
@@ -83,10 +80,11 @@ public sealed class BlackFrameAltAnalyzer(ILogger<BlackFrameAltAnalyzer> logger)
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Error analyzing {Episode} for credits", episode.Name);
+                remaining.Add(episode);
             }
         }
 
-        return analysisQueue;
+        return remaining;
     }
 
     /// <summary>
