@@ -129,7 +129,7 @@ IntroSkipper.Visualizer = (function() {
             const introsLog = document.querySelector("span#intros");
             introsLog.style.position = "relative";
             introsLog.style.left = "115px";
-            introsLog.innerHTML = "";
+            introsLog.textContent = "";
 
             const offset = Number(elements.txtOffset.value) * 0.1238;
             for (let r of ranges) {
@@ -152,10 +152,17 @@ IntroSkipper.Visualizer = (function() {
 
                 const lTitle = elements.selectEpisode1.options[elements.selectEpisode1.selectedIndex].text;
                 const rTitle = elements.selectEpisode2.options[elements.selectEpisode2.selectedIndex].text;
-                introsLog.innerHTML += "<span>" + lTitle + ": " +
-                    config.utils.secondsToString(lStart) + " - " + config.utils.secondsToString(lEnd) + "</span> <br />";
-                introsLog.innerHTML += "<span>" + rTitle + ": " +
-                    config.utils.secondsToString(rStart) + " - " + config.utils.secondsToString(rEnd) + "</span> <br />";
+                const leftSpan = document.createElement("span");
+                leftSpan.textContent = lTitle + ": " +
+                    config.utils.secondsToString(lStart) + " - " + config.utils.secondsToString(lEnd);
+                introsLog.appendChild(leftSpan);
+                introsLog.appendChild(document.createElement("br"));
+
+                const rightSpan = document.createElement("span");
+                rightSpan.textContent = rTitle + ": " +
+                    config.utils.secondsToString(rStart) + " - " + config.utils.secondsToString(rEnd);
+                introsLog.appendChild(rightSpan);
+                introsLog.appendChild(document.createElement("br"));
             }
         },
 
