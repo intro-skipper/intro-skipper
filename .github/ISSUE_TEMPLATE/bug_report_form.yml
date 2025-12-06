@@ -8,11 +8,13 @@ body:
     attributes:
       label: Self service debugging
       description: |
-        Jellyfin 10.10 is actively updated. Please make sure you are using the [latest](https://github.com/jellyfin/jellyfin/releases/latest) release.
+        Jellyfin 10.11 is actively updated. Please make sure you are using the [latest](https://github.com/jellyfin/jellyfin/releases/latest) release.
 
         If you are unable to skip segments, please see [Troubleshooting](https://github.com/intro-skipper/intro-skipper/wiki/Troubleshooting) before reporting.
       options:
         - label: I use Jellyfin 10.11.4 (or newer) and my permissions are correct
+          required: true
+        - label: I installed the Plugin using `https://intro-skipper.org/manifest.json` or `https://manifest.intro-skipper.org/manifest.json`
           required: true
   - type: textarea
     attributes:
