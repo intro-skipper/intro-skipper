@@ -1044,18 +1044,33 @@
                     for (const item of items) {
                         const label = document.createElement("label");
                         label.className = "emby-checkbox-label";
-                        label.innerHTML = '<input type="checkbox" is="emby-checkbox"' + (checkedItems.has(item) ? " checked" : "") + ">" + '<span class="checkboxLabel">' + item + "</span>";
+                        const checkbox = document.createElement("input");
+                        checkbox.type = "checkbox";
+                        checkbox.setAttribute("is", "emby-checkbox");
+                        if (checkedItems.has(item)) {
+                            checkbox.checked = true;
+                        }
+
+                        const span = document.createElement("span");
+                        span.className = "checkboxLabel";
+                        span.textContent = item;
+
+                        label.appendChild(checkbox);
+                        label.appendChild(span);
                         fragment.appendChild(label);
                     }
                     container.innerHTML = "";
                     container.appendChild(fragment);
-                    container.addEventListener(
-                        "change",
-                        (e) => {
-                            if (e.target.type === "checkbox") updateList(document.getElementById(textFieldId), container);
-                        },
-                        { passive: true },
-                    );
+                    if (!container.dataset.listenerAttached) {
+                        container.addEventListener(
+                            "change",
+                            (e) => {
+                                if (e.target.type === "checkbox") updateList(document.getElementById(textFieldId), container);
+                            },
+                            { passive: true },
+                        );
+                        container.dataset.listenerAttached = "true";
+                    }
                 }
 
                 async function generateAutoSkipClientList() {

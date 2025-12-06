@@ -17,6 +17,7 @@ using MediaBrowser.Controller.Library;
 using MediaBrowser.Controller.Providers;
 using MediaBrowser.Model.IO;
 using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Logging;
 
@@ -238,7 +239,8 @@ public class VisualizationController(ILogger<VisualizationController> logger, Me
         }
         catch (Exception ex)
         {
-            return StatusCode(500, ex.Message);
+            _logger.LogError(ex, "Failed to erase timestamps for series {SeriesId} season {SeasonId}", seriesId, seasonId);
+            return Problem("An unexpected error occurred while erasing season data.", statusCode: StatusCodes.Status500InternalServerError);
         }
     }
 
