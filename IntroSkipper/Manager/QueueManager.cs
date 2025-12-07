@@ -72,7 +72,7 @@ public partial class QueueManager(ILogger<QueueManager> logger, ILibraryManager 
         foreach (var folder in virtualFolders)
         {
             // If libraries have been selected for analysis, ensure this library was selected.
-            if (folder.LibraryOptions?.DisabledMediaSegmentProviders?.Contains(plugin.Name) == true)
+            if (folder.LibraryOptions?.DisabledMediaSegmentProviders?.Contains(plugin.Name) == true && !plugin.PluginSkip)
             {
                 _logger.LogDebug("Not analyzing library \"{Name}\": Intro Skipper is disabled in library settings. To enable, check library configuration > Media Segment Providers", folder.Name);
                 continue;
