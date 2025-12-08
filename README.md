@@ -9,8 +9,10 @@
     </p>
 
 [![CodeQL](https://github.com/intro-skipper/intro-skipper/actions/workflows/codeql.yml/badge.svg)](https://github.com/intro-skipper/intro-skipper/actions/workflows/codeql.yml)
-[![Downloads](https://img.shields.io/github/downloads/intro-skipper/intro-skipper/total?label=github%20downloads)](https://github.com/intro-skipper/intro-skipper/releases)
-[![](https://data.jsdelivr.com/v1/package/gh/intro-skipper/manifest/badge?style=rounded)](https://www.jsdelivr.com/package/gh/intro-skipper/manifest)
+<a href="https://github.com/intro-skipper/intro-skipper/releases">
+<img alt="Total GitHub Downloads" src="https://img.shields.io/github/downloads/intro-skipper/intro-skipper/total?label=github%20downloads"/>
+</a>
+<br />
 <p align="center">
   <a href="https://discord.gg/AYZ7RJ3BuA"><img src="https://invidget.switchblade.xyz/AYZ7RJ3BuA"></a>
 </p>
@@ -18,12 +20,12 @@
 
 ## Manifest URL (All Jellyfin Versions)
 
-**Important: This URL returns a manifest based on the Jellyfin version used to access it.
-<br />
-It will NOT return a manifest when viewed in a browser, as no Jellyfin version is provided.**
 ```
 https://intro-skipper.org/manifest.json
 ```
+**Important: This URL returns a manifest based on the Jellyfin version used to access it.
+<br />
+It will NOT return a manifest when viewed in a browser, as no Jellyfin version is provided.**
 
 ### As of Jellyfin 10.10, Intro Skipper does **NOT** modify the UI.
 
@@ -31,14 +33,21 @@ https://intro-skipper.org/manifest.json
 
 Some web UI features (for example, adjusting the skip-button timeout) require the File Transformation plugin. If it’s not installed, Intro Skipper will still work, but those enhancements won’t be applied.
 
+<details>
+<summary>Click here to see how to install the File Transformation plugin</summary>
+
 - Plugin repo: https://github.com/IAmParadox27/jellyfin-plugin-file-transformation
 - Easiest way to install:
-  1. Add `https://www.iamparadox.dev/jellyfin/plugins/manifest.json` as a plugin source repository to your Jellyfin server.
-  2. Find "File Transformation" in the Catalog and install it.
+    - Add as a plugin source repository to your Jellyfin server.
+     ```
+     https://www.iamparadox.dev/jellyfin/plugins/manifest.json
+     ``` 
+    - Find "File Transformation" in the Catalog and install it.
+</details>
 
 ## System requirements
 
-* Jellyfin 10.11.4 (or newer)
+* Jellyfin 10.11.3 (or newer)
 * Jellyfin's [fork](https://github.com/jellyfin/jellyfin-ffmpeg) of `ffmpeg` must be installed, version `7.1.1-7` or newer
   * `jellyfin/jellyfin` 10.11.z container: preinstalled
   * `linuxserver/jellyfin` 10.11.z container: preinstalled
