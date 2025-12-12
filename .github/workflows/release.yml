@@ -70,7 +70,7 @@ jobs:
         run: dotnet build --configuration Release --no-restore
 
       - name: Upload unsigned package artifacts
-        if: ${{ github.repository != 'intro-skipper/intro-skipper-test' }}
+        if: ${{ github.repository == 'intro-skipper/intro-skipper' }}
         id: upload-unsigned-artifact
         uses: actions/upload-artifact@v5
         with:
@@ -78,7 +78,7 @@ jobs:
           if-no-files-found: error
 
       - name: Sign package artifacts
-        if: ${{ github.repository != 'intro-skipper/intro-skipper-test' }}
+        if: ${{ github.repository == 'intro-skipper/intro-skipper' }}
         uses: signpath/github-action-submit-signing-request@v2.0
         with:
           api-token: '${{ secrets.SIGNPATH_API_TOKEN }}'
@@ -91,7 +91,7 @@ jobs:
           output-artifact-directory: 'IntroSkipper/bin/Release/net9.0/'
 
       - name: Upload signed package artifacts (overwrite unsigned)
-        if: ${{ github.repository != 'intro-skipper/intro-skipper-test' }}
+        if: ${{ github.repository == 'intro-skipper/intro-skipper' }}
         uses: actions/upload-artifact@v5
         with:
           path: IntroSkipper/bin/Release/net9.0/IntroSkipper.dll
