@@ -87,7 +87,8 @@ jobs:
           signing-policy-slug: 'release-signing'
           github-artifact-id: '${{ steps.upload-unsigned-artifact.outputs.artifact-id }}'
           wait-for-completion: true
-          output-artifact-directory: 'IntroSkipper/bin/Release/net9.0/IntroSkipper.dll'
+          # overwrite the unsigned files
+          output-artifact-directory: 'IntroSkipper/bin/Release/net9.0/'
 
       - name: Upload signed package artifacts (overwrite unsigned)
         if: ${{ github.repository != 'intro-skipper/intro-skipper-test' }}
