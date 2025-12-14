@@ -71,7 +71,7 @@ namespace IntroSkipper.Helper
                     return "Linux (Docker)";
                 }
 
-                return "Linux";
+                return RuntimeInformation.OSDescription;
             }
 
             return "Unknown";
