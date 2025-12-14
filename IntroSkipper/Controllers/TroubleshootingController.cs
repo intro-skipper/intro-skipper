@@ -99,6 +99,10 @@ public class TroubleshootingController : ControllerBase
         bundle.Append(version);
         bundle.Append('\n');
 
+        bundle.Append("* Runs on: ");
+        bundle.Append(Helper.OperatingSystem.DetermineOperatingSystem());
+        bundle.Append('\n');
+
         bundle.Append("* Queue contents: ");
         bundle.Append(Plugin.Instance.TotalQueued);
         bundle.Append(" episodes, ");

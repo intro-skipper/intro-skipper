@@ -1,6 +1,7 @@
 // Copyright (C) 2024 Intro-Skipper contributors <intro-skipper.org>
 // SPDX-License-Identifier: GPL-3.0-only.
 
+using System;
 using System.IO;
 using System.Runtime.InteropServices;
 
@@ -38,5 +39,42 @@ namespace IntroSkipper.Helper
         /// <returns>True if running in a Docker container; otherwise, false.</returns>
         public static bool IsDocker() =>
             File.Exists("/.dockerenv") || File.Exists("/run/.containerenv");
+
+        /// <summary>
+        /// Gets the name of the current operating system.
+        /// </summary>
+        /// <returns>The name of the operating system.</returns>
+        public static string DetermineOperatingSystem()
+        {
+            if (IsWindows())
+            {
+                return "Windows";
+            }
+            else if (IsMacOS())
+            {
+                return "macOS";
+            }
+            else if (IsLinux())
+            {
+                if (IsDocker())
+                {
+                    if (Environment.GetEnvironmentVariable("ATTACHED_DEVICES_PERMS") != null)
+                    {
+                        return "LinuxServer.io image (Docker)";
+                    }
+
+                    if (Environment.GetEnvironmentVariable("WEBUI_PORTS") != null)
+                    {
+                        return "hotio image (Docker)";
+                    }
+
+                    return "Linux (Docker)";
+                }
+
+                return "Linux";
+            }
+
+            return "Unknown";
+        }
     }
 }
