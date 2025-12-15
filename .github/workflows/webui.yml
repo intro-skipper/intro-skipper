@@ -34,7 +34,7 @@ jobs:
           npm ci --no-audit
           npm run build:production
       - name: Upload web interface
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v6
         with:
           name: jellyfin-web-${{ matrix.jellyfin-web-version }}+${{ github.sha }}
           path: web/dist

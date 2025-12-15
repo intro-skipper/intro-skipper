@@ -72,7 +72,7 @@ jobs:
       - name: Upload unsigned package artifacts
         if: ${{ github.repository == 'intro-skipper/intro-skipper' }}
         id: upload-unsigned-artifact
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v6
         with:
           path: IntroSkipper/bin/Release/net9.0/IntroSkipper.dll
           if-no-files-found: error
@@ -92,7 +92,7 @@ jobs:
 
       - name: Upload signed package artifacts (overwrite unsigned)
         if: ${{ github.repository == 'intro-skipper/intro-skipper' }}
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v6
         with:
           path: IntroSkipper/bin/Release/net9.0/IntroSkipper.dll
           if-no-files-found: error
