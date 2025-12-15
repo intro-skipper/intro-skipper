@@ -74,6 +74,7 @@ jobs:
         id: upload-unsigned-artifact
         uses: actions/upload-artifact@v6
         with:
+          name: IntroSkipper-${{ env.NEW_FILE_VERSION }}.zip
           path: IntroSkipper/bin/Release/net9.0/IntroSkipper.dll
           if-no-files-found: error
 
@@ -94,6 +95,7 @@ jobs:
         if: ${{ github.repository == 'intro-skipper/intro-skipper' }}
         uses: actions/upload-artifact@v6
         with:
+          name: IntroSkipper-${{ env.NEW_FILE_VERSION }}.zip
           path: IntroSkipper/bin/Release/net9.0/IntroSkipper.dll
           if-no-files-found: error
           overwrite: true
