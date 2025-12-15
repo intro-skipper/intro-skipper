@@ -69,34 +69,34 @@ jobs:
       - name: Build
         run: dotnet build --configuration Release --no-restore
 
-      - name: Upload unsigned package artifacts
-        if: ${{ github.repository == 'intro-skipper/intro-skipper' }}
-        id: upload-unsigned-artifact
-        uses: actions/upload-artifact@v6
-        with:
-          path: IntroSkipper/bin/Release/net9.0/IntroSkipper.dll
-          if-no-files-found: error
-
-      - name: Sign package artifacts
-        if: ${{ github.repository == 'intro-skipper/intro-skipper' }}
-        uses: signpath/github-action-submit-signing-request@v2.0
-        with:
-          api-token: '${{ secrets.SIGNPATH_API_TOKEN }}'
-          organization-id: '2533cbeb-14b8-4d23-905e-37196de94787'
-          project-slug: 'intro-skipper'
-          signing-policy-slug: 'release-signing'
-          github-artifact-id: '${{ steps.upload-unsigned-artifact.outputs.artifact-id }}'
-          wait-for-completion: true
-          # overwrite the unsigned files
-          output-artifact-directory: 'IntroSkipper/bin/Release/net9.0/'
-
-      - name: Upload signed package artifacts (overwrite unsigned)
-        if: ${{ github.repository == 'intro-skipper/intro-skipper' }}
-        uses: actions/upload-artifact@v6
-        with:
-          path: IntroSkipper/bin/Release/net9.0/IntroSkipper.dll
-          if-no-files-found: error
-          overwrite: true
+      #- name: Upload unsigned package artifacts
+      #  if: ${{ github.repository == 'intro-skipper/intro-skipper' }}
+      #  id: upload-unsigned-artifact
+      #  uses: actions/upload-artifact@v6
+      #  with:
+      #    path: IntroSkipper/bin/Release/net9.0/IntroSkipper.dll
+      #    if-no-files-found: error
+      #
+      #- name: Sign package artifacts
+      #  if: ${{ github.repository == 'intro-skipper/intro-skipper' }}
+      #  uses: signpath/github-action-submit-signing-request@v2.0
+      #  with:
+      #    api-token: '${{ secrets.SIGNPATH_API_TOKEN }}'
+      #    organization-id: '2533cbeb-14b8-4d23-905e-37196de94787'
+      #    project-slug: 'intro-skipper'
+      #    signing-policy-slug: 'release-signing'
+      #    github-artifact-id: '${{ steps.upload-unsigned-artifact.outputs.artifact-id }}'
+      #    wait-for-completion: true
+      #    # overwrite the unsigned files
+      #    output-artifact-directory: 'IntroSkipper/bin/Release/net9.0/'
+      #
+      #- name: Upload signed package artifacts (overwrite unsigned)
+      #  if: ${{ github.repository == 'intro-skipper/intro-skipper' }}
+      #  uses: actions/upload-artifact@v6
+      #  with:
+      #    path: IntroSkipper/bin/Release/net9.0/IntroSkipper.dll
+      #    if-no-files-found: error
+      #    overwrite: true
 
       - name: Create archive
         run: zip -j "intro-skipper-v${{ env.NEW_FILE_VERSION }}.zip" IntroSkipper/bin/Release/net9.0/IntroSkipper.dll
