@@ -74,9 +74,10 @@ jobs:
         id: upload-unsigned-artifact
         uses: actions/upload-artifact@v6
         with:
-          name: IntroSkipper-${{ env.NEW_FILE_VERSION }}.zip
+          name: IntroSkipper-${{ env.NEW_FILE_VERSION }}-unsigned
           path: IntroSkipper/bin/Release/net9.0/IntroSkipper.dll
           if-no-files-found: error
+          retention-days: 1
 
       - name: Sign package artifacts
         if: ${{ github.repository == 'intro-skipper/intro-skipper' }}
@@ -95,16 +96,7 @@ jobs:
         if: ${{ github.repository == 'intro-skipper/intro-skipper' }}
         uses: actions/upload-artifact@v6
         with:
-          name: IntroSkipper-${{ env.NEW_FILE_VERSION }}.zip
+          name: IntroSkipper-${{ env.NEW_FILE_VERSION }}-signed
           path: IntroSkipper/bin/Release/net9.0/IntroSkipper.dll
           if-no-files-found: error
-          overwrite: true
-
-      - name: Create archive
-        run: zip -j "intro-skipper-v${{ env.NEW_FILE_VERSION }}.zip" IntroSkipper/bin/Release/net9.0/IntroSkipper.dll
-
-      - name: Remove old release if exits
-        if: ${{ github.repository == 'intro-skipper/intro-skipper-test' }}
-        run: gh release delete "${{ env.MAIN_VERSION }}/v${{ env.NEW_FILE_VERSION }}" --cleanup-tag --yes || true
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          retention-days: 1
