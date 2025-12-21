@@ -174,7 +174,7 @@ public class PluginConfiguration : BasePluginConfiguration
     /// <summary>
     /// Gets or sets the threshold for black frame detection.
     /// </summary>
-    public int BlackFrameThreshold { get; set; } = 32;
+    public int BlackFrameThreshold { get; set; } = 28;
 
     /// <summary>
     /// Gets or sets a value indicating whether to use chapter markers for credits detection.
