@@ -7,7 +7,7 @@ using System.IO;
 using System.Linq;
 using System.Threading;
 using IntroSkipper.Data;
-using IntroSkipper.ScheduledTasks;
+using IntroSkipper.Services;
 using Microsoft.Extensions.Logging.Abstractions;
 using Xunit;
 
@@ -60,7 +60,7 @@ public class UpgradeFingerprintCacheTaskTests
 
             // Act
             var cacheFiles = Directory.EnumerateFiles(testDirectory).ToArray();
-            var stats = UpgradeFingerprintCacheTask.MigrateExtensionlessBinaryCaches(
+            var stats = CacheMigration.MigrateExtensionlessBinaryCaches(
                 testDirectory,
                 cacheFiles,
                 validEpisodeIds,

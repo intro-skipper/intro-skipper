@@ -20,6 +20,7 @@ namespace IntroSkipper
         public void RegisterServices(IServiceCollection serviceCollection, IServerApplicationHost applicationHost)
         {
             serviceCollection.AddHostedService<AutoSkip>();
+            serviceCollection.AddHostedService<CacheMigrationHostedService>();
             serviceCollection.AddHostedService<Entrypoint>();
             serviceCollection.AddSingleton<IMediaSegmentProvider, SegmentProvider>();
             serviceCollection.AddTransient<MediaSegmentUpdateManager>();

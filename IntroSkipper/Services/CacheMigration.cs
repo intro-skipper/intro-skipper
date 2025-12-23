@@ -14,17 +14,14 @@ using IntroSkipper.Manager;
 using MediaBrowser.Controller.Library;
 using MediaBrowser.Controller.Providers;
 using MediaBrowser.Model.IO;
-using MediaBrowser.Model.Tasks;
 using Microsoft.Extensions.Logging;
 
-namespace IntroSkipper.ScheduledTasks;
+namespace IntroSkipper.Services;
 
-/// <summary>
-/// Converts legacy (text) fingerprint cache files to the binary <c>.ifch</c> format
-/// and deletes cache entries whose source items no longer exist.
-/// </summary>
-public class UpgradeFingerprintCacheTask : IScheduledTask
+internal static class CacheMigration
 {
+    internal const int CurrentCacheMigrationVersion = 1;
+
     private const string BlackFrameCacheExtension = ".ifbc";
     private const string SilenceCacheExtension = ".ifsc";
 
@@ -32,54 +29,14 @@ public class UpgradeFingerprintCacheTask : IScheduledTask
         "^[0-9a-fA-F]{32}(-credits)?$",
         RegexOptions.Compiled | RegexOptions.CultureInvariant);
 
-    private readonly ILogger<UpgradeFingerprintCacheTask> _logger;
-    private readonly ILoggerFactory _loggerFactory;
-    private readonly ILibraryManager _libraryManager;
-    private readonly IProviderManager _providerManager;
-    private readonly IFileSystem _fileSystem;
-
-    /// <summary>
-    /// Initializes a new instance of the <see cref="UpgradeFingerprintCacheTask"/> class.
-    /// </summary>
-    /// <param name="logger">Logger.</param>
-    /// <param name="loggerFactory">Logger factory.</param>
-    /// <param name="libraryManager">Library manager.</param>
-    /// <param name="providerManager">Provider manager.</param>
-    /// <param name="fileSystem">File system.</param>
-    public UpgradeFingerprintCacheTask(
-        ILogger<UpgradeFingerprintCacheTask> logger,
+    internal static async Task RunAsync(
+        ILogger logger,
         ILoggerFactory loggerFactory,
         ILibraryManager libraryManager,
         IProviderManager providerManager,
-        IFileSystem fileSystem)
+        IFileSystem fileSystem,
+        CancellationToken cancellationToken)
     {
-        _logger = logger;
-        _loggerFactory = loggerFactory;
-        _libraryManager = libraryManager;
-        _providerManager = providerManager;
-        _fileSystem = fileSystem;
-    }
-
-    /// <inheritdoc />
-    public string Name => "Upgrade Intro Skipper Fingerprint Cache";
-
-    /// <inheritdoc />
-    public string Category => "Intro Skipper";
-
-    /// <inheritdoc />
-    public string Description => "Converts legacy fingerprint cache files to the binary format and removes cache entries for missing media.";
-
-    /// <inheritdoc />
-    public string Key => "IntroSkipperUpgradeFingerprintCache";
-
-    /// <inheritdoc />
-    public async Task ExecuteAsync(IProgress<double> progress, CancellationToken cancellationToken)
-    {
-        if (_libraryManager is null)
-        {
-            throw new InvalidOperationException("Library manager was null");
-        }
-
         if (Plugin.Instance is null)
         {
             throw new InvalidOperationException("Plugin instance was null");
@@ -88,64 +45,56 @@ public class UpgradeFingerprintCacheTask : IScheduledTask
         var cachePath = Plugin.Instance.FingerprintCachePath;
         if (string.IsNullOrWhiteSpace(cachePath) || !Directory.Exists(cachePath))
         {
-            _logger.LogDebug("Fingerprint cache directory does not exist; nothing to do");
-            progress.Report(100);
+            logger.LogDebug("Fingerprint cache directory does not exist; nothing to migrate");
             return;
         }
 
         var queueManager = new QueueManager(
-            _loggerFactory.CreateLogger<QueueManager>(),
-            _libraryManager,
-            _providerManager,
-            _fileSystem);
+            loggerFactory.CreateLogger<QueueManager>(),
+            libraryManager,
+            providerManager,
+            fileSystem);
 
-        // Retrieve media items and get valid episode IDs.
         var queue = await queueManager.GetMediaItems(cancellationToken).ConfigureAwait(false);
         var validEpisodeIds = queue.Values
             .SelectMany(episodes => episodes.Select(e => e.EpisodeId))
             .ToHashSet();
 
-        // Delete timestamps for items that no longer exist.
         await Plugin.Instance.CleanTimestamps(validEpisodeIds).ConfigureAwait(false);
 
-        // Identify invalid episode IDs based on cache folder contents.
         var invalidEpisodeIds = Directory.EnumerateFiles(cachePath)
             .Select(filePath => Path.GetFileNameWithoutExtension(filePath).Split('-')[0])
             .Where(episodeIdStr => Guid.TryParseExact(episodeIdStr, "N", out var episodeId) && !validEpisodeIds.Contains(episodeId))
             .Select(episodeIdStr => Guid.ParseExact(episodeIdStr, "N"))
             .ToHashSet();
 
-        // Delete cache files for invalid episode IDs.
         foreach (var episodeId in invalidEpisodeIds)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            _logger.LogDebug("Deleting cache files for missing episode ID: {EpisodeId}", episodeId);
+            logger.LogDebug("Deleting cache files for missing episode ID: {EpisodeId}", episodeId);
             FFmpegWrapper.DeleteEpisodeCache(episodeId);
         }
 
-        // Convert legacy fingerprint caches (text) to binary (.ifch) for remaining items.
-        // Legacy fingerprint cache files:
+        var cacheFiles = Directory.EnumerateFiles(cachePath).ToArray();
+
+        // Legacy fingerprint caches (text, no extension):
         //  - {EpisodeId:N}
         //  - {EpisodeId:N}-credits
-        var cacheFiles = Directory.EnumerateFiles(cachePath).ToArray();
         var legacyFingerprintFiles = cacheFiles
             .Where(p => string.IsNullOrEmpty(Path.GetExtension(p)))
             .Where(p => LegacyFingerprintNameRegex.IsMatch(Path.GetFileName(p)))
             .ToArray();
 
-        var totalLegacy = legacyFingerprintFiles.Length;
         var converted = 0;
         var deletedLegacyBecauseAlreadyConverted = 0;
         var skippedInvalid = 0;
         var failed = 0;
 
-        for (var i = 0; i < legacyFingerprintFiles.Length; i++)
+        foreach (var legacyPath in legacyFingerprintFiles)
         {
             cancellationToken.ThrowIfCancellationRequested();
 
-            var legacyPath = legacyFingerprintFiles[i];
             var fileName = Path.GetFileName(legacyPath);
-
             var baseName = Path.GetFileNameWithoutExtension(legacyPath);
             var idPart = baseName.Split('-', 2)[0];
             if (!Guid.TryParseExact(idPart, "N", out var episodeId))
@@ -155,7 +104,6 @@ public class UpgradeFingerprintCacheTask : IScheduledTask
 
             if (!validEpisodeIds.Contains(episodeId))
             {
-                // Might have been missed by invalidEpisodeIds if the cache directory is changing during the run.
                 skippedInvalid++;
                 continue;
             }
@@ -177,11 +125,10 @@ public class UpgradeFingerprintCacheTask : IScheduledTask
             try
             {
                 using var stream = File.Open(legacyPath, FileMode.Open, FileAccess.Read, FileShare.Read);
-
                 if (!FFmpegWrapper.TryReadLegacyFingerprint(stream, out var legacyFingerprint))
                 {
                     failed++;
-                    _logger.LogDebug("Legacy fingerprint cache was unreadable: {Path}", legacyPath);
+                    logger.LogDebug("Legacy fingerprint cache was unreadable: {Path}", legacyPath);
                     continue;
                 }
 
@@ -196,31 +143,19 @@ public class UpgradeFingerprintCacheTask : IScheduledTask
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
             {
                 failed++;
-                _logger.LogDebug(ex, "Failed to convert legacy fingerprint cache {Path}", legacyPath);
-            }
-
-            // Report progress: cleanup phase is fast; conversion is the main part.
-            if (totalLegacy > 0)
-            {
-                var pct = (i + 1) / (double)totalLegacy;
-                progress.Report(Math.Min(100, pct * 100));
+                logger.LogDebug(ex, "Failed to convert legacy fingerprint cache {Path}", legacyPath);
             }
         }
 
-        // Migrate binary caches that historically lacked an extension.
-        // This includes blackframe and silence caches (which already have a binary structure)
-        // but does NOT include other cached outputs (e.g., keyframe/showinfo logs).
         var (migratedBlackFrames, deletedBlackFrameLegacy, migratedSilence, deletedSilenceLegacy) =
-            MigrateExtensionlessBinaryCaches(cachePath, cacheFiles, validEpisodeIds, _logger, cancellationToken);
+            MigrateExtensionlessBinaryCaches(cachePath, cacheFiles, validEpisodeIds, logger, cancellationToken);
 
-        // Clean up Season information by removing items that no longer exist.
         await Plugin.Instance.CleanSeasonInfoAsync(queue.Keys).ConfigureAwait(false);
 
         Plugin.Instance.AnalyzeAgain = true;
 
-        _logger.LogInformation(
-            "Cache upgrade complete. LegacyFingerprint={LegacyTotal}, ConvertedFingerprint={Converted}, DeletedLegacyFingerprint={DeletedLegacy}, SkippedInvalid={SkippedInvalid}, FailedFingerprint={Failed}, MigratedBlackFrames={MigratedBlackFrames}, DeletedLegacyBlackFrames={DeletedBlackFrameLegacy}, MigratedSilence={MigratedSilence}, DeletedLegacySilence={DeletedSilenceLegacy}, RemovedMissingEpisodes={MissingEpisodes}",
-            totalLegacy,
+        logger.LogInformation(
+            "Startup cache migration complete. ConvertedFingerprint={Converted}, DeletedLegacyFingerprint={DeletedLegacy}, SkippedInvalid={SkippedInvalid}, FailedFingerprint={Failed}, MigratedBlackFrames={MigratedBlackFrames}, DeletedLegacyBlackFrames={DeletedBlackFrameLegacy}, MigratedSilence={MigratedSilence}, DeletedLegacySilence={DeletedSilenceLegacy}, RemovedMissingEpisodes={MissingEpisodes}",
             converted,
             deletedLegacyBecauseAlreadyConverted,
             skippedInvalid,
@@ -230,36 +165,6 @@ public class UpgradeFingerprintCacheTask : IScheduledTask
             migratedSilence,
             deletedSilenceLegacy,
             invalidEpisodeIds.Count);
-
-        progress.Report(100);
-    }
-
-    /// <inheritdoc />
-    public IEnumerable<TaskTriggerInfo> GetDefaultTriggers()
-    {
-        // Default: manual task (admins can schedule it if desired).
-        return [];
-    }
-
-    private static void TryDeleteLegacyArtifacts(string legacyPath)
-    {
-        TryDeleteFile(legacyPath);
-        TryDeleteFile(legacyPath + ".tmp");
-    }
-
-    private static void TryDeleteFile(string path)
-    {
-        try
-        {
-            if (File.Exists(path))
-            {
-                File.Delete(path);
-            }
-        }
-        catch
-        {
-            // Best-effort cleanup.
-        }
     }
 
     internal static (int MigratedBlackFrames, int DeletedBlackFrameLegacy, int MigratedSilence, int DeletedSilenceLegacy)
@@ -285,15 +190,12 @@ public class UpgradeFingerprintCacheTask : IScheduledTask
             cancellationToken.ThrowIfCancellationRequested();
 
             var cacheKey = Path.GetFileName(filePath);
-
-            // Only consider cache keys that belong to a specific episode.
             var idPart = cacheKey.Split('-', 2)[0];
             if (!Guid.TryParseExact(idPart, "N", out var episodeId) || !validEpisodeIds.Contains(episodeId))
             {
                 continue;
             }
 
-            // Blackframe cache migration.
             if (cacheKey.Contains("blackframes", StringComparison.OrdinalIgnoreCase) &&
                 FFmpegWrapper.TryLoadBlackFrameCache(cacheKey, out _, cachePath))
             {
@@ -320,7 +222,6 @@ public class UpgradeFingerprintCacheTask : IScheduledTask
                 continue;
             }
 
-            // Silence cache migration.
             if (cacheKey.Contains("silence", StringComparison.OrdinalIgnoreCase) &&
                 FFmpegWrapper.TryLoadSilenceCache(cacheKey, out _, cachePath))
             {
@@ -347,5 +248,26 @@ public class UpgradeFingerprintCacheTask : IScheduledTask
         }
 
         return (migratedBlackFrames, deletedBlackFrameLegacy, migratedSilence, deletedSilenceLegacy);
+    }
+
+    private static void TryDeleteLegacyArtifacts(string legacyPath)
+    {
+        TryDeleteFile(legacyPath);
+        TryDeleteFile(legacyPath + ".tmp");
+    }
+
+    private static void TryDeleteFile(string path)
+    {
+        try
+        {
+            if (File.Exists(path))
+            {
+                File.Delete(path);
+            }
+        }
+        catch
+        {
+            // Best-effort cleanup.
+        }
     }
 }
