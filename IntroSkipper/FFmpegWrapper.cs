@@ -1015,13 +1015,22 @@ public static partial class FFmpegWrapper
         }
         catch (Exception)
         {
-            // Clean up temp file on unexpected errors
-            if (File.Exists(tempPath))
-            {
-                File.Delete(tempPath);
-            }
-
+            // Re-throw unexpected exceptions after allowing finally to run cleanup.
             throw;
+        }
+        finally
+        {
+            try
+            {
+                if (!string.IsNullOrEmpty(tempPath) && File.Exists(tempPath))
+                {
+                    File.Delete(tempPath);
+                }
+            }
+            catch (Exception cleanupEx)
+            {
+                Logger?.LogWarning(cleanupEx, "Failed to delete temporary fingerprint cache file {TempPath}", tempPath);
+            }
         }
     }
 
