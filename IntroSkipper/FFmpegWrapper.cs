@@ -1102,7 +1102,7 @@ public static partial class FFmpegWrapper
         }
     }
 
-    private static bool TryReadLegacyFingerprint(Stream stream, out uint[] fingerprint)
+    internal static bool TryReadLegacyFingerprint(Stream stream, out uint[] fingerprint)
     {
         fingerprint = [];
 

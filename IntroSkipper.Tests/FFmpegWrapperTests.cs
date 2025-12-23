@@ -45,6 +45,88 @@ public class FFmpegWrapperTests
     }
 
     [Fact]
+    public void LegacyFingerprintCache_CanBeConvertedToBinaryAndLegacyDeleted()
+    {
+        // Arrange
+        var testDirectory = Path.Combine(Path.GetTempPath(), "IntroSkipperTests", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(testDirectory);
+
+        try
+        {
+            var episode = new QueuedEpisode { EpisodeId = Guid.NewGuid() };
+            var legacyPath = Path.Combine(testDirectory, episode.EpisodeId.ToString("N"));
+            var legacyPoints = new List<uint> { 1u, 2u, 3u, 4000000000u };
+            File.WriteAllLines(legacyPath, legacyPoints.ConvertAll(p => p.ToString()));
+
+            // Act
+            uint[] readBack;
+            using (var stream = File.OpenRead(legacyPath))
+            {
+                Assert.True(FFmpegWrapper.TryReadLegacyFingerprint(stream, out readBack));
+            }
+
+            FFmpegWrapper.CacheFingerprint(episode, AnalysisMode.Introduction, new List<uint>(readBack), testDirectory);
+
+            // Assert
+            var binaryPath = FFmpegWrapper.GetFingerprintCachePath(episode, AnalysisMode.Introduction, testDirectory);
+            Assert.True(File.Exists(binaryPath));
+            Assert.False(File.Exists(legacyPath));
+
+            using var binaryStream = File.OpenRead(binaryPath);
+            Assert.True(FFmpegWrapper.TryReadBinaryFingerprint(binaryStream, out var restored));
+            Assert.Equal(legacyPoints, restored);
+        }
+        finally
+        {
+            if (Directory.Exists(testDirectory))
+            {
+                Directory.Delete(testDirectory, recursive: true);
+            }
+        }
+    }
+
+    [Fact]
+    public void LegacyCreditsFingerprintCache_CanBeConvertedToBinaryAndLegacyDeleted()
+    {
+        // Arrange
+        var testDirectory = Path.Combine(Path.GetTempPath(), "IntroSkipperTests", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(testDirectory);
+
+        try
+        {
+            var episode = new QueuedEpisode { EpisodeId = Guid.NewGuid() };
+            var legacyPath = Path.Combine(testDirectory, episode.EpisodeId.ToString("N") + "-credits");
+            var legacyPoints = new List<uint> { 9u, 8u, 7u };
+            File.WriteAllLines(legacyPath, legacyPoints.ConvertAll(p => p.ToString()));
+
+            // Act
+            uint[] readBack;
+            using (var stream = File.OpenRead(legacyPath))
+            {
+                Assert.True(FFmpegWrapper.TryReadLegacyFingerprint(stream, out readBack));
+            }
+
+            FFmpegWrapper.CacheFingerprint(episode, AnalysisMode.Credits, new List<uint>(readBack), testDirectory);
+
+            // Assert
+            var binaryPath = FFmpegWrapper.GetFingerprintCachePath(episode, AnalysisMode.Credits, testDirectory);
+            Assert.True(File.Exists(binaryPath));
+            Assert.False(File.Exists(legacyPath));
+
+            using var binaryStream = File.OpenRead(binaryPath);
+            Assert.True(FFmpegWrapper.TryReadBinaryFingerprint(binaryStream, out var restored));
+            Assert.Equal(legacyPoints, restored);
+        }
+        finally
+        {
+            if (Directory.Exists(testDirectory))
+            {
+                Directory.Delete(testDirectory, recursive: true);
+            }
+        }
+    }
+
+    [Fact]
     public void BlackFrameCache_RoundTripsBinaryStructure()
     {
         var testDirectory = Path.Combine(Path.GetTempPath(), "IntroSkipperTests", Guid.NewGuid().ToString("N"));
