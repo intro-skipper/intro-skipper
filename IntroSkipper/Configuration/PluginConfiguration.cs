@@ -51,12 +51,6 @@ public class PluginConfiguration : BasePluginConfiguration
     public bool CacheFingerprints { get; set; } = true;
 
     /// <summary>
-    /// Gets or sets the cache migration version that has been completed.
-    /// Used to ensure one-time startup migrations only run when needed.
-    /// </summary>
-    public int CacheMigrationVersion { get; set; } = 0;
-
-    /// <summary>
     /// Gets or sets a value indicating whether to use the alternative black frame analyzer.
     /// </summary>
     public bool UseAlternativeBlackFrameAnalyzer { get; set; }
