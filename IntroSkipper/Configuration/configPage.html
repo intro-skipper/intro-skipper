@@ -125,16 +125,16 @@
                                     <input id="UseFileTransformationPlugin" type="checkbox" is="emby-checkbox" />
                                     <span>Use File Transformation Plugin to patch the web interface</span>
                                 </label>
+                                <br />
                                 <div id="divSkipbuttonHideDelayContent">
-                                    <br />
                                     <label class="inputLabel inputLabelUnfocused" for="SkipbuttonHideDelay"> Skip button hide delay (in seconds) </label>
                                     <input id="SkipbuttonHideDelay" type="number" is="emby-input" min="0" max="1000"/>
                                     <div class="fieldDescription">
                                         <span id="skipButtonDescription">Time in seconds before the skip button automatically hides. Set to 0 for persistent skip button (never hides).</span>
                                     </div>
+                                    <br />
                                 </div>
-                                <br />
-                                <span style="font-size: 0.85em; color: #ffa500; display: inline-block; margin-top: 4px;">Note: This setting only affects clients using the web client player (web browsers, Android when using the web player, LG webOS, etc). If changes don't appear, refresh the page or clear the browser cache.</span>
+                                <span style="font-size: 0.85em; color: #ffa500; display: inline-block; margin-top: 4px;">Note: This setting only applies to the web client (browsers, LG webOS, Android with web player enabled, etc). May require a refresh or clearing cache to see changes.</span>
                                 <div id="fileTransformationWarning" style="display: none; color: orange; margin-top: 8px;">
                                     <strong>File Transformation Plugin Required</strong><br />
                                     This feature requires the File Transformation plugin to work.
