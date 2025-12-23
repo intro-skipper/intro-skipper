@@ -25,6 +25,7 @@ namespace IntroSkipper.ScheduledTasks;
 /// </summary>
 public class UpgradeFingerprintCacheTask : IScheduledTask
 {
+    private const int CurrentCacheMigrationVersion = 1;
     private const string BlackFrameCacheExtension = ".ifbc";
     private const string SilenceCacheExtension = ".ifsc";
 
@@ -61,7 +62,7 @@ public class UpgradeFingerprintCacheTask : IScheduledTask
     }
 
     /// <inheritdoc />
-    public string Name => "Upgrade Intro Skipper Fingerprint Cache";
+    public string Name => "One Time Startup Upgrade Fingerprint Cache";
 
     /// <inheritdoc />
     public string Category => "Intro Skipper";
@@ -85,10 +86,25 @@ public class UpgradeFingerprintCacheTask : IScheduledTask
             throw new InvalidOperationException("Plugin instance was null");
         }
 
+        // Run this migration only once per version. If we ever add a new migration step,
+        // bump CurrentCacheMigrationVersion.
+        if (Plugin.Instance.Configuration.CacheMigrationVersion >= CurrentCacheMigrationVersion)
+        {
+            _logger.LogDebug(
+                "Fingerprint cache migration already completed (CacheMigrationVersion={CacheMigrationVersion}); skipping",
+                Plugin.Instance.Configuration.CacheMigrationVersion);
+            progress.Report(100);
+            return;
+        }
+
         var cachePath = Plugin.Instance.FingerprintCachePath;
         if (string.IsNullOrWhiteSpace(cachePath) || !Directory.Exists(cachePath))
         {
             _logger.LogDebug("Fingerprint cache directory does not exist; nothing to do");
+
+            Plugin.Instance.Configuration.CacheMigrationVersion = CurrentCacheMigrationVersion;
+            Plugin.Instance.SaveConfiguration();
+
             progress.Report(100);
             return;
         }
@@ -231,14 +247,21 @@ public class UpgradeFingerprintCacheTask : IScheduledTask
             deletedSilenceLegacy,
             invalidEpisodeIds.Count);
 
+        Plugin.Instance.Configuration.CacheMigrationVersion = CurrentCacheMigrationVersion;
+        Plugin.Instance.SaveConfiguration();
+
         progress.Report(100);
     }
 
     /// <inheritdoc />
     public IEnumerable<TaskTriggerInfo> GetDefaultTriggers()
     {
-        // Default: manual task (admins can schedule it if desired).
-        return [];
+        return [
+            new TaskTriggerInfo
+            {
+                Type = TaskTriggerInfoType.StartupTrigger,
+            }
+        ];
     }
 
     private static void TryDeleteLegacyArtifacts(string legacyPath)
