@@ -23,6 +23,5 @@
   <ItemGroup>
     <None Remove="Configuration\configPage.html" />
     <EmbeddedResource Include="Configuration\configPage.html" />
-    <EmbeddedResource Include="Configuration\visualizer.js" />
   </ItemGroup>
 </Project>

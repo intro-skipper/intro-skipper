@@ -156,29 +156,6 @@ public class VisualizationController(ILogger<VisualizationController> logger, Me
     }
 
     /// <summary>
-    /// Fingerprint the provided episode and returns the uncompressed fingerprint data points.
-    /// </summary>
-    /// <param name="id">Episode id.</param>
-    /// <returns>Read only collection of fingerprint points.</returns>
-    [HttpGet("Episode/{Id}/Chromaprint")]
-    public ActionResult<uint[]> GetEpisodeFingerprint([FromRoute] Guid id)
-    {
-        // Search through all queued episodes to find the requested id
-        foreach (var season in Plugin.Instance!.QueuedMediaItems)
-        {
-            foreach (var needle in season.Value)
-            {
-                if (needle.EpisodeId == id)
-                {
-                    return FFmpegWrapper.Fingerprint(needle, AnalysisMode.Introduction);
-                }
-            }
-        }
-
-        return NotFound();
-    }
-
-    /// <summary>
     /// Erases all timestamps for the provided season.
     /// </summary>
     /// <param name="seriesId">Show ID.</param>

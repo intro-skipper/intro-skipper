@@ -738,58 +738,6 @@
                                     </p>
                                 </div>
 
-                                <div id="fingerprintVisualizer" style="display: none">
-                                    <hr style="border: none; border-top: 1px solid #ccc; margin: 20px 0" />
-
-                                    <h3>Fingerprint Visualizer</h3>
-                                    <p>
-                                        Interactively compare the audio fingerprints of two episodes. <br />
-                                        The blue and red bar to the right of the fingerprint diff turns blue when the corresponding fingerprint points are at least 80% similar.
-                                    </p>
-                                    <table>
-                                        <thead>
-                                            <tr>
-                                                <td style="min-width: 100px; font-weight: bold">Key</td>
-                                                <td style="font-weight: bold">Function</td>
-                                            </tr>
-                                        </thead>
-                                        <tbody>
-                                            <tr>
-                                                <td>Up arrow</td>
-                                                <td>Shift the left episode up by 0.1238 seconds. Holding control will shift the episode by 10 seconds.</td>
-                                            </tr>
-                                            <tr>
-                                                <td>Down arrow</td>
-                                                <td>Shift the left episode down by 0.1238 seconds. Holding control will shift the episode by 10 seconds.</td>
-                                            </tr>
-                                            <tr>
-                                                <td>Right arrow</td>
-                                                <td>Advance to the next pair of episodes.</td>
-                                            </tr>
-                                            <tr>
-                                                <td>Left arrow</td>
-                                                <td>Go back to the previous pair of episodes.</td>
-                                            </tr>
-                                        </tbody>
-                                    </table>
-                                    <br />
-
-                                    <span>Shift amount:</span>
-                                    <input type="number" min="-3000" max="3000" value="0" id="offset" />
-                                    <p>
-                                        <span id="suggestedShifts">
-                                            <span>Suggested shifts: </span>
-                                        </span>
-                                    </p>
-                                    <canvas id="troubleshooter" style="display: none"></canvas>
-                                    <span id="timestampContainer">
-                                        <span id="timestamps"></span>
-                                        <br />
-                                        <span id="intros"></span>
-                                    </span>
-                                    <br />
-                                </div>
-
                                 <div id="eraseSeasonContainer" style="display: none">
                                     <div class="checkboxContainer checkboxContainer" style="margin: 0">
                                         <label class="emby-checkbox-label">
@@ -825,6 +773,7 @@
 
                                         <option value="commercial">Global Commercial Timestamps</option>
                                     </select>
+                                    <br />
                                     <div class="checkboxContainer checkboxContainer" style="margin: 0">
                                         <label class="emby-checkbox-label">
                                             <input id="eraseModeCacheCheckbox" type="checkbox" is="emby-checkbox" />
@@ -861,7 +810,6 @@
                 </div>
             </div>
 
-            <script src="configurationpage?name=visualizer.js"></script>
 
             <script>
                 // Create namespace
@@ -870,15 +818,6 @@
                 // Config module
                 IntroSkipper.Config = (function() {
                     'use strict';
-
-                    // Private variables
-                    // first and second episodes to fingerprint & compare
-                    let lhs = [];
-                    let rhs = [];
-
-                    // fingerprint point comparison & miminum similarity threshold (at most 6 bits out of 32 can be different)
-                    let fprDiffs = [];
-                    const fprDiffMinimum = (1 - 6 / 32) * 100;
 
                     // seasons grouped by show
                     let shows = {};
@@ -935,7 +874,7 @@
 
                 const booleanConfigurationFields = ["AutoDetectIntros", "AnalyzeSeasonZero", "UpdateMediaSegments","UseAlternativeBlackFrameAnalyzer", "UseChapterMarkersBlackFrame", "FullLengthChapters", "RebuildMediaSegments", "ScanIntroduction", "ScanCredits", "ScanRecap", "ScanPreview", "ScanCommercial", "PreferChromaprint", "PluginSkip", "AutoSkip", "SkipFirstEpisode", "SnapToKeyframe", "AdjustIntroBasedOnSilence", "AdjustIntroBasedOnChapters", "UseFileTransformationPlugin"];
 
-                // visualizer elements
+                // timestamp / maintenance elements
                 const analyzerActionsSection = document.querySelector("div#analyzerActionsSection");
                 const actionIntro = analyzerActionsSection.querySelector("select#actionIntro");
                 const actionCredits = analyzerActionsSection.querySelector("select#actionCredits");
@@ -946,28 +885,22 @@
                 const divSkipbuttonHideDelayContent = document.getElementById("divSkipbuttonHideDelayContent");
                 const saveAnalyzerActionsButton = analyzerActionsSection.querySelector("button#saveAnalyzerActions");
                 const scanSeasonButton = document.querySelector("button#scanSeason");
-                const canvas = document.querySelector("canvas#troubleshooter");
                 const selectShow = document.querySelector("select#troubleshooterShow");
                 const seasonSelection = document.getElementById("seasonSelection");
                 const selectSeason = document.querySelector("select#troubleshooterSeason");
                 const episodeSelection = document.getElementById("episodeSelection");
                 const selectEpisode1 = document.querySelector("select#troubleshooterEpisode1");
                 const selectEpisode2 = document.querySelector("select#troubleshooterEpisode2");
-                const txtOffset = document.querySelector("input#offset");
-                const txtSuggested = document.querySelector("span#suggestedShifts");
                 const btnSeasonEraseTimestamps = document.querySelector("button#btnEraseSeasonTimestamps");
                 const eraseSeasonContainer = document.getElementById("eraseSeasonContainer");
                 const btnMovieEraseTimestamps = document.querySelector("button#btnEraseMovieTimestamps");
                 const eraseMovieContainer = document.getElementById("eraseMovieContainer");
                 const timestampError = document.querySelector("textarea#timestampError");
+                const timestampErrorDiv = document.getElementById("timestampErrorDiv");
                 const timestampEditor = document.querySelector("#timestampEditor");
                 const rightEpisodeEditor = document.getElementById("rightEpisodeEditor");
                 const btnUpdateTimestamps = document.querySelector("button#btnUpdateTimestamps");
-                const timeContainer = document.querySelector("span#timestampContainer");
-                const fingerprintVisualizer = document.getElementById("fingerprintVisualizer");
                 const silenceSettings = document.getElementById("silenceSettings");
-
-                let windowHashInterval = 0;
 
                 const pluginSkip = document.getElementById("PluginSkip");
                 const serverSkipSettings = document.getElementById("ServerSkipSettings");
@@ -1288,38 +1221,18 @@
                     Dashboard.showLoadingMsg();
 
                     timestampError.value = "";
-                    fingerprintVisualizer.style.display = "unset";
-                    canvas.style.display = "none";
-
-                    lhs = await getJson("Intros/Episode/" + selectEpisode1.value + "/Chromaprint");
-                    if (lhs === undefined) {
-                        timestampError.value += "Error: " + selectEpisode1.value + " fingerprints failed!\n";
-                    } else if (lhs === null) {
-                        timestampError.value += selectEpisode1.value + " fingerprints missing or incomplete.\n";
-                    }
-
                     rightEpisodeEditor.style.display = "unset";
 
-                    rhs = await getJson("Intros/Episode/" + selectEpisode2.value + "/Chromaprint");
-                    if (rhs === undefined) {
-                        timestampError.value += "Error: " + selectEpisode2.value + " fingerprints failed!";
-                    } else if (rhs === null) {
-                        timestampError.value += selectEpisode2.value + " fingerprints missing or incomplete.\n";
+                    try {
+                        await updateTimestampEditor();
+                    } finally {
+                        if (timestampError.value === "") {
+                            timestampErrorDiv.style.display = "none";
+                        } else {
+                            timestampErrorDiv.style.display = "unset";
+                        }
+                        Dashboard.hideLoadingMsg();
                     }
-
-                    if (timestampError.value === "") {
-                        timestampErrorDiv.style.display = "none";
-                    } else {
-                        timestampErrorDiv.style.display = "unset";
-                    }
-
-                    Dashboard.hideLoadingMsg();
-
-                    txtOffset.value = "0";
-                    IntroSkipper.Visualizer.refreshBounds();
-                    IntroSkipper.Visualizer.renderTroubleshooter();
-                    IntroSkipper.Visualizer.findExactMatches();
-                    await updateTimestampEditor();
                 }
 
                 async function movieLoaded() {
@@ -1333,7 +1246,6 @@
                     scanSeasonButton.style.display = "block";
 
                     timestampError.value = "";
-                    fingerprintVisualizer.style.display = "none";
                     rightEpisodeEditor.style.display = "none";
 
                     if (timestampError.value === "") {
@@ -1343,9 +1255,6 @@
                     }
 
                     Dashboard.hideLoadingMsg();
-
-                    txtOffset.value = "0";
-
                     await updateTimestampEditor();
                 }
 
@@ -1393,6 +1302,11 @@
 
                     // Try to get the timestamps of each intro, falling back a default value of zero if no intro was found
                     const leftEpisodeJson = await getJson("Episode/" + leftEpisode.value + "/Timestamps");
+                    if (!leftEpisodeJson) {
+                        timestampEditor.style.display = "none";
+                        timestampError.value = "Failed to load timestamps for " + leftEpisode.value;
+                        return;
+                    }
 
                     // Update the editor for the first episode
                     timestampEditor.style.display = "unset";
@@ -1412,6 +1326,10 @@
 
                         // Try to get the timestamps of each intro, falling back a default value of zero if no intro was found
                         const rightEpisodeJson = await getJson("Episode/" + rightEpisode.value + "/Timestamps");
+                        if (!rightEpisodeJson) {
+                            timestampError.value = "Failed to load timestamps for " + rightEpisode.value;
+                            return;
+                        }
 
                         // Update the editor for the second episode
                         document.querySelector("#editRightEpisodeTitle").textContent = rightEpisode.text;
@@ -1446,8 +1364,6 @@
                     timestampError.value = "";
                     timestampErrorDiv.style.display = "none";
                     timestampEditor.style.display = "none";
-                    timeContainer.style.display = "none";
-                    canvas.style.display = "none";
                     let i,
                         L = select.options.length - 1;
                     for (i = L; i >= 0; i--) {
@@ -1489,78 +1405,7 @@
                     return await fetch(url, reqInit);
                 }
 
-                // key pressed
-                function keyDown(e) {
-                    let episodeDelta = 0;
-                    let offsetDelta = 0;
 
-                    switch (e.key) {
-                        case "ArrowDown":
-                            if (timestampError.value !== "") {
-                                // if the control key is pressed, shift LHS by 10s. Otherwise, shift by 1.
-                                offsetDelta = e.ctrlKey ? 10 / 0.1238 : 1;
-                            }
-                            break;
-
-                        case "ArrowUp":
-                            if (timestampError.value !== "") {
-                                offsetDelta = e.ctrlKey ? -10 / 0.1238 : -1;
-                            }
-                            break;
-
-                        case "ArrowRight":
-                            episodeDelta = 2;
-                            break;
-
-                        case "ArrowLeft":
-                            episodeDelta = -2;
-                            break;
-
-                        default:
-                            return;
-                    }
-
-                    if (offsetDelta !== 0) {
-                        txtOffset.value = Number(txtOffset.value) + Math.floor(offsetDelta);
-                    }
-
-                    if (episodeDelta !== 0) {
-                        // calculate the number of episodes remaining in the LHS and RHS episode pickers
-                        const lhsRemaining = selectEpisode1.selectedIndex;
-                        const rhsRemaining = selectEpisode2.length - selectEpisode2.selectedIndex - 1;
-
-                        // if we're moving forward and the right episode picker is close to the end, don't move.
-                        if (episodeDelta > 0 && rhsRemaining <= 1) {
-                            return;
-                        } else if (episodeDelta < 0 && lhsRemaining <= 1) {
-                            return;
-                        }
-
-                        selectEpisode1.selectedIndex += episodeDelta;
-                        selectEpisode2.selectedIndex += episodeDelta;
-                        episodeChanged();
-                    }
-
-                    IntroSkipper.Visualizer.renderTroubleshooter();
-                    e.preventDefault();
-                }
-
-                // check that the user is still on the configuration page
-                function checkWindowHash() {
-                    const h = location.hash;
-                    if (h === "#!/configurationpage?name=Intro%20Skipper" || h.includes("#!/dialog")) {
-                        return;
-                    }
-
-                    console.debug("navigated away from intro skipper configuration page");
-                    document.removeEventListener("keydown", keyDown);
-                    clearInterval(windowHashInterval);
-                }
-
-                // converts seconds to a readable timestamp (i.e. 127 becomes "02:07").
-                function secondsToString(seconds) {
-                    return new Date(seconds * 1000).toISOString().slice(14, 19);
-                }
 
                 // Check if File Transformation plugin is available and enable/disable skip button settings
                 function checkFileTransformationPlugin(config) {
@@ -1667,9 +1512,6 @@
                 visualizer.addEventListener("toggle", visualizerToggled);
                 support.addEventListener("toggle", supportToggled);
                 storage.addEventListener("toggle", storageToggled);
-                txtOffset.addEventListener("change", function() {
-                    IntroSkipper.Visualizer.renderTroubleshooter();
-                });
                 selectShow.addEventListener("change", showChanged);
                 selectSeason.addEventListener("change", seasonChanged);
                 selectEpisode1.addEventListener("change", episodeChanged);
@@ -1846,93 +1688,8 @@
                     fetchWithAuth("Intros/RebuildDatabase", "POST", null);
                 });
 
-                document.addEventListener("keydown", keyDown);
-                windowHashInterval = setInterval(checkWindowHash, 2500);
-
-                canvas.addEventListener("mousemove", (e) => {
-                    const rect = e.currentTarget.getBoundingClientRect();
-                    const y = e.clientY - rect.top;
-                    const shift = Number(txtOffset.value);
-
-                    let lTime, rTime, diffPos;
-                    if (shift < 0) {
-                        lTime = y * 0.1238;
-                        rTime = (y + shift) * 0.1238;
-                        diffPos = y + shift;
-                    } else {
-                        lTime = (y - shift) * 0.1238;
-                        rTime = y * 0.1238;
-                        diffPos = y - shift;
-                    }
-
-                    const diff = fprDiffs[Math.floor(diffPos)];
-
-                    if (!diff) {
-                        timeContainer.style.display = "none";
-                        return;
-                    } else {
-                        timeContainer.style.display = "unset";
-                    }
-
-                    const times = document.querySelector("span#timestamps");
-
-                    // LHS timestamp, RHS timestamp, percent similarity
-                    times.textContent = secondsToString(lTime) + ", " + secondsToString(rTime) + ", " + Math.round(diff) + "%";
-
-                    timeContainer.style.position = "relative";
-                    timeContainer.style.left = "25px";
-                    timeContainer.style.top = (-1 * rect.height + y).toString() + "px";
-                });
-
-                function setTime(seconds) {
-                    // Calculate hours, minutes, and remaining seconds
-                    let hours = Math.floor(seconds / 3600);
-                    let minutes = Math.floor((seconds % 3600) / 60);
-                    let remainingSeconds = seconds % 60;
-
-                    // Format as HH:MM:SS and set the value of the time input
-                    return String(hours).padStart(2, "0") + ":" + String(minutes).padStart(2, "0") + ":" + String(remainingSeconds).padStart(2, "0");
-                }
-
-                function getTimeInSeconds(time) {
-                    let [hours, minutes, seconds] = time.split(":").map(Number);
-                    return hours * 3600 + minutes * 60 + seconds;
-                }
-
-                // Public API
-                return {
-                    // Expose state for visualizer
-                    getState: function() {
-                        return {
-                            lhs: lhs,
-                            rhs: rhs,
-                            fprDiffs: fprDiffs,
-                            fprDiffMinimum: fprDiffMinimum
-                        };
-                    },
-
-                    // Expose DOM elements
-                    getElements: function() {
-                        return {
-                            canvas: canvas,
-                            txtOffset: txtOffset,
-                            selectEpisode1: selectEpisode1,
-                            selectEpisode2: selectEpisode2,
-                            txtSuggested: txtSuggested,
-                            timeContainer: timeContainer
-                        };
-                    },
-
-                    // Expose utility functions
-                    utils: {
-                        secondsToString: secondsToString
-                    },
-
-                    // Setter for visualizer to update state
-                    setFprDiffs: function(diffs) {
-                        fprDiffs = diffs;
-                    }
-                };
+                // Public API (kept for compatibility; visualizer functionality removed)
+                return {};
                 })();
             </script>
         </div>
