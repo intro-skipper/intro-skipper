@@ -109,6 +109,20 @@ public class UpgradeFingerprintCacheTask : IScheduledTask
             return;
         }
 
+        // Fresh installs will have an empty cache directory. In that case we can immediately
+        // mark the migration as completed and skip the expensive library/queue scan.
+        var cacheFiles = Directory.EnumerateFiles(cachePath).ToArray();
+        if (cacheFiles.Length == 0)
+        {
+            _logger.LogDebug("Fingerprint cache directory is empty; nothing to migrate");
+
+            Plugin.Instance.Configuration.CacheMigrationVersion = CurrentCacheMigrationVersion;
+            Plugin.Instance.SaveConfiguration();
+
+            progress.Report(100);
+            return;
+        }
+
         var queueManager = new QueueManager(
             _loggerFactory.CreateLogger<QueueManager>(),
             _libraryManager,
@@ -125,7 +139,7 @@ public class UpgradeFingerprintCacheTask : IScheduledTask
         await Plugin.Instance.CleanTimestamps(validEpisodeIds).ConfigureAwait(false);
 
         // Identify invalid episode IDs based on cache folder contents.
-        var invalidEpisodeIds = Directory.EnumerateFiles(cachePath)
+        var invalidEpisodeIds = cacheFiles
             .Select(filePath => Path.GetFileNameWithoutExtension(filePath).Split('-')[0])
             .Where(episodeIdStr => Guid.TryParseExact(episodeIdStr, "N", out var episodeId) && !validEpisodeIds.Contains(episodeId))
             .Select(episodeIdStr => Guid.ParseExact(episodeIdStr, "N"))
@@ -143,7 +157,6 @@ public class UpgradeFingerprintCacheTask : IScheduledTask
         // Legacy fingerprint cache files:
         //  - {EpisodeId:N}
         //  - {EpisodeId:N}-credits
-        var cacheFiles = Directory.EnumerateFiles(cachePath).ToArray();
         var legacyFingerprintFiles = cacheFiles
             .Where(p => string.IsNullOrEmpty(Path.GetExtension(p)))
             .Where(p => LegacyFingerprintNameRegex.IsMatch(Path.GetFileName(p)))
