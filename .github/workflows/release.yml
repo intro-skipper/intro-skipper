@@ -2,6 +2,12 @@ name: "Release Plugin"
 
 on:
   workflow_dispatch:
+    inputs:
+      skip_signing:
+        description: 'Skip SignPath signing (produce unsigned artifact)'
+        required: false
+        type: boolean
+        default: false
 
 permissions:
   contents: write
@@ -13,6 +19,12 @@ jobs:
 
     steps:
       - uses: actions/checkout@v6
+
+      - name: Validate skip_signing permission
+        if: ${{ inputs.skip_signing && github.actor != 'jumoog' }}
+        run: |
+          echo "ERROR: skip_signing can only be used by GITHUB_ACTOR=jumoog."
+          exit 1
 
       - name: Read version from VERSION.txt
         id: read-version
@@ -69,7 +81,7 @@ jobs:
         run: dotnet build --configuration Release --no-restore
 
       - name: Upload unsigned package artifacts
-        if: ${{ github.repository == 'intro-skipper/intro-skipper' }}
+        if: ${{ github.repository == 'intro-skipper/intro-skipper' && !inputs.skip_signing }}
         id: upload-unsigned-artifact
         uses: actions/upload-artifact@v6
         with:
@@ -80,7 +92,7 @@ jobs:
 
 
       - name: Sign package artifacts
-        if: ${{ github.repository == 'intro-skipper/intro-skipper' }}
+        if: ${{ github.repository == 'intro-skipper/intro-skipper' && !inputs.skip_signing }}
         uses: signpath/github-action-submit-signing-request@v2.0
         with:
           api-token: '${{ secrets.SIGNPATH_API_TOKEN }}'
