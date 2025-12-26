@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-only.
 
 using System.Diagnostics;
+using System.Diagnostics.CodeAnalysis;
 using MediaBrowser.Model.Plugins;
 
 namespace IntroSkipper.Configuration;
@@ -367,5 +368,9 @@ public class PluginConfiguration : BasePluginConfiguration
     /// <summary>
     /// Gets a value indicating whether the File Transformation plugin is enabled.
     /// </summary>
+    [SuppressMessage(
+        "Performance",
+        "CA1822:Mark members as static",
+        Justification = "Must be instance-based so Jellyfin can serialize it into the plugin configuration payload consumed by the web UI.")]
     public bool FileTransformationPluginEnabled => Plugin.Instance?.FileTransformationPluginEnabled ?? false;
 }
