@@ -367,5 +367,5 @@ public class PluginConfiguration : BasePluginConfiguration
     /// <summary>
     /// Gets a value indicating whether the File Transformation plugin is enabled.
     /// </summary>
-    public static bool FileTransformationPluginEnabled => Plugin.Instance?.FileTransformationPluginEnabled ?? false;
+    public bool FileTransformationPluginEnabled => Plugin.Instance?.FileTransformationPluginEnabled ?? false;
 }
