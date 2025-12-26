@@ -47,7 +47,7 @@ Some web UI features (for example, adjusting the skip-button timeout) require th
 
 ## System requirements
 
-* Jellyfin 10.11.4 (or newer)
+* Jellyfin 10.11.5 (or newer)
 * Jellyfin's [fork](https://github.com/jellyfin/jellyfin-ffmpeg) of `ffmpeg` must be installed, version `7.1.1-7` or newer
   * `jellyfin/jellyfin` 10.11.z container: preinstalled
   * `linuxserver/jellyfin` 10.11.z container: preinstalled
