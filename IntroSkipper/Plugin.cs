@@ -82,15 +82,6 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
             Directory.CreateDirectory(FingerprintCachePath);
         }
 
-        try
-        {
-            LegacyMigrations.MigrateAll(this, serverConfiguration, logger, _libraryManager);
-        }
-        catch (Exception ex)
-        {
-            logger.LogError("Failed to perform migrations. Error: {Error}", ex);
-        }
-
         // Initialize database, restore timestamps if available.
         try
         {

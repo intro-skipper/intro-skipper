@@ -84,24 +84,28 @@ public class CleanCacheTask : IScheduledTask
             throw new InvalidOperationException("Library manager was null");
         }
 
+        var plugin = Plugin.Instance ?? throw new InvalidOperationException("Plugin instance was null");
+
         var queueManager = new QueueManager(
             _loggerFactory.CreateLogger<QueueManager>(),
             _libraryManager,
             _providerManager,
             _fileSystem);
 
-        // Retrieve media items and get valid episode IDs
+        // QueueManager.GetMediaItems() already skips libraries where the plugin is disabled via
+        // LibraryOptions.DisabledMediaSegmentProviders (same mechanism LegacyMigrations writes to).
         var queue = await queueManager.GetMediaItems(cancellationToken).ConfigureAwait(false);
-        var validEpisodeIds = queue.Values
+
+        var enabledLibraryEpisodeIds = queue.Values
             .SelectMany(episodes => episodes.Select(e => e.EpisodeId))
             .ToHashSet();
 
-        await Plugin.Instance!.CleanTimestamps(validEpisodeIds).ConfigureAwait(false);
+        await plugin.CleanTimestamps(enabledLibraryEpisodeIds).ConfigureAwait(false);
 
-        // Identify invalid episode IDs
-        var invalidEpisodeIds = Directory.EnumerateFiles(Plugin.Instance!.FingerprintCachePath)
+        // Identify episode IDs with cached files that are no longer in enabled libraries
+        var invalidEpisodeIds = Directory.EnumerateFiles(plugin.FingerprintCachePath)
             .Select(filePath => Path.GetFileNameWithoutExtension(filePath).Split('-')[0])
-            .Where(episodeIdStr => Guid.TryParse(episodeIdStr, out var episodeId) && !validEpisodeIds.Contains(episodeId))
+            .Where(episodeIdStr => Guid.TryParse(episodeIdStr, out var episodeId) && !enabledLibraryEpisodeIds.Contains(episodeId))
             .Select(Guid.Parse)
             .ToHashSet();
 
@@ -113,9 +117,9 @@ public class CleanCacheTask : IScheduledTask
         }
 
         // Clean up Season information by removing items that are no longer exist.
-        await Plugin.Instance!.CleanSeasonInfoAsync(queue.Keys).ConfigureAwait(false);
+        await plugin.CleanSeasonInfoAsync(queue.Keys).ConfigureAwait(false);
 
-        Plugin.Instance!.AnalyzeAgain = true;
+        plugin.AnalyzeAgain = true;
 
         progress.Report(100);
     }
