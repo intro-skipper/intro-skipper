@@ -65,7 +65,7 @@ public class PluginConfiguration : BasePluginConfiguration
     /// <summary>
     /// Gets or sets a value indicating whether to regenerate all Media Segments during the next scan.
     /// By default, Media Segments are only written for a season if the season had at least one newly analyzed episode.
-    /// If this is set, all Media Segments will be regenerated and overwrite any existing Media Segemnts.
+    /// If this is set, all Media Segments will be regenerated and overwrite any existing Media Segments.
     /// </summary>
     public bool RebuildMediaSegments { get; set; } = true;
 
@@ -355,28 +355,6 @@ public class PluginConfiguration : BasePluginConfiguration
     public ProcessPriorityClass ProcessPriority { get; set; } = ProcessPriorityClass.BelowNormal;
 
     /// <summary>
-    /// Gets or sets a value indicating whether the ManifestUrl is self-managed, e.g. for mainland China.
-    /// </summary>
-    public bool OverrideManifestUrl { get; set; }
-
-    // ===== Deprecated =====
-
-    /// <summary>
-    /// Gets or sets the comma separated list of library names to analyze.
-    /// </summary>
-    public string SelectedLibraries { get; set; } = string.Empty;
-
-    /// <summary>
-    /// Gets or sets a value indicating whether all libraries should be analyzed.
-    /// </summary>
-    public bool SelectAllLibraries { get; set; } = true;
-
-    /// <summary>
-    /// Gets or sets a value indicating whether movies should be analyzed.
-    /// </summary>
-    public bool AnalyzeMovies { get; set; }
-
-    /// <summary>
     /// Gets or sets a value indicating whether to use the File Transformation plugin if available.
     /// </summary>
     public bool UseFileTransformationPlugin { get; set; }
@@ -389,5 +367,5 @@ public class PluginConfiguration : BasePluginConfiguration
     /// <summary>
     /// Gets a value indicating whether the File Transformation plugin is enabled.
     /// </summary>
-    public bool FileTransformationPluginEnabled => Plugin.Instance?.FileTransformationPluginEnabled ?? false;
+    public static bool FileTransformationPluginEnabled => Plugin.Instance?.FileTransformationPluginEnabled ?? false;
 }
