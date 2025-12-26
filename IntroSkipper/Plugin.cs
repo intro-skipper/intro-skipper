@@ -157,7 +157,6 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
             new PluginPageInfo
             {
                 Name = Name,
-                DisplayName = "Intro Skipper",
                 EnableInMainMenu = true,
                 EmbeddedResourcePath = GetType().Namespace + ".Configuration.configPage.html"
             }
