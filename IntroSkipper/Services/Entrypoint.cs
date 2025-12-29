@@ -174,7 +174,7 @@ namespace IntroSkipper.Services
 
                 if (id.HasValue)
                 {
-                    var delay = 60;
+                    var delay = itemChangeEventArgs.UpdateReason == 0 ? 120 : 60;
 
                     _seasonsToAnalyze.Add(id.Value);
                     StartTimer(delay);
