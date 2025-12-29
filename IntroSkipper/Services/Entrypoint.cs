@@ -95,6 +95,7 @@ namespace IntroSkipper.Services
         {
             _libraryManager.ItemAdded += OnItemChanged;
             _libraryManager.ItemUpdated += OnItemChanged;
+            _libraryManager.ItemRemoved += OnItemRemoved;
             _taskManager.TaskCompleted += OnLibraryRefresh;
             Plugin.Instance!.ConfigurationChanged += OnSettingsChanged;
 
@@ -115,6 +116,7 @@ namespace IntroSkipper.Services
         {
             _libraryManager.ItemAdded -= OnItemChanged;
             _libraryManager.ItemUpdated -= OnItemChanged;
+            _libraryManager.ItemRemoved -= OnItemRemoved;
             _taskManager.TaskCompleted -= OnLibraryRefresh;
             Plugin.Instance!.ConfigurationChanged -= OnSettingsChanged;
 
@@ -172,11 +174,46 @@ namespace IntroSkipper.Services
 
                 if (id.HasValue)
                 {
-                    var delay = itemChangeEventArgs.UpdateReason == 0 ? 120 : 60;
+                    var delay = 60;
 
                     _seasonsToAnalyze.Add(id.Value);
                     StartTimer(delay);
                 }
+            }
+        }
+
+        /// <summary>
+        /// Library item was removed.
+        /// </summary>
+        /// <param name="sender">The sending entity.</param>
+        /// <param name="itemChangeEventArgs">The <see cref="ItemChangeEventArgs"/>.</param>
+        private void OnItemRemoved(object? sender, ItemChangeEventArgs itemChangeEventArgs)
+        {
+            try
+            {
+                if (itemChangeEventArgs.Item is null)
+                {
+                    return;
+                }
+
+                Guid? id = itemChangeEventArgs.Item switch
+                {
+                    Episode episode => episode.Id,
+                    Movie movie => movie.Id,
+                    _ => null
+                };
+
+                if (!id.HasValue || id.Value == Guid.Empty)
+                {
+                    return;
+                }
+
+                _logger.LogDebug("Media item removed, deleting fingerprint cache for {Id}", id);
+                FFmpegWrapper.DeleteEpisodeCache(id.Value);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Error deleting fingerprint cache on item removal");
             }
         }
 
