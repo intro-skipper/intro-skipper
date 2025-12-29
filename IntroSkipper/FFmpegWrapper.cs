@@ -664,7 +664,7 @@ public static partial class FFmpegWrapper
     /// Remove a cached episode fingerprint from disk.
     /// </summary>
     /// <param name="id">Episode to remove from cache.</param>
-    public static void DeleteEpisodeCache(Guid id)
+    public static void DeleteFingerprintCache(Guid id)
     {
         var cachePath = Path.Join(
             Plugin.Instance!.FingerprintCachePath,

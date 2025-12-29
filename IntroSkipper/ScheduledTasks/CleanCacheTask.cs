@@ -113,7 +113,7 @@ public class CleanCacheTask : IScheduledTask
         foreach (var episodeId in invalidEpisodeIds)
         {
             _logger.LogDebug("Deleting cache files for episode ID: {EpisodeId}", episodeId);
-            FFmpegWrapper.DeleteEpisodeCache(episodeId);
+            FFmpegWrapper.DeleteFingerprintCache(episodeId);
         }
 
         // Clean up Season information by removing items that are no longer exist.

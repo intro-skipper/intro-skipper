@@ -209,7 +209,7 @@ namespace IntroSkipper.Services
                 }
 
                 _logger.LogDebug("Media item removed, deleting fingerprint cache for {Id}", id);
-                FFmpegWrapper.DeleteEpisodeCache(id.Value);
+                FFmpegWrapper.DeleteFingerprintCache(id.Value);
             }
             catch (Exception ex)
             {
