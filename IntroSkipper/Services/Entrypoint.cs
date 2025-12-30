@@ -191,25 +191,24 @@ namespace IntroSkipper.Services
         {
             try
             {
-                if (itemChangeEventArgs.Item is null)
+                if (_config.AutoDetectIntros &&
+                    itemChangeEventArgs.Item is { LocationType: not LocationType.Virtual } item)
                 {
-                    return;
+                    Guid? id = itemChangeEventArgs.Item switch
+                    {
+                        Episode episode => episode.Id,
+                        Movie movie => movie.Id,
+                        _ => null
+                    };
+
+                    if (!id.HasValue || id.Value == Guid.Empty)
+                    {
+                        return;
+                    }
+
+                    _logger.LogDebug("Media item removed, deleting fingerprint cache for {Id}", id);
+                    FFmpegWrapper.DeleteFingerprintCache(id.Value);
                 }
-
-                Guid? id = itemChangeEventArgs.Item switch
-                {
-                    Episode episode => episode.Id,
-                    Movie movie => movie.Id,
-                    _ => null
-                };
-
-                if (!id.HasValue || id.Value == Guid.Empty)
-                {
-                    return;
-                }
-
-                _logger.LogDebug("Media item removed, deleting fingerprint cache for {Id}", id);
-                FFmpegWrapper.DeleteFingerprintCache(id.Value);
             }
             catch (Exception ex)
             {
