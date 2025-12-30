@@ -3,6 +3,7 @@
 
 using System;
 using System.Collections.Generic;
+using System.Diagnostics.CodeAnalysis;
 using System.Linq;
 using System.Reflection;
 using System.Runtime.Loader;
@@ -12,6 +13,7 @@ using IntroSkipper.Configuration;
 using IntroSkipper.Helper;
 using IntroSkipper.Manager;
 using IntroSkipper.ScheduledTasks;
+using MediaBrowser.Controller.Entities;
 using MediaBrowser.Controller.Entities.Movies;
 using MediaBrowser.Controller.Entities.TV;
 using MediaBrowser.Controller.Library;
@@ -162,29 +164,9 @@ namespace IntroSkipper.Services
                 return;
             }
 
-            if (!_config.AutoDetectIntros)
+            if (!TryGetValidItemForAutoProcessing(itemChangeEventArgs, out var item))
             {
                 return;
-            }
-
-            var item = itemChangeEventArgs.Item;
-            if (item is null)
-            {
-                return;
-            }
-
-            // Needed for unit tests: avoid analyzing for virtual items, but don't fail if the item
-            // is partially initialized.
-            try
-            {
-                if (item.LocationType == LocationType.Virtual)
-                {
-                    return;
-                }
-            }
-            catch
-            {
-                // Ignore LocationType evaluation issues.
             }
 
             Guid? id = item switch
@@ -212,29 +194,9 @@ namespace IntroSkipper.Services
         {
             try
             {
-                if (!_config.AutoDetectIntros)
+                if (!TryGetValidItemForAutoProcessing(itemChangeEventArgs, out var item))
                 {
                     return;
-                }
-
-                var item = itemChangeEventArgs.Item;
-                if (item is null)
-                {
-                    return;
-                }
-
-                // Needed for unit tests: avoid analyzing for virtual items, but don't fail if the item
-                // is partially initialized.
-                try
-                {
-                    if (item.LocationType == LocationType.Virtual)
-                    {
-                        return;
-                    }
-                }
-                catch
-                {
-                    // Ignore LocationType evaluation issues.
                 }
 
                 Guid? id = item switch
@@ -256,6 +218,42 @@ namespace IntroSkipper.Services
             {
                 _logger.LogWarning(ex, "Error deleting fingerprint cache on item removal");
             }
+        }
+
+        private bool TryGetValidItemForAutoProcessing(
+            ItemChangeEventArgs itemChangeEventArgs,
+            [NotNullWhen(true)] out BaseItem? item)
+        {
+            if (!_config.AutoDetectIntros)
+            {
+                item = null;
+                return false;
+            }
+
+            var candidate = itemChangeEventArgs.Item;
+            if (candidate is null)
+            {
+                item = null;
+                return false;
+            }
+
+            // Needed for unit tests: avoid analyzing for virtual items, but don't fail if the item
+            // is partially initialized.
+            try
+            {
+                if (candidate.LocationType == LocationType.Virtual)
+                {
+                    item = null;
+                    return false;
+                }
+            }
+            catch
+            {
+                // Ignore LocationType evaluation issues.
+            }
+
+            item = candidate;
+            return true;
         }
 
         /// <summary>
