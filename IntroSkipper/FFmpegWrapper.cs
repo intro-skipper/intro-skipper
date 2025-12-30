@@ -663,7 +663,7 @@ public static partial class FFmpegWrapper
     /// <summary>
     /// Remove a cached episode fingerprint from disk.
     /// </summary>
-    /// <param name="id">Episode to remove from cache.</param>
+    /// <param name="id">Media item ID to remove from cache.</param>
     public static void DeleteFingerprintCache(Guid id)
     {
         var cachePath = Path.Join(
