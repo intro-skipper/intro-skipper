@@ -3,6 +3,7 @@
 
 using System;
 using System.Collections.Generic;
+using System.Diagnostics.CodeAnalysis;
 using System.Linq;
 using System.Reflection;
 using System.Runtime.Loader;
@@ -12,6 +13,7 @@ using IntroSkipper.Configuration;
 using IntroSkipper.Helper;
 using IntroSkipper.Manager;
 using IntroSkipper.ScheduledTasks;
+using MediaBrowser.Controller.Entities;
 using MediaBrowser.Controller.Entities.Movies;
 using MediaBrowser.Controller.Entities.TV;
 using MediaBrowser.Controller.Library;
@@ -95,6 +97,7 @@ namespace IntroSkipper.Services
         {
             _libraryManager.ItemAdded += OnItemChanged;
             _libraryManager.ItemUpdated += OnItemChanged;
+            _libraryManager.ItemRemoved += OnItemRemoved;
             _taskManager.TaskCompleted += OnLibraryRefresh;
             Plugin.Instance!.ConfigurationChanged += OnSettingsChanged;
 
@@ -115,6 +118,7 @@ namespace IntroSkipper.Services
         {
             _libraryManager.ItemAdded -= OnItemChanged;
             _libraryManager.ItemUpdated -= OnItemChanged;
+            _libraryManager.ItemRemoved -= OnItemRemoved;
             _taskManager.TaskCompleted -= OnLibraryRefresh;
             Plugin.Instance!.ConfigurationChanged -= OnSettingsChanged;
 
@@ -160,24 +164,96 @@ namespace IntroSkipper.Services
                 return;
             }
 
-            if (_config.AutoDetectIntros &&
-                itemChangeEventArgs.Item is { LocationType: not LocationType.Virtual } item)
+            if (!TryGetValidItemForAutoProcessing(itemChangeEventArgs, out var item))
             {
+                return;
+            }
+
+            Guid? id = item switch
+            {
+                Episode episode => episode.SeasonId,
+                Movie movie => movie.Id,
+                _ => null
+            };
+
+            if (id.HasValue)
+            {
+                var delay = itemChangeEventArgs.UpdateReason == 0 ? 120 : 60;
+
+                _seasonsToAnalyze.Add(id.Value);
+                StartTimer(delay);
+            }
+        }
+
+        /// <summary>
+        /// Library item was removed.
+        /// </summary>
+        /// <param name="sender">The sending entity.</param>
+        /// <param name="itemChangeEventArgs">The <see cref="ItemChangeEventArgs"/>.</param>
+        private void OnItemRemoved(object? sender, ItemChangeEventArgs itemChangeEventArgs)
+        {
+            try
+            {
+                if (!TryGetValidItemForAutoProcessing(itemChangeEventArgs, out var item))
+                {
+                    return;
+                }
+
                 Guid? id = item switch
                 {
-                    Episode episode => episode.SeasonId,
+                    Episode episode => episode.Id,
                     Movie movie => movie.Id,
                     _ => null
                 };
 
-                if (id.HasValue)
+                if (!id.HasValue || id.Value == Guid.Empty)
                 {
-                    var delay = itemChangeEventArgs.UpdateReason == 0 ? 120 : 60;
+                    return;
+                }
 
-                    _seasonsToAnalyze.Add(id.Value);
-                    StartTimer(delay);
+                _logger.LogDebug("Media item removed, deleting fingerprint cache for {Id}", id);
+                FFmpegWrapper.DeleteFingerprintCache(id.Value);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Error deleting fingerprint cache on item removal");
+            }
+        }
+
+        private bool TryGetValidItemForAutoProcessing(
+            ItemChangeEventArgs itemChangeEventArgs,
+            [NotNullWhen(true)] out BaseItem? item)
+        {
+            if (!_config.AutoDetectIntros)
+            {
+                item = null;
+                return false;
+            }
+
+            var candidate = itemChangeEventArgs.Item;
+            if (candidate is null)
+            {
+                item = null;
+                return false;
+            }
+
+            // Needed for unit tests: avoid analyzing for virtual items, but don't fail if the item
+            // is partially initialized.
+            try
+            {
+                if (candidate.LocationType == LocationType.Virtual)
+                {
+                    item = null;
+                    return false;
                 }
             }
+            catch
+            {
+                // Ignore LocationType evaluation issues.
+            }
+
+            item = candidate;
+            return true;
         }
 
         /// <summary>

@@ -194,7 +194,7 @@ public class VisualizationController(ILogger<VisualizationController> logger, Me
 
                 if (eraseCache)
                 {
-                    await Task.Run(() => FFmpegWrapper.DeleteEpisodeCache(episode.EpisodeId), cancellationToken).ConfigureAwait(false);
+                    await Task.Run(() => FFmpegWrapper.DeleteFingerprintCache(episode.EpisodeId), cancellationToken).ConfigureAwait(false);
                 }
             }
 
