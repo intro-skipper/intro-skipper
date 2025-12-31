@@ -13,6 +13,7 @@ using IntroSkipper.Data;
 using MediaBrowser.Controller.Entities.TV;
 using MediaBrowser.Controller.Library;
 using MediaBrowser.Controller.Session;
+using MediaBrowser.Controller.SyncPlay;
 using MediaBrowser.Model.Entities;
 using MediaBrowser.Model.Plugins;
 using MediaBrowser.Model.Session;
@@ -31,10 +32,12 @@ namespace IntroSkipper.Services;
 /// <param name="userDataManager">User data manager.</param>
 /// <param name="sessionManager">Session manager.</param>
 /// <param name="logger">Logger.</param>
+/// <param name="syncPlayManager">Sync play manager.</param>
 public sealed class AutoSkip(
     IUserDataManager userDataManager,
     ISessionManager sessionManager,
-    ILogger<AutoSkip> logger) : IHostedService, IDisposable
+    ILogger<AutoSkip> logger,
+    ISyncPlayManager syncPlayManager) : IHostedService, IDisposable
 {
     private const int PlaybackTimerInterval = 1000; // 1 second interval
     private const int NotificationTimeoutMs = 2000;
@@ -45,6 +48,7 @@ public sealed class AutoSkip(
     private readonly ConcurrentDictionary<string, Dictionary<AnalysisMode, Segment>> _sentSeekCommand = [];
     private readonly HashSet<string> _clientList = [];
     private readonly HashSet<AnalysisMode> _segmentTypes = [];
+    private readonly ISyncPlayManager _syncPlayManager = syncPlayManager;
     private PluginConfiguration _config = new();
     private bool _autoSkipEnabled;
 
@@ -179,6 +183,23 @@ public sealed class AutoSkip(
 
             _logger.LogDebug("Found segment for session {Session}, removing from list, {Intros} segments remaining", session.DeviceId, intros.Count);
             _logger.LogTrace("Playback position is {Position}", position);
+
+            // If SyncPlay is active for this user, skip auto-skipping.
+            if (_syncPlayManager.IsUserActive(session.UserId))
+            {
+                _logger.LogDebug("SyncPlay is active for user {UserId}, skipping auto-skip for Device {Session}", session.UserId, session.DeviceId);
+                _sessionManager.SendMessageCommand(
+                    session.Id,
+                    session.Id,
+                    new MessageCommand
+                    {
+                        Header = string.Empty,
+                        Text = "Server side Auto-skip doesn't work with SyncPlay",
+                        TimeoutMs = NotificationTimeoutMs,
+                    },
+                    CancellationToken.None);
+                continue;
+            }
 
             // Notify the user that an introduction is being skipped for them.
             var notificationText = FormatNotificationText(_config.AutoSkipNotificationText, currentSegmentType, currentIntro.Start, currentIntro.End);
