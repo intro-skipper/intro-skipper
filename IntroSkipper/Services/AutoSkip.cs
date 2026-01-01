@@ -14,6 +14,8 @@ using MediaBrowser.Controller.Entities.TV;
 using MediaBrowser.Controller.Library;
 using MediaBrowser.Controller.Session;
 using MediaBrowser.Controller.SyncPlay;
+using MediaBrowser.Controller.SyncPlay.PlaybackRequests;
+using MediaBrowser.Controller.SyncPlay.Requests;
 using MediaBrowser.Model.Entities;
 using MediaBrowser.Model.Plugins;
 using MediaBrowser.Model.Session;
@@ -150,6 +152,7 @@ public sealed class AutoSkip(
             .Where(s => s.PlayState?.PositionTicks.HasValue == true) // Ensure PlayState and PositionTicks are valid
             .Where(s => _config.AutoSkip || _clientList.Contains(s.Client, StringComparer.OrdinalIgnoreCase))
             .Where(s => _sentSeekCommand.ContainsKey(s.DeviceId))
+            .Where(s => _syncPlayManager.IsUserActive(s.UserId) == false)
             .ToList();
 
         foreach (var session in eligibleSessions)
@@ -183,23 +186,6 @@ public sealed class AutoSkip(
 
             _logger.LogDebug("Found segment for session {Session}, removing from list, {Intros} segments remaining", session.DeviceId, intros.Count);
             _logger.LogTrace("Playback position is {Position}", position);
-
-            // If SyncPlay is active for this user, skip auto-skipping.
-            if (_syncPlayManager.IsUserActive(session.UserId))
-            {
-                _logger.LogDebug("SyncPlay is active for user {UserId}, skipping auto-skip for Device {Session}", session.UserId, session.DeviceId);
-                _sessionManager.SendMessageCommand(
-                    session.Id,
-                    session.Id,
-                    new MessageCommand
-                    {
-                        Header = string.Empty,
-                        Text = "Server side Auto-skip doesn't work with SyncPlay",
-                        TimeoutMs = NotificationTimeoutMs,
-                    },
-                    CancellationToken.None);
-                continue;
-            }
 
             // Notify the user that an introduction is being skipped for them.
             var notificationText = FormatNotificationText(_config.AutoSkipNotificationText, currentSegmentType, currentIntro.Start, currentIntro.End);
