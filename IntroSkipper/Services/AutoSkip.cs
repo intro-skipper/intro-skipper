@@ -148,11 +148,12 @@ public sealed class AutoSkip(
 
     private void PlaybackTimer_Elapsed(object? sender, ElapsedEventArgs e)
     {
+        var handledSyncPlayGroups = new HashSet<Guid>();
+
         var eligibleSessions = _sessionManager.Sessions
             .Where(s => s.PlayState?.PositionTicks.HasValue == true) // Ensure PlayState and PositionTicks are valid
             .Where(s => _config.AutoSkip || _clientList.Contains(s.Client, StringComparer.OrdinalIgnoreCase))
             .Where(s => _sentSeekCommand.ContainsKey(s.DeviceId))
-            .Where(s => _syncPlayManager.IsUserActive(s.UserId) == false)
             .ToList();
 
         foreach (var session in eligibleSessions)
@@ -186,6 +187,61 @@ public sealed class AutoSkip(
 
             _logger.LogDebug("Found segment for session {Session}, removing from list, {Intros} segments remaining", session.DeviceId, intros.Count);
             _logger.LogTrace("Playback position is {Position}", position);
+
+            IReadOnlyCollection<string>? syncPlayParticipants = null;
+            Guid? syncPlayGroupId = null;
+            var isSyncPlaySession = _syncPlayManager.IsUserActive(session.UserId);
+            if (isSyncPlaySession)
+            {
+                // Find the active SyncPlay group for this session.
+                // In Jellyfin 10.11, GroupInfoDto.Participants are usernames (not session ids).
+                var groups = _syncPlayManager.ListGroups(session, new ListGroupsRequest());
+                var group = string.IsNullOrWhiteSpace(session.UserName)
+                    ? null
+                    : groups?.FirstOrDefault(g => g.Participants.Contains(session.UserName, StringComparer.OrdinalIgnoreCase));
+
+                if (group is not null)
+                {
+                    syncPlayGroupId = group.GroupId;
+                    syncPlayParticipants = group.Participants;
+                }
+            }
+
+            // If this is a SyncPlay session, only one session in the group should handle the group request.
+            // We additionally synchronize the per-device segment state across all group participants so we
+            // don't repeatedly re-evaluate already-skipped segments on other sessions.
+            if (syncPlayGroupId.HasValue && syncPlayParticipants is not null)
+            {
+                if (!handledSyncPlayGroups.Add(syncPlayGroupId.Value))
+                {
+                    continue;
+                }
+
+                var participantSet = new HashSet<string>(syncPlayParticipants, StringComparer.OrdinalIgnoreCase);
+                var participantSessions = _sessionManager.Sessions
+                    .Where(s => !string.IsNullOrWhiteSpace(s.UserName) && participantSet.Contains(s.UserName))
+                    .ToList();
+
+                foreach (var participant in participantSessions)
+                {
+                    if (_sentSeekCommand.TryGetValue(participant.DeviceId, out var participantIntros))
+                    {
+                        participantIntros.Remove(currentSegmentType);
+                        if (nextSegment.Value is not null)
+                        {
+                            participantIntros.Remove(nextSegment.Key);
+                        }
+                    }
+                }
+
+                _syncPlayManager.HandleRequest(
+                    session,
+                    new SeekGroupRequest((long)introEnd * TimeSpan.TicksPerSecond),
+                    CancellationToken.None);
+
+                // For SyncPlay group playback, do not send individual seek commands.
+                continue;
+            }
 
             // Notify the user that an introduction is being skipped for them.
             var notificationText = FormatNotificationText(_config.AutoSkipNotificationText, currentSegmentType, currentIntro.Start, currentIntro.End);
