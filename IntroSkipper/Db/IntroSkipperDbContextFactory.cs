@@ -1,3 +1,6 @@
+﻿// Copyright (C) 2026 Intro-Skipper contributors <intro-skipper.org>
+// SPDX-License-Identifier: GPL-3.0-only
+
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Design;
 
