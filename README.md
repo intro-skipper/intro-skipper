@@ -41,7 +41,7 @@ Some web UI features (for example, adjusting the skip-button timeout) require th
     - Add as a plugin source repository to your Jellyfin server.
      ```
      https://www.iamparadox.dev/jellyfin/plugins/manifest.json
-     ``` 
+     ```
     - Find "File Transformation" in the Catalog and install it.
 </details>
 
@@ -58,10 +58,6 @@ Some web UI features (for example, adjusting the skip-button timeout) require th
 ## Policies
 - [Code of conduct](CODE_OF_CONDUCT.md)
 - [Privacy policy](PRIVACY.md)
-
-## Limitations
-
-* SyncPlay is not (yet) compatible with any method of skipping due to the nature of how the clients are synced.
 
 ## [Detection parameters](https://github.com/intro-skipper/intro-skipper/wiki#detection-parameters)
 
