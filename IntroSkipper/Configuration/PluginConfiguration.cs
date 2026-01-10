@@ -27,11 +27,6 @@ public class PluginConfiguration : BasePluginConfiguration
     public string ExcludeSeries { get; set; } = string.Empty;
 
     /// <summary>
-    /// Gets or sets the list of client to auto skip for.
-    /// </summary>
-    public string ClientList { get; set; } = string.Empty;
-
-    /// <summary>
     /// Gets or sets a value indicating whether to automatically scan newly added items.
     /// </summary>
     public bool AutoDetectIntros { get; set; } = true;
@@ -250,46 +245,6 @@ public class PluginConfiguration : BasePluginConfiguration
     // ===== Playback settings =====
 
     /// <summary>
-    /// Gets or sets a value indicating whether plugin options are presented to the user.
-    /// </summary>
-    public bool PluginSkip { get; set; }
-
-    /// <summary>
-    /// Gets or sets a value indicating whether introductions should be automatically skipped.
-    /// </summary>
-    public bool AutoSkip { get; set; }
-
-    /// <summary>
-    /// Gets or sets the list of segment types to auto skip.
-    /// </summary>
-    public string TypeList { get; set; } = string.Empty;
-
-    /// <summary>
-    /// Gets or sets a value indicating whether credits should be automatically skipped.
-    /// </summary>
-    public bool AutoSkipCredits { get; set; }
-
-    /// <summary>
-    /// Gets or sets a value indicating whether recap should be automatically skipped.
-    /// </summary>
-    public bool AutoSkipRecap { get; set; }
-
-    /// <summary>
-    /// Gets or sets a value indicating whether preview should be automatically skipped.
-    /// </summary>
-    public bool AutoSkipPreview { get; set; }
-
-    /// <summary>
-    /// Gets or sets a value indicating whether commercial should be automatically skipped.
-    /// </summary>
-    public bool AutoSkipCommercial { get; set; }
-
-    /// <summary>
-    /// Gets or sets a value indicating whether the introduction in the first episode of a season should be ignored.
-    /// </summary>
-    public bool SkipFirstEpisode { get; set; } = true;
-
-    /// <summary>
     /// Gets or sets the amount of intro to play (in seconds).
     /// </summary>
     public int IntroEndOffset { get; set; }
@@ -298,11 +253,6 @@ public class PluginConfiguration : BasePluginConfiguration
     /// Gets or sets the amount of intro at start to play (in seconds).
     /// </summary>
     public int IntroStartOffset { get; set; }
-
-    /// <summary>
-    /// Gets or sets the amount of seconds to wait before skipping an intro.
-    /// </summary>
-    public int AutoSkipDelay { get; set; }
 
     // ===== Internal algorithm settings =====
 
@@ -334,11 +284,6 @@ public class PluginConfiguration : BasePluginConfiguration
     public double SilenceDetectionMinimumDuration { get; set; } = 0.33;
 
     // ===== Localization support =====
-
-    /// <summary>
-    /// Gets or sets the notification text sent after automatically skipping an introduction.
-    /// </summary>
-    public string AutoSkipNotificationText { get; set; } = "%duration seconds of %segmenttype skipped";
 
     /// <summary>
     /// Gets or sets the max degree of parallelism used when analyzing episodes.

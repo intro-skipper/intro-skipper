@@ -456,71 +456,7 @@
 
                                 <div class="fieldDescription">When enabled, this option will <b>overwrite all existing media segments</b> with your current Intro Skipper timestamps during the next analysis. Upon completion, this option will be automatically disabled.</div>
                             </div>
-
-                            <p align="center" style="font-size: 0.75em">EDL file generation has been removed. Please use the <a href="https://github.com/intro-skipper/jellyfin-plugin-edl">EDL plugin</a>.</p>
                         </fieldset>
-
-                        <div class="checkboxContainer checkboxContainer-withDescription">
-                            <label class="emby-checkbox-label">
-                                <input id="PluginSkip" type="checkbox" is="emby-checkbox" />
-                                <span>Enable <b style="color: red">Server-side</b> Auto Skip <br /><b style="color: orange">DEPRECATED: Will be removed in future versions</b></span>
-                            </label>
-                        </div>
-
-                        <div id="ServerSkipSettings" style="display: none">
-                            <fieldset class="verticalSection-extrabottompadding">
-                                <legend>Playback</legend>
-
-                                <div class="checkboxContainer checkboxContainer-withDescription">
-                                    <label class="emby-checkbox-label">
-                                        <input id="AutoSkip" type="checkbox" is="emby-checkbox" />
-                                        <span>Automatically Skip for All Clients</span>
-                                    </label>
-                                </div>
-
-                                <div class="AutoSkipClientListContainer">
-                                    <div class="AutoSkipClientList">
-                                        <h3 class="checkboxListLabel">Limit auto skip to the following clients</h3>
-                                        <div class="checkboxList paperList" style="padding: 0.5em 1em" id="autoSkipCheckboxes"></div>
-                                    </div>
-                                    <label class="inputLabel" for="ClientList"></label>
-                                    <input id="ClientList" type="hidden" is="emby-input" />
-                                </div>
-
-                                <div class="AutoSkipTypeListContainer">
-                                    <div class="AutoSkipTypeList">
-                                        <h3 class="checkboxListLabel">Auto skip the following types</h3>
-                                        <div class="checkboxList paperList" style="padding: 0.5em 1em" id="autoSkipTypeCheckboxes"></div>
-                                    </div>
-                                    <label class="inputLabel" for="TypeList"></label>
-                                    <input id="TypeList" type="hidden" is="emby-input" />
-                                </div>
-
-                                <div id="divSkipFirstEpisode" class="checkboxContainer checkboxContainer-withDescription">
-                                    <label class="emby-checkbox-label">
-                                        <input id="SkipFirstEpisode" type="checkbox" is="emby-checkbox" />
-                                        <span>Play Segments for First Episode of a Season</span>
-                                    </label>
-
-                                    <div class="fieldDescription">If checked, auto skip will play the segments of the first episode in a season.</div>
-                                </div>
-
-                                <div id="divAutoSkipDelay" class="inputContainer">
-                                    <label class="inputLabel inputLabelUnfocused" for="AutoSkipDelay"> Auto skip delay (in seconds) </label>
-                                    <input id="AutoSkipDelay" type="number" is="emby-input" min="0" />
-                                    <div class="fieldDescription">Seconds at the start of a segment that should be played before skipping. Defaults to 0.</div>
-                                </div>
-
-                                <div id="divAutoSkipNotificationText" class="inputContainer">
-                                    <label class="inputLabel" for="AutoSkipNotificationText"> Auto skip notification message </label>
-                                    <input id="AutoSkipNotificationText" type="text" is="emby-input" />
-                                    <div class="fieldDescription">Message shown after automatically skipping a segment. Leave blank to disable notification. <br />Available variables: %segmenttype, %start, %end, %duration</div>
-                                    <p>
-                                        <b style="color: orange">This setting does not apply to Media Segment Actions in Jellyfin 10.10 and compatible clients.</b>
-                                    </p>
-                                </div>
-                            </fieldset>
-                        </div>
 
                         <div>
                             <button is="emby-button" type="submit" class="raised button-submit block emby-button">
@@ -837,7 +773,6 @@
                     "AdjustWindowOutward",
                     "EndSnapThreshold",
                     "ExcludeSeries",
-                    "ClientList",
                     "AnalysisPercent",
                     "AnalysisLengthLimit",
                     "MinimumIntroDuration",
@@ -856,7 +791,6 @@
                     // playback
                     "IntroEndOffset",
                     "IntroStartOffset",
-                    "AutoSkipDelay",
                     "SkipbuttonHideDelay",
                     // internals
                     "SilenceDetectionMaximumNoise",
@@ -868,12 +802,9 @@
                     "ChapterAnalyzerPreviewPattern",
                     "ChapterAnalyzerRecapPattern",
                     "ChapterAnalyzerCommercialPattern",
-                    "TypeList",
-                    // UI customization
-                    "AutoSkipNotificationText",
                 ];
 
-                const booleanConfigurationFields = ["AutoDetectIntros", "AnalyzeSeasonZero", "UpdateMediaSegments","UseAlternativeBlackFrameAnalyzer", "UseChapterMarkersBlackFrame", "FullLengthChapters", "RebuildMediaSegments", "ScanIntroduction", "ScanCredits", "ScanRecap", "ScanPreview", "ScanCommercial", "PreferChromaprint", "PluginSkip", "AutoSkip", "SkipFirstEpisode", "SnapToKeyframe", "AdjustIntroBasedOnSilence", "AdjustIntroBasedOnChapters", "UseFileTransformationPlugin"];
+                const booleanConfigurationFields = ["AutoDetectIntros", "AnalyzeSeasonZero", "UpdateMediaSegments","UseAlternativeBlackFrameAnalyzer", "UseChapterMarkersBlackFrame", "FullLengthChapters", "RebuildMediaSegments", "ScanIntroduction", "ScanCredits", "ScanRecap", "ScanPreview", "ScanCommercial", "PreferChromaprint", "SnapToKeyframe", "AdjustIntroBasedOnSilence", "AdjustIntroBasedOnChapters", "UseFileTransformationPlugin"];
 
                 // timestamp / maintenance elements
                 const analyzerActionsSection = document.querySelector("div#analyzerActionsSection");
@@ -903,10 +834,6 @@
                 const btnUpdateTimestamps = document.querySelector("button#btnUpdateTimestamps");
                 const silenceSettings = document.getElementById("silenceSettings");
 
-                const pluginSkip = document.getElementById("PluginSkip");
-                const serverSkipSettings = document.getElementById("ServerSkipSettings");
-                const autoSkip = document.getElementById("AutoSkip");
-                const autoSkipClientList = document.querySelector("div.AutoSkipClientListContainer");
                 const fullLengthChapters = document.getElementById("FullLengthChapters");
                 const useAlternativeBlackFrameAnalyzer = document.getElementById("UseAlternativeBlackFrameAnalyzer");
                 const chapterMarkersBlackFrameSetting = document.getElementById("ChapterMarkersBlackFrameSetting");
@@ -915,17 +842,6 @@
                 const adjustIntroBasedOnChapters = document.getElementById("AdjustIntroBasedOnChapters");
                 const globalTimestamps = document.getElementById("GlobalTimestamps");
                 const btnEraseGlobalTimestamps = document.getElementById("btnEraseGlobalTimestamps");
-
-                function autoSkipChanged() {
-                    if (autoSkip.checked) {
-                        autoSkipClientList.style.display = "none";
-                    } else {
-                        autoSkipClientList.style.display = "unset";
-                        autoSkipClientList.style.width = "100%";
-                    }
-                }
-
-                autoSkip.addEventListener("change", autoSkipChanged);
 
                 const recapPreviewDurations = document.getElementById("RecapPreviewDurations");
 
@@ -950,72 +866,6 @@
 
                 fullLengthChapters.addEventListener("change", fullLengthChaptersChanged);
 
-                function updateList(textField, container) {
-                    textField.value = Array.from(container.querySelectorAll('input[type="checkbox"]:checked'))
-                        .map((checkbox) => checkbox.nextElementSibling.textContent)
-                        .join(", ");
-                }
-
-                function generateCheckboxList(items, containerId, textFieldId) {
-                    const container = document.getElementById(containerId);
-                    const checkedItems = new Set(document.getElementById(textFieldId).value.split(", ").filter(Boolean));
-                    const fragment = document.createDocumentFragment();
-                    for (const item of items) {
-                        const label = document.createElement("label");
-                        label.className = "emby-checkbox-label";
-                        const checkbox = document.createElement("input");
-                        checkbox.type = "checkbox";
-                        checkbox.setAttribute("is", "emby-checkbox");
-                        if (checkedItems.has(item)) {
-                            checkbox.checked = true;
-                        }
-
-                        const span = document.createElement("span");
-                        span.className = "checkboxLabel";
-                        span.textContent = item;
-
-                        label.appendChild(checkbox);
-                        label.appendChild(span);
-                        fragment.appendChild(label);
-                    }
-                    container.innerHTML = "";
-                    container.appendChild(fragment);
-                    if (!container.dataset.listenerAttached) {
-                        container.addEventListener(
-                            "change",
-                            (e) => {
-                                if (e.target.type === "checkbox") updateList(document.getElementById(textFieldId), container);
-                            },
-                            { passive: true },
-                        );
-                        container.dataset.listenerAttached = "true";
-                    }
-                }
-
-                async function generateAutoSkipClientList() {
-                    const response = await getJson("Devices");
-                    const devices = [...new Set(response.Items.map((item) => item.AppName))];
-                    generateCheckboxList(devices, "autoSkipCheckboxes", "ClientList");
-                }
-
-                async function generateAutoSkipTypeList() {
-                    const types = ["Introduction", "Credits", "Recap", "Preview", "Commercial"];
-                    generateCheckboxList(types, "autoSkipTypeCheckboxes", "TypeList");
-                }
-
-                const skipFirstEpisode = document.getElementById("divSkipFirstEpisode");
-                const IntroStartOffset = document.getElementById("IntroStartOffset");
-                const AutoSkipDelay = document.getElementById("AutoSkipDelay");
-
-                async function pluginSkipSettingVisible() {
-                    if (pluginSkip.checked || autoSkip.checked) {
-                        pluginSkip.checked = true;
-                        serverSkipSettings.style.display = "unset";
-                    } else {
-                        serverSkipSettings.style.display = "none";
-                    }
-                }
-
                 async function alternativeBlackFrameAnalyzerSettingsVisible() {
                     if (useAlternativeBlackFrameAnalyzer.checked) {
                         chapterMarkersBlackFrameSetting.style.display = "none";
@@ -1035,17 +885,6 @@
                 }
 
                 adjustIntroBasedOnSilence.addEventListener("change", adjustSettingsVisible);
-
-                async function pluginSkipSettingChanged() {
-                    if (!pluginSkip.checked) {
-                        autoSkip.checked = false;
-                        skipFirstEpisode.checked = false;
-                        IntroStartOffset.value = 0;
-                    }
-                    pluginSkipSettingVisible();
-                }
-
-                pluginSkip.addEventListener("change", pluginSkipSettingChanged);
 
                 function globalTimestampChanged() {
                     btnEraseGlobalTimestamps.textContent = "Erase all " + globalTimestamps.value + " timestamps (globally)";
@@ -1461,10 +1300,6 @@
                             }
 
                             fullLengthChaptersChanged();
-                            autoSkipChanged();
-                            generateAutoSkipTypeList();
-                            generateAutoSkipClientList();
-                            pluginSkipSettingVisible();
                             fileTransformationChanged();
                             alternativeBlackFrameAnalyzerSettingsVisible();
                             adjustSettingsVisible();

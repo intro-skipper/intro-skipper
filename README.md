@@ -41,7 +41,7 @@ Some web UI features (for example, adjusting the skip-button timeout) require th
     - Add as a plugin source repository to your Jellyfin server.
      ```
      https://www.iamparadox.dev/jellyfin/plugins/manifest.json
-     ``` 
+     ```
     - Find "File Transformation" in the Catalog and install it.
 </details>
 
@@ -59,10 +59,6 @@ Some web UI features (for example, adjusting the skip-button timeout) require th
 - [Code of conduct](https://github.com/intro-skipper/.github/blob/main/CODE_OF_CONDUCT.md)
 - [Privacy policy](https://github.com/intro-skipper/.github/blob/main/PRIVACY.md)
 
-## Limitations
-
-* SyncPlay is not (yet) compatible with any method of skipping due to the nature of how the clients are synced.
-
 ## [Detection parameters](https://github.com/intro-skipper/intro-skipper/wiki#detection-parameters)
 
 ## [Detection types](https://github.com/intro-skipper/intro-skipper/wiki#detection-types)
@@ -78,7 +74,6 @@ Some web UI features (for example, adjusting the skip-button timeout) require th
 - #### [Plugin not shown in Catalog](https://github.com/intro-skipper/intro-skipper/wiki/Troubleshooting#plugin-not-shown-in-catalog)
 - #### [Scheduled tasks fail instantly](https://github.com/intro-skipper/intro-skipper/wiki/Troubleshooting#scheduled-tasks-fail-instantly)
 - #### [Skip button is not visible](https://github.com/intro-skipper/intro-skipper/wiki/Troubleshooting#skip-button-is-not-visible)
-- #### [Auto skip is not working](https://github.com/intro-skipper/intro-skipper/wiki/Troubleshooting#auto-skip-is-not-working)
 
 ## Acknowledgments
 
