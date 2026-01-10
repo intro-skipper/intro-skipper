@@ -456,11 +456,7 @@
 
                                 <div class="fieldDescription">When enabled, this option will <b>overwrite all existing media segments</b> with your current Intro Skipper timestamps during the next analysis. Upon completion, this option will be automatically disabled.</div>
                             </div>
-
-                            <p align="center" style="font-size: 0.75em">EDL file generation has been removed. Please use the <a href="https://github.com/intro-skipper/jellyfin-plugin-edl">EDL plugin</a>.</p>
                         </fieldset>
-
-                        <!-- Server-side auto-skip removed -->
 
                         <div>
                             <button is="emby-button" type="submit" class="raised button-submit block emby-button">
@@ -806,8 +802,6 @@
                     "ChapterAnalyzerPreviewPattern",
                     "ChapterAnalyzerRecapPattern",
                     "ChapterAnalyzerCommercialPattern",
-                    // UI customization
-
                 ];
 
                 const booleanConfigurationFields = ["AutoDetectIntros", "AnalyzeSeasonZero", "UpdateMediaSegments","UseAlternativeBlackFrameAnalyzer", "UseChapterMarkersBlackFrame", "FullLengthChapters", "RebuildMediaSegments", "ScanIntroduction", "ScanCredits", "ScanRecap", "ScanPreview", "ScanCommercial", "PreferChromaprint", "SnapToKeyframe", "AdjustIntroBasedOnSilence", "AdjustIntroBasedOnChapters", "UseFileTransformationPlugin"];
