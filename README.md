@@ -56,8 +56,8 @@ Some web UI features (for example, adjusting the skip-button timeout) require th
   * Gentoo Linux native installs: enable `xarblu-overlay` and install `media-video/jellyfin-ffmpeg`
 
 ## Policies
-- [Code of conduct](CODE_OF_CONDUCT.md)
-- [Privacy policy](PRIVACY.md)
+- [Code of conduct](https://github.com/intro-skipper/.github/blob/main/CODE_OF_CONDUCT.md)
+- [Privacy policy](https://github.com/intro-skipper/.github/blob/main/PRIVACY.md)
 
 ## Limitations
 
