@@ -1273,6 +1273,7 @@
                         if (config.FileTransformationPluginEnabled) {
                             // Plugin is available - enable the field
                             skipButtonField.disabled = false;
+                            actionFileTransformation.disabled = false;
                             skipButtonContainer.classList.remove("disabled-block");
                             warning.style.display = "none";
                         } else {
@@ -1550,7 +1551,11 @@
                     });
 
                     document.getElementById("btnInjectSkipButtonCss").addEventListener("click", async () => {
+                        const btn = document.getElementById("btnInjectSkipButtonCss");
                         const statusDiv = document.getElementById("skipButtonCssStatus");
+
+                        // Disable button to prevent multiple clicks
+                        btn.disabled = true;
                         statusDiv.style.display = "block";
                         statusDiv.style.color = "#2196f3";
                         statusDiv.textContent = "Injecting CSS...";
@@ -1561,12 +1566,15 @@
                                 statusDiv.style.color = "#4caf50";
                                 statusDiv.textContent = "Skip button CSS injected successfully!";
                             } else {
-                                statusDiv.style.color = "#4caf50";
-                                statusDiv.textContent = "Skip button CSS injected successfully!";
+                                statusDiv.style.color = "#f44336";
+                                statusDiv.textContent = "Failed to inject CSS: Server returned " + (response?.status || "unknown error");
                             }
                         } catch (error) {
                             statusDiv.style.color = "#f44336";
                             statusDiv.textContent = "Failed to inject CSS: " + error.message;
+                        } finally {
+                            // Re-enable button
+                            btn.disabled = false;
                         }
                     });
 
