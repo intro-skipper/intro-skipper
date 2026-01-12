@@ -26,7 +26,7 @@ namespace IntroSkipper.Controllers;
 [Route("SkipButtonCss")]
 public partial class SkipButtonCssController(IServerConfigurationManager serverConfigurationManager, ILogger<SkipButtonCssController> logger) : ControllerBase
 {
-    private const string ImportString = """@import url("https://cdn.jsdelivr.net/gh/intro-skipper/intro-skipper-css@main/skip-button-minified.css");""";
+    private const string ImportString = """@import url("https://cdn.jsdelivr.net/gh/intro-skipper/intro-skipper-css@main/skip-button.min.css");""";
 
     private const string RootCssTemplate = """
 :root {
