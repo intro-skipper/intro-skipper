@@ -5,7 +5,9 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
-using IntroSkipper.Configuration;
+using Jellyfin.Data.Enums;
+using Jellyfin.Database.Implementations.Enums;
+using MediaBrowser.Controller.Entities;
 using MediaBrowser.Controller.Entities.TV;
 using MediaBrowser.Controller.Library;
 using MediaBrowser.Model.MediaSegments;
@@ -23,7 +25,6 @@ public sealed class MediaSegmentsFirstEpisodeFilter : IAsyncResultFilter
 {
     private readonly ILibraryManager _libraryManager;
     private readonly ILogger<MediaSegmentsFirstEpisodeFilter> _logger;
-    private readonly PluginConfiguration _config;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="MediaSegmentsFirstEpisodeFilter"/> class.
@@ -36,46 +37,102 @@ public sealed class MediaSegmentsFirstEpisodeFilter : IAsyncResultFilter
     {
         _libraryManager = libraryManager;
         _logger = logger;
-        _config = Plugin.Instance?.Configuration ?? new PluginConfiguration();
     }
 
     /// <inheritdoc />
     public async Task OnResultExecutionAsync(ResultExecutingContext context, ResultExecutionDelegate next)
     {
-        if (!IsMediaSegmentsRequest(context) || !TryGetItemId(context, out var itemId))
+        _logger.LogDebug("MediaSegments filter invoked. Path: {Path}", context.HttpContext.Request.Path.Value);
+
+        if (!IsMediaSegmentsRequest(context))
         {
+            _logger.LogDebug("Request is not MediaSegments. Skipping filter.");
             await next().ConfigureAwait(false);
             return;
         }
 
+        if (!TryGetItemId(context, out var itemId))
+        {
+            _logger.LogWarning("MediaSegments request missing item id. Route: {RouteValues}", context.RouteData.Values);
+            await next().ConfigureAwait(false);
+            return;
+        }
+
+        _logger.LogDebug("MediaSegments request item id: {ItemId}", itemId);
+
         if (_libraryManager.GetItemById(itemId) is not Episode episode)
         {
+            _logger.LogDebug("Item {ItemId} is not an episode. Skipping filter.", itemId);
             await next().ConfigureAwait(false);
             return;
         }
 
         if (!IsFirstEpisode(episode))
         {
+            _logger.LogDebug("Episode {EpisodeId} is not the first episode. Skipping filter.", episode.Id);
             await next().ConfigureAwait(false);
             return;
         }
 
+        _logger.LogInformation("Filtering intro segments for first episode {EpisodeId} (SeasonId: {SeasonId}, Index: {Index})", episode.Id, episode.SeasonId, episode.IndexNumber);
+
         if (context.Result is ObjectResult objectResult)
         {
+            _logger.LogDebug("Filtering ObjectResult media segments for {EpisodeId}.", episode.Id);
             objectResult.Value = FilterIntroSegments(objectResult.Value);
         }
         else if (context.Result is JsonResult jsonResult)
         {
+            _logger.LogDebug("Filtering JsonResult media segments for {EpisodeId}.", episode.Id);
             jsonResult.Value = FilterIntroSegments(jsonResult.Value);
+        }
+        else
+        {
+            _logger.LogDebug("MediaSegments result type not recognized: {ResultType}", context.Result?.GetType().FullName);
         }
 
         await next().ConfigureAwait(false);
     }
 
     private bool IsFirstEpisode(Episode episode)
-        => _config.SkipFirstEpisode
-            && episode.IndexNumber.HasValue
-            && episode.IndexNumber.Value == 1;
+    {
+        _logger.LogDebug("Evaluating first-episode status for {EpisodeId} (SeasonId: {SeasonId}, Index: {Index})", episode.Id, episode.SeasonId, episode.IndexNumber);
+
+        if (Plugin.Instance?.Configuration?.SkipFirstEpisode != true)
+        {
+            _logger.LogInformation("SkipFirstEpisode disabled in config. Not filtering.");
+            return false;
+        }
+
+        if (episode.SeasonId == Guid.Empty)
+        {
+            _logger.LogDebug("Episode {EpisodeId} has no SeasonId. Not filtering.", episode.Id);
+            return false;
+        }
+
+        var query = new InternalItemsQuery
+        {
+            ParentId = episode.SeasonId,
+            IncludeItemTypes = [BaseItemKind.Episode],
+            Recursive = false,
+            IsVirtualItem = false,
+            OrderBy = [(ItemSortBy.IndexNumber, SortOrder.Ascending)]
+        };
+
+        var firstEpisode = _libraryManager.GetItemList(query, false)
+            .OfType<Episode>()
+            .FirstOrDefault();
+
+        if (firstEpisode is null)
+        {
+            _logger.LogDebug("No first episode found for SeasonId {SeasonId}. Not filtering.", episode.SeasonId);
+            return false;
+        }
+
+        _logger.LogDebug("Season {SeasonId} first episode is {FirstEpisodeId}. Current episode is {EpisodeId}.", episode.SeasonId, firstEpisode.Id, episode.Id);
+
+        return firstEpisode.Id == episode.Id;
+    }
 
     private static bool IsMediaSegmentsRequest(ResultExecutingContext context)
     {
@@ -137,9 +194,12 @@ public sealed class MediaSegmentsFirstEpisodeFilter : IAsyncResultFilter
 
         if (value is QueryResult<MediaSegmentDto> queryResult)
         {
+            _logger.LogDebug("Filtering QueryResult media segments. Count: {Count}", queryResult.Items?.Count ?? 0);
             var items = queryResult.Items
                 ?.Where(segment => !string.Equals(segment.Type.ToString(), "Intro", StringComparison.OrdinalIgnoreCase))
                 .ToArray();
+
+            _logger.LogDebug("Filtered QueryResult media segments. Count: {Count}", items?.Length ?? 0);
 
             return new QueryResult<MediaSegmentDto>
             {
@@ -151,6 +211,8 @@ public sealed class MediaSegmentsFirstEpisodeFilter : IAsyncResultFilter
 
         if (value is IEnumerable<MediaSegmentDto> segments)
         {
+            var segmentList = segments.ToList();
+            _logger.LogDebug("Filtering list media segments. Count: {Count}", segmentList.Count);
             return segments
                 .Where(segment => !string.Equals(segment.Type.ToString(), "Intro", StringComparison.OrdinalIgnoreCase))
                 .ToList();
