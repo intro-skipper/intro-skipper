@@ -1,12 +1,14 @@
 ﻿// Copyright (C) 2026 Intro-Skipper contributors <intro-skipper.org>
 // SPDX-License-Identifier: GPL-3.0-only
 
+using IntroSkipper.Filters;
 using IntroSkipper.Manager;
 using IntroSkipper.Providers;
 using IntroSkipper.Services;
 using MediaBrowser.Controller;
 using MediaBrowser.Controller.MediaSegments;
 using MediaBrowser.Controller.Plugins;
+using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.DependencyInjection;
 
 namespace IntroSkipper
@@ -22,6 +24,11 @@ namespace IntroSkipper
             serviceCollection.AddHostedService<Entrypoint>();
             serviceCollection.AddSingleton<IMediaSegmentProvider, SegmentProvider>();
             serviceCollection.AddTransient<MediaSegmentUpdateManager>();
+            serviceCollection.AddSingleton<MediaSegmentsFirstEpisodeFilter>();
+            serviceCollection.Configure<MvcOptions>(options =>
+            {
+                options.Filters.AddService<MediaSegmentsFirstEpisodeFilter>();
+            });
         }
     }
 }
