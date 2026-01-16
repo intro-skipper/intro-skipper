@@ -30,17 +30,15 @@ public sealed class MediaSegmentsFirstEpisodeFilter(
     ILibraryManager libraryManager,
     ILogger<MediaSegmentsFirstEpisodeFilter> logger) : IAsyncResultFilter
 {
+    private static readonly string[] _routeItemKeys = ["itemId", "id", "ItemId"];
     private readonly ILibraryManager _libraryManager = libraryManager;
     private readonly ILogger<MediaSegmentsFirstEpisodeFilter> _logger = logger;
 
     /// <inheritdoc />
     public async Task OnResultExecutionAsync(ResultExecutingContext context, ResultExecutionDelegate next)
     {
-        _logger.LogDebug("MediaSegments filter invoked. Path: {Path}", context.HttpContext.Request.Path.Value);
-
         if (!IsMediaSegmentsRequest(context))
         {
-            _logger.LogDebug("Request is not MediaSegments. Skipping filter.");
             await next().ConfigureAwait(false);
             return;
         }
@@ -52,18 +50,14 @@ public sealed class MediaSegmentsFirstEpisodeFilter(
             return;
         }
 
-        _logger.LogDebug("MediaSegments request item id: {ItemId}", itemId);
-
         if (_libraryManager.GetItemById(itemId) is not Episode episode)
         {
-            _logger.LogDebug("Item {ItemId} is not an episode. Skipping filter.", itemId);
             await next().ConfigureAwait(false);
             return;
         }
 
         if (!IsFirstEpisode(episode))
         {
-            _logger.LogDebug("Episode {EpisodeId} is not the first episode. Skipping filter.", episode.Id);
             await next().ConfigureAwait(false);
             return;
         }
@@ -72,12 +66,10 @@ public sealed class MediaSegmentsFirstEpisodeFilter(
 
         if (context.Result is ObjectResult objectResult)
         {
-            _logger.LogDebug("Filtering ObjectResult media segments for {EpisodeId}.", episode.Id);
             objectResult.Value = FilterIntroSegments(objectResult.Value);
         }
         else if (context.Result is JsonResult jsonResult)
         {
-            _logger.LogDebug("Filtering JsonResult media segments for {EpisodeId}.", episode.Id);
             jsonResult.Value = FilterIntroSegments(jsonResult.Value);
         }
         else
@@ -94,7 +86,6 @@ public sealed class MediaSegmentsFirstEpisodeFilter(
 
         if (Plugin.Instance?.Configuration?.SkipFirstEpisode != true)
         {
-            _logger.LogDebug("SkipFirstEpisode disabled in config. Not filtering.");
             return false;
         }
 
@@ -130,54 +121,40 @@ public sealed class MediaSegmentsFirstEpisodeFilter(
 
     private static bool IsMediaSegmentsRequest(ResultExecutingContext context)
     {
+        static bool ContainsMediaSegments(string? value)
+            => value?.Contains("MediaSegments", StringComparison.OrdinalIgnoreCase) == true;
+
         if (context.RouteData.Values.TryGetValue("controller", out var controller)
-            && controller is not null
-            && controller.ToString()!.Contains("MediaSegments", StringComparison.OrdinalIgnoreCase))
+            && ContainsMediaSegments(controller?.ToString()))
         {
             return true;
         }
 
-        if (context.ActionDescriptor.DisplayName?.Contains("MediaSegments", StringComparison.OrdinalIgnoreCase) == true)
+        if (ContainsMediaSegments(context.ActionDescriptor.DisplayName))
         {
             return true;
         }
 
         var path = context.HttpContext.Request.Path.Value;
-        return path?.Contains("/MediaSegments", StringComparison.OrdinalIgnoreCase) == true;
+        return ContainsMediaSegments(path);
     }
 
     private static bool TryGetItemId(ResultExecutingContext context, out Guid itemId)
     {
-        if (TryParseRouteValue(context, "itemId", out itemId)
-            || TryParseRouteValue(context, "id", out itemId)
-            || TryParseRouteValue(context, "ItemId", out itemId))
+        foreach (var key in _routeItemKeys)
         {
-            return true;
+            if (TryParseGuid(context.RouteData.Values.TryGetValue(key, out var value) ? value : null, out itemId))
+            {
+                return true;
+            }
         }
 
-        var query = context.HttpContext.Request.Query;
-        if (query.TryGetValue("itemId", out var itemIdValues)
-            && Guid.TryParse(itemIdValues.FirstOrDefault(), out itemId))
-        {
-            return true;
-        }
-
-        itemId = Guid.Empty;
-        return false;
+        var queryValue = context.HttpContext.Request.Query["itemId"].FirstOrDefault();
+        return Guid.TryParse(queryValue, out itemId);
     }
 
-    private static bool TryParseRouteValue(ResultExecutingContext context, string key, out Guid itemId)
-    {
-        if (context.RouteData.Values.TryGetValue(key, out var value)
-            && value is not null
-            && Guid.TryParse(value.ToString(), out itemId))
-        {
-            return true;
-        }
-
-        itemId = Guid.Empty;
-        return false;
-    }
+    private static bool TryParseGuid(object? value, out Guid guid)
+        => Guid.TryParse(value?.ToString(), out guid);
 
     private object? FilterIntroSegments(object? value)
     {
@@ -188,16 +165,15 @@ public sealed class MediaSegmentsFirstEpisodeFilter(
 
         if (value is QueryResult<MediaSegmentDto> queryResult)
         {
-            _logger.LogDebug("Filtering QueryResult media segments. Count: {Count}", queryResult.Items?.Count ?? 0);
-            var items = queryResult.Items
-                ?.Where(segment => segment.Type != MediaSegmentType.Intro)
-                .ToArray();
-
-            _logger.LogDebug("Filtered QueryResult media segments. Count: {Count}", items?.Length ?? 0);
+            var items = FilterSegments(queryResult.Items);
+            _logger.LogDebug(
+                "Filtering QueryResult media segments. Before: {Before}, After: {After}",
+                queryResult.Items?.Count ?? 0,
+                items.Length);
 
             return new QueryResult<MediaSegmentDto>
             {
-                Items = items ?? Array.Empty<MediaSegmentDto>(),
+                Items = items,
                 StartIndex = queryResult.StartIndex,
                 TotalRecordCount = items?.Length ?? 0
             };
@@ -205,14 +181,20 @@ public sealed class MediaSegmentsFirstEpisodeFilter(
 
         if (value is IEnumerable<MediaSegmentDto> segments)
         {
-            var segmentList = segments.ToList();
-            _logger.LogDebug("Filtering list media segments. Count: {Count}", segmentList.Count);
-            return segmentList
-                .Where(segment => segment.Type != MediaSegmentType.Intro)
-                .ToList();
+            var filtered = FilterSegments(segments);
+            _logger.LogDebug("Filtering list media segments. After: {Count}", filtered.Length);
+            return filtered.ToList();
         }
 
         _logger.LogDebug("Media segments response was not a list of media segments. Type: {Type}", value.GetType().FullName);
         return value;
+    }
+
+    private static MediaSegmentDto[] FilterSegments(IEnumerable<MediaSegmentDto>? segments)
+    {
+        return segments?
+            .Where(segment => segment.Type != MediaSegmentType.Intro)
+            .ToArray()
+            ?? [];
     }
 }
