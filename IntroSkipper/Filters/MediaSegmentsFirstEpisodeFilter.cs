@@ -199,7 +199,7 @@ public sealed class MediaSegmentsFirstEpisodeFilter(
             {
                 Items = items ?? Array.Empty<MediaSegmentDto>(),
                 StartIndex = queryResult.StartIndex,
-                TotalRecordCount = queryResult.TotalRecordCount
+                TotalRecordCount = items?.Length ?? 0
             };
         }
 
