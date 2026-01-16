@@ -68,7 +68,7 @@ public sealed class MediaSegmentsFirstEpisodeFilter(
             return;
         }
 
-        _logger.LogInformation("Filtering intro segments for first episode {EpisodeId} (SeasonId: {SeasonId}, Index: {Index})", episode.Id, episode.SeasonId, episode.IndexNumber);
+        _logger.LogDebug("Filtering intro segments for first episode {EpisodeId} (SeasonId: {SeasonId}, Index: {Index})", episode.Id, episode.SeasonId, episode.IndexNumber);
 
         if (context.Result is ObjectResult objectResult)
         {
@@ -94,7 +94,7 @@ public sealed class MediaSegmentsFirstEpisodeFilter(
 
         if (Plugin.Instance?.Configuration?.SkipFirstEpisode != true)
         {
-            _logger.LogInformation("SkipFirstEpisode disabled in config. Not filtering.");
+            _logger.LogDebug("SkipFirstEpisode disabled in config. Not filtering.");
             return false;
         }
 
@@ -190,7 +190,7 @@ public sealed class MediaSegmentsFirstEpisodeFilter(
         {
             _logger.LogDebug("Filtering QueryResult media segments. Count: {Count}", queryResult.Items?.Count ?? 0);
             var items = queryResult.Items
-                ?.Where(segment => !string.Equals(segment.Type.ToString(), "Intro", StringComparison.OrdinalIgnoreCase))
+                ?.Where(segment => segment.Type != MediaSegmentType.Intro)
                 .ToArray();
 
             _logger.LogDebug("Filtered QueryResult media segments. Count: {Count}", items?.Length ?? 0);
@@ -199,7 +199,7 @@ public sealed class MediaSegmentsFirstEpisodeFilter(
             {
                 Items = items ?? Array.Empty<MediaSegmentDto>(),
                 StartIndex = queryResult.StartIndex,
-                TotalRecordCount = items?.Length ?? 0
+                TotalRecordCount = queryResult.TotalRecordCount
             };
         }
 
@@ -207,8 +207,8 @@ public sealed class MediaSegmentsFirstEpisodeFilter(
         {
             var segmentList = segments.ToList();
             _logger.LogDebug("Filtering list media segments. Count: {Count}", segmentList.Count);
-            return segments
-                .Where(segment => !string.Equals(segment.Type.ToString(), "Intro", StringComparison.OrdinalIgnoreCase))
+            return segmentList
+                .Where(segment => segment.Type != MediaSegmentType.Intro)
                 .ToList();
         }
 
