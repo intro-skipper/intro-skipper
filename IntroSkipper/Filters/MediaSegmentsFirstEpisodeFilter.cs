@@ -21,23 +21,17 @@ namespace IntroSkipper.Filters;
 /// <summary>
 /// Filters media segment responses to remove intro segments for season premieres.
 /// </summary>
-public sealed class MediaSegmentsFirstEpisodeFilter : IAsyncResultFilter
+/// <remarks>
+/// Initializes a new instance of the <see cref="MediaSegmentsFirstEpisodeFilter"/> class.
+/// </remarks>
+/// <param name="libraryManager">Library manager.</param>
+/// <param name="logger">Logger.</param>
+public sealed class MediaSegmentsFirstEpisodeFilter(
+    ILibraryManager libraryManager,
+    ILogger<MediaSegmentsFirstEpisodeFilter> logger) : IAsyncResultFilter
 {
-    private readonly ILibraryManager _libraryManager;
-    private readonly ILogger<MediaSegmentsFirstEpisodeFilter> _logger;
-
-    /// <summary>
-    /// Initializes a new instance of the <see cref="MediaSegmentsFirstEpisodeFilter"/> class.
-    /// </summary>
-    /// <param name="libraryManager">Library manager.</param>
-    /// <param name="logger">Logger.</param>
-    public MediaSegmentsFirstEpisodeFilter(
-        ILibraryManager libraryManager,
-        ILogger<MediaSegmentsFirstEpisodeFilter> logger)
-    {
-        _libraryManager = libraryManager;
-        _logger = logger;
-    }
+    private readonly ILibraryManager _libraryManager = libraryManager;
+    private readonly ILogger<MediaSegmentsFirstEpisodeFilter> _logger = logger;
 
     /// <inheritdoc />
     public async Task OnResultExecutionAsync(ResultExecutingContext context, ResultExecutionDelegate next)
