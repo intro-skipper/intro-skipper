@@ -176,6 +176,14 @@
                                     <div class="fieldDescription">Allow segments to extend to the end of a chapter when the marker exceeds other user settings, such as percentage or duration.</div>
                                 </div>
 
+                                <div class="checkboxContainer checkboxContainer-withDescription">
+                                    <label class="emby-checkbox-label">
+                                        <input id="SkipFirstEpisode" type="checkbox" is="emby-checkbox" />
+                                        <span>Play Segments for First Episode of a Season</span>
+                                    </label>
+                                    <div class="fieldDescription">If checked, segments for the first episode in a season will not be recorded.</div>
+                                </div>
+
                                 <div class="inputContainer">
                                     <label class="inputLabel inputLabelUnfocused" for="AnalysisPercent"> Percent of media to analyze </label>
                                     <input id="AnalysisPercent" type="number" is="emby-input" min="1" max="90" />
@@ -823,7 +831,7 @@
                         "ChapterAnalyzerCommercialPattern",
                     ];
 
-                    const booleanConfigurationFields = ["AutoDetectIntros", "AnalyzeSeasonZero", "UpdateMediaSegments", "UseAlternativeBlackFrameAnalyzer", "UseChapterMarkersBlackFrame", "FullLengthChapters", "RebuildMediaSegments", "ScanIntroduction", "ScanCredits", "ScanRecap", "ScanPreview", "ScanCommercial", "PreferChromaprint", "SnapToKeyframe", "AdjustIntroBasedOnSilence", "AdjustIntroBasedOnChapters", "UseFileTransformationPlugin"];
+                    const booleanConfigurationFields = ["AutoDetectIntros", "AnalyzeSeasonZero", "UpdateMediaSegments", "UseAlternativeBlackFrameAnalyzer", "UseChapterMarkersBlackFrame", "FullLengthChapters", "SkipFirstEpisode", "RebuildMediaSegments", "ScanIntroduction", "ScanCredits", "ScanRecap", "ScanPreview", "ScanCommercial", "PreferChromaprint", "SnapToKeyframe", "AdjustIntroBasedOnSilence", "AdjustIntroBasedOnChapters", "UseFileTransformationPlugin"];
 
                     // timestamp / maintenance elements
                     const analyzerActionsSection = document.querySelector("div#analyzerActionsSection");

@@ -108,6 +108,11 @@ public class PluginConfiguration : BasePluginConfiguration
     public bool FullLengthChapters { get; set; } = false;
 
     /// <summary>
+    /// Gets or sets a value indicating whether the introduction in the first episode of a season should be ignored.
+    /// </summary>
+    public bool SkipFirstEpisode { get; set; } = false;
+
+    /// <summary>
     /// Gets or sets the minimum length of similar audio that will be considered an introduction.
     /// </summary>
     public int MinimumIntroDuration { get; set; } = 15;
