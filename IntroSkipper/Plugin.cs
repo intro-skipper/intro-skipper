@@ -10,7 +10,6 @@ using System.Threading.Tasks;
 using IntroSkipper.Configuration;
 using IntroSkipper.Data;
 using IntroSkipper.Db;
-using IntroSkipper.Helper;
 using Jellyfin.Database.Implementations.Enums;
 using MediaBrowser.Common.Configuration;
 using MediaBrowser.Common.Plugins;
@@ -18,6 +17,7 @@ using MediaBrowser.Controller.Chapters;
 using MediaBrowser.Controller.Configuration;
 using MediaBrowser.Controller.Entities;
 using MediaBrowser.Controller.Library;
+using MediaBrowser.Controller.MediaEncoding;
 using MediaBrowser.Model.Entities;
 using MediaBrowser.Model.Plugins;
 using MediaBrowser.Model.Serialization;
@@ -34,6 +34,7 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
     private readonly ILibraryManager _libraryManager;
     private readonly IChapterManager _chapterRepository;
     private readonly IPluginManager _pluginManager;
+    private readonly IMediaEncoder _mediaEncoder;
     private readonly ILogger<Plugin> _logger;
     private readonly string _dbPath;
 
@@ -46,6 +47,7 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
     /// <param name="libraryManager">Library manager.</param>
     /// <param name="chapterRepository">Chapter repository.</param>
     /// <param name="pluginManager">Plugin manager.</param>
+    /// <param name="mediaEncoder">Media encoder.</param>
     /// <param name="logger">Logger.</param>
     public Plugin(
         IApplicationPaths applicationPaths,
@@ -54,6 +56,7 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
         ILibraryManager libraryManager,
         IChapterManager chapterRepository,
         IPluginManager pluginManager,
+        IMediaEncoder mediaEncoder,
         ILogger<Plugin> logger)
         : base(applicationPaths, xmlSerializer)
     {
@@ -62,6 +65,7 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
         _libraryManager = libraryManager;
         _chapterRepository = chapterRepository;
         _pluginManager = pluginManager;
+        _mediaEncoder = mediaEncoder;
         _logger = logger;
 
         FFmpegPath = serverConfiguration.GetEncodingOptions().EncoderAppPathDisplay;
@@ -132,6 +136,11 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
     /// Gets the full path to FFmpeg.
     /// </summary>
     public string FFmpegPath { get; private set; }
+
+    /// <summary>
+    /// Gets the full path to FFprobe.
+    /// </summary>
+    public string FFprobePath => _mediaEncoder.ProbePath;
 
     /// <summary>
     /// Gets a value indicating whether the File Transformation plugin is enabled.

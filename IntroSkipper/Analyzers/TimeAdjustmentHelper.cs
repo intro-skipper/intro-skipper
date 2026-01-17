@@ -18,6 +18,7 @@ public class TimeAdjustmentHelper(ILogger logger, PluginConfiguration config)
     private const double Epsilon = 1e-3; // 1 ms tolerance for floating point comparisons
     private readonly ILogger _logger = logger;
     private readonly PluginConfiguration _config = config;
+    private readonly string _ffprobePath = Plugin.Instance?.FFprobePath ?? "ffprobe";
 
     /// <summary>
     /// Adjusts the intro times of an episode and returns a new Segment with the adjusted times.
@@ -63,7 +64,7 @@ public class TimeAdjustmentHelper(ILogger logger, PluginConfiguration config)
             _logger.LogWarning("{EpisodeId} {Name}: Negative intro start {Start}, resetting to 0", episode.EpisodeId, episode.Name, rawStart);
             snapToEpisodeStart = true;
         }
-        else if (rawStart <= _config.EndSnapThreshold + Epsilon)
+        else if (IsWithinThreshold(rawStart, 0, _config.EndSnapThreshold))
         {
             // If the detected start is within threshold of episode start, snap
             snapToEpisodeStart = true;
@@ -94,7 +95,7 @@ public class TimeAdjustmentHelper(ILogger logger, PluginConfiguration config)
 
         double rawEnd = originalIntro.End;
         double adjustedEnd = rawEnd;
-        if (rawEnd >= duration - _config.EndSnapThreshold - Epsilon)
+        if (IsWithinThreshold(duration - rawEnd, 0, _config.EndSnapThreshold))
         {
             adjustedEnd = duration;
         }
@@ -120,7 +121,12 @@ public class TimeAdjustmentHelper(ILogger logger, PluginConfiguration config)
                 }
                 else
                 {
-                    _logger.LogTrace("{EpisodeId} {Name}: No suitable silence found for intro end in range {Start}-{End}", episode.EpisodeId, episode.Name, silenceRange.Start, silenceRange.End);
+                    _logger.LogTrace(
+                        "{EpisodeId} {Name}: No suitable silence found for intro end in range {Start}-{End}",
+                        episode.EpisodeId,
+                        episode.Name,
+                        silenceRange.Start,
+                        silenceRange.End);
                 }
             }
 
@@ -133,7 +139,12 @@ public class TimeAdjustmentHelper(ILogger logger, PluginConfiguration config)
         // Ensure start < end after all adjustments
         if (adjustedStart >= adjustedEnd)
         {
-            _logger.LogWarning("{EpisodeId} {Name}: Adjusted start time {Start} >= end time {End}, reverting to original", episode.EpisodeId, episode.Name, adjustedStart, adjustedEnd);
+            _logger.LogWarning(
+                "{EpisodeId} {Name}: Adjusted start time {Start} >= end time {End}, reverting to original",
+                episode.EpisodeId,
+                episode.Name,
+                adjustedStart,
+                adjustedEnd);
             return new Segment(episode.EpisodeId) { Start = originalIntro.Start, End = originalIntro.End };
         }
 
@@ -157,23 +168,27 @@ public class TimeAdjustmentHelper(ILogger logger, PluginConfiguration config)
     /// </summary>
     private static double GetChapterBoundary(IReadOnlyList<ChapterInfo> chapters, double referenceTime, TimeRange searchRange)
     {
-        // Collect candidate chapter times within the inclusive range
-        var candidates = new List<double>();
+        double bestTime = referenceTime;
+        double minDiff = double.MaxValue;
+        bool found = false;
+
         foreach (var chapter in chapters)
         {
             var chapterTime = TimeSpan.FromTicks(chapter.StartPositionTicks).TotalSeconds;
-            if (chapterTime + Epsilon >= searchRange.Start && chapterTime - Epsilon <= searchRange.End)
+            if (IsInRange(chapterTime, searchRange.Start, searchRange.End))
             {
-                candidates.Add(chapterTime);
+                // Found a candidate in range
+                double diff = Math.Abs(chapterTime - referenceTime);
+                if (diff < minDiff)
+                {
+                    minDiff = diff;
+                    bestTime = chapterTime;
+                    found = true;
+                }
             }
         }
 
-        if (candidates.Count == 0)
-        {
-            return referenceTime;
-        }
-
-        return SelectNearest(candidates, referenceTime);
+        return found ? bestTime : referenceTime;
     }
 
     /// <summary>
@@ -220,27 +235,102 @@ public class TimeAdjustmentHelper(ILogger logger, PluginConfiguration config)
     /// <summary>
     /// Snaps a timestamp to the nearest keyframe within the search range.
     /// </summary>
-    private static double SnapToNearestKeyframe(QueuedEpisode episode, double time, TimeRange searchRange)
+    private double SnapToNearestKeyframe(QueuedEpisode episode, double time, TimeRange searchRange)
     {
-        var keyframes = FFmpegWrapper.DetectKeyFrames(episode, searchRange);
-        return SelectNearest(keyframes, time);
+        if (episode.Duration <= 0 || searchRange.End <= 0 || searchRange.End <= searchRange.Start)
+        {
+            return time;
+        }
+
+        var extractedKeyframes = TryExtractKeyframes(episode);
+        if (extractedKeyframes is not null)
+        {
+            return SelectNearest(extractedKeyframes.Keyframes, time);
+        }
+
+        return time;
     }
 
-    /// <summary>
-    /// Selects the value in candidates nearest to the reference; returns reference if no candidates.
-    /// </summary>
-    private static double SelectNearest(IEnumerable<double> candidates, double reference)
+    private KeyframeData? TryExtractKeyframes(QueuedEpisode episode)
     {
-        double nearest = reference;
-        double best = double.MaxValue;
-
-        foreach (var v in candidates)
+        if (episode.Path.EndsWith(".mkv", StringComparison.OrdinalIgnoreCase))
         {
-            double d = Math.Abs(v - reference);
-            if (d < best)
+            var matroska = TryExtractKeyframes(episode.Path, () => new MkvKeyframeExtractor());
+            if (matroska?.Keyframes.Count > 0)
             {
-                best = d;
-                nearest = v;
+                _logger.LogDebug("{EpisodeId} Extracted {Count} keyframes from MKV", episode.EpisodeId, matroska.Keyframes.Count);
+                return matroska;
+            }
+        }
+
+        return TryExtractKeyframes(episode.Path, () => new FfprobeKeyframeExtractor(_ffprobePath, _logger));
+    }
+
+    private IntroSkipper.Data.KeyframeData? TryExtractKeyframes(
+        string episodePath,
+        Func<IKeyframeExtractor> extractor)
+    {
+        try
+        {
+            return extractor().GetKeyframeData(episodePath);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "{EpisodePath}: Failed to extract keyframes", episodePath);
+            return null;
+        }
+    }
+
+    private static double SelectNearest(IReadOnlyList<double> times, double reference)
+    {
+        if (times.Count == 0)
+        {
+            return reference;
+        }
+
+        int left = 0;
+        int right = times.Count - 1;
+
+        // Binary search for the closest value
+        while (left < right)
+        {
+            int mid = left + ((right - left) / 2);
+
+            if (times[mid] == reference)
+            {
+                return times[mid];
+            }
+
+            if (times[mid] < reference)
+            {
+                left = mid + 1;
+            }
+            else
+            {
+                right = mid;
+            }
+        }
+
+        // At this point, left == right, check neighbors for nearest
+        var nearest = times[left];
+        var bestDiff = Math.Abs(times[left] - reference);
+
+        if (left > 0)
+        {
+            var prevDiff = Math.Abs(times[left - 1] - reference);
+            if (prevDiff < bestDiff)
+            {
+                nearest = times[left - 1];
+                bestDiff = prevDiff;
+            }
+        }
+
+        if (left < times.Count - 1)
+        {
+            var nextDiff = Math.Abs(times[left + 1] - reference);
+            if (nextDiff < bestDiff)
+            {
+                nearest = times[left + 1];
             }
         }
 
@@ -255,4 +345,16 @@ public class TimeAdjustmentHelper(ILogger logger, PluginConfiguration config)
             Math.Max(time - windowStart, 0),
             Math.Min(time + windowEnd, duration)
         );
+
+    /// <summary>
+    /// Checks if a value is within a threshold of a target, accounting for floating point precision.
+    /// </summary>
+    private static bool IsWithinThreshold(double value, double target, double threshold) =>
+        value <= target + threshold + Epsilon;
+
+    /// <summary>
+    /// Checks if a value is within a range, accounting for floating point precision.
+    /// </summary>
+    private static bool IsInRange(double value, double rangeStart, double rangeEnd) =>
+        value + Epsilon >= rangeStart && value - Epsilon <= rangeEnd;
 }
