@@ -1,17 +1,21 @@
+// Copyright (C) 2026 Intro-Skipper contributors <intro-skipper.org>
+// SPDX-License-Identifier: GPL-3.0-only
+
 using System;
 using System.Collections.Generic;
 using System.IO;
-using IntroSkipper.Data;
+using Jellyfin.MediaEncoding.Keyframes;
 using NEbml.Core;
 
 namespace IntroSkipper.Analyzers;
 
 /// <summary>
 /// Extracts keyframe data from MKV files by parsing EBML structure.
-/// MKV files store timestamps in units of TimestampScale nanoseconds, which are converted to seconds.
+/// MKV files store timestamps in units of TimestampScale nanoseconds, which are converted to .NET ticks.
 /// </summary>
 /// <remarks>
-/// This implementation directly parses the MKV container format to extract.
+/// This implementation directly parses the MKV container format to extract keyframe positions.
+/// Timestamps are converted from MKV's TimestampScale units to .NET ticks (1 tick = 100 nanoseconds).
 /// </remarks>
 public class MkvKeyframeExtractor : IKeyframeExtractor
 {
@@ -19,7 +23,7 @@ public class MkvKeyframeExtractor : IKeyframeExtractor
     /// Extracts keyframe data from an MKV file.
     /// </summary>
     /// <param name="filePath">Path to the MKV file.</param>
-    /// <returns>KeyframeData with duration and keyframes in seconds.</returns>
+    /// <returns>KeyframeData with duration and keyframes in ticks (1 tick = 100 nanoseconds).</returns>
     /// <exception cref="FileNotFoundException">Thrown when the file does not exist or cannot be accessed.</exception>
     /// <exception cref="InvalidDataException">Thrown when the EBML structure is invalid or corrupted.</exception>
     public KeyframeData GetKeyframeData(string filePath)
@@ -42,10 +46,10 @@ public class MkvKeyframeExtractor : IKeyframeExtractor
 
             // Default values
             long timestampScale = 1_000_000; // Default: 1ms per unit (1,000,000 nanoseconds)
-            double duration = 0.0;
+            long durationTicks = 0L;
 
             // Pre-allocate list with typical capacity
-            var keyframes = new List<double>(capacity: 2000);
+            var keyframes = new List<long>(capacity: 2000);
             bool foundInfo = false;
             bool foundCues = false;
 
@@ -81,8 +85,10 @@ public class MkvKeyframeExtractor : IKeyframeExtractor
                         {
                             var rawDuration = reader.ReadFloat();
 
-                            // MKV duration is in TimestampScale units, convert to seconds
-                            duration = (rawDuration * timestampScale) / 1_000_000_000.0;
+                            // MKV duration is in TimestampScale units, convert to ticks
+                            // Pre-calculate: ticksPerUnit = timestampScale / 100
+                            long ticksPerUnit = timestampScale / 100;
+                            durationTicks = (long)(rawDuration * ticksPerUnit);
                         }
                     }
 
@@ -99,7 +105,11 @@ public class MkvKeyframeExtractor : IKeyframeExtractor
                 // Cues section (0x1C53BB6B) - contains keyframe positions
                 else if (elementId == 0x1C53BB6B)
                 {
-                    double conversionFactor = timestampScale / 1_000_000_000.0;
+                    // Pre-calculate tick multiplier for this file's TimestampScale
+                    // Common case: timestampScale=1,000,000 (1ms) → ticksPerUnit=10,000
+                    // Formula: (timestampScale nanoseconds) / (100 nanoseconds per tick) = ticks per unit
+                    long ticksPerUnit = timestampScale / 100;
+
                     reader.EnterContainer();
                     while (reader.ReadNext())
                     {
@@ -115,8 +125,9 @@ public class MkvKeyframeExtractor : IKeyframeExtractor
                                 if (cuePointElementId == 0xB3)
                                 {
                                     var cueTime = reader.ReadUInt();
-                                    var keyframeSeconds = (long)cueTime * conversionFactor;
-                                    keyframes.Add(keyframeSeconds);
+                                    // Convert MKV timestamp to ticks using pre-calculated multiplier
+                                    var keyframeTicks = (long)cueTime * ticksPerUnit;
+                                    keyframes.Add(keyframeTicks);
                                 }
                             }
 
@@ -136,7 +147,7 @@ public class MkvKeyframeExtractor : IKeyframeExtractor
             }
 
             keyframes.Sort();
-            return new KeyframeData(duration, keyframes);
+            return new KeyframeData(durationTicks, keyframes);
         }
         catch (FileNotFoundException)
         {
@@ -155,18 +166,20 @@ public class MkvKeyframeExtractor : IKeyframeExtractor
     }
 
     /// <summary>
-    /// Converts MKV timestamp (in TimestampScale units) to seconds.
+    /// Calculates the tick multiplier for a given TimestampScale.
     /// </summary>
-    /// <param name="timestamp">Raw MKV timestamp value in TimestampScale units.</param>
     /// <param name="timestampScale">TimestampScale from MKV Info section (default: 1,000,000 nanoseconds).</param>
-    /// <returns>Timestamp in seconds.</returns>
+    /// <returns>Number of ticks per TimestampScale unit.</returns>
     /// <remarks>
     /// MKV timestamps are stored in units of TimestampScale nanoseconds.
-    /// The conversion formula is: seconds = (timestamp × timestampScale) / 1,000,000,000.
-    /// Example: timestamp=5000, timestampScale=1,000,000 → 5.0 seconds.
+    /// The conversion formula is: ticksPerUnit = timestampScale / 100.
+    /// Common values:
+    /// - timestampScale=1,000,000 (1ms) → 10,000 ticks per unit.
+    /// - timestampScale=1,000 (1μs) → 10 ticks per unit.
+    /// - timestampScale=1,000,000,000 (1s) → 10,000,000 ticks per unit.
     /// </remarks>
     /// <exception cref="ArgumentException">Thrown when timestampScale is zero or negative.</exception>
-    private static double ScaleToSeconds(long timestamp, long timestampScale)
+    private static long CalculateTicksPerUnit(long timestampScale)
     {
         if (timestampScale <= 0)
         {
@@ -175,8 +188,7 @@ public class MkvKeyframeExtractor : IKeyframeExtractor
                 nameof(timestampScale));
         }
 
-        // MKV timestamps are in units of TimestampScale nanoseconds
-        // Convert to seconds: (timestamp × timestampScale) / 1,000,000,000
-        return (timestamp * timestampScale) / 1_000_000_000.0;
+        // Convert nanoseconds to ticks: 1 tick = 100 nanoseconds
+        return timestampScale / 100;
     }
 }

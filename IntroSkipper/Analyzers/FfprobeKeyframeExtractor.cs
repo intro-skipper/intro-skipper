@@ -6,14 +6,14 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.Globalization;
 using System.IO;
-using IntroSkipper.Data;
+using Jellyfin.MediaEncoding.Keyframes;
 using Microsoft.Extensions.Logging;
 
 namespace IntroSkipper.Analyzers;
 
 /// <summary>
 /// Extracts keyframe data using ffprobe for universal format support.
-/// FFprobe outputs timestamps in seconds (pts_time field), so no conversion is needed.
+/// FFprobe outputs timestamps in seconds (pts_time field), which are converted to .NET ticks.
 /// </summary>
 /// <remarks>
 /// Initializes a new instance of the <see cref="FfprobeKeyframeExtractor"/> class.
@@ -29,7 +29,7 @@ public class FfprobeKeyframeExtractor(string ffProbePath, ILogger logger) : IKey
     /// Extracts keyframe data from a video file using ffprobe.
     /// </summary>
     /// <param name="filePath">Path to the video file.</param>
-    /// <returns>KeyframeData with duration and keyframes in seconds.</returns>
+    /// <returns>KeyframeData with duration and keyframes in ticks (1 tick = 100 nanoseconds).</returns>
     /// <exception cref="FileNotFoundException">Thrown when the file or ffprobe executable does not exist.</exception>
     /// <exception cref="InvalidOperationException">Thrown when ffprobe execution fails or returns invalid data.</exception>
     public KeyframeData GetKeyframeData(string filePath)
@@ -71,20 +71,20 @@ public class FfprobeKeyframeExtractor(string ffProbePath, ILogger logger) : IKey
     /// Prioritizes stream duration over format duration when both are available.
     /// </summary>
     /// <param name="filePath">Path to the video file.</param>
-    /// <returns>Duration in seconds.</returns>
-    private double ExtractDuration(string filePath)
+    /// <returns>Duration in ticks (1 tick = 100 nanoseconds).</returns>
+    private long ExtractDuration(string filePath)
     {
-        // Try stream duration first (prioritized per requirement 2.3)
         try
         {
             var streamDuration = ExecuteFfprobe(
                 $"-v error -show_entries stream=duration -select_streams v:0 -of csv=p=0 \"{filePath}\"");
 
             if (!string.IsNullOrWhiteSpace(streamDuration) &&
-                double.TryParse(streamDuration.Trim(), NumberStyles.Float, CultureInfo.InvariantCulture, out var streamDurationValue))
+                double.TryParse(streamDuration.Trim(), NumberStyles.Float, CultureInfo.InvariantCulture, out var streamDurationSeconds))
             {
-                _logger.LogDebug("Extracted stream duration: {Duration}s from {File}", streamDurationValue, filePath);
-                return streamDurationValue;
+                var durationTicks = TimeSpan.FromSeconds(streamDurationSeconds).Ticks;
+                _logger.LogDebug("Extracted stream duration: {Duration}s ({Ticks} ticks) from {File}", streamDurationSeconds, durationTicks, filePath);
+                return durationTicks;
             }
         }
         catch (Exception ex)
@@ -99,10 +99,11 @@ public class FfprobeKeyframeExtractor(string ffProbePath, ILogger logger) : IKey
                 $"-v error -show_entries format=duration -of csv=p=0 \"{filePath}\"");
 
             if (!string.IsNullOrWhiteSpace(formatDuration) &&
-                double.TryParse(formatDuration.Trim(), NumberStyles.Float, CultureInfo.InvariantCulture, out var formatDurationValue))
+                double.TryParse(formatDuration.Trim(), NumberStyles.Float, CultureInfo.InvariantCulture, out var formatDurationSeconds))
             {
-                _logger.LogDebug("Extracted format duration: {Duration}s from {File}", formatDurationValue, filePath);
-                return formatDurationValue;
+                var durationTicks = TimeSpan.FromSeconds(formatDurationSeconds).Ticks;
+                _logger.LogDebug("Extracted format duration: {Duration}s ({Ticks} ticks) from {File}", formatDurationSeconds, durationTicks, filePath);
+                return durationTicks;
             }
         }
         catch (Exception ex)
@@ -174,8 +175,8 @@ public class FfprobeKeyframeExtractor(string ffProbePath, ILogger logger) : IKey
     /// Extracts keyframe timestamps from a video file using ffprobe.
     /// </summary>
     /// <param name="filePath">Path to the video file.</param>
-    /// <returns>List of keyframe timestamps in seconds.</returns>
-    private List<double> ExtractKeyframes(string filePath)
+    /// <returns>List of keyframe timestamps in ticks (1 tick = 100 nanoseconds).</returns>
+    private List<long> ExtractKeyframes(string filePath)
     {
         Process? process = null;
         try
@@ -238,13 +239,13 @@ public class FfprobeKeyframeExtractor(string ffProbePath, ILogger logger) : IKey
 
     /// <summary>
     /// Parses ffprobe CSV output to extract keyframe timestamps.
-    /// FFprobe already outputs timestamps in seconds (pts_time field).
+    /// FFprobe outputs timestamps in seconds (pts_time field), which are converted to ticks.
     /// </summary>
     /// <param name="stream">Stream containing CSV data.</param>
-    /// <returns>List of keyframe timestamps in seconds.</returns>
-    private List<double> ParseStream(Stream stream)
+    /// <returns>List of keyframe timestamps in ticks (1 tick = 100 nanoseconds).</returns>
+    private List<long> ParseStream(Stream stream)
     {
-        var keyframes = new List<double>();
+        var keyframes = new List<long>();
 
         using var reader = new StreamReader(stream);
         string? line;
@@ -272,10 +273,11 @@ public class FfprobeKeyframeExtractor(string ffProbePath, ILogger logger) : IKey
             // Check if this packet is a keyframe (flags contains "K_")
             if (flags.Contains("K_", StringComparison.Ordinal))
             {
-                // Parse pts_time as double (already in seconds, no conversion needed)
-                if (double.TryParse(ptsTime, NumberStyles.Float, CultureInfo.InvariantCulture, out var timestamp))
+                // Parse pts_time as double (in seconds), then convert to ticks
+                if (double.TryParse(ptsTime, NumberStyles.Float, CultureInfo.InvariantCulture, out var timestampSeconds))
                 {
-                    keyframes.Add(timestamp);
+                    var timestampTicks = TimeSpan.FromSeconds(timestampSeconds).Ticks;
+                    keyframes.Add(timestampTicks);
                 }
                 else
                 {
@@ -286,7 +288,6 @@ public class FfprobeKeyframeExtractor(string ffProbePath, ILogger logger) : IKey
 
         // Sort keyframes in ascending order
         keyframes.Sort();
-
         return keyframes;
     }
 }

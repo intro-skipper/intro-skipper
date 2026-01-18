@@ -6,11 +6,13 @@ using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Threading;
 using System.Threading.Tasks;
 using IntroSkipper.Configuration;
 using IntroSkipper.Data;
 using IntroSkipper.Db;
 using Jellyfin.Database.Implementations.Enums;
+using Jellyfin.MediaEncoding.Keyframes;
 using MediaBrowser.Common.Configuration;
 using MediaBrowser.Common.Plugins;
 using MediaBrowser.Controller.Chapters;
@@ -18,6 +20,7 @@ using MediaBrowser.Controller.Configuration;
 using MediaBrowser.Controller.Entities;
 using MediaBrowser.Controller.Library;
 using MediaBrowser.Controller.MediaEncoding;
+using MediaBrowser.Controller.Persistence;
 using MediaBrowser.Model.Entities;
 using MediaBrowser.Model.Plugins;
 using MediaBrowser.Model.Serialization;
@@ -34,6 +37,7 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
     private readonly ILibraryManager _libraryManager;
     private readonly IChapterManager _chapterRepository;
     private readonly IPluginManager _pluginManager;
+    private readonly IKeyframeRepository _keyframeRepository;
     private readonly IMediaEncoder _mediaEncoder;
     private readonly ILogger<Plugin> _logger;
     private readonly string _dbPath;
@@ -47,6 +51,7 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
     /// <param name="libraryManager">Library manager.</param>
     /// <param name="chapterRepository">Chapter repository.</param>
     /// <param name="pluginManager">Plugin manager.</param>
+    /// <param name="keyframeRepository">Keframe Repository.</param>
     /// <param name="mediaEncoder">Media encoder.</param>
     /// <param name="logger">Logger.</param>
     public Plugin(
@@ -56,6 +61,7 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
         ILibraryManager libraryManager,
         IChapterManager chapterRepository,
         IPluginManager pluginManager,
+        IKeyframeRepository keyframeRepository,
         IMediaEncoder mediaEncoder,
         ILogger<Plugin> logger)
         : base(applicationPaths, xmlSerializer)
@@ -65,6 +71,7 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
         _libraryManager = libraryManager;
         _chapterRepository = chapterRepository;
         _pluginManager = pluginManager;
+        _keyframeRepository = keyframeRepository;
         _mediaEncoder = mediaEncoder;
         _logger = logger;
 
@@ -179,6 +186,24 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
     internal string GetItemPath(Guid id) => GetItem(id) is var item && item is not null ? item.Path : string.Empty;
 
     internal IReadOnlyList<ChapterInfo> GetChapters(Guid id) => _chapterRepository.GetChapters(id);
+
+    // internal IReadOnlyList<KeyframeData> GetKeyframeData(Guid id) => (IReadOnlyList<KeyframeData>)_keyframeRepository.GetKeyframeData(id);
+
+    // internal async Task SaveKeyframeDataAsync(Guid id, KeyframeData keyframes, CancellationToken cancellationToken) =>
+    //                         await _keyframeRepository.SaveKeyframeDataAsync(id, keyframes, cancellationToken).ConfigureAwait(false);
+
+    internal IReadOnlyList<KeyframeData> GetKeyframeData(Guid id)
+    {
+        var method = _keyframeRepository.GetType().GetMethod("GetKeyframeData");
+        var result = method?.Invoke(_keyframeRepository, [id]);
+        return result as IReadOnlyList<KeyframeData> ?? [];
+    }
+
+    internal void SaveKeyframeData(Guid id, KeyframeData keyframes, CancellationToken cancellationToken)
+    {
+        var method = _keyframeRepository.GetType().GetMethod("SaveKeyframeDataAsync");
+        method?.Invoke(_keyframeRepository, [id, keyframes, cancellationToken]);
+    }
 
     internal async Task UpdateTimestampAsync(Segment segment, AnalysisMode mode)
     {

@@ -7,6 +7,7 @@ using System;
 using System.IO;
 using IntroSkipper.Analyzers;
 using IntroSkipper.Data;
+using Jellyfin.MediaEncoding.Keyframes;
 using Microsoft.Extensions.Logging;
 using Xunit;
 
@@ -23,13 +24,15 @@ public class TestKeyframeExtraction
         Assert.NotNull(result);
 
         // Rainbow.mp4 is approximately 10 seconds
-        Assert.InRange(result.Duration, 9.5, 10.5);
+        var durationSeconds = TimeSpan.FromTicks(result.TotalDuration).TotalSeconds;
+        Assert.InRange(durationSeconds, 9.5, 10.5);
 
         // Should have multiple keyframes
-        Assert.True(result.Keyframes.Count >= 3, $"Expected at least 3 keyframes, got {result.Keyframes.Count}");
+        Assert.True(result.KeyframeTicks.Count >= 3, $"Expected at least 3 keyframes, got {result.KeyframeTicks.Count}");
 
-        // First keyframe should be at or near start
-        Assert.InRange(result.Keyframes[0], 0, 0.1);
+        // First keyframe should be at or near start (within 0.1 seconds = 1,000,000 ticks)
+        var firstKeyframeSeconds = TimeSpan.FromTicks(result.KeyframeTicks[0]).TotalSeconds;
+        Assert.InRange(firstKeyframeSeconds, 0, 0.1);
 
         // Verify keyframes are sorted and within bounds
         VerifyKeyframesSortedAndValid(result);
@@ -46,13 +49,15 @@ public class TestKeyframeExtraction
         Assert.NotNull(result);
 
         // Credits.mp4 is approximately 5 minutes 30 seconds (330 seconds)
-        Assert.InRange(result.Duration, 325, 335);
+        var durationSeconds = TimeSpan.FromTicks(result.TotalDuration).TotalSeconds;
+        Assert.InRange(durationSeconds, 325, 335);
 
         // Should have many keyframes for a 5+ minute video
-        Assert.True(result.Keyframes.Count >= 10, $"Expected at least 10 keyframes, got {result.Keyframes.Count}");
+        Assert.True(result.KeyframeTicks.Count >= 10, $"Expected at least 10 keyframes, got {result.KeyframeTicks.Count}");
 
-        // First keyframe should be at or near start
-        Assert.InRange(result.Keyframes[0], 0, 0.1);
+        // First keyframe should be at or near start (within 0.1 seconds)
+        var firstKeyframeSeconds = TimeSpan.FromTicks(result.KeyframeTicks[0]).TotalSeconds;
+        Assert.InRange(firstKeyframeSeconds, 0, 0.1);
 
         // Verify keyframes are sorted and within bounds
         VerifyKeyframesSortedAndValid(result);
@@ -69,13 +74,15 @@ public class TestKeyframeExtraction
         Assert.NotNull(result);
 
         // Credits.mkv is approximately 5 minutes 30 seconds (330 seconds)
-        Assert.InRange(result.Duration, 325, 335);
+        var durationSeconds = TimeSpan.FromTicks(result.TotalDuration).TotalSeconds;
+        Assert.InRange(durationSeconds, 325, 335);
 
         // Should have many keyframes
-        Assert.True(result.Keyframes.Count >= 10, $"Expected at least 10 keyframes, got {result.Keyframes.Count}");
+        Assert.True(result.KeyframeTicks.Count >= 10, $"Expected at least 10 keyframes, got {result.KeyframeTicks.Count}");
 
-        // First keyframe should be at or near start
-        Assert.InRange(result.Keyframes[0], 0, 0.1);
+        // First keyframe should be at or near start (within 0.1 seconds)
+        var firstKeyframeSeconds = TimeSpan.FromTicks(result.KeyframeTicks[0]).TotalSeconds;
+        Assert.InRange(firstKeyframeSeconds, 0, 0.1);
 
         // Verify keyframes are sorted and within bounds
         VerifyKeyframesSortedAndValid(result);
@@ -93,16 +100,18 @@ public class TestKeyframeExtraction
 
         // MKV parser should extract duration (may vary slightly from ffprobe)
         // Credits.mkv is approximately 5 minutes 30 seconds
-        if (result.Duration > 0)
+        if (result.TotalDuration > 0)
         {
-            Assert.InRange(result.Duration, 320, 340);
+            var durationSeconds = TimeSpan.FromTicks(result.TotalDuration).TotalSeconds;
+            Assert.InRange(durationSeconds, 320, 340);
         }
 
         // If keyframes exist, verify they are valid
-        if (result.Keyframes.Count > 0)
+        if (result.KeyframeTicks.Count > 0)
         {
-            // First keyframe should be at or near start
-            Assert.InRange(result.Keyframes[0], 0, 0.1);
+            // First keyframe should be at or near start (within 0.1 seconds)
+            var firstKeyframeSeconds = TimeSpan.FromTicks(result.KeyframeTicks[0]).TotalSeconds;
+            Assert.InRange(firstKeyframeSeconds, 0, 0.1);
 
             // Verify keyframes are sorted and within bounds
             VerifyKeyframesSortedAndValid(result);
@@ -120,64 +129,72 @@ public class TestKeyframeExtraction
         var mkvResult = mkvExtractor.GetKeyframeData(episode.Path);
 
         // Ffprobe should always find keyframes
-        Assert.NotEmpty(ffprobeResult.Keyframes);
+        Assert.NotEmpty(ffprobeResult.KeyframeTicks);
 
         // Duration comparison - if both extracted duration
-        if (mkvResult.Duration > 0 && ffprobeResult.Duration > 0)
+        if (mkvResult.TotalDuration > 0 && ffprobeResult.TotalDuration > 0)
         {
-            var durationDiff = Math.Abs(ffprobeResult.Duration - mkvResult.Duration);
-            var tolerance = Math.Max(1.0, ffprobeResult.Duration * 0.1);
+            var ffprobeDurationSeconds = TimeSpan.FromTicks(ffprobeResult.TotalDuration).TotalSeconds;
+            var mkvDurationSeconds = TimeSpan.FromTicks(mkvResult.TotalDuration).TotalSeconds;
+            var durationDiff = Math.Abs(ffprobeDurationSeconds - mkvDurationSeconds);
+            var tolerance = Math.Max(1.0, ffprobeDurationSeconds * 0.1);
             Assert.True(durationDiff <= tolerance,
-                $"Duration difference too large: ffprobe={ffprobeResult.Duration}s, mkv={mkvResult.Duration}s, diff={durationDiff}s");
+                $"Duration difference too large: ffprobe={ffprobeDurationSeconds}s, mkv={mkvDurationSeconds}s, diff={durationDiff}s");
         }
 
         // Keyframe count comparison - if MKV extractor found keyframes
-        if (mkvResult.Keyframes.Count > 0)
+        if (mkvResult.KeyframeTicks.Count > 0)
         {
             // Counts might differ due to parsing differences, but should be similar (within 20%)
-            var countRatio = (double)Math.Min(ffprobeResult.Keyframes.Count, mkvResult.Keyframes.Count) /
-                            Math.Max(ffprobeResult.Keyframes.Count, mkvResult.Keyframes.Count);
+            var countRatio = (double)Math.Min(ffprobeResult.KeyframeTicks.Count, mkvResult.KeyframeTicks.Count) /
+                            Math.Max(ffprobeResult.KeyframeTicks.Count, mkvResult.KeyframeTicks.Count);
             Assert.True(countRatio > 0.8,
-                $"Keyframe counts should be similar: ffprobe={ffprobeResult.Keyframes.Count}, mkv={mkvResult.Keyframes.Count}");
+                $"Keyframe counts should be similar: ffprobe={ffprobeResult.KeyframeTicks.Count}, mkv={mkvResult.KeyframeTicks.Count}");
         }
     }
 
     [FactSkipFFmpegTests]
-    public void TestFfprobeExtractor_KeyframeTimestampsInSeconds()
+    public void TestFfprobeExtractor_KeyframeTimestampsInTicks()
     {
         var extractor = CreateFfprobeExtractor();
         var episode = QueueFile("rainbow.mp4");
 
         var result = extractor.GetKeyframeData(episode.Path);
 
-        // Verify timestamps are in seconds (not milliseconds or other units)
-        // For a ~10 second video, duration should be around 10, not 10000
-        Assert.InRange(result.Duration, 1, 100);
+        // Verify timestamps are in ticks (not seconds or milliseconds)
+        // For a ~10 second video, duration in ticks should be around 100,000,000 (10 * 10,000,000)
+        var durationSeconds = TimeSpan.FromTicks(result.TotalDuration).TotalSeconds;
+        Assert.InRange(durationSeconds, 1, 100);
 
-        foreach (var keyframe in result.Keyframes)
+        // Verify each keyframe is in ticks and within reasonable range
+        foreach (var keyframeTicks in result.KeyframeTicks)
         {
-            Assert.InRange(keyframe, 0, 100);
+            var keyframeSeconds = TimeSpan.FromTicks(keyframeTicks).TotalSeconds;
+            Assert.InRange(keyframeSeconds, 0, 100);
         }
     }
 
     [FactSkipFFmpegTests]
-    public void TestMkvExtractor_KeyframeTimestampsInSeconds()
+    public void TestMkvExtractor_KeyframeTimestampsInTicks()
     {
         var extractor = new MkvKeyframeExtractor();
         var episode = QueueFile("credits.mkv");
 
         var result = extractor.GetKeyframeData(episode.Path);
 
-        // Verify timestamps are in seconds
-        // For a ~330 second video, duration should be around 330, not 330000
-        if (result.Duration > 0)
+        // Verify timestamps are in ticks (not seconds or milliseconds)
+        // For a ~330 second video, duration in ticks should be around 3,300,000,000
+        if (result.TotalDuration > 0)
         {
-            Assert.InRange(result.Duration, 1, 1000);
+            var durationSeconds = TimeSpan.FromTicks(result.TotalDuration).TotalSeconds;
+            Assert.InRange(durationSeconds, 1, 1000);
         }
 
-        foreach (var keyframe in result.Keyframes)
+        // Verify each keyframe is in ticks and within reasonable range
+        foreach (var keyframeTicks in result.KeyframeTicks)
         {
-            Assert.InRange(keyframe, 0, 1000);
+            var keyframeSeconds = TimeSpan.FromTicks(keyframeTicks).TotalSeconds;
+            Assert.InRange(keyframeSeconds, 0, 1000);
         }
     }
 
@@ -247,8 +264,8 @@ public class TestKeyframeExtraction
 
         var result = extractor.GetKeyframeData(episode.Path);
 
-        // Verify that Keyframes is read-only
-        Assert.IsAssignableFrom<System.Collections.Generic.IReadOnlyList<double>>(result.Keyframes);
+        // Verify that KeyframeTicks is read-only (IReadOnlyList<long>)
+        Assert.IsType<System.Collections.Generic.IReadOnlyList<long>>(result.KeyframeTicks, exactMatch: false);
     }
 
     private static QueuedEpisode QueueFile(string path)
@@ -264,21 +281,21 @@ public class TestKeyframeExtraction
     private static void VerifyKeyframesSortedAndValid(KeyframeData data)
     {
         // Verify keyframes are sorted
-        for (int i = 1; i < data.Keyframes.Count; i++)
+        for (int i = 1; i < data.KeyframeTicks.Count; i++)
         {
-            Assert.True(data.Keyframes[i] >= data.Keyframes[i - 1],
-                $"Keyframes should be sorted: keyframe[{i - 1}]={data.Keyframes[i - 1]} > keyframe[{i}]={data.Keyframes[i]}");
+            Assert.True(data.KeyframeTicks[i] >= data.KeyframeTicks[i - 1],
+                $"Keyframes should be sorted: keyframe[{i - 1}]={data.KeyframeTicks[i - 1]} ticks > keyframe[{i}]={data.KeyframeTicks[i]} ticks");
         }
 
         // Verify all keyframes are non-negative and within duration
-        foreach (var keyframe in data.Keyframes)
+        foreach (var keyframeTicks in data.KeyframeTicks)
         {
-            Assert.True(keyframe >= 0, $"Keyframe {keyframe} should be non-negative");
+            Assert.True(keyframeTicks >= 0, $"Keyframe {keyframeTicks} ticks should be non-negative");
 
-            if (data.Duration > 0)
+            if (data.TotalDuration > 0)
             {
-                Assert.True(keyframe <= data.Duration,
-                    $"Keyframe {keyframe} should not exceed duration {data.Duration}");
+                Assert.True(keyframeTicks <= data.TotalDuration,
+                    $"Keyframe {keyframeTicks} ticks should not exceed duration {data.TotalDuration} ticks");
             }
         }
     }

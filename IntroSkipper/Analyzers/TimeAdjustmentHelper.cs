@@ -3,8 +3,11 @@
 
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
+using System.Threading;
 using IntroSkipper.Configuration;
 using IntroSkipper.Data;
+using Jellyfin.MediaEncoding.Keyframes;
 using MediaBrowser.Model.Entities;
 using Microsoft.Extensions.Logging;
 
@@ -132,6 +135,7 @@ public class TimeAdjustmentHelper(ILogger logger, PluginConfiguration config)
 
             if (_config.SnapToKeyframe)
             {
+                _logger.LogInformation("Keyframesnapping");
                 adjustedEnd = SnapToNearestKeyframe(episode, adjustedEnd, silenceRange);
             }
         }
@@ -242,10 +246,29 @@ public class TimeAdjustmentHelper(ILogger logger, PluginConfiguration config)
             return time;
         }
 
-        var extractedKeyframes = TryExtractKeyframes(episode);
+        var stopwatch = Stopwatch.StartNew();
+
+        // Try to get cached keyframe data from repository, otherwise extract from file
+        var cachedKeyframes = Plugin.Instance?.GetKeyframeData(episode.EpisodeId);
+        KeyframeData? extractedKeyframes = cachedKeyframes is { Count: > 0 } ? cachedKeyframes[0] : TryExtractKeyframes(episode);
+
+        stopwatch.Stop();
+
+        _logger.LogInformation(
+            "{EpisodeId} {Name}: Keyframe extraction took {ElapsedMs}ms and found {Count} keyframes",
+            episode.EpisodeId,
+            episode.Name,
+            stopwatch.ElapsedMilliseconds,
+            extractedKeyframes?.KeyframeTicks.Count ?? 0);
+
         if (extractedKeyframes is not null)
         {
-            return SelectNearest(extractedKeyframes.Keyframes, time);
+            // Convert time from seconds to ticks for comparison
+            long timeTicks = TimeSpan.FromSeconds(time).Ticks;
+            long nearestTicks = SelectNearestTicks(extractedKeyframes.KeyframeTicks, timeTicks);
+
+            // Convert back to seconds
+            return TimeSpan.FromTicks(nearestTicks).TotalSeconds;
         }
 
         return time;
@@ -253,20 +276,44 @@ public class TimeAdjustmentHelper(ILogger logger, PluginConfiguration config)
 
     private KeyframeData? TryExtractKeyframes(QueuedEpisode episode)
     {
-        if (episode.Path.EndsWith(".mkv", StringComparison.OrdinalIgnoreCase))
+        var path = episode.Path;
+        var id = episode.EpisodeId;
+        KeyframeData? data = null;
+
+        // Try MKV-specific extraction first for .mkv files (faster)
+        if (path.EndsWith(".mkv", StringComparison.OrdinalIgnoreCase))
         {
-            var matroska = TryExtractKeyframes(episode.Path, () => new MkvKeyframeExtractor());
-            if (matroska?.Keyframes.Count > 0)
+            data = TryExtractKeyframes(path, static () => new MkvKeyframeExtractor());
+
+            if (data?.KeyframeTicks.Count is > 0)
             {
-                _logger.LogDebug("{EpisodeId} Extracted {Count} keyframes from MKV", episode.EpisodeId, matroska.Keyframes.Count);
-                return matroska;
+                _logger.LogInformation("{EpisodeId}: MKV extraction successful", id);
+            }
+            else
+            {
+                _logger.LogDebug("{EpisodeId}: MKV extraction returned no keyframes, falling back to ffprobe", id);
+                data = null;
             }
         }
 
-        return TryExtractKeyframes(episode.Path, () => new FfprobeKeyframeExtractor(_ffprobePath, _logger));
+        // Fall back to ffprobe if MKV extraction failed or for non-MKV files
+        data ??= TryExtractKeyframes(path, () => new FfprobeKeyframeExtractor(_ffprobePath, _logger));
+
+        if (data is null)
+        {
+            _logger.LogWarning("{EpisodeId}: Failed to extract keyframes", id);
+            return null;
+        }
+
+        _logger.LogInformation("{EpisodeId}: Extracted {Count} keyframes", id, data.KeyframeTicks.Count);
+
+        // Save to cache
+        Plugin.Instance!.SaveKeyframeData(id, data, CancellationToken.None);
+
+        return data;
     }
 
-    private IntroSkipper.Data.KeyframeData? TryExtractKeyframes(
+    private KeyframeData? TryExtractKeyframes(
         string episodePath,
         Func<IKeyframeExtractor> extractor)
     {
@@ -281,27 +328,33 @@ public class TimeAdjustmentHelper(ILogger logger, PluginConfiguration config)
         }
     }
 
-    private static double SelectNearest(IReadOnlyList<double> times, double reference)
+    /// <summary>
+    /// Finds the nearest tick value to a reference tick using binary search.
+    /// </summary>
+    /// <param name="ticks">Sorted list of tick values.</param>
+    /// <param name="referenceTicks">Reference tick value to find nearest to.</param>
+    /// <returns>The nearest tick value from the list.</returns>
+    private static long SelectNearestTicks(IReadOnlyList<long> ticks, long referenceTicks)
     {
-        if (times.Count == 0)
+        if (ticks.Count == 0)
         {
-            return reference;
+            return referenceTicks;
         }
 
         int left = 0;
-        int right = times.Count - 1;
+        int right = ticks.Count - 1;
 
         // Binary search for the closest value
         while (left < right)
         {
             int mid = left + ((right - left) / 2);
 
-            if (times[mid] == reference)
+            if (ticks[mid] == referenceTicks)
             {
-                return times[mid];
+                return ticks[mid];
             }
 
-            if (times[mid] < reference)
+            if (ticks[mid] < referenceTicks)
             {
                 left = mid + 1;
             }
@@ -312,25 +365,25 @@ public class TimeAdjustmentHelper(ILogger logger, PluginConfiguration config)
         }
 
         // At this point, left == right, check neighbors for nearest
-        var nearest = times[left];
-        var bestDiff = Math.Abs(times[left] - reference);
+        var nearest = ticks[left];
+        var bestDiff = Math.Abs(ticks[left] - referenceTicks);
 
         if (left > 0)
         {
-            var prevDiff = Math.Abs(times[left - 1] - reference);
+            var prevDiff = Math.Abs(ticks[left - 1] - referenceTicks);
             if (prevDiff < bestDiff)
             {
-                nearest = times[left - 1];
+                nearest = ticks[left - 1];
                 bestDiff = prevDiff;
             }
         }
 
-        if (left < times.Count - 1)
+        if (left < ticks.Count - 1)
         {
-            var nextDiff = Math.Abs(times[left + 1] - reference);
+            var nextDiff = Math.Abs(ticks[left + 1] - referenceTicks);
             if (nextDiff < bestDiff)
             {
-                nearest = times[left + 1];
+                nearest = ticks[left + 1];
             }
         }
 
