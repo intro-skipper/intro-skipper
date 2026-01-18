@@ -7,7 +7,6 @@ using System;
 using System.IO;
 using IntroSkipper.Analyzers;
 using IntroSkipper.Data;
-using Jellyfin.MediaEncoding.Keyframes;
 using Microsoft.Extensions.Logging;
 using Xunit;
 
@@ -24,7 +23,7 @@ public class TestKeyframeExtraction
         Assert.NotNull(result);
 
         // Rainbow.mp4 is approximately 10 seconds
-        var durationSeconds = TimeSpan.FromTicks(result.TotalDuration).TotalSeconds;
+        var durationSeconds = TimeSpan.FromTicks(result.DurationTicks).TotalSeconds;
         Assert.InRange(durationSeconds, 9.5, 10.5);
 
         // Should have multiple keyframes
@@ -49,7 +48,7 @@ public class TestKeyframeExtraction
         Assert.NotNull(result);
 
         // Credits.mp4 is approximately 5 minutes 30 seconds (330 seconds)
-        var durationSeconds = TimeSpan.FromTicks(result.TotalDuration).TotalSeconds;
+        var durationSeconds = TimeSpan.FromTicks(result.DurationTicks).TotalSeconds;
         Assert.InRange(durationSeconds, 325, 335);
 
         // Should have many keyframes for a 5+ minute video
@@ -74,7 +73,7 @@ public class TestKeyframeExtraction
         Assert.NotNull(result);
 
         // Credits.mkv is approximately 5 minutes 30 seconds (330 seconds)
-        var durationSeconds = TimeSpan.FromTicks(result.TotalDuration).TotalSeconds;
+        var durationSeconds = TimeSpan.FromTicks(result.DurationTicks).TotalSeconds;
         Assert.InRange(durationSeconds, 325, 335);
 
         // Should have many keyframes
@@ -100,9 +99,9 @@ public class TestKeyframeExtraction
 
         // MKV parser should extract duration (may vary slightly from ffprobe)
         // Credits.mkv is approximately 5 minutes 30 seconds
-        if (result.TotalDuration > 0)
+        if (result.DurationTicks > 0)
         {
-            var durationSeconds = TimeSpan.FromTicks(result.TotalDuration).TotalSeconds;
+            var durationSeconds = TimeSpan.FromTicks(result.DurationTicks).TotalSeconds;
             Assert.InRange(durationSeconds, 320, 340);
         }
 
@@ -132,10 +131,10 @@ public class TestKeyframeExtraction
         Assert.NotEmpty(ffprobeResult.KeyframeTicks);
 
         // Duration comparison - if both extracted duration
-        if (mkvResult.TotalDuration > 0 && ffprobeResult.TotalDuration > 0)
+        if (mkvResult.DurationTicks > 0 && ffprobeResult.DurationTicks > 0)
         {
-            var ffprobeDurationSeconds = TimeSpan.FromTicks(ffprobeResult.TotalDuration).TotalSeconds;
-            var mkvDurationSeconds = TimeSpan.FromTicks(mkvResult.TotalDuration).TotalSeconds;
+            var ffprobeDurationSeconds = TimeSpan.FromTicks(ffprobeResult.DurationTicks).TotalSeconds;
+            var mkvDurationSeconds = TimeSpan.FromTicks(mkvResult.DurationTicks).TotalSeconds;
             var durationDiff = Math.Abs(ffprobeDurationSeconds - mkvDurationSeconds);
             var tolerance = Math.Max(1.0, ffprobeDurationSeconds * 0.1);
             Assert.True(durationDiff <= tolerance,
@@ -163,7 +162,7 @@ public class TestKeyframeExtraction
 
         // Verify timestamps are in ticks (not seconds or milliseconds)
         // For a ~10 second video, duration in ticks should be around 100,000,000 (10 * 10,000,000)
-        var durationSeconds = TimeSpan.FromTicks(result.TotalDuration).TotalSeconds;
+        var durationSeconds = TimeSpan.FromTicks(result.DurationTicks).TotalSeconds;
         Assert.InRange(durationSeconds, 1, 100);
 
         // Verify each keyframe is in ticks and within reasonable range
@@ -184,9 +183,9 @@ public class TestKeyframeExtraction
 
         // Verify timestamps are in ticks (not seconds or milliseconds)
         // For a ~330 second video, duration in ticks should be around 3,300,000,000
-        if (result.TotalDuration > 0)
+        if (result.DurationTicks > 0)
         {
-            var durationSeconds = TimeSpan.FromTicks(result.TotalDuration).TotalSeconds;
+            var durationSeconds = TimeSpan.FromTicks(result.DurationTicks).TotalSeconds;
             Assert.InRange(durationSeconds, 1, 1000);
         }
 
@@ -292,10 +291,10 @@ public class TestKeyframeExtraction
         {
             Assert.True(keyframeTicks >= 0, $"Keyframe {keyframeTicks} ticks should be non-negative");
 
-            if (data.TotalDuration > 0)
+            if (data.DurationTicks > 0)
             {
-                Assert.True(keyframeTicks <= data.TotalDuration,
-                    $"Keyframe {keyframeTicks} ticks should not exceed duration {data.TotalDuration} ticks");
+                Assert.True(keyframeTicks <= data.DurationTicks,
+                    $"Keyframe {keyframeTicks} ticks should not exceed duration {data.DurationTicks} ticks");
             }
         }
     }
