@@ -6,7 +6,7 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.Globalization;
 using System.IO;
-using Jellyfin.MediaEncoding.Keyframes;
+using IntroSkipper.Data;
 using Microsoft.Extensions.Logging;
 
 namespace IntroSkipper.Analyzers;

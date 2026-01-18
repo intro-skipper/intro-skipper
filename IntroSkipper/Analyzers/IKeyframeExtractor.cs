@@ -1,7 +1,7 @@
 // Copyright (C) 2026 Intro-Skipper contributors <intro-skipper.org>
 // SPDX-License-Identifier: GPL-3.0-only
 
-using Jellyfin.MediaEncoding.Keyframes;
+using IntroSkipper.Data;
 
 namespace IntroSkipper.Analyzers;
 

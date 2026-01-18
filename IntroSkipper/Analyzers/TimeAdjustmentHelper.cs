@@ -4,10 +4,10 @@
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.IO;
 using System.Threading;
 using IntroSkipper.Configuration;
 using IntroSkipper.Data;
-using Jellyfin.MediaEncoding.Keyframes;
 using MediaBrowser.Model.Entities;
 using Microsoft.Extensions.Logging;
 
@@ -246,29 +246,48 @@ public class TimeAdjustmentHelper(ILogger logger, PluginConfiguration config)
             return time;
         }
 
-        var stopwatch = Stopwatch.StartNew();
-
-        // Try to get cached keyframe data from repository, otherwise extract from file
-        var cachedKeyframes = Plugin.Instance?.GetKeyframeData(episode.EpisodeId);
-        KeyframeData? extractedKeyframes = cachedKeyframes is { Count: > 0 } ? cachedKeyframes[0] : TryExtractKeyframes(episode);
-
-        stopwatch.Stop();
-
-        _logger.LogInformation(
-            "{EpisodeId} {Name}: Keyframe extraction took {ElapsedMs}ms and found {Count} keyframes",
-            episode.EpisodeId,
-            episode.Name,
-            stopwatch.ElapsedMilliseconds,
-            extractedKeyframes?.KeyframeTicks.Count ?? 0);
-
-        if (extractedKeyframes is not null)
+        try
         {
-            // Convert time from seconds to ticks for comparison
-            long timeTicks = TimeSpan.FromSeconds(time).Ticks;
-            long nearestTicks = SelectNearestTicks(extractedKeyframes.KeyframeTicks, timeTicks);
+            var stopwatch = Stopwatch.StartNew();
 
-            // Convert back to seconds
-            return TimeSpan.FromTicks(nearestTicks).TotalSeconds;
+            // Try to get cached keyframe data from repository, otherwise extract from file
+            var cachedKeyframes = Plugin.Instance?.GetKeyframeData(episode.EpisodeId);
+            KeyframeData? extractedKeyframes = cachedKeyframes is { Count: > 0 } ? cachedKeyframes[0] : TryExtractKeyframes(episode);
+
+            stopwatch.Stop();
+
+            _logger.LogInformation(
+                "{EpisodeId} {Name}: Keyframe extraction took {ElapsedMs}ms and found {Count} keyframes",
+                episode.EpisodeId,
+                episode.Name,
+                stopwatch.ElapsedMilliseconds,
+                extractedKeyframes?.KeyframeTicks.Count ?? 0);
+
+            if (extractedKeyframes is not null)
+            {
+                // Convert time from seconds to ticks for comparison
+                long timeTicks = TimeSpan.FromSeconds(time).Ticks;
+                long nearestTicks = SelectNearestTicks(extractedKeyframes.KeyframeTicks, timeTicks);
+
+                // Convert back to seconds
+                return TimeSpan.FromTicks(nearestTicks).TotalSeconds;
+            }
+        }
+        catch (FileNotFoundException ex)
+        {
+            _logger.LogWarning(ex, "{EpisodeId} {Name}: Keyframe library not available, skipping keyframe snap", episode.EpisodeId, episode.Name);
+        }
+        catch (FileLoadException ex)
+        {
+            _logger.LogWarning(ex, "{EpisodeId} {Name}: Failed to load keyframe library, skipping keyframe snap", episode.EpisodeId, episode.Name);
+        }
+        catch (BadImageFormatException ex)
+        {
+            _logger.LogWarning(ex, "{EpisodeId} {Name}: Invalid keyframe library, skipping keyframe snap", episode.EpisodeId, episode.Name);
+        }
+        catch (TypeLoadException ex)
+        {
+            _logger.LogWarning(ex, "{EpisodeId} {Name}: Keyframe types unavailable, skipping keyframe snap", episode.EpisodeId, episode.Name);
         }
 
         return time;
@@ -307,8 +326,27 @@ public class TimeAdjustmentHelper(ILogger logger, PluginConfiguration config)
 
         _logger.LogInformation("{EpisodeId}: Extracted {Count} keyframes", id, data.KeyframeTicks.Count);
 
-        // Save to cache
-        Plugin.Instance!.SaveKeyframeData(id, data, CancellationToken.None);
+        // Save to cache (best-effort; keyframe repository may be unavailable)
+        try
+        {
+            Plugin.Instance!.SaveKeyframeData(id, data, CancellationToken.None);
+        }
+        catch (FileNotFoundException ex)
+        {
+            _logger.LogDebug(ex, "{EpisodeId}: Keyframe library not available, skipping cache save", id);
+        }
+        catch (FileLoadException ex)
+        {
+            _logger.LogDebug(ex, "{EpisodeId}: Failed to load keyframe library, skipping cache save", id);
+        }
+        catch (BadImageFormatException ex)
+        {
+            _logger.LogDebug(ex, "{EpisodeId}: Invalid keyframe library, skipping cache save", id);
+        }
+        catch (TypeLoadException ex)
+        {
+            _logger.LogDebug(ex, "{EpisodeId}: Keyframe types unavailable, skipping cache save", id);
+        }
 
         return data;
     }

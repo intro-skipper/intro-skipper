@@ -4,7 +4,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
-using Jellyfin.MediaEncoding.Keyframes;
+using IntroSkipper.Data;
 using NEbml.Core;
 
 namespace IntroSkipper.Analyzers;
