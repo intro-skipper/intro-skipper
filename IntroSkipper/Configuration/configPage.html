@@ -332,7 +332,7 @@
                                     <div class="fieldDescription">If checked, intro segments for the first episode in a season will not be skipped.</div>
                                 </div>
 
-                                <div class="checkboxContainer checkboxContainer-withDescription">
+                                <div id="SkipFirstEpisodeAnimeContainer" class="checkboxContainer checkboxContainer-withDescription">
                                     <label class="emby-checkbox-label">
                                         <input id="SkipFirstEpisodeAnime" type="checkbox" is="emby-checkbox" />
                                         <span>Only ignore first episode for anime</span>
@@ -871,7 +871,7 @@
 
                     const fullLengthChapters = document.getElementById("FullLengthChapters");
                     const skipFirstEpisode = document.getElementById("SkipFirstEpisode");
-                    const skipFirstEpisodeAnime = document.getElementById("SkipFirstEpisodeAnime");
+                    const skipFirstEpisodeAnimeContainer = document.getElementById("SkipFirstEpisodeAnimeContainer");
                     const useAlternativeBlackFrameAnalyzer = document.getElementById("UseAlternativeBlackFrameAnalyzer");
                     const chapterMarkersBlackFrameSetting = document.getElementById("ChapterMarkersBlackFrameSetting");
                     const snapToKeyframe = document.getElementById("SnapToKeyframe");
@@ -895,9 +895,9 @@
 
                     function skipFirstEpisodeChanged() {
                         if (skipFirstEpisode.checked) {
-                            skipFirstEpisodeAnime.style.display = "unset";
+                            skipFirstEpisodeAnimeContainer.style.display = "unset";
                         } else {
-                            skipFirstEpisodeAnime.style.display = "none";
+                            skipFirstEpisodeAnimeContainer.style.display = "none";
                         }
                     }
 
