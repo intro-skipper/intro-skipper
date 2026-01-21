@@ -131,12 +131,16 @@ public sealed class MediaSegmentsFirstEpisodeFilter(
         {
             return false;
         }
+
         if (Plugin.Instance?.Configuration?.SkipFirstEpisodeAnime != true)
         {
             return true;
         }
 
         var series = episode.Series;
+
+        return series.Tags.Contains("anime", StringComparison.OrdinalIgnoreCase) ||
+             series.Genres.Contains("anime", StringComparison.OrdinalIgnoreCase)
     }
 
     private static bool IsMediaSegmentsRequest(ResultExecutingContext context)
