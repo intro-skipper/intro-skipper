@@ -127,12 +127,7 @@ public sealed class MediaSegmentsFirstEpisodeFilter(
 
     private bool IsFilteredEpisode(Episode episode)
     {
-        if (Plugin.Instance?.Configuration?.SkipFirstEpisode != true)
-        {
-            return false;
-        }
-
-        if (Plugin.Instance?.Configuration?.SkipFirstEpisodeAnime != true)
+        if (Plugin.Instance?.Configuration.SkipFirstEpisodeAnime != true)
         {
             return true;
         }
