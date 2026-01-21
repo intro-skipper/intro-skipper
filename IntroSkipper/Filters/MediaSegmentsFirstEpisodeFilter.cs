@@ -140,7 +140,7 @@ public sealed class MediaSegmentsFirstEpisodeFilter(
         var series = episode.Series;
 
         return series.Tags.Contains("anime", StringComparison.OrdinalIgnoreCase) ||
-             series.Genres.Contains("anime", StringComparison.OrdinalIgnoreCase)
+             series.Genres.Contains("anime", StringComparison.OrdinalIgnoreCase);
     }
 
     private static bool IsMediaSegmentsRequest(ResultExecutingContext context)
