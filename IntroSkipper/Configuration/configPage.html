@@ -332,6 +332,14 @@
                                     <div class="fieldDescription">If checked, intro segments for the first episode in a season will not be skipped.</div>
                                 </div>
 
+                                <div class="checkboxContainer checkboxContainer-withDescription">
+                                    <label class="emby-checkbox-label">
+                                        <input id="SkipFirstEpisodeAnime" type="checkbox" is="emby-checkbox" />
+                                        <span>Only ignore first episode for anime</span>
+                                    </label>
+                                    <div class="fieldDescription">If checked, only shows with the anime genre will have their first episodes ignored.</div>
+                                </div>
+
                                 <fieldset>
                                     <legend>Segment Offset Adjustment</legend>
                                     <div class="inputContainer">
@@ -831,7 +839,7 @@
                         "ChapterAnalyzerCommercialPattern",
                     ];
 
-                    const booleanConfigurationFields = ["AutoDetectIntros", "AnalyzeSeasonZero", "UpdateMediaSegments", "UseAlternativeBlackFrameAnalyzer", "UseChapterMarkersBlackFrame", "FullLengthChapters", "SkipFirstEpisode", "RebuildMediaSegments", "ScanIntroduction", "ScanCredits", "ScanRecap", "ScanPreview", "ScanCommercial", "PreferChromaprint", "SnapToKeyframe", "AdjustIntroBasedOnSilence", "AdjustIntroBasedOnChapters", "UseFileTransformationPlugin"];
+                    const booleanConfigurationFields = ["AutoDetectIntros", "AnalyzeSeasonZero", "UpdateMediaSegments", "UseAlternativeBlackFrameAnalyzer", "UseChapterMarkersBlackFrame", "FullLengthChapters", "SkipFirstEpisode", "SkipFirstEpisodeAnime", "RebuildMediaSegments", "ScanIntroduction", "ScanCredits", "ScanRecap", "ScanPreview", "ScanCommercial", "PreferChromaprint", "SnapToKeyframe", "AdjustIntroBasedOnSilence", "AdjustIntroBasedOnChapters", "UseFileTransformationPlugin"];
 
                     // timestamp / maintenance elements
                     const analyzerActionsSection = document.querySelector("div#analyzerActionsSection");
@@ -862,6 +870,8 @@
                     const silenceSettings = document.getElementById("silenceSettings");
 
                     const fullLengthChapters = document.getElementById("FullLengthChapters");
+                    const skipFirstEpisode = document.getElementById("SkipFirstEpisode");
+                    const skipFirstEpisodeAnime = document.getElementById("SkipFirstEpisodeAnime");
                     const useAlternativeBlackFrameAnalyzer = document.getElementById("UseAlternativeBlackFrameAnalyzer");
                     const chapterMarkersBlackFrameSetting = document.getElementById("ChapterMarkersBlackFrameSetting");
                     const snapToKeyframe = document.getElementById("SnapToKeyframe");
@@ -881,6 +891,18 @@
                         }
                     }
 
+                    fullLengthChapters.addEventListener("change", fullLengthChaptersChanged);
+
+                    function skipFirstEpisodeChanged() {
+                        if (skipFirstEpisode.checked) {
+                            skipFirstEpisodeAnime.style.display = "unset";
+                        } else {
+                            skipFirstEpisodeAnime.style.display = "none";
+                        }
+                    }
+
+                    skipFirstEpisode.addEventListener("change", skipFirstEpisodeChanged);
+
                     actionFileTransformation.addEventListener("change", fileTransformationChanged);
 
                     function fileTransformationChanged() {
@@ -890,8 +912,6 @@
                             divSkipbuttonHideDelayContent.style.display = "none";
                         }
                     }
-
-                    fullLengthChapters.addEventListener("change", fullLengthChaptersChanged);
 
                     async function alternativeBlackFrameAnalyzerSettingsVisible() {
                         if (useAlternativeBlackFrameAnalyzer.checked) {
@@ -1326,6 +1346,7 @@
                                 }
 
                                 fullLengthChaptersChanged();
+                                skipFirstEpisodeChanged();
                                 fileTransformationChanged();
                                 alternativeBlackFrameAnalyzerSettingsVisible();
                                 adjustSettingsVisible();

@@ -62,6 +62,12 @@ public sealed class MediaSegmentsFirstEpisodeFilter(
             return;
         }
 
+        if (!IsFilteredEpisode(episode))
+        {
+            await next().ConfigureAwait(false);
+            return;
+        }
+
         _logger.LogDebug("Filtering intro segments for first episode {EpisodeId} (SeasonId: {SeasonId}, Index: {Index})", episode.Id, episode.SeasonId, episode.IndexNumber);
 
         if (context.Result is ObjectResult objectResult)
@@ -117,6 +123,20 @@ public sealed class MediaSegmentsFirstEpisodeFilter(
         _logger.LogDebug("Season {SeasonId} first episode is {FirstEpisodeId}. Current episode is {EpisodeId}.", episode.SeasonId, firstEpisode.Id, episode.Id);
 
         return firstEpisode.Id == episode.Id;
+    }
+
+    private bool IsFilteredEpisode(Episode episode)
+    {
+        if (Plugin.Instance?.Configuration?.SkipFirstEpisode != true)
+        {
+            return false;
+        }
+        if (Plugin.Instance?.Configuration?.SkipFirstEpisodeAnime != true)
+        {
+            return true;
+        }
+
+        var series = episode.Series;
     }
 
     private static bool IsMediaSegmentsRequest(ResultExecutingContext context)
