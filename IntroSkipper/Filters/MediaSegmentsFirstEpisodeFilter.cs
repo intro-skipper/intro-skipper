@@ -62,7 +62,7 @@ public sealed class MediaSegmentsFirstEpisodeFilter(
             return;
         }
 
-        if (!IsFilteredEpisode(episode))
+        if (!IsFilteredEpisode(episode.Series))
         {
             await next().ConfigureAwait(false);
             return;
@@ -125,16 +125,10 @@ public sealed class MediaSegmentsFirstEpisodeFilter(
         return firstEpisode.Id == episode.Id;
     }
 
-    private bool IsFilteredEpisode(Episode episode)
+    private bool IsFilteredEpisode(Series series)
     {
-        if (Plugin.Instance?.Configuration.SkipFirstEpisodeAnime != true)
-        {
-            return true;
-        }
-
-        var series = episode.Series;
-
-        return Array.Exists(series.Tags, element => element.Equals("anime", StringComparison.OrdinalIgnoreCase)) ||
+        return Plugin.Instance?.Configuration.SkipFirstEpisodeAnime != true ||
+            Array.Exists(series.Tags, element => element.Equals("anime", StringComparison.OrdinalIgnoreCase)) ||
             Array.Exists(series.Genres, element => element.Equals("anime", StringComparison.OrdinalIgnoreCase));
     }
 
