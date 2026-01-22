@@ -127,9 +127,15 @@ public sealed class MediaSegmentsFirstEpisodeFilter(
 
     private bool IsFilteredEpisode(Series series)
     {
-        return Plugin.Instance?.Configuration.SkipFirstEpisodeAnime != true ||
-            Array.Exists(series.Tags, element => element.Equals("anime", StringComparison.OrdinalIgnoreCase)) ||
-            Array.Exists(series.Genres, element => element.Equals("anime", StringComparison.OrdinalIgnoreCase));
+        // When anime restriction is disabled or not explicitly enabled, filter all series
+        if (Plugin.Instance?.Configuration.SkipFirstEpisodeAnime != true)
+        {
+            return true;
+        }
+
+        // When anime restriction is enabled, only filter anime series
+        return Array.Exists(series.Tags, element => element.Equals("anime", StringComparison.OrdinalIgnoreCase)) ||
+               Array.Exists(series.Genres, element => element.Equals("anime", StringComparison.OrdinalIgnoreCase));
     }
 
     private static bool IsMediaSegmentsRequest(ResultExecutingContext context)
