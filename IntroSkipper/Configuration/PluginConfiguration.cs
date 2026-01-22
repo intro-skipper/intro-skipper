@@ -316,6 +316,11 @@ public class PluginConfiguration : BasePluginConfiguration
     public int SkipbuttonHideDelay { get; set; } = 8;
 
     /// <summary>
+    /// Gets or sets a value indicating whether to enable the main menu entry for the plugin.
+    /// </summary>
+    public bool EnableMainMenu { get; set; } = true;
+
+    /// <summary>
     /// Gets a value indicating whether the File Transformation plugin is enabled.
     /// </summary>
     [SuppressMessage(
