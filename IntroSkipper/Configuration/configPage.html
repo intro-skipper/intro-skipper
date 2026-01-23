@@ -156,6 +156,14 @@
                                 <div id="skipButtonCssStatus" style="margin-top: 8px; display: none"></div>
                             </div>
 
+                            <div class="checkboxContainer checkboxContainer-withDescription">
+                                <label class="emby-checkbox-label">
+                                    <input id="EnableMainMenu" type="checkbox" is="emby-checkbox" />
+                                    <span>Show Intro Skipper in Main Menu</span>
+                                </label>
+                                <div class="fieldDescription">Toggle the Intro Skipper entry in the server's main navigation. Save and refresh the client (or clear cache) to apply. Some clients may require a dashboard or server restart for the change to appear.</div>
+                            </div>
+
                             <details id="intro_reqs">
                                 <summary>Modify Analysis Parameters</summary>
 
@@ -840,7 +848,7 @@
                         "ChapterAnalyzerCommercialPattern",
                     ];
 
-                    const booleanConfigurationFields = ["AutoDetectIntros", "AnalyzeSeasonZero", "UpdateMediaSegments", "UseAlternativeBlackFrameAnalyzer", "UseChapterMarkersBlackFrame", "FullLengthChapters", "SkipFirstEpisode", "SkipFirstEpisodeAnime", "RebuildMediaSegments", "ScanIntroduction", "ScanCredits", "ScanRecap", "ScanPreview", "ScanCommercial", "PreferChromaprint", "SnapToKeyframe", "AdjustIntroBasedOnSilence", "AdjustIntroBasedOnChapters", "UseFileTransformationPlugin"];
+                    const booleanConfigurationFields = ["AutoDetectIntros", "AnalyzeSeasonZero", "UpdateMediaSegments", "UseAlternativeBlackFrameAnalyzer", "UseChapterMarkersBlackFrame", "FullLengthChapters", "SkipFirstEpisode", "SkipFirstEpisodeAnime", "RebuildMediaSegments", "ScanIntroduction", "ScanCredits", "ScanRecap", "ScanPreview", "ScanCommercial", "EnableMainMenu", "PreferChromaprint", "SnapToKeyframe", "AdjustIntroBasedOnSilence", "AdjustIntroBasedOnChapters", "UseFileTransformationPlugin"];
 
                     // timestamp / maintenance elements
                     const analyzerActionsSection = document.querySelector("div#analyzerActionsSection");
