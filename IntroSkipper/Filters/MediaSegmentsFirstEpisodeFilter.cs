@@ -7,6 +7,7 @@ using System.Linq;
 using System.Threading.Tasks;
 using Jellyfin.Data.Enums;
 using Jellyfin.Database.Implementations.Enums;
+using Jellyfin.Extensions;
 using MediaBrowser.Controller.Entities;
 using MediaBrowser.Controller.Entities.TV;
 using MediaBrowser.Controller.Library;
@@ -134,8 +135,8 @@ public sealed class MediaSegmentsFirstEpisodeFilter(
         }
 
         // When anime restriction is enabled, only filter anime series
-        return Array.Exists(series.Tags, element => element.Equals("anime", StringComparison.OrdinalIgnoreCase)) ||
-               Array.Exists(series.Genres, element => element.Equals("anime", StringComparison.OrdinalIgnoreCase));
+        return series.Tags.Contains("anime", StringComparison.OrdinalIgnoreCase) ||
+               series.Genres.Contains("anime", StringComparison.OrdinalIgnoreCase);
     }
 
     private static bool IsMediaSegmentsRequest(ResultExecutingContext context)
