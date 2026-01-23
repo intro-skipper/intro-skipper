@@ -63,7 +63,7 @@ public sealed class MediaSegmentsFirstEpisodeFilter(
             return;
         }
 
-        if (!IsFilteredEpisode(episode.Series))
+        if (!IsFilteredEpisode(episode))
         {
             await next().ConfigureAwait(false);
             return;
@@ -126,7 +126,7 @@ public sealed class MediaSegmentsFirstEpisodeFilter(
         return firstEpisode.Id == episode.Id;
     }
 
-    private bool IsFilteredEpisode(Series series)
+    private bool IsFilteredEpisode(Episode episode)
     {
         // When anime restriction is disabled or not explicitly enabled, filter all series
         if (Plugin.Instance?.Configuration.SkipFirstEpisodeAnime != true)
@@ -135,8 +135,9 @@ public sealed class MediaSegmentsFirstEpisodeFilter(
         }
 
         // When anime restriction is enabled, only filter anime series
-        return series.Tags.Contains("anime", StringComparison.OrdinalIgnoreCase) ||
-               series.Genres.Contains("anime", StringComparison.OrdinalIgnoreCase);
+        return episode.Series is Series series &&
+            (series.Tags.Contains("anime", StringComparison.OrdinalIgnoreCase) ||
+            series.Genres.Contains("anime", StringComparison.OrdinalIgnoreCase));
     }
 
     private static bool IsMediaSegmentsRequest(ResultExecutingContext context)
