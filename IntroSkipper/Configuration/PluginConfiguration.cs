@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
 using System.Diagnostics;
-using System.Diagnostics.CodeAnalysis;
+using System.Xml.Serialization;
 using MediaBrowser.Model.Plugins;
 
 namespace IntroSkipper.Configuration;
@@ -326,11 +326,9 @@ public class PluginConfiguration : BasePluginConfiguration
     public bool EnableMainMenu { get; set; } = true;
 
     /// <summary>
-    /// Gets a value indicating whether the File Transformation plugin is enabled.
+    /// Gets or sets a value indicating whether the File Transformation plugin is enabled.
+    /// This value is set by the Plugin during initialization.
     /// </summary>
-    [SuppressMessage(
-        "Performance",
-        "CA1822:Mark members as static",
-        Justification = "Must be instance-based so Jellyfin can serialize it into the plugin configuration payload consumed by the web UI.")]
-    public bool FileTransformationPluginEnabled => Plugin.Instance?.FileTransformationPluginEnabled ?? false;
+    [XmlIgnore]
+    public bool FileTransformationPluginEnabled { get; set; }
 }

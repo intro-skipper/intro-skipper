@@ -93,7 +93,7 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
             logger.LogWarning("Error initializing database: {Exception}", ex);
         }
 
-        FileTransformationPluginEnabled = _pluginManager
+        Configuration.FileTransformationPluginEnabled = _pluginManager
             .Plugins
             .Any(p => p.Id == Guid.Parse("5e87cc92-571a-4d8d-8d98-d2d4147f9f90")); // File Transformation plugin ID
     }
@@ -132,11 +132,6 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
     /// Gets the full path to FFmpeg.
     /// </summary>
     public string FFmpegPath { get; private set; }
-
-    /// <summary>
-    /// Gets a value indicating whether the File Transformation plugin is enabled.
-    /// </summary>
-    public bool FileTransformationPluginEnabled { get; private set; }
 
     /// <inheritdoc />
     public override string Name => "Intro Skipper";
