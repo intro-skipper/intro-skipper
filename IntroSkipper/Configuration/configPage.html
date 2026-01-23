@@ -340,6 +340,15 @@
                                     <div class="fieldDescription">If checked, intro segments for the first episode in a season will not be skipped.</div>
                                 </div>
 
+                                <div id="SkipFirstEpisodeAnimeContainer" class="checkboxContainer checkboxContainer-withDescription" style="display: none;">
+                                    <label class="emby-checkbox-label">
+                                        <input id="SkipFirstEpisodeAnime" type="checkbox" is="emby-checkbox" />
+                                        <span>Only ignore first episode of an anime season</span>
+                                    </label>
+                                    <div class="fieldDescription">If checked, the previous ignore option will only be applied to anime seasons.</div>
+                                    <br />
+                                </div>
+
                                 <fieldset>
                                     <legend>Segment Offset Adjustment</legend>
                                     <div class="inputContainer">
@@ -839,7 +848,7 @@
                         "ChapterAnalyzerCommercialPattern",
                     ];
 
-                    const booleanConfigurationFields = ["AutoDetectIntros", "AnalyzeSeasonZero", "UpdateMediaSegments", "UseAlternativeBlackFrameAnalyzer", "UseChapterMarkersBlackFrame", "FullLengthChapters", "SkipFirstEpisode", "RebuildMediaSegments", "ScanIntroduction", "ScanCredits", "ScanRecap", "ScanPreview", "ScanCommercial", "EnableMainMenu", "PreferChromaprint", "SnapToKeyframe", "AdjustIntroBasedOnSilence", "AdjustIntroBasedOnChapters", "UseFileTransformationPlugin"];
+                    const booleanConfigurationFields = ["AutoDetectIntros", "AnalyzeSeasonZero", "UpdateMediaSegments", "UseAlternativeBlackFrameAnalyzer", "UseChapterMarkersBlackFrame", "FullLengthChapters", "SkipFirstEpisode", "SkipFirstEpisodeAnime", "RebuildMediaSegments", "ScanIntroduction", "ScanCredits", "ScanRecap", "ScanPreview", "ScanCommercial", "EnableMainMenu", "PreferChromaprint", "SnapToKeyframe", "AdjustIntroBasedOnSilence", "AdjustIntroBasedOnChapters", "UseFileTransformationPlugin"];
 
                     // timestamp / maintenance elements
                     const analyzerActionsSection = document.querySelector("div#analyzerActionsSection");
@@ -870,6 +879,8 @@
                     const silenceSettings = document.getElementById("silenceSettings");
 
                     const fullLengthChapters = document.getElementById("FullLengthChapters");
+                    const skipFirstEpisode = document.getElementById("SkipFirstEpisode");
+                    const skipFirstEpisodeAnimeContainer = document.getElementById("SkipFirstEpisodeAnimeContainer");
                     const useAlternativeBlackFrameAnalyzer = document.getElementById("UseAlternativeBlackFrameAnalyzer");
                     const chapterMarkersBlackFrameSetting = document.getElementById("ChapterMarkersBlackFrameSetting");
                     const snapToKeyframe = document.getElementById("SnapToKeyframe");
@@ -889,6 +900,18 @@
                         }
                     }
 
+                    fullLengthChapters.addEventListener("change", fullLengthChaptersChanged);
+
+                    function skipFirstEpisodeChanged() {
+                        if (skipFirstEpisode.checked) {
+                            skipFirstEpisodeAnimeContainer.style.display = "unset";
+                        } else {
+                            skipFirstEpisodeAnimeContainer.style.display = "none";
+                        }
+                    }
+
+                    skipFirstEpisode.addEventListener("change", skipFirstEpisodeChanged);
+
                     actionFileTransformation.addEventListener("change", fileTransformationChanged);
 
                     function fileTransformationChanged() {
@@ -898,8 +921,6 @@
                             divSkipbuttonHideDelayContent.style.display = "none";
                         }
                     }
-
-                    fullLengthChapters.addEventListener("change", fullLengthChaptersChanged);
 
                     async function alternativeBlackFrameAnalyzerSettingsVisible() {
                         if (useAlternativeBlackFrameAnalyzer.checked) {
@@ -1334,6 +1355,7 @@
                                 }
 
                                 fullLengthChaptersChanged();
+                                skipFirstEpisodeChanged();
                                 fileTransformationChanged();
                                 alternativeBlackFrameAnalyzerSettingsVisible();
                                 adjustSettingsVisible();
