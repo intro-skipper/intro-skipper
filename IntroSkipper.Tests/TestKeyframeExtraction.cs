@@ -304,7 +304,7 @@ public class TestKeyframeExtraction
         var logger = new LoggerFactory().CreateLogger<FfprobeKeyframeExtractor>();
         // WindowsFfmpegTestBootstrap adds ffprobe to PATH, so we can just use "ffprobe"
         // But we need the full path for the extractor's File.Exists check
-        var ffprobePath = "ffprobe";
+        var ffprobePath = "/usr/local/bin/ffprobe";
 
         // Try to find ffprobe.exe in PATH
         var pathEnv = Environment.GetEnvironmentVariable("PATH");
