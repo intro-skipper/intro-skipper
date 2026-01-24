@@ -7,6 +7,7 @@ using System.Linq;
 using System.Threading.Tasks;
 using Jellyfin.Data.Enums;
 using Jellyfin.Database.Implementations.Enums;
+using Jellyfin.Extensions;
 using MediaBrowser.Controller.Entities;
 using MediaBrowser.Controller.Entities.TV;
 using MediaBrowser.Controller.Library;
@@ -57,6 +58,12 @@ public sealed class MediaSegmentsFirstEpisodeFilter(
         }
 
         if (!IsFirstEpisode(episode))
+        {
+            await next().ConfigureAwait(false);
+            return;
+        }
+
+        if (!IsFilteredEpisode(episode))
         {
             await next().ConfigureAwait(false);
             return;
@@ -117,6 +124,20 @@ public sealed class MediaSegmentsFirstEpisodeFilter(
         _logger.LogDebug("Season {SeasonId} first episode is {FirstEpisodeId}. Current episode is {EpisodeId}.", episode.SeasonId, firstEpisode.Id, episode.Id);
 
         return firstEpisode.Id == episode.Id;
+    }
+
+    private bool IsFilteredEpisode(Episode episode)
+    {
+        // When anime restriction is disabled or not explicitly enabled, filter all series
+        if (Plugin.Instance?.Configuration.SkipFirstEpisodeAnime != true)
+        {
+            return true;
+        }
+
+        // When anime restriction is enabled, only filter anime series
+        return episode.Series is Series series &&
+            (series.Tags.Contains("anime", StringComparison.OrdinalIgnoreCase) ||
+            series.Genres.Contains("anime", StringComparison.OrdinalIgnoreCase));
     }
 
     private static bool IsMediaSegmentsRequest(ResultExecutingContext context)

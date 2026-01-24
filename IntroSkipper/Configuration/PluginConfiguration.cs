@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
 using System.Diagnostics;
-using System.Diagnostics.CodeAnalysis;
+using System.Xml.Serialization;
 using MediaBrowser.Model.Plugins;
 
 namespace IntroSkipper.Configuration;
@@ -111,6 +111,11 @@ public class PluginConfiguration : BasePluginConfiguration
     /// Gets or sets a value indicating whether the introduction in the first episode of a season should be ignored.
     /// </summary>
     public bool SkipFirstEpisode { get; set; } = false;
+
+    /// <summary>
+    /// Gets or sets a value indicating whether skipping first episode should only apply to anime.
+    /// </summary>
+    public bool SkipFirstEpisodeAnime { get; set; } = false;
 
     /// <summary>
     /// Gets or sets the minimum length of similar audio that will be considered an introduction.
@@ -316,11 +321,14 @@ public class PluginConfiguration : BasePluginConfiguration
     public int SkipbuttonHideDelay { get; set; } = 8;
 
     /// <summary>
-    /// Gets a value indicating whether the File Transformation plugin is enabled.
+    /// Gets or sets a value indicating whether to enable the main menu entry for the plugin.
     /// </summary>
-    [SuppressMessage(
-        "Performance",
-        "CA1822:Mark members as static",
-        Justification = "Must be instance-based so Jellyfin can serialize it into the plugin configuration payload consumed by the web UI.")]
-    public bool FileTransformationPluginEnabled => Plugin.Instance?.FileTransformationPluginEnabled ?? false;
+    public bool EnableMainMenu { get; set; } = true;
+
+    /// <summary>
+    /// Gets or sets a value indicating whether the File Transformation plugin is enabled.
+    /// This value is set by the Plugin during initialization.
+    /// </summary>
+    [XmlIgnore]
+    public bool FileTransformationPluginEnabled { get; set; }
 }

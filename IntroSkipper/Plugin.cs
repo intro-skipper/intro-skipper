@@ -104,7 +104,7 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
             logger.LogWarning("Error initializing database: {Exception}", ex);
         }
 
-        FileTransformationPluginEnabled = _pluginManager
+        Configuration.FileTransformationPluginEnabled = _pluginManager
             .Plugins
             .Any(p => p.Id == Guid.Parse("5e87cc92-571a-4d8d-8d98-d2d4147f9f90")); // File Transformation plugin ID
     }
@@ -173,7 +173,7 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
             new PluginPageInfo
             {
                 Name = Name,
-                EnableInMainMenu = true,
+                EnableInMainMenu = Instance?.Configuration.EnableMainMenu ?? true,
                 EmbeddedResourcePath = GetType().Namespace + ".Configuration.configPage.html"
             }
         ];
