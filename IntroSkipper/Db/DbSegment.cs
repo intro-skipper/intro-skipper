@@ -55,6 +55,12 @@ public class DbSegment
     public AnalysisMode Type { get; private set; }
 
     /// <summary>
+    /// Gets or sets the segment index. Used to support multiple segments of the same type (e.g., multiple commercials).
+    /// Default value is 0 for backward compatibility.
+    /// </summary>
+    public int SegmentIndex { get; set; }
+
+    /// <summary>
     /// Converts the instance to a <see cref="Segment"/> object.
     /// </summary>
     /// <returns>A <see cref="Segment"/> object.</returns>

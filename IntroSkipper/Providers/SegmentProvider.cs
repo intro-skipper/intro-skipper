@@ -3,6 +3,7 @@
 
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using IntroSkipper.Data;
@@ -43,22 +44,46 @@ namespace IntroSkipper.Providers
             ArgumentNullException.ThrowIfNull(Plugin.Instance);
 
             var segments = new List<MediaSegmentDto>();
-            var itemSegments = Plugin.Instance.GetTimestamps(request.ItemId);
+            var itemSegments = Plugin.Instance.GetAllTimestamps(request.ItemId);
 
             foreach (var (mode, type) in _segmentMappings)
             {
-                if (itemSegments.TryGetValue(mode, out var segment) && segment.Valid)
+                // Handle commercial segments separately as they can have multiple entries
+                if (mode == AnalysisMode.Commercial)
                 {
-                    long startTicks = (long)(segment.Start * TimeSpan.TicksPerSecond);
-                    long endTicks = (long)(segment.End * TimeSpan.TicksPerSecond);
-
-                    segments.Add(new MediaSegmentDto
+                    foreach (var segment in itemSegments[mode])
                     {
-                        StartTicks = startTicks,
-                        EndTicks = endTicks,
-                        ItemId = request.ItemId,
-                        Type = type
-                    });
+                        if (segment.Valid)
+                        {
+                            long startTicks = (long)(segment.Start * TimeSpan.TicksPerSecond);
+                            long endTicks = (long)(segment.End * TimeSpan.TicksPerSecond);
+
+                            segments.Add(new MediaSegmentDto
+                            {
+                                StartTicks = startTicks,
+                                EndTicks = endTicks,
+                                ItemId = request.ItemId,
+                                Type = type
+                            });
+                        }
+                    }
+                }
+                else if (itemSegments[mode].Any())
+                {
+                    var segment = itemSegments[mode].First();
+                    if (segment.Valid)
+                    {
+                        long startTicks = (long)(segment.Start * TimeSpan.TicksPerSecond);
+                        long endTicks = (long)(segment.End * TimeSpan.TicksPerSecond);
+
+                        segments.Add(new MediaSegmentDto
+                        {
+                            StartTicks = startTicks,
+                            EndTicks = endTicks,
+                            ItemId = request.ItemId,
+                            Type = type
+                        });
+                    }
                 }
             }
 

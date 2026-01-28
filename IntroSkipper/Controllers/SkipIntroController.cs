@@ -54,22 +54,27 @@ public class SkipIntroController(MediaSegmentUpdateManager mediaSegmentUpdateMan
             return NoContent();
         }
 
-        var segmentTypes = new[]
+        var singleSegmentTypes = new[]
         {
             (AnalysisMode.Introduction, timestamps.Introduction),
             (AnalysisMode.Credits, timestamps.Credits),
             (AnalysisMode.Recap, timestamps.Recap),
-            (AnalysisMode.Preview, timestamps.Preview),
-            (AnalysisMode.Commercial, timestamps.Commercial)
+            (AnalysisMode.Preview, timestamps.Preview)
         };
 
-        foreach (var (mode, segment) in segmentTypes)
+        foreach (var (mode, segment) in singleSegmentTypes)
         {
             if (segment.Valid)
             {
                 segment.EpisodeId = id;
                 await Plugin.Instance!.UpdateTimestampAsync(segment, mode).ConfigureAwait(false);
             }
+        }
+
+        // Handle commercial segments separately as they can have multiple entries
+        if (timestamps.Commercials.Count > 0)
+        {
+            await Plugin.Instance!.UpdateTimestampsAsync(id, AnalysisMode.Commercial, timestamps.Commercials).ConfigureAwait(false);
         }
 
         if (Plugin.Instance.Configuration.UpdateMediaSegments)
@@ -105,31 +110,34 @@ public class SkipIntroController(MediaSegmentUpdateManager mediaSegmentUpdateMan
         }
 
         var times = new TimeStamps();
-        var segments = Plugin.Instance!.GetTimestamps(id);
+        var allSegments = Plugin.Instance!.GetAllTimestamps(id);
 
-        if (segments.TryGetValue(AnalysisMode.Introduction, out var introSegment))
+        if (allSegments[AnalysisMode.Introduction].Any())
         {
-            times.Introduction = introSegment;
+            times.Introduction = allSegments[AnalysisMode.Introduction].First();
         }
 
-        if (segments.TryGetValue(AnalysisMode.Credits, out var creditSegment))
+        if (allSegments[AnalysisMode.Credits].Any())
         {
-            times.Credits = creditSegment;
+            times.Credits = allSegments[AnalysisMode.Credits].First();
         }
 
-        if (segments.TryGetValue(AnalysisMode.Recap, out var recapSegment))
+        if (allSegments[AnalysisMode.Recap].Any())
         {
-            times.Recap = recapSegment;
+            times.Recap = allSegments[AnalysisMode.Recap].First();
         }
 
-        if (segments.TryGetValue(AnalysisMode.Preview, out var previewSegment))
+        if (allSegments[AnalysisMode.Preview].Any())
         {
-            times.Preview = previewSegment;
+            times.Preview = allSegments[AnalysisMode.Preview].First();
         }
 
-        if (segments.TryGetValue(AnalysisMode.Commercial, out var commercialSegment))
+        if (allSegments[AnalysisMode.Commercial].Any())
         {
-            times.Commercial = commercialSegment;
+            foreach (var segment in allSegments[AnalysisMode.Commercial])
+            {
+                times.Commercials.Add(segment);
+            }
         }
 
         return times;

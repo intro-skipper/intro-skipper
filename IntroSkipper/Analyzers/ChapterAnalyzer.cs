@@ -59,21 +59,43 @@ public class ChapterAnalyzer(ILogger<ChapterAnalyzer> logger) : IMediaFileAnalyz
                 break;
             }
 
-            var skipRange = FindMatchingChapter(
-                episode,
-                Plugin.Instance!.GetChapters(episode.EpisodeId),
-                expression,
-                mode);
-
-            if (skipRange is null || !skipRange.Valid)
+            // For commercial segments, find all matching chapters
+            if (mode == AnalysisMode.Commercial)
             {
-                continue;
+                var commercials = FindAllMatchingChapters(
+                    episode,
+                    Plugin.Instance!.GetChapters(episode.EpisodeId),
+                    expression,
+                    mode);
+
+                if (commercials.Count > 0)
+                {
+                    var adjustedCommercials = commercials
+                        .Select(c => timeAdjustmentHelper.AdjustIntroTimes(episode, c, false))
+                        .ToList();
+
+                    episode.SetAnalyzed(mode, EpisodeState.Analyzed);
+                    await Plugin.Instance!.UpdateTimestampsAsync(episode.EpisodeId, mode, adjustedCommercials).ConfigureAwait(false);
+                }
             }
+            else
+            {
+                var skipRange = FindMatchingChapter(
+                    episode,
+                    Plugin.Instance!.GetChapters(episode.EpisodeId),
+                    expression,
+                    mode);
 
-            skipRange = timeAdjustmentHelper.AdjustIntroTimes(episode, skipRange, false);
+                if (skipRange is null || !skipRange.Valid)
+                {
+                    continue;
+                }
 
-            episode.SetAnalyzed(mode, EpisodeState.Analyzed);
-            await Plugin.Instance!.UpdateTimestampAsync(skipRange, mode).ConfigureAwait(false);
+                skipRange = timeAdjustmentHelper.AdjustIntroTimes(episode, skipRange, false);
+
+                episode.SetAnalyzed(mode, EpisodeState.Analyzed);
+                await Plugin.Instance!.UpdateTimestampAsync(skipRange, mode).ConfigureAwait(false);
+            }
         }
 
         return analysisQueue;
@@ -170,6 +192,79 @@ public class ChapterAnalyzer(ILogger<ChapterAnalyzer> logger) : IMediaFileAnalyz
         }
 
         return null;
+    }
+
+    /// <summary>
+    /// Searches a list of chapter names for all chapters that match the provided regular expression.
+    /// Used to find multiple segments of the same type (e.g., multiple commercials).
+    /// </summary>
+    /// <param name="episode">Episode.</param>
+    /// <param name="chapters">Media item chapters.</param>
+    /// <param name="expression">Regular expression pattern.</param>
+    /// <param name="mode">Analysis mode.</param>
+    /// <returns>List of segments containing all matching time ranges.</returns>
+    public IReadOnlyList<Segment> FindAllMatchingChapters(
+        QueuedEpisode episode,
+        IReadOnlyList<ChapterInfo> chapters,
+        string expression,
+        AnalysisMode mode)
+    {
+        var results = new List<Segment>();
+        var count = chapters.Count;
+        if (count == 0)
+        {
+            return results;
+        }
+
+        var (minDuration, maxDuration) = GetBounds(mode, episode);
+
+        // Check all chapters and collect all matches
+        for (int i = 0; i < count; i++)
+        {
+            var chapter = chapters[i];
+            var next = chapters.ElementAtOrDefault(i + 1) ??
+                new ChapterInfo { StartPositionTicks = TimeSpan.FromSeconds(episode.Duration).Ticks };
+
+            if (string.IsNullOrWhiteSpace(chapter.Name))
+            {
+                continue;
+            }
+
+            var currentRange = new TimeRange(
+                TimeSpan.FromTicks(chapter.StartPositionTicks).TotalSeconds,
+                TimeSpan.FromTicks(next.StartPositionTicks).TotalSeconds);
+
+            var baseMessage = string.Format(
+                    CultureInfo.InvariantCulture,
+                    "{0}: Chapter \"{1}\" ({2} - {3})",
+                    episode.Path,
+                    chapter.Name,
+                    currentRange.Start,
+                    currentRange.End);
+
+            if (currentRange.Duration < minDuration || currentRange.Duration > maxDuration)
+            {
+                _logger.LogTrace("{Base}: ignoring (invalid duration)", baseMessage);
+                continue;
+            }
+
+            var match = Regex.IsMatch(
+                chapter.Name,
+                expression,
+                RegexOptions.IgnoreCase,
+                TimeSpan.FromSeconds(1));
+
+            if (!match)
+            {
+                _logger.LogTrace("{Base}: ignoring (does not match regular expression)", baseMessage);
+                continue;
+            }
+
+            _logger.LogTrace("{Base}: okay", baseMessage);
+            results.Add(new Segment(episode.EpisodeId, currentRange));
+        }
+
+        return results;
     }
 
     private (double Min, double Max) GetBounds(AnalysisMode mode, QueuedEpisode episode)
