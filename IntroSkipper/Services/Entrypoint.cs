@@ -11,7 +11,6 @@ using System.Threading;
 using System.Threading.Tasks;
 using IntroSkipper.Configuration;
 using IntroSkipper.Helper;
-using IntroSkipper.Manager;
 using IntroSkipper.ScheduledTasks;
 using MediaBrowser.Controller.Entities;
 using MediaBrowser.Controller.Entities.Movies;
@@ -39,7 +38,7 @@ namespace IntroSkipper.Services
         private readonly IFileSystem _fileSystem;
         private readonly ILogger<Entrypoint> _logger;
         private readonly ILoggerFactory _loggerFactory;
-        private readonly MediaSegmentUpdateManager _mediaSegmentUpdateManager;
+        private readonly IServiceProvider _serviceProvider;
         private readonly HashSet<Guid> _seasonsToAnalyze = [];
         private readonly Timer _queueTimer;
         private static readonly SemaphoreSlim _analysisSemaphore = new(1, 1);
@@ -56,7 +55,7 @@ namespace IntroSkipper.Services
         /// <param name="taskManager">Task manager.</param>
         /// <param name="logger">Logger.</param>
         /// <param name="loggerFactory">Logger factory.</param>
-        /// <param name="mediaSegmentUpdateManager">Media segment update manager.</param>
+        /// <param name="serviceProvider">Service provider.</param>
         public Entrypoint(
             ILibraryManager libraryManager,
             IProviderManager providerManager,
@@ -64,7 +63,7 @@ namespace IntroSkipper.Services
             ITaskManager taskManager,
             ILogger<Entrypoint> logger,
             ILoggerFactory loggerFactory,
-            MediaSegmentUpdateManager mediaSegmentUpdateManager)
+            IServiceProvider serviceProvider)
         {
             _libraryManager = libraryManager;
             _providerManager = providerManager;
@@ -72,7 +71,7 @@ namespace IntroSkipper.Services
             _taskManager = taskManager;
             _logger = logger;
             _loggerFactory = loggerFactory;
-            _mediaSegmentUpdateManager = mediaSegmentUpdateManager;
+            _serviceProvider = serviceProvider;
 
             _config = Plugin.Instance?.Configuration ?? new PluginConfiguration();
             _queueTimer = new Timer(
@@ -327,7 +326,7 @@ namespace IntroSkipper.Services
                     _seasonsToAnalyze.Clear();
                     _analyzeAgain = false;
 
-                    var analyzer = new BaseItemAnalyzerTask(_loggerFactory.CreateLogger<Entrypoint>(), _loggerFactory, _libraryManager, _providerManager, _fileSystem, _mediaSegmentUpdateManager);
+                    var analyzer = new BaseItemAnalyzerTask(_loggerFactory.CreateLogger<Entrypoint>(), _loggerFactory, _libraryManager, _serviceProvider);
                     await analyzer.AnalyzeItemsAsync(new Progress<double>(), _cancellationTokenSource.Token, seasonIds).ConfigureAwait(false);
 
                     if (_analyzeAgain && !_cancellationTokenSource.IsCancellationRequested)

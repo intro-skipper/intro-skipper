@@ -1,4 +1,4 @@
-﻿// Copyright (C) 2026 Intro-Skipper contributors <intro-skipper.org>
+// Copyright (C) 2026 Intro-Skipper contributors <intro-skipper.org>
 // SPDX-License-Identifier: GPL-3.0-only
 
 using System;
@@ -19,9 +19,11 @@ public class Segment
     /// </summary>
     /// <param name="episode">Episode.</param>
     /// <param name="segment">Introduction time range.</param>
-    public Segment(Guid episode, TimeRange segment)
+    /// <param name="seasonId">Season ID.</param>
+    public Segment(Guid episode, TimeRange segment, Guid seasonId = default)
     {
         EpisodeId = episode;
+        SeasonId = seasonId;
         Start = segment.Start;
         End = segment.End;
     }
@@ -30,9 +32,11 @@ public class Segment
     /// Initializes a new instance of the <see cref="Segment"/> class.
     /// </summary>
     /// <param name="episode">Episode.</param>
-    public Segment(Guid episode)
+    /// <param name="seasonId">Season ID.</param>
+    public Segment(Guid episode, Guid seasonId = default)
     {
         EpisodeId = episode;
+        SeasonId = seasonId;
         Start = 0.0;
         End = 0.0;
     }
@@ -44,6 +48,7 @@ public class Segment
     public Segment(Segment intro)
     {
         EpisodeId = intro.EpisodeId;
+        SeasonId = intro.SeasonId;
         Start = intro.Start;
         End = intro.End;
     }
@@ -60,6 +65,12 @@ public class Segment
     /// </summary>
     [DataMember]
     public Guid EpisodeId { get; set; }
+
+    /// <summary>
+    /// Gets or sets the Season ID.
+    /// </summary>
+    [DataMember]
+    public Guid SeasonId { get; set; }
 
     /// <summary>
     /// Gets or sets the introduction sequence start time.

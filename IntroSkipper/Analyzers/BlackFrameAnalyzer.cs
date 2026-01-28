@@ -1,4 +1,4 @@
-﻿// Copyright (C) 2026 Intro-Skipper contributors <intro-skipper.org>
+// Copyright (C) 2026 Intro-Skipper contributors <intro-skipper.org>
 // SPDX-License-Identifier: GPL-3.0-only
 
 using System;
@@ -8,6 +8,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using IntroSkipper.Configuration;
 using IntroSkipper.Data;
+using IntroSkipper.Services;
 using Microsoft.Extensions.Logging;
 
 namespace IntroSkipper.Analyzers;
@@ -30,6 +31,7 @@ public sealed partial class BlackFrameAnalyzer(ILogger<BlackFrameAnalyzer> logge
     public async Task<IReadOnlyList<QueuedEpisode>> AnalyzeMediaFiles(
         IReadOnlyList<QueuedEpisode> analysisQueue,
         AnalysisMode mode,
+        ISegmentService segmentService,
         CancellationToken cancellationToken)
     {
         if (mode != AnalysisMode.Credits)
@@ -87,7 +89,7 @@ public sealed partial class BlackFrameAnalyzer(ILogger<BlackFrameAnalyzer> logge
                 LogFoundCredits(_logger, episode.Name, credit.Start);
 
                 episode.SetAnalyzed(mode, EpisodeState.Analyzed);
-                await Plugin.Instance!.UpdateTimestampAsync(credit, mode).ConfigureAwait(false);
+                await segmentService.CreateSegmentAsync(credit, mode, cancellationToken: cancellationToken).ConfigureAwait(false);
 
                 // Update search start for next episode based on this result
                 searchStart = episode.Duration - credit.Start + _config.MinimumCreditsDuration;
@@ -177,7 +179,8 @@ public sealed partial class BlackFrameAnalyzer(ILogger<BlackFrameAnalyzer> logge
             {
                 return new Segment(
                     episode.EpisodeId,
-                    new TimeRange(firstBlackFrameTime.Value, episode.Duration));
+                    new TimeRange(firstBlackFrameTime.Value, episode.Duration),
+                    episode.SeasonId);
             }
 
             return null;
@@ -244,7 +247,7 @@ public sealed partial class BlackFrameAnalyzer(ILogger<BlackFrameAnalyzer> logge
             if (!hasBlackFramesBefore)
             {
                 LogFoundCreditsWithChapterMarker(_logger, chapterStart);
-                segment = new Segment(episode.EpisodeId, new TimeRange(chapterStart, episode.Duration));
+                segment = new Segment(episode.EpisodeId, new TimeRange(chapterStart, episode.Duration), episode.SeasonId);
                 return true;
             }
         }

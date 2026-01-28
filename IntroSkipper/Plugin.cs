@@ -1,4 +1,4 @@
-﻿// Copyright (C) 2026 Intro-Skipper contributors <intro-skipper.org>
+// Copyright (C) 2026 Intro-Skipper contributors <intro-skipper.org>
 // SPDX-License-Identifier: GPL-3.0-only
 
 using System;
@@ -6,12 +6,9 @@ using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
-using System.Threading.Tasks;
 using IntroSkipper.Configuration;
 using IntroSkipper.Data;
 using IntroSkipper.Db;
-using IntroSkipper.Helper;
-using Jellyfin.Database.Implementations.Enums;
 using MediaBrowser.Common.Configuration;
 using MediaBrowser.Common.Plugins;
 using MediaBrowser.Controller.Chapters;
@@ -21,7 +18,6 @@ using MediaBrowser.Controller.Library;
 using MediaBrowser.Model.Entities;
 using MediaBrowser.Model.Plugins;
 using MediaBrowser.Model.Serialization;
-using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 
 namespace IntroSkipper;
@@ -29,7 +25,7 @@ namespace IntroSkipper;
 /// <summary>
 /// Intro skipper plugin. Uses audio analysis to find common sequences of audio shared between episodes.
 /// </summary>
-public partial class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
+public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
 {
     private readonly ILibraryManager _libraryManager;
     private readonly IChapterManager _chapterRepository;
@@ -90,7 +86,7 @@ public partial class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
         }
         catch (Exception ex)
         {
-            LogDatabaseInitializationError(_logger, ex);
+            logger.LogWarning("Error initializing database: {Exception}", ex);
         }
 
         Configuration.FileTransformationPluginEnabled = _pluginManager
@@ -165,148 +161,4 @@ public partial class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
     internal string GetItemPath(Guid id) => GetItem(id) is var item && item is not null ? item.Path : string.Empty;
 
     internal IReadOnlyList<ChapterInfo> GetChapters(Guid id) => _chapterRepository.GetChapters(id);
-
-    internal async Task UpdateTimestampAsync(Segment segment, AnalysisMode mode)
-    {
-        using var db = new IntroSkipperDbContext(_dbPath);
-
-        try
-        {
-            var existing = await db.DbSegment
-                .FirstOrDefaultAsync(s => s.ItemId == segment.EpisodeId && s.Type == mode)
-                .ConfigureAwait(false);
-
-            var dbSegment = new DbSegment(segment, mode);
-            if (existing is not null)
-            {
-                db.Entry(existing).CurrentValues.SetValues(dbSegment);
-            }
-            else
-            {
-                db.DbSegment.Add(dbSegment);
-            }
-
-            await db.SaveChangesAsync().ConfigureAwait(false);
-        }
-        catch (Exception ex)
-        {
-            LogFailedToUpdateTimestamp(_logger, ex, segment.EpisodeId);
-            throw;
-        }
-    }
-
-    internal IReadOnlyDictionary<AnalysisMode, Segment> GetTimestamps(Guid id)
-    {
-        using var db = new IntroSkipperDbContext(_dbPath);
-        return db.DbSegment.Where(s => s.ItemId == id)
-            .ToDictionary(s => s.Type, s => s.ToSegment());
-    }
-
-    internal async Task CleanTimestamps(IEnumerable<Guid> episodeIds)
-    {
-        using var db = new IntroSkipperDbContext(_dbPath);
-        db.DbSegment.RemoveRange(db.DbSegment
-            .Where(s => !episodeIds.Contains(s.ItemId)));
-        await db.SaveChangesAsync().ConfigureAwait(false);
-    }
-
-    internal async Task SetAnalyzerActionAsync(Guid id, IReadOnlyDictionary<AnalysisMode, AnalyzerAction> analyzerActions)
-    {
-        using var db = new IntroSkipperDbContext(_dbPath);
-        var existingEntries = await db.DbSeasonInfo
-            .Where(s => s.SeasonId == id)
-            .ToDictionaryAsync(s => s.Type)
-            .ConfigureAwait(false);
-
-        foreach (var (mode, action) in analyzerActions)
-        {
-            if (existingEntries.TryGetValue(mode, out var existing))
-            {
-                db.Entry(existing).Property(s => s.Action).CurrentValue = action;
-            }
-            else
-            {
-                db.DbSeasonInfo.Add(new DbSeasonInfo(id, mode, action));
-            }
-        }
-
-        await db.SaveChangesAsync().ConfigureAwait(false);
-    }
-
-    internal async Task SetEpisodeIdsAsync(Guid id, AnalysisMode mode, IEnumerable<Guid> episodeIds)
-    {
-        using var db = new IntroSkipperDbContext(_dbPath);
-        var seasonInfo = db.DbSeasonInfo.FirstOrDefault(s => s.SeasonId == id && s.Type == mode);
-
-        if (seasonInfo is null)
-        {
-            seasonInfo = new DbSeasonInfo(id, mode, AnalyzerAction.Default, episodeIds);
-            db.DbSeasonInfo.Add(seasonInfo);
-        }
-        else
-        {
-            db.Entry(seasonInfo).Property(s => s.EpisodeIds).CurrentValue = episodeIds;
-        }
-
-        await db.SaveChangesAsync().ConfigureAwait(false);
-    }
-
-    internal IReadOnlyDictionary<AnalysisMode, IEnumerable<Guid>> GetEpisodeIds(Guid id)
-    {
-        using var db = new IntroSkipperDbContext(_dbPath);
-        return db.DbSeasonInfo.Where(s => s.SeasonId == id)
-            .ToDictionary(s => s.Type, s => s.EpisodeIds);
-    }
-
-    internal AnalyzerAction GetAnalyzerAction(Guid id, AnalysisMode mode)
-    {
-        using var db = new IntroSkipperDbContext(_dbPath);
-        return db.DbSeasonInfo.FirstOrDefault(s => s.SeasonId == id && s.Type == mode)?.Action ?? AnalyzerAction.Default;
-    }
-
-    internal async Task CleanSeasonInfoAsync(IEnumerable<Guid> ids)
-    {
-        using var db = new IntroSkipperDbContext(_dbPath);
-        var obsoleteSeasons = await db.DbSeasonInfo
-            .Where(s => !ids.Contains(s.SeasonId))
-            .ToListAsync().ConfigureAwait(false);
-        db.DbSeasonInfo.RemoveRange(obsoleteSeasons);
-        await db.SaveChangesAsync().ConfigureAwait(false);
-    }
-
-    internal static AnalysisMode MapSegmentTypeToMode(MediaSegmentType type)
-    {
-        return type switch
-        {
-            MediaSegmentType.Intro => AnalysisMode.Introduction,
-            MediaSegmentType.Recap => AnalysisMode.Recap,
-            MediaSegmentType.Preview => AnalysisMode.Preview,
-            MediaSegmentType.Outro => AnalysisMode.Credits,
-            MediaSegmentType.Commercial => AnalysisMode.Commercial,
-            _ => throw new NotImplementedException(),
-        };
-    }
-
-    /// <summary>
-    /// Deletes a stored timestamp (DbSegment) for the specified item and analysis mode.
-    /// </summary>
-    /// <param name="itemId">The item id whose timestamp should be removed.</param>
-    /// <param name="mode">The analysis mode representing the segment type.</param>
-    /// <returns>A <see cref="Task"/> representing the asynchronous operation.</returns>
-    internal async Task DeleteTimestampAsync(Guid itemId, AnalysisMode mode)
-    {
-        using var db = new IntroSkipperDbContext(_dbPath);
-        var entry = await db.DbSegment.FirstOrDefaultAsync(s => s.ItemId == itemId && s.Type == mode).ConfigureAwait(false);
-        if (entry is not null)
-        {
-            db.DbSegment.Remove(entry);
-            await db.SaveChangesAsync().ConfigureAwait(false);
-        }
-    }
-
-    [LoggerMessage(Level = LogLevel.Warning, Message = "Error initializing database: {Exception}")]
-    private static partial void LogDatabaseInitializationError(ILogger logger, object exception);
-
-    [LoggerMessage(Level = LogLevel.Error, Message = "Failed to update timestamp for episode {EpisodeId}")]
-    private static partial void LogFailedToUpdateTimestamp(ILogger logger, Exception ex, Guid episodeId);
 }

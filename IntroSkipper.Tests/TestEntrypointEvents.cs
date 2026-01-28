@@ -1,4 +1,4 @@
-﻿// Copyright (C) 2026 Intro-Skipper contributors <intro-skipper.org>
+// Copyright (C) 2026 Intro-Skipper contributors <intro-skipper.org>
 // SPDX-License-Identifier: GPL-3.0-only
 
 using System;
@@ -256,10 +256,6 @@ internal static class EntrypointTestHelpers
         var loggerFactory = LoggerFactory.Create(builder => { });
         var logger = loggerFactory.CreateLogger<Entrypoint>();
 
-#pragma warning disable SYSLIB0050 // FormatterServices is obsolete; used only for test scaffolding.
-        var mediaSegmentUpdateManager = (IntroSkipper.Manager.MediaSegmentUpdateManager)FormatterServices.GetUninitializedObject(typeof(IntroSkipper.Manager.MediaSegmentUpdateManager));
-#pragma warning restore SYSLIB0050
-
         var entrypoint = new Entrypoint(
             libraryManager: null!,
             providerManager: null!,
@@ -267,7 +263,7 @@ internal static class EntrypointTestHelpers
             taskManager: null!,
             logger: logger,
             loggerFactory: loggerFactory,
-            mediaSegmentUpdateManager: mediaSegmentUpdateManager);
+            serviceProvider: null!);
 
         SetPrivateField(entrypoint, "_config", new PluginConfiguration { AutoDetectIntros = autoDetectIntros });
         return entrypoint;

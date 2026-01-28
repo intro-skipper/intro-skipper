@@ -1,4 +1,4 @@
-﻿// Copyright (C) 2026 Intro-Skipper contributors <intro-skipper.org>
+// Copyright (C) 2026 Intro-Skipper contributors <intro-skipper.org>
 // SPDX-License-Identifier: GPL-3.0-only
 
 using System;
@@ -7,7 +7,8 @@ using System.Net.Mime;
 using System.Threading;
 using System.Threading.Tasks;
 using IntroSkipper.Data;
-using IntroSkipper.Manager;
+using IntroSkipper.Services;
+using MediaBrowser.Controller.Entities.TV;
 using MediaBrowser.Model.MediaSegments;
 using MediaBrowser.Model.Querying;
 using Microsoft.AspNetCore.Authorization;
@@ -22,14 +23,14 @@ namespace IntroSkipper.Controllers;
 /// <remarks>
 /// Initializes a new instance of the <see cref="SegmentEditorController"/> class.
 /// </remarks>
-/// <param name="mediaSegmentUpdateManager">MediaSegmentUpdateManager.</param>
+/// <param name="segmentService">Segment service.</param>
 [Authorize(Policy = "RequiresElevation")]
 [ApiController]
 [Produces(MediaTypeNames.Application.Json)]
 [Route("MediaSegmentsApi")]
-public class SegmentEditorController(MediaSegmentUpdateManager mediaSegmentUpdateManager) : ControllerBase
+public class SegmentEditorController(ISegmentService segmentService) : ControllerBase
 {
-    private readonly MediaSegmentUpdateManager _mediaSegmentUpdateManager = mediaSegmentUpdateManager;
+    private readonly ISegmentService _segmentService = segmentService;
 
     /// <summary>
     /// Plugin meta endpoint.
@@ -53,6 +54,7 @@ public class SegmentEditorController(MediaSegmentUpdateManager mediaSegmentUpdat
     /// <param name="itemId">The ItemId.</param>
     /// <param name="providerId">Provider of the Segment.</param>
     /// <param name="segment">MediaSegment data.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>The created segment.</returns>
     [HttpPost("{itemId}")]
     [ProducesResponseType(StatusCodes.Status200OK)]
@@ -60,7 +62,8 @@ public class SegmentEditorController(MediaSegmentUpdateManager mediaSegmentUpdat
     public async Task<ActionResult<QueryResult<MediaSegmentDto>>> CreateSegmentAsync(
         [FromRoute, Required] Guid itemId,
         [FromQuery, Required] string providerId,
-        [FromBody, Required] MediaSegmentDto segment)
+        [FromBody, Required] MediaSegmentDto segment,
+        CancellationToken cancellationToken = default)
     {
         var item = Plugin.Instance!.GetItem(itemId);
         if (item is null)
@@ -68,46 +71,32 @@ public class SegmentEditorController(MediaSegmentUpdateManager mediaSegmentUpdat
             return NotFound();
         }
 
-        var seg = new Segment(itemId, new TimeRange(TimeSpan.FromTicks(segment.StartTicks).TotalSeconds, TimeSpan.FromTicks(segment.EndTicks).TotalSeconds));
-        var mode = Plugin.MapSegmentTypeToMode(segment.Type);
+        // Get SeasonId from episode if available
+        var seasonId = item is Episode episode ? episode.SeasonId : Guid.Empty;
 
-        await Plugin.Instance!.UpdateTimestampAsync(seg, mode).ConfigureAwait(false);
+        var seg = new Segment(itemId, new TimeRange(TimeSpan.FromTicks(segment.StartTicks).TotalSeconds, TimeSpan.FromTicks(segment.EndTicks).TotalSeconds), seasonId);
+        var mode = segment.Type.ToAnalysisMode();
 
-        var queuedItem = new QueuedEpisode { EpisodeId = item.Id };
-
-        await _mediaSegmentUpdateManager.UpdateMediaSegmentsAsync([queuedItem], CancellationToken.None).ConfigureAwait(false);
+        await _segmentService.CreateSegmentAsync(seg, mode, cancellationToken: cancellationToken).ConfigureAwait(false);
 
         return Ok();
     }
 
     /// <summary>
-    /// Delete MediaSgment by segment id.
+    /// Delete MediaSegment by segment id.
     /// </summary>
-    /// <param name="segmentId">The Id of the media segment to delete.</param>
-    /// <param name="itemId">The item id the segment belongs to (used to remove plugin DB entry).</param>
-    /// <param name="type">The media segment type name (Intro/Recap/Preview/Outro).</param>
+    /// <param name="segmentId">The Id of the plugin segment to delete.</param>
+    /// <param name="itemId">The item id the segment belongs to.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>HTTP 200 on success, 404 when item not found.</returns>
     [HttpDelete("{segmentId}")]
     [ProducesResponseType(StatusCodes.Status200OK)]
     public async Task<ActionResult> DeleteSegmentAsync(
-        [FromRoute, Required] Guid segmentId,
+        [FromRoute, Required] int segmentId,
         [FromQuery, Required] Guid itemId,
-        [FromQuery, Required] string type)
+        CancellationToken cancellationToken = default)
     {
-        // Delete the segment from Jellyfin's media segment manager
-        await _mediaSegmentUpdateManager.DeleteSegmentAsync(segmentId).ConfigureAwait(false);
-
-        AnalysisMode mode = type.ToLowerInvariant() switch
-        {
-            "intro" => AnalysisMode.Introduction,
-            "recap" => AnalysisMode.Recap,
-            "preview" => AnalysisMode.Preview,
-            "outro" or "credits" => AnalysisMode.Credits,
-            "commercial" => AnalysisMode.Commercial,
-            _ => throw new ArgumentOutOfRangeException(nameof(type), $"Unknown segment type '{type}'")
-        };
-
-        await Plugin.Instance!.DeleteTimestampAsync(itemId, mode).ConfigureAwait(false);
+        await _segmentService.DeleteSegmentAsync(segmentId, itemId, cancellationToken).ConfigureAwait(false);
 
         return Ok();
     }

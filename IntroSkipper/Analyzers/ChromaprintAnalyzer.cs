@@ -1,4 +1,4 @@
-﻿// Copyright (C) 2026 Intro-Skipper contributors <intro-skipper.org>
+// Copyright (C) 2026 Intro-Skipper contributors <intro-skipper.org>
 // SPDX-License-Identifier: GPL-3.0-only
 
 using System;
@@ -10,6 +10,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using IntroSkipper.Configuration;
 using IntroSkipper.Data;
+using IntroSkipper.Services;
 using Microsoft.Extensions.Logging;
 
 namespace IntroSkipper.Analyzers;
@@ -34,6 +35,7 @@ public partial class ChromaprintAnalyzer(ILogger<ChromaprintAnalyzer> logger) : 
     public async Task<IReadOnlyList<QueuedEpisode>> AnalyzeMediaFiles(
         IReadOnlyList<QueuedEpisode> analysisQueue,
         AnalysisMode mode,
+        ISegmentService segmentService,
         CancellationToken cancellationToken)
     {
         // Episodes that were not analyzed or have a fingerprint cache.
@@ -51,8 +53,14 @@ public partial class ChromaprintAnalyzer(ILogger<ChromaprintAnalyzer> logger) : 
         // All intros for this season.
         var seasonIntros = new Dictionary<Guid, Segment>();
 
+        // Track matched episodes using Union-Find to determine first appearances.
+        var episodeCluster = new EpisodeCluster();
+
         // Cache of all fingerprints for this season.
         var fingerprintCache = new Dictionary<Guid, uint[]>();
+
+        // Create a lookup from episode ID to QueuedEpisode for later use.
+        var episodeLookup = analysisQueue.ToDictionary(e => e.EpisodeId);
 
         // Ensure at least two fingerprints are present.
         if (episodeAnalysisQueue.Count == 1)
@@ -62,12 +70,13 @@ public partial class ChromaprintAnalyzer(ILogger<ChromaprintAnalyzer> logger) : 
                 .Where(episode => episode != currentEpisode && Math.Abs(episode.EpisodeNumber - currentEpisode.EpisodeNumber) <= 1));
         }
 
-        // Compute fingerprints for all episodes in the season
+        // Compute fingerprints for all episodes in the season and register them in the cluster
         foreach (var episode in episodeAnalysisQueue)
         {
             try
             {
                 fingerprintCache[episode.EpisodeId] = FFmpegWrapper.Fingerprint(episode, mode);
+                episodeCluster.Register(episode.EpisodeId, episode.EpisodeNumber);
 
                 // Use reversed fingerprints for credits
                 if (_analysisMode == AnalysisMode.Credits)
@@ -160,6 +169,10 @@ public partial class ChromaprintAnalyzer(ILogger<ChromaprintAnalyzer> logger) : 
                     seasonIntros[remainingIntro.EpisodeId] = remainingIntro;
                 }
 
+                // Union the two matched episodes into the same cluster.
+                // The cluster tracks which episode has the lowest episode number.
+                episodeCluster.Union(currentIntro.EpisodeId, remainingIntro.EpisodeId);
+
                 break;
             }
 
@@ -167,8 +180,9 @@ public partial class ChromaprintAnalyzer(ILogger<ChromaprintAnalyzer> logger) : 
             if (seasonIntros.TryGetValue(currentEpisode.EpisodeId, out var intro))
             {
                 var adjustedIntro = timeAdjustmentHelper.AdjustIntroTimes(currentEpisode, intro);
+                var isFirstAppearance = episodeCluster.IsFirstAppearance(currentEpisode.EpisodeId);
                 currentEpisode.SetAnalyzed(mode, EpisodeState.Analyzed);
-                await Plugin.Instance!.UpdateTimestampAsync(adjustedIntro, mode).ConfigureAwait(false);
+                await segmentService.CreateSegmentAsync(adjustedIntro, mode, isFirstAppearance, cancellationToken).ConfigureAwait(false);
             }
         }
 

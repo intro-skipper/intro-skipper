@@ -1,4 +1,4 @@
-﻿// Copyright (C) 2026 Intro-Skipper contributors <intro-skipper.org>
+// Copyright (C) 2026 Intro-Skipper contributors <intro-skipper.org>
 // SPDX-License-Identifier: GPL-3.0-only
 
 using System;
@@ -10,6 +10,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using IntroSkipper.Configuration;
 using IntroSkipper.Data;
+using IntroSkipper.Services;
 using MediaBrowser.Model.Entities;
 using Microsoft.Extensions.Logging;
 
@@ -31,6 +32,7 @@ public partial class ChapterAnalyzer(ILogger<ChapterAnalyzer> logger) : IMediaFi
     public async Task<IReadOnlyList<QueuedEpisode>> AnalyzeMediaFiles(
         IReadOnlyList<QueuedEpisode> analysisQueue,
         AnalysisMode mode,
+        ISegmentService segmentService,
         CancellationToken cancellationToken)
     {
         var expression = mode switch
@@ -73,7 +75,7 @@ public partial class ChapterAnalyzer(ILogger<ChapterAnalyzer> logger) : IMediaFi
             skipRange = timeAdjustmentHelper.AdjustIntroTimes(episode, skipRange, false);
 
             episode.SetAnalyzed(mode, EpisodeState.Analyzed);
-            await Plugin.Instance!.UpdateTimestampAsync(skipRange, mode).ConfigureAwait(false);
+            await segmentService.CreateSegmentAsync(skipRange, mode, cancellationToken: cancellationToken).ConfigureAwait(false);
         }
 
         return analysisQueue;
@@ -149,7 +151,7 @@ public partial class ChapterAnalyzer(ILogger<ChapterAnalyzer> logger) : IMediaFi
 
             // Check if the next (or previous for Credits) chapter also matches
             var adjacentChapter = reversed ? chapters.ElementAtOrDefault(i - 1) : next;
-            if (adjacentChapter != null && !string.IsNullOrWhiteSpace(adjacentChapter.Name))
+            if (adjacentChapter is not null && !string.IsNullOrWhiteSpace(adjacentChapter.Name))
             {
                 // Check for possibility of overlapping keywords
                 var overlap = Regex.IsMatch(
@@ -166,7 +168,7 @@ public partial class ChapterAnalyzer(ILogger<ChapterAnalyzer> logger) : IMediaFi
             }
 
             LogChapterOk(baseMessage);
-            return new Segment(episode.EpisodeId, currentRange);
+            return new Segment(episode.EpisodeId, currentRange, episode.SeasonId);
         }
 
         return null;

@@ -1,4 +1,4 @@
-﻿// Copyright (C) 2026 Intro-Skipper contributors <intro-skipper.org>
+// Copyright (C) 2026 Intro-Skipper contributors <intro-skipper.org>
 // SPDX-License-Identifier: GPL-3.0-only
 
 using System;
@@ -39,7 +39,7 @@ public partial class TimeAdjustmentHelper(ILogger logger, PluginConfiguration co
         if (_config.EndSnapThreshold < 0 || _config.AdjustWindowInward < 0 || _config.AdjustWindowOutward < 0)
         {
             LogInvalidConfiguration(_logger);
-            return new Segment(episode.EpisodeId) { Start = originalIntro.Start, End = originalIntro.End };
+            return new Segment(episode.EpisodeId, episode.SeasonId) { Start = originalIntro.Start, End = originalIntro.End };
         }
 
         bool useChapters = adjustIntroBasedOnChapters ?? _config.AdjustIntroBasedOnChapters;
@@ -130,12 +130,12 @@ public partial class TimeAdjustmentHelper(ILogger logger, PluginConfiguration co
         if (adjustedStart >= adjustedEnd)
         {
             LogAdjustedStartAfterEnd(_logger, episode.EpisodeId, episode.Name, adjustedStart, adjustedEnd);
-            return new Segment(episode.EpisodeId) { Start = originalIntro.Start, End = originalIntro.End };
+            return new Segment(episode.EpisodeId, episode.SeasonId) { Start = originalIntro.Start, End = originalIntro.End };
         }
 
         LogAdjustedIntro(_logger, episode.EpisodeId, episode.Name, adjustedStart, adjustedEnd);
 
-        return new Segment(episode.EpisodeId)
+        return new Segment(episode.EpisodeId, episode.SeasonId)
         {
             Start = adjustedStart,
             End = adjustedEnd

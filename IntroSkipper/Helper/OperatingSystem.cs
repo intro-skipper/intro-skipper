@@ -58,12 +58,12 @@ namespace IntroSkipper.Helper
             {
                 if (IsDocker())
                 {
-                    if (Environment.GetEnvironmentVariable("ATTACHED_DEVICES_PERMS") != null)
+                    if (Environment.GetEnvironmentVariable("ATTACHED_DEVICES_PERMS") is not null)
                     {
                         return "LinuxServer.io image (Docker)";
                     }
 
-                    if (Environment.GetEnvironmentVariable("WEBUI_PORTS") != null)
+                    if (Environment.GetEnvironmentVariable("WEBUI_PORTS") is not null)
                     {
                         return "hotio image (Docker)";
                     }
