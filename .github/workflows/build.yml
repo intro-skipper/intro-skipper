@@ -10,6 +10,9 @@ on:
       - "docs/**"
       - "images/**"
       - "manifest.json"
+  pull_request:
+    types:
+      - ready_for_review
 
 permissions:
   contents: write
