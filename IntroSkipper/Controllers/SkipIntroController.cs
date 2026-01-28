@@ -66,15 +66,20 @@ public class SkipIntroController(MediaSegmentUpdateManager mediaSegmentUpdateMan
         {
             if (segment.Valid)
             {
-                segment.EpisodeId = id;
-                await Plugin.Instance!.UpdateTimestampAsync(segment, mode).ConfigureAwait(false);
+                // Ensure the segment has the correct EpisodeId
+                var correctedSegment = new Segment(id, new TimeRange(segment.Start, segment.End));
+                await Plugin.Instance!.UpdateTimestampAsync(correctedSegment, mode).ConfigureAwait(false);
             }
         }
 
         // Handle commercial segments separately as they can have multiple entries
         if (timestamps.Commercials.Count > 0)
         {
-            await Plugin.Instance!.UpdateTimestampsAsync(id, AnalysisMode.Commercial, timestamps.Commercials).ConfigureAwait(false);
+            // Ensure all commercial segments have the correct EpisodeId
+            var commercialsWithCorrectId = timestamps.Commercials
+                .Select(c => new Segment(id, new TimeRange(c.Start, c.End)))
+                .ToList();
+            await Plugin.Instance!.UpdateTimestampsAsync(id, AnalysisMode.Commercial, commercialsWithCorrectId).ConfigureAwait(false);
         }
 
         if (Plugin.Instance.Configuration.UpdateMediaSegments)

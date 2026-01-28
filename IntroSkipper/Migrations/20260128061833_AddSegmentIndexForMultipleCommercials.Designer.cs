@@ -11,7 +11,7 @@ using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 namespace IntroSkipper.Migrations
 {
     [DbContext(typeof(IntroSkipperDbContext))]
-    [Migration("20260128060610_AddSegmentIndexForMultipleCommercials")]
+    [Migration("20260128061833_AddSegmentIndexForMultipleCommercials")]
     partial class AddSegmentIndexForMultipleCommercials
     {
         /// <inheritdoc />

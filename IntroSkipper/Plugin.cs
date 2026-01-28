@@ -212,10 +212,11 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
             {
                 if (segment.Valid)
                 {
-                    var dbSegment = new DbSegment(new Segment(episodeId, new TimeRange(segment.Start, segment.End)), mode)
+                    var dbSegment = new DbSegment(segment, mode)
                     {
                         SegmentIndex = index++
                     };
+                    dbSegment.ItemId = episodeId; // Ensure correct ItemId
                     db.DbSegment.Add(dbSegment);
                 }
             }
@@ -244,7 +245,8 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
         using var db = new IntroSkipperDbContext(_dbPath);
         return db.DbSegment
             .Where(s => s.ItemId == id)
-            .OrderBy(s => s.SegmentIndex)
+            .OrderBy(s => s.Type)
+            .ThenBy(s => s.SegmentIndex)
             .ToLookup(s => s.Type, s => s.ToSegment());
     }
 
