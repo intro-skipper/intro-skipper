@@ -3,9 +3,11 @@
 
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using IntroSkipper.Data;
+using IntroSkipper.Services;
 using Jellyfin.Database.Implementations.Enums;
 using MediaBrowser.Controller.Entities;
 using MediaBrowser.Controller.Entities.Movies;
@@ -13,14 +15,21 @@ using MediaBrowser.Controller.Entities.TV;
 using MediaBrowser.Controller.MediaSegments;
 using MediaBrowser.Model;
 using MediaBrowser.Model.MediaSegments;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace IntroSkipper.Providers
 {
     /// <summary>
     /// Introskipper media segment provider.
     /// </summary>
-    public class SegmentProvider : IMediaSegmentProvider
+    /// <remarks>
+    /// Initializes a new instance of the <see cref="SegmentProvider"/> class.
+    /// </remarks>
+    /// <param name="serviceProvider">The service provider used to resolve dependencies.</param>
+    public class SegmentProvider(IServiceProvider serviceProvider) : IMediaSegmentProvider
     {
+        private readonly IServiceProvider _serviceProvider = serviceProvider;
+
         /// <summary>
         /// Mappings between AnalysisMode and MediaSegmentType.
         /// </summary>
@@ -37,20 +46,23 @@ namespace IntroSkipper.Providers
         public string Name => Plugin.Instance!.Name;
 
         /// <inheritdoc/>
-        public Task<IReadOnlyList<MediaSegmentDto>> GetMediaSegments(MediaSegmentGenerationRequest request, CancellationToken cancellationToken)
+        public async Task<IReadOnlyList<MediaSegmentDto>> GetMediaSegments(MediaSegmentGenerationRequest request, CancellationToken cancellationToken)
         {
             ArgumentNullException.ThrowIfNull(request);
-            ArgumentNullException.ThrowIfNull(Plugin.Instance);
+
+            using var scope = _serviceProvider.CreateScope();
+            var segmentService = scope.ServiceProvider.GetRequiredService<ISegmentService>();
 
             var segments = new List<MediaSegmentDto>();
-            var itemSegments = Plugin.Instance.GetTimestamps(request.ItemId);
+            var dbSegments = await segmentService.GetSegmentsAsync(request.ItemId, cancellationToken).ConfigureAwait(false);
 
-            foreach (var (mode, type) in _segmentMappings)
+            // Convert all segments to DTOs
+            foreach (var dbSegment in dbSegments.Where(s => s.ToSegment().Valid))
             {
-                if (itemSegments.TryGetValue(mode, out var segment) && segment.Valid)
+                if (_segmentMappings.TryGetValue(dbSegment.Type, out var type))
                 {
-                    long startTicks = (long)(segment.Start * TimeSpan.TicksPerSecond);
-                    long endTicks = (long)(segment.End * TimeSpan.TicksPerSecond);
+                    long startTicks = (long)(dbSegment.Start * TimeSpan.TicksPerSecond);
+                    long endTicks = (long)(dbSegment.End * TimeSpan.TicksPerSecond);
 
                     segments.Add(new MediaSegmentDto
                     {
@@ -62,7 +74,7 @@ namespace IntroSkipper.Providers
                 }
             }
 
-            return Task.FromResult<IReadOnlyList<MediaSegmentDto>>(segments);
+            return segments;
         }
 
         /// <inheritdoc/>

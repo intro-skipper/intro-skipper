@@ -1,4 +1,4 @@
-﻿// Copyright (C) 2026 Intro-Skipper contributors <intro-skipper.org>
+// Copyright (C) 2026 Intro-Skipper contributors <intro-skipper.org>
 // SPDX-License-Identifier: GPL-3.0-only
 
 using System;
@@ -8,10 +8,11 @@ using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using IntroSkipper.Manager;
+using IntroSkipper.Repositories;
+using IntroSkipper.Services;
 using MediaBrowser.Controller.Library;
-using MediaBrowser.Controller.Providers;
-using MediaBrowser.Model.IO;
 using MediaBrowser.Model.Tasks;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 
 namespace IntroSkipper.ScheduledTasks;
@@ -24,8 +25,7 @@ public class CleanCacheTask : IScheduledTask
     private readonly ILogger<CleanCacheTask> _logger;
     private readonly ILoggerFactory _loggerFactory;
     private readonly ILibraryManager _libraryManager;
-    private readonly IProviderManager _providerManager;
-    private readonly IFileSystem _fileSystem;
+    private readonly IServiceProvider _serviceProvider;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="CleanCacheTask"/> class.
@@ -33,20 +33,17 @@ public class CleanCacheTask : IScheduledTask
     /// <param name="loggerFactory">Logger factory.</param>
     /// <param name="libraryManager">Library manager.</param>
     /// <param name="logger">Logger.</param>
-    /// <param name="providerManager">Provider manager.</param>
-    /// <param name="fileSystem">File system.</param>
+    /// <param name="serviceProvider">Service provider.</param>
     public CleanCacheTask(
         ILogger<CleanCacheTask> logger,
         ILoggerFactory loggerFactory,
         ILibraryManager libraryManager,
-        IProviderManager providerManager,
-        IFileSystem fileSystem)
+        IServiceProvider serviceProvider)
     {
         _logger = logger;
         _loggerFactory = loggerFactory;
         _libraryManager = libraryManager;
-        _providerManager = providerManager;
-        _fileSystem = fileSystem;
+        _serviceProvider = serviceProvider;
     }
 
     /// <summary>
@@ -89,8 +86,7 @@ public class CleanCacheTask : IScheduledTask
         var queueManager = new QueueManager(
             _loggerFactory.CreateLogger<QueueManager>(),
             _libraryManager,
-            _providerManager,
-            _fileSystem);
+            _serviceProvider);
 
         // QueueManager.GetMediaItems() already skips libraries where the plugin is disabled via
         // LibraryOptions.DisabledMediaSegmentProviders (same mechanism LegacyMigrations writes to).
@@ -100,7 +96,11 @@ public class CleanCacheTask : IScheduledTask
             .SelectMany(episodes => episodes.Select(e => e.EpisodeId))
             .ToHashSet();
 
-        await plugin.CleanTimestamps(enabledLibraryEpisodeIds).ConfigureAwait(false);
+        using (var scope = _serviceProvider.CreateScope())
+        {
+            var segmentService = scope.ServiceProvider.GetRequiredService<ISegmentService>();
+            await segmentService.CleanupOrphanedSegmentsAsync(enabledLibraryEpisodeIds, cancellationToken).ConfigureAwait(false);
+        }
 
         // Identify episode IDs with cached files that are no longer in enabled libraries
         var invalidEpisodeIds = Directory.EnumerateFiles(plugin.FingerprintCachePath)
@@ -117,7 +117,11 @@ public class CleanCacheTask : IScheduledTask
         }
 
         // Clean up Season information by removing items that are no longer exist.
-        await plugin.CleanSeasonInfoAsync(queue.Keys).ConfigureAwait(false);
+        using (var scope = _serviceProvider.CreateScope())
+        {
+            var seasonRepository = scope.ServiceProvider.GetRequiredService<ISeasonRepository>();
+            await seasonRepository.DeleteOrphanedSeasonsAsync(queue.Keys, cancellationToken).ConfigureAwait(false);
+        }
 
         plugin.AnalyzeAgain = true;
 

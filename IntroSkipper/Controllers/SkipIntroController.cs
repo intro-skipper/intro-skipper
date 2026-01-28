@@ -1,4 +1,4 @@
-﻿// Copyright (C) 2026 Intro-Skipper contributors <intro-skipper.org>
+// Copyright (C) 2026 Intro-Skipper contributors <intro-skipper.org>
 // SPDX-License-Identifier: GPL-3.0-only
 
 using System;
@@ -9,7 +9,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using IntroSkipper.Data;
 using IntroSkipper.Db;
-using IntroSkipper.Manager;
+using IntroSkipper.Services;
 using MediaBrowser.Common.Api;
 using MediaBrowser.Controller.Entities.Movies;
 using MediaBrowser.Controller.Entities.TV;
@@ -25,9 +25,9 @@ namespace IntroSkipper.Controllers;
 [Authorize]
 [ApiController]
 [Produces(MediaTypeNames.Application.Json)]
-public class SkipIntroController(MediaSegmentUpdateManager mediaSegmentUpdateManager) : ControllerBase
+public class SkipIntroController(ISegmentService segmentService) : ControllerBase
 {
-    private readonly MediaSegmentUpdateManager _mediaSegmentUpdateManager = mediaSegmentUpdateManager;
+    private readonly ISegmentService _segmentService = segmentService;
 
     /// <summary>
     /// Updates the timestamps for the provided episode.
@@ -49,10 +49,13 @@ public class SkipIntroController(MediaSegmentUpdateManager mediaSegmentUpdateMan
             return NotFound();
         }
 
-        if (timestamps == null)
+        if (timestamps is null)
         {
             return NoContent();
         }
+
+        // Get SeasonId from episode if available
+        var seasonId = rawItem is Episode episode ? episode.SeasonId : Guid.Empty;
 
         var segmentTypes = new[]
         {
@@ -68,20 +71,12 @@ public class SkipIntroController(MediaSegmentUpdateManager mediaSegmentUpdateMan
             if (segment.Valid)
             {
                 segment.EpisodeId = id;
-                await Plugin.Instance!.UpdateTimestampAsync(segment, mode).ConfigureAwait(false);
+                segment.SeasonId = seasonId;
+                await _segmentService.CreateSegmentAsync(segment, mode, cancellationToken: cancellationToken).ConfigureAwait(false);
             }
         }
 
-        if (Plugin.Instance.Configuration.UpdateMediaSegments)
-        {
-            var episode = Plugin.Instance!.QueuedMediaItems[rawItem is Episode e ? e.SeasonId : rawItem.Id]
-                .FirstOrDefault(q => q.EpisodeId == rawItem.Id);
-
-            if (episode is not null)
-            {
-                await _mediaSegmentUpdateManager.UpdateMediaSegmentsAsync([episode], cancellationToken).ConfigureAwait(false);
-            }
-        }
+        // Segments are automatically synced via the outbox processor
 
         return NoContent();
     }
@@ -95,7 +90,7 @@ public class SkipIntroController(MediaSegmentUpdateManager mediaSegmentUpdateMan
     /// <returns>Episode Timestamps.</returns>
     [HttpGet("Episode/{Id}/Timestamps")]
     [ActionName("UpdateTimestamps")]
-    public ActionResult<TimeStamps> GetTimestamps([FromRoute] Guid id)
+    public async Task<ActionResult<TimeStamps>> GetTimestamps([FromRoute] Guid id)
     {
         // only get return content for episodes
         var rawItem = Plugin.Instance!.GetItem(id);
@@ -105,7 +100,7 @@ public class SkipIntroController(MediaSegmentUpdateManager mediaSegmentUpdateMan
         }
 
         var times = new TimeStamps();
-        var segments = Plugin.Instance!.GetTimestamps(id);
+        var segments = await _segmentService.GetSegmentsDictionaryAsync(id, CancellationToken.None).ConfigureAwait(false);
 
         if (segments.TryGetValue(AnalysisMode.Introduction, out var introSegment))
         {
@@ -142,9 +137,9 @@ public class SkipIntroController(MediaSegmentUpdateManager mediaSegmentUpdateMan
     /// <response code="200">Skippable segments dictionary.</response>
     /// <returns>Dictionary of skippable segments.</returns>
     [HttpGet("Episode/{id}/IntroSkipperSegments")]
-    public ActionResult<Dictionary<AnalysisMode, Segment>> GetSkippableSegments([FromRoute] Guid id)
+    public async Task<ActionResult<Dictionary<AnalysisMode, Segment>>> GetSkippableSegments([FromRoute] Guid id)
     {
-        var segments = Plugin.Instance!.GetTimestamps(id);
+        var segments = await _segmentService.GetSegmentsDictionaryAsync(id, CancellationToken.None).ConfigureAwait(false);
         var result = new Dictionary<AnalysisMode, Segment>();
 
         if (segments.TryGetValue(AnalysisMode.Introduction, out var introSegment))
@@ -204,16 +199,17 @@ public class SkipIntroController(MediaSegmentUpdateManager mediaSegmentUpdateMan
     }
 
     /// <summary>
-    /// Rebuilds the database.
+    /// Erases all segments and rebuilds the database.
     /// </summary>
-    /// <response code="204">Database rebuilt.</response>
+    /// <response code="204">Database erased and rebuilt.</response>
     /// <returns>No content.</returns>
     [Authorize(Policy = Policies.RequiresElevation)]
     [HttpPost("Intros/RebuildDatabase")]
     public ActionResult RebuildDatabase()
     {
         using var db = new IntroSkipperDbContext(Plugin.Instance!.DbPath);
-        db.RebuildDatabase();
+        db.Database.EnsureDeleted();
+        db.Database.Migrate();
         return NoContent();
     }
 }

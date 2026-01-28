@@ -1,4 +1,4 @@
-﻿// Copyright (C) 2026 Intro-Skipper contributors <intro-skipper.org>
+// Copyright (C) 2026 Intro-Skipper contributors <intro-skipper.org>
 // SPDX-License-Identifier: GPL-3.0-only
 
 using System;
@@ -8,6 +8,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using IntroSkipper.Configuration;
 using IntroSkipper.Data;
+using IntroSkipper.Services;
 using Microsoft.Extensions.Logging;
 
 namespace IntroSkipper.Analyzers;
@@ -30,6 +31,7 @@ public sealed class BlackFrameAnalyzer(ILogger<BlackFrameAnalyzer> logger) : IMe
     public async Task<IReadOnlyList<QueuedEpisode>> AnalyzeMediaFiles(
         IReadOnlyList<QueuedEpisode> analysisQueue,
         AnalysisMode mode,
+        ISegmentService segmentService,
         CancellationToken cancellationToken)
     {
         if (mode != AnalysisMode.Credits)
@@ -87,7 +89,7 @@ public sealed class BlackFrameAnalyzer(ILogger<BlackFrameAnalyzer> logger) : IMe
                 _logger.LogDebug("Found credits for {Episode} at {Start:F2}s", episode.Name, credit.Start);
 
                 episode.SetAnalyzed(mode, EpisodeState.Analyzed);
-                await Plugin.Instance!.UpdateTimestampAsync(credit, mode).ConfigureAwait(false);
+                await segmentService.CreateSegmentAsync(credit, mode, cancellationToken: cancellationToken).ConfigureAwait(false);
 
                 // Update search start for next episode based on this result
                 searchStart = episode.Duration - credit.Start + _config.MinimumCreditsDuration;
@@ -181,7 +183,8 @@ public sealed class BlackFrameAnalyzer(ILogger<BlackFrameAnalyzer> logger) : IMe
             {
                 return new Segment(
                     episode.EpisodeId,
-                    new TimeRange(firstBlackFrameTime.Value, episode.Duration));
+                    new TimeRange(firstBlackFrameTime.Value, episode.Duration),
+                    episode.SeasonId);
             }
 
             return null;
@@ -248,7 +251,7 @@ public sealed class BlackFrameAnalyzer(ILogger<BlackFrameAnalyzer> logger) : IMe
             if (!hasBlackFramesBefore)
             {
                 _logger.LogTrace("Found credits using chapter marker at {Start:F2}s", chapterStart);
-                segment = new Segment(episode.EpisodeId, new TimeRange(chapterStart, episode.Duration));
+                segment = new Segment(episode.EpisodeId, new TimeRange(chapterStart, episode.Duration), episode.SeasonId);
                 return true;
             }
         }

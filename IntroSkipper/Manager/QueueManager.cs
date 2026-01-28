@@ -1,4 +1,4 @@
-﻿// Copyright (C) 2026 Intro-Skipper contributors <intro-skipper.org>
+// Copyright (C) 2026 Intro-Skipper contributors <intro-skipper.org>
 // SPDX-License-Identifier: GPL-3.0-only
 
 using System;
@@ -9,6 +9,8 @@ using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
 using IntroSkipper.Data;
+using IntroSkipper.Repositories;
+using IntroSkipper.Services;
 using Jellyfin.Data.Enums;
 using Jellyfin.Database.Implementations.Enums;
 using Jellyfin.Extensions;
@@ -18,6 +20,7 @@ using MediaBrowser.Controller.Entities.TV;
 using MediaBrowser.Controller.Library;
 using MediaBrowser.Controller.Providers;
 using MediaBrowser.Model.IO;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 
 namespace IntroSkipper.Manager;
@@ -30,14 +33,12 @@ namespace IntroSkipper.Manager;
 /// </remarks>
 /// <param name="logger">Logger.</param>
 /// <param name="libraryManager">Library manager.</param>
-/// <param name="providerManager">Provider manager.</param>
-/// <param name="fileSystem">File system.</param>
-public partial class QueueManager(ILogger<QueueManager> logger, ILibraryManager libraryManager, IProviderManager providerManager, IFileSystem fileSystem)
+/// <param name="serviceProvider">Service provider.</param>
+public partial class QueueManager(ILogger<QueueManager> logger, ILibraryManager libraryManager, IServiceProvider serviceProvider)
 {
     private readonly ILibraryManager _libraryManager = libraryManager;
-    private readonly IFileSystem _fileSystem = fileSystem;
-    private readonly IProviderManager _providerManager = providerManager;
     private readonly ILogger<QueueManager> _logger = logger;
+    private readonly IServiceProvider _serviceProvider = serviceProvider;
     private readonly Dictionary<Guid, List<QueuedEpisode>> _queuedEpisodes = [];
     private readonly HashSet<Guid> _refreshedEpisodes = [];
     private double _analysisPercent;
@@ -366,7 +367,10 @@ public partial class QueueManager(ILogger<QueueManager> logger, ILibraryManager 
             _logger.LogInformation("Episode {Name} ({Id}) has an invalid SeasonId", episode.Name, episode.Id);
             _refreshedEpisodes.Add(episode.Id);
 
-            var refreshOptions = new MetadataRefreshOptions(new DirectoryService(_fileSystem))
+            var fileSystem = _serviceProvider.GetRequiredService<IFileSystem>();
+            var providerManager = _serviceProvider.GetRequiredService<IProviderManager>();
+
+            var refreshOptions = new MetadataRefreshOptions(new DirectoryService(fileSystem))
             {
                 MetadataRefreshMode = MetadataRefreshMode.Default,
                 ImageRefreshMode = MetadataRefreshMode.None,
@@ -378,7 +382,7 @@ public partial class QueueManager(ILogger<QueueManager> logger, ILibraryManager 
                 RegenerateTrickplay = false
             };
 
-            await _providerManager.RefreshSingleItem(episode, refreshOptions, cancellationToken).ConfigureAwait(false);
+            await providerManager.RefreshSingleItem(episode, refreshOptions, cancellationToken).ConfigureAwait(false);
 
             if (episode.SeasonId == Guid.Empty)
             {
@@ -399,17 +403,28 @@ public partial class QueueManager(ILogger<QueueManager> logger, ILibraryManager 
     /// </summary>
     /// <param name="candidates">Queued media items.</param>
     /// <param name="modes">Analysis modes.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>Media items that have been verified to exist in Jellyfin and in storage.</returns>
-    internal IReadOnlyList<QueuedEpisode> VerifyQueue(IReadOnlyList<QueuedEpisode> candidates, IReadOnlyCollection<AnalysisMode> modes)
+    internal async Task<IReadOnlyList<QueuedEpisode>> VerifyQueueAsync(IReadOnlyList<QueuedEpisode> candidates, IReadOnlyCollection<AnalysisMode> modes, CancellationToken cancellationToken = default)
     {
-        if (candidates == null || candidates.Count == 0)
+        if (candidates is null || candidates.Count == 0)
         {
             return [];
         }
 
         var verified = new List<QueuedEpisode>(candidates.Count);
         var plugin = Plugin.Instance ?? throw new InvalidOperationException("Plugin instance is null");
-        var episodeIds = plugin.GetEpisodeIds(candidates[0].SeasonId);
+
+        // Get analyzed episode IDs for this season using the repository
+        // All candidates belong to the same season, so use the season-based query
+        var seasonId = candidates[0].SeasonId;
+        IReadOnlyDictionary<AnalysisMode, IEnumerable<Guid>> episodeIds;
+        using (var scope = _serviceProvider.CreateScope())
+        {
+            var segmentRepository = scope.ServiceProvider.GetRequiredService<ISegmentRepository>();
+            episodeIds = await segmentRepository.GetAnalyzedEpisodeIdsBySeasonAsync(seasonId, cancellationToken)
+                .ConfigureAwait(false);
+        }
 
         foreach (var candidate in candidates)
         {
@@ -425,7 +440,14 @@ public partial class QueueManager(ILogger<QueueManager> logger, ILibraryManager 
 
                 verified.Add(candidate);
 
-                var hasSegments = plugin.GetTimestamps(candidate.EpisodeId);
+                Dictionary<AnalysisMode, Segment> hasSegments;
+                using (var scope = _serviceProvider.CreateScope())
+                {
+                    var segmentService = scope.ServiceProvider.GetRequiredService<ISegmentService>();
+                    hasSegments = (await segmentService.GetSegmentsDictionaryAsync(candidate.EpisodeId, cancellationToken)
+                        .ConfigureAwait(false))
+                        .ToDictionary(kvp => kvp.Key, kvp => kvp.Value);
+                }
 
                 foreach (var mode in modes)
                 {

@@ -5,22 +5,23 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
-using Jellyfin.Data.Enums;
+using IntroSkipper.Data;
+using IntroSkipper.Db;
 using Jellyfin.Database.Implementations.Enums;
 using Jellyfin.Extensions;
-using MediaBrowser.Controller.Entities;
 using MediaBrowser.Controller.Entities.TV;
 using MediaBrowser.Controller.Library;
 using MediaBrowser.Model.MediaSegments;
 using MediaBrowser.Model.Querying;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.Filters;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 
 namespace IntroSkipper.Filters;
 
 /// <summary>
-/// Filters media segment responses to remove intro segments for season premieres.
+/// Filters media segment responses to remove intro segments for episodes where the intro pattern first appeared.
 /// </summary>
 /// <remarks>
 /// Initializes a new instance of the <see cref="MediaSegmentsFirstEpisodeFilter"/> class.
@@ -57,7 +58,7 @@ public sealed class MediaSegmentsFirstEpisodeFilter(
             return;
         }
 
-        if (!IsFirstEpisode(episode))
+        if (!await IsFirstAppearanceEpisodeAsync(episode.Id).ConfigureAwait(false))
         {
             await next().ConfigureAwait(false);
             return;
@@ -69,7 +70,7 @@ public sealed class MediaSegmentsFirstEpisodeFilter(
             return;
         }
 
-        _logger.LogDebug("Filtering intro segments for first episode {EpisodeId} (SeasonId: {SeasonId}, Index: {Index})", episode.Id, episode.SeasonId, episode.IndexNumber);
+        _logger.LogDebug("Filtering intro segments for first appearance episode {EpisodeId}", episode.Id);
 
         if (context.Result is ObjectResult objectResult)
         {
@@ -87,43 +88,46 @@ public sealed class MediaSegmentsFirstEpisodeFilter(
         await next().ConfigureAwait(false);
     }
 
-    private bool IsFirstEpisode(Episode episode)
+    /// <summary>
+    /// Checks if this episode has an intro segment marked as first appearance.
+    /// </summary>
+    /// <param name="episodeId">The episode ID to check.</param>
+    /// <returns>True if this episode has an intro segment with IsFirstAppearance set to true.</returns>
+    private async Task<bool> IsFirstAppearanceEpisodeAsync(Guid episodeId)
     {
-        _logger.LogDebug("Evaluating first-episode status for {EpisodeId} (SeasonId: {SeasonId}, Index: {Index})", episode.Id, episode.SeasonId, episode.IndexNumber);
-
         if (Plugin.Instance?.Configuration?.SkipFirstEpisode != true)
         {
             return false;
         }
 
-        if (episode.SeasonId == Guid.Empty)
+        var dbPath = Plugin.Instance?.DbPath;
+        if (string.IsNullOrEmpty(dbPath))
         {
-            _logger.LogDebug("Episode {EpisodeId} has no SeasonId. Not filtering.", episode.Id);
+            _logger.LogDebug("Database path not available. Not filtering.");
             return false;
         }
 
-        var query = new InternalItemsQuery
+        try
         {
-            ParentId = episode.SeasonId,
-            IncludeItemTypes = [BaseItemKind.Episode],
-            Recursive = false,
-            IsVirtualItem = false,
-            OrderBy = [(ItemSortBy.IndexNumber, SortOrder.Ascending)]
-        };
+            using var db = new IntroSkipperDbContext(dbPath);
+            var hasFirstAppearance = await db.DbSegment
+                .AnyAsync(s => s.ItemId == episodeId &&
+                               s.Type == AnalysisMode.Introduction &&
+                               s.IsFirstAppearance)
+                .ConfigureAwait(false);
 
-        var firstEpisode = _libraryManager.GetItemList(query, false)
-            .OfType<Episode>()
-            .FirstOrDefault();
+            _logger.LogDebug(
+                "Episode {EpisodeId} IsFirstAppearance check: {Result}",
+                episodeId,
+                hasFirstAppearance);
 
-        if (firstEpisode is null)
+            return hasFirstAppearance;
+        }
+        catch (Exception ex)
         {
-            _logger.LogDebug("No first episode found for SeasonId {SeasonId}. Not filtering.", episode.SeasonId);
+            _logger.LogError(ex, "Error checking IsFirstAppearance for episode {EpisodeId}", episodeId);
             return false;
         }
-
-        _logger.LogDebug("Season {SeasonId} first episode is {FirstEpisodeId}. Current episode is {EpisodeId}.", episode.SeasonId, firstEpisode.Id, episode.Id);
-
-        return firstEpisode.Id == episode.Id;
     }
 
     private bool IsFilteredEpisode(Episode episode)
@@ -135,7 +139,7 @@ public sealed class MediaSegmentsFirstEpisodeFilter(
         }
 
         // When anime restriction is enabled, only filter anime series
-        return episode.Series is Series series &&
+        return episode.Series is MediaBrowser.Controller.Entities.TV.Series series &&
             (series.Tags.Contains("anime", StringComparison.OrdinalIgnoreCase) ||
             series.Genres.Contains("anime", StringComparison.OrdinalIgnoreCase));
     }

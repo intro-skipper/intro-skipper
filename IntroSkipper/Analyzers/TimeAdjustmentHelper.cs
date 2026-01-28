@@ -1,4 +1,4 @@
-﻿// Copyright (C) 2026 Intro-Skipper contributors <intro-skipper.org>
+// Copyright (C) 2026 Intro-Skipper contributors <intro-skipper.org>
 // SPDX-License-Identifier: GPL-3.0-only
 
 using System;
@@ -39,7 +39,7 @@ public class TimeAdjustmentHelper(ILogger logger, PluginConfiguration config)
         if (_config.EndSnapThreshold < 0 || _config.AdjustWindowInward < 0 || _config.AdjustWindowOutward < 0)
         {
             _logger.LogError("Invalid configuration: EndSnapThreshold, AdjustWindowInward, or AdjustWindowOutward is negative. Using defaults.");
-            return new Segment(episode.EpisodeId) { Start = originalIntro.Start, End = originalIntro.End };
+            return new Segment(episode.EpisodeId, episode.SeasonId) { Start = originalIntro.Start, End = originalIntro.End };
         }
 
         bool useChapters = adjustIntroBasedOnChapters ?? _config.AdjustIntroBasedOnChapters;
@@ -134,7 +134,7 @@ public class TimeAdjustmentHelper(ILogger logger, PluginConfiguration config)
         if (adjustedStart >= adjustedEnd)
         {
             _logger.LogWarning("{EpisodeId} {Name}: Adjusted start time {Start} >= end time {End}, reverting to original", episode.EpisodeId, episode.Name, adjustedStart, adjustedEnd);
-            return new Segment(episode.EpisodeId) { Start = originalIntro.Start, End = originalIntro.End };
+            return new Segment(episode.EpisodeId, episode.SeasonId) { Start = originalIntro.Start, End = originalIntro.End };
         }
 
         _logger.LogTrace(
@@ -144,7 +144,7 @@ public class TimeAdjustmentHelper(ILogger logger, PluginConfiguration config)
             adjustedStart,
             adjustedEnd);
 
-        return new Segment(episode.EpisodeId)
+        return new Segment(episode.EpisodeId, episode.SeasonId)
         {
             Start = adjustedStart,
             End = adjustedEnd

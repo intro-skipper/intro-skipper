@@ -1,4 +1,4 @@
-﻿// Copyright (C) 2026 Intro-Skipper contributors <intro-skipper.org>
+// Copyright (C) 2026 Intro-Skipper contributors <intro-skipper.org>
 // SPDX-License-Identifier: GPL-3.0-only
 
 using System;
@@ -10,9 +10,10 @@ using IntroSkipper.Analyzers;
 using IntroSkipper.Configuration;
 using IntroSkipper.Data;
 using IntroSkipper.Manager;
+using IntroSkipper.Repositories;
+using IntroSkipper.Services;
 using MediaBrowser.Controller.Library;
-using MediaBrowser.Controller.Providers;
-using MediaBrowser.Model.IO;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 
 namespace IntroSkipper.ScheduledTasks;
@@ -26,23 +27,17 @@ namespace IntroSkipper.ScheduledTasks;
 /// <param name="logger">Task logger.</param>
 /// <param name="loggerFactory">Logger factory.</param>
 /// <param name="libraryManager">Library manager.</param>
-/// <param name="providerManager">Provider manager.</param>
-/// <param name="fileSystem">File system.</param>
-/// <param name="mediaSegmentUpdateManager">Media segment update manager.</param>
+/// <param name="serviceProvider">Service provider for DI.</param>
 public class BaseItemAnalyzerTask(
     ILogger logger,
     ILoggerFactory loggerFactory,
     ILibraryManager libraryManager,
-    IProviderManager providerManager,
-    IFileSystem fileSystem,
-    MediaSegmentUpdateManager mediaSegmentUpdateManager)
+    IServiceProvider serviceProvider)
 {
     private readonly ILogger _logger = logger;
     private readonly ILoggerFactory _loggerFactory = loggerFactory;
     private readonly ILibraryManager _libraryManager = libraryManager;
-    private readonly IProviderManager _providerManager = providerManager;
-    private readonly IFileSystem _fileSystem = fileSystem;
-    private readonly MediaSegmentUpdateManager _mediaSegmentUpdateManager = mediaSegmentUpdateManager;
+    private readonly IServiceProvider _serviceProvider = serviceProvider;
     private readonly PluginConfiguration _config = Plugin.Instance?.Configuration ?? new PluginConfiguration();
     private readonly bool _ffmpegValid = FFmpegWrapper.CheckFFmpegVersion();
 
@@ -69,8 +64,7 @@ public class BaseItemAnalyzerTask(
         var queueManager = new QueueManager(
             _loggerFactory.CreateLogger<QueueManager>(),
             _libraryManager,
-            _providerManager,
-            _fileSystem);
+            _serviceProvider);
 
         var queue = await queueManager.GetMediaItems(cancellationToken).ConfigureAwait(false);
 
@@ -106,7 +100,7 @@ public class BaseItemAnalyzerTask(
         {
             var updateMediaSegments = false;
 
-            var episodes = queueManager.VerifyQueue(season.Value, modes);
+            var episodes = await queueManager.VerifyQueueAsync(season.Value, modes, ct).ConfigureAwait(false);
             if (episodes.Count == 0)
             {
                 return;
@@ -150,10 +144,8 @@ public class BaseItemAnalyzerTask(
                 throw;
             }
 
-            if (_config.RebuildMediaSegments || (updateMediaSegments && _config.UpdateMediaSegments))
-            {
-                await _mediaSegmentUpdateManager.UpdateMediaSegmentsAsync(episodes, ct).ConfigureAwait(false);
-            }
+            // Segments are automatically synced via the outbox processor
+            // No need to manually trigger updates here
         }).ConfigureAwait(false);
 
         Plugin.Instance!.AnalyzeAgain = false;
@@ -195,7 +187,13 @@ public class BaseItemAnalyzerTask(
 
         var totalItems = items.Count(e => e.GetAnalyzed(mode) != EpisodeState.Analyzed);
         var plugin = Plugin.Instance ?? throw new InvalidOperationException("Plugin instance is null");
-        var action = plugin.GetAnalyzerAction(first.SeasonId, mode);
+
+        AnalyzerAction action;
+        using (var scope = _serviceProvider.CreateScope())
+        {
+            var seasonRepository = scope.ServiceProvider.GetRequiredService<ISeasonRepository>();
+            action = await seasonRepository.GetAnalyzerActionAsync(first.SeasonId, mode, cancellationToken).ConfigureAwait(false);
+        }
 
         var chromaprintOnly = _ffmpegValid && _config.PreferChromaprint && action is AnalyzerAction.Default or AnalyzerAction.Chromaprint;
 
@@ -236,14 +234,18 @@ public class BaseItemAnalyzerTask(
 
         // Use each analyzer to find skippable ranges in all media files, removing successfully
         // analyzed items from the queue.
-        foreach (var analyzer in analyzers)
+        using (var scope = _serviceProvider.CreateScope())
         {
-            cancellationToken.ThrowIfCancellationRequested();
-            items = await analyzer.AnalyzeMediaFiles(items, mode, cancellationToken).ConfigureAwait(false);
+            var segmentService = scope.ServiceProvider.GetRequiredService<ISegmentService>();
+
+            foreach (var analyzer in analyzers)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                items = await analyzer.AnalyzeMediaFiles(items, mode, segmentService, cancellationToken).ConfigureAwait(false);
+            }
         }
 
-        // Set the episode IDs for the analyzed items
-        await Plugin.Instance!.SetEpisodeIdsAsync(first.SeasonId, mode, items.Select(i => i.EpisodeId)).ConfigureAwait(false);
+        // Episode IDs are now tracked implicitly via the segments table
 
         return totalItems - items.Count(e => e.GetAnalyzed(mode) != EpisodeState.Analyzed);
     }

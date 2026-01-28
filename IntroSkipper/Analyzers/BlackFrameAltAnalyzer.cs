@@ -1,4 +1,4 @@
-﻿// Copyright (C) 2026 Intro-Skipper contributors <intro-skipper.org>
+// Copyright (C) 2026 Intro-Skipper contributors <intro-skipper.org>
 // SPDX-License-Identifier: GPL-3.0-only
 
 using System;
@@ -8,6 +8,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using IntroSkipper.Configuration;
 using IntroSkipper.Data;
+using IntroSkipper.Services;
 using Microsoft.Extensions.Logging;
 
 namespace IntroSkipper.Analyzers;
@@ -30,6 +31,7 @@ public sealed class BlackFrameAltAnalyzer(ILogger<BlackFrameAltAnalyzer> logger)
     public async Task<IReadOnlyList<QueuedEpisode>> AnalyzeMediaFiles(
         IReadOnlyList<QueuedEpisode> analysisQueue,
         AnalysisMode mode,
+        ISegmentService segmentService,
         CancellationToken cancellationToken)
     {
         if (mode != AnalysisMode.Credits)
@@ -73,7 +75,7 @@ public sealed class BlackFrameAltAnalyzer(ILogger<BlackFrameAltAnalyzer> logger)
                 _logger.LogDebug("Found credits for {Episode} at {Start:F2}s", episode.Name, credit.Start);
 
                 episode.SetAnalyzed(mode, EpisodeState.Analyzed);
-                await plugin.UpdateTimestampAsync(credit, mode).ConfigureAwait(false);
+                await segmentService.CreateSegmentAsync(credit, mode, cancellationToken: cancellationToken).ConfigureAwait(false);
             }
             catch (OperationCanceledException)
             {
@@ -116,7 +118,7 @@ public sealed class BlackFrameAltAnalyzer(ILogger<BlackFrameAltAnalyzer> logger)
         for (var i = scenes.Count - 1; i >= 0; i--)
         {
             var scene = scenes[i];
-            var segment = new Segment(episode.EpisodeId, new TimeRange(scene.StartTime + episode.CreditsFingerprintStart, scene.EndTime + episode.CreditsFingerprintStart));
+            var segment = new Segment(episode.EpisodeId, new TimeRange(scene.StartTime + episode.CreditsFingerprintStart, scene.EndTime + episode.CreditsFingerprintStart), episode.SeasonId);
 
             if (segment.Duration >= minimumDuration)
             {

@@ -1,13 +1,10 @@
-﻿// Copyright (C) 2026 Intro-Skipper contributors <intro-skipper.org>
-// SPDX-License-Identifier: GPL-3.0-only
+// Copyright (C) 2026 Intro-Skipper contributors <intro-skipper.org>
+// SPDX-License-Identifier: GPL-3.0-only.
 
 using System;
-using System.Collections.Generic;
 using System.Linq;
-using System.Text.Json;
 using IntroSkipper.Data;
 using Microsoft.EntityFrameworkCore;
-using Microsoft.EntityFrameworkCore.ChangeTracking;
 
 namespace IntroSkipper.Db;
 
@@ -30,6 +27,7 @@ public class IntroSkipperDbContext : DbContext
         _dbPath = dbPath;
         DbSegment = Set<DbSegment>();
         DbSeasonInfo = Set<DbSeasonInfo>();
+        DbSegmentOutbox = Set<DbSegmentOutbox>();
     }
 
     /// <summary>
@@ -43,6 +41,7 @@ public class IntroSkipperDbContext : DbContext
         _dbPath = System.IO.Path.Join(path, "introskipper.db");
         DbSegment = Set<DbSegment>();
         DbSeasonInfo = Set<DbSeasonInfo>();
+        DbSegmentOutbox = Set<DbSegmentOutbox>();
     }
 
     /// <summary>
@@ -54,6 +53,11 @@ public class IntroSkipperDbContext : DbContext
     /// Gets or sets the <see cref="DbSet{TEntity}"/> containing the season information.
     /// </summary>
     public DbSet<DbSeasonInfo> DbSeasonInfo { get; set; }
+
+    /// <summary>
+    /// Gets or sets the <see cref="DbSet{TEntity}"/> containing the outbox entries.
+    /// </summary>
+    public DbSet<DbSegmentOutbox> DbSegmentOutbox { get; set; }
 
     /// <inheritdoc/>
     protected override void OnConfiguring(DbContextOptionsBuilder optionsBuilder)
@@ -67,9 +71,11 @@ public class IntroSkipperDbContext : DbContext
         modelBuilder.Entity<DbSegment>(entity =>
         {
             entity.ToTable("DbSegment");
-            entity.HasKey(s => new { s.ItemId, s.Type });
+            entity.HasKey(s => s.Id);
 
-            entity.HasIndex(e => e.ItemId);
+            entity.HasIndex(e => new { e.ItemId, e.Type });
+
+            entity.HasIndex(e => e.SeasonId);
 
             entity.Property(e => e.Start)
                   .HasDefaultValue(0.0)
@@ -78,6 +84,45 @@ public class IntroSkipperDbContext : DbContext
             entity.Property(e => e.End)
                   .HasDefaultValue(0.0)
                   .IsRequired();
+
+            entity.Property(e => e.CreatedAt)
+                  .HasDefaultValueSql("datetime('now')")
+                  .IsRequired();
+
+            entity.Property(e => e.UpdatedAt)
+                  .HasDefaultValueSql("datetime('now')")
+                  .IsRequired();
+
+            entity.Property(e => e.IsFirstAppearance)
+                  .HasDefaultValue(false)
+                  .IsRequired();
+        });
+
+        modelBuilder.Entity<DbSegmentOutbox>(entity =>
+        {
+            entity.ToTable("DbSegmentOutbox");
+            entity.HasKey(e => e.Id);
+
+            // Index for cleanup queries
+            entity.HasIndex(e => e.ProcessedAt);
+
+            // Index for grouping by item
+            entity.HasIndex(e => new { e.ItemId, e.ProcessedAt });
+
+            // Covering index for pending query: WHERE ProcessedAt IS NULL AND ClaimedBy IS NULL AND RetryCount < N ORDER BY CreatedAt
+            entity.HasIndex(e => new { e.ProcessedAt, e.ClaimedBy, e.RetryCount, e.CreatedAt })
+                  .HasDatabaseName("IX_DbSegmentOutbox_Pending");
+
+            entity.Property(e => e.CreatedAt)
+                  .HasDefaultValueSql("datetime('now')")
+                  .IsRequired();
+
+            entity.Property(e => e.RetryCount)
+                  .HasDefaultValue(0)
+                  .IsRequired();
+
+            entity.Property(e => e.ClaimedBy)
+                  .HasMaxLength(64);
         });
 
         modelBuilder.Entity<DbSeasonInfo>(entity =>
@@ -90,15 +135,6 @@ public class IntroSkipperDbContext : DbContext
             entity.Property(e => e.Action)
                   .HasDefaultValue(AnalyzerAction.Default)
                   .IsRequired();
-
-            entity.Property(e => e.EpisodeIds)
-                  .HasConversion(
-                      v => JsonSerializer.Serialize(v, (JsonSerializerOptions?)null),
-                      v => JsonSerializer.Deserialize<IEnumerable<Guid>>(v, (JsonSerializerOptions?)null) ?? new List<Guid>(),
-                      new ValueComparer<IEnumerable<Guid>>(
-                          (c1, c2) => (c1 ?? new List<Guid>()).SequenceEqual(c2 ?? new List<Guid>()),
-                          c => c.Aggregate(0, (a, v) => HashCode.Combine(a, v.GetHashCode())),
-                          c => c.ToList()));
         });
 
         base.OnModelCreating(modelBuilder);
@@ -109,67 +145,23 @@ public class IntroSkipperDbContext : DbContext
     /// </summary>
     public void ApplyMigrations()
     {
-        // If database doesn't exist or can't connect, create it with migrations
+        // If database doesn't exist, Migrate() will create it
         if (!Database.CanConnect())
         {
             Database.Migrate();
             return;
         }
 
-        // If migrations table exists, apply pending migrations normally
+        // If migrations table exists and has history, apply pending migrations
         if (Database.GetAppliedMigrations().Any())
         {
             Database.Migrate();
             return;
         }
 
-        // For databases without migration history
-        RebuildDatabase();
-    }
-
-    /// <summary>
-    /// Rebuilds the database while preserving valid segments and season information.
-    /// </summary>
-    public void RebuildDatabase()
-    {
-        // Backup existing data
-        List<DbSegment> segments = [];
-        List<DbSeasonInfo> seasonInfos = [];
-
-        try
-        {
-            using var db = new IntroSkipperDbContext(_dbPath);
-            segments = [.. db.DbSegment.AsEnumerable().Where(s => s.ToSegment().Valid)];
-            seasonInfos = [.. db.DbSeasonInfo];
-        }
-        catch (Exception ex)
-        {
-            throw new InvalidOperationException("Failed to read database data", ex);
-        }
-        finally
-        {
-            // Delete old database
-            Database.EnsureDeleted();
-
-            // Create new database with proper migration history
-            Database.Migrate();
-        }
-
-        // Restore the data
-        if (segments.Count > 0 || seasonInfos.Count > 0)
-        {
-            using var db = new IntroSkipperDbContext(_dbPath);
-            if (segments.Count > 0)
-            {
-                db.DbSegment.AddRange(segments);
-            }
-
-            if (seasonInfos.Count > 0)
-            {
-                db.DbSeasonInfo.AddRange(seasonInfos);
-            }
-
-            db.SaveChanges();
-        }
+        // Legacy database without migration history - delete and recreate
+        // Data will be repopulated on re-analysis
+        Database.EnsureDeleted();
+        Database.Migrate();
     }
 }

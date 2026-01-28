@@ -1,4 +1,4 @@
-﻿// Copyright (C) 2026 Intro-Skipper contributors <intro-skipper.org>
+// Copyright (C) 2026 Intro-Skipper contributors <intro-skipper.org>
 // SPDX-License-Identifier: GPL-3.0-only
 
 using System;
@@ -9,13 +9,12 @@ using System.Net.Mime;
 using System.Threading;
 using System.Threading.Tasks;
 using IntroSkipper.Data;
-using IntroSkipper.Db;
 using IntroSkipper.Manager;
+using IntroSkipper.Repositories;
 using IntroSkipper.ScheduledTasks;
+using IntroSkipper.Services;
 using MediaBrowser.Common.Api;
 using MediaBrowser.Controller.Library;
-using MediaBrowser.Controller.Providers;
-using MediaBrowser.Model.IO;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
@@ -30,23 +29,29 @@ namespace IntroSkipper.Controllers;
 /// Initializes a new instance of the <see cref="VisualizationController"/> class.
 /// </remarks>
 /// <param name="logger">Logger.</param>
-/// <param name="mediaSegmentUpdateManager">Media segment update manager.</param>
 /// <param name="libraryManager">libraryManager.</param>
-/// <param name="providerManager">providerManager.</param>
-/// <param name="fileSystem">fileSystem.</param>
 /// <param name="loggerFactory">loggerFactory.</param>
+/// <param name="serviceProvider">Service provider.</param>
+/// <param name="segmentService">Segment service.</param>
+/// <param name="seasonRepository">Season repository.</param>
 [Authorize(Policy = Policies.RequiresElevation)]
 [ApiController]
 [Produces(MediaTypeNames.Application.Json)]
 [Route("Intros")]
-public class VisualizationController(ILogger<VisualizationController> logger, MediaSegmentUpdateManager mediaSegmentUpdateManager, ILibraryManager libraryManager, IProviderManager providerManager, IFileSystem fileSystem, ILoggerFactory loggerFactory) : ControllerBase
+public class VisualizationController(
+    ILogger<VisualizationController> logger,
+    ILibraryManager libraryManager,
+    ILoggerFactory loggerFactory,
+    IServiceProvider serviceProvider,
+    ISegmentService segmentService,
+    ISeasonRepository seasonRepository) : ControllerBase
 {
     private readonly ILogger<VisualizationController> _logger = logger;
-    private readonly MediaSegmentUpdateManager _mediaSegmentUpdateManager = mediaSegmentUpdateManager;
     private readonly ILibraryManager _libraryManager = libraryManager;
-    private readonly IProviderManager _providerManager = providerManager;
-    private readonly IFileSystem _fileSystem = fileSystem;
     private readonly ILoggerFactory _loggerFactory = loggerFactory;
+    private readonly IServiceProvider _serviceProvider = serviceProvider;
+    private readonly ISegmentService _segmentService = segmentService;
+    private readonly ISeasonRepository _seasonRepository = seasonRepository;
 
     /// <summary>
     /// Returns all show names and seasons.
@@ -59,7 +64,7 @@ public class VisualizationController(ILogger<VisualizationController> logger, Me
         _logger.LogDebug("Returning season IDs by series name");
 
         // Ensure the queue is up to date
-        await new QueueManager(_loggerFactory.CreateLogger<QueueManager>(), _libraryManager, _providerManager, _fileSystem).GetMediaItems(cancellationToken).ConfigureAwait(false);
+        await new QueueManager(_loggerFactory.CreateLogger<QueueManager>(), _libraryManager, _serviceProvider).GetMediaItems(cancellationToken).ConfigureAwait(false);
 
         var showSeasons = new Dictionary<Guid, ShowInfos>();
 
@@ -113,9 +118,10 @@ public class VisualizationController(ILogger<VisualizationController> logger, Me
     /// Returns the analyzer actions for the provided season.
     /// </summary>
     /// <param name="seasonId">Season ID.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>List of episode titles.</returns>
     [HttpGet("AnalyzerActions/{SeasonId}")]
-    public ActionResult<IReadOnlyDictionary<AnalysisMode, AnalyzerAction>> GetAnalyzerAction([FromRoute] Guid seasonId)
+    public async Task<ActionResult<IReadOnlyDictionary<AnalysisMode, AnalyzerAction>>> GetAnalyzerActionAsync([FromRoute] Guid seasonId, CancellationToken cancellationToken = default)
     {
         if (!Plugin.Instance!.QueuedMediaItems.ContainsKey(seasonId))
         {
@@ -125,7 +131,7 @@ public class VisualizationController(ILogger<VisualizationController> logger, Me
         var analyzerActions = new Dictionary<AnalysisMode, AnalyzerAction>();
         foreach (var mode in Enum.GetValues<AnalysisMode>())
         {
-            analyzerActions[mode] = Plugin.Instance!.GetAnalyzerAction(seasonId, mode);
+            analyzerActions[mode] = await _seasonRepository.GetAnalyzerActionAsync(seasonId, mode, cancellationToken).ConfigureAwait(false);
         }
 
         return Ok(analyzerActions);
@@ -182,34 +188,17 @@ public class VisualizationController(ILogger<VisualizationController> logger, Me
 
         try
         {
-            using var db = new IntroSkipperDbContext(Plugin.Instance!.DbPath);
+            // Delete all segments for the season in a single batch operation
+            await _segmentService.DeleteSeasonSegmentsAsync(seasonId, cancellationToken).ConfigureAwait(false);
 
-            foreach (var episode in episodes)
+            // Erase fingerprint cache if requested
+            if (eraseCache)
             {
-                cancellationToken.ThrowIfCancellationRequested();
-
-                var existingSegments = db.DbSegment.Where(s => s.ItemId == episode.EpisodeId);
-
-                db.DbSegment.RemoveRange(existingSegments);
-
-                if (eraseCache)
+                foreach (var episode in episodes)
                 {
+                    cancellationToken.ThrowIfCancellationRequested();
                     await Task.Run(() => FFmpegWrapper.DeleteFingerprintCache(episode.EpisodeId), cancellationToken).ConfigureAwait(false);
                 }
-            }
-
-            var seasonInfo = db.DbSeasonInfo.Where(s => s.SeasonId == seasonId);
-
-            foreach (var info in seasonInfo)
-            {
-                db.Entry(info).Property(s => s.EpisodeIds).CurrentValue = [];
-            }
-
-            await db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
-
-            if (Plugin.Instance.Configuration.UpdateMediaSegments)
-            {
-                await _mediaSegmentUpdateManager.UpdateMediaSegmentsAsync(episodes, cancellationToken).ConfigureAwait(false);
             }
 
             return NoContent();
@@ -225,11 +214,12 @@ public class VisualizationController(ILogger<VisualizationController> logger, Me
     /// Updates the analyzer actions for the provided season.
     /// </summary>
     /// <param name="request">Update analyzer actions request.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>No content.</returns>
     [HttpPost("AnalyzerActions/UpdateSeason")]
-    public async Task<ActionResult> UpdateAnalyzerActions([FromBody] UpdateAnalyzerActionsRequest request)
+    public async Task<ActionResult> UpdateAnalyzerActionsAsync([FromBody] UpdateAnalyzerActionsRequest request, CancellationToken cancellationToken = default)
     {
-        await Plugin.Instance!.SetAnalyzerActionAsync(request.Id, request.AnalyzerActions).ConfigureAwait(false);
+        await _seasonRepository.SetAnalyzerActionsAsync(request.Id, request.AnalyzerActions, cancellationToken).ConfigureAwait(false);
 
         return NoContent();
     }
@@ -267,9 +257,7 @@ public class VisualizationController(ILogger<VisualizationController> logger, Me
                             _loggerFactory.CreateLogger<DetectSegmentsTask>(),
                             _loggerFactory,
                             _libraryManager,
-                            _providerManager,
-                            _fileSystem,
-                            _mediaSegmentUpdateManager);
+                            _serviceProvider);
 
                         await baseIntroAnalyzer.AnalyzeItemsAsync(new Progress<double>(), CancellationToken.None, [seasonId]).ConfigureAwait(false);
                     }
