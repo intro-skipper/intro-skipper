@@ -40,7 +40,7 @@ public sealed partial class BlackFrameAnalyzer(ILogger<BlackFrameAnalyzer> logge
         }
 
         var unanalyzedEpisodes = analysisQueue
-            .Where(e => e.GetAnalyzed(mode) != EpisodeState.Analyzed)
+            .Where(e => !e.GetAnalyzed(mode))
             .ToList();
 
         if (unanalyzedEpisodes.Count == 0)
@@ -88,7 +88,7 @@ public sealed partial class BlackFrameAnalyzer(ILogger<BlackFrameAnalyzer> logge
 
                 LogFoundCredits(_logger, episode.Name, credit.Start);
 
-                episode.SetAnalyzed(mode, EpisodeState.Analyzed);
+                episode.SetAnalyzed(mode, true);
                 await segmentService.CreateSegmentAsync(credit, mode, cancellationToken: cancellationToken).ConfigureAwait(false);
 
                 // Update search start for next episode based on this result

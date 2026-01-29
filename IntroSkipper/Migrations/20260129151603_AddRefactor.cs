@@ -11,58 +11,42 @@ namespace IntroSkipper.Migrations
         /// <inheritdoc />
         protected override void Up(MigrationBuilder migrationBuilder)
         {
-            migrationBuilder.DropPrimaryKey(
-                name: "PK_DbSegment",
-                table: "DbSegment");
-
-            migrationBuilder.DropIndex(
-                name: "IX_DbSegment_ItemId",
-                table: "DbSegment");
-
             migrationBuilder.DropColumn(
                 name: "EpisodeIds",
                 table: "DbSeasonInfo");
 
-            migrationBuilder.AddColumn<int>(
-                name: "Id",
-                table: "DbSegment",
-                type: "INTEGER",
-                nullable: false,
-                defaultValue: 0)
-                .Annotation("Sqlite:Autoincrement", true);
+            migrationBuilder.Sql(@"
+ALTER TABLE DbSegment RENAME TO DbSegment_Old;
 
-            migrationBuilder.AddColumn<DateTime>(
-                name: "CreatedAt",
-                table: "DbSegment",
-                type: "TEXT",
-                nullable: false,
-                defaultValueSql: "datetime('now')");
+CREATE TABLE DbSegment (
+    Id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+    ItemId TEXT NOT NULL,
+    SeasonId TEXT NOT NULL DEFAULT '00000000-0000-0000-0000-000000000000',
+    Start REAL NOT NULL DEFAULT 0.0,
+    End REAL NOT NULL DEFAULT 0.0,
+    Type INTEGER NOT NULL,
+    CreatedAt TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    UpdatedAt TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    IsFirstAppearance INTEGER NOT NULL DEFAULT 0
+);
 
-            migrationBuilder.AddColumn<bool>(
-                name: "IsFirstAppearance",
-                table: "DbSegment",
-                type: "INTEGER",
-                nullable: false,
-                defaultValue: false);
+INSERT INTO DbSegment (Id, ItemId, SeasonId, Start, End, Type, CreatedAt, UpdatedAt, IsFirstAppearance)
+SELECT rowid,
+       ItemId,
+       '00000000-0000-0000-0000-000000000000',
+       Start,
+       End,
+       Type,
+       CURRENT_TIMESTAMP,
+       CURRENT_TIMESTAMP,
+       0
+FROM DbSegment_Old;
 
-            migrationBuilder.AddColumn<Guid>(
-                name: "SeasonId",
-                table: "DbSegment",
-                type: "TEXT",
-                nullable: false,
-                defaultValue: new Guid("00000000-0000-0000-0000-000000000000"));
+DROP TABLE DbSegment_Old;
 
-            migrationBuilder.AddColumn<DateTime>(
-                name: "UpdatedAt",
-                table: "DbSegment",
-                type: "TEXT",
-                nullable: false,
-                defaultValueSql: "datetime('now')");
-
-            migrationBuilder.AddPrimaryKey(
-                name: "PK_DbSegment",
-                table: "DbSegment",
-                column: "Id");
+CREATE INDEX IX_DbSegment_ItemId_Type ON DbSegment (ItemId, Type);
+CREATE INDEX IX_DbSegment_SeasonId ON DbSegment (SeasonId);
+");
 
             migrationBuilder.CreateTable(
                 name: "DbSegmentOutbox",
@@ -73,7 +57,7 @@ namespace IntroSkipper.Migrations
                     ItemId = table.Column<Guid>(type: "TEXT", nullable: false),
                     Operation = table.Column<int>(type: "INTEGER", nullable: false),
                     SegmentId = table.Column<int>(type: "INTEGER", nullable: true),
-                    CreatedAt = table.Column<DateTime>(type: "TEXT", nullable: false, defaultValueSql: "datetime('now')"),
+                    CreatedAt = table.Column<DateTime>(type: "TEXT", nullable: false, defaultValue: DateTime.UtcNow),
                     RetryCount = table.Column<int>(type: "INTEGER", nullable: false, defaultValue: 0),
                     ProcessedAt = table.Column<DateTime>(type: "TEXT", nullable: true),
                     ErrorMessage = table.Column<string>(type: "TEXT", nullable: true),
@@ -84,16 +68,6 @@ namespace IntroSkipper.Migrations
                 {
                     table.PrimaryKey("PK_DbSegmentOutbox", x => x.Id);
                 });
-
-            migrationBuilder.CreateIndex(
-                name: "IX_DbSegment_ItemId_Type",
-                table: "DbSegment",
-                columns: ["ItemId", "Type"]);
-
-            migrationBuilder.CreateIndex(
-                name: "IX_DbSegment_SeasonId",
-                table: "DbSegment",
-                column: "SeasonId");
 
             migrationBuilder.CreateIndex(
                 name: "IX_DbSegmentOutbox_ItemId_ProcessedAt",

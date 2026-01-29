@@ -401,7 +401,6 @@ public partial class QueueManager(ILogger<QueueManager> logger, ILibraryManager 
         var plugin = Plugin.Instance ?? throw new InvalidOperationException("Plugin instance is null");
 
         // Get analyzed episode IDs for this season using the repository
-        // All candidates belong to the same season, so use the season-based query
         var seasonId = candidates[0].SeasonId;
         IReadOnlyDictionary<AnalysisMode, IEnumerable<Guid>> episodeIds;
         using (var scope = _serviceProvider.CreateScope())
@@ -425,24 +424,11 @@ public partial class QueueManager(ILogger<QueueManager> logger, ILibraryManager 
 
                 verified.Add(candidate);
 
-                Dictionary<AnalysisMode, Segment> hasSegments;
-                using (var scope = _serviceProvider.CreateScope())
-                {
-                    var segmentService = scope.ServiceProvider.GetRequiredService<ISegmentService>();
-                    hasSegments = (await segmentService.GetSegmentsDictionaryAsync(candidate.EpisodeId, cancellationToken)
-                        .ConfigureAwait(false))
-                        .ToDictionary(kvp => kvp.Key, kvp => kvp.Value);
-                }
-
                 foreach (var mode in modes)
                 {
-                    if (hasSegments.TryGetValue(mode, out var seg))
+                    if (episodeIds.TryGetValue(mode, out var ids) && ids.Contains(candidate.EpisodeId))
                     {
-                        candidate.SetAnalyzed(mode, EpisodeState.Analyzed);
-                    }
-                    else if (!plugin.AnalyzeAgain && episodeIds.TryGetValue(mode, out var ids) && ids.Contains(candidate.EpisodeId))
-                    {
-                        candidate.SetAnalyzed(mode, EpisodeState.NoSegments);
+                        candidate.SetAnalyzed(mode, true);
                     }
                 }
             }
