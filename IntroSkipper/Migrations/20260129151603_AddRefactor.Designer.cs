@@ -11,7 +11,7 @@ using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 namespace IntroSkipper.Migrations
 {
     [DbContext(typeof(IntroSkipperDbContext))]
-    [Migration("20260128183800_AddRefactor")]
+    [Migration("20260129151603_AddRefactor")]
     partial class AddRefactor
     {
         /// <inheritdoc />

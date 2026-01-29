@@ -142,6 +142,6 @@ public class SegmentRepository(IntroSkipperDbContext dbContext) : ISegmentReposi
             .GroupBy(s => s.Type)
             .ToDictionary(
                 g => g.Key,
-                g => (IEnumerable<Guid>)g.Select(s => s.ItemId).Distinct().ToList());
+                g => (IEnumerable<Guid>)[.. g.Select(s => s.ItemId).Distinct()]);
     }
 }

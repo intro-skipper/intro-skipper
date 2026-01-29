@@ -170,7 +170,7 @@ public class BaseItemAnalyzerTask(
         AnalysisMode mode,
         CancellationToken cancellationToken)
     {
-        if (!items.Any(e => e.GetAnalyzed(mode) == EpisodeState.NotAnalyzed))
+        if (items.All(e => e.GetAnalyzed(mode)))
         {
             return 0;
         }
@@ -185,7 +185,7 @@ public class BaseItemAnalyzerTask(
             return 0;
         }
 
-        var totalItems = items.Count(e => e.GetAnalyzed(mode) != EpisodeState.Analyzed);
+        var totalItems = items.Count(e => !e.GetAnalyzed(mode));
         var plugin = Plugin.Instance ?? throw new InvalidOperationException("Plugin instance is null");
 
         AnalyzerAction action;
@@ -247,6 +247,6 @@ public class BaseItemAnalyzerTask(
 
         // Episode IDs are now tracked implicitly via the segments table
 
-        return totalItems - items.Count(e => e.GetAnalyzed(mode) != EpisodeState.Analyzed);
+        return totalItems - items.Count(e => !e.GetAnalyzed(mode));
     }
 }

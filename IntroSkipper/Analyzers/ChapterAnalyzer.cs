@@ -52,7 +52,7 @@ public class ChapterAnalyzer(ILogger<ChapterAnalyzer> logger) : IMediaFileAnalyz
 
         var timeAdjustmentHelper = new TimeAdjustmentHelper(_logger, _config);
 
-        var episodesWithoutIntros = analysisQueue.Where(e => e.GetAnalyzed(mode) != EpisodeState.Analyzed).ToList();
+        var episodesWithoutIntros = analysisQueue.Where(e => !e.GetAnalyzed(mode)).ToList();
 
         foreach (var episode in episodesWithoutIntros)
         {
@@ -74,7 +74,7 @@ public class ChapterAnalyzer(ILogger<ChapterAnalyzer> logger) : IMediaFileAnalyz
 
             skipRange = timeAdjustmentHelper.AdjustIntroTimes(episode, skipRange, false);
 
-            episode.SetAnalyzed(mode, EpisodeState.Analyzed);
+            episode.SetAnalyzed(mode, true);
             await segmentService.CreateSegmentAsync(skipRange, mode, cancellationToken: cancellationToken).ConfigureAwait(false);
         }
 
