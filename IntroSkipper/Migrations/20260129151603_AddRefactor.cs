@@ -84,10 +84,14 @@ namespace IntroSkipper.Migrations
         /// <inheritdoc />
         protected override void Down(MigrationBuilder migrationBuilder)
         {
-            migrationBuilder.DropTable(
-                name: "DbSegmentOutbox");
-
-            // Note: EpisodeIds column cannot be restored as data was lost
+            // This migration is not reversible because:
+            // 1. The EpisodeIds column in DbSeasonInfo was removed and data cannot be restored
+            // 2. The DbSegment table structure was changed (SegmentIndex added to PK)
+            // To rollback, restore from a backup taken before this migration was applied.
+            throw new InvalidOperationException(
+                "This migration cannot be reversed. The schema changes include column removal " +
+                "and primary key changes that cannot be safely rolled back. " +
+                "Restore from a backup if you need to revert to a previous version.");
         }
     }
 }

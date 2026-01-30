@@ -400,6 +400,12 @@ public partial class QueueManager(ILogger<QueueManager> logger, ILibraryManager 
     /// <param name="candidates">Queued media items.</param>
     /// <param name="modes">Analysis modes.</param>
     /// <returns>Media items that have been verified to exist in Jellyfin and in storage.</returns>
+    /// <remarks>
+    /// Note: Episodes are marked as analyzed only if they have existing segments.
+    /// Episodes that were previously analyzed but had no segments found will be re-analyzed.
+    /// This is intentional behavior that allows new or improved analysis methods to potentially
+    /// find segments that weren't detected before.
+    /// </remarks>
     internal IReadOnlyList<QueuedEpisode> VerifyQueue(IReadOnlyList<QueuedEpisode> candidates, IReadOnlyCollection<AnalysisMode> modes)
     {
         if (candidates == null || candidates.Count == 0)
@@ -424,6 +430,8 @@ public partial class QueueManager(ILogger<QueueManager> logger, ILibraryManager 
 
                 verified.Add(candidate);
 
+                // Mark episodes as analyzed if they have existing segments
+                // Episodes without segments will be re-analyzed, allowing improved methods to find segments
                 var hasSegments = plugin.GetTimestamps(candidate.EpisodeId);
 
                 foreach (var mode in modes)
