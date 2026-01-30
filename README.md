@@ -19,7 +19,11 @@
 </div>
 
 ## Manifest URL (All Jellyfin Versions)
-*Warning: Plugin may take up to 30 minutes to appear after adding repository*
+> [!NOTE]
+> If the plugin does not appear after adding the repository:
+> * Check that you are using the latest Jellyfin version
+> * Reload the plugin page without cache (`CTRL + F5` for Windows/Linux or `SHIFT + CMD + R` for macOS)
+
 ```
 https://intro-skipper.org/manifest.json
 ```
