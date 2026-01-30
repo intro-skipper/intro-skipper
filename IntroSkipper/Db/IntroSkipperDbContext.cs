@@ -113,6 +113,7 @@ public class IntroSkipperDbContext : DbContext
                   .ValueGeneratedOnAdd();
 
             entity.Property(e => e.CreatedAt)
+                  .HasDefaultValueSql("CURRENT_TIMESTAMP")
                   .IsRequired();
 
             entity.Property(e => e.RetryCount)

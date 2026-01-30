@@ -62,7 +62,7 @@ namespace IntroSkipper.Migrations
                     Type = table.Column<int>(type: "INTEGER", nullable: false),
                     SegmentIndex = table.Column<int>(type: "INTEGER", nullable: false, defaultValue: 0),
                     Operation = table.Column<int>(type: "INTEGER", nullable: false),
-                    CreatedAt = table.Column<DateTime>(type: "TEXT", nullable: false),
+                    CreatedAt = table.Column<DateTime>(type: "TEXT", nullable: false, defaultValueSql: "CURRENT_TIMESTAMP"),
                     RetryCount = table.Column<int>(type: "INTEGER", nullable: false, defaultValue: 0)
                 },
                 constraints: table =>
