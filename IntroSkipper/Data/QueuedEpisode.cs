@@ -11,7 +11,7 @@ namespace IntroSkipper.Data;
 /// </summary>
 public class QueuedEpisode
 {
-    private readonly EpisodeState[] _isAnalyzed = new EpisodeState[Enum.GetValues<AnalysisMode>().Length];
+    private readonly bool[] _isAnalyzed = new bool[AnalysisModeExtensions.GetModeCount()];
 
     /// <summary>
     /// Gets or sets the series name.
@@ -46,7 +46,7 @@ public class QueuedEpisode
     /// <summary>
     /// Gets a value indicating whether this media has been already analyzed.
     /// </summary>
-    public IReadOnlyList<EpisodeState> IsAnalyzed => _isAnalyzed;
+    public IReadOnlyList<bool> IsAnalyzed => _isAnalyzed;
 
     /// <summary>
     /// Gets or sets the full path to episode.
@@ -88,7 +88,7 @@ public class QueuedEpisode
     /// </summary>
     /// <param name="mode">Analysis mode.</param>
     /// <param name="value">Value to set.</param>
-    public void SetAnalyzed(AnalysisMode mode, EpisodeState value)
+    public void SetAnalyzed(AnalysisMode mode, bool value)
     {
         _isAnalyzed[(int)mode] = value;
     }
@@ -98,7 +98,7 @@ public class QueuedEpisode
     /// </summary>
     /// <param name="mode">Analysis mode.</param>
     /// <returns>Value of the analyzed mode.</returns>
-    public EpisodeState GetAnalyzed(AnalysisMode mode)
+    public bool GetAnalyzed(AnalysisMode mode)
     {
         return _isAnalyzed[(int)mode];
     }

@@ -38,7 +38,7 @@ public sealed class BlackFrameAnalyzer(ILogger<BlackFrameAnalyzer> logger) : IMe
         }
 
         var unanalyzedEpisodes = analysisQueue
-            .Where(e => e.GetAnalyzed(mode) != EpisodeState.Analyzed)
+            .Where(e => !e.GetAnalyzed(mode))
             .ToList();
 
         if (unanalyzedEpisodes.Count == 0)
@@ -86,7 +86,7 @@ public sealed class BlackFrameAnalyzer(ILogger<BlackFrameAnalyzer> logger) : IMe
 
                 _logger.LogDebug("Found credits for {Episode} at {Start:F2}s", episode.Name, credit.Start);
 
-                episode.SetAnalyzed(mode, EpisodeState.Analyzed);
+                episode.SetAnalyzed(mode, true);
                 await Plugin.Instance!.UpdateTimestampAsync(credit, mode).ConfigureAwait(false);
 
                 // Update search start for next episode based on this result

@@ -30,6 +30,21 @@ public class DbSegment
     /// <summary>
     /// Initializes a new instance of the <see cref="DbSegment"/> class.
     /// </summary>
+    /// <param name="itemId">The item ID.</param>
+    /// <param name="type">The analysis mode type.</param>
+    /// <param name="start">The start time.</param>
+    /// <param name="end">The end time.</param>
+    public DbSegment(Guid itemId, AnalysisMode type, double start, double end)
+    {
+        ItemId = itemId;
+        Type = type;
+        Start = start;
+        End = end;
+    }
+
+    /// <summary>
+    /// Initializes a new instance of the <see cref="DbSegment"/> class.
+    /// </summary>
     public DbSegment()
     {
     }
@@ -61,11 +76,33 @@ public class DbSegment
     public int SegmentIndex { get; set; }
 
     /// <summary>
+    /// Gets a value indicating whether this segment is valid.
+    /// </summary>
+    public bool Valid => End > 0.0;
+
+    /// <summary>
     /// Converts the instance to a <see cref="Segment"/> object.
     /// </summary>
     /// <returns>A <see cref="Segment"/> object.</returns>
-    internal Segment ToSegment()
+    public Segment ToSegment()
     {
         return new Segment(ItemId, new TimeRange(Start, End));
+    }
+
+    /// <summary>
+    /// Creates a copy of this segment with a different segment index.
+    /// </summary>
+    /// <param name="index">The new segment index.</param>
+    /// <returns>A new DbSegment with the specified index.</returns>
+    public DbSegment WithIndex(int index)
+    {
+        return new DbSegment
+        {
+            ItemId = ItemId,
+            Start = Start,
+            End = End,
+            Type = Type,
+            SegmentIndex = index
+        };
     }
 }

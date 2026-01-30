@@ -38,7 +38,7 @@ public sealed class BlackFrameAltAnalyzer(ILogger<BlackFrameAltAnalyzer> logger)
         }
 
         var unanalyzedEpisodes = analysisQueue
-            .Where(e => e.GetAnalyzed(mode) != EpisodeState.Analyzed)
+            .Where(e => !e.GetAnalyzed(mode))
             .ToList();
 
         if (unanalyzedEpisodes.Count == 0)
@@ -72,7 +72,7 @@ public sealed class BlackFrameAltAnalyzer(ILogger<BlackFrameAltAnalyzer> logger)
                 credit = timeAdjustmentHelper.AdjustIntroTimes(episode, credit);
                 _logger.LogDebug("Found credits for {Episode} at {Start:F2}s", episode.Name, credit.Start);
 
-                episode.SetAnalyzed(mode, EpisodeState.Analyzed);
+                episode.SetAnalyzed(mode, true);
                 await plugin.UpdateTimestampAsync(credit, mode).ConfigureAwait(false);
             }
             catch (OperationCanceledException)

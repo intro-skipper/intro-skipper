@@ -409,7 +409,6 @@ public partial class QueueManager(ILogger<QueueManager> logger, ILibraryManager 
 
         var verified = new List<QueuedEpisode>(candidates.Count);
         var plugin = Plugin.Instance ?? throw new InvalidOperationException("Plugin instance is null");
-        var episodeIds = plugin.GetEpisodeIds(candidates[0].SeasonId);
 
         foreach (var candidate in candidates)
         {
@@ -431,11 +430,7 @@ public partial class QueueManager(ILogger<QueueManager> logger, ILibraryManager 
                 {
                     if (hasSegments.TryGetValue(mode, out var seg))
                     {
-                        candidate.SetAnalyzed(mode, EpisodeState.Analyzed);
-                    }
-                    else if (!plugin.AnalyzeAgain && episodeIds.TryGetValue(mode, out var ids) && ids.Contains(candidate.EpisodeId))
-                    {
-                        candidate.SetAnalyzed(mode, EpisodeState.NoSegments);
+                        candidate.SetAnalyzed(mode, true);
                     }
                 }
             }

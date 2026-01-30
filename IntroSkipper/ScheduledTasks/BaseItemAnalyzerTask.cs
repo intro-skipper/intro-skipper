@@ -178,7 +178,7 @@ public class BaseItemAnalyzerTask(
         AnalysisMode mode,
         CancellationToken cancellationToken)
     {
-        if (!items.Any(e => e.GetAnalyzed(mode) == EpisodeState.NotAnalyzed))
+        if (!items.Any(e => !e.GetAnalyzed(mode)))
         {
             return 0;
         }
@@ -193,7 +193,7 @@ public class BaseItemAnalyzerTask(
             return 0;
         }
 
-        var totalItems = items.Count(e => e.GetAnalyzed(mode) != EpisodeState.Analyzed);
+        var totalItems = items.Count(e => !e.GetAnalyzed(mode));
         var plugin = Plugin.Instance ?? throw new InvalidOperationException("Plugin instance is null");
         var action = plugin.GetAnalyzerAction(first.SeasonId, mode);
 
@@ -242,9 +242,6 @@ public class BaseItemAnalyzerTask(
             items = await analyzer.AnalyzeMediaFiles(items, mode, cancellationToken).ConfigureAwait(false);
         }
 
-        // Set the episode IDs for the analyzed items
-        await Plugin.Instance!.SetEpisodeIdsAsync(first.SeasonId, mode, items.Select(i => i.EpisodeId)).ConfigureAwait(false);
-
-        return totalItems - items.Count(e => e.GetAnalyzed(mode) != EpisodeState.Analyzed);
+        return totalItems - items.Count(e => !e.GetAnalyzed(mode));
     }
 }

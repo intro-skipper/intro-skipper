@@ -198,13 +198,6 @@ public class VisualizationController(ILogger<VisualizationController> logger, Me
                 }
             }
 
-            var seasonInfo = db.DbSeasonInfo.Where(s => s.SeasonId == seasonId);
-
-            foreach (var info in seasonInfo)
-            {
-                db.Entry(info).Property(s => s.EpisodeIds).CurrentValue = [];
-            }
-
             await db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
 
             if (Plugin.Instance.Configuration.UpdateMediaSegments)

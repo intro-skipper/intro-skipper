@@ -84,4 +84,10 @@ public class Segment
     /// </summary>
     [JsonIgnore]
     public double Duration => End - Start;
+
+    /// <summary>
+    /// Converts this segment to a TimeRange.
+    /// </summary>
+    /// <returns>A TimeRange representing the segment.</returns>
+    public TimeRange ToTimeRange() => new(Start, End);
 }

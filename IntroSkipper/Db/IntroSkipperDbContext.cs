@@ -4,10 +4,8 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
-using System.Text.Json;
 using IntroSkipper.Data;
 using Microsoft.EntityFrameworkCore;
-using Microsoft.EntityFrameworkCore.ChangeTracking;
 
 namespace IntroSkipper.Db;
 
@@ -30,6 +28,7 @@ public class IntroSkipperDbContext : DbContext
         _dbPath = dbPath;
         DbSegment = Set<DbSegment>();
         DbSeasonInfo = Set<DbSeasonInfo>();
+        DbSegmentOutbox = Set<DbSegmentOutbox>();
     }
 
     /// <summary>
@@ -43,6 +42,7 @@ public class IntroSkipperDbContext : DbContext
         _dbPath = System.IO.Path.Join(path, "introskipper.db");
         DbSegment = Set<DbSegment>();
         DbSeasonInfo = Set<DbSeasonInfo>();
+        DbSegmentOutbox = Set<DbSegmentOutbox>();
     }
 
     /// <summary>
@@ -54,6 +54,11 @@ public class IntroSkipperDbContext : DbContext
     /// Gets or sets the <see cref="DbSet{TEntity}"/> containing the season information.
     /// </summary>
     public DbSet<DbSeasonInfo> DbSeasonInfo { get; set; }
+
+    /// <summary>
+    /// Gets or sets the <see cref="DbSet{TEntity}"/> containing the segment outbox entries.
+    /// </summary>
+    public DbSet<DbSegmentOutbox> DbSegmentOutbox { get; set; }
 
     /// <inheritdoc/>
     protected override void OnConfiguring(DbContextOptionsBuilder optionsBuilder)
@@ -94,15 +99,29 @@ public class IntroSkipperDbContext : DbContext
             entity.Property(e => e.Action)
                   .HasDefaultValue(AnalyzerAction.Default)
                   .IsRequired();
+        });
 
-            entity.Property(e => e.EpisodeIds)
-                  .HasConversion(
-                      v => JsonSerializer.Serialize(v, (JsonSerializerOptions?)null),
-                      v => JsonSerializer.Deserialize<IEnumerable<Guid>>(v, (JsonSerializerOptions?)null) ?? new List<Guid>(),
-                      new ValueComparer<IEnumerable<Guid>>(
-                          (c1, c2) => (c1 ?? new List<Guid>()).SequenceEqual(c2 ?? new List<Guid>()),
-                          c => c.Aggregate(0, (a, v) => HashCode.Combine(a, v.GetHashCode())),
-                          c => c.ToList()));
+        modelBuilder.Entity<DbSegmentOutbox>(entity =>
+        {
+            entity.ToTable("DbSegmentOutbox");
+            entity.HasKey(e => e.Id);
+
+            entity.HasIndex(e => e.ItemId);
+            entity.HasIndex(e => new { e.ItemId, e.Type, e.SegmentIndex });
+
+            entity.Property(e => e.Id)
+                  .ValueGeneratedOnAdd();
+
+            entity.Property(e => e.CreatedAt)
+                  .IsRequired();
+
+            entity.Property(e => e.RetryCount)
+                  .HasDefaultValue(0)
+                  .IsRequired();
+
+            entity.Property(e => e.SegmentIndex)
+                  .HasDefaultValue(0)
+                  .IsRequired();
         });
 
         base.OnModelCreating(modelBuilder);
@@ -143,7 +162,7 @@ public class IntroSkipperDbContext : DbContext
         try
         {
             using var db = new IntroSkipperDbContext(_dbPath);
-            segments = [.. db.DbSegment.AsEnumerable().Where(s => s.ToSegment().Valid)];
+            segments = [.. db.DbSegment.AsEnumerable().Where(s => s.Valid)];
             seasonInfos = [.. db.DbSeasonInfo];
         }
         catch (Exception ex)

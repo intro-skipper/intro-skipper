@@ -30,10 +30,6 @@ namespace IntroSkipper.Migrations
                         .HasColumnType("INTEGER")
                         .HasDefaultValue(0);
 
-                    b.Property<string>("EpisodeIds")
-                        .IsRequired()
-                        .HasColumnType("TEXT");
-
                     b.HasKey("SeasonId", "Type");
 
                     b.HasIndex("SeasonId");
@@ -69,6 +65,43 @@ namespace IntroSkipper.Migrations
                     b.HasIndex("ItemId");
 
                     b.ToTable("DbSegment", (string)null);
+                });
+
+            modelBuilder.Entity("IntroSkipper.Db.DbSegmentOutbox", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("TEXT");
+
+                    b.Property<Guid>("ItemId")
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("Operation")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int>("RetryCount")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER")
+                        .HasDefaultValue(0);
+
+                    b.Property<int>("SegmentIndex")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER")
+                        .HasDefaultValue(0);
+
+                    b.Property<int>("Type")
+                        .HasColumnType("INTEGER");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ItemId");
+
+                    b.HasIndex("ItemId", "Type", "SegmentIndex");
+
+                    b.ToTable("DbSegmentOutbox", (string)null);
                 });
 #pragma warning restore 612, 618
         }
