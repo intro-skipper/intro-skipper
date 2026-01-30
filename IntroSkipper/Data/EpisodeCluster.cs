@@ -121,6 +121,18 @@ public class EpisodeCluster
     /// </summary>
     /// <param name="episodeId">The episode ID for the representative segment.</param>
     /// <returns>A segment with averaged start and end times.</returns>
+    /// <exception cref="InvalidOperationException">
+    /// Thrown when the cluster is empty and no representative segment can be created.
+    /// </exception>
+    public Segment CreateRepresentativeSegment(Guid episodeId)
+    {
+        if (Count == 0)
+        {
+            throw new InvalidOperationException("Cannot create a representative segment from an empty cluster.");
+        }
+
+        return new Segment(episodeId, new TimeRange(AverageStart, AverageEnd));
+    }
     public Segment CreateRepresentativeSegment(Guid episodeId)
     {
         return new Segment(episodeId, new TimeRange(AverageStart, AverageEnd));
