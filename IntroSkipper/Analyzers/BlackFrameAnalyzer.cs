@@ -8,7 +8,6 @@ using System.Threading;
 using System.Threading.Tasks;
 using IntroSkipper.Configuration;
 using IntroSkipper.Data;
-using IntroSkipper.Services;
 using Microsoft.Extensions.Logging;
 
 namespace IntroSkipper.Analyzers;
@@ -28,10 +27,10 @@ public sealed class BlackFrameAnalyzer(ILogger<BlackFrameAnalyzer> logger) : IMe
     private readonly ILogger<BlackFrameAnalyzer> _logger = logger ?? throw new ArgumentNullException(nameof(logger));
 
     /// <inheritdoc />
-    public async Task<IReadOnlyList<QueuedEpisode>> AnalyzeMediaFiles(
+    public Task<IReadOnlyList<QueuedEpisode>> AnalyzeMediaFiles(
         IReadOnlyList<QueuedEpisode> analysisQueue,
         AnalysisMode mode,
-        ISegmentService segmentService,
+        ICollection<AnalyzedSegment> analyzedSegments,
         CancellationToken cancellationToken)
     {
         if (mode != AnalysisMode.Credits)
@@ -45,7 +44,7 @@ public sealed class BlackFrameAnalyzer(ILogger<BlackFrameAnalyzer> logger) : IMe
 
         if (unanalyzedEpisodes.Count == 0)
         {
-            return analysisQueue;
+            return Task.FromResult(analysisQueue);
         }
 
         _logger.LogDebug("Analyzing {Count} episodes for credits using black frame detection", unanalyzedEpisodes.Count);
@@ -89,7 +88,7 @@ public sealed class BlackFrameAnalyzer(ILogger<BlackFrameAnalyzer> logger) : IMe
                 _logger.LogDebug("Found credits for {Episode} at {Start:F2}s", episode.Name, credit.Start);
 
                 episode.SetAnalyzed(mode, true);
-                await segmentService.CreateSegmentAsync(credit, mode, cancellationToken: cancellationToken).ConfigureAwait(false);
+                analyzedSegments.Add(new AnalyzedSegment(credit));
 
                 // Update search start for next episode based on this result
                 searchStart = episode.Duration - credit.Start + _config.MinimumCreditsDuration;
@@ -100,7 +99,7 @@ public sealed class BlackFrameAnalyzer(ILogger<BlackFrameAnalyzer> logger) : IMe
             }
         }
 
-        return analysisQueue;
+        return Task.FromResult(analysisQueue);
     }
 
     /// <summary>

@@ -75,7 +75,7 @@ public class IntroSkipperDbContext : DbContext
 
             entity.HasIndex(e => new { e.ItemId, e.Type });
 
-            entity.HasIndex(e => e.SeasonId);
+            entity.HasIndex(e => new { e.SeasonId, e.Type });
 
             entity.Property(e => e.Start)
                   .HasDefaultValue(0.0)
@@ -83,14 +83,6 @@ public class IntroSkipperDbContext : DbContext
 
             entity.Property(e => e.End)
                   .HasDefaultValue(0.0)
-                  .IsRequired();
-
-            entity.Property(e => e.CreatedAt)
-                  .HasDefaultValueSql("datetime('now')")
-                  .IsRequired();
-
-            entity.Property(e => e.UpdatedAt)
-                  .HasDefaultValueSql("datetime('now')")
                   .IsRequired();
 
             entity.Property(e => e.IsFirstAppearance)

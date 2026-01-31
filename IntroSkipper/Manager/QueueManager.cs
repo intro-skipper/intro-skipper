@@ -417,9 +417,12 @@ public partial class QueueManager(ILogger<QueueManager> logger, ILibraryManager 
 
         // Get analyzed episode IDs for this season using the repository
         var seasonId = candidates[0].SeasonId;
-        IReadOnlyDictionary<AnalysisMode, IEnumerable<Guid>> episodeIds;
-        using (var scope = _serviceProvider.CreateScope())
+
+        IReadOnlyDictionary<AnalysisMode, IEnumerable<Guid>> episodeIds = new Dictionary<AnalysisMode, IEnumerable<Guid>>();
+
+        if (seasonId != Guid.Empty)
         {
+            using var scope = _serviceProvider.CreateScope();
             var segmentRepository = scope.ServiceProvider.GetRequiredService<ISegmentRepository>();
             episodeIds = await segmentRepository.GetAnalyzedEpisodeIdsBySeasonAsync(seasonId, cancellationToken)
                 .ConfigureAwait(false);

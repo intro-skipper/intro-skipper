@@ -28,8 +28,6 @@ public class DbSegment
         End = segment.End;
         Type = type;
         IsFirstAppearance = isFirstAppearance;
-        CreatedAt = DateTime.UtcNow;
-        UpdatedAt = DateTime.UtcNow;
     }
 
     /// <summary>
@@ -37,8 +35,6 @@ public class DbSegment
     /// </summary>
     public DbSegment()
     {
-        CreatedAt = DateTime.UtcNow;
-        UpdatedAt = DateTime.UtcNow;
     }
 
     /// <summary>
@@ -70,16 +66,6 @@ public class DbSegment
     /// Gets or sets the type of analysis that was used to determine this segment.
     /// </summary>
     public AnalysisMode Type { get; set; }
-
-    /// <summary>
-    /// Gets or sets when this segment was created.
-    /// </summary>
-    public DateTime CreatedAt { get; set; }
-
-    /// <summary>
-    /// Gets or sets when this segment was last updated.
-    /// </summary>
-    public DateTime UpdatedAt { get; set; }
 
     /// <summary>
     /// Gets or sets a value indicating whether this is the first episode where this intro pattern was detected.

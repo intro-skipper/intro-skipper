@@ -1,4 +1,4 @@
-﻿// Copyright (C) 2026 Intro-Skipper contributors <intro-skipper.org>
+// Copyright (C) 2026 Intro-Skipper contributors <intro-skipper.org>
 // SPDX-License-Identifier: GPL-3.0-only
 
 using IntroSkipper.Data;
@@ -92,5 +92,67 @@ public class TestTimeRanges
         var testRange = new TimeRange(start, end);
 
         Assert.Equal(expected, large.Intersects(testRange));
+    }
+
+    [Fact]
+    public void TestMergeOverlappingRanges()
+    {
+        // Test overlapping ranges
+        var overlapping = new[]
+        {
+            new TimeRange(0, 10),
+            new TimeRange(8, 20),
+            new TimeRange(15, 25)
+        };
+
+        var merged = TimeRangeHelpers.MergeOverlappingRanges(overlapping, 0);
+        Assert.Single(merged);
+        Assert.Equal(0, merged[0].Start);
+        Assert.Equal(25, merged[0].End);
+    }
+
+    [Fact]
+    public void TestMergeAdjacentRangesWithGap()
+    {
+        // Test adjacent ranges with small gap (within MaximumTimeSkip)
+        var adjacent = new[]
+        {
+            new TimeRange(0, 10),
+            new TimeRange(13, 20),  // 3 second gap
+            new TimeRange(22, 30)   // 2 second gap
+        };
+
+        // With gap tolerance of 3.5, all should merge
+        var mergedWithGap = TimeRangeHelpers.MergeOverlappingRanges(adjacent, 3.5);
+        Assert.Single(mergedWithGap);
+        Assert.Equal(0, mergedWithGap[0].Start);
+        Assert.Equal(30, mergedWithGap[0].End);
+
+        // With gap tolerance of 0, none should merge
+        var notMerged = TimeRangeHelpers.MergeOverlappingRanges(adjacent, 0);
+        Assert.Equal(3, notMerged.Count);
+    }
+
+    [Fact]
+    public void TestMergeMixedRanges()
+    {
+        // Test mix of overlapping, adjacent, and separate ranges
+        var ranges = new[]
+        {
+            new TimeRange(0, 10),
+            new TimeRange(8, 15),    // overlaps with first
+            new TimeRange(50, 60),   // separate
+            new TimeRange(63, 70),   // 3s gap from previous
+            new TimeRange(100, 110)  // separate
+        };
+
+        var merged = TimeRangeHelpers.MergeOverlappingRanges(ranges, 3.5);
+        Assert.Equal(3, merged.Count);
+        Assert.Equal(0, merged[0].Start);
+        Assert.Equal(15, merged[0].End);
+        Assert.Equal(50, merged[1].Start);
+        Assert.Equal(70, merged[1].End);
+        Assert.Equal(100, merged[2].Start);
+        Assert.Equal(110, merged[2].End);
     }
 }

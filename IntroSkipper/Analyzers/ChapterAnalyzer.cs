@@ -10,7 +10,6 @@ using System.Threading;
 using System.Threading.Tasks;
 using IntroSkipper.Configuration;
 using IntroSkipper.Data;
-using IntroSkipper.Services;
 using MediaBrowser.Model.Entities;
 using Microsoft.Extensions.Logging;
 
@@ -29,10 +28,10 @@ public class ChapterAnalyzer(ILogger<ChapterAnalyzer> logger) : IMediaFileAnalyz
     private readonly PluginConfiguration _config = Plugin.Instance?.Configuration ?? new PluginConfiguration();
 
     /// <inheritdoc />
-    public async Task<IReadOnlyList<QueuedEpisode>> AnalyzeMediaFiles(
+    public Task<IReadOnlyList<QueuedEpisode>> AnalyzeMediaFiles(
         IReadOnlyList<QueuedEpisode> analysisQueue,
         AnalysisMode mode,
-        ISegmentService segmentService,
+        ICollection<AnalyzedSegment> analyzedSegments,
         CancellationToken cancellationToken)
     {
         var expression = mode switch
@@ -47,7 +46,7 @@ public class ChapterAnalyzer(ILogger<ChapterAnalyzer> logger) : IMediaFileAnalyz
 
         if (string.IsNullOrWhiteSpace(expression))
         {
-            return analysisQueue;
+            return Task.FromResult(analysisQueue);
         }
 
         var timeAdjustmentHelper = new TimeAdjustmentHelper(_logger, _config);
@@ -61,45 +60,57 @@ public class ChapterAnalyzer(ILogger<ChapterAnalyzer> logger) : IMediaFileAnalyz
                 break;
             }
 
-            var skipRange = FindMatchingChapter(
+            var matchingSegments = FindMatchingChapters(
                 episode,
                 Plugin.Instance!.GetChapters(episode.EpisodeId),
                 expression,
                 mode);
 
-            if (skipRange is null || !skipRange.Valid)
+            if (matchingSegments.Count == 0)
             {
                 continue;
             }
 
-            skipRange = timeAdjustmentHelper.AdjustIntroTimes(episode, skipRange, false);
+            // Merge adjacent matching chapters (within MaximumTimeSkip)
+            var mergedRanges = TimeRangeHelpers.MergeOverlappingRanges(
+                matchingSegments.Select(s => new TimeRange(s.Start, s.End)),
+                _config.MaximumTimeSkip);
+
+            // Adjust times and add all merged segments
+            foreach (var range in mergedRanges)
+            {
+                var mergedSegment = new Segment(episode.EpisodeId, range, episode.SeasonId);
+                var adjustedSegment = timeAdjustmentHelper.AdjustIntroTimes(episode, mergedSegment, false);
+                analyzedSegments.Add(new AnalyzedSegment(adjustedSegment));
+            }
 
             episode.SetAnalyzed(mode, true);
-            await segmentService.CreateSegmentAsync(skipRange, mode, cancellationToken: cancellationToken).ConfigureAwait(false);
         }
 
-        return analysisQueue;
+        return Task.FromResult(analysisQueue);
     }
 
     /// <summary>
-    /// Searches a list of chapter names for one that matches the provided regular expression.
+    /// Searches a list of chapter names for all that match the provided regular expression.
     /// Only public to allow for unit testing.
     /// </summary>
     /// <param name="episode">Episode.</param>
     /// <param name="chapters">Media item chapters.</param>
     /// <param name="expression">Regular expression pattern.</param>
     /// <param name="mode">Analysis mode.</param>
-    /// <returns>Intro object containing skippable time range, or null if no chapter matched.</returns>
-    public Segment? FindMatchingChapter(
+    /// <returns>List of segments for all matching chapters.</returns>
+    public IReadOnlyList<Segment> FindMatchingChapters(
         QueuedEpisode episode,
         IReadOnlyList<ChapterInfo> chapters,
         string expression,
         AnalysisMode mode)
     {
+        var matchingSegments = new List<Segment>();
         var count = chapters.Count;
+
         if (count == 0)
         {
-            return null;
+            return matchingSegments;
         }
 
         var reversed = mode == AnalysisMode.Credits || mode == AnalysisMode.Preview;
@@ -149,29 +160,11 @@ public class ChapterAnalyzer(ILogger<ChapterAnalyzer> logger) : IMediaFileAnalyz
                 continue;
             }
 
-            // Check if the next (or previous for Credits) chapter also matches
-            var adjacentChapter = reversed ? chapters.ElementAtOrDefault(i - 1) : next;
-            if (adjacentChapter is not null && !string.IsNullOrWhiteSpace(adjacentChapter.Name))
-            {
-                // Check for possibility of overlapping keywords
-                var overlap = Regex.IsMatch(
-                    adjacentChapter.Name,
-                    expression,
-                    RegexOptions.None,
-                    TimeSpan.FromSeconds(1));
-
-                if (overlap)
-                {
-                    _logger.LogTrace("{Base}: ignoring (adjacent chapter also matches)", baseMessage);
-                    continue;
-                }
-            }
-
-            _logger.LogTrace("{Base}: okay", baseMessage);
-            return new Segment(episode.EpisodeId, currentRange, episode.SeasonId);
+            _logger.LogTrace("{Base}: matched", baseMessage);
+            matchingSegments.Add(new Segment(episode.EpisodeId, currentRange, episode.SeasonId));
         }
 
-        return null;
+        return matchingSegments;
     }
 
     private (double Min, double Max) GetBounds(AnalysisMode mode, QueuedEpisode episode)

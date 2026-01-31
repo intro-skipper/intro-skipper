@@ -234,15 +234,20 @@ public class BaseItemAnalyzerTask(
 
         // Use each analyzer to find skippable ranges in all media files, removing successfully
         // analyzed items from the queue.
+        // Collect all detected segments in a list for batch insertion
+        var analyzedSegments = new List<AnalyzedSegment>();
+
+        foreach (var analyzer in analyzers)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            items = await analyzer.AnalyzeMediaFiles(items, mode, analyzedSegments, cancellationToken).ConfigureAwait(false);
+        }
+
+        // Batch replace all segments for this season/mode in a single transaction
         using (var scope = _serviceProvider.CreateScope())
         {
             var segmentService = scope.ServiceProvider.GetRequiredService<ISegmentService>();
-
-            foreach (var analyzer in analyzers)
-            {
-                cancellationToken.ThrowIfCancellationRequested();
-                items = await analyzer.AnalyzeMediaFiles(items, mode, segmentService, cancellationToken).ConfigureAwait(false);
-            }
+            await segmentService.ReplaceSeasonSegmentsAsync(first.SeasonId, mode, analyzedSegments, cancellationToken).ConfigureAwait(false);
         }
 
         // Episode IDs are now tracked implicitly via the segments table

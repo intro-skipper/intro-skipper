@@ -11,7 +11,7 @@ using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 namespace IntroSkipper.Migrations
 {
     [DbContext(typeof(IntroSkipperDbContext))]
-    [Migration("20260129151603_AddRefactor")]
+    [Migration("20260131121953_AddRefactor")]
     partial class AddRefactor
     {
         /// <inheritdoc />
@@ -46,11 +46,6 @@ namespace IntroSkipper.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("INTEGER");
 
-                    b.Property<DateTime>("CreatedAt")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("TEXT")
-                        .HasDefaultValueSql("datetime('now')");
-
                     b.Property<double>("End")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("REAL")
@@ -75,16 +70,11 @@ namespace IntroSkipper.Migrations
                     b.Property<int>("Type")
                         .HasColumnType("INTEGER");
 
-                    b.Property<DateTime>("UpdatedAt")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("TEXT")
-                        .HasDefaultValueSql("datetime('now')");
-
                     b.HasKey("Id");
 
-                    b.HasIndex("SeasonId");
-
                     b.HasIndex("ItemId", "Type");
+
+                    b.HasIndex("SeasonId", "Type");
 
                     b.ToTable("DbSegment", (string)null);
                 });

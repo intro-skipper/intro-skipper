@@ -8,7 +8,6 @@ using System.Threading;
 using System.Threading.Tasks;
 using IntroSkipper.Configuration;
 using IntroSkipper.Data;
-using IntroSkipper.Services;
 using Microsoft.Extensions.Logging;
 
 namespace IntroSkipper.Analyzers;
@@ -28,10 +27,10 @@ public sealed class BlackFrameAltAnalyzer(ILogger<BlackFrameAltAnalyzer> logger)
     private readonly ILogger<BlackFrameAltAnalyzer> _logger = logger ?? throw new ArgumentNullException(nameof(logger));
 
     /// <inheritdoc />
-    public async Task<IReadOnlyList<QueuedEpisode>> AnalyzeMediaFiles(
+    public Task<IReadOnlyList<QueuedEpisode>> AnalyzeMediaFiles(
         IReadOnlyList<QueuedEpisode> analysisQueue,
         AnalysisMode mode,
-        ISegmentService segmentService,
+        ICollection<AnalyzedSegment> analyzedSegments,
         CancellationToken cancellationToken)
     {
         if (mode != AnalysisMode.Credits)
@@ -45,7 +44,7 @@ public sealed class BlackFrameAltAnalyzer(ILogger<BlackFrameAltAnalyzer> logger)
 
         if (unanalyzedEpisodes.Count == 0)
         {
-            return analysisQueue;
+            return Task.FromResult(analysisQueue);
         }
 
         var timeAdjustmentHelper = new TimeAdjustmentHelper(_logger, _config);
@@ -55,7 +54,6 @@ public sealed class BlackFrameAltAnalyzer(ILogger<BlackFrameAltAnalyzer> logger)
         var minimumPercentage = _config.BlackFrameMinimumPercentage;
         var threshold = _config.BlackFrameThreshold;
         var minimumDuration = _config.MinimumCreditsDuration;
-        var plugin = Plugin.Instance ?? throw new InvalidOperationException("Plugin instance is null");
 
         foreach (var episode in unanalyzedEpisodes)
         {
@@ -63,19 +61,22 @@ public sealed class BlackFrameAltAnalyzer(ILogger<BlackFrameAltAnalyzer> logger)
 
             try
             {
-                var credit = DetectCredits(episode, minimumPercentage, threshold, minimumDuration);
+                var credits = DetectAllCredits(episode, minimumPercentage, threshold, minimumDuration);
 
-                if (credit is null || !credit.Valid)
+                if (credits.Count == 0)
                 {
                     _logger.LogDebug("No valid credits found for {Episode}", episode.Name);
                     continue;
                 }
 
-                credit = timeAdjustmentHelper.AdjustIntroTimes(episode, credit);
-                _logger.LogDebug("Found credits for {Episode} at {Start:F2}s", episode.Name, credit.Start);
+                foreach (var credit in credits)
+                {
+                    var adjustedCredit = timeAdjustmentHelper.AdjustIntroTimes(episode, credit);
+                    _logger.LogDebug("Found credits for {Episode} at {Start:F2}s", episode.Name, adjustedCredit.Start);
+                    analyzedSegments.Add(new AnalyzedSegment(adjustedCredit));
+                }
 
                 episode.SetAnalyzed(mode, true);
-                await segmentService.CreateSegmentAsync(credit, mode, cancellationToken: cancellationToken).ConfigureAwait(false);
             }
             catch (OperationCanceledException)
             {
@@ -88,37 +89,40 @@ public sealed class BlackFrameAltAnalyzer(ILogger<BlackFrameAltAnalyzer> logger)
             }
         }
 
-        return analysisQueue;
+        return Task.FromResult(analysisQueue);
     }
 
     /// <summary>
-    /// Detects the start of blackframe credits from FFmpeg blackframe filter output.
+    /// Detects all valid credit segments from FFmpeg blackframe filter output.
     /// </summary>
     /// <param name="episode">Media file to analyze.</param>
     /// <param name="minimumPercentage">Minimum percentage of the frame that must be black.</param>
     /// <param name="threshold">Threshold for black frame detection.</param>
     /// <param name="minimumDuration">Minimum duration of the credits.</param>
-    /// <returns>Time range of the detected credits.</returns>
-    public Segment? DetectCredits(QueuedEpisode episode, int minimumPercentage, int threshold, int minimumDuration)
+    /// <returns>List of all valid credit segments.</returns>
+    public IReadOnlyList<Segment> DetectAllCredits(QueuedEpisode episode, int minimumPercentage, int threshold, int minimumDuration)
     {
+        var validSegments = new List<Segment>();
         var blackFrames = FFmpegWrapper.DetectBlackFrames(episode, threshold).ToList();
 
         if (blackFrames.Count == 0)
         {
-            return null;
+            return validSegments;
         }
 
         var scenes = DetectCreditScenes(blackFrames, minimumPercentage);
         if (scenes.Count == 0)
         {
-            return null;
+            return validSegments;
         }
 
-        // Start from the last scene and work backwards to find the first valid credits segment
-        for (var i = scenes.Count - 1; i >= 0; i--)
+        // Collect all valid credit segments (not just the first valid one from the end)
+        foreach (var scene in scenes)
         {
-            var scene = scenes[i];
-            var segment = new Segment(episode.EpisodeId, new TimeRange(scene.StartTime + episode.CreditsFingerprintStart, scene.EndTime + episode.CreditsFingerprintStart), episode.SeasonId);
+            var segment = new Segment(
+                episode.EpisodeId,
+                new TimeRange(scene.StartTime + episode.CreditsFingerprintStart, scene.EndTime + episode.CreditsFingerprintStart),
+                episode.SeasonId);
 
             if (segment.Duration >= minimumDuration)
             {
@@ -128,11 +132,31 @@ public sealed class BlackFrameAltAnalyzer(ILogger<BlackFrameAltAnalyzer> logger)
                     segment.End,
                     segment.Duration);
 
-                return segment;
+                validSegments.Add(segment);
             }
         }
 
-        return null;
+        // Sort by start time (earlier first)
+        validSegments.Sort((a, b) => a.Start.CompareTo(b.Start));
+
+        return validSegments;
+    }
+
+    /// <summary>
+    /// Detects the start of blackframe credits from FFmpeg blackframe filter output.
+    /// Returns only the first valid credit segment from the end for backward compatibility.
+    /// </summary>
+    /// <param name="episode">Media file to analyze.</param>
+    /// <param name="minimumPercentage">Minimum percentage of the frame that must be black.</param>
+    /// <param name="threshold">Threshold for black frame detection.</param>
+    /// <param name="minimumDuration">Minimum duration of the credits.</param>
+    /// <returns>Time range of the detected credits, or null if none found.</returns>
+    public Segment? DetectCredits(QueuedEpisode episode, int minimumPercentage, int threshold, int minimumDuration)
+    {
+        var allCredits = DetectAllCredits(episode, minimumPercentage, threshold, minimumDuration);
+
+        // Return the last segment (closest to end of episode) for backward compatibility
+        return allCredits.Count > 0 ? allCredits[^1] : null;
     }
 
     private static List<CreditScene> DetectCreditScenes(List<BlackFrame> frames, int minimumPercentage)
