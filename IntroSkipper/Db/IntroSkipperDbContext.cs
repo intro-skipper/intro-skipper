@@ -165,7 +165,7 @@ public class IntroSkipperDbContext : DbContext
     /// </summary>
     public void RebuildDatabase()
     {
-        // Backup existing data
+        // Backup existing data - if reading fails, we'll still create a fresh database
         List<DbSegment> segments = [];
         List<DbSeasonInfo> seasonInfos = [];
 
@@ -175,20 +175,17 @@ public class IntroSkipperDbContext : DbContext
             segments = [.. db.DbSegment.AsEnumerable().Where(s => s.Valid)];
             seasonInfos = [.. db.DbSeasonInfo];
         }
-        catch (Exception ex)
+        catch
         {
-            throw new InvalidOperationException("Failed to read database data", ex);
-        }
-        finally
-        {
-            // Delete old database
-            Database.EnsureDeleted();
-
-            // Create new database with proper migration history
-            Database.Migrate();
+            // If reading fails (old schema, corruption, etc.), we'll just start fresh
+            // This is expected when migrating from an older version
         }
 
-        // Restore the data
+        // Delete old database and create new one with proper migration history
+        Database.EnsureDeleted();
+        Database.Migrate();
+
+        // Restore the data if we managed to read any
         if (segments.Count > 0 || seasonInfos.Count > 0)
         {
             using var db = new IntroSkipperDbContext(_dbPath);
