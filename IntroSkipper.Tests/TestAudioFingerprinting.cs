@@ -1,4 +1,4 @@
-﻿// Copyright (C) 2026 Intro-Skipper contributors <intro-skipper.org>
+// Copyright (C) 2026 Intro-Skipper contributors <intro-skipper.org>
 // SPDX-License-Identifier: GPL-3.0-only
 
 /* These tests require that the host system has a version of FFmpeg installed
@@ -101,11 +101,19 @@ public class TestAudioFingerprinting
         var lhsFingerprint = FFmpegWrapper.Fingerprint(lhsEpisode, AnalysisMode.Introduction);
         var rhsFingerprint = FFmpegWrapper.Fingerprint(rhsEpisode, AnalysisMode.Introduction);
 
-        var (lhs, rhs) = chromaprint.CompareEpisodes(
+        var (lhsSegments, rhsSegments) = chromaprint.CompareEpisodes(
             lhsEpisode.EpisodeId,
             lhsFingerprint,
             rhsEpisode.EpisodeId,
             rhsFingerprint);
+
+        // Should find at least one segment
+        Assert.NotEmpty(lhsSegments);
+        Assert.NotEmpty(rhsSegments);
+
+        // The first (longest) segment should be valid
+        var lhs = lhsSegments[0];
+        var rhs = rhsSegments[0];
 
         Assert.True(lhs.Valid);
         Assert.Equal(0, lhs.Start);

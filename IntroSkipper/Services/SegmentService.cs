@@ -156,6 +156,44 @@ public class SegmentService(
         await _segmentRepository.DeleteOrphanedSegmentsAsync(validItemIds, cancellationToken).ConfigureAwait(false);
     }
 
+    /// <inheritdoc/>
+    public async Task ReplaceSeasonSegmentsAsync(Guid seasonId, AnalysisMode type, IEnumerable<AnalyzedSegment> analyzedSegments, CancellationToken cancellationToken = default)
+    {
+        var segmentsList = analyzedSegments.ToList();
+
+        await ExecuteInTransactionAsync(
+            async () =>
+            {
+                // Get existing item IDs for outbox entries (optimized query that only fetches IDs)
+                var deletedItemIds = (await _segmentRepository.GetItemIdsBySeasonAndTypeAsync(seasonId, type, cancellationToken).ConfigureAwait(false)).ToHashSet();
+
+                // Delete all existing segments for this season and type
+                await _segmentRepository.DeleteBySeasonIdAndTypeAsync(seasonId, type, cancellationToken).ConfigureAwait(false);
+
+                // Convert AnalyzedSegments to DbSegments and batch insert
+                var dbSegments = segmentsList.Select(s => new DbSegment(s.Segment, type, s.IsFirstAppearance)).ToList();
+
+                if (dbSegments.Count > 0)
+                {
+                    await _segmentRepository.AddRangeAsync(dbSegments, cancellationToken).ConfigureAwait(false);
+                }
+
+                // Collect new segment item IDs
+                var newItemIds = segmentsList.Select(s => s.Segment.EpisodeId).ToHashSet();
+
+                // Union of all affected item IDs (deleted + new)
+                var allAffectedItemIds = deletedItemIds.Union(newItemIds);
+
+                // Queue a single outbox entry per affected item (using Upsert since segments exist now)
+                foreach (var itemId in allAffectedItemIds)
+                {
+                    // Use Upsert operation with null segmentId to trigger a full refresh from the provider
+                    await QueueOutboxEntryAsync(itemId, OutboxOperation.Upsert, segmentId: null, cancellationToken).ConfigureAwait(false);
+                }
+            },
+            cancellationToken).ConfigureAwait(false);
+    }
+
     /// <summary>
     /// Executes the specified action within a database transaction.
     /// Commits on success, rolls back on failure.

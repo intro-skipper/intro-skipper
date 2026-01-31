@@ -96,6 +96,18 @@ public interface ISegmentService
     Task DeleteSeasonSegmentsAsync(Guid seasonId, CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// Replaces all segments of a specific type for a season with new segments in a single transaction.
+    /// This is an optimized batch operation that deletes old segments and inserts new ones,
+    /// then queues a single outbox entry per affected item.
+    /// </summary>
+    /// <param name="seasonId">The unique identifier of the season.</param>
+    /// <param name="type">The analysis mode of segments to replace.</param>
+    /// <param name="analyzedSegments">The new segments to insert.</param>
+    /// <param name="cancellationToken">A token to observe while waiting for the task to complete.</param>
+    /// <returns>A <see cref="Task"/> representing the asynchronous operation.</returns>
+    Task ReplaceSeasonSegmentsAsync(Guid seasonId, AnalysisMode type, IEnumerable<AnalyzedSegment> analyzedSegments, CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// Removes segments for items that no longer exist.
     /// Note: This does not queue outbox entries since the items no longer exist in Jellyfin.
     /// </summary>

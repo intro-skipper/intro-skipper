@@ -67,17 +67,23 @@ public class SegmentRepository(IntroSkipperDbContext dbContext) : ISegmentReposi
     /// <inheritdoc/>
     public async Task<DbSegment> AddAsync(DbSegment segment, CancellationToken cancellationToken = default)
     {
-        segment.CreatedAt = DateTime.UtcNow;
-        segment.UpdatedAt = DateTime.UtcNow;
         _dbContext.DbSegment.Add(segment);
         await _dbContext.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
         return segment;
     }
 
     /// <inheritdoc/>
+    public async Task<IReadOnlyList<DbSegment>> AddRangeAsync(IEnumerable<DbSegment> segments, CancellationToken cancellationToken = default)
+    {
+        var segmentList = segments.ToList();
+        _dbContext.DbSegment.AddRange(segmentList);
+        await _dbContext.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+        return segmentList;
+    }
+
+    /// <inheritdoc/>
     public async Task UpdateAsync(DbSegment segment, CancellationToken cancellationToken = default)
     {
-        segment.UpdatedAt = DateTime.UtcNow;
         _dbContext.DbSegment.Update(segment);
         await _dbContext.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
     }
@@ -119,6 +125,15 @@ public class SegmentRepository(IntroSkipperDbContext dbContext) : ISegmentReposi
     }
 
     /// <inheritdoc/>
+    public async Task DeleteBySeasonIdAndTypeAsync(Guid seasonId, AnalysisMode type, CancellationToken cancellationToken = default)
+    {
+        await _dbContext.DbSegment
+            .Where(s => s.SeasonId == seasonId && s.Type == type)
+            .ExecuteDeleteAsync(cancellationToken)
+            .ConfigureAwait(false);
+    }
+
+    /// <inheritdoc/>
     public async Task DeleteOrphanedSegmentsAsync(IEnumerable<Guid> validItemIds, CancellationToken cancellationToken = default)
     {
         var validIds = validItemIds.ToList();
@@ -143,5 +158,16 @@ public class SegmentRepository(IntroSkipperDbContext dbContext) : ISegmentReposi
             .ToDictionary(
                 g => g.Key,
                 g => (IEnumerable<Guid>)[.. g.Select(s => s.ItemId).Distinct()]);
+    }
+
+    /// <inheritdoc/>
+    public async Task<IReadOnlyList<Guid>> GetItemIdsBySeasonAndTypeAsync(Guid seasonId, AnalysisMode type, CancellationToken cancellationToken = default)
+    {
+        return await _dbContext.DbSegment
+            .Where(s => s.SeasonId == seasonId && s.Type == type)
+            .Select(s => s.ItemId)
+            .Distinct()
+            .ToListAsync(cancellationToken)
+            .ConfigureAwait(false);
     }
 }

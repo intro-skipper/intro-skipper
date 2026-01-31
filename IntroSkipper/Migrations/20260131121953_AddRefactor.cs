@@ -25,20 +25,16 @@ CREATE TABLE DbSegment (
     Start REAL NOT NULL DEFAULT 0.0,
     End REAL NOT NULL DEFAULT 0.0,
     Type INTEGER NOT NULL,
-    CreatedAt TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    UpdatedAt TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
     IsFirstAppearance INTEGER NOT NULL DEFAULT 0
 );
 
-INSERT INTO DbSegment (Id, ItemId, SeasonId, Start, End, Type, CreatedAt, UpdatedAt, IsFirstAppearance)
+INSERT INTO DbSegment (Id, ItemId, SeasonId, Start, End, Type, IsFirstAppearance)
 SELECT rowid,
        ItemId,
        '00000000-0000-0000-0000-000000000000',
        Start,
        End,
        Type,
-       CURRENT_TIMESTAMP,
-       CURRENT_TIMESTAMP,
        0
 FROM DbSegment_Old;
 
@@ -57,7 +53,7 @@ CREATE INDEX IX_DbSegment_SeasonId ON DbSegment (SeasonId);
                     ItemId = table.Column<Guid>(type: "TEXT", nullable: false),
                     Operation = table.Column<int>(type: "INTEGER", nullable: false),
                     SegmentId = table.Column<int>(type: "INTEGER", nullable: true),
-                    CreatedAt = table.Column<DateTime>(type: "TEXT", nullable: false, defaultValue: DateTime.UtcNow),
+                    CreatedAt = table.Column<DateTime>(type: "TEXT", nullable: false, defaultValueSql: "datetime('now')"),
                     RetryCount = table.Column<int>(type: "INTEGER", nullable: false, defaultValue: 0),
                     ProcessedAt = table.Column<DateTime>(type: "TEXT", nullable: true),
                     ErrorMessage = table.Column<string>(type: "TEXT", nullable: true),
@@ -100,15 +96,11 @@ CREATE INDEX IX_DbSegment_SeasonId ON DbSegment (SeasonId);
                 table: "DbSegment");
 
             migrationBuilder.DropIndex(
-                name: "IX_DbSegment_SeasonId",
+                name: "IX_DbSegment_SeasonId_Type",
                 table: "DbSegment");
 
             migrationBuilder.DropColumn(
                 name: "Id",
-                table: "DbSegment");
-
-            migrationBuilder.DropColumn(
-                name: "CreatedAt",
                 table: "DbSegment");
 
             migrationBuilder.DropColumn(
@@ -119,9 +111,12 @@ CREATE INDEX IX_DbSegment_SeasonId ON DbSegment (SeasonId);
                 name: "SeasonId",
                 table: "DbSegment");
 
-            migrationBuilder.DropColumn(
-                name: "UpdatedAt",
-                table: "DbSegment");
+            migrationBuilder.AddColumn<int>(
+                name: "SegmentIndex",
+                table: "DbSegment",
+                type: "INTEGER",
+                nullable: false,
+                defaultValue: 0);
 
             migrationBuilder.AddColumn<string>(
                 name: "EpisodeIds",
@@ -133,7 +128,7 @@ CREATE INDEX IX_DbSegment_SeasonId ON DbSegment (SeasonId);
             migrationBuilder.AddPrimaryKey(
                 name: "PK_DbSegment",
                 table: "DbSegment",
-                columns: ["ItemId", "Type"]);
+                columns: ["ItemId", "Type", "SegmentIndex"]);
 
             migrationBuilder.CreateIndex(
                 name: "IX_DbSegment_ItemId",

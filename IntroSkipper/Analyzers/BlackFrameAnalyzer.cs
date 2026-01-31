@@ -8,7 +8,6 @@ using System.Threading;
 using System.Threading.Tasks;
 using IntroSkipper.Configuration;
 using IntroSkipper.Data;
-using IntroSkipper.Services;
 using Microsoft.Extensions.Logging;
 
 namespace IntroSkipper.Analyzers;
@@ -28,10 +27,10 @@ public sealed partial class BlackFrameAnalyzer(ILogger<BlackFrameAnalyzer> logge
     private readonly ILogger<BlackFrameAnalyzer> _logger = logger ?? throw new ArgumentNullException(nameof(logger));
 
     /// <inheritdoc />
-    public async Task<IReadOnlyList<QueuedEpisode>> AnalyzeMediaFiles(
+    public Task<IReadOnlyList<QueuedEpisode>> AnalyzeMediaFiles(
         IReadOnlyList<QueuedEpisode> analysisQueue,
         AnalysisMode mode,
-        ISegmentService segmentService,
+        ICollection<AnalyzedSegment> analyzedSegments,
         CancellationToken cancellationToken)
     {
         if (mode != AnalysisMode.Credits)
@@ -45,7 +44,7 @@ public sealed partial class BlackFrameAnalyzer(ILogger<BlackFrameAnalyzer> logge
 
         if (unanalyzedEpisodes.Count == 0)
         {
-            return analysisQueue;
+            return Task.FromResult(analysisQueue);
         }
 
         LogAnalyzingEpisodes(_logger, unanalyzedEpisodes.Count);
@@ -89,7 +88,7 @@ public sealed partial class BlackFrameAnalyzer(ILogger<BlackFrameAnalyzer> logge
                 LogFoundCredits(_logger, episode.Name, credit.Start);
 
                 episode.SetAnalyzed(mode, true);
-                await segmentService.CreateSegmentAsync(credit, mode, cancellationToken: cancellationToken).ConfigureAwait(false);
+                analyzedSegments.Add(new AnalyzedSegment(credit));
 
                 // Update search start for next episode based on this result
                 searchStart = episode.Duration - credit.Start + _config.MinimumCreditsDuration;
@@ -100,7 +99,7 @@ public sealed partial class BlackFrameAnalyzer(ILogger<BlackFrameAnalyzer> logge
             }
         }
 
-        return analysisQueue;
+        return Task.FromResult(analysisQueue);
     }
 
     /// <summary>

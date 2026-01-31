@@ -10,7 +10,6 @@ using System.Threading;
 using System.Threading.Tasks;
 using IntroSkipper.Configuration;
 using IntroSkipper.Data;
-using IntroSkipper.Services;
 using Microsoft.Extensions.Logging;
 
 namespace IntroSkipper.Analyzers;
@@ -32,10 +31,10 @@ public partial class ChromaprintAnalyzer(ILogger<ChromaprintAnalyzer> logger) : 
     private AnalysisMode _analysisMode;
 
     /// <inheritdoc />
-    public async Task<IReadOnlyList<QueuedEpisode>> AnalyzeMediaFiles(
+    public Task<IReadOnlyList<QueuedEpisode>> AnalyzeMediaFiles(
         IReadOnlyList<QueuedEpisode> analysisQueue,
         AnalysisMode mode,
-        ISegmentService segmentService,
+        ICollection<AnalyzedSegment> analyzedSegments,
         CancellationToken cancellationToken)
     {
         // Episodes that were not analyzed or have a fingerprint cache.
@@ -43,15 +42,16 @@ public partial class ChromaprintAnalyzer(ILogger<ChromaprintAnalyzer> logger) : 
 
         if (analysisQueue.Count <= 1 || episodeAnalysisQueue.All(e => e.GetAnalyzed(mode)))
         {
-            return analysisQueue;
+            return Task.FromResult(analysisQueue);
         }
 
         _analysisMode = mode;
 
         var timeAdjustmentHelper = new TimeAdjustmentHelper(_logger, _config);
 
-        // All intros for this season.
-        var seasonIntros = new Dictionary<Guid, Segment>();
+        // All segments for this season, keyed by episode ID.
+        // Each episode can have multiple segments.
+        var seasonSegments = new Dictionary<Guid, List<Segment>>();
 
         // Track matched episodes using Union-Find to determine first appearances.
         var episodeCluster = new EpisodeCluster();
@@ -86,7 +86,7 @@ public partial class ChromaprintAnalyzer(ILogger<ChromaprintAnalyzer> logger) : 
 
                 if (cancellationToken.IsCancellationRequested)
                 {
-                    return analysisQueue;
+                    return Task.FromResult(analysisQueue);
                 }
             }
             catch (FingerprintException ex)
@@ -110,7 +110,7 @@ public partial class ChromaprintAnalyzer(ILogger<ChromaprintAnalyzer> logger) : 
             foreach (var remainingEpisode in episodeAnalysisQueue)
             {
                 // Compare the current episode to all remaining episodes in the queue.
-                var (currentIntro, remainingIntro) = CompareEpisodes(
+                var (currentSegments, remainingSegments) = CompareEpisodes(
                     currentEpisode.EpisodeId,
                     fingerprintCache[currentEpisode.EpisodeId],
                     remainingEpisode.EpisodeId,
@@ -120,12 +120,11 @@ public partial class ChromaprintAnalyzer(ILogger<ChromaprintAnalyzer> logger) : 
                     ? Plugin.Instance!.Configuration.MaximumIntroDuration
                     : (int)(remainingEpisode.Duration - remainingEpisode.CreditsFingerprintStart - 1); // dont allow perfect matches to avoid false positives from duplicates
 
-                // Ignore this comparison result if:
-                // - one of the intros isn't valid, or
-                // - the introduction exceeds the configured limit
-                if (
-                    !remainingIntro.Valid ||
-                    remainingIntro.Duration > maxDuration)
+                // Filter segments by maximum duration
+                var validCurrentSegments = currentSegments.Where(s => s.Duration <= maxDuration).ToList();
+                var validRemainingSegments = remainingSegments.Where(s => s.Duration <= maxDuration).ToList();
+
+                if (validRemainingSegments.Count == 0)
                 {
                     continue;
                 }
@@ -141,63 +140,95 @@ public partial class ChromaprintAnalyzer(ILogger<ChromaprintAnalyzer> logger) : 
                  */
                 if (_analysisMode == AnalysisMode.Credits)
                 {
-                    // Calculate new values for the current intro
-                    double currentOriginalIntroStart = currentIntro.Start;
-                    currentIntro.Start = currentEpisode.Duration - currentIntro.End;
-                    currentIntro.End = currentEpisode.Duration - currentOriginalIntroStart;
+                    foreach (var segment in validCurrentSegments)
+                    {
+                        double originalStart = segment.Start;
+                        segment.Start = currentEpisode.Duration - segment.End;
+                        segment.End = currentEpisode.Duration - originalStart;
+                    }
 
-                    // Calculate new values for the remaining intro
-                    double remainingIntroOriginalStart = remainingIntro.Start;
-                    remainingIntro.Start = remainingEpisode.Duration - remainingIntro.End;
-                    remainingIntro.End = remainingEpisode.Duration - remainingIntroOriginalStart;
+                    foreach (var segment in validRemainingSegments)
+                    {
+                        double originalStart = segment.Start;
+                        segment.Start = remainingEpisode.Duration - segment.End;
+                        segment.End = remainingEpisode.Duration - originalStart;
+                    }
                 }
 
-                // Only save the discovered intro if it is:
-                // - the first intro discovered for this episode
-                // - longer than the previously discovered intro
-                if (
-                    !seasonIntros.TryGetValue(currentIntro.EpisodeId, out var savedCurrentIntro) ||
-                    currentIntro.Duration > savedCurrentIntro.Duration)
-                {
-                    seasonIntros[currentIntro.EpisodeId] = currentIntro;
-                }
-
-                if (
-                    !seasonIntros.TryGetValue(remainingIntro.EpisodeId, out var savedRemainingIntro) ||
-                    remainingIntro.Duration > savedRemainingIntro.Duration)
-                {
-                    seasonIntros[remainingIntro.EpisodeId] = remainingIntro;
-                }
+                // Merge new segments with existing ones for each episode
+                MergeSegments(seasonSegments, currentEpisode.EpisodeId, validCurrentSegments);
+                MergeSegments(seasonSegments, remainingEpisode.EpisodeId, validRemainingSegments);
 
                 // Union the two matched episodes into the same cluster.
                 // The cluster tracks which episode has the lowest episode number.
-                episodeCluster.Union(currentIntro.EpisodeId, remainingIntro.EpisodeId);
+                episodeCluster.Union(currentEpisode.EpisodeId, remainingEpisode.EpisodeId);
 
                 break;
             }
 
-            // If an intro is found for this episode, adjust its times and save it else add it to the list of episodes without intros.
-            if (seasonIntros.TryGetValue(currentEpisode.EpisodeId, out var intro))
+            // If segments are found for this episode, adjust their times and add to output collection.
+            if (seasonSegments.TryGetValue(currentEpisode.EpisodeId, out var segments) && segments.Count > 0)
             {
-                var adjustedIntro = timeAdjustmentHelper.AdjustIntroTimes(currentEpisode, intro);
                 var isFirstAppearance = episodeCluster.IsFirstAppearance(currentEpisode.EpisodeId);
+
+                foreach (var segment in segments)
+                {
+                    var adjustedSegment = timeAdjustmentHelper.AdjustIntroTimes(currentEpisode, segment);
+                    analyzedSegments.Add(new AnalyzedSegment(adjustedSegment, isFirstAppearance));
+                }
+
                 currentEpisode.SetAnalyzed(mode, true);
-                await segmentService.CreateSegmentAsync(adjustedIntro, mode, isFirstAppearance, cancellationToken).ConfigureAwait(false);
             }
         }
 
-        return analysisQueue;
+        return Task.FromResult(analysisQueue);
     }
 
     /// <summary>
-    /// Analyze two episodes to find an introduction sequence shared between them.
+    /// Merges new segments into the existing segment collection for an episode.
+    /// Keeps the longer segment when overlaps occur.
+    /// </summary>
+    private static void MergeSegments(Dictionary<Guid, List<Segment>> seasonSegments, Guid episodeId, List<Segment> newSegments)
+    {
+        if (!seasonSegments.TryGetValue(episodeId, out var existingSegments))
+        {
+            existingSegments = [];
+            seasonSegments[episodeId] = existingSegments;
+        }
+
+        foreach (var newSegment in newSegments)
+        {
+            // Check if this segment overlaps with any existing segment
+            var overlappingIndex = existingSegments.FindIndex(s =>
+                (newSegment.Start >= s.Start && newSegment.Start <= s.End) ||
+                (newSegment.End >= s.Start && newSegment.End <= s.End) ||
+                (newSegment.Start <= s.Start && newSegment.End >= s.End));
+
+            if (overlappingIndex >= 0)
+            {
+                // Keep the longer segment
+                if (newSegment.Duration > existingSegments[overlappingIndex].Duration)
+                {
+                    existingSegments[overlappingIndex] = newSegment;
+                }
+            }
+            else
+            {
+                // No overlap, add as new segment
+                existingSegments.Add(newSegment);
+            }
+        }
+    }
+
+    /// <summary>
+    /// Analyze two episodes to find introduction sequences shared between them.
     /// </summary>
     /// <param name="lhsId">First episode id.</param>
     /// <param name="lhsPoints">First episode fingerprint points.</param>
     /// <param name="rhsId">Second episode id.</param>
     /// <param name="rhsPoints">Second episode fingerprint points.</param>
-    /// <returns>Intros for the first and second episodes.</returns>
-    public (Segment Lhs, Segment Rhs) CompareEpisodes(
+    /// <returns>Lists of segments for the first and second episodes.</returns>
+    public (List<Segment> Lhs, List<Segment> Rhs) CompareEpisodes(
         Guid lhsId,
         uint[] lhsPoints,
         Guid rhsId,
@@ -211,48 +242,63 @@ public partial class ChromaprintAnalyzer(ILogger<ChromaprintAnalyzer> logger) : 
         {
             LogIndexSearchSuccessful();
 
-            return GetLongestTimeRange(lhsId, lhsRanges, rhsId, rhsRanges);
+            return GetAllTimeRanges(lhsId, lhsRanges, rhsId, rhsRanges);
         }
 
         LogSharedIntroNotFound(lhsId, rhsId);
 
-        return (new Segment(lhsId), new Segment(rhsId));
+        return ([], []);
     }
 
     /// <summary>
-    /// Locates the longest range of similar audio and returns an Intro class for each range.
+    /// Converts all significant time ranges to Segment objects.
     /// </summary>
     /// <param name="lhsId">First episode id.</param>
     /// <param name="lhsRanges">First episode shared timecodes.</param>
     /// <param name="rhsId">Second episode id.</param>
     /// <param name="rhsRanges">Second episode shared timecodes.</param>
-    /// <returns>Intros for the first and second episodes.</returns>
-    private static (Segment Lhs, Segment Rhs) GetLongestTimeRange(
+    /// <returns>Lists of segments for the first and second episodes.</returns>
+    private static (List<Segment> Lhs, List<Segment> Rhs) GetAllTimeRanges(
         Guid lhsId,
         List<TimeRange> lhsRanges,
         Guid rhsId,
         List<TimeRange> rhsRanges)
     {
-        // Store the longest time range as the introduction.
+        var lhsSegments = new List<Segment>();
+        var rhsSegments = new List<Segment>();
+
+        // Sort ranges by duration (longest first)
         lhsRanges.Sort();
         rhsRanges.Sort();
 
-        var lhsIntro = lhsRanges[0];
-        var rhsIntro = rhsRanges[0];
-
-        // If the intro starts early in the episode, move it to the beginning.
-        if (lhsIntro.Start <= 5)
+        // Convert all ranges to segments
+        foreach (var range in lhsRanges)
         {
-            lhsIntro.Start = 0;
+            var adjustedRange = new TimeRange(range.Start, range.End);
+
+            // If the intro starts early in the episode, move it to the beginning.
+            if (adjustedRange.Start <= 5)
+            {
+                adjustedRange.Start = 0;
+            }
+
+            lhsSegments.Add(new Segment(lhsId, adjustedRange));
         }
 
-        if (rhsIntro.Start <= 5)
+        foreach (var range in rhsRanges)
         {
-            rhsIntro.Start = 0;
+            var adjustedRange = new TimeRange(range.Start, range.End);
+
+            // If the intro starts early in the episode, move it to the beginning.
+            if (adjustedRange.Start <= 5)
+            {
+                adjustedRange.Start = 0;
+            }
+
+            rhsSegments.Add(new Segment(rhsId, adjustedRange));
         }
 
-        // Create Intro classes for each time range.
-        return (new Segment(lhsId, lhsIntro), new Segment(rhsId, rhsIntro));
+        return (lhsSegments, rhsSegments);
     }
 
     /// <summary>
@@ -299,24 +345,22 @@ public partial class ChromaprintAnalyzer(ILogger<ChromaprintAnalyzer> logger) : 
         // Use all discovered shifts to compare the episodes.
         foreach (var shift in indexShifts)
         {
-            var (lhsIndexContiguous, rhsIndexContiguous) = FindContiguous(lhsPoints, rhsPoints, shift);
-            if (lhsIndexContiguous.End > 0 && rhsIndexContiguous.End > 0)
-            {
-                lhsRanges.Add(lhsIndexContiguous);
-                rhsRanges.Add(rhsIndexContiguous);
-            }
+            var (lhsContiguousRanges, rhsContiguousRanges) = FindAllContiguous(lhsPoints, rhsPoints, shift);
+
+            lhsRanges.AddRange(lhsContiguousRanges);
+            rhsRanges.AddRange(rhsContiguousRanges);
         }
 
         return (lhsRanges, rhsRanges);
     }
 
     /// <summary>
-    /// Finds the longest contiguous region of similar audio between two fingerprints using the provided shift amount.
+    /// Finds all contiguous regions of similar audio between two fingerprints using the provided shift amount.
     /// </summary>
     /// <param name="lhs">First fingerprint to compare.</param>
     /// <param name="rhs">Second fingerprint to compare.</param>
     /// <param name="shiftAmount">Amount to shift one fingerprint by.</param>
-    private (TimeRange Lhs, TimeRange Rhs) FindContiguous(
+    private (List<TimeRange> Lhs, List<TimeRange> Rhs) FindAllContiguous(
         uint[] lhs,
         uint[] rhs,
         int shiftAmount)
@@ -364,15 +408,10 @@ public partial class ChromaprintAnalyzer(ILogger<ChromaprintAnalyzer> logger) : 
         lhsTimes.Add(double.MaxValue);
         rhsTimes.Add(double.MaxValue);
 
-        // Now that both fingerprints have been compared at this shift, see if there's a contiguous time range.
-        var lContiguous = TimeRangeHelpers.FindContiguous([.. lhsTimes], _config.MaximumTimeSkip);
-        if (lContiguous is null || lContiguous.Duration < _config.MinimumIntroDuration)
-        {
-            return (new TimeRange(), new TimeRange());
-        }
+        // Find all contiguous time ranges that meet the minimum duration
+        var lContiguous = TimeRangeHelpers.FindAllContiguous([.. lhsTimes], _config.MaximumTimeSkip, _config.MinimumIntroDuration);
+        var rContiguous = TimeRangeHelpers.FindAllContiguous([.. rhsTimes], _config.MaximumTimeSkip, _config.MinimumIntroDuration);
 
-        // Since LHS had a contiguous time range, RHS must have one also.
-        var rContiguous = TimeRangeHelpers.FindContiguous([.. rhsTimes], _config.MaximumTimeSkip)!;
         return (lContiguous, rContiguous);
     }
 

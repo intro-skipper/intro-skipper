@@ -64,6 +64,14 @@ public interface ISegmentRepository
     Task<DbSegment> AddAsync(DbSegment segment, CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// Adds multiple segments in a batch operation.
+    /// </summary>
+    /// <param name="segments">The segments to add to the repository.</param>
+    /// <param name="cancellationToken">A token to cancel the operation.</param>
+    /// <returns>A <see cref="Task"/> that resolves to the added segments (including any database assigned ids).</returns>
+    Task<IReadOnlyList<DbSegment>> AddRangeAsync(IEnumerable<DbSegment> segments, CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// Updates an existing segment.
     /// </summary>
     /// <param name="segment">The <see cref="DbSegment"/> with updated values to persist.</param>
@@ -105,6 +113,15 @@ public interface ISegmentRepository
     Task DeleteBySeasonIdAsync(Guid seasonId, CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// Deletes all segments for a season filtered by type.
+    /// </summary>
+    /// <param name="seasonId">The id of the season whose segments should be deleted.</param>
+    /// <param name="type">The analysis mode (segment type) to delete.</param>
+    /// <param name="cancellationToken">A token to cancel the operation.</param>
+    /// <returns>A <see cref="Task"/> representing the asynchronous operation.</returns>
+    Task DeleteBySeasonIdAndTypeAsync(Guid seasonId, AnalysisMode type, CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// Deletes all segments not in the provided item ids.
     /// </summary>
     /// <param name="validItemIds">A collection of item ids that should be preserved; segments for items not in this collection will be deleted.</param>
@@ -119,4 +136,13 @@ public interface ISegmentRepository
     /// <param name="cancellationToken">A token to cancel the operation.</param>
     /// <returns>A dictionary mapping analysis modes to collections of analyzed episode IDs.</returns>
     Task<IReadOnlyDictionary<AnalysisMode, IEnumerable<Guid>>> GetAnalyzedEpisodeIdsBySeasonAsync(Guid seasonId, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Gets item IDs for a season filtered by type. This is an optimized query that only fetches IDs.
+    /// </summary>
+    /// <param name="seasonId">The id of the season.</param>
+    /// <param name="type">The analysis mode to filter by.</param>
+    /// <param name="cancellationToken">A token to cancel the operation.</param>
+    /// <returns>A collection of distinct item IDs.</returns>
+    Task<IReadOnlyList<Guid>> GetItemIdsBySeasonAndTypeAsync(Guid seasonId, AnalysisMode type, CancellationToken cancellationToken = default);
 }

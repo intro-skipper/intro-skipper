@@ -5,7 +5,6 @@ using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
 using IntroSkipper.Data;
-using IntroSkipper.Services;
 
 namespace IntroSkipper.Analyzers;
 
@@ -14,9 +13,8 @@ namespace IntroSkipper.Analyzers;
 /// </summary>
 /// <remarks>
 /// Analyzers are instantiated per-analysis run because they maintain per-run state
-/// (e.g., fingerprint caches). The <see cref="ISegmentService"/> is passed as a parameter
-/// rather than injected via constructor to support this instantiation pattern while
-/// still allowing the service to be properly scoped within the DI container.
+/// (e.g., fingerprint caches). Detected segments are added to an output collection
+/// instead of being saved directly, allowing for batch processing at the end of analysis.
 /// </remarks>
 public interface IMediaFileAnalyzer
 {
@@ -25,12 +23,12 @@ public interface IMediaFileAnalyzer
     /// </summary>
     /// <param name="analysisQueue">Collection of unanalyzed media files.</param>
     /// <param name="mode">Analysis mode.</param>
-    /// <param name="segmentService">Segment service for saving results. Passed as parameter because analyzers are created per-run with fresh state.</param>
+    /// <param name="analyzedSegments">Output collection to add detected segments to. Segments are batched and saved after all analyzers complete.</param>
     /// <param name="cancellationToken">Cancellation token from scheduled task.</param>
     /// <returns>Collection of media files that were **unsuccessfully analyzed**.</returns>
     Task<IReadOnlyList<QueuedEpisode>> AnalyzeMediaFiles(
         IReadOnlyList<QueuedEpisode> analysisQueue,
         AnalysisMode mode,
-        ISegmentService segmentService,
+        ICollection<AnalyzedSegment> analyzedSegments,
         CancellationToken cancellationToken);
 }
