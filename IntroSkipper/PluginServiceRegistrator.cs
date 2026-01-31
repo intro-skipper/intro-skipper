@@ -4,6 +4,7 @@
 using System;
 using IntroSkipper.Db;
 using IntroSkipper.Filters;
+using IntroSkipper.Manager;
 using IntroSkipper.Providers;
 using IntroSkipper.Repositories;
 using IntroSkipper.Services;
@@ -40,6 +41,9 @@ namespace IntroSkipper
             serviceCollection.AddScoped<ISegmentRepository, SegmentRepository>();
             serviceCollection.AddScoped<IOutboxRepository, OutboxRepository>();
             serviceCollection.AddScoped<ISeasonRepository, SeasonRepository>();
+
+            // Managers
+            serviceCollection.AddSingleton<MediaSegmentUpdateManager>();
 
             // Services
             serviceCollection.AddScoped<ISegmentService, SegmentService>();
