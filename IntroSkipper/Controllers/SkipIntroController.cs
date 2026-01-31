@@ -54,32 +54,22 @@ public class SkipIntroController(MediaSegmentUpdateManager mediaSegmentUpdateMan
             return NoContent();
         }
 
-        var singleSegmentTypes = new[]
+        var segmentTypes = new[]
         {
             (AnalysisMode.Introduction, timestamps.Introduction),
             (AnalysisMode.Credits, timestamps.Credits),
             (AnalysisMode.Recap, timestamps.Recap),
-            (AnalysisMode.Preview, timestamps.Preview)
+            (AnalysisMode.Preview, timestamps.Preview),
+            (AnalysisMode.Commercial, timestamps.Commercial)
         };
 
-        foreach (var (mode, segment) in singleSegmentTypes)
+        foreach (var (mode, segment) in segmentTypes)
         {
             if (segment.Valid)
             {
-                // Ensure the segment has the correct EpisodeId
-                var correctedSegment = new Segment(id, new TimeRange(segment.Start, segment.End));
-                await Plugin.Instance!.UpdateTimestampAsync(correctedSegment, mode).ConfigureAwait(false);
+                segment.EpisodeId = id;
+                await Plugin.Instance!.UpdateTimestampAsync(segment, mode).ConfigureAwait(false);
             }
-        }
-
-        // Handle commercial segments separately as they can have multiple entries
-        if (timestamps.Commercials.Count > 0)
-        {
-            // Ensure all commercial segments have the correct EpisodeId
-            var commercialsWithCorrectId = timestamps.Commercials
-                .Select(c => new Segment(id, new TimeRange(c.Start, c.End)))
-                .ToList();
-            await Plugin.Instance!.UpdateTimestampsAsync(id, AnalysisMode.Commercial, commercialsWithCorrectId).ConfigureAwait(false);
         }
 
         if (Plugin.Instance.Configuration.UpdateMediaSegments)
@@ -115,34 +105,31 @@ public class SkipIntroController(MediaSegmentUpdateManager mediaSegmentUpdateMan
         }
 
         var times = new TimeStamps();
-        var allSegments = Plugin.Instance!.GetAllTimestamps(id);
+        var segments = Plugin.Instance!.GetTimestamps(id);
 
-        if (allSegments[AnalysisMode.Introduction].Any())
+        if (segments.TryGetValue(AnalysisMode.Introduction, out var introSegment))
         {
-            times.Introduction = allSegments[AnalysisMode.Introduction].First();
+            times.Introduction = introSegment;
         }
 
-        if (allSegments[AnalysisMode.Credits].Any())
+        if (segments.TryGetValue(AnalysisMode.Credits, out var creditSegment))
         {
-            times.Credits = allSegments[AnalysisMode.Credits].First();
+            times.Credits = creditSegment;
         }
 
-        if (allSegments[AnalysisMode.Recap].Any())
+        if (segments.TryGetValue(AnalysisMode.Recap, out var recapSegment))
         {
-            times.Recap = allSegments[AnalysisMode.Recap].First();
+            times.Recap = recapSegment;
         }
 
-        if (allSegments[AnalysisMode.Preview].Any())
+        if (segments.TryGetValue(AnalysisMode.Preview, out var previewSegment))
         {
-            times.Preview = allSegments[AnalysisMode.Preview].First();
+            times.Preview = previewSegment;
         }
 
-        if (allSegments[AnalysisMode.Commercial].Any())
+        if (segments.TryGetValue(AnalysisMode.Commercial, out var commercialSegment))
         {
-            foreach (var segment in allSegments[AnalysisMode.Commercial])
-            {
-                times.Commercials.Add(segment);
-            }
+            times.Commercial = commercialSegment;
         }
 
         return times;

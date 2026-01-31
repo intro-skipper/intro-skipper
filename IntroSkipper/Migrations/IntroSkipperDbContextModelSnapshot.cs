@@ -3,7 +3,6 @@ using System;
 using IntroSkipper.Db;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
-using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 
 #nullable disable
 
@@ -15,7 +14,7 @@ namespace IntroSkipper.Migrations
         protected override void BuildModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
-            modelBuilder.HasAnnotation("ProductVersion", "9.0.11");
+            modelBuilder.HasAnnotation("ProductVersion", "8.0.10");
 
             modelBuilder.Entity("IntroSkipper.Db.DbSeasonInfo", b =>
                 {
@@ -49,11 +48,6 @@ namespace IntroSkipper.Migrations
                     b.Property<int>("Type")
                         .HasColumnType("INTEGER");
 
-                    b.Property<int>("SegmentIndex")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("INTEGER")
-                        .HasDefaultValue(0);
-
                     b.Property<double>("End")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("REAL")
@@ -64,7 +58,7 @@ namespace IntroSkipper.Migrations
                         .HasColumnType("REAL")
                         .HasDefaultValue(0.0);
 
-                    b.HasKey("ItemId", "Type", "SegmentIndex");
+                    b.HasKey("ItemId", "Type");
 
                     b.HasIndex("ItemId");
 

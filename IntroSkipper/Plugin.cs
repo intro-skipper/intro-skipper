@@ -166,17 +166,17 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
 
     internal IReadOnlyList<ChapterInfo> GetChapters(Guid id) => _chapterRepository.GetChapters(id);
 
-    internal async Task UpdateTimestampAsync(Segment segment, AnalysisMode mode, int segmentIndex = 0)
+    internal async Task UpdateTimestampAsync(Segment segment, AnalysisMode mode)
     {
         using var db = new IntroSkipperDbContext(_dbPath);
 
         try
         {
             var existing = await db.DbSegment
-                .FirstOrDefaultAsync(s => s.ItemId == segment.EpisodeId && s.Type == mode && s.SegmentIndex == segmentIndex)
+                .FirstOrDefaultAsync(s => s.ItemId == segment.EpisodeId && s.Type == mode)
                 .ConfigureAwait(false);
 
-            var dbSegment = new DbSegment(segment, mode) { SegmentIndex = segmentIndex };
+            var dbSegment = new DbSegment(segment, mode);
             if (existing is not null)
             {
                 db.Entry(existing).CurrentValues.SetValues(dbSegment);
@@ -195,59 +195,11 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
         }
     }
 
-    internal async Task UpdateTimestampsAsync(Guid episodeId, AnalysisMode mode, IEnumerable<Segment> segments)
-    {
-        using var db = new IntroSkipperDbContext(_dbPath);
-
-        try
-        {
-            // Remove existing segments of this type for this item
-            var existingSegments = db.DbSegment
-                .Where(s => s.ItemId == episodeId && s.Type == mode);
-            db.DbSegment.RemoveRange(existingSegments);
-
-            // Add new segments with sequential indexes
-            int index = 0;
-            foreach (var segment in segments)
-            {
-                if (segment.Valid)
-                {
-                    var dbSegment = new DbSegment(segment, mode)
-                    {
-                        SegmentIndex = index++
-                    };
-                    dbSegment.ItemId = episodeId; // Ensure correct ItemId
-                    db.DbSegment.Add(dbSegment);
-                }
-            }
-
-            await db.SaveChangesAsync().ConfigureAwait(false);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Failed to update timestamps for episode {EpisodeId}", episodeId);
-            throw;
-        }
-    }
-
     internal IReadOnlyDictionary<AnalysisMode, Segment> GetTimestamps(Guid id)
     {
         using var db = new IntroSkipperDbContext(_dbPath);
-        // For backward compatibility, return only the first segment of each type
-        // Except for commercials which are handled separately via GetAllTimestamps
-        return db.DbSegment
-            .Where(s => s.ItemId == id && s.SegmentIndex == 0)
+        return db.DbSegment.Where(s => s.ItemId == id)
             .ToDictionary(s => s.Type, s => s.ToSegment());
-    }
-
-    internal ILookup<AnalysisMode, Segment> GetAllTimestamps(Guid id)
-    {
-        using var db = new IntroSkipperDbContext(_dbPath);
-        return db.DbSegment
-            .Where(s => s.ItemId == id)
-            .OrderBy(s => s.Type)
-            .ThenBy(s => s.SegmentIndex)
-            .ToLookup(s => s.Type, s => s.ToSegment());
     }
 
     internal async Task CleanTimestamps(IEnumerable<Guid> episodeIds)
