@@ -1,45 +1,42 @@
 // Copyright (C) 2026 Intro-Skipper contributors <intro-skipper.org>
-// SPDX-License-Identifier: GPL-3.0-only
+// SPDX-License-Identifier: GPL-3.0-only.
+
+using System;
 
 namespace IntroSkipper.Data;
 
 /// <summary>
-/// Constants used for the outbox pattern in segment synchronization.
+/// Constants for outbox processing configuration.
 /// </summary>
 public static class OutboxConstants
 {
     /// <summary>
-    /// Maximum number of retry attempts for failed outbox entries.
+    /// Maximum number of retry attempts before an outbox entry is considered failed.
     /// </summary>
-    public const int MaxRetryAttempts = 5;
+    public const int MaxRetryCount = 5;
 
     /// <summary>
-    /// Default batch size for processing outbox entries.
+    /// Number of outbox entries to process in each batch.
     /// </summary>
-    public const int DefaultBatchSize = 100;
+    public const int BatchSize = 100;
 
     /// <summary>
-    /// Initial delay in seconds before the first retry.
+    /// Interval between outbox polling cycles.
     /// </summary>
-    public const int InitialRetryDelaySeconds = 1;
+    public static readonly TimeSpan PollingInterval = TimeSpan.FromSeconds(5);
 
     /// <summary>
-    /// Maximum delay in seconds between retries.
+    /// Delay before retrying after an error in the processor loop.
     /// </summary>
-    public const int MaxRetryDelaySeconds = 300;
+    public static readonly TimeSpan ErrorRetryDelay = TimeSpan.FromSeconds(30);
 
     /// <summary>
-    /// Multiplier for exponential backoff.
+    /// How long processed entries are retained before cleanup.
     /// </summary>
-    public const double BackoffMultiplier = 2.0;
+    public static readonly TimeSpan RetentionPeriod = TimeSpan.FromDays(7);
 
     /// <summary>
-    /// Timeout in seconds for outbox entry processing.
+    /// Timeout for claiming outbox entries. Entries claimed longer than this are considered stale.
     /// </summary>
-    public const int ProcessingTimeoutSeconds = 30;
-
-    /// <summary>
-    /// Delay in milliseconds between outbox processing cycles.
-    /// </summary>
-    public const int ProcessingCycleDelayMs = 1000;
+    public static readonly TimeSpan ClaimTimeout = TimeSpan.FromMinutes(5);
 }

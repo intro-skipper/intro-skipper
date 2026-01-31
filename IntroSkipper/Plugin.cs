@@ -1,4 +1,4 @@
-﻿// Copyright (C) 2026 Intro-Skipper contributors <intro-skipper.org>
+// Copyright (C) 2026 Intro-Skipper contributors <intro-skipper.org>
 // SPDX-License-Identifier: GPL-3.0-only
 
 using System;
@@ -10,7 +10,6 @@ using System.Threading.Tasks;
 using IntroSkipper.Configuration;
 using IntroSkipper.Data;
 using IntroSkipper.Db;
-using IntroSkipper.Helper;
 using Jellyfin.Database.Implementations.Enums;
 using MediaBrowser.Common.Configuration;
 using MediaBrowser.Common.Plugins;
@@ -172,14 +171,18 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
 
         try
         {
+            // Find existing segment of this type for this item
             var existing = await db.DbSegment
-                .FirstOrDefaultAsync(s => s.ItemId == segment.EpisodeId && s.Type == mode && s.SegmentIndex == segmentIndex)
+                .FirstOrDefaultAsync(s => s.ItemId == segment.EpisodeId && s.Type == mode)
                 .ConfigureAwait(false);
 
-            var dbSegment = new DbSegment(segment, mode) { SegmentIndex = segmentIndex };
+            var dbSegment = new DbSegment(segment, mode);
             if (existing is not null)
             {
-                db.Entry(existing).CurrentValues.SetValues(dbSegment);
+                // Update existing
+                existing.Start = segment.Start;
+                existing.End = segment.End;
+                existing.UpdatedAt = DateTime.UtcNow;
             }
             else
             {
@@ -202,21 +205,18 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
         try
         {
             // Remove existing segments of this type for this item
-            var existingSegments = db.DbSegment
-                .Where(s => s.ItemId == episodeId && s.Type == mode);
+            var existingSegments = await db.DbSegment
+                .Where(s => s.ItemId == episodeId && s.Type == mode)
+                .ToListAsync()
+                .ConfigureAwait(false);
             db.DbSegment.RemoveRange(existingSegments);
 
-            // Add new segments with sequential indexes
-            int index = 0;
+            // Add new segments
             foreach (var segment in segments)
             {
                 if (segment.Valid)
                 {
-                    var dbSegment = new DbSegment(segment, mode)
-                    {
-                        SegmentIndex = index++
-                    };
-                    dbSegment.ItemId = episodeId; // Ensure correct ItemId
+                    var dbSegment = new DbSegment(segment, mode);
                     db.DbSegment.Add(dbSegment);
                 }
             }
@@ -233,11 +233,11 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
     internal IReadOnlyDictionary<AnalysisMode, Segment> GetTimestamps(Guid id)
     {
         using var db = new IntroSkipperDbContext(_dbPath);
-        // For backward compatibility, return only the first segment of each type
-        // Except for commercials which are handled separately via GetAllTimestamps
+        // For backward compatibility, group by type and return first segment of each type
         return db.DbSegment
-            .Where(s => s.ItemId == id && s.SegmentIndex == 0)
-            .ToDictionary(s => s.Type, s => s.ToSegment());
+            .Where(s => s.ItemId == id)
+            .GroupBy(s => s.Type)
+            .ToDictionary(g => g.Key, g => g.First().ToSegment());
     }
 
     internal ILookup<AnalysisMode, Segment> GetAllTimestamps(Guid id)
@@ -246,15 +246,18 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
         return db.DbSegment
             .Where(s => s.ItemId == id)
             .OrderBy(s => s.Type)
-            .ThenBy(s => s.SegmentIndex)
+            .ThenBy(s => s.Id)
             .ToLookup(s => s.Type, s => s.ToSegment());
     }
 
     internal async Task CleanTimestamps(IEnumerable<Guid> episodeIds)
     {
         using var db = new IntroSkipperDbContext(_dbPath);
-        db.DbSegment.RemoveRange(db.DbSegment
-            .Where(s => !episodeIds.Contains(s.ItemId)));
+        var segmentsToRemove = await db.DbSegment
+            .Where(s => !episodeIds.Contains(s.ItemId))
+            .ToListAsync()
+            .ConfigureAwait(false);
+        db.DbSegment.RemoveRange(segmentsToRemove);
         await db.SaveChangesAsync().ConfigureAwait(false);
     }
 
@@ -319,10 +322,13 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
     internal async Task DeleteTimestampAsync(Guid itemId, AnalysisMode mode)
     {
         using var db = new IntroSkipperDbContext(_dbPath);
-        var entry = await db.DbSegment.FirstOrDefaultAsync(s => s.ItemId == itemId && s.Type == mode).ConfigureAwait(false);
-        if (entry is not null)
+        var entries = await db.DbSegment
+            .Where(s => s.ItemId == itemId && s.Type == mode)
+            .ToListAsync()
+            .ConfigureAwait(false);
+        if (entries.Count > 0)
         {
-            db.DbSegment.Remove(entry);
+            db.DbSegment.RemoveRange(entries);
             await db.SaveChangesAsync().ConfigureAwait(false);
         }
     }

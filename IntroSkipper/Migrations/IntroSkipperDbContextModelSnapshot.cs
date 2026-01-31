@@ -39,44 +39,73 @@ namespace IntroSkipper.Migrations
 
             modelBuilder.Entity("IntroSkipper.Db.DbSegment", b =>
                 {
-                    b.Property<Guid>("ItemId")
-                        .HasColumnType("TEXT");
-
-                    b.Property<int>("Type")
-                        .HasColumnType("INTEGER");
-
-                    b.Property<int>("SegmentIndex")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("INTEGER")
-                        .HasDefaultValue(0);
-
-                    b.Property<double>("End")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("REAL")
-                        .HasDefaultValue(0.0);
-
-                    b.Property<double>("Start")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("REAL")
-                        .HasDefaultValue(0.0);
-
-                    b.HasKey("ItemId", "Type", "SegmentIndex");
-
-                    b.HasIndex("ItemId");
-
-                    b.ToTable("DbSegment", (string)null);
-                });
-
-            modelBuilder.Entity("IntroSkipper.Db.DbSegmentOutbox", b =>
-                {
-                    b.Property<long>("Id")
+                    b.Property<int>("Id")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("INTEGER");
 
                     b.Property<DateTime>("CreatedAt")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("TEXT")
-                        .HasDefaultValueSql("CURRENT_TIMESTAMP");
+                        .HasDefaultValueSql("datetime('now')");
+
+                    b.Property<double>("End")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("REAL")
+                        .HasDefaultValue(0.0);
+
+                    b.Property<bool>("IsFirstAppearance")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER")
+                        .HasDefaultValue(false);
+
+                    b.Property<Guid>("ItemId")
+                        .HasColumnType("TEXT");
+
+                    b.Property<Guid>("SeasonId")
+                        .HasColumnType("TEXT");
+
+                    b.Property<double>("Start")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("REAL")
+                        .HasDefaultValue(0.0);
+
+                    b.Property<int>("Type")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("TEXT")
+                        .HasDefaultValueSql("datetime('now')");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("SeasonId");
+
+                    b.HasIndex("ItemId", "Type");
+
+                    b.ToTable("DbSegment", (string)null);
+                });
+
+            modelBuilder.Entity("IntroSkipper.Db.DbSegmentOutbox", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER");
+
+                    b.Property<DateTime?>("ClaimedAt")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("ClaimedBy")
+                        .HasMaxLength(64)
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("TEXT")
+                        .HasDefaultValueSql("datetime('now')");
+
+                    b.Property<string>("ErrorMessage")
+                        .HasColumnType("TEXT");
 
                     b.Property<Guid>("ItemId")
                         .HasColumnType("TEXT");
@@ -84,24 +113,25 @@ namespace IntroSkipper.Migrations
                     b.Property<int>("Operation")
                         .HasColumnType("INTEGER");
 
+                    b.Property<DateTime?>("ProcessedAt")
+                        .HasColumnType("TEXT");
+
                     b.Property<int>("RetryCount")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("INTEGER")
                         .HasDefaultValue(0);
 
-                    b.Property<int>("SegmentIndex")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("INTEGER")
-                        .HasDefaultValue(0);
-
-                    b.Property<int>("Type")
+                    b.Property<int?>("SegmentId")
                         .HasColumnType("INTEGER");
 
                     b.HasKey("Id");
 
-                    b.HasIndex("ItemId");
+                    b.HasIndex("ProcessedAt");
 
-                    b.HasIndex("ItemId", "Type", "SegmentIndex");
+                    b.HasIndex("ItemId", "ProcessedAt");
+
+                    b.HasIndex("ProcessedAt", "ClaimedBy", "RetryCount", "CreatedAt")
+                        .HasDatabaseName("IX_DbSegmentOutbox_Pending");
 
                     b.ToTable("DbSegmentOutbox", (string)null);
                 });

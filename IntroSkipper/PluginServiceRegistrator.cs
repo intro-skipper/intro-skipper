@@ -1,9 +1,11 @@
-﻿// Copyright (C) 2026 Intro-Skipper contributors <intro-skipper.org>
+// Copyright (C) 2026 Intro-Skipper contributors <intro-skipper.org>
 // SPDX-License-Identifier: GPL-3.0-only
 
+using System;
+using IntroSkipper.Db;
 using IntroSkipper.Filters;
-using IntroSkipper.Manager;
 using IntroSkipper.Providers;
+using IntroSkipper.Repositories;
 using IntroSkipper.Services;
 using MediaBrowser.Controller;
 using MediaBrowser.Controller.MediaSegments;
@@ -21,14 +23,33 @@ namespace IntroSkipper
         /// <inheritdoc />
         public void RegisterServices(IServiceCollection serviceCollection, IServerApplicationHost applicationHost)
         {
-            serviceCollection.AddHostedService<Entrypoint>();
-            serviceCollection.AddSingleton<IMediaSegmentProvider, SegmentProvider>();
-            serviceCollection.AddTransient<MediaSegmentUpdateManager>();
+            // Database context
+            serviceCollection.AddScoped((serviceProvider) =>
+            {
+                var dbPath = Plugin.Instance?.DbPath ?? throw new InvalidOperationException("Plugin not initialized");
+                return new IntroSkipperDbContext(dbPath);
+            });
+
             serviceCollection.AddSingleton<MediaSegmentsFirstEpisodeFilter>();
             serviceCollection.Configure<MvcOptions>(options =>
             {
-                options.Filters.AddService<MediaSegmentsFirstEpisodeFilter>();
+                options.Filters.AddService<MediaSegmentsFirstEpisodeFilter>(order: 0);
             });
+
+            // Repositories
+            serviceCollection.AddScoped<ISegmentRepository, SegmentRepository>();
+            serviceCollection.AddScoped<IOutboxRepository, OutboxRepository>();
+            serviceCollection.AddScoped<ISeasonRepository, SeasonRepository>();
+
+            // Services
+            serviceCollection.AddScoped<ISegmentService, SegmentService>();
+
+            // Background services
+            serviceCollection.AddHostedService<Entrypoint>();
+            serviceCollection.AddHostedService<OutboxProcessorService>();
+
+            // Providers
+            serviceCollection.AddSingleton<IMediaSegmentProvider, SegmentProvider>();
         }
     }
 }

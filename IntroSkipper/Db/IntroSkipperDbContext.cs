@@ -1,4 +1,4 @@
-﻿// Copyright (C) 2026 Intro-Skipper contributors <intro-skipper.org>
+// Copyright (C) 2026 Intro-Skipper contributors <intro-skipper.org>
 // SPDX-License-Identifier: GPL-3.0-only
 
 using System;
@@ -72,9 +72,14 @@ public class IntroSkipperDbContext : DbContext
         modelBuilder.Entity<DbSegment>(entity =>
         {
             entity.ToTable("DbSegment");
-            entity.HasKey(s => new { s.ItemId, s.Type, s.SegmentIndex });
+            entity.HasKey(s => s.Id);
 
             entity.HasIndex(e => e.ItemId);
+            entity.HasIndex(e => e.SeasonId);
+            entity.HasIndex(e => new { e.ItemId, e.Type });
+
+            entity.Property(e => e.Id)
+                  .ValueGeneratedOnAdd();
 
             entity.Property(e => e.Start)
                   .HasDefaultValue(0.0)
@@ -84,8 +89,16 @@ public class IntroSkipperDbContext : DbContext
                   .HasDefaultValue(0.0)
                   .IsRequired();
 
-            entity.Property(e => e.SegmentIndex)
-                  .HasDefaultValue(0)
+            entity.Property(e => e.CreatedAt)
+                  .HasDefaultValueSql("CURRENT_TIMESTAMP")
+                  .IsRequired();
+
+            entity.Property(e => e.UpdatedAt)
+                  .HasDefaultValueSql("CURRENT_TIMESTAMP")
+                  .IsRequired();
+
+            entity.Property(e => e.IsFirstAppearance)
+                  .HasDefaultValue(false)
                   .IsRequired();
         });
 
@@ -107,7 +120,7 @@ public class IntroSkipperDbContext : DbContext
             entity.HasKey(e => e.Id);
 
             entity.HasIndex(e => e.ItemId);
-            entity.HasIndex(e => new { e.ItemId, e.Type, e.SegmentIndex });
+            entity.HasIndex(e => new { e.ProcessedAt, e.ClaimedBy, e.RetryCount });
 
             entity.Property(e => e.Id)
                   .ValueGeneratedOnAdd();
@@ -117,10 +130,6 @@ public class IntroSkipperDbContext : DbContext
                   .IsRequired();
 
             entity.Property(e => e.RetryCount)
-                  .HasDefaultValue(0)
-                  .IsRequired();
-
-            entity.Property(e => e.SegmentIndex)
                   .HasDefaultValue(0)
                   .IsRequired();
         });
