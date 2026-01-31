@@ -40,10 +40,10 @@ public class OutboxProcessorService(
     {
         _logger.LogInformation("Outbox Processor Service started (instance: {InstanceId})", _instanceId);
 
-        // Wait for Plugin to be initialized (which applies migrations)
-        while (Plugin.Instance is null && !stoppingToken.IsCancellationRequested)
+        // Wait for Plugin to be initialized and database to be ready
+        while ((Plugin.Instance is null || !Plugin.Instance.DatabaseReady) && !stoppingToken.IsCancellationRequested)
         {
-            _logger.LogDebug("Waiting for Plugin initialization...");
+            _logger.LogDebug("Waiting for Plugin initialization and database...");
             await Task.Delay(TimeSpan.FromSeconds(1), stoppingToken).ConfigureAwait(false);
         }
 
@@ -51,6 +51,14 @@ public class OutboxProcessorService(
         {
             try
             {
+                // Double-check database is still ready
+                if (Plugin.Instance?.DatabaseReady != true)
+                {
+                    _logger.LogDebug("Database not ready, skipping outbox processing");
+                    await Task.Delay(OutboxConstants.ErrorRetryDelay, stoppingToken).ConfigureAwait(false);
+                    continue;
+                }
+
                 await ProcessOutboxEntriesAsync(stoppingToken).ConfigureAwait(false);
                 await Task.Delay(OutboxConstants.PollingInterval, stoppingToken).ConfigureAwait(false);
             }

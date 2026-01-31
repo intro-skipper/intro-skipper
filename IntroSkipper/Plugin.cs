@@ -86,10 +86,12 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
         {
             using var db = new IntroSkipperDbContext(_dbPath);
             db.ApplyMigrations();
+            DatabaseReady = true;
         }
         catch (Exception ex)
         {
             logger.LogWarning("Error initializing database: {Exception}", ex);
+            DatabaseReady = false;
         }
 
         Configuration.FileTransformationPluginEnabled = _pluginManager
@@ -101,6 +103,11 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
     /// Gets the path to the database.
     /// </summary>
     public string DbPath => _dbPath;
+
+    /// <summary>
+    /// Gets a value indicating whether the database is ready to be used.
+    /// </summary>
+    public bool DatabaseReady { get; private set; }
 
     /// <summary>
     /// Gets or sets a value indicating whether to analyze again.
@@ -167,6 +174,11 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
 
     internal async Task UpdateTimestampAsync(Segment segment, AnalysisMode mode, int segmentIndex = 0)
     {
+        if (!DatabaseReady)
+        {
+            return;
+        }
+
         using var db = new IntroSkipperDbContext(_dbPath);
 
         try
@@ -200,6 +212,11 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
 
     internal async Task UpdateTimestampsAsync(Guid episodeId, AnalysisMode mode, IEnumerable<Segment> segments)
     {
+        if (!DatabaseReady)
+        {
+            return;
+        }
+
         using var db = new IntroSkipperDbContext(_dbPath);
 
         try
@@ -232,6 +249,11 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
 
     internal IReadOnlyDictionary<AnalysisMode, Segment> GetTimestamps(Guid id)
     {
+        if (!DatabaseReady)
+        {
+            return new Dictionary<AnalysisMode, Segment>();
+        }
+
         using var db = new IntroSkipperDbContext(_dbPath);
         // For backward compatibility, group by type and return first segment of each type
         return db.DbSegment
@@ -242,6 +264,11 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
 
     internal ILookup<AnalysisMode, Segment> GetAllTimestamps(Guid id)
     {
+        if (!DatabaseReady)
+        {
+            return Array.Empty<DbSegment>().ToLookup(s => s.Type, s => s.ToSegment());
+        }
+
         using var db = new IntroSkipperDbContext(_dbPath);
         return db.DbSegment
             .Where(s => s.ItemId == id)
@@ -252,6 +279,11 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
 
     internal async Task CleanTimestamps(IEnumerable<Guid> episodeIds)
     {
+        if (!DatabaseReady)
+        {
+            return;
+        }
+
         using var db = new IntroSkipperDbContext(_dbPath);
         var segmentsToRemove = await db.DbSegment
             .Where(s => !episodeIds.Contains(s.ItemId))
@@ -263,6 +295,11 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
 
     internal async Task SetAnalyzerActionAsync(Guid id, IReadOnlyDictionary<AnalysisMode, AnalyzerAction> analyzerActions)
     {
+        if (!DatabaseReady)
+        {
+            return;
+        }
+
         using var db = new IntroSkipperDbContext(_dbPath);
         var existingEntries = await db.DbSeasonInfo
             .Where(s => s.SeasonId == id)
@@ -286,12 +323,22 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
 
     internal AnalyzerAction GetAnalyzerAction(Guid id, AnalysisMode mode)
     {
+        if (!DatabaseReady)
+        {
+            return AnalyzerAction.Default;
+        }
+
         using var db = new IntroSkipperDbContext(_dbPath);
         return db.DbSeasonInfo.FirstOrDefault(s => s.SeasonId == id && s.Type == mode)?.Action ?? AnalyzerAction.Default;
     }
 
     internal async Task CleanSeasonInfoAsync(IEnumerable<Guid> ids)
     {
+        if (!DatabaseReady)
+        {
+            return;
+        }
+
         using var db = new IntroSkipperDbContext(_dbPath);
         var obsoleteSeasons = await db.DbSeasonInfo
             .Where(s => !ids.Contains(s.SeasonId))
@@ -321,6 +368,11 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
     /// <returns>A <see cref="Task"/> representing the asynchronous operation.</returns>
     internal async Task DeleteTimestampAsync(Guid itemId, AnalysisMode mode)
     {
+        if (!DatabaseReady)
+        {
+            return;
+        }
+
         using var db = new IntroSkipperDbContext(_dbPath);
         var entries = await db.DbSegment
             .Where(s => s.ItemId == itemId && s.Type == mode)
