@@ -40,6 +40,13 @@ public class OutboxProcessorService(
     {
         _logger.LogInformation("Outbox Processor Service started (instance: {InstanceId})", _instanceId);
 
+        // Wait for Plugin to be initialized (which applies migrations)
+        while (Plugin.Instance is null && !stoppingToken.IsCancellationRequested)
+        {
+            _logger.LogDebug("Waiting for Plugin initialization...");
+            await Task.Delay(TimeSpan.FromSeconds(1), stoppingToken).ConfigureAwait(false);
+        }
+
         while (!stoppingToken.IsCancellationRequested)
         {
             try
