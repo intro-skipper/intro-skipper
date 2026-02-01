@@ -1168,19 +1168,41 @@
                     }
 
                     function switchToEdit(displayInput, editInput) {
+                        editInput.dataset.previousValue = editInput.value;
+
                         displayInput.style.display = "none";
                         editInput.style.display = "";
                         editInput.focus();
                     }
 
                     function switchToDisplay(displayInput, editInput) {
+                        const rawValue = editInput.value;
+                        const parsedValue = parseTimeString(rawValue);
+
+                        if (isNaN(parsedValue)) {
+                            editInput.value = editInput.dataset.previousValue || 0;
+
+                            displayInput.style.transition = "background-color 0.2s";
+                            displayInput.style.backgroundColor = "rgba(255, 0, 0, 0.3)";
+
+                            Dashboard.alert("Invalid time format '" + rawValue + "'. Reverting to previous value.");
+
+                            setTimeout(() => {
+                                displayInput.style.backgroundColor = "";
+                            }, 1000);
+
+                            displayInput.value = formatTime(parseTimeString(editInput.value));
+                        } else {
+                            editInput.value = parsedValue;
+                            displayInput.value = formatTime(parsedValue);
+                        }
+
                         editInput.style.display = "none";
                         displayInput.style.display = "";
-                        displayInput.value = formatTime(parseTimeString(editInput.value));
                     }
 
                     function parseTimeString(str) {
-                        if (!str) return 0;
+                        if (!str || str.trim() === '') return 0;
                         str = str.toString().trim().toLowerCase();
 
                         // Standard input (integer or float)
@@ -1191,23 +1213,28 @@
                         // HH:MM:SS or MM:SS input
                         if (str.includes(':')) {
                             const parts = str.split(':').map(p => parseFloat(p) || 0);
+                            if (parts.some(isNaN)) return NaN;
+
                             if (parts.length === 3) return (parts[0] * 3600) + (parts[1] * 60) + parts[2];
                             if (parts.length === 2) return (parts[0] * 60) + parts[1];
                         }
 
                         // Natural language input ("1h 25m 30s")
                         let total = 0;
+                        let hasMatch = false;
 
                         const regex = /(\d+)\s*(?:h|hr|hrs|hour|hours)(?![a-z])|(\d+)\s*(?:m|min|mins|minute|minutes)(?![a-z])|(\d+)\s*(?:s|sec|secs|second|seconds)(?![a-z])|(\d+)\s*(?:ms|msec|millisecond|milliseconds)(?![a-z])/gi;
 
                         let match;
                         while ((match = regex.exec(str)) !== null) {
+                            hasMatch = true;
                             if (match[1]) total += parseInt(match[1], 10) * 3600;
                             if (match[2]) total += parseInt(match[2], 10) * 60;
                             if (match[3]) total += parseInt(match[3], 10);
                             if (match[4]) total += parseInt(match[4], 10) / 1000;
                         }
 
+                        if (!hasMatch) return NaN;
                         return total;
                     }
 
