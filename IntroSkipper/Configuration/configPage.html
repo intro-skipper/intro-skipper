@@ -1516,6 +1516,41 @@
                     btnUpdateTimestamps.addEventListener("click", () => {
                         const getEditValue = (id) => parseTimeString(document.getElementById(id).value);
 
+                        // Input validity check
+                        const idsToCheck = [
+                            "editLeftRecapEpisodeStartEdit", "editLeftRecapEpisodeEndEdit",
+                            "editLeftIntroEpisodeStartEdit", "editLeftIntroEpisodeEndEdit",
+                            "editLeftCreditEpisodeStartEdit", "editLeftCreditEpisodeEndEdit",
+                            "editLeftPreviewEpisodeStartEdit", "editLeftPreviewEpisodeEndEdit"
+                        ];
+                        if (rightEpisodeEditor.style.display !== "none") {
+                            idsToCheck.push(
+                                "editRightRecapEpisodeStartEdit", "editRightRecapEpisodeEndEdit",
+                                "editRightIntroEpisodeStartEdit", "editRightIntroEpisodeEndEdit",
+                                "editRightCreditEpisodeStartEdit", "editRightCreditEpisodeEndEdit",
+                                "editRightPreviewEpisodeStartEdit", "editRightPreviewEpisodeEndEdit"
+                            );
+                        }
+
+                        let hasError = false;
+                        idsToCheck.forEach(id => {
+                            if (isNaN(getEditValue(id))) {
+                                hasError = true;
+
+                                const displayEl = document.getElementById(id.replace("Edit", "Display"));
+                                if (displayEl) {
+                                    displayEl.style.transition = "background-color 0.2s";
+                                    displayEl.style.backgroundColor = "rgba(255, 0, 0, 0.3)";
+                                    setTimeout(() => displayEl.style.backgroundColor = "", 5000);
+                                }
+                            }
+                        });
+
+                        if (hasError) {
+                            Dashboard.alert("Unable to save: One or more timestamps are invalid. Please check the highlighted fields.");
+                            return;
+                        }
+
                         // Check if we're dealing with a movie or TV show
                         const isMovie = selectShow.value && shows[selectShow.value] && shows[selectShow.value].IsMovie;
 
