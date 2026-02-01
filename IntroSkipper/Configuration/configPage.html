@@ -54,6 +54,12 @@
                         margin-right: 0.25rem;
                         flex: 0 0 auto;
                     }
+
+                    /* Error flash animation */
+                    .input-error-flash {
+                        background-color: rgba(255, 0, 0, 0.3) !important;
+                        transition: background-color 0.2s ease-in-out;
+                    }
                 </style>
                 <div class="content-primary">
                     <form id="FingerprintConfigForm">
@@ -1188,8 +1194,7 @@
                         if (isNaN(parsedValue) || parsedValue < 0) {
                             const safeSeconds = parseFloat(editInput.dataset.previousValue) || 0;
 
-                            displayInput.style.transition = "background-color 0.2s";
-                            displayInput.style.backgroundColor = "rgba(255, 0, 0, 0.3)";
+                            flashError(displayInput, 1000);
 
                             Dashboard.alert("Invalid time format '" + rawValue + "'. Reverting to previous value.");
 
@@ -1243,6 +1248,12 @@
 
                         if (!hasMatch) return NaN;
                         return total;
+                    }
+
+                    function flashError(element, duration) {
+                        if (!element) return;
+                        element.classList.add("input-error-flash");
+                        setTimeout(() => element.classList.remove("input-error-flash"), duration);
                     }
 
                     function formatTime(totalSeconds) {
@@ -1540,9 +1551,7 @@
 
                                 const displayEl = document.getElementById(id.replace("Edit", "Display"));
                                 if (displayEl) {
-                                    displayEl.style.transition = "background-color 0.2s";
-                                    displayEl.style.backgroundColor = "rgba(255, 0, 0, 0.3)";
-                                    setTimeout(() => displayEl.style.backgroundColor = "", 5000);
+                                    flashError(displayEl, 5000);
                                 }
                             }
                         });
