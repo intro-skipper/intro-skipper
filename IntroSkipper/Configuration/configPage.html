@@ -1185,7 +1185,7 @@
                         const rawValue = editInput.value;
                         const parsedValue = parseTimeString(rawValue);
 
-                        if (isNaN(parsedValue)) {
+                        if (isNaN(parsedValue) || parsedValue < 0) {
                             const safeSeconds = parseFloat(editInput.dataset.previousValue) || 0;
 
                             displayInput.style.transition = "background-color 0.2s";
@@ -1220,7 +1220,7 @@
                         // HH:MM:SS or MM:SS input
                         if (str.includes(':')) {
                             const parts = str.split(':').map(p => parseFloat(p));
-                            if (parts.some(isNaN)) return NaN;
+                            if (parts.some(isNaN) || parts.some(p => p < 0)) return NaN;
 
                             if (parts.length === 3) return (parts[0] * 3600) + (parts[1] * 60) + parts[2];
                             if (parts.length === 2) return (parts[0] * 60) + parts[1];
