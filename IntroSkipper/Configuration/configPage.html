@@ -1174,7 +1174,7 @@
                     }
 
                     function switchToEdit(displayInput, editInput) {
-                        editInput.dataset.previousValue = editInput.value;
+                        editInput.dataset.previousValue = parseTimeString(displayInput.value);
 
                         displayInput.style.display = "none";
                         editInput.style.display = "";
@@ -1186,7 +1186,7 @@
                         const parsedValue = parseTimeString(rawValue);
 
                         if (isNaN(parsedValue)) {
-                            editInput.value = editInput.dataset.previousValue || 0;
+                            const safeSeconds = parseFloat(editInput.dataset.previousValue) || 0;
 
                             displayInput.style.transition = "background-color 0.2s";
                             displayInput.style.backgroundColor = "rgba(255, 0, 0, 0.3)";
@@ -1197,9 +1197,8 @@
                                 displayInput.style.backgroundColor = "";
                             }, 1000);
 
-                            displayInput.value = formatTime(parseTimeString(editInput.value));
+                            displayInput.value = formatTime(safeSeconds);
                         } else {
-                            editInput.value = parsedValue;
                             displayInput.value = formatTime(parsedValue);
                         }
 
