@@ -604,7 +604,7 @@
                                         <strong>Valid Timestamp Formats:</strong><br/>
                                         • <b>Seconds:</b> 90, 120.5<br/>
                                         • <b>Time:</b> 1:30 (MM:SS), 1:25:48 (HH:MM:SS)<br/>
-                                        • <b>Natural:</b> 1 hour 30 minutes, 25m 48s, 500ms
+                                        • <b>Natural:</b> 1 hour 30 minutes, 25m 48s, 500ms, 1.5h
                                     </p>
                                     <br />
                                     <h4 style="margin: 0" id="editLeftEpisodeTitle"></h4>
@@ -1230,15 +1230,15 @@
                         let total = 0;
                         let hasMatch = false;
 
-                        const regex = /(\d+)\s*(?:h|hr|hrs|hour|hours)(?![a-z])|(\d+)\s*(?:m|min|mins|minute|minutes)(?![a-z])|(\d+)\s*(?:s|sec|secs|second|seconds)(?![a-z])|(\d+)\s*(?:ms|msec|millisecond|milliseconds)(?![a-z])/gi;
+                        const regex = /(\d+\.?\d*)\s*(?:h|hr|hrs|hour|hours)(?![a-z])|(\d+\.?\d*)\s*(?:m|min|mins|minute|minutes)(?![a-z])|(\d+\.?\d*)\s*(?:s|sec|secs|second|seconds)(?![a-z])|(\d+\.?\d*)\s*(?:ms|msec|millisecond|milliseconds)(?![a-z])/gi;
 
                         let match;
                         while ((match = regex.exec(str)) !== null) {
                             hasMatch = true;
-                            if (match[1]) total += parseInt(match[1], 10) * 3600;
-                            if (match[2]) total += parseInt(match[2], 10) * 60;
-                            if (match[3]) total += parseInt(match[3], 10);
-                            if (match[4]) total += parseInt(match[4], 10) / 1000;
+                            if (match[1]) total += parseFloat(match[1]) * 3600;
+                            if (match[2]) total += parseFloat(match[2]) * 60;
+                            if (match[3]) total += parseFloat(match[3]);
+                            if (match[4]) total += parseFloat(match[4]) / 1000;
                         }
 
                         if (!hasMatch) return NaN;
