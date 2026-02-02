@@ -811,6 +811,10 @@
                 IntroSkipper.Config = (function () {
                     "use strict";
 
+                    // constants
+                    const FLASH_DURATION_SHORT = 1000;
+                    const FLASH_DURATION_LONG = 5000;
+
                     // seasons grouped by show
                     let shows = {};
 
@@ -1188,7 +1192,7 @@
                     }
 
                     function switchToDisplay(displayInput, editInput) {
-                        const parsedValue = validateAndParseInput(editInput, displayInput, 1000);
+                        const parsedValue = validateAndParseInput(editInput, displayInput, FLASH_DURATION_SHORT);
 
                         if (isNaN(parsedValue)) {
                             const safeSeconds = parseFloat(editInput.dataset.previousValue) || 0;
@@ -1553,7 +1557,7 @@
                             }
 
                             const displayEl = document.getElementById(input.id.replace("Edit", "Display"));
-                            const parsed = validateAndParseInput(input, displayEl, 5000);
+                            const parsed = validateAndParseInput(input, displayEl, FLASH_DURATION_LONG);
 
                             parsedValues[input.id] = parsed;
 
