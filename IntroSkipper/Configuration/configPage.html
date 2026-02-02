@@ -1248,9 +1248,7 @@
                         const parsed = parseTimeString(rawValue);
 
                         if (isNaN(parsed) || parsed < 0) {
-                            if (displayInput) {
-                                flashError(displayInput, errorDuration);
-                            }
+                            flashError(displayInput, errorDuration);
                             return NaN;
                         }
                         return parsed;
@@ -1258,8 +1256,19 @@
 
                     function flashError(element, duration) {
                         if (!element) return;
+
+                        if (element.dataset.errorTimeout) {
+                            clearTimeout(parseInt(element.dataset.errorTimeout));
+                        }
+
                         element.classList.add("input-error-flash");
-                        setTimeout(() => element.classList.remove("input-error-flash"), duration);
+
+                        const timeoutId = setTimeout(() => {
+                            element.classList.remove("input-error-flash");
+                            delete element.dataset.errorTimeout;
+                        }, duration);
+
+                        element.dataset.errorTimeout = timeoutId;
                     }
 
                     function formatTime(totalSeconds) {
