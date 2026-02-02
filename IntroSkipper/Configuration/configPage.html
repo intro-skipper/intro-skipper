@@ -1277,7 +1277,8 @@
 
                     function formatTime(totalSeconds) {
                         if (isNaN(totalSeconds)) {
-                            return "Invalid time format";
+                            Dashboard.alert("Something went wrong during formating time input. Setting the input to 0. Input: '" + totalSeconds + "'");
+                            totalSeconds = 0;
                         }
 
                         const hours = Math.floor(totalSeconds / 3600);
