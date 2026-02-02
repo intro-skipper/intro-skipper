@@ -1198,10 +1198,6 @@
 
                             Dashboard.alert("Invalid time format '" + rawValue + "'. Reverting to previous value.");
 
-                            setTimeout(() => {
-                                displayInput.style.backgroundColor = "";
-                            }, 1000);
-
                             editInput.value = safeSeconds;
                             displayInput.value = formatTime(safeSeconds);
                         } else {
