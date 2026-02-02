@@ -1195,12 +1195,12 @@
                         const parsedValue = validateAndParseInput(editInput, displayInput, FLASH_DURATION_SHORT);
 
                         if (isNaN(parsedValue)) {
-                            const safeSeconds = parseFloat(editInput.dataset.previousValue) || 0;
+                            const previousSeconds = parseFloat(editInput.dataset.previousValue);
 
                             Dashboard.alert("Invalid time format '" + editInput.value + "'. Reverting to previous value.");
 
-                            editInput.value = safeSeconds;
-                            displayInput.value = formatTime(safeSeconds);
+                            editInput.value = previousSeconds;
+                            displayInput.value = formatTime(previousSeconds);
                         } else {
                             editInput.value = parsedValue;
                             displayInput.value = formatTime(parsedValue);
@@ -1276,6 +1276,10 @@
                     }
 
                     function formatTime(totalSeconds) {
+                        if (isNaN(totalSeconds)) {
+                            return "Invalid time format";
+                        }
+
                         const hours = Math.floor(totalSeconds / 3600);
                         const minutes = Math.floor((totalSeconds % 3600) / 60);
                         const seconds = Math.floor(totalSeconds % 60);
