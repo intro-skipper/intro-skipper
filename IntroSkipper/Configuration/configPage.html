@@ -1526,30 +1526,26 @@
                     });
 
                     btnUpdateTimestamps.addEventListener("click", () => {
-                        const getEditValue = (id) => parseTimeString(document.getElementById(id).value);
+                        const parsedValues = {};
 
                         // Input validity check
-                        const idsToCheck = [
-                            "editLeftRecapEpisodeStartEdit", "editLeftRecapEpisodeEndEdit",
-                            "editLeftIntroEpisodeStartEdit", "editLeftIntroEpisodeEndEdit",
-                            "editLeftCreditEpisodeStartEdit", "editLeftCreditEpisodeEndEdit",
-                            "editLeftPreviewEpisodeStartEdit", "editLeftPreviewEpisodeEndEdit"
-                        ];
-                        if (rightEpisodeEditor.style.display !== "none") {
-                            idsToCheck.push(
-                                "editRightRecapEpisodeStartEdit", "editRightRecapEpisodeEndEdit",
-                                "editRightIntroEpisodeStartEdit", "editRightIntroEpisodeEndEdit",
-                                "editRightCreditEpisodeStartEdit", "editRightCreditEpisodeEndEdit",
-                                "editRightPreviewEpisodeStartEdit", "editRightPreviewEpisodeEndEdit"
-                            );
-                        }
+                        const inputs = timestampEditor.querySelectorAll('input[id$="Edit"]');
 
                         let hasError = false;
-                        idsToCheck.forEach(id => {
-                            if (isNaN(getEditValue(id))) {
+                        inputs.forEach(input => {
+                            if (rightEpisodeEditor.style.display === "none" && rightEpisodeEditor.contains(input)) {
+                                return;
+                            }
+
+                            const rawValue = input.value;
+                            const parsed = parseTimeString(rawValue);
+
+                            parsedValues[input.id] = parsed;
+
+                            if (isNaN(parsed)) {
                                 hasError = true;
 
-                                const displayEl = document.getElementById(id.replace("Edit", "Display"));
+                                const displayEl = document.getElementById(input.id.replace("Edit", "Display"));
                                 if (displayEl) {
                                     flashError(displayEl, 5000);
                                 }
@@ -1581,23 +1577,23 @@
                         const newLhs = {
                             Introduction: {
                                 ItemId: lhsId,
-                                Start: getEditValue("editLeftIntroEpisodeStartEdit"),
-                                End: getEditValue("editLeftIntroEpisodeEndEdit"),
+                                Start: parsedValues["editLeftIntroEpisodeStartEdit"],
+                                End: parsedValues["editLeftIntroEpisodeEndEdit"],
                             },
                             Credits: {
                                 ItemId: lhsId,
-                                Start: getEditValue("editLeftCreditEpisodeStartEdit"),
-                                End: getEditValue("editLeftCreditEpisodeEndEdit"),
+                                Start: parsedValues["editLeftCreditEpisodeStartEdit"],
+                                End: parsedValues["editLeftCreditEpisodeEndEdit"],
                             },
                             Recap: {
                                 ItemId: lhsId,
-                                Start: getEditValue("editLeftRecapEpisodeStartEdit"),
-                                End: getEditValue("editLeftRecapEpisodeEndEdit"),
+                                Start: parsedValues["editLeftRecapEpisodeStartEdit"],
+                                End: parsedValues["editLeftRecapEpisodeEndEdit"],
                             },
                             Preview: {
                                 ItemId: lhsId,
-                                Start: getEditValue("editLeftPreviewEpisodeStartEdit"),
-                                End: getEditValue("editLeftPreviewEpisodeEndEdit"),
+                                Start: parsedValues["editLeftPreviewEpisodeStartEdit"],
+                                End: parsedValues["editLeftPreviewEpisodeEndEdit"],
                             },
                         };
 
@@ -1612,23 +1608,23 @@
                                 const newRhs = {
                                     Introduction: {
                                         ItemId: rhsId,
-                                        Start: getEditValue("editRightIntroEpisodeStartEdit"),
-                                        End: getEditValue("editRightIntroEpisodeEndEdit"),
+                                        Start: parsedValues["editRightIntroEpisodeStartEdit"],
+                                        End: parsedValues["editRightIntroEpisodeEndEdit"],
                                     },
                                     Credits: {
                                         ItemId: rhsId,
-                                        Start: getEditValue("editRightCreditEpisodeStartEdit"),
-                                        End: getEditValue("editRightCreditEpisodeEndEdit"),
+                                        Start: parsedValues["editRightCreditEpisodeStartEdit"],
+                                        End: parsedValues["editRightCreditEpisodeEndEdit"],
                                     },
                                     Recap: {
                                         ItemId: rhsId,
-                                        Start: getEditValue("editRightRecapEpisodeStartEdit"),
-                                        End: getEditValue("editRightRecapEpisodeEndEdit"),
+                                        Start: parsedValues["editRightRecapEpisodeStartEdit"],
+                                        End: parsedValues["editRightRecapEpisodeEndEdit"],
                                     },
                                     Preview: {
                                         ItemId: rhsId,
-                                        Start: getEditValue("editRightPreviewEpisodeStartEdit"),
-                                        End: getEditValue("editRightPreviewEpisodeEndEdit"),
+                                        Start: parsedValues["editRightPreviewEpisodeStartEdit"],
+                                        End: parsedValues["editRightPreviewEpisodeEndEdit"],
                                     },
                                 };
                                 fetchWithAuth("Episode/" + rhsId + "/Timestamps", "POST", JSON.stringify(newRhs));
