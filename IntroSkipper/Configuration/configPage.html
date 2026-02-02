@@ -1278,6 +1278,10 @@
                         element.dataset.errorTimeout = timeoutId;
                     }
 
+                    function getEditableTimestampInputs() {
+                        return timestampEditor.querySelectorAll('input[id$="Edit"]');
+                    }
+
                     function formatTime(totalSeconds) {
                         if (isNaN(totalSeconds)) {
                             Dashboard.alert("Something went wrong during formating time input. Setting the input to 0. Input: '" + totalSeconds + "'");
@@ -1346,7 +1350,7 @@
                         }
 
                         // Update display inputs
-                        const inputs = document.querySelectorAll('#timestampEditor input[id$="Edit"]');
+                        const inputs = getEditableTimestampInputs();
                         inputs.forEach((input) => {
                             const displayInput = document.getElementById(input.id.replace("Edit", "Display"));
                             displayInput.value = formatTime(parseTimeString(input.value));
@@ -1556,7 +1560,7 @@
                         const parsedValues = {};
 
                         // Input validity check
-                        const inputs = timestampEditor.querySelectorAll('input[id$="Edit"]');
+                        const inputs = getEditableTimestampInputs();
 
                         let hasError = false;
                         inputs.forEach(input => {
