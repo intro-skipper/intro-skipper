@@ -1221,30 +1221,33 @@
 
                         // HH:MM:SS or MM:SS input
                         if (str.includes(':')) {
-                            const parts = str.split(':').map(p => parseFloat(p));
-                            if (parts.some(isNaN) || parts.some(p => p < 0)) return NaN;
+                            const parts = str.split(':');
+                            if (parts.some(isNaN) || parts.length < 2 || parts.length > 3) return NaN;
 
-                            if (parts.length === 3) return (parts[0] * 3600) + (parts[1] * 60) + parts[2];
-                            if (parts.length === 2) return (parts[0] * 60) + parts[1];
+                            const nums = parts.map(parseFloat);
+                            if (nums.some(p => p < 0)) return NaN;
+                            if (nums.length === 3) return (nums[0] * 3600) + (nums[1] * 60) + nums[2];
+                            if (nums.length === 2) return (nums[0] * 60) + nums[1];
                         }
 
                         // Natural language input ("1h 25m 30s")
                         let total = 0;
-                        let hasMatch = false;
 
                         const regex = /(\d+\.?\d*)\s*(?:h|hr|hrs|hour|hours)(?![a-z])|(\d+\.?\d*)\s*(?:m|min|mins|minute|minutes)(?![a-z])|(\d+\.?\d*)\s*(?:s|sec|secs|second|seconds)(?![a-z])|(\d+\.?\d*)\s*(?:ms|msec|millisecond|milliseconds)(?![a-z])/gi;
 
-                        let match;
-                        while ((match = regex.exec(str)) !== null) {
-                            hasMatch = true;
-                            if (match[1]) total += parseFloat(match[1]) * 3600;
-                            if (match[2]) total += parseFloat(match[2]) * 60;
-                            if (match[3]) total += parseFloat(match[3]);
-                            if (match[4]) total += parseFloat(match[4]) / 1000;
+                        const remainder = str.replace(regex, (match, h, m, s, ms) => {
+                            if (h) total += parseFloat(h) * 3600;
+                            if (m) total += parseFloat(m) * 60;
+                            if (s) total += parseFloat(s);
+                            if (ms) total += parseFloat(ms) / 1000;
+                            return '';
+                        });
+
+                        if (remainder.trim().length === 0) {
+                            return total;
                         }
 
-                        if (!hasMatch) return NaN;
-                        return total;
+                        return NaN;
                     }
 
                     function validateAndParseInput(editInput, displayInput, errorDuration) {
