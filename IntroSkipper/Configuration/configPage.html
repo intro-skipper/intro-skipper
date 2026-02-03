@@ -1357,7 +1357,7 @@
                         const inputs = getEditableTimestampInputs();
                         inputs.forEach((input) => {
                             const displayInput = document.getElementById(input.id.replace("Edit", "Display"));
-                            let value = parseInt(input.value);
+                            let value = parseFloat(input.value);
                             if (isNaN(value)) {
                                 Dashboard.alert("Something went wrong during input parsing. Setting the input to 0.");
                                 value = 0;
