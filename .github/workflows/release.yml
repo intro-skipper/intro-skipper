@@ -45,7 +45,7 @@ jobs:
       - name: Setup .NET
         uses: actions/setup-dotnet@v5
         with:
-          dotnet-version: 9.0.x
+          dotnet-version: 10.0.x
 
       - name: Setup Node.js
         uses: actions/setup-node@v6
@@ -65,7 +65,10 @@ jobs:
 
       - name: Restore dependencies
         if: ${{env.IS_BETA == 'false' }}
-        run: dotnet restore
+        run: |
+          dotnet nuget add source --username ${{ github.repository_owner }} --password ${{ secrets.GITHUB_TOKEN }} --store-password-in-clear-text --name jellyfin-pre "https://nuget.pkg.github.com/jellyfin/index.json"
+          dotnet tool install --global dotnet-outdated-tool
+          dotnet outdated -pre Always -u -inc Jellyfin
 
       - name: Run update version
         uses: intro-skipper/intro-skipper-action-ts@main
@@ -86,7 +89,7 @@ jobs:
         uses: actions/upload-artifact@v6
         with:
           name: IntroSkipper-${{ env.NEW_FILE_VERSION }}-unsigned
-          path: IntroSkipper/bin/Release/net9.0/IntroSkipper.dll
+          path: IntroSkipper/bin/Release/net10.0/IntroSkipper.dll
           if-no-files-found: error
           retention-days: 1
 
@@ -102,10 +105,10 @@ jobs:
           github-artifact-id: '${{ steps.upload-unsigned-artifact.outputs.artifact-id }}'
           wait-for-completion: true
           # overwrite the unsigned files
-          output-artifact-directory: 'IntroSkipper/bin/Release/net9.0/'
+          output-artifact-directory: 'IntroSkipper/bin/Release/net10.0/'
 
       - name: Create archive
-        run: zip -j "intro-skipper-v${{ env.NEW_FILE_VERSION }}.zip" IntroSkipper/bin/Release/net9.0/IntroSkipper.dll
+        run: zip -j "intro-skipper-v${{ env.NEW_FILE_VERSION }}.zip" IntroSkipper/bin/Release/net10.0/IntroSkipper.dll
 
       - name: Remove old release if exits
         if: ${{ github.repository == 'intro-skipper/intro-skipper-test' }}

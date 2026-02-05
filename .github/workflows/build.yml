@@ -57,7 +57,7 @@ jobs:
       - name: Setup .NET
         uses: actions/setup-dotnet@v5
         with:
-          dotnet-version: 9.0.x
+          dotnet-version: 10.0.x
 
       - name: Setup Node.js
         uses: actions/setup-node@v6
@@ -77,7 +77,10 @@ jobs:
 
       - name: Restore dependencies
         if: ${{env.IS_BETA == 'false' }}
-        run: dotnet restore
+        run: |
+          dotnet nuget add source --username ${{ github.repository_owner }} --password ${{ secrets.GITHUB_TOKEN }} --store-password-in-clear-text --name jellyfin-pre "https://nuget.pkg.github.com/jellyfin/index.json"
+          dotnet tool install --global dotnet-outdated-tool
+          dotnet outdated -pre Always -u -inc Jellyfin
 
       - name: Embed version info
         run: |
@@ -96,12 +99,12 @@ jobs:
         uses: actions/upload-artifact@v6
         with:
           name: IntroSkipper-${{ env.GIT_HASH }}.dll
-          path: IntroSkipper/bin/Debug/net9.0/IntroSkipper.dll
+          path: IntroSkipper/bin/Debug/net10.0/IntroSkipper.dll
           if-no-files-found: error
 
       - name: Create archive
         if: startsWith(github.ref_name, '10.') # only do a preview release on 10.x branches
-        run: zip -j "intro-skipper-${{ env.GIT_HASH }}.zip" IntroSkipper/bin/Debug/net9.0/IntroSkipper.dll
+        run: zip -j "intro-skipper-${{ env.GIT_HASH }}.zip" IntroSkipper/bin/Debug/net10.0/IntroSkipper.dll
 
       - name: Create/replace the preview release and upload artifacts
         if: startsWith(github.ref_name, '10.') # only do a preview release on 10.x branches
