@@ -12,6 +12,7 @@
   </PropertyGroup>
   <ItemGroup>
     <PackageReference Include="Jellyfin.Controller" Version="10.12.*-*" />
+    <PackageReference Remove="Jellyfin.MediaEncoding.Keyframes" />
     <PackageReference Include="Jellyfin.Model" Version="10.12.*-*" />
     <PackageReference Include="Microsoft.EntityFrameworkCore.Sqlite" Version="10.0.2" />
     <PackageReference Include="Microsoft.EntityFrameworkCore.Design" Version="10.0.2" />
