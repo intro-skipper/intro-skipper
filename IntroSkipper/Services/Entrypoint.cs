@@ -31,7 +31,7 @@ namespace IntroSkipper.Services
     /// <summary>
     /// Server entrypoint.
     /// </summary>
-    public sealed class Entrypoint : IHostedService, IDisposable
+    public sealed partial class Entrypoint : IHostedService, IDisposable
     {
         private readonly ITaskManager _taskManager;
         private readonly ILibraryManager _libraryManager;
@@ -211,12 +211,12 @@ namespace IntroSkipper.Services
                     return;
                 }
 
-                _logger.LogDebug("Media item removed, deleting fingerprint cache for {Id}", id);
+                LogMediaItemRemoved(id.Value);
                 FFmpegWrapper.DeleteFingerprintCache(id.Value);
             }
             catch (Exception ex)
             {
-                _logger.LogWarning(ex, "Error deleting fingerprint cache on item removal");
+                LogErrorDeletingFingerprintCache(ex);
             }
         }
 
@@ -288,7 +288,7 @@ namespace IntroSkipper.Services
             }
             else if (AutomaticTaskState == TaskState.Idle)
             {
-                _logger.LogDebug("Media Library changed, analysis will start soon!");
+                LogMediaLibraryChanged();
                 _queueTimer.Change(TimeSpan.FromSeconds(delay), Timeout.InfiniteTimeSpan);
             }
         }
@@ -304,11 +304,11 @@ namespace IntroSkipper.Services
             }
             catch (OperationCanceledException)
             {
-                _logger.LogInformation("Automatic Analysis task cancelled");
+                LogAutomaticAnalysisCancelled();
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error in RunAnalysisAsync");
+                LogRunAnalysisError(ex);
             }
 
             _cancellationTokenSource = null;
@@ -322,7 +322,7 @@ namespace IntroSkipper.Services
                 using (_cancellationTokenSource = new CancellationTokenSource())
                 using (await ScheduledTaskSemaphore.AcquireAsync(_cancellationTokenSource.Token).ConfigureAwait(false))
                 {
-                    _logger.LogInformation("Initiating automatic analysis task");
+                    LogInitiatingAutomaticAnalysis();
                     var seasonIds = new HashSet<Guid>(_seasonsToAnalyze);
                     _seasonsToAnalyze.Clear();
                     _analyzeAgain = false;
@@ -332,7 +332,7 @@ namespace IntroSkipper.Services
 
                     if (_analyzeAgain && !_cancellationTokenSource.IsCancellationRequested)
                     {
-                        _logger.LogInformation("Analyzing ended, but we need to analyze again!");
+                        LogAnalyzingEndedNeedsRestart();
                         _queueTimer.Change(TimeSpan.FromSeconds(60), Timeout.InfiniteTimeSpan);
                     }
                 }
@@ -372,5 +372,26 @@ namespace IntroSkipper.Services
             _cancellationTokenSource?.Dispose();
             _analysisSemaphore.Dispose();
         }
+
+        [LoggerMessage(Level = LogLevel.Debug, Message = "Media item removed, deleting fingerprint cache for {Id}")]
+        private partial void LogMediaItemRemoved(Guid id);
+
+        [LoggerMessage(Level = LogLevel.Warning, Message = "Error deleting fingerprint cache on item removal")]
+        private partial void LogErrorDeletingFingerprintCache(Exception ex);
+
+        [LoggerMessage(Level = LogLevel.Debug, Message = "Media Library changed, analysis will start soon!")]
+        private partial void LogMediaLibraryChanged();
+
+        [LoggerMessage(Level = LogLevel.Information, Message = "Automatic Analysis task cancelled")]
+        private partial void LogAutomaticAnalysisCancelled();
+
+        [LoggerMessage(Level = LogLevel.Error, Message = "Error in RunAnalysisAsync")]
+        private partial void LogRunAnalysisError(Exception ex);
+
+        [LoggerMessage(Level = LogLevel.Information, Message = "Initiating automatic analysis task")]
+        private partial void LogInitiatingAutomaticAnalysis();
+
+        [LoggerMessage(Level = LogLevel.Information, Message = "Analyzing ended, but we need to analyze again!")]
+        private partial void LogAnalyzingEndedNeedsRestart();
     }
 }

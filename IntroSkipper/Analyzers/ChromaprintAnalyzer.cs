@@ -18,7 +18,7 @@ namespace IntroSkipper.Analyzers;
 /// Initializes a new instance of the <see cref="ChromaprintAnalyzer"/> class.
 /// </summary>
 /// <param name="logger">Logger.</param>
-public class ChromaprintAnalyzer(ILogger<ChromaprintAnalyzer> logger) : IMediaFileAnalyzer
+public partial class ChromaprintAnalyzer(ILogger<ChromaprintAnalyzer> logger) : IMediaFileAnalyzer
 {
     /// <summary>
     /// Seconds of audio in one fingerprint point.
@@ -82,7 +82,7 @@ public class ChromaprintAnalyzer(ILogger<ChromaprintAnalyzer> logger) : IMediaFi
             }
             catch (FingerprintException ex)
             {
-                _logger.LogDebug("Caught fingerprint error: {Ex}", ex);
+                LogCaughtFingerprintError(ex);
                 WarningManager.SetFlag(PluginWarning.InvalidChromaprintFingerprint);
 
                 // Fallback to an empty fingerprint on any error
@@ -195,15 +195,12 @@ public class ChromaprintAnalyzer(ILogger<ChromaprintAnalyzer> logger) : IMediaFi
 
         if (lhsRanges.Count > 0)
         {
-            _logger.LogTrace("Index search successful");
+            LogIndexSearchSuccessful();
 
             return GetLongestTimeRange(lhsId, lhsRanges, rhsId, rhsRanges);
         }
 
-        _logger.LogTrace(
-            "Unable to find a shared introduction sequence between {LHS} and {RHS}",
-            lhsId,
-            rhsId);
+        LogSharedIntroNotFound(lhsId, rhsId);
 
         return (new Segment(lhsId), new Segment(rhsId));
     }
@@ -403,4 +400,13 @@ public class ChromaprintAnalyzer(ILogger<ChromaprintAnalyzer> logger) : IMediaFi
     {
         return BitOperations.PopCount(number);
     }
+
+    [LoggerMessage(Level = LogLevel.Debug, Message = "Caught fingerprint error: {Ex}")]
+    private partial void LogCaughtFingerprintError(object ex);
+
+    [LoggerMessage(Level = LogLevel.Trace, Message = "Index search successful")]
+    private partial void LogIndexSearchSuccessful();
+
+    [LoggerMessage(Level = LogLevel.Trace, Message = "Unable to find a shared introduction sequence between {LHS} and {RHS}")]
+    private partial void LogSharedIntroNotFound(Guid lhs, Guid rhs);
 }

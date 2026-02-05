@@ -20,7 +20,7 @@ namespace IntroSkipper.Analyzers;
 /// Initializes a new instance of the <see cref="BlackFrameAltAnalyzer"/> class.
 /// </remarks>
 /// <param name="logger">Logger for the analyzer.</param>
-public sealed class BlackFrameAltAnalyzer(ILogger<BlackFrameAltAnalyzer> logger) : IMediaFileAnalyzer
+public sealed partial class BlackFrameAltAnalyzer(ILogger<BlackFrameAltAnalyzer> logger) : IMediaFileAnalyzer
 {
     private const int MaximumTimeSkip = 15;
     private readonly PluginConfiguration _config = Plugin.Instance?.Configuration ?? new PluginConfiguration();
@@ -48,7 +48,7 @@ public sealed class BlackFrameAltAnalyzer(ILogger<BlackFrameAltAnalyzer> logger)
 
         var timeAdjustmentHelper = new TimeAdjustmentHelper(_logger, _config);
 
-        _logger.LogDebug("Analyzing {Count} episodes for credits using black frame detection", unanalyzedEpisodes.Count);
+        LogAnalyzingEpisodes(unanalyzedEpisodes.Count);
 
         var minimumPercentage = _config.BlackFrameMinimumPercentage;
         var threshold = _config.BlackFrameThreshold;
@@ -65,24 +65,24 @@ public sealed class BlackFrameAltAnalyzer(ILogger<BlackFrameAltAnalyzer> logger)
 
                 if (credit is null || !credit.Valid)
                 {
-                    _logger.LogDebug("No valid credits found for {Episode}", episode.Name);
+                    LogNoValidCreditsFound(episode.Name);
                     continue;
                 }
 
                 credit = timeAdjustmentHelper.AdjustIntroTimes(episode, credit);
-                _logger.LogDebug("Found credits for {Episode} at {Start:F2}s", episode.Name, credit.Start);
+                LogFoundCredits(episode.Name, credit.Start);
 
                 episode.SetAnalyzed(mode, EpisodeState.Analyzed);
                 await plugin.UpdateTimestampAsync(credit, mode).ConfigureAwait(false);
             }
             catch (OperationCanceledException)
             {
-                _logger.LogInformation("Analysis cancelled by user");
+                LogAnalysisCancelled();
                 break;
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error analyzing {Episode} for credits", episode.Name);
+                LogErrorAnalyzingCredits(ex, episode.Name);
             }
         }
 
@@ -120,11 +120,7 @@ public sealed class BlackFrameAltAnalyzer(ILogger<BlackFrameAltAnalyzer> logger)
 
             if (segment.Duration >= minimumDuration)
             {
-                _logger.LogTrace(
-                    "Found valid credits segment: start={Start:F2}s, end={End:F2}s, duration={Duration:F2}s",
-                    segment.Start,
-                    segment.End,
-                    segment.Duration);
+                LogFoundValidCreditsSegment(segment.Start, segment.End, segment.Duration);
 
                 return segment;
             }
@@ -235,4 +231,22 @@ public sealed class BlackFrameAltAnalyzer(ILogger<BlackFrameAltAnalyzer> logger)
 
         return finalScenes;
     }
+
+    [LoggerMessage(Level = LogLevel.Debug, Message = "Analyzing {Count} episodes for credits using black frame detection")]
+    private partial void LogAnalyzingEpisodes(int count);
+
+    [LoggerMessage(Level = LogLevel.Debug, Message = "No valid credits found for {Episode}")]
+    private partial void LogNoValidCreditsFound(string episode);
+
+    [LoggerMessage(Level = LogLevel.Debug, Message = "Found credits for {Episode} at {Start:F2}s")]
+    private partial void LogFoundCredits(string episode, double start);
+
+    [LoggerMessage(Level = LogLevel.Information, Message = "Analysis cancelled by user")]
+    private partial void LogAnalysisCancelled();
+
+    [LoggerMessage(Level = LogLevel.Error, Message = "Error analyzing {Episode} for credits")]
+    private partial void LogErrorAnalyzingCredits(Exception ex, string episode);
+
+    [LoggerMessage(Level = LogLevel.Trace, Message = "Found valid credits segment: start={Start:F2}s, end={End:F2}s, duration={Duration:F2}s")]
+    private partial void LogFoundValidCreditsSegment(double start, double end, double duration);
 }

@@ -19,7 +19,7 @@ namespace IntroSkipper.ScheduledTasks;
 /// <summary>
 /// Analyze all television episodes for introduction sequences.
 /// </summary>
-public class CleanCacheTask : IScheduledTask
+public partial class CleanCacheTask : IScheduledTask
 {
     private readonly ILogger<CleanCacheTask> _logger;
     private readonly ILoggerFactory _loggerFactory;
@@ -112,7 +112,7 @@ public class CleanCacheTask : IScheduledTask
         // Delete cache files for invalid episode IDs
         foreach (var episodeId in invalidEpisodeIds)
         {
-            _logger.LogDebug("Deleting cache files for episode ID: {EpisodeId}", episodeId);
+            LogDeletingCacheFiles(_logger, episodeId);
             FFmpegWrapper.DeleteFingerprintCache(episodeId);
         }
 
@@ -132,4 +132,7 @@ public class CleanCacheTask : IScheduledTask
     {
         return [];
     }
+
+    [LoggerMessage(Level = LogLevel.Debug, Message = "Deleting cache files for episode ID: {EpisodeId}")]
+    private static partial void LogDeletingCacheFiles(ILogger logger, Guid episodeId);
 }

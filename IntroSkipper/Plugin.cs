@@ -29,7 +29,7 @@ namespace IntroSkipper;
 /// <summary>
 /// Intro skipper plugin. Uses audio analysis to find common sequences of audio shared between episodes.
 /// </summary>
-public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
+public partial class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
 {
     private readonly ILibraryManager _libraryManager;
     private readonly IChapterManager _chapterRepository;
@@ -90,7 +90,7 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
         }
         catch (Exception ex)
         {
-            logger.LogWarning("Error initializing database: {Exception}", ex);
+            LogDatabaseInitializationError(_logger, ex);
         }
 
         Configuration.FileTransformationPluginEnabled = _pluginManager
@@ -190,7 +190,7 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Failed to update timestamp for episode {EpisodeId}", segment.EpisodeId);
+            LogFailedToUpdateTimestamp(_logger, ex, segment.EpisodeId);
             throw;
         }
     }
@@ -303,4 +303,10 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
             await db.SaveChangesAsync().ConfigureAwait(false);
         }
     }
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "Error initializing database: {Exception}")]
+    private static partial void LogDatabaseInitializationError(ILogger logger, object exception);
+
+    [LoggerMessage(Level = LogLevel.Error, Message = "Failed to update timestamp for episode {EpisodeId}")]
+    private static partial void LogFailedToUpdateTimestamp(ILogger logger, Exception ex, Guid episodeId);
 }

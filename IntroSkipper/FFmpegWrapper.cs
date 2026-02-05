@@ -91,7 +91,11 @@ public static partial class FFmpegWrapper
                 return false;
             }
 
-            Logger?.LogDebug("Installed version of ffmpeg meets fingerprinting requirements");
+            if (Logger is { } logger)
+            {
+                LogFfmpegVersionValid(logger);
+            }
+
             ChromaprintLogs["error"] = "okay";
             return true;
         }
@@ -139,12 +143,10 @@ public static partial class FFmpegWrapper
     /// <returns>Array of TimeRange objects that are silent in the queued episode.</returns>
     public static TimeRange[] DetectSilence(QueuedEpisode episode, TimeRange range)
     {
-        Logger?.LogTrace(
-            "Detecting silence in \"{File}\" (range {Start}-{End}, id {Id})",
-            episode.Path,
-            range.Start,
-            range.End,
-            episode.EpisodeId);
+        if (Logger is { } detectLogger)
+        {
+            LogDetectingSilence(detectLogger, episode.Path, range.Start, range.End, episode.EpisodeId);
+        }
 
         // -vn, -sn, -dn: ignore video, subtitle, and data tracks
         var args = string.Format(
@@ -332,7 +334,10 @@ public static partial class FFmpegWrapper
             }
             else
             {
-                Logger?.LogWarning("Failed to parse timestamp: {PtsTimeStr} from line: {Line}", ptsTimeStr, line);
+                if (Logger is { } parseLogger)
+                {
+                    LogFailedToParseTimestamp(parseLogger, ptsTimeStr, line);
+                }
             }
         }
 
@@ -391,19 +396,34 @@ public static partial class FFmpegWrapper
         string bundleName,
         string errorMessage)
     {
-        Logger?.LogDebug("Checking FFmpeg requirement {Arguments}", arguments);
+        var requirementLogger = Logger;
+        if (requirementLogger is not null)
+        {
+            LogCheckingRequirement(requirementLogger, arguments);
+        }
 
         var output = Encoding.UTF8.GetString(GetOutput(arguments, string.Empty, false, 2000));
-        Logger?.LogTrace("Output of ffmpeg {Arguments}: {Output}", arguments, output);
+        if (requirementLogger is not null)
+        {
+            LogFfmpegOutput(requirementLogger, arguments, output);
+        }
+
         ChromaprintLogs[bundleName] = output;
 
         if (!output.Contains(mustContain, StringComparison.OrdinalIgnoreCase))
         {
-            Logger?.LogError("{ErrorMessage}", errorMessage);
+            if (requirementLogger is not null)
+            {
+                LogFfmpegRequirementFailed(requirementLogger, errorMessage);
+            }
+
             return false;
         }
 
-        Logger?.LogDebug("FFmpeg requirement {Arguments} met", arguments);
+        if (requirementLogger is not null)
+        {
+            LogFfmpegRequirementMet(requirementLogger, arguments);
+        }
 
         return true;
     }
@@ -444,11 +464,18 @@ public static partial class FFmpegWrapper
             // If the cached file exists, return whatever it holds.
             if (File.Exists(cacheFilename))
             {
-                Logger?.LogTrace("Returning contents of cache {Cache}", cacheFilename);
+                if (Logger is { } cacheLogger)
+                {
+                    LogReturningCacheContents(cacheLogger, cacheFilename);
+                }
+
                 return File.ReadAllBytes(cacheFilename);
             }
 
-            Logger?.LogTrace("Not returning contents of cache {Cache} (not found)", cacheFilename);
+            if (Logger is { } cacheMissLogger)
+            {
+                LogCacheNotFound(cacheMissLogger, cacheFilename);
+            }
         }
 
         // Prepend some flags to prevent FFmpeg from logging its banner and progress information
@@ -470,7 +497,10 @@ public static partial class FFmpegWrapper
         };
 
         using var ffmpeg = new Process { StartInfo = info };
-        Logger?.LogDebug("Starting ffmpeg with the following arguments: {Arguments}", ffmpeg.StartInfo.Arguments);
+        if (Logger is { } startLogger)
+        {
+            LogStartingFfmpeg(startLogger, ffmpeg.StartInfo.Arguments);
+        }
 
         ffmpeg.Start();
 
@@ -480,7 +510,10 @@ public static partial class FFmpegWrapper
         }
         catch (Exception e)
         {
-            Logger?.LogDebug("ffmpeg priority could not be modified. {Message}", e.Message);
+            if (Logger is { } priorityLogger)
+            {
+                LogFfmpegPriorityNotModified(priorityLogger, e.Message);
+            }
         }
 
         using var ms = new MemoryStream();
@@ -521,16 +554,18 @@ public static partial class FFmpegWrapper
         // Try to load this episode from cache before running ffmpeg.
         if (LoadCachedFingerprint(episode, mode, out uint[] cachedFingerprint))
         {
-            Logger?.LogTrace("Fingerprint cache hit on {File}", episode.Path);
+            if (Logger is { } cacheLogger)
+            {
+                LogFingerprintCacheHit(cacheLogger, episode.Path);
+            }
+
             return cachedFingerprint;
         }
 
-        Logger?.LogDebug(
-            "Fingerprinting [{Start}, {End}] from \"{File}\" (id {Id})",
-            start,
-            end,
-            episode.Path,
-            episode.EpisodeId);
+        if (Logger is { } fingerprintLogger)
+        {
+            LogFingerprinting(fingerprintLogger, start, end, episode.Path, episode.EpisodeId);
+        }
 
         var args = string.Format(
             CultureInfo.InvariantCulture,
@@ -543,7 +578,11 @@ public static partial class FFmpegWrapper
         var rawPoints = GetOutput(args, string.Empty);
         if (rawPoints.Length == 0 || rawPoints.Length % 4 != 0)
         {
-            Logger?.LogWarning("Chromaprint returned {Count} points for \"{Path}\"", rawPoints.Length, episode.Path);
+            if (Logger is { } chromaLogger)
+            {
+                LogChromaprintReturnedPoints(chromaLogger, rawPoints.Length, episode.Path);
+            }
+
             throw new FingerprintException("chromaprint output for \"" + episode.Path + "\" was malformed");
         }
 
@@ -596,12 +635,20 @@ public static partial class FFmpegWrapper
         }
         catch (IOException ex)
         {
-            Logger?.LogError(ex, "I/O error while reading fingerprint cache from {Path}", path);
+            if (Logger is { } ioLogger)
+            {
+                LogFingerprintCacheReadIoError(ioLogger, ex, path);
+            }
+
             return false;
         }
         catch (UnauthorizedAccessException ex)
         {
-            Logger?.LogError(ex, "Access error while reading fingerprint cache from {Path}", path);
+            if (Logger is { } accessLogger)
+            {
+                LogFingerprintCacheReadAccessError(accessLogger, ex, path);
+            }
+
             return false;
         }
 
@@ -615,11 +662,11 @@ public static partial class FFmpegWrapper
             }
             else
             {
-                Logger?.LogDebug(
-                    "Invalid fingerprint entry '{RawNumber}' found in cache for {Path} ({Id}), ignoring cache",
-                    rawNumber,
-                    episode.Path,
-                    episode.EpisodeId);
+                if (Logger is { } invalidLogger)
+                {
+                    LogInvalidFingerprintEntry(invalidLogger, rawNumber, episode.Path, episode.EpisodeId);
+                }
+
                 return false;
             }
         }
@@ -677,7 +724,11 @@ public static partial class FFmpegWrapper
         var filePattern = Path.GetFileName(cachePath) + "*";
         foreach (var filePath in Directory.EnumerateFiles(Plugin.Instance!.FingerprintCachePath, filePattern))
         {
-            Logger?.LogDebug("DeleteEpisodeCache {FilePath}", filePath);
+            if (Logger is { } deleteLogger)
+            {
+                LogDeleteEpisodeCache(deleteLogger, filePath);
+            }
+
             File.Delete(filePath);
         }
     }
@@ -751,6 +802,60 @@ public static partial class FFmpegWrapper
 
         return formatted;
     }
+
+    [LoggerMessage(Level = LogLevel.Debug, Message = "Installed version of ffmpeg meets fingerprinting requirements")]
+    private static partial void LogFfmpegVersionValid(ILogger logger);
+
+    [LoggerMessage(Level = LogLevel.Trace, Message = "Detecting silence in \"{File}\" (range {Start}-{End}, id {Id})")]
+    private static partial void LogDetectingSilence(ILogger logger, string file, double start, double end, Guid id);
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "Failed to parse timestamp: {PtsTimeStr} from line: {Line}")]
+    private static partial void LogFailedToParseTimestamp(ILogger logger, string ptsTimeStr, string line);
+
+    [LoggerMessage(Level = LogLevel.Debug, Message = "Checking FFmpeg requirement {Arguments}")]
+    private static partial void LogCheckingRequirement(ILogger logger, string arguments);
+
+    [LoggerMessage(Level = LogLevel.Trace, Message = "Output of ffmpeg {Arguments}: {Output}")]
+    private static partial void LogFfmpegOutput(ILogger logger, string arguments, string output);
+
+    [LoggerMessage(Level = LogLevel.Error, Message = "{ErrorMessage}")]
+    private static partial void LogFfmpegRequirementFailed(ILogger logger, string errorMessage);
+
+    [LoggerMessage(Level = LogLevel.Debug, Message = "FFmpeg requirement {Arguments} met")]
+    private static partial void LogFfmpegRequirementMet(ILogger logger, string arguments);
+
+    [LoggerMessage(Level = LogLevel.Trace, Message = "Returning contents of cache {Cache}")]
+    private static partial void LogReturningCacheContents(ILogger logger, string cache);
+
+    [LoggerMessage(Level = LogLevel.Trace, Message = "Not returning contents of cache {Cache} (not found)")]
+    private static partial void LogCacheNotFound(ILogger logger, string cache);
+
+    [LoggerMessage(Level = LogLevel.Debug, Message = "Starting ffmpeg with the following arguments: {Arguments}")]
+    private static partial void LogStartingFfmpeg(ILogger logger, string arguments);
+
+    [LoggerMessage(Level = LogLevel.Debug, Message = "ffmpeg priority could not be modified. {Message}")]
+    private static partial void LogFfmpegPriorityNotModified(ILogger logger, string message);
+
+    [LoggerMessage(Level = LogLevel.Trace, Message = "Fingerprint cache hit on {File}")]
+    private static partial void LogFingerprintCacheHit(ILogger logger, string file);
+
+    [LoggerMessage(Level = LogLevel.Debug, Message = "Fingerprinting [{Start}, {End}] from \"{File}\" (id {Id})")]
+    private static partial void LogFingerprinting(ILogger logger, double start, double end, string file, Guid id);
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "Chromaprint returned {Count} points for \"{Path}\"")]
+    private static partial void LogChromaprintReturnedPoints(ILogger logger, int count, string path);
+
+    [LoggerMessage(Level = LogLevel.Error, Message = "I/O error while reading fingerprint cache from {Path}")]
+    private static partial void LogFingerprintCacheReadIoError(ILogger logger, Exception ex, string path);
+
+    [LoggerMessage(Level = LogLevel.Error, Message = "Access error while reading fingerprint cache from {Path}")]
+    private static partial void LogFingerprintCacheReadAccessError(ILogger logger, Exception ex, string path);
+
+    [LoggerMessage(Level = LogLevel.Debug, Message = "Invalid fingerprint entry '{RawNumber}' found in cache for {Path} ({Id}), ignoring cache")]
+    private static partial void LogInvalidFingerprintEntry(ILogger logger, string rawNumber, string path, Guid id);
+
+    [LoggerMessage(Level = LogLevel.Debug, Message = "DeleteEpisodeCache {FilePath}")]
+    private static partial void LogDeleteEpisodeCache(ILogger logger, string filePath);
 
     [GeneratedRegex("silence_(?<type>start|end): (?<time>[0-9\\.]+)")]
     private static partial Regex SilenceRegex();

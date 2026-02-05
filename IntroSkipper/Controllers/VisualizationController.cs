@@ -39,7 +39,7 @@ namespace IntroSkipper.Controllers;
 [ApiController]
 [Produces(MediaTypeNames.Application.Json)]
 [Route("Intros")]
-public class VisualizationController(ILogger<VisualizationController> logger, MediaSegmentUpdateManager mediaSegmentUpdateManager, ILibraryManager libraryManager, IProviderManager providerManager, IFileSystem fileSystem, ILoggerFactory loggerFactory) : ControllerBase
+public partial class VisualizationController(ILogger<VisualizationController> logger, MediaSegmentUpdateManager mediaSegmentUpdateManager, ILibraryManager libraryManager, IProviderManager providerManager, IFileSystem fileSystem, ILoggerFactory loggerFactory) : ControllerBase
 {
     private readonly ILogger<VisualizationController> _logger = logger;
     private readonly MediaSegmentUpdateManager _mediaSegmentUpdateManager = mediaSegmentUpdateManager;
@@ -56,7 +56,7 @@ public class VisualizationController(ILogger<VisualizationController> logger, Me
     [HttpGet("Shows")]
     public async Task<ActionResult<Dictionary<Guid, ShowInfos>>> GetShowSeasons(CancellationToken cancellationToken = default)
     {
-        _logger.LogDebug("Returning season IDs by series name");
+        LogReturningSeasonIds(_logger);
 
         // Ensure the queue is up to date
         await new QueueManager(_loggerFactory.CreateLogger<QueueManager>(), _libraryManager, _providerManager, _fileSystem).GetMediaItems(cancellationToken).ConfigureAwait(false);
@@ -178,7 +178,7 @@ public class VisualizationController(ILogger<VisualizationController> logger, Me
             return NotFound();
         }
 
-        _logger.LogInformation("Erasing timestamps for series {SeriesId} season {SeasonId} at user request", seriesId, seasonId);
+        LogErasingTimestamps(_logger, seriesId, seasonId);
 
         try
         {
@@ -216,7 +216,7 @@ public class VisualizationController(ILogger<VisualizationController> logger, Me
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Failed to erase timestamps for series {SeriesId} season {SeasonId}", seriesId, seasonId);
+            LogFailedToEraseTimestamps(_logger, ex, seriesId, seasonId);
             return Problem("An unexpected error occurred while erasing season data.", statusCode: StatusCodes.Status500InternalServerError);
         }
     }
@@ -258,7 +258,7 @@ public class VisualizationController(ILogger<VisualizationController> logger, Me
                     // Do not bind to the HTTP request cancellation; long-running job should complete even if client disconnects
                     using (await ScheduledTaskSemaphore.AcquireAsync(CancellationToken.None).ConfigureAwait(false))
                     {
-                        _logger.LogInformation("Start (Re-) scan of season/movie {Season}", seasonId);
+                        LogStartRescan(_logger, seasonId);
 
                         // Erase season timestamps and cache first
                         await EraseSeasonAsync(seriesId, seasonId, true, CancellationToken.None).ConfigureAwait(false);
@@ -276,11 +276,11 @@ public class VisualizationController(ILogger<VisualizationController> logger, Me
                 }
                 catch (OperationCanceledException)
                 {
-                    _logger.LogInformation("Manual season rescan for {SeasonId} was canceled.", seasonId);
+                    LogRescanCanceled(_logger, seasonId);
                 }
                 catch (Exception ex)
                 {
-                    _logger.LogError(ex, "Error during manual season rescan for {SeasonId}", seasonId);
+                    LogRescanError(_logger, ex, seasonId);
                 }
             },
             CancellationToken.None);
@@ -310,4 +310,22 @@ public class VisualizationController(ILogger<VisualizationController> logger, Me
     }
 
     private static bool IsMovie(QueuedEpisode episode) => episode.Category == QueuedMediaCategory.Movie;
+
+    [LoggerMessage(Level = LogLevel.Debug, Message = "Returning season IDs by series name")]
+    private static partial void LogReturningSeasonIds(ILogger logger);
+
+    [LoggerMessage(Level = LogLevel.Information, Message = "Erasing timestamps for series {SeriesId} season {SeasonId} at user request")]
+    private static partial void LogErasingTimestamps(ILogger logger, Guid seriesId, Guid seasonId);
+
+    [LoggerMessage(Level = LogLevel.Error, Message = "Failed to erase timestamps for series {SeriesId} season {SeasonId}")]
+    private static partial void LogFailedToEraseTimestamps(ILogger logger, Exception ex, Guid seriesId, Guid seasonId);
+
+    [LoggerMessage(Level = LogLevel.Information, Message = "Start (Re-) scan of season/movie {SeasonId}")]
+    private static partial void LogStartRescan(ILogger logger, Guid seasonId);
+
+    [LoggerMessage(Level = LogLevel.Information, Message = "Manual season rescan for {SeasonId} was canceled.")]
+    private static partial void LogRescanCanceled(ILogger logger, Guid seasonId);
+
+    [LoggerMessage(Level = LogLevel.Error, Message = "Error during manual season rescan for {SeasonId}")]
+    private static partial void LogRescanError(ILogger logger, Exception ex, Guid seasonId);
 }
