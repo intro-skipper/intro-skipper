@@ -54,6 +54,12 @@
                         margin-right: 0.25rem;
                         flex: 0 0 auto;
                     }
+
+                    /* Error flash animation */
+                    .input-error-flash {
+                        background-color: rgba(255, 0, 0, 0.3) !important;
+                        transition: background-color 0.2s ease-in-out;
+                    }
                 </style>
                 <div class="content-primary">
                     <form id="FingerprintConfigForm">
@@ -600,6 +606,12 @@
                                 <div id="timestampEditor" style="display: none">
                                     <br />
                                     <h3 style="margin: 0">Introduction timestamp editor</h3>
+                                    <p class="fieldDescription" style="margin: 10px 0;">
+                                        <strong>Valid Timestamp Formats:</strong><br/>
+                                        • <b>Seconds:</b> 90, 120.5<br/>
+                                        • <b>Time:</b> 1:30 (MM:SS), 1:25:48 (HH:MM:SS)<br/>
+                                        • <b>Natural:</b> 1 hour 30 minutes, 25m 48s, 500ms, 1.5h
+                                    </p>
                                     <br />
                                     <h4 style="margin: 0" id="editLeftEpisodeTitle"></h4>
                                     <br />
@@ -607,48 +619,48 @@
                                         <div class="inputContainer">
                                             <label class="inputLabel inputLabelUnfocused">Recap Start</label>
                                             <input type="text" id="editLeftRecapEpisodeStartDisplay" class="emby-input custom-time-input" readonly />
-                                            <input type="number" id="editLeftRecapEpisodeStartEdit" class="emby-input custom-time-input" style="display: none" step="any" min="0" />
+                                            <input type="text" id="editLeftRecapEpisodeStartEdit" class="emby-input custom-time-input" style="display: none" />
                                         </div>
                                         <div class="inputContainer">
                                             <label class="inputLabel inputLabelUnfocused">Recap End</label>
                                             <input type="text" id="editLeftRecapEpisodeEndDisplay" class="emby-input custom-time-input" readonly />
-                                            <input type="number" id="editLeftRecapEpisodeEndEdit" class="emby-input custom-time-input" style="display: none" step="any" min="0" />
+                                            <input type="text" id="editLeftRecapEpisodeEndEdit" class="emby-input custom-time-input" style="display: none" />
                                         </div>
                                     </div>
                                     <div class="inlineForm">
                                         <div class="inputContainer">
                                             <label class="inputLabel inputLabelUnfocused">Intro Start</label>
                                             <input type="text" id="editLeftIntroEpisodeStartDisplay" class="emby-input custom-time-input" readonly />
-                                            <input type="number" id="editLeftIntroEpisodeStartEdit" class="emby-input custom-time-input" style="display: none" step="any" min="0" />
+                                            <input type="text" id="editLeftIntroEpisodeStartEdit" class="emby-input custom-time-input" style="display: none" />
                                         </div>
                                         <div class="inputContainer">
                                             <label class="inputLabel inputLabelUnfocused">Intro End</label>
                                             <input type="text" id="editLeftIntroEpisodeEndDisplay" class="emby-input custom-time-input" readonly />
-                                            <input type="number" id="editLeftIntroEpisodeEndEdit" class="emby-input custom-time-input" style="display: none" step="any" min="0" />
+                                            <input type="text" id="editLeftIntroEpisodeEndEdit" class="emby-input custom-time-input" style="display: none" />
                                         </div>
                                     </div>
                                     <div class="inlineForm">
                                         <div class="inputContainer">
                                             <label class="inputLabel inputLabelUnfocused">Credits (Outro) Start</label>
                                             <input type="text" id="editLeftCreditEpisodeStartDisplay" class="emby-input custom-time-input" readonly />
-                                            <input type="number" id="editLeftCreditEpisodeStartEdit" class="emby-input custom-time-input" style="display: none" step="any" min="0" />
+                                            <input type="text" id="editLeftCreditEpisodeStartEdit" class="emby-input custom-time-input" style="display: none" />
                                         </div>
                                         <div class="inputContainer">
                                             <label class="inputLabel inputLabelUnfocused">Credits (Outro) End</label>
                                             <input type="text" id="editLeftCreditEpisodeEndDisplay" class="emby-input custom-time-input" readonly />
-                                            <input type="number" id="editLeftCreditEpisodeEndEdit" class="emby-input custom-time-input" style="display: none" step="any" min="0" />
+                                            <input type="text" id="editLeftCreditEpisodeEndEdit" class="emby-input custom-time-input" style="display: none" />
                                         </div>
                                     </div>
                                     <div class="inlineForm">
                                         <div class="inputContainer">
                                             <label class="inputLabel inputLabelUnfocused">Preview Start</label>
                                             <input type="text" id="editLeftPreviewEpisodeStartDisplay" class="emby-input custom-time-input" readonly />
-                                            <input type="number" id="editLeftPreviewEpisodeStartEdit" class="emby-input custom-time-input" style="display: none" step="any" min="0" />
+                                            <input type="text" id="editLeftPreviewEpisodeStartEdit" class="emby-input custom-time-input" style="display: none" />
                                         </div>
                                         <div class="inputContainer">
                                             <label class="inputLabel inputLabelUnfocused">Preview End</label>
                                             <input type="text" id="editLeftPreviewEpisodeEndDisplay" class="emby-input custom-time-input" readonly />
-                                            <input type="number" id="editLeftPreviewEpisodeEndEdit" class="emby-input custom-time-input" style="display: none" step="any" min="0" />
+                                            <input type="text" id="editLeftPreviewEpisodeEndEdit" class="emby-input custom-time-input" style="display: none" />
                                         </div>
                                     </div>
                                     <div id="rightEpisodeEditor">
@@ -659,48 +671,48 @@
                                             <div class="inputContainer">
                                                 <label class="inputLabel inputLabelUnfocused">Recap Start</label>
                                                 <input type="text" id="editRightRecapEpisodeStartDisplay" class="emby-input custom-time-input" readonly />
-                                                <input type="number" id="editRightRecapEpisodeStartEdit" class="emby-input custom-time-input" style="display: none" step="any" min="0" />
+                                                <input type="text" id="editRightRecapEpisodeStartEdit" class="emby-input custom-time-input" style="display: none" />
                                             </div>
                                             <div class="inputContainer">
                                                 <label class="inputLabel inputLabelUnfocused">Recap End</label>
                                                 <input type="text" id="editRightRecapEpisodeEndDisplay" class="emby-input custom-time-input" readonly />
-                                                <input type="number" id="editRightRecapEpisodeEndEdit" class="emby-input custom-time-input" style="display: none" step="any" min="0" />
+                                                <input type="text" id="editRightRecapEpisodeEndEdit" class="emby-input custom-time-input" style="display: none" />
                                             </div>
                                         </div>
                                         <div class="inlineForm">
                                             <div class="inputContainer">
                                                 <label class="inputLabel inputLabelUnfocused">Intro Start</label>
                                                 <input type="text" id="editRightIntroEpisodeStartDisplay" class="emby-input custom-time-input" readonly />
-                                                <input type="number" id="editRightIntroEpisodeStartEdit" class="emby-input custom-time-input" style="display: none" step="any" min="0" />
+                                                <input type="text" id="editRightIntroEpisodeStartEdit" class="emby-input custom-time-input" style="display: none" />
                                             </div>
                                             <div class="inputContainer">
                                                 <label class="inputLabel inputLabelUnfocused">Intro End</label>
                                                 <input type="text" id="editRightIntroEpisodeEndDisplay" class="emby-input custom-time-input" readonly />
-                                                <input type="number" id="editRightIntroEpisodeEndEdit" class="emby-input custom-time-input" style="display: none" step="any" min="0" />
+                                                <input type="text" id="editRightIntroEpisodeEndEdit" class="emby-input custom-time-input" style="display: none" />
                                             </div>
                                         </div>
                                         <div class="inlineForm">
                                             <div class="inputContainer">
                                                 <label class="inputLabel inputLabelUnfocused">Credits (Outro) Start</label>
                                                 <input type="text" id="editRightCreditEpisodeStartDisplay" class="emby-input custom-time-input" readonly />
-                                                <input type="number" id="editRightCreditEpisodeStartEdit" class="emby-input custom-time-input" style="display: none" step="any" min="0" />
+                                                <input type="text" id="editRightCreditEpisodeStartEdit" class="emby-input custom-time-input" style="display: none" />
                                             </div>
                                             <div class="inputContainer">
                                                 <label class="inputLabel inputLabelUnfocused">Credits (Outro) End</label>
                                                 <input type="text" id="editRightCreditEpisodeEndDisplay" class="emby-input custom-time-input" readonly />
-                                                <input type="number" id="editRightCreditEpisodeEndEdit" class="emby-input custom-time-input" style="display: none" step="any" min="0" />
+                                                <input type="text" id="editRightCreditEpisodeEndEdit" class="emby-input custom-time-input" style="display: none" />
                                             </div>
                                         </div>
                                         <div class="inlineForm">
                                             <div class="inputContainer">
                                                 <label class="inputLabel inputLabelUnfocused">Preview Start</label>
                                                 <input type="text" id="editRightPreviewEpisodeStartDisplay" class="emby-input custom-time-input" readonly />
-                                                <input type="number" id="editRightPreviewEpisodeStartEdit" class="emby-input custom-time-input" style="display: none" step="any" min="0" />
+                                                <input type="text" id="editRightPreviewEpisodeStartEdit" class="emby-input custom-time-input" style="display: none" />
                                             </div>
                                             <div class="inputContainer">
                                                 <label class="inputLabel inputLabelUnfocused">Preview End</label>
                                                 <input type="text" id="editRightPreviewEpisodeEndDisplay" class="emby-input custom-time-input" readonly />
-                                                <input type="number" id="editRightPreviewEpisodeEndEdit" class="emby-input custom-time-input" style="display: none" step="any" min="0" />
+                                                <input type="text" id="editRightPreviewEpisodeEndEdit" class="emby-input custom-time-input" style="display: none" />
                                             </div>
                                         </div>
                                     </div>
@@ -798,6 +810,10 @@
                 // Config module
                 IntroSkipper.Config = (function () {
                     "use strict";
+
+                    // constants
+                    const FLASH_DURATION_SHORT = 1000;
+                    const FLASH_DURATION_LONG = 5000;
 
                     // seasons grouped by show
                     let shows = {};
@@ -1163,30 +1179,129 @@
                                 switchToEdit(displayInput, editInput);
                             });
                             editInput.addEventListener("blur", () => switchToDisplay(displayInput, editInput));
-                            displayInput.value = formatTime(parseFloat(editInput.value) || 0);
+                            let value = parseTimeString(editInput.value)
+                            if (isNaN(value)) {
+                                Dashboard.alert("Something went wrong during setting up of time inputs. Setting the input to 0.");
+                                value = 0;
+                            }
+                            displayInput.value = formatTime(value);
                         });
                     }
 
                     function switchToEdit(displayInput, editInput) {
+                        editInput.dataset.previousValue = parseTimeString(displayInput.value);
+
                         displayInput.style.display = "none";
                         editInput.style.display = "";
                         editInput.focus();
                     }
 
                     function switchToDisplay(displayInput, editInput) {
+                        const parsedValue = validateAndParseInput(editInput, displayInput, FLASH_DURATION_SHORT);
+
+                        if (isNaN(parsedValue)) {
+                            let previousSeconds = parseFloat(editInput.dataset.previousValue);
+
+                            if (isNaN(previousSeconds)) {
+                                Dashboard.alert("Something went wrong during saving previous value. Reverting to 0.");
+                            } else {
+                                Dashboard.alert("Invalid time format '" + editInput.value + "'. Reverting to previous value.");
+                            }
+
+                            editInput.value = previousSeconds;
+                            displayInput.value = formatTime(previousSeconds);
+                        } else {
+                            editInput.value = parsedValue;
+                            displayInput.value = formatTime(parsedValue);
+                        }
+
                         editInput.style.display = "none";
                         displayInput.style.display = "";
-                        displayInput.value = formatTime(parseFloat(editInput.value) || 0);
+                    }
+
+                    function parseTimeString(str) {
+                        if (!str || str.trim() === '') return 0;
+                        str = str.toString().trim().toLowerCase();
+
+                        // Standard input (integer or float)
+                        if (!isNaN(str) && !isNaN(parseFloat(str))) {
+                            return parseFloat(str);
+                        }
+
+                        // HH:MM:SS or MM:SS input
+                        if (str.includes(':')) {
+                            const parts = str.split(':');
+                            if (parts.some(isNaN) || parts.length < 2 || parts.length > 3) return NaN;
+
+                            const nums = parts.map(parseFloat);
+                            if (nums.some(p => p < 0)) return NaN;
+                            if (nums.length === 3) return (nums[0] * 3600) + (nums[1] * 60) + nums[2];
+                            if (nums.length === 2) return (nums[0] * 60) + nums[1];
+                        }
+
+                        // Natural language input ("1h 25m 30s")
+                        let total = 0;
+
+                        const regex = /(\d+\.?\d*)\s*(?:h|hr|hrs|hour|hours)(?![a-z])|(\d+\.?\d*)\s*(?:m|min|mins|minute|minutes)(?![a-z])|(\d+\.?\d*)\s*(?:s|sec|secs|second|seconds)(?![a-z])|(\d+\.?\d*)\s*(?:ms|msec|millisecond|milliseconds)(?![a-z])/gi;
+
+                        const remainder = str.replace(regex, (match, h, m, s, ms) => {
+                            if (h) total += parseFloat(h) * 3600;
+                            if (m) total += parseFloat(m) * 60;
+                            if (s) total += parseFloat(s);
+                            if (ms) total += parseFloat(ms) / 1000;
+                            return '';
+                        });
+
+                        if (remainder.trim().length === 0) {
+                            return total;
+                        }
+
+                        return NaN;
+                    }
+
+                    function validateAndParseInput(editInput, displayInput, errorDuration) {
+                        const rawValue = editInput.value;
+                        const parsed = parseTimeString(rawValue);
+
+                        if (isNaN(parsed) || parsed < 0) {
+                            flashError(displayInput, errorDuration);
+                            return NaN;
+                        }
+                        return parsed;
+                    }
+
+                    function flashError(element, duration) {
+                        if (!element) return;
+
+                        if (element.dataset.errorTimeout) {
+                            clearTimeout(parseInt(element.dataset.errorTimeout));
+                        }
+
+                        element.classList.add("input-error-flash");
+
+                        const timeoutId = setTimeout(() => {
+                            element.classList.remove("input-error-flash");
+                            delete element.dataset.errorTimeout;
+                        }, duration);
+
+                        element.dataset.errorTimeout = timeoutId;
+                    }
+
+                    function getEditableTimestampInputs() {
+                        return timestampEditor.querySelectorAll('input[id$="Edit"]');
                     }
 
                     function formatTime(totalSeconds) {
                         const hours = Math.floor(totalSeconds / 3600);
                         const minutes = Math.floor((totalSeconds % 3600) / 60);
                         const seconds = Math.floor(totalSeconds % 60);
+                        const milliseconds = Math.floor((totalSeconds - Math.floor(totalSeconds)) * 1000);
+
                         let result = [];
                         if (hours > 0) result.push(hours + " hour" + (hours !== 1 ? "s" : ""));
                         if (minutes > 0) result.push(minutes + " minute" + (minutes !== 1 ? "s" : ""));
-                        if (seconds > 0 || result.length === 0) result.push(seconds + " second" + (seconds !== 1 ? "s" : ""));
+                        if (seconds > 0 || (result.length === 0 && milliseconds === 0)) result.push(seconds + " second" + (seconds !== 1 ? "s" : ""));
+                        if (milliseconds > 0) result.push(milliseconds + " millisecond" + (milliseconds !== 1 ? "s" : ""));
                         return result.join(" ");
                     }
 
@@ -1239,10 +1354,15 @@
                         }
 
                         // Update display inputs
-                        const inputs = document.querySelectorAll('#timestampEditor input[type="number"]');
+                        const inputs = getEditableTimestampInputs();
                         inputs.forEach((input) => {
                             const displayInput = document.getElementById(input.id.replace("Edit", "Display"));
-                            displayInput.value = formatTime(parseFloat(input.value) || 0);
+                            let value = parseFloat(input.value);
+                            if (isNaN(value)) {
+                                Dashboard.alert("Something went wrong during input parsing. Setting the input to 0.");
+                                value = 0;
+                            }
+                            displayInput.value = formatTime(value);
                         });
 
                         setupTimeInputs();
@@ -1446,7 +1566,31 @@
                     });
 
                     btnUpdateTimestamps.addEventListener("click", () => {
-                        const getEditValue = (id) => parseFloat(document.getElementById(id).value) || 0;
+                        const parsedValues = {};
+
+                        // Input validity check
+                        const inputs = getEditableTimestampInputs();
+
+                        let hasError = false;
+                        inputs.forEach(input => {
+                            if (rightEpisodeEditor.style.display === "none" && rightEpisodeEditor.contains(input)) {
+                                return;
+                            }
+
+                            const displayEl = document.getElementById(input.id.replace("Edit", "Display"));
+                            const parsed = validateAndParseInput(input, displayEl, FLASH_DURATION_LONG);
+
+                            parsedValues[input.id] = parsed;
+
+                            if (isNaN(parsed)) {
+                                hasError = true;
+                            }
+                        });
+
+                        if (hasError) {
+                            Dashboard.alert("Unable to save: One or more timestamps are invalid. Please check the highlighted fields.");
+                            return;
+                        }
 
                         // Check if we're dealing with a movie or TV show
                         const isMovie = selectShow.value && shows[selectShow.value] && shows[selectShow.value].IsMovie;
@@ -1468,23 +1612,23 @@
                         const newLhs = {
                             Introduction: {
                                 ItemId: lhsId,
-                                Start: getEditValue("editLeftIntroEpisodeStartEdit"),
-                                End: getEditValue("editLeftIntroEpisodeEndEdit"),
+                                Start: parsedValues["editLeftIntroEpisodeStartEdit"],
+                                End: parsedValues["editLeftIntroEpisodeEndEdit"],
                             },
                             Credits: {
                                 ItemId: lhsId,
-                                Start: getEditValue("editLeftCreditEpisodeStartEdit"),
-                                End: getEditValue("editLeftCreditEpisodeEndEdit"),
+                                Start: parsedValues["editLeftCreditEpisodeStartEdit"],
+                                End: parsedValues["editLeftCreditEpisodeEndEdit"],
                             },
                             Recap: {
                                 ItemId: lhsId,
-                                Start: getEditValue("editLeftRecapEpisodeStartEdit"),
-                                End: getEditValue("editLeftRecapEpisodeEndEdit"),
+                                Start: parsedValues["editLeftRecapEpisodeStartEdit"],
+                                End: parsedValues["editLeftRecapEpisodeEndEdit"],
                             },
                             Preview: {
                                 ItemId: lhsId,
-                                Start: getEditValue("editLeftPreviewEpisodeStartEdit"),
-                                End: getEditValue("editLeftPreviewEpisodeEndEdit"),
+                                Start: parsedValues["editLeftPreviewEpisodeStartEdit"],
+                                End: parsedValues["editLeftPreviewEpisodeEndEdit"],
                             },
                         };
 
@@ -1499,23 +1643,23 @@
                                 const newRhs = {
                                     Introduction: {
                                         ItemId: rhsId,
-                                        Start: getEditValue("editRightIntroEpisodeStartEdit"),
-                                        End: getEditValue("editRightIntroEpisodeEndEdit"),
+                                        Start: parsedValues["editRightIntroEpisodeStartEdit"],
+                                        End: parsedValues["editRightIntroEpisodeEndEdit"],
                                     },
                                     Credits: {
                                         ItemId: rhsId,
-                                        Start: getEditValue("editRightCreditEpisodeStartEdit"),
-                                        End: getEditValue("editRightCreditEpisodeEndEdit"),
+                                        Start: parsedValues["editRightCreditEpisodeStartEdit"],
+                                        End: parsedValues["editRightCreditEpisodeEndEdit"],
                                     },
                                     Recap: {
                                         ItemId: rhsId,
-                                        Start: getEditValue("editRightRecapEpisodeStartEdit"),
-                                        End: getEditValue("editRightRecapEpisodeEndEdit"),
+                                        Start: parsedValues["editRightRecapEpisodeStartEdit"],
+                                        End: parsedValues["editRightRecapEpisodeEndEdit"],
                                     },
                                     Preview: {
                                         ItemId: rhsId,
-                                        Start: getEditValue("editRightPreviewEpisodeStartEdit"),
-                                        End: getEditValue("editRightPreviewEpisodeEndEdit"),
+                                        Start: parsedValues["editRightPreviewEpisodeStartEdit"],
+                                        End: parsedValues["editRightPreviewEpisodeEndEdit"],
                                     },
                                 };
                                 fetchWithAuth("Episode/" + rhsId + "/Timestamps", "POST", JSON.stringify(newRhs));
