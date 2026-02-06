@@ -11,38 +11,44 @@ namespace IntroSkipper.Migrations
         /// <inheritdoc />
         protected override void Up(MigrationBuilder migrationBuilder)
         {
+            migrationBuilder.DropPrimaryKey(
+                name: "PK_DbSegment",
+                table: "DbSegment");
+
+            migrationBuilder.DropIndex(
+                name: "IX_DbSegment_ItemId",
+                table: "DbSegment");
+
             migrationBuilder.DropColumn(
                 name: "EpisodeIds",
                 table: "DbSeasonInfo");
 
-            migrationBuilder.Sql(@"
-ALTER TABLE DbSegment RENAME TO DbSegment_Old;
+            migrationBuilder.AddColumn<int>(
+                name: "Id",
+                table: "DbSegment",
+                type: "INTEGER",
+                nullable: false,
+                defaultValue: 0)
+                .Annotation("Sqlite:Autoincrement", true);
 
-CREATE TABLE DbSegment (
-    Id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
-    ItemId TEXT NOT NULL,
-    SeasonId TEXT NOT NULL DEFAULT '00000000-0000-0000-0000-000000000000',
-    Start REAL NOT NULL DEFAULT 0.0,
-    End REAL NOT NULL DEFAULT 0.0,
-    Type INTEGER NOT NULL,
-    IsFirstAppearance INTEGER NOT NULL DEFAULT 0
-);
+            migrationBuilder.AddColumn<bool>(
+                name: "IsFirstAppearance",
+                table: "DbSegment",
+                type: "INTEGER",
+                nullable: false,
+                defaultValue: false);
 
-INSERT INTO DbSegment (Id, ItemId, SeasonId, Start, End, Type, IsFirstAppearance)
-SELECT rowid,
-       ItemId,
-       '00000000-0000-0000-0000-000000000000',
-       Start,
-       End,
-       Type,
-       0
-FROM DbSegment_Old;
+            migrationBuilder.AddColumn<Guid>(
+                name: "SeasonId",
+                table: "DbSegment",
+                type: "TEXT",
+                nullable: false,
+                defaultValue: new Guid("00000000-0000-0000-0000-000000000000"));
 
-DROP TABLE DbSegment_Old;
-
-CREATE INDEX IX_DbSegment_ItemId_Type ON DbSegment (ItemId, Type);
-CREATE INDEX IX_DbSegment_SeasonId ON DbSegment (SeasonId);
-");
+            migrationBuilder.AddPrimaryKey(
+                name: "PK_DbSegment",
+                table: "DbSegment",
+                column: "Id");
 
             migrationBuilder.CreateTable(
                 name: "DbSegmentOutbox",
@@ -64,6 +70,16 @@ CREATE INDEX IX_DbSegment_SeasonId ON DbSegment (SeasonId);
                 {
                     table.PrimaryKey("PK_DbSegmentOutbox", x => x.Id);
                 });
+
+            migrationBuilder.CreateIndex(
+                name: "IX_DbSegment_ItemId_Type",
+                table: "DbSegment",
+                columns: ["ItemId", "Type"]);
+
+            migrationBuilder.CreateIndex(
+                name: "IX_DbSegment_SeasonId_Type",
+                table: "DbSegment",
+                columns: ["SeasonId", "Type"]);
 
             migrationBuilder.CreateIndex(
                 name: "IX_DbSegmentOutbox_ItemId_ProcessedAt",
@@ -111,13 +127,6 @@ CREATE INDEX IX_DbSegment_SeasonId ON DbSegment (SeasonId);
                 name: "SeasonId",
                 table: "DbSegment");
 
-            migrationBuilder.AddColumn<int>(
-                name: "SegmentIndex",
-                table: "DbSegment",
-                type: "INTEGER",
-                nullable: false,
-                defaultValue: 0);
-
             migrationBuilder.AddColumn<string>(
                 name: "EpisodeIds",
                 table: "DbSeasonInfo",
@@ -128,7 +137,7 @@ CREATE INDEX IX_DbSegment_SeasonId ON DbSegment (SeasonId);
             migrationBuilder.AddPrimaryKey(
                 name: "PK_DbSegment",
                 table: "DbSegment",
-                columns: ["ItemId", "Type", "SegmentIndex"]);
+                columns: ["ItemId", "Type"]);
 
             migrationBuilder.CreateIndex(
                 name: "IX_DbSegment_ItemId",
