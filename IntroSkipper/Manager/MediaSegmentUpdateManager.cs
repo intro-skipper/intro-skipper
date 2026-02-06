@@ -17,7 +17,7 @@ namespace IntroSkipper.Manager;
 /// </summary>
 /// <param name="mediaSegmentManager">The Jellyfin <see cref="IMediaSegmentManager"/> used to update segments.</param>
 /// <param name="logger">Application logger.</param>
-public class MediaSegmentUpdateManager(
+public partial class MediaSegmentUpdateManager(
     IMediaSegmentManager mediaSegmentManager,
     ILogger<MediaSegmentUpdateManager> logger)
 {
@@ -54,22 +54,22 @@ public class MediaSegmentUpdateManager(
                     var item = Plugin.Instance!.GetItem(episode.EpisodeId);
                     if (item is null)
                     {
-                        _logger.LogError("Item not found for episode {EpisodeId}", episode.EpisodeId);
+                        LogItemNotFound(_logger, episode.EpisodeId);
                         return;
                     }
 
                     await _mediaSegmentManager.RunSegmentPluginProviders(item, _externalProviders, true, ct).ConfigureAwait(false);
 
-                    _logger.LogDebug("Updated segments for episode {EpisodeId}", episode.EpisodeId);
+                    LogUpdatedSegments(_logger, episode.EpisodeId);
                 }
                 catch (OperationCanceledException)
                 {
-                    _logger.LogDebug("Processing for episode {EpisodeId} was canceled.", episode.EpisodeId);
+                    LogProcessingCanceled(_logger, episode.EpisodeId);
                     throw;
                 }
                 catch (Exception ex)
                 {
-                    _logger.LogError(ex, "Error processing episode {EpisodeId}", episode.EpisodeId);
+                    LogErrorProcessingEpisode(_logger, ex, episode.EpisodeId);
                 }
             }).ConfigureAwait(false);
     }
@@ -83,4 +83,16 @@ public class MediaSegmentUpdateManager(
     {
         await _mediaSegmentManager.DeleteSegmentAsync(segmentId).ConfigureAwait(false);
     }
+
+    [LoggerMessage(Level = LogLevel.Error, Message = "Item not found for episode {EpisodeId}")]
+    private static partial void LogItemNotFound(ILogger logger, Guid episodeId);
+
+    [LoggerMessage(Level = LogLevel.Debug, Message = "Updated segments for episode {EpisodeId}")]
+    private static partial void LogUpdatedSegments(ILogger logger, Guid episodeId);
+
+    [LoggerMessage(Level = LogLevel.Debug, Message = "Processing for episode {EpisodeId} was canceled.")]
+    private static partial void LogProcessingCanceled(ILogger logger, Guid episodeId);
+
+    [LoggerMessage(Level = LogLevel.Error, Message = "Error processing episode {EpisodeId}")]
+    private static partial void LogErrorProcessingEpisode(ILogger logger, Exception ex, Guid episodeId);
 }

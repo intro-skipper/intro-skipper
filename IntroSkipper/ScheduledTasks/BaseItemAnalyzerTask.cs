@@ -29,7 +29,7 @@ namespace IntroSkipper.ScheduledTasks;
 /// <param name="providerManager">Provider manager.</param>
 /// <param name="fileSystem">File system.</param>
 /// <param name="mediaSegmentUpdateManager">Media segment update manager.</param>
-public class BaseItemAnalyzerTask(
+public partial class BaseItemAnalyzerTask(
     ILogger logger,
     ILoggerFactory loggerFactory,
     ILibraryManager libraryManager,
@@ -83,16 +83,13 @@ public class BaseItemAnalyzerTask(
         int totalQueued = queue.Sum(kvp => kvp.Value.Count) * modes.Count;
         if (totalQueued == 0)
         {
-            _logger.LogInformation("No libraries selected for analysis. To enable, check library configuration > Media Segment Providers.");
+            LogNoLibrariesSelected(_logger);
             return;
         }
 
         if (!_ffmpegValid)
         {
-            _logger.LogInformation(
-                "Skipping Chromaprint analysis! Chromaprint is not enabled in the current ffmpeg. " +
-                "If Jellyfin is running natively, install jellyfin-ffmpeg7. " +
-                "If Jellyfin is running in a container, upgrade to version 10.10.0 or newer.");
+            LogSkippingChromaprint(_logger);
         }
 
         int totalProcessed = 0;
@@ -117,7 +114,7 @@ public class BaseItemAnalyzerTask(
             {
                 Interlocked.Add(ref totalProcessed, episodes.Count * modes.Count);
                 progress.Report((double)totalProcessed / totalQueued * 100);
-                _logger.LogInformation("Skipping excluded season {Season} of {Series}", first.SeasonNumber, first.SeriesName);
+                LogSkippingExcludedSeason(_logger, first.SeasonNumber, first.SeriesName);
                 return;
             }
 
@@ -138,15 +135,15 @@ public class BaseItemAnalyzerTask(
             }
             catch (OperationCanceledException)
             {
-                _logger.LogInformation("Analysis was canceled.");
+                LogAnalysisCanceled(_logger);
             }
             catch (FingerprintException ex)
             {
-                _logger.LogWarning(ex, "Fingerprint exception during analysis.");
+                LogFingerprintExceptionDuringAnalysis(_logger, ex);
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "An unexpected error occurred during analysis.");
+                LogUnexpectedAnalysisError(_logger, ex);
                 throw;
             }
 
@@ -160,7 +157,7 @@ public class BaseItemAnalyzerTask(
 
         if (_config.RebuildMediaSegments)
         {
-            _logger.LogInformation("Regenerated media segments.");
+            LogRegeneratedMediaSegments(_logger);
             _config.RebuildMediaSegments = false;
             Plugin.Instance!.SaveConfiguration();
         }
@@ -199,12 +196,7 @@ public class BaseItemAnalyzerTask(
 
         var chromaprintOnly = _ffmpegValid && _config.PreferChromaprint && action is AnalyzerAction.Default or AnalyzerAction.Chromaprint;
 
-        _logger.LogInformation(
-            "[Mode: {Mode}] Analyzing {Count} files from {Name} season {Season}",
-            mode,
-            items.Count,
-            first.SeriesName,
-            first.SeasonNumber);
+        LogAnalyzingFiles(_logger, mode, items.Count, first.SeriesName, first.SeasonNumber);
 
         // Create analyzers list
         var analyzers = new List<IMediaFileAnalyzer>();
@@ -247,4 +239,28 @@ public class BaseItemAnalyzerTask(
 
         return totalItems - items.Count(e => e.GetAnalyzed(mode) != EpisodeState.Analyzed);
     }
+
+    [LoggerMessage(Level = LogLevel.Information, Message = "No libraries selected for analysis. To enable, check library configuration > Media Segment Providers.")]
+    private static partial void LogNoLibrariesSelected(ILogger logger);
+
+    [LoggerMessage(Level = LogLevel.Information, Message = "Skipping Chromaprint analysis! Chromaprint is not enabled in the current ffmpeg. If Jellyfin is running natively, install jellyfin-ffmpeg7. If Jellyfin is running in a container, upgrade to version 10.10.0 or newer.")]
+    private static partial void LogSkippingChromaprint(ILogger logger);
+
+    [LoggerMessage(Level = LogLevel.Information, Message = "Skipping excluded season {Season} of {Series}")]
+    private static partial void LogSkippingExcludedSeason(ILogger logger, int season, string series);
+
+    [LoggerMessage(Level = LogLevel.Information, Message = "Analysis was canceled.")]
+    private static partial void LogAnalysisCanceled(ILogger logger);
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "Fingerprint exception during analysis.")]
+    private static partial void LogFingerprintExceptionDuringAnalysis(ILogger logger, Exception ex);
+
+    [LoggerMessage(Level = LogLevel.Error, Message = "An unexpected error occurred during analysis.")]
+    private static partial void LogUnexpectedAnalysisError(ILogger logger, Exception ex);
+
+    [LoggerMessage(Level = LogLevel.Information, Message = "Regenerated media segments.")]
+    private static partial void LogRegeneratedMediaSegments(ILogger logger);
+
+    [LoggerMessage(Level = LogLevel.Information, Message = "[Mode: {Mode}] Analyzing {Count} files from {Name} season {Season}")]
+    private static partial void LogAnalyzingFiles(ILogger logger, AnalysisMode mode, int count, string name, int season);
 }

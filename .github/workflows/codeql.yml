@@ -58,13 +58,13 @@ jobs:
         run: dotnet restore
 
       - name: Initialize CodeQL
-        uses: github/codeql-action/init@19b2f06db2b6f5108140aeb04014ef02b648f789 # v4.31.11
+        uses: github/codeql-action/init@6bc82e05fd0ea64601dd4b465378bbcf57de0314 # v4.32.1
         with:
           languages: ${{ matrix.language }}
           queries: +security-extended
 
       - name: Autobuild
-        uses: github/codeql-action/autobuild@19b2f06db2b6f5108140aeb04014ef02b648f789 # v4.31.11
+        uses: github/codeql-action/autobuild@6bc82e05fd0ea64601dd4b465378bbcf57de0314 # v4.32.1
 
       - name: Perform CodeQL Analysis
-        uses: github/codeql-action/analyze@19b2f06db2b6f5108140aeb04014ef02b648f789 # v4.31.11
+        uses: github/codeql-action/analyze@6bc82e05fd0ea64601dd4b465378bbcf57de0314 # v4.32.1

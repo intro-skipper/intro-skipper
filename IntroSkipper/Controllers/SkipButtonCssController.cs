@@ -66,7 +66,7 @@ public partial class SkipButtonCssController(IServerConfigurationManager serverC
         {
             existingCss = InjectImport(existingCss);
             cssModified = true;
-            _logger.LogInformation("Injected skip button CSS import");
+            LogInjectedCssImport(_logger);
         }
 
         // Update or inject --skip-hide-duration
@@ -84,7 +84,7 @@ public partial class SkipButtonCssController(IServerConfigurationManager serverC
         }
         else
         {
-            _logger.LogDebug("Skip button CSS already up to date, no changes made");
+            LogCssAlreadyUpToDate(_logger);
         }
 
         return Ok();
@@ -108,7 +108,7 @@ public partial class SkipButtonCssController(IServerConfigurationManager serverC
         // Only update if --skip-hide-duration already exists
         if (!SkipDurationRegex().IsMatch(existingCss))
         {
-            _logger.LogDebug("--skip-hide-duration not found in CSS, skipping update");
+            LogSkipDurationNotFound(_logger);
             return Ok();
         }
 
@@ -136,7 +136,7 @@ public partial class SkipButtonCssController(IServerConfigurationManager serverC
             var currentMatch = regex.Match(css);
             if (!currentMatch.Value.Equals(expectedValue, StringComparison.OrdinalIgnoreCase))
             {
-                _logger.LogInformation("Updated --skip-hide-duration to {Duration}s", SkipHideDuration);
+                LogUpdatedSkipDuration(_logger, SkipHideDuration);
                 return (regex.Replace(css, expectedValue), true);
             }
 
@@ -144,7 +144,7 @@ public partial class SkipButtonCssController(IServerConfigurationManager serverC
         }
 
         // No existing value, append :root block
-        _logger.LogInformation("Injected :root block with --skip-hide-duration: {Duration}s", SkipHideDuration);
+        LogInjectedRootBlock(_logger, SkipHideDuration);
         return (css + Environment.NewLine + RootCss, true);
     }
 
@@ -187,4 +187,19 @@ public partial class SkipButtonCssController(IServerConfigurationManager serverC
 
     [GeneratedRegex(@"--skip-hide-duration:\s*[\d.]+s;", RegexOptions.IgnoreCase)]
     private static partial Regex SkipDurationRegex();
+
+    [LoggerMessage(Level = LogLevel.Information, Message = "Injected skip button CSS import")]
+    private static partial void LogInjectedCssImport(ILogger logger);
+
+    [LoggerMessage(Level = LogLevel.Debug, Message = "Skip button CSS already up to date, no changes made")]
+    private static partial void LogCssAlreadyUpToDate(ILogger logger);
+
+    [LoggerMessage(Level = LogLevel.Debug, Message = "--skip-hide-duration not found in CSS, skipping update")]
+    private static partial void LogSkipDurationNotFound(ILogger logger);
+
+    [LoggerMessage(Level = LogLevel.Information, Message = "Updated --skip-hide-duration to {Duration}s")]
+    private static partial void LogUpdatedSkipDuration(ILogger logger, string duration);
+
+    [LoggerMessage(Level = LogLevel.Information, Message = "Injected :root block with --skip-hide-duration: {Duration}s")]
+    private static partial void LogInjectedRootBlock(ILogger logger, string duration);
 }

@@ -25,7 +25,7 @@ namespace IntroSkipper.Controllers;
 [ApiController]
 [Produces(MediaTypeNames.Application.Json)]
 [Route("IntroSkipper")]
-public class TroubleshootingController : ControllerBase
+public partial class TroubleshootingController : ControllerBase
 {
     private readonly ILibraryManager _libraryManager;
     private readonly IApplicationHost _applicationHost;
@@ -92,7 +92,7 @@ public class TroubleshootingController : ControllerBase
         }
         catch (Exception ex)
         {
-            _logger.LogWarning("Unable to append commit to version: {Exception}", ex);
+            LogUnableToAppendCommit(_logger, ex);
         }
 
         bundle.Append("* Plugin version: ");
@@ -167,7 +167,7 @@ public class TroubleshootingController : ControllerBase
                     bundle.AppendFormat(CultureInfo.CurrentCulture, "Location: {0}\n", location);
                     bundle.AppendFormat(CultureInfo.CurrentCulture, "Unable to get drive information: {0}\n", ex.Message);
                     bundle.Append("-----\n");
-                    _logger.LogWarning("Unable to get DriveInfo for location {Location}: {Exception}", location, ex);
+                    LogUnableToGetDriveInfo(_logger, location, ex);
                 }
             }
 
@@ -191,4 +191,10 @@ public class TroubleshootingController : ControllerBase
 
         return $"{len:0.##} {sizes[order]}";
     }
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "Unable to append commit to version: {Exception}")]
+    private static partial void LogUnableToAppendCommit(ILogger logger, object exception);
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "Unable to get DriveInfo for location {Location}: {Exception}")]
+    private static partial void LogUnableToGetDriveInfo(ILogger logger, string location, object exception);
 }
