@@ -23,7 +23,7 @@ namespace IntroSkipper.Services;
 /// </remarks>
 /// <param name="serviceProvider">The service provider.</param>
 /// <param name="logger">The logger.</param>
-public class OutboxProcessorService(
+public partial class OutboxProcessorService(
     IServiceProvider serviceProvider,
     ILogger<OutboxProcessorService> logger) : BackgroundService
 {
@@ -38,7 +38,7 @@ public class OutboxProcessorService(
     /// <inheritdoc/>
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        _logger.LogInformation("Outbox Processor Service started (instance: {InstanceId})", _instanceId);
+        LogOutboxProcessorStarted(_logger, _instanceId);
 
         while (!stoppingToken.IsCancellationRequested)
         {
@@ -59,7 +59,7 @@ public class OutboxProcessorService(
             }
         }
 
-        _logger.LogInformation("Outbox Processor Service stopped (instance: {InstanceId})", _instanceId);
+        LogOutboxProcessorStopped(_logger, _instanceId);
     }
 
     private async Task ProcessOutboxEntriesAsync(CancellationToken cancellationToken)
@@ -79,7 +79,7 @@ public class OutboxProcessorService(
             return;
         }
 
-        _logger.LogDebug("Processing {Count} claimed outbox entries", claimedEntries.Count);
+        LogProcessingClaimedOutboxEntries(_logger, claimedEntries.Count);
 
         // Group by ItemId to process all changes for an item at once
         var groupedEntries = claimedEntries.GroupBy(e => e.ItemId);
@@ -106,7 +106,7 @@ public class OutboxProcessorService(
                 // Mark all entries for this item as processed
                 await outboxRepository.MarkProcessedBatchAsync(entryIds, cancellationToken).ConfigureAwait(false);
 
-                _logger.LogDebug("Synced {Count} segment changes for item {ItemId}", entries.Count, itemId);
+                LogSyncedSegmentChanges(_logger, entries.Count, itemId);
             }
             catch (Exception ex)
             {
@@ -126,4 +126,16 @@ public class OutboxProcessorService(
             _logger.LogWarning(ex, "Error cleaning up old outbox entries");
         }
     }
+
+    [LoggerMessage(Level = LogLevel.Information, Message = "Outbox Processor Service started (instance: {InstanceId})")]
+    private static partial void LogOutboxProcessorStarted(ILogger logger, string instanceId);
+
+    [LoggerMessage(Level = LogLevel.Information, Message = "Outbox Processor Service stopped (instance: {InstanceId})")]
+    private static partial void LogOutboxProcessorStopped(ILogger logger, string instanceId);
+
+    [LoggerMessage(Level = LogLevel.Debug, Message = "Processing {Count} claimed outbox entries")]
+    private static partial void LogProcessingClaimedOutboxEntries(ILogger logger, int count);
+
+    [LoggerMessage(Level = LogLevel.Debug, Message = "Synced {Count} segment changes for item {ItemId}")]
+    private static partial void LogSyncedSegmentChanges(ILogger logger, int count, Guid itemId);
 }
