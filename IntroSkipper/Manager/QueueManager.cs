@@ -240,11 +240,6 @@ public partial class QueueManager(ILogger<QueueManager> logger, ILibraryManager 
 
         // Allocate a new list for each new season
         var seasonId = await GetSeasonId(episode, cancellationToken).ConfigureAwait(false);
-        if (seasonId == Guid.Empty)
-        {
-            LogNotQueuingEpisodeNoSeasonId(_logger, episode.Name, episode.SeriesName, episode.Id);
-            return;
-        }
 
         if (!_queuedEpisodes.TryGetValue(seasonId, out var seasonEpisodes))
         {
@@ -368,6 +363,7 @@ public partial class QueueManager(ILogger<QueueManager> logger, ILibraryManager 
             if (episode.SeasonId == Guid.Empty)
             {
                 LogFailedResolveSeasonId(_logger, episode.Name, episode.Id);
+                episode.SeasonId = episode.Id; // Use episode ID as fallback to avoid losing this episode entirely, it just won't be grouped with the rest of the season
             }
             else
             {
@@ -480,9 +476,6 @@ public partial class QueueManager(ILogger<QueueManager> logger, ILibraryManager 
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "Not queuing episode \"{Name}\" from series \"{Series}\" ({Id}) as no path was provided by Jellyfin")]
     private static partial void LogNotQueuingEpisodeNoPath(ILogger logger, string name, string series, Guid id);
-
-    [LoggerMessage(Level = LogLevel.Warning, Message = "Not queuing episode \"{Name}\" from series \"{Series}\" ({Id}) as SeasonId could not be resolved")]
-    private static partial void LogNotQueuingEpisodeNoSeasonId(ILogger logger, string name, string series, Guid id);
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "Not queuing movie \"{Name}\" ({Id}) as no path was provided by Jellyfin")]
     private static partial void LogNotQueuingMovieNoPath(ILogger logger, string name, Guid id);
