@@ -916,8 +916,9 @@
                         for (const segment of editableSegmentDefinitions) {
                             const startInput = document.querySelector("#edit" + side + segment.domPrefix + "EpisodeStartEdit");
                             const endInput = document.querySelector("#edit" + side + segment.domPrefix + "EpisodeEndEdit");
-                            startInput.value = episodeJson[segment.jsonKey].Start;
-                            endInput.value = episodeJson[segment.jsonKey].End;
+                            const segmentValue = episodeJson?.[segment.jsonKey] || {};
+                            startInput.value = segmentValue.Start ?? 0;
+                            endInput.value = segmentValue.End ?? 0;
                         }
                     }
 
@@ -1462,11 +1463,14 @@
                         const title = "Confirm timestamp erasure";
                         const body = "Are you sure you want to erase all previously discovered " + mode.toLocaleLowerCase() + " timestamps?";
                         const eraseCacheChecked = document.getElementById("eraseModeCacheCheckbox").checked;
+                        const triggerButton = btnEraseGlobalTimestamps;
 
                         Dashboard.confirm(body, title, async (result) => {
                             if (!result) {
                                 return;
                             }
+
+                            triggerButton.disabled = true;
 
                             try {
                                 const response = await fetchWithAuth("Intros/EraseTimestamps?mode=" + mode + "&eraseCache=" + eraseCacheChecked, "POST", null);
@@ -1479,6 +1483,8 @@
                                 document.getElementById("eraseModeCacheCheckbox").checked = false;
                             } catch (error) {
                                 Dashboard.alert("Failed to erase " + lower + " timestamps: " + error.message);
+                            } finally {
+                                triggerButton.disabled = false;
                             }
                         });
                     }
@@ -1559,6 +1565,7 @@
                     selectEpisode2.addEventListener("change", episodeChanged);
 
                     saveAnalyzerActionsButton.addEventListener("click", async () => {
+                        saveAnalyzerActionsButton.disabled = true;
                         Dashboard.showLoadingMsg();
 
                         const url = "Intros/AnalyzerActions/UpdateSeason";
@@ -1585,6 +1592,7 @@
                             Dashboard.alert("Failed to update analyzer actions: " + error.message);
                         } finally {
                             Dashboard.hideLoadingMsg();
+                            saveAnalyzerActionsButton.disabled = false;
                         }
                     });
 
@@ -1597,6 +1605,7 @@
                     });
 
                     btnUpdateTimestamps.addEventListener("click", async () => {
+                        btnUpdateTimestamps.disabled = true;
                         const parsedValues = {};
 
                         // Input validity check
@@ -1620,6 +1629,7 @@
 
                         if (hasError) {
                             Dashboard.alert("Unable to save: One or more timestamps are invalid. Please check the highlighted fields.");
+                            btnUpdateTimestamps.disabled = false;
                             return;
                         }
 
@@ -1635,6 +1645,7 @@
                             const selectedOption = selectEpisode1.options[selectEpisode1.selectedIndex];
                             if (!selectedOption) {
                                 Dashboard.alert("Please select an episode first");
+                                btnUpdateTimestamps.disabled = false;
                                 return;
                             }
                             lhsId = selectedOption.value;
@@ -1667,6 +1678,8 @@
                             Dashboard.alert("New segment timestamps saved");
                         } catch (error) {
                             Dashboard.alert("Failed to save timestamps: " + error.message);
+                        } finally {
+                            btnUpdateTimestamps.disabled = false;
                         }
                     });
 
@@ -1675,6 +1688,8 @@
                             if (!result) {
                                 return;
                             }
+
+                            btnSeasonEraseTimestamps.disabled = true;
 
                             const show = selectShow.value;
                             const season = selectSeason.value;
@@ -1693,6 +1708,8 @@
                                 document.getElementById("eraseSeasonCacheCheckbox").checked = false;
                             } catch (error) {
                                 Dashboard.alert("Failed to erase timestamps for " + season + " of " + show + ": " + error.message);
+                            } finally {
+                                btnSeasonEraseTimestamps.disabled = false;
                             }
                         });
                     });
@@ -1702,6 +1719,8 @@
                             if (!result) {
                                 return;
                             }
+
+                            btnMovieEraseTimestamps.disabled = true;
 
                             const show = selectShow.value;
                             const eraseCacheChecked = document.getElementById("eraseMovieCacheCheckbox").checked;
@@ -1719,6 +1738,8 @@
                                 document.getElementById("eraseMovieCacheCheckbox").checked = false;
                             } catch (error) {
                                 Dashboard.alert("Failed to erase timestamps for " + show + ": " + error.message);
+                            } finally {
+                                btnMovieEraseTimestamps.disabled = false;
                             }
                         });
                     });
@@ -1747,6 +1768,7 @@
                     });
 
                     btnRebuildDatabase.addEventListener("click", async () => {
+                        btnRebuildDatabase.disabled = true;
                         try {
                             const response = await fetchWithAuth("Intros/RebuildDatabase", "POST", null);
                             if (!response.ok) {
@@ -1754,6 +1776,8 @@
                             }
                         } catch (error) {
                             Dashboard.alert("Failed to rebuild database: " + error.message);
+                        } finally {
+                            btnRebuildDatabase.disabled = false;
                         }
                     });
 
