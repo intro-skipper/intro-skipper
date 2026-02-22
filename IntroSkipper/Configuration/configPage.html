@@ -905,6 +905,34 @@
                     const btnEraseGlobalTimestamps = document.getElementById("btnEraseGlobalTimestamps");
 
                     const recapPreviewDurations = document.getElementById("RecapPreviewDurations");
+                    const editableSegmentDefinitions = [
+                        { jsonKey: "Introduction", domPrefix: "Intro" },
+                        { jsonKey: "Credits", domPrefix: "Credit" },
+                        { jsonKey: "Recap", domPrefix: "Recap" },
+                        { jsonKey: "Preview", domPrefix: "Preview" },
+                    ];
+
+                    function applyEpisodeTimestampValues(side, episodeJson) {
+                        for (const segment of editableSegmentDefinitions) {
+                            const startInput = document.querySelector("#edit" + side + segment.domPrefix + "EpisodeStartEdit");
+                            const endInput = document.querySelector("#edit" + side + segment.domPrefix + "EpisodeEndEdit");
+                            startInput.value = episodeJson[segment.jsonKey].Start;
+                            endInput.value = episodeJson[segment.jsonKey].End;
+                        }
+                    }
+
+                    function buildTimestampPayload(side, itemId, parsedValues) {
+                        const payload = {};
+                        for (const segment of editableSegmentDefinitions) {
+                            payload[segment.jsonKey] = {
+                                ItemId: itemId,
+                                Start: parsedValues["edit" + side + segment.domPrefix + "EpisodeStartEdit"],
+                                End: parsedValues["edit" + side + segment.domPrefix + "EpisodeEndEdit"],
+                            };
+                        }
+
+                        return payload;
+                    }
 
                     // Hide or show durations for segments that are exclusively analyzed by chapters
                     function fullLengthChaptersChanged() {
@@ -1321,14 +1349,7 @@
                         // Update the editor for the first episode
                         timestampEditor.style.display = "unset";
                         document.querySelector("#editLeftEpisodeTitle").textContent = leftEpisode.text;
-                        document.querySelector("#editLeftIntroEpisodeStartEdit").value = leftEpisodeJson.Introduction.Start;
-                        document.querySelector("#editLeftIntroEpisodeEndEdit").value = leftEpisodeJson.Introduction.End;
-                        document.querySelector("#editLeftCreditEpisodeStartEdit").value = leftEpisodeJson.Credits.Start;
-                        document.querySelector("#editLeftCreditEpisodeEndEdit").value = leftEpisodeJson.Credits.End;
-                        document.querySelector("#editLeftRecapEpisodeStartEdit").value = leftEpisodeJson.Recap.Start;
-                        document.querySelector("#editLeftRecapEpisodeEndEdit").value = leftEpisodeJson.Recap.End;
-                        document.querySelector("#editLeftPreviewEpisodeStartEdit").value = leftEpisodeJson.Preview.Start;
-                        document.querySelector("#editLeftPreviewEpisodeEndEdit").value = leftEpisodeJson.Preview.End;
+                        applyEpisodeTimestampValues("Left", leftEpisodeJson);
 
                         // Update the editor for the second episode
                         if (rightEpisodeEditor.style.display !== "none") {
@@ -1343,14 +1364,7 @@
 
                             // Update the editor for the second episode
                             document.querySelector("#editRightEpisodeTitle").textContent = rightEpisode.text;
-                            document.querySelector("#editRightIntroEpisodeStartEdit").value = rightEpisodeJson.Introduction.Start;
-                            document.querySelector("#editRightIntroEpisodeEndEdit").value = rightEpisodeJson.Introduction.End;
-                            document.querySelector("#editRightCreditEpisodeStartEdit").value = rightEpisodeJson.Credits.Start;
-                            document.querySelector("#editRightCreditEpisodeEndEdit").value = rightEpisodeJson.Credits.End;
-                            document.querySelector("#editRightRecapEpisodeStartEdit").value = rightEpisodeJson.Recap.Start;
-                            document.querySelector("#editRightRecapEpisodeEndEdit").value = rightEpisodeJson.Recap.End;
-                            document.querySelector("#editRightPreviewEpisodeStartEdit").value = rightEpisodeJson.Preview.Start;
-                            document.querySelector("#editRightPreviewEpisodeEndEdit").value = rightEpisodeJson.Preview.End;
+                            applyEpisodeTimestampValues("Right", rightEpisodeJson);
                         }
 
                         // Update display inputs
@@ -1449,15 +1463,23 @@
                         const body = "Are you sure you want to erase all previously discovered " + mode.toLocaleLowerCase() + " timestamps?";
                         const eraseCacheChecked = document.getElementById("eraseModeCacheCheckbox").checked;
 
-                        Dashboard.confirm(body, title, (result) => {
+                        Dashboard.confirm(body, title, async (result) => {
                             if (!result) {
                                 return;
                             }
 
-                            fetchWithAuth("Intros/EraseTimestamps?mode=" + mode + "&eraseCache=" + eraseCacheChecked, "POST", null);
+                            try {
+                                const response = await fetchWithAuth("Intros/EraseTimestamps?mode=" + mode + "&eraseCache=" + eraseCacheChecked, "POST", null);
+                                if (!response.ok) {
+                                    Dashboard.alert("Failed to erase " + lower + " timestamps (HTTP " + response.status + ").");
+                                    return;
+                                }
 
-                            Dashboard.alert(mode + " timestamps erased");
-                            document.getElementById("eraseModeCacheCheckbox").checked = false;
+                                Dashboard.alert(mode + " timestamps erased");
+                                document.getElementById("eraseModeCacheCheckbox").checked = false;
+                            } catch (error) {
+                                Dashboard.alert("Failed to erase " + lower + " timestamps: " + error.message);
+                            }
                         });
                     }
 
@@ -1536,7 +1558,7 @@
                     selectEpisode1.addEventListener("change", episodeChanged);
                     selectEpisode2.addEventListener("change", episodeChanged);
 
-                    saveAnalyzerActionsButton.addEventListener("click", () => {
+                    saveAnalyzerActionsButton.addEventListener("click", async () => {
                         Dashboard.showLoadingMsg();
 
                         const url = "Intros/AnalyzerActions/UpdateSeason";
@@ -1551,10 +1573,19 @@
                             },
                         };
 
-                        fetchWithAuth(url, "POST", JSON.stringify(actions));
+                        try {
+                            const response = await fetchWithAuth(url, "POST", JSON.stringify(actions));
+                            if (!response.ok) {
+                                Dashboard.alert("Failed to update analyzer actions (HTTP " + response.status + ").");
+                                return;
+                            }
 
-                        Dashboard.alert("Analyzer actions updated for " + selectSeason.value + " of " + selectShow.value);
-                        Dashboard.hideLoadingMsg();
+                            Dashboard.alert("Analyzer actions updated for " + selectSeason.value + " of " + selectShow.value);
+                        } catch (error) {
+                            Dashboard.alert("Failed to update analyzer actions: " + error.message);
+                        } finally {
+                            Dashboard.hideLoadingMsg();
+                        }
                     });
 
                     scanSeasonButton.addEventListener("click", async () => {
@@ -1565,7 +1596,7 @@
                         Dashboard.hideLoadingMsg();
                     });
 
-                    btnUpdateTimestamps.addEventListener("click", () => {
+                    btnUpdateTimestamps.addEventListener("click", async () => {
                         const parsedValues = {};
 
                         // Input validity check
@@ -1609,68 +1640,38 @@
                             lhsId = selectedOption.value;
                         }
 
-                        const newLhs = {
-                            Introduction: {
-                                ItemId: lhsId,
-                                Start: parsedValues["editLeftIntroEpisodeStartEdit"],
-                                End: parsedValues["editLeftIntroEpisodeEndEdit"],
-                            },
-                            Credits: {
-                                ItemId: lhsId,
-                                Start: parsedValues["editLeftCreditEpisodeStartEdit"],
-                                End: parsedValues["editLeftCreditEpisodeEndEdit"],
-                            },
-                            Recap: {
-                                ItemId: lhsId,
-                                Start: parsedValues["editLeftRecapEpisodeStartEdit"],
-                                End: parsedValues["editLeftRecapEpisodeEndEdit"],
-                            },
-                            Preview: {
-                                ItemId: lhsId,
-                                Start: parsedValues["editLeftPreviewEpisodeStartEdit"],
-                                End: parsedValues["editLeftPreviewEpisodeEndEdit"],
-                            },
-                        };
+                        const newLhs = buildTimestampPayload("Left", lhsId, parsedValues);
 
-                        // Save the first/left timestamps
-                        fetchWithAuth("Episode/" + lhsId + "/Timestamps", "POST", JSON.stringify(newLhs));
-
-                        // For TV shows, also save the second episode's timestamps
-                        if (!isMovie && rightEpisodeEditor.style.display !== "none") {
-                            const rhsSelectedOption = selectEpisode2.options[selectEpisode2.selectedIndex];
-                            if (rhsSelectedOption) {
-                                const rhsId = rhsSelectedOption.value;
-                                const newRhs = {
-                                    Introduction: {
-                                        ItemId: rhsId,
-                                        Start: parsedValues["editRightIntroEpisodeStartEdit"],
-                                        End: parsedValues["editRightIntroEpisodeEndEdit"],
-                                    },
-                                    Credits: {
-                                        ItemId: rhsId,
-                                        Start: parsedValues["editRightCreditEpisodeStartEdit"],
-                                        End: parsedValues["editRightCreditEpisodeEndEdit"],
-                                    },
-                                    Recap: {
-                                        ItemId: rhsId,
-                                        Start: parsedValues["editRightRecapEpisodeStartEdit"],
-                                        End: parsedValues["editRightRecapEpisodeEndEdit"],
-                                    },
-                                    Preview: {
-                                        ItemId: rhsId,
-                                        Start: parsedValues["editRightPreviewEpisodeStartEdit"],
-                                        End: parsedValues["editRightPreviewEpisodeEndEdit"],
-                                    },
-                                };
-                                fetchWithAuth("Episode/" + rhsId + "/Timestamps", "POST", JSON.stringify(newRhs));
+                        try {
+                            // Save the first/left timestamps
+                            const leftResponse = await fetchWithAuth("Episode/" + lhsId + "/Timestamps", "POST", JSON.stringify(newLhs));
+                            if (!leftResponse.ok) {
+                                Dashboard.alert("Failed to save timestamps for first item (HTTP " + leftResponse.status + ").");
+                                return;
                             }
-                        }
 
-                        Dashboard.alert("New segment timestamps saved");
+                            // For TV shows, also save the second episode's timestamps
+                            if (!isMovie && rightEpisodeEditor.style.display !== "none") {
+                                const rhsSelectedOption = selectEpisode2.options[selectEpisode2.selectedIndex];
+                                if (rhsSelectedOption) {
+                                    const rhsId = rhsSelectedOption.value;
+                                    const newRhs = buildTimestampPayload("Right", rhsId, parsedValues);
+                                    const rightResponse = await fetchWithAuth("Episode/" + rhsId + "/Timestamps", "POST", JSON.stringify(newRhs));
+                                    if (!rightResponse.ok) {
+                                        Dashboard.alert("Saved first item, but failed to save second item (HTTP " + rightResponse.status + ").");
+                                        return;
+                                    }
+                                }
+                            }
+
+                            Dashboard.alert("New segment timestamps saved");
+                        } catch (error) {
+                            Dashboard.alert("Failed to save timestamps: " + error.message);
+                        }
                     });
 
                     btnSeasonEraseTimestamps.addEventListener("click", () => {
-                        Dashboard.confirm("Are you sure you want to erase all timestamps for this season?", "Confirm timestamp erasure", (result) => {
+                        Dashboard.confirm("Are you sure you want to erase all timestamps for this season?", "Confirm timestamp erasure", async (result) => {
                             if (!result) {
                                 return;
                             }
@@ -1680,15 +1681,24 @@
                             const eraseCacheChecked = document.getElementById("eraseSeasonCacheCheckbox").checked;
 
                             const url = "Intros/Show/" + encodeURIComponent(show) + "/" + encodeURIComponent(season);
-                            fetchWithAuth(url + "?eraseCache=" + eraseCacheChecked, "DELETE", null);
 
-                            Dashboard.alert("Erased timestamps for " + season + " of " + show);
-                            document.getElementById("eraseSeasonCacheCheckbox").checked = false;
+                            try {
+                                const response = await fetchWithAuth(url + "?eraseCache=" + eraseCacheChecked, "DELETE", null);
+                                if (!response.ok) {
+                                    Dashboard.alert("Failed to erase timestamps for " + season + " of " + show + " (HTTP " + response.status + ").");
+                                    return;
+                                }
+
+                                Dashboard.alert("Erased timestamps for " + season + " of " + show);
+                                document.getElementById("eraseSeasonCacheCheckbox").checked = false;
+                            } catch (error) {
+                                Dashboard.alert("Failed to erase timestamps for " + season + " of " + show + ": " + error.message);
+                            }
                         });
                     });
 
                     btnMovieEraseTimestamps.addEventListener("click", () => {
-                        Dashboard.confirm("Are you sure you want to erase all timestamps for this movie?", "Confirm timestamp erasure", (result) => {
+                        Dashboard.confirm("Are you sure you want to erase all timestamps for this movie?", "Confirm timestamp erasure", async (result) => {
                             if (!result) {
                                 return;
                             }
@@ -1697,10 +1707,19 @@
                             const eraseCacheChecked = document.getElementById("eraseMovieCacheCheckbox").checked;
 
                             const url = "Intros/Show/" + encodeURIComponent(show);
-                            fetchWithAuth(url + "?eraseCache=" + eraseCacheChecked, "DELETE", null);
 
-                            Dashboard.alert("Erased timestamps for " + show);
-                            document.getElementById("eraseMovieCacheCheckbox").checked = false;
+                            try {
+                                const response = await fetchWithAuth(url + "?eraseCache=" + eraseCacheChecked, "DELETE", null);
+                                if (!response.ok) {
+                                    Dashboard.alert("Failed to erase timestamps for " + show + " (HTTP " + response.status + ").");
+                                    return;
+                                }
+
+                                Dashboard.alert("Erased timestamps for " + show);
+                                document.getElementById("eraseMovieCacheCheckbox").checked = false;
+                            } catch (error) {
+                                Dashboard.alert("Failed to erase timestamps for " + show + ": " + error.message);
+                            }
                         });
                     });
 
@@ -1727,8 +1746,15 @@
                         e.preventDefault();
                     });
 
-                    btnRebuildDatabase.addEventListener("click", () => {
-                        fetchWithAuth("Intros/RebuildDatabase", "POST", null);
+                    btnRebuildDatabase.addEventListener("click", async () => {
+                        try {
+                            const response = await fetchWithAuth("Intros/RebuildDatabase", "POST", null);
+                            if (!response.ok) {
+                                Dashboard.alert("Failed to rebuild database (HTTP " + response.status + ").");
+                            }
+                        } catch (error) {
+                            Dashboard.alert("Failed to rebuild database: " + error.message);
+                        }
                     });
 
                     document.getElementById("btnInjectSkipButtonCss").addEventListener("click", async () => {
