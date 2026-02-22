@@ -1,4 +1,4 @@
-﻿// Copyright (C) 2026 Intro-Skipper contributors <intro-skipper.org>
+// Copyright (C) 2026 Intro-Skipper contributors <intro-skipper.org>
 // SPDX-License-Identifier: GPL-3.0-only
 
 using System;
@@ -410,7 +410,7 @@ public partial class QueueManager(ILogger<QueueManager> logger, ILibraryManager 
 
                 foreach (var mode in modes)
                 {
-                    if (hasSegments.TryGetValue(mode, out var seg))
+                    if (hasSegments.TryGetValue(mode, out _))
                     {
                         candidate.SetAnalyzed(mode, EpisodeState.Analyzed);
                     }
