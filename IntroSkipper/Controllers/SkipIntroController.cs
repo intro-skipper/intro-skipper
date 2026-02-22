@@ -54,16 +54,7 @@ public class SkipIntroController(MediaSegmentUpdateManager mediaSegmentUpdateMan
             return NoContent();
         }
 
-        var segmentTypes = new[]
-        {
-            (AnalysisMode.Introduction, timestamps.Introduction),
-            (AnalysisMode.Credits, timestamps.Credits),
-            (AnalysisMode.Recap, timestamps.Recap),
-            (AnalysisMode.Preview, timestamps.Preview),
-            (AnalysisMode.Commercial, timestamps.Commercial)
-        };
-
-        foreach (var (mode, segment) in segmentTypes)
+        foreach (var (mode, segment) in EnumerateSegments(timestamps))
         {
             if (segment.Valid)
             {
@@ -107,30 +98,7 @@ public class SkipIntroController(MediaSegmentUpdateManager mediaSegmentUpdateMan
         var times = new TimeStamps();
         var segments = Plugin.Instance!.GetTimestamps(id);
 
-        if (segments.TryGetValue(AnalysisMode.Introduction, out var introSegment))
-        {
-            times.Introduction = introSegment;
-        }
-
-        if (segments.TryGetValue(AnalysisMode.Credits, out var creditSegment))
-        {
-            times.Credits = creditSegment;
-        }
-
-        if (segments.TryGetValue(AnalysisMode.Recap, out var recapSegment))
-        {
-            times.Recap = recapSegment;
-        }
-
-        if (segments.TryGetValue(AnalysisMode.Preview, out var previewSegment))
-        {
-            times.Preview = previewSegment;
-        }
-
-        if (segments.TryGetValue(AnalysisMode.Commercial, out var commercialSegment))
-        {
-            times.Commercial = commercialSegment;
-        }
+        ApplySegmentsToTimestamps(times, segments);
 
         return times;
     }
@@ -173,6 +141,40 @@ public class SkipIntroController(MediaSegmentUpdateManager mediaSegmentUpdateMan
         }
 
         return result;
+    }
+
+    private static IEnumerable<(AnalysisMode Mode, Segment Segment)> EnumerateSegments(TimeStamps timestamps)
+    {
+        yield return (AnalysisMode.Introduction, timestamps.Introduction);
+        yield return (AnalysisMode.Credits, timestamps.Credits);
+        yield return (AnalysisMode.Recap, timestamps.Recap);
+        yield return (AnalysisMode.Preview, timestamps.Preview);
+        yield return (AnalysisMode.Commercial, timestamps.Commercial);
+    }
+
+    private static void ApplySegmentsToTimestamps(TimeStamps times, IReadOnlyDictionary<AnalysisMode, Segment> segments)
+    {
+        foreach (var (mode, segment) in segments)
+        {
+            switch (mode)
+            {
+                case AnalysisMode.Introduction:
+                    times.Introduction = segment;
+                    break;
+                case AnalysisMode.Credits:
+                    times.Credits = segment;
+                    break;
+                case AnalysisMode.Recap:
+                    times.Recap = segment;
+                    break;
+                case AnalysisMode.Preview:
+                    times.Preview = segment;
+                    break;
+                case AnalysisMode.Commercial:
+                    times.Commercial = segment;
+                    break;
+            }
+        }
     }
 
     /// <summary>
