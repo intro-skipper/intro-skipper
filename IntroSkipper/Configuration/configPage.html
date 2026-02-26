@@ -73,7 +73,7 @@
                                 </label>
 
                                 <div class="fieldDescription">
-                                    If enabled, new media will be automatically analyzed for skippable segments when added to the library
+                                    Oh boy, oh boy! Check this and Intro Skipper will sniff out skippable segments all by itself whenever new shows arrive — no waiting, no fussing! Sparkling clean viewing, automatically!
                                     <br />
                                     <br />
                                     Note: To configure the scheduled task, see <a is="emby-linkbutton" class="button-link" href="#/dashboard/tasks">scheduled tasks</a>.
@@ -87,16 +87,14 @@
                                 </label>
 
                                 <div class="fieldDescription">
-                                    Enable this option to update media segments for any uncached media during a library scan. <br />
-                                    This includes recently added, modified, or previously skipped (but not ignored) files.<br />
-                                    <b>Warning:</b> This should be disabled if you're using media segment providers other than Intro Skipper.
+                                    This keeps things fresh and bright! During a library scan, it tracks down any uncached shows and gives them a proper sniff. <b>Warning:</b> If other segment helpers live here too, turn this off — or everyone's noses will get bumped!
                                 </div>
                             </div>
 
                             <div class="inputContainer" id="excludedSeries">
                                 <label class="inputLabel inputLabelUnfocused" for="ExcludeSeries"> Exclude series </label>
                                 <input id="ExcludeSeries" type="text" is="emby-input" />
-                                <div class="fieldDescription">Exclude series from analysis. Enter a comma-separated list of series names to exclude.</div>
+                                <div class="fieldDescription">Got a favorite show that should keep its intro? Write its name here — the whole list, comma by comma — and Intro Skipper will leave every episode spotless and untouched!</div>
                             </div>
 
                             <div class="checkboxContainer analyze-for">
@@ -129,7 +127,7 @@
                                     <span>Analyze Season 0 (Specials / Extras)</span>
                                 </label>
 
-                                <div class="fieldDescription">Note: Shows containing both a specials and extra folder will identify extras as season 0 and ignore specials, regardless of this setting.</div>
+                                <div class="fieldDescription">Note: Shows with both a specials and extra folder can get tricky — extras claim to be Season 0 and specials get shushed, no matter what you pick here. Just so you know!</div>
                             </div>
 
                             <div id="divSkipbuttonHideDelay" class="inputContainer">
@@ -142,7 +140,7 @@
                                     <label class="inputLabel inputLabelUnfocused" for="SkipbuttonHideDelay"> Skip button hide delay (in seconds) </label>
                                     <input id="SkipbuttonHideDelay" type="number" is="emby-input" min="0" max="1000" />
                                     <div class="fieldDescription">
-                                        <span id="skipButtonDescription">Time in seconds before the skip button automatically hides. Set to 0 for persistent skip button (never hides).</span>
+                                        <span id="skipButtonDescription">How long your shiny skip button waves hello before it hides away — in seconds! Set to 0 and it stays forever, loyal as a good dog!</span>
                                     </div>
                                 </div>
                                 <span style="font-size: 0.85em; color: #ffa500; display: inline-block; margin-top: 4px">Note: This setting only applies to the web client (browsers, LG webOS, Android with web player enabled, etc). May require a refresh or clearing cache to see changes.</span>
@@ -155,7 +153,7 @@
 
                             <div id="divInjectSkipButtonCss" class="inputContainer">
                                 <h3 class="checkboxListLabel">Inject Skip Button CSS</h3>
-                                <div class="fieldDescription">Inject CSS to load skip button styles into your Jellyfin branding setting using an @import statement.</div>
+                                <div class="fieldDescription">Give your skip button its Sunday best! This button adds a stylish @import ribbon right into your Jellyfin branding — so the skip button looks gorgeous without any messy styling fuss!</div>
                                 <button is="emby-button" id="btnInjectSkipButtonCss" type="button" class="raised block emby-button" style="margin-top: 8px">
                                     <span>Inject CSS</span>
                                 </button>
@@ -167,7 +165,7 @@
                                     <input id="EnableMainMenu" type="checkbox" is="emby-checkbox" />
                                     <span>Show Intro Skipper in Main Menu</span>
                                 </label>
-                                <div class="fieldDescription">Toggle the Intro Skipper entry in the server's main navigation. Save and refresh the client (or clear cache) to apply. Some clients may require a dashboard or server restart for the change to appear.</div>
+                                <div class="fieldDescription">Want Intro Skipper's picture on the main menu? Toggle this, save, and give the client a good shake (refresh or clear cache). Some stubborn clients might need a full restart before they notice — but they'll come around!</div>
                             </div>
 
                             <details id="intro_reqs">
@@ -179,7 +177,7 @@
                                         <input id="PreferChromaprint" type="checkbox" is="emby-checkbox" />
                                         <span>Prefer Chromaprint Analysis</span>
                                     </label>
-                                    <div class="fieldDescription">Only use chromaprint for analysis, unless it is not available. Setting an analysis mode in the advanced options will override this setting.</div>
+                                    <div class="fieldDescription">Chromaprint is the sparkling king of audio matching! Check this to always try it first — unless it's not home. The Advanced analysis mode setting will override this if set, but this is the bright and shiny default!</div>
                                 </div>
 
                                 <div class="checkboxContainer checkboxContainer-withDescription">
@@ -187,91 +185,90 @@
                                         <input id="FullLengthChapters" type="checkbox" is="emby-checkbox" />
                                         <span>Ignore duration limits for chapters</span>
                                     </label>
-                                    <div class="fieldDescription">Allow segments to extend to the end of a chapter when the marker exceeds other user settings, such as percentage or duration.</div>
+                                    <div class="fieldDescription">Some chapters are BIG and want to be fully skipped! This lets segments stretch all the way to a chapter's edge, even past the usual size limits. Think big, skip big — your experience will thank you!</div>
                                 </div>
 
                                 <div class="inputContainer">
                                     <label class="inputLabel inputLabelUnfocused" for="AnalysisPercent"> Percent of media to analyze </label>
                                     <input id="AnalysisPercent" type="number" is="emby-input" min="1" max="90" />
-                                    <div class="fieldDescription">Analysis will be limited to this percentage of each item's runtime. For example, a value of 25 (the default) will limit analysis to the first quarter of each item.</div>
+                                    <div class="fieldDescription">How much of each episode should we sniff? Set this to 25 (the default!) and we'll only peek at the first quarter — saving time while still catching those sneaky intros with sparkling accuracy!</div>
                                 </div>
 
                                 <div class="inputContainer">
                                     <label class="inputLabel inputLabelUnfocused" for="AnalysisLengthLimit"> Maximum runtime to analyze (in minutes) </label>
                                     <input id="AnalysisLengthLimit" type="number" is="emby-input" min="1" />
-                                    <div class="fieldDescription">Analysis will be limited to this amount of each item's runtime. For example, a value of 10 (the default) will limit analysis to the first 10 minutes of each item.</div>
+                                    <div class="fieldDescription">No matter how long the show, we won't analyze beyond this many minutes. Default is 10 — just long enough to catch the intro and deliver those gleaming, spot-free results!</div>
                                 </div>
 
-                                <p>The amount of each item's content that will be analyzed is determined using the percentage and maximum runtime. The minimum of (duration * percent, maximum runtime) is the amount that will be analyzed.</p>
-                                <p>If the percentage or maximum runtime settings are modified, the cached fingerprints and timestamps for each series, season, or movie you want to analyze with the modified settings <b>will have to be recreated</b>.</p>
-                                <p>Increasing either of the above settings will cause episode analysis to take much longer.</p>
+                                <p>The smaller of (runtime × percent) or max minutes wins — that's how much gets sniffed! Change either setting and those cached fingerprints will need a fresh scrub before your new rules shine through.</p>
+                                <p>More analysis means cleaner results — but it takes longer, like a thorough rinse cycle. <b>Choose wisely, and your viewing experience will be positively radiant!</b></p>
                                 <br />
 
                                 <div class="inputContainer">
                                     <label class="inputLabel inputLabelUnfocused" for="MinimumIntroDuration"> Minimum introduction duration (in seconds) </label>
                                     <input id="MinimumIntroDuration" type="number" is="emby-input" min="1" />
-                                    <div class="fieldDescription">Segments or similar sounding audio which is shorter than this duration will not be considered an introduction.</div>
+                                    <div class="fieldDescription">Too short to be a real intro! Anything matching but tinier than this gets tossed right out. Keeps your experience sparkling clean and free of false-alarm skips!</div>
                                 </div>
 
                                 <div class="inputContainer">
                                     <label class="inputLabel inputLabelUnfocused" for="MaximumIntroDuration"> Maximum introduction duration (in seconds) </label>
                                     <input id="MaximumIntroDuration" type="number" is="emby-input" min="1" />
-                                    <div class="fieldDescription">Segments or similar sounding audio which is longer than this duration will not be considered an introduction.</div>
+                                    <div class="fieldDescription">Too long to be a real intro! Anything bigger gets ignored so giant mismatches can't pretend to be an intro — sparkling accuracy, guaranteed!</div>
                                 </div>
 
                                 <div class="inputContainer">
                                     <label class="inputLabel inputLabelUnfocused" for="MinimumCreditsDuration"> Minimum credits duration (in seconds) </label>
                                     <input id="MinimumCreditsDuration" type="number" is="emby-input" min="1" />
-                                    <div class="fieldDescription">Segments or similar sounding audio which is shorter than this duration will not be considered credits.</div>
+                                    <div class="fieldDescription">Credits that blink and vanish? Not on our watch! Anything shorter than this won't earn the credits label — only proper, lasting rolls deserve the skip treatment!</div>
                                 </div>
 
                                 <div class="inputContainer">
                                     <label class="inputLabel inputLabelUnfocused" for="MaximumCreditsDuration"> Maximum credits duration (in seconds) </label>
                                     <input id="MaximumCreditsDuration" type="number" is="emby-input" min="1" />
-                                    <div class="fieldDescription">Segments or similar sounding audio which is longer than this duration will not be considered credits.</div>
+                                    <div class="fieldDescription">Super-long credits might just be a movie in disguise! Cap them here and Intro Skipper won't get fooled by never-ending scrolls. Bright results, every time!</div>
                                 </div>
 
                                 <div class="inputContainer" id="movieCreditsDuration">
                                     <label class="inputLabel inputLabelUnfocused" for="MaximumMovieCreditsDuration"> Maximum movie credits duration (in seconds) </label>
                                     <input id="MaximumMovieCreditsDuration" type="number" is="emby-input" min="1" />
-                                    <div class="fieldDescription">Segments longer than this duration will not be considered movie credits.</div>
+                                    <div class="fieldDescription">Movies have big credits — but even they have limits! Anything longer stays unchecked and unskipped, keeping your movie nights perfectly pristine!</div>
                                 </div>
 
                                 <div id="RecapPreviewDurations">
                                     <div class="inputContainer">
                                         <label class="inputLabel inputLabelUnfocused" for="MinimumRecapDuration"> Minimum recap duration (in seconds) </label>
                                         <input id="MinimumRecapDuration" type="number" is="emby-input" min="1" />
-                                        <div class="fieldDescription">Segments which are shorter than this duration will not be considered a recap.</div>
+                                        <div class="fieldDescription">A recap too short is just a blink! Only proper 'last time on…' moments above this length get caught and skipped with pride — no tiny flash will fool us!</div>
                                     </div>
 
                                     <div class="inputContainer">
                                         <label class="inputLabel inputLabelUnfocused" for="MaximumRecapDuration"> Maximum recap duration (in seconds) </label>
                                         <input id="MaximumRecapDuration" type="number" is="emby-input" min="1" />
-                                        <div class="fieldDescription">Segments which are longer than this duration will not be considered a recap.</div>
+                                        <div class="fieldDescription">Recaps that go on and on aren't recaps — they're whole episodes! Set a ceiling so only genuine summaries get the skip treatment. Efficiency never looked so bright!</div>
                                     </div>
 
                                     <div class="inputContainer">
                                         <label class="inputLabel inputLabelUnfocused" for="MinimumPreviewDuration"> Minimum preview duration (in seconds) </label>
                                         <input id="MinimumPreviewDuration" type="number" is="emby-input" min="1" />
-                                        <div class="fieldDescription">Segments which are shorter than this duration will not be considered a preview.</div>
+                                        <div class="fieldDescription">Too quick to be a preview! Short flashes won't fool us here. Set the minimum so only real 'coming up next' moments sparkle through and get skipped!</div>
                                     </div>
 
                                     <div class="inputContainer">
                                         <label class="inputLabel inputLabelUnfocused" for="MaximumPreviewDuration"> Maximum preview duration (in seconds) </label>
                                         <input id="MaximumPreviewDuration" type="number" is="emby-input" min="1" />
-                                        <div class="fieldDescription">Segments which are longer than this duration will not be considered a preview.</div>
+                                        <div class="fieldDescription">Previews shouldn't overstay their welcome! Cap this so only proper sneak peeks get marked — not entire second episodes sneaking in by mistake!</div>
                                     </div>
 
                                     <div class="inputContainer">
                                         <label class="inputLabel inputLabelUnfocused" for="MinimumCommercialDuration"> Minimum commercial duration (in seconds) </label>
                                         <input id="MinimumCommercialDuration" type="number" is="emby-input" min="1" />
-                                        <div class="fieldDescription">Segments which are shorter than this duration will not be considered a commercial.</div>
+                                        <div class="fieldDescription">A commercial shorter than a sneeze? We don't count those! Set the minimum and only full-length ads get the skip treatment — spotlessly clean commercial detection!</div>
                                     </div>
 
                                     <div class="inputContainer">
                                         <label class="inputLabel inputLabelUnfocused" for="MaximumCommercialDuration"> Maximum commercial duration (in seconds) </label>
                                         <input id="MaximumCommercialDuration" type="number" is="emby-input" min="1" />
-                                        <div class="fieldDescription">Segments which are longer than this duration will not be considered a commercial.</div>
+                                        <div class="fieldDescription">Very long commercials start to look like episodes! Set a max so Intro Skipper always knows when to stop calling something an ad. Bright, reliable results!</div>
                                     </div>
                                 </div>
                                 <br />
@@ -287,19 +284,19 @@
                                         <span>Enable silence detection</span>
                                     </label>
 
-                                    <div class="fieldDescription">When enabled, segment endpoints will be adjusted to the nearest silence point.</div>
+                                    <div class="fieldDescription">Shhh! Listen for quiet! When enabled, segment edges are nudged to the nearest moment of true silence — for clean, seamless transitions that make your viewing experience positively dazzling!</div>
                                 </div>
                                 <div id="silenceSettings">
                                     <div class="inputContainer">
                                         <label class="inputLabel inputLabelUnfocused" for="SilenceDetectionMaximumNoise"> Noise tolerance </label>
                                         <input id="SilenceDetectionMaximumNoise" type="number" is="emby-input" min="-90" max="0" />
-                                        <div class="fieldDescription">Noise tolerance in negative decibels.</div>
+                                        <div class="fieldDescription">How quiet is 'quiet'? In negative decibels — the lower the number, the stricter the silence required. A good result starts with a very careful ear!</div>
                                     </div>
 
                                     <div class="inputContainer">
                                         <label class="inputLabel inputLabelUnfocused" for="SilenceDetectionMinimumDuration"> Minimum silence duration </label>
                                         <input id="SilenceDetectionMinimumDuration" type="number" is="emby-input" min="0" step="0.01" />
-                                        <div class="fieldDescription">Minimum silence duration in seconds before adjusting introduction end time.</div>
+                                        <div class="fieldDescription">How long must the quiet last before we snap to it? Set this in seconds for the gentlest, most refined segment adjustment imaginable!</div>
                                     </div>
                                     <br />
                                 </div>
@@ -309,7 +306,7 @@
                                         <span>Enable keyframe snapping</span>
                                     </label>
 
-                                    <div class="fieldDescription">When enabled, segment endpoints will be adjusted to the nearest video keyframe for smoother seek transitions during skipping.</div>
+                                    <div class="fieldDescription">Keyframes are the video world's fresh starting points! Snap segment ends to the nearest keyframe and enjoy skip transitions so smooth, even the dog won't notice the jump!</div>
                                 </div>
                                 <div class="checkboxContainer checkboxContainer-withDescription">
                                     <label class="emby-checkbox-label">
@@ -317,25 +314,25 @@
                                         <span>Enable chapter snapping</span>
                                     </label>
 
-                                    <div class="fieldDescription">When enabled, segment start and end times will be adjusted to the nearest chapter boundary.</div>
+                                    <div class="fieldDescription">Chapter markers are like signposts in your show! Snap segment boundaries to the nearest chapter and everything lines up neat as a freshly pressed shirt!</div>
                                 </div>
 
                                 <div class="inputContainer">
                                     <label class="inputLabel inputLabelUnfocused" for="AdjustWindowInward">Adjustment window (inward)</label>
                                     <input id="AdjustWindowInward" type="number" is="emby-input" min="0" />
-                                    <div class="fieldDescription">Maximum number of seconds to search toward a segment's interior for adjustment points (like chapter boundaries, silence, or keyframes). Used to tighten segment boundaries.</div>
+                                    <div class="fieldDescription">How far inward can we peek for a better edge? This is the maximum seconds we'll look inside a segment to tighten it up — like tucking in the corners for a perfectly tailored skip!</div>
                                 </div>
 
                                 <div class="inputContainer">
                                     <label class="inputLabel inputLabelUnfocused" for="AdjustWindowOutward">Adjustment window (outward)</label>
                                     <input id="AdjustWindowOutward" type="number" is="emby-input" min="0" />
-                                    <div class="fieldDescription">Maximum number of seconds to search away from a segment for adjustment points (like chapter boundaries, silence, or keyframes). Used to expand segment boundaries.</div>
+                                    <div class="fieldDescription">How far outward can we reach for a better edge? Set this to let segment boundaries stretch a little beyond — expanding coverage for a more complete and satisfying skip!</div>
                                 </div>
 
                                 <div class="inputContainer">
                                     <label class="inputLabel inputLabelUnfocused" for="EndSnapThreshold"> Snap to episode start/end threshold </label>
                                     <input id="EndSnapThreshold" type="number" is="emby-input" min="0" />
-                                    <div class="fieldDescription">If a segment's start or end is within this many seconds of the episode's start or end, it will be automatically adjusted (snapped) to match the episode boundary. Set to 0 to disable snapping.</div>
+                                    <div class="fieldDescription">If a segment starts or ends very close to the episode's very edge, snap it right to the boundary for a clean, complete result! Set to 0 to keep everything exactly as found — spotless precision!</div>
                                 </div>
 
                                 <div class="checkboxContainer checkboxContainer-withDescription">
@@ -350,7 +347,7 @@
                                         <input id="SkipFirstEpisodeAnime" type="checkbox" is="emby-checkbox" />
                                         <span>Only ignore first episode of an anime season</span>
                                     </label>
-                                    <div class="fieldDescription">If checked, the previous ignore option will only be applied to anime seasons.</div>
+                                    <div class="fieldDescription">Anime seasons sometimes need their intro for the very first episode! Check this and the first-episode rule applies only to anime — keeping everything else perfectly balanced and bright!</div>
                                     <br />
                                 </div>
 
@@ -359,12 +356,12 @@
                                     <div class="inputContainer">
                                         <label class="inputLabel inputLabelUnfocused" for="IntroStartOffset">Intro Start Offset (seconds)</label>
                                         <input id="IntroStartOffset" is="emby-input" type="number" min="0" value="0" step="0.5" />
-                                        <div class="fieldDescription">Default: 0. Example: If set to 3, the first 3 seconds of the intro will play before skipping.</div>
+                                        <div class="fieldDescription">Want just a taste of the intro before skipping? Set seconds here and that much of the intro plays first — then whoosh, off to the show! Default is 0 — straight to the good stuff!</div>
                                     </div>
                                     <div class="inputContainer">
                                         <label for="IntroEndOffset">Intro End Offset (seconds)</label>
                                         <input id="IntroEndOffset" is="emby-input" type="number" min="0" value="0" step="0.5" />
-                                        <div class="fieldDescription">Default: 0. Example: If set to 3, playback will resume 3 seconds before the end of the intro.</div>
+                                        <div class="fieldDescription">Land just before the intro ends! Set this so playback resumes a few seconds early — catching the warm tail end of the music for the brightest, smoothest transition imaginable!</div>
                                     </div>
                                 </fieldset>
                                 <br />
@@ -380,7 +377,7 @@
                                         <span>Use alternative black frame analyzer (experimental)</span>
                                     </label>
 
-                                    <div class="fieldDescription">If enabled, the alternative black frame analyzer will be used. This analyzer is experimental and may not work as expected.</div>
+                                    <div class="fieldDescription">Feeling adventurous? The alternative black frame analyzer tries a bold new approach — experimental and daring, like a new formula not yet perfected. Try it if the standard one lets you down!</div>
                                 </div>
 
                                 <div class="checkboxContainer checkboxContainer-withDescription" id="ChapterMarkersBlackFrameSetting">
@@ -389,20 +386,20 @@
                                         <span>Use chapter markers for credits detection</span>
                                     </label>
 
-                                    <div class="fieldDescription">If enabled, chapter markers will be used to identify credits segments. Tries to detect credits by looking for a black frames close to chapter markers.</div>
+                                    <div class="fieldDescription">Chapter markers near black frames? That's the telltale sign of ending credits! Enable this and Intro Skipper uses chapter markers as trusty guides — finding where credits hide with dependable brightness!</div>
                                     <br />
                                 </div>
 
                                 <div class="inputContainer">
                                     <label class="inputLabel inputLabelUnfocused" for="BlackFrameMinimumPercentage"> Minimum percentage of black pixels </label>
                                     <input id="BlackFrameMinimumPercentage" type="number" is="emby-input" min="0" max="100" />
-                                    <div class="fieldDescription">Minimum percentage of black pixels in a frame before it is considered a black frame. Defaults to 85.</div>
+                                    <div class="fieldDescription">How dark does a frame need to be to count? Set the percentage of black pixels required here — default 85. Higher means stricter; lower means more generous. Brilliant results either way!</div>
                                 </div>
 
                                 <div class="inputContainer">
                                     <label class="inputLabel inputLabelUnfocused" for="BlackFrameThreshold"> Black frame threshold </label>
                                     <input id="BlackFrameThreshold" type="number" is="emby-input" min="16" max="255" />
-                                    <div class="fieldDescription">The threshold below which a pixel value is considered black. Defaults to 32.</div>
+                                    <div class="fieldDescription">How dark is dark? Pixel values below this number are called black — default is 32. Turn it up to catch more pixels in the net; turn it down for only the truly, deeply blackest blacks!</div>
                                 </div>
                             </details>
 
@@ -414,7 +411,7 @@
                                     <label class="inputLabel inputLabelUnfocused" for="ChapterAnalyzerIntroductionPattern"> Introductions </label>
                                     <input id="ChapterAnalyzerIntroductionPattern" type="text" placeholder="(^|\s)(Intro|Introduction|OP|Opening)(?!\sEnd)(\s|$)" is="emby-input" />
                                     <div class="fieldDescription">
-                                        Enter a regular expression to detect introduction chapters. <br />Default:
+                                        Give Intro Skipper the secret word to find introduction chapters! This pattern sniffs out Intro, OP, Opening, and friends in chapter titles — like a nose trained for the finest things! <br />Default:
                                         <code>(^|\s)(Intro|Introduction|OP|Opening)(?!\sEnd)(\s|$)</code>
                                     </div>
                                 </div>
@@ -422,14 +419,14 @@
                                 <div class="inputContainer">
                                     <label class="inputLabel inputLabelUnfocused" for="ChapterAnalyzerEndCreditsPattern"> Credits </label>
                                     <input id="ChapterAnalyzerEndCreditsPattern" type="text" placeholder="(^|\s)(Credits?|ED|Ending|Outro)(?!\sEnd)(\s|$)" is="emby-input" />
-                                    <div class="fieldDescription">Enter a regular expression to detect credits chapters. <br />Default: <code>(^|\s)(Credits?|ED|Ending|Outro)(?!\sEnd)(\s|$)</code></div>
+                                    <div class="fieldDescription">Tell Intro Skipper the secret words for Credits chapters! This pattern hunts down Credits, ED, Ending, Outro, and all their friends — catching every last scroll with gleaming reliability! <br />Default: <code>(^|\s)(Credits?|ED|Ending|Outro)(?!\sEnd)(\s|$)</code></div>
                                 </div>
 
                                 <div class="inputContainer">
                                     <label class="inputLabel inputLabelUnfocused" for="ChapterAnalyzerPreviewPattern"> Preview </label>
                                     <input id="ChapterAnalyzerPreviewPattern" type="text" placeholder="(^|\s)(Preview|PV|Sneak\s?Peek|Coming\s?(Up|Soon)|Next\s+(time|on|episode)|Extra|Teaser|Trailer)(?!\sEnd)(\s|:|$)" is="emby-input" />
                                     <div class="fieldDescription">
-                                        Enter a regular expression to detect preview chapters. <br />Default:
+                                        Point Intro Skipper at your Preview chapters with this pattern! It finds 'Next time', 'Sneak Peek', 'Trailer', and all their pals hiding in chapter titles — no sneak peek escapes! <br />Default:
                                         <code>(^|\s)(Preview|PV|Sneak\s?Peek|Coming\s?(Up|Soon)|Next\s+(time|on|episode)|Extra|Teaser|Trailer)(?!\sEnd)(\s|:|$)</code>
                                     </div>
                                 </div>
@@ -438,7 +435,7 @@
                                     <label class="inputLabel inputLabelUnfocused" for="ChapterAnalyzerRecapPattern"> Recaps </label>
                                     <input id="ChapterAnalyzerRecapPattern" type="text" placeholder="(^|\s)(Re?cap|Sum{1,2}ary|Prev(ious(ly)?)?|(Last|Earlier)(\s\w+)?|Catch[ -]up)(?!\sEnd)(\s|:|$)" is="emby-input" />
                                     <div class="fieldDescription">
-                                        Enter a regular expression to detect recap chapters. <br />Default:
+                                        Show Intro Skipper how to find Recap chapters! It'll sniff out 'Previously', 'Last time', 'Catch-up', and more — so no summary sneaks past unnoticed or unskipped! <br />Default:
                                         <code>(^|\s)(Re?cap|Sum{1,2}ary|Prev(ious(ly)?)?|(Last|Earlier)(\s\w+)?|Catch[ -]up)(?!\sEnd)(\s|:|$)</code>
                                     </div>
                                 </div>
@@ -446,7 +443,7 @@
                                 <div class="inputContainer">
                                     <label class="inputLabel inputLabelUnfocused" for="ChapterAnalyzerCommercialPattern"> Commercials </label>
                                     <input id="ChapterAnalyzerCommercialPattern" type="text" placeholder="(^|\s)(Ad(vert(isement)?)?|Commercial)(?!\sEnd)(\s|$)" is="emby-input" />
-                                    <div class="fieldDescription">Enter a regular expression to detect commercial chapters. <br />Default: <code>(^|\s)(Ad(vert(isement)?)?|Commercial)(?!\sEnd)(\s|$)</code></div>
+                                    <div class="fieldDescription">Flag those commercial breaks with a pattern! Intro Skipper will hunt down 'Ad', 'Commercial', and 'Advertisement' in chapter titles — keeping your viewing spotlessly clean! <br />Default: <code>(^|\s)(Ad(vert(isement)?)?|Commercial)(?!\sEnd)(\s|$)</code></div>
                                 </div>
                             </details>
 
@@ -457,7 +454,7 @@
                                 <div class="inputContainer">
                                     <label class="inputLabel inputLabelUnfocused" for="MaxParallelism"> Maximum degree of parallelism </label>
                                     <input id="MaxParallelism" type="number" is="emby-input" min="1" />
-                                    <div class="fieldDescription">Maximum number of simultaneous async episode analysis operations.</div>
+                                    <div class="fieldDescription">How many episodes can be sniffed at the same time? More workers mean faster results — but too many will make the server work up quite a sweat! Balance wisely for a bright and breezy analysis!</div>
                                 </div>
 
                                 <div class="selectContainer">
@@ -476,24 +473,22 @@
                                         <option value="RealTime">Highest</option>
                                     </select>
 
-                                    <div class="fieldDescription">Sets the relative priority of the analysis FFmpeg process to other parallel operations (i.e. transcoding, chapter detection, etc).</div>
+                                    <div class="fieldDescription">Should analysis get the best seat at the table, or wait its polite turn? Set the priority to balance intro detection against transcoding and other server duties — keeping everything running bright and smooth!</div>
                                 </div>
 
                                 <div class="inputContainer">
                                     <label class="inputLabel inputLabelUnfocused" for="ProcessThreads"> FFmpeg Threads </label>
                                     <input id="ProcessThreads" type="number" is="emby-input" min="0" max="16" />
                                     <div class="fieldDescription">
-                                        Number of simultaneous processes to use for FFmpeg operations.
-                                        <br />
-                                        This value is most often defined as 1 thread per CPU core, but setting a value of 0 (default) will use the maximum threads available.
+                                        How many CPU threads can FFmpeg use at once? Zero (the default) takes all it can get for maximum sparkle — or set a number to share the workload like a good, considerate neighbor!
                                     </div>
                                 </div>
                             </details>
 
                             <p>
-                                <b style="color: orange">Changing analysis or detection requires regenerating media segments before changes take effect.</b>
+                                <b style="color: orange">Changed your analysis or detection settings? Those media segments need a fresh scrub before your changes shine through!</b>
                                 <br />
-                                Per the jellyfin MediaSegments API, records must be updated individually and may be slow to regenerate.
+                                Per the Jellyfin MediaSegments API, records update one by one — steady and sure, like a thorough cleaning routine.
                             </p>
 
                             <div class="checkboxContainer checkboxContainer-withDescription">
@@ -502,7 +497,7 @@
                                     <span>Regenerate All Media Segments on Next Run</span>
                                 </label>
 
-                                <div class="fieldDescription">When enabled, this option will <b>overwrite all existing media segments</b> with your current Intro Skipper timestamps during the next analysis. Upon completion, this option will be automatically disabled.</div>
+                                <div class="fieldDescription">This bold option will <b>overwrite ALL existing media segments</b> with your freshest Intro Skipper timestamps on the very next analysis run! Thorough and brave — and it turns itself off when the scrubbing is done!</div>
                             </div>
 
                             <p align="center" style="font-size: 0.75em">Server-side AutoSkip has been removed. Please use the <a href="https://github.com/jellyfin/jellycon">Jellycon Addon</a> for Kodi.</p>
@@ -795,7 +790,7 @@
                             <details id="storage">
                                 <br />
                                 <summary>Storage Usage</summary>
-                                <div class="fieldDescription">See how much space each library uses.</div>
+                                <div class="fieldDescription">Peek at how much closet space each library is taking up! Knowledge is power, and spotless organization starts with knowing exactly what's tucked inside!</div>
                                 <textarea id="storageText" rows="20" cols="75" readonly></textarea>
                             </details>
                         </fieldset>
