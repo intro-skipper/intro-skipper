@@ -77,7 +77,7 @@ jobs:
       - name: Upload unsigned package artifacts
         if: ${{ github.repository == 'intro-skipper/intro-skipper' && !inputs.skip_signing }}
         id: upload-unsigned-artifact
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         with:
           name: IntroSkipper-${{ env.NEW_FILE_VERSION }}-unsigned
           path: IntroSkipper/bin/Release/${{ env.DOTNET_TFM }}/IntroSkipper.dll
