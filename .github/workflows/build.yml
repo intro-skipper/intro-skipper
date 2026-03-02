@@ -86,7 +86,7 @@ jobs:
         run: dotnet build --no-restore
 
       - name: Upload artifact
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         with:
           name: IntroSkipper-${{ env.GIT_HASH }}.dll
           path: IntroSkipper/bin/Debug/${{ env.DOTNET_TFM }}/IntroSkipper.dll
