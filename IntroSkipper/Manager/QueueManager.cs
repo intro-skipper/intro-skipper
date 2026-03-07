@@ -91,6 +91,10 @@ public partial class QueueManager(ILogger<QueueManager> logger, ILibraryManager 
             {
                 await QueueLibraryContents(folderId, cancellationToken).ConfigureAwait(false);
             }
+            catch (OperationCanceledException)
+            {
+                throw;
+            }
             catch (Exception ex)
             {
                 LogFailedEnqueueLibrary(_logger, folder.Name, ex);
@@ -182,6 +186,10 @@ public partial class QueueManager(ILogger<QueueManager> logger, ILibraryManager 
                 {
                     LogItemNotEpisodeOrMovie(_logger, item.Name);
                 }
+            }
+            catch (OperationCanceledException)
+            {
+                throw;
             }
             catch (Exception ex)
             {

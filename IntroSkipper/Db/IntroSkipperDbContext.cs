@@ -157,7 +157,7 @@ public class IntroSkipperDbContext : DbContext
         {
             throw; // Don't swallow cancellation
         }
-        catch (Exception ex)
+        catch (Exception ex) when (ex is SqliteException or DbUpdateException or JsonException)
         {
             if (!forceCleanOnBackupFailure)
             {
@@ -205,14 +205,30 @@ public class IntroSkipperDbContext : DbContext
             throw new InvalidOperationException("Cannot delete a database file when the context was created without a configured database path.");
         }
 
+        // Close this context's own connection before clearing pools, so nothing holds a lock.
+        Database.CloseConnection();
         SqliteConnection.ClearAllPools();
 
-        foreach (var path in new[] { dbPath, dbPath + "-wal", dbPath + "-shm" })
+        // Attempt to delete all files, collecting failures so one locked file doesn't prevent the rest.
+        List<(string Path, Exception Exception)>? failures = null;
+        foreach (var path in new[] { dbPath, dbPath + "-wal", dbPath + "-shm" }.Where(File.Exists))
         {
-            if (File.Exists(path))
+            try
             {
                 File.Delete(path);
             }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                failures ??= [];
+                failures.Add((path, ex));
+            }
+        }
+
+        if (failures is { Count: > 0 })
+        {
+            throw new AggregateException(
+                $"Failed to delete {failures.Count} database file(s): {string.Join(", ", failures.Select(f => f.Path))}",
+                failures.Select(f => f.Exception));
         }
     }
 

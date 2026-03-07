@@ -210,10 +210,9 @@ public sealed partial class MediaSegmentsFirstEpisodeFilter(
 
     private static MediaSegmentDto[] FilterSegments(IEnumerable<MediaSegmentDto>? segments)
     {
-        return segments?
-            .Where(segment => segment.Type != MediaSegmentType.Intro)
-            .ToArray()
-            ?? [];
+        return segments is null
+            ? []
+            : [.. segments.Where(segment => segment.Type != MediaSegmentType.Intro)];
     }
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "MediaSegments request missing item id. Route: {RouteValues}")]

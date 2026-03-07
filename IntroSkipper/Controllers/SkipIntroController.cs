@@ -189,13 +189,10 @@ public class SkipIntroController(MediaSegmentUpdateManager mediaSegmentUpdateMan
     public async Task<ActionResult> ResetIntroTimestamps([FromQuery] AnalysisMode mode, [FromQuery] bool eraseCache = false, CancellationToken cancellationToken = default)
     {
         using var db = Plugin.CreateDbContext();
-        var segments = await db.DbSegment
+        await db.DbSegment
             .Where(s => s.Type == mode)
-            .ToListAsync(cancellationToken)
+            .ExecuteDeleteAsync(cancellationToken)
             .ConfigureAwait(false);
-
-        db.DbSegment.RemoveRange(segments);
-        await db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
 
         if (eraseCache && mode is AnalysisMode.Introduction or AnalysisMode.Credits)
         {
@@ -214,8 +211,9 @@ public class SkipIntroController(MediaSegmentUpdateManager mediaSegmentUpdateMan
     [HttpPost("Intros/RebuildDatabase")]
     public async Task<ActionResult> RebuildDatabase()
     {
+        // Database rebuild is destructive and must run to completion — do not bind to HttpContext.RequestAborted.
         using var db = Plugin.CreateDbContext();
-        await db.RebuildDatabaseAsync(Plugin.CreateDbContext, cancellationToken: HttpContext.RequestAborted).ConfigureAwait(false);
+        await db.RebuildDatabaseAsync(Plugin.CreateDbContext).ConfigureAwait(false);
         return NoContent();
     }
 }

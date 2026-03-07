@@ -148,8 +148,12 @@ public partial class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
     /// Creates a new <see cref="IntroSkipperDbContext"/> instance configured for the plugin database.
     /// </summary>
     /// <returns>A new <see cref="IntroSkipperDbContext"/>.</returns>
+    /// <exception cref="ArgumentNullException">Thrown when the plugin has not been initialized.</exception>
     public static IntroSkipperDbContext CreateDbContext()
-        => new(Instance!.DbPath);
+    {
+        ArgumentNullException.ThrowIfNull(Instance);
+        return new IntroSkipperDbContext(Instance.DbPath);
+    }
 
     /// <inheritdoc />
     public IEnumerable<PluginPageInfo> GetPages()
@@ -213,9 +217,10 @@ public partial class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
     internal async Task CleanTimestampsAsync(IEnumerable<Guid> episodeIds, CancellationToken cancellationToken = default)
     {
         using var db = CreateDbContext();
-        db.DbSegment.RemoveRange(db.DbSegment
-            .Where(s => !episodeIds.Contains(s.ItemId)));
-        await db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+        await db.DbSegment
+            .Where(s => !episodeIds.Contains(s.ItemId))
+            .ExecuteDeleteAsync(cancellationToken)
+            .ConfigureAwait(false);
     }
 
     internal async Task SetAnalyzerActionAsync(Guid id, IReadOnlyDictionary<AnalysisMode, AnalyzerAction> analyzerActions, CancellationToken cancellationToken = default)
@@ -272,7 +277,7 @@ public partial class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
     internal async Task<SeasonQueueSnapshot> GetSeasonQueueSnapshotAsync(Guid seasonId, IReadOnlyCollection<Guid> episodeIds, CancellationToken cancellationToken = default)
     {
         using var db = CreateDbContext();
-        var episodeIdArray = episodeIds.Distinct().ToArray();
+        var episodeIdArray = (Guid[])[.. episodeIds.Distinct()];
 
         var seasonInfos = await db.DbSeasonInfo
             .AsNoTracking()
@@ -289,7 +294,7 @@ public partial class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
                 .ConfigureAwait(false);
 
         return new SeasonQueueSnapshot(
-            seasonInfos.ToDictionary(s => s.Type, s => s.EpisodeIds.ToHashSet()),
+            seasonInfos.ToDictionary(s => s.Type, s => (IReadOnlySet<Guid>)s.EpisodeIds.ToHashSet()),
             segments
                 .GroupBy(s => s.ItemId)
                 .ToDictionary(
@@ -327,11 +332,10 @@ public partial class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
     internal async Task CleanSeasonInfoAsync(IEnumerable<Guid> ids, CancellationToken cancellationToken = default)
     {
         using var db = CreateDbContext();
-        var obsoleteSeasons = await db.DbSeasonInfo
+        await db.DbSeasonInfo
             .Where(s => !ids.Contains(s.SeasonId))
-            .ToListAsync(cancellationToken).ConfigureAwait(false);
-        db.DbSeasonInfo.RemoveRange(obsoleteSeasons);
-        await db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+            .ExecuteDeleteAsync(cancellationToken)
+            .ConfigureAwait(false);
     }
 
     internal static AnalysisMode MapSegmentTypeToMode(MediaSegmentType type)

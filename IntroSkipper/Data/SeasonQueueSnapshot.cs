@@ -12,5 +12,5 @@ namespace IntroSkipper.Data;
 /// <param name="EpisodeIdsByMode">Episode identifiers grouped by analysis mode.</param>
 /// <param name="SegmentsByEpisodeId">Existing segments grouped by episode and analysis mode.</param>
 internal sealed record SeasonQueueSnapshot(
-    IReadOnlyDictionary<AnalysisMode, HashSet<Guid>> EpisodeIdsByMode,
+    IReadOnlyDictionary<AnalysisMode, IReadOnlySet<Guid>> EpisodeIdsByMode,
     IReadOnlyDictionary<Guid, IReadOnlyDictionary<AnalysisMode, Segment>> SegmentsByEpisodeId);

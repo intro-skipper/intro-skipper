@@ -6,6 +6,7 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.Globalization;
 using System.IO;
+using System.Linq;
 using System.Text;
 using System.Text.RegularExpressions;
 using IntroSkipper.Data;
@@ -368,13 +369,8 @@ public static partial class FFmpegWrapper
         }
 
         // Print all remaining logs
-        foreach (var kvp in ChromaprintLogs)
+        foreach (var kvp in ChromaprintLogs.Where(kvp => kvp.Key is not "error" and not "version"))
         {
-            if (kvp.Key == "error" || kvp.Key == "version")
-            {
-                continue;
-            }
-
             logs += FormatFFmpegLog(kvp.Key);
         }
 
@@ -739,18 +735,14 @@ public static partial class FFmpegWrapper
     /// <param name="mode">Analysis mode.</param>
     public static void DeleteCacheFiles(AnalysisMode mode)
     {
-        foreach (var filePath in Directory.EnumerateFiles(Plugin.Instance!.FingerprintCachePath))
+        foreach (var filePath in Directory.EnumerateFiles(Plugin.Instance!.FingerprintCachePath)
+            .Where(f => mode == AnalysisMode.Introduction
+                ? !f.Contains("credit", StringComparison.OrdinalIgnoreCase)
+                    && !f.Contains("blackframes", StringComparison.OrdinalIgnoreCase)
+                : f.Contains("credit", StringComparison.OrdinalIgnoreCase)
+                    || f.Contains("blackframes", StringComparison.OrdinalIgnoreCase)))
         {
-            var shouldDelete = (mode == AnalysisMode.Introduction)
-                    ? !filePath.Contains("credit", StringComparison.OrdinalIgnoreCase)
-                    && !filePath.Contains("blackframes", StringComparison.OrdinalIgnoreCase)
-                    : filePath.Contains("credit", StringComparison.OrdinalIgnoreCase)
-                    || filePath.Contains("blackframes", StringComparison.OrdinalIgnoreCase);
-
-            if (shouldDelete)
-            {
-                File.Delete(filePath);
-            }
+            File.Delete(filePath);
         }
     }
 

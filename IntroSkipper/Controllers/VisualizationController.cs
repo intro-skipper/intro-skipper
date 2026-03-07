@@ -181,14 +181,13 @@ public partial class VisualizationController(ILogger<VisualizationController> lo
         {
             using var db = Plugin.CreateDbContext();
 
-            // Batch-load all segments for this season's episodes in a single query
-            var episodeIds = episodes.Select(e => e.EpisodeId).ToArray();
-            var existingSegments = await db.DbSegment
+            // ExecuteDeleteAsync runs a single server-side DELETE and bypasses the change tracker.
+            // This is safe here because the tracked operations below target DbSeasonInfo, not DbSegment.
+            var episodeIds = episodes.Select(e => e.EpisodeId).ToHashSet();
+            await db.DbSegment
                 .Where(s => episodeIds.Contains(s.ItemId))
-                .ToListAsync(cancellationToken)
+                .ExecuteDeleteAsync(cancellationToken)
                 .ConfigureAwait(false);
-
-            db.DbSegment.RemoveRange(existingSegments);
 
             if (eraseCache)
             {
@@ -218,6 +217,10 @@ public partial class VisualizationController(ILogger<VisualizationController> lo
             }
 
             return NoContent();
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
         }
         catch (Exception ex)
         {
