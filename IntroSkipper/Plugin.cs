@@ -6,11 +6,11 @@ using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Threading;
 using System.Threading.Tasks;
 using IntroSkipper.Configuration;
 using IntroSkipper.Data;
 using IntroSkipper.Db;
-using IntroSkipper.Helper;
 using Jellyfin.Database.Implementations.Enums;
 using MediaBrowser.Common.Configuration;
 using MediaBrowser.Common.Plugins;
@@ -85,7 +85,7 @@ public partial class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
         // Initialize database, restore timestamps if available.
         try
         {
-            using var db = new IntroSkipperDbContext(_dbPath);
+            using var db = CreateDbContext();
             db.ApplyMigrations();
         }
         catch (Exception ex)
@@ -144,6 +144,13 @@ public partial class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
     /// </summary>
     public static Plugin? Instance { get; private set; }
 
+    /// <summary>
+    /// Creates a new <see cref="IntroSkipperDbContext"/> instance configured for the plugin database.
+    /// </summary>
+    /// <returns>A new <see cref="IntroSkipperDbContext"/>.</returns>
+    public static IntroSkipperDbContext CreateDbContext()
+        => new(Instance!.DbPath);
+
     /// <inheritdoc />
     public IEnumerable<PluginPageInfo> GetPages()
     {
@@ -166,14 +173,14 @@ public partial class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
 
     internal IReadOnlyList<ChapterInfo> GetChapters(Guid id) => _chapterRepository.GetChapters(id);
 
-    internal async Task UpdateTimestampAsync(Segment segment, AnalysisMode mode)
+    internal async Task UpdateTimestampAsync(Segment segment, AnalysisMode mode, CancellationToken cancellationToken = default)
     {
-        using var db = new IntroSkipperDbContext(_dbPath);
+        using var db = CreateDbContext();
 
         try
         {
             var existing = await db.DbSegment
-                .FirstOrDefaultAsync(s => s.ItemId == segment.EpisodeId && s.Type == mode)
+                .FirstOrDefaultAsync(s => s.ItemId == segment.EpisodeId && s.Type == mode, cancellationToken)
                 .ConfigureAwait(false);
 
             var dbSegment = new DbSegment(segment, mode);
@@ -186,7 +193,7 @@ public partial class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
                 db.DbSegment.Add(dbSegment);
             }
 
-            await db.SaveChangesAsync().ConfigureAwait(false);
+            await db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
         }
         catch (Exception ex)
         {
@@ -195,27 +202,28 @@ public partial class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
         }
     }
 
-    internal IReadOnlyDictionary<AnalysisMode, Segment> GetTimestamps(Guid id)
+    internal async Task<IReadOnlyDictionary<AnalysisMode, Segment>> GetTimestampsAsync(Guid id, CancellationToken cancellationToken = default)
     {
-        using var db = new IntroSkipperDbContext(_dbPath);
-        return db.DbSegment.Where(s => s.ItemId == id)
-            .ToDictionary(s => s.Type, s => s.ToSegment());
+        using var db = CreateDbContext();
+        return await db.DbSegment.Where(s => s.ItemId == id)
+            .ToDictionaryAsync(s => s.Type, s => s.ToSegment(), cancellationToken)
+            .ConfigureAwait(false);
     }
 
-    internal async Task CleanTimestamps(IEnumerable<Guid> episodeIds)
+    internal async Task CleanTimestampsAsync(IEnumerable<Guid> episodeIds, CancellationToken cancellationToken = default)
     {
-        using var db = new IntroSkipperDbContext(_dbPath);
+        using var db = CreateDbContext();
         db.DbSegment.RemoveRange(db.DbSegment
             .Where(s => !episodeIds.Contains(s.ItemId)));
-        await db.SaveChangesAsync().ConfigureAwait(false);
+        await db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
     }
 
-    internal async Task SetAnalyzerActionAsync(Guid id, IReadOnlyDictionary<AnalysisMode, AnalyzerAction> analyzerActions)
+    internal async Task SetAnalyzerActionAsync(Guid id, IReadOnlyDictionary<AnalysisMode, AnalyzerAction> analyzerActions, CancellationToken cancellationToken = default)
     {
-        using var db = new IntroSkipperDbContext(_dbPath);
+        using var db = CreateDbContext();
         var existingEntries = await db.DbSeasonInfo
             .Where(s => s.SeasonId == id)
-            .ToDictionaryAsync(s => s.Type)
+            .ToDictionaryAsync(s => s.Type, cancellationToken)
             .ConfigureAwait(false);
 
         foreach (var (mode, action) in analyzerActions)
@@ -230,13 +238,15 @@ public partial class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
             }
         }
 
-        await db.SaveChangesAsync().ConfigureAwait(false);
+        await db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
     }
 
-    internal async Task SetEpisodeIdsAsync(Guid id, AnalysisMode mode, IEnumerable<Guid> episodeIds)
+    internal async Task SetEpisodeIdsAsync(Guid id, AnalysisMode mode, IEnumerable<Guid> episodeIds, CancellationToken cancellationToken = default)
     {
-        using var db = new IntroSkipperDbContext(_dbPath);
-        var seasonInfo = db.DbSeasonInfo.FirstOrDefault(s => s.SeasonId == id && s.Type == mode);
+        using var db = CreateDbContext();
+        var seasonInfo = await db.DbSeasonInfo
+            .FirstOrDefaultAsync(s => s.SeasonId == id && s.Type == mode, cancellationToken)
+            .ConfigureAwait(false);
 
         if (seasonInfo is null)
         {
@@ -248,30 +258,80 @@ public partial class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
             db.Entry(seasonInfo).Property(s => s.EpisodeIds).CurrentValue = episodeIds;
         }
 
-        await db.SaveChangesAsync().ConfigureAwait(false);
+        await db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
     }
 
-    internal IReadOnlyDictionary<AnalysisMode, IEnumerable<Guid>> GetEpisodeIds(Guid id)
+    internal async Task<IReadOnlyDictionary<AnalysisMode, IEnumerable<Guid>>> GetEpisodeIdsAsync(Guid id, CancellationToken cancellationToken = default)
     {
-        using var db = new IntroSkipperDbContext(_dbPath);
-        return db.DbSeasonInfo.Where(s => s.SeasonId == id)
-            .ToDictionary(s => s.Type, s => s.EpisodeIds);
+        using var db = CreateDbContext();
+        return await db.DbSeasonInfo.Where(s => s.SeasonId == id)
+            .ToDictionaryAsync(s => s.Type, s => s.EpisodeIds, cancellationToken)
+            .ConfigureAwait(false);
     }
 
-    internal AnalyzerAction GetAnalyzerAction(Guid id, AnalysisMode mode)
+    internal async Task<SeasonQueueSnapshot> GetSeasonQueueSnapshotAsync(Guid seasonId, IReadOnlyCollection<Guid> episodeIds, CancellationToken cancellationToken = default)
     {
-        using var db = new IntroSkipperDbContext(_dbPath);
-        return db.DbSeasonInfo.FirstOrDefault(s => s.SeasonId == id && s.Type == mode)?.Action ?? AnalyzerAction.Default;
+        using var db = CreateDbContext();
+        var episodeIdArray = episodeIds.Distinct().ToArray();
+
+        var seasonInfos = await db.DbSeasonInfo
+            .AsNoTracking()
+            .Where(s => s.SeasonId == seasonId)
+            .ToListAsync(cancellationToken)
+            .ConfigureAwait(false);
+
+        var segments = episodeIdArray.Length == 0
+            ? []
+            : await db.DbSegment
+                .AsNoTracking()
+                .Where(s => episodeIdArray.Contains(s.ItemId))
+                .ToListAsync(cancellationToken)
+                .ConfigureAwait(false);
+
+        return new SeasonQueueSnapshot(
+            seasonInfos.ToDictionary(s => s.Type, s => s.EpisodeIds.ToHashSet()),
+            segments
+                .GroupBy(s => s.ItemId)
+                .ToDictionary(
+                    group => group.Key,
+                    group => (IReadOnlyDictionary<AnalysisMode, Segment>)group.ToDictionary(segment => segment.Type, segment => segment.ToSegment())));
     }
 
-    internal async Task CleanSeasonInfoAsync(IEnumerable<Guid> ids)
+    internal async Task<IReadOnlyDictionary<AnalysisMode, AnalyzerAction>> GetAllAnalyzerActionsAsync(Guid seasonId, CancellationToken cancellationToken = default)
     {
-        using var db = new IntroSkipperDbContext(_dbPath);
+        using var db = CreateDbContext();
+        var infos = await db.DbSeasonInfo
+            .Where(s => s.SeasonId == seasonId)
+            .ToDictionaryAsync(s => s.Type, s => s.Action, cancellationToken)
+            .ConfigureAwait(false);
+
+        // Fill in defaults for any missing modes
+        var result = new Dictionary<AnalysisMode, AnalyzerAction>();
+        foreach (var mode in Enum.GetValues<AnalysisMode>())
+        {
+            result[mode] = infos.TryGetValue(mode, out var action) ? action : AnalyzerAction.Default;
+        }
+
+        return result;
+    }
+
+    internal async Task<AnalyzerAction> GetAnalyzerActionAsync(Guid id, AnalysisMode mode, CancellationToken cancellationToken = default)
+    {
+        using var db = CreateDbContext();
+        var info = await db.DbSeasonInfo
+            .FirstOrDefaultAsync(s => s.SeasonId == id && s.Type == mode, cancellationToken)
+            .ConfigureAwait(false);
+        return info?.Action ?? AnalyzerAction.Default;
+    }
+
+    internal async Task CleanSeasonInfoAsync(IEnumerable<Guid> ids, CancellationToken cancellationToken = default)
+    {
+        using var db = CreateDbContext();
         var obsoleteSeasons = await db.DbSeasonInfo
             .Where(s => !ids.Contains(s.SeasonId))
-            .ToListAsync().ConfigureAwait(false);
+            .ToListAsync(cancellationToken).ConfigureAwait(false);
         db.DbSeasonInfo.RemoveRange(obsoleteSeasons);
-        await db.SaveChangesAsync().ConfigureAwait(false);
+        await db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
     }
 
     internal static AnalysisMode MapSegmentTypeToMode(MediaSegmentType type)
@@ -292,20 +352,21 @@ public partial class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
     /// </summary>
     /// <param name="itemId">The item id whose timestamp should be removed.</param>
     /// <param name="mode">The analysis mode representing the segment type.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>A <see cref="Task"/> representing the asynchronous operation.</returns>
-    internal async Task DeleteTimestampAsync(Guid itemId, AnalysisMode mode)
+    internal async Task DeleteTimestampAsync(Guid itemId, AnalysisMode mode, CancellationToken cancellationToken = default)
     {
-        using var db = new IntroSkipperDbContext(_dbPath);
-        var entry = await db.DbSegment.FirstOrDefaultAsync(s => s.ItemId == itemId && s.Type == mode).ConfigureAwait(false);
+        using var db = CreateDbContext();
+        var entry = await db.DbSegment.FirstOrDefaultAsync(s => s.ItemId == itemId && s.Type == mode, cancellationToken).ConfigureAwait(false);
         if (entry is not null)
         {
             db.DbSegment.Remove(entry);
-            await db.SaveChangesAsync().ConfigureAwait(false);
+            await db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
         }
     }
 
-    [LoggerMessage(Level = LogLevel.Warning, Message = "Error initializing database: {Exception}")]
-    private static partial void LogDatabaseInitializationError(ILogger logger, object exception);
+    [LoggerMessage(Level = LogLevel.Warning, Message = "Error initializing database")]
+    private static partial void LogDatabaseInitializationError(ILogger logger, Exception exception);
 
     [LoggerMessage(Level = LogLevel.Error, Message = "Failed to update timestamp for episode {EpisodeId}")]
     private static partial void LogFailedToUpdateTimestamp(ILogger logger, Exception ex, Guid episodeId);

@@ -5,6 +5,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
+using IntroSkipper.Helper;
 using Jellyfin.Data.Enums;
 using Jellyfin.Database.Implementations.Enums;
 using Jellyfin.Extensions;
@@ -136,8 +137,7 @@ public sealed partial class MediaSegmentsFirstEpisodeFilter(
 
         // When anime restriction is enabled, only filter anime series
         return episode.Series is Series series &&
-            (series.Tags.Contains("anime", StringComparison.OrdinalIgnoreCase) ||
-            series.Genres.Contains("anime", StringComparison.OrdinalIgnoreCase));
+            SeriesHelper.IsAnime(series);
     }
 
     private static bool IsMediaSegmentsRequest(ResultExecutingContext context)

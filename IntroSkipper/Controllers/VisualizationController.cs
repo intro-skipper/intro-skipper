@@ -9,7 +9,6 @@ using System.Net.Mime;
 using System.Threading;
 using System.Threading.Tasks;
 using IntroSkipper.Data;
-using IntroSkipper.Db;
 using IntroSkipper.Manager;
 using IntroSkipper.ScheduledTasks;
 using MediaBrowser.Common.Api;
@@ -19,6 +18,7 @@ using MediaBrowser.Model.IO;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 
 namespace IntroSkipper.Controllers;
@@ -113,20 +113,17 @@ public partial class VisualizationController(ILogger<VisualizationController> lo
     /// Returns the analyzer actions for the provided season.
     /// </summary>
     /// <param name="seasonId">Season ID.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>List of episode titles.</returns>
     [HttpGet("AnalyzerActions/{SeasonId}")]
-    public ActionResult<IReadOnlyDictionary<AnalysisMode, AnalyzerAction>> GetAnalyzerAction([FromRoute] Guid seasonId)
+    public async Task<ActionResult<IReadOnlyDictionary<AnalysisMode, AnalyzerAction>>> GetAnalyzerAction([FromRoute] Guid seasonId, CancellationToken cancellationToken = default)
     {
         if (!Plugin.Instance!.QueuedMediaItems.ContainsKey(seasonId))
         {
             return NotFound();
         }
 
-        var analyzerActions = new Dictionary<AnalysisMode, AnalyzerAction>();
-        foreach (var mode in Enum.GetValues<AnalysisMode>())
-        {
-            analyzerActions[mode] = Plugin.Instance!.GetAnalyzerAction(seasonId, mode);
-        }
+        var analyzerActions = await Plugin.Instance!.GetAllAnalyzerActionsAsync(seasonId, cancellationToken).ConfigureAwait(false);
 
         return Ok(analyzerActions);
     }
@@ -182,25 +179,33 @@ public partial class VisualizationController(ILogger<VisualizationController> lo
 
         try
         {
-            using var db = new IntroSkipperDbContext(Plugin.Instance!.DbPath);
+            using var db = Plugin.CreateDbContext();
 
-            foreach (var episode in episodes)
+            // Batch-load all segments for this season's episodes in a single query
+            var episodeIds = episodes.Select(e => e.EpisodeId).ToArray();
+            var existingSegments = await db.DbSegment
+                .Where(s => episodeIds.Contains(s.ItemId))
+                .ToListAsync(cancellationToken)
+                .ConfigureAwait(false);
+
+            db.DbSegment.RemoveRange(existingSegments);
+
+            if (eraseCache)
             {
-                cancellationToken.ThrowIfCancellationRequested();
-
-                var existingSegments = db.DbSegment.Where(s => s.ItemId == episode.EpisodeId);
-
-                db.DbSegment.RemoveRange(existingSegments);
-
-                if (eraseCache)
+                foreach (var episode in episodes)
                 {
+                    cancellationToken.ThrowIfCancellationRequested();
                     await Task.Run(() => FFmpegWrapper.DeleteFingerprintCache(episode.EpisodeId), cancellationToken).ConfigureAwait(false);
                 }
             }
 
-            var seasonInfo = db.DbSeasonInfo.Where(s => s.SeasonId == seasonId);
+            // Batch-load season info and clear episode IDs
+            var seasonInfos = await db.DbSeasonInfo
+                .Where(s => s.SeasonId == seasonId)
+                .ToListAsync(cancellationToken)
+                .ConfigureAwait(false);
 
-            foreach (var info in seasonInfo)
+            foreach (var info in seasonInfos)
             {
                 db.Entry(info).Property(s => s.EpisodeIds).CurrentValue = [];
             }
@@ -225,11 +230,12 @@ public partial class VisualizationController(ILogger<VisualizationController> lo
     /// Updates the analyzer actions for the provided season.
     /// </summary>
     /// <param name="request">Update analyzer actions request.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>No content.</returns>
     [HttpPost("AnalyzerActions/UpdateSeason")]
-    public async Task<ActionResult> UpdateAnalyzerActions([FromBody] UpdateAnalyzerActionsRequest request)
+    public async Task<ActionResult> UpdateAnalyzerActions([FromBody] UpdateAnalyzerActionsRequest request, CancellationToken cancellationToken = default)
     {
-        await Plugin.Instance!.SetAnalyzerActionAsync(request.Id, request.AnalyzerActions).ConfigureAwait(false);
+        await Plugin.Instance!.SetAnalyzerActionAsync(request.Id, request.AnalyzerActions, cancellationToken).ConfigureAwait(false);
 
         return NoContent();
     }

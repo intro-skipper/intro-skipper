@@ -73,7 +73,7 @@ public sealed partial class BlackFrameAltAnalyzer(ILogger<BlackFrameAltAnalyzer>
                 LogFoundCredits(episode.Name, credit.Start);
 
                 episode.SetAnalyzed(mode, EpisodeState.Analyzed);
-                await plugin.UpdateTimestampAsync(credit, mode).ConfigureAwait(false);
+                await plugin.UpdateTimestampAsync(credit, mode, cancellationToken).ConfigureAwait(false);
             }
             catch (OperationCanceledException)
             {
