@@ -111,7 +111,10 @@ public class SegmentEditorController(MediaSegmentUpdateManager mediaSegmentUpdat
             _ => throw new ArgumentOutOfRangeException(nameof(type), $"Unknown segment type '{type}'")
         };
 
-        await Plugin.Instance!.DeleteTimestampAsync(itemId, mode, cancellationToken).ConfigureAwait(false);
+        // The Jellyfin segment is already deleted above, so the plugin DB delete must
+        // run to completion — aborting here would leave a stale record that gets
+        // recreated on the next media segment sync.
+        await Plugin.Instance!.DeleteTimestampAsync(itemId, mode, CancellationToken.None).ConfigureAwait(false);
 
         return Ok();
     }
