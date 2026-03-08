@@ -597,7 +597,7 @@
                                         <table id="timestampTable" style="width: 100%; border-collapse: collapse;">
                                             <thead>
                                                 <tr>
-                                                    <th style="padding: 8px; text-align: left; border-bottom: 2px solid #555;">Episode</th>
+                                                    <th id="timestampTitle" style="padding: 8px; text-align: left; border-bottom: 2px solid #555;">Episode</th>
                                                     <th style="padding: 8px; text-align: left; border-bottom: 2px solid #555;"> </th>
                                                     <th style="padding: 8px; text-align: left; border-bottom: 2px solid #555;">Intro</th>
                                                     <th style="padding: 8px; text-align: left; border-bottom: 2px solid #555;">Credits</th>
@@ -773,6 +773,7 @@
                     const actionFileTransformation = document.getElementById("UseFileTransformationPlugin");
                     const divSkipbuttonHideDelayContent = document.getElementById("divSkipbuttonHideDelayContent");
                     const saveAnalyzerActionsButton = analyzerActionsSection.querySelector("button#saveAnalyzerActions");
+                    const timestampTitle = document.getElementById("timestampTitle");
                     const scanSeasonButton = document.querySelector("button#scanSeason");
                     const selectShow = document.querySelector("select#troubleshooterShow");
                     const seasonSelection = document.getElementById("seasonSelection");
@@ -971,6 +972,7 @@
                         // show the analyzer actions editor.
                         saveAnalyzerActionsButton.style.display = "block";
                         saveAnalyzerActionsButton.textContent = "Apply to season";
+                        timestampTitle.textContent = "Episode";
                         scanSeasonButton.style.display = "block";
                         const analyzerActions = await getJson("Intros/AnalyzerActions/" + encodeURI(selectSeason.value));
                         actionIntro.value = analyzerActions.Introduction || "Default";
@@ -996,6 +998,7 @@
                         Dashboard.showLoadingMsg();
 
                         saveAnalyzerActionsButton.textContent = "Apply to movie";
+                        timestampTitle.textContent = "Movie";
                         seasonSelection.style.display = "none";
                         eraseMovieContainer.style.display = "unset";
                         scanSeasonButton.style.display = "block";
