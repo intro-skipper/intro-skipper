@@ -597,7 +597,7 @@
                                         <table id="timestampTable" style="width: 100%; border-collapse: collapse;">
                                             <thead>
                                                 <tr>
-                                                    <th style="padding: 8px; text-align: left; border-bottom: 2px solid #555;">Preview</th>
+                                                    <th style="padding: 8px; text-align: left; border-bottom: 2px solid #555;">Thumbnail</th>
                                                     <th style="padding: 8px; text-align: left; border-bottom: 2px solid #555;">Episode</th>
                                                     <th style="padding: 8px; text-align: left; border-bottom: 2px solid #555;">Intro</th>
                                                     <th style="padding: 8px; text-align: left; border-bottom: 2px solid #555;">Credits</th>
@@ -1125,7 +1125,7 @@
                             const imgCell = document.createElement("td");
                             imgCell.style.cssText = "padding: 4px 8px;";
                             const img = document.createElement("img");
-                            img.src = ApiClient.serverAddress() + "/Items/" + ep.Id + "/Images/Primary?fillHeight=80&quality=90";
+                            img.src = ApiClient.serverAddress() + "/Items/" + ep.Id + "/Images/Primary?fillHeight=60&quality=90";
                             img.alt = "";
                             img.style.cssText = "height: 60px; width: auto; border-radius: 4px; display: block;";
                             img.onerror = () => {
