@@ -1115,13 +1115,14 @@
                             episodeList = episodes;
                         }
 
-                        // Fetch all timestamps in parallel
-                        const timestampResults = await Promise.all(
+                        // Fetch all timestamps in parallel; use allSettled so one failed request doesn't abort the whole table
+                        const timestampResults = await Promise.allSettled(
                             episodeList.map((ep) => getJson("Episode/" + ep.Id + "/Timestamps"))
                         );
 
                         episodeList.forEach((ep, i) => {
-                            const ts = timestampResults[i] || {};
+                            const result = timestampResults[i];
+                            const ts = (result && result.status === "fulfilled" ? result.value : null) || {};
                             const row = document.createElement("tr");
                             row.style.borderBottom = "1px solid #333";
 
