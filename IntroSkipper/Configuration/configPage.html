@@ -1316,8 +1316,8 @@
 
                         for (const segmentType of segmentTypes) {
                             const segment = episodeJson?.[segmentType.jsonKey] || {};
-                            const startField = document.querySelector(`#edit${sidePrefix}${segmentType.fieldSuffix}EpisodeStartEdit`);
-                            const endField = document.querySelector(`#edit${sidePrefix}${segmentType.fieldSuffix}EpisodeEndEdit`);
+                            const startField = document.querySelector("#edit" + sidePrefix + segmentType.fieldSuffix + "EpisodeStartEdit");
+                            const endField = document.querySelector("#edit" + sidePrefix + segmentType.fieldSuffix + "EpisodeEndEdit");
                             if (startField) startField.value = segment.Start ?? 0;
                             if (endField) endField.value = segment.End ?? 0;
                         }
