@@ -1,4 +1,4 @@
-﻿// Copyright (C) 2026 Intro-Skipper contributors <intro-skipper.org>
+// Copyright (C) 2026 Intro-Skipper contributors <intro-skipper.org>
 // SPDX-License-Identifier: GPL-3.0-only
 
 using System;
@@ -17,37 +17,25 @@ using Microsoft.Extensions.Logging;
 namespace IntroSkipper.ScheduledTasks;
 
 /// <summary>
-/// Analyze all television episodes for introduction sequences.
+/// Clean the intro skipper cache of unused files.
 /// </summary>
-public partial class CleanCacheTask : IScheduledTask
+/// <param name="logger">Logger.</param>
+/// <param name="loggerFactory">Logger factory.</param>
+/// <param name="libraryManager">Library manager.</param>
+/// <param name="providerManager">Provider manager.</param>
+/// <param name="fileSystem">File system.</param>
+public partial class CleanCacheTask(
+    ILogger<CleanCacheTask> logger,
+    ILoggerFactory loggerFactory,
+    ILibraryManager libraryManager,
+    IProviderManager providerManager,
+    IFileSystem fileSystem) : IScheduledTask
 {
-    private readonly ILogger<CleanCacheTask> _logger;
-    private readonly ILoggerFactory _loggerFactory;
-    private readonly ILibraryManager _libraryManager;
-    private readonly IProviderManager _providerManager;
-    private readonly IFileSystem _fileSystem;
-
-    /// <summary>
-    /// Initializes a new instance of the <see cref="CleanCacheTask"/> class.
-    /// </summary>
-    /// <param name="loggerFactory">Logger factory.</param>
-    /// <param name="libraryManager">Library manager.</param>
-    /// <param name="logger">Logger.</param>
-    /// <param name="providerManager">Provider manager.</param>
-    /// <param name="fileSystem">File system.</param>
-    public CleanCacheTask(
-        ILogger<CleanCacheTask> logger,
-        ILoggerFactory loggerFactory,
-        ILibraryManager libraryManager,
-        IProviderManager providerManager,
-        IFileSystem fileSystem)
-    {
-        _logger = logger;
-        _loggerFactory = loggerFactory;
-        _libraryManager = libraryManager;
-        _providerManager = providerManager;
-        _fileSystem = fileSystem;
-    }
+    private readonly ILogger<CleanCacheTask> _logger = logger;
+    private readonly ILoggerFactory _loggerFactory = loggerFactory;
+    private readonly ILibraryManager _libraryManager = libraryManager;
+    private readonly IProviderManager _providerManager = providerManager;
+    private readonly IFileSystem _fileSystem = fileSystem;
 
     /// <summary>
     /// Gets the task name.

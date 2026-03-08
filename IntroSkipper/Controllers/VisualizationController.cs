@@ -1,4 +1,4 @@
-﻿// Copyright (C) 2026 Intro-Skipper contributors <intro-skipper.org>
+// Copyright (C) 2026 Intro-Skipper contributors <intro-skipper.org>
 // SPDX-License-Identifier: GPL-3.0-only
 
 using System;
@@ -54,6 +54,7 @@ public partial class VisualizationController(ILogger<VisualizationController> lo
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>Dictionary of show names to a list of season names.</returns>
     [HttpGet("Shows")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
     public async Task<ActionResult<Dictionary<Guid, ShowInfos>>> GetShowSeasons(CancellationToken cancellationToken = default)
     {
         LogReturningSeasonIds(_logger);
@@ -114,8 +115,10 @@ public partial class VisualizationController(ILogger<VisualizationController> lo
     /// </summary>
     /// <param name="seasonId">Season ID.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
-    /// <returns>List of episode titles.</returns>
+    /// <returns>Analyzer actions for the season.</returns>
     [HttpGet("AnalyzerActions/{SeasonId}")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
     public async Task<ActionResult<IReadOnlyDictionary<AnalysisMode, AnalyzerAction>>> GetAnalyzerAction([FromRoute] Guid seasonId, CancellationToken cancellationToken = default)
     {
         if (!Plugin.Instance!.QueuedMediaItems.ContainsKey(seasonId))
@@ -135,6 +138,8 @@ public partial class VisualizationController(ILogger<VisualizationController> lo
     /// <param name="seasonId">Season ID.</param>
     /// <returns>List of episode titles.</returns>
     [HttpGet("Show/{SeriesId}/{SeasonId}")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
     public ActionResult<List<EpisodeVisualization>> GetSeasonEpisodes([FromRoute] Guid seriesId, [FromRoute] Guid seasonId)
     {
         if (!Plugin.Instance!.QueuedMediaItems.TryGetValue(seasonId, out var episodes))
@@ -146,8 +151,6 @@ public partial class VisualizationController(ILogger<VisualizationController> lo
         {
             return NotFound();
         }
-
-        var showName = episodes.FirstOrDefault()?.SeriesName!;
 
         return episodes.Select(e => new EpisodeVisualization(e.EpisodeId, e.Name)).ToList();
     }
@@ -163,6 +166,9 @@ public partial class VisualizationController(ILogger<VisualizationController> lo
     /// <response code="404">Unable to find season in provided series.</response>
     /// <returns>No content.</returns>
     [HttpDelete("Show/{SeriesId}/{SeasonId}")]
+    [ProducesResponseType(StatusCodes.Status204NoContent)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    [ProducesResponseType(StatusCodes.Status500InternalServerError)]
     public async Task<ActionResult> EraseSeasonAsync([FromRoute] Guid seriesId, [FromRoute] Guid seasonId, [FromQuery] bool eraseCache = false, CancellationToken cancellationToken = default)
     {
         if (!Plugin.Instance!.QueuedMediaItems.TryGetValue(seasonId, out var episodes))
@@ -237,6 +243,7 @@ public partial class VisualizationController(ILogger<VisualizationController> lo
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>No content.</returns>
     [HttpPost("AnalyzerActions/UpdateSeason")]
+    [ProducesResponseType(StatusCodes.Status204NoContent)]
     public async Task<ActionResult> UpdateAnalyzerActions([FromBody] UpdateAnalyzerActionsRequest request, CancellationToken cancellationToken = default)
     {
         await Plugin.Instance!.SetAnalyzerActionAsync(request.Id, request.AnalyzerActions, cancellationToken).ConfigureAwait(false);
@@ -245,29 +252,48 @@ public partial class VisualizationController(ILogger<VisualizationController> lo
     }
 
     /// <summary>
+    /// Returns whether a scan is currently running.
+    /// </summary>
+    /// <returns>A JSON object indicating whether a scan is currently in progress.</returns>
+    [HttpGet("ScanStatus")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    public ActionResult<ScanStatusResponse> GetScanStatus()
+    {
+        return new ScanStatusResponse(ScheduledTaskSemaphore.IsBusy);
+    }
+
+    /// <summary>
     /// Scans the provided season for intros.
     /// </summary>
     /// <param name="seriesId">Show ID.</param>
     /// <param name="seasonId">Season ID.</param>
     /// <param name="cancellationToken">cancellationToken.</param>
-    /// <returns>No content.</returns>
+    /// <returns>Accepted if the scan was started; Conflict if a scan is already running.</returns>
     [HttpPost("ScanSeason/{SeriesId}/{SeasonId}")]
-    public ActionResult ScanSeason([FromRoute] Guid seriesId, [FromRoute] Guid seasonId, CancellationToken cancellationToken = default)
+    [ProducesResponseType(StatusCodes.Status202Accepted)]
+    [ProducesResponseType(StatusCodes.Status409Conflict)]
+    public async Task<ActionResult> ScanSeason([FromRoute] Guid seriesId, [FromRoute] Guid seasonId, CancellationToken cancellationToken = default)
     {
         if (_libraryManager is null)
         {
             throw new InvalidOperationException("Library manager was null");
         }
 
+        var scanLease = await ScheduledTaskSemaphore.TryAcquireAsync().ConfigureAwait(false);
+        if (scanLease is null)
+        {
+            return Conflict(new { message = "A scan is already in progress." });
+        }
+
         // Run erase + analyze in background so it doesn't get canceled when the HTTP request ends/timeouts
         _ = Task.Run(
             async () =>
             {
-                try
+                using (scanLease)
                 {
-                    // Do not bind to the HTTP request cancellation; long-running job should complete even if client disconnects
-                    using (await ScheduledTaskSemaphore.AcquireAsync(CancellationToken.None).ConfigureAwait(false))
+                    try
                     {
+                        // Do not bind to the HTTP request cancellation; long-running job should complete even if client disconnects
                         LogStartRescan(_logger, seasonId);
 
                         // Erase season timestamps and cache first
@@ -283,14 +309,14 @@ public partial class VisualizationController(ILogger<VisualizationController> lo
 
                         await baseIntroAnalyzer.AnalyzeItemsAsync(new Progress<double>(), CancellationToken.None, [seasonId]).ConfigureAwait(false);
                     }
-                }
-                catch (OperationCanceledException)
-                {
-                    LogRescanCanceled(_logger, seasonId);
-                }
-                catch (Exception ex)
-                {
-                    LogRescanError(_logger, ex, seasonId);
+                    catch (OperationCanceledException)
+                    {
+                        LogRescanCanceled(_logger, seasonId);
+                    }
+                    catch (Exception ex)
+                    {
+                        LogRescanError(_logger, ex, seasonId);
+                    }
                 }
             },
             CancellationToken.None);
