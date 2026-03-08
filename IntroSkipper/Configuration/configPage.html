@@ -1558,11 +1558,13 @@
                     });
 
                     scanSeasonButton.addEventListener("click", async () => {
+                        scanSeasonButton.disabled = true;
                         Dashboard.showLoadingMsg();
                         console.log("(Re-) Scan task started.");
                         await fetchWithAuth("Intros/ScanSeason/" + selectShow.value + "/" + (selectSeason.value || selectShow.value), "POST", null);
                         await updateTimestampEditor();
                         Dashboard.hideLoadingMsg();
+                        scanSeasonButton.disabled = false;
                     });
 
                     btnUpdateTimestamps.addEventListener("click", () => {
