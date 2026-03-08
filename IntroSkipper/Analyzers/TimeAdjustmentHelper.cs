@@ -3,6 +3,7 @@
 
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using IntroSkipper.Configuration;
 using IntroSkipper.Data;
 using MediaBrowser.Model.Entities;
@@ -149,15 +150,10 @@ public partial class TimeAdjustmentHelper(ILogger logger, PluginConfiguration co
     private static double GetChapterBoundary(IReadOnlyList<ChapterInfo> chapters, double referenceTime, TimeRange searchRange)
     {
         // Collect candidate chapter times within the inclusive range
-        var candidates = new List<double>();
-        foreach (var chapter in chapters)
-        {
-            var chapterTime = TimeSpan.FromTicks(chapter.StartPositionTicks).TotalSeconds;
-            if (chapterTime + Epsilon >= searchRange.Start && chapterTime - Epsilon <= searchRange.End)
-            {
-                candidates.Add(chapterTime);
-            }
-        }
+        var candidates = chapters
+            .Select(c => TimeSpan.FromTicks(c.StartPositionTicks).TotalSeconds)
+            .Where(t => t + Epsilon >= searchRange.Start && t - Epsilon <= searchRange.End)
+            .ToList();
 
         if (candidates.Count == 0)
         {

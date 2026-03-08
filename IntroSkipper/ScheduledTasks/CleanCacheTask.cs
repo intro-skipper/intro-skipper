@@ -100,7 +100,7 @@ public partial class CleanCacheTask : IScheduledTask
             .SelectMany(episodes => episodes.Select(e => e.EpisodeId))
             .ToHashSet();
 
-        await plugin.CleanTimestamps(enabledLibraryEpisodeIds).ConfigureAwait(false);
+        await plugin.CleanTimestampsAsync(enabledLibraryEpisodeIds, cancellationToken).ConfigureAwait(false);
 
         // Identify episode IDs with cached files that are no longer in enabled libraries
         var invalidEpisodeIds = Directory.EnumerateFiles(plugin.FingerprintCachePath)
@@ -117,7 +117,7 @@ public partial class CleanCacheTask : IScheduledTask
         }
 
         // Clean up Season information by removing items that are no longer exist.
-        await plugin.CleanSeasonInfoAsync(queue.Keys).ConfigureAwait(false);
+        await plugin.CleanSeasonInfoAsync(queue.Keys, cancellationToken).ConfigureAwait(false);
 
         plugin.AnalyzeAgain = true;
 

@@ -3,9 +3,13 @@
 
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 using System.Text.Json;
+using System.Threading;
+using System.Threading.Tasks;
 using IntroSkipper.Data;
+using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.ChangeTracking;
 
@@ -19,7 +23,7 @@ namespace IntroSkipper.Db;
 /// </remarks>
 public class IntroSkipperDbContext : DbContext
 {
-    private readonly string _dbPath;
+    private readonly string? _dbPath;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="IntroSkipperDbContext"/> class.
@@ -38,9 +42,7 @@ public class IntroSkipperDbContext : DbContext
     /// <param name="options">The options.</param>
     public IntroSkipperDbContext(DbContextOptions<IntroSkipperDbContext> options) : base(options)
     {
-        var folder = Environment.SpecialFolder.LocalApplicationData;
-        var path = Environment.GetFolderPath(folder);
-        _dbPath = System.IO.Path.Join(path, "introskipper.db");
+        _dbPath = null;
         DbSegment = Set<DbSegment>();
         DbSeasonInfo = Set<DbSeasonInfo>();
     }
@@ -58,7 +60,11 @@ public class IntroSkipperDbContext : DbContext
     /// <inheritdoc/>
     protected override void OnConfiguring(DbContextOptionsBuilder optionsBuilder)
     {
-        optionsBuilder.UseSqlite($"Data Source={_dbPath}");
+        if (!optionsBuilder.IsConfigured)
+        {
+            optionsBuilder
+                .UseSqlite($"Data Source={_dbPath}");
+        }
     }
 
     /// <inheritdoc/>
@@ -106,59 +112,77 @@ public class IntroSkipperDbContext : DbContext
 
     /// <summary>
     /// Applies any pending migrations to the database.
+    /// Uses synchronous EF Core APIs to avoid sync-over-async deadlock risks.
     /// </summary>
     public void ApplyMigrations()
     {
-        // If database doesn't exist or can't connect, create it with migrations
-        if (!Database.CanConnect())
-        {
-            Database.Migrate();
-            return;
-        }
-
-        // If migrations table exists, apply pending migrations normally
-        if (Database.GetAppliedMigrations().Any())
-        {
-            Database.Migrate();
-            return;
-        }
-
-        // For databases without migration history
-        RebuildDatabase();
+        Database.Migrate();
     }
 
     /// <summary>
-    /// Rebuilds the database while preserving valid segments and season information.
+    /// Asynchronously applies any pending migrations to the database.
     /// </summary>
-    public void RebuildDatabase()
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>A <see cref="Task"/> representing the asynchronous operation.</returns>
+    public async Task ApplyMigrationsAsync(CancellationToken cancellationToken = default)
     {
-        // Backup existing data
-        List<DbSegment> segments = [];
-        List<DbSeasonInfo> seasonInfos = [];
+        await Database.MigrateAsync(cancellationToken).ConfigureAwait(false);
+    }
 
+    /// <summary>
+    /// Asynchronously rebuilds the database while attempting to preserve valid segments and season information.
+    /// </summary>
+    /// <param name="contextFactory">Factory delegate to create sibling <see cref="IntroSkipperDbContext"/> instances.</param>
+    /// <param name="forceCleanOnBackupFailure">
+    /// When <c>true</c>, rebuild proceeds with an empty database if the backup read fails.
+    /// When <c>false</c>, the rebuild aborts to avoid data loss.
+    /// </param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>A <see cref="Task"/> representing the asynchronous operation.</returns>
+    public async Task RebuildDatabaseAsync(Func<IntroSkipperDbContext> contextFactory, bool forceCleanOnBackupFailure = false, CancellationToken cancellationToken = default)
+    {
+        var segments = new List<DbSegment>();
+        var seasonInfos = new List<DbSeasonInfo>();
+        var backupFailed = false;
+
+        // Best-effort backup — a corrupted DB will fail here, and that's fine.
         try
         {
-            using var db = new IntroSkipperDbContext(_dbPath);
-            segments = [.. db.DbSegment.AsEnumerable().Where(s => s.ToSegment().Valid)];
-            seasonInfos = [.. db.DbSeasonInfo];
+            using var db = contextFactory();
+            segments = await db.DbSegment.AsNoTracking().ToListAsync(cancellationToken).ConfigureAwait(false);
+            segments = [.. segments.Where(s => s.ToSegment().Valid)];
+            seasonInfos = await db.DbSeasonInfo.AsNoTracking().ToListAsync(cancellationToken).ConfigureAwait(false);
         }
-        catch (Exception ex)
+        catch (OperationCanceledException)
         {
-            throw new InvalidOperationException("Failed to read database data", ex);
+            throw; // Don't swallow cancellation
         }
-        finally
+        catch (Exception ex) when (ex is SqliteException or DbUpdateException or JsonException)
         {
-            // Delete old database
-            Database.EnsureDeleted();
+            if (!forceCleanOnBackupFailure)
+            {
+                throw new InvalidOperationException("Failed to back up the existing database before rebuild. Aborting rebuild to avoid data loss.", ex);
+            }
 
-            // Create new database with proper migration history
-            Database.Migrate();
+            // Explicit clean-rebuild fallback requested by the caller.
+            backupFailed = true;
         }
 
-        // Restore the data
+        if (backupFailed)
+        {
+            DeleteDatabaseFiles();
+        }
+        else
+        {
+            await Database.EnsureDeletedAsync(cancellationToken).ConfigureAwait(false);
+        }
+
+        await Database.MigrateAsync(cancellationToken).ConfigureAwait(false);
+
+        // Restore whatever data was salvaged
         if (segments.Count > 0 || seasonInfos.Count > 0)
         {
-            using var db = new IntroSkipperDbContext(_dbPath);
+            using var db = contextFactory();
             if (segments.Count > 0)
             {
                 db.DbSegment.AddRange(segments);
@@ -169,7 +193,59 @@ public class IntroSkipperDbContext : DbContext
                 db.DbSeasonInfo.AddRange(seasonInfos);
             }
 
-            db.SaveChanges();
+            await db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
         }
+    }
+
+    private void DeleteDatabaseFiles()
+    {
+        var dbPath = GetDatabaseFilePath();
+        if (string.IsNullOrEmpty(dbPath))
+        {
+            throw new InvalidOperationException("Cannot delete a database file when the context was created without a configured database path.");
+        }
+
+        // Close this context's own connection before clearing pools, so nothing holds a lock.
+        Database.CloseConnection();
+        SqliteConnection.ClearAllPools();
+
+        // Attempt to delete all files, collecting failures so one locked file doesn't prevent the rest.
+        List<(string Path, Exception Exception)>? failures = null;
+        foreach (var path in new[] { dbPath, dbPath + "-wal", dbPath + "-shm" }.Where(File.Exists))
+        {
+            try
+            {
+                File.Delete(path);
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                failures ??= [];
+                failures.Add((path, ex));
+            }
+        }
+
+        if (failures is { Count: > 0 })
+        {
+            throw new AggregateException(
+                $"Failed to delete {failures.Count} database file(s): {string.Join(", ", failures.Select(f => f.Path))}",
+                failures.Select(f => f.Exception));
+        }
+    }
+
+    private string? GetDatabaseFilePath()
+    {
+        if (!string.IsNullOrEmpty(_dbPath))
+        {
+            return _dbPath;
+        }
+
+        var connectionString = Database.GetConnectionString();
+        if (string.IsNullOrWhiteSpace(connectionString))
+        {
+            return null;
+        }
+
+        var builder = new SqliteConnectionStringBuilder(connectionString);
+        return builder.DataSource is not (null or "" or ":memory:") ? builder.DataSource : null;
     }
 }
