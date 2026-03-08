@@ -1153,7 +1153,9 @@
                                 cell.style.cssText = "padding: 4px 8px; white-space: nowrap; font-size: 0.85em;";
                                 const seg = ts[key];
                                 if (seg && (seg.Start !== 0 || seg.End !== 0)) {
-                                    cell.textContent = formatTime(seg.Start) + " → " + formatTime(seg.End);
+                                    cell.appendChild(document.createTextNode(formatTime(seg.Start)));
+                                    cell.appendChild(document.createElement("br"));
+                                    cell.appendChild(document.createTextNode(formatTime(seg.End)));
                                 } else {
                                     cell.textContent = "–";
                                     cell.style.color = "#888";
