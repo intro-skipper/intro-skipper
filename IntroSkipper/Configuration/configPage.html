@@ -973,7 +973,7 @@
                         if (!visualizer.open) {
                             analyzerActionsSection.style.display = "none";
                             saveAnalyzerActionsButton.style.display = "none";
-                            scanSeasonButton.style.display = "none";
+                            .style.display = "none";
                             return;
                         }
 
@@ -1088,8 +1088,8 @@
                         // show the analyzer actions editor.
                         saveAnalyzerActionsButton.style.display = "block";
                         saveAnalyzerActionsButton.textContent = "Apply to season";
-                        scanSeasonButton.style.display = "block";
-                        scanSeasonButton.textContent = "Scan season";
+                        .style.display = "block";
+                        .textContent = "Scan season";
                         const analyzerActions = await getJson("Intros/AnalyzerActions/" + encodeURI(selectSeason.value));
                         actionIntro.value = analyzerActions.Introduction || "Default";
                         actionCredits.value = analyzerActions.Credits || "Default";
@@ -1561,10 +1561,13 @@
                         scanSeasonButton.disabled = true;
                         Dashboard.showLoadingMsg();
                         console.log("(Re-) Scan task started.");
-                        await fetchWithAuth("Intros/ScanSeason/" + selectShow.value + "/" + (selectSeason.value || selectShow.value), "POST", null);
-                        await updateTimestampEditor();
-                        Dashboard.hideLoadingMsg();
-                        scanSeasonButton.disabled = false;
+                        try {
+                            await fetchWithAuth("Intros/ScanSeason/" + selectShow.value + "/" + (selectSeason.value || selectShow.value), "POST", null);
+                            await updateTimestampEditor();
+                        } finally {
+                            Dashboard.hideLoadingMsg();
+                            scanSeasonButton.disabled = false;
+                        }
                     });
 
                     btnUpdateTimestamps.addEventListener("click", () => {
