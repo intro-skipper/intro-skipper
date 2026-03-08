@@ -16,7 +16,6 @@ internal sealed class ScheduledTaskSemaphore : IDisposable
 
     private ScheduledTaskSemaphore()
     {
-        Interlocked.Increment(ref _activeHolders);
     }
 
     public static bool IsBusy => Volatile.Read(ref _activeHolders) > 0;
@@ -24,16 +23,18 @@ internal sealed class ScheduledTaskSemaphore : IDisposable
     public static async Task<IDisposable> AcquireAsync(CancellationToken cancellationToken)
     {
         await _semaphore.WaitAsync(cancellationToken).ConfigureAwait(false);
+        Interlocked.Increment(ref _activeHolders);
         return new ScheduledTaskSemaphore();
     }
 
-    public static async Task<IDisposable?> TryAcquireAsync(CancellationToken cancellationToken)
+    public static async Task<IDisposable?> TryAcquireAsync()
     {
-        if (!await _semaphore.WaitAsync(0, cancellationToken).ConfigureAwait(false))
+        if (!await _semaphore.WaitAsync(0).ConfigureAwait(false))
         {
             return null;
         }
 
+        Interlocked.Increment(ref _activeHolders);
         return new ScheduledTaskSemaphore();
     }
 
@@ -44,6 +45,11 @@ internal sealed class ScheduledTaskSemaphore : IDisposable
             return;
         }
 
+        ReleaseSemaphore();
+    }
+
+    private static void ReleaseSemaphore()
+    {
         Interlocked.Decrement(ref _activeHolders);
         _semaphore.Release();
     }

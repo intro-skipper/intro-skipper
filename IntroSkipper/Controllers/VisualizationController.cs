@@ -279,7 +279,7 @@ public partial class VisualizationController(ILogger<VisualizationController> lo
             throw new InvalidOperationException("Library manager was null");
         }
 
-        var scanLease = await ScheduledTaskSemaphore.TryAcquireAsync(cancellationToken).ConfigureAwait(false);
+        var scanLease = await ScheduledTaskSemaphore.TryAcquireAsync().ConfigureAwait(false);
         if (scanLease is null)
         {
             return Conflict(new { message = "A scan is already in progress." });

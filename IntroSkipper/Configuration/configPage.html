@@ -814,6 +814,12 @@
                     // constants
                     const FLASH_DURATION_SHORT = 1000;
                     const FLASH_DURATION_LONG = 5000;
+                    const TIMESTAMP_MODES = [
+                        { field: "Intro", key: "Introduction" },
+                        { field: "Credit", key: "Credits" },
+                        { field: "Recap", key: "Recap" },
+                        { field: "Preview", key: "Preview" },
+                    ];
 
                     // seasons grouped by show
                     let shows = {};
@@ -1048,7 +1054,6 @@
 
                     function cancelScanPoll() {
                         scanPollCancelled = true;
-                        scanStatusPollTask = null;
                     }
 
                     // show changed, populate seasons
@@ -1203,7 +1208,12 @@
 
                     async function monitorScanUntilComplete() {
                         if (scanStatusPollTask) {
-                            return await scanStatusPollTask;
+                            if (!scanPollCancelled) {
+                                // Active poll is running normally — piggyback on it
+                                return await scanStatusPollTask;
+                            }
+                            // Poll was cancelled and is winding down — wait for cleanup
+                            await scanStatusPollTask;
                         }
 
                         scanPollCancelled = false;
@@ -1365,27 +1375,15 @@
 
                     // updates the timestamp editor
                     function populateTimestampFields(side, json) {
-                        const modes = [
-                            { field: "Intro", key: "Introduction" },
-                            { field: "Credit", key: "Credits" },
-                            { field: "Recap", key: "Recap" },
-                            { field: "Preview", key: "Preview" },
-                        ];
-                        for (const { field, key } of modes) {
+                        for (const { field, key } of TIMESTAMP_MODES) {
                             document.querySelector("#edit" + side + field + "EpisodeStartEdit").value = json[key].Start;
                             document.querySelector("#edit" + side + field + "EpisodeEndEdit").value = json[key].End;
                         }
                     }
 
                     function buildTimestampPayload(side, itemId, parsedValues) {
-                        const modes = [
-                            { field: "Intro", key: "Introduction" },
-                            { field: "Credit", key: "Credits" },
-                            { field: "Recap", key: "Recap" },
-                            { field: "Preview", key: "Preview" },
-                        ];
                         const payload = {};
-                        for (const { field, key } of modes) {
+                        for (const { field, key } of TIMESTAMP_MODES) {
                             payload[key] = {
                                 ItemId: itemId,
                                 Start: parsedValues["edit" + side + field + "EpisodeStartEdit"],
