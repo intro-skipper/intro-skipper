@@ -55,11 +55,6 @@
                         flex: 0 0 auto;
                     }
 
-                    /* Error flash animation */
-                    .input-error-flash {
-                        background-color: rgba(255, 0, 0, 0.3) !important;
-                        transition: background-color 0.2s ease-in-out;
-                    }
                 </style>
                 <div class="content-primary">
                     <form id="FingerprintConfigForm">
@@ -594,131 +589,26 @@
                                     <br />
                                 </div>
 
-                                <div id="episodeSelection" style="display: none">
-                                    <p>
-                                        <label class="inputLabel" for="troubleshooterEpisode1">Select a first and second episode</label>
-                                        <select is="emby-select" id="troubleshooterEpisode1" class="emby-select-withcolor emby-select"></select>
-                                        <label class="inputLabel" for="troubleshooterEpisode2"> </label>
-                                        <select is="emby-select" id="troubleshooterEpisode2" class="emby-select-withcolor emby-select"></select>
-                                    </p>
-                                </div>
 
                                 <div id="timestampEditor" style="display: none">
                                     <br />
-                                    <h3 style="margin: 0">Introduction timestamp editor</h3>
-                                    <p class="fieldDescription" style="margin: 10px 0">
-                                        <strong>Valid Timestamp Formats:</strong><br />
-                                        • <b>Seconds:</b> 90, 120.5<br />
-                                        • <b>Time:</b> 1:30 (MM:SS), 1:25:48 (HH:MM:SS)<br />
-                                        • <b>Natural:</b> 1 hour 30 minutes, 25m 48s, 500ms, 1.5h
-                                    </p>
-                                    <br />
-                                    <h4 style="margin: 0" id="editLeftEpisodeTitle"></h4>
-                                    <br />
-                                    <div class="inlineForm">
-                                        <div class="inputContainer">
-                                            <label class="inputLabel inputLabelUnfocused">Recap Start</label>
-                                            <input type="text" id="editLeftRecapEpisodeStartDisplay" class="emby-input custom-time-input" readonly />
-                                            <input type="text" id="editLeftRecapEpisodeStartEdit" class="emby-input custom-time-input" style="display: none" />
-                                        </div>
-                                        <div class="inputContainer">
-                                            <label class="inputLabel inputLabelUnfocused">Recap End</label>
-                                            <input type="text" id="editLeftRecapEpisodeEndDisplay" class="emby-input custom-time-input" readonly />
-                                            <input type="text" id="editLeftRecapEpisodeEndEdit" class="emby-input custom-time-input" style="display: none" />
-                                        </div>
+                                    <h3 style="margin: 0">Timestamps</h3>
+                                    <div style="overflow-x: auto; margin-top: 16px">
+                                        <table id="timestampTable" style="width: 100%; border-collapse: collapse;">
+                                            <thead>
+                                                <tr>
+                                                    <th style="padding: 8px; text-align: left; border-bottom: 2px solid #555;">Preview</th>
+                                                    <th style="padding: 8px; text-align: left; border-bottom: 2px solid #555;">Episode</th>
+                                                    <th style="padding: 8px; text-align: left; border-bottom: 2px solid #555;">Intro</th>
+                                                    <th style="padding: 8px; text-align: left; border-bottom: 2px solid #555;">Credits</th>
+                                                    <th style="padding: 8px; text-align: left; border-bottom: 2px solid #555;">Recap</th>
+                                                    <th style="padding: 8px; text-align: left; border-bottom: 2px solid #555;">Preview</th>
+                                                    <th style="padding: 8px; text-align: left; border-bottom: 2px solid #555;">Commercial</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody id="timestampTableBody"></tbody>
+                                        </table>
                                     </div>
-                                    <div class="inlineForm">
-                                        <div class="inputContainer">
-                                            <label class="inputLabel inputLabelUnfocused">Intro Start</label>
-                                            <input type="text" id="editLeftIntroEpisodeStartDisplay" class="emby-input custom-time-input" readonly />
-                                            <input type="text" id="editLeftIntroEpisodeStartEdit" class="emby-input custom-time-input" style="display: none" />
-                                        </div>
-                                        <div class="inputContainer">
-                                            <label class="inputLabel inputLabelUnfocused">Intro End</label>
-                                            <input type="text" id="editLeftIntroEpisodeEndDisplay" class="emby-input custom-time-input" readonly />
-                                            <input type="text" id="editLeftIntroEpisodeEndEdit" class="emby-input custom-time-input" style="display: none" />
-                                        </div>
-                                    </div>
-                                    <div class="inlineForm">
-                                        <div class="inputContainer">
-                                            <label class="inputLabel inputLabelUnfocused">Credits (Outro) Start</label>
-                                            <input type="text" id="editLeftCreditEpisodeStartDisplay" class="emby-input custom-time-input" readonly />
-                                            <input type="text" id="editLeftCreditEpisodeStartEdit" class="emby-input custom-time-input" style="display: none" />
-                                        </div>
-                                        <div class="inputContainer">
-                                            <label class="inputLabel inputLabelUnfocused">Credits (Outro) End</label>
-                                            <input type="text" id="editLeftCreditEpisodeEndDisplay" class="emby-input custom-time-input" readonly />
-                                            <input type="text" id="editLeftCreditEpisodeEndEdit" class="emby-input custom-time-input" style="display: none" />
-                                        </div>
-                                    </div>
-                                    <div class="inlineForm">
-                                        <div class="inputContainer">
-                                            <label class="inputLabel inputLabelUnfocused">Preview Start</label>
-                                            <input type="text" id="editLeftPreviewEpisodeStartDisplay" class="emby-input custom-time-input" readonly />
-                                            <input type="text" id="editLeftPreviewEpisodeStartEdit" class="emby-input custom-time-input" style="display: none" />
-                                        </div>
-                                        <div class="inputContainer">
-                                            <label class="inputLabel inputLabelUnfocused">Preview End</label>
-                                            <input type="text" id="editLeftPreviewEpisodeEndDisplay" class="emby-input custom-time-input" readonly />
-                                            <input type="text" id="editLeftPreviewEpisodeEndEdit" class="emby-input custom-time-input" style="display: none" />
-                                        </div>
-                                    </div>
-                                    <div id="rightEpisodeEditor">
-                                        <br />
-                                        <h4 style="margin: 0" id="editRightEpisodeTitle"></h4>
-                                        <br />
-                                        <div class="inlineForm">
-                                            <div class="inputContainer">
-                                                <label class="inputLabel inputLabelUnfocused">Recap Start</label>
-                                                <input type="text" id="editRightRecapEpisodeStartDisplay" class="emby-input custom-time-input" readonly />
-                                                <input type="text" id="editRightRecapEpisodeStartEdit" class="emby-input custom-time-input" style="display: none" />
-                                            </div>
-                                            <div class="inputContainer">
-                                                <label class="inputLabel inputLabelUnfocused">Recap End</label>
-                                                <input type="text" id="editRightRecapEpisodeEndDisplay" class="emby-input custom-time-input" readonly />
-                                                <input type="text" id="editRightRecapEpisodeEndEdit" class="emby-input custom-time-input" style="display: none" />
-                                            </div>
-                                        </div>
-                                        <div class="inlineForm">
-                                            <div class="inputContainer">
-                                                <label class="inputLabel inputLabelUnfocused">Intro Start</label>
-                                                <input type="text" id="editRightIntroEpisodeStartDisplay" class="emby-input custom-time-input" readonly />
-                                                <input type="text" id="editRightIntroEpisodeStartEdit" class="emby-input custom-time-input" style="display: none" />
-                                            </div>
-                                            <div class="inputContainer">
-                                                <label class="inputLabel inputLabelUnfocused">Intro End</label>
-                                                <input type="text" id="editRightIntroEpisodeEndDisplay" class="emby-input custom-time-input" readonly />
-                                                <input type="text" id="editRightIntroEpisodeEndEdit" class="emby-input custom-time-input" style="display: none" />
-                                            </div>
-                                        </div>
-                                        <div class="inlineForm">
-                                            <div class="inputContainer">
-                                                <label class="inputLabel inputLabelUnfocused">Credits (Outro) Start</label>
-                                                <input type="text" id="editRightCreditEpisodeStartDisplay" class="emby-input custom-time-input" readonly />
-                                                <input type="text" id="editRightCreditEpisodeStartEdit" class="emby-input custom-time-input" style="display: none" />
-                                            </div>
-                                            <div class="inputContainer">
-                                                <label class="inputLabel inputLabelUnfocused">Credits (Outro) End</label>
-                                                <input type="text" id="editRightCreditEpisodeEndDisplay" class="emby-input custom-time-input" readonly />
-                                                <input type="text" id="editRightCreditEpisodeEndEdit" class="emby-input custom-time-input" style="display: none" />
-                                            </div>
-                                        </div>
-                                        <div class="inlineForm">
-                                            <div class="inputContainer">
-                                                <label class="inputLabel inputLabelUnfocused">Preview Start</label>
-                                                <input type="text" id="editRightPreviewEpisodeStartDisplay" class="emby-input custom-time-input" readonly />
-                                                <input type="text" id="editRightPreviewEpisodeStartEdit" class="emby-input custom-time-input" style="display: none" />
-                                            </div>
-                                            <div class="inputContainer">
-                                                <label class="inputLabel inputLabelUnfocused">Preview End</label>
-                                                <input type="text" id="editRightPreviewEpisodeEndDisplay" class="emby-input custom-time-input" readonly />
-                                                <input type="text" id="editRightPreviewEpisodeEndEdit" class="emby-input custom-time-input" style="display: none" />
-                                            </div>
-                                        </div>
-                                    </div>
-                                    <p style="margin: 20px 0">
-                                        <button is="emby-button" id="btnUpdateTimestamps" class="raised button-submit block emby-button" type="button">Update timestamps</button>
-                                    </p>
                                 </div>
                                 <p>
                                     <button is="emby-button" id="scanSeason" class="raised button-submit block emby-button" style="display: none">Scan Season</button>
@@ -812,13 +702,12 @@
                     "use strict";
 
                     // constants
-                    const FLASH_DURATION_SHORT = 1000;
-                    const FLASH_DURATION_LONG = 5000;
                     const TIMESTAMP_MODES = [
-                        { field: "Intro", key: "Introduction" },
-                        { field: "Credit", key: "Credits" },
-                        { field: "Recap", key: "Recap" },
-                        { field: "Preview", key: "Preview" },
+                        { key: "Introduction", label: "Intro" },
+                        { key: "Credits", label: "Credits" },
+                        { key: "Recap", label: "Recap" },
+                        { key: "Preview", label: "Preview" },
+                        { key: "Commercial", label: "Commercial" },
                     ];
 
                     // seasons grouped by show
@@ -885,9 +774,6 @@
                     const selectShow = document.querySelector("select#troubleshooterShow");
                     const seasonSelection = document.getElementById("seasonSelection");
                     const selectSeason = document.querySelector("select#troubleshooterSeason");
-                    const episodeSelection = document.getElementById("episodeSelection");
-                    const selectEpisode1 = document.querySelector("select#troubleshooterEpisode1");
-                    const selectEpisode2 = document.querySelector("select#troubleshooterEpisode2");
                     const btnSeasonEraseTimestamps = document.querySelector("button#btnEraseSeasonTimestamps");
                     const eraseSeasonContainer = document.getElementById("eraseSeasonContainer");
                     const btnMovieEraseTimestamps = document.querySelector("button#btnEraseMovieTimestamps");
@@ -895,8 +781,6 @@
                     const timestampError = document.querySelector("textarea#timestampError");
                     const timestampErrorDiv = document.getElementById("timestampErrorDiv");
                     const timestampEditor = document.querySelector("#timestampEditor");
-                    const rightEpisodeEditor = document.getElementById("rightEpisodeEditor");
-                    const btnUpdateTimestamps = document.querySelector("button#btnUpdateTimestamps");
                     const silenceSettings = document.getElementById("silenceSettings");
 
                     const fullLengthChapters = document.getElementById("FullLengthChapters");
@@ -1063,9 +947,7 @@
                         clearSelect(selectSeason);
                         eraseSeasonContainer.style.display = "none";
                         eraseMovieContainer.style.display = "none";
-                        episodeSelection.style.display = "unset";
-                        clearSelect(selectEpisode1);
-                        clearSelect(selectEpisode2);
+                        timestampEditor.style.display = "none";
 
                         if (shows[selectShow.value].IsMovie) {
                             await movieLoaded();
@@ -1080,9 +962,8 @@
                         selectSeason.value = "";
                     }
 
-                    // season changed, reload all episodes
+                    // season changed, load timestamps for all episodes
                     async function seasonChanged() {
-                        const seasonData = encodeURI(selectShow.value) + "/" + encodeURI(selectSeason.value);
                         Dashboard.showLoadingMsg();
                         // show the analyzer actions editor.
                         saveAnalyzerActionsButton.style.display = "block";
@@ -1099,54 +980,12 @@
                         // show the erase season button
                         eraseSeasonContainer.style.display = "unset";
 
-                        clearSelect(selectEpisode1);
-                        clearSelect(selectEpisode2);
-                        let i = 1;
-                        const episodes = await getJson("Intros/Show/" + seasonData);
-                        for (const episode in episodes) {
-                            const strI = i.toLocaleString("en", {
-                                minimumIntegerDigits: 2,
-                                maximumFractionDigits: 0,
-                            });
-                            addItem(selectEpisode1, strI + ": " + episodes[episode].Name, episodes[episode].Id);
-                            addItem(selectEpisode2, strI + ": " + episodes[episode].Name, episodes[episode].Id);
-                            i++;
-                        }
                         Dashboard.hideLoadingMsg();
                         const isScanRunning = await refreshScanSeasonButtonState();
                         if (isScanRunning) {
                             monitorScanUntilComplete().catch(console.error);
-                        }
-
-                        setTimeout(() => {
-                            selectEpisode1.selectedIndex = 0;
-                            selectEpisode2.selectedIndex = 1;
-                            if (!isScanRunning) {
-                                episodeChanged();
-                            }
-                        }, 100);
-                    }
-
-                    // episode changed, get fingerprints & calculate diff
-                    async function episodeChanged() {
-                        if (!selectEpisode1.value || !selectEpisode2.value) {
-                            return;
-                        }
-
-                        Dashboard.showLoadingMsg();
-
-                        timestampError.value = "";
-                        rightEpisodeEditor.style.display = "unset";
-
-                        try {
+                        } else {
                             await updateTimestampEditor();
-                        } finally {
-                            if (timestampError.value === "") {
-                                timestampErrorDiv.style.display = "none";
-                            } else {
-                                timestampErrorDiv.style.display = "unset";
-                            }
-                            Dashboard.hideLoadingMsg();
                         }
                     }
 
@@ -1155,12 +994,10 @@
 
                         saveAnalyzerActionsButton.textContent = "Apply to movie";
                         seasonSelection.style.display = "none";
-                        episodeSelection.style.display = "none";
                         eraseMovieContainer.style.display = "unset";
                         scanSeasonButton.style.display = "block";
 
                         timestampError.value = "";
-                        rightEpisodeEditor.style.display = "none";
                         timestampErrorDiv.style.display = "none";
 
                         Dashboard.hideLoadingMsg();
@@ -1203,7 +1040,7 @@
                             return false;
                         }
 
-                        return selectedShow.IsMovie || !!selectEpisode1.value;
+                        return selectedShow.IsMovie || !!selectSeason.value;
                     }
 
                     async function monitorScanUntilComplete() {
@@ -1238,127 +1075,6 @@
                         return await scanStatusPollTask;
                     }
 
-                    function setupTimeInputs() {
-                        timestampEditor.querySelectorAll(".inputContainer").forEach((container) => {
-                            const displayInput = container.querySelector('[id$="Display"]');
-                            const editInput = container.querySelector('[id$="Edit"]');
-                            displayInput.addEventListener("pointerdown", (e) => {
-                                e.preventDefault();
-                                switchToEdit(displayInput, editInput);
-                            });
-                            editInput.addEventListener("blur", () => switchToDisplay(displayInput, editInput));
-                            let value = parseTimeString(editInput.value);
-                            if (isNaN(value)) {
-                                Dashboard.alert("Something went wrong during setting up of time inputs. Setting the input to 0.");
-                                value = 0;
-                            }
-                            displayInput.value = formatTime(value);
-                        });
-                    }
-
-                    function switchToEdit(displayInput, editInput) {
-                        editInput.dataset.previousValue = parseTimeString(displayInput.value);
-
-                        displayInput.style.display = "none";
-                        editInput.style.display = "";
-                        editInput.focus();
-                    }
-
-                    function switchToDisplay(displayInput, editInput) {
-                        const parsedValue = validateAndParseInput(editInput, displayInput, FLASH_DURATION_SHORT);
-
-                        if (isNaN(parsedValue)) {
-                            let previousSeconds = parseFloat(editInput.dataset.previousValue);
-
-                            if (isNaN(previousSeconds)) {
-                                Dashboard.alert("Something went wrong during saving previous value. Reverting to 0.");
-                            } else {
-                                Dashboard.alert("Invalid time format '" + editInput.value + "'. Reverting to previous value.");
-                            }
-
-                            editInput.value = previousSeconds;
-                            displayInput.value = formatTime(previousSeconds);
-                        } else {
-                            editInput.value = parsedValue;
-                            displayInput.value = formatTime(parsedValue);
-                        }
-
-                        editInput.style.display = "none";
-                        displayInput.style.display = "";
-                    }
-
-                    function parseTimeString(str) {
-                        if (!str || str.trim() === "") return 0;
-                        str = str.toString().trim().toLowerCase();
-
-                        // Standard input (integer or float)
-                        if (!isNaN(str) && !isNaN(parseFloat(str))) {
-                            return parseFloat(str);
-                        }
-
-                        // HH:MM:SS or MM:SS input
-                        if (str.includes(":")) {
-                            const parts = str.split(":");
-                            if (parts.some(isNaN) || parts.length < 2 || parts.length > 3) return NaN;
-
-                            const nums = parts.map(parseFloat);
-                            if (nums.some((p) => p < 0)) return NaN;
-                            if (nums.length === 3) return nums[0] * 3600 + nums[1] * 60 + nums[2];
-                            if (nums.length === 2) return nums[0] * 60 + nums[1];
-                        }
-
-                        // Natural language input ("1h 25m 30s")
-                        let total = 0;
-
-                        const regex = /(\d+\.?\d*)\s*(?:h|hr|hrs|hour|hours)(?![a-z])|(\d+\.?\d*)\s*(?:m|min|mins|minute|minutes)(?![a-z])|(\d+\.?\d*)\s*(?:s|sec|secs|second|seconds)(?![a-z])|(\d+\.?\d*)\s*(?:ms|msec|millisecond|milliseconds)(?![a-z])/gi;
-
-                        const remainder = str.replace(regex, (match, h, m, s, ms) => {
-                            if (h) total += parseFloat(h) * 3600;
-                            if (m) total += parseFloat(m) * 60;
-                            if (s) total += parseFloat(s);
-                            if (ms) total += parseFloat(ms) / 1000;
-                            return "";
-                        });
-
-                        if (remainder.trim().length === 0) {
-                            return total;
-                        }
-
-                        return NaN;
-                    }
-
-                    function validateAndParseInput(editInput, displayInput, errorDuration) {
-                        const rawValue = editInput.value;
-                        const parsed = parseTimeString(rawValue);
-
-                        if (isNaN(parsed) || parsed < 0) {
-                            flashError(displayInput, errorDuration);
-                            return NaN;
-                        }
-                        return parsed;
-                    }
-
-                    function flashError(element, duration) {
-                        if (!element) return;
-
-                        if (element.dataset.errorTimeout) {
-                            clearTimeout(parseInt(element.dataset.errorTimeout));
-                        }
-
-                        element.classList.add("input-error-flash");
-
-                        const timeoutId = setTimeout(() => {
-                            element.classList.remove("input-error-flash");
-                            delete element.dataset.errorTimeout;
-                        }, duration);
-
-                        element.dataset.errorTimeout = timeoutId;
-                    }
-
-                    function getEditableTimestampInputs() {
-                        return timestampEditor.querySelectorAll('input[id$="Edit"]');
-                    }
-
                     function formatTime(totalSeconds) {
                         const hours = Math.floor(totalSeconds / 3600);
                         const minutes = Math.floor((totalSeconds % 3600) / 60);
@@ -1366,79 +1082,84 @@
                         const milliseconds = Math.floor((totalSeconds - Math.floor(totalSeconds)) * 1000);
 
                         let result = [];
-                        if (hours > 0) result.push(hours + " hour" + (hours !== 1 ? "s" : ""));
-                        if (minutes > 0) result.push(minutes + " minute" + (minutes !== 1 ? "s" : ""));
-                        if (seconds > 0 || (result.length === 0 && milliseconds === 0)) result.push(seconds + " second" + (seconds !== 1 ? "s" : ""));
-                        if (milliseconds > 0) result.push(milliseconds + " millisecond" + (milliseconds !== 1 ? "s" : ""));
+                        if (hours > 0) result.push(hours + "h");
+                        if (minutes > 0) result.push(minutes + "m");
+                        if (seconds > 0 || (result.length === 0 && milliseconds === 0)) result.push(seconds + "s");
+                        if (milliseconds > 0) result.push(milliseconds + "ms");
                         return result.join(" ");
                     }
 
-                    // updates the timestamp editor
-                    function populateTimestampFields(side, json) {
-                        for (const { field, key } of TIMESTAMP_MODES) {
-                            document.querySelector("#edit" + side + field + "EpisodeStartEdit").value = json[key].Start;
-                            document.querySelector("#edit" + side + field + "EpisodeEndEdit").value = json[key].End;
-                        }
-                    }
-
-                    function buildTimestampPayload(side, itemId, parsedValues) {
-                        const payload = {};
-                        for (const { field, key } of TIMESTAMP_MODES) {
-                            payload[key] = {
-                                ItemId: itemId,
-                                Start: parsedValues["edit" + side + field + "EpisodeStartEdit"],
-                                End: parsedValues["edit" + side + field + "EpisodeEndEdit"],
-                            };
-                        }
-                        return payload;
-                    }
-
+                    // updates the timestamp table with all episodes in the current season (or movie)
                     async function updateTimestampEditor() {
-                        // Get the title and ID of the left and right episodes
-                        const leftEpisode = selectEpisode1.options[selectEpisode1.selectedIndex] || selectShow;
+                        const isMovie = selectShow.value && shows[selectShow.value] && shows[selectShow.value].IsMovie;
+                        const tbody = document.getElementById("timestampTableBody");
+                        tbody.innerHTML = "";
 
-                        // Try to get the timestamps of each intro, falling back a default value of zero if no intro was found
-                        const leftEpisodeJson = await getJson("Episode/" + leftEpisode.value + "/Timestamps");
-                        if (!leftEpisodeJson) {
-                            timestampEditor.style.display = "none";
-                            timestampError.value = "Failed to load timestamps for " + leftEpisode.value;
-                            return;
-                        }
-
-                        // Update the editor for the first episode
-                        timestampEditor.style.display = "unset";
-                        document.querySelector("#editLeftEpisodeTitle").textContent = leftEpisode.text;
-                        populateTimestampFields("Left", leftEpisodeJson);
-
-                        // Update the editor for the second episode
-                        if (rightEpisodeEditor.style.display !== "none") {
-                            const rightEpisode = selectEpisode2.options[selectEpisode2.selectedIndex];
-
-                            // Try to get the timestamps of each intro, falling back a default value of zero if no intro was found
-                            const rightEpisodeJson = await getJson("Episode/" + rightEpisode.value + "/Timestamps");
-                            if (!rightEpisodeJson) {
-                                timestampError.value = "Failed to load timestamps for " + rightEpisode.value;
+                        let episodeList = [];
+                        if (isMovie) {
+                            episodeList = [{ Id: selectShow.value, Name: shows[selectShow.value].SeriesName }];
+                        } else {
+                            if (!selectSeason.value) {
                                 return;
                             }
-
-                            // Update the editor for the second episode
-                            document.querySelector("#editRightEpisodeTitle").textContent = rightEpisode.text;
-                            populateTimestampFields("Right", rightEpisodeJson);
+                            const seasonData = encodeURI(selectShow.value) + "/" + encodeURI(selectSeason.value);
+                            const episodes = await getJson("Intros/Show/" + seasonData);
+                            if (!episodes || !episodes.length) {
+                                timestampEditor.style.display = "none";
+                                return;
+                            }
+                            episodeList = episodes;
                         }
 
-                        // Update display inputs
-                        const inputs = getEditableTimestampInputs();
-                        inputs.forEach((input) => {
-                            const displayInput = document.getElementById(input.id.replace("Edit", "Display"));
-                            let value = parseFloat(input.value);
-                            if (isNaN(value)) {
-                                Dashboard.alert("Something went wrong during input parsing. Setting the input to 0.");
-                                value = 0;
+                        // Fetch all timestamps in parallel
+                        const timestampResults = await Promise.all(
+                            episodeList.map((ep) => getJson("Episode/" + ep.Id + "/Timestamps"))
+                        );
+
+                        episodeList.forEach((ep, i) => {
+                            const ts = timestampResults[i] || {};
+                            const row = document.createElement("tr");
+                            row.style.borderBottom = "1px solid #333";
+
+                            // Preview image
+                            const imgCell = document.createElement("td");
+                            imgCell.style.cssText = "padding: 4px 8px;";
+                            const img = document.createElement("img");
+                            img.src = ApiClient.serverAddress() + "/Items/" + ep.Id + "/Images/Primary?fillHeight=80&quality=90";
+                            img.alt = "";
+                            img.style.cssText = "height: 60px; width: auto; border-radius: 4px; display: block;";
+                            img.onerror = () => {
+                                img.style.display = "none";
+                            };
+                            imgCell.appendChild(img);
+                            row.appendChild(imgCell);
+
+                            // Episode name
+                            const nameCell = document.createElement("td");
+                            nameCell.style.cssText = "padding: 4px 8px; min-width: 160px;";
+                            nameCell.textContent = isMovie
+                                ? ep.Name
+                                : (i + 1).toLocaleString("en", { minimumIntegerDigits: 2 }) + ": " + ep.Name;
+                            row.appendChild(nameCell);
+
+                            // Timestamp cells
+                            for (const { key } of TIMESTAMP_MODES) {
+                                const cell = document.createElement("td");
+                                cell.style.cssText = "padding: 4px 8px; white-space: nowrap; font-size: 0.85em;";
+                                const seg = ts[key];
+                                if (seg && (seg.Start !== 0 || seg.End !== 0)) {
+                                    cell.textContent = formatTime(seg.Start) + " → " + formatTime(seg.End);
+                                } else {
+                                    cell.textContent = "–";
+                                    cell.style.color = "#888";
+                                }
+                                row.appendChild(cell);
                             }
-                            displayInput.value = formatTime(value);
+
+                            tbody.appendChild(row);
                         });
 
-                        setupTimeInputs();
+                        timestampEditor.style.display = "unset";
                     }
 
                     // adds an item to a dropdown
@@ -1606,8 +1327,6 @@
                     storage.addEventListener("toggle", storageToggled);
                     selectShow.addEventListener("change", showChanged);
                     selectSeason.addEventListener("change", seasonChanged);
-                    selectEpisode1.addEventListener("change", episodeChanged);
-                    selectEpisode2.addEventListener("change", episodeChanged);
 
                     saveAnalyzerActionsButton.addEventListener("click", () => {
                         Dashboard.showLoadingMsg();
@@ -1650,68 +1369,6 @@
                             Dashboard.hideLoadingMsg();
                             await refreshScanSeasonButtonState();
                         }
-                    });
-
-                    btnUpdateTimestamps.addEventListener("click", () => {
-                        const parsedValues = {};
-
-                        // Input validity check
-                        const inputs = getEditableTimestampInputs();
-
-                        let hasError = false;
-                        inputs.forEach((input) => {
-                            if (rightEpisodeEditor.style.display === "none" && rightEpisodeEditor.contains(input)) {
-                                return;
-                            }
-
-                            const displayEl = document.getElementById(input.id.replace("Edit", "Display"));
-                            const parsed = validateAndParseInput(input, displayEl, FLASH_DURATION_LONG);
-
-                            parsedValues[input.id] = parsed;
-
-                            if (isNaN(parsed)) {
-                                hasError = true;
-                            }
-                        });
-
-                        if (hasError) {
-                            Dashboard.alert("Unable to save: One or more timestamps are invalid. Please check the highlighted fields.");
-                            return;
-                        }
-
-                        // Check if we're dealing with a movie or TV show
-                        const isMovie = selectShow.value && shows[selectShow.value] && shows[selectShow.value].IsMovie;
-
-                        let lhsId;
-                        if (isMovie) {
-                            // For movies, use the show ID directly
-                            lhsId = selectShow.value;
-                        } else {
-                            // For TV shows, use the selected episode
-                            const selectedOption = selectEpisode1.options[selectEpisode1.selectedIndex];
-                            if (!selectedOption) {
-                                Dashboard.alert("Please select an episode first");
-                                return;
-                            }
-                            lhsId = selectedOption.value;
-                        }
-
-                        const newLhs = buildTimestampPayload("Left", lhsId, parsedValues);
-
-                        // Save the first/left timestamps
-                        fetchWithAuth("Episode/" + lhsId + "/Timestamps", "POST", JSON.stringify(newLhs));
-
-                        // For TV shows, also save the second episode's timestamps
-                        if (!isMovie && rightEpisodeEditor.style.display !== "none") {
-                            const rhsSelectedOption = selectEpisode2.options[selectEpisode2.selectedIndex];
-                            if (rhsSelectedOption) {
-                                const rhsId = rhsSelectedOption.value;
-                                const newRhs = buildTimestampPayload("Right", rhsId, parsedValues);
-                                fetchWithAuth("Episode/" + rhsId + "/Timestamps", "POST", JSON.stringify(newRhs));
-                            }
-                        }
-
-                        Dashboard.alert("New segment timestamps saved");
                     });
 
                     function eraseTimestampsForItem(confirmMessage, urlPath, alertMessage, cacheCheckboxId) {
