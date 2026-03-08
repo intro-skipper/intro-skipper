@@ -973,7 +973,7 @@
                         if (!visualizer.open) {
                             analyzerActionsSection.style.display = "none";
                             saveAnalyzerActionsButton.style.display = "none";
-                            .style.display = "none";
+                            scanSeasonButton.style.display = "none";
                             return;
                         }
 
@@ -1088,8 +1088,8 @@
                         // show the analyzer actions editor.
                         saveAnalyzerActionsButton.style.display = "block";
                         saveAnalyzerActionsButton.textContent = "Apply to season";
-                        .style.display = "block";
-                        .textContent = "Scan season";
+                        scanSeasonButton.style.display = "block";
+                        scanSeasonButton.textContent = "Scan season";
                         const analyzerActions = await getJson("Intros/AnalyzerActions/" + encodeURI(selectSeason.value));
                         actionIntro.value = analyzerActions.Introduction || "Default";
                         actionCredits.value = analyzerActions.Credits || "Default";
