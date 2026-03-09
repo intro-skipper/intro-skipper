@@ -3,11 +3,13 @@
 
 using System;
 using System.ComponentModel.DataAnnotations;
+using System.Linq;
 using System.Net.Mime;
 using System.Threading;
 using System.Threading.Tasks;
 using IntroSkipper.Data;
 using IntroSkipper.Manager;
+using MediaBrowser.Controller.Entities.TV;
 using MediaBrowser.Model.MediaSegments;
 using MediaBrowser.Model.Querying;
 using Microsoft.AspNetCore.Authorization;
@@ -115,6 +117,18 @@ public class SegmentEditorController(MediaSegmentUpdateManager mediaSegmentUpdat
         // run to completion — aborting here would leave a stale record that gets
         // recreated on the next media segment sync.
         await Plugin.Instance!.DeleteTimestampAsync(itemId, mode, CancellationToken.None).ConfigureAwait(false);
+
+        // Remove the flag so the episode can be re-analyzed now that the user-provided segment is gone.
+        var deletedItem = Plugin.Instance!.GetItem(itemId);
+        if (deletedItem is not null)
+        {
+            var seasonId = deletedItem is Episode ep ? ep.SeasonId : deletedItem.Id;
+            var existingIds = await Plugin.Instance!.GetEpisodeIdsAsync(seasonId, CancellationToken.None).ConfigureAwait(false);
+            if (existingIds.TryGetValue(mode, out var currentIds))
+            {
+                await Plugin.Instance!.SetEpisodeIdsAsync(seasonId, mode, currentIds.Where(id => id != itemId).ToArray(), CancellationToken.None).ConfigureAwait(false);
+            }
+        }
 
         return Ok();
     }
