@@ -123,10 +123,10 @@ public class SegmentEditorController(MediaSegmentUpdateManager mediaSegmentUpdat
         if (deletedItem is not null)
         {
             var seasonId = deletedItem is Episode ep ? ep.SeasonId : deletedItem.Id;
-            var existingIds = await Plugin.Instance!.GetEpisodeIdsAsync(seasonId, CancellationToken.None).ConfigureAwait(false);
+            var existingIds = await Plugin.Instance!.GetEpisodeIdsAsync(seasonId, cancellationToken).ConfigureAwait(false);
             if (existingIds.TryGetValue(mode, out var currentIds))
             {
-                await Plugin.Instance!.SetEpisodeIdsAsync(seasonId, mode, currentIds.Where(id => id != itemId).ToArray(), CancellationToken.None).ConfigureAwait(false);
+                await Plugin.Instance!.SetEpisodeIdsAsync(seasonId, mode, currentIds.Where(id => id != itemId).ToArray(), cancellationToken).ConfigureAwait(false);
             }
         }
 
