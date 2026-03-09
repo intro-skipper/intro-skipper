@@ -593,12 +593,13 @@
                                 <div id="timestampEditor" style="display: none">
                                     <br />
                                     <h3 style="margin: 0">Timestamps</h3>
+                                    <div id="timestampTableStatus" aria-live="polite" style="display: none; margin-top: 12px"></div>
                                     <div style="overflow-x: auto; margin-top: 16px">
                                         <table id="timestampTable" style="width: 100%; border-collapse: collapse;">
                                             <thead>
                                                 <tr>
+                                                    <th style="padding: 8px; text-align: left; border-bottom: 2px solid #555;">Thumbnail</th>
                                                     <th id="timestampTitle" style="padding: 8px; text-align: left; border-bottom: 2px solid #555;">Episode</th>
-                                                    <th style="padding: 8px; text-align: left; border-bottom: 2px solid #555;"> </th>
                                                     <th style="padding: 8px; text-align: left; border-bottom: 2px solid #555;">Intro</th>
                                                     <th style="padding: 8px; text-align: left; border-bottom: 2px solid #555;">Credits</th>
                                                     <th style="padding: 8px; text-align: left; border-bottom: 2px solid #555;">Recap</th>
@@ -710,6 +711,7 @@
                         { key: "Preview", label: "Preview" },
                         { key: "Commercial", label: "Commercial" },
                     ];
+                    const TIMESTAMP_FETCH_CONCURRENCY = 6;
 
                     // seasons grouped by show
                     let shows = {};
@@ -783,6 +785,7 @@
                     const timestampError = document.querySelector("textarea#timestampError");
                     const timestampErrorDiv = document.getElementById("timestampErrorDiv");
                     const timestampEditor = document.querySelector("#timestampEditor");
+                    const timestampTableStatus = document.getElementById("timestampTableStatus");
                     const silenceSettings = document.getElementById("silenceSettings");
 
                     const fullLengthChapters = document.getElementById("FullLengthChapters");
@@ -861,7 +864,14 @@
                         selectShow.innerHTML = "";
 
                         Dashboard.showLoadingMsg();
-                        shows = await getJson("Intros/Shows");
+                        const showsResponse = await getJsonDetailed("Intros/Shows");
+                        if (!showsResponse.ok) {
+                            shows = {};
+                            Dashboard.hideLoadingMsg();
+                            Dashboard.alert("Failed to load shows: " + describeRequestFailure(showsResponse));
+                            return;
+                        }
+                        shows = showsResponse.data || {};
 
                         // Create an object to store shows by library
                         let showsByLibrary = {};
@@ -950,6 +960,7 @@
                         eraseSeasonContainer.style.display = "none";
                         eraseMovieContainer.style.display = "none";
                         timestampEditor.style.display = "none";
+                        setTimestampTableStatus("");
 
                         if (shows[selectShow.value].IsMovie) {
                             await movieLoaded();
@@ -972,7 +983,8 @@
                         saveAnalyzerActionsButton.textContent = "Apply to season";
                         timestampTitle.textContent = "Episode";
                         scanSeasonButton.style.display = "block";
-                        const analyzerActions = await getJson("Intros/AnalyzerActions/" + encodeURI(selectSeason.value));
+                        const analyzerActionsResponse = await getJsonDetailed("Intros/AnalyzerActions/" + encodeURI(selectSeason.value));
+                        const analyzerActions = analyzerActionsResponse.ok ? analyzerActionsResponse.data || {} : {};
                         actionIntro.value = analyzerActions.Introduction || "Default";
                         actionCredits.value = analyzerActions.Credits || "Default";
                         actionRecap.value = analyzerActions.Recap || "Default";
@@ -983,8 +995,12 @@
                         // show the erase season button
                         eraseSeasonContainer.style.display = "unset";
 
+                        if (!analyzerActionsResponse.ok) {
+                            Dashboard.alert("Failed to load analyzer actions: " + describeRequestFailure(analyzerActionsResponse));
+                        }
+
                         Dashboard.hideLoadingMsg();
-                        const isScanRunning = await refreshScanSeasonButtonState();
+                        const isScanRunning = await refreshScanSeasonButtonState(true);
                         if (isScanRunning) {
                             monitorScanUntilComplete().catch(console.error);
                         } else {
@@ -1005,7 +1021,7 @@
                         timestampErrorDiv.style.display = "none";
 
                         Dashboard.hideLoadingMsg();
-                        const isScanRunning = await refreshScanSeasonButtonState();
+                        const isScanRunning = await refreshScanSeasonButtonState(true);
                         if (isScanRunning) {
                             monitorScanUntilComplete().catch(console.error);
                             return;
@@ -1022,12 +1038,59 @@
                         return new Promise((resolve) => setTimeout(resolve, milliseconds));
                     }
 
-                    async function refreshScanSeasonButtonState() {
+                    function setTimestampTableStatus(message, color = "#ccc") {
+                        if (!message) {
+                            timestampTableStatus.textContent = "";
+                            timestampTableStatus.style.display = "none";
+                            return;
+                        }
+
+                        timestampTableStatus.textContent = message;
+                        timestampTableStatus.style.color = color;
+                        timestampTableStatus.style.display = "block";
+                    }
+
+                    function clearTimestampTable() {
+                        document.getElementById("timestampTableBody").innerHTML = "";
+                    }
+
+                    async function mapWithConcurrency(items, limit, mapper) {
+                        const results = new Array(items.length);
+                        let nextIndex = 0;
+
+                        async function worker() {
+                            while (true) {
+                                const currentIndex = nextIndex;
+                                nextIndex += 1;
+                                if (currentIndex >= items.length) {
+                                    return;
+                                }
+
+                                results[currentIndex] = await mapper(items[currentIndex], currentIndex);
+                            }
+                        }
+
+                        const workerCount = Math.min(limit, items.length);
+                        await Promise.all(Array.from({ length: workerCount }, () => worker()));
+                        return results;
+                    }
+
+                    async function refreshScanSeasonButtonState(notifyOnError = false) {
                         if (scanSeasonButton.style.display === "none") {
                             return false;
                         }
 
-                        const status = await getJson("Intros/ScanStatus");
+                        const statusResponse = await getJsonDetailed("Intros/ScanStatus");
+                        if (!statusResponse.ok) {
+                            scanSeasonButton.disabled = false;
+                            scanSeasonButton.textContent = "Scan status unavailable";
+                            if (notifyOnError) {
+                                Dashboard.alert("Failed to load scan status: " + describeRequestFailure(statusResponse));
+                            }
+                            return false;
+                        }
+
+                        const status = statusResponse.data;
                         const isRunning = !!(status && status.isRunning);
                         scanSeasonButton.disabled = isRunning;
                         scanSeasonButton.textContent = isRunning ? "Scan in progress..." : getScanButtonIdleText();
@@ -1097,32 +1160,43 @@
                     async function updateTimestampEditor() {
                         const isMovie = selectShow.value && shows[selectShow.value] && shows[selectShow.value].IsMovie;
                         const tbody = document.getElementById("timestampTableBody");
-                        tbody.innerHTML = "";
+                        clearTimestampTable();
+                        timestampEditor.style.display = "";
+                        setTimestampTableStatus("Loading timestamps...");
 
                         let episodeList = [];
                         if (isMovie) {
                             episodeList = [{ Id: selectShow.value, Name: shows[selectShow.value].SeriesName }];
                         } else {
                             if (!selectSeason.value) {
+                                timestampEditor.style.display = "none";
+                                setTimestampTableStatus("");
                                 return;
                             }
                             const seasonData = encodeURI(selectShow.value) + "/" + encodeURI(selectSeason.value);
-                            const episodes = await getJson("Intros/Show/" + seasonData);
+                            const episodeResponse = await getJsonDetailed("Intros/Show/" + seasonData);
+                            if (!episodeResponse.ok) {
+                                setTimestampTableStatus("Failed to load season episodes: " + describeRequestFailure(episodeResponse), "#ff8080");
+                                return;
+                            }
+
+                            const episodes = episodeResponse.data;
                             if (!episodes || !episodes.length) {
-                                timestampEditor.style.display = "none";
+                                setTimestampTableStatus("No episodes were found for the selected season.", "#ccc");
                                 return;
                             }
                             episodeList = episodes;
                         }
 
-                        // Fetch all timestamps in parallel; use allSettled so one failed request doesn't abort the whole table
-                        const timestampResults = await Promise.allSettled(
-                            episodeList.map((ep) => getJson("Episode/" + ep.Id + "/Timestamps"))
+                        const timestampResults = await mapWithConcurrency(
+                            episodeList,
+                            TIMESTAMP_FETCH_CONCURRENCY,
+                            (ep) => getJsonDetailed("Episode/" + ep.Id + "/Timestamps")
                         );
+                        let failedCount = 0;
 
                         episodeList.forEach((ep, i) => {
                             const result = timestampResults[i];
-                            const ts = (result && result.status === "fulfilled" ? result.value : null) || {};
                             const row = document.createElement("tr");
                             row.style.borderBottom = "1px solid #333";
 
@@ -1147,26 +1221,79 @@
                                 : (i + 1).toLocaleString("en", { minimumIntegerDigits: 2 }) + ": " + ep.Name;
                             row.appendChild(nameCell);
 
-                            // Timestamp cells
-                            for (const { key } of TIMESTAMP_MODES) {
-                                const cell = document.createElement("td");
-                                cell.style.cssText = "padding: 4px 8px; white-space: nowrap; font-size: 0.85em;";
-                                const seg = ts[key];
-                                if (seg && (seg.Start !== 0 || seg.End !== 0)) {
-                                    cell.appendChild(document.createTextNode(formatTime(seg.Start)));
-                                    cell.appendChild(document.createElement("br"));
-                                    cell.appendChild(document.createTextNode(formatTime(seg.End)));
-                                } else {
-                                    cell.textContent = "–";
-                                    cell.style.color = "#888";
+                            if (!result || !result.ok) {
+                                failedCount += 1;
+                                const errorCell = document.createElement("td");
+                                errorCell.colSpan = TIMESTAMP_MODES.length;
+                                errorCell.style.cssText = "padding: 4px 8px; color: #ff8080; font-size: 0.85em;";
+                                const errorText = document.createTextNode(
+                                    "Failed to load timestamps for \"" + ep.Name + "\": " + describeRequestFailure(result) + " "
+                                );
+                                errorCell.appendChild(errorText);
+                                const retryLink = document.createElement("a");
+                                retryLink.href = "#";
+                                retryLink.textContent = "Retry";
+                                retryLink.style.cssText = "color: #2196f3; cursor: pointer; margin-left: 4px;";
+                                retryLink.addEventListener("click", async (e) => {
+                                    e.preventDefault();
+                                    retryLink.textContent = "Loading...";
+                                    retryLink.style.pointerEvents = "none";
+                                    const retryResult = await getJsonDetailed("Episode/" + ep.Id + "/Timestamps");
+                                    if (retryResult && retryResult.ok) {
+                                        // Replace error cell with timestamp cells
+                                        row.removeChild(errorCell);
+                                        const ts = retryResult.data || {};
+                                        for (const { key } of TIMESTAMP_MODES) {
+                                            const cell = document.createElement("td");
+                                            cell.style.cssText = "padding: 4px 8px; white-space: nowrap; font-size: 0.85em;";
+                                            const seg = ts[key];
+                                            if (seg && (seg.Start !== 0 || seg.End !== 0)) {
+                                                cell.appendChild(document.createTextNode(formatTime(seg.Start)));
+                                                cell.appendChild(document.createElement("br"));
+                                                cell.appendChild(document.createTextNode(formatTime(seg.End)));
+                                            } else {
+                                                cell.textContent = "–";
+                                                cell.style.color = "#888";
+                                            }
+                                            row.appendChild(cell);
+                                        }
+                                    } else {
+                                        retryLink.textContent = "Retry";
+                                        retryLink.style.pointerEvents = "";
+                                        errorText.textContent =
+                                            "Failed to load timestamps for \"" + ep.Name + "\": " + describeRequestFailure(retryResult) + " ";
+                                    }
+                                });
+                                errorCell.appendChild(retryLink);
+                                row.appendChild(errorCell);
+                            } else {
+                                const ts = result.data || {};
+
+                                // Timestamp cells
+                                for (const { key } of TIMESTAMP_MODES) {
+                                    const cell = document.createElement("td");
+                                    cell.style.cssText = "padding: 4px 8px; white-space: nowrap; font-size: 0.85em;";
+                                    const seg = ts[key];
+                                    if (seg && (seg.Start !== 0 || seg.End !== 0)) {
+                                        cell.appendChild(document.createTextNode(formatTime(seg.Start)));
+                                        cell.appendChild(document.createElement("br"));
+                                        cell.appendChild(document.createTextNode(formatTime(seg.End)));
+                                    } else {
+                                        cell.textContent = "–";
+                                        cell.style.color = "#888";
+                                    }
+                                    row.appendChild(cell);
                                 }
-                                row.appendChild(cell);
                             }
 
                             tbody.appendChild(row);
                         });
 
-                        timestampEditor.style.display = "unset";
+                        if (failedCount > 0) {
+                            setTimestampTableStatus(failedCount + " item(s) failed to load. Their rows are marked inline.", "#ffbf66");
+                        } else {
+                            setTimestampTableStatus("");
+                        }
                     }
 
                     // adds an item to a dropdown
@@ -1180,6 +1307,8 @@
                         timestampError.value = "";
                         timestampErrorDiv.style.display = "none";
                         timestampEditor.style.display = "none";
+                        setTimestampTableStatus("");
+                        clearTimestampTable();
                         let i,
                             L = select.options.length - 1;
                         for (i = L; i >= 0; i--) {
@@ -1189,17 +1318,52 @@
 
                     // make an authenticated GET to the server and parse the response as JSON
                     async function getJson(url) {
-                        return await fetchWithAuth(url, "GET")
-                            .then((r) => {
-                                if (r.ok) {
-                                    return r.json();
-                                } else {
-                                    return null;
-                                }
-                            })
-                            .catch((err) => {
-                                console.debug(err);
-                            });
+                        const result = await getJsonDetailed(url);
+                        return result.ok ? result.data : null;
+                    }
+
+                    // Structured helper that returns { ok, status, data, error }.
+                    // Prefer this when callers need to distinguish empty data from request failure.
+                    async function getJsonDetailed(url) {
+                        try {
+                            const response = await fetchWithAuth(url, "GET");
+                            if (response.ok) {
+                                return {
+                                    ok: true,
+                                    status: response.status,
+                                    data: await response.json(),
+                                };
+                            }
+
+                            return {
+                                ok: false,
+                                status: response.status,
+                                error: "Server returned " + response.status,
+                            };
+                        } catch (err) {
+                            console.debug(err);
+                            return {
+                                ok: false,
+                                status: null,
+                                error: err && err.message ? err.message : "Network error",
+                            };
+                        }
+                    }
+
+                    function describeRequestFailure(result) {
+                        if (!result) {
+                            return "unknown error";
+                        }
+
+                        if (result.error) {
+                            return result.error;
+                        }
+
+                        if (result.status) {
+                            return "Server returned " + result.status;
+                        }
+
+                        return "unknown error";
                     }
 
                     // make an authenticated fetch to the server
