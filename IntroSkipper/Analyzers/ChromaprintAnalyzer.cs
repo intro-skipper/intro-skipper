@@ -62,6 +62,14 @@ public partial class ChromaprintAnalyzer(ILogger<ChromaprintAnalyzer> logger) : 
                 .Where(episode => episode != currentEpisode && Math.Abs(episode.EpisodeNumber - currentEpisode.EpisodeNumber) <= 1));
         }
 
+        // Episodes that were already Analyzed on entry contribute their cached fingerprints
+        // for comparison but must not have their segments overwritten — only episodes that
+        // were NotAnalyzed (or NoSegments) when this method was called should be written.
+        var needsWrite = new HashSet<Guid>(
+            episodeAnalysisQueue
+                .Where(e => e.GetAnalyzed(mode) != EpisodeState.Analyzed)
+                .Select(e => e.EpisodeId));
+
         // Compute fingerprints for all episodes in the season
         foreach (var episode in episodeAnalysisQueue)
         {
@@ -168,7 +176,10 @@ public partial class ChromaprintAnalyzer(ILogger<ChromaprintAnalyzer> logger) : 
             {
                 var adjustedIntro = timeAdjustmentHelper.AdjustIntroTimes(currentEpisode, intro);
                 currentEpisode.SetAnalyzed(mode, EpisodeState.Analyzed);
-                await Plugin.Instance!.UpdateTimestampAsync(adjustedIntro, mode, cancellationToken).ConfigureAwait(false);
+                if (needsWrite.Contains(currentEpisode.EpisodeId))
+                {
+                    await Plugin.Instance!.UpdateTimestampAsync(adjustedIntro, mode, cancellationToken).ConfigureAwait(false);
+                }
             }
         }
 
