@@ -1010,6 +1010,7 @@
                                 Dashboard.hideLoadingMsg();
                             }
                         }
+                        Dashboard.hideLoadingMsg();
                     }
 
                     async function movieLoaded() {
@@ -1028,12 +1029,12 @@
                         if (isScanRunning) {
                             Dashboard.hideLoadingMsg();
                             monitorScanUntilComplete().catch(console.error);
-                            return;
-                        }
-                        try {
-                            await updateTimestampEditor();
-                        } finally {
-                            Dashboard.hideLoadingMsg();
+                        } else {
+                            try {
+                                await updateTimestampEditor();
+                            } finally {
+                                Dashboard.hideLoadingMsg();
+                            }
                         }
                     }
 
