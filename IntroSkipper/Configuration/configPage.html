@@ -999,12 +999,16 @@
                             Dashboard.alert("Failed to load analyzer actions: " + describeRequestFailure(analyzerActionsResponse));
                         }
 
-                        Dashboard.hideLoadingMsg();
                         const isScanRunning = await refreshScanSeasonButtonState(true);
                         if (isScanRunning) {
+                            Dashboard.hideLoadingMsg();
                             monitorScanUntilComplete().catch(console.error);
                         } else {
-                            await updateTimestampEditor();
+                            try {
+                                await updateTimestampEditor();
+                            } finally {
+                                Dashboard.hideLoadingMsg();
+                            }
                         }
                     }
 
@@ -1020,13 +1024,17 @@
                         timestampError.value = "";
                         timestampErrorDiv.style.display = "none";
 
-                        Dashboard.hideLoadingMsg();
                         const isScanRunning = await refreshScanSeasonButtonState(true);
                         if (isScanRunning) {
+                            Dashboard.hideLoadingMsg();
                             monitorScanUntilComplete().catch(console.error);
                             return;
                         }
-                        await updateTimestampEditor();
+                        try {
+                            await updateTimestampEditor();
+                        } finally {
+                            Dashboard.hideLoadingMsg();
+                        }
                     }
 
                     function getScanButtonIdleText() {
