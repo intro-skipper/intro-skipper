@@ -1251,6 +1251,7 @@
                                     if (retryResult && retryResult.ok) {
                                         // Replace error cell with timestamp cells
                                         row.removeChild(errorCell);
+                                        failedCount -= 1;
                                         const ts = retryResult.data || {};
                                         for (const { key } of TIMESTAMP_MODES) {
                                             const cell = document.createElement("td");
