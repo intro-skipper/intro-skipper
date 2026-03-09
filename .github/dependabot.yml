@@ -21,7 +21,6 @@ updates:
       interval: weekly
     open-pull-requests-limit: 10
     labels:
-      - ci
       - dependency
       - github_actions
     commit-message:
