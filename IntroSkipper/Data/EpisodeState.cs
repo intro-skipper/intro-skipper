@@ -22,4 +22,9 @@ public enum EpisodeState
     /// Episode has been analyzed but no segments were found.
     /// </summary>
     NoSegments,
+
+    /// <summary>
+    /// Episode segment was provided externally via the segment editor and must not be overwritten by automatic analysis.
+    /// </summary>
+    UserProvided,
 }

@@ -36,8 +36,10 @@ public partial class ChromaprintAnalyzer(ILogger<ChromaprintAnalyzer> logger) : 
         AnalysisMode mode,
         CancellationToken cancellationToken)
     {
-        // Episodes that were not analyzed or have a fingerprint cache.
-        var episodeAnalysisQueue = analysisQueue.Where(e => e.GetAnalyzed(mode) != EpisodeState.Analyzed || File.Exists(FFmpegWrapper.GetFingerprintCachePath(e, mode))).ToList();
+        // Episodes that were not analyzed or have a fingerprint cache, excluding user-provided segments
+        // which must never be overwritten by automatic analysis.
+        var episodeAnalysisQueue = analysisQueue.Where(e => e.GetAnalyzed(mode) != EpisodeState.UserProvided &&
+            (e.GetAnalyzed(mode) != EpisodeState.Analyzed || File.Exists(FFmpegWrapper.GetFingerprintCachePath(e, mode)))).ToList();
 
         if (analysisQueue.Count <= 1 || episodeAnalysisQueue.All(e => e.GetAnalyzed(mode) == EpisodeState.Analyzed))
         {
@@ -61,14 +63,6 @@ public partial class ChromaprintAnalyzer(ILogger<ChromaprintAnalyzer> logger) : 
             episodeAnalysisQueue.AddRange(analysisQueue
                 .Where(episode => episode != currentEpisode && Math.Abs(episode.EpisodeNumber - currentEpisode.EpisodeNumber) <= 1));
         }
-
-        // Episodes that were already Analyzed on entry contribute their cached fingerprints
-        // for comparison but must not have their segments overwritten — only episodes that
-        // were NotAnalyzed (or NoSegments) when this method was called should be written.
-        var needsWrite = new HashSet<Guid>(
-            episodeAnalysisQueue
-                .Where(e => e.GetAnalyzed(mode) != EpisodeState.Analyzed)
-                .Select(e => e.EpisodeId));
 
         // Compute fingerprints for all episodes in the season
         foreach (var episode in episodeAnalysisQueue)
@@ -176,10 +170,7 @@ public partial class ChromaprintAnalyzer(ILogger<ChromaprintAnalyzer> logger) : 
             {
                 var adjustedIntro = timeAdjustmentHelper.AdjustIntroTimes(currentEpisode, intro);
                 currentEpisode.SetAnalyzed(mode, EpisodeState.Analyzed);
-                if (needsWrite.Contains(currentEpisode.EpisodeId))
-                {
-                    await Plugin.Instance!.UpdateTimestampAsync(adjustedIntro, mode, cancellationToken).ConfigureAwait(false);
-                }
+                await Plugin.Instance!.UpdateTimestampAsync(adjustedIntro, mode, cancellationToken: cancellationToken).ConfigureAwait(false);
             }
         }
 

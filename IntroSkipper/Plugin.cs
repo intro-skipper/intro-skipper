@@ -177,7 +177,7 @@ public partial class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
 
     internal IReadOnlyList<ChapterInfo> GetChapters(Guid id) => _chapterRepository.GetChapters(id);
 
-    internal async Task UpdateTimestampAsync(Segment segment, AnalysisMode mode, CancellationToken cancellationToken = default)
+    internal async Task UpdateTimestampAsync(Segment segment, AnalysisMode mode, bool isUserProvided = false, CancellationToken cancellationToken = default)
     {
         using var db = CreateDbContext();
 
@@ -187,7 +187,7 @@ public partial class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
                 .FirstOrDefaultAsync(s => s.ItemId == segment.EpisodeId && s.Type == mode, cancellationToken)
                 .ConfigureAwait(false);
 
-            var dbSegment = new DbSegment(segment, mode);
+            var dbSegment = new DbSegment(segment, mode, isUserProvided);
             if (existing is not null)
             {
                 db.Entry(existing).CurrentValues.SetValues(dbSegment);
@@ -299,7 +299,13 @@ public partial class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
                 .GroupBy(s => s.ItemId)
                 .ToDictionary(
                     group => group.Key,
-                    group => (IReadOnlyDictionary<AnalysisMode, Segment>)group.ToDictionary(segment => segment.Type, segment => segment.ToSegment())));
+                    group => (IReadOnlyDictionary<AnalysisMode, Segment>)group.ToDictionary(segment => segment.Type, segment => segment.ToSegment())),
+            segments
+                .Where(s => s.IsUserProvided)
+                .GroupBy(s => s.Type)
+                .ToDictionary(
+                    group => group.Key,
+                    group => (IReadOnlySet<Guid>)group.Select(s => s.ItemId).ToHashSet()));
     }
 
     internal async Task<IReadOnlyDictionary<AnalysisMode, AnalyzerAction>> GetAllAnalyzerActionsAsync(Guid seasonId, CancellationToken cancellationToken = default)
