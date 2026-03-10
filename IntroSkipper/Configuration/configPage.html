@@ -609,7 +609,7 @@
                                         </table>
                                     </div>
                                 </div>
-                                <p align="center" style="font-size: 0.75em">Segments can be added, modified, or removed using <a href="/web/#/dashboard/plugins/ace21d44a4e54a85ae75acd2e24a9574?name=Segment Editor">Segment Editor</a></p>
+                                <p align="center" style="font-size: 0.75em">Segments can be added, modified, or removed using <a id="segmentEditorLink" is="emby-linkbutton" class="button-link" href="#/dashboard/plugins/ace21d44a4e54a85ae75acd2e24a9574?name=Segment Editor">Segment Editor</a></p>
                                 <p>
                                     <button is="emby-button" id="scanSeason" class="raised button-submit block emby-button" style="display: none">Scan Season</button>
                                 </p>
@@ -1434,6 +1434,23 @@
                         });
                     }
 
+                    async function resolveSegmentEditorLink() {
+                        try {
+                            const response = await fetchWithAuth("Plugins", "GET", null);
+                            if (response.ok) {
+                                const plugins = await response.json();
+                                const isActive = plugins.some(
+                                    (p) => p.Id === "ace21d44a4e54a85ae75acd2e24a9574" && p.Status === "Active"
+                                );
+                                if (isActive) {
+                                    document.getElementById("segmentEditorLink").href = "#/configurationpage?name=Segment%20Editor";
+                                }
+                            }
+                        } catch (_) {
+                            // keep fallback href already set in markup
+                        }
+                    }
+
                     function loadConfiguration() {
                         Dashboard.showLoadingMsg();
                         ApiClient.getPluginConfiguration("c83d86bb-a1e0-4c35-a113-e2101cf4ee6b")
@@ -1459,6 +1476,7 @@
                             .catch((error) => {
                                 Dashboard.hideLoadingMsg();
                             });
+                        resolveSegmentEditorLink();
                     }
 
                     // Initial load
