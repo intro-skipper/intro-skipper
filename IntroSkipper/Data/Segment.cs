@@ -1,4 +1,4 @@
-﻿// Copyright (C) 2026 Intro-Skipper contributors <intro-skipper.org>
+// Copyright (C) 2026 Intro-Skipper contributors <intro-skipper.org>
 // SPDX-License-Identifier: GPL-3.0-only
 
 using System;
@@ -40,12 +40,12 @@ public class Segment
     /// <summary>
     /// Initializes a new instance of the <see cref="Segment"/> class.
     /// </summary>
-    /// <param name="intro">intro.</param>
-    public Segment(Segment intro)
+    /// <param name="segment">Segment to copy.</param>
+    public Segment(Segment segment)
     {
-        EpisodeId = intro.EpisodeId;
-        Start = intro.Start;
-        End = intro.End;
+        EpisodeId = segment.EpisodeId;
+        Start = segment.Start;
+        End = segment.End;
     }
 
     /// <summary>
@@ -74,13 +74,13 @@ public class Segment
     public double End { get; set; }
 
     /// <summary>
-    /// Gets a value indicating whether this introduction is valid or not.
+    /// Gets a value indicating whether this segment is valid or not.
     /// Invalid results must not be returned through the API.
     /// </summary>
     public bool Valid => End > 0.0;
 
     /// <summary>
-    /// Gets the duration of this intro.
+    /// Gets the duration of this segment.
     /// </summary>
     [JsonIgnore]
     public double Duration => End - Start;

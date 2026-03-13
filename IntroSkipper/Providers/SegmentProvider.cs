@@ -1,4 +1,4 @@
-﻿// Copyright (C) 2026 Intro-Skipper contributors <intro-skipper.org>
+// Copyright (C) 2026 Intro-Skipper contributors <intro-skipper.org>
 // SPDX-License-Identifier: GPL-3.0-only
 
 using System;
@@ -37,13 +37,13 @@ namespace IntroSkipper.Providers
         public string Name => Plugin.Instance!.Name;
 
         /// <inheritdoc/>
-        public Task<IReadOnlyList<MediaSegmentDto>> GetMediaSegments(MediaSegmentGenerationRequest request, CancellationToken cancellationToken)
+        public async Task<IReadOnlyList<MediaSegmentDto>> GetMediaSegments(MediaSegmentGenerationRequest request, CancellationToken cancellationToken)
         {
             ArgumentNullException.ThrowIfNull(request);
             ArgumentNullException.ThrowIfNull(Plugin.Instance);
 
             var segments = new List<MediaSegmentDto>();
-            var itemSegments = Plugin.Instance.GetTimestamps(request.ItemId);
+            var itemSegments = await Plugin.Instance.GetTimestampsAsync(request.ItemId, cancellationToken).ConfigureAwait(false);
 
             foreach (var (mode, type) in _segmentMappings)
             {
@@ -62,7 +62,7 @@ namespace IntroSkipper.Providers
                 }
             }
 
-            return Task.FromResult<IReadOnlyList<MediaSegmentDto>>(segments);
+            return segments;
         }
 
         /// <inheritdoc/>

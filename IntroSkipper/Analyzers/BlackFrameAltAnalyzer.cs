@@ -1,4 +1,4 @@
-﻿// Copyright (C) 2026 Intro-Skipper contributors <intro-skipper.org>
+// Copyright (C) 2026 Intro-Skipper contributors <intro-skipper.org>
 // SPDX-License-Identifier: GPL-3.0-only
 
 using System;
@@ -73,7 +73,7 @@ public sealed partial class BlackFrameAltAnalyzer(ILogger<BlackFrameAltAnalyzer>
                 LogFoundCredits(episode.Name, credit.Start);
 
                 episode.SetAnalyzed(mode, EpisodeState.Analyzed);
-                await plugin.UpdateTimestampAsync(credit, mode).ConfigureAwait(false);
+                await plugin.UpdateTimestampAsync(credit, mode, cancellationToken).ConfigureAwait(false);
             }
             catch (OperationCanceledException)
             {

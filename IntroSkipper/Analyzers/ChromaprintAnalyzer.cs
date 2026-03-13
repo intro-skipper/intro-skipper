@@ -1,4 +1,4 @@
-﻿// Copyright (C) 2026 Intro-Skipper contributors <intro-skipper.org>
+// Copyright (C) 2026 Intro-Skipper contributors <intro-skipper.org>
 // SPDX-License-Identifier: GPL-3.0-only
 
 using System;
@@ -168,7 +168,7 @@ public partial class ChromaprintAnalyzer(ILogger<ChromaprintAnalyzer> logger) : 
             {
                 var adjustedIntro = timeAdjustmentHelper.AdjustIntroTimes(currentEpisode, intro);
                 currentEpisode.SetAnalyzed(mode, EpisodeState.Analyzed);
-                await Plugin.Instance!.UpdateTimestampAsync(adjustedIntro, mode).ConfigureAwait(false);
+                await Plugin.Instance!.UpdateTimestampAsync(adjustedIntro, mode, cancellationToken).ConfigureAwait(false);
             }
         }
 
@@ -401,8 +401,8 @@ public partial class ChromaprintAnalyzer(ILogger<ChromaprintAnalyzer> logger) : 
         return BitOperations.PopCount(number);
     }
 
-    [LoggerMessage(Level = LogLevel.Debug, Message = "Caught fingerprint error: {Ex}")]
-    private partial void LogCaughtFingerprintError(object ex);
+    [LoggerMessage(Level = LogLevel.Debug, Message = "Caught fingerprint error")]
+    private partial void LogCaughtFingerprintError(Exception exception);
 
     [LoggerMessage(Level = LogLevel.Trace, Message = "Index search successful")]
     private partial void LogIndexSearchSuccessful();

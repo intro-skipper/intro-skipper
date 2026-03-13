@@ -12,7 +12,7 @@ body:
 
         Intro Skipper no longer provides the skip buttons or determines the type of segments to be skipped. 
       options:
-        - label: This feature is meant for Intro Skipper
+        - label: This feature is meant for Intro Skipper and was not [already requested](https://github.com/intro-skipper/intro-skipper/issues?q=is%3Aissue%20state%3Aclosed)
           required: true
   - type: textarea
     attributes:

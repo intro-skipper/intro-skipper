@@ -1,4 +1,4 @@
-﻿// Copyright (C) 2026 Intro-Skipper contributors <intro-skipper.org>
+// Copyright (C) 2026 Intro-Skipper contributors <intro-skipper.org>
 // SPDX-License-Identifier: GPL-3.0-only
 
 using System;
@@ -41,10 +41,11 @@ namespace IntroSkipper.Services
         private readonly ILoggerFactory _loggerFactory;
         private readonly MediaSegmentUpdateManager _mediaSegmentUpdateManager;
         private readonly HashSet<Guid> _seasonsToAnalyze = [];
+        private readonly object _seasonsLock = new();
         private readonly Timer _queueTimer;
         private static readonly SemaphoreSlim _analysisSemaphore = new(1, 1);
         private PluginConfiguration _config;
-        private bool _analyzeAgain;
+        private volatile bool _analyzeAgain;
         private static CancellationTokenSource? _cancellationTokenSource;
 
         /// <summary>
@@ -85,12 +86,19 @@ namespace IntroSkipper.Services
         /// <summary>
         /// Gets State of the automatic task.
         /// </summary>
-        public static TaskState AutomaticTaskState => _cancellationTokenSource switch
+        public static TaskState AutomaticTaskState
         {
-            null => TaskState.Idle,
-            { IsCancellationRequested: true } => TaskState.Cancelling,
-            _ => TaskState.Running
-        };
+            get
+            {
+                var cts = Volatile.Read(ref _cancellationTokenSource);
+                return cts switch
+                {
+                    null => TaskState.Idle,
+                    { IsCancellationRequested: true } => TaskState.Cancelling,
+                    _ => TaskState.Running
+                };
+            }
+        }
 
         /// <inheritdoc />
         public Task StartAsync(CancellationToken cancellationToken)
@@ -114,7 +122,7 @@ namespace IntroSkipper.Services
         }
 
         /// <inheritdoc />
-        public Task StopAsync(CancellationToken cancellationToken)
+        public async Task StopAsync(CancellationToken cancellationToken)
         {
             _libraryManager.ItemAdded -= OnItemChanged;
             _libraryManager.ItemUpdated -= OnItemChanged;
@@ -123,7 +131,7 @@ namespace IntroSkipper.Services
             Plugin.Instance!.ConfigurationChanged -= OnSettingsChanged;
 
             _queueTimer.Change(Timeout.Infinite, 0);
-            return Task.CompletedTask;
+            await CancelAutomaticTaskAsync(cancellationToken).ConfigureAwait(false);
         }
 
         /// <summary>
@@ -180,7 +188,11 @@ namespace IntroSkipper.Services
             {
                 var delay = itemChangeEventArgs.UpdateReason == 0 ? 120 : 60;
 
-                _seasonsToAnalyze.Add(id.Value);
+                lock (_seasonsLock)
+                {
+                    _seasonsToAnalyze.Add(id.Value);
+                }
+
                 StartTimer(delay);
             }
         }
@@ -247,9 +259,10 @@ namespace IntroSkipper.Services
                     return false;
                 }
             }
-            catch
+            catch (Exception ex)
             {
-                // Ignore LocationType evaluation issues.
+                // LocationType can throw on partially-initialized items (e.g. in unit tests).
+                LogLocationTypeEvaluationFailed(ex);
             }
 
             item = candidate;
@@ -310,8 +323,6 @@ namespace IntroSkipper.Services
             {
                 LogRunAnalysisError(ex);
             }
-
-            _cancellationTokenSource = null;
         }
 
         private async Task PerformAnalysisAsync()
@@ -319,22 +330,38 @@ namespace IntroSkipper.Services
             await _analysisSemaphore.WaitAsync().ConfigureAwait(false);
             try
             {
-                using (_cancellationTokenSource = new CancellationTokenSource())
-                using (await ScheduledTaskSemaphore.AcquireAsync(_cancellationTokenSource.Token).ConfigureAwait(false))
+                var cts = new CancellationTokenSource();
+                Interlocked.Exchange(ref _cancellationTokenSource, cts);
+                try
                 {
-                    LogInitiatingAutomaticAnalysis();
-                    var seasonIds = new HashSet<Guid>(_seasonsToAnalyze);
-                    _seasonsToAnalyze.Clear();
-                    _analyzeAgain = false;
-
-                    var analyzer = new BaseItemAnalyzerTask(_loggerFactory.CreateLogger<Entrypoint>(), _loggerFactory, _libraryManager, _providerManager, _fileSystem, _mediaSegmentUpdateManager);
-                    await analyzer.AnalyzeItemsAsync(new Progress<double>(), _cancellationTokenSource.Token, seasonIds).ConfigureAwait(false);
-
-                    if (_analyzeAgain && !_cancellationTokenSource.IsCancellationRequested)
+                    using (await ScheduledTaskSemaphore.AcquireAsync(cts.Token).ConfigureAwait(false))
                     {
-                        LogAnalyzingEndedNeedsRestart();
-                        _queueTimer.Change(TimeSpan.FromSeconds(60), Timeout.InfiniteTimeSpan);
+                        LogInitiatingAutomaticAnalysis();
+                        HashSet<Guid> seasonIds;
+                        lock (_seasonsLock)
+                        {
+                            seasonIds = new HashSet<Guid>(_seasonsToAnalyze);
+                            _seasonsToAnalyze.Clear();
+                        }
+
+                        _analyzeAgain = false;
+
+                        var analyzer = new BaseItemAnalyzerTask(_loggerFactory.CreateLogger<Entrypoint>(), _loggerFactory, _libraryManager, _providerManager, _fileSystem, _mediaSegmentUpdateManager);
+                        await analyzer.AnalyzeItemsAsync(new Progress<double>(), cts.Token, seasonIds).ConfigureAwait(false);
+
+                        if (_analyzeAgain && !cts.IsCancellationRequested)
+                        {
+                            LogAnalyzingEndedNeedsRestart();
+                            _queueTimer.Change(TimeSpan.FromSeconds(60), Timeout.InfiniteTimeSpan);
+                        }
                     }
+                }
+                finally
+                {
+                    // Null the field BEFORE disposing to prevent other threads
+                    // from reading a disposed CancellationTokenSource via Volatile.Read.
+                    Interlocked.Exchange(ref _cancellationTokenSource, null);
+                    cts.Dispose();
                 }
             }
             finally
@@ -350,19 +377,25 @@ namespace IntroSkipper.Services
         /// <returns>A <see cref="Task"/> representing the asynchronous operation.</returns>
         public static async Task CancelAutomaticTaskAsync(CancellationToken cancellationToken)
         {
-            if (_cancellationTokenSource is { IsCancellationRequested: false })
+            var cts = Volatile.Read(ref _cancellationTokenSource);
+            if (cts is { IsCancellationRequested: false })
             {
                 try
                 {
-                    await _cancellationTokenSource.CancelAsync().ConfigureAwait(false);
+                    await cts.CancelAsync().ConfigureAwait(false);
                 }
                 catch (ObjectDisposedException)
                 {
-                    _cancellationTokenSource = null;
+                    Interlocked.CompareExchange(ref _cancellationTokenSource, null, cts);
                 }
             }
 
-            await _analysisSemaphore.WaitAsync(TimeSpan.FromSeconds(60), cancellationToken).ConfigureAwait(false);
+            if (!await _analysisSemaphore.WaitAsync(TimeSpan.FromSeconds(60), cancellationToken).ConfigureAwait(false))
+            {
+                throw new TimeoutException("Timed out waiting for the automatic analysis task to complete.");
+            }
+
+            _analysisSemaphore.Release();
         }
 
         /// <inheritdoc/>
@@ -370,7 +403,6 @@ namespace IntroSkipper.Services
         {
             _queueTimer.Dispose();
             _cancellationTokenSource?.Dispose();
-            _analysisSemaphore.Dispose();
         }
 
         [LoggerMessage(Level = LogLevel.Debug, Message = "Media item removed, deleting fingerprint cache for {Id}")]
@@ -393,5 +425,8 @@ namespace IntroSkipper.Services
 
         [LoggerMessage(Level = LogLevel.Information, Message = "Analyzing ended, but we need to analyze again!")]
         private partial void LogAnalyzingEndedNeedsRestart();
+
+        [LoggerMessage(Level = LogLevel.Debug, Message = "LocationType evaluation failed for item")]
+        private partial void LogLocationTypeEvaluationFailed(Exception ex);
     }
 }

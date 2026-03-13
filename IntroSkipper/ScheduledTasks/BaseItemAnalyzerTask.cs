@@ -1,4 +1,4 @@
-﻿// Copyright (C) 2026 Intro-Skipper contributors <intro-skipper.org>
+// Copyright (C) 2026 Intro-Skipper contributors <intro-skipper.org>
 // SPDX-License-Identifier: GPL-3.0-only
 
 using System;
@@ -103,7 +103,7 @@ public partial class BaseItemAnalyzerTask(
         {
             var updateMediaSegments = false;
 
-            var episodes = queueManager.VerifyQueue(season.Value, modes);
+            var episodes = await queueManager.VerifyQueueAsync(season.Value, modes, ct).ConfigureAwait(false);
             if (episodes.Count == 0)
             {
                 return;
@@ -192,7 +192,7 @@ public partial class BaseItemAnalyzerTask(
 
         var totalItems = items.Count(e => e.GetAnalyzed(mode) != EpisodeState.Analyzed);
         var plugin = Plugin.Instance ?? throw new InvalidOperationException("Plugin instance is null");
-        var action = plugin.GetAnalyzerAction(first.SeasonId, mode);
+        var action = await plugin.GetAnalyzerActionAsync(first.SeasonId, mode, cancellationToken).ConfigureAwait(false);
 
         var chromaprintOnly = _ffmpegValid && _config.PreferChromaprint && action is AnalyzerAction.Default or AnalyzerAction.Chromaprint;
 
@@ -235,7 +235,7 @@ public partial class BaseItemAnalyzerTask(
         }
 
         // Set the episode IDs for the analyzed items
-        await Plugin.Instance!.SetEpisodeIdsAsync(first.SeasonId, mode, items.Select(i => i.EpisodeId)).ConfigureAwait(false);
+        await Plugin.Instance!.SetEpisodeIdsAsync(first.SeasonId, mode, items.Select(i => i.EpisodeId), cancellationToken).ConfigureAwait(false);
 
         return totalItems - items.Count(e => e.GetAnalyzed(mode) != EpisodeState.Analyzed);
     }

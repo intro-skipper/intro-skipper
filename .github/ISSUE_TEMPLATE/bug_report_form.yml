@@ -64,8 +64,8 @@ body:
 
   - type: textarea
     attributes:
-      label: Support Bundle
-      placeholder: go to Dashboard -> Plugins -> Intro Skipper -> Support Bundle (at the bottom of the page) and paste the contents of the textbox here
+      label: Intro Skipper Support Log
+      placeholder: go to Dashboard -> Plugins -> Intro Skipper -> Expand Intro Skipper Support Log (at the bottom of the page) and paste the contents of the textbox here
       render: shell
     validations:
       required: true

@@ -1,4 +1,4 @@
-﻿// Copyright (C) 2026 Intro-Skipper contributors <intro-skipper.org>
+// Copyright (C) 2026 Intro-Skipper contributors <intro-skipper.org>
 // SPDX-License-Identifier: GPL-3.0-only
 
 using System;
@@ -53,6 +53,7 @@ public class SegmentEditorController(MediaSegmentUpdateManager mediaSegmentUpdat
     /// <param name="itemId">The ItemId.</param>
     /// <param name="providerId">Provider of the Segment.</param>
     /// <param name="segment">MediaSegment data.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>The created segment.</returns>
     [HttpPost("{itemId}")]
     [ProducesResponseType(StatusCodes.Status200OK)]
@@ -60,7 +61,8 @@ public class SegmentEditorController(MediaSegmentUpdateManager mediaSegmentUpdat
     public async Task<ActionResult<QueryResult<MediaSegmentDto>>> CreateSegmentAsync(
         [FromRoute, Required] Guid itemId,
         [FromQuery, Required] string providerId,
-        [FromBody, Required] MediaSegmentDto segment)
+        [FromBody, Required] MediaSegmentDto segment,
+        CancellationToken cancellationToken = default)
     {
         var item = Plugin.Instance!.GetItem(itemId);
         if (item is null)
@@ -71,11 +73,11 @@ public class SegmentEditorController(MediaSegmentUpdateManager mediaSegmentUpdat
         var seg = new Segment(itemId, new TimeRange(TimeSpan.FromTicks(segment.StartTicks).TotalSeconds, TimeSpan.FromTicks(segment.EndTicks).TotalSeconds));
         var mode = Plugin.MapSegmentTypeToMode(segment.Type);
 
-        await Plugin.Instance!.UpdateTimestampAsync(seg, mode).ConfigureAwait(false);
+        await Plugin.Instance!.UpdateTimestampAsync(seg, mode, cancellationToken).ConfigureAwait(false);
 
         var queuedItem = new QueuedEpisode { EpisodeId = item.Id };
 
-        await _mediaSegmentUpdateManager.UpdateMediaSegmentsAsync([queuedItem], CancellationToken.None).ConfigureAwait(false);
+        await _mediaSegmentUpdateManager.UpdateMediaSegmentsAsync([queuedItem], cancellationToken).ConfigureAwait(false);
 
         return Ok();
     }
@@ -86,13 +88,15 @@ public class SegmentEditorController(MediaSegmentUpdateManager mediaSegmentUpdat
     /// <param name="segmentId">The Id of the media segment to delete.</param>
     /// <param name="itemId">The item id the segment belongs to (used to remove plugin DB entry).</param>
     /// <param name="type">The media segment type name (Intro/Recap/Preview/Outro).</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>HTTP 200 on success, 404 when item not found.</returns>
     [HttpDelete("{segmentId}")]
     [ProducesResponseType(StatusCodes.Status200OK)]
     public async Task<ActionResult> DeleteSegmentAsync(
         [FromRoute, Required] Guid segmentId,
         [FromQuery, Required] Guid itemId,
-        [FromQuery, Required] string type)
+        [FromQuery, Required] string type,
+        CancellationToken cancellationToken = default)
     {
         // Delete the segment from Jellyfin's media segment manager
         await _mediaSegmentUpdateManager.DeleteSegmentAsync(segmentId).ConfigureAwait(false);
@@ -107,7 +111,10 @@ public class SegmentEditorController(MediaSegmentUpdateManager mediaSegmentUpdat
             _ => throw new ArgumentOutOfRangeException(nameof(type), $"Unknown segment type '{type}'")
         };
 
-        await Plugin.Instance!.DeleteTimestampAsync(itemId, mode).ConfigureAwait(false);
+        // The Jellyfin segment is already deleted above, so the plugin DB delete must
+        // run to completion — aborting here would leave a stale record that gets
+        // recreated on the next media segment sync.
+        await Plugin.Instance!.DeleteTimestampAsync(itemId, mode, CancellationToken.None).ConfigureAwait(false);
 
         return Ok();
     }

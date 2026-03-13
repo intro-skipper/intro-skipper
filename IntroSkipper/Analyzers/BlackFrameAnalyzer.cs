@@ -1,4 +1,4 @@
-﻿// Copyright (C) 2026 Intro-Skipper contributors <intro-skipper.org>
+// Copyright (C) 2026 Intro-Skipper contributors <intro-skipper.org>
 // SPDX-License-Identifier: GPL-3.0-only
 
 using System;
@@ -87,10 +87,14 @@ public sealed partial class BlackFrameAnalyzer(ILogger<BlackFrameAnalyzer> logge
                 LogFoundCredits(_logger, episode.Name, credit.Start);
 
                 episode.SetAnalyzed(mode, EpisodeState.Analyzed);
-                await Plugin.Instance!.UpdateTimestampAsync(credit, mode).ConfigureAwait(false);
+                await Plugin.Instance!.UpdateTimestampAsync(credit, mode, cancellationToken).ConfigureAwait(false);
 
                 // Update search start for next episode based on this result
                 searchStart = episode.Duration - credit.Start + _config.MinimumCreditsDuration;
+            }
+            catch (OperationCanceledException)
+            {
+                throw;
             }
             catch (Exception ex)
             {

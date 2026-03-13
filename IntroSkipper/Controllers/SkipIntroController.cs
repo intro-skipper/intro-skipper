@@ -1,4 +1,4 @@
-﻿// Copyright (C) 2026 Intro-Skipper contributors <intro-skipper.org>
+// Copyright (C) 2026 Intro-Skipper contributors <intro-skipper.org>
 // SPDX-License-Identifier: GPL-3.0-only
 
 using System;
@@ -8,7 +8,6 @@ using System.Net.Mime;
 using System.Threading;
 using System.Threading.Tasks;
 using IntroSkipper.Data;
-using IntroSkipper.Db;
 using IntroSkipper.Manager;
 using MediaBrowser.Common.Api;
 using MediaBrowser.Controller.Entities.Movies;
@@ -68,7 +67,7 @@ public class SkipIntroController(MediaSegmentUpdateManager mediaSegmentUpdateMan
             if (segment.Valid)
             {
                 segment.EpisodeId = id;
-                await Plugin.Instance!.UpdateTimestampAsync(segment, mode).ConfigureAwait(false);
+                await Plugin.Instance!.UpdateTimestampAsync(segment, mode, cancellationToken).ConfigureAwait(false);
             }
         }
 
@@ -90,12 +89,13 @@ public class SkipIntroController(MediaSegmentUpdateManager mediaSegmentUpdateMan
     /// Gets the timestamps for the provided episode.
     /// </summary>
     /// <param name="id">Episode ID.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
     /// <response code="200">Sucess.</response>
     /// <response code="404">Given ID is not an Episode.</response>
     /// <returns>Episode Timestamps.</returns>
     [HttpGet("Episode/{Id}/Timestamps")]
     [ActionName("UpdateTimestamps")]
-    public ActionResult<TimeStamps> GetTimestamps([FromRoute] Guid id)
+    public async Task<ActionResult<TimeStamps>> GetTimestamps([FromRoute] Guid id, CancellationToken cancellationToken = default)
     {
         // only get return content for episodes
         var rawItem = Plugin.Instance!.GetItem(id);
@@ -105,7 +105,7 @@ public class SkipIntroController(MediaSegmentUpdateManager mediaSegmentUpdateMan
         }
 
         var times = new TimeStamps();
-        var segments = Plugin.Instance!.GetTimestamps(id);
+        var segments = await Plugin.Instance!.GetTimestampsAsync(id, cancellationToken).ConfigureAwait(false);
 
         if (segments.TryGetValue(AnalysisMode.Introduction, out var introSegment))
         {
@@ -139,12 +139,13 @@ public class SkipIntroController(MediaSegmentUpdateManager mediaSegmentUpdateMan
     /// Gets a dictionary of all skippable segments.
     /// </summary>
     /// <param name="id">Media ID.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
     /// <response code="200">Skippable segments dictionary.</response>
     /// <returns>Dictionary of skippable segments.</returns>
     [HttpGet("Episode/{id}/IntroSkipperSegments")]
-    public ActionResult<Dictionary<AnalysisMode, Segment>> GetSkippableSegments([FromRoute] Guid id)
+    public async Task<ActionResult<Dictionary<AnalysisMode, Segment>>> GetSkippableSegments([FromRoute] Guid id, CancellationToken cancellationToken = default)
     {
-        var segments = Plugin.Instance!.GetTimestamps(id);
+        var segments = await Plugin.Instance!.GetTimestampsAsync(id, cancellationToken).ConfigureAwait(false);
         var result = new Dictionary<AnalysisMode, Segment>();
 
         if (segments.TryGetValue(AnalysisMode.Introduction, out var introSegment))
@@ -180,24 +181,24 @@ public class SkipIntroController(MediaSegmentUpdateManager mediaSegmentUpdateMan
     /// </summary>
     /// <param name="mode">Mode.</param>
     /// <param name="eraseCache">Erase cache.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
     /// <response code="204">Operation successful.</response>
     /// <returns>No content.</returns>
     [Authorize(Policy = Policies.RequiresElevation)]
     [HttpPost("Intros/EraseTimestamps")]
-    public async Task<ActionResult> ResetIntroTimestamps([FromQuery] AnalysisMode mode, [FromQuery] bool eraseCache = false)
+    public async Task<ActionResult> ResetIntroTimestamps([FromQuery] AnalysisMode mode, [FromQuery] bool eraseCache = false, CancellationToken cancellationToken = default)
     {
-        using var db = new IntroSkipperDbContext(Plugin.Instance!.DbPath);
-        var segments = await db.DbSegment
+        using var db = Plugin.CreateDbContext();
+        await db.DbSegment
             .Where(s => s.Type == mode)
-            .ToListAsync()
+            .ExecuteDeleteAsync(cancellationToken)
             .ConfigureAwait(false);
-
-        db.DbSegment.RemoveRange(segments);
-        await db.SaveChangesAsync().ConfigureAwait(false);
 
         if (eraseCache && mode is AnalysisMode.Introduction or AnalysisMode.Credits)
         {
-            await Task.Run(() => FFmpegWrapper.DeleteCacheFiles(mode)).ConfigureAwait(false);
+            // Cache deletion must run to completion — the DB rows are already gone,
+            // so aborting here would leave orphaned files with no way to clean them up.
+            await Task.Run(() => FFmpegWrapper.DeleteCacheFiles(mode), CancellationToken.None).ConfigureAwait(false);
         }
 
         return NoContent();
@@ -210,10 +211,11 @@ public class SkipIntroController(MediaSegmentUpdateManager mediaSegmentUpdateMan
     /// <returns>No content.</returns>
     [Authorize(Policy = Policies.RequiresElevation)]
     [HttpPost("Intros/RebuildDatabase")]
-    public ActionResult RebuildDatabase()
+    public async Task<ActionResult> RebuildDatabase()
     {
-        using var db = new IntroSkipperDbContext(Plugin.Instance!.DbPath);
-        db.RebuildDatabase();
+        // Database rebuild is destructive and must run to completion — do not bind to HttpContext.RequestAborted.
+        using var db = Plugin.CreateDbContext();
+        await db.RebuildDatabaseAsync(Plugin.CreateDbContext).ConfigureAwait(false);
         return NoContent();
     }
 }
