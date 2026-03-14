@@ -31,6 +31,7 @@ namespace IntroSkipper;
 /// </summary>
 public partial class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
 {
+    // Tolerance for comparing segment start/end times to account for floating-point rounding.
     private const double SegmentComparisonEpsilon = 0.001;
     private readonly ILibraryManager _libraryManager;
     private readonly IChapterManager _chapterRepository;
