@@ -14,6 +14,7 @@ using MediaBrowser.Model.Querying;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.Extensions.Logging;
 
 namespace IntroSkipper.Controllers;
 
@@ -24,13 +25,15 @@ namespace IntroSkipper.Controllers;
 /// Initializes a new instance of the <see cref="SegmentEditorController"/> class.
 /// </remarks>
 /// <param name="mediaSegmentUpdateManager">MediaSegmentUpdateManager.</param>
+/// <param name="logger">Logger.</param>
 [Authorize(Policy = "RequiresElevation")]
 [ApiController]
 [Produces(MediaTypeNames.Application.Json)]
 [Route("MediaSegmentsApi")]
-public class SegmentEditorController(MediaSegmentUpdateManager mediaSegmentUpdateManager) : ControllerBase
+public class SegmentEditorController(MediaSegmentUpdateManager mediaSegmentUpdateManager, ILogger<SegmentEditorController> logger) : ControllerBase
 {
     private readonly MediaSegmentUpdateManager _mediaSegmentUpdateManager = mediaSegmentUpdateManager;
+    private readonly ILogger<SegmentEditorController> _logger = logger;
 
     /// <summary>
     /// Plugin meta endpoint.
@@ -129,8 +132,9 @@ public class SegmentEditorController(MediaSegmentUpdateManager mediaSegmentUpdat
             // Delete the segment from Jellyfin's media segment manager
             await _mediaSegmentUpdateManager.DeleteSegmentAsync(segmentId).ConfigureAwait(false);
         }
-        catch
+        catch (Exception ex)
         {
+            _logger.LogError(ex, "Failed to delete Jellyfin segment {SegmentId} for item {ItemId}; rolling back DB delete.", segmentId, itemId);
             // Rollback should complete even if the request is canceled to avoid leaving the DB delete applied.
             await Plugin.Instance.UpdateTimestampAsync(dbSegment, mode, CancellationToken.None).ConfigureAwait(false);
             throw;
