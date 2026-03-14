@@ -251,12 +251,24 @@ public partial class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
 
     private static Dictionary<AnalysisMode, Segment> BuildSegmentLookup(IEnumerable<DbSegment> segments)
     {
-        // When duplicates exist (for example, legacy or unexpected data), prefer the earliest segment to preserve legacy single-segment behavior.
-        return segments
+        var grouped = segments
             .GroupBy(segment => segment.Type)
-            .ToDictionary(
-                group => group.Key,
-                group => group.OrderBy(segment => segment.Start).First().ToSegment());
+            .ToList();
+
+        var duplicateModes = grouped
+            .Where(group => group.Key != AnalysisMode.Commercial && group.Count() > 1)
+            .Select(group => group.Key)
+            .ToArray();
+
+        if (duplicateModes.Length > 0)
+        {
+            throw new InvalidOperationException(
+                $"Multiple segments detected for non-commercial modes: {string.Join(", ", duplicateModes)}.");
+        }
+
+        return grouped.ToDictionary(
+            group => group.Key,
+            group => group.OrderBy(segment => segment.Start).First().ToSegment());
     }
 
     internal async Task CleanTimestampsAsync(IEnumerable<Guid> episodeIds, CancellationToken cancellationToken = default)

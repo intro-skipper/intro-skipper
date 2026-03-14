@@ -46,7 +46,6 @@ namespace IntroSkipper.Providers
 
             var segments = new List<MediaSegmentDto>();
             var itemSegments = await Plugin.Instance.GetSegmentsAsync(request.ItemId, cancellationToken).ConfigureAwait(false);
-            var dedupedModes = new HashSet<AnalysisMode>();
 
             foreach (var segment in itemSegments.OrderBy(segment => segment.Start))
             {
@@ -56,11 +55,6 @@ namespace IntroSkipper.Providers
                 }
 
                 if (!IsValidSegment(segment))
-                {
-                    continue;
-                }
-
-                if (segment.Type != AnalysisMode.Commercial && !dedupedModes.Add(segment.Type))
                 {
                     continue;
                 }
