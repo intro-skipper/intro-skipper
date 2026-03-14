@@ -1,7 +1,6 @@
-// SPDX-FileCopyrightText: 2024-2026 rlauuzo
 // SPDX-FileCopyrightText: 2024 TwistedUmbrellaX
+// SPDX-FileCopyrightText: 2024-2026 rlauuzo
 // SPDX-FileCopyrightText: 2024-2026 Kilian von Pflugk
-// SPDX-FileCopyrightText: 2024-2025 rlauu
 // SPDX-License-Identifier: GPL-3.0-only
 
 using System;

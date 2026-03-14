@@ -2,7 +2,6 @@
 // SPDX-FileCopyrightText: 2023 P├®ter Tombor
 // SPDX-FileCopyrightText: 2024-2026 rlauuzo
 // SPDX-FileCopyrightText: 2024 Xameon42
-// SPDX-FileCopyrightText: 2024-2025 rlauu
 // SPDX-FileCopyrightText: 2024-2026 Kilian von Pflugk
 // SPDX-FileCopyrightText: 2024-2025 TwistedUmbrellaX
 // SPDX-License-Identifier: GPL-3.0-only

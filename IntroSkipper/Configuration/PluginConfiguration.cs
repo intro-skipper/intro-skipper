@@ -4,7 +4,6 @@
 // SPDX-FileCopyrightText: 2022-2023 ConfusedPolarBear
 // SPDX-FileCopyrightText: 2024-2026 rlauuzo
 // SPDX-FileCopyrightText: 2024 theMasterpc
-// SPDX-FileCopyrightText: 2024-2025 rlauu
 // SPDX-FileCopyrightText: 2024-2026 Kilian von Pflugk
 // SPDX-FileCopyrightText: 2024-2026 TwistedUmbrellaX
 // SPDX-FileCopyrightText: 2025 Abandoned Cart
