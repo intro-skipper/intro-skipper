@@ -131,6 +131,7 @@ public class SegmentEditorController(MediaSegmentUpdateManager mediaSegmentUpdat
         }
         catch
         {
+            // Rollback should complete even if the request is canceled to avoid leaving the DB delete applied.
             await Plugin.Instance.UpdateTimestampAsync(dbSegment, mode, CancellationToken.None).ConfigureAwait(false);
             throw;
         }
