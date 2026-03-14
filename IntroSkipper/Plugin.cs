@@ -270,7 +270,7 @@ public partial class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
 
         if (duplicateModes.Count > 0)
         {
-            var duplicateModeNames = duplicateModes.Select(mode => mode.ToString());
+            var duplicateModeNames = duplicateModes.Select(mode => mode.ToString()).ToArray();
             throw new InvalidOperationException(
                 $"Multiple segments detected for item {itemId} in non-commercial modes: {string.Join(", ", duplicateModeNames)}. " +
                 "Please remove duplicate segments via the segment editor or re-analyze the item.");
