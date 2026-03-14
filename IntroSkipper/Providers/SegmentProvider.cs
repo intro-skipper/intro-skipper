@@ -7,6 +7,7 @@ using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using IntroSkipper.Data;
+using IntroSkipper.Db;
 using Jellyfin.Database.Implementations.Enums;
 using MediaBrowser.Controller.Entities;
 using MediaBrowser.Controller.Entities.Movies;
@@ -54,7 +55,7 @@ namespace IntroSkipper.Providers
                     continue;
                 }
 
-                if (segment.End <= 0.0)
+                if (!IsValidSegment(segment))
                 {
                     continue;
                 }
@@ -81,5 +82,10 @@ namespace IntroSkipper.Providers
 
         /// <inheritdoc/>
         public ValueTask<bool> Supports(BaseItem item) => ValueTask.FromResult(item is Episode or Movie);
+
+        private static bool IsValidSegment(DbSegment segment)
+        {
+            return segment.Start >= 0.0 && segment.End > 0.0 && segment.Start < segment.End;
+        }
     }
 }

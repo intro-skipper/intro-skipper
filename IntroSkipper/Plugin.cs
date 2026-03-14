@@ -184,8 +184,6 @@ public partial class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
         try
         {
             var dbSegment = new DbSegment(segment, mode);
-            var shouldSave = false;
-
             if (mode == AnalysisMode.Commercial)
             {
                 var exists = await db.DbSegment
@@ -197,32 +195,28 @@ public partial class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
                         cancellationToken)
                     .ConfigureAwait(false);
 
-                if (!exists)
+                if (exists)
                 {
-                    db.DbSegment.Add(dbSegment);
-                    shouldSave = true;
-                }
-            }
-            else
-            {
-                var existingSegments = await db.DbSegment
-                    .Where(s => s.ItemId == segment.EpisodeId && s.Type == mode)
-                    .ToListAsync(cancellationToken)
-                    .ConfigureAwait(false);
-
-                if (existingSegments.Count > 0)
-                {
-                    db.DbSegment.RemoveRange(existingSegments);
+                    return;
                 }
 
                 db.DbSegment.Add(dbSegment);
-                shouldSave = true;
+                await db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+                return;
             }
 
-            if (shouldSave)
+            var existingSegments = await db.DbSegment
+                .Where(s => s.ItemId == segment.EpisodeId && s.Type == mode)
+                .ToListAsync(cancellationToken)
+                .ConfigureAwait(false);
+
+            if (existingSegments.Count > 0)
             {
-                await db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+                db.DbSegment.RemoveRange(existingSegments);
             }
+
+            db.DbSegment.Add(dbSegment);
+            await db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
         }
         catch (Exception ex)
         {
@@ -240,11 +234,7 @@ public partial class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
             .ToListAsync(cancellationToken)
             .ConfigureAwait(false);
 
-        return segments
-            .GroupBy(segment => segment.Type)
-            .ToDictionary(
-                group => group.Key,
-                group => group.OrderBy(segment => segment.Start).First().ToSegment());
+        return BuildSegmentLookup(segments);
     }
 
     internal async Task<IReadOnlyList<DbSegment>> GetSegmentsAsync(Guid id, CancellationToken cancellationToken = default)
@@ -255,6 +245,16 @@ public partial class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
             .Where(s => s.ItemId == id)
             .ToListAsync(cancellationToken)
             .ConfigureAwait(false);
+    }
+
+    private static Dictionary<AnalysisMode, Segment> BuildSegmentLookup(IEnumerable<DbSegment> segments)
+    {
+        // When duplicates exist (for example, legacy or unexpected data), prefer the earliest segment to preserve legacy single-segment behavior.
+        return segments
+            .GroupBy(segment => segment.Type)
+            .ToDictionary(
+                group => group.Key,
+                group => group.OrderBy(segment => segment.Start).First().ToSegment());
     }
 
     internal async Task CleanTimestampsAsync(IEnumerable<Guid> episodeIds, CancellationToken cancellationToken = default)
@@ -342,11 +342,7 @@ public partial class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
                 .GroupBy(s => s.ItemId)
                 .ToDictionary(
                     group => group.Key,
-                    group => (IReadOnlyDictionary<AnalysisMode, Segment>)group
-                        .GroupBy(segment => segment.Type)
-                        .ToDictionary(
-                            segmentGroup => segmentGroup.Key,
-                            segmentGroup => segmentGroup.OrderBy(segment => segment.Start).First().ToSegment())));
+                    group => (IReadOnlyDictionary<AnalysisMode, Segment>)BuildSegmentLookup(group)));
     }
 
     internal async Task<IReadOnlyDictionary<AnalysisMode, AnalyzerAction>> GetAllAnalyzerActionsAsync(Guid seasonId, CancellationToken cancellationToken = default)

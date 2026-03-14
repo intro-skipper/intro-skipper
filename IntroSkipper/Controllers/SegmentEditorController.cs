@@ -8,6 +8,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using IntroSkipper.Data;
 using IntroSkipper.Manager;
+using Jellyfin.Database.Implementations.Enums;
 using MediaBrowser.Model.MediaSegments;
 using MediaBrowser.Model.Querying;
 using Microsoft.AspNetCore.Authorization;
@@ -70,7 +71,7 @@ public class SegmentEditorController(MediaSegmentUpdateManager mediaSegmentUpdat
             return NotFound();
         }
 
-        var seg = new Segment(itemId, new TimeRange(TimeSpan.FromTicks(segment.StartTicks).TotalSeconds, TimeSpan.FromTicks(segment.EndTicks).TotalSeconds));
+        var seg = CreateSegment(itemId, segment);
         var mode = Plugin.MapSegmentTypeToMode(segment.Type);
 
         await Plugin.Instance!.UpdateTimestampAsync(seg, mode, cancellationToken).ConfigureAwait(false);
@@ -98,22 +99,24 @@ public class SegmentEditorController(MediaSegmentUpdateManager mediaSegmentUpdat
         [FromQuery, Required] string type,
         CancellationToken cancellationToken = default)
     {
+        MediaSegmentType segmentType = type.ToLowerInvariant() switch
+        {
+            "intro" => MediaSegmentType.Intro,
+            "recap" => MediaSegmentType.Recap,
+            "preview" => MediaSegmentType.Preview,
+            "outro" or "credits" => MediaSegmentType.Outro,
+            "commercial" => MediaSegmentType.Commercial,
+            _ => throw new ArgumentOutOfRangeException(nameof(type), $"Unknown segment type '{type}'")
+        };
+
+        AnalysisMode mode = Plugin.MapSegmentTypeToMode(segmentType);
+
         var existingSegment = await _mediaSegmentUpdateManager
-            .GetSegmentAsync(itemId, segmentId, cancellationToken)
+            .GetSegmentAsync(itemId, segmentId, segmentType, cancellationToken)
             .ConfigureAwait(false);
 
         // Delete the segment from Jellyfin's media segment manager
         await _mediaSegmentUpdateManager.DeleteSegmentAsync(segmentId).ConfigureAwait(false);
-
-        AnalysisMode mode = type.ToLowerInvariant() switch
-        {
-            "intro" => AnalysisMode.Introduction,
-            "recap" => AnalysisMode.Recap,
-            "preview" => AnalysisMode.Preview,
-            "outro" or "credits" => AnalysisMode.Credits,
-            "commercial" => AnalysisMode.Commercial,
-            _ => throw new ArgumentOutOfRangeException(nameof(type), $"Unknown segment type '{type}'")
-        };
 
         // The Jellyfin segment is already deleted above, so the plugin DB delete must
         // run to completion — aborting here would leave a stale record that gets
@@ -121,13 +124,18 @@ public class SegmentEditorController(MediaSegmentUpdateManager mediaSegmentUpdat
         Segment? dbSegment = null;
         if (existingSegment is not null)
         {
-            var startSeconds = TimeSpan.FromTicks(existingSegment.StartTicks).TotalSeconds;
-            var endSeconds = TimeSpan.FromTicks(existingSegment.EndTicks).TotalSeconds;
-            dbSegment = new Segment(itemId, new TimeRange(startSeconds, endSeconds));
+            dbSegment = CreateSegment(itemId, existingSegment);
         }
 
         await Plugin.Instance!.DeleteTimestampAsync(itemId, mode, dbSegment, CancellationToken.None).ConfigureAwait(false);
 
         return Ok();
+    }
+
+    private static Segment CreateSegment(Guid itemId, MediaSegmentDto segment)
+    {
+        var startSeconds = TimeSpan.FromTicks(segment.StartTicks).TotalSeconds;
+        var endSeconds = TimeSpan.FromTicks(segment.EndTicks).TotalSeconds;
+        return new Segment(itemId, new TimeRange(startSeconds, endSeconds));
     }
 }

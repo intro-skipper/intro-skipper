@@ -7,6 +7,7 @@ using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using IntroSkipper.Data;
+using Jellyfin.Database.Implementations.Enums;
 using MediaBrowser.Controller.MediaSegments;
 using MediaBrowser.Model.Configuration;
 using MediaBrowser.Model.MediaSegments;
@@ -91,9 +92,14 @@ public partial class MediaSegmentUpdateManager(
     /// </summary>
     /// <param name="itemId">The item id that owns the segment.</param>
     /// <param name="segmentId">The segment id.</param>
+    /// <param name="segmentType">Optional segment type to limit the search.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>The matching segment, or <c>null</c> if not found.</returns>
-    public async Task<MediaSegmentDto?> GetSegmentAsync(Guid itemId, Guid segmentId, CancellationToken cancellationToken)
+    public async Task<MediaSegmentDto?> GetSegmentAsync(
+        Guid itemId,
+        Guid segmentId,
+        MediaSegmentType? segmentType,
+        CancellationToken cancellationToken)
     {
         var item = Plugin.Instance?.GetItem(itemId);
         if (item is null)
@@ -102,8 +108,9 @@ public partial class MediaSegmentUpdateManager(
             return null;
         }
 
+        var typeFilter = segmentType.HasValue ? new[] { segmentType.Value } : null;
         var segments = await _mediaSegmentManager
-            .GetSegmentsAsync(item, null, _externalProviders, filterByProvider: false)
+            .GetSegmentsAsync(item, typeFilter, _externalProviders, filterByProvider: false)
             .ConfigureAwait(false);
 
         cancellationToken.ThrowIfCancellationRequested();
