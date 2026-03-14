@@ -122,7 +122,7 @@ public class SegmentEditorController(MediaSegmentUpdateManager mediaSegmentUpdat
 
         var dbSegment = CreateSegment(itemId, existingSegment);
 
-        await Plugin.Instance!.DeleteTimestampAsync(itemId, mode, dbSegment, cancellationToken).ConfigureAwait(false);
+        await Plugin.Instance!.DeleteTimestampAsync(itemId, mode, dbSegment, CancellationToken.None).ConfigureAwait(false);
 
         try
         {
