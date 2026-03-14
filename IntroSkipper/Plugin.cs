@@ -266,6 +266,40 @@ public partial class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
         await db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
     }
 
+    /// <summary>
+    /// Removes a single episode ID from the season's analyzed-state list for the given mode.
+    /// The read and write share one <see cref="IntroSkipperDbContext"/> to keep the window for
+    /// concurrent overwrites as small as possible, and the write is skipped entirely when the
+    /// ID is not present in the stored list.
+    /// </summary>
+    /// <param name="seasonId">Season ID.</param>
+    /// <param name="mode">Analysis mode.</param>
+    /// <param name="episodeId">Episode ID to remove.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>A <see cref="Task"/> representing the asynchronous operation.</returns>
+    internal async Task RemoveEpisodeIdAsync(Guid seasonId, AnalysisMode mode, Guid episodeId, CancellationToken cancellationToken = default)
+    {
+        using var db = CreateDbContext();
+        var seasonInfo = await db.DbSeasonInfo
+            .FirstOrDefaultAsync(s => s.SeasonId == seasonId && s.Type == mode, cancellationToken)
+            .ConfigureAwait(false);
+
+        if (seasonInfo is null)
+        {
+            return;
+        }
+
+        var currentIds = seasonInfo.EpisodeIds.ToList();
+        var updatedIds = currentIds.Where(id => id != episodeId).ToList();
+        if (updatedIds.Count == currentIds.Count)
+        {
+            return; // Episode was not in the list — no write needed.
+        }
+
+        db.Entry(seasonInfo).Property(s => s.EpisodeIds).CurrentValue = updatedIds;
+        await db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+    }
+
     internal async Task<IReadOnlyDictionary<AnalysisMode, IEnumerable<Guid>>> GetEpisodeIdsAsync(Guid id, CancellationToken cancellationToken = default)
     {
         using var db = CreateDbContext();

@@ -118,22 +118,13 @@ public class SegmentEditorController(MediaSegmentUpdateManager mediaSegmentUpdat
         // recreated on the next media segment sync.
         await Plugin.Instance!.DeleteTimestampAsync(itemId, mode, CancellationToken.None).ConfigureAwait(false);
 
-        // Remove the flag so the episode can be re-analyzed now that the user-provided segment is gone.
+        // Remove the episode from the season's analyzed-state list so that the episode
+        // returns to NotAnalyzed and can be re-processed by the next analysis run.
         var deletedItem = Plugin.Instance!.GetItem(itemId);
         if (deletedItem is not null)
         {
             var seasonId = deletedItem is Episode ep ? ep.SeasonId : deletedItem.Id;
-            var existingIds = await Plugin.Instance!.GetEpisodeIdsAsync(seasonId, CancellationToken.None).ConfigureAwait(false);
-            if (existingIds.TryGetValue(mode, out var currentIds))
-            {
-                var filteredIds = currentIds.Where(id => id != itemId).ToArray();
-
-                if (filteredIds.Length != currentIds.Length)
-                {
-                    await Plugin.Instance!.SetEpisodeIdsAsync(seasonId, mode, filteredIds, CancellationToken.None)
-                        .ConfigureAwait(false);
-                }
-            }
+            await Plugin.Instance!.RemoveEpisodeIdAsync(seasonId, mode, itemId, cancellationToken).ConfigureAwait(false);
         }
 
         return Ok();
