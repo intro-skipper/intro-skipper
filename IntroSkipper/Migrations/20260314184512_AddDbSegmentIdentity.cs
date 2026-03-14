@@ -11,82 +11,54 @@ namespace IntroSkipper.Migrations
         /// <inheritdoc />
         protected override void Up(MigrationBuilder migrationBuilder)
         {
-            migrationBuilder.CreateTable(
-                name: "DbSegment_Temp",
-                columns: table => new
-                {
-                    Id = table.Column<long>(type: "INTEGER", nullable: false)
-                        .Annotation("Sqlite:Autoincrement", true),
-                    ItemId = table.Column<Guid>(type: "TEXT", nullable: false),
-                    Type = table.Column<int>(type: "INTEGER", nullable: false),
-                    Start = table.Column<double>(type: "REAL", nullable: false, defaultValue: 0.0),
-                    End = table.Column<double>(type: "REAL", nullable: false, defaultValue: 0.0)
-                },
-                constraints: table =>
-                {
-                    table.PrimaryKey("PK_DbSegment_Temp", x => x.Id);
-                });
-
             migrationBuilder.Sql(
                 """
-                INSERT INTO DbSegment_Temp (ItemId, Type, Start, End)
-                SELECT ItemId, Type, Start, End
-                FROM DbSegment;
-                """);
-
-            migrationBuilder.DropTable(
-                name: "DbSegment");
-
-            migrationBuilder.RenameTable(
-                name: "DbSegment_Temp",
-                newName: "DbSegment");
-
-            migrationBuilder.CreateIndex(
-                name: "IX_DbSegment_ItemId",
-                table: "DbSegment",
-                column: "ItemId");
+                BEGIN TRANSACTION;
+                CREATE TABLE "DbSegment_Temp" (
+                    "Id" INTEGER NOT NULL CONSTRAINT "PK_DbSegment_Temp" PRIMARY KEY AUTOINCREMENT,
+                    "ItemId" TEXT NOT NULL,
+                    "Type" INTEGER NOT NULL,
+                    "Start" REAL NOT NULL DEFAULT 0.0,
+                    "End" REAL NOT NULL DEFAULT 0.0
+                );
+                INSERT INTO "DbSegment_Temp" ("ItemId", "Type", "Start", "End")
+                SELECT "ItemId", "Type", "Start", "End"
+                FROM "DbSegment";
+                DROP TABLE "DbSegment";
+                ALTER TABLE "DbSegment_Temp" RENAME TO "DbSegment";
+                CREATE INDEX "IX_DbSegment_ItemId" ON "DbSegment" ("ItemId");
+                COMMIT;
+                """,
+                suppressTransaction: true);
         }
 
         /// <inheritdoc />
         protected override void Down(MigrationBuilder migrationBuilder)
         {
-            migrationBuilder.CreateTable(
-                name: "DbSegment_Temp",
-                columns: table => new
-                {
-                    ItemId = table.Column<Guid>(type: "TEXT", nullable: false),
-                    Type = table.Column<int>(type: "INTEGER", nullable: false),
-                    Start = table.Column<double>(type: "REAL", nullable: false, defaultValue: 0.0),
-                    End = table.Column<double>(type: "REAL", nullable: false, defaultValue: 0.0)
-                },
-                constraints: table =>
-                {
-                    table.PrimaryKey("PK_DbSegment_Temp", x => new { x.ItemId, x.Type });
-                });
-
             migrationBuilder.Sql(
                 """
-                INSERT INTO DbSegment_Temp (ItemId, Type, Start, End)
-                SELECT ItemId, Type, Start, End
-                FROM DbSegment
-                WHERE Id IN (
-                    SELECT MIN(Id)
-                    FROM DbSegment
-                    GROUP BY ItemId, Type
+                BEGIN TRANSACTION;
+                CREATE TABLE "DbSegment_Temp" (
+                    "ItemId" TEXT NOT NULL,
+                    "Type" INTEGER NOT NULL,
+                    "Start" REAL NOT NULL DEFAULT 0.0,
+                    "End" REAL NOT NULL DEFAULT 0.0,
+                    CONSTRAINT "PK_DbSegment_Temp" PRIMARY KEY ("ItemId", "Type")
                 );
-                """);
-
-            migrationBuilder.DropTable(
-                name: "DbSegment");
-
-            migrationBuilder.RenameTable(
-                name: "DbSegment_Temp",
-                newName: "DbSegment");
-
-            migrationBuilder.CreateIndex(
-                name: "IX_DbSegment_ItemId",
-                table: "DbSegment",
-                column: "ItemId");
+                INSERT INTO "DbSegment_Temp" ("ItemId", "Type", "Start", "End")
+                SELECT "ItemId", "Type", "Start", "End"
+                FROM "DbSegment"
+                WHERE "Id" IN (
+                    SELECT MIN("Id")
+                    FROM "DbSegment"
+                    GROUP BY "ItemId", "Type"
+                );
+                DROP TABLE "DbSegment";
+                ALTER TABLE "DbSegment_Temp" RENAME TO "DbSegment";
+                CREATE INDEX "IX_DbSegment_ItemId" ON "DbSegment" ("ItemId");
+                COMMIT;
+                """,
+                suppressTransaction: true);
         }
     }
 }
