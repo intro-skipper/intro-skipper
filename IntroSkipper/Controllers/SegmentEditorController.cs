@@ -125,6 +125,7 @@ public class SegmentEditorController(MediaSegmentUpdateManager mediaSegmentUpdat
 
         var dbSegment = CreateSegment(itemId, existingSegment);
 
+        // DB delete should complete even if the request is canceled to avoid resurrecting the segment on the next sync.
         await Plugin.Instance!.DeleteTimestampAsync(itemId, mode, dbSegment, CancellationToken.None).ConfigureAwait(false);
 
         try
