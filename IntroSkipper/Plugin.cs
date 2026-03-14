@@ -192,8 +192,8 @@ public partial class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
                     .AnyAsync(
                         s => s.ItemId == segment.EpisodeId
                              && s.Type == mode
-                             && Math.Abs(s.Start - dbSegment.Start) <= SegmentComparisonEpsilon
-                             && Math.Abs(s.End - dbSegment.End) <= SegmentComparisonEpsilon,
+                             && Math.Abs(s.Start - dbSegment.Start) < SegmentComparisonEpsilon
+                             && Math.Abs(s.End - dbSegment.End) < SegmentComparisonEpsilon,
                         cancellationToken)
                     .ConfigureAwait(false);
 
