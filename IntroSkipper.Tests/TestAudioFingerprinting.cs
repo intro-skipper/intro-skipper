@@ -1,4 +1,8 @@
-// SPDX-FileCopyrightText: 2026 Intro-Skipper contributors <intro-skipper.org>
+// SPDX-FileCopyrightText: 2022 ConfusedPolarBear
+// SPDX-FileCopyrightText: 2024 TwistedUmbrellaX
+// SPDX-FileCopyrightText: 2024-2026 Kilian von Pflugk
+// SPDX-FileCopyrightText: 2024 rlauu
+// SPDX-FileCopyrightText: 2024-2026 rlauuzo
 // SPDX-License-Identifier: GPL-3.0-only
 
 /* These tests require that the host system has a version of FFmpeg installed
