@@ -1,5 +1,7 @@
-// Copyright (C) 2024 Intro-Skipper contributors <intro-skipper.org>
-// SPDX-License-Identifier: GPL-3.0-only.
+// SPDX-FileCopyrightText: 2024 TwistedUmbrellaX
+// SPDX-FileCopyrightText: 2024 rlauuzo
+// SPDX-FileCopyrightText: 2024 Kilian von Pflugk
+// SPDX-License-Identifier: GPL-3.0-only
 
 using System;
 using System.Threading;

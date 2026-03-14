@@ -1,5 +1,12 @@
-// Copyright (C) 2024 Intro-Skipper contributors <intro-skipper.org>
-// SPDX-License-Identifier: GPL-3.0-only.
+// SPDX-FileCopyrightText: 2019 dkanada
+// SPDX-FileCopyrightText: 2019 Phallacy
+// SPDX-FileCopyrightText: 2021 Cody Robibero
+// SPDX-FileCopyrightText: 2022-2023 ConfusedPolarBear
+// SPDX-FileCopyrightText: 2024-2025 rlauuzo
+// SPDX-FileCopyrightText: 2024 theMasterpc
+// SPDX-FileCopyrightText: 2024-2025 Kilian von Pflugk
+// SPDX-FileCopyrightText: 2024-2025 TwistedUmbrellaX
+// SPDX-License-Identifier: GPL-3.0-only
 
 using System.Diagnostics;
 using MediaBrowser.Model.Plugins;

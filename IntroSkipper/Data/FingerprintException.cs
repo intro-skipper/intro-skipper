@@ -1,5 +1,7 @@
-// Copyright (C) 2024 Intro-Skipper contributors <intro-skipper.org>
-// SPDX-License-Identifier: GPL-3.0-only.
+// SPDX-FileCopyrightText: 2022 ConfusedPolarBear
+// SPDX-FileCopyrightText: 2024 Kilian von Pflugk
+// SPDX-FileCopyrightText: 2024 TwistedUmbrellaX
+// SPDX-License-Identifier: GPL-3.0-only
 
 using System;
 

@@ -1,5 +1,6 @@
-// Copyright (C) 2024 Intro-Skipper contributors <intro-skipper.org>
-// SPDX-License-Identifier: GPL-3.0-only.
+// SPDX-FileCopyrightText: 2025 rlauuzo
+// SPDX-License-Identifier: GPL-3.0-only
+
 
 using IntroSkipper.Data;
 using IntroSkipper.Services;

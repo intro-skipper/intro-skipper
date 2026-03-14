@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2024-2025 Kilian von Pflugk
+// SPDX-FileCopyrightText: 2025 TwistedUmbrellaX
+// SPDX-License-Identifier: GPL-3.0-only
 using System;
 using System.Collections.Generic;
 using System.IO;

@@ -1,3 +1,5 @@
+// SPDX-FileCopyrightText: 2024 rlauuzo
+// SPDX-License-Identifier: GPL-3.0-only
 using System;
 using System.Collections.Generic;
 

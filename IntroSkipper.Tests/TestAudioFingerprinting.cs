@@ -1,5 +1,9 @@
-// Copyright (C) 2024 Intro-Skipper contributors <intro-skipper.org>
-// SPDX-License-Identifier: GPL-3.0-only.
+// SPDX-FileCopyrightText: 2022 ConfusedPolarBear
+// SPDX-FileCopyrightText: 2024 Kilian von Pflugk
+// SPDX-FileCopyrightText: 2024 TwistedUmbrellaX
+// SPDX-FileCopyrightText: 2024 rlauuzo
+// SPDX-License-Identifier: GPL-3.0-only
+
 
 /* These tests require that the host system has a version of FFmpeg installed
  * which supports both chromaprint and the "-fp_format raw" flag.
