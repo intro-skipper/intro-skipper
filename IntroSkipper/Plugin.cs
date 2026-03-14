@@ -415,6 +415,7 @@ public partial class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
 
         if (segment is not null)
         {
+            // Inclusive epsilon aligns deletion matching with duplicate detection boundaries.
             query = query.Where(s =>
                 Math.Abs(s.Start - segment.Start) <= SegmentComparisonEpsilon
                 && Math.Abs(s.End - segment.End) <= SegmentComparisonEpsilon);
