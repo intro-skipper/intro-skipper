@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2024-2025 rlauuzo
+// SPDX-FileCopyrightText: 2025 Abandoned Cart
+// SPDX-License-Identifier: GPL-3.0-only
 using System;
 using Microsoft.EntityFrameworkCore.Migrations;
 
