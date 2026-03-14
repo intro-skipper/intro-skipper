@@ -256,13 +256,12 @@ public partial class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
 
         foreach (var group in segments.GroupBy(segment => segment.Type))
         {
-            var groupSegments = group.ToList();
-            if (group.Key != AnalysisMode.Commercial && groupSegments.Count > 1)
+            if (group.Key != AnalysisMode.Commercial && group.Skip(1).Any())
             {
                 duplicateModes.Add(group.Key);
             }
 
-            lookup[group.Key] = groupSegments
+            lookup[group.Key] = group
                 .OrderBy(segment => segment.Start)
                 .First()
                 .ToSegment();
