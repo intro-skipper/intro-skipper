@@ -124,8 +124,16 @@ public class SegmentEditorController(MediaSegmentUpdateManager mediaSegmentUpdat
 
         await Plugin.Instance!.DeleteTimestampAsync(itemId, mode, dbSegment, cancellationToken).ConfigureAwait(false);
 
-        // Delete the segment from Jellyfin's media segment manager
-        await _mediaSegmentUpdateManager.DeleteSegmentAsync(segmentId).ConfigureAwait(false);
+        try
+        {
+            // Delete the segment from Jellyfin's media segment manager
+            await _mediaSegmentUpdateManager.DeleteSegmentAsync(segmentId).ConfigureAwait(false);
+        }
+        catch
+        {
+            await Plugin.Instance.UpdateTimestampAsync(dbSegment, mode, CancellationToken.None).ConfigureAwait(false);
+            throw;
+        }
 
         return Ok();
     }
