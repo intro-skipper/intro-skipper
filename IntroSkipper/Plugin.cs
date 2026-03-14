@@ -236,7 +236,7 @@ public partial class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
             .ToListAsync(cancellationToken)
             .ConfigureAwait(false);
 
-        return BuildSegmentLookup(segments);
+        return BuildSegmentLookup(id, segments);
     }
 
     internal async Task<IReadOnlyList<DbSegment>> GetSegmentsAsync(Guid id, CancellationToken cancellationToken = default)
@@ -249,26 +249,32 @@ public partial class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
             .ConfigureAwait(false);
     }
 
-    private static Dictionary<AnalysisMode, Segment> BuildSegmentLookup(IEnumerable<DbSegment> segments)
+    private static Dictionary<AnalysisMode, Segment> BuildSegmentLookup(Guid itemId, IEnumerable<DbSegment> segments)
     {
-        var grouped = segments
-            .GroupBy(segment => segment.Type)
-            .ToList();
+        var duplicateModes = new List<AnalysisMode>();
+        var lookup = new Dictionary<AnalysisMode, Segment>();
 
-        var duplicateModes = grouped
-            .Where(group => group.Key != AnalysisMode.Commercial && group.Count() > 1)
-            .Select(group => group.Key)
-            .ToArray();
-
-        if (duplicateModes.Length > 0)
+        foreach (var group in segments.GroupBy(segment => segment.Type))
         {
-            throw new InvalidOperationException(
-                $"Multiple segments detected for non-commercial modes: {string.Join(", ", duplicateModes)}.");
+            var groupSegments = group.ToList();
+            if (group.Key != AnalysisMode.Commercial && groupSegments.Count > 1)
+            {
+                duplicateModes.Add(group.Key);
+            }
+
+            lookup[group.Key] = groupSegments
+                .OrderBy(segment => segment.Start)
+                .First()
+                .ToSegment();
         }
 
-        return grouped.ToDictionary(
-            group => group.Key,
-            group => group.OrderBy(segment => segment.Start).First().ToSegment());
+        if (duplicateModes.Count > 0)
+        {
+            throw new InvalidOperationException(
+                $"Multiple segments detected for item {itemId} in non-commercial modes: {string.Join(", ", duplicateModes)}.");
+        }
+
+        return lookup;
     }
 
     internal async Task CleanTimestampsAsync(IEnumerable<Guid> episodeIds, CancellationToken cancellationToken = default)
@@ -356,7 +362,7 @@ public partial class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
                 .GroupBy(s => s.ItemId)
                 .ToDictionary(
                     group => group.Key,
-                    group => (IReadOnlyDictionary<AnalysisMode, Segment>)BuildSegmentLookup(group)));
+                    group => (IReadOnlyDictionary<AnalysisMode, Segment>)BuildSegmentLookup(group.Key, group)));
     }
 
     internal async Task<IReadOnlyDictionary<AnalysisMode, AnalyzerAction>> GetAllAnalyzerActionsAsync(Guid seasonId, CancellationToken cancellationToken = default)
