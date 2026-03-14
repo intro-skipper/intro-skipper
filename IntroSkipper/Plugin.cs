@@ -31,6 +31,7 @@ namespace IntroSkipper;
 /// </summary>
 public partial class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
 {
+    private const double SegmentComparisonEpsilon = 0.001;
     private readonly ILibraryManager _libraryManager;
     private readonly IChapterManager _chapterRepository;
     private readonly IPluginManager _pluginManager;
@@ -186,13 +187,12 @@ public partial class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
             var dbSegment = new DbSegment(segment, mode);
             if (mode == AnalysisMode.Commercial)
             {
-                const double epsilon = 0.001;
                 var exists = await db.DbSegment
                     .AnyAsync(
                         s => s.ItemId == segment.EpisodeId
                              && s.Type == mode
-                             && Math.Abs(s.Start - dbSegment.Start) <= epsilon
-                             && Math.Abs(s.End - dbSegment.End) <= epsilon,
+                             && Math.Abs(s.Start - dbSegment.Start) <= SegmentComparisonEpsilon
+                             && Math.Abs(s.End - dbSegment.End) <= SegmentComparisonEpsilon,
                         cancellationToken)
                     .ConfigureAwait(false);
 
@@ -414,10 +414,9 @@ public partial class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
 
         if (segment is not null)
         {
-            const double epsilon = 0.001;
             query = query.Where(s =>
-                Math.Abs(s.Start - segment.Start) < epsilon
-                && Math.Abs(s.End - segment.End) < epsilon);
+                Math.Abs(s.Start - segment.Start) <= SegmentComparisonEpsilon
+                && Math.Abs(s.End - segment.End) <= SegmentComparisonEpsilon);
         }
 
         var entries = await query.ToListAsync(cancellationToken).ConfigureAwait(false);
