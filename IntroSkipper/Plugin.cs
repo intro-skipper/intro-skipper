@@ -272,7 +272,7 @@ public partial class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
         {
             throw new InvalidOperationException(
                 $"Multiple segments detected for item {itemId} in non-commercial modes: {string.Join(", ", duplicateModes)}. " +
-                "Please remove duplicate segments manually or re-analyze the item.");
+                "Please remove duplicate segments via the segment editor or re-analyze the item.");
         }
 
         return lookup;
