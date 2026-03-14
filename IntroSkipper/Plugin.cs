@@ -186,12 +186,13 @@ public partial class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
             var dbSegment = new DbSegment(segment, mode);
             if (mode == AnalysisMode.Commercial)
             {
+                const double epsilon = 0.001;
                 var exists = await db.DbSegment
                     .AnyAsync(
                         s => s.ItemId == segment.EpisodeId
                              && s.Type == mode
-                             && s.Start == dbSegment.Start
-                             && s.End == dbSegment.End,
+                             && Math.Abs(s.Start - dbSegment.Start) <= epsilon
+                             && Math.Abs(s.End - dbSegment.End) <= epsilon,
                         cancellationToken)
                     .ConfigureAwait(false);
 
