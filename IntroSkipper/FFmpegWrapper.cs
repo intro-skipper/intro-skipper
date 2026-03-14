@@ -366,13 +366,7 @@ public static partial class FFmpegWrapper
         // Always include ffmpeg version information
         logs += FormatFFmpegLog("version");
 
-        // Don't print feature detection logs if the plugin started up okay
-        if (ChromaprintLogs["error"] == "okay")
-        {
-            return logs;
-        }
-
-        // Print all remaining logs
+        // Include feature detection logs to verify no warnings
         foreach (var kvp in ChromaprintLogs.Where(kvp => kvp.Key is not "error" and not "version"))
         {
             logs += FormatFFmpegLog(kvp.Key);
@@ -480,11 +474,26 @@ public static partial class FFmpegWrapper
 
         // Prepend some flags to prevent FFmpeg from logging its banner and progress information
         // for each file that is fingerprinted.
+        // Note: For info queries (-version, -muxers, -h), -threads must be at the END
+        // to avoid "Trailing option(s) found" warning.
         var prependArgument = string.Format(
             CultureInfo.InvariantCulture,
-            "-hide_banner -loglevel {0} -threads {1} ",
-            logLevel,
-            Plugin.Instance?.Configuration.ProcessThreads ?? 0);
+            "-hide_banner -threads {0} -loglevel {1} ",
+            Plugin.Instance?.Configuration.ProcessThreads ?? 0,
+            logLevel);
+
+        // For FFmpeg info queries (-version, -muxers, -h), append -threads at the END
+        var argsTrimmed = args.TrimStart();
+        if (argsTrimmed.StartsWith("-v", StringComparison.Ordinal) ||
+            argsTrimmed.StartsWith("-m", StringComparison.Ordinal) ||
+            argsTrimmed.StartsWith("-h", StringComparison.Ordinal))
+        {
+            prependArgument = string.Format(
+                CultureInfo.InvariantCulture,
+                "-hide_banner -loglevel {0} ",
+                logLevel);
+            args = $"{args} -threads {Plugin.Instance?.Configuration.ProcessThreads ?? 0}";
+        }
 
         var info = new ProcessStartInfo(ffmpegPath, args.Insert(0, prependArgument))
         {
