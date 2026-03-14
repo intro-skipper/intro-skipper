@@ -98,6 +98,10 @@ public class SegmentEditorController(MediaSegmentUpdateManager mediaSegmentUpdat
         [FromQuery, Required] string type,
         CancellationToken cancellationToken = default)
     {
+        var existingSegment = await _mediaSegmentUpdateManager
+            .GetSegmentAsync(itemId, segmentId, cancellationToken)
+            .ConfigureAwait(false);
+
         // Delete the segment from Jellyfin's media segment manager
         await _mediaSegmentUpdateManager.DeleteSegmentAsync(segmentId).ConfigureAwait(false);
 
@@ -114,7 +118,15 @@ public class SegmentEditorController(MediaSegmentUpdateManager mediaSegmentUpdat
         // The Jellyfin segment is already deleted above, so the plugin DB delete must
         // run to completion — aborting here would leave a stale record that gets
         // recreated on the next media segment sync.
-        await Plugin.Instance!.DeleteTimestampAsync(itemId, mode, CancellationToken.None).ConfigureAwait(false);
+        Segment? dbSegment = null;
+        if (existingSegment is not null)
+        {
+            var startSeconds = TimeSpan.FromTicks(existingSegment.StartTicks).TotalSeconds;
+            var endSeconds = TimeSpan.FromTicks(existingSegment.EndTicks).TotalSeconds;
+            dbSegment = new Segment(itemId, new TimeRange(startSeconds, endSeconds));
+        }
+
+        await Plugin.Instance!.DeleteTimestampAsync(itemId, mode, dbSegment, CancellationToken.None).ConfigureAwait(false);
 
         return Ok();
     }

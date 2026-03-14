@@ -73,7 +73,10 @@ public class IntroSkipperDbContext : DbContext
         modelBuilder.Entity<DbSegment>(entity =>
         {
             entity.ToTable("DbSegment");
-            entity.HasKey(s => new { s.ItemId, s.Type });
+            entity.HasKey(s => s.Id);
+
+            entity.Property(e => e.Id)
+                  .ValueGeneratedOnAdd();
 
             entity.HasIndex(e => e.ItemId);
 

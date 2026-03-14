@@ -183,21 +183,46 @@ public partial class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
 
         try
         {
-            var existing = await db.DbSegment
-                .FirstOrDefaultAsync(s => s.ItemId == segment.EpisodeId && s.Type == mode, cancellationToken)
-                .ConfigureAwait(false);
-
             var dbSegment = new DbSegment(segment, mode);
-            if (existing is not null)
+            var shouldSave = false;
+
+            if (mode == AnalysisMode.Commercial)
             {
-                db.Entry(existing).CurrentValues.SetValues(dbSegment);
+                var exists = await db.DbSegment
+                    .AnyAsync(
+                        s => s.ItemId == segment.EpisodeId
+                             && s.Type == mode
+                             && s.Start == dbSegment.Start
+                             && s.End == dbSegment.End,
+                        cancellationToken)
+                    .ConfigureAwait(false);
+
+                if (!exists)
+                {
+                    db.DbSegment.Add(dbSegment);
+                    shouldSave = true;
+                }
             }
             else
             {
+                var existingSegments = await db.DbSegment
+                    .Where(s => s.ItemId == segment.EpisodeId && s.Type == mode)
+                    .ToListAsync(cancellationToken)
+                    .ConfigureAwait(false);
+
+                if (existingSegments.Count > 0)
+                {
+                    db.DbSegment.RemoveRange(existingSegments);
+                }
+
                 db.DbSegment.Add(dbSegment);
+                shouldSave = true;
             }
 
-            await db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+            if (shouldSave)
+            {
+                await db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+            }
         }
         catch (Exception ex)
         {
@@ -209,8 +234,26 @@ public partial class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
     internal async Task<IReadOnlyDictionary<AnalysisMode, Segment>> GetTimestampsAsync(Guid id, CancellationToken cancellationToken = default)
     {
         using var db = CreateDbContext();
-        return await db.DbSegment.Where(s => s.ItemId == id)
-            .ToDictionaryAsync(s => s.Type, s => s.ToSegment(), cancellationToken)
+        var segments = await db.DbSegment
+            .AsNoTracking()
+            .Where(s => s.ItemId == id)
+            .ToListAsync(cancellationToken)
+            .ConfigureAwait(false);
+
+        return segments
+            .GroupBy(segment => segment.Type)
+            .ToDictionary(
+                group => group.Key,
+                group => group.OrderBy(segment => segment.Start).First().ToSegment());
+    }
+
+    internal async Task<IReadOnlyList<DbSegment>> GetSegmentsAsync(Guid id, CancellationToken cancellationToken = default)
+    {
+        using var db = CreateDbContext();
+        return await db.DbSegment
+            .AsNoTracking()
+            .Where(s => s.ItemId == id)
+            .ToListAsync(cancellationToken)
             .ConfigureAwait(false);
     }
 
@@ -299,7 +342,11 @@ public partial class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
                 .GroupBy(s => s.ItemId)
                 .ToDictionary(
                     group => group.Key,
-                    group => (IReadOnlyDictionary<AnalysisMode, Segment>)group.ToDictionary(segment => segment.Type, segment => segment.ToSegment())));
+                    group => (IReadOnlyDictionary<AnalysisMode, Segment>)group
+                        .GroupBy(segment => segment.Type)
+                        .ToDictionary(
+                            segmentGroup => segmentGroup.Key,
+                            segmentGroup => segmentGroup.OrderBy(segment => segment.Start).First().ToSegment())));
     }
 
     internal async Task<IReadOnlyDictionary<AnalysisMode, AnalyzerAction>> GetAllAnalyzerActionsAsync(Guid seasonId, CancellationToken cancellationToken = default)
@@ -356,15 +403,27 @@ public partial class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
     /// </summary>
     /// <param name="itemId">The item id whose timestamp should be removed.</param>
     /// <param name="mode">The analysis mode representing the segment type.</param>
+    /// <param name="segment">Optional segment details used to remove a specific entry.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>A <see cref="Task"/> representing the asynchronous operation.</returns>
-    internal async Task DeleteTimestampAsync(Guid itemId, AnalysisMode mode, CancellationToken cancellationToken = default)
+    internal async Task DeleteTimestampAsync(
+        Guid itemId,
+        AnalysisMode mode,
+        Segment? segment = null,
+        CancellationToken cancellationToken = default)
     {
         using var db = CreateDbContext();
-        var entry = await db.DbSegment.FirstOrDefaultAsync(s => s.ItemId == itemId && s.Type == mode, cancellationToken).ConfigureAwait(false);
-        if (entry is not null)
+        var query = db.DbSegment.Where(s => s.ItemId == itemId && s.Type == mode);
+
+        if (segment is not null)
         {
-            db.DbSegment.Remove(entry);
+            query = query.Where(s => s.Start == segment.Start && s.End == segment.End);
+        }
+
+        var entries = await query.ToListAsync(cancellationToken).ConfigureAwait(false);
+        if (entries.Count > 0)
+        {
+            db.DbSegment.RemoveRange(entries);
             await db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
         }
     }
