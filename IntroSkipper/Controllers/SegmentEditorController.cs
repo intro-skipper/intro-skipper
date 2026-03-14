@@ -135,9 +135,18 @@ public class SegmentEditorController(MediaSegmentUpdateManager mediaSegmentUpdat
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Failed to delete Jellyfin segment {SegmentId} for item {ItemId}; rolling back DB delete.", segmentId, itemId);
-            // Rollback should complete even if the request is canceled to avoid leaving the DB delete applied.
-            await Plugin.Instance!.UpdateTimestampAsync(dbSegment, mode, CancellationToken.None).ConfigureAwait(false);
+            _logger.LogError(ex, "Failed to delete Jellyfin segment {SegmentId} for item {ItemId}; attempting DB rollback.", segmentId, itemId);
+            try
+            {
+                // Rollback should complete even if the request is canceled to avoid leaving the DB delete applied.
+                await Plugin.Instance!.UpdateTimestampAsync(dbSegment, mode, CancellationToken.None).ConfigureAwait(false);
+                _logger.LogInformation("Rolled back DB delete for segment {SegmentId} on item {ItemId}.", segmentId, itemId);
+            }
+            catch (Exception rollbackException)
+            {
+                _logger.LogError(rollbackException, "Failed to rollback DB delete for segment {SegmentId} on item {ItemId}.", segmentId, itemId);
+            }
+
             throw;
         }
 
