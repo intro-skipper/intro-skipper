@@ -414,7 +414,10 @@ public partial class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
 
         if (segment is not null)
         {
-            query = query.Where(s => s.Start == segment.Start && s.End == segment.End);
+            const double epsilon = 0.001;
+            query = query.Where(s =>
+                Math.Abs(s.Start - segment.Start) < epsilon
+                && Math.Abs(s.End - segment.End) < epsilon);
         }
 
         var entries = await query.ToListAsync(cancellationToken).ConfigureAwait(false);
