@@ -1,8 +1,13 @@
-# Script to add SPDX-FileCopyrightText headers - skip bots, sorted by oldest first
+# Script to add SPDX-FileCopyrightText headers - skip bots, merge similar authors
 $csFiles = Get-ChildItem -Recurse -Filter "*.cs" -File | Where-Object { $_.FullName -notmatch "\\obj\\" }
 
 # Bots to skip
 $botsToSkip = @("Copilot", "github-actions[bot]", "dependabot[bot]")
+
+# Authors to merge (treat as same person)
+$authorsToMerge = @{
+    "rlauu" = "rlauuzo"
+}
 
 foreach ($file in $csFiles) {
     $relativePath = $file.FullName.Replace((Get-Location).Path + "\", "").Replace("\", "/")
@@ -12,7 +17,7 @@ foreach ($file in $csFiles) {
     # Get all commits with author and date
     $commits = git log --follow --format="%an|%ad" --date=short -- $relativePath 2>$null
 
-    # Build a hashmap of author -> year range
+    # Build a hashmap of author -> year range, merging similar authors
     $authorYears = @{}
     foreach ($line in $commits) {
         $parts = $line -split '\|'
@@ -21,6 +26,11 @@ foreach ($file in $csFiles) {
         # Skip bots
         if ($botsToSkip -contains $author) {
             continue
+        }
+
+        # Merge authors
+        if ($authorsToMerge.ContainsKey($author)) {
+            $author = $authorsToMerge[$author]
         }
 
         $date = $parts[1]
@@ -47,7 +57,7 @@ foreach ($file in $csFiles) {
         continue
     }
 
-    Write-Host "  Human authors: $($sortedAuthors.Count) (sorted by oldest first)"
+    Write-Host "  Human authors: $($sortedAuthors.Count) (merged rlauuzo into rlauu)"
 
     # Read file content
     $content = Get-Content $file.FullName -Raw -Encoding UTF8
@@ -105,7 +115,7 @@ foreach ($file in $csFiles) {
     # Write back - ensure no BOM
     $utf8NoBom = New-Object System.Text.UTF8Encoding $false
     [System.IO.File]::WriteAllText($file.FullName, $newContent, $utf8NoBom)
-    Write-Host "  Updated with $($sortedAuthors.Count) human authors (oldest first)!"
+    Write-Host "  Updated with $($sortedAuthors.Count) human authors!"
 }
 
 Write-Host "Done!"
