@@ -1,0 +1,42 @@
+name: Update SPDX Headers
+
+on:
+  workflow_dispatch:
+
+jobs:
+  update-spdx:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Run SPDX header update script
+        run: |
+          powershell -ExecutionPolicy Bypass -File ./add_spdx_no_bots.ps1
+
+      - name: Check for changes
+        id: changes
+        run: |
+          CHANGES=$(git status --porcelain)
+          echo "changes=$CHANGES" >> $GITHUB_OUTPUT
+          if [ -n "$CHANGES" ]; then
+            echo "Changes detected"
+          else
+            echo "No changes detected"
+          fi
+
+      - name: Commit changes
+        if: steps.changes.outputs.changes != ''
+        run: |
+          git config --local user.email "github-actions[bot]@users.noreply.github.com"
+          git config --local user.name "github-actions[bot]"
+          git add -A
+          git commit -m "[skip actions] update copyright headers to SPDX format across all files"
+
+      - name: Push changes
+        if: steps.changes.outputs.changes != ''
+        run: |
+          git push
