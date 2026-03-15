@@ -259,7 +259,7 @@ public partial class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
                         "Rollback canceled for episode {EpisodeId}; retrying without cancellation.",
                         segment.EpisodeId);
                 }
-                catch (Exception rollbackException)
+                catch (DbException rollbackException)
                 {
                     _logger.LogWarning(
                         rollbackException,
