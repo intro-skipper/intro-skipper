@@ -1,5 +1,5 @@
-// SPDX-FileCopyrightText: 2024 Kilian von Pflugk
-// SPDX-FileCopyrightText: 2024 TwistedUmbrellaX
+// SPDX-FileCopyrightText: 2024-2026 Kilian von Pflugk
+// SPDX-FileCopyrightText: 2024 AbandonedCart
 // SPDX-License-Identifier: GPL-3.0-only
 
 namespace IntroSkipper.Helper
