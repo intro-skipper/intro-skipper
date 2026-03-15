@@ -52,7 +52,7 @@ namespace IntroSkipper.Providers
             var (invalidModes, duplicateModes) = Plugin.GetSegmentValidationIssues(itemSegments);
             if (invalidModes.Length > 0 || duplicateModes.Length > 0)
             {
-                _logger.LogError(
+                _logger.LogWarning(
                     "Segment integrity issues detected for item {ItemId}. Invalid modes: {InvalidModes}. Duplicate non-commercial modes: {DuplicateModes}.",
                     request.ItemId,
                     invalidModes.Length > 0 ? string.Join(", ", invalidModes) : "none",

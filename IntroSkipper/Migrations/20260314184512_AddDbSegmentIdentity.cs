@@ -1,4 +1,5 @@
 using System;
+using IntroSkipper.Data;
 using Microsoft.EntityFrameworkCore.Migrations;
 
 #nullable disable
@@ -11,9 +12,9 @@ namespace IntroSkipper.Migrations
         /// <inheritdoc />
         protected override void Up(MigrationBuilder migrationBuilder)
         {
-            // 4 = AnalysisMode.Commercial enum value.
+            var commercialType = (int)AnalysisMode.Commercial;
             migrationBuilder.Sql(
-                """
+                $$"""
                 BEGIN TRANSACTION;
                 CREATE TABLE "DbSegment_Temp" (
                     "Id" INTEGER NOT NULL CONSTRAINT "PK_DbSegment_Temp" PRIMARY KEY AUTOINCREMENT,
@@ -29,7 +30,7 @@ namespace IntroSkipper.Migrations
                 ALTER TABLE "DbSegment_Temp" RENAME TO "DbSegment";
                 CREATE INDEX "IX_DbSegment_ItemId" ON "DbSegment" ("ItemId");
                 CREATE UNIQUE INDEX "IX_DbSegment_Commercial_Unique" ON "DbSegment" ("ItemId", "Type", "Start", "End")
-                    WHERE "Type" = 4;
+                    WHERE "Type" = {{commercialType}};
                 COMMIT;
                 """,
                 suppressTransaction: true);

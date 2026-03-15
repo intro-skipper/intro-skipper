@@ -24,6 +24,7 @@ using MediaBrowser.Model.Plugins;
 using MediaBrowser.Model.Serialization;
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Storage;
 using Microsoft.Extensions.Logging;
 
 namespace IntroSkipper;
@@ -246,53 +247,7 @@ public partial class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
             }
             catch
             {
-                var rollbackSucceeded = false;
-                try
-                {
-                    await transaction.RollbackAsync(cancellationToken).ConfigureAwait(false);
-                    rollbackSucceeded = true;
-                }
-                catch (OperationCanceledException rollbackException)
-                {
-                    _logger.LogWarning(
-                        rollbackException,
-                        "Rollback canceled for episode {EpisodeId}; retrying without cancellation.",
-                        segment.EpisodeId);
-                }
-                catch (DbException rollbackException)
-                {
-                    _logger.LogWarning(
-                        rollbackException,
-                        "Failed to rollback segment update for episode {EpisodeId}.",
-                        segment.EpisodeId);
-                }
-
-                if (!rollbackSucceeded)
-                {
-                    try
-                    {
-                        await transaction.RollbackAsync(CancellationToken.None).ConfigureAwait(false);
-                    }
-                    catch (OperationCanceledException retryCanceled)
-                    {
-                        _logger.LogWarning(
-                            retryCanceled,
-                            "Retry rollback canceled for episode {EpisodeId}.",
-                            segment.EpisodeId);
-                    }
-                    catch (DbException retryDbException)
-                    {
-                        _logger.LogWarning(
-                            retryDbException,
-                            "Retry rollback failed due to a database error for episode {EpisodeId}.",
-                            segment.EpisodeId);
-                    }
-                    catch
-                    {
-                        throw;
-                    }
-                }
-
+                await RollbackSegmentTransactionAsync(transaction, segment.EpisodeId, cancellationToken).ConfigureAwait(false);
                 throw;
             }
             finally
@@ -305,6 +260,78 @@ public partial class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
             LogFailedToUpdateTimestamp(_logger, ex, segment.EpisodeId);
             throw;
         }
+    }
+
+    private async Task RollbackSegmentTransactionAsync(
+        IDbContextTransaction transaction,
+        Guid episodeId,
+        CancellationToken cancellationToken)
+    {
+        var rollbackSucceeded = await TryRollbackSegmentTransactionAsync(
+                transaction,
+                episodeId,
+                isRetry: false,
+                cancellationToken)
+            .ConfigureAwait(false);
+
+        if (!rollbackSucceeded)
+        {
+            await TryRollbackSegmentTransactionAsync(
+                    transaction,
+                    episodeId,
+                    isRetry: true,
+                    CancellationToken.None)
+                .ConfigureAwait(false);
+        }
+    }
+
+    private async Task<bool> TryRollbackSegmentTransactionAsync(
+        IDbContextTransaction transaction,
+        Guid episodeId,
+        bool isRetry,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            await transaction.RollbackAsync(cancellationToken).ConfigureAwait(false);
+            return true;
+        }
+        catch (OperationCanceledException rollbackException)
+        {
+            if (isRetry)
+            {
+                _logger.LogWarning(
+                    rollbackException,
+                    "Retry rollback canceled for episode {EpisodeId}.",
+                    episodeId);
+            }
+            else
+            {
+                _logger.LogWarning(
+                    rollbackException,
+                    "Rollback canceled for episode {EpisodeId}; retrying without cancellation.",
+                    episodeId);
+            }
+        }
+        catch (DbException rollbackException)
+        {
+            if (isRetry)
+            {
+                _logger.LogWarning(
+                    rollbackException,
+                    "Retry rollback failed due to a database error for episode {EpisodeId}.",
+                    episodeId);
+            }
+            else
+            {
+                _logger.LogWarning(
+                    rollbackException,
+                    "Failed to rollback segment update for episode {EpisodeId}.",
+                    episodeId);
+            }
+        }
+
+        return false;
     }
 
     internal async Task<RestoreTimestampResult> TryRestoreTimestampAsync(Segment segment, AnalysisMode mode, CancellationToken cancellationToken = default)
