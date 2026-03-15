@@ -156,14 +156,21 @@ public class SegmentEditorController(MediaSegmentUpdateManager mediaSegmentUpdat
             try
             {
                 using var rollbackTokenSource = new CancellationTokenSource(RollbackTimeout);
-                var restored = await Plugin.Instance!.TryRestoreTimestampAsync(dbSegment, mode, rollbackTokenSource.Token).ConfigureAwait(false);
-                if (restored)
+                var restoreResult = await Plugin.Instance!.TryRestoreTimestampAsync(dbSegment, mode, rollbackTokenSource.Token).ConfigureAwait(false);
+                switch (restoreResult)
                 {
-                    _logger.LogInformation("Rolled back DB delete for segment {SegmentId} on item {ItemId}.", segmentId, itemId);
-                }
-                else
-                {
-                    _logger.LogWarning("Skipped rollback for segment {SegmentId} on item {ItemId} because a newer segment exists.", segmentId, itemId);
+                    case Plugin.RestoreTimestampResult.Restored:
+                        _logger.LogInformation("Rolled back DB delete for segment {SegmentId} on item {ItemId}.", segmentId, itemId);
+                        break;
+                    case Plugin.RestoreTimestampResult.RestoredWithConflict:
+                        _logger.LogWarning(
+                            "Rolled back DB delete for segment {SegmentId} on item {ItemId}, but another segment exists for the same mode.",
+                            segmentId,
+                            itemId);
+                        break;
+                    case Plugin.RestoreTimestampResult.AlreadyExists:
+                        _logger.LogInformation("Rollback skipped for segment {SegmentId} on item {ItemId} because it already exists.", segmentId, itemId);
+                        break;
                 }
             }
             catch (OperationCanceledException rollbackCanceled)
@@ -180,7 +187,7 @@ public class SegmentEditorController(MediaSegmentUpdateManager mediaSegmentUpdat
 
     private static void RethrowIfCritical(Exception ex)
     {
-        if (ex is OutOfMemoryException or ThreadAbortException or StackOverflowException)
+        if (ex is OutOfMemoryException or StackOverflowException)
         {
             ExceptionDispatchInfo.Capture(ex).Throw();
         }

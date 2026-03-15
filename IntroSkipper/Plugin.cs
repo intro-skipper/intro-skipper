@@ -36,6 +36,7 @@ public partial class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
     private const double SegmentComparisonEpsilon = 0.001;
     // SQLite SQLITE_CONSTRAINT error code.
     private const int SqliteConstraintErrorCode = 19;
+
     private readonly ILibraryManager _libraryManager;
     private readonly IChapterManager _chapterRepository;
     private readonly IPluginManager _pluginManager;
@@ -101,6 +102,13 @@ public partial class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
         Configuration.FileTransformationPluginEnabled = _pluginManager
             .Plugins
             .Any(p => p.Id == Guid.Parse("5e87cc92-571a-4d8d-8d98-d2d4147f9f90")); // File Transformation plugin ID
+    }
+
+    internal enum RestoreTimestampResult
+    {
+        Restored,
+        AlreadyExists,
+        RestoredWithConflict
     }
 
     /// <summary>
@@ -237,9 +245,11 @@ public partial class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
             }
             catch
             {
+                var rollbackSucceeded = false;
                 try
                 {
                     await transaction.RollbackAsync(cancellationToken).ConfigureAwait(false);
+                    rollbackSucceeded = true;
                 }
                 catch (OperationCanceledException rollbackException)
                 {
@@ -247,6 +257,17 @@ public partial class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
                         rollbackException,
                         "Rollback canceled for episode {EpisodeId}; retrying without cancellation.",
                         segment.EpisodeId);
+                }
+                catch (Exception rollbackException)
+                {
+                    _logger.LogWarning(
+                        rollbackException,
+                        "Failed to rollback segment update for episode {EpisodeId}.",
+                        segment.EpisodeId);
+                }
+
+                if (!rollbackSucceeded)
+                {
                     try
                     {
                         await transaction.RollbackAsync(CancellationToken.None).ConfigureAwait(false);
@@ -258,13 +279,6 @@ public partial class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
                             "Failed to rollback segment update for episode {EpisodeId}.",
                             segment.EpisodeId);
                     }
-                }
-                catch (Exception rollbackException)
-                {
-                    _logger.LogWarning(
-                        rollbackException,
-                        "Failed to rollback segment update for episode {EpisodeId}.",
-                        segment.EpisodeId);
                 }
 
                 throw;
@@ -281,25 +295,23 @@ public partial class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
         }
     }
 
-    internal async Task<bool> TryRestoreTimestampAsync(Segment segment, AnalysisMode mode, CancellationToken cancellationToken = default)
+    internal async Task<RestoreTimestampResult> TryRestoreTimestampAsync(Segment segment, AnalysisMode mode, CancellationToken cancellationToken = default)
     {
         using var db = CreateDbContext();
         var dbSegment = new DbSegment(segment, mode);
 
         if (mode == AnalysisMode.Commercial)
         {
-            var exists = await db.DbSegment
-                .AnyAsync(
-                    s => s.ItemId == segment.EpisodeId
-                         && s.Type == mode
-                         && Math.Abs(s.Start - dbSegment.Start) <= SegmentComparisonEpsilon
-                         && Math.Abs(s.End - dbSegment.End) <= SegmentComparisonEpsilon,
-                    cancellationToken)
+            var existingSegments = await db.DbSegment
+                .Where(s => s.ItemId == segment.EpisodeId && s.Type == mode)
+                .ToListAsync(cancellationToken)
                 .ConfigureAwait(false);
-
+            var exists = existingSegments.Any(
+                s => Math.Abs(s.Start - dbSegment.Start) <= SegmentComparisonEpsilon
+                     && Math.Abs(s.End - dbSegment.End) <= SegmentComparisonEpsilon);
             if (exists)
             {
-                return false;
+                return RestoreTimestampResult.AlreadyExists;
             }
 
             db.DbSegment.Add(dbSegment);
@@ -309,24 +321,28 @@ public partial class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
             }
             catch (DbUpdateException ex) when (IsUniqueConstraintViolation(ex))
             {
-                return false;
+                return RestoreTimestampResult.AlreadyExists;
             }
 
-            return true;
+            return exists ? RestoreTimestampResult.AlreadyExists : RestoreTimestampResult.Restored;
         }
 
-        var hasExisting = await db.DbSegment
-            .AnyAsync(s => s.ItemId == segment.EpisodeId && s.Type == mode, cancellationToken)
+        var nonCommercialSegments = await db.DbSegment
+            .Where(s => s.ItemId == segment.EpisodeId && s.Type == mode)
+            .ToListAsync(cancellationToken)
             .ConfigureAwait(false);
+        var exactMatch = nonCommercialSegments.Any(
+            s => Math.Abs(s.Start - dbSegment.Start) <= SegmentComparisonEpsilon
+                 && Math.Abs(s.End - dbSegment.End) <= SegmentComparisonEpsilon);
 
-        if (hasExisting)
+        if (exactMatch)
         {
-            return false;
+            return RestoreTimestampResult.AlreadyExists;
         }
 
         db.DbSegment.Add(dbSegment);
         await db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
-        return true;
+        return nonCommercialSegments.Count > 0 ? RestoreTimestampResult.RestoredWithConflict : RestoreTimestampResult.Restored;
     }
 
     internal async Task<IReadOnlyDictionary<AnalysisMode, Segment>> GetTimestampsAsync(Guid id, CancellationToken cancellationToken = default)
