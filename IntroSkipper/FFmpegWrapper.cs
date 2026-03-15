@@ -1,4 +1,8 @@
-// Copyright (C) 2026 Intro-Skipper contributors <intro-skipper.org>
+// SPDX-FileCopyrightText: 2022 ConfusedPolarBear
+// SPDX-FileCopyrightText: 2022 nyanmisaka
+// SPDX-FileCopyrightText: 2024-2026 rlauuzo
+// SPDX-FileCopyrightText: 2024-2025 TwistedUmbrellaX
+// SPDX-FileCopyrightText: 2024-2026 Kilian von Pflugk
 // SPDX-License-Identifier: GPL-3.0-only
 
 using System;
@@ -362,13 +366,7 @@ public static partial class FFmpegWrapper
         // Always include ffmpeg version information
         logs += FormatFFmpegLog("version");
 
-        // Don't print feature detection logs if the plugin started up okay
-        if (ChromaprintLogs["error"] == "okay")
-        {
-            return logs;
-        }
-
-        // Print all remaining logs
+        // Include feature detection logs to verify no warnings
         foreach (var kvp in ChromaprintLogs.Where(kvp => kvp.Key is not "error" and not "version"))
         {
             logs += FormatFFmpegLog(kvp.Key);
@@ -478,9 +476,23 @@ public static partial class FFmpegWrapper
         // for each file that is fingerprinted.
         var prependArgument = string.Format(
             CultureInfo.InvariantCulture,
-            "-hide_banner -loglevel {0} -threads {1} ",
-            logLevel,
-            Plugin.Instance?.Configuration.ProcessThreads ?? 0);
+            "-hide_banner -threads {0} -loglevel {1} ",
+            Plugin.Instance?.Configuration.ProcessThreads ?? 0,
+            logLevel);
+
+        // For FFmpeg info queries (-version, -muxers, -h), don't add any extra flags
+        // to avoid "Trailing option(s) found" warning. These are quick queries.
+        var argsTrimmed = args.TrimStart();
+        if (argsTrimmed.StartsWith("-version", StringComparison.Ordinal) ||
+            argsTrimmed.StartsWith("-muxers", StringComparison.Ordinal) ||
+            argsTrimmed.StartsWith("-h", StringComparison.Ordinal))
+        {
+            // For info queries, don't add any prepend flags at all
+            prependArgument = string.Format(
+                CultureInfo.InvariantCulture,
+                "-hide_banner -loglevel {0} ",
+                logLevel);
+        }
 
         var info = new ProcessStartInfo(ffmpegPath, args.Insert(0, prependArgument))
         {

@@ -194,4 +194,4 @@ csharp_preserve_single_line_statements = true
 csharp_preserve_single_line_blocks = true
 
 [*.cs]
-file_header_template = Copyright (C) 2026 Intro-Skipper contributors <intro-skipper.org>\nSPDX-License-Identifier: GPL-3.0-only
+file_header_template = SPDX-FileCopyrightText: ${year} Intro-Skipper contributors <intro-skipper.org>\nSPDX-License-Identifier: GPL-3.0-only
