@@ -32,6 +32,7 @@ namespace IntroSkipper.Controllers;
 [Route("MediaSegmentsApi")]
 public class SegmentEditorController(MediaSegmentUpdateManager mediaSegmentUpdateManager, ILogger<SegmentEditorController> logger) : ControllerBase
 {
+    // Ten seconds keeps rollback bounded while allowing slow IO to complete.
     private static readonly TimeSpan RollbackTimeout = TimeSpan.FromSeconds(10);
     private readonly MediaSegmentUpdateManager _mediaSegmentUpdateManager = mediaSegmentUpdateManager;
     private readonly ILogger<SegmentEditorController> _logger = logger;

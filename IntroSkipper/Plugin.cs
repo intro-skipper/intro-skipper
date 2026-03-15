@@ -242,7 +242,16 @@ public partial class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
                 }
                 catch (OperationCanceledException)
                 {
-                    await transaction.RollbackAsync(CancellationToken.None).ConfigureAwait(false);
+                    try
+                    {
+                        await transaction.RollbackAsync(CancellationToken.None).ConfigureAwait(false);
+                    }
+                    catch
+                    {
+                    }
+                }
+                catch
+                {
                 }
 
                 throw;
@@ -394,11 +403,19 @@ public partial class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
         return segment.Start >= 0.0 && segment.End > 0.0 && segment.Start < segment.End;
     }
 
+    /// <summary>
+    /// Rounds seconds to the nearest tick to keep segment conversions consistent across read/write paths.
+    /// </summary>
+    /// <param name="seconds">The segment time in seconds.</param>
+    /// <returns>The rounded tick value.</returns>
     internal static long RoundToTicks(double seconds)
     {
         return (long)Math.Round(seconds * TimeSpan.TicksPerSecond, MidpointRounding.AwayFromZero);
     }
 
+    /// <summary>
+    /// Determines whether a DbUpdateException represents a SQLite constraint violation.
+    /// </summary>
     private static bool IsUniqueConstraintViolation(DbUpdateException ex)
     {
         return ex.InnerException is SqliteException sqliteException
