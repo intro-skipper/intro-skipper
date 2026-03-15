@@ -5,7 +5,7 @@ $env:LANG = "en_US.UTF-8"
 $csFiles = Get-ChildItem -Recurse -Filter "*.cs" -File | Where-Object { $_.FullName -notmatch "\\obj\\" }
 
 # Bots to skip
-$botsToSkip = @("Copilot", "github-actions[bot]", "dependabot[bot]")
+$botsToSkip = @("Copilot", "[bot]")
 
 # Authors to merge (treat as same person)
 $authorsToMerge = @{
