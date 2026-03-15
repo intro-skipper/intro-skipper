@@ -1,4 +1,5 @@
-// Copyright (C) 2026 Intro-Skipper contributors <intro-skipper.org>
+// SPDX-FileCopyrightText: 2024-2026 rlauuzo
+// SPDX-FileCopyrightText: 2026 Kilian von Pflugk
 // SPDX-License-Identifier: GPL-3.0-only
 
 using System;
@@ -35,6 +36,11 @@ public class DbSegment
     public DbSegment()
     {
     }
+
+    /// <summary>
+    /// Gets or sets the unique identifier for the segment.
+    /// </summary>
+    public long Id { get; set; }
 
     /// <summary>
     /// Gets or sets the episode id.

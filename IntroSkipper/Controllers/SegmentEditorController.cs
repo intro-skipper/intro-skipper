@@ -1,9 +1,9 @@
-// Copyright (C) 2026 Intro-Skipper contributors <intro-skipper.org>
+// SPDX-FileCopyrightText: 2025-2026 Kilian von Pflugk
+// SPDX-FileCopyrightText: 2025-2026 rlauuzo
 // SPDX-License-Identifier: GPL-3.0-only
 
 using System;
 using System.ComponentModel.DataAnnotations;
-using System.Linq;
 using System.Net.Mime;
 using System.Threading;
 using System.Threading.Tasks;
@@ -91,17 +91,19 @@ public class SegmentEditorController(MediaSegmentUpdateManager mediaSegmentUpdat
     /// <param name="itemId">The item id the segment belongs to (used to remove plugin DB entry).</param>
     /// <param name="type">The media segment type name (Intro/Recap/Preview/Outro).</param>
     /// <param name="cancellationToken">Cancellation token.</param>
-    /// <returns>HTTP 200 on success, 404 when item not found.</returns>
+    /// <returns>HTTP 200 on success, 404 when the commercial segment is not found.</returns>
     [HttpDelete("{segmentId}")]
     [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
     public async Task<ActionResult> DeleteSegmentAsync(
         [FromRoute, Required] Guid segmentId,
         [FromQuery, Required] Guid itemId,
         [FromQuery, Required] string type,
         CancellationToken cancellationToken = default)
     {
-        // Delete the segment from Jellyfin's media segment manager
-        await _mediaSegmentUpdateManager.DeleteSegmentAsync(segmentId).ConfigureAwait(false);
+        var existingSegment = await _mediaSegmentUpdateManager
+            .GetSegmentAsync(itemId, segmentId, cancellationToken)
+            .ConfigureAwait(false);
 
         AnalysisMode mode = type.ToLowerInvariant() switch
         {
@@ -113,13 +115,51 @@ public class SegmentEditorController(MediaSegmentUpdateManager mediaSegmentUpdat
             _ => throw new ArgumentOutOfRangeException(nameof(type), $"Unknown segment type '{type}'")
         };
 
-        // The Jellyfin segment is already deleted above, so the plugin DB delete must
-        // run to completion — aborting here would leave a stale record that gets
-        // recreated on the next media segment sync.
-        await Plugin.Instance!.DeleteTimestampAsync(itemId, mode, CancellationToken.None).ConfigureAwait(false);
+        Segment? dbSegment = null;
+        if (existingSegment is not null)
+        {
+            var startSeconds = TimeSpan.FromTicks(existingSegment.StartTicks).TotalSeconds;
+            var endSeconds = TimeSpan.FromTicks(existingSegment.EndTicks).TotalSeconds;
+            dbSegment = new Segment(itemId, new TimeRange(startSeconds, endSeconds));
+        }
 
-        // Remove the episode from the season's analyzed-state list so that the episode
-        // returns to NotAnalyzed and can be re-processed by the next analysis run.
+        if (dbSegment is null && mode == AnalysisMode.Commercial)
+        {
+            return NotFound();
+        }
+
+        // Read IsUserProvided before deleting so we can restore it accurately on rollback.
+        var wasUserProvided = false;
+        var pluginSegments = await Plugin.Instance!.GetSegmentsAsync(itemId, cancellationToken).ConfigureAwait(false);
+        foreach (var s in pluginSegments)
+        {
+            if (s.Type == mode)
+            {
+                wasUserProvided = s.IsUserProvided;
+                break;
+            }
+        }
+
+        // Delete from the plugin DB first so it is consistent even if the Jellyfin delete fails.
+        await Plugin.Instance!.DeleteTimestampAsync(itemId, mode, dbSegment, cancellationToken).ConfigureAwait(false);
+
+        try
+        {
+            await _mediaSegmentUpdateManager.DeleteSegmentAsync(segmentId).ConfigureAwait(false);
+        }
+        catch
+        {
+            // Jellyfin delete failed — restore the plugin DB entry to avoid an orphaned Jellyfin segment.
+            if (dbSegment is not null)
+            {
+                await Plugin.Instance!.UpdateTimestampAsync(dbSegment, mode, isUserProvided: wasUserProvided, CancellationToken.None).ConfigureAwait(false);
+            }
+
+            throw;
+        }
+
+        // Jellyfin delete succeeded — remove the episode from the season's analyzed-state list so
+        // that the episode returns to NotAnalyzed and can be re-processed by the next analysis run.
         var deletedItem = Plugin.Instance!.GetItem(itemId);
         if (deletedItem is not null)
         {

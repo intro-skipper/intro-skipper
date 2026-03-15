@@ -1,13 +1,17 @@
-// Copyright (C) 2026 Intro-Skipper contributors <intro-skipper.org>
+// SPDX-FileCopyrightText: 2024 TwistedUmbrellaX
+// SPDX-FileCopyrightText: 2024-2026 rlauuzo
+// SPDX-FileCopyrightText: 2024-2026 Kilian von Pflugk
 // SPDX-License-Identifier: GPL-3.0-only
 
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using IntroSkipper.Data;
 using MediaBrowser.Controller.MediaSegments;
 using MediaBrowser.Model.Configuration;
+using MediaBrowser.Model.MediaSegments;
 using Microsoft.Extensions.Logging;
 
 namespace IntroSkipper.Manager;
@@ -82,6 +86,31 @@ public partial class MediaSegmentUpdateManager(
     public async Task DeleteSegmentAsync(Guid segmentId)
     {
         await _mediaSegmentManager.DeleteSegmentAsync(segmentId).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Retrieves a segment from Jellyfin by id.
+    /// </summary>
+    /// <param name="itemId">The item id that owns the segment.</param>
+    /// <param name="segmentId">The segment id.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>The matching segment, or <c>null</c> if not found.</returns>
+    public async Task<MediaSegmentDto?> GetSegmentAsync(Guid itemId, Guid segmentId, CancellationToken cancellationToken)
+    {
+        var item = Plugin.Instance?.GetItem(itemId);
+        if (item is null)
+        {
+            LogItemNotFound(_logger, itemId);
+            return null;
+        }
+
+        var segments = await _mediaSegmentManager
+            .GetSegmentsAsync(item, null, _externalProviders, filterByProvider: false)
+            .ConfigureAwait(false);
+
+        cancellationToken.ThrowIfCancellationRequested();
+
+        return segments.FirstOrDefault(segment => segment.Id == segmentId);
     }
 
     [LoggerMessage(Level = LogLevel.Error, Message = "Item not found for episode {EpisodeId}")]

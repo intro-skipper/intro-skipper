@@ -1,4 +1,5 @@
-// Copyright (C) 2026 Intro-Skipper contributors <intro-skipper.org>
+// SPDX-FileCopyrightText: 2024-2026 rlauuzo
+// SPDX-FileCopyrightText: 2026 Kilian von Pflugk
 // SPDX-License-Identifier: GPL-3.0-only
 
 using System;
@@ -73,9 +74,16 @@ public class IntroSkipperDbContext : DbContext
         modelBuilder.Entity<DbSegment>(entity =>
         {
             entity.ToTable("DbSegment");
-            entity.HasKey(s => new { s.ItemId, s.Type });
+            entity.HasKey(s => s.Id);
+
+            entity.Property(e => e.Id)
+                  .ValueGeneratedOnAdd();
 
             entity.HasIndex(e => e.ItemId);
+            entity.HasIndex(e => new { e.ItemId, e.Type, e.Start, e.End })
+                .HasDatabaseName("IX_DbSegment_Commercial_Unique")
+                .HasFilter($"Type = {(int)AnalysisMode.Commercial}")
+                .IsUnique();
 
             entity.Property(e => e.Start)
                   .HasDefaultValue(0.0)
