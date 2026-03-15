@@ -4,7 +4,6 @@
 using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
-using System.Data.Common;
 using System.IO;
 using System.Linq;
 using System.Threading;
@@ -22,9 +21,7 @@ using MediaBrowser.Controller.Library;
 using MediaBrowser.Model.Entities;
 using MediaBrowser.Model.Plugins;
 using MediaBrowser.Model.Serialization;
-using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
-using Microsoft.EntityFrameworkCore.Storage;
 using Microsoft.Extensions.Logging;
 
 namespace IntroSkipper;
@@ -34,11 +31,6 @@ namespace IntroSkipper;
 /// </summary>
 public partial class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
 {
-    // Tolerance for comparing segment start/end times to account for floating-point rounding.
-    private const double SegmentComparisonEpsilon = 0.001;
-    // SQLite SQLITE_CONSTRAINT error code.
-    private const int SqliteConstraintViolationErrorCode = 19;
-
     private readonly ILibraryManager _libraryManager;
     private readonly IChapterManager _chapterRepository;
     private readonly IPluginManager _pluginManager;
@@ -104,13 +96,6 @@ public partial class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
         Configuration.FileTransformationPluginEnabled = _pluginManager
             .Plugins
             .Any(p => p.Id == Guid.Parse("5e87cc92-571a-4d8d-8d98-d2d4147f9f90")); // File Transformation plugin ID
-    }
-
-    internal enum RestoreTimestampResult
-    {
-        Restored,
-        AlreadyExists,
-        RestoredWithConflict
     }
 
     /// <summary>
@@ -199,37 +184,26 @@ public partial class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
         try
         {
             var dbSegment = new DbSegment(segment, mode);
+            var shouldSave = false;
+
             if (mode == AnalysisMode.Commercial)
             {
                 var exists = await db.DbSegment
                     .AnyAsync(
                         s => s.ItemId == segment.EpisodeId
                              && s.Type == mode
-                             && Math.Abs(s.Start - dbSegment.Start) <= SegmentComparisonEpsilon
-                             && Math.Abs(s.End - dbSegment.End) <= SegmentComparisonEpsilon,
+                             && s.Start == dbSegment.Start
+                             && s.End == dbSegment.End,
                         cancellationToken)
                     .ConfigureAwait(false);
 
-                if (exists)
+                if (!exists)
                 {
-                    return;
+                    db.DbSegment.Add(dbSegment);
+                    shouldSave = true;
                 }
-
-                db.DbSegment.Add(dbSegment);
-                try
-                {
-                    await db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
-                }
-                catch (DbUpdateException ex) when (IsConstraintViolation(ex))
-                {
-                    return;
-                }
-
-                return;
             }
-
-            var transaction = await db.Database.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
-            try
+            else
             {
                 var existingSegments = await db.DbSegment
                     .Where(s => s.ItemId == segment.EpisodeId && s.Type == mode)
@@ -242,17 +216,12 @@ public partial class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
                 }
 
                 db.DbSegment.Add(dbSegment);
+                shouldSave = true;
+            }
+
+            if (shouldSave)
+            {
                 await db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
-                await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
-            }
-            catch
-            {
-                await RollbackSegmentTransactionAsync(transaction, segment.EpisodeId, cancellationToken).ConfigureAwait(false);
-                throw;
-            }
-            finally
-            {
-                await transaction.DisposeAsync().ConfigureAwait(false);
             }
         }
         catch (Exception ex)
@@ -260,128 +229,6 @@ public partial class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
             LogFailedToUpdateTimestamp(_logger, ex, segment.EpisodeId);
             throw;
         }
-    }
-
-    private async Task RollbackSegmentTransactionAsync(
-        IDbContextTransaction transaction,
-        Guid episodeId,
-        CancellationToken cancellationToken)
-    {
-        var rollbackSucceeded = await TryRollbackSegmentTransactionAsync(
-                transaction,
-                episodeId,
-                isRetry: false,
-                cancellationToken)
-            .ConfigureAwait(false);
-
-        if (!rollbackSucceeded)
-        {
-            await TryRollbackSegmentTransactionAsync(
-                    transaction,
-                    episodeId,
-                    isRetry: true,
-                    CancellationToken.None)
-                .ConfigureAwait(false);
-        }
-    }
-
-    private async Task<bool> TryRollbackSegmentTransactionAsync(
-        IDbContextTransaction transaction,
-        Guid episodeId,
-        bool isRetry,
-        CancellationToken cancellationToken)
-    {
-        try
-        {
-            await transaction.RollbackAsync(cancellationToken).ConfigureAwait(false);
-            return true;
-        }
-        catch (OperationCanceledException rollbackException)
-        {
-            if (isRetry)
-            {
-                _logger.LogWarning(
-                    rollbackException,
-                    "Retry rollback canceled for episode {EpisodeId}.",
-                    episodeId);
-            }
-            else
-            {
-                _logger.LogWarning(
-                    rollbackException,
-                    "Rollback canceled for episode {EpisodeId}; retrying without cancellation.",
-                    episodeId);
-            }
-        }
-        catch (DbException rollbackException)
-        {
-            if (isRetry)
-            {
-                _logger.LogError(
-                    rollbackException,
-                    "Retry rollback failed due to a database error for episode {EpisodeId}.",
-                    episodeId);
-            }
-            else
-            {
-                _logger.LogWarning(
-                    rollbackException,
-                    "Failed to rollback segment update for episode {EpisodeId}.",
-                    episodeId);
-            }
-        }
-
-        return false;
-    }
-
-    internal async Task<RestoreTimestampResult> TryRestoreTimestampAsync(Segment segment, AnalysisMode mode, CancellationToken cancellationToken = default)
-    {
-        using var db = CreateDbContext();
-        var dbSegment = new DbSegment(segment, mode);
-
-        if (mode == AnalysisMode.Commercial)
-        {
-            var existingSegments = await db.DbSegment
-                .Where(s => s.ItemId == segment.EpisodeId && s.Type == mode)
-                .ToListAsync(cancellationToken)
-                .ConfigureAwait(false);
-            var exists = existingSegments.Any(
-                s => Math.Abs(s.Start - dbSegment.Start) <= SegmentComparisonEpsilon
-                     && Math.Abs(s.End - dbSegment.End) <= SegmentComparisonEpsilon);
-            if (exists)
-            {
-                return RestoreTimestampResult.AlreadyExists;
-            }
-
-            db.DbSegment.Add(dbSegment);
-            try
-            {
-                await db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
-            }
-            catch (DbUpdateException ex) when (IsConstraintViolation(ex))
-            {
-                return RestoreTimestampResult.AlreadyExists;
-            }
-
-            return RestoreTimestampResult.Restored;
-        }
-
-        var nonCommercialSegments = await db.DbSegment
-            .Where(s => s.ItemId == segment.EpisodeId && s.Type == mode)
-            .ToListAsync(cancellationToken)
-            .ConfigureAwait(false);
-        var exactMatch = nonCommercialSegments.Any(
-            s => Math.Abs(s.Start - dbSegment.Start) <= SegmentComparisonEpsilon
-                 && Math.Abs(s.End - dbSegment.End) <= SegmentComparisonEpsilon);
-
-        if (exactMatch)
-        {
-            return RestoreTimestampResult.AlreadyExists;
-        }
-
-        db.DbSegment.Add(dbSegment);
-        await db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
-        return nonCommercialSegments.Count > 0 ? RestoreTimestampResult.RestoredWithConflict : RestoreTimestampResult.Restored;
     }
 
     internal async Task<IReadOnlyDictionary<AnalysisMode, Segment>> GetTimestampsAsync(Guid id, CancellationToken cancellationToken = default)
@@ -393,7 +240,11 @@ public partial class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
             .ToListAsync(cancellationToken)
             .ConfigureAwait(false);
 
-        return BuildSegmentLookup(id, segments);
+        return segments
+            .GroupBy(segment => segment.Type)
+            .ToDictionary(
+                group => group.Key,
+                group => group.OrderBy(segment => segment.Start).First().ToSegment());
     }
 
     internal async Task<IReadOnlyList<DbSegment>> GetSegmentsAsync(Guid id, CancellationToken cancellationToken = default)
@@ -404,90 +255,6 @@ public partial class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
             .Where(s => s.ItemId == id)
             .ToListAsync(cancellationToken)
             .ConfigureAwait(false);
-    }
-
-    private static Dictionary<AnalysisMode, Segment> BuildSegmentLookup(Guid itemId, IEnumerable<DbSegment> segments)
-    {
-        ValidateSegmentsOrThrow(itemId, segments);
-        var lookup = new Dictionary<AnalysisMode, Segment>();
-
-        foreach (var group in segments.GroupBy(segment => segment.Type))
-        {
-            lookup[group.Key] = group
-                .OrderBy(segment => segment.Start)
-                .First()
-                .ToSegment();
-        }
-
-        return lookup;
-    }
-
-    internal static void ValidateSegmentsOrThrow(Guid itemId, IEnumerable<DbSegment> segments)
-    {
-        var (invalidModes, duplicateModes) = GetSegmentValidationIssues(segments);
-
-        if (invalidModes.Length == 0 && duplicateModes.Length == 0)
-        {
-            return;
-        }
-
-        var issues = new List<string>();
-        if (invalidModes.Length > 0)
-        {
-            issues.Add($"invalid ranges in modes: {string.Join(", ", invalidModes)}");
-        }
-
-        if (duplicateModes.Length > 0)
-        {
-            issues.Add($"multiple segments in non-commercial modes: {string.Join(", ", duplicateModes)}");
-        }
-
-        throw new InvalidOperationException(
-            $"Segment integrity issues detected for item {itemId}: {string.Join("; ", issues)}. " +
-            "Please remove invalid or duplicate segments via the segment editor or re-analyze the item.");
-    }
-
-    internal static (string[] InvalidModes, string[] DuplicateModes) GetSegmentValidationIssues(IEnumerable<DbSegment> segments)
-    {
-        var segmentList = segments as IList<DbSegment> ?? segments.ToList();
-        var invalidModes = segmentList
-            .Where(segment => !IsSegmentRangeValid(segment))
-            .Select(segment => segment.Type)
-            .Distinct()
-            .Select(mode => mode.ToString())
-            .ToArray();
-
-        var duplicateModes = segmentList
-            .GroupBy(segment => segment.Type)
-            .Where(group => group.Key != AnalysisMode.Commercial && group.Skip(1).Any())
-            .Select(group => group.Key.ToString())
-            .ToArray();
-
-        return (invalidModes, duplicateModes);
-    }
-
-    internal static bool IsSegmentRangeValid(DbSegment segment)
-    {
-        return segment.Start >= 0.0 && segment.End > 0.0 && segment.Start < segment.End;
-    }
-
-    /// <summary>
-    /// Rounds seconds to the nearest tick to keep segment conversions consistent across read/write paths.
-    /// </summary>
-    /// <param name="seconds">The segment time in seconds.</param>
-    /// <returns>The rounded tick value.</returns>
-    internal static long RoundToTicks(double seconds)
-    {
-        return (long)Math.Round(seconds * TimeSpan.TicksPerSecond, MidpointRounding.AwayFromZero);
-    }
-
-    /// <summary>
-    /// Determines whether a DbUpdateException represents a SQLite constraint violation.
-    /// </summary>
-    private static bool IsConstraintViolation(DbUpdateException ex)
-    {
-        return ex.InnerException is SqliteException sqliteException
-            && sqliteException.SqliteErrorCode == SqliteConstraintViolationErrorCode;
     }
 
     internal async Task CleanTimestampsAsync(IEnumerable<Guid> episodeIds, CancellationToken cancellationToken = default)
@@ -575,7 +342,11 @@ public partial class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
                 .GroupBy(s => s.ItemId)
                 .ToDictionary(
                     group => group.Key,
-                    group => (IReadOnlyDictionary<AnalysisMode, Segment>)BuildSegmentLookup(group.Key, group)));
+                    group => (IReadOnlyDictionary<AnalysisMode, Segment>)group
+                        .GroupBy(segment => segment.Type)
+                        .ToDictionary(
+                            segmentGroup => segmentGroup.Key,
+                            segmentGroup => segmentGroup.OrderBy(segment => segment.Start).First().ToSegment())));
     }
 
     internal async Task<IReadOnlyDictionary<AnalysisMode, AnalyzerAction>> GetAllAnalyzerActionsAsync(Guid seasonId, CancellationToken cancellationToken = default)
@@ -642,23 +413,14 @@ public partial class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
         CancellationToken cancellationToken = default)
     {
         using var db = CreateDbContext();
-        var entries = await db.DbSegment
-            .Where(s => s.ItemId == itemId && s.Type == mode)
-            .ToListAsync(cancellationToken)
-            .ConfigureAwait(false);
+        var query = db.DbSegment.Where(s => s.ItemId == itemId && s.Type == mode);
 
         if (segment is not null)
         {
-            var startTicks = RoundToTicks(segment.Start);
-            var endTicks = RoundToTicks(segment.End);
-            entries = entries
-                .Where(s =>
-                    // Allow a 1-tick tolerance for rounding differences when converting to ticks.
-                    Math.Abs(RoundToTicks(s.Start) - startTicks) <= 1
-                    && Math.Abs(RoundToTicks(s.End) - endTicks) <= 1)
-                .ToList();
+            query = query.Where(s => s.Start == segment.Start && s.End == segment.End);
         }
 
+        var entries = await query.ToListAsync(cancellationToken).ConfigureAwait(false);
         if (entries.Count > 0)
         {
             db.DbSegment.RemoveRange(entries);

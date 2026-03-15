@@ -8,13 +8,11 @@ using System.Threading;
 using System.Threading.Tasks;
 using IntroSkipper.Data;
 using IntroSkipper.Manager;
-using Jellyfin.Database.Implementations.Enums;
 using MediaBrowser.Model.MediaSegments;
 using MediaBrowser.Model.Querying;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
-using Microsoft.Extensions.Logging;
 
 namespace IntroSkipper.Controllers;
 
@@ -25,17 +23,13 @@ namespace IntroSkipper.Controllers;
 /// Initializes a new instance of the <see cref="SegmentEditorController"/> class.
 /// </remarks>
 /// <param name="mediaSegmentUpdateManager">MediaSegmentUpdateManager.</param>
-/// <param name="logger">Logger.</param>
 [Authorize(Policy = "RequiresElevation")]
 [ApiController]
 [Produces(MediaTypeNames.Application.Json)]
 [Route("MediaSegmentsApi")]
-public class SegmentEditorController(MediaSegmentUpdateManager mediaSegmentUpdateManager, ILogger<SegmentEditorController> logger) : ControllerBase
+public class SegmentEditorController(MediaSegmentUpdateManager mediaSegmentUpdateManager) : ControllerBase
 {
-    // Ten seconds keeps rollback bounded while allowing slow IO to complete.
-    private static readonly TimeSpan RollbackTimeout = TimeSpan.FromSeconds(10);
     private readonly MediaSegmentUpdateManager _mediaSegmentUpdateManager = mediaSegmentUpdateManager;
-    private readonly ILogger<SegmentEditorController> _logger = logger;
 
     /// <summary>
     /// Plugin meta endpoint.
@@ -76,7 +70,7 @@ public class SegmentEditorController(MediaSegmentUpdateManager mediaSegmentUpdat
             return NotFound();
         }
 
-        var seg = CreateSegment(itemId, segment);
+        var seg = new Segment(itemId, new TimeRange(TimeSpan.FromTicks(segment.StartTicks).TotalSeconds, TimeSpan.FromTicks(segment.EndTicks).TotalSeconds));
         var mode = Plugin.MapSegmentTypeToMode(segment.Type);
 
         await Plugin.Instance!.UpdateTimestampAsync(seg, mode, cancellationToken).ConfigureAwait(false);
@@ -104,89 +98,36 @@ public class SegmentEditorController(MediaSegmentUpdateManager mediaSegmentUpdat
         [FromQuery, Required] string type,
         CancellationToken cancellationToken = default)
     {
-        MediaSegmentType segmentType = type.ToLowerInvariant() switch
+        var existingSegment = await _mediaSegmentUpdateManager
+            .GetSegmentAsync(itemId, segmentId, cancellationToken)
+            .ConfigureAwait(false);
+
+        // Delete the segment from Jellyfin's media segment manager
+        await _mediaSegmentUpdateManager.DeleteSegmentAsync(segmentId).ConfigureAwait(false);
+
+        AnalysisMode mode = type.ToLowerInvariant() switch
         {
-            "intro" => MediaSegmentType.Intro,
-            "recap" => MediaSegmentType.Recap,
-            "preview" => MediaSegmentType.Preview,
-            "outro" or "credits" => MediaSegmentType.Outro,
-            "commercial" => MediaSegmentType.Commercial,
+            "intro" => AnalysisMode.Introduction,
+            "recap" => AnalysisMode.Recap,
+            "preview" => AnalysisMode.Preview,
+            "outro" or "credits" => AnalysisMode.Credits,
+            "commercial" => AnalysisMode.Commercial,
             _ => throw new ArgumentOutOfRangeException(nameof(type), $"Unknown segment type '{type}'")
         };
 
-        AnalysisMode mode = Plugin.MapSegmentTypeToMode(segmentType);
-
-        var existingSegment = await _mediaSegmentUpdateManager
-            .GetSegmentAsync(itemId, segmentId, segmentType, cancellationToken)
-            .ConfigureAwait(false);
-
-        if (existingSegment is null)
+        // The Jellyfin segment is already deleted above, so the plugin DB delete must
+        // run to completion — aborting here would leave a stale record that gets
+        // recreated on the next media segment sync.
+        Segment? dbSegment = null;
+        if (existingSegment is not null)
         {
-            return NotFound();
+            var startSeconds = TimeSpan.FromTicks(existingSegment.StartTicks).TotalSeconds;
+            var endSeconds = TimeSpan.FromTicks(existingSegment.EndTicks).TotalSeconds;
+            dbSegment = new Segment(itemId, new TimeRange(startSeconds, endSeconds));
         }
 
-        var dbSegment = CreateSegment(itemId, existingSegment);
-
-        await Plugin.Instance!.DeleteTimestampAsync(itemId, mode, dbSegment, cancellationToken).ConfigureAwait(false);
-
-        try
-        {
-            // Delete the segment from Jellyfin's media segment manager
-            await _mediaSegmentUpdateManager.DeleteSegmentAsync(segmentId).ConfigureAwait(false);
-        }
-        catch (OperationCanceledException ex)
-        {
-            _logger.LogWarning(ex, "Deletion canceled for Jellyfin segment {SegmentId} on item {ItemId}; attempting DB rollback.", segmentId, itemId);
-            await AttemptRollbackAsync().ConfigureAwait(false);
-            throw;
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Failed to delete Jellyfin segment {SegmentId} for item {ItemId}; attempting DB rollback.", segmentId, itemId);
-            await AttemptRollbackAsync().ConfigureAwait(false);
-
-            throw;
-        }
+        await Plugin.Instance!.DeleteTimestampAsync(itemId, mode, dbSegment, CancellationToken.None).ConfigureAwait(false);
 
         return Ok();
-
-        async Task AttemptRollbackAsync()
-        {
-            try
-            {
-                using var rollbackTokenSource = new CancellationTokenSource(RollbackTimeout);
-                var restoreResult = await Plugin.Instance!.TryRestoreTimestampAsync(dbSegment, mode, rollbackTokenSource.Token).ConfigureAwait(false);
-                switch (restoreResult)
-                {
-                    case Plugin.RestoreTimestampResult.Restored:
-                        _logger.LogInformation("Rolled back DB delete for segment {SegmentId} on item {ItemId}.", segmentId, itemId);
-                        break;
-                    case Plugin.RestoreTimestampResult.RestoredWithConflict:
-                        _logger.LogWarning(
-                            "Rolled back DB delete for segment {SegmentId} on item {ItemId}, but another segment exists for the same mode.",
-                            segmentId,
-                            itemId);
-                        break;
-                    case Plugin.RestoreTimestampResult.AlreadyExists:
-                        _logger.LogInformation("Rollback skipped for segment {SegmentId} on item {ItemId} because it already exists.", segmentId, itemId);
-                        break;
-                }
-            }
-            catch (OperationCanceledException rollbackCanceled)
-            {
-                _logger.LogWarning(rollbackCanceled, "Rollback canceled for segment {SegmentId} on item {ItemId}.", segmentId, itemId);
-            }
-            catch (Exception rollbackException) when (rollbackException is not OutOfMemoryException)
-            {
-                _logger.LogError(rollbackException, "Failed to rollback DB delete for segment {SegmentId} on item {ItemId}.", segmentId, itemId);
-            }
-        }
-    }
-
-    private static Segment CreateSegment(Guid itemId, MediaSegmentDto segment)
-    {
-        var startSeconds = TimeSpan.FromTicks(segment.StartTicks).TotalSeconds;
-        var endSeconds = TimeSpan.FromTicks(segment.EndTicks).TotalSeconds;
-        return new Segment(itemId, new TimeRange(startSeconds, endSeconds));
     }
 }

@@ -7,7 +7,6 @@ using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using IntroSkipper.Data;
-using IntroSkipper.Db;
 using Jellyfin.Database.Implementations.Enums;
 using MediaBrowser.Controller.Entities;
 using MediaBrowser.Controller.Entities.Movies;
@@ -15,17 +14,14 @@ using MediaBrowser.Controller.Entities.TV;
 using MediaBrowser.Controller.MediaSegments;
 using MediaBrowser.Model;
 using MediaBrowser.Model.MediaSegments;
-using Microsoft.Extensions.Logging;
 
 namespace IntroSkipper.Providers
 {
     /// <summary>
     /// Introskipper media segment provider.
     /// </summary>
-    public class SegmentProvider(ILogger<SegmentProvider> logger) : IMediaSegmentProvider
+    public class SegmentProvider : IMediaSegmentProvider
     {
-        private readonly ILogger<SegmentProvider> _logger = logger;
-
         /// <summary>
         /// Mappings between AnalysisMode and MediaSegmentType.
         /// </summary>
@@ -49,17 +45,8 @@ namespace IntroSkipper.Providers
 
             var segments = new List<MediaSegmentDto>();
             var itemSegments = await Plugin.Instance.GetSegmentsAsync(request.ItemId, cancellationToken).ConfigureAwait(false);
-            var (invalidModes, duplicateModes) = Plugin.GetSegmentValidationIssues(itemSegments);
-            if (invalidModes.Length > 0 || duplicateModes.Length > 0)
-            {
-                _logger.LogWarning(
-                    "Segment integrity issues detected for item {ItemId}. Invalid modes: {InvalidModes}. Duplicate non-commercial modes: {DuplicateModes}.",
-                    request.ItemId,
-                    invalidModes.Length > 0 ? string.Join(", ", invalidModes) : "none",
-                    duplicateModes.Length > 0 ? string.Join(", ", duplicateModes) : "none");
-            }
+            var dedupedModes = new HashSet<AnalysisMode>();
 
-            var seenNonCommercial = new HashSet<AnalysisMode>();
             foreach (var segment in itemSegments.OrderBy(segment => segment.Start))
             {
                 if (!_segmentMappings.TryGetValue(segment.Type, out var type))
@@ -67,18 +54,18 @@ namespace IntroSkipper.Providers
                     continue;
                 }
 
-                if (!Plugin.IsSegmentRangeValid(segment))
+                if (segment.End <= 0.0)
                 {
                     continue;
                 }
 
-                if (segment.Type != AnalysisMode.Commercial && !seenNonCommercial.Add(segment.Type))
+                if (segment.Type != AnalysisMode.Commercial && !dedupedModes.Add(segment.Type))
                 {
                     continue;
                 }
 
-                long startTicks = Plugin.RoundToTicks(segment.Start);
-                long endTicks = Plugin.RoundToTicks(segment.End);
+                long startTicks = (long)(segment.Start * TimeSpan.TicksPerSecond);
+                long endTicks = (long)(segment.End * TimeSpan.TicksPerSecond);
 
                 segments.Add(new MediaSegmentDto
                 {
