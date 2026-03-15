@@ -11,6 +11,7 @@ namespace IntroSkipper.Migrations
         /// <inheritdoc />
         protected override void Up(MigrationBuilder migrationBuilder)
         {
+            // 4 = AnalysisMode.Commercial enum value.
             migrationBuilder.Sql(
                 """
                 BEGIN TRANSACTION;

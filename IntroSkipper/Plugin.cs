@@ -219,7 +219,7 @@ public partial class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
                 {
                     await db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
                 }
-                catch (DbUpdateException ex) when (IsUniqueConstraintViolation(ex))
+                catch (DbUpdateException ex) when (IsConstraintViolation(ex))
                 {
                     return;
                 }
@@ -284,7 +284,7 @@ public partial class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
                     {
                         _logger.LogWarning(
                             retryDbException,
-                            "Failed to rollback segment update for episode {EpisodeId}.",
+                            "Retry rollback failed due to a database error for episode {EpisodeId}.",
                             segment.EpisodeId);
                     }
                     catch
@@ -331,7 +331,7 @@ public partial class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
             {
                 await db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
             }
-            catch (DbUpdateException ex) when (IsUniqueConstraintViolation(ex))
+            catch (DbUpdateException ex) when (IsConstraintViolation(ex))
             {
                 return RestoreTimestampResult.AlreadyExists;
             }
@@ -457,7 +457,7 @@ public partial class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
     /// <summary>
     /// Determines whether a DbUpdateException represents a SQLite constraint violation.
     /// </summary>
-    private static bool IsUniqueConstraintViolation(DbUpdateException ex)
+    private static bool IsConstraintViolation(DbUpdateException ex)
     {
         return ex.InnerException is SqliteException sqliteException
             && sqliteException.SqliteErrorCode == SqliteConstraintViolationErrorCode;
