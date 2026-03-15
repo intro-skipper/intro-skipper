@@ -163,6 +163,10 @@ public class SegmentEditorController(MediaSegmentUpdateManager mediaSegmentUpdat
                     _logger.LogWarning("Skipped rollback for segment {SegmentId} on item {ItemId} because a newer segment exists.", segmentId, itemId);
                 }
             }
+            catch (OperationCanceledException rollbackCanceled)
+            {
+                _logger.LogWarning(rollbackCanceled, "Rollback canceled for segment {SegmentId} on item {ItemId}.", segmentId, itemId);
+            }
             catch (Exception rollbackException)
             {
                 _logger.LogError(rollbackException, "Failed to rollback DB delete for segment {SegmentId} on item {ItemId}.", segmentId, itemId);
