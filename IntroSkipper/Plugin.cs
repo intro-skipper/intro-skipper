@@ -185,13 +185,13 @@ public partial class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
 
     internal IReadOnlyList<ChapterInfo> GetChapters(Guid id) => _chapterRepository.GetChapters(id);
 
-    internal async Task UpdateTimestampAsync(Segment segment, AnalysisMode mode, CancellationToken cancellationToken = default)
+    internal async Task UpdateTimestampAsync(Segment segment, AnalysisMode mode, bool isUserProvided = false, CancellationToken cancellationToken = default)
     {
         using var db = CreateDbContext();
 
         try
         {
-            var dbSegment = new DbSegment(segment, mode);
+            var dbSegment = new DbSegment(segment, mode, isUserProvided);
 
             if (mode == AnalysisMode.Commercial)
             {
@@ -320,6 +320,39 @@ public partial class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
         await db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
     }
 
+    /// <summary>
+    /// Removes a single episode ID from the season's analyzed-state list for the given mode.
+    /// The read and write share one <see cref="IntroSkipperDbContext"/> to keep the window for
+    /// concurrent overwrites as small as possible, and the write is skipped entirely when the
+    /// ID is not present in the stored list.
+    /// </summary>
+    /// <param name="seasonId">Season ID.</param>
+    /// <param name="mode">Analysis mode.</param>
+    /// <param name="episodeId">Episode ID to remove.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>A <see cref="Task"/> representing the asynchronous operation.</returns>
+    internal async Task RemoveEpisodeIdAsync(Guid seasonId, AnalysisMode mode, Guid episodeId, CancellationToken cancellationToken = default)
+    {
+        using var db = CreateDbContext();
+        var seasonInfo = await db.DbSeasonInfo
+            .FirstOrDefaultAsync(s => s.SeasonId == seasonId && s.Type == mode, cancellationToken)
+            .ConfigureAwait(false);
+
+        if (seasonInfo is null)
+        {
+            return;
+        }
+
+        var currentIds = seasonInfo.EpisodeIds.ToList();
+        if (!currentIds.Remove(episodeId))
+        {
+            return; // Episode was not in the list — no write needed.
+        }
+
+        db.Entry(seasonInfo).Property(s => s.EpisodeIds).CurrentValue = currentIds;
+        await db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+    }
+
     internal async Task<IReadOnlyDictionary<AnalysisMode, IEnumerable<Guid>>> GetEpisodeIdsAsync(Guid id, CancellationToken cancellationToken = default)
     {
         using var db = CreateDbContext();
@@ -357,7 +390,13 @@ public partial class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
                         .GroupBy(segment => segment.Type)
                         .ToDictionary(
                             segmentGroup => segmentGroup.Key,
-                            segmentGroup => segmentGroup.OrderBy(segment => segment.Start).First().ToSegment())));
+                            segmentGroup => segmentGroup.OrderBy(segment => segment.Start).First().ToSegment())),
+            segments
+                .Where(s => s.IsUserProvided)
+                .GroupBy(s => s.Type)
+                .ToDictionary(
+                    group => group.Key,
+                    group => (IReadOnlySet<Guid>)group.Select(s => s.ItemId).ToHashSet()));
     }
 
     internal async Task<IReadOnlyDictionary<AnalysisMode, AnalyzerAction>> GetAllAnalyzerActionsAsync(Guid seasonId, CancellationToken cancellationToken = default)

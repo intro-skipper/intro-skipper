@@ -60,6 +60,11 @@ namespace IntroSkipper.Migrations
                         .HasColumnType("REAL")
                         .HasDefaultValue(0.0);
 
+                    b.Property<bool>("IsUserProvided")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER")
+                        .HasDefaultValue(false);
+
                     b.Property<double>("Start")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("REAL")

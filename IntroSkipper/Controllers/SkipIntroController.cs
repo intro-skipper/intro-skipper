@@ -73,7 +73,7 @@ public class SkipIntroController(MediaSegmentUpdateManager mediaSegmentUpdateMan
             if (segment.Valid)
             {
                 segment.EpisodeId = id;
-                await Plugin.Instance!.UpdateTimestampAsync(segment, mode, cancellationToken).ConfigureAwait(false);
+                await Plugin.Instance!.UpdateTimestampAsync(segment, mode, cancellationToken: cancellationToken).ConfigureAwait(false);
             }
         }
 
