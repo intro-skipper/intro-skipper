@@ -6,6 +6,8 @@ on:
 jobs:
   update-spdx:
     runs-on: windows-latest
+    permissions:
+      contents: write
 
     steps:
       - name: Checkout repository
@@ -20,13 +22,14 @@ jobs:
       - name: Check for changes
         id: changes
         run: |
-          CHANGES=$(git status --porcelain)
-          echo "changes=$CHANGES" >> $GITHUB_OUTPUT
-          if [ -n "$CHANGES" ]; then
+          $changes = git status --porcelain
+          if ($changes) {
+            echo "changes=$changes" >> $env:GITHUB_OUTPUT
             echo "Changes detected"
-          else
+          } else {
+            echo "changes=" >> $env:GITHUB_OUTPUT
             echo "No changes detected"
-          fi
+          }
 
       - name: Commit changes
         if: steps.changes.outputs.changes != ''
