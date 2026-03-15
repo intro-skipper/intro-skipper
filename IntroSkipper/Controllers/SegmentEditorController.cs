@@ -4,6 +4,7 @@
 using System;
 using System.ComponentModel.DataAnnotations;
 using System.Net.Mime;
+using System.Runtime.ExceptionServices;
 using System.Threading;
 using System.Threading.Tasks;
 using IntroSkipper.Data;
@@ -181,7 +182,7 @@ public class SegmentEditorController(MediaSegmentUpdateManager mediaSegmentUpdat
     {
         if (ex is OutOfMemoryException or ThreadAbortException or StackOverflowException)
         {
-            throw ex;
+            ExceptionDispatchInfo.Capture(ex).Throw();
         }
     }
 

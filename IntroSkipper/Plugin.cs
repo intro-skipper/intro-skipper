@@ -34,6 +34,7 @@ public partial class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
 {
     // Tolerance for comparing segment start/end times to account for floating-point rounding.
     private const double SegmentComparisonEpsilon = 0.001;
+    // SQLite SQLITE_CONSTRAINT error code.
     private const int SqliteConstraintErrorCode = 19;
     private readonly ILibraryManager _libraryManager;
     private readonly IChapterManager _chapterRepository;
@@ -240,18 +241,30 @@ public partial class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
                 {
                     await transaction.RollbackAsync(cancellationToken).ConfigureAwait(false);
                 }
-                catch (OperationCanceledException)
+                catch (OperationCanceledException rollbackException)
                 {
+                    _logger.LogWarning(
+                        rollbackException,
+                        "Rollback canceled for episode {EpisodeId}; retrying without cancellation.",
+                        segment.EpisodeId);
                     try
                     {
                         await transaction.RollbackAsync(CancellationToken.None).ConfigureAwait(false);
                     }
-                    catch
+                    catch (Exception retryException)
                     {
+                        _logger.LogWarning(
+                            retryException,
+                            "Failed to rollback segment update for episode {EpisodeId}.",
+                            segment.EpisodeId);
                     }
                 }
-                catch
+                catch (Exception rollbackException)
                 {
+                    _logger.LogWarning(
+                        rollbackException,
+                        "Failed to rollback segment update for episode {EpisodeId}.",
+                        segment.EpisodeId);
                 }
 
                 throw;
@@ -585,6 +598,7 @@ public partial class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
             var endTicks = RoundToTicks(segment.End);
             entries = entries
                 .Where(s =>
+                    // Allow a 1-tick tolerance for rounding differences when converting to ticks.
                     Math.Abs(RoundToTicks(s.Start) - startTicks) <= 1
                     && Math.Abs(RoundToTicks(s.End) - endTicks) <= 1)
                 .ToList();
