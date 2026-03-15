@@ -15,17 +15,14 @@ using MediaBrowser.Controller.Entities.TV;
 using MediaBrowser.Controller.MediaSegments;
 using MediaBrowser.Model;
 using MediaBrowser.Model.MediaSegments;
-using Microsoft.Extensions.Logging;
 
 namespace IntroSkipper.Providers
 {
     /// <summary>
     /// Introskipper media segment provider.
     /// </summary>
-    public class SegmentProvider(ILogger<SegmentProvider> logger) : IMediaSegmentProvider
+    public class SegmentProvider : IMediaSegmentProvider
     {
-        private readonly ILogger<SegmentProvider> _logger = logger;
-
         /// <summary>
         /// Mappings between AnalysisMode and MediaSegmentType.
         /// </summary>
@@ -49,16 +46,7 @@ namespace IntroSkipper.Providers
 
             var segments = new List<MediaSegmentDto>();
             var itemSegments = await Plugin.Instance.GetSegmentsAsync(request.ItemId, cancellationToken).ConfigureAwait(false);
-            var (invalidModes, duplicateModes) = Plugin.GetSegmentValidationIssues(itemSegments);
-            if (invalidModes.Length > 0)
-            {
-                _logger.LogWarning("Invalid segment ranges detected for item {ItemId} in modes: {Modes}.", request.ItemId, string.Join(", ", invalidModes));
-            }
-
-            if (duplicateModes.Length > 0)
-            {
-                _logger.LogWarning("Multiple segments detected for item {ItemId} in non-commercial modes: {Modes}.", request.ItemId, string.Join(", ", duplicateModes));
-            }
+            Plugin.ValidateSegmentsOrThrow(request.ItemId, itemSegments);
 
             foreach (var segment in itemSegments.OrderBy(segment => segment.Start))
             {
