@@ -142,7 +142,7 @@ public class SegmentEditorController(MediaSegmentUpdateManager mediaSegmentUpdat
                 await Plugin.Instance!.UpdateTimestampAsync(dbSegment, mode, rollbackTokenSource.Token).ConfigureAwait(false);
                 _logger.LogInformation("Rolled back DB delete for segment {SegmentId} on item {ItemId}.", segmentId, itemId);
             }
-            catch (Exception rollbackException)
+            catch (OperationCanceledException rollbackException)
             {
                 _logger.LogError(rollbackException, "Failed to rollback DB delete for segment {SegmentId} on item {ItemId}.", segmentId, itemId);
             }
