@@ -324,7 +324,7 @@ public partial class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
                 return RestoreTimestampResult.AlreadyExists;
             }
 
-            return exists ? RestoreTimestampResult.AlreadyExists : RestoreTimestampResult.Restored;
+            return RestoreTimestampResult.Restored;
         }
 
         var nonCommercialSegments = await db.DbSegment

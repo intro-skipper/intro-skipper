@@ -187,7 +187,7 @@ public class SegmentEditorController(MediaSegmentUpdateManager mediaSegmentUpdat
 
     private static void RethrowIfCritical(Exception ex)
     {
-        if (ex is OutOfMemoryException or StackOverflowException)
+        if (ex is OutOfMemoryException)
         {
             ExceptionDispatchInfo.Capture(ex).Throw();
         }
