@@ -69,6 +69,11 @@ namespace IntroSkipper.Migrations
 
                     b.HasIndex("ItemId");
 
+                    b.HasIndex("ItemId", "Type", "Start", "End")
+                        .IsUnique()
+                        .HasFilter("Type = 4")
+                        .HasDatabaseName("IX_DbSegment_Commercial_Unique");
+
                     b.ToTable("DbSegment", (string)null);
                 });
 #pragma warning restore 612, 618

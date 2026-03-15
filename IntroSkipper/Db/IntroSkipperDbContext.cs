@@ -79,6 +79,10 @@ public class IntroSkipperDbContext : DbContext
                   .ValueGeneratedOnAdd();
 
             entity.HasIndex(e => e.ItemId);
+            entity.HasIndex(e => new { e.ItemId, e.Type, e.Start, e.End })
+                .HasDatabaseName("IX_DbSegment_Commercial_Unique")
+                .HasFilter($"Type = {(int)AnalysisMode.Commercial}")
+                .IsUnique();
 
             entity.Property(e => e.Start)
                   .HasDefaultValue(0.0)

@@ -31,6 +31,7 @@ namespace IntroSkipper;
 /// </summary>
 public partial class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
 {
+    private const double SegmentComparisonEpsilon = 0.001;
     private readonly ILibraryManager _libraryManager;
     private readonly IChapterManager _chapterRepository;
     private readonly IPluginManager _pluginManager;
@@ -184,7 +185,6 @@ public partial class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
         try
         {
             var dbSegment = new DbSegment(segment, mode);
-            var shouldSave = false;
 
             if (mode == AnalysisMode.Commercial)
             {
@@ -192,36 +192,40 @@ public partial class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
                     .AnyAsync(
                         s => s.ItemId == segment.EpisodeId
                              && s.Type == mode
-                             && s.Start == dbSegment.Start
-                             && s.End == dbSegment.End,
+                             && Math.Abs(s.Start - dbSegment.Start) <= SegmentComparisonEpsilon
+                             && Math.Abs(s.End - dbSegment.End) <= SegmentComparisonEpsilon,
                         cancellationToken)
                     .ConfigureAwait(false);
 
                 if (!exists)
                 {
                     db.DbSegment.Add(dbSegment);
-                    shouldSave = true;
+                    await db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
                 }
             }
             else
             {
-                var existingSegments = await db.DbSegment
-                    .Where(s => s.ItemId == segment.EpisodeId && s.Type == mode)
-                    .ToListAsync(cancellationToken)
-                    .ConfigureAwait(false);
-
-                if (existingSegments.Count > 0)
+                var transaction = await db.Database.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
+                try
                 {
-                    db.DbSegment.RemoveRange(existingSegments);
+                    var existingSegments = await db.DbSegment
+                        .Where(s => s.ItemId == segment.EpisodeId && s.Type == mode)
+                        .ToListAsync(cancellationToken)
+                        .ConfigureAwait(false);
+
+                    if (existingSegments.Count > 0)
+                    {
+                        db.DbSegment.RemoveRange(existingSegments);
+                    }
+
+                    db.DbSegment.Add(dbSegment);
+                    await db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+                    await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
                 }
-
-                db.DbSegment.Add(dbSegment);
-                shouldSave = true;
-            }
-
-            if (shouldSave)
-            {
-                await db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+                finally
+                {
+                    await transaction.DisposeAsync().ConfigureAwait(false);
+                }
             }
         }
         catch (Exception ex)
@@ -413,11 +417,18 @@ public partial class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
         CancellationToken cancellationToken = default)
     {
         using var db = CreateDbContext();
+        if (segment is null && mode == AnalysisMode.Commercial)
+        {
+            return;
+        }
+
         var query = db.DbSegment.Where(s => s.ItemId == itemId && s.Type == mode);
 
         if (segment is not null)
         {
-            query = query.Where(s => s.Start == segment.Start && s.End == segment.End);
+            query = query.Where(s =>
+                Math.Abs(s.Start - segment.Start) <= SegmentComparisonEpsilon
+                && Math.Abs(s.End - segment.End) <= SegmentComparisonEpsilon);
         }
 
         var entries = await query.ToListAsync(cancellationToken).ConfigureAwait(false);
