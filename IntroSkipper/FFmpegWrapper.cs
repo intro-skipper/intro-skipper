@@ -470,25 +470,24 @@ public static partial class FFmpegWrapper
 
         // Prepend some flags to prevent FFmpeg from logging its banner and progress information
         // for each file that is fingerprinted.
-        // Note: For info queries (-version, -muxers, -h), -threads must be at the END
-        // to avoid "Trailing option(s) found" warning.
         var prependArgument = string.Format(
             CultureInfo.InvariantCulture,
             "-hide_banner -threads {0} -loglevel {1} ",
             Plugin.Instance?.Configuration.ProcessThreads ?? 0,
             logLevel);
 
-        // For FFmpeg info queries (-version, -muxers, -h), append -threads at the END
+        // For FFmpeg info queries (-version, -muxers, -h), don't add any extra flags
+        // to avoid "Trailing option(s) found" warning. These are quick queries.
         var argsTrimmed = args.TrimStart();
-        if (argsTrimmed.StartsWith("-v", StringComparison.Ordinal) ||
-            argsTrimmed.StartsWith("-m", StringComparison.Ordinal) ||
+        if (argsTrimmed.StartsWith("-version", StringComparison.Ordinal) ||
+            argsTrimmed.StartsWith("-muxers", StringComparison.Ordinal) ||
             argsTrimmed.StartsWith("-h", StringComparison.Ordinal))
         {
+            // For info queries, don't add any prepend flags at all
             prependArgument = string.Format(
                 CultureInfo.InvariantCulture,
                 "-hide_banner -loglevel {0} ",
                 logLevel);
-            args = $"{args} -threads {Plugin.Instance?.Configuration.ProcessThreads ?? 0}";
         }
 
         var info = new ProcessStartInfo(ffmpegPath, args.Insert(0, prependArgument))
