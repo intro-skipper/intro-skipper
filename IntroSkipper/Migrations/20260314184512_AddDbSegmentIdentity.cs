@@ -12,6 +12,7 @@ namespace IntroSkipper.Migrations
         /// <inheritdoc />
         protected override void Up(MigrationBuilder migrationBuilder)
         {
+            // Use the enum value to keep the index filter aligned with AnalysisMode.Commercial.
             var commercialType = (int)AnalysisMode.Commercial;
             migrationBuilder.Sql(
                 $$"""

@@ -317,7 +317,7 @@ public partial class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
         {
             if (isRetry)
             {
-                _logger.LogWarning(
+                _logger.LogError(
                     rollbackException,
                     "Retry rollback failed due to a database error for episode {EpisodeId}.",
                     episodeId);
