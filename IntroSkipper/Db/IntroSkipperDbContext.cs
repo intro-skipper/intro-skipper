@@ -91,6 +91,10 @@ public class IntroSkipperDbContext : DbContext
             entity.Property(e => e.End)
                   .HasDefaultValue(0.0)
                   .IsRequired();
+
+            entity.Property(e => e.IsUserProvided)
+                  .HasDefaultValue(false)
+                  .IsRequired();
         });
 
         modelBuilder.Entity<DbSeasonInfo>(entity =>

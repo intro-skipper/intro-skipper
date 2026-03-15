@@ -21,10 +21,11 @@ namespace IntroSkipper.Migrations
                     "ItemId" TEXT NOT NULL,
                     "Type" INTEGER NOT NULL,
                     "Start" REAL NOT NULL DEFAULT 0.0,
-                    "End" REAL NOT NULL DEFAULT 0.0
+                    "End" REAL NOT NULL DEFAULT 0.0,
+                    "IsUserProvided" INTEGER NOT NULL DEFAULT 0
                 );
-                INSERT INTO "DbSegment_Temp" ("ItemId", "Type", "Start", "End")
-                SELECT "ItemId", "Type", "Start", "End"
+                INSERT INTO "DbSegment_Temp" ("ItemId", "Type", "Start", "End", "IsUserProvided")
+                SELECT "ItemId", "Type", "Start", "End", COALESCE("IsUserProvided", 0)
                 FROM "DbSegment";
                 DROP TABLE "DbSegment";
                 ALTER TABLE "DbSegment_Temp" RENAME TO "DbSegment";
@@ -47,10 +48,11 @@ namespace IntroSkipper.Migrations
                     "Type" INTEGER NOT NULL,
                     "Start" REAL NOT NULL DEFAULT 0.0,
                     "End" REAL NOT NULL DEFAULT 0.0,
+                    "IsUserProvided" INTEGER NOT NULL DEFAULT 0,
                     CONSTRAINT "PK_DbSegment_Temp" PRIMARY KEY ("ItemId", "Type")
                 );
-                INSERT INTO "DbSegment_Temp" ("ItemId", "Type", "Start", "End")
-                SELECT "ItemId", "Type", "Start", "End"
+                INSERT INTO "DbSegment_Temp" ("ItemId", "Type", "Start", "End", "IsUserProvided")
+                SELECT "ItemId", "Type", "Start", "End", COALESCE("IsUserProvided", 0)
                 FROM "DbSegment"
                 WHERE "Id" IN (
                     SELECT MIN("Id")

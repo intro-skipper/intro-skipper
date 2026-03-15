@@ -421,7 +421,11 @@ public partial class QueueManager(ILogger<QueueManager> logger, ILibraryManager 
                     if (snapshot.SegmentsByEpisodeId.TryGetValue(candidate.EpisodeId, out var hasSegments) &&
                         hasSegments.TryGetValue(mode, out _))
                     {
-                        candidate.SetAnalyzed(mode, EpisodeState.Analyzed);
+                        var state = snapshot.UserProvidedByMode.TryGetValue(mode, out var userProvided) &&
+                                    userProvided.Contains(candidate.EpisodeId)
+                            ? EpisodeState.UserProvided
+                            : EpisodeState.Analyzed;
+                        candidate.SetAnalyzed(mode, state);
                     }
                     else if (!plugin.AnalyzeAgain &&
                              snapshot.EpisodeIdsByMode.TryGetValue(mode, out var ids) &&
