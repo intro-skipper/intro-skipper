@@ -2,7 +2,7 @@
 // SPDX-FileCopyrightText: 2024-2026 Kilian von Pflugk
 // SPDX-FileCopyrightText: 2024-2025 TwistedUmbrellaX
 // SPDX-FileCopyrightText: 2024-2026 rlauuzo
-// SPDX-FileCopyrightText: 2025 Abandoned Cart
+// SPDX-FileCopyrightText: 2024-2026 AbandonedCart
 // SPDX-License-Identifier: GPL-3.0-only
 
 using System;
