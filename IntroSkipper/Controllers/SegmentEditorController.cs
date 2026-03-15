@@ -177,9 +177,11 @@ public class SegmentEditorController(MediaSegmentUpdateManager mediaSegmentUpdat
             {
                 _logger.LogWarning(rollbackCanceled, "Rollback canceled for segment {SegmentId} on item {ItemId}.", segmentId, itemId);
             }
-            catch (Exception rollbackException)
+            catch (Exception rollbackException) when (
+                rollbackException is not OutOfMemoryException &&
+                rollbackException is not ThreadAbortException &&
+                rollbackException is not StackOverflowException)
             {
-                RethrowIfCritical(rollbackException);
                 _logger.LogError(rollbackException, "Failed to rollback DB delete for segment {SegmentId} on item {ItemId}.", segmentId, itemId);
             }
         }
