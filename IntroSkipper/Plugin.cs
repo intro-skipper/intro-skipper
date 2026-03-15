@@ -8,6 +8,7 @@ using System.IO;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
+using System.Data.Common;
 using IntroSkipper.Configuration;
 using IntroSkipper.Data;
 using IntroSkipper.Db;
@@ -272,12 +273,23 @@ public partial class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
                     {
                         await transaction.RollbackAsync(CancellationToken.None).ConfigureAwait(false);
                     }
-                    catch (Exception retryException)
+                    catch (OperationCanceledException retryCanceled)
                     {
                         _logger.LogWarning(
-                            retryException,
+                            retryCanceled,
+                            "Retry rollback canceled for episode {EpisodeId}.",
+                            segment.EpisodeId);
+                    }
+                    catch (DbException retryDbException)
+                    {
+                        _logger.LogWarning(
+                            retryDbException,
                             "Failed to rollback segment update for episode {EpisodeId}.",
                             segment.EpisodeId);
+                    }
+                    catch
+                    {
+                        throw;
                     }
                 }
 
