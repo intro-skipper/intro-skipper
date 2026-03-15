@@ -15,14 +15,17 @@ using MediaBrowser.Controller.Entities.TV;
 using MediaBrowser.Controller.MediaSegments;
 using MediaBrowser.Model;
 using MediaBrowser.Model.MediaSegments;
+using Microsoft.Extensions.Logging;
 
 namespace IntroSkipper.Providers
 {
     /// <summary>
     /// Introskipper media segment provider.
     /// </summary>
-    public class SegmentProvider : IMediaSegmentProvider
+    public class SegmentProvider(ILogger<SegmentProvider> logger) : IMediaSegmentProvider
     {
+        private readonly ILogger<SegmentProvider> _logger = logger;
+
         /// <summary>
         /// Mappings between AnalysisMode and MediaSegmentType.
         /// </summary>
@@ -46,8 +49,17 @@ namespace IntroSkipper.Providers
 
             var segments = new List<MediaSegmentDto>();
             var itemSegments = await Plugin.Instance.GetSegmentsAsync(request.ItemId, cancellationToken).ConfigureAwait(false);
-            Plugin.ValidateSegmentsOrThrow(request.ItemId, itemSegments);
+            var (invalidModes, duplicateModes) = Plugin.GetSegmentValidationIssues(itemSegments);
+            if (invalidModes.Length > 0 || duplicateModes.Length > 0)
+            {
+                _logger.LogError(
+                    "Segment integrity issues detected for item {ItemId}. Invalid modes: {InvalidModes}. Duplicate non-commercial modes: {DuplicateModes}.",
+                    request.ItemId,
+                    invalidModes.Length > 0 ? string.Join(", ", invalidModes) : "none",
+                    duplicateModes.Length > 0 ? string.Join(", ", duplicateModes) : "none");
+            }
 
+            var seenNonCommercial = new HashSet<AnalysisMode>();
             foreach (var segment in itemSegments.OrderBy(segment => segment.Start))
             {
                 if (!_segmentMappings.TryGetValue(segment.Type, out var type))
@@ -56,6 +68,11 @@ namespace IntroSkipper.Providers
                 }
 
                 if (!Plugin.IsSegmentRangeValid(segment))
+                {
+                    continue;
+                }
+
+                if (segment.Type != AnalysisMode.Commercial && !seenNonCommercial.Add(segment.Type))
                 {
                     continue;
                 }
