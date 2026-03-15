@@ -114,9 +114,15 @@ foreach ($file in $csFiles) {
     # Insert new header
     $newContent = $newHeader + $newContent
 
-    # Write back - ensure no BOM
+    # Write back - ensure no BOM with CRLF line endings
     $utf8NoBom = New-Object System.Text.UTF8Encoding $false
-    [System.IO.File]::WriteAllText($file.FullName, $newContent, $utf8NoBom)
+    # Use CRLF line endings for Windows files
+    if ($content -match "`r`n") {
+        [System.IO.File]::WriteAllText($file.FullName, $newContent.Replace("`n", "`r`n"), $utf8NoBom)
+    }
+    else {
+        [System.IO.File]::WriteAllText($file.FullName, $newContent, $utf8NoBom)
+    }
     Write-Host "  Updated with $($sortedAuthors.Count) human authors!"
 }
 
