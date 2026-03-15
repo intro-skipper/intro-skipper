@@ -99,8 +99,9 @@ public class SegmentEditorController(MediaSegmentUpdateManager mediaSegmentUpdat
         [FromQuery, Required] string type,
         CancellationToken cancellationToken = default)
     {
-        // Delete the segment from Jellyfin's media segment manager
-        await _mediaSegmentUpdateManager.DeleteSegmentAsync(segmentId).ConfigureAwait(false);
+        var existingSegment = await _mediaSegmentUpdateManager
+            .GetSegmentAsync(itemId, segmentId, cancellationToken)
+            .ConfigureAwait(false);
 
         AnalysisMode mode = type.ToLowerInvariant() switch
         {
@@ -112,10 +113,34 @@ public class SegmentEditorController(MediaSegmentUpdateManager mediaSegmentUpdat
             _ => throw new ArgumentOutOfRangeException(nameof(type), $"Unknown segment type '{type}'")
         };
 
-        // The Jellyfin segment is already deleted above, so the plugin DB delete must
-        // run to completion — aborting here would leave a stale record that gets
-        // recreated on the next media segment sync.
-        await Plugin.Instance!.DeleteTimestampAsync(itemId, mode, CancellationToken.None).ConfigureAwait(false);
+        Segment? dbSegment = null;
+        if (existingSegment is not null)
+        {
+            var startSeconds = TimeSpan.FromTicks(existingSegment.StartTicks).TotalSeconds;
+            var endSeconds = TimeSpan.FromTicks(existingSegment.EndTicks).TotalSeconds;
+            dbSegment = new Segment(itemId, new TimeRange(startSeconds, endSeconds));
+        }
+
+        if (dbSegment is null && mode == AnalysisMode.Commercial)
+        {
+            return NotFound();
+        }
+
+        await Plugin.Instance!.DeleteTimestampAsync(itemId, mode, dbSegment, cancellationToken).ConfigureAwait(false);
+
+        try
+        {
+            await _mediaSegmentUpdateManager.DeleteSegmentAsync(segmentId).ConfigureAwait(false);
+        }
+        catch
+        {
+            if (dbSegment is not null)
+            {
+                await Plugin.Instance!.UpdateTimestampAsync(dbSegment, mode, CancellationToken.None).ConfigureAwait(false);
+            }
+
+            throw;
+        }
 
         return Ok();
     }
