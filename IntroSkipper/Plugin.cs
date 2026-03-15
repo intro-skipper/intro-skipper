@@ -342,7 +342,7 @@ public partial class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
         {
             return;
         }
-        
+
         var currentIds = seasonInfo.EpisodeIds.ToList();
         if (!currentIds.Remove(episodeId))
         {
