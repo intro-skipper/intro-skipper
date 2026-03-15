@@ -4,7 +4,6 @@
 using System;
 using System.ComponentModel.DataAnnotations;
 using System.Net.Mime;
-using System.Runtime.ExceptionServices;
 using System.Threading;
 using System.Threading.Tasks;
 using IntroSkipper.Data;
@@ -177,21 +176,10 @@ public class SegmentEditorController(MediaSegmentUpdateManager mediaSegmentUpdat
             {
                 _logger.LogWarning(rollbackCanceled, "Rollback canceled for segment {SegmentId} on item {ItemId}.", segmentId, itemId);
             }
-            catch (Exception rollbackException) when (
-                rollbackException is not OutOfMemoryException &&
-                rollbackException is not ThreadAbortException &&
-                rollbackException is not StackOverflowException)
+            catch (Exception rollbackException) when (rollbackException is not OutOfMemoryException)
             {
                 _logger.LogError(rollbackException, "Failed to rollback DB delete for segment {SegmentId} on item {ItemId}.", segmentId, itemId);
             }
-        }
-    }
-
-    private static void RethrowIfCritical(Exception ex)
-    {
-        if (ex is OutOfMemoryException)
-        {
-            ExceptionDispatchInfo.Capture(ex).Throw();
         }
     }
 

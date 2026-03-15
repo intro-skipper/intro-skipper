@@ -4,11 +4,11 @@
 using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
+using System.Data.Common;
 using System.IO;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
-using System.Data.Common;
 using IntroSkipper.Configuration;
 using IntroSkipper.Data;
 using IntroSkipper.Db;
@@ -36,7 +36,7 @@ public partial class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
     // Tolerance for comparing segment start/end times to account for floating-point rounding.
     private const double SegmentComparisonEpsilon = 0.001;
     // SQLite SQLITE_CONSTRAINT error code.
-    private const int SqliteConstraintErrorCode = 19;
+    private const int SqliteConstraintViolationErrorCode = 19;
 
     private readonly ILibraryManager _libraryManager;
     private readonly IChapterManager _chapterRepository;
@@ -460,7 +460,7 @@ public partial class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
     private static bool IsUniqueConstraintViolation(DbUpdateException ex)
     {
         return ex.InnerException is SqliteException sqliteException
-            && sqliteException.SqliteErrorCode == SqliteConstraintErrorCode;
+            && sqliteException.SqliteErrorCode == SqliteConstraintViolationErrorCode;
     }
 
     internal async Task CleanTimestampsAsync(IEnumerable<Guid> episodeIds, CancellationToken cancellationToken = default)
