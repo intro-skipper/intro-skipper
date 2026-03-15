@@ -233,6 +233,11 @@ public partial class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
                 await db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
                 await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
             }
+            catch
+            {
+                await transaction.RollbackAsync(CancellationToken.None).ConfigureAwait(false);
+                throw;
+            }
             finally
             {
                 await transaction.DisposeAsync().ConfigureAwait(false);

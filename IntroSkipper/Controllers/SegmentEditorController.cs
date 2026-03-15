@@ -132,13 +132,27 @@ public class SegmentEditorController(MediaSegmentUpdateManager mediaSegmentUpdat
             // Delete the segment from Jellyfin's media segment manager
             await _mediaSegmentUpdateManager.DeleteSegmentAsync(segmentId).ConfigureAwait(false);
         }
+        catch (OperationCanceledException ex)
+        {
+            _logger.LogWarning(ex, "Deletion canceled for Jellyfin segment {SegmentId} on item {ItemId}; attempting DB rollback.", segmentId, itemId);
+            await AttemptRollbackAsync().ConfigureAwait(false);
+            throw;
+        }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Failed to delete Jellyfin segment {SegmentId} for item {ItemId}; attempting DB rollback.", segmentId, itemId);
+            await AttemptRollbackAsync().ConfigureAwait(false);
+
+            throw;
+        }
+
+        return Ok();
+
+        async Task AttemptRollbackAsync()
+        {
             try
             {
-                using var rollbackTokenSource = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-                rollbackTokenSource.CancelAfter(TimeSpan.FromSeconds(10));
+                using var rollbackTokenSource = new CancellationTokenSource(TimeSpan.FromSeconds(10));
                 var restored = await Plugin.Instance!.TryRestoreTimestampAsync(dbSegment, mode, rollbackTokenSource.Token).ConfigureAwait(false);
                 if (restored)
                 {
@@ -153,11 +167,7 @@ public class SegmentEditorController(MediaSegmentUpdateManager mediaSegmentUpdat
             {
                 _logger.LogError(rollbackException, "Failed to rollback DB delete for segment {SegmentId} on item {ItemId}.", segmentId, itemId);
             }
-
-            throw;
         }
-
-        return Ok();
     }
 
     private static Segment CreateSegment(Guid itemId, MediaSegmentDto segment)
