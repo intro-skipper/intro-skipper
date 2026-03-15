@@ -102,4 +102,14 @@ public class QueuedEpisode
     {
         return _isAnalyzed[(int)mode];
     }
+
+    /// <summary>
+    /// Returns <see langword="true"/> when the episode still needs automatic analysis for
+    /// the given mode — i.e. it is neither already <see cref="EpisodeState.Analyzed"/>
+    /// nor protected by a <see cref="EpisodeState.UserProvided"/> segment.
+    /// </summary>
+    /// <param name="mode">Analysis mode.</param>
+    /// <returns><see langword="true"/> if the episode should be included in the analysis queue.</returns>
+    public bool NeedsAnalysis(AnalysisMode mode)
+        => GetAnalyzed(mode) is not (EpisodeState.Analyzed or EpisodeState.UserProvided);
 }

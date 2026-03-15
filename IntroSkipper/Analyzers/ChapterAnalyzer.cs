@@ -50,7 +50,7 @@ public partial class ChapterAnalyzer(ILogger<ChapterAnalyzer> logger) : IMediaFi
 
         var timeAdjustmentHelper = new TimeAdjustmentHelper(_logger, _config);
 
-        var episodesWithoutIntros = analysisQueue.Where(e => e.GetAnalyzed(mode) is not (EpisodeState.Analyzed or EpisodeState.UserProvided)).ToList();
+        var episodesWithoutIntros = analysisQueue.Where(e => e.NeedsAnalysis(mode)).ToList();
 
         foreach (var episode in episodesWithoutIntros)
         {

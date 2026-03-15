@@ -38,7 +38,7 @@ public sealed partial class BlackFrameAltAnalyzer(ILogger<BlackFrameAltAnalyzer>
         }
 
         var unanalyzedEpisodes = analysisQueue
-            .Where(e => e.GetAnalyzed(mode) is not (EpisodeState.Analyzed or EpisodeState.UserProvided))
+            .Where(e => e.NeedsAnalysis(mode))
             .ToList();
 
         if (unanalyzedEpisodes.Count == 0)
