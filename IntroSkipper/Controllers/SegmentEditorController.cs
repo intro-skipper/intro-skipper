@@ -32,6 +32,7 @@ namespace IntroSkipper.Controllers;
 [Route("MediaSegmentsApi")]
 public class SegmentEditorController(MediaSegmentUpdateManager mediaSegmentUpdateManager, ILogger<SegmentEditorController> logger) : ControllerBase
 {
+    private static readonly TimeSpan RollbackTimeout = TimeSpan.FromSeconds(10);
     private readonly MediaSegmentUpdateManager _mediaSegmentUpdateManager = mediaSegmentUpdateManager;
     private readonly ILogger<SegmentEditorController> _logger = logger;
 
@@ -152,7 +153,7 @@ public class SegmentEditorController(MediaSegmentUpdateManager mediaSegmentUpdat
         {
             try
             {
-                using var rollbackTokenSource = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+                using var rollbackTokenSource = new CancellationTokenSource(RollbackTimeout);
                 var restored = await Plugin.Instance!.TryRestoreTimestampAsync(dbSegment, mode, rollbackTokenSource.Token).ConfigureAwait(false);
                 if (restored)
                 {

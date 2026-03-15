@@ -34,6 +34,7 @@ public partial class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
 {
     // Tolerance for comparing segment start/end times to account for floating-point rounding.
     private const double SegmentComparisonEpsilon = 0.001;
+    private const int SqliteConstraintErrorCode = 19;
     private readonly ILibraryManager _libraryManager;
     private readonly IChapterManager _chapterRepository;
     private readonly IPluginManager _pluginManager;
@@ -235,7 +236,15 @@ public partial class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
             }
             catch
             {
-                await transaction.RollbackAsync(CancellationToken.None).ConfigureAwait(false);
+                try
+                {
+                    await transaction.RollbackAsync(cancellationToken).ConfigureAwait(false);
+                }
+                catch (OperationCanceledException)
+                {
+                    await transaction.RollbackAsync(CancellationToken.None).ConfigureAwait(false);
+                }
+
                 throw;
             }
             finally
@@ -338,19 +347,7 @@ public partial class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
 
     internal static void ValidateSegmentsOrThrow(Guid itemId, IEnumerable<DbSegment> segments)
     {
-        var segmentList = segments as IList<DbSegment> ?? segments.ToList();
-        var invalidModes = segmentList
-            .Where(segment => !IsSegmentRangeValid(segment))
-            .Select(segment => segment.Type)
-            .Distinct()
-            .Select(mode => mode.ToString())
-            .ToArray();
-
-        var duplicateModes = segmentList
-            .GroupBy(segment => segment.Type)
-            .Where(group => group.Key != AnalysisMode.Commercial && group.Skip(1).Any())
-            .Select(group => group.Key.ToString())
-            .ToArray();
+        var (invalidModes, duplicateModes) = GetSegmentValidationIssues(segments);
 
         if (invalidModes.Length == 0 && duplicateModes.Length == 0)
         {
@@ -373,15 +370,39 @@ public partial class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
             "Please remove invalid or duplicate segments via the segment editor or re-analyze the item.");
     }
 
+    internal static (string[] InvalidModes, string[] DuplicateModes) GetSegmentValidationIssues(IEnumerable<DbSegment> segments)
+    {
+        var segmentList = segments as IList<DbSegment> ?? segments.ToList();
+        var invalidModes = segmentList
+            .Where(segment => !IsSegmentRangeValid(segment))
+            .Select(segment => segment.Type)
+            .Distinct()
+            .Select(mode => mode.ToString())
+            .ToArray();
+
+        var duplicateModes = segmentList
+            .GroupBy(segment => segment.Type)
+            .Where(group => group.Key != AnalysisMode.Commercial && group.Skip(1).Any())
+            .Select(group => group.Key.ToString())
+            .ToArray();
+
+        return (invalidModes, duplicateModes);
+    }
+
     internal static bool IsSegmentRangeValid(DbSegment segment)
     {
         return segment.Start >= 0.0 && segment.End > 0.0 && segment.Start < segment.End;
     }
 
+    internal static long RoundToTicks(double seconds)
+    {
+        return (long)Math.Round(seconds * TimeSpan.TicksPerSecond, MidpointRounding.AwayFromZero);
+    }
+
     private static bool IsUniqueConstraintViolation(DbUpdateException ex)
     {
         return ex.InnerException is SqliteException sqliteException
-            && sqliteException.SqliteErrorCode == 19;
+            && sqliteException.SqliteErrorCode == SqliteConstraintErrorCode;
     }
 
     internal async Task CleanTimestampsAsync(IEnumerable<Guid> episodeIds, CancellationToken cancellationToken = default)
@@ -536,17 +557,22 @@ public partial class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
         CancellationToken cancellationToken = default)
     {
         using var db = CreateDbContext();
-        var query = db.DbSegment.Where(s => s.ItemId == itemId && s.Type == mode);
+        var entries = await db.DbSegment
+            .Where(s => s.ItemId == itemId && s.Type == mode)
+            .ToListAsync(cancellationToken)
+            .ConfigureAwait(false);
 
         if (segment is not null)
         {
-            // Inclusive epsilon aligns deletion matching with duplicate detection boundaries.
-            query = query.Where(s =>
-                Math.Abs(s.Start - segment.Start) <= SegmentComparisonEpsilon
-                && Math.Abs(s.End - segment.End) <= SegmentComparisonEpsilon);
+            var startTicks = RoundToTicks(segment.Start);
+            var endTicks = RoundToTicks(segment.End);
+            entries = entries
+                .Where(s =>
+                    Math.Abs(RoundToTicks(s.Start) - startTicks) <= 1
+                    && Math.Abs(RoundToTicks(s.End) - endTicks) <= 1)
+                .ToList();
         }
 
-        var entries = await query.ToListAsync(cancellationToken).ConfigureAwait(false);
         if (entries.Count > 0)
         {
             db.DbSegment.RemoveRange(entries);
