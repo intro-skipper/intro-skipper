@@ -7,6 +7,7 @@ using System.ComponentModel.DataAnnotations;
 using System.Net.Mime;
 using System.Threading;
 using System.Threading.Tasks;
+using System.Linq;
 using IntroSkipper.Data;
 using IntroSkipper.Manager;
 using MediaBrowser.Controller.Entities.TV;
@@ -131,13 +132,10 @@ public class SegmentEditorController(MediaSegmentUpdateManager mediaSegmentUpdat
         // Read IsUserProvided before deleting so we can restore it accurately on rollback.
         var wasUserProvided = false;
         var pluginSegments = await Plugin.Instance!.GetSegmentsAsync(itemId, cancellationToken).ConfigureAwait(false);
-        foreach (var s in pluginSegments)
+        var matchingSegment = pluginSegments.FirstOrDefault(s => s.Type == mode);
+        if (matchingSegment is not null)
         {
-            if (s.Type == mode)
-            {
-                wasUserProvided = s.IsUserProvided;
-                break;
-            }
+            wasUserProvided = matchingSegment.IsUserProvided;
         }
 
         // Delete from the plugin DB first so it is consistent even if the Jellyfin delete fails.
