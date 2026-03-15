@@ -33,6 +33,9 @@ namespace IntroSkipper.Controllers;
 [Route("MediaSegmentsApi")]
 public class SegmentEditorController(MediaSegmentUpdateManager mediaSegmentUpdateManager) : ControllerBase
 {
+    // Maximum difference in seconds between two time values to be considered equal.
+    private const double TimeComparisonToleranceSeconds = 0.01;
+
     private readonly MediaSegmentUpdateManager _mediaSegmentUpdateManager = mediaSegmentUpdateManager;
 
     /// <summary>
@@ -131,9 +134,13 @@ public class SegmentEditorController(MediaSegmentUpdateManager mediaSegmentUpdat
         }
 
         // Read IsUserProvided before deleting so we can restore it accurately on rollback.
+        // Match on type AND start/end times so that when multiple segments of the same mode exist
+        // (e.g. Commercial) we identify the exact one being deleted rather than an arbitrary first match.
         var wasUserProvided = false;
         var pluginSegments = await Plugin.Instance!.GetSegmentsAsync(itemId, cancellationToken).ConfigureAwait(false);
-        var matchingSegment = pluginSegments.FirstOrDefault(s => s.Type == mode);
+        var matchingSegment = pluginSegments.FirstOrDefault(s =>
+            s.Type == mode &&
+            (dbSegment is null || (Math.Abs(s.Start - dbSegment.Start) < TimeComparisonToleranceSeconds && Math.Abs(s.End - dbSegment.End) < TimeComparisonToleranceSeconds)));
         if (matchingSegment is not null)
         {
             wasUserProvided = matchingSegment.IsUserProvided;

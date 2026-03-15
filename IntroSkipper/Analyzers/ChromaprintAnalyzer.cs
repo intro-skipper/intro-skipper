@@ -39,10 +39,11 @@ public partial class ChromaprintAnalyzer(ILogger<ChromaprintAnalyzer> logger) : 
         AnalysisMode mode,
         CancellationToken cancellationToken)
     {
-        // Episodes that were not analyzed or have a fingerprint cache, excluding user-provided segments
-        // which must never be overwritten by automatic analysis.
-        var episodeAnalysisQueue = analysisQueue.Where(e => e.GetAnalyzed(mode) != EpisodeState.UserProvided &&
-            (e.GetAnalyzed(mode) != EpisodeState.Analyzed || File.Exists(FFmpegWrapper.GetFingerprintCachePath(e, mode)))).ToList();
+        // Episodes that need analysis (not yet analyzed or not user-provided) plus already-analyzed
+        // episodes that still have a fingerprint cache and can be re-analyzed.
+        var episodeAnalysisQueue = analysisQueue.Where(e =>
+            e.NeedsAnalysis(mode) ||
+            (e.GetAnalyzed(mode) == EpisodeState.Analyzed && File.Exists(FFmpegWrapper.GetFingerprintCachePath(e, mode)))).ToList();
 
         if (analysisQueue.Count <= 1 || episodeAnalysisQueue.All(e => e.GetAnalyzed(mode) == EpisodeState.Analyzed))
         {
