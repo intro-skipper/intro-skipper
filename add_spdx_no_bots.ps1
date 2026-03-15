@@ -124,7 +124,7 @@ foreach ($file in $csFiles) {
     # Read file content
     $content = Get-Content $file.FullName -Raw -Encoding UTF8
 
-    # Remove existing SPDX-FileCopyrightText lines and license line
+    # Remove existing SPDX-FileCopyrightText lines, license line, and Intro-Skipper contributors
     $lines = $content -split "`r?`n"
     $newLines = @()
     $skipMode = $false
@@ -139,6 +139,9 @@ foreach ($file in $csFiles) {
             continue
         }
         if ($skipMode -and $line.Trim() -eq "") {
+            continue
+        }
+        if ($line -match "Intro-Skipper contributors") {
             continue
         }
         $skipMode = $false
