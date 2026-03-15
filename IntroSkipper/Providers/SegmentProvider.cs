@@ -46,6 +46,7 @@ namespace IntroSkipper.Providers
 
             var segments = new List<MediaSegmentDto>();
             var itemSegments = await Plugin.Instance.GetSegmentsAsync(request.ItemId, cancellationToken).ConfigureAwait(false);
+            Plugin.ValidateSegmentsOrThrow(request.ItemId, itemSegments);
 
             foreach (var segment in itemSegments.OrderBy(segment => segment.Start))
             {
@@ -54,13 +55,8 @@ namespace IntroSkipper.Providers
                     continue;
                 }
 
-                if (!IsValidSegment(segment))
-                {
-                    continue;
-                }
-
-                long startTicks = (long)(segment.Start * TimeSpan.TicksPerSecond);
-                long endTicks = (long)(segment.End * TimeSpan.TicksPerSecond);
+                long startTicks = (long)Math.Round(segment.Start * TimeSpan.TicksPerSecond, MidpointRounding.AwayFromZero);
+                long endTicks = (long)Math.Round(segment.End * TimeSpan.TicksPerSecond, MidpointRounding.AwayFromZero);
 
                 segments.Add(new MediaSegmentDto
                 {
@@ -76,10 +72,5 @@ namespace IntroSkipper.Providers
 
         /// <inheritdoc/>
         public ValueTask<bool> Supports(BaseItem item) => ValueTask.FromResult(item is Episode or Movie);
-
-        private static bool IsValidSegment(DbSegment segment)
-        {
-            return segment.Start >= 0.0 && segment.End > 0.0 && segment.Start < segment.End;
-        }
     }
 }

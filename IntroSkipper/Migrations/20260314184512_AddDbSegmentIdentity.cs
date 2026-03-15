@@ -27,6 +27,8 @@ namespace IntroSkipper.Migrations
                 DROP TABLE "DbSegment";
                 ALTER TABLE "DbSegment_Temp" RENAME TO "DbSegment";
                 CREATE INDEX "IX_DbSegment_ItemId" ON "DbSegment" ("ItemId");
+                CREATE UNIQUE INDEX "IX_DbSegment_Commercial_Unique" ON "DbSegment" ("ItemId", "Type", "Start", "End")
+                    WHERE "Type" = 4;
                 COMMIT;
                 """,
                 suppressTransaction: true);

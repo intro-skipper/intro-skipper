@@ -21,6 +21,7 @@ using MediaBrowser.Controller.Library;
 using MediaBrowser.Model.Entities;
 using MediaBrowser.Model.Plugins;
 using MediaBrowser.Model.Serialization;
+using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 
@@ -203,28 +204,93 @@ public partial class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
                 }
 
                 db.DbSegment.Add(dbSegment);
-                await db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+                try
+                {
+                    await db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+                }
+                catch (DbUpdateException ex) when (IsUniqueConstraintViolation(ex))
+                {
+                    return;
+                }
+
                 return;
             }
 
-            var existingSegments = await db.DbSegment
-                .Where(s => s.ItemId == segment.EpisodeId && s.Type == mode)
-                .ToListAsync(cancellationToken)
-                .ConfigureAwait(false);
-
-            if (existingSegments.Count > 0)
+            var transaction = await db.Database.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
+            try
             {
-                db.DbSegment.RemoveRange(existingSegments);
-            }
+                var existingSegments = await db.DbSegment
+                    .Where(s => s.ItemId == segment.EpisodeId && s.Type == mode)
+                    .ToListAsync(cancellationToken)
+                    .ConfigureAwait(false);
 
-            db.DbSegment.Add(dbSegment);
-            await db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+                if (existingSegments.Count > 0)
+                {
+                    db.DbSegment.RemoveRange(existingSegments);
+                }
+
+                db.DbSegment.Add(dbSegment);
+                await db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+                await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
+            }
+            finally
+            {
+                await transaction.DisposeAsync().ConfigureAwait(false);
+            }
         }
         catch (Exception ex)
         {
             LogFailedToUpdateTimestamp(_logger, ex, segment.EpisodeId);
             throw;
         }
+    }
+
+    internal async Task<bool> TryRestoreTimestampAsync(Segment segment, AnalysisMode mode, CancellationToken cancellationToken = default)
+    {
+        using var db = CreateDbContext();
+        var dbSegment = new DbSegment(segment, mode);
+
+        if (mode == AnalysisMode.Commercial)
+        {
+            var exists = await db.DbSegment
+                .AnyAsync(
+                    s => s.ItemId == segment.EpisodeId
+                         && s.Type == mode
+                         && Math.Abs(s.Start - dbSegment.Start) <= SegmentComparisonEpsilon
+                         && Math.Abs(s.End - dbSegment.End) <= SegmentComparisonEpsilon,
+                    cancellationToken)
+                .ConfigureAwait(false);
+
+            if (exists)
+            {
+                return false;
+            }
+
+            db.DbSegment.Add(dbSegment);
+            try
+            {
+                await db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+            }
+            catch (DbUpdateException ex) when (IsUniqueConstraintViolation(ex))
+            {
+                return false;
+            }
+
+            return true;
+        }
+
+        var hasExisting = await db.DbSegment
+            .AnyAsync(s => s.ItemId == segment.EpisodeId && s.Type == mode, cancellationToken)
+            .ConfigureAwait(false);
+
+        if (hasExisting)
+        {
+            return false;
+        }
+
+        db.DbSegment.Add(dbSegment);
+        await db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+        return true;
     }
 
     internal async Task<IReadOnlyDictionary<AnalysisMode, Segment>> GetTimestampsAsync(Guid id, CancellationToken cancellationToken = default)
@@ -251,31 +317,66 @@ public partial class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
 
     private static Dictionary<AnalysisMode, Segment> BuildSegmentLookup(Guid itemId, IEnumerable<DbSegment> segments)
     {
-        var duplicateModes = new List<AnalysisMode>();
+        ValidateSegmentsOrThrow(itemId, segments);
         var lookup = new Dictionary<AnalysisMode, Segment>();
 
         foreach (var group in segments.GroupBy(segment => segment.Type))
         {
-            if (group.Key != AnalysisMode.Commercial && group.Skip(1).Any())
-            {
-                duplicateModes.Add(group.Key);
-            }
-
             lookup[group.Key] = group
                 .OrderBy(segment => segment.Start)
                 .First()
                 .ToSegment();
         }
 
-        if (duplicateModes.Count > 0)
+        return lookup;
+    }
+
+    internal static void ValidateSegmentsOrThrow(Guid itemId, IEnumerable<DbSegment> segments)
+    {
+        var segmentList = segments as IList<DbSegment> ?? segments.ToList();
+        var invalidModes = segmentList
+            .Where(segment => !IsSegmentRangeValid(segment))
+            .Select(segment => segment.Type)
+            .Distinct()
+            .Select(mode => mode.ToString())
+            .ToArray();
+
+        var duplicateModes = segmentList
+            .GroupBy(segment => segment.Type)
+            .Where(group => group.Key != AnalysisMode.Commercial && group.Skip(1).Any())
+            .Select(group => group.Key.ToString())
+            .ToArray();
+
+        if (invalidModes.Length == 0 && duplicateModes.Length == 0)
         {
-            var duplicateModeNames = duplicateModes.Select(mode => mode.ToString()).ToArray();
-            throw new InvalidOperationException(
-                $"Multiple segments detected for item {itemId} in non-commercial modes: {string.Join(", ", duplicateModeNames)}. " +
-                "Please remove duplicate segments via the segment editor or re-analyze the item.");
+            return;
         }
 
-        return lookup;
+        var issues = new List<string>();
+        if (invalidModes.Length > 0)
+        {
+            issues.Add($"invalid ranges in modes: {string.Join(", ", invalidModes)}");
+        }
+
+        if (duplicateModes.Length > 0)
+        {
+            issues.Add($"multiple segments in non-commercial modes: {string.Join(", ", duplicateModes)}");
+        }
+
+        throw new InvalidOperationException(
+            $"Segment integrity issues detected for item {itemId}: {string.Join("; ", issues)}. " +
+            "Please remove invalid or duplicate segments via the segment editor or re-analyze the item.");
+    }
+
+    internal static bool IsSegmentRangeValid(DbSegment segment)
+    {
+        return segment.Start >= 0.0 && segment.End > 0.0 && segment.Start < segment.End;
+    }
+
+    private static bool IsUniqueConstraintViolation(DbUpdateException ex)
+    {
+        return ex.InnerException is SqliteException sqliteException
+            && sqliteException.SqliteErrorCode == 19;
     }
 
     internal async Task CleanTimestampsAsync(IEnumerable<Guid> episodeIds, CancellationToken cancellationToken = default)
