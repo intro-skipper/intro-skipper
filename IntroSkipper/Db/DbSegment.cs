@@ -35,6 +35,11 @@ public class DbSegment
     }
 
     /// <summary>
+    /// Gets or sets the unique identifier for the segment.
+    /// </summary>
+    public long Id { get; set; }
+
+    /// <summary>
     /// Gets or sets the episode id.
     /// </summary>
     public Guid ItemId { get; set; }
