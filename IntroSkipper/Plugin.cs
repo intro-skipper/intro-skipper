@@ -344,13 +344,12 @@ public partial class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
         }
 
         var currentIds = seasonInfo.EpisodeIds.ToList();
-        var updatedIds = currentIds.Where(id => id != episodeId).ToList();
-        if (updatedIds.Count == currentIds.Count)
+        if (!currentIds.Remove(episodeId))
         {
             return; // Episode was not in the list — no write needed.
         }
 
-        db.Entry(seasonInfo).Property(s => s.EpisodeIds).CurrentValue = updatedIds;
+        db.Entry(seasonInfo).Property(s => s.EpisodeIds).CurrentValue = currentIds;
         await db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
     }
 
