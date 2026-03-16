@@ -3,6 +3,7 @@ using System;
 using IntroSkipper.Db;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 
 #nullable disable
@@ -10,9 +11,11 @@ using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 namespace IntroSkipper.Migrations
 {
     [DbContext(typeof(IntroSkipperDbContext))]
-    partial class IntroSkipperDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260316060001_AddNonCommercialUniqueIndex")]
+    partial class AddNonCommercialUniqueIndex
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder.HasAnnotation("ProductVersion", "9.0.11");
