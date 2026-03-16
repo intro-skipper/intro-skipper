@@ -13,6 +13,7 @@ $authorsToMerge = @{
     "rlauu" = "rlauuzo"
     "Abandoned Cart" = "AbandonedCart"
     "TwistedUmbrellaX" = "AbandonedCart"
+    "jumoog" = "Kilian von Pflugk"
 }
 
 # Helper function to process an author
