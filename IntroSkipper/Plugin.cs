@@ -213,6 +213,12 @@ public partial class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
                         .ToListAsync(cancellationToken)
                         .ConfigureAwait(false);
 
+                    // Do not overwrite a user-provided segment with an analysis result.
+                    if (!isUserProvided && existingSegments.Any(s => s.IsUserProvided))
+                    {
+                        return;
+                    }
+
                     if (existingSegments.Count > 0)
                     {
                         db.DbSegment.RemoveRange(existingSegments);
