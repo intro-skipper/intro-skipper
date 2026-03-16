@@ -1,0 +1,46 @@
+name: Update SPDX Headers
+
+on:
+  workflow_dispatch:
+
+jobs:
+  update-spdx:
+    runs-on: windows-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Run update version
+        uses: intro-skipper/intro-skipper-action-ts@main
+        with:
+          task-type: "addSpdxHeaders"
+
+      - name: Check for changes
+        id: changes
+        run: |
+          $changes = git status --porcelain
+          if ($changes) {
+            echo "changes=$changes" >> $env:GITHUB_OUTPUT
+            echo "Changes detected"
+          } else {
+            echo "changes=" >> $env:GITHUB_OUTPUT
+            echo "No changes detected"
+          }
+
+      - name: Commit changes
+        if: steps.changes.outputs.changes != ''
+        run: |
+          git config --local user.email "github-actions[bot]@users.noreply.github.com"
+          git config --local user.name "github-actions[bot]"
+          git add -A
+          git commit -m "[skip actions] update copyright headers to SPDX format across all files"
+
+      - name: Push changes
+        if: steps.changes.outputs.changes != ''
+        run: |
+          git push
