@@ -4,6 +4,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
@@ -33,6 +34,11 @@ public partial class MediaSegmentUpdateManager(
     {
         DisabledMediaSegmentProviders = ["Chapter Segments Provider"]
     };
+
+    // One semaphore per item id; serialises concurrent CreateOrReplaceSegmentAsync calls for
+    // the same item so the get-then-create sequence is effectively atomic.
+    // The dictionary size is bounded by the number of distinct media items in the library.
+    private static readonly ConcurrentDictionary<Guid, SemaphoreSlim> _itemLocks = new();
 
     /// <summary>
     /// Updates all media items in a List.
@@ -105,30 +111,47 @@ public partial class MediaSegmentUpdateManager(
             return;
         }
 
-        var existingSegments = await _mediaSegmentManager
-            .GetSegmentsAsync(item, [segment.Type], _externalProviders, filterByProvider: false)
-            .ConfigureAwait(false);
-
-        if (segment.Type == MediaSegmentType.Commercial)
+        var sem = _itemLocks.GetOrAdd(item.Id, _ => new SemaphoreSlim(1, 1));
+        await sem.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
         {
-            // Multiple commercial segments per item are valid; skip creation only when an
-            // identical entry (same start and end) is already present.
-            if (existingSegments.Any(e => e.StartTicks == segment.StartTicks && e.EndTicks == segment.EndTicks))
-            {
-                return;
-            }
-        }
-        else
-        {
-            // Only one segment of each non-commercial type is kept per item.
-            foreach (var existing in existingSegments)
-            {
-                await _mediaSegmentManager.DeleteSegmentAsync(existing.Id).ConfigureAwait(false);
-            }
-        }
+            var existingSegments = await _mediaSegmentManager
+                .GetSegmentsAsync(item, [segment.Type], _externalProviders, filterByProvider: false)
+                .ConfigureAwait(false);
 
-        segment.ItemId = item.Id;
-        await _mediaSegmentManager.CreateSegmentAsync(segment, providerEntry.Id).ConfigureAwait(false);
+            if (segment.Type == MediaSegmentType.Commercial)
+            {
+                // Multiple commercial segments per item are valid; skip creation only when an
+                // identical entry (same start and end) is already present.
+                if (existingSegments.Any(e => e.StartTicks == segment.StartTicks && e.EndTicks == segment.EndTicks))
+                {
+                    return;
+                }
+            }
+            else
+            {
+                // Only one segment of each non-commercial type is kept per item.
+                // Deletes run in parallel; individual failures are logged but do not abort the others.
+                await Task.WhenAll(existingSegments.Select(async e =>
+                {
+                    try
+                    {
+                        await _mediaSegmentManager.DeleteSegmentAsync(e.Id).ConfigureAwait(false);
+                    }
+                    catch (Exception ex)
+                    {
+                        LogErrorDeletingSegment(_logger, ex, e.Id);
+                    }
+                })).ConfigureAwait(false);
+            }
+
+            segment.ItemId = item.Id;
+            await _mediaSegmentManager.CreateSegmentAsync(segment, providerEntry.Id).ConfigureAwait(false);
+        }
+        finally
+        {
+            sem.Release();
+        }
     }
 
     /// <summary>
@@ -177,6 +200,9 @@ public partial class MediaSegmentUpdateManager(
 
     [LoggerMessage(Level = LogLevel.Debug, Message = "Processing for episode {EpisodeId} was canceled.")]
     private static partial void LogProcessingCanceled(ILogger logger, Guid episodeId);
+
+    [LoggerMessage(Level = LogLevel.Error, Message = "Error deleting segment {SegmentId}")]
+    private static partial void LogErrorDeletingSegment(ILogger logger, Exception ex, Guid segmentId);
 
     [LoggerMessage(Level = LogLevel.Error, Message = "Error processing episode {EpisodeId}")]
     private static partial void LogErrorProcessingEpisode(ILogger logger, Exception ex, Guid episodeId);
