@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 AbandonedCart
+// SPDX-FileCopyrightText: 2026 Kilian von Pflugk
+// SPDX-License-Identifier: GPL-3.0-only
 ﻿using Microsoft.EntityFrameworkCore.Migrations;
 
 #nullable disable
