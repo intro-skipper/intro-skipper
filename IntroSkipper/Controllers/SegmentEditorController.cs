@@ -82,9 +82,13 @@ public class SegmentEditorController(MediaSegmentUpdateManager mediaSegmentUpdat
 
         await Plugin.Instance!.UpdateTimestampAsync(seg, mode, isUserProvided: true, cancellationToken).ConfigureAwait(false);
 
-        var queuedItem = new QueuedEpisode { EpisodeId = item.Id };
-
-        await _mediaSegmentUpdateManager.UpdateMediaSegmentsAsync([queuedItem], cancellationToken).ConfigureAwait(false);
+        // Use a type-scoped replace in Jellyfin's DB instead of the previous
+        // UpdateMediaSegmentsAsync / RunSegmentPluginProviders(forceOverwrite=true) call.
+        // The forceOverwrite approach deleted ALL Jellyfin segments then re-added ALL from
+        // the plugin DB; when a client (e.g. segment-editor-mobile's saveAllSegments) fires
+        // one POST per segment in parallel, those "delete-all / add-all" calls raced and
+        // produced one duplicate per segment in Jellyfin's DB.
+        await _mediaSegmentUpdateManager.CreateOrReplaceSegmentAsync(item, segment, cancellationToken).ConfigureAwait(false);
 
         return Ok();
     }
