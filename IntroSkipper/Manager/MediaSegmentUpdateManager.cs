@@ -143,7 +143,13 @@ public partial class MediaSegmentUpdateManager(
                         // Propagate cancellation to respect the provided CancellationToken.
                         throw;
                     }
-                    catch (Exception ex)
+                    catch (InvalidOperationException ex)
+                    {
+                        // Log and continue so that a failure deleting one segment
+                        // does not prevent processing of other segments.
+                        LogErrorDeletingSegment(_logger, ex, e.Id);
+                    }
+                    catch (ObjectDisposedException ex)
                     {
                         // Log and continue so that a failure deleting one segment
                         // does not prevent processing of other segments.
