@@ -140,6 +140,17 @@ public partial class MediaSegmentUpdateManager(
                     }
                     catch (Exception ex)
                     {
+                        // Do not swallow cancellation or critical exceptions.
+                        if (ex is OperationCanceledException
+                            || ex is OutOfMemoryException
+                            || ex is StackOverflowException
+                            || ex is ThreadAbortException
+                            || ex is ThreadInterruptedException
+                            || ex is AccessViolationException)
+                        {
+                            throw;
+                        }
+
                         // Log and continue so that a failure deleting one segment
                         // does not prevent processing of other segments.
                         LogErrorDeletingSegment(_logger, ex, e.Id);
