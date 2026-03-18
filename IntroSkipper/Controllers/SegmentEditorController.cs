@@ -82,9 +82,7 @@ public class SegmentEditorController(MediaSegmentUpdateManager mediaSegmentUpdat
 
         await Plugin.Instance!.UpdateTimestampAsync(seg, mode, isUserProvided: true, cancellationToken).ConfigureAwait(false);
 
-        var queuedItem = new QueuedEpisode { EpisodeId = item.Id };
-
-        await _mediaSegmentUpdateManager.UpdateMediaSegmentsAsync([queuedItem], cancellationToken).ConfigureAwait(false);
+        await _mediaSegmentUpdateManager.CreateOrReplaceSegmentAsync(item, segment, cancellationToken).ConfigureAwait(false);
 
         return Ok();
     }
