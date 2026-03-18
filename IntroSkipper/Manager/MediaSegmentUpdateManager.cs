@@ -138,18 +138,7 @@ public partial class MediaSegmentUpdateManager(
                     {
                         await _mediaSegmentManager.DeleteSegmentAsync(e.Id).ConfigureAwait(false);
                     }
-                    catch (OperationCanceledException)
-                    {
-                        // Propagate cancellation to respect the provided CancellationToken.
-                        throw;
-                    }
-                    catch (InvalidOperationException ex)
-                    {
-                        // Log and continue so that a failure deleting one segment
-                        // does not prevent processing of other segments.
-                        LogErrorDeletingSegment(_logger, ex, e.Id);
-                    }
-                    catch (ObjectDisposedException ex)
+                    catch (Exception ex)
                     {
                         // Log and continue so that a failure deleting one segment
                         // does not prevent processing of other segments.
