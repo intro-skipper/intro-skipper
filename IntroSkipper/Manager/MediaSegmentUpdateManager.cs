@@ -4,7 +4,6 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
 using System;
-using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
@@ -37,8 +36,10 @@ public partial class MediaSegmentUpdateManager(
 
     // One semaphore per item id; serialises concurrent CreateOrReplaceSegmentAsync calls for
     // the same item so the get-then-create sequence is effectively atomic.
-    // The dictionary size is bounded by the number of distinct media items in the library.
-    private static readonly ConcurrentDictionary<Guid, SemaphoreSlim> _itemLocks = new();
+    // RefCountedSemaphore tracks how many callers currently hold a reference so that entries
+    // are pruned from the dictionary as soon as the last caller is done, preventing unbounded growth.
+    private static readonly Dictionary<Guid, RefCountedSemaphore> _itemLocks = new();
+    private static readonly object _itemLocksLock = new();
 
     /// <summary>
     /// Updates all media items in a List.
@@ -111,10 +112,12 @@ public partial class MediaSegmentUpdateManager(
             return;
         }
 
-        var sem = _itemLocks.GetOrAdd(item.Id, _ => new SemaphoreSlim(1, 1));
-        await sem.WaitAsync(cancellationToken).ConfigureAwait(false);
+        var lockEntry = RentItemLock(item.Id);
+        var acquired = false;
         try
         {
+            await lockEntry.Semaphore.WaitAsync(cancellationToken).ConfigureAwait(false);
+            acquired = true;
             var existingSegments = await _mediaSegmentManager
                 .GetSegmentsAsync(item, [segment.Type], _externalProviders, filterByProvider: false)
                 .ConfigureAwait(false);
@@ -163,7 +166,12 @@ public partial class MediaSegmentUpdateManager(
         }
         finally
         {
-            sem.Release();
+            if (acquired)
+            {
+                lockEntry.Semaphore.Release();
+            }
+
+            ReturnItemLock(item.Id, lockEntry);
         }
     }
 
@@ -202,6 +210,38 @@ public partial class MediaSegmentUpdateManager(
         return segments.FirstOrDefault(segment => segment.Id == segmentId);
     }
 
+    // Retrieve or create the per-item lock entry, incrementing its reference count so that the
+    // entry is not removed from the dictionary until every caller has called ReturnItemLock.
+    private static RefCountedSemaphore RentItemLock(Guid id)
+    {
+        lock (_itemLocksLock)
+        {
+            if (_itemLocks.TryGetValue(id, out var existing))
+            {
+                existing.RefCount++;
+                return existing;
+            }
+
+            var entry = new RefCountedSemaphore();
+            _itemLocks[id] = entry;
+            return entry;
+        }
+    }
+
+    // Decrement the reference count, remove the dictionary entry, and dispose the semaphore
+    // when the last caller returns its reference.
+    private static void ReturnItemLock(Guid id, RefCountedSemaphore entry)
+    {
+        lock (_itemLocksLock)
+        {
+            if (--entry.RefCount == 0)
+            {
+                _itemLocks.Remove(id);
+                entry.Dispose();
+            }
+        }
+    }
+
     [LoggerMessage(Level = LogLevel.Error, Message = "Item not found for episode {EpisodeId}")]
     private static partial void LogItemNotFound(ILogger logger, Guid episodeId);
 
@@ -219,4 +259,16 @@ public partial class MediaSegmentUpdateManager(
 
     [LoggerMessage(Level = LogLevel.Error, Message = "Error processing episode {EpisodeId}")]
     private static partial void LogErrorProcessingEpisode(ILogger logger, Exception ex, Guid episodeId);
+
+    // Pairs a SemaphoreSlim with a caller reference count so that the dictionary entry can be
+    // pruned and the semaphore disposed exactly when the last caller returns its reference.
+    // RefCount is always read and written under _itemLocksLock.
+    private sealed class RefCountedSemaphore : IDisposable
+    {
+        internal SemaphoreSlim Semaphore { get; } = new(1, 1);
+
+        internal int RefCount { get; set; } = 1;
+
+        public void Dispose() => Semaphore.Dispose();
+    }
 }
