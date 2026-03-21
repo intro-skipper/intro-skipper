@@ -57,9 +57,22 @@ jobs:
         with:
           node-version: "lts/*"
 
-      - name: Minify HTML
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: latest
+
+      - name: Build Dashboard
         run: |
-          npx html-minifier-terser --collapse-boolean-attributes --collapse-whitespace --remove-comments --remove-optional-tags --remove-redundant-attributes --remove-script-type-attributes --remove-tag-whitespace --use-short-doctype --minify-css true --minify-js true -o IntroSkipper/Configuration/configPage.html IntroSkipper/Configuration/configPage.html
+          git clone https://github.com/intro-skipper/intro-skipper-dashboard.git dashboard
+          cd dashboard
+          pnpm install
+          pnpm build
+
+      - name: Copy Dashboard Assets
+        run: |
+          cp dashboard/dist/assets/index-*.js IntroSkipper/Configuration/index.js
+          cp dashboard/dist/assets/index-*.css IntroSkipper/Configuration/index.css
 
       - name: Configure NuGet for beta
         if: ${{ env.IS_BETA == 'true' }}
