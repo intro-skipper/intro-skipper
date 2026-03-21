@@ -66,8 +66,8 @@ jobs:
 
       - name: Copy Dashboard Assets
         run: |
-          cp ./dashboard/dist/assets/index-*.js IntroSkipper/Configuration/index.js
-          cp ./dashboard/dist/assets/index-*.css IntroSkipper/Configuration/index.css
+          cp ./dashboard/dist/assets/index.js IntroSkipper/Configuration/index.js
+          cp ./dashboard/dist/assets/index.css IntroSkipper/Configuration/index.css
 
       - name: Configure NuGet for beta
         if: ${{ env.IS_BETA == 'true' }}
