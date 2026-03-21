@@ -62,17 +62,23 @@ jobs:
         with:
           version: latest
 
+      - name: Checkout dashboard
+        uses: actions/checkout@v6
+        with:
+          repository: intro-skipper/intro-skipper-dashboard
+          ref: master
+          path: dashboard
+
       - name: Build Dashboard
+        working-directory: ./dashboard
         run: |
-          git clone --depth 1 https://github.com/intro-skipper/intro-skipper-dashboard.git dashboard
-          cd dashboard
           pnpm install
           pnpm build
 
       - name: Copy Dashboard Assets
         run: |
-          cp dashboard/dist/assets/index-*.js IntroSkipper/Configuration/index.js
-          cp dashboard/dist/assets/index-*.css IntroSkipper/Configuration/index.css
+          cp ./dashboard/dist/assets/index-*.js IntroSkipper/Configuration/index.js
+          cp ./dashboard/dist/assets/index-*.css IntroSkipper/Configuration/index.css
 
       - name: Configure NuGet for beta
         if: ${{ env.IS_BETA == 'true' }}
