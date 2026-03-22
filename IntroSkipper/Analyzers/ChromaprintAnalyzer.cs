@@ -208,6 +208,31 @@ public partial class ChromaprintAnalyzer(ILogger<ChromaprintAnalyzer> logger) : 
 
         LogSharedIntroNotFound(lhsId, rhsId);
 
+        if (_config.SlidingWindowEnabled && lhsPoints.Length > 0 && rhsPoints.Length > 0)
+        {
+            LogSlidingWindowFallback(lhsId, rhsId);
+            var matcher = new SlidingWindowMatcher(_config, _logger);
+            var (lhsRange, rhsRange) = matcher.FindBestMatch(lhsPoints, rhsPoints);
+
+            if (lhsRange is not null && rhsRange is not null)
+            {
+                LogSlidingWindowSuccessful(lhsId, rhsId);
+
+                // Mirror the start-snap-to-zero logic of GetLongestTimeRange.
+                if (lhsRange.Start <= 5)
+                {
+                    lhsRange.Start = 0;
+                }
+
+                if (rhsRange.Start <= 5)
+                {
+                    rhsRange.Start = 0;
+                }
+
+                return (new Segment(lhsId, lhsRange), new Segment(rhsId, rhsRange));
+            }
+        }
+
         return (new Segment(lhsId), new Segment(rhsId));
     }
 
@@ -308,10 +333,36 @@ public partial class ChromaprintAnalyzer(ILogger<ChromaprintAnalyzer> logger) : 
     /// <param name="lhs">First fingerprint to compare.</param>
     /// <param name="rhs">Second fingerprint to compare.</param>
     /// <param name="shiftAmount">Amount to shift one fingerprint by.</param>
+    /// <returns>Matching time ranges for both fingerprints, or empty ranges if no match is found.</returns>
     private (TimeRange Lhs, TimeRange Rhs) FindContiguous(
         uint[] lhs,
         uint[] rhs,
         int shiftAmount)
+        => FindContiguous(
+            lhs,
+            rhs,
+            shiftAmount,
+            _config.MaximumFingerprintPointDifferences,
+            _config.MaximumTimeSkip,
+            _config.MinimumIntroDuration);
+
+    /// <summary>
+    /// Finds the longest contiguous region of similar audio between two fingerprints using the provided shift amount.
+    /// </summary>
+    /// <param name="lhs">First fingerprint to compare.</param>
+    /// <param name="rhs">Second fingerprint to compare.</param>
+    /// <param name="shiftAmount">Amount to shift one fingerprint by.</param>
+    /// <param name="maximumFingerprintPointDifferences">Max bits that may differ per point.</param>
+    /// <param name="maximumTimeSkip">Max gap in seconds within a contiguous match.</param>
+    /// <param name="minimumIntroDuration">Minimum duration in seconds for a valid match.</param>
+    /// <returns>Matching time ranges for both fingerprints, or empty ranges if no match is found.</returns>
+    internal static (TimeRange Lhs, TimeRange Rhs) FindContiguous(
+        uint[] lhs,
+        uint[] rhs,
+        int shiftAmount,
+        int maximumFingerprintPointDifferences,
+        double maximumTimeSkip,
+        double minimumIntroDuration)
     {
         var leftOffset = 0;
         var rightOffset = 0;
@@ -340,7 +391,7 @@ public partial class ChromaprintAnalyzer(ILogger<ChromaprintAnalyzer> logger) : 
             var diff = lhs[lhsPosition] ^ rhs[rhsPosition];
 
             // If the difference between the samples is small, flag both times as similar.
-            if (CountBits(diff) > _config.MaximumFingerprintPointDifferences)
+            if (CountBits(diff) > maximumFingerprintPointDifferences)
             {
                 continue;
             }
@@ -357,14 +408,14 @@ public partial class ChromaprintAnalyzer(ILogger<ChromaprintAnalyzer> logger) : 
         rhsTimes.Add(double.MaxValue);
 
         // Now that both fingerprints have been compared at this shift, see if there's a contiguous time range.
-        var lContiguous = TimeRangeHelpers.FindContiguous([.. lhsTimes], _config.MaximumTimeSkip);
-        if (lContiguous is null || lContiguous.Duration < _config.MinimumIntroDuration)
+        var lContiguous = TimeRangeHelpers.FindContiguous([.. lhsTimes], maximumTimeSkip);
+        if (lContiguous is null || lContiguous.Duration < minimumIntroDuration)
         {
             return (new TimeRange(), new TimeRange());
         }
 
         // Since LHS had a contiguous time range, RHS must have one also.
-        var rContiguous = TimeRangeHelpers.FindContiguous([.. rhsTimes], _config.MaximumTimeSkip)!;
+        var rContiguous = TimeRangeHelpers.FindContiguous([.. rhsTimes], maximumTimeSkip)!;
         return (lContiguous, rContiguous);
     }
 
@@ -415,4 +466,10 @@ public partial class ChromaprintAnalyzer(ILogger<ChromaprintAnalyzer> logger) : 
 
     [LoggerMessage(Level = LogLevel.Trace, Message = "Unable to find a shared introduction sequence between {LHS} and {RHS}")]
     private partial void LogSharedIntroNotFound(Guid lhs, Guid rhs);
+
+    [LoggerMessage(Level = LogLevel.Debug, Message = "Inverted index found no valid segment for {LHS} vs {RHS}, trying sliding window")]
+    private partial void LogSlidingWindowFallback(Guid lhs, Guid rhs);
+
+    [LoggerMessage(Level = LogLevel.Debug, Message = "Sliding window match successful for {LHS} vs {RHS}")]
+    private partial void LogSlidingWindowSuccessful(Guid lhs, Guid rhs);
 }

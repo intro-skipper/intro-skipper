@@ -291,6 +291,25 @@ public class PluginConfiguration : BasePluginConfiguration
     public int InvertedIndexShift { get; set; } = 2;
 
     /// <summary>
+    /// Gets or sets a value indicating whether the sliding window fallback matcher is enabled.
+    /// When the inverted index approach finds no valid shared segment, the sliding window matcher
+    /// attempts to locate one by scanning all possible start positions in both fingerprints.
+    /// </summary>
+    public bool SlidingWindowEnabled { get; set; } = true;
+
+    /// <summary>
+    /// Gets or sets the step size in seconds for the sliding window coarse scan.
+    /// Smaller values are more accurate but increase scan time quadratically. Default: 1.0s.
+    /// </summary>
+    public double SlidingWindowStepSeconds { get; set; } = 1.0;
+
+    /// <summary>
+    /// Gets or sets the similarity score threshold (0.0–1.0) at which the coarse scan exits early.
+    /// Score is the fraction of window points satisfying MaximumFingerprintPointDifferences.
+    /// </summary>
+    public double SlidingWindowEarlyExitScore { get; set; } = 0.9;
+
+    /// <summary>
     /// Gets or sets the maximum amount of noise (in dB) that is considered silent.
     /// Lowering this number will increase the filter's sensitivity to noise.
     /// </summary>
