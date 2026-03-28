@@ -39,13 +39,4 @@ public static class WarningManager
         return _warnings.ToString();
     }
 
-    /// <summary>
-    /// Check if a specific warning flag is set.
-    /// </summary>
-    /// <param name="warning">Warning flag to check.</param>
-    /// <returns>True if the flag is set, otherwise false.</returns>
-    public static bool HasFlag(PluginWarning warning)
-    {
-        return (_warnings & warning) == warning;
-    }
 }

@@ -41,7 +41,7 @@ public class SegmentEditorController(MediaSegmentUpdateManager mediaSegmentUpdat
     /// <summary>
     /// Plugin meta endpoint.
     /// </summary>
-    /// <returns>The created segment.</returns>
+    /// <returns>Plugin version metadata.</returns>
     [HttpGet]
     [ProducesResponseType(StatusCodes.Status200OK)]
     public JsonResult GetPluginMetadata()
