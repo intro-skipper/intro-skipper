@@ -38,5 +38,4 @@ public static class WarningManager
     {
         return _warnings.ToString();
     }
-
 }
