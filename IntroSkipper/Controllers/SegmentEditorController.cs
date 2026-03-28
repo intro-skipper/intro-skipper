@@ -11,6 +11,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using IntroSkipper.Data;
 using IntroSkipper.Manager;
+using MediaBrowser.Common.Api;
 using MediaBrowser.Controller.Entities.TV;
 using MediaBrowser.Model.MediaSegments;
 using MediaBrowser.Model.Querying;
@@ -27,7 +28,7 @@ namespace IntroSkipper.Controllers;
 /// Initializes a new instance of the <see cref="SegmentEditorController"/> class.
 /// </remarks>
 /// <param name="mediaSegmentUpdateManager">MediaSegmentUpdateManager.</param>
-[Authorize(Policy = "RequiresElevation")]
+[Authorize(Policy = Policies.RequiresElevation)]
 [ApiController]
 [Produces(MediaTypeNames.Application.Json)]
 [Route("MediaSegmentsApi")]
@@ -41,7 +42,7 @@ public class SegmentEditorController(MediaSegmentUpdateManager mediaSegmentUpdat
     /// <summary>
     /// Plugin meta endpoint.
     /// </summary>
-    /// <returns>The created segment.</returns>
+    /// <returns>Plugin version metadata.</returns>
     [HttpGet]
     [ProducesResponseType(StatusCodes.Status200OK)]
     public JsonResult GetPluginMetadata()

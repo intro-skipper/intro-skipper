@@ -41,15 +41,6 @@ jobs:
         with:
           dotnet-version: ${{ env.DOTNET_VERSION }}
 
-      - name: Setup Node.js
-        uses: actions/setup-node@v6
-        with:
-          node-version: "lts/*"
-
-      - name: Minify HTML
-        run: |
-          npx html-minifier-terser --collapse-boolean-attributes --collapse-whitespace --remove-comments --remove-optional-tags --remove-redundant-attributes --remove-script-type-attributes --remove-tag-whitespace --use-short-doctype --minify-css true --minify-js true -o IntroSkipper/Configuration/configPage.html IntroSkipper/Configuration/configPage.html
-
       - name: Configure NuGet for beta
         if: ${{ env.IS_BETA == 'true' }}
         run: |
@@ -83,7 +74,6 @@ jobs:
           path: IntroSkipper/bin/Release/${{ env.DOTNET_TFM }}/IntroSkipper.dll
           if-no-files-found: error
           retention-days: 1
-
 
       - name: Sign package artifacts
         if: ${{ github.repository == 'intro-skipper/intro-skipper' && !inputs.skip_signing }}

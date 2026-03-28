@@ -173,6 +173,16 @@ public partial class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
                 Name = Name,
                 EnableInMainMenu = Instance?.Configuration.EnableMainMenu ?? true,
                 EmbeddedResourcePath = GetType().Namespace + ".Configuration.configPage.html"
+            },
+            new PluginPageInfo
+            {
+                Name = "index.js",
+                EmbeddedResourcePath = GetType().Namespace + ".Configuration.index.js"
+            },
+            new PluginPageInfo
+            {
+                Name = "index.css",
+                EmbeddedResourcePath = GetType().Namespace + ".Configuration.index.css"
             }
         ];
     }
