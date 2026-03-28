@@ -75,7 +75,6 @@ jobs:
           if-no-files-found: error
           retention-days: 1
 
-
       - name: Sign package artifacts
         if: ${{ github.repository == 'intro-skipper/intro-skipper' && !inputs.skip_signing }}
         uses: signpath/github-action-submit-signing-request@v2.0
