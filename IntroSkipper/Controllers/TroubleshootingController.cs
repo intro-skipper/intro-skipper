@@ -11,7 +11,6 @@ using IntroSkipper.Data;
 using IntroSkipper.Helper;
 using MediaBrowser.Common;
 using MediaBrowser.Common.Api;
-using MediaBrowser.Controller.Library;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
@@ -28,7 +27,6 @@ namespace IntroSkipper.Controllers;
 [Route("IntroSkipper")]
 public partial class TroubleshootingController : ControllerBase
 {
-    private readonly ILibraryManager _libraryManager;
     private readonly IApplicationHost _applicationHost;
     private readonly ILogger<TroubleshootingController> _logger;
 
@@ -36,14 +34,11 @@ public partial class TroubleshootingController : ControllerBase
     /// Initializes a new instance of the <see cref="TroubleshootingController"/> class.
     /// </summary>
     /// <param name="applicationHost">Application host.</param>
-    /// <param name="libraryManager">Library Manager.</param>
     /// <param name="logger">Logger.</param>
     public TroubleshootingController(
         IApplicationHost applicationHost,
-        ILibraryManager libraryManager,
         ILogger<TroubleshootingController> logger)
     {
-        _libraryManager = libraryManager;
         _applicationHost = applicationHost;
         _logger = logger;
     }
