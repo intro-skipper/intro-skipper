@@ -154,14 +154,17 @@ public static partial class FFmpegWrapper
         }
 
         // -vn, -sn, -dn: ignore video, subtitle, and data tracks
-        var args = string.Format(
-            CultureInfo.InvariantCulture,
-            "-vn -sn -dn " +
-                "-ss {0} -i \"{1}\" -to {2} -vn -dn -sn -af \"silencedetect=noise={3}dB:duration=0.1\" -f null -",
-            range.Start,
-            episode.Path,
-            range.End - range.Start,
-            Plugin.Instance?.Configuration.SilenceDetectionMaximumNoise ?? -50);
+        var noise = (Plugin.Instance?.Configuration.SilenceDetectionMaximumNoise ?? -50).ToString(CultureInfo.InvariantCulture);
+        var args = new List<string>
+        {
+            "-vn", "-sn", "-dn",
+            "-ss", range.Start.ToString(CultureInfo.InvariantCulture),
+            "-i", episode.Path,
+            "-to", (range.End - range.Start).ToString(CultureInfo.InvariantCulture),
+            "-vn", "-dn", "-sn",
+            "-af", $"silencedetect=noise={noise}dB:duration=0.1",
+            "-f", "null", "-",
+        };
 
         // Cache the output of this command to "GUID-intro-silence-v2"
         var cacheKey = string.Format(
@@ -215,13 +218,15 @@ public static partial class FFmpegWrapper
         int threshold)
     {
         // Seek to the start of the time range and find frames that are at least 50% black.
-        var args = string.Format(
-            CultureInfo.InvariantCulture,
-            "-ss {0} -i \"{1}\" -to {2} -an -dn -sn -vf \"blackframe=amount=50:threshold={3}\" -f null -",
-            range.Start,
-            episode.Path,
-            range.End - range.Start,
-            threshold);
+        var args = new List<string>
+        {
+            "-ss", range.Start.ToString(CultureInfo.InvariantCulture),
+            "-i", episode.Path,
+            "-to", (range.End - range.Start).ToString(CultureInfo.InvariantCulture),
+            "-an", "-dn", "-sn",
+            "-vf", $"blackframe=amount=50:threshold={threshold}",
+            "-f", "null", "-",
+        };
 
         // Cache the results to GUID-blackframes-START-END-v1.
         var cacheKey = string.Format(
@@ -247,12 +252,15 @@ public static partial class FFmpegWrapper
         ArgumentNullException.ThrowIfNull(episode);
 
         // Seek to the start of the time range and get the black level of each frame.
-        var args = string.Format(
-            CultureInfo.InvariantCulture,
-            "-skip_frame nokey -ss {0} -i \"{1}\" -an -dn -sn -vf \"blackframe=amount=0:threshold={2}\" -f null -",
-            episode.CreditsFingerprintStart,
-            episode.Path,
-            threshold);
+        var args = new List<string>
+        {
+            "-skip_frame", "nokey",
+            "-ss", episode.CreditsFingerprintStart.ToString(CultureInfo.InvariantCulture),
+            "-i", episode.Path,
+            "-an", "-dn", "-sn",
+            "-vf", $"blackframe=amount=0:threshold={threshold}",
+            "-f", "null", "-",
+        };
 
         // Cache the results to GUID-blackframes-START-END-v1.
         var cacheKey = string.Format(
@@ -306,12 +314,16 @@ public static partial class FFmpegWrapper
     /// <returns>Array of timestamps of key frames.</returns>
     public static double[] DetectKeyFrames(QueuedEpisode episode, TimeRange range)
     {
-        var args = string.Format(
-            CultureInfo.InvariantCulture,
-            "-skip_frame nokey -ss {0} -i \"{1}\" -to {2} -an -dn -sn -vf \"showinfo\" -f null -",
-            range.Start,
-            episode.Path,
-            range.End - range.Start);
+        var args = new List<string>
+        {
+            "-skip_frame", "nokey",
+            "-ss", range.Start.ToString(CultureInfo.InvariantCulture),
+            "-i", episode.Path,
+            "-to", (range.End - range.Start).ToString(CultureInfo.InvariantCulture),
+            "-an", "-dn", "-sn",
+            "-vf", "showinfo",
+            "-f", "null", "-",
+        };
 
         var cacheKey = string.Format(
             CultureInfo.InvariantCulture,
@@ -396,7 +408,7 @@ public static partial class FFmpegWrapper
             LogCheckingRequirement(requirementLogger, arguments);
         }
 
-        var output = Encoding.UTF8.GetString(GetOutput(arguments, string.Empty, false, 2000));
+        var output = Encoding.UTF8.GetString(GetOutput(arguments.Split(' ', StringSplitOptions.RemoveEmptyEntries), string.Empty, false, 2000));
         if (requirementLogger is not null)
         {
             LogFfmpegOutput(requirementLogger, arguments, output);
@@ -426,12 +438,12 @@ public static partial class FFmpegWrapper
     /// Runs ffmpeg and returns standard output (or error).
     /// If caching is enabled, will use cacheFilename to cache the output of this command.
     /// </summary>
-    /// <param name="args">Arguments to pass to ffmpeg.</param>
+    /// <param name="args">Arguments to pass to ffmpeg as individual tokens.</param>
     /// <param name="cacheFilename">Filename to cache the output of this command to, or string.Empty if this command should not be cached.</param>
     /// <param name="stderr">If standard error should be returned.</param>
     /// <param name="timeout">Timeout (in miliseconds) to wait for ffmpeg to exit.</param>
     private static ReadOnlySpan<byte> GetOutput(
-        string args,
+        IReadOnlyList<string> args,
         string cacheFilename,
         bool stderr = false,
         int timeout = 60 * 1000)
@@ -439,9 +451,10 @@ public static partial class FFmpegWrapper
         var ffmpegPath = Plugin.Instance?.FFmpegPath ?? "ffmpeg";
 
         // The silencedetect and blackframe filters output data at the info log level.
-        var useInfoLevel = args.Contains("silencedetect", StringComparison.OrdinalIgnoreCase) ||
-            args.Contains("blackframe", StringComparison.OrdinalIgnoreCase) ||
-            args.Contains("showinfo", StringComparison.OrdinalIgnoreCase);
+        var useInfoLevel = args.Any(a =>
+            a.Contains("silencedetect", StringComparison.OrdinalIgnoreCase) ||
+            a.Contains("blackframe", StringComparison.OrdinalIgnoreCase) ||
+            a.Contains("showinfo", StringComparison.OrdinalIgnoreCase));
 
         var logLevel = useInfoLevel ? "info" : "warning";
 
@@ -472,29 +485,14 @@ public static partial class FFmpegWrapper
             }
         }
 
-        // Prepend some flags to prevent FFmpeg from logging its banner and progress information
-        // for each file that is fingerprinted.
-        var prependArgument = string.Format(
-            CultureInfo.InvariantCulture,
-            "-hide_banner -threads {0} -loglevel {1} ",
-            Plugin.Instance?.Configuration.ProcessThreads ?? 0,
-            logLevel);
-
-        // For FFmpeg info queries (-version, -muxers, -h), don't add any extra flags
+        // For FFmpeg info queries (-version, -muxers, -h), don't add the thread count flag
         // to avoid "Trailing option(s) found" warning. These are quick queries.
-        var argsTrimmed = args.TrimStart();
-        if (argsTrimmed.StartsWith("-version", StringComparison.Ordinal) ||
-            argsTrimmed.StartsWith("-muxers", StringComparison.Ordinal) ||
-            argsTrimmed.StartsWith("-h", StringComparison.Ordinal))
-        {
-            // For info queries, don't add any prepend flags at all
-            prependArgument = string.Format(
-                CultureInfo.InvariantCulture,
-                "-hide_banner -loglevel {0} ",
-                logLevel);
-        }
+        var firstArg = args.Count > 0 ? args[0] : string.Empty;
+        var isInfoQuery = firstArg.StartsWith("-version", StringComparison.Ordinal) ||
+            firstArg.StartsWith("-muxers", StringComparison.Ordinal) ||
+            firstArg.StartsWith("-h", StringComparison.Ordinal);
 
-        var info = new ProcessStartInfo(ffmpegPath, args.Insert(0, prependArgument))
+        var info = new ProcessStartInfo(ffmpegPath)
         {
             WindowStyle = ProcessWindowStyle.Hidden,
             CreateNoWindow = true,
@@ -504,10 +502,26 @@ public static partial class FFmpegWrapper
             RedirectStandardError = stderr
         };
 
+        // Prepend flags to suppress FFmpeg banner and set log level / thread count.
+        info.ArgumentList.Add("-hide_banner");
+        if (!isInfoQuery)
+        {
+            info.ArgumentList.Add("-threads");
+            info.ArgumentList.Add((Plugin.Instance?.Configuration.ProcessThreads ?? 0).ToString(CultureInfo.InvariantCulture));
+        }
+
+        info.ArgumentList.Add("-loglevel");
+        info.ArgumentList.Add(logLevel);
+
+        foreach (var arg in args)
+        {
+            info.ArgumentList.Add(arg);
+        }
+
         using var ffmpeg = new Process { StartInfo = info };
         if (Logger is { } startLogger)
         {
-            LogStartingFfmpeg(startLogger, ffmpeg.StartInfo.Arguments);
+            LogStartingFfmpeg(startLogger, string.Join(" ", info.ArgumentList));
         }
 
         ffmpeg.Start();
@@ -575,12 +589,16 @@ public static partial class FFmpegWrapper
             LogFingerprinting(fingerprintLogger, start, end, episode.Path, episode.EpisodeId);
         }
 
-        var args = string.Format(
-            CultureInfo.InvariantCulture,
-            "-ss {0} -i \"{1}\" -to {2} -ac 2 -f chromaprint -fp_format raw -",
-            start,
-            episode.Path,
-            end - start);
+        var args = new List<string>
+        {
+            "-ss", start.ToString(CultureInfo.InvariantCulture),
+            "-i", episode.Path,
+            "-to", (end - start).ToString(CultureInfo.InvariantCulture),
+            "-ac", "2",
+            "-f", "chromaprint",
+            "-fp_format", "raw",
+            "-",
+        };
 
         // Returns all fingerprint points as raw 32-bit unsigned integers (little endian).
         var rawPoints = GetOutput(args, string.Empty);
