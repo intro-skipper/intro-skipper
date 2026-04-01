@@ -160,8 +160,7 @@ public static partial class FFmpegWrapper
             "-vn", "-sn", "-dn",
             "-ss", range.Start.ToString(CultureInfo.InvariantCulture),
             "-i", episode.Path,
-            "-to", (range.End - range.Start).ToString(CultureInfo.InvariantCulture),
-            "-vn", "-dn", "-sn",
+            "-to", range.Duration.ToString(CultureInfo.InvariantCulture),
             "-af", $"silencedetect=noise={noise}dB:duration=0.1",
             "-f", "null", "-",
         };
@@ -222,7 +221,7 @@ public static partial class FFmpegWrapper
         {
             "-ss", range.Start.ToString(CultureInfo.InvariantCulture),
             "-i", episode.Path,
-            "-to", (range.End - range.Start).ToString(CultureInfo.InvariantCulture),
+            "-to", range.Duration.ToString(CultureInfo.InvariantCulture),
             "-an", "-dn", "-sn",
             "-vf", $"blackframe=amount=50:threshold={threshold}",
             "-f", "null", "-",
@@ -319,7 +318,7 @@ public static partial class FFmpegWrapper
             "-skip_frame", "nokey",
             "-ss", range.Start.ToString(CultureInfo.InvariantCulture),
             "-i", episode.Path,
-            "-to", (range.End - range.Start).ToString(CultureInfo.InvariantCulture),
+            "-to", range.Duration.ToString(CultureInfo.InvariantCulture),
             "-an", "-dn", "-sn",
             "-vf", "showinfo",
             "-f", "null", "-",
