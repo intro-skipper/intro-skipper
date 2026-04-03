@@ -40,6 +40,12 @@ public static partial class FFmpegWrapper
 
     private static Dictionary<string, string> ChromaprintLogs { get; set; } = [];
 
+    private static bool IsCachingEnabled()
+        => Plugin.Instance?.Configuration.CacheFingerprints ?? false;
+
+    private static string GetDetectionCachePath(string cacheKey)
+        => Path.Join(Plugin.Instance!.FingerprintCachePath, cacheKey);
+
     /// <summary>
     /// Check that the installed version of ffmpeg supports chromaprint.
     /// </summary>
@@ -165,16 +171,25 @@ public static partial class FFmpegWrapper
             "-f", "null", "-",
         };
 
-        // Cache the output of this command to "GUID-intro-silence-v2"
         var cacheKey = string.Format(
+            CultureInfo.InvariantCulture,
+            "{0}-silence-{1}-{2}-v3",
+            episode.EpisodeId.ToString("N"),
+            range.Start,
+            range.End);
+
+        var legacyCacheKey = string.Format(
             CultureInfo.InvariantCulture,
             "{0}-silence-{1}-{2}-v2",
             episode.EpisodeId.ToString("N"),
             range.Start,
             range.End);
 
-        var currentRange = new TimeRange();
-        var silenceRanges = new List<TimeRange>();
+        if (ReadSilenceCache(cacheKey, out var cached) ||
+            TryLoadLegacyCache(legacyCacheKey, cacheKey, raw => ParseSilenceRaw(raw, range.Start), WriteSilenceCache, out cached))
+        {
+            return cached;
+        }
 
         /* Each match will have a type (either "start" or "end") and a timecode (a double).
          *
@@ -182,24 +197,11 @@ public static partial class FFmpegWrapper
          * [silencedetect @ 0x000000000000] silence_start: 12.34
          * [silencedetect @ 0x000000000000] silence_end: 56.123 | silence_duration: 43.783
         */
-        var raw = Encoding.UTF8.GetString(GetOutput(args, cacheKey, true));
-        foreach (Match match in _silenceDetectionExpression.Matches(raw))
-        {
-            var isStart = match.Groups["type"].Value == "start";
-            var time = Convert.ToDouble(match.Groups["time"].Value, CultureInfo.InvariantCulture);
+        var raw = Encoding.UTF8.GetString(GetOutput(args, string.Empty, true));
+        var result = ParseSilenceRaw(raw, range.Start);
+        WriteSilenceCache(cacheKey, result);
 
-            if (isStart)
-            {
-                currentRange.Start = time + range.Start;
-            }
-            else
-            {
-                currentRange.End = time + range.Start;
-                silenceRanges.Add(new TimeRange(currentRange));
-            }
-        }
-
-        return [.. silenceRanges];
+        return result;
     }
 
     /// <summary>
@@ -227,17 +229,31 @@ public static partial class FFmpegWrapper
             "-f", "null", "-",
         };
 
-        // Cache the results to GUID-blackframes-START-END-v1.
         var cacheKey = string.Format(
+            CultureInfo.InvariantCulture,
+            "{0}-blackframes-{1}-{2}-v2",
+            episode.EpisodeId.ToString("N"),
+            range.Start,
+            range.End);
+
+        var legacyCacheKey = string.Format(
             CultureInfo.InvariantCulture,
             "{0}-blackframes-{1}-{2}-v1",
             episode.EpisodeId.ToString("N"),
             range.Start,
             range.End);
 
-        var raw = Encoding.UTF8.GetString(GetOutput(args, cacheKey, true));
+        if (ReadBlackFrameCache(cacheKey, out var cached) ||
+            TryLoadLegacyCache(legacyCacheKey, cacheKey, static raw => ParseBlackFrame(raw), WriteBlackFrameCache, out cached))
+        {
+            return cached.Where(bf => bf.Percentage >= minimum).ToArray();
+        }
 
-        return ParseBlackFrame(raw, minimum);
+        var raw = Encoding.UTF8.GetString(GetOutput(args, string.Empty, true));
+        var allFrames = ParseBlackFrame(raw);
+        WriteBlackFrameCache(cacheKey, allFrames);
+
+        return allFrames.Where(bf => bf.Percentage >= minimum).ToArray();
     }
 
     /// <summary>
@@ -261,19 +277,86 @@ public static partial class FFmpegWrapper
             "-f", "null", "-",
         };
 
-        // Cache the results to GUID-blackframes-START-END-v1.
         var cacheKey = string.Format(
+            CultureInfo.InvariantCulture,
+            "{0}-blackframes-{1}-alt-v2",
+            episode.EpisodeId.ToString("N"),
+            episode.CreditsFingerprintStart);
+
+        var legacyCacheKey = string.Format(
             CultureInfo.InvariantCulture,
             "{0}-blackframes-{1}-alt",
             episode.EpisodeId.ToString("N"),
             episode.CreditsFingerprintStart);
 
-        var raw = Encoding.UTF8.GetString(GetOutput(args, cacheKey, true));
+        if (ReadBlackFrameCache(cacheKey, out var cached) ||
+            TryLoadLegacyCache(legacyCacheKey, cacheKey, static raw => ParseBlackFrame(raw), WriteBlackFrameCache, out cached))
+        {
+            return cached;
+        }
 
-        return ParseBlackFrame(raw);
+        var raw = Encoding.UTF8.GetString(GetOutput(args, string.Empty, true));
+        var allFrames = ParseBlackFrame(raw);
+        WriteBlackFrameCache(cacheKey, allFrames);
+
+        return allFrames;
     }
 
-    private static BlackFrame[] ParseBlackFrame(string raw, int minimum = 0)
+    private static TimeRange[] ParseSilenceRaw(string raw, double rangeStart)
+    {
+        var currentRange = new TimeRange();
+        var silenceRanges = new List<TimeRange>();
+
+        foreach (Match match in _silenceDetectionExpression.Matches(raw))
+        {
+            var isStart = match.Groups["type"].Value == "start";
+            var time = Convert.ToDouble(match.Groups["time"].Value, CultureInfo.InvariantCulture);
+
+            if (isStart)
+            {
+                currentRange.Start = time + rangeStart;
+            }
+            else
+            {
+                currentRange.End = time + rangeStart;
+                silenceRanges.Add(new TimeRange(currentRange));
+            }
+        }
+
+        return [.. silenceRanges];
+    }
+
+    private static double[] ParseKeyFramesRaw(string raw, double rangeStart)
+    {
+        var keyframes = new List<double>();
+
+        foreach (var line in raw.Split('\n', StringSplitOptions.RemoveEmptyEntries))
+        {
+            var ptsIndex = line.IndexOf("pts_time:", StringComparison.OrdinalIgnoreCase);
+            if (ptsIndex == -1)
+            {
+                continue;
+            }
+
+            var ptsTimeStr = line[(ptsIndex + 9)..].Split(' ', 2)[0];
+
+            if (double.TryParse(ptsTimeStr, CultureInfo.InvariantCulture, out double timestamp))
+            {
+                keyframes.Add(timestamp + rangeStart);
+            }
+            else
+            {
+                if (Logger is { } parseLogger)
+                {
+                    LogFailedToParseTimestamp(parseLogger, ptsTimeStr, line);
+                }
+            }
+        }
+
+        return [.. keyframes];
+    }
+
+    private static BlackFrame[] ParseBlackFrame(string raw)
     {
         var blackFrames = new List<BlackFrame>();
         /* Run the blackframe filter.
@@ -294,12 +377,7 @@ public static partial class FFmpegWrapper
             var percentage = int.Parse(match.Groups[2].Value, CultureInfo.InvariantCulture);
             var time = double.Parse(match.Groups[3].Value, CultureInfo.InvariantCulture);
 
-            var bf = new BlackFrame(percentage, time, frame);
-
-            if (bf.Percentage >= minimum)
-            {
-                blackFrames.Add(bf);
-            }
+            blackFrames.Add(new BlackFrame(percentage, time, frame));
         }
 
         return [.. blackFrames];
@@ -326,38 +404,29 @@ public static partial class FFmpegWrapper
 
         var cacheKey = string.Format(
             CultureInfo.InvariantCulture,
+            "{0}-keyframes-{1}-{2}-v2",
+            episode.EpisodeId.ToString("N"),
+            range.Start,
+            range.End);
+
+        var legacyCacheKey = string.Format(
+            CultureInfo.InvariantCulture,
             "{0}-keyframes-{1}-{2}-v1",
             episode.EpisodeId.ToString("N"),
             range.Start,
             range.End);
 
-        var keyframes = new List<double>();
-        var raw = Encoding.UTF8.GetString(GetOutput(args, cacheKey, stderr: true));
-
-        foreach (var line in raw.Split('\n', StringSplitOptions.RemoveEmptyEntries))
+        if (ReadKeyFrameCache(cacheKey, out var cached) ||
+            TryLoadLegacyCache(legacyCacheKey, cacheKey, raw => ParseKeyFramesRaw(raw, range.Start), WriteKeyFrameCache, out cached))
         {
-            var ptsIndex = line.IndexOf("pts_time:", StringComparison.OrdinalIgnoreCase);
-            if (ptsIndex == -1)
-            {
-                continue;
-            }
-
-            var ptsTimeStr = line[(ptsIndex + 9)..].Split(' ', 2)[0];
-
-            if (double.TryParse(ptsTimeStr, CultureInfo.InvariantCulture, out double timestamp))
-            {
-                keyframes.Add(timestamp + range.Start);
-            }
-            else
-            {
-                if (Logger is { } parseLogger)
-                {
-                    LogFailedToParseTimestamp(parseLogger, ptsTimeStr, line);
-                }
-            }
+            return cached;
         }
 
-        return [.. keyframes];
+        var raw = Encoding.UTF8.GetString(GetOutput(args, string.Empty, stderr: true));
+        var result = ParseKeyFramesRaw(raw, range.Start);
+        WriteKeyFrameCache(cacheKey, result);
+
+        return result;
     }
 
     /// <summary>
@@ -458,7 +527,7 @@ public static partial class FFmpegWrapper
         var logLevel = useInfoLevel ? "info" : "warning";
 
         var cacheOutput =
-            (Plugin.Instance?.Configuration.CacheFingerprints ?? false) &&
+            IsCachingEnabled() &&
             !string.IsNullOrEmpty(cacheFilename);
 
         // If caching is enabled, try to load the output of this command from the cached file.
@@ -640,7 +709,7 @@ public static partial class FFmpegWrapper
         fingerprint = [];
 
         // If fingerprint caching isn't enabled, don't try to load anything.
-        if (!(Plugin.Instance?.Configuration.CacheFingerprints ?? false))
+        if (!IsCachingEnabled())
         {
             return false;
         }
@@ -713,7 +782,7 @@ public static partial class FFmpegWrapper
         List<uint> fingerprint)
     {
         // Bail out if caching isn't enabled.
-        if (!(Plugin.Instance?.Configuration.CacheFingerprints ?? false))
+        if (!IsCachingEnabled())
         {
             return;
         }
@@ -801,6 +870,136 @@ public static partial class FFmpegWrapper
         throw new ArgumentException("Unknown analysis mode " + mode);
     }
 
+    private static bool ReadSilenceCache(string cacheKey, out TimeRange[] result)
+        => TryReadBinaryCache(cacheKey, static r => new TimeRange(r.ReadDouble(), r.ReadDouble()), out result);
+
+    private static void WriteSilenceCache(string cacheKey, TimeRange[] ranges)
+        => WriteBinaryCache(cacheKey, ranges, static (w, r) =>
+        {
+            w.Write(r.Start);
+            w.Write(r.End);
+        });
+
+    private static bool ReadBlackFrameCache(string cacheKey, out BlackFrame[] result)
+        => TryReadBinaryCache(cacheKey, static r => new BlackFrame(r.ReadInt32(), r.ReadDouble(), r.ReadInt32()), out result);
+
+    private static void WriteBlackFrameCache(string cacheKey, BlackFrame[] frames)
+        => WriteBinaryCache(cacheKey, frames, static (w, f) =>
+        {
+            w.Write(f.Percentage);
+            w.Write(f.Time);
+            w.Write(f.Frame);
+        });
+
+    private static bool ReadKeyFrameCache(string cacheKey, out double[] result)
+        => TryReadBinaryCache(cacheKey, static r => r.ReadDouble(), out result);
+
+    private static void WriteKeyFrameCache(string cacheKey, double[] timestamps)
+        => WriteBinaryCache(cacheKey, timestamps, static (w, t) => w.Write(t));
+
+    private static bool TryReadBinaryCache<T>(string cacheKey, Func<BinaryReader, T> deserializer, out T[] result)
+    {
+        result = [];
+
+        if (!IsCachingEnabled())
+        {
+            return false;
+        }
+
+        var path = GetDetectionCachePath(cacheKey);
+        try
+        {
+            using var reader = new BinaryReader(File.Open(path, FileMode.Open, FileAccess.Read));
+            var count = reader.ReadInt32();
+            var items = new T[count];
+            for (var i = 0; i < count; i++)
+            {
+                items[i] = deserializer(reader);
+            }
+
+            if (Logger is { } logger)
+            {
+                LogDetectionCacheHit(logger, cacheKey);
+            }
+
+            result = items;
+            return true;
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or EndOfStreamException)
+        {
+            if (ex is not FileNotFoundException && Logger is { } logger)
+            {
+                LogDetectionCacheReadError(logger, ex, path);
+            }
+
+            return false;
+        }
+    }
+
+    private static void WriteBinaryCache<T>(string cacheKey, T[] items, Action<BinaryWriter, T> serializer)
+    {
+        if (!IsCachingEnabled())
+        {
+            return;
+        }
+
+        try
+        {
+            using var writer = new BinaryWriter(File.Open(GetDetectionCachePath(cacheKey), FileMode.Create, FileAccess.Write));
+            writer.Write(items.Length);
+            foreach (var item in items)
+            {
+                serializer(writer, item);
+            }
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            if (Logger is { } logger)
+            {
+                LogDetectionCacheWriteError(logger, ex, cacheKey);
+            }
+        }
+    }
+
+    private static bool TryLoadLegacyCache<T>(
+        string legacyCacheKey,
+        string newCacheKey,
+        Func<string, T[]> rawParser,
+        Action<string, T[]> binaryWriter,
+        out T[] result)
+    {
+        result = [];
+
+        if (!IsCachingEnabled())
+        {
+            return false;
+        }
+
+        var legacyPath = GetDetectionCachePath(legacyCacheKey);
+        try
+        {
+            var raw = File.ReadAllText(legacyPath, Encoding.UTF8);
+            result = rawParser(raw);
+
+            if (Logger is { } logger)
+            {
+                LogMigratingLegacyCache(logger, legacyCacheKey, newCacheKey);
+            }
+
+            binaryWriter(newCacheKey, result);
+            return true;
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            if (ex is not FileNotFoundException && Logger is { } logger)
+            {
+                LogDetectionCacheReadError(logger, ex, legacyPath);
+            }
+
+            return false;
+        }
+    }
+
     private static string FormatFFmpegLog(string key)
     {
         /* Format:
@@ -877,6 +1076,18 @@ public static partial class FFmpegWrapper
 
     [LoggerMessage(Level = LogLevel.Debug, Message = "DeleteEpisodeCache {FilePath}")]
     private static partial void LogDeleteEpisodeCache(ILogger logger, string filePath);
+
+    [LoggerMessage(Level = LogLevel.Trace, Message = "Detection cache hit for {CacheKey}")]
+    private static partial void LogDetectionCacheHit(ILogger logger, string cacheKey);
+
+    [LoggerMessage(Level = LogLevel.Error, Message = "Error reading detection cache from {Path}")]
+    private static partial void LogDetectionCacheReadError(ILogger logger, Exception ex, string path);
+
+    [LoggerMessage(Level = LogLevel.Error, Message = "Error writing detection cache for {CacheKey}")]
+    private static partial void LogDetectionCacheWriteError(ILogger logger, Exception ex, string cacheKey);
+
+    [LoggerMessage(Level = LogLevel.Debug, Message = "Migrating legacy cache {LegacyKey} to {NewKey}")]
+    private static partial void LogMigratingLegacyCache(ILogger logger, string legacyKey, string newKey);
 
     [GeneratedRegex("silence_(?<type>start|end): (?<time>[0-9\\.]+)")]
     private static partial Regex SilenceRegex();
