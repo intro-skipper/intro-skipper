@@ -419,9 +419,12 @@ internal static class EntrypointTestHelpers
     {
         private readonly Plugin? _original;
 
-        public PluginInstanceScope(string cacheDir)
+        public PluginInstanceScope(string cacheDir, string? cacheDbPath = null)
         {
             CacheDir = cacheDir;
+            // Place the cache DB outside cacheDir to avoid accidental inclusion in legacy file sweeps.
+            CacheDbPath = cacheDbPath ?? System.IO.Path.Combine(
+                System.IO.Path.GetTempPath(), "IntroSkipper.Tests", Guid.NewGuid().ToString("N") + "-cache.db");
 
             var instanceProp = typeof(Plugin).GetProperty("Instance", BindingFlags.Public | BindingFlags.Static);
             Assert.NotNull(instanceProp);
@@ -433,14 +436,20 @@ internal static class EntrypointTestHelpers
 #pragma warning restore SYSLIB0050
 
             SetPropertyOrField(plugin, "FingerprintCachePath", CacheDir);
+            SetPropertyOrField(plugin, "_cacheDbPath", CacheDbPath);
 
             // Plugin.Instance has a private setter; invoke it via reflection.
             var setter = instanceProp.SetMethod ?? instanceProp.GetSetMethod(nonPublic: true);
             Assert.NotNull(setter);
             setter!.Invoke(null, [plugin]);
+
+            // Ensure the schema exists so tests can write to the cache DB.
+            IntroSkipper.Db.DetectionCacheDb.EnsureSchema(CacheDbPath);
         }
 
         public string CacheDir { get; }
+
+        public string CacheDbPath { get; }
 
         public void Dispose()
         {

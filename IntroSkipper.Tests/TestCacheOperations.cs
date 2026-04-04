@@ -6,9 +6,9 @@ namespace IntroSkipper.Tests;
 using System;
 using System.Globalization;
 using System.IO;
-using System.Linq;
 using IntroSkipper.Configuration;
 using IntroSkipper.Data;
+using IntroSkipper.Db;
 using Xunit;
 
 public sealed class TestCacheOperations
@@ -21,35 +21,47 @@ public sealed class TestCacheOperations
 
         var shouldKeep = new[]
         {
-            Path.Combine(cacheDir, $"{id}-credits-chromaprint-v1"),
-            Path.Combine(cacheDir, $"{id}-credits-blackframes-100.5-v2"),
+            id + "-credits-chromaprint-v1",
+            id + "-credits-blackframes-100.5-v2",
         };
         var shouldDelete = new[]
         {
-            Path.Combine(cacheDir, $"{id}-chromaprint-v1"),
-            Path.Combine(cacheDir, $"{id}-silence-0-30-v3"),
-            Path.Combine(cacheDir, $"{id}-keyframes-0-30-v2"),
-            Path.Combine(cacheDir, $"{id}-blackframes-0-30-v2"),
+            id + "-chromaprint-v1",
+            id + "-silence-0-30-v3",
+            id + "-keyframes-0-30-v2",
+            id + "-blackframes-0-30-v2",
         };
 
-        foreach (var f in shouldKeep.Concat(shouldDelete))
+        using var scope = new EntrypointTestHelpers.PluginInstanceScope(cacheDir);
+        using (var db = Plugin.CreateCacheDb())
         {
-            File.WriteAllText(f, "x");
+            foreach (var key in shouldKeep)
+            {
+                db.Write(key, [0x01]);
+            }
+
+            foreach (var key in shouldDelete)
+            {
+                db.Write(key, [0x01]);
+            }
         }
 
-        using (new EntrypointTestHelpers.PluginInstanceScope(cacheDir))
+        using (new CachingPluginScope(cacheDir, scope.CacheDbPath))
         {
             FFmpegWrapper.DeleteCacheFiles(AnalysisMode.Introduction);
         }
 
-        foreach (var f in shouldDelete)
+        using (var db = Plugin.CreateCacheDb())
         {
-            Assert.False(File.Exists(f), $"{Path.GetFileName(f)} should be deleted");
-        }
+            foreach (var key in shouldDelete)
+            {
+                Assert.False(db.ExistsByKey(key), $"DB row '{key}' should be deleted");
+            }
 
-        foreach (var f in shouldKeep)
-        {
-            Assert.True(File.Exists(f), $"{Path.GetFileName(f)} should be kept");
+            foreach (var key in shouldKeep)
+            {
+                Assert.True(db.ExistsByKey(key), $"DB row '{key}' should be kept");
+            }
         }
     }
 
@@ -61,47 +73,66 @@ public sealed class TestCacheOperations
 
         var shouldKeep = new[]
         {
-            Path.Combine(cacheDir, $"{id}-chromaprint-v1"),
-            Path.Combine(cacheDir, $"{id}-silence-0-30-v3"),
-            Path.Combine(cacheDir, $"{id}-keyframes-0-30-v2"),
-            Path.Combine(cacheDir, $"{id}-blackframes-0-30-v2"),
+            id + "-chromaprint-v1",
+            id + "-silence-0-30-v3",
+            id + "-keyframes-0-30-v2",
+            id + "-blackframes-0-30-v2",
         };
         var shouldDelete = new[]
         {
-            Path.Combine(cacheDir, $"{id}-credits-chromaprint-v1"),
-            Path.Combine(cacheDir, $"{id}-credits-blackframes-100.5-v2"),
+            id + "-credits-chromaprint-v1",
+            id + "-credits-blackframes-100.5-v2",
         };
 
-        foreach (var f in shouldKeep.Concat(shouldDelete))
+        using var scope = new EntrypointTestHelpers.PluginInstanceScope(cacheDir);
+        using (var db = Plugin.CreateCacheDb())
         {
-            File.WriteAllText(f, "x");
+            foreach (var key in shouldKeep)
+            {
+                db.Write(key, [0x01]);
+            }
+
+            foreach (var key in shouldDelete)
+            {
+                db.Write(key, [0x01]);
+            }
         }
 
-        using (new EntrypointTestHelpers.PluginInstanceScope(cacheDir))
+        using (new CachingPluginScope(cacheDir, scope.CacheDbPath))
         {
             FFmpegWrapper.DeleteCacheFiles(AnalysisMode.Credits);
         }
 
-        foreach (var f in shouldDelete)
+        using (var db = Plugin.CreateCacheDb())
         {
-            Assert.False(File.Exists(f), $"{Path.GetFileName(f)} should be deleted");
-        }
+            foreach (var key in shouldDelete)
+            {
+                Assert.False(db.ExistsByKey(key), $"DB row '{key}' should be deleted");
+            }
 
-        foreach (var f in shouldKeep)
-        {
-            Assert.True(File.Exists(f), $"{Path.GetFileName(f)} should be kept");
+            foreach (var key in shouldKeep)
+            {
+                Assert.True(db.ExistsByKey(key), $"DB row '{key}' should be kept");
+            }
         }
     }
 
     [Fact]
-    public void HasCachedFingerprint_ReturnsTrueForBinaryFile()
+    public void HasCachedFingerprint_ReturnsTrueForDbRow()
     {
         var episode = new QueuedEpisode { EpisodeId = Guid.NewGuid() };
         var cacheDir = EntrypointTestHelpers.CreateTempCacheDir();
-        File.WriteAllText(Path.Combine(cacheDir, episode.EpisodeId.ToString("N") + "-chromaprint-v1"), "x");
 
-        using var _ = new CachingPluginScope(cacheDir);
-        Assert.True(FFmpegWrapper.HasCachedFingerprint(episode, AnalysisMode.Introduction));
+        using var scope = new EntrypointTestHelpers.PluginInstanceScope(cacheDir);
+        using (var db = Plugin.CreateCacheDb())
+        {
+            db.Write(episode.EpisodeId.ToString("N") + "-chromaprint-v1", [0x01]);
+        }
+
+        using (new CachingPluginScope(cacheDir, scope.CacheDbPath))
+        {
+            Assert.True(FFmpegWrapper.HasCachedFingerprint(episode, AnalysisMode.Introduction));
+        }
     }
 
     [Fact]
@@ -109,7 +140,8 @@ public sealed class TestCacheOperations
     {
         var episode = new QueuedEpisode { EpisodeId = Guid.NewGuid() };
         var cacheDir = EntrypointTestHelpers.CreateTempCacheDir();
-        // Legacy path: just the episode ID, no suffix
+
+        // Legacy path: just the episode ID, no suffix (text format on disk)
         File.WriteAllText(Path.Combine(cacheDir, episode.EpisodeId.ToString("N")), "x");
 
         using var _ = new CachingPluginScope(cacheDir);
@@ -127,7 +159,7 @@ public sealed class TestCacheOperations
     }
 
     [Fact]
-    public void LegacyFingerprintCache_MigratedToBinaryAndDeleted()
+    public void LegacyFingerprintCache_MigratedToDbAndDeleted()
     {
         var episode = new QueuedEpisode
         {
@@ -139,7 +171,7 @@ public sealed class TestCacheOperations
 
         var id = episode.EpisodeId.ToString("N");
         var legacyPath = Path.Combine(cacheDir, id);
-        var binaryPath = Path.Combine(cacheDir, id + "-chromaprint-v1");
+        var dbKey = id + "-chromaprint-v1";
 
         // Write a valid legacy text-format fingerprint (one uint per line)
         uint[] expectedFingerprint = [1234567890u, 987654321u, 42u];
@@ -148,14 +180,77 @@ public sealed class TestCacheOperations
             Array.ConvertAll(expectedFingerprint, v => v.ToString(CultureInfo.InvariantCulture)));
 
         uint[] result;
-        using (new CachingPluginScope(cacheDir))
+        string cacheDbPath;
+        using (var scope = new CachingPluginScope(cacheDir))
         {
+            cacheDbPath = scope.CacheDbPath;
             result = FFmpegWrapper.Fingerprint(episode, AnalysisMode.Introduction);
         }
 
         Assert.False(File.Exists(legacyPath), "Legacy text cache file should be deleted after migration");
-        Assert.True(File.Exists(binaryPath), "Binary cache file should be created");
+
+        // Use DetectionCacheDb directly since Plugin.Instance is no longer set after scope disposal.
+        using var db = new IntroSkipper.Db.DetectionCacheDb(cacheDbPath);
+        Assert.True(db.ExistsByKey(dbKey), "DB row should be created after migration");
+
+        // Verify the fingerprint was correctly round-tripped.
+        var migrated = ReadFingerprintFromDb(db, dbKey);
         Assert.Equal(expectedFingerprint, result);
+        Assert.Equal(expectedFingerprint, migrated);
+    }
+
+    [Fact]
+    public void CorruptLegacyFingerprintCache_DeletedAndReanalyzed()
+    {
+        var episode = new QueuedEpisode
+        {
+            EpisodeId = Guid.NewGuid(),
+            Path = "/does/not/exist.mkv",
+            IntroFingerprintEnd = 60,
+        };
+        var cacheDir = EntrypointTestHelpers.CreateTempCacheDir();
+
+        var id = episode.EpisodeId.ToString("N");
+        var legacyPath = Path.Combine(cacheDir, id);
+        var dbKey = id + "-chromaprint-v1";
+
+        // Write a corrupt legacy file (binary content, not parseable as uint lines)
+        File.WriteAllBytes(legacyPath, [0x00, 0x01, 0x02, 0x03, 0xFF, 0xFE]);
+
+        string cacheDbPath;
+        using (var scope = new CachingPluginScope(cacheDir))
+        {
+            cacheDbPath = scope.CacheDbPath;
+
+            // Fingerprint() will fail because the path doesn't exist, but that's fine —
+            // we only care that the corrupt legacy file was deleted and no DB row was written.
+            try { FFmpegWrapper.Fingerprint(episode, AnalysisMode.Introduction); }
+            catch (FingerprintException) { }
+        }
+
+        Assert.False(File.Exists(legacyPath), "Corrupt legacy cache file should be deleted");
+
+        using var db = new IntroSkipper.Db.DetectionCacheDb(cacheDbPath);
+        Assert.False(db.ExistsByKey(dbKey), "No DB row should be written for a corrupt legacy file");
+    }
+
+    private static uint[] ReadFingerprintFromDb(IntroSkipper.Db.DetectionCacheDb db, string cacheKey)
+    {
+        if (!db.TryRead(cacheKey, out var data))
+        {
+            return [];
+        }
+
+        using var ms = new MemoryStream(data);
+        using var reader = new System.IO.BinaryReader(ms);
+        var count = reader.ReadInt32();
+        var result = new uint[count];
+        for (var i = 0; i < count; i++)
+        {
+            result[i] = reader.ReadUInt32();
+        }
+
+        return result;
     }
 
     /// <summary>
@@ -165,9 +260,9 @@ public sealed class TestCacheOperations
     {
         private readonly EntrypointTestHelpers.PluginInstanceScope _inner;
 
-        public CachingPluginScope(string cacheDir)
+        public CachingPluginScope(string cacheDir, string? cacheDbPath = null)
         {
-            _inner = new EntrypointTestHelpers.PluginInstanceScope(cacheDir);
+            _inner = new EntrypointTestHelpers.PluginInstanceScope(cacheDir, cacheDbPath);
             var plugin = Plugin.Instance;
             if (plugin is not null)
             {
@@ -177,6 +272,8 @@ public sealed class TestCacheOperations
                     new PluginConfiguration { CacheFingerprints = true });
             }
         }
+
+        public string CacheDbPath => _inner.CacheDbPath;
 
         public void Dispose() => _inner.Dispose();
     }

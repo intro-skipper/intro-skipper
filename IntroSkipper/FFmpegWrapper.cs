@@ -14,6 +14,8 @@ using System.Linq;
 using System.Text;
 using System.Text.RegularExpressions;
 using IntroSkipper.Data;
+using IntroSkipper.Db;
+using Microsoft.Data.Sqlite;
 using Microsoft.Extensions.Logging;
 
 namespace IntroSkipper;
@@ -43,7 +45,7 @@ public static partial class FFmpegWrapper
     private static bool IsCachingEnabled()
         => Plugin.Instance?.Configuration.CacheFingerprints ?? false;
 
-    private static string GetDetectionCachePath(string cacheKey)
+    private static string GetLegacyFilePath(string cacheKey)
         => Path.Join(Plugin.Instance?.FingerprintCachePath ?? string.Empty, cacheKey);
 
     /// <summary>
@@ -186,7 +188,7 @@ public static partial class FFmpegWrapper
             range.End);
 
         if (ReadSilenceCache(cacheKey, out var cached) ||
-            TryLoadLegacyCache(legacyCacheKey, cacheKey, raw => ParseSilenceRaw(raw, range.Start), WriteSilenceCache, out cached))
+            TryLoadLegacyCache(legacyCacheKey, cacheKey, raw => ParseSilenceRaw(raw, range.Start), static r => new TimeRange(r.ReadDouble(), r.ReadDouble()), WriteSilenceCache, out cached))
         {
             return cached;
         }
@@ -244,7 +246,7 @@ public static partial class FFmpegWrapper
             range.End);
 
         if (ReadBlackFrameCache(cacheKey, out var cached) ||
-            TryLoadLegacyCache(legacyCacheKey, cacheKey, static raw => ParseBlackFrame(raw), WriteBlackFrameCache, out cached))
+            TryLoadLegacyCache(legacyCacheKey, cacheKey, static raw => ParseBlackFrame(raw), static r => new BlackFrame(r.ReadInt32(), r.ReadDouble(), r.ReadInt32()), WriteBlackFrameCache, out cached))
         {
             return [.. cached.Where(bf => bf.Percentage >= minimum)];
         }
@@ -290,7 +292,7 @@ public static partial class FFmpegWrapper
             episode.CreditsFingerprintStart);
 
         if (ReadBlackFrameCache(cacheKey, out var cached) ||
-            TryLoadLegacyCache(legacyCacheKey, cacheKey, static raw => ParseBlackFrame(raw), WriteBlackFrameCache, out cached))
+            TryLoadLegacyCache(legacyCacheKey, cacheKey, static raw => ParseBlackFrame(raw), static r => new BlackFrame(r.ReadInt32(), r.ReadDouble(), r.ReadInt32()), WriteBlackFrameCache, out cached))
         {
             return cached;
         }
@@ -418,7 +420,7 @@ public static partial class FFmpegWrapper
             range.End);
 
         if (ReadKeyFrameCache(cacheKey, out var cached) ||
-            TryLoadLegacyCache(legacyCacheKey, cacheKey, raw => ParseKeyFramesRaw(raw, range.Start), WriteKeyFrameCache, out cached))
+            TryLoadLegacyCache(legacyCacheKey, cacheKey, raw => ParseKeyFramesRaw(raw, range.Start), static r => r.ReadDouble(), WriteKeyFrameCache, out cached))
         {
             return cached;
         }
@@ -720,7 +722,7 @@ public static partial class FFmpegWrapper
         var legacyCacheKey = id + suffix;
 
         return ReadFingerprintCache(cacheKey, out fingerprint) ||
-            TryLoadLegacyCache(legacyCacheKey, cacheKey, ParseFingerprintRaw, WriteFingerprintCache, out fingerprint);
+            TryLoadLegacyCache(legacyCacheKey, cacheKey, ParseFingerprintRaw, static r => r.ReadUInt32(), WriteFingerprintCache, out fingerprint);
     }
 
     /// <summary>
@@ -745,23 +747,24 @@ public static partial class FFmpegWrapper
     /// <param name="id">Media item ID to remove from cache.</param>
     public static void DeleteFingerprintCache(Guid id)
     {
-        var cachePath = Path.Join(
-            Plugin.Instance!.FingerprintCachePath,
-            id.ToString("N"));
+        // Delete from the SQLite cache database.
+        using var db = Plugin.CreateCacheDb();
+        db.DeleteByEpisodeId(id);
 
-        // File.Delete(cachePath);
-        // File.Delete(cachePath + "-intro-silence-v1");
-        // File.Delete(cachePath + "-credits");
-
-        var filePattern = Path.GetFileName(cachePath) + "*";
-        foreach (var filePath in Directory.EnumerateFiles(Plugin.Instance!.FingerprintCachePath, filePattern))
+        // Also sweep any legacy binary files still on disk (pre-migration installs).
+        var cacheDir = Plugin.Instance?.FingerprintCachePath;
+        if (cacheDir is not null && Directory.Exists(cacheDir))
         {
-            if (Logger is { } deleteLogger)
+            var filePattern = id.ToString("N") + "*";
+            foreach (var filePath in Directory.EnumerateFiles(cacheDir, filePattern))
             {
-                LogDeleteEpisodeCache(deleteLogger, filePath);
-            }
+                if (Logger is { } deleteLogger)
+                {
+                    LogDeleteEpisodeCache(deleteLogger, filePath);
+                }
 
-            File.Delete(filePath);
+                File.Delete(filePath);
+            }
         }
     }
 
@@ -771,26 +774,36 @@ public static partial class FFmpegWrapper
     /// <param name="mode">Analysis mode.</param>
     public static void DeleteCacheFiles(AnalysisMode mode)
     {
-        foreach (var filePath in Directory.EnumerateFiles(Plugin.Instance!.FingerprintCachePath)
-            .Where(f => mode == AnalysisMode.Introduction
-                ? !Path.GetFileName(f).Contains("-credits", StringComparison.OrdinalIgnoreCase)
-                : Path.GetFileName(f).Contains("-credits", StringComparison.OrdinalIgnoreCase)))
+        // Delete from the SQLite cache database.
+        using var db = Plugin.CreateCacheDb();
+        db.DeleteByMode(mode);
+
+        // Also sweep any legacy binary files still on disk (pre-migration installs).
+        var cacheDir = Plugin.Instance?.FingerprintCachePath;
+        if (cacheDir is not null && Directory.Exists(cacheDir))
         {
-            File.Delete(filePath);
+            foreach (var filePath in Directory.EnumerateFiles(cacheDir)
+                .Where(f => mode == AnalysisMode.Introduction
+                    ? !Path.GetFileName(f).Contains("-credits", StringComparison.OrdinalIgnoreCase)
+                    : Path.GetFileName(f).Contains("-credits", StringComparison.OrdinalIgnoreCase)))
+            {
+                File.Delete(filePath);
+            }
         }
     }
 
     /// <summary>
-    /// Determines the binary cache path for an episode's fingerprint.
+    /// Determines the legacy on-disk path for an episode's fingerprint cache file.
     /// </summary>
     /// <param name="episode">Episode.</param>
     /// <param name="mode">Analysis mode.</param>
-    /// <returns>Path to the binary fingerprint cache file.</returns>
+    /// <returns>Path to the legacy binary fingerprint cache file (may not exist after migration to SQLite).</returns>
+    [Obsolete("Fingerprints are now stored in the SQLite detection cache database. This path may not exist.")]
     public static string GetFingerprintCachePath(QueuedEpisode episode, AnalysisMode mode)
     {
         var id = episode.EpisodeId.ToString("N");
         var suffix = mode == AnalysisMode.Credits ? "-credits" : string.Empty;
-        return GetDetectionCachePath(id + suffix + "-chromaprint-v1");
+        return GetLegacyFilePath(id + suffix + "-chromaprint-v1");
     }
 
     /// <summary>
@@ -808,8 +821,11 @@ public static partial class FFmpegWrapper
 
         var id = episode.EpisodeId.ToString("N");
         var suffix = mode == AnalysisMode.Credits ? "-credits" : string.Empty;
-        return File.Exists(GetDetectionCachePath(id + suffix + "-chromaprint-v1")) ||
-               File.Exists(GetDetectionCachePath(id + suffix));
+
+        using var db = Plugin.CreateCacheDb();
+        return db.ExistsByKey(id + suffix + "-chromaprint-v1") ||
+               File.Exists(GetLegacyFilePath(id + suffix + "-chromaprint-v1")) ||
+               File.Exists(GetLegacyFilePath(id + suffix));
     }
 
     private static bool ReadFingerprintCache(string cacheKey, out uint[] result)
@@ -872,10 +888,16 @@ public static partial class FFmpegWrapper
             return false;
         }
 
-        var path = GetDetectionCachePath(cacheKey);
         try
         {
-            using var reader = new BinaryReader(File.Open(path, FileMode.Open, FileAccess.Read));
+            using var db = Plugin.CreateCacheDb();
+            if (!db.TryRead(cacheKey, out var data))
+            {
+                return false;
+            }
+
+            using var ms = new MemoryStream(data);
+            using var reader = new BinaryReader(ms);
             var count = reader.ReadInt32();
             var items = new T[count];
             for (var i = 0; i < count; i++)
@@ -891,11 +913,11 @@ public static partial class FFmpegWrapper
             result = items;
             return true;
         }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or EndOfStreamException)
+        catch (Exception ex) when (ex is SqliteException or EndOfStreamException)
         {
-            if (ex is not FileNotFoundException && Logger is { } logger)
+            if (Logger is { } logger)
             {
-                LogDetectionCacheReadError(logger, ex, path);
+                LogDetectionCacheReadError(logger, ex, cacheKey);
             }
 
             return false;
@@ -911,14 +933,19 @@ public static partial class FFmpegWrapper
 
         try
         {
-            using var writer = new BinaryWriter(File.Open(GetDetectionCachePath(cacheKey), FileMode.Create, FileAccess.Write));
+            using var ms = new MemoryStream();
+            using var writer = new BinaryWriter(ms);
             writer.Write(items.Length);
             foreach (var item in items)
             {
                 serializer(writer, item);
             }
+
+            writer.Flush();
+            using var db = Plugin.CreateCacheDb();
+            db.Write(cacheKey, ms.ToArray());
         }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        catch (SqliteException ex)
         {
             if (Logger is { } logger)
             {
@@ -931,7 +958,8 @@ public static partial class FFmpegWrapper
         string legacyCacheKey,
         string newCacheKey,
         Func<string, T[]> rawParser,
-        Action<string, T[]> binaryWriter,
+        Func<BinaryReader, T> itemReader,
+        Action<string, T[]> dbWriter,
         out T[] result)
     {
         result = [];
@@ -941,23 +969,77 @@ public static partial class FFmpegWrapper
             return false;
         }
 
-        var legacyPath = GetDetectionCachePath(legacyCacheKey);
+        // Phase 1: migrate old binary files from disk into SQLite.
+        // The old binary filename matched newCacheKey exactly (before SQLite was introduced).
+        var legacyBinaryPath = GetLegacyFilePath(newCacheKey);
+        if (File.Exists(legacyBinaryPath))
+        {
+            try
+            {
+                using var fs = File.Open(legacyBinaryPath, FileMode.Open, FileAccess.Read);
+                using var reader = new BinaryReader(fs);
+                var count = reader.ReadInt32();
+                var items = new T[count];
+                for (var i = 0; i < count; i++)
+                {
+                    items[i] = itemReader(reader);
+                }
+
+                if (items.Length > 0)
+                {
+                    if (Logger is { } migLogger)
+                    {
+                        LogMigratingLegacyCache(migLogger, newCacheKey, newCacheKey);
+                    }
+
+                    dbWriter(newCacheKey, items);
+                    File.Delete(legacyBinaryPath);
+                    result = items;
+                    return true;
+                }
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or EndOfStreamException)
+            {
+                // Corrupt or unreadable binary file — delete it and fall through to text-format check.
+                try
+                {
+                    File.Delete(legacyBinaryPath);
+                }
+                catch (IOException)
+                {
+                }
+            }
+        }
+
+        // Phase 2: migrate even-older text-format files from disk into SQLite.
+        // Only fingerprints had a text format; other detection types had a versioned binary format
+        // (e.g. silence-v2) which is handled by re-analysis if missing.
+        var legacyTextPath = GetLegacyFilePath(legacyCacheKey);
         try
         {
-            var raw = File.ReadAllText(legacyPath, Encoding.UTF8);
+            var raw = File.ReadAllText(legacyTextPath, Encoding.UTF8);
             result = rawParser(raw);
+
+            // If the parser returned nothing the legacy file is corrupt or unreadable.
+            // Delete it so it doesn't block future attempts, then fall through to re-analysis.
+            if (result.Length == 0)
+            {
+                File.Delete(legacyTextPath);
+                return false;
+            }
 
             if (Logger is { } logger)
             {
                 LogMigratingLegacyCache(logger, legacyCacheKey, newCacheKey);
             }
 
-            binaryWriter(newCacheKey, result);
+            dbWriter(newCacheKey, result);
 
-            // Only delete the legacy file if the new binary cache was actually written.
-            if (File.Exists(GetDetectionCachePath(newCacheKey)))
+            // Only delete the legacy file after the DB write has been attempted.
+            using var db = Plugin.CreateCacheDb();
+            if (db.ExistsByKey(newCacheKey))
             {
-                File.Delete(legacyPath);
+                File.Delete(legacyTextPath);
             }
 
             return true;
@@ -966,7 +1048,7 @@ public static partial class FFmpegWrapper
         {
             if (ex is not FileNotFoundException && Logger is { } logger)
             {
-                LogDetectionCacheReadError(logger, ex, legacyPath);
+                LogDetectionCacheReadError(logger, ex, legacyTextPath);
             }
 
             return false;

@@ -93,14 +93,33 @@ public partial class CleanCacheTask(
 
         await plugin.CleanTimestampsAsync(enabledLibraryEpisodeIds, cancellationToken).ConfigureAwait(false);
 
-        // Identify episode IDs with cached files that are no longer in enabled libraries
-        var invalidEpisodeIds = Directory.EnumerateFiles(plugin.FingerprintCachePath)
-            .Select(filePath => Path.GetFileNameWithoutExtension(filePath).Split('-')[0])
-            .Where(episodeIdStr => Guid.TryParse(episodeIdStr, out var episodeId) && !enabledLibraryEpisodeIds.Contains(episodeId))
-            .Select(Guid.Parse)
-            .ToHashSet();
+        // Identify episode IDs in the SQLite cache that are no longer in enabled libraries.
+        var invalidEpisodeIds = new HashSet<Guid>();
+        using (var cacheDb = Plugin.CreateCacheDb())
+        {
+            foreach (var id in cacheDb.GetAllEpisodeIds())
+            {
+                if (!enabledLibraryEpisodeIds.Contains(id))
+                {
+                    invalidEpisodeIds.Add(id);
+                }
+            }
+        }
 
-        // Delete cache files for invalid episode IDs
+        // Also sweep any legacy binary files still on disk (pre-migration installs).
+        if (Directory.Exists(plugin.FingerprintCachePath))
+        {
+            foreach (var filePath in Directory.EnumerateFiles(plugin.FingerprintCachePath))
+            {
+                var prefix = Path.GetFileName(filePath).Split('-')[0];
+                if (Guid.TryParse(prefix, out var legacyId) && !enabledLibraryEpisodeIds.Contains(legacyId))
+                {
+                    invalidEpisodeIds.Add(legacyId);
+                }
+            }
+        }
+
+        // Delete cache entries for invalid episode IDs (DB rows + any leftover files).
         foreach (var episodeId in invalidEpisodeIds)
         {
             LogDeletingCacheFiles(_logger, episodeId);
