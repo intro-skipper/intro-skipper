@@ -94,16 +94,12 @@ public partial class CleanCacheTask(
         await plugin.CleanTimestampsAsync(enabledLibraryEpisodeIds, cancellationToken).ConfigureAwait(false);
 
         // Identify episode IDs in the SQLite cache that are no longer in enabled libraries.
-        var invalidEpisodeIds = new HashSet<Guid>();
+        HashSet<Guid> invalidEpisodeIds;
         using (var cacheDb = Plugin.CreateCacheDb())
         {
-            foreach (var id in cacheDb.GetAllEpisodeIds())
-            {
-                if (!enabledLibraryEpisodeIds.Contains(id))
-                {
-                    invalidEpisodeIds.Add(id);
-                }
-            }
+            invalidEpisodeIds = cacheDb.GetAllEpisodeIds()
+                .Where(id => !enabledLibraryEpisodeIds.Contains(id))
+                .ToHashSet();
         }
 
         // Also sweep any legacy binary files still on disk (pre-migration installs).
