@@ -342,8 +342,7 @@ public static partial class FFmpegWrapper
 
             var ptsTimeStr = line[(ptsIndex + 9)..].Split(' ', 2)[0];
 
-            // AllowThousands is required by the four-parameter overload; FFmpeg never emits thousands separators.
-            if (double.TryParse(ptsTimeStr, NumberStyles.Float | NumberStyles.AllowThousands, CultureInfo.InvariantCulture, out double timestamp))
+            if (double.TryParse(ptsTimeStr, CultureInfo.InvariantCulture, out double timestamp))
             {
                 keyframes.Add(timestamp + rangeStart);
             }
@@ -989,7 +988,7 @@ public static partial class FFmpegWrapper
                 {
                     if (Logger is { } migLogger)
                     {
-                        LogMigratingLegacyCache(migLogger, newCacheKey, newCacheKey);
+                        LogMigratingLegacyCache(migLogger, newCacheKey, "DB");
                     }
 
                     dbWriter(newCacheKey, items);
@@ -1135,10 +1134,10 @@ public static partial class FFmpegWrapper
     [LoggerMessage(Level = LogLevel.Trace, Message = "Detection cache hit for {CacheKey}")]
     private static partial void LogDetectionCacheHit(ILogger logger, string cacheKey);
 
-    [LoggerMessage(Level = LogLevel.Error, Message = "Error reading detection cache from {Path}")]
+    [LoggerMessage(Level = LogLevel.Warning, Message = "Error reading detection cache from {Path}")]
     private static partial void LogDetectionCacheReadError(ILogger logger, Exception ex, string path);
 
-    [LoggerMessage(Level = LogLevel.Error, Message = "Error writing detection cache for {CacheKey}")]
+    [LoggerMessage(Level = LogLevel.Warning, Message = "Error writing detection cache for {CacheKey}")]
     private static partial void LogDetectionCacheWriteError(ILogger logger, Exception ex, string cacheKey);
 
     [LoggerMessage(Level = LogLevel.Debug, Message = "Migrating legacy cache {LegacyKey} to {NewKey}")]
