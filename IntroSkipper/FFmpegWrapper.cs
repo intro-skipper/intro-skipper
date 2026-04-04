@@ -950,9 +950,20 @@ public static partial class FFmpegWrapper
                     }
 
                     dbWriter(newCacheKey, items);
-                    File.Delete(legacyBinaryPath);
-
                     result = items;
+
+                    try
+                    {
+                        File.Delete(legacyBinaryPath);
+                    }
+                    catch (IOException ex)
+                    {
+                        if (Logger is { } deleteLogger)
+                        {
+                            LogFailedToDeleteCorruptLegacyCache(deleteLogger, ex, legacyBinaryPath);
+                        }
+                    }
+
                     return true;
                 }
                 else
