@@ -17,7 +17,8 @@ public sealed class TestDetectionCacheDb : IDisposable
     public TestDetectionCacheDb()
     {
         var baseDir = Path.Combine(Path.GetTempPath(), "IntroSkipper.Tests");
-        _dbPath = Path.Combine(baseDir, $"cache-{Guid.NewGuid():N}.db");
+        var fileName = $"cache-{Guid.NewGuid():N}.db";
+        _dbPath = Path.Combine(baseDir, fileName);
         Directory.CreateDirectory(Path.GetDirectoryName(_dbPath)!);
         DetectionCacheDb.EnsureSchema(_dbPath);
     }
