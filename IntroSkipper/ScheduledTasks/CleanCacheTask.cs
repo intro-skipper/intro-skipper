@@ -105,9 +105,15 @@ public partial class CleanCacheTask(
         // Also sweep any legacy binary files still on disk (pre-migration installs).
         if (Directory.Exists(plugin.FingerprintCachePath))
         {
-            foreach (var filePath in Directory.EnumerateFiles(plugin.FingerprintCachePath))
+            var prefixes = Directory.EnumerateFiles(plugin.FingerprintCachePath)
+                .Select(filePath =>
+                {
+                    var parts = Path.GetFileName(filePath).Split('-');
+                    return parts.Length > 0 ? parts[0] : string.Empty;
+                });
+
+            foreach (var prefix in prefixes)
             {
-                var prefix = Path.GetFileName(filePath).Split('-')[0];
                 if (Guid.TryParse(prefix, out var legacyId) && !enabledLibraryEpisodeIds.Contains(legacyId))
                 {
                     invalidEpisodeIds.Add(legacyId);
