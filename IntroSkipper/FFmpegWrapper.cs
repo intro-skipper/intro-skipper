@@ -724,7 +724,17 @@ public static partial class FFmpegWrapper
                     LogDeleteEpisodeCache(deleteLogger, filePath);
                 }
 
-                File.Delete(filePath);
+                try
+                {
+                    File.Delete(filePath);
+                }
+                catch (IOException ex)
+                {
+                    if (Logger is { } errLogger)
+                    {
+                        LogDeleteLegacyCacheFileFailed(errLogger, ex, filePath);
+                    }
+                }
             }
         }
     }
@@ -748,7 +758,17 @@ public static partial class FFmpegWrapper
                     ? !Path.GetFileName(f).Contains("-credits", StringComparison.OrdinalIgnoreCase)
                     : Path.GetFileName(f).Contains("-credits", StringComparison.OrdinalIgnoreCase)))
             {
-                File.Delete(filePath);
+                try
+                {
+                    File.Delete(filePath);
+                }
+                catch (IOException ex)
+                {
+                    if (Logger is { } errLogger)
+                    {
+                        LogDeleteLegacyCacheFileFailed(errLogger, ex, filePath);
+                    }
+                }
             }
         }
     }
@@ -1077,6 +1097,9 @@ public static partial class FFmpegWrapper
 
     [LoggerMessage(Level = LogLevel.Debug, Message = "DeleteEpisodeCache {FilePath}")]
     private static partial void LogDeleteEpisodeCache(ILogger logger, string filePath);
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "Failed to delete legacy cache file '{FilePath}'")]
+    private static partial void LogDeleteLegacyCacheFileFailed(ILogger logger, Exception ex, string filePath);
 
     [LoggerMessage(Level = LogLevel.Trace, Message = "Detection cache hit for {CacheKey}")]
     private static partial void LogDetectionCacheHit(ILogger logger, string cacheKey);

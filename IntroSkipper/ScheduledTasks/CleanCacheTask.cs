@@ -141,8 +141,8 @@ public partial class CleanCacheTask(
                 }
                 else
                 {
-                    // Text-format fingerprint file — data cannot be migrated and will be lost on deletion.
-                    LogDeletingTextFormatFile(_logger, filePath);
+                    // Non-migratable file (text-format fingerprint or stale detection format) — delete and let re-analysis repopulate.
+                    LogDeletingNonMigratableLegacyFile(_logger, filePath);
                 }
 
                 try
@@ -196,8 +196,8 @@ public partial class CleanCacheTask(
     [LoggerMessage(Level = LogLevel.Warning, Message = "Failed to delete stale legacy cache file '{FilePath}'")]
     private static partial void LogDeletingLegacyFileFailed(ILogger logger, Exception exception, string filePath);
 
-    [LoggerMessage(Level = LogLevel.Warning, Message = "Deleting unmigratable text-format legacy cache file (data will be lost): {FilePath}")]
-    private static partial void LogDeletingTextFormatFile(ILogger logger, string filePath);
+    [LoggerMessage(Level = LogLevel.Debug, Message = "Deleting non-migratable legacy cache file: {FilePath}")]
+    private static partial void LogDeletingNonMigratableLegacyFile(ILogger logger, string filePath);
 
     /// <summary>
     /// Maps a legacy on-disk cache filename to the current SQLite cache DB key.
@@ -220,20 +220,23 @@ public partial class CleanCacheTask(
              filename.Contains("-keyframes-", StringComparison.Ordinal)) &&
             filename.EndsWith("-v1", StringComparison.Ordinal))
         {
-            return string.Concat(filename.AsSpan(0, filename.Length - 3), "-v2");
+            // Version bump represents a cache-format invalidation; copying raw bytes under the
+            // new key would write old-format data that TryReadBinaryCache cannot deserialize.
+            // Delete and let the next analysis repopulate in the current format.
+            return null;
         }
 
         // silence v2 → v3
         if (filename.Contains("-silence-", StringComparison.Ordinal) &&
             filename.EndsWith("-v2", StringComparison.Ordinal))
         {
-            return string.Concat(filename.AsSpan(0, filename.Length - 3), "-v3");
+            return null;
         }
 
         // credits blackframes -alt → -v2
         if (filename.EndsWith("-alt", StringComparison.Ordinal))
         {
-            return string.Concat(filename.AsSpan(0, filename.Length - 4), "-v2");
+            return null;
         }
 
         // Already in current DB key format (chromaprint-v1, blackframes-v2, silence-v3, keyframes-v2, etc.)

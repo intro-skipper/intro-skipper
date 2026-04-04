@@ -232,14 +232,8 @@ public sealed partial class DetectionCacheDb : IDisposable
     {
         var connection = new SqliteConnection($"Data Source={dbPath};Mode=ReadWriteCreate");
         connection.Open();
-
-        // Set busy_timeout first so any subsequent PRAGMA (including journal_mode) retries on SQLITE_BUSY.
         using var pragmaCmd = connection.CreateCommand();
-        pragmaCmd.CommandText = "PRAGMA busy_timeout=5000;";
-        pragmaCmd.ExecuteNonQuery();
-        pragmaCmd.CommandText = "PRAGMA journal_mode=WAL;";
-        pragmaCmd.ExecuteNonQuery();
-
+        SqlitePragmas.Apply(pragmaCmd);
         return connection;
     }
 

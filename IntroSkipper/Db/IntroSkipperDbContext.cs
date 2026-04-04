@@ -274,19 +274,13 @@ public class IntroSkipperDbContext : DbContext
         public override void ConnectionOpened(DbConnection connection, ConnectionEndEventData eventData)
         {
             using var cmd = connection.CreateCommand();
-            cmd.CommandText = "PRAGMA busy_timeout=5000;";
-            cmd.ExecuteNonQuery();
-            cmd.CommandText = "PRAGMA journal_mode=WAL;";
-            cmd.ExecuteNonQuery();
+            SqlitePragmas.Apply(cmd);
         }
 
         public override async Task ConnectionOpenedAsync(DbConnection connection, ConnectionEndEventData eventData, CancellationToken cancellationToken = default)
         {
             using var cmd = connection.CreateCommand();
-            cmd.CommandText = "PRAGMA busy_timeout=5000;";
-            await cmd.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
-            cmd.CommandText = "PRAGMA journal_mode=WAL;";
-            await cmd.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+            await SqlitePragmas.ApplyAsync(cmd, cancellationToken).ConfigureAwait(false);
         }
     }
 }
