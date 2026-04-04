@@ -95,29 +95,49 @@ public partial class CleanCacheTask(
 
         // Identify episode IDs in the SQLite cache that are no longer in enabled libraries.
         HashSet<Guid> invalidEpisodeIds;
+        HashSet<Guid> migratedEpisodeIds;
         using (var cacheDb = Plugin.CreateCacheDb())
         {
-            invalidEpisodeIds = cacheDb.GetAllEpisodeIds()
+            var allCachedIds = cacheDb.GetAllEpisodeIds().ToList();
+            invalidEpisodeIds = allCachedIds
                 .Where(id => !enabledLibraryEpisodeIds.Contains(id))
+                .ToHashSet();
+            migratedEpisodeIds = allCachedIds
+                .Where(id => enabledLibraryEpisodeIds.Contains(id))
                 .ToHashSet();
         }
 
         // Also sweep any legacy binary files still on disk (pre-migration installs).
         if (Directory.Exists(plugin.FingerprintCachePath))
         {
-            var prefixes = Directory.EnumerateFiles(plugin.FingerprintCachePath)
-                .Select(filePath =>
-                {
-                    var parts = Path.GetFileName(filePath).Split('-');
-                    return parts.Length > 0 ? parts[0] : string.Empty;
-                });
-
-            foreach (var prefix in prefixes)
+            foreach (var filePath in Directory.EnumerateFiles(plugin.FingerprintCachePath))
             {
-                if (Guid.TryParse(prefix, out var legacyId) && !enabledLibraryEpisodeIds.Contains(legacyId))
+                var parts = Path.GetFileName(filePath).Split('-');
+                if (parts.Length == 0 || !Guid.TryParse(parts[0], out var legacyId))
                 {
+                    continue;
+                }
+
+                if (!enabledLibraryEpisodeIds.Contains(legacyId))
+                {
+                    // Invalid episode — queue for full cache deletion via DeleteFingerprintCache.
                     invalidEpisodeIds.Add(legacyId);
                 }
+                else if (migratedEpisodeIds.Contains(legacyId))
+                {
+                    // Valid episode already in the cache DB — disk file is a stale legacy copy.
+                    LogDeletingLegacyFile(_logger, filePath);
+                    try
+                    {
+                        File.Delete(filePath);
+                    }
+                    catch (IOException ex)
+                    {
+                        LogDeletingLegacyFileFailed(_logger, ex, filePath);
+                    }
+                }
+
+                // else: valid episode not yet in DB — leave the file for analysis to migrate on next run.
             }
         }
 
@@ -147,4 +167,10 @@ public partial class CleanCacheTask(
 
     [LoggerMessage(Level = LogLevel.Debug, Message = "Deleting cache files for episode ID: {EpisodeId}")]
     private static partial void LogDeletingCacheFiles(ILogger logger, Guid episodeId);
+
+    [LoggerMessage(Level = LogLevel.Debug, Message = "Deleting stale legacy cache file: {FilePath}")]
+    private static partial void LogDeletingLegacyFile(ILogger logger, string filePath);
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "Failed to delete stale legacy cache file '{FilePath}'")]
+    private static partial void LogDeletingLegacyFileFailed(ILogger logger, Exception exception, string filePath);
 }
