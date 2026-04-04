@@ -937,8 +937,18 @@ public static partial class FFmpegWrapper
                 }
                 else
                 {
-                    // Empty binary file — delete it and fall through to Phase 2.
-                    File.Delete(legacyBinaryPath);
+                    // Empty binary file — best-effort delete and fall through to Phase 2.
+                    try
+                    {
+                        File.Delete(legacyBinaryPath);
+                    }
+                    catch (IOException deleteEx)
+                    {
+                        if (Logger is { } migLogger)
+                        {
+                            LogFailedToDeleteCorruptLegacyCache(migLogger, deleteEx, legacyBinaryPath);
+                        }
+                    }
                 }
             }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or EndOfStreamException)
