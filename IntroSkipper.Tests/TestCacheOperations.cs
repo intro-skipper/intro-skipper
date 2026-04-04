@@ -170,7 +170,7 @@ public sealed class TestCacheOperations
         var cacheDir = EntrypointTestHelpers.CreateTempCacheDir();
 
         var id = episode.EpisodeId.ToString("N");
-        var legacyPath = Path.Combine(cacheDir, id);
+        var legacyPath = Path.Combine(cacheDir, Path.GetFileName(id));
         var dbKey = id + "-chromaprint-v1";
 
         // Write a valid legacy text-format fingerprint (one uint per line)
