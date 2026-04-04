@@ -108,7 +108,8 @@ public partial class CleanCacheTask(
             using var cacheDb = Plugin.CreateCacheDb();
             foreach (var filePath in Directory.EnumerateFiles(plugin.FingerprintCachePath))
             {
-                var parts = Path.GetFileName(filePath).Split('-');
+                var filename = Path.GetFileName(filePath);
+                var parts = filename.Split('-');
                 if (parts.Length == 0 || !Guid.TryParse(parts[0], out var legacyId))
                 {
                     continue;
@@ -122,7 +123,6 @@ public partial class CleanCacheTask(
                 }
 
                 // Valid episode — migrate binary data to the DB if not already there, then delete the disk file.
-                var filename = Path.GetFileName(filePath);
                 var dbKey = GetMigratedDbKey(filename, legacyId.ToString("N"));
                 if (dbKey is not null)
                 {
@@ -215,8 +215,9 @@ public partial class CleanCacheTask(
             return null;
         }
 
-        // blackframes v1 → v2
-        if (filename.Contains("-blackframes-", StringComparison.Ordinal) &&
+        // blackframes and keyframes v1 → v2
+        if ((filename.Contains("-blackframes-", StringComparison.Ordinal) ||
+             filename.Contains("-keyframes-", StringComparison.Ordinal)) &&
             filename.EndsWith("-v1", StringComparison.Ordinal))
         {
             return string.Concat(filename.AsSpan(0, filename.Length - 3), "-v2");
@@ -227,13 +228,6 @@ public partial class CleanCacheTask(
             filename.EndsWith("-v2", StringComparison.Ordinal))
         {
             return string.Concat(filename.AsSpan(0, filename.Length - 3), "-v3");
-        }
-
-        // keyframes v1 → v2
-        if (filename.Contains("-keyframes-", StringComparison.Ordinal) &&
-            filename.EndsWith("-v1", StringComparison.Ordinal))
-        {
-            return string.Concat(filename.AsSpan(0, filename.Length - 3), "-v2");
         }
 
         // credits blackframes -alt → -v2

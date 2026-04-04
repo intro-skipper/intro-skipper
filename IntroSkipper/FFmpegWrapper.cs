@@ -930,13 +930,7 @@ public static partial class FFmpegWrapper
                     }
 
                     dbWriter(newCacheKey, items);
-                    using (var cacheDb = Plugin.CreateCacheDb())
-                    {
-                        if (cacheDb.ExistsByKey(newCacheKey))
-                        {
-                            File.Delete(legacyBinaryPath);
-                        }
-                    }
+                    File.Delete(legacyBinaryPath);
 
                     result = items;
                     return true;
@@ -988,13 +982,7 @@ public static partial class FFmpegWrapper
             }
 
             dbWriter(newCacheKey, result);
-
-            // Only delete the legacy file after the DB write has been attempted.
-            using var db = Plugin.CreateCacheDb();
-            if (db.ExistsByKey(newCacheKey))
-            {
-                File.Delete(legacyTextPath);
-            }
+            File.Delete(legacyTextPath);
 
             return true;
         }
