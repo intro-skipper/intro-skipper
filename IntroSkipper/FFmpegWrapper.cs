@@ -709,8 +709,7 @@ public static partial class FFmpegWrapper
     public static void DeleteFingerprintCache(Guid id)
     {
         // Delete from the SQLite cache database.
-        using var db = Plugin.CreateCacheDb();
-        db.DeleteByEpisodeId(id);
+        Plugin.CreateCacheDb().DeleteByEpisodeId(id);
 
         // Also sweep any legacy binary files still on disk (pre-migration installs).
         var cacheDir = Plugin.Instance?.FingerprintCachePath;
@@ -746,8 +745,7 @@ public static partial class FFmpegWrapper
     public static void DeleteCacheFiles(AnalysisMode mode)
     {
         // Delete from the SQLite cache database.
-        using var db = Plugin.CreateCacheDb();
-        db.DeleteByMode(mode);
+        Plugin.CreateCacheDb().DeleteByMode(mode);
 
         // Also sweep any legacy binary files still on disk (pre-migration installs).
         var cacheDir = Plugin.Instance?.FingerprintCachePath;
@@ -789,7 +787,7 @@ public static partial class FFmpegWrapper
         var id = episode.EpisodeId.ToString("N");
         var suffix = mode == AnalysisMode.Credits ? "-credits" : string.Empty;
 
-        using var db = Plugin.CreateCacheDb();
+        var db = Plugin.CreateCacheDb();
         return db.ExistsByKey(id + suffix + "-chromaprint-v1") ||
                File.Exists(GetLegacyFilePath(id + suffix + "-chromaprint-v1")) ||
                File.Exists(GetLegacyFilePath(id + suffix));
@@ -857,7 +855,7 @@ public static partial class FFmpegWrapper
 
         try
         {
-            using var db = Plugin.CreateCacheDb();
+            var db = Plugin.CreateCacheDb();
             if (!db.TryRead(cacheKey, out var data))
             {
                 return false;
@@ -907,8 +905,7 @@ public static partial class FFmpegWrapper
         }
 
         writer.Flush();
-        using var db = Plugin.CreateCacheDb();
-        db.Write(cacheKey, ms.ToArray());
+        Plugin.CreateCacheDb().Write(cacheKey, ms.ToArray());
     }
 
     private static bool TryLoadLegacyCache<T>(
@@ -1122,7 +1119,7 @@ public static partial class FFmpegWrapper
     [LoggerMessage(Level = LogLevel.Debug, Message = "Migrating legacy cache {LegacyKey} to {NewKey}")]
     private static partial void LogMigratingLegacyCache(ILogger logger, string legacyKey, string newKey);
 
-    [LoggerMessage(Level = LogLevel.Debug, Message = "Failed to delete corrupt legacy cache file at path '{LegacyPath}'")]
+    [LoggerMessage(Level = LogLevel.Debug, Message = "Failed to delete legacy cache file at path '{LegacyPath}'")]
     private static partial void LogFailedToDeleteCorruptLegacyCache(ILogger logger, Exception ex, string legacyPath);
 
     [GeneratedRegex("silence_(?<type>start|end): (?<time>[0-9\\.]+)")]

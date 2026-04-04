@@ -33,17 +33,15 @@ public sealed class TestCacheOperations
         };
 
         using var scope = new EntrypointTestHelpers.PluginInstanceScope(cacheDir);
-        using (var db = Plugin.CreateCacheDb())
+        var db = Plugin.CreateCacheDb();
+        foreach (var key in shouldKeep)
         {
-            foreach (var key in shouldKeep)
-            {
-                db.Write(key, [0x01]);
-            }
+            db.Write(key, [0x01]);
+        }
 
-            foreach (var key in shouldDelete)
-            {
-                db.Write(key, [0x01]);
-            }
+        foreach (var key in shouldDelete)
+        {
+            db.Write(key, [0x01]);
         }
 
         using (new CachingPluginScope(cacheDir, scope.CacheDbPath))
@@ -51,17 +49,15 @@ public sealed class TestCacheOperations
             FFmpegWrapper.DeleteCacheFiles(AnalysisMode.Introduction);
         }
 
-        using (var db = Plugin.CreateCacheDb())
+        db = Plugin.CreateCacheDb();
+        foreach (var key in shouldDelete)
         {
-            foreach (var key in shouldDelete)
-            {
-                Assert.False(db.ExistsByKey(key), $"DB row '{key}' should be deleted");
-            }
+            Assert.False(db.ExistsByKey(key), $"DB row '{key}' should be deleted");
+        }
 
-            foreach (var key in shouldKeep)
-            {
-                Assert.True(db.ExistsByKey(key), $"DB row '{key}' should be kept");
-            }
+        foreach (var key in shouldKeep)
+        {
+            Assert.True(db.ExistsByKey(key), $"DB row '{key}' should be kept");
         }
     }
 
@@ -85,17 +81,15 @@ public sealed class TestCacheOperations
         };
 
         using var scope = new EntrypointTestHelpers.PluginInstanceScope(cacheDir);
-        using (var db = Plugin.CreateCacheDb())
+        var db = Plugin.CreateCacheDb();
+        foreach (var key in shouldKeep)
         {
-            foreach (var key in shouldKeep)
-            {
-                db.Write(key, [0x01]);
-            }
+            db.Write(key, [0x01]);
+        }
 
-            foreach (var key in shouldDelete)
-            {
-                db.Write(key, [0x01]);
-            }
+        foreach (var key in shouldDelete)
+        {
+            db.Write(key, [0x01]);
         }
 
         using (new CachingPluginScope(cacheDir, scope.CacheDbPath))
@@ -103,17 +97,15 @@ public sealed class TestCacheOperations
             FFmpegWrapper.DeleteCacheFiles(AnalysisMode.Credits);
         }
 
-        using (var db = Plugin.CreateCacheDb())
+        db = Plugin.CreateCacheDb();
+        foreach (var key in shouldDelete)
         {
-            foreach (var key in shouldDelete)
-            {
-                Assert.False(db.ExistsByKey(key), $"DB row '{key}' should be deleted");
-            }
+            Assert.False(db.ExistsByKey(key), $"DB row '{key}' should be deleted");
+        }
 
-            foreach (var key in shouldKeep)
-            {
-                Assert.True(db.ExistsByKey(key), $"DB row '{key}' should be kept");
-            }
+        foreach (var key in shouldKeep)
+        {
+            Assert.True(db.ExistsByKey(key), $"DB row '{key}' should be kept");
         }
     }
 
@@ -124,10 +116,7 @@ public sealed class TestCacheOperations
         var cacheDir = EntrypointTestHelpers.CreateTempCacheDir();
 
         using var scope = new EntrypointTestHelpers.PluginInstanceScope(cacheDir);
-        using (var db = Plugin.CreateCacheDb())
-        {
-            db.Write(episode.EpisodeId.ToString("N") + "-chromaprint-v1", [0x01]);
-        }
+        Plugin.CreateCacheDb().Write(episode.EpisodeId.ToString("N") + "-chromaprint-v1", [0x01]);
 
         using (new CachingPluginScope(cacheDir, scope.CacheDbPath))
         {
@@ -190,7 +179,7 @@ public sealed class TestCacheOperations
         Assert.False(File.Exists(legacyPath), "Legacy text cache file should be deleted after migration");
 
         // Use DetectionCacheDb directly since Plugin.Instance is no longer set after scope disposal.
-        using var db = new IntroSkipper.Db.DetectionCacheDb(cacheDbPath);
+        var db = new IntroSkipper.Db.DetectionCacheDb(cacheDbPath);
         Assert.True(db.ExistsByKey(dbKey), "DB row should be created after migration");
 
         // Verify the fingerprint was correctly round-tripped.
@@ -234,7 +223,7 @@ public sealed class TestCacheOperations
 
         Assert.False(File.Exists(legacyPath), "Corrupt legacy cache file should be deleted");
 
-        using var db = new IntroSkipper.Db.DetectionCacheDb(cacheDbPath);
+        var db = new IntroSkipper.Db.DetectionCacheDb(cacheDbPath);
         Assert.False(db.ExistsByKey(dbKey), "No DB row should be written for a corrupt legacy file");
     }
 

@@ -13,10 +13,8 @@ namespace IntroSkipper.Db;
 /// Lightweight SQLite key-value store for FFmpeg detection cache blobs.
 /// Uses Microsoft.Data.Sqlite directly; no EF Core overhead.
 /// Each method opens a short-lived connection, consistent with <see cref="IntroSkipperDbContext"/> usage patterns.
-/// Implements <see cref="IDisposable"/> so callers can use <c>using var db = Plugin.CreateCacheDb()</c>;
-/// the actual disposal is a no-op because no long-lived resources are held.
 /// </summary>
-public sealed partial class DetectionCacheDb : IDisposable
+public sealed partial class DetectionCacheDb
 {
     private readonly string _dbPath;
     private readonly ILogger? _logger;
@@ -136,9 +134,10 @@ public sealed partial class DetectionCacheDb : IDisposable
     /// <param name="mode">The analysis mode to delete cache for.</param>
     public void DeleteByMode(AnalysisMode mode)
     {
-        // CacheKey format: {guid32}-{type}-... where credits keys have '-credits-' immediately after the 32-char guid.
-        const string DeleteIntroSql = "DELETE FROM DetectionCache WHERE substr(CacheKey, 33, 9) != '-credits-'";
-        const string DeleteCreditsSql = "DELETE FROM DetectionCache WHERE substr(CacheKey, 33, 9) = '-credits-'";
+        // CacheKey format: {guid32}-{type}-... where credits keys contain '-credits-' after the GUID.
+        // GUIDs are hex-only so '-credits-' can never appear in the GUID portion.
+        const string DeleteIntroSql = "DELETE FROM DetectionCache WHERE CacheKey NOT LIKE '%-credits-%'";
+        const string DeleteCreditsSql = "DELETE FROM DetectionCache WHERE CacheKey LIKE '%-credits-%'";
 
         try
         {
@@ -218,15 +217,6 @@ public sealed partial class DetectionCacheDb : IDisposable
         }
 
         return ids;
-    }
-
-    /// <summary>
-    /// No-op disposal. No long-lived resources are held; each method opens its own connection.
-    /// Provided so callers can use <c>using var db = Plugin.CreateCacheDb()</c>.
-    /// </summary>
-    public void Dispose()
-    {
-        // No resources to release.
     }
 
     private static SqliteConnection OpenConnection(string dbPath)

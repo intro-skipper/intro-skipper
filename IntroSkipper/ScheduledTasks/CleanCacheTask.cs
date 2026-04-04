@@ -93,19 +93,15 @@ public partial class CleanCacheTask(
 
         await plugin.CleanTimestampsAsync(enabledLibraryEpisodeIds, cancellationToken).ConfigureAwait(false);
 
-        // Identify episode IDs in the SQLite cache that are no longer in enabled libraries.
-        HashSet<Guid> invalidEpisodeIds;
-        using (var cacheDb = Plugin.CreateCacheDb())
-        {
-            invalidEpisodeIds = cacheDb.GetAllEpisodeIds()
-                .Where(id => !enabledLibraryEpisodeIds.Contains(id))
-                .ToHashSet();
-        }
+        // Identify episode IDs in the SQLite cache that are no longer in enabled libraries,
+        // and migrate any legacy binary files still on disk (pre-migration installs).
+        var cacheDb = Plugin.CreateCacheDb();
+        var invalidEpisodeIds = cacheDb.GetAllEpisodeIds()
+            .Where(id => !enabledLibraryEpisodeIds.Contains(id))
+            .ToHashSet();
 
-        // Also sweep any legacy binary files still on disk (pre-migration installs).
         if (Directory.Exists(plugin.FingerprintCachePath))
         {
-            using var cacheDb = Plugin.CreateCacheDb();
             foreach (var filePath in Directory.EnumerateFiles(plugin.FingerprintCachePath))
             {
                 var filename = Path.GetFileName(filePath);
@@ -144,7 +140,6 @@ public partial class CleanCacheTask(
 
                 try
                 {
-                    LogDeletingLegacyFile(_logger, filePath);
                     File.Delete(filePath);
                 }
                 catch (IOException ex)
@@ -199,9 +194,6 @@ public partial class CleanCacheTask(
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "Failed to migrate legacy cache file '{FilePath}'")]
     private static partial void LogMigrationFailed(ILogger logger, Exception exception, string filePath);
-
-    [LoggerMessage(Level = LogLevel.Debug, Message = "Deleting stale legacy cache file: {FilePath}")]
-    private static partial void LogDeletingLegacyFile(ILogger logger, string filePath);
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "Failed to delete stale legacy cache file '{FilePath}'")]
     private static partial void LogDeletingLegacyFileFailed(ILogger logger, Exception exception, string filePath);
