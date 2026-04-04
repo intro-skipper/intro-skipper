@@ -340,6 +340,7 @@ public static partial class FFmpegWrapper
 
             var ptsTimeStr = line[(ptsIndex + 9)..].Split(' ', 2)[0];
 
+            // AllowThousands is required by the four-parameter overload; FFmpeg never emits thousands separators.
             if (double.TryParse(ptsTimeStr, NumberStyles.Float | NumberStyles.AllowThousands, CultureInfo.InvariantCulture, out double timestamp))
             {
                 keyframes.Add(timestamp + rangeStart);
@@ -772,10 +773,11 @@ public static partial class FFmpegWrapper
     {
         foreach (var filePath in Directory.EnumerateFiles(Plugin.Instance!.FingerprintCachePath)
             .Where(f => mode == AnalysisMode.Introduction
-                ? !f.Contains("credit", StringComparison.OrdinalIgnoreCase)
-                    && !f.Contains("blackframes", StringComparison.OrdinalIgnoreCase)
-                : f.Contains("credit", StringComparison.OrdinalIgnoreCase)
-                    || f.Contains("blackframes", StringComparison.OrdinalIgnoreCase)))
+                ? Path.GetFileName(f).Contains("-chromaprint-", StringComparison.OrdinalIgnoreCase)
+                    || Path.GetFileName(f).Contains("-silence-", StringComparison.OrdinalIgnoreCase)
+                    || Path.GetFileName(f).Contains("-keyframes-", StringComparison.OrdinalIgnoreCase)
+                : Path.GetFileName(f).Contains("-credits-", StringComparison.OrdinalIgnoreCase)
+                    || Path.GetFileName(f).Contains("-blackframes-", StringComparison.OrdinalIgnoreCase)))
         {
             File.Delete(filePath);
         }
@@ -825,10 +827,13 @@ public static partial class FFmpegWrapper
         var result = new List<uint>(lines.Length);
         foreach (var line in lines)
         {
-            if (uint.TryParse(line, NumberStyles.Integer, CultureInfo.InvariantCulture, out var value))
+            if (!uint.TryParse(line, NumberStyles.Integer, CultureInfo.InvariantCulture, out var value))
             {
-                result.Add(value);
+                // Any invalid entry means the file is corrupt — abort so FFmpeg re-analyzes.
+                return [];
             }
+
+            result.Add(value);
         }
 
         return [.. result];
@@ -951,7 +956,13 @@ public static partial class FFmpegWrapper
             }
 
             binaryWriter(newCacheKey, result);
-            File.Delete(legacyPath);
+
+            // Only delete the legacy file if the new binary cache was actually written.
+            if (File.Exists(GetDetectionCachePath(newCacheKey)))
+            {
+                File.Delete(legacyPath);
+            }
+
             return true;
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
