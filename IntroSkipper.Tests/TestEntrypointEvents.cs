@@ -423,8 +423,9 @@ internal static class EntrypointTestHelpers
         {
             CacheDir = cacheDir;
             // Place the cache DB outside cacheDir to avoid accidental inclusion in legacy file sweeps.
+            var cacheBaseDir = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "IntroSkipper.Tests");
             CacheDbPath = cacheDbPath ?? System.IO.Path.Combine(
-                System.IO.Path.GetTempPath(), "IntroSkipper.Tests", Guid.NewGuid().ToString("N") + "-cache.db");
+                cacheBaseDir, Guid.NewGuid().ToString("N") + "-cache.db");
 
             var instanceProp = typeof(Plugin).GetProperty("Instance", BindingFlags.Public | BindingFlags.Static);
             Assert.NotNull(instanceProp);
