@@ -1019,9 +1019,10 @@ public static partial class FFmpegWrapper
             }
         }
 
-        // Phase 2: migrate even-older text-format files from disk into SQLite.
-        // Only fingerprints had a text format; other detection types had a versioned binary format
-        // (e.g. silence-v2) which is handled by re-analysis if missing.
+        // Phase 2: attempt legacy migration by reading the legacy cache file as UTF-8 text and
+        // running rawParser on it. This fallback is intentionally used for legacy cache migration
+        // across detection types (including fingerprints, silence, blackframe, and keyframe),
+        // not just fingerprints.
         var legacyTextPath = GetLegacyFilePath(legacyCacheKey);
         try
         {
