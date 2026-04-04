@@ -27,7 +27,18 @@ public sealed class TestDetectionCacheDb : IDisposable
         {
             if (File.Exists(f))
             {
-                try { File.Delete(f); } catch { }
+                try
+                {
+                    File.Delete(f);
+                }
+                catch (IOException)
+                {
+                    // Best-effort cleanup for test database files; ignore I/O errors on delete.
+                }
+                catch (UnauthorizedAccessException)
+                {
+                    // Best-effort cleanup for test database files; ignore permission issues on delete.
+                }
             }
         }
     }
