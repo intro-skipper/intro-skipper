@@ -87,12 +87,6 @@ public partial class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
         _dbPath = Path.Join(introsDirectory, "introskipper.db");
         _cacheDbPath = Path.Join(introsDirectory, "introskipper-cache.db");
 
-        // Create the base & cache directories (if needed).
-        if (!Directory.Exists(FingerprintCachePath))
-        {
-            Directory.CreateDirectory(FingerprintCachePath);
-        }
-
         // Initialize segment database.
         try
         {

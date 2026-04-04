@@ -155,6 +155,19 @@ public partial class CleanCacheTask(
                     LogDeletingLegacyFileFailed(_logger, ex, filePath);
                 }
             }
+
+            // Remove the directory itself once it is empty (all legacy files migrated or deleted).
+            if (!Directory.EnumerateFileSystemEntries(plugin.FingerprintCachePath).Any())
+            {
+                try
+                {
+                    Directory.Delete(plugin.FingerprintCachePath);
+                }
+                catch (IOException ex)
+                {
+                    LogDeletingLegacyDirectoryFailed(_logger, ex, plugin.FingerprintCachePath);
+                }
+            }
         }
 
         // Delete cache entries for invalid episode IDs (DB rows + any leftover files).
@@ -195,6 +208,9 @@ public partial class CleanCacheTask(
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "Failed to delete stale legacy cache file '{FilePath}'")]
     private static partial void LogDeletingLegacyFileFailed(ILogger logger, Exception exception, string filePath);
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "Failed to delete legacy fingerprint cache directory '{DirectoryPath}'")]
+    private static partial void LogDeletingLegacyDirectoryFailed(ILogger logger, Exception exception, string directoryPath);
 
     [LoggerMessage(Level = LogLevel.Debug, Message = "Deleting non-migratable legacy cache file: {FilePath}")]
     private static partial void LogDeletingNonMigratableLegacyFile(ILogger logger, string filePath);
