@@ -142,7 +142,7 @@ public sealed class TestCacheOperations
         var cacheDir = EntrypointTestHelpers.CreateTempCacheDir();
 
         // Legacy path: just the episode ID, no suffix (text format on disk)
-        File.WriteAllText(Path.Combine(cacheDir, episode.EpisodeId.ToString("N")), "x");
+        File.WriteAllText(cacheDir + Path.DirectorySeparatorChar + episode.EpisodeId.ToString("N"), "x");
 
         using var _ = new CachingPluginScope(cacheDir);
         Assert.True(FFmpegWrapper.HasCachedFingerprint(episode, AnalysisMode.Introduction));
