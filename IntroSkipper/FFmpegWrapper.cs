@@ -987,6 +987,7 @@ public static partial class FFmpegWrapper
             }
 
             binaryWriter(newCacheKey, result);
+            File.Delete(legacyPath);
             return true;
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
