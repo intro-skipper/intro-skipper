@@ -1004,8 +1004,13 @@ public static partial class FFmpegWrapper
                 {
                     File.Delete(legacyBinaryPath);
                 }
-                catch (IOException)
+                catch (IOException deleteEx)
                 {
+                    // Best-effort cleanup; failure to delete should not stop migration, but log for diagnostics.
+                    if (Logger is { } migLogger)
+                    {
+                        migLogger.LogDebug(deleteEx, "Failed to delete corrupt legacy cache file at path '{LegacyPath}'.", legacyBinaryPath);
+                    }
                 }
             }
         }
