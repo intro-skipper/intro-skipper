@@ -279,7 +279,7 @@ public static partial class FFmpegWrapper
 
         var cacheKey = string.Format(
             CultureInfo.InvariantCulture,
-            "{0}-blackframes-{1}-alt-v2",
+            "{0}-credits-blackframes-{1}-v2",
             episode.EpisodeId.ToString("N"),
             episode.CreditsFingerprintStart);
 
@@ -773,11 +773,8 @@ public static partial class FFmpegWrapper
     {
         foreach (var filePath in Directory.EnumerateFiles(Plugin.Instance!.FingerprintCachePath)
             .Where(f => mode == AnalysisMode.Introduction
-                ? Path.GetFileName(f).Contains("-chromaprint-", StringComparison.OrdinalIgnoreCase)
-                    || Path.GetFileName(f).Contains("-silence-", StringComparison.OrdinalIgnoreCase)
-                    || Path.GetFileName(f).Contains("-keyframes-", StringComparison.OrdinalIgnoreCase)
-                : Path.GetFileName(f).Contains("-credits-", StringComparison.OrdinalIgnoreCase)
-                    || Path.GetFileName(f).Contains("-blackframes-", StringComparison.OrdinalIgnoreCase)))
+                ? !Path.GetFileName(f).Contains("-credits", StringComparison.OrdinalIgnoreCase)
+                : Path.GetFileName(f).Contains("-credits", StringComparison.OrdinalIgnoreCase)))
         {
             File.Delete(filePath);
         }
