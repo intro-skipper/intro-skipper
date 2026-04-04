@@ -695,7 +695,7 @@ public static partial class FFmpegWrapper
 
     /// <summary>
     /// Tries to load an episode's fingerprint from cache. If caching is not enabled, calling this function is a no-op.
-    /// This function was created before the unified caching mechanism was introduced (in v0.1.7).
+    /// Tries the current binary format first, then migrates legacy text-format files on the fly.
     /// </summary>
     /// <param name="episode">Episode to try to load from cache.</param>
     /// <param name="mode">Analysis mode.</param>
@@ -708,70 +708,22 @@ public static partial class FFmpegWrapper
     {
         fingerprint = [];
 
-        // If fingerprint caching isn't enabled, don't try to load anything.
         if (!IsCachingEnabled())
         {
             return false;
         }
 
-        var path = GetFingerprintCachePath(episode, mode);
+        var id = episode.EpisodeId.ToString("N");
+        var suffix = mode == AnalysisMode.Credits ? "-credits" : string.Empty;
+        var cacheKey = id + suffix + "-chromaprint-v1";
+        var legacyCacheKey = id + suffix;
 
-        // If this episode isn't cached, bail out.
-        if (!File.Exists(path))
-        {
-            return false;
-        }
-
-        string[] raw;
-        try
-        {
-            raw = File.ReadAllLines(path, Encoding.UTF8);
-        }
-        catch (IOException ex)
-        {
-            if (Logger is { } ioLogger)
-            {
-                LogFingerprintCacheReadIoError(ioLogger, ex, path);
-            }
-
-            return false;
-        }
-        catch (UnauthorizedAccessException ex)
-        {
-            if (Logger is { } accessLogger)
-            {
-                LogFingerprintCacheReadAccessError(accessLogger, ex, path);
-            }
-
-            return false;
-        }
-
-        var result = new List<uint>(raw.Length);
-
-        foreach (var rawNumber in raw)
-        {
-            if (uint.TryParse(rawNumber, NumberStyles.Integer, CultureInfo.InvariantCulture, out uint number))
-            {
-                result.Add(number);
-            }
-            else
-            {
-                if (Logger is { } invalidLogger)
-                {
-                    LogInvalidFingerprintEntry(invalidLogger, rawNumber, episode.Path, episode.EpisodeId);
-                }
-
-                return false;
-            }
-        }
-
-        fingerprint = [.. result];
-        return true;
+        return ReadFingerprintCache(cacheKey, out fingerprint) ||
+            TryLoadLegacyCache(legacyCacheKey, cacheKey, ParseFingerprintRaw, WriteFingerprintCache, out fingerprint);
     }
 
     /// <summary>
-    /// Cache an episode's fingerprint to disk. If caching is not enabled, calling this function is a no-op.
-    /// This function was created before the unified caching mechanism was introduced (in v0.1.7).
+    /// Cache an episode's fingerprint to disk in binary format. If caching is not enabled, calling this function is a no-op.
     /// </summary>
     /// <param name="episode">Episode to store in cache.</param>
     /// <param name="mode">Analysis mode.</param>
@@ -781,24 +733,9 @@ public static partial class FFmpegWrapper
         AnalysisMode mode,
         List<uint> fingerprint)
     {
-        // Bail out if caching isn't enabled.
-        if (!IsCachingEnabled())
-        {
-            return;
-        }
-
-        // Stringify each data point.
-        var lines = new List<string>();
-        foreach (var number in fingerprint)
-        {
-            lines.Add(number.ToString(CultureInfo.InvariantCulture));
-        }
-
-        // Cache the episode.
-        File.WriteAllLinesAsync(
-            GetFingerprintCachePath(episode, mode),
-            lines,
-            Encoding.UTF8).ConfigureAwait(false);
+        var id = episode.EpisodeId.ToString("N");
+        var suffix = mode == AnalysisMode.Credits ? "-credits" : string.Empty;
+        WriteFingerprintCache(id + suffix + "-chromaprint-v1", [.. fingerprint]);
     }
 
     /// <summary>
@@ -845,29 +782,56 @@ public static partial class FFmpegWrapper
     }
 
     /// <summary>
-    /// Determines the path an episode should be cached at.
-    /// This function was created before the unified caching mechanism was introduced (in v0.1.7).
+    /// Determines the binary cache path for an episode's fingerprint.
     /// </summary>
     /// <param name="episode">Episode.</param>
     /// <param name="mode">Analysis mode.</param>
-    /// <returns>Path.</returns>
+    /// <returns>Path to the binary fingerprint cache file.</returns>
     public static string GetFingerprintCachePath(QueuedEpisode episode, AnalysisMode mode)
     {
-        var basePath = Path.Join(
-            Plugin.Instance!.FingerprintCachePath,
-            episode.EpisodeId.ToString("N"));
+        var id = episode.EpisodeId.ToString("N");
+        var suffix = mode == AnalysisMode.Credits ? "-credits" : string.Empty;
+        return GetDetectionCachePath(id + suffix + "-chromaprint-v1");
+    }
 
-        if (mode == AnalysisMode.Introduction)
+    /// <summary>
+    /// Returns true if a fingerprint cache exists for the episode in either binary or legacy text format.
+    /// </summary>
+    /// <param name="episode">Episode.</param>
+    /// <param name="mode">Analysis mode.</param>
+    /// <returns>true if any fingerprint cache file exists.</returns>
+    public static bool HasCachedFingerprint(QueuedEpisode episode, AnalysisMode mode)
+    {
+        if (!IsCachingEnabled())
         {
-            return basePath;
+            return false;
         }
 
-        if (mode == AnalysisMode.Credits)
+        var id = episode.EpisodeId.ToString("N");
+        var suffix = mode == AnalysisMode.Credits ? "-credits" : string.Empty;
+        return File.Exists(GetDetectionCachePath(id + suffix + "-chromaprint-v1")) ||
+               File.Exists(GetDetectionCachePath(id + suffix));
+    }
+
+    private static bool ReadFingerprintCache(string cacheKey, out uint[] result)
+        => TryReadBinaryCache(cacheKey, static r => r.ReadUInt32(), out result);
+
+    private static void WriteFingerprintCache(string cacheKey, uint[] fingerprint)
+        => WriteBinaryCache(cacheKey, fingerprint, static (w, v) => w.Write(v));
+
+    private static uint[] ParseFingerprintRaw(string raw)
+    {
+        var lines = raw.Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries);
+        var result = new List<uint>(lines.Length);
+        foreach (var line in lines)
         {
-            return basePath + "-credits";
+            if (uint.TryParse(line, NumberStyles.Integer, CultureInfo.InvariantCulture, out var value))
+            {
+                result.Add(value);
+            }
         }
 
-        throw new ArgumentException("Unknown analysis mode " + mode);
+        return [.. result];
     }
 
     private static bool ReadSilenceCache(string cacheKey, out TimeRange[] result)

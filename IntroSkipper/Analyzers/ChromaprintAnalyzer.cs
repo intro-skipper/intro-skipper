@@ -6,7 +6,6 @@
 
 using System;
 using System.Collections.Generic;
-using System.IO;
 using System.Linq;
 using System.Numerics;
 using System.Threading;
@@ -43,7 +42,7 @@ public partial class ChromaprintAnalyzer(ILogger<ChromaprintAnalyzer> logger) : 
         // episodes that still have a fingerprint cache and can be re-analyzed.
         var episodeAnalysisQueue = analysisQueue.Where(e =>
             e.NeedsAnalysis(mode) ||
-            (e.GetAnalyzed(mode) == EpisodeState.Analyzed && File.Exists(FFmpegWrapper.GetFingerprintCachePath(e, mode)))).ToList();
+            (e.GetAnalyzed(mode) == EpisodeState.Analyzed && FFmpegWrapper.HasCachedFingerprint(e, mode))).ToList();
 
         if (analysisQueue.Count <= 1 || episodeAnalysisQueue.All(e => e.GetAnalyzed(mode) == EpisodeState.Analyzed))
         {
