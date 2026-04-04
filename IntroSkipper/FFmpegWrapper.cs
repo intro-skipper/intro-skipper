@@ -199,7 +199,7 @@ public static partial class FFmpegWrapper
          * [silencedetect @ 0x000000000000] silence_start: 12.34
          * [silencedetect @ 0x000000000000] silence_end: 56.123 | silence_duration: 43.783
         */
-        var raw = Encoding.UTF8.GetString(GetOutput(args, string.Empty, true));
+        var raw = Encoding.UTF8.GetString(GetOutput(args, true));
         var result = ParseSilenceRaw(raw, range.Start);
         WriteSilenceCache(cacheKey, result);
 
@@ -251,7 +251,7 @@ public static partial class FFmpegWrapper
             return [.. cached.Where(bf => bf.Percentage >= minimum)];
         }
 
-        var raw = Encoding.UTF8.GetString(GetOutput(args, string.Empty, true));
+        var raw = Encoding.UTF8.GetString(GetOutput(args, true));
         var allFrames = ParseBlackFrame(raw);
         WriteBlackFrameCache(cacheKey, allFrames);
 
@@ -297,7 +297,7 @@ public static partial class FFmpegWrapper
             return cached;
         }
 
-        var raw = Encoding.UTF8.GetString(GetOutput(args, string.Empty, true));
+        var raw = Encoding.UTF8.GetString(GetOutput(args, true));
         var allFrames = ParseBlackFrame(raw);
         WriteBlackFrameCache(cacheKey, allFrames);
 
@@ -424,7 +424,7 @@ public static partial class FFmpegWrapper
             return cached;
         }
 
-        var raw = Encoding.UTF8.GetString(GetOutput(args, string.Empty, stderr: true));
+        var raw = Encoding.UTF8.GetString(GetOutput(args, stderr: true));
         var result = ParseKeyFramesRaw(raw, range.Start);
         WriteKeyFrameCache(cacheKey, result);
 
@@ -478,7 +478,7 @@ public static partial class FFmpegWrapper
             LogCheckingRequirement(requirementLogger, arguments);
         }
 
-        var output = Encoding.UTF8.GetString(GetOutput(arguments.Split(' ', StringSplitOptions.RemoveEmptyEntries), string.Empty, false, 2000));
+        var output = Encoding.UTF8.GetString(GetOutput(arguments.Split(' ', StringSplitOptions.RemoveEmptyEntries), false, 2000));
         if (requirementLogger is not null)
         {
             LogFfmpegOutput(requirementLogger, arguments, output);
@@ -506,15 +506,12 @@ public static partial class FFmpegWrapper
 
     /// <summary>
     /// Runs ffmpeg and returns standard output (or error).
-    /// If caching is enabled, will use cacheFilename to cache the output of this command.
     /// </summary>
     /// <param name="args">Arguments to pass to ffmpeg as individual tokens.</param>
-    /// <param name="cacheFilename">Filename to cache the output of this command to, or string.Empty if this command should not be cached.</param>
     /// <param name="stderr">If standard error should be returned.</param>
     /// <param name="timeout">Timeout (in miliseconds) to wait for ffmpeg to exit.</param>
     private static ReadOnlySpan<byte> GetOutput(
         IReadOnlyList<string> args,
-        string cacheFilename,
         bool stderr = false,
         int timeout = 60 * 1000)
     {
@@ -527,33 +524,6 @@ public static partial class FFmpegWrapper
             a.Contains("showinfo", StringComparison.OrdinalIgnoreCase));
 
         var logLevel = useInfoLevel ? "info" : "warning";
-
-        var cacheOutput =
-            IsCachingEnabled() &&
-            !string.IsNullOrEmpty(cacheFilename);
-
-        // If caching is enabled, try to load the output of this command from the cached file.
-        if (cacheOutput)
-        {
-            // Calculate the absolute path to the cached file.
-            cacheFilename = Path.Join(Plugin.Instance!.FingerprintCachePath, cacheFilename);
-
-            // If the cached file exists, return whatever it holds.
-            if (File.Exists(cacheFilename))
-            {
-                if (Logger is { } cacheLogger)
-                {
-                    LogReturningCacheContents(cacheLogger, cacheFilename);
-                }
-
-                return File.ReadAllBytes(cacheFilename);
-            }
-
-            if (Logger is { } cacheMissLogger)
-            {
-                LogCacheNotFound(cacheMissLogger, cacheFilename);
-            }
-        }
 
         // For FFmpeg info queries (-version, -muxers, -h), don't add the thread count flag
         // to avoid "Trailing option(s) found" warning. These are quick queries.
@@ -622,15 +592,7 @@ public static partial class FFmpegWrapper
 
         ffmpeg.WaitForExit(timeout);
 
-        var output = ms.ToArray();
-
-        // If caching is enabled, cache the output of this command.
-        if (cacheOutput)
-        {
-            File.WriteAllBytes(cacheFilename, output);
-        }
-
-        return output;
+        return ms.ToArray();
     }
 
     /// <summary>
@@ -671,7 +633,7 @@ public static partial class FFmpegWrapper
         };
 
         // Returns all fingerprint points as raw 32-bit unsigned integers (little endian).
-        var rawPoints = GetOutput(args, string.Empty);
+        var rawPoints = GetOutput(args);
         if (rawPoints.Length == 0 || rawPoints.Length % 4 != 0)
         {
             if (Logger is { } chromaLogger)
@@ -789,20 +751,6 @@ public static partial class FFmpegWrapper
                 File.Delete(filePath);
             }
         }
-    }
-
-    /// <summary>
-    /// Determines the legacy on-disk path for an episode's fingerprint cache file.
-    /// </summary>
-    /// <param name="episode">Episode.</param>
-    /// <param name="mode">Analysis mode.</param>
-    /// <returns>Path to the legacy binary fingerprint cache file (may not exist after migration to SQLite).</returns>
-    [Obsolete("Fingerprints are now stored in the SQLite detection cache database. This path may not exist.")]
-    public static string GetFingerprintCachePath(QueuedEpisode episode, AnalysisMode mode)
-    {
-        var id = episode.EpisodeId.ToString("N");
-        var suffix = mode == AnalysisMode.Credits ? "-credits" : string.Empty;
-        return GetLegacyFilePath(id + suffix + "-chromaprint-v1");
     }
 
     /// <summary>
@@ -930,27 +878,17 @@ public static partial class FFmpegWrapper
             return;
         }
 
-        try
+        using var ms = new MemoryStream();
+        using var writer = new BinaryWriter(ms);
+        writer.Write(items.Length);
+        foreach (var item in items)
         {
-            using var ms = new MemoryStream();
-            using var writer = new BinaryWriter(ms);
-            writer.Write(items.Length);
-            foreach (var item in items)
-            {
-                serializer(writer, item);
-            }
+            serializer(writer, item);
+        }
 
-            writer.Flush();
-            using var db = Plugin.CreateCacheDb();
-            db.Write(cacheKey, ms.ToArray());
-        }
-        catch (SqliteException ex)
-        {
-            if (Logger is { } logger)
-            {
-                LogDetectionCacheWriteError(logger, ex, cacheKey);
-            }
-        }
+        writer.Flush();
+        using var db = Plugin.CreateCacheDb();
+        db.Write(cacheKey, ms.ToArray());
     }
 
     private static bool TryLoadLegacyCache<T>(
@@ -1003,6 +941,11 @@ public static partial class FFmpegWrapper
                     result = items;
                     return true;
                 }
+                else
+                {
+                    // Empty binary file — delete it and fall through to Phase 2.
+                    File.Delete(legacyBinaryPath);
+                }
             }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or EndOfStreamException)
             {
@@ -1016,7 +959,7 @@ public static partial class FFmpegWrapper
                     // Best-effort cleanup; failure to delete should not stop migration, but log for diagnostics.
                     if (Logger is { } migLogger)
                     {
-                        migLogger.LogDebug(deleteEx, "Failed to delete corrupt legacy cache file at path '{LegacyPath}'.", legacyBinaryPath);
+                        LogFailedToDeleteCorruptLegacyCache(migLogger, deleteEx, legacyBinaryPath);
                     }
                 }
             }
@@ -1110,12 +1053,6 @@ public static partial class FFmpegWrapper
     [LoggerMessage(Level = LogLevel.Debug, Message = "FFmpeg requirement {Arguments} met")]
     private static partial void LogFfmpegRequirementMet(ILogger logger, string arguments);
 
-    [LoggerMessage(Level = LogLevel.Trace, Message = "Returning contents of cache {Cache}")]
-    private static partial void LogReturningCacheContents(ILogger logger, string cache);
-
-    [LoggerMessage(Level = LogLevel.Trace, Message = "Not returning contents of cache {Cache} (not found)")]
-    private static partial void LogCacheNotFound(ILogger logger, string cache);
-
     [LoggerMessage(Level = LogLevel.Debug, Message = "Starting ffmpeg with the following arguments: {Arguments}")]
     private static partial void LogStartingFfmpeg(ILogger logger, string arguments);
 
@@ -1149,11 +1086,11 @@ public static partial class FFmpegWrapper
     [LoggerMessage(Level = LogLevel.Warning, Message = "Error reading detection cache from {Path}")]
     private static partial void LogDetectionCacheReadError(ILogger logger, Exception ex, string path);
 
-    [LoggerMessage(Level = LogLevel.Warning, Message = "Error writing detection cache for {CacheKey}")]
-    private static partial void LogDetectionCacheWriteError(ILogger logger, Exception ex, string cacheKey);
-
     [LoggerMessage(Level = LogLevel.Debug, Message = "Migrating legacy cache {LegacyKey} to {NewKey}")]
     private static partial void LogMigratingLegacyCache(ILogger logger, string legacyKey, string newKey);
+
+    [LoggerMessage(Level = LogLevel.Debug, Message = "Failed to delete corrupt legacy cache file at path '{LegacyPath}'")]
+    private static partial void LogFailedToDeleteCorruptLegacyCache(ILogger logger, Exception ex, string legacyPath);
 
     [GeneratedRegex("silence_(?<type>start|end): (?<time>[0-9\\.]+)")]
     private static partial Regex SilenceRegex();

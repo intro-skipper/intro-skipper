@@ -28,6 +28,7 @@ using MediaBrowser.Controller.Library;
 using MediaBrowser.Model.Entities;
 using MediaBrowser.Model.Plugins;
 using MediaBrowser.Model.Serialization;
+using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 
@@ -112,7 +113,7 @@ public partial class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
         {
             LogCacheDbInitializationError(_logger, ex);
         }
-        catch (DbUpdateException ex)
+        catch (SqliteException ex)
         {
             LogCacheDbInitializationError(_logger, ex);
         }

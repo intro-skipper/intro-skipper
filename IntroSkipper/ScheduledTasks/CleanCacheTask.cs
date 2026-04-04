@@ -105,6 +105,7 @@ public partial class CleanCacheTask(
         // Also sweep any legacy binary files still on disk (pre-migration installs).
         if (Directory.Exists(plugin.FingerprintCachePath))
         {
+            using var cacheDb = Plugin.CreateCacheDb();
             foreach (var filePath in Directory.EnumerateFiles(plugin.FingerprintCachePath))
             {
                 var parts = Path.GetFileName(filePath).Split('-');
@@ -125,7 +126,6 @@ public partial class CleanCacheTask(
                 var dbKey = GetMigratedDbKey(filename, legacyId.ToString("N"));
                 if (dbKey is not null)
                 {
-                    using var cacheDb = Plugin.CreateCacheDb();
                     if (!cacheDb.ExistsByKey(dbKey))
                     {
                         try
@@ -138,6 +138,11 @@ public partial class CleanCacheTask(
                             LogMigrationFailed(_logger, ex, filePath);
                         }
                     }
+                }
+                else
+                {
+                    // Text-format fingerprint file — data cannot be migrated and will be lost on deletion.
+                    LogDeletingTextFormatFile(_logger, filePath);
                 }
 
                 try
@@ -191,6 +196,9 @@ public partial class CleanCacheTask(
     [LoggerMessage(Level = LogLevel.Warning, Message = "Failed to delete stale legacy cache file '{FilePath}'")]
     private static partial void LogDeletingLegacyFileFailed(ILogger logger, Exception exception, string filePath);
 
+    [LoggerMessage(Level = LogLevel.Warning, Message = "Deleting unmigratable text-format legacy cache file (data will be lost): {FilePath}")]
+    private static partial void LogDeletingTextFormatFile(ILogger logger, string filePath);
+
     /// <summary>
     /// Maps a legacy on-disk cache filename to the current SQLite cache DB key.
     /// Returns <c>null</c> for text-format fingerprint files (too old to migrate binary-style).
@@ -198,7 +206,7 @@ public partial class CleanCacheTask(
     /// <param name="filename">The filename of the legacy cache file (without directory).</param>
     /// <param name="episodeIdN">The episode GUID formatted as 32 lowercase hex digits.</param>
     /// <returns>The DB key to use, or <c>null</c> if the file cannot be migrated.</returns>
-    private static string? GetMigratedDbKey(string filename, string episodeIdN)
+    internal static string? GetMigratedDbKey(string filename, string episodeIdN)
     {
         // Plain GUID or GUID-credits: very old text-format fingerprint — delete without migrating.
         if (string.Equals(filename, episodeIdN, StringComparison.Ordinal) ||

@@ -41,14 +41,7 @@ public sealed partial class DetectionCacheDb : IDisposable
     {
         using var connection = OpenConnection(dbPath);
         using var cmd = connection.CreateCommand();
-        cmd.CommandText = """
-            CREATE TABLE IF NOT EXISTS DetectionCache (
-                CacheKey TEXT NOT NULL PRIMARY KEY,
-                Data     BLOB NOT NULL
-            );
-            CREATE INDEX IF NOT EXISTS IX_DetectionCache_EpisodePrefix
-                ON DetectionCache (CacheKey);
-            """;
+        cmd.CommandText = "CREATE TABLE IF NOT EXISTS DetectionCache (CacheKey TEXT NOT NULL PRIMARY KEY, Data BLOB NOT NULL);";
         cmd.ExecuteNonQuery();
     }
 
@@ -240,12 +233,11 @@ public sealed partial class DetectionCacheDb : IDisposable
         var connection = new SqliteConnection($"Data Source={dbPath};Mode=ReadWriteCreate");
         connection.Open();
 
-        // Enable WAL mode for better concurrent read performance,
-        // and set a busy_timeout so parallel writers retry instead of failing immediately.
+        // Set busy_timeout first so any subsequent PRAGMA (including journal_mode) retries on SQLITE_BUSY.
         using var pragmaCmd = connection.CreateCommand();
-        pragmaCmd.CommandText = "PRAGMA journal_mode=WAL;";
-        pragmaCmd.ExecuteNonQuery();
         pragmaCmd.CommandText = "PRAGMA busy_timeout=5000;";
+        pragmaCmd.ExecuteNonQuery();
+        pragmaCmd.CommandText = "PRAGMA journal_mode=WAL;";
         pragmaCmd.ExecuteNonQuery();
 
         return connection;
