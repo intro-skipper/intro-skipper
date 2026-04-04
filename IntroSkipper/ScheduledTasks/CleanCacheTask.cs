@@ -95,15 +95,10 @@ public partial class CleanCacheTask(
 
         // Identify episode IDs in the SQLite cache that are no longer in enabled libraries.
         HashSet<Guid> invalidEpisodeIds;
-        HashSet<Guid> migratedEpisodeIds;
         using (var cacheDb = Plugin.CreateCacheDb())
         {
-            var allCachedIds = cacheDb.GetAllEpisodeIds().ToList();
-            invalidEpisodeIds = allCachedIds
+            invalidEpisodeIds = cacheDb.GetAllEpisodeIds()
                 .Where(id => !enabledLibraryEpisodeIds.Contains(id))
-                .ToHashSet();
-            migratedEpisodeIds = allCachedIds
-                .Where(id => enabledLibraryEpisodeIds.Contains(id))
                 .ToHashSet();
         }
 
@@ -122,22 +117,38 @@ public partial class CleanCacheTask(
                 {
                     // Invalid episode — queue for full cache deletion via DeleteFingerprintCache.
                     invalidEpisodeIds.Add(legacyId);
+                    continue;
                 }
-                else if (migratedEpisodeIds.Contains(legacyId))
+
+                // Valid episode — migrate binary data to the DB if not already there, then delete the disk file.
+                var filename = Path.GetFileName(filePath);
+                var dbKey = GetMigratedDbKey(filename, legacyId.ToString("N"));
+                if (dbKey is not null)
                 {
-                    // Valid episode already in the cache DB — disk file is a stale legacy copy.
-                    LogDeletingLegacyFile(_logger, filePath);
-                    try
+                    using var cacheDb = Plugin.CreateCacheDb();
+                    if (!cacheDb.ExistsByKey(dbKey))
                     {
-                        File.Delete(filePath);
-                    }
-                    catch (IOException ex)
-                    {
-                        LogDeletingLegacyFileFailed(_logger, ex, filePath);
+                        try
+                        {
+                            LogMigratingLegacyFile(_logger, filePath);
+                            cacheDb.Write(dbKey, await File.ReadAllBytesAsync(filePath, cancellationToken).ConfigureAwait(false));
+                        }
+                        catch (IOException ex)
+                        {
+                            LogMigrationFailed(_logger, ex, filePath);
+                        }
                     }
                 }
 
-                // else: valid episode not yet in DB — leave the file for analysis to migrate on next run.
+                try
+                {
+                    LogDeletingLegacyFile(_logger, filePath);
+                    File.Delete(filePath);
+                }
+                catch (IOException ex)
+                {
+                    LogDeletingLegacyFileFailed(_logger, ex, filePath);
+                }
             }
         }
 
@@ -168,9 +179,62 @@ public partial class CleanCacheTask(
     [LoggerMessage(Level = LogLevel.Debug, Message = "Deleting cache files for episode ID: {EpisodeId}")]
     private static partial void LogDeletingCacheFiles(ILogger logger, Guid episodeId);
 
+    [LoggerMessage(Level = LogLevel.Debug, Message = "Migrating legacy cache file to DB: {FilePath}")]
+    private static partial void LogMigratingLegacyFile(ILogger logger, string filePath);
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "Failed to migrate legacy cache file '{FilePath}'")]
+    private static partial void LogMigrationFailed(ILogger logger, Exception exception, string filePath);
+
     [LoggerMessage(Level = LogLevel.Debug, Message = "Deleting stale legacy cache file: {FilePath}")]
     private static partial void LogDeletingLegacyFile(ILogger logger, string filePath);
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "Failed to delete stale legacy cache file '{FilePath}'")]
     private static partial void LogDeletingLegacyFileFailed(ILogger logger, Exception exception, string filePath);
+
+    /// <summary>
+    /// Maps a legacy on-disk cache filename to the current SQLite cache DB key.
+    /// Returns <c>null</c> for text-format fingerprint files (too old to migrate binary-style).
+    /// </summary>
+    /// <param name="filename">The filename of the legacy cache file (without directory).</param>
+    /// <param name="episodeIdN">The episode GUID formatted as 32 lowercase hex digits.</param>
+    /// <returns>The DB key to use, or <c>null</c> if the file cannot be migrated.</returns>
+    private static string? GetMigratedDbKey(string filename, string episodeIdN)
+    {
+        // Plain GUID or GUID-credits: very old text-format fingerprint — delete without migrating.
+        if (string.Equals(filename, episodeIdN, StringComparison.Ordinal) ||
+            string.Equals(filename, episodeIdN + "-credits", StringComparison.Ordinal))
+        {
+            return null;
+        }
+
+        // blackframes v1 → v2
+        if (filename.Contains("-blackframes-", StringComparison.Ordinal) &&
+            filename.EndsWith("-v1", StringComparison.Ordinal))
+        {
+            return string.Concat(filename.AsSpan(0, filename.Length - 3), "-v2");
+        }
+
+        // silence v2 → v3
+        if (filename.Contains("-silence-", StringComparison.Ordinal) &&
+            filename.EndsWith("-v2", StringComparison.Ordinal))
+        {
+            return string.Concat(filename.AsSpan(0, filename.Length - 3), "-v3");
+        }
+
+        // keyframes v1 → v2
+        if (filename.Contains("-keyframes-", StringComparison.Ordinal) &&
+            filename.EndsWith("-v1", StringComparison.Ordinal))
+        {
+            return string.Concat(filename.AsSpan(0, filename.Length - 3), "-v2");
+        }
+
+        // credits blackframes -alt → -v2
+        if (filename.EndsWith("-alt", StringComparison.Ordinal))
+        {
+            return string.Concat(filename.AsSpan(0, filename.Length - 4), "-v2");
+        }
+
+        // Already in current DB key format (chromaprint-v1, blackframes-v2, silence-v3, keyframes-v2, etc.)
+        return filename;
+    }
 }
