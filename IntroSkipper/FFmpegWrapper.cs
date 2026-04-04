@@ -44,7 +44,7 @@ public static partial class FFmpegWrapper
         => Plugin.Instance?.Configuration.CacheFingerprints ?? false;
 
     private static string GetDetectionCachePath(string cacheKey)
-        => Path.Join(Plugin.Instance!.FingerprintCachePath, cacheKey);
+        => Path.Join(Plugin.Instance?.FingerprintCachePath ?? string.Empty, cacheKey);
 
     /// <summary>
     /// Check that the installed version of ffmpeg supports chromaprint.
@@ -246,14 +246,14 @@ public static partial class FFmpegWrapper
         if (ReadBlackFrameCache(cacheKey, out var cached) ||
             TryLoadLegacyCache(legacyCacheKey, cacheKey, static raw => ParseBlackFrame(raw), WriteBlackFrameCache, out cached))
         {
-            return cached.Where(bf => bf.Percentage >= minimum).ToArray();
+            return [.. cached.Where(bf => bf.Percentage >= minimum)];
         }
 
         var raw = Encoding.UTF8.GetString(GetOutput(args, string.Empty, true));
         var allFrames = ParseBlackFrame(raw);
         WriteBlackFrameCache(cacheKey, allFrames);
 
-        return allFrames.Where(bf => bf.Percentage >= minimum).ToArray();
+        return [.. allFrames.Where(bf => bf.Percentage >= minimum)];
     }
 
     /// <summary>
@@ -340,7 +340,7 @@ public static partial class FFmpegWrapper
 
             var ptsTimeStr = line[(ptsIndex + 9)..].Split(' ', 2)[0];
 
-            if (double.TryParse(ptsTimeStr, CultureInfo.InvariantCulture, out double timestamp))
+            if (double.TryParse(ptsTimeStr, NumberStyles.Float | NumberStyles.AllowThousands, CultureInfo.InvariantCulture, out double timestamp))
             {
                 keyframes.Add(timestamp + rangeStart);
             }
