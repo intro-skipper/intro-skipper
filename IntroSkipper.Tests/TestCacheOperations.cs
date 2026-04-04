@@ -225,7 +225,11 @@ public sealed class TestCacheOperations
             // Fingerprint() will fail because the path doesn't exist, but that's fine —
             // we only care that the corrupt legacy file was deleted and no DB row was written.
             try { FFmpegWrapper.Fingerprint(episode, AnalysisMode.Introduction); }
-            catch (FingerprintException) { }
+            catch (FingerprintException ex)
+            {
+                // Expected in this test for non-existent paths; ignore and verify side effects instead.
+                _ = ex;
+            }
         }
 
         Assert.False(File.Exists(legacyPath), "Corrupt legacy cache file should be deleted");
