@@ -946,11 +946,29 @@ public static partial class FFmpegWrapper
                 {
                     if (Logger is { } migLogger)
                     {
-                const int MaxLegacyCacheItems = 1_000_000;
-                var count = reader.ReadInt32();
-                if (count < 0 || count > MaxLegacyCacheItems)
+                        LogMigratingLegacyCache(migLogger, newCacheKey, "DB");
+                    }
+
+                    dbWriter(newCacheKey, items);
+                    result = items;
+
+                    try
+                    {
+                        File.Delete(legacyBinaryPath);
+                    }
+                    catch (IOException ex)
+                    {
+                        if (Logger is { } deleteLogger)
+                        {
+                            LogFailedToDeleteCorruptLegacyCache(deleteLogger, ex, legacyBinaryPath);
+                        }
+                    }
+
+                    return true;
+                }
+                else
                 {
-                    // Invalid item count indicates a corrupt legacy binary file — best-effort delete and fall through to Phase 2.
+                    // Empty binary file — best-effort delete and fall through to Phase 2.
                     try
                     {
                         File.Delete(legacyBinaryPath);
@@ -960,43 +978,6 @@ public static partial class FFmpegWrapper
                         if (Logger is { } migLogger)
                         {
                             LogFailedToDeleteCorruptLegacyCache(migLogger, deleteEx, legacyBinaryPath);
-                        }
-                    }
-                }
-                else
-                {
-                    var items = new T[count];
-                    for (var i = 0; i < count; i++)
-                    {
-                        items[i] = itemReader(reader);
-                    }
-
-                    if (items.Length > 0)
-                    {
-                        if (Logger is { } migLogger)
-                        {
-                            LogMigratingLegacyCache(migLogger, newCacheKey, "DB");
-                        }
-
-                        dbWriter(newCacheKey, items);
-                        File.Delete(legacyBinaryPath);
-
-                        result = items;
-                        return true;
-                    }
-                    else
-                    {
-                        // Empty binary file — best-effort delete and fall through to Phase 2.
-                        try
-                        {
-                            File.Delete(legacyBinaryPath);
-                        }
-                        catch (IOException deleteEx)
-                        {
-                            if (Logger is { } migLogger)
-                            {
-                                LogFailedToDeleteCorruptLegacyCache(migLogger, deleteEx, legacyBinaryPath);
-                            }
                         }
                     }
                 }
