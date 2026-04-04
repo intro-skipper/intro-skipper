@@ -92,7 +92,7 @@ public sealed partial class DetectionCacheDb : IDisposable
         {
             using var connection = OpenConnection(_dbPath);
             using var cmd = connection.CreateCommand();
-            cmd.CommandText = "INSERT OR REPLACE INTO DetectionCache (CacheKey, Data) VALUES ($key, $data)";
+            cmd.CommandText = "INSERT INTO DetectionCache (CacheKey, Data) VALUES ($key, $data) ON CONFLICT(CacheKey) DO UPDATE SET Data = excluded.Data";
             cmd.Parameters.AddWithValue("$key", cacheKey);
             cmd.Parameters.AddWithValue("$data", data);
             cmd.ExecuteNonQuery();
@@ -136,8 +136,9 @@ public sealed partial class DetectionCacheDb : IDisposable
     /// <param name="mode">The analysis mode to delete cache for.</param>
     public void DeleteByMode(AnalysisMode mode)
     {
-        const string DeleteIntroSql = "DELETE FROM DetectionCache WHERE instr(lower(CacheKey), '-credits') = 0";
-        const string DeleteCreditsSql = "DELETE FROM DetectionCache WHERE instr(lower(CacheKey), '-credits') > 0";
+        // CacheKey format: {guid32}-{type}-... where credits keys have '-credits-' immediately after the 32-char guid.
+        const string DeleteIntroSql = "DELETE FROM DetectionCache WHERE substr(CacheKey, 33, 9) != '-credits-'";
+        const string DeleteCreditsSql = "DELETE FROM DetectionCache WHERE substr(CacheKey, 33, 9) = '-credits-'";
 
         try
         {
