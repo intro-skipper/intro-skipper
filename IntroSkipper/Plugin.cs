@@ -108,7 +108,11 @@ public partial class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
         {
             DetectionCacheDb.EnsureSchema(_cacheDbPath);
         }
-        catch (Exception ex)
+        catch (IOException ex)
+        {
+            LogCacheDbInitializationError(_logger, ex);
+        }
+        catch (DbUpdateException ex)
         {
             LogCacheDbInitializationError(_logger, ex);
         }
