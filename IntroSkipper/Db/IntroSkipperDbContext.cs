@@ -5,6 +5,7 @@
 
 using System;
 using System.Collections.Generic;
+using System.Data.Common;
 using System.IO;
 using System.Linq;
 using System.Text.Json;
@@ -14,6 +15,7 @@ using IntroSkipper.Data;
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.ChangeTracking;
+using Microsoft.EntityFrameworkCore.Diagnostics;
 
 namespace IntroSkipper.Db;
 
@@ -65,7 +67,8 @@ public class IntroSkipperDbContext : DbContext
         if (!optionsBuilder.IsConfigured)
         {
             optionsBuilder
-                .UseSqlite($"Data Source={_dbPath}");
+                .UseSqlite($"Data Source={_dbPath}")
+                .AddInterceptors(new SqlitePragmaInterceptor());
         }
     }
 
@@ -264,5 +267,26 @@ public class IntroSkipperDbContext : DbContext
 
         var builder = new SqliteConnectionStringBuilder(connectionString);
         return builder.DataSource is not (null or "" or ":memory:") ? builder.DataSource : null;
+    }
+
+    private sealed class SqlitePragmaInterceptor : DbConnectionInterceptor
+    {
+        public override void ConnectionOpened(DbConnection connection, ConnectionEndEventData eventData)
+        {
+            using var cmd = connection.CreateCommand();
+            cmd.CommandText = "PRAGMA journal_mode=WAL;";
+            cmd.ExecuteNonQuery();
+            cmd.CommandText = "PRAGMA busy_timeout=5000;";
+            cmd.ExecuteNonQuery();
+        }
+
+        public override async Task ConnectionOpenedAsync(DbConnection connection, ConnectionEndEventData eventData, CancellationToken cancellationToken = default)
+        {
+            using var cmd = connection.CreateCommand();
+            cmd.CommandText = "PRAGMA journal_mode=WAL;";
+            await cmd.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+            cmd.CommandText = "PRAGMA busy_timeout=5000;";
+            await cmd.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+        }
     }
 }

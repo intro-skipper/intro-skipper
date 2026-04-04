@@ -992,7 +992,14 @@ public static partial class FFmpegWrapper
                     }
 
                     dbWriter(newCacheKey, items);
-                    File.Delete(legacyBinaryPath);
+                    using (var cacheDb = Plugin.CreateCacheDb())
+                    {
+                        if (cacheDb.ExistsByKey(newCacheKey))
+                        {
+                            File.Delete(legacyBinaryPath);
+                        }
+                    }
+
                     result = items;
                     return true;
                 }

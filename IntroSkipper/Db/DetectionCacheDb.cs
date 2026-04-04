@@ -240,9 +240,12 @@ public sealed partial class DetectionCacheDb : IDisposable
         var connection = new SqliteConnection($"Data Source={dbPath};Mode=ReadWriteCreate");
         connection.Open();
 
-        // Enable WAL mode for better concurrent read performance.
+        // Enable WAL mode for better concurrent read performance,
+        // and set a busy_timeout so parallel writers retry instead of failing immediately.
         using var pragmaCmd = connection.CreateCommand();
         pragmaCmd.CommandText = "PRAGMA journal_mode=WAL;";
+        pragmaCmd.ExecuteNonQuery();
+        pragmaCmd.CommandText = "PRAGMA busy_timeout=5000;";
         pragmaCmd.ExecuteNonQuery();
 
         return connection;
