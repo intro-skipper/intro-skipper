@@ -122,21 +122,18 @@ public partial class CleanCacheTask(
                     continue;
                 }
 
-                // Valid episode — migrate binary data to the DB if not already there, then delete the disk file.
+                // Valid episode — migrate binary data to the DB, then delete the disk file.
                 var dbKey = GetMigratedDbKey(filename, legacyId.ToString("N"));
                 if (dbKey is not null)
                 {
-                    if (!cacheDb.ExistsByKey(dbKey))
+                    try
                     {
-                        try
-                        {
-                            LogMigratingLegacyFile(_logger, filePath);
-                            cacheDb.Write(dbKey, await File.ReadAllBytesAsync(filePath, cancellationToken).ConfigureAwait(false));
-                        }
-                        catch (IOException ex)
-                        {
-                            LogMigrationFailed(_logger, ex, filePath);
-                        }
+                        LogMigratingLegacyFile(_logger, filePath);
+                        cacheDb.Write(dbKey, await File.ReadAllBytesAsync(filePath, cancellationToken).ConfigureAwait(false));
+                    }
+                    catch (IOException ex)
+                    {
+                        LogMigrationFailed(_logger, ex, filePath);
                     }
                 }
                 else
