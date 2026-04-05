@@ -160,7 +160,12 @@ public partial class CleanCacheTask(
             }
         }
 
-        // Batch-delete all invalid episode DB rows in a single round-trip.
+        // Log and batch-delete all invalid episode DB rows in a single round-trip.
+        foreach (var episodeId in invalidEpisodeIds)
+        {
+            LogDeletingCacheFiles(_logger, episodeId);
+        }
+
         if (invalidEpisodeIds.Count > 0)
         {
             using var deleteDb = Plugin.CreateCacheDbContext();
@@ -169,7 +174,7 @@ public partial class CleanCacheTask(
             await deleteDb.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
         }
 
-        // Delete leftover legacy files for invalid episodes and log each removal.
+        // Delete leftover legacy files for invalid episodes.
         foreach (var filePath in invalidLegacyFiles)
         {
             try
@@ -180,11 +185,6 @@ public partial class CleanCacheTask(
             {
                 LogDeletingLegacyFileFailed(_logger, ex, filePath);
             }
-        }
-
-        foreach (var episodeId in invalidEpisodeIds)
-        {
-            LogDeletingCacheFiles(_logger, episodeId);
         }
 
         // Clean up Season information by removing items that are no longer exist.
