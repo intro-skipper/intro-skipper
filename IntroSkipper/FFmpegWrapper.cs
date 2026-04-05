@@ -155,8 +155,9 @@ public static partial class FFmpegWrapper
     /// </summary>
     /// <param name="episode">Queued episode.</param>
     /// <param name="range">Time range to search.</param>
+    /// <param name="mode">Analysis mode, used to correctly key the cache entry.</param>
     /// <returns>Array of TimeRange objects that are silent in the queued episode.</returns>
-    public static TimeRange[] DetectSilence(QueuedEpisode episode, TimeRange range)
+    public static TimeRange[] DetectSilence(QueuedEpisode episode, TimeRange range, AnalysisMode mode)
     {
         if (Logger is { } detectLogger)
         {
@@ -182,8 +183,8 @@ public static partial class FFmpegWrapper
             range.Start,
             range.End);
 
-        if (TryReadJsonCache(episode.EpisodeId, AnalysisMode.Introduction, CacheEntryType.Silence, range.Start, range.End, out TimeRange[] cached) ||
-            TryLoadLegacyCache(legacyCacheKey, episode.EpisodeId, AnalysisMode.Introduction, CacheEntryType.Silence, range.Start, range.End, raw => ParseSilenceRaw(raw, range.Start), out cached))
+        if (TryReadJsonCache(episode.EpisodeId, mode, CacheEntryType.Silence, range.Start, range.End, out TimeRange[] cached) ||
+            TryLoadLegacyCache(legacyCacheKey, episode.EpisodeId, mode, CacheEntryType.Silence, range.Start, range.End, raw => ParseSilenceRaw(raw, range.Start), out cached))
         {
             return cached;
         }
@@ -196,7 +197,7 @@ public static partial class FFmpegWrapper
         */
         var raw = Encoding.UTF8.GetString(GetOutput(args, true));
         var result = ParseSilenceRaw(raw, range.Start);
-        WriteJsonCache(episode.EpisodeId, AnalysisMode.Introduction, CacheEntryType.Silence, range.Start, range.End, result);
+        WriteJsonCache(episode.EpisodeId, mode, CacheEntryType.Silence, range.Start, range.End, result);
 
         return result;
     }
@@ -208,12 +209,14 @@ public static partial class FFmpegWrapper
     /// <param name="range">Time range to search.</param>
     /// <param name="minimum">Percentage of the frame that must be black.</param>
     /// <param name="threshold">Threshold for black frame detection.</param>
+    /// <param name="mode">Analysis mode, used to correctly key the cache entry.</param>
     /// <returns>Array of frames that are mostly black.</returns>
     public static BlackFrame[] DetectBlackFrames(
         QueuedEpisode episode,
         TimeRange range,
         int minimum,
-        int threshold)
+        int threshold,
+        AnalysisMode mode)
     {
         // Seek to the start of the time range and find frames that are at least 50% black.
         var args = new List<string>
@@ -233,15 +236,15 @@ public static partial class FFmpegWrapper
             range.Start,
             range.End);
 
-        if (TryReadJsonCache(episode.EpisodeId, AnalysisMode.Introduction, CacheEntryType.BlackFrame, range.Start, range.End, out BlackFrame[] cached) ||
-            TryLoadLegacyCache(legacyCacheKey, episode.EpisodeId, AnalysisMode.Introduction, CacheEntryType.BlackFrame, range.Start, range.End, static raw => ParseBlackFrame(raw), out cached))
+        if (TryReadJsonCache(episode.EpisodeId, mode, CacheEntryType.BlackFrame, range.Start, range.End, out BlackFrame[] cached) ||
+            TryLoadLegacyCache(legacyCacheKey, episode.EpisodeId, mode, CacheEntryType.BlackFrame, range.Start, range.End, static raw => ParseBlackFrame(raw), out cached))
         {
             return [.. cached.Where(bf => bf.Percentage >= minimum)];
         }
 
         var raw = Encoding.UTF8.GetString(GetOutput(args, true));
         var allFrames = ParseBlackFrame(raw);
-        WriteJsonCache(episode.EpisodeId, AnalysisMode.Introduction, CacheEntryType.BlackFrame, range.Start, range.End, allFrames);
+        WriteJsonCache(episode.EpisodeId, mode, CacheEntryType.BlackFrame, range.Start, range.End, allFrames);
 
         return [.. allFrames.Where(bf => bf.Percentage >= minimum)];
     }
@@ -372,8 +375,9 @@ public static partial class FFmpegWrapper
     /// </summary>
     /// <param name="episode">Media file to analyze.</param>
     /// <param name="range">Time range to search.</param>
+    /// <param name="mode">Analysis mode, used to correctly key the cache entry.</param>
     /// <returns>Array of timestamps of key frames.</returns>
-    public static double[] DetectKeyFrames(QueuedEpisode episode, TimeRange range)
+    public static double[] DetectKeyFrames(QueuedEpisode episode, TimeRange range, AnalysisMode mode)
     {
         var args = new List<string>
         {
@@ -393,15 +397,15 @@ public static partial class FFmpegWrapper
             range.Start,
             range.End);
 
-        if (TryReadJsonCache(episode.EpisodeId, AnalysisMode.Introduction, CacheEntryType.Keyframe, range.Start, range.End, out double[] cached) ||
-            TryLoadLegacyCache(legacyCacheKey, episode.EpisodeId, AnalysisMode.Introduction, CacheEntryType.Keyframe, range.Start, range.End, raw => ParseKeyFramesRaw(raw, range.Start), out cached))
+        if (TryReadJsonCache(episode.EpisodeId, mode, CacheEntryType.Keyframe, range.Start, range.End, out double[] cached) ||
+            TryLoadLegacyCache(legacyCacheKey, episode.EpisodeId, mode, CacheEntryType.Keyframe, range.Start, range.End, raw => ParseKeyFramesRaw(raw, range.Start), out cached))
         {
             return cached;
         }
 
         var raw = Encoding.UTF8.GetString(GetOutput(args, stderr: true));
         var result = ParseKeyFramesRaw(raw, range.Start);
-        WriteJsonCache(episode.EpisodeId, AnalysisMode.Introduction, CacheEntryType.Keyframe, range.Start, range.End, result);
+        WriteJsonCache(episode.EpisodeId, mode, CacheEntryType.Keyframe, range.Start, range.End, result);
 
         return result;
     }

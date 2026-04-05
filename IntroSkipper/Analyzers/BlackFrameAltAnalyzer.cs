@@ -71,7 +71,7 @@ public sealed partial class BlackFrameAltAnalyzer(ILogger<BlackFrameAltAnalyzer>
                     continue;
                 }
 
-                credit = timeAdjustmentHelper.AdjustIntroTimes(episode, credit);
+                credit = timeAdjustmentHelper.AdjustIntroTimes(episode, credit, mode);
                 LogFoundCredits(episode.Name, credit.Start);
 
                 episode.SetAnalyzed(mode, EpisodeState.Analyzed);

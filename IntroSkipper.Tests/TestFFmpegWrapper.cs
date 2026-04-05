@@ -107,7 +107,7 @@ public class TestFFmpegWrapper
         episode.Duration = 2;
 
         // Detect black frames - this should not produce "Trailing option" warning
-        var blackFrames = FFmpegWrapper.DetectBlackFrames(episode, new TimeRange(0, 2), 85, 32);
+        var blackFrames = FFmpegWrapper.DetectBlackFrames(episode, new TimeRange(0, 2), 85, 32, AnalysisMode.Introduction);
 
         // Verify we got results (meaning FFmpeg ran successfully without warnings)
         Assert.NotNull(blackFrames);
@@ -136,7 +136,7 @@ public class TestFFmpegWrapper
         episode.IntroFingerprintEnd = 2;
 
         // Detect silence - this should not produce "Trailing option" warning
-        var silenceRanges = FFmpegWrapper.DetectSilence(episode, new TimeRange(0, 2));
+        var silenceRanges = FFmpegWrapper.DetectSilence(episode, new TimeRange(0, 2), AnalysisMode.Introduction);
 
         // Verify FFmpeg ran successfully (null or empty list is fine)
         Assert.NotNull(silenceRanges);
@@ -150,7 +150,7 @@ public class TestFFmpegWrapper
         episode.Duration = 2;
 
         // Detect key frames - this should not produce "Trailing option" warning
-        var keyFrames = FFmpegWrapper.DetectKeyFrames(episode, new TimeRange(0, 2));
+        var keyFrames = FFmpegWrapper.DetectKeyFrames(episode, new TimeRange(0, 2), AnalysisMode.Introduction);
 
         // Verify FFmpeg ran successfully
         Assert.NotNull(keyFrames);

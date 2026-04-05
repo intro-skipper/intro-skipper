@@ -39,7 +39,7 @@ public class TestTimeAdjustmentHelper
         var episode = new QueuedEpisode { EpisodeId = Guid.NewGuid(), Duration = 60 };
         var original = new Segment(episode.EpisodeId) { Start = 1.2, End = 10 };
 
-        var adjusted = helper.AdjustIntroTimes(episode, original);
+        var adjusted = helper.AdjustIntroTimes(episode, original, AnalysisMode.Introduction);
 
         Assert.Equal(0, adjusted.Start);
         Assert.Equal(10, adjusted.End);
@@ -54,7 +54,7 @@ public class TestTimeAdjustmentHelper
         var episode = new QueuedEpisode { EpisodeId = Guid.NewGuid(), Duration = 60 };
         var original = new Segment(episode.EpisodeId) { Start = 5, End = 12 };
 
-        var adjusted = helper.AdjustIntroTimes(episode, original);
+        var adjusted = helper.AdjustIntroTimes(episode, original, AnalysisMode.Introduction);
 
         Assert.Equal(7, adjusted.Start);
         Assert.Equal(12, adjusted.End);
@@ -70,7 +70,7 @@ public class TestTimeAdjustmentHelper
         var episode = new QueuedEpisode { EpisodeId = Guid.NewGuid(), Duration = 30 };
         var original = new Segment(episode.EpisodeId) { Start = -5, End = 200 };
 
-        var adjusted = helper.AdjustIntroTimes(episode, original);
+        var adjusted = helper.AdjustIntroTimes(episode, original, AnalysisMode.Introduction);
 
         Assert.Equal(0, adjusted.Start); // clamped from -5 to 0 and snapped
         Assert.Equal(30, adjusted.End);  // clamped from 200 to duration before end logic kicks in

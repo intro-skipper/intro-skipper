@@ -26,12 +26,14 @@ public partial class TimeAdjustmentHelper(ILogger logger, PluginConfiguration co
     /// </summary>
     /// <param name="episode">The episode to adjust.</param>
     /// <param name="originalIntro">The original intro segment.</param>
+    /// <param name="mode">Analysis mode, forwarded to FFmpeg cache calls.</param>
     /// <param name="adjustIntroBasedOnChapters">Whether to adjust based on chapters (overrides _config if true).</param>
     /// <returns>A new Segment with adjusted intro times.</returns>
     /// <exception cref="ArgumentNullException">Thrown if episode or originalIntro is null.</exception>
     public Segment AdjustIntroTimes(
         QueuedEpisode episode,
         Segment originalIntro,
+        AnalysisMode mode,
         bool? adjustIntroBasedOnChapters = null)
     {
         ArgumentNullException.ThrowIfNull(episode);
@@ -111,7 +113,7 @@ public partial class TimeAdjustmentHelper(ILogger logger, PluginConfiguration co
             var silenceRange = GetSearchRange(adjustedEnd, duration, _config.AdjustWindowInward, _config.AdjustWindowOutward);
             if (_config.AdjustIntroBasedOnSilence)
             {
-                var silenceAdjusted = AdjustIntroEndBasedOnSilence(episode, adjustedEnd, silenceRange, _config.SilenceDetectionMinimumDuration);
+                var silenceAdjusted = AdjustIntroEndBasedOnSilence(episode, adjustedEnd, silenceRange, _config.SilenceDetectionMinimumDuration, mode);
                 if (silenceAdjusted != adjustedEnd)
                 {
                     adjustedEnd = silenceAdjusted;
@@ -124,7 +126,7 @@ public partial class TimeAdjustmentHelper(ILogger logger, PluginConfiguration co
 
             if (_config.SnapToKeyframe)
             {
-                adjustedEnd = SnapToNearestKeyframe(episode, adjustedEnd, silenceRange);
+                adjustedEnd = SnapToNearestKeyframe(episode, adjustedEnd, silenceRange, mode);
             }
         }
 
@@ -167,11 +169,11 @@ public partial class TimeAdjustmentHelper(ILogger logger, PluginConfiguration co
     /// <summary>
     /// Adjusts the intro end based on detected silence within the search range.
     /// </summary>
-    private double AdjustIntroEndBasedOnSilence(QueuedEpisode episode, double currentEnd, TimeRange searchRange, double silenceDetectionMinimumDuration)
+    private double AdjustIntroEndBasedOnSilence(QueuedEpisode episode, double currentEnd, TimeRange searchRange, double silenceDetectionMinimumDuration, AnalysisMode mode)
     {
         try
         {
-            var silence = FFmpegWrapper.DetectSilence(episode, searchRange);
+            var silence = FFmpegWrapper.DetectSilence(episode, searchRange, mode);
             if (silence is not { Length: > 0 })
             {
                 LogNoSilenceDetected(_logger, episode.EpisodeId, episode.Name);
@@ -208,9 +210,9 @@ public partial class TimeAdjustmentHelper(ILogger logger, PluginConfiguration co
     /// <summary>
     /// Snaps a timestamp to the nearest keyframe within the search range.
     /// </summary>
-    private static double SnapToNearestKeyframe(QueuedEpisode episode, double time, TimeRange searchRange)
+    private static double SnapToNearestKeyframe(QueuedEpisode episode, double time, TimeRange searchRange, AnalysisMode mode)
     {
-        var keyframes = FFmpegWrapper.DetectKeyFrames(episode, searchRange);
+        var keyframes = FFmpegWrapper.DetectKeyFrames(episode, searchRange, mode);
         return SelectNearest(keyframes, time);
     }
 

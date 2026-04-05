@@ -139,7 +139,7 @@ public class TestAudioFingerprinting
         };
 
         var range = new TimeRange(0, 60);
-        var actual = FFmpegWrapper.DetectSilence(clip, range);
+        var actual = FFmpegWrapper.DetectSilence(clip, range, AnalysisMode.Introduction);
 
         Assert.Equal(expected, actual);
     }

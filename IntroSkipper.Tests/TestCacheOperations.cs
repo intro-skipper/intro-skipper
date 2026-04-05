@@ -289,7 +289,7 @@ public sealed class TestCacheOperations
         using (new CachingPluginScope(cacheDir, scope.CacheDbPath))
         {
             // If the empty-array bug were present this would throw FingerprintException (file not found).
-            result = FFmpegWrapper.DetectSilence(episode, range);
+            result = FFmpegWrapper.DetectSilence(episode, range, AnalysisMode.Introduction);
         }
 
         Assert.Empty(result);
