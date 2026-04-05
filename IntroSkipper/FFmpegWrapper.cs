@@ -581,7 +581,7 @@ public static partial class FFmpegWrapper
     private static uint[] Fingerprint(QueuedEpisode episode, AnalysisMode mode, double start, double end)
     {
         // Try to load this episode from cache before running ffmpeg.
-        if (LoadCachedFingerprint(episode, mode, out uint[] cachedFingerprint))
+        if (LoadCachedFingerprint(episode, mode, start, end, out uint[] cachedFingerprint))
         {
             if (Logger is { } cacheLogger)
             {
@@ -627,7 +627,7 @@ public static partial class FFmpegWrapper
         }
 
         // Try to cache this fingerprint.
-        CacheFingerprint(episode, mode, results);
+        CacheFingerprint(episode, mode, start, end, results);
 
         return [.. results];
     }
@@ -638,11 +638,15 @@ public static partial class FFmpegWrapper
     /// </summary>
     /// <param name="episode">Episode to try to load from cache.</param>
     /// <param name="mode">Analysis mode.</param>
+    /// <param name="start">Start time (in seconds) used when the fingerprint was cached.</param>
+    /// <param name="end">End time (in seconds) used when the fingerprint was cached.</param>
     /// <param name="fingerprint">Array to store the fingerprint in.</param>
     /// <returns><c>true</c> if the episode was successfully loaded from cache; otherwise <c>false</c>.</returns>
     private static bool LoadCachedFingerprint(
         QueuedEpisode episode,
         AnalysisMode mode,
+        double start,
+        double end,
         out uint[] fingerprint)
     {
         fingerprint = [];
@@ -656,8 +660,8 @@ public static partial class FFmpegWrapper
         var suffix = mode == AnalysisMode.Credits ? "-credits" : string.Empty;
         var legacyCacheKey = id + suffix;
 
-        return TryReadJsonCache(episode.EpisodeId, mode, CacheEntryType.Chromaprint, 0, 0, out fingerprint) ||
-            TryLoadLegacyCache(legacyCacheKey, episode.EpisodeId, mode, CacheEntryType.Chromaprint, 0, 0, ParseFingerprintRaw, out fingerprint);
+        return TryReadJsonCache(episode.EpisodeId, mode, CacheEntryType.Chromaprint, start, end, out fingerprint) ||
+            TryLoadLegacyCache(legacyCacheKey, episode.EpisodeId, mode, CacheEntryType.Chromaprint, start, end, ParseFingerprintRaw, out fingerprint);
     }
 
     /// <summary>
@@ -665,13 +669,17 @@ public static partial class FFmpegWrapper
     /// </summary>
     /// <param name="episode">Episode to store in cache.</param>
     /// <param name="mode">Analysis mode.</param>
+    /// <param name="start">Start time (in seconds) of the fingerprinted range.</param>
+    /// <param name="end">End time (in seconds) of the fingerprinted range.</param>
     /// <param name="fingerprint">Fingerprint of the episode to store.</param>
     private static void CacheFingerprint(
         QueuedEpisode episode,
         AnalysisMode mode,
+        double start,
+        double end,
         List<uint> fingerprint)
     {
-        WriteJsonCache(episode.EpisodeId, mode, CacheEntryType.Chromaprint, 0, 0, [.. fingerprint]);
+        WriteJsonCache(episode.EpisodeId, mode, CacheEntryType.Chromaprint, start, end, [.. fingerprint]);
     }
 
     /// <summary>
@@ -762,8 +770,25 @@ public static partial class FFmpegWrapper
             return false;
         }
 
+        double start, end;
+        if (mode == AnalysisMode.Introduction)
+        {
+            start = 0;
+            end = episode.IntroFingerprintEnd;
+        }
+        else
+        {
+            start = episode.CreditsFingerprintStart;
+            end = episode.Duration;
+        }
+
         using var db = Plugin.CreateCacheDbContext();
-        if (db.DetectionCache.Any(e => e.ItemId == episode.EpisodeId && e.Mode == mode && e.Type == CacheEntryType.Chromaprint))
+        if (db.DetectionCache.Any(e =>
+            e.ItemId == episode.EpisodeId &&
+            e.Mode == mode &&
+            e.Type == CacheEntryType.Chromaprint &&
+            e.Start == start &&
+            e.End == end))
         {
             return true;
         }
@@ -905,6 +930,24 @@ public static partial class FFmpegWrapper
                 return false;
             }
 
+            // Crosscheck chromaprint fingerprint duration against current settings.
+            if (type == CacheEntryType.Chromaprint)
+            {
+                var inferredDuration = ChromaprintConstants.InferDuration(result.Length);
+                var expectedDuration = Math.Round(end - start);
+
+                if (Math.Abs(inferredDuration - expectedDuration) > ChromaprintConstants.DurationTolerance)
+                {
+                    if (Logger is { } mismatchLogger)
+                    {
+                        LogLegacyDurationMismatch(mismatchLogger, legacyCacheKey, inferredDuration, expectedDuration);
+                    }
+
+                    File.Delete(legacyTextPath);
+                    return false;
+                }
+            }
+
             if (Logger is { } logger)
             {
                 LogMigratingLegacyCache(logger, legacyCacheKey, $"{itemId:N}-{mode}-{type}");
@@ -1010,6 +1053,9 @@ public static partial class FFmpegWrapper
 
     [LoggerMessage(Level = LogLevel.Debug, Message = "Migrating legacy cache {LegacyKey} to {NewKey}")]
     private static partial void LogMigratingLegacyCache(ILogger logger, string legacyKey, string newKey);
+
+    [LoggerMessage(Level = LogLevel.Information, Message = "Legacy fingerprint {CacheKey} duration mismatch (inferred {Inferred}s vs expected {Expected}s), re-fingerprinting")]
+    private static partial void LogLegacyDurationMismatch(ILogger logger, string cacheKey, double inferred, double expected);
 
     [GeneratedRegex("silence_(?<type>start|end): (?<time>[0-9\\.]+)")]
     private static partial Regex SilenceRegex();

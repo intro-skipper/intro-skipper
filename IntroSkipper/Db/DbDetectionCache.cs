@@ -61,13 +61,13 @@ public class DbDetectionCache
     /// <summary>
     /// Gets the start time of the analyzed range (in seconds).
     /// </summary>
-    /// <value>The range start, or 0 when not applicable (e.g., chromaprint entries).</value>
+    /// <value>The range start in seconds. For chromaprint entries, this is the fingerprint start time (0 for introductions).</value>
     public double Start { get; private set; }
 
     /// <summary>
     /// Gets the end time of the analyzed range (in seconds).
     /// </summary>
-    /// <value>The range end, or 0 when not applicable (e.g., chromaprint entries).</value>
+    /// <value>The range end in seconds. For chromaprint entries, this is the fingerprint end time.</value>
     public double End { get; private set; }
 
     /// <summary>

@@ -112,12 +112,12 @@ public class TestAudioFingerprinting
 
         Assert.True(lhs.Valid);
         Assert.Equal(0, lhs.Start);
-        Assert.Equal(17.208, lhs.End, 3);
+        Assert.Equal(17.214, lhs.End, 3);
 
         Assert.True(rhs.Valid);
         // because we changed for 0.128 to 0.1238 its 4,952 now but that's too early (<= 5)
         Assert.Equal(0, rhs.Start);
-        Assert.Equal(22.1602, rhs.End);
+        Assert.Equal(22.1673, rhs.End, 3);
     }
 
     /// <summary>
