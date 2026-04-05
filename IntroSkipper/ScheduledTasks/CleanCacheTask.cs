@@ -15,6 +15,7 @@ using MediaBrowser.Controller.Library;
 using MediaBrowser.Controller.Providers;
 using MediaBrowser.Model.IO;
 using MediaBrowser.Model.Tasks;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 
 namespace IntroSkipper.ScheduledTasks;
@@ -169,9 +170,10 @@ public partial class CleanCacheTask(
         if (invalidEpisodeIds.Count > 0)
         {
             using var deleteDb = Plugin.CreateCacheDbContext();
-            deleteDb.DetectionCache.RemoveRange(
-                deleteDb.DetectionCache.Where(e => invalidEpisodeIds.Contains(e.ItemId)));
-            await deleteDb.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+            await deleteDb.DetectionCache
+                .Where(e => invalidEpisodeIds.Contains(e.ItemId))
+                .ExecuteDeleteAsync(cancellationToken)
+                .ConfigureAwait(false);
         }
 
         // Delete leftover legacy files for invalid episodes.

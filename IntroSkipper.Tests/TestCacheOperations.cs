@@ -269,7 +269,7 @@ public sealed class TestCacheOperations
         var range = new TimeRange(0, 30);
 
         // The cache row must be Brotli-compressed because TryReadJsonCache calls DecompressBrotli.
-        var compressedEmpty = FFmpegWrapper.CompressBrotli(JsonSerializer.SerializeToUtf8Bytes(Array.Empty<TimeRange>()));
+        var compressedEmpty = FFmpegWrapper.CompressBrotli(Array.Empty<TimeRange>());
 
         using var scope = new EntrypointTestHelpers.PluginInstanceScope(cacheDir);
 
@@ -334,8 +334,7 @@ public sealed class TestCacheOperations
 
         // Pre-populate the DB with a fingerprint at the correct start/end.
         var fingerprint = new uint[] { 111u, 222u, 333u };
-        var compressed = FFmpegWrapper.CompressBrotli(
-            JsonSerializer.SerializeToUtf8Bytes(fingerprint));
+        var compressed = FFmpegWrapper.CompressBrotli(fingerprint);
 
         string cacheDbPath;
         using (var scope = new EntrypointTestHelpers.PluginInstanceScope(cacheDir))
@@ -375,8 +374,7 @@ public sealed class TestCacheOperations
 
         // Pre-populate DB with a fingerprint cached at old setting (end=600)
         var fingerprint = new uint[] { 111u, 222u, 333u };
-        var compressed = FFmpegWrapper.CompressBrotli(
-            JsonSerializer.SerializeToUtf8Bytes(fingerprint));
+        var compressed = FFmpegWrapper.CompressBrotli(fingerprint);
 
         string cacheDbPath;
         using (var scope = new EntrypointTestHelpers.PluginInstanceScope(cacheDir))
@@ -629,8 +627,8 @@ public sealed class TestCacheOperations
             return [];
         }
 
-        var json = FFmpegWrapper.DecompressBrotli(entry.Data);
-        return JsonSerializer.Deserialize<uint[]>(json) ?? [];
+        var result = FFmpegWrapper.DecompressBrotli<uint[]>(entry.Data);
+        return result ?? [];
     }
 
     /// <summary>

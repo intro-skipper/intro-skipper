@@ -14,15 +14,17 @@ namespace IntroSkipper.Db;
 /// </summary>
 internal static class SqlitePragmas
 {
+    private const string Pragmas = "PRAGMA busy_timeout=5000;";
+
     internal static void Apply(DbCommand cmd)
     {
-        cmd.CommandText = "PRAGMA busy_timeout=5000;";
+        cmd.CommandText = Pragmas;
         cmd.ExecuteNonQuery();
     }
 
     internal static async Task ApplyAsync(DbCommand cmd, CancellationToken cancellationToken = default)
     {
-        cmd.CommandText = "PRAGMA busy_timeout=5000;";
+        cmd.CommandText = Pragmas;
         await cmd.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
     }
 }

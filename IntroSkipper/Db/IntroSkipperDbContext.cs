@@ -25,6 +25,7 @@ namespace IntroSkipper.Db;
 /// </remarks>
 public class IntroSkipperDbContext : DbContext
 {
+    private static readonly SqlitePragmaInterceptor _pragmaInterceptor = new();
     private readonly string? _dbPath;
 
     /// <summary>
@@ -66,7 +67,7 @@ public class IntroSkipperDbContext : DbContext
         {
             optionsBuilder
                 .UseSqlite($"Data Source={_dbPath}")
-                .AddInterceptors(new SqlitePragmaInterceptor());
+                .AddInterceptors(_pragmaInterceptor);
         }
     }
 

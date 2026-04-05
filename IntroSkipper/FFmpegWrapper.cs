@@ -122,6 +122,16 @@ public static partial class FFmpegWrapper
         }
     }
 
+    private static (double Start, double End) GetFingerprintRange(QueuedEpisode episode, AnalysisMode mode)
+    {
+        return mode switch
+        {
+            AnalysisMode.Introduction => (0, episode.IntroFingerprintEnd),
+            AnalysisMode.Credits => (episode.CreditsFingerprintStart, episode.Duration),
+            _ => throw new ArgumentException("Unknown analysis mode " + mode),
+        };
+    }
+
     /// <summary>
     /// Fingerprint a queued episode.
     /// </summary>
@@ -130,23 +140,7 @@ public static partial class FFmpegWrapper
     /// <returns>Numerical fingerprint points.</returns>
     public static uint[] Fingerprint(QueuedEpisode episode, AnalysisMode mode)
     {
-        double start, end;
-
-        if (mode == AnalysisMode.Introduction)
-        {
-            start = 0;
-            end = episode.IntroFingerprintEnd;
-        }
-        else if (mode == AnalysisMode.Credits)
-        {
-            start = episode.CreditsFingerprintStart;
-            end = episode.Duration;
-        }
-        else
-        {
-            throw new ArgumentException("Unknown analysis mode " + mode);
-        }
-
+        var (start, end) = GetFingerprintRange(episode, mode);
         return Fingerprint(episode, mode, start, end);
     }
 
@@ -631,7 +625,7 @@ public static partial class FFmpegWrapper
         }
 
         // Try to cache this fingerprint.
-        CacheFingerprint(episode, mode, start, end, results);
+        WriteJsonCache(episode.EpisodeId, mode, CacheEntryType.Chromaprint, start, end, [.. results]);
 
         return [.. results];
     }
@@ -669,24 +663,6 @@ public static partial class FFmpegWrapper
     }
 
     /// <summary>
-    /// Cache an episode's fingerprint to the SQLite detection cache as JSON. If caching is not enabled, calling this function is a no-op.
-    /// </summary>
-    /// <param name="episode">Episode to store in cache.</param>
-    /// <param name="mode">Analysis mode.</param>
-    /// <param name="start">Start time (in seconds) of the fingerprinted range.</param>
-    /// <param name="end">End time (in seconds) of the fingerprinted range.</param>
-    /// <param name="fingerprint">Fingerprint of the episode to store.</param>
-    private static void CacheFingerprint(
-        QueuedEpisode episode,
-        AnalysisMode mode,
-        double start,
-        double end,
-        List<uint> fingerprint)
-    {
-        WriteJsonCache(episode.EpisodeId, mode, CacheEntryType.Chromaprint, start, end, [.. fingerprint]);
-    }
-
-    /// <summary>
     /// Remove a cached episode fingerprint from the database.
     /// </summary>
     /// <param name="id">Media item ID to remove from cache.</param>
@@ -694,11 +670,8 @@ public static partial class FFmpegWrapper
     {
         // Delete from the SQLite cache database.
         using var db = Plugin.CreateCacheDbContext();
-        db.DetectionCache.RemoveRange(
-            db.DetectionCache.Where(e => e.ItemId == id));
-        db.SaveChanges();
+        db.DetectionCache.Where(e => e.ItemId == id).ExecuteDelete();
 
-        // Also sweep any legacy binary files still on disk (pre-migration installs).
         var cacheDir = Plugin.Instance?.FingerprintCachePath;
         if (cacheDir is not null && Directory.Exists(cacheDir))
         {
@@ -733,11 +706,8 @@ public static partial class FFmpegWrapper
     {
         // Delete from the SQLite cache database.
         using var db = Plugin.CreateCacheDbContext();
-        db.DetectionCache.RemoveRange(
-            db.DetectionCache.Where(e => e.Mode == mode));
-        db.SaveChanges();
+        db.DetectionCache.Where(e => e.Mode == mode).ExecuteDelete();
 
-        // Also sweep any legacy binary files still on disk (pre-migration installs).
         var cacheDir = Plugin.Instance?.FingerprintCachePath;
         if (cacheDir is not null && Directory.Exists(cacheDir))
         {
@@ -774,17 +744,7 @@ public static partial class FFmpegWrapper
             return false;
         }
 
-        double start, end;
-        if (mode == AnalysisMode.Introduction)
-        {
-            start = 0;
-            end = episode.IntroFingerprintEnd;
-        }
-        else
-        {
-            start = episode.CreditsFingerprintStart;
-            end = episode.Duration;
-        }
+        var (start, end) = GetFingerprintRange(episode, mode);
 
         using var db = Plugin.CreateCacheDbContext();
         if (db.DetectionCache.Any(e =>
@@ -826,8 +786,8 @@ public static partial class FFmpegWrapper
                 return false;
             }
 
-            var json = DecompressBrotli(entry.Data);
-            result = JsonSerializer.Deserialize<T[]>(json) ?? [];
+            var json = DecompressBrotli<T[]>(entry.Data);
+            result = json ?? [];
 
             if (Logger is { } logger)
             {
@@ -854,7 +814,7 @@ public static partial class FFmpegWrapper
             return;
         }
 
-        var data = CompressBrotli(JsonSerializer.SerializeToUtf8Bytes(items));
+        var data = CompressBrotli(items);
 
         using var db = Plugin.CreateCacheDbContext();
 
@@ -1034,15 +994,6 @@ public static partial class FFmpegWrapper
     [LoggerMessage(Level = LogLevel.Warning, Message = "Chromaprint returned {Count} points for \"{Path}\"")]
     private static partial void LogChromaprintReturnedPoints(ILogger logger, int count, string path);
 
-    [LoggerMessage(Level = LogLevel.Error, Message = "I/O error while reading fingerprint cache from {Path}")]
-    private static partial void LogFingerprintCacheReadIoError(ILogger logger, Exception ex, string path);
-
-    [LoggerMessage(Level = LogLevel.Error, Message = "Access error while reading fingerprint cache from {Path}")]
-    private static partial void LogFingerprintCacheReadAccessError(ILogger logger, Exception ex, string path);
-
-    [LoggerMessage(Level = LogLevel.Debug, Message = "Invalid fingerprint entry '{RawNumber}' found in cache for {Path} ({Id}), ignoring cache")]
-    private static partial void LogInvalidFingerprintEntry(ILogger logger, string rawNumber, string path, Guid id);
-
     [LoggerMessage(Level = LogLevel.Debug, Message = "DeleteEpisodeCache {FilePath}")]
     private static partial void LogDeleteEpisodeCache(ILogger logger, string filePath);
 
@@ -1065,33 +1016,33 @@ public static partial class FFmpegWrapper
     private static partial Regex SilenceRegex();
 
     /// <summary>
-    /// Compresses a byte array using Brotli compression.
+    /// Serializes and compresses a value using Brotli compression.
     /// </summary>
-    /// <param name="data">The uncompressed data.</param>
+    /// <typeparam name="T">The type of the value to serialize.</typeparam>
+    /// <param name="value">The value to serialize and compress.</param>
     /// <returns>The Brotli-compressed data.</returns>
-    internal static byte[] CompressBrotli(byte[] data)
+    internal static byte[] CompressBrotli<T>(T value)
     {
         using var output = new MemoryStream();
-        using (var brotli = new BrotliStream(output, CompressionLevel.Optimal))
+        using (var brotli = new BrotliStream(output, CompressionLevel.Fastest))
         {
-            brotli.Write(data);
+            JsonSerializer.Serialize(brotli, value);
         }
 
         return output.ToArray();
     }
 
     /// <summary>
-    /// Decompresses a Brotli-compressed byte array.
+    /// Decompresses and deserializes Brotli-compressed data.
     /// </summary>
+    /// <typeparam name="T">The type to deserialize to.</typeparam>
     /// <param name="compressed">The Brotli-compressed data.</param>
-    /// <returns>The decompressed data as a byte array.</returns>
-    internal static byte[] DecompressBrotli(byte[] compressed)
+    /// <returns>The deserialized value, or the default if deserialization returns null.</returns>
+    internal static T? DecompressBrotli<T>(byte[] compressed)
     {
         using var input = new MemoryStream(compressed);
         using var brotli = new BrotliStream(input, CompressionMode.Decompress);
-        using var output = new MemoryStream();
-        brotli.CopyTo(output);
-        return output.ToArray();
+        return JsonSerializer.Deserialize<T>(brotli);
     }
 
     [GeneratedRegex(@"\[Parsed_blackframe_0 @ [^\]]+\] frame:(\d+) pblack:(\d+) .*? t:([\d.]+)")]
