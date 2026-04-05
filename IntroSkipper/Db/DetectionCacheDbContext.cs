@@ -6,7 +6,6 @@ using System.Collections.Generic;
 using System.Data.Common;
 using System.Threading;
 using System.Threading.Tasks;
-using IntroSkipper.Data;
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Diagnostics;
@@ -127,8 +126,9 @@ public class DetectionCacheDbContext : DbContext
     }
 
     /// <summary>
-    /// Checks whether the DetectionCache table has the columns expected by the current model.
-    /// Returns <c>false</c> when the database was created by an older schema version (e.g., binary BLOB format).
+    /// Checks whether the DetectionCache table has the columns and types expected by the current model.
+    /// Returns <c>false</c> when the database was created by an older schema version (e.g., binary BLOB format)
+    /// or when column types or indexes do not match the current model.
     /// </summary>
     private bool HasExpectedSchema()
     {
@@ -138,23 +138,48 @@ public class DetectionCacheDbContext : DbContext
             Database.OpenConnection();
             try
             {
+                // Validate column names and types.
                 cmd.CommandText = "PRAGMA table_info('DetectionCache')";
-                using var reader = cmd.ExecuteReader();
-
-                var columns = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-                while (reader.Read())
+                using (var reader = cmd.ExecuteReader())
                 {
-                    columns.Add(reader.GetString(1)); // column name is at index 1
+                    var columns = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+                    while (reader.Read())
+                    {
+                        columns[reader.GetString(1)] = reader.GetString(2); // name -> type
+                    }
+
+                    var expectedColumns = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+                    {
+                        ["Id"] = "INTEGER",
+                        ["ItemId"] = "TEXT",
+                        ["Mode"] = "INTEGER",
+                        ["Type"] = "INTEGER",
+                        ["Start"] = "REAL",
+                        ["End"] = "REAL",
+                        ["Data"] = "BLOB",
+                    };
+
+                    foreach (var (name, type) in expectedColumns)
+                    {
+                        if (!columns.TryGetValue(name, out var actualType)
+                            || !string.Equals(actualType, type, StringComparison.OrdinalIgnoreCase))
+                        {
+                            return false;
+                        }
+                    }
                 }
 
-                // The current model requires at least these columns.
-                return columns.Contains("Id")
-                    && columns.Contains("ItemId")
-                    && columns.Contains("Mode")
-                    && columns.Contains("Type")
-                    && columns.Contains("Start")
-                    && columns.Contains("End")
-                    && columns.Contains("Data");
+                // Validate the composite unique index exists.
+                cmd.CommandText = "PRAGMA index_info('IX_DetectionCache_Unique')";
+                using (var reader = cmd.ExecuteReader())
+                {
+                    if (!reader.HasRows)
+                    {
+                        return false;
+                    }
+                }
+
+                return true;
             }
             finally
             {

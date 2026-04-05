@@ -17,6 +17,7 @@ using System.Text.Json;
 using System.Text.RegularExpressions;
 using IntroSkipper.Data;
 using IntroSkipper.Db;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 
 namespace IntroSkipper;
@@ -833,16 +834,25 @@ public static partial class FFmpegWrapper
         var existing = db.DetectionCache
             .FirstOrDefault(e => e.ItemId == itemId && e.Mode == mode && e.Type == type && e.Start == start && e.End == end);
 
-        if (existing is not null)
+        try
         {
-            existing.Data = data;
-        }
-        else
-        {
-            db.DetectionCache.Add(new DbDetectionCache(itemId, mode, type, data, start, end));
-        }
+            if (existing is not null)
+            {
+                existing.Data = data;
+            }
+            else
+            {
+                db.DetectionCache.Add(new DbDetectionCache(itemId, mode, type, data, start, end));
+            }
 
-        db.SaveChanges();
+            db.SaveChanges();
+        }
+        catch (DbUpdateException)
+        {
+            // Suppress duplicate-insert races. The cache is a performance optimization;
+            // if another thread already inserted the same composite key, the data is identical
+            // and the failure is harmless.
+        }
     }
 
     private static uint[] ParseFingerprintRaw(string raw)
@@ -1012,7 +1022,7 @@ public static partial class FFmpegWrapper
     internal static byte[] CompressBrotli(byte[] data)
     {
         using var output = new MemoryStream();
-        using (var brotli = new BrotliStream(output, CompressionLevel.SmallestSize))
+        using (var brotli = new BrotliStream(output, CompressionLevel.Optimal))
         {
             brotli.Write(data);
         }
