@@ -418,7 +418,7 @@ public sealed class TestCacheOperations
         {
             // Stale entry: cached with old end=600
             db.DetectionCache.Add(new DbDetectionCache(
-                episode.EpisodeId, AnalysisMode.Introduction, CacheEntryType.Chromaprint, EmptyPayload, 0, 600));
+                episode.EpisodeId, AnalysisMode.Introduction, CacheEntryType.Chromaprint, EntrypointTestHelpers.EmptyJsonArray, 0, 600));
             db.SaveChanges();
         }
 
@@ -444,7 +444,7 @@ public sealed class TestCacheOperations
         using (var db = Plugin.CreateCacheDbContext())
         {
             db.DetectionCache.Add(new DbDetectionCache(
-                episode.EpisodeId, AnalysisMode.Introduction, CacheEntryType.Chromaprint, EmptyPayload, 0, 600));
+                episode.EpisodeId, AnalysisMode.Introduction, CacheEntryType.Chromaprint, EntrypointTestHelpers.EmptyJsonArray, 0, 600));
             db.SaveChanges();
         }
 
@@ -470,7 +470,7 @@ public sealed class TestCacheOperations
         using (var db = Plugin.CreateCacheDbContext())
         {
             db.DetectionCache.Add(new DbDetectionCache(
-                episode.EpisodeId, AnalysisMode.Credits, CacheEntryType.Chromaprint, EmptyPayload, 1560, 1800));
+                episode.EpisodeId, AnalysisMode.Credits, CacheEntryType.Chromaprint, EntrypointTestHelpers.EmptyJsonArray, 1560, 1800));
             db.SaveChanges();
         }
 
