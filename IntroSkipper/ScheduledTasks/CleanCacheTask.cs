@@ -95,10 +95,16 @@ public partial class CleanCacheTask(
 
         // Identify episode IDs in the SQLite cache that are no longer in enabled libraries,
         // and migrate any legacy binary files still on disk (pre-migration installs).
-        var cacheDb = Plugin.CreateCacheDb();
-        var invalidEpisodeIds = cacheDb.GetAllEpisodeIds()
-            .Where(id => !enabledLibraryEpisodeIds.Contains(id))
-            .ToHashSet();
+        HashSet<Guid> invalidEpisodeIds;
+        using (var cacheDb = Plugin.CreateCacheDbContext())
+        {
+            invalidEpisodeIds = cacheDb.DetectionCache
+                .Select(e => e.ItemId)
+                .Distinct()
+                .AsEnumerable()
+                .Where(id => !enabledLibraryEpisodeIds.Contains(id))
+                .ToHashSet();
+        }
 
         if (Directory.Exists(plugin.FingerprintCachePath))
         {
@@ -118,25 +124,8 @@ public partial class CleanCacheTask(
                     continue;
                 }
 
-                // Valid episode — migrate binary data to the DB, then delete the disk file.
-                var dbKey = GetMigratedDbKey(filename, legacyId.ToString("N"));
-                if (dbKey is not null)
-                {
-                    try
-                    {
-                        LogMigratingLegacyFile(_logger, filePath);
-                        cacheDb.Write(dbKey, await File.ReadAllBytesAsync(filePath, cancellationToken).ConfigureAwait(false));
-                    }
-                    catch (IOException ex)
-                    {
-                        LogMigrationFailed(_logger, ex, filePath);
-                    }
-                }
-                else
-                {
-                    // Non-migratable file (text-format fingerprint or stale detection format) — delete and let re-analysis repopulate.
-                    LogDeletingNonMigratableLegacyFile(_logger, filePath);
-                }
+                // Valid episode — all legacy binary files are non-migratable to JSON; delete and let re-analysis repopulate.
+                LogDeletingNonMigratableLegacyFile(_logger, filePath);
 
                 try
                 {
@@ -189,12 +178,6 @@ public partial class CleanCacheTask(
     [LoggerMessage(Level = LogLevel.Debug, Message = "Deleting cache files for episode ID: {EpisodeId}")]
     private static partial void LogDeletingCacheFiles(ILogger logger, Guid episodeId);
 
-    [LoggerMessage(Level = LogLevel.Debug, Message = "Migrating legacy cache file to DB: {FilePath}")]
-    private static partial void LogMigratingLegacyFile(ILogger logger, string filePath);
-
-    [LoggerMessage(Level = LogLevel.Warning, Message = "Failed to migrate legacy cache file '{FilePath}'")]
-    private static partial void LogMigrationFailed(ILogger logger, Exception exception, string filePath);
-
     [LoggerMessage(Level = LogLevel.Warning, Message = "Failed to delete stale legacy cache file '{FilePath}'")]
     private static partial void LogDeletingLegacyFileFailed(ILogger logger, Exception exception, string filePath);
 
@@ -203,48 +186,4 @@ public partial class CleanCacheTask(
 
     [LoggerMessage(Level = LogLevel.Debug, Message = "Deleting non-migratable legacy cache file: {FilePath}")]
     private static partial void LogDeletingNonMigratableLegacyFile(ILogger logger, string filePath);
-
-    /// <summary>
-    /// Maps a legacy on-disk cache filename to the current SQLite cache DB key.
-    /// Returns <c>null</c> for text-format fingerprint files (too old to migrate binary-style).
-    /// </summary>
-    /// <param name="filename">The filename of the legacy cache file (without directory).</param>
-    /// <param name="episodeIdN">The episode GUID formatted as 32 lowercase hex digits.</param>
-    /// <returns>The DB key to use, or <c>null</c> if the file cannot be migrated.</returns>
-    internal static string? GetMigratedDbKey(string filename, string episodeIdN)
-    {
-        // Plain GUID or GUID-credits: very old text-format fingerprint — delete without migrating.
-        if (string.Equals(filename, episodeIdN, StringComparison.Ordinal) ||
-            string.Equals(filename, episodeIdN + "-credits", StringComparison.Ordinal))
-        {
-            return null;
-        }
-
-        // blackframes and keyframes v1 → v2
-        if ((filename.Contains("-blackframes-", StringComparison.Ordinal) ||
-             filename.Contains("-keyframes-", StringComparison.Ordinal)) &&
-            filename.EndsWith("-v1", StringComparison.Ordinal))
-        {
-            // Version bump represents a cache-format invalidation; copying raw bytes under the
-            // new key would write old-format data that TryReadBinaryCache cannot deserialize.
-            // Delete and let the next analysis repopulate in the current format.
-            return null;
-        }
-
-        // silence v2 → v3
-        if (filename.Contains("-silence-", StringComparison.Ordinal) &&
-            filename.EndsWith("-v2", StringComparison.Ordinal))
-        {
-            return null;
-        }
-
-        // credits blackframes -alt → -v2
-        if (filename.EndsWith("-alt", StringComparison.Ordinal))
-        {
-            return null;
-        }
-
-        // Already in current DB key format (chromaprint-v1, blackframes-v2, silence-v3, keyframes-v2, etc.)
-        return filename;
-    }
 }

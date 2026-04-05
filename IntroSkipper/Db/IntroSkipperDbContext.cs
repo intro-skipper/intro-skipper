@@ -280,7 +280,7 @@ public class IntroSkipperDbContext : DbContext
             }
             catch (SqliteException)
             {
-                // Fall back to SQLite defaults when optional pragmas such as WAL cannot be applied.
+                // Fall back to SQLite defaults when optional pragmas such as busy_timeout cannot be applied.
             }
         }
 
@@ -293,7 +293,7 @@ public class IntroSkipperDbContext : DbContext
             }
             catch (SqliteException)
             {
-                // Fall back to SQLite defaults when optional pragmas such as WAL cannot be applied.
+                // Fall back to SQLite defaults when optional pragmas such as busy_timeout cannot be applied.
             }
         }
     }

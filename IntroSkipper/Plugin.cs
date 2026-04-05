@@ -107,7 +107,8 @@ public partial class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
         // Initialize detection cache database.
         try
         {
-            DetectionCacheDb.EnsureSchema(_cacheDbPath);
+            using var cacheDb = CreateCacheDbContext();
+            cacheDb.EnsureSchema();
         }
         catch (Exception ex) when (ex is IOException or SqliteException)
         {
@@ -182,14 +183,14 @@ public partial class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
     }
 
     /// <summary>
-    /// Creates a new <see cref="DetectionCacheDb"/> instance configured for the plugin cache database.
+    /// Creates a new <see cref="DetectionCacheDbContext"/> instance configured for the plugin cache database.
     /// </summary>
-    /// <returns>A new <see cref="DetectionCacheDb"/>.</returns>
+    /// <returns>A new <see cref="DetectionCacheDbContext"/>.</returns>
     /// <exception cref="ArgumentNullException">Thrown when the plugin has not been initialized.</exception>
-    public static DetectionCacheDb CreateCacheDb()
+    public static DetectionCacheDbContext CreateCacheDbContext()
     {
         ArgumentNullException.ThrowIfNull(Instance);
-        return new DetectionCacheDb(Instance.CacheDbPath);
+        return new DetectionCacheDbContext(Instance.CacheDbPath);
     }
 
     /// <inheritdoc />

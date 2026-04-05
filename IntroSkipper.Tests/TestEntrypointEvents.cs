@@ -447,7 +447,8 @@ internal static class EntrypointTestHelpers
             setter!.Invoke(null, [plugin]);
 
             // Ensure the schema exists so tests can write to the cache DB.
-            IntroSkipper.Db.DetectionCacheDb.EnsureSchema(CacheDbPath);
+            using var cacheDb = new IntroSkipper.Db.DetectionCacheDbContext(CacheDbPath);
+            cacheDb.EnsureSchema();
         }
 
         public string CacheDir { get; }

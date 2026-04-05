@@ -12,10 +12,10 @@ using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Text;
+using System.Text.Json;
 using System.Text.RegularExpressions;
 using IntroSkipper.Data;
 using IntroSkipper.Db;
-using Microsoft.Data.Sqlite;
 using Microsoft.Extensions.Logging;
 
 namespace IntroSkipper;
@@ -173,13 +173,6 @@ public static partial class FFmpegWrapper
             "-f", "null", "-",
         };
 
-        var cacheKey = string.Format(
-            CultureInfo.InvariantCulture,
-            "{0}-silence-{1}-{2}-v3",
-            episode.EpisodeId.ToString("N"),
-            range.Start,
-            range.End);
-
         var legacyCacheKey = string.Format(
             CultureInfo.InvariantCulture,
             "{0}-silence-{1}-{2}-v2",
@@ -187,8 +180,8 @@ public static partial class FFmpegWrapper
             range.Start,
             range.End);
 
-        if (ReadSilenceCache(cacheKey, out var cached) ||
-            TryLoadLegacyCache(legacyCacheKey, cacheKey, raw => ParseSilenceRaw(raw, range.Start), static r => new TimeRange(r.ReadDouble(), r.ReadDouble()), WriteSilenceCache, out cached))
+        if (TryReadJsonCache(episode.EpisodeId, AnalysisMode.Introduction, CacheEntryType.Silence, range.Start, range.End, out TimeRange[] cached) ||
+            TryLoadLegacyCache(legacyCacheKey, episode.EpisodeId, AnalysisMode.Introduction, CacheEntryType.Silence, range.Start, range.End, raw => ParseSilenceRaw(raw, range.Start), out cached))
         {
             return cached;
         }
@@ -201,7 +194,7 @@ public static partial class FFmpegWrapper
         */
         var raw = Encoding.UTF8.GetString(GetOutput(args, true));
         var result = ParseSilenceRaw(raw, range.Start);
-        WriteSilenceCache(cacheKey, result);
+        WriteJsonCache(episode.EpisodeId, AnalysisMode.Introduction, CacheEntryType.Silence, range.Start, range.End, result);
 
         return result;
     }
@@ -231,13 +224,6 @@ public static partial class FFmpegWrapper
             "-f", "null", "-",
         };
 
-        var cacheKey = string.Format(
-            CultureInfo.InvariantCulture,
-            "{0}-blackframes-{1}-{2}-v2",
-            episode.EpisodeId.ToString("N"),
-            range.Start,
-            range.End);
-
         var legacyCacheKey = string.Format(
             CultureInfo.InvariantCulture,
             "{0}-blackframes-{1}-{2}-v1",
@@ -245,15 +231,15 @@ public static partial class FFmpegWrapper
             range.Start,
             range.End);
 
-        if (ReadBlackFrameCache(cacheKey, out var cached) ||
-            TryLoadLegacyCache(legacyCacheKey, cacheKey, static raw => ParseBlackFrame(raw), static r => new BlackFrame(r.ReadInt32(), r.ReadDouble(), r.ReadInt32()), WriteBlackFrameCache, out cached))
+        if (TryReadJsonCache(episode.EpisodeId, AnalysisMode.Introduction, CacheEntryType.BlackFrame, range.Start, range.End, out BlackFrame[] cached) ||
+            TryLoadLegacyCache(legacyCacheKey, episode.EpisodeId, AnalysisMode.Introduction, CacheEntryType.BlackFrame, range.Start, range.End, static raw => ParseBlackFrame(raw), out cached))
         {
             return [.. cached.Where(bf => bf.Percentage >= minimum)];
         }
 
         var raw = Encoding.UTF8.GetString(GetOutput(args, true));
         var allFrames = ParseBlackFrame(raw);
-        WriteBlackFrameCache(cacheKey, allFrames);
+        WriteJsonCache(episode.EpisodeId, AnalysisMode.Introduction, CacheEntryType.BlackFrame, range.Start, range.End, allFrames);
 
         return [.. allFrames.Where(bf => bf.Percentage >= minimum)];
     }
@@ -279,27 +265,21 @@ public static partial class FFmpegWrapper
             "-f", "null", "-",
         };
 
-        var cacheKey = string.Format(
-            CultureInfo.InvariantCulture,
-            "{0}-credits-blackframes-{1}-v2",
-            episode.EpisodeId.ToString("N"),
-            episode.CreditsFingerprintStart);
-
         var legacyCacheKey = string.Format(
             CultureInfo.InvariantCulture,
             "{0}-blackframes-{1}-alt",
             episode.EpisodeId.ToString("N"),
             episode.CreditsFingerprintStart);
 
-        if (ReadBlackFrameCache(cacheKey, out var cached) ||
-            TryLoadLegacyCache(legacyCacheKey, cacheKey, static raw => ParseBlackFrame(raw), static r => new BlackFrame(r.ReadInt32(), r.ReadDouble(), r.ReadInt32()), WriteBlackFrameCache, out cached))
+        if (TryReadJsonCache(episode.EpisodeId, AnalysisMode.Credits, CacheEntryType.BlackFrame, episode.CreditsFingerprintStart, 0, out BlackFrame[] cached) ||
+            TryLoadLegacyCache(legacyCacheKey, episode.EpisodeId, AnalysisMode.Credits, CacheEntryType.BlackFrame, episode.CreditsFingerprintStart, 0, static raw => ParseBlackFrame(raw), out cached))
         {
             return cached;
         }
 
         var raw = Encoding.UTF8.GetString(GetOutput(args, true));
         var allFrames = ParseBlackFrame(raw);
-        WriteBlackFrameCache(cacheKey, allFrames);
+        WriteJsonCache(episode.EpisodeId, AnalysisMode.Credits, CacheEntryType.BlackFrame, episode.CreditsFingerprintStart, 0, allFrames);
 
         return allFrames;
     }
@@ -404,13 +384,6 @@ public static partial class FFmpegWrapper
             "-f", "null", "-",
         };
 
-        var cacheKey = string.Format(
-            CultureInfo.InvariantCulture,
-            "{0}-keyframes-{1}-{2}-v2",
-            episode.EpisodeId.ToString("N"),
-            range.Start,
-            range.End);
-
         var legacyCacheKey = string.Format(
             CultureInfo.InvariantCulture,
             "{0}-keyframes-{1}-{2}-v1",
@@ -418,15 +391,15 @@ public static partial class FFmpegWrapper
             range.Start,
             range.End);
 
-        if (ReadKeyFrameCache(cacheKey, out var cached) ||
-            TryLoadLegacyCache(legacyCacheKey, cacheKey, raw => ParseKeyFramesRaw(raw, range.Start), static r => r.ReadDouble(), WriteKeyFrameCache, out cached))
+        if (TryReadJsonCache(episode.EpisodeId, AnalysisMode.Introduction, CacheEntryType.Keyframe, range.Start, range.End, out double[] cached) ||
+            TryLoadLegacyCache(legacyCacheKey, episode.EpisodeId, AnalysisMode.Introduction, CacheEntryType.Keyframe, range.Start, range.End, raw => ParseKeyFramesRaw(raw, range.Start), out cached))
         {
             return cached;
         }
 
         var raw = Encoding.UTF8.GetString(GetOutput(args, stderr: true));
         var result = ParseKeyFramesRaw(raw, range.Start);
-        WriteKeyFrameCache(cacheKey, result);
+        WriteJsonCache(episode.EpisodeId, AnalysisMode.Introduction, CacheEntryType.Keyframe, range.Start, range.End, result);
 
         return result;
     }
@@ -659,12 +632,12 @@ public static partial class FFmpegWrapper
 
     /// <summary>
     /// Tries to load an episode's fingerprint from cache. If caching is not enabled, calling this function is a no-op.
-    /// Tries the current binary format first, then migrates legacy text-format files on the fly.
+    /// Checks the SQLite detection cache first, then migrates legacy on-disk files on the fly.
     /// </summary>
     /// <param name="episode">Episode to try to load from cache.</param>
     /// <param name="mode">Analysis mode.</param>
     /// <param name="fingerprint">Array to store the fingerprint in.</param>
-    /// <returns>true if the episode was successfully loaded from cache, false on any other error.</returns>
+    /// <returns><c>true</c> if the episode was successfully loaded from cache; otherwise <c>false</c>.</returns>
     private static bool LoadCachedFingerprint(
         QueuedEpisode episode,
         AnalysisMode mode,
@@ -679,15 +652,14 @@ public static partial class FFmpegWrapper
 
         var id = episode.EpisodeId.ToString("N");
         var suffix = mode == AnalysisMode.Credits ? "-credits" : string.Empty;
-        var cacheKey = id + suffix + "-chromaprint-v1";
         var legacyCacheKey = id + suffix;
 
-        return ReadFingerprintCache(cacheKey, out fingerprint) ||
-            TryLoadLegacyCache(legacyCacheKey, cacheKey, ParseFingerprintRaw, static r => r.ReadUInt32(), WriteFingerprintCache, out fingerprint);
+        return TryReadJsonCache(episode.EpisodeId, mode, CacheEntryType.Chromaprint, 0, 0, out fingerprint) ||
+            TryLoadLegacyCache(legacyCacheKey, episode.EpisodeId, mode, CacheEntryType.Chromaprint, 0, 0, ParseFingerprintRaw, out fingerprint);
     }
 
     /// <summary>
-    /// Cache an episode's fingerprint to disk in binary format. If caching is not enabled, calling this function is a no-op.
+    /// Cache an episode's fingerprint to the SQLite detection cache as JSON. If caching is not enabled, calling this function is a no-op.
     /// </summary>
     /// <param name="episode">Episode to store in cache.</param>
     /// <param name="mode">Analysis mode.</param>
@@ -697,19 +669,20 @@ public static partial class FFmpegWrapper
         AnalysisMode mode,
         List<uint> fingerprint)
     {
-        var id = episode.EpisodeId.ToString("N");
-        var suffix = mode == AnalysisMode.Credits ? "-credits" : string.Empty;
-        WriteFingerprintCache(id + suffix + "-chromaprint-v1", [.. fingerprint]);
+        WriteJsonCache(episode.EpisodeId, mode, CacheEntryType.Chromaprint, 0, 0, [.. fingerprint]);
     }
 
     /// <summary>
-    /// Remove a cached episode fingerprint from disk.
+    /// Remove a cached episode fingerprint from the database.
     /// </summary>
     /// <param name="id">Media item ID to remove from cache.</param>
     public static void DeleteFingerprintCache(Guid id)
     {
         // Delete from the SQLite cache database.
-        Plugin.CreateCacheDb().DeleteByEpisodeId(id);
+        using var db = Plugin.CreateCacheDbContext();
+        db.DetectionCache.RemoveRange(
+            db.DetectionCache.Where(e => e.ItemId == id));
+        db.SaveChanges();
 
         // Also sweep any legacy binary files still on disk (pre-migration installs).
         var cacheDir = Plugin.Instance?.FingerprintCachePath;
@@ -739,13 +712,16 @@ public static partial class FFmpegWrapper
     }
 
     /// <summary>
-    /// Remove cached fingerprints from disk by mode.
+    /// Remove cached fingerprints from the database by mode.
     /// </summary>
     /// <param name="mode">Analysis mode.</param>
     public static void DeleteCacheFiles(AnalysisMode mode)
     {
         // Delete from the SQLite cache database.
-        Plugin.CreateCacheDb().DeleteByMode(mode);
+        using var db = Plugin.CreateCacheDbContext();
+        db.DetectionCache.RemoveRange(
+            db.DetectionCache.Where(e => e.Mode == mode));
+        db.SaveChanges();
 
         // Also sweep any legacy binary files still on disk (pre-migration installs).
         var cacheDir = Plugin.Instance?.FingerprintCachePath;
@@ -772,11 +748,11 @@ public static partial class FFmpegWrapper
     }
 
     /// <summary>
-    /// Returns true if a fingerprint cache exists for the episode in either binary or legacy text format.
+    /// Returns <c>true</c> if a fingerprint cache entry exists for the episode in the SQLite cache or as a legacy on-disk text file.
     /// </summary>
     /// <param name="episode">Episode.</param>
     /// <param name="mode">Analysis mode.</param>
-    /// <returns>true if any fingerprint cache file exists.</returns>
+    /// <returns><c>true</c> if any fingerprint cache entry exists; otherwise <c>false</c>.</returns>
     public static bool HasCachedFingerprint(QueuedEpisode episode, AnalysisMode mode)
     {
         if (!IsCachingEnabled())
@@ -784,20 +760,88 @@ public static partial class FFmpegWrapper
             return false;
         }
 
+        using var db = Plugin.CreateCacheDbContext();
+        if (db.DetectionCache.Any(e => e.ItemId == episode.EpisodeId && e.Mode == mode && e.Type == CacheEntryType.Chromaprint))
+        {
+            return true;
+        }
+
         var id = episode.EpisodeId.ToString("N");
         var suffix = mode == AnalysisMode.Credits ? "-credits" : string.Empty;
-
-        var db = Plugin.CreateCacheDb();
-        return db.ExistsByKey(id + suffix + "-chromaprint-v1") ||
-               File.Exists(GetLegacyFilePath(id + suffix + "-chromaprint-v1")) ||
-               File.Exists(GetLegacyFilePath(id + suffix));
+        return File.Exists(GetLegacyFilePath(id + suffix));
     }
 
-    private static bool ReadFingerprintCache(string cacheKey, out uint[] result)
-        => TryReadBinaryCache(cacheKey, static r => r.ReadUInt32(), out result);
+    private static bool TryReadJsonCache<T>(Guid itemId, AnalysisMode mode, CacheEntryType type, double start, double end, out T[] result)
+    {
+        result = [];
 
-    private static void WriteFingerprintCache(string cacheKey, uint[] fingerprint)
-        => WriteBinaryCache(cacheKey, fingerprint, static (w, v) => w.Write(v));
+        if (!IsCachingEnabled())
+        {
+            return false;
+        }
+
+        try
+        {
+            using var db = Plugin.CreateCacheDbContext();
+
+            // NOTE: Start/End are compared with == which is safe only because the exact same
+            // double values that were written are used for lookup (no intermediate arithmetic).
+            // If a future caller computes start/end differently, the lookup will silently miss.
+            var entry = db.DetectionCache
+                .FirstOrDefault(e => e.ItemId == itemId && e.Mode == mode && e.Type == type && e.Start == start && e.End == end);
+
+            if (entry is null)
+            {
+                return false;
+            }
+
+            result = JsonSerializer.Deserialize<T[]>(entry.Data) ?? [];
+
+            if (Logger is { } logger)
+            {
+                LogDetectionCacheHit(logger, $"{itemId:N}-{mode}-{type}");
+            }
+
+            return true;
+        }
+        catch (Exception ex) when (ex is JsonException or NotSupportedException)
+        {
+            if (Logger is { } logger)
+            {
+                LogDetectionCacheReadError(logger, ex, $"{itemId:N}-{mode}-{type}");
+            }
+
+            return false;
+        }
+    }
+
+    private static void WriteJsonCache<T>(Guid itemId, AnalysisMode mode, CacheEntryType type, double start, double end, T[] items)
+    {
+        if (!IsCachingEnabled())
+        {
+            return;
+        }
+
+        var json = JsonSerializer.Serialize(items);
+
+        using var db = Plugin.CreateCacheDbContext();
+
+        // NOTE: Start/End are compared with == which is safe only because the exact same
+        // double values that were written are used for lookup (no intermediate arithmetic).
+        var existing = db.DetectionCache
+            .FirstOrDefault(e => e.ItemId == itemId && e.Mode == mode && e.Type == type && e.Start == start && e.End == end);
+
+        if (existing is not null)
+        {
+            existing.Data = json;
+        }
+        else
+        {
+            db.DetectionCache.Add(new DbDetectionCache(itemId, mode, type, json, start, end));
+        }
+
+        db.SaveChanges();
+    }
 
     private static uint[] ParseFingerprintRaw(string raw)
     {
@@ -817,103 +861,14 @@ public static partial class FFmpegWrapper
         return [.. result];
     }
 
-    private static bool ReadSilenceCache(string cacheKey, out TimeRange[] result)
-        => TryReadBinaryCache(cacheKey, static r => new TimeRange(r.ReadDouble(), r.ReadDouble()), out result);
-
-    private static void WriteSilenceCache(string cacheKey, TimeRange[] ranges)
-        => WriteBinaryCache(cacheKey, ranges, static (w, r) =>
-        {
-            w.Write(r.Start);
-            w.Write(r.End);
-        });
-
-    private static bool ReadBlackFrameCache(string cacheKey, out BlackFrame[] result)
-        => TryReadBinaryCache(cacheKey, static r => new BlackFrame(r.ReadInt32(), r.ReadDouble(), r.ReadInt32()), out result);
-
-    private static void WriteBlackFrameCache(string cacheKey, BlackFrame[] frames)
-        => WriteBinaryCache(cacheKey, frames, static (w, f) =>
-        {
-            w.Write(f.Percentage);
-            w.Write(f.Time);
-            w.Write(f.Frame);
-        });
-
-    private static bool ReadKeyFrameCache(string cacheKey, out double[] result)
-        => TryReadBinaryCache(cacheKey, static r => r.ReadDouble(), out result);
-
-    private static void WriteKeyFrameCache(string cacheKey, double[] timestamps)
-        => WriteBinaryCache(cacheKey, timestamps, static (w, t) => w.Write(t));
-
-    private static bool TryReadBinaryCache<T>(string cacheKey, Func<BinaryReader, T> deserializer, out T[] result)
-    {
-        result = [];
-
-        if (!IsCachingEnabled())
-        {
-            return false;
-        }
-
-        try
-        {
-            var db = Plugin.CreateCacheDb();
-            if (!db.TryRead(cacheKey, out var data))
-            {
-                return false;
-            }
-
-            using var ms = new MemoryStream(data);
-            using var reader = new BinaryReader(ms);
-            var count = reader.ReadInt32();
-            var items = new T[count];
-            for (var i = 0; i < count; i++)
-            {
-                items[i] = deserializer(reader);
-            }
-
-            if (Logger is { } logger)
-            {
-                LogDetectionCacheHit(logger, cacheKey);
-            }
-
-            result = items;
-            return true;
-        }
-        catch (Exception ex) when (ex is SqliteException or EndOfStreamException)
-        {
-            if (Logger is { } logger)
-            {
-                LogDetectionCacheReadError(logger, ex, cacheKey);
-            }
-
-            return false;
-        }
-    }
-
-    private static void WriteBinaryCache<T>(string cacheKey, T[] items, Action<BinaryWriter, T> serializer)
-    {
-        if (!IsCachingEnabled())
-        {
-            return;
-        }
-
-        using var ms = new MemoryStream();
-        using var writer = new BinaryWriter(ms);
-        writer.Write(items.Length);
-        foreach (var item in items)
-        {
-            serializer(writer, item);
-        }
-
-        writer.Flush();
-        Plugin.CreateCacheDb().Write(cacheKey, ms.ToArray());
-    }
-
     private static bool TryLoadLegacyCache<T>(
         string legacyCacheKey,
-        string newCacheKey,
+        Guid itemId,
+        AnalysisMode mode,
+        CacheEntryType type,
+        double start,
+        double end,
         Func<string, T[]> rawParser,
-        Func<BinaryReader, T> itemReader,
-        Action<string, T[]> dbWriter,
         out T[] result)
     {
         result = [];
@@ -923,84 +878,7 @@ public static partial class FFmpegWrapper
             return false;
         }
 
-        // Phase 1: migrate old binary files from disk into SQLite.
-        // The old binary filename matched newCacheKey exactly (before SQLite was introduced).
-        var legacyBinaryPath = GetLegacyFilePath(newCacheKey);
-        if (File.Exists(legacyBinaryPath))
-        {
-            try
-            {
-                using var fs = File.Open(legacyBinaryPath, FileMode.Open, FileAccess.Read);
-                using var reader = new BinaryReader(fs);
-                var count = reader.ReadInt32();
-                var items = new T[count];
-                for (var i = 0; i < count; i++)
-                {
-                    items[i] = itemReader(reader);
-                }
-
-                if (items.Length > 0)
-                {
-                    if (Logger is { } migLogger)
-                    {
-                        LogMigratingLegacyCache(migLogger, newCacheKey, "DB");
-                    }
-
-                    dbWriter(newCacheKey, items);
-                    result = items;
-
-                    try
-                    {
-                        File.Delete(legacyBinaryPath);
-                    }
-                    catch (IOException ex)
-                    {
-                        if (Logger is { } deleteLogger)
-                        {
-                            LogFailedToDeleteCorruptLegacyCache(deleteLogger, ex, legacyBinaryPath);
-                        }
-                    }
-
-                    return true;
-                }
-                else
-                {
-                    // Empty binary file — best-effort delete and fall through to Phase 2.
-                    try
-                    {
-                        File.Delete(legacyBinaryPath);
-                    }
-                    catch (IOException deleteEx)
-                    {
-                        if (Logger is { } migLogger)
-                        {
-                            LogFailedToDeleteCorruptLegacyCache(migLogger, deleteEx, legacyBinaryPath);
-                        }
-                    }
-                }
-            }
-            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or EndOfStreamException)
-            {
-                // Corrupt or unreadable binary file — delete it and fall through to text-format check.
-                try
-                {
-                    File.Delete(legacyBinaryPath);
-                }
-                catch (IOException deleteEx)
-                {
-                    // Best-effort cleanup; failure to delete should not stop migration, but log for diagnostics.
-                    if (Logger is { } migLogger)
-                    {
-                        LogFailedToDeleteCorruptLegacyCache(migLogger, deleteEx, legacyBinaryPath);
-                    }
-                }
-            }
-        }
-
-        // Phase 2: attempt legacy migration by reading the legacy cache file as UTF-8 text and
-        // running rawParser on it. This fallback is intentionally used for legacy cache migration
-        // across detection types (including fingerprints, silence, blackframe, and keyframe),
-        // not just fingerprints.
+        // Migrate legacy on-disk text files into the SQLite cache.
         var legacyTextPath = GetLegacyFilePath(legacyCacheKey);
         try
         {
@@ -1017,16 +895,18 @@ public static partial class FFmpegWrapper
 
             if (Logger is { } logger)
             {
-                LogMigratingLegacyCache(logger, legacyCacheKey, newCacheKey);
+                LogMigratingLegacyCache(logger, legacyCacheKey, $"{itemId:N}-{mode}-{type}");
             }
 
-            dbWriter(newCacheKey, result);
+            WriteJsonCache(itemId, mode, type, start, end, result);
             File.Delete(legacyTextPath);
 
             return true;
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
+            // FileNotFoundException is a subclass of IOException and is the normal case when the
+            // legacy text file simply does not exist — suppress it silently to avoid log noise.
             if (ex is not FileNotFoundException && Logger is { } logger)
             {
                 LogDetectionCacheReadError(logger, ex, legacyTextPath);
@@ -1118,9 +998,6 @@ public static partial class FFmpegWrapper
 
     [LoggerMessage(Level = LogLevel.Debug, Message = "Migrating legacy cache {LegacyKey} to {NewKey}")]
     private static partial void LogMigratingLegacyCache(ILogger logger, string legacyKey, string newKey);
-
-    [LoggerMessage(Level = LogLevel.Debug, Message = "Failed to delete legacy cache file at path '{LegacyPath}'")]
-    private static partial void LogFailedToDeleteCorruptLegacyCache(ILogger logger, Exception ex, string legacyPath);
 
     [GeneratedRegex("silence_(?<type>start|end): (?<time>[0-9\\.]+)")]
     private static partial Regex SilenceRegex();

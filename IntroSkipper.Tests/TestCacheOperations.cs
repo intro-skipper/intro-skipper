@@ -6,6 +6,8 @@ namespace IntroSkipper.Tests;
 using System;
 using System.Globalization;
 using System.IO;
+using System.Linq;
+using System.Text.Json;
 using IntroSkipper.Configuration;
 using IntroSkipper.Data;
 using IntroSkipper.Db;
@@ -16,32 +18,32 @@ public sealed class TestCacheOperations
     [Fact]
     public void DeleteCacheFiles_Introduction_DeletesIntroFilesOnly()
     {
-        var id = Guid.NewGuid().ToString("N");
+        var itemId = Guid.NewGuid();
         var cacheDir = EntrypointTestHelpers.CreateTempCacheDir();
 
-        var shouldKeep = new[]
+        // Entries that should be kept (Credits mode)
+        var shouldKeep = new DbDetectionCache[]
         {
-            id + "-credits-chromaprint-v1",
-            id + "-credits-blackframes-100.5-v2",
+            new(itemId, AnalysisMode.Credits, CacheEntryType.Chromaprint, "[]"),
+            new(itemId, AnalysisMode.Credits, CacheEntryType.BlackFrame, "[]", 100.5, 0),
         };
-        var shouldDelete = new[]
+
+        // Entries that should be deleted (Introduction mode)
+        var shouldDelete = new DbDetectionCache[]
         {
-            id + "-chromaprint-v1",
-            id + "-silence-0-30-v3",
-            id + "-keyframes-0-30-v2",
-            id + "-blackframes-0-30-v2",
+            new(itemId, AnalysisMode.Introduction, CacheEntryType.Chromaprint, "[]"),
+            new(itemId, AnalysisMode.Introduction, CacheEntryType.Silence, "[]", 0, 30),
+            new(itemId, AnalysisMode.Introduction, CacheEntryType.Keyframe, "[]", 0, 30),
+            new(itemId, AnalysisMode.Introduction, CacheEntryType.BlackFrame, "[]", 0, 30),
         };
 
         using var scope = new EntrypointTestHelpers.PluginInstanceScope(cacheDir);
-        var db = Plugin.CreateCacheDb();
-        foreach (var key in shouldKeep)
-        {
-            db.Write(key, [0x01]);
-        }
 
-        foreach (var key in shouldDelete)
+        using (var db = Plugin.CreateCacheDbContext())
         {
-            db.Write(key, [0x01]);
+            db.DetectionCache.AddRange(shouldKeep);
+            db.DetectionCache.AddRange(shouldDelete);
+            db.SaveChanges();
         }
 
         using (new CachingPluginScope(cacheDir, scope.CacheDbPath))
@@ -49,47 +51,49 @@ public sealed class TestCacheOperations
             FFmpegWrapper.DeleteCacheFiles(AnalysisMode.Introduction);
         }
 
-        db = Plugin.CreateCacheDb();
-        foreach (var key in shouldDelete)
+        using (var db = Plugin.CreateCacheDbContext())
         {
-            Assert.False(db.ExistsByKey(key), $"DB row '{key}' should be deleted");
-        }
+            // Introduction entries should be gone
+            Assert.False(
+                db.DetectionCache.Any(e => e.ItemId == itemId && e.Mode == AnalysisMode.Introduction),
+                "All Introduction cache entries should be deleted");
 
-        foreach (var key in shouldKeep)
-        {
-            Assert.True(db.ExistsByKey(key), $"DB row '{key}' should be kept");
+            // Credits entries should remain
+            Assert.Equal(
+                shouldKeep.Length,
+                db.DetectionCache.Count(e => e.ItemId == itemId && e.Mode == AnalysisMode.Credits));
         }
     }
 
     [Fact]
     public void DeleteCacheFiles_Credits_DeletesCreditsFilesOnly()
     {
-        var id = Guid.NewGuid().ToString("N");
+        var itemId = Guid.NewGuid();
         var cacheDir = EntrypointTestHelpers.CreateTempCacheDir();
 
-        var shouldKeep = new[]
+        // Entries that should be kept (Introduction mode)
+        var shouldKeep = new DbDetectionCache[]
         {
-            id + "-chromaprint-v1",
-            id + "-silence-0-30-v3",
-            id + "-keyframes-0-30-v2",
-            id + "-blackframes-0-30-v2",
+            new(itemId, AnalysisMode.Introduction, CacheEntryType.Chromaprint, "[]"),
+            new(itemId, AnalysisMode.Introduction, CacheEntryType.Silence, "[]", 0, 30),
+            new(itemId, AnalysisMode.Introduction, CacheEntryType.Keyframe, "[]", 0, 30),
+            new(itemId, AnalysisMode.Introduction, CacheEntryType.BlackFrame, "[]", 0, 30),
         };
-        var shouldDelete = new[]
+
+        // Entries that should be deleted (Credits mode)
+        var shouldDelete = new DbDetectionCache[]
         {
-            id + "-credits-chromaprint-v1",
-            id + "-credits-blackframes-100.5-v2",
+            new(itemId, AnalysisMode.Credits, CacheEntryType.Chromaprint, "[]"),
+            new(itemId, AnalysisMode.Credits, CacheEntryType.BlackFrame, "[]", 100.5, 0),
         };
 
         using var scope = new EntrypointTestHelpers.PluginInstanceScope(cacheDir);
-        var db = Plugin.CreateCacheDb();
-        foreach (var key in shouldKeep)
-        {
-            db.Write(key, [0x01]);
-        }
 
-        foreach (var key in shouldDelete)
+        using (var db = Plugin.CreateCacheDbContext())
         {
-            db.Write(key, [0x01]);
+            db.DetectionCache.AddRange(shouldKeep);
+            db.DetectionCache.AddRange(shouldDelete);
+            db.SaveChanges();
         }
 
         using (new CachingPluginScope(cacheDir, scope.CacheDbPath))
@@ -97,15 +101,17 @@ public sealed class TestCacheOperations
             FFmpegWrapper.DeleteCacheFiles(AnalysisMode.Credits);
         }
 
-        db = Plugin.CreateCacheDb();
-        foreach (var key in shouldDelete)
+        using (var db = Plugin.CreateCacheDbContext())
         {
-            Assert.False(db.ExistsByKey(key), $"DB row '{key}' should be deleted");
-        }
+            // Credits entries should be gone
+            Assert.False(
+                db.DetectionCache.Any(e => e.ItemId == itemId && e.Mode == AnalysisMode.Credits),
+                "All Credits cache entries should be deleted");
 
-        foreach (var key in shouldKeep)
-        {
-            Assert.True(db.ExistsByKey(key), $"DB row '{key}' should be kept");
+            // Introduction entries should remain
+            Assert.Equal(
+                shouldKeep.Length,
+                db.DetectionCache.Count(e => e.ItemId == itemId && e.Mode == AnalysisMode.Introduction));
         }
     }
 
@@ -116,7 +122,13 @@ public sealed class TestCacheOperations
         var cacheDir = EntrypointTestHelpers.CreateTempCacheDir();
 
         using var scope = new EntrypointTestHelpers.PluginInstanceScope(cacheDir);
-        Plugin.CreateCacheDb().Write(episode.EpisodeId.ToString("N") + "-chromaprint-v1", [0x01]);
+
+        using (var db = Plugin.CreateCacheDbContext())
+        {
+            db.DetectionCache.Add(new DbDetectionCache(
+                episode.EpisodeId, AnalysisMode.Introduction, CacheEntryType.Chromaprint, "[]"));
+            db.SaveChanges();
+        }
 
         using (new CachingPluginScope(cacheDir, scope.CacheDbPath))
         {
@@ -160,7 +172,6 @@ public sealed class TestCacheOperations
 
         var id = episode.EpisodeId.ToString("N");
         var legacyPath = Path.Combine(cacheDir, Path.GetFileName(id));
-        var dbKey = id + "-chromaprint-v1";
 
         // Write a valid legacy text-format fingerprint (one uint per line)
         uint[] expectedFingerprint = [1234567890u, 987654321u, 42u];
@@ -178,12 +189,17 @@ public sealed class TestCacheOperations
 
         Assert.False(File.Exists(legacyPath), "Legacy text cache file should be deleted after migration");
 
-        // Use DetectionCacheDb directly since Plugin.Instance is no longer set after scope disposal.
-        var db = new IntroSkipper.Db.DetectionCacheDb(cacheDbPath);
-        Assert.True(db.ExistsByKey(dbKey), "DB row should be created after migration");
+        // Use DetectionCacheDbContext directly since Plugin.Instance is no longer set after scope disposal.
+        using var db = new DetectionCacheDbContext(cacheDbPath);
+        Assert.True(
+            db.DetectionCache.Any(e =>
+                e.ItemId == episode.EpisodeId &&
+                e.Mode == AnalysisMode.Introduction &&
+                e.Type == CacheEntryType.Chromaprint),
+            "DB row should be created after migration");
 
         // Verify the fingerprint was correctly round-tripped.
-        var migrated = ReadFingerprintFromDb(db, dbKey);
+        var migrated = ReadFingerprintFromDb(db, episode.EpisodeId, AnalysisMode.Introduction);
         Assert.Equal(expectedFingerprint, result);
         Assert.Equal(expectedFingerprint, migrated);
     }
@@ -201,7 +217,6 @@ public sealed class TestCacheOperations
 
         var id = episode.EpisodeId.ToString("N");
         var legacyPath = Path.Combine(cacheDir, id);
-        var dbKey = id + "-chromaprint-v1";
 
         // Write a corrupt legacy file (binary content, not parseable as uint lines)
         File.WriteAllBytes(legacyPath, [0x00, 0x01, 0x02, 0x03, 0xFF, 0xFE]);
@@ -223,27 +238,94 @@ public sealed class TestCacheOperations
 
         Assert.False(File.Exists(legacyPath), "Corrupt legacy cache file should be deleted");
 
-        var db = new IntroSkipper.Db.DetectionCacheDb(cacheDbPath);
-        Assert.False(db.ExistsByKey(dbKey), "No DB row should be written for a corrupt legacy file");
+        using var db = new DetectionCacheDbContext(cacheDbPath);
+        Assert.False(
+            db.DetectionCache.Any(e =>
+                e.ItemId == episode.EpisodeId &&
+                e.Mode == AnalysisMode.Introduction &&
+                e.Type == CacheEntryType.Chromaprint),
+            "No DB row should be written for a corrupt legacy file");
     }
 
-    private static uint[] ReadFingerprintFromDb(IntroSkipper.Db.DetectionCacheDb db, string cacheKey)
+    /// <summary>
+    /// Regression test: a cached empty array ("[]") must be treated as a valid cache hit.
+    /// Before the fix, TryReadJsonCache returned false for empty arrays, causing unnecessary re-analysis.
+    /// </summary>
+    [Fact]
+    public void EmptyArrayCacheEntry_TreatedAsCacheHit()
     {
-        if (!db.TryRead(cacheKey, out var data))
+        var episode = new QueuedEpisode
+        {
+            EpisodeId = Guid.NewGuid(),
+            Path = "/does/not/exist.mkv",
+        };
+        var cacheDir = EntrypointTestHelpers.CreateTempCacheDir();
+
+        var range = new TimeRange(0, 30);
+
+        using var scope = new EntrypointTestHelpers.PluginInstanceScope(cacheDir);
+
+        using (var db = Plugin.CreateCacheDbContext())
+        {
+            db.DetectionCache.Add(new DbDetectionCache(
+                episode.EpisodeId,
+                AnalysisMode.Introduction,
+                CacheEntryType.Silence,
+                "[]",
+                range.Start,
+                range.End));
+            db.SaveChanges();
+        }
+
+        TimeRange[] result;
+        using (new CachingPluginScope(cacheDir, scope.CacheDbPath))
+        {
+            // If the empty-array bug were present this would throw FingerprintException (file not found).
+            result = FFmpegWrapper.DetectSilence(episode, range);
+        }
+
+        Assert.Empty(result);
+    }
+
+    /// <summary>
+    /// Verifies that <see cref="BlackFrame"/> round-trips correctly through JSON serialization.
+    /// This ensures the positional record deserialization works for the cache layer.
+    /// </summary>
+    [Fact]
+    public void BlackFrame_JsonRoundTrip_PreservesAllFields()
+    {
+        var original = new BlackFrame[] {
+            new(85, 12.345, 300),
+            new(100, 0.0, 1),
+            new(0, 999.999, 99999),
+        };
+
+        var json = JsonSerializer.Serialize(original);
+        var deserialized = JsonSerializer.Deserialize<BlackFrame[]>(json);
+
+        Assert.NotNull(deserialized);
+        Assert.Equal(original.Length, deserialized.Length);
+        for (var i = 0; i < original.Length; i++)
+        {
+            Assert.Equal(original[i].Percentage, deserialized[i].Percentage);
+            Assert.Equal(original[i].Time, deserialized[i].Time);
+            Assert.Equal(original[i].Frame, deserialized[i].Frame);
+        }
+    }
+
+    private static uint[] ReadFingerprintFromDb(DetectionCacheDbContext db, Guid itemId, AnalysisMode mode)
+    {
+        var entry = db.DetectionCache.FirstOrDefault(e =>
+            e.ItemId == itemId &&
+            e.Mode == mode &&
+            e.Type == CacheEntryType.Chromaprint);
+
+        if (entry is null)
         {
             return [];
         }
 
-        using var ms = new MemoryStream(data);
-        using var reader = new System.IO.BinaryReader(ms);
-        var count = reader.ReadInt32();
-        var result = new uint[count];
-        for (var i = 0; i < count; i++)
-        {
-            result[i] = reader.ReadUInt32();
-        }
-
-        return result;
+        return JsonSerializer.Deserialize<uint[]>(entry.Data) ?? [];
     }
 
     /// <summary>

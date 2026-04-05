@@ -8,19 +8,22 @@ using System.IO;
 using System.Linq;
 using IntroSkipper.Data;
 using IntroSkipper.Db;
+using Microsoft.EntityFrameworkCore;
 using Xunit;
 
-public sealed class TestDetectionCacheDb : IDisposable
+public sealed class TestDetectionCacheDbContext : IDisposable
 {
     private readonly string _dbPath;
 
-    public TestDetectionCacheDb()
+    public TestDetectionCacheDbContext()
     {
         var baseDir = Path.Combine(Path.GetTempPath(), "IntroSkipper.Tests");
         var fileName = $"cache-{Guid.NewGuid():N}.db";
         _dbPath = Path.Combine(baseDir, fileName);
         Directory.CreateDirectory(Path.GetDirectoryName(_dbPath)!);
-        DetectionCacheDb.EnsureSchema(_dbPath);
+
+        using var db = CreateContext();
+        db.EnsureSchema();
     }
 
     public void Dispose()
@@ -43,139 +46,255 @@ public sealed class TestDetectionCacheDb : IDisposable
     }
 
     [Fact]
-    public void Write_ThenRead_ReturnsSameBlob()
+    public void Write_ThenRead_ReturnsSameData()
     {
-        var db = new DetectionCacheDb(_dbPath);
-        byte[] payload = [0x01, 0x02, 0x03, 0xFF];
+        var id = Guid.NewGuid();
+        const string payload = "[1,2,3,255]";
 
-        db.Write("test-key", payload);
+        using (var db = CreateContext())
+        {
+            db.DetectionCache.Add(new DbDetectionCache(id, AnalysisMode.Introduction, CacheEntryType.Chromaprint, payload));
+            db.SaveChanges();
+        }
 
-        Assert.True(db.TryRead("test-key", out var result));
-        Assert.Equal(payload, result);
+        using (var db = CreateContext())
+        {
+            var entry = db.DetectionCache.FirstOrDefault(e => e.ItemId == id && e.Type == CacheEntryType.Chromaprint);
+            Assert.NotNull(entry);
+            Assert.Equal(payload, entry.Data);
+        }
     }
 
     [Fact]
-    public void TryRead_ReturnsFalse_WhenKeyAbsent()
+    public void Query_ReturnsNull_WhenAbsent()
     {
-        var db = new DetectionCacheDb(_dbPath);
-
-        Assert.False(db.TryRead("nonexistent-key", out var result));
-        Assert.Empty(result);
+        var absent = Guid.NewGuid();
+        using var db = CreateContext();
+        var entry = db.DetectionCache.FirstOrDefault(e => e.ItemId == absent);
+        Assert.Null(entry);
     }
 
     [Fact]
-    public void Write_OverwritesExistingKey()
+    public void Write_OverwritesExistingEntry()
     {
-        var db = new DetectionCacheDb(_dbPath);
-        db.Write("overwrite-key", [0x01]);
-        db.Write("overwrite-key", [0x02, 0x03]);
+        // Mirrors the upsert pattern in FFmpegWrapper.WriteJsonCache:
+        // find by composite key, update Data if found, else add new.
+        var id = Guid.NewGuid();
+        var mode = AnalysisMode.Introduction;
+        var type = CacheEntryType.Chromaprint;
 
-        Assert.True(db.TryRead("overwrite-key", out var result));
-        Assert.Equal(new byte[] { 0x02, 0x03 }, result);
+        using (var db = CreateContext())
+        {
+            db.DetectionCache.Add(new DbDetectionCache(id, mode, type, "[1]"));
+            db.SaveChanges();
+        }
+
+        using (var db = CreateContext())
+        {
+            var existing = db.DetectionCache
+                .FirstOrDefault(e => e.ItemId == id && e.Mode == mode && e.Type == type && e.Start == 0 && e.End == 0);
+
+            Assert.NotNull(existing);
+            existing.Data = "[2,3]";
+            db.SaveChanges();
+        }
+
+        using (var db = CreateContext())
+        {
+            var entry = db.DetectionCache.First(e => e.ItemId == id && e.Type == type);
+            Assert.Equal("[2,3]", entry.Data);
+        }
     }
 
     [Fact]
-    public void ExistsByKey_ReturnsTrueForExistingKey()
+    public void Exists_ReturnsTrueForExistingEntry()
     {
-        var db = new DetectionCacheDb(_dbPath);
-        db.Write("exists-key", [0xAA]);
+        var id = Guid.NewGuid();
 
-        Assert.True(db.ExistsByKey("exists-key"));
+        using (var db = CreateContext())
+        {
+            db.DetectionCache.Add(new DbDetectionCache(id, AnalysisMode.Introduction, CacheEntryType.Chromaprint, "[]"));
+            db.SaveChanges();
+        }
+
+        using (var db = CreateContext())
+        {
+            Assert.True(db.DetectionCache.Any(e => e.ItemId == id && e.Type == CacheEntryType.Chromaprint));
+        }
     }
 
     [Fact]
-    public void ExistsByKey_ReturnsFalse_WhenKeyAbsent()
+    public void Exists_ReturnsFalse_WhenAbsent()
     {
-        var db = new DetectionCacheDb(_dbPath);
-
-        Assert.False(db.ExistsByKey("missing-key"));
+        var absent = Guid.NewGuid();
+        using var db = CreateContext();
+        Assert.False(db.DetectionCache.Any(e => e.ItemId == absent));
     }
 
     [Fact]
     public void DeleteByEpisodeId_RemovesAllRowsForEpisode()
     {
-        var db = new DetectionCacheDb(_dbPath);
         var id = Guid.NewGuid();
-        var prefix = id.ToString("N");
 
-        db.Write(prefix + "-chromaprint-v1", [0x01]);
-        db.Write(prefix + "-credits-chromaprint-v1", [0x02]);
-        db.Write(prefix + "-silence-0-30-v3", [0x03]);
+        using (var db = CreateContext())
+        {
+            db.DetectionCache.Add(new DbDetectionCache(id, AnalysisMode.Introduction, CacheEntryType.Chromaprint, "[]"));
+            db.DetectionCache.Add(new DbDetectionCache(id, AnalysisMode.Credits, CacheEntryType.Chromaprint, "[]"));
+            db.DetectionCache.Add(new DbDetectionCache(id, AnalysisMode.Introduction, CacheEntryType.Silence, "[]", 0, 30));
+            db.SaveChanges();
+        }
 
-        db.DeleteByEpisodeId(id);
+        using (var db = CreateContext())
+        {
+            db.DetectionCache.RemoveRange(db.DetectionCache.Where(e => e.ItemId == id));
+            db.SaveChanges();
+        }
 
-        Assert.False(db.ExistsByKey(prefix + "-chromaprint-v1"));
-        Assert.False(db.ExistsByKey(prefix + "-credits-chromaprint-v1"));
-        Assert.False(db.ExistsByKey(prefix + "-silence-0-30-v3"));
+        using (var db = CreateContext())
+        {
+            Assert.False(db.DetectionCache.Any(e => e.ItemId == id));
+        }
     }
 
     [Fact]
     public void DeleteByEpisodeId_DoesNotAffectOtherEpisodes()
     {
-        var db = new DetectionCacheDb(_dbPath);
         var id1 = Guid.NewGuid();
         var id2 = Guid.NewGuid();
 
-        db.Write(id1.ToString("N") + "-chromaprint-v1", [0x01]);
-        db.Write(id2.ToString("N") + "-chromaprint-v1", [0x02]);
+        using (var db = CreateContext())
+        {
+            db.DetectionCache.Add(new DbDetectionCache(id1, AnalysisMode.Introduction, CacheEntryType.Chromaprint, "[]"));
+            db.DetectionCache.Add(new DbDetectionCache(id2, AnalysisMode.Introduction, CacheEntryType.Chromaprint, "[]"));
+            db.SaveChanges();
+        }
 
-        db.DeleteByEpisodeId(id1);
+        using (var db = CreateContext())
+        {
+            db.DetectionCache.RemoveRange(db.DetectionCache.Where(e => e.ItemId == id1));
+            db.SaveChanges();
+        }
 
-        Assert.False(db.ExistsByKey(id1.ToString("N") + "-chromaprint-v1"));
-        Assert.True(db.ExistsByKey(id2.ToString("N") + "-chromaprint-v1"));
+        using (var db = CreateContext())
+        {
+            Assert.False(db.DetectionCache.Any(e => e.ItemId == id1));
+            Assert.True(db.DetectionCache.Any(e => e.ItemId == id2));
+        }
     }
 
     [Fact]
-    public void DeleteByMode_Introduction_RemovesNonCreditsRows()
+    public void DeleteByMode_Introduction_RemovesIntroductionRows()
     {
-        var db = new DetectionCacheDb(_dbPath);
-        var prefix = Guid.NewGuid().ToString("N");
+        var id = Guid.NewGuid();
 
-        var introKey = prefix + "-chromaprint-v1";
-        var creditsKey = prefix + "-credits-chromaprint-v1";
+        using (var db = CreateContext())
+        {
+            db.DetectionCache.Add(new DbDetectionCache(id, AnalysisMode.Introduction, CacheEntryType.Chromaprint, "[]"));
+            db.DetectionCache.Add(new DbDetectionCache(id, AnalysisMode.Credits, CacheEntryType.Chromaprint, "[]"));
+            db.SaveChanges();
+        }
 
-        db.Write(introKey, [0x01]);
-        db.Write(creditsKey, [0x02]);
+        using (var db = CreateContext())
+        {
+            db.DetectionCache.RemoveRange(db.DetectionCache.Where(e => e.Mode == AnalysisMode.Introduction));
+            db.SaveChanges();
+        }
 
-        db.DeleteByMode(AnalysisMode.Introduction);
-
-        Assert.False(db.ExistsByKey(introKey), "Intro row should be deleted");
-        Assert.True(db.ExistsByKey(creditsKey), "Credits row should be kept");
+        using (var db = CreateContext())
+        {
+            Assert.False(db.DetectionCache.Any(e => e.ItemId == id && e.Mode == AnalysisMode.Introduction), "Introduction row should be deleted");
+            Assert.True(db.DetectionCache.Any(e => e.ItemId == id && e.Mode == AnalysisMode.Credits), "Credits row should be kept");
+        }
     }
 
     [Fact]
     public void DeleteByMode_Credits_RemovesCreditsRows()
     {
-        var db = new DetectionCacheDb(_dbPath);
-        var prefix = Guid.NewGuid().ToString("N");
+        var id = Guid.NewGuid();
 
-        var introKey = prefix + "-chromaprint-v1";
-        var creditsKey = prefix + "-credits-chromaprint-v1";
+        using (var db = CreateContext())
+        {
+            db.DetectionCache.Add(new DbDetectionCache(id, AnalysisMode.Introduction, CacheEntryType.Chromaprint, "[]"));
+            db.DetectionCache.Add(new DbDetectionCache(id, AnalysisMode.Credits, CacheEntryType.Chromaprint, "[]"));
+            db.SaveChanges();
+        }
 
-        db.Write(introKey, [0x01]);
-        db.Write(creditsKey, [0x02]);
+        using (var db = CreateContext())
+        {
+            db.DetectionCache.RemoveRange(db.DetectionCache.Where(e => e.Mode == AnalysisMode.Credits));
+            db.SaveChanges();
+        }
 
-        db.DeleteByMode(AnalysisMode.Credits);
-
-        Assert.True(db.ExistsByKey(introKey), "Intro row should be kept");
-        Assert.False(db.ExistsByKey(creditsKey), "Credits row should be deleted");
+        using (var db = CreateContext())
+        {
+            Assert.True(db.DetectionCache.Any(e => e.ItemId == id && e.Mode == AnalysisMode.Introduction), "Introduction row should be kept");
+            Assert.False(db.DetectionCache.Any(e => e.ItemId == id && e.Mode == AnalysisMode.Credits), "Credits row should be deleted");
+        }
     }
 
     [Fact]
     public void GetAllEpisodeIds_ReturnsDistinctIds()
     {
-        var db = new DetectionCacheDb(_dbPath);
         var id1 = Guid.NewGuid();
         var id2 = Guid.NewGuid();
 
-        db.Write(id1.ToString("N") + "-chromaprint-v1", [0x01]);
-        db.Write(id1.ToString("N") + "-credits-chromaprint-v1", [0x02]);
-        db.Write(id2.ToString("N") + "-chromaprint-v1", [0x03]);
+        using (var db = CreateContext())
+        {
+            db.DetectionCache.Add(new DbDetectionCache(id1, AnalysisMode.Introduction, CacheEntryType.Chromaprint, "[]"));
+            db.DetectionCache.Add(new DbDetectionCache(id1, AnalysisMode.Credits, CacheEntryType.Chromaprint, "[]"));
+            db.DetectionCache.Add(new DbDetectionCache(id2, AnalysisMode.Introduction, CacheEntryType.Chromaprint, "[]"));
+            db.SaveChanges();
+        }
 
-        var ids = db.GetAllEpisodeIds().ToHashSet();
+        using (var db = CreateContext())
+        {
+            var ids = db.DetectionCache
+                .Select(e => e.ItemId)
+                .Distinct()
+                .ToHashSet();
 
-        Assert.Contains(id1, ids);
-        Assert.Contains(id2, ids);
-        Assert.Equal(2, ids.Count);
+            Assert.Contains(id1, ids);
+            Assert.Contains(id2, ids);
+            Assert.Equal(2, ids.Count);
+        }
     }
+
+    [Fact]
+    public void UniqueIndex_PreventsUpsertDuplicate()
+    {
+        var id = Guid.NewGuid();
+
+        using (var db = CreateContext())
+        {
+            db.DetectionCache.Add(new DbDetectionCache(id, AnalysisMode.Introduction, CacheEntryType.Silence, "[]", 0, 30));
+            db.SaveChanges();
+        }
+
+        // Adding same (ItemId, Mode, Type, Start, End) should throw
+        using (var db = CreateContext())
+        {
+            db.DetectionCache.Add(new DbDetectionCache(id, AnalysisMode.Introduction, CacheEntryType.Silence, "[1]", 0, 30));
+            Assert.ThrowsAny<DbUpdateException>(() => db.SaveChanges());
+        }
+    }
+
+    [Fact]
+    public void DifferentStartEnd_AllowedForSameItemAndType()
+    {
+        var id = Guid.NewGuid();
+
+        using (var db = CreateContext())
+        {
+            db.DetectionCache.Add(new DbDetectionCache(id, AnalysisMode.Introduction, CacheEntryType.Silence, "[]", 0, 30));
+            db.DetectionCache.Add(new DbDetectionCache(id, AnalysisMode.Introduction, CacheEntryType.Silence, "[]", 30, 60));
+            db.SaveChanges();
+        }
+
+        using (var db = CreateContext())
+        {
+            Assert.Equal(2, db.DetectionCache.Count(e => e.ItemId == id && e.Type == CacheEntryType.Silence));
+        }
+    }
+
+    private DetectionCacheDbContext CreateContext() => new(_dbPath);
 }
