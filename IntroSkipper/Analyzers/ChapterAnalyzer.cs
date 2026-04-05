@@ -51,7 +51,7 @@ public partial class ChapterAnalyzer(ILogger<ChapterAnalyzer> logger) : IMediaFi
             return analysisQueue;
         }
 
-        var timeAdjustmentHelper = new TimeAdjustmentHelper(_logger, _config);
+        var timeAdjustmentHelper = new TimeAdjustmentHelper(_logger, _config, mode);
 
         var episodesWithoutIntros = analysisQueue.Where(e => e.NeedsAnalysis(mode)).ToList();
 
@@ -73,7 +73,7 @@ public partial class ChapterAnalyzer(ILogger<ChapterAnalyzer> logger) : IMediaFi
                 continue;
             }
 
-            skipRange = timeAdjustmentHelper.AdjustIntroTimes(episode, skipRange, mode, false);
+            skipRange = timeAdjustmentHelper.AdjustIntroTimes(episode, skipRange, false);
 
             episode.SetAnalyzed(mode, EpisodeState.Analyzed);
             await Plugin.Instance!.UpdateTimestampAsync(skipRange, mode, cancellationToken: cancellationToken).ConfigureAwait(false);

@@ -48,7 +48,7 @@ public sealed partial class BlackFrameAltAnalyzer(ILogger<BlackFrameAltAnalyzer>
             return analysisQueue;
         }
 
-        var timeAdjustmentHelper = new TimeAdjustmentHelper(_logger, _config);
+        var timeAdjustmentHelper = new TimeAdjustmentHelper(_logger, _config, mode);
 
         LogAnalyzingEpisodes(unanalyzedEpisodes.Count);
 
@@ -71,7 +71,7 @@ public sealed partial class BlackFrameAltAnalyzer(ILogger<BlackFrameAltAnalyzer>
                     continue;
                 }
 
-                credit = timeAdjustmentHelper.AdjustIntroTimes(episode, credit, mode);
+                credit = timeAdjustmentHelper.AdjustIntroTimes(episode, credit);
                 LogFoundCredits(episode.Name, credit.Start);
 
                 episode.SetAnalyzed(mode, EpisodeState.Analyzed);

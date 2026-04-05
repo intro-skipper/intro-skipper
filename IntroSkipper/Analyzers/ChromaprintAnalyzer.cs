@@ -46,7 +46,7 @@ public partial class ChromaprintAnalyzer(ILogger<ChromaprintAnalyzer> logger) : 
 
         _analysisMode = mode;
 
-        var timeAdjustmentHelper = new TimeAdjustmentHelper(_logger, _config);
+        var timeAdjustmentHelper = new TimeAdjustmentHelper(_logger, _config, mode);
 
         // All intros for this season.
         var seasonIntros = new Dictionary<Guid, Segment>();
@@ -154,7 +154,7 @@ public partial class ChromaprintAnalyzer(ILogger<ChromaprintAnalyzer> logger) : 
             // If an intro is found for this episode, adjust its times and save it else add it to the list of episodes without intros.
             if (seasonIntros.TryGetValue(currentEpisode.EpisodeId, out var intro))
             {
-                var adjustedIntro = timeAdjustmentHelper.AdjustIntroTimes(currentEpisode, intro, mode);
+                var adjustedIntro = timeAdjustmentHelper.AdjustIntroTimes(currentEpisode, intro);
                 currentEpisode.SetAnalyzed(mode, EpisodeState.Analyzed);
                 await Plugin.Instance!.UpdateTimestampAsync(adjustedIntro, mode, cancellationToken: cancellationToken).ConfigureAwait(false);
             }

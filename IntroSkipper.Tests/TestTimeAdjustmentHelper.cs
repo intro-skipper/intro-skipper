@@ -13,7 +13,7 @@ namespace IntroSkipper.Tests;
 
 public class TestTimeAdjustmentHelper
 {
-    private static (TimeAdjustmentHelper helper, PluginConfiguration cfg) CreateHelper(PluginConfiguration? cfg = null)
+    private static (TimeAdjustmentHelper helper, PluginConfiguration cfg) CreateHelper(PluginConfiguration? cfg = null, AnalysisMode mode = AnalysisMode.Introduction)
     {
         cfg ??= new PluginConfiguration
         {
@@ -27,7 +27,7 @@ public class TestTimeAdjustmentHelper
             IntroEndOffset = 0,
         };
 
-        return (new TimeAdjustmentHelper(new NullLoggerFactory().CreateLogger("Test"), cfg), cfg);
+        return (new TimeAdjustmentHelper(new NullLoggerFactory().CreateLogger("Test"), cfg, mode), cfg);
     }
 
     [Fact]
@@ -39,7 +39,7 @@ public class TestTimeAdjustmentHelper
         var episode = new QueuedEpisode { EpisodeId = Guid.NewGuid(), Duration = 60 };
         var original = new Segment(episode.EpisodeId) { Start = 1.2, End = 10 };
 
-        var adjusted = helper.AdjustIntroTimes(episode, original, AnalysisMode.Introduction);
+        var adjusted = helper.AdjustIntroTimes(episode, original);
 
         Assert.Equal(0, adjusted.Start);
         Assert.Equal(10, adjusted.End);
@@ -54,7 +54,7 @@ public class TestTimeAdjustmentHelper
         var episode = new QueuedEpisode { EpisodeId = Guid.NewGuid(), Duration = 60 };
         var original = new Segment(episode.EpisodeId) { Start = 5, End = 12 };
 
-        var adjusted = helper.AdjustIntroTimes(episode, original, AnalysisMode.Introduction);
+        var adjusted = helper.AdjustIntroTimes(episode, original);
 
         Assert.Equal(7, adjusted.Start);
         Assert.Equal(12, adjusted.End);
@@ -70,7 +70,7 @@ public class TestTimeAdjustmentHelper
         var episode = new QueuedEpisode { EpisodeId = Guid.NewGuid(), Duration = 30 };
         var original = new Segment(episode.EpisodeId) { Start = -5, End = 200 };
 
-        var adjusted = helper.AdjustIntroTimes(episode, original, AnalysisMode.Introduction);
+        var adjusted = helper.AdjustIntroTimes(episode, original);
 
         Assert.Equal(0, adjusted.Start); // clamped from -5 to 0 and snapped
         Assert.Equal(30, adjusted.End);  // clamped from 200 to duration before end logic kicks in
