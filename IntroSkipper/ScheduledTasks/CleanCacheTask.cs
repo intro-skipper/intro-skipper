@@ -93,22 +93,32 @@ public partial class CleanCacheTask(
 
         await plugin.CleanTimestampsAsync(enabledLibraryEpisodeIds, cancellationToken).ConfigureAwait(false);
 
-        // Identify episode IDs in the SQLite cache that are no longer in enabled libraries,
-        // and migrate any legacy binary files still on disk (pre-migration installs).
+        // Identify episode IDs in the SQLite cache that are no longer in enabled libraries.
         HashSet<Guid> invalidEpisodeIds;
         using (var cacheDb = Plugin.CreateCacheDbContext())
         {
             invalidEpisodeIds = cacheDb.DetectionCache
                 .Select(e => e.ItemId)
                 .Distinct()
-                .AsEnumerable()
                 .Where(id => !enabledLibraryEpisodeIds.Contains(id))
                 .ToHashSet();
         }
 
+        // Sweep the legacy on-disk cache directory (pre-migration installs).
+        var invalidLegacyFiles = new List<string>();
         if (Directory.Exists(plugin.FingerprintCachePath))
         {
-            foreach (var filePath in Directory.EnumerateFiles(plugin.FingerprintCachePath))
+            List<string> legacyFiles;
+            try
+            {
+                legacyFiles = [.. Directory.EnumerateFiles(plugin.FingerprintCachePath)];
+            }
+            catch (DirectoryNotFoundException)
+            {
+                legacyFiles = [];
+            }
+
+            foreach (var filePath in legacyFiles)
             {
                 var filename = Path.GetFileName(filePath);
                 var parts = filename.Split('-');
@@ -119,14 +129,15 @@ public partial class CleanCacheTask(
 
                 if (!enabledLibraryEpisodeIds.Contains(legacyId))
                 {
-                    // Invalid episode — queue for full cache deletion via DeleteFingerprintCache.
+                    // Invalid episode — track for deletion once the DB rows are cleaned up.
                     invalidEpisodeIds.Add(legacyId);
+                    invalidLegacyFiles.Add(filePath);
                     continue;
                 }
 
-                // Valid episode — all legacy binary files are non-migratable to JSON; delete and let re-analysis repopulate.
+                // Valid episode with a legacy file — delete it now; on-demand migration in
+                // TryLoadLegacyCache will repopulate the DB entry when the episode is next accessed.
                 LogDeletingNonMigratableLegacyFile(_logger, filePath);
-
                 try
                 {
                     File.Delete(filePath);
@@ -137,25 +148,43 @@ public partial class CleanCacheTask(
                 }
             }
 
-            // Remove the directory itself once it is empty (all legacy files migrated or deleted).
-            if (!Directory.EnumerateFileSystemEntries(plugin.FingerprintCachePath).Any())
+            // Try to remove the legacy directory. Throws IOException when non-empty (invalid-episode
+            // files are still present) — those will be removed below and the directory on the next run.
+            try
             {
-                try
-                {
-                    Directory.Delete(plugin.FingerprintCachePath);
-                }
-                catch (IOException ex)
-                {
-                    LogDeletingLegacyDirectoryFailed(_logger, ex, plugin.FingerprintCachePath);
-                }
+                Directory.Delete(plugin.FingerprintCachePath);
+            }
+            catch (IOException)
+            {
+                // Directory still contains files; will be removed on a future run.
             }
         }
 
-        // Delete cache entries for invalid episode IDs (DB rows + any leftover files).
+        // Batch-delete all invalid episode DB rows in a single round-trip.
+        if (invalidEpisodeIds.Count > 0)
+        {
+            using var deleteDb = Plugin.CreateCacheDbContext();
+            deleteDb.DetectionCache.RemoveRange(
+                deleteDb.DetectionCache.Where(e => invalidEpisodeIds.Contains(e.ItemId)));
+            deleteDb.SaveChanges();
+        }
+
+        // Delete leftover legacy files for invalid episodes and log each removal.
+        foreach (var filePath in invalidLegacyFiles)
+        {
+            try
+            {
+                File.Delete(filePath);
+            }
+            catch (IOException ex)
+            {
+                LogDeletingLegacyFileFailed(_logger, ex, filePath);
+            }
+        }
+
         foreach (var episodeId in invalidEpisodeIds)
         {
             LogDeletingCacheFiles(_logger, episodeId);
-            FFmpegWrapper.DeleteFingerprintCache(episodeId);
         }
 
         // Clean up Season information by removing items that are no longer exist.
@@ -180,9 +209,6 @@ public partial class CleanCacheTask(
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "Failed to delete stale legacy cache file '{FilePath}'")]
     private static partial void LogDeletingLegacyFileFailed(ILogger logger, Exception exception, string filePath);
-
-    [LoggerMessage(Level = LogLevel.Warning, Message = "Failed to delete legacy fingerprint cache directory '{DirectoryPath}'")]
-    private static partial void LogDeletingLegacyDirectoryFailed(ILogger logger, Exception exception, string directoryPath);
 
     [LoggerMessage(Level = LogLevel.Debug, Message = "Deleting non-migratable legacy cache file: {FilePath}")]
     private static partial void LogDeletingNonMigratableLegacyFile(ILogger logger, string filePath);

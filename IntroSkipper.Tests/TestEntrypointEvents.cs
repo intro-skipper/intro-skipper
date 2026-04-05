@@ -7,6 +7,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Reflection;
 using System.Runtime.Serialization;
+using System.Text;
 using IntroSkipper.Configuration;
 using IntroSkipper.Services;
 using MediaBrowser.Controller.Entities.Movies;
@@ -249,6 +250,8 @@ public sealed class TestFingerprintCacheDeletionOnRemove
 
 internal static class EntrypointTestHelpers
 {
+    internal static readonly byte[] EmptyJsonArray = Encoding.UTF8.GetBytes("[]");
+
     internal static Entrypoint CreateEntrypoint(bool autoDetectIntros)
     {
         // Entrypoint's ctor reads Plugin.Instance?.Configuration. Ensure Plugin.Instance is null during construction.

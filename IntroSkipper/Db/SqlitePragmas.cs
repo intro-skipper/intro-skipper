@@ -4,13 +4,14 @@
 using System.Data.Common;
 using System.Threading;
 using System.Threading.Tasks;
+using Microsoft.Data.Sqlite;
+using Microsoft.EntityFrameworkCore.Diagnostics;
 
 namespace IntroSkipper.Db;
 
 /// <summary>
 /// Shared PRAGMA configuration applied to every SQLite connection on open.
-/// Used by the <c>SqlitePragmaInterceptor</c> inside <see cref="IntroSkipperDbContext"/>
-/// and <see cref="DetectionCacheDbContext"/> (EF Core).
+/// Used by <see cref="IntroSkipperDbContext"/> and <see cref="DetectionCacheDbContext"/>.
 /// WAL journal mode is not set here because EF Core enables it by default.
 /// </summary>
 internal static class SqlitePragmas
@@ -25,5 +26,38 @@ internal static class SqlitePragmas
     {
         cmd.CommandText = "PRAGMA busy_timeout=5000;";
         await cmd.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+    }
+}
+
+/// <summary>
+/// EF Core connection interceptor that applies SQLite PRAGMAs on every connection open.
+/// Shared between <see cref="IntroSkipperDbContext"/> and <see cref="DetectionCacheDbContext"/>.
+/// </summary>
+internal sealed class SqlitePragmaInterceptor : DbConnectionInterceptor
+{
+    public override void ConnectionOpened(DbConnection connection, ConnectionEndEventData eventData)
+    {
+        using var cmd = connection.CreateCommand();
+        try
+        {
+            SqlitePragmas.Apply(cmd);
+        }
+        catch (SqliteException)
+        {
+            // Fall back to SQLite defaults when optional pragmas such as busy_timeout cannot be applied.
+        }
+    }
+
+    public override async Task ConnectionOpenedAsync(DbConnection connection, ConnectionEndEventData eventData, CancellationToken cancellationToken = default)
+    {
+        using var cmd = connection.CreateCommand();
+        try
+        {
+            await SqlitePragmas.ApplyAsync(cmd, cancellationToken).ConfigureAwait(false);
+        }
+        catch (SqliteException)
+        {
+            // Fall back to SQLite defaults when optional pragmas such as busy_timeout cannot be applied.
+        }
     }
 }

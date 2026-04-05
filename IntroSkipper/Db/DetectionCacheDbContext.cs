@@ -4,11 +4,7 @@
 using System;
 using System.Collections.Generic;
 using System.Data.Common;
-using System.Threading;
-using System.Threading.Tasks;
-using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
-using Microsoft.EntityFrameworkCore.Diagnostics;
 
 namespace IntroSkipper.Db;
 
@@ -110,22 +106,6 @@ public class DetectionCacheDbContext : DbContext
     }
 
     /// <summary>
-    /// Asynchronously ensures the database and schema are created.
-    /// </summary>
-    /// <param name="cancellationToken">Cancellation token.</param>
-    /// <returns>A <see cref="Task"/> representing the asynchronous operation.</returns>
-    public async Task EnsureSchemaAsync(CancellationToken cancellationToken = default)
-    {
-        await Database.EnsureCreatedAsync(cancellationToken).ConfigureAwait(false);
-
-        if (!HasExpectedSchema())
-        {
-            await Database.EnsureDeletedAsync(cancellationToken).ConfigureAwait(false);
-            await Database.EnsureCreatedAsync(cancellationToken).ConfigureAwait(false);
-        }
-    }
-
-    /// <summary>
     /// Checks whether the DetectionCache table has the columns and types expected by the current model.
     /// Returns <c>false</c> when the database was created by an older schema version (e.g., binary BLOB format)
     /// or when column types or indexes do not match the current model.
@@ -193,32 +173,5 @@ public class DetectionCacheDbContext : DbContext
         }
     }
 
-    private sealed class SqlitePragmaInterceptor : DbConnectionInterceptor
-    {
-        public override void ConnectionOpened(DbConnection connection, ConnectionEndEventData eventData)
-        {
-            using var cmd = connection.CreateCommand();
-            try
-            {
-                SqlitePragmas.Apply(cmd);
-            }
-            catch (SqliteException)
-            {
-                // Fall back to SQLite defaults when optional pragmas such as busy_timeout cannot be applied.
-            }
-        }
-
-        public override async Task ConnectionOpenedAsync(DbConnection connection, ConnectionEndEventData eventData, CancellationToken cancellationToken = default)
-        {
-            using var cmd = connection.CreateCommand();
-            try
-            {
-                await SqlitePragmas.ApplyAsync(cmd, cancellationToken).ConfigureAwait(false);
-            }
-            catch (SqliteException)
-            {
-                // Fall back to SQLite defaults when optional pragmas such as busy_timeout cannot be applied.
-            }
-        }
-    }
 }
+

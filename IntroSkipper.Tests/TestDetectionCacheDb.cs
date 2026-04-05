@@ -14,8 +14,6 @@ using Xunit;
 
 public sealed class TestDetectionCacheDbContext : IDisposable
 {
-    private static readonly byte[] EmptyPayload = Encoding.UTF8.GetBytes("[]");
-
     private readonly string _dbPath;
 
     public TestDetectionCacheDbContext()
@@ -118,7 +116,7 @@ public sealed class TestDetectionCacheDbContext : IDisposable
 
         using (var db = CreateContext())
         {
-            db.DetectionCache.Add(new DbDetectionCache(id, AnalysisMode.Introduction, CacheEntryType.Chromaprint, EmptyPayload));
+            db.DetectionCache.Add(new DbDetectionCache(id, AnalysisMode.Introduction, CacheEntryType.Chromaprint, EntrypointTestHelpers.EmptyJsonArray));
             db.SaveChanges();
         }
 
@@ -143,9 +141,9 @@ public sealed class TestDetectionCacheDbContext : IDisposable
 
         using (var db = CreateContext())
         {
-            db.DetectionCache.Add(new DbDetectionCache(id, AnalysisMode.Introduction, CacheEntryType.Chromaprint, EmptyPayload));
-            db.DetectionCache.Add(new DbDetectionCache(id, AnalysisMode.Credits, CacheEntryType.Chromaprint, EmptyPayload));
-            db.DetectionCache.Add(new DbDetectionCache(id, AnalysisMode.Introduction, CacheEntryType.Silence, EmptyPayload, 0, 30));
+            db.DetectionCache.Add(new DbDetectionCache(id, AnalysisMode.Introduction, CacheEntryType.Chromaprint, EntrypointTestHelpers.EmptyJsonArray));
+            db.DetectionCache.Add(new DbDetectionCache(id, AnalysisMode.Credits, CacheEntryType.Chromaprint, EntrypointTestHelpers.EmptyJsonArray));
+            db.DetectionCache.Add(new DbDetectionCache(id, AnalysisMode.Introduction, CacheEntryType.Silence, EntrypointTestHelpers.EmptyJsonArray, 0, 30));
             db.SaveChanges();
         }
 
@@ -169,8 +167,8 @@ public sealed class TestDetectionCacheDbContext : IDisposable
 
         using (var db = CreateContext())
         {
-            db.DetectionCache.Add(new DbDetectionCache(id1, AnalysisMode.Introduction, CacheEntryType.Chromaprint, EmptyPayload));
-            db.DetectionCache.Add(new DbDetectionCache(id2, AnalysisMode.Introduction, CacheEntryType.Chromaprint, EmptyPayload));
+            db.DetectionCache.Add(new DbDetectionCache(id1, AnalysisMode.Introduction, CacheEntryType.Chromaprint, EntrypointTestHelpers.EmptyJsonArray));
+            db.DetectionCache.Add(new DbDetectionCache(id2, AnalysisMode.Introduction, CacheEntryType.Chromaprint, EntrypointTestHelpers.EmptyJsonArray));
             db.SaveChanges();
         }
 
@@ -194,8 +192,8 @@ public sealed class TestDetectionCacheDbContext : IDisposable
 
         using (var db = CreateContext())
         {
-            db.DetectionCache.Add(new DbDetectionCache(id, AnalysisMode.Introduction, CacheEntryType.Chromaprint, EmptyPayload));
-            db.DetectionCache.Add(new DbDetectionCache(id, AnalysisMode.Credits, CacheEntryType.Chromaprint, EmptyPayload));
+            db.DetectionCache.Add(new DbDetectionCache(id, AnalysisMode.Introduction, CacheEntryType.Chromaprint, EntrypointTestHelpers.EmptyJsonArray));
+            db.DetectionCache.Add(new DbDetectionCache(id, AnalysisMode.Credits, CacheEntryType.Chromaprint, EntrypointTestHelpers.EmptyJsonArray));
             db.SaveChanges();
         }
 
@@ -219,8 +217,8 @@ public sealed class TestDetectionCacheDbContext : IDisposable
 
         using (var db = CreateContext())
         {
-            db.DetectionCache.Add(new DbDetectionCache(id, AnalysisMode.Introduction, CacheEntryType.Chromaprint, EmptyPayload));
-            db.DetectionCache.Add(new DbDetectionCache(id, AnalysisMode.Credits, CacheEntryType.Chromaprint, EmptyPayload));
+            db.DetectionCache.Add(new DbDetectionCache(id, AnalysisMode.Introduction, CacheEntryType.Chromaprint, EntrypointTestHelpers.EmptyJsonArray));
+            db.DetectionCache.Add(new DbDetectionCache(id, AnalysisMode.Credits, CacheEntryType.Chromaprint, EntrypointTestHelpers.EmptyJsonArray));
             db.SaveChanges();
         }
 
@@ -245,9 +243,9 @@ public sealed class TestDetectionCacheDbContext : IDisposable
 
         using (var db = CreateContext())
         {
-            db.DetectionCache.Add(new DbDetectionCache(id1, AnalysisMode.Introduction, CacheEntryType.Chromaprint, EmptyPayload));
-            db.DetectionCache.Add(new DbDetectionCache(id1, AnalysisMode.Credits, CacheEntryType.Chromaprint, EmptyPayload));
-            db.DetectionCache.Add(new DbDetectionCache(id2, AnalysisMode.Introduction, CacheEntryType.Chromaprint, EmptyPayload));
+            db.DetectionCache.Add(new DbDetectionCache(id1, AnalysisMode.Introduction, CacheEntryType.Chromaprint, EntrypointTestHelpers.EmptyJsonArray));
+            db.DetectionCache.Add(new DbDetectionCache(id1, AnalysisMode.Credits, CacheEntryType.Chromaprint, EntrypointTestHelpers.EmptyJsonArray));
+            db.DetectionCache.Add(new DbDetectionCache(id2, AnalysisMode.Introduction, CacheEntryType.Chromaprint, EntrypointTestHelpers.EmptyJsonArray));
             db.SaveChanges();
         }
 
@@ -271,7 +269,7 @@ public sealed class TestDetectionCacheDbContext : IDisposable
 
         using (var db = CreateContext())
         {
-            db.DetectionCache.Add(new DbDetectionCache(id, AnalysisMode.Introduction, CacheEntryType.Silence, EmptyPayload, 0, 30));
+            db.DetectionCache.Add(new DbDetectionCache(id, AnalysisMode.Introduction, CacheEntryType.Silence, EntrypointTestHelpers.EmptyJsonArray, 0, 30));
             db.SaveChanges();
         }
 
@@ -290,8 +288,8 @@ public sealed class TestDetectionCacheDbContext : IDisposable
 
         using (var db = CreateContext())
         {
-            db.DetectionCache.Add(new DbDetectionCache(id, AnalysisMode.Introduction, CacheEntryType.Silence, EmptyPayload, 0, 30));
-            db.DetectionCache.Add(new DbDetectionCache(id, AnalysisMode.Introduction, CacheEntryType.Silence, EmptyPayload, 30, 60));
+            db.DetectionCache.Add(new DbDetectionCache(id, AnalysisMode.Introduction, CacheEntryType.Silence, EntrypointTestHelpers.EmptyJsonArray, 0, 30));
+            db.DetectionCache.Add(new DbDetectionCache(id, AnalysisMode.Introduction, CacheEntryType.Silence, EntrypointTestHelpers.EmptyJsonArray, 30, 60));
             db.SaveChanges();
         }
 

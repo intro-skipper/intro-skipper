@@ -5,7 +5,6 @@
 
 using System;
 using System.Collections.Generic;
-using System.Data.Common;
 using System.IO;
 using System.Linq;
 using System.Text.Json;
@@ -15,7 +14,6 @@ using IntroSkipper.Data;
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.ChangeTracking;
-using Microsoft.EntityFrameworkCore.Diagnostics;
 
 namespace IntroSkipper.Db;
 
@@ -269,32 +267,5 @@ public class IntroSkipperDbContext : DbContext
         return builder.DataSource is not (null or "" or ":memory:") ? builder.DataSource : null;
     }
 
-    private sealed class SqlitePragmaInterceptor : DbConnectionInterceptor
-    {
-        public override void ConnectionOpened(DbConnection connection, ConnectionEndEventData eventData)
-        {
-            using var cmd = connection.CreateCommand();
-            try
-            {
-                SqlitePragmas.Apply(cmd);
-            }
-            catch (SqliteException)
-            {
-                // Fall back to SQLite defaults when optional pragmas such as busy_timeout cannot be applied.
-            }
-        }
-
-        public override async Task ConnectionOpenedAsync(DbConnection connection, ConnectionEndEventData eventData, CancellationToken cancellationToken = default)
-        {
-            using var cmd = connection.CreateCommand();
-            try
-            {
-                await SqlitePragmas.ApplyAsync(cmd, cancellationToken).ConfigureAwait(false);
-            }
-            catch (SqliteException)
-            {
-                // Fall back to SQLite defaults when optional pragmas such as busy_timeout cannot be applied.
-            }
-        }
-    }
 }
+
