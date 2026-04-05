@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
 using System;
+using System.Diagnostics.CodeAnalysis;
 using IntroSkipper.Data;
 
 namespace IntroSkipper.Db;
@@ -17,10 +18,10 @@ public class DbDetectionCache
     /// <param name="itemId">The episode identifier.</param>
     /// <param name="mode">The analysis mode.</param>
     /// <param name="type">The type of detection data.</param>
-    /// <param name="data">The JSON-serialized detection data.</param>
+    /// <param name="data">The Brotli-compressed, UTF-8 JSON detection data.</param>
     /// <param name="start">The start time of the analyzed range.</param>
     /// <param name="end">The end time of the analyzed range.</param>
-    public DbDetectionCache(Guid itemId, AnalysisMode mode, CacheEntryType type, string data, double start = 0, double end = 0)
+    public DbDetectionCache(Guid itemId, AnalysisMode mode, CacheEntryType type, byte[] data, double start = 0, double end = 0)
     {
         ItemId = itemId;
         Mode = mode;
@@ -70,13 +71,14 @@ public class DbDetectionCache
     public double End { get; private set; }
 
     /// <summary>
-    /// Gets or sets the JSON-serialized detection data.
+    /// Gets or sets the Brotli-compressed, UTF-8 JSON detection data.
     /// </summary>
-    /// <value>The cached data as a JSON string. The shape depends on <see cref="Type"/>:
+    /// <value>The cached data as a compressed BLOB. The decompressed JSON shape depends on <see cref="Type"/>:
     /// <see cref="CacheEntryType.Chromaprint"/> stores <c>uint[]</c>,
     /// <see cref="CacheEntryType.Silence"/> stores <c>TimeRange[]</c>,
     /// <see cref="CacheEntryType.BlackFrame"/> stores <c>BlackFrame[]</c>,
     /// <see cref="CacheEntryType.Keyframe"/> stores <c>double[]</c>.
     /// </value>
-    public string Data { get; set; } = string.Empty;
+    [SuppressMessage("Performance", "CA1819:Properties should not return arrays", Justification = "EF Core requires byte[] for BLOB column mapping.")]
+    public byte[] Data { get; set; } = [];
 }

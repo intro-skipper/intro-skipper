@@ -7,6 +7,7 @@ using System;
 using System.Globalization;
 using System.IO;
 using System.Linq;
+using System.Text;
 using System.Text.Json;
 using IntroSkipper.Configuration;
 using IntroSkipper.Data;
@@ -15,6 +16,8 @@ using Xunit;
 
 public sealed class TestCacheOperations
 {
+    private static readonly byte[] EmptyPayload = Encoding.UTF8.GetBytes("[]");
+
     [Fact]
     public void DeleteCacheFiles_Introduction_DeletesIntroFilesOnly()
     {
@@ -24,17 +27,17 @@ public sealed class TestCacheOperations
         // Entries that should be kept (Credits mode)
         var shouldKeep = new DbDetectionCache[]
         {
-            new(itemId, AnalysisMode.Credits, CacheEntryType.Chromaprint, "[]"),
-            new(itemId, AnalysisMode.Credits, CacheEntryType.BlackFrame, "[]", 100.5, 0),
+            new(itemId, AnalysisMode.Credits, CacheEntryType.Chromaprint, EmptyPayload),
+            new(itemId, AnalysisMode.Credits, CacheEntryType.BlackFrame, EmptyPayload, 100.5, 0),
         };
 
         // Entries that should be deleted (Introduction mode)
         var shouldDelete = new DbDetectionCache[]
         {
-            new(itemId, AnalysisMode.Introduction, CacheEntryType.Chromaprint, "[]"),
-            new(itemId, AnalysisMode.Introduction, CacheEntryType.Silence, "[]", 0, 30),
-            new(itemId, AnalysisMode.Introduction, CacheEntryType.Keyframe, "[]", 0, 30),
-            new(itemId, AnalysisMode.Introduction, CacheEntryType.BlackFrame, "[]", 0, 30),
+            new(itemId, AnalysisMode.Introduction, CacheEntryType.Chromaprint, EmptyPayload),
+            new(itemId, AnalysisMode.Introduction, CacheEntryType.Silence, EmptyPayload, 0, 30),
+            new(itemId, AnalysisMode.Introduction, CacheEntryType.Keyframe, EmptyPayload, 0, 30),
+            new(itemId, AnalysisMode.Introduction, CacheEntryType.BlackFrame, EmptyPayload, 0, 30),
         };
 
         using var scope = new EntrypointTestHelpers.PluginInstanceScope(cacheDir);
@@ -74,17 +77,17 @@ public sealed class TestCacheOperations
         // Entries that should be kept (Introduction mode)
         var shouldKeep = new DbDetectionCache[]
         {
-            new(itemId, AnalysisMode.Introduction, CacheEntryType.Chromaprint, "[]"),
-            new(itemId, AnalysisMode.Introduction, CacheEntryType.Silence, "[]", 0, 30),
-            new(itemId, AnalysisMode.Introduction, CacheEntryType.Keyframe, "[]", 0, 30),
-            new(itemId, AnalysisMode.Introduction, CacheEntryType.BlackFrame, "[]", 0, 30),
+            new(itemId, AnalysisMode.Introduction, CacheEntryType.Chromaprint, EmptyPayload),
+            new(itemId, AnalysisMode.Introduction, CacheEntryType.Silence, EmptyPayload, 0, 30),
+            new(itemId, AnalysisMode.Introduction, CacheEntryType.Keyframe, EmptyPayload, 0, 30),
+            new(itemId, AnalysisMode.Introduction, CacheEntryType.BlackFrame, EmptyPayload, 0, 30),
         };
 
         // Entries that should be deleted (Credits mode)
         var shouldDelete = new DbDetectionCache[]
         {
-            new(itemId, AnalysisMode.Credits, CacheEntryType.Chromaprint, "[]"),
-            new(itemId, AnalysisMode.Credits, CacheEntryType.BlackFrame, "[]", 100.5, 0),
+            new(itemId, AnalysisMode.Credits, CacheEntryType.Chromaprint, EmptyPayload),
+            new(itemId, AnalysisMode.Credits, CacheEntryType.BlackFrame, EmptyPayload, 100.5, 0),
         };
 
         using var scope = new EntrypointTestHelpers.PluginInstanceScope(cacheDir);
@@ -126,7 +129,7 @@ public sealed class TestCacheOperations
         using (var db = Plugin.CreateCacheDbContext())
         {
             db.DetectionCache.Add(new DbDetectionCache(
-                episode.EpisodeId, AnalysisMode.Introduction, CacheEntryType.Chromaprint, "[]"));
+                episode.EpisodeId, AnalysisMode.Introduction, CacheEntryType.Chromaprint, EmptyPayload));
             db.SaveChanges();
         }
 
@@ -263,6 +266,9 @@ public sealed class TestCacheOperations
 
         var range = new TimeRange(0, 30);
 
+        // The cache row must be Brotli-compressed because TryReadJsonCache calls DecompressBrotli.
+        var compressedEmpty = FFmpegWrapper.CompressBrotli(JsonSerializer.SerializeToUtf8Bytes(Array.Empty<TimeRange>()));
+
         using var scope = new EntrypointTestHelpers.PluginInstanceScope(cacheDir);
 
         using (var db = Plugin.CreateCacheDbContext())
@@ -271,7 +277,7 @@ public sealed class TestCacheOperations
                 episode.EpisodeId,
                 AnalysisMode.Introduction,
                 CacheEntryType.Silence,
-                "[]",
+                compressedEmpty,
                 range.Start,
                 range.End));
             db.SaveChanges();
@@ -325,7 +331,8 @@ public sealed class TestCacheOperations
             return [];
         }
 
-        return JsonSerializer.Deserialize<uint[]>(entry.Data) ?? [];
+        var json = FFmpegWrapper.DecompressBrotli(entry.Data);
+        return JsonSerializer.Deserialize<uint[]>(json) ?? [];
     }
 
     /// <summary>

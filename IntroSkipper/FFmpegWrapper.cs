@@ -10,6 +10,7 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.Globalization;
 using System.IO;
+using System.IO.Compression;
 using System.Linq;
 using System.Text;
 using System.Text.Json;
@@ -795,7 +796,8 @@ public static partial class FFmpegWrapper
                 return false;
             }
 
-            result = JsonSerializer.Deserialize<T[]>(entry.Data) ?? [];
+            var json = DecompressBrotli(entry.Data);
+            result = JsonSerializer.Deserialize<T[]>(json) ?? [];
 
             if (Logger is { } logger)
             {
@@ -804,7 +806,7 @@ public static partial class FFmpegWrapper
 
             return true;
         }
-        catch (Exception ex) when (ex is JsonException or NotSupportedException)
+        catch (Exception ex) when (ex is JsonException or NotSupportedException or InvalidDataException)
         {
             if (Logger is { } logger)
             {
@@ -822,7 +824,7 @@ public static partial class FFmpegWrapper
             return;
         }
 
-        var json = JsonSerializer.Serialize(items);
+        var data = CompressBrotli(JsonSerializer.SerializeToUtf8Bytes(items));
 
         using var db = Plugin.CreateCacheDbContext();
 
@@ -833,11 +835,11 @@ public static partial class FFmpegWrapper
 
         if (existing is not null)
         {
-            existing.Data = json;
+            existing.Data = data;
         }
         else
         {
-            db.DetectionCache.Add(new DbDetectionCache(itemId, mode, type, json, start, end));
+            db.DetectionCache.Add(new DbDetectionCache(itemId, mode, type, data, start, end));
         }
 
         db.SaveChanges();
@@ -1001,6 +1003,36 @@ public static partial class FFmpegWrapper
 
     [GeneratedRegex("silence_(?<type>start|end): (?<time>[0-9\\.]+)")]
     private static partial Regex SilenceRegex();
+
+    /// <summary>
+    /// Compresses a byte array using Brotli compression.
+    /// </summary>
+    /// <param name="data">The uncompressed data.</param>
+    /// <returns>The Brotli-compressed data.</returns>
+    internal static byte[] CompressBrotli(byte[] data)
+    {
+        using var output = new MemoryStream();
+        using (var brotli = new BrotliStream(output, CompressionLevel.SmallestSize))
+        {
+            brotli.Write(data);
+        }
+
+        return output.ToArray();
+    }
+
+    /// <summary>
+    /// Decompresses a Brotli-compressed byte array.
+    /// </summary>
+    /// <param name="compressed">The Brotli-compressed data.</param>
+    /// <returns>The decompressed data as a byte array.</returns>
+    internal static byte[] DecompressBrotli(byte[] compressed)
+    {
+        using var input = new MemoryStream(compressed);
+        using var brotli = new BrotliStream(input, CompressionMode.Decompress);
+        using var output = new MemoryStream();
+        brotli.CopyTo(output);
+        return output.ToArray();
+    }
 
     [GeneratedRegex(@"\[Parsed_blackframe_0 @ [^\]]+\] frame:(\d+) pblack:(\d+) .*? t:([\d.]+)")]
     private static partial Regex BlackFrameRegex();

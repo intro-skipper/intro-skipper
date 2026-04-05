@@ -6,6 +6,7 @@ namespace IntroSkipper.Tests;
 using System;
 using System.IO;
 using System.Linq;
+using System.Text;
 using IntroSkipper.Data;
 using IntroSkipper.Db;
 using Microsoft.EntityFrameworkCore;
@@ -13,6 +14,8 @@ using Xunit;
 
 public sealed class TestDetectionCacheDbContext : IDisposable
 {
+    private static readonly byte[] EmptyPayload = Encoding.UTF8.GetBytes("[]");
+
     private readonly string _dbPath;
 
     public TestDetectionCacheDbContext()
@@ -49,7 +52,7 @@ public sealed class TestDetectionCacheDbContext : IDisposable
     public void Write_ThenRead_ReturnsSameData()
     {
         var id = Guid.NewGuid();
-        const string payload = "[1,2,3,255]";
+        var payload = Encoding.UTF8.GetBytes("[1,2,3,255]");
 
         using (var db = CreateContext())
         {
@@ -82,10 +85,12 @@ public sealed class TestDetectionCacheDbContext : IDisposable
         var id = Guid.NewGuid();
         var mode = AnalysisMode.Introduction;
         var type = CacheEntryType.Chromaprint;
+        var original = Encoding.UTF8.GetBytes("[1]");
+        var updated = Encoding.UTF8.GetBytes("[2,3]");
 
         using (var db = CreateContext())
         {
-            db.DetectionCache.Add(new DbDetectionCache(id, mode, type, "[1]"));
+            db.DetectionCache.Add(new DbDetectionCache(id, mode, type, original));
             db.SaveChanges();
         }
 
@@ -95,14 +100,14 @@ public sealed class TestDetectionCacheDbContext : IDisposable
                 .FirstOrDefault(e => e.ItemId == id && e.Mode == mode && e.Type == type && e.Start == 0 && e.End == 0);
 
             Assert.NotNull(existing);
-            existing.Data = "[2,3]";
+            existing.Data = updated;
             db.SaveChanges();
         }
 
         using (var db = CreateContext())
         {
             var entry = db.DetectionCache.First(e => e.ItemId == id && e.Type == type);
-            Assert.Equal("[2,3]", entry.Data);
+            Assert.Equal(updated, entry.Data);
         }
     }
 
@@ -113,7 +118,7 @@ public sealed class TestDetectionCacheDbContext : IDisposable
 
         using (var db = CreateContext())
         {
-            db.DetectionCache.Add(new DbDetectionCache(id, AnalysisMode.Introduction, CacheEntryType.Chromaprint, "[]"));
+            db.DetectionCache.Add(new DbDetectionCache(id, AnalysisMode.Introduction, CacheEntryType.Chromaprint, EmptyPayload));
             db.SaveChanges();
         }
 
@@ -138,9 +143,9 @@ public sealed class TestDetectionCacheDbContext : IDisposable
 
         using (var db = CreateContext())
         {
-            db.DetectionCache.Add(new DbDetectionCache(id, AnalysisMode.Introduction, CacheEntryType.Chromaprint, "[]"));
-            db.DetectionCache.Add(new DbDetectionCache(id, AnalysisMode.Credits, CacheEntryType.Chromaprint, "[]"));
-            db.DetectionCache.Add(new DbDetectionCache(id, AnalysisMode.Introduction, CacheEntryType.Silence, "[]", 0, 30));
+            db.DetectionCache.Add(new DbDetectionCache(id, AnalysisMode.Introduction, CacheEntryType.Chromaprint, EmptyPayload));
+            db.DetectionCache.Add(new DbDetectionCache(id, AnalysisMode.Credits, CacheEntryType.Chromaprint, EmptyPayload));
+            db.DetectionCache.Add(new DbDetectionCache(id, AnalysisMode.Introduction, CacheEntryType.Silence, EmptyPayload, 0, 30));
             db.SaveChanges();
         }
 
@@ -164,8 +169,8 @@ public sealed class TestDetectionCacheDbContext : IDisposable
 
         using (var db = CreateContext())
         {
-            db.DetectionCache.Add(new DbDetectionCache(id1, AnalysisMode.Introduction, CacheEntryType.Chromaprint, "[]"));
-            db.DetectionCache.Add(new DbDetectionCache(id2, AnalysisMode.Introduction, CacheEntryType.Chromaprint, "[]"));
+            db.DetectionCache.Add(new DbDetectionCache(id1, AnalysisMode.Introduction, CacheEntryType.Chromaprint, EmptyPayload));
+            db.DetectionCache.Add(new DbDetectionCache(id2, AnalysisMode.Introduction, CacheEntryType.Chromaprint, EmptyPayload));
             db.SaveChanges();
         }
 
@@ -189,8 +194,8 @@ public sealed class TestDetectionCacheDbContext : IDisposable
 
         using (var db = CreateContext())
         {
-            db.DetectionCache.Add(new DbDetectionCache(id, AnalysisMode.Introduction, CacheEntryType.Chromaprint, "[]"));
-            db.DetectionCache.Add(new DbDetectionCache(id, AnalysisMode.Credits, CacheEntryType.Chromaprint, "[]"));
+            db.DetectionCache.Add(new DbDetectionCache(id, AnalysisMode.Introduction, CacheEntryType.Chromaprint, EmptyPayload));
+            db.DetectionCache.Add(new DbDetectionCache(id, AnalysisMode.Credits, CacheEntryType.Chromaprint, EmptyPayload));
             db.SaveChanges();
         }
 
@@ -214,8 +219,8 @@ public sealed class TestDetectionCacheDbContext : IDisposable
 
         using (var db = CreateContext())
         {
-            db.DetectionCache.Add(new DbDetectionCache(id, AnalysisMode.Introduction, CacheEntryType.Chromaprint, "[]"));
-            db.DetectionCache.Add(new DbDetectionCache(id, AnalysisMode.Credits, CacheEntryType.Chromaprint, "[]"));
+            db.DetectionCache.Add(new DbDetectionCache(id, AnalysisMode.Introduction, CacheEntryType.Chromaprint, EmptyPayload));
+            db.DetectionCache.Add(new DbDetectionCache(id, AnalysisMode.Credits, CacheEntryType.Chromaprint, EmptyPayload));
             db.SaveChanges();
         }
 
@@ -240,9 +245,9 @@ public sealed class TestDetectionCacheDbContext : IDisposable
 
         using (var db = CreateContext())
         {
-            db.DetectionCache.Add(new DbDetectionCache(id1, AnalysisMode.Introduction, CacheEntryType.Chromaprint, "[]"));
-            db.DetectionCache.Add(new DbDetectionCache(id1, AnalysisMode.Credits, CacheEntryType.Chromaprint, "[]"));
-            db.DetectionCache.Add(new DbDetectionCache(id2, AnalysisMode.Introduction, CacheEntryType.Chromaprint, "[]"));
+            db.DetectionCache.Add(new DbDetectionCache(id1, AnalysisMode.Introduction, CacheEntryType.Chromaprint, EmptyPayload));
+            db.DetectionCache.Add(new DbDetectionCache(id1, AnalysisMode.Credits, CacheEntryType.Chromaprint, EmptyPayload));
+            db.DetectionCache.Add(new DbDetectionCache(id2, AnalysisMode.Introduction, CacheEntryType.Chromaprint, EmptyPayload));
             db.SaveChanges();
         }
 
@@ -266,14 +271,14 @@ public sealed class TestDetectionCacheDbContext : IDisposable
 
         using (var db = CreateContext())
         {
-            db.DetectionCache.Add(new DbDetectionCache(id, AnalysisMode.Introduction, CacheEntryType.Silence, "[]", 0, 30));
+            db.DetectionCache.Add(new DbDetectionCache(id, AnalysisMode.Introduction, CacheEntryType.Silence, EmptyPayload, 0, 30));
             db.SaveChanges();
         }
 
         // Adding same (ItemId, Mode, Type, Start, End) should throw
         using (var db = CreateContext())
         {
-            db.DetectionCache.Add(new DbDetectionCache(id, AnalysisMode.Introduction, CacheEntryType.Silence, "[1]", 0, 30));
+            db.DetectionCache.Add(new DbDetectionCache(id, AnalysisMode.Introduction, CacheEntryType.Silence, Encoding.UTF8.GetBytes("[1]"), 0, 30));
             Assert.ThrowsAny<DbUpdateException>(() => db.SaveChanges());
         }
     }
@@ -285,8 +290,8 @@ public sealed class TestDetectionCacheDbContext : IDisposable
 
         using (var db = CreateContext())
         {
-            db.DetectionCache.Add(new DbDetectionCache(id, AnalysisMode.Introduction, CacheEntryType.Silence, "[]", 0, 30));
-            db.DetectionCache.Add(new DbDetectionCache(id, AnalysisMode.Introduction, CacheEntryType.Silence, "[]", 30, 60));
+            db.DetectionCache.Add(new DbDetectionCache(id, AnalysisMode.Introduction, CacheEntryType.Silence, EmptyPayload, 0, 30));
+            db.DetectionCache.Add(new DbDetectionCache(id, AnalysisMode.Introduction, CacheEntryType.Silence, EmptyPayload, 30, 60));
             db.SaveChanges();
         }
 
