@@ -266,6 +266,4 @@ public class IntroSkipperDbContext : DbContext
         var builder = new SqliteConnectionStringBuilder(connectionString);
         return builder.DataSource is not (null or "" or ":memory:") ? builder.DataSource : null;
     }
-
 }
-

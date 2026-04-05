@@ -172,6 +172,4 @@ public class DetectionCacheDbContext : DbContext
             return false;
         }
     }
-
 }
-

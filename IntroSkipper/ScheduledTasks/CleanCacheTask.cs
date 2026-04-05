@@ -166,7 +166,7 @@ public partial class CleanCacheTask(
             using var deleteDb = Plugin.CreateCacheDbContext();
             deleteDb.DetectionCache.RemoveRange(
                 deleteDb.DetectionCache.Where(e => invalidEpisodeIds.Contains(e.ItemId)));
-            deleteDb.SaveChanges();
+            await deleteDb.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
         }
 
         // Delete leftover legacy files for invalid episodes and log each removal.
