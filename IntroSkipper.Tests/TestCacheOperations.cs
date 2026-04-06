@@ -6,6 +6,7 @@ namespace IntroSkipper.Tests;
 using System;
 using System.Globalization;
 using System.IO;
+using System.IO.Compression;
 using System.Linq;
 using System.Text.Json;
 using IntroSkipper.Configuration;
@@ -613,6 +614,32 @@ public sealed class TestCacheOperations
         Assert.NotNull(entry);
         Assert.Equal(1560, entry.Start);
         Assert.Equal(1800, entry.End);
+    }
+
+    [Theory]
+    [InlineData(CompressionLevel.NoCompression)]
+    [InlineData(CompressionLevel.Fastest)]
+    [InlineData(CompressionLevel.Optimal)]
+    [InlineData(CompressionLevel.SmallestSize)]
+    public void CompressBrotli_AllLevels_RoundTripsCorrectly(CompressionLevel level)
+    {
+        var cacheDir = EntrypointTestHelpers.CreateTempCacheDir();
+        using var scope = new EntrypointTestHelpers.PluginInstanceScope(cacheDir);
+
+        var plugin = Plugin.Instance;
+        Assert.NotNull(plugin);
+
+        EntrypointTestHelpers.SetPropertyOrField(
+            plugin,
+            "Configuration",
+            new PluginConfiguration { CacheCompressionLevel = level });
+
+        uint[] original = [1u, 2u, 3u, 100u, 200u, 42u];
+        var compressed = FFmpegWrapper.CompressBrotli(original);
+        var decompressed = FFmpegWrapper.DecompressBrotli<uint[]>(compressed);
+
+        Assert.NotNull(decompressed);
+        Assert.Equal(original, decompressed);
     }
 
     private static uint[] ReadFingerprintFromDb(DetectionCacheDbContext db, Guid itemId, AnalysisMode mode)

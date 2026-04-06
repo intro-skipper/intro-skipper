@@ -10,6 +10,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
 using System.Diagnostics;
+using System.IO.Compression;
 using System.Xml.Serialization;
 using MediaBrowser.Model.Plugins;
 
@@ -53,6 +54,12 @@ public class PluginConfiguration : BasePluginConfiguration
     /// Gets or sets a value indicating whether the episode's fingerprint should be cached to the filesystem.
     /// </summary>
     public bool CacheFingerprints { get; set; } = true;
+
+    /// <summary>
+    /// Gets or sets the Brotli compression level used for the detection cache.
+    /// Higher compression reduces disk usage but increases CPU time during analysis.
+    /// </summary>
+    public CompressionLevel CacheCompressionLevel { get; set; } = CompressionLevel.Optimal;
 
     /// <summary>
     /// Gets or sets a value indicating whether to use the alternative black frame analyzer.

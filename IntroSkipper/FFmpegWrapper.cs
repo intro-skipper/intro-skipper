@@ -759,7 +759,9 @@ public static partial class FFmpegWrapper
 
         var id = episode.EpisodeId.ToString("N");
         var suffix = mode == AnalysisMode.Credits ? "-credits" : string.Empty;
-        return File.Exists(GetLegacyFilePath(id + suffix));
+        var legacyPath = GetLegacyFilePath(id + suffix);
+
+        return File.Exists(legacyPath);
     }
 
     private static bool TryReadJsonCache<T>(Guid itemId, AnalysisMode mode, CacheEntryType type, double start, double end, out T[] result)
@@ -1023,8 +1025,9 @@ public static partial class FFmpegWrapper
     /// <returns>The Brotli-compressed data.</returns>
     internal static byte[] CompressBrotli<T>(T value)
     {
+        var level = Plugin.Instance?.Configuration.CacheCompressionLevel ?? CompressionLevel.Optimal;
         using var output = new MemoryStream();
-        using (var brotli = new BrotliStream(output, CompressionLevel.Fastest))
+        using (var brotli = new BrotliStream(output, level))
         {
             JsonSerializer.Serialize(brotli, value);
         }
