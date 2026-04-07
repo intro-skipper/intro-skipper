@@ -266,13 +266,13 @@ public partial class BaseItemAnalyzerTask(
                 break;
             }
 
+            var timestamps = await Plugin.Instance!.GetTimestampsAsync(episode.EpisodeId, cancellationToken).ConfigureAwait(false);
+
             // Skip episodes that already have a preview
-            if (timestamps.TryGetValue(AnalysisMode.Preview, out var preview) && preview.Valid)
+            if (timestamps.TryGetValue(AnalysisMode.Preview, out var existing) && existing.Valid)
             {
                 continue;
             }
-
-            var timestamps = await Plugin.Instance!.GetTimestampsAsync(episode.EpisodeId, cancellationToken).ConfigureAwait(false);
 
             if (!timestamps.TryGetValue(AnalysisMode.Credits, out var credits) || !credits.Valid)
             {
