@@ -126,6 +126,12 @@ public class PluginConfiguration : BasePluginConfiguration
     public bool SkipFirstEpisodeAnime { get; set; } = false;
 
     /// <summary>
+    /// Gets or sets a value indicating whether the remaining content after the credits should be set as a preview for anime episodes.
+    /// When enabled, a Preview segment covering the time from the end of the credits to the end of the episode is created for anime.
+    /// </summary>
+    public bool AnimePreviewFromCreditsEnd { get; set; } = false;
+
+    /// <summary>
     /// Gets or sets the minimum length of similar audio that will be considered an introduction.
     /// </summary>
     public int MinimumIntroDuration { get; set; } = 15;
