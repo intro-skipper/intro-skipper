@@ -267,7 +267,7 @@ public partial class BaseItemAnalyzerTask(
             }
 
             // Skip episodes that already have a preview
-            if (!episode.NeedsAnalysis(AnalysisMode.Preview))
+            if (timestamps.TryGetValue(AnalysisMode.Preview, out var preview) && preview.Valid)
             {
                 continue;
             }
