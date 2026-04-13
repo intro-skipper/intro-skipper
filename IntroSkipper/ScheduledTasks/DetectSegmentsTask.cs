@@ -6,6 +6,7 @@
 
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using IntroSkipper.Manager;
@@ -30,20 +31,25 @@ namespace IntroSkipper.ScheduledTasks;
 /// <param name="fileSystem">File system.</param>
 /// <param name="logger">Logger.</param>
 /// <param name="mediaSegmentUpdateManager">Media segment update manager.</param>
+/// <param name="taskManager">Task manager used to queue the Jellyfin segment extraction task after analysis.</param>
 public partial class DetectSegmentsTask(
     ILogger<DetectSegmentsTask> logger,
     ILoggerFactory loggerFactory,
     ILibraryManager libraryManager,
     IProviderManager providerManager,
     IFileSystem fileSystem,
-    MediaSegmentUpdateManager mediaSegmentUpdateManager) : IScheduledTask
+    MediaSegmentUpdateManager mediaSegmentUpdateManager,
+    ITaskManager taskManager) : IScheduledTask
 {
+    private const string JellyfinMediaSegmentExtractionTaskKey = "TaskExtractMediaSegments";
+
     private readonly ILogger<DetectSegmentsTask> _logger = logger;
     private readonly ILoggerFactory _loggerFactory = loggerFactory;
     private readonly ILibraryManager _libraryManager = libraryManager;
     private readonly IProviderManager _providerManager = providerManager;
     private readonly IFileSystem _fileSystem = fileSystem;
     private readonly MediaSegmentUpdateManager _mediaSegmentUpdateManager = mediaSegmentUpdateManager;
+    private readonly ITaskManager _taskManager = taskManager;
 
     /// <summary>
     /// Gets the task name.
@@ -97,7 +103,23 @@ public partial class DetectSegmentsTask(
                 _fileSystem,
                 _mediaSegmentUpdateManager);
 
-            await baseIntroAnalyzer.AnalyzeItemsAsync(progress, cancellationToken).ConfigureAwait(false);
+            // Segments are written to the Intro Skipper database only; Jellyfin pulls them
+            // through the registered IMediaSegmentProvider (SegmentProvider.GetMediaSegments).
+            // This means settings changes that affect timestamps are reflected the next time
+            // Jellyfin runs its own segment extraction task, without needing RebuildMediaSegments.
+            await baseIntroAnalyzer.AnalyzeItemsAsync(progress, cancellationToken, pushToJellyfin: false).ConfigureAwait(false);
+
+            // Trigger Jellyfin's built-in segment extraction task so that it pulls the freshly
+            // analyzed segments from the Intro Skipper database via SegmentProvider immediately,
+            // rather than waiting for its next scheduled run.
+            var extractionTask = _taskManager.ScheduledTasks
+                .FirstOrDefault(t => string.Equals(t.ScheduledTask.Key, JellyfinMediaSegmentExtractionTaskKey, StringComparison.OrdinalIgnoreCase));
+
+            if (extractionTask is not null && extractionTask.State == TaskState.Idle)
+            {
+                LogQueueingSegmentExtraction(_logger);
+                _taskManager.QueueScheduledTask(extractionTask.ScheduledTask, new TaskOptions());
+            }
         }
     }
 
@@ -122,4 +144,7 @@ public partial class DetectSegmentsTask(
 
     [LoggerMessage(Level = LogLevel.Information, Message = "Scheduled Task is starting")]
     private static partial void LogScheduledTaskStarting(ILogger logger);
+
+    [LoggerMessage(Level = LogLevel.Information, Message = "Queuing Jellyfin media segment extraction task to pull updated segments from Intro Skipper database")]
+    private static partial void LogQueueingSegmentExtraction(ILogger logger);
 }

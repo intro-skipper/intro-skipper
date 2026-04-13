@@ -56,11 +56,18 @@ public partial class BaseItemAnalyzerTask(
     /// <param name="progress">Progress reporter.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <param name="seasonsToAnalyze">Season IDs to analyze.</param>
+    /// <param name="pushToJellyfin">
+    /// When <c>true</c> (default), newly analyzed segments are pushed to Jellyfin immediately via
+    /// <see cref="MediaSegmentUpdateManager.UpdateMediaSegmentsAsync"/>.
+    /// When <c>false</c>, segments are written only to the Intro Skipper database and Jellyfin is
+    /// expected to pull them later through the registered <c>IMediaSegmentProvider</c>.
+    /// </param>
     /// <returns>A task representing the asynchronous operation.</returns>
     public async Task AnalyzeItemsAsync(
         IProgress<double> progress,
         CancellationToken cancellationToken,
-        IReadOnlyCollection<Guid>? seasonsToAnalyze = null)
+        IReadOnlyCollection<Guid>? seasonsToAnalyze = null,
+        bool pushToJellyfin = true)
     {
         HashSet<AnalysisMode> modes = [
             .. _config.ScanIntroduction ? [AnalysisMode.Introduction] : Array.Empty<AnalysisMode>(),
@@ -151,7 +158,7 @@ public partial class BaseItemAnalyzerTask(
                 throw;
             }
 
-            if (_config.RebuildMediaSegments || (updateMediaSegments && _config.UpdateMediaSegments))
+            if (pushToJellyfin && (_config.RebuildMediaSegments || (updateMediaSegments && _config.UpdateMediaSegments)))
             {
                 await _mediaSegmentUpdateManager.UpdateMediaSegmentsAsync(episodes, ct).ConfigureAwait(false);
             }
