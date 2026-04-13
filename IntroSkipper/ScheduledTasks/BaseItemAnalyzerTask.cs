@@ -57,10 +57,9 @@ public partial class BaseItemAnalyzerTask(
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <param name="seasonsToAnalyze">Season IDs to analyze.</param>
     /// <param name="pushToJellyfin">
-    /// When <c>true</c> (default), newly analyzed segments are pushed to Jellyfin immediately via
-    /// <see cref="MediaSegmentUpdateManager.UpdateMediaSegmentsAsync"/>.
-    /// When <c>false</c>, segments are written only to the Intro Skipper database and Jellyfin is
-    /// expected to pull them later through the registered <c>IMediaSegmentProvider</c>.
+    /// When <c>true</c> (default), newly analyzed segments are pushed to Jellyfin immediately.
+    /// Pass <c>false</c> from the scheduled task so that Jellyfin pulls segments on its own through
+    /// the registered <c>IMediaSegmentProvider</c> instead.
     /// </param>
     /// <returns>A task representing the asynchronous operation.</returns>
     public async Task AnalyzeItemsAsync(
@@ -158,7 +157,7 @@ public partial class BaseItemAnalyzerTask(
                 throw;
             }
 
-            if (pushToJellyfin && (updateMediaSegments && _config.UpdateMediaSegments))
+            if (pushToJellyfin && updateMediaSegments)
             {
                 await _mediaSegmentUpdateManager.UpdateMediaSegmentsAsync(episodes, ct).ConfigureAwait(false);
             }
@@ -313,9 +312,6 @@ public partial class BaseItemAnalyzerTask(
 
     [LoggerMessage(Level = LogLevel.Error, Message = "An unexpected error occurred during analysis.")]
     private static partial void LogUnexpectedAnalysisError(ILogger logger, Exception ex);
-
-    [LoggerMessage(Level = LogLevel.Information, Message = "Regenerated media segments.")]
-    private static partial void LogRegeneratedMediaSegments(ILogger logger);
 
     [LoggerMessage(Level = LogLevel.Information, Message = "[Mode: {Mode}] Analyzing {Count} files from {Name} season {Season}")]
     private static partial void LogAnalyzingFiles(ILogger logger, AnalysisMode mode, int count, string name, int season);
