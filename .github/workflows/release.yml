@@ -77,7 +77,7 @@ jobs:
 
       - name: Sign package artifacts
         if: ${{ github.repository == 'intro-skipper/intro-skipper' && !inputs.skip_signing }}
-        uses: signpath/github-action-submit-signing-request@v2.0
+        uses: signpath/github-action-submit-signing-request@v2.1
         with:
           api-token: '${{ secrets.SIGNPATH_API_TOKEN }}'
           organization-id: '2533cbeb-14b8-4d23-905e-37196de94787'
