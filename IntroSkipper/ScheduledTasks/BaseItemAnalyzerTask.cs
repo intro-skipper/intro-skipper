@@ -158,20 +158,13 @@ public partial class BaseItemAnalyzerTask(
                 throw;
             }
 
-            if (pushToJellyfin && (_config.RebuildMediaSegments || (updateMediaSegments && _config.UpdateMediaSegments)))
+            if (pushToJellyfin && (updateMediaSegments && _config.UpdateMediaSegments))
             {
                 await _mediaSegmentUpdateManager.UpdateMediaSegmentsAsync(episodes, ct).ConfigureAwait(false);
             }
         }).ConfigureAwait(false);
 
         Plugin.Instance!.AnalyzeAgain = false;
-
-        if (_config.RebuildMediaSegments)
-        {
-            LogRegeneratedMediaSegments(_logger);
-            _config.RebuildMediaSegments = false;
-            Plugin.Instance!.SaveConfiguration();
-        }
     }
 
     /// <summary>
