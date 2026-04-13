@@ -112,10 +112,20 @@ public partial class DetectSegmentsTask(
             // Trigger Jellyfin's built-in segment extraction task so that it pulls the freshly
             // analyzed segments from the Intro Skipper database via SegmentProvider immediately,
             // rather than waiting for its next scheduled run.
+            // ITaskManager does not expose a direct typed lookup; key-based search is the only
+            // mechanism available in the API.
             var extractionTask = _taskManager.ScheduledTasks
                 .FirstOrDefault(t => string.Equals(t.ScheduledTask.Key, JellyfinMediaSegmentExtractionTaskKey, StringComparison.OrdinalIgnoreCase));
 
-            if (extractionTask is not null && extractionTask.State == TaskState.Idle)
+            if (extractionTask is null)
+            {
+                LogExtractionTaskNotFound(_logger, JellyfinMediaSegmentExtractionTaskKey);
+            }
+            else if (extractionTask.State != TaskState.Idle)
+            {
+                LogExtractionTaskNotIdle(_logger, extractionTask.State);
+            }
+            else
             {
                 LogQueueingSegmentExtraction(_logger);
                 _taskManager.QueueScheduledTask(extractionTask.ScheduledTask, new TaskOptions());
@@ -147,4 +157,10 @@ public partial class DetectSegmentsTask(
 
     [LoggerMessage(Level = LogLevel.Information, Message = "Queuing Jellyfin media segment extraction task to pull updated segments from Intro Skipper database")]
     private static partial void LogQueueingSegmentExtraction(ILogger logger);
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "Jellyfin segment extraction task with key '{TaskKey}' was not found; segments will not be pushed until Jellyfin runs its next scheduled extraction.")]
+    private static partial void LogExtractionTaskNotFound(ILogger logger, string taskKey);
+
+    [LoggerMessage(Level = LogLevel.Debug, Message = "Jellyfin segment extraction task is currently in state '{TaskState}' and will not be queued; segments will be picked up on its next run.")]
+    private static partial void LogExtractionTaskNotIdle(ILogger logger, TaskState taskState);
 }
