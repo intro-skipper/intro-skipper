@@ -103,17 +103,11 @@ public partial class DetectSegmentsTask(
                 _fileSystem,
                 _mediaSegmentUpdateManager);
 
-            // Segments are written to the Intro Skipper database only; Jellyfin pulls them
-            // through the registered IMediaSegmentProvider (SegmentProvider.GetMediaSegments).
-            // This means settings changes that affect timestamps are reflected the next time
-            // Jellyfin runs its own segment extraction task, without needing RebuildMediaSegments.
-            await baseIntroAnalyzer.AnalyzeItemsAsync(progress, cancellationToken, pushToJellyfin: false).ConfigureAwait(false);
-
-            // Trigger Jellyfin's built-in segment extraction task so that it pulls the freshly
-            // analyzed segments from the Intro Skipper database via SegmentProvider immediately,
-            // rather than waiting for its next scheduled run.
-            // ITaskManager does not expose a direct typed lookup; key-based search is the only
-            // mechanism available in the API.
+            // Newly analyzed segments are pushed to Jellyfin immediately via UpdateMediaSegmentsAsync.
+            // In addition, trigger Jellyfin's built-in segment extraction task so that any segments
+            // already stored in the Intro Skipper database (from a prior run) are also reflected in
+            // Jellyfin's own database without waiting for its next scheduled extraction.
+            await baseIntroAnalyzer.AnalyzeItemsAsync(progress, cancellationToken).ConfigureAwait(false);
             var extractionTask = _taskManager.ScheduledTasks
                 .FirstOrDefault(t => string.Equals(t.ScheduledTask.Key, JellyfinMediaSegmentExtractionTaskKey, StringComparison.OrdinalIgnoreCase));
 
