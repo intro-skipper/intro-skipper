@@ -157,7 +157,7 @@ public partial class BaseItemAnalyzerTask(
                 throw;
             }
 
-            if (pushToJellyfin && updateMediaSegments)
+            if (pushToJellyfin && _config.UpdateMediaSegments && updateMediaSegments)
             {
                 await _mediaSegmentUpdateManager.UpdateMediaSegmentsAsync(episodes, ct).ConfigureAwait(false);
             }
