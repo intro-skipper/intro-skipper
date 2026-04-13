@@ -56,11 +56,17 @@ public partial class BaseItemAnalyzerTask(
     /// <param name="progress">Progress reporter.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <param name="seasonsToAnalyze">Season IDs to analyze.</param>
+    /// <param name="pushToJellyfin">
+    /// When <c>true</c> (default), newly analyzed segments are pushed to Jellyfin immediately.
+    /// Pass <c>false</c> from the scheduled task so that Jellyfin pulls segments on its own through
+    /// the registered <c>IMediaSegmentProvider</c> instead.
+    /// </param>
     /// <returns>A task representing the asynchronous operation.</returns>
     public async Task AnalyzeItemsAsync(
         IProgress<double> progress,
         CancellationToken cancellationToken,
-        IReadOnlyCollection<Guid>? seasonsToAnalyze = null)
+        IReadOnlyCollection<Guid>? seasonsToAnalyze = null,
+        bool pushToJellyfin = true)
     {
         HashSet<AnalysisMode> modes = [
             .. _config.ScanIntroduction ? [AnalysisMode.Introduction] : Array.Empty<AnalysisMode>(),
@@ -151,20 +157,13 @@ public partial class BaseItemAnalyzerTask(
                 throw;
             }
 
-            if (_config.RebuildMediaSegments || (updateMediaSegments && _config.UpdateMediaSegments))
+            if (pushToJellyfin && _config.UpdateMediaSegments && updateMediaSegments)
             {
                 await _mediaSegmentUpdateManager.UpdateMediaSegmentsAsync(episodes, ct).ConfigureAwait(false);
             }
         }).ConfigureAwait(false);
 
         Plugin.Instance!.AnalyzeAgain = false;
-
-        if (_config.RebuildMediaSegments)
-        {
-            LogRegeneratedMediaSegments(_logger);
-            _config.RebuildMediaSegments = false;
-            Plugin.Instance!.SaveConfiguration();
-        }
     }
 
     /// <summary>
@@ -313,9 +312,6 @@ public partial class BaseItemAnalyzerTask(
 
     [LoggerMessage(Level = LogLevel.Error, Message = "An unexpected error occurred during analysis.")]
     private static partial void LogUnexpectedAnalysisError(ILogger logger, Exception ex);
-
-    [LoggerMessage(Level = LogLevel.Information, Message = "Regenerated media segments.")]
-    private static partial void LogRegeneratedMediaSegments(ILogger logger);
 
     [LoggerMessage(Level = LogLevel.Information, Message = "[Mode: {Mode}] Analyzing {Count} files from {Name} season {Season}")]
     private static partial void LogAnalyzingFiles(ILogger logger, AnalysisMode mode, int count, string name, int season);
