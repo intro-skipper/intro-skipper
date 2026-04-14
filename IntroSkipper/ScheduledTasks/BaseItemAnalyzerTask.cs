@@ -151,7 +151,7 @@ public partial class BaseItemAnalyzerTask(
                 throw;
             }
 
-            if (updateMediaSegments)
+            if (updateMediaSegments && _config.UpdateMediaSegments)
             {
                 await _mediaSegmentUpdateManager.UpdateMediaSegmentsAsync(episodes, ct).ConfigureAwait(false);
             }
