@@ -424,11 +424,16 @@ public partial class QueueManager(ILogger<QueueManager> logger, ILibraryManager 
                     if (snapshot.SegmentsByEpisodeId.TryGetValue(candidate.EpisodeId, out var hasSegments) &&
                         hasSegments.TryGetValue(mode, out _))
                     {
-                        var state = snapshot.UserProvidedByMode.TryGetValue(mode, out var userProvided) &&
-                                    userProvided.Contains(candidate.EpisodeId)
-                            ? EpisodeState.UserProvided
-                            : EpisodeState.Analyzed;
-                        candidate.SetAnalyzed(mode, state);
+                        var isUserProvided = snapshot.UserProvidedByMode.TryGetValue(mode, out var userProvided) &&
+                                             userProvided.Contains(candidate.EpisodeId);
+
+                        // Always preserve user-provided segments. When AnalyzeAgain is true (settings
+                        // changed), leave automatically-analyzed segments as NotAnalyzed so they are
+                        // re-analyzed and their timestamps updated to reflect the new settings.
+                        if (isUserProvided || !plugin.AnalyzeAgain)
+                        {
+                            candidate.SetAnalyzed(mode, isUserProvided ? EpisodeState.UserProvided : EpisodeState.Analyzed);
+                        }
                     }
                     else if (!plugin.AnalyzeAgain &&
                              snapshot.EpisodeIdsByMode.TryGetValue(mode, out var ids) &&
