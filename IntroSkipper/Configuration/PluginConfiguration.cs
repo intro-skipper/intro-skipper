@@ -73,13 +73,6 @@ public class PluginConfiguration : BasePluginConfiguration
     /// </summary>
     public bool UpdateMediaSegments { get; set; } = true;
 
-    /// <summary>
-    /// Gets or sets a value indicating whether to regenerate all Media Segments during the next scan.
-    /// By default, Media Segments are only written for a season if the season had at least one newly analyzed episode.
-    /// If this is set, all Media Segments will be regenerated and overwrite any existing Media Segments.
-    /// </summary>
-    public bool RebuildMediaSegments { get; set; } = true;
-
     // ===== Custom analysis settings =====
 
     /// <summary>
@@ -131,6 +124,12 @@ public class PluginConfiguration : BasePluginConfiguration
     /// Gets or sets a value indicating whether skipping first episode should only apply to anime.
     /// </summary>
     public bool SkipFirstEpisodeAnime { get; set; } = false;
+
+    /// <summary>
+    /// Gets or sets a value indicating whether the remaining content after the credits should be set as a preview for anime episodes.
+    /// When enabled, a Preview segment covering the time from the end of the credits to the end of the episode is created for anime.
+    /// </summary>
+    public bool AnimePreviewFromCreditsEnd { get; set; } = false;
 
     /// <summary>
     /// Gets or sets the minimum length of similar audio that will be considered an introduction.

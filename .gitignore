@@ -2,6 +2,7 @@ bin/
 obj/
 BenchmarkDotNet.Artifacts/
 /package/
+*.lscache
 
 # Ignore pre compiled web interface
 docker/dist

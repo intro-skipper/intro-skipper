@@ -151,20 +151,13 @@ public partial class BaseItemAnalyzerTask(
                 throw;
             }
 
-            if (_config.RebuildMediaSegments || (updateMediaSegments && _config.UpdateMediaSegments))
+            if (updateMediaSegments)
             {
                 await _mediaSegmentUpdateManager.UpdateMediaSegmentsAsync(episodes, ct).ConfigureAwait(false);
             }
         }).ConfigureAwait(false);
 
         Plugin.Instance!.AnalyzeAgain = false;
-
-        if (_config.RebuildMediaSegments)
-        {
-            LogRegeneratedMediaSegments(_logger);
-            _config.RebuildMediaSegments = false;
-            Plugin.Instance!.SaveConfiguration();
-        }
     }
 
     /// <summary>
@@ -238,11 +231,63 @@ public partial class BaseItemAnalyzerTask(
             items = await analyzer.AnalyzeMediaFiles(items, mode, cancellationToken).ConfigureAwait(false);
         }
 
+        // For anime, optionally create a Preview segment from the end of credits to the end of the episode.
+        if (mode == AnalysisMode.Credits && isAnime && _config.AnimePreviewFromCreditsEnd)
+        {
+            await CreateAnimePreviewFromCreditsAsync(items, cancellationToken).ConfigureAwait(false);
+        }
+
         // Set the episode IDs for the analyzed items
         await Plugin.Instance!.SetEpisodeIdsAsync(first.SeasonId, mode, items.Select(i => i.EpisodeId), cancellationToken).ConfigureAwait(false);
 
         return totalItems - items.Count(e => e.GetAnalyzed(mode) != EpisodeState.Analyzed);
     }
+
+    /// <summary>
+    /// For anime episodes, creates a Preview segment covering the remaining content after the credits end.
+    /// </summary>
+    /// <param name="items">Media items to process.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    private async Task CreateAnimePreviewFromCreditsAsync(
+        IReadOnlyList<QueuedEpisode> items,
+        CancellationToken cancellationToken)
+    {
+        foreach (var episode in items)
+        {
+            if (cancellationToken.IsCancellationRequested)
+            {
+                break;
+            }
+
+            var timestamps = await Plugin.Instance!.GetTimestampsAsync(episode.EpisodeId, cancellationToken).ConfigureAwait(false);
+
+            // Skip episodes that already have a preview
+            if (timestamps.TryGetValue(AnalysisMode.Preview, out var existing) && existing.Valid)
+            {
+                continue;
+            }
+
+            if (!timestamps.TryGetValue(AnalysisMode.Credits, out var credits) || !credits.Valid)
+            {
+                continue;
+            }
+
+            // Only create a preview when there is content remaining after the credits
+            if (credits.End >= episode.Duration)
+            {
+                continue;
+            }
+
+            var preview = new Segment(episode.EpisodeId, new TimeRange(credits.End, episode.Duration));
+            await Plugin.Instance!.UpdateTimestampAsync(preview, AnalysisMode.Preview, cancellationToken: cancellationToken).ConfigureAwait(false);
+            episode.SetAnalyzed(AnalysisMode.Preview, EpisodeState.Analyzed);
+
+            LogCreatedAnimePreview(_logger, episode.Name, credits.End, episode.Duration);
+        }
+    }
+
+    [LoggerMessage(Level = LogLevel.Debug, Message = "Created anime preview for {Episode}: {Start:F2}s to {End:F2}s")]
+    private static partial void LogCreatedAnimePreview(ILogger logger, string episode, double start, double end);
 
     [LoggerMessage(Level = LogLevel.Information, Message = "No libraries selected for analysis. To enable, check library configuration > Media Segment Providers.")]
     private static partial void LogNoLibrariesSelected(ILogger logger);
@@ -261,9 +306,6 @@ public partial class BaseItemAnalyzerTask(
 
     [LoggerMessage(Level = LogLevel.Error, Message = "An unexpected error occurred during analysis.")]
     private static partial void LogUnexpectedAnalysisError(ILogger logger, Exception ex);
-
-    [LoggerMessage(Level = LogLevel.Information, Message = "Regenerated media segments.")]
-    private static partial void LogRegeneratedMediaSegments(ILogger logger);
 
     [LoggerMessage(Level = LogLevel.Information, Message = "[Mode: {Mode}] Analyzing {Count} files from {Name} season {Season}")]
     private static partial void LogAnalyzingFiles(ILogger logger, AnalysisMode mode, int count, string name, int season);

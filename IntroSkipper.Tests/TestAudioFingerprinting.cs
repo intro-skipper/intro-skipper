@@ -161,7 +161,7 @@ public class TestAudioFingerprinting
     }
 }
 
-public class FactSkipFFmpegTests : FactAttribute
+public sealed class FactSkipFFmpegTests : FactAttribute
 {
 #if SKIP_FFMPEG_TESTS
     public FactSkipFFmpegTests() {
