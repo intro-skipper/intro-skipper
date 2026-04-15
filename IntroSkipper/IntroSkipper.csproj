@@ -28,4 +28,8 @@
     <None Remove="Configuration\index.css" />
     <EmbeddedResource Include="Configuration\index.css" />
   </ItemGroup>
+  <Target Name="WebBuild" BeforeTargets="CoreCompile" Condition="'$(SkipWebBuild)' != 'true'">
+    <Exec WorkingDirectory="$(MSBuildProjectDirectory)\..\web"
+          Command="pnpm install --frozen-lockfile &amp;&amp; pnpm build" />
+  </Target>
 </Project>
