@@ -1,34 +1,34 @@
 :root {
-  color-scheme: dark;
+    color-scheme: dark;
 
-  /* Layout tokens. */
-  --sidebar-width: 180px;
-  --header-height: 56px;
+    /* Layout tokens. */
+    --sidebar-width: 180px;
+    --header-height: 56px;
 
-  /* Color tokens with fallbacks when Jellyfin theme variables are missing. */
-  --is-bg: var(--theme-background, #1a1a2e);
-  --is-surface: var(--theme-card-background, #16213e);
-  --is-text: var(--theme-text-color, #e0e0e0);
-  --is-text-muted: var(--theme-text-color-secondary, #999);
-  --is-border: rgba(255, 255, 255, 0.1);
-  --is-accent: var(--theme-primary-color, #00a4dc);
-  --is-error: #f44336;
-  --is-warning: #ffa500;
-  --is-success: #4caf50;
+    /* Color tokens with fallbacks when Jellyfin theme variables are missing. */
+    --is-bg: var(--theme-background, #1a1a2e);
+    --is-surface: var(--theme-card-background, #16213e);
+    --is-text: var(--theme-text-color, #e0e0e0);
+    --is-text-muted: var(--theme-text-color-secondary, #999);
+    --is-border: rgba(255, 255, 255, 0.1);
+    --is-accent: var(--theme-primary-color, #00a4dc);
+    --is-error: #f44336;
+    --is-warning: #ffa500;
+    --is-success: #4caf50;
 
-  /* Contrast text for use on accent / colored backgrounds. */
-  --is-on-accent: #fff;
+    /* Contrast text for use on accent / colored backgrounds. */
+    --is-on-accent: #fff;
 
-  /* Subtle hover overlay for dark backgrounds. */
-  --is-hover: rgba(255, 255, 255, 0.05);
-  --is-hover-strong: rgba(255, 255, 255, 0.08);
+    /* Subtle hover overlay for dark backgrounds. */
+    --is-hover: rgba(255, 255, 255, 0.05);
+    --is-hover-strong: rgba(255, 255, 255, 0.08);
 
-  /* Border variants. */
-  --is-border-strong: rgba(255, 255, 255, 0.2);
-  --is-border-muted: rgba(155, 155, 155, 0.5);
+    /* Border variants. */
+    --is-border-strong: rgba(255, 255, 255, 0.2);
+    --is-border-muted: rgba(155, 155, 155, 0.5);
 
-  /* Form control tokens. */
-  --is-input-bg: rgba(255, 255, 255, 0.05);
-  --is-input-border: rgba(255, 255, 255, 0.15);
-  --is-input-focus: var(--theme-primary-color, #00a4dc);
+    /* Form control tokens. */
+    --is-input-bg: rgba(255, 255, 255, 0.05);
+    --is-input-border: rgba(255, 255, 255, 0.15);
+    --is-input-focus: var(--theme-primary-color, #00a4dc);
 }
