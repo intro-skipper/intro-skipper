@@ -7,6 +7,8 @@ BenchmarkDotNet.Artifacts/
 # Web dashboard build output (built from web/ source)
 IntroSkipper/Configuration/index.js
 IntroSkipper/Configuration/index.css
+IntroSkipper/Configuration/introskipper.js
+IntroSkipper/Configuration/introskipper.css
 
 # Web dashboard dependencies
 web/node_modules

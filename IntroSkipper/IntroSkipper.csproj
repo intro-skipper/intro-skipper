@@ -23,10 +23,10 @@
   <ItemGroup>
     <None Remove="Configuration\configPage.html" />
     <EmbeddedResource Include="Configuration\configPage.html" />
-    <None Remove="Configuration\index.js" />
-    <EmbeddedResource Include="Configuration\index.js" />
-    <None Remove="Configuration\index.css" />
-    <EmbeddedResource Include="Configuration\index.css" />
+    <None Remove="Configuration\introskipper.js" />
+    <EmbeddedResource Include="Configuration\introskipper.js" />
+    <None Remove="Configuration\introskipper.css" />
+    <EmbeddedResource Include="Configuration\introskipper.css" />
   </ItemGroup>
   <Target Name="WebBuild" BeforeTargets="CoreCompile" Condition="'$(SkipWebBuild)' != 'true'">
     <Exec WorkingDirectory="$(MSBuildProjectDirectory)\..\web"
