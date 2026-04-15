@@ -1,20 +1,16 @@
-import { Jellyfin } from "@jellyfin/sdk";
-import { getItemsApi, getUserViewsApi, getTvShowsApi } from "@jellyfin/sdk/lib/utils/api";
-import { BaseItemKind, ItemSortBy } from "@jellyfin/sdk/lib/generated-client/models";
-import type { Api } from "@jellyfin/sdk";
-import type { LibraryInfo, ShowItem, SeasonItem, EpisodeItem, SupportedCollectionType } from "../types.ts";
-
-let api: Api | null = null;
-
-function getApi(): Api {
-  if (api) return api;
-  const jellyfin = new Jellyfin({
-    clientInfo: { name: "Intro Skipper Config", version: "1.0.0" },
-    deviceInfo: { name: "Web Browser", id: "intro-skipper-config" },
-  });
-  api = jellyfin.createApi(window.ApiClient.serverAddress(), window.ApiClient.accessToken());
-  return api;
-}
+import { getJson } from "./api.ts";
+import type {
+  JellyfinItemsResponse,
+  JellyfinLibraryItem,
+  JellyfinMediaItem,
+  JellyfinSeasonItem,
+  JellyfinEpisodeItem,
+  LibraryInfo,
+  ShowItem,
+  SeasonItem,
+  EpisodeItem,
+  SupportedCollectionType,
+} from "../types.ts";
 
 // Libraries whose collection type explicitly targets movies or TV shows, plus
 // "folders" and untyped (null/undefined) views which cover VFS-backed libraries
@@ -29,8 +25,9 @@ function isSupportedCollectionType(
 }
 
 export async function getLibraries(): Promise<LibraryInfo[]> {
-  const result = await getUserViewsApi(getApi()).getUserViews();
-  const items = result.data.Items ?? [];
+  const result = await getJson<JellyfinItemsResponse<JellyfinLibraryItem>>("UserViews");
+  if (!result.ok) return [];
+  const items = result.data?.Items ?? [];
   return items
     .filter((item) => item.Id && isSupportedCollectionType(item.CollectionType))
     .map((item) => ({
@@ -44,28 +41,35 @@ export async function getShowsInLibrary(
   libraryId: string,
   libraryName: string,
 ): Promise<ShowItem[]> {
-  const result = await getItemsApi(getApi()).getItems({
+  const params = new URLSearchParams({
     parentId: libraryId,
-    includeItemTypes: [BaseItemKind.Series, BaseItemKind.Movie],
-    sortBy: [ItemSortBy.SortName],
-    sortOrder: ["Ascending"],
-    recursive: true,
+    includeItemTypes: "Series,Movie",
+    sortBy: "SortName",
+    sortOrder: "Ascending",
+    recursive: "true",
   });
-  return (result.data.Items ?? [])
+  const result = await getJson<JellyfinItemsResponse<JellyfinMediaItem>>(
+    `Items?${params.toString()}`,
+  );
+  if (!result.ok) return [];
+  return (result.data?.Items ?? [])
     .filter((item) => item.Id)
     .map((item) => ({
       Id: item.Id!,
       Name: item.Name ?? "Unknown",
       ProductionYear: item.ProductionYear ?? null,
-      Type: item.Type === BaseItemKind.Movie ? "Movie" : "Series",
+      Type: item.Type === "Movie" ? "Movie" : "Series",
       LibraryId: libraryId,
       LibraryName: libraryName,
     }));
 }
 
 export async function getSeasons(seriesId: string): Promise<SeasonItem[]> {
-  const result = await getTvShowsApi(getApi()).getSeasons({ seriesId });
-  return (result.data.Items ?? [])
+  const result = await getJson<JellyfinItemsResponse<JellyfinSeasonItem>>(
+    `Shows/${encodeURIComponent(seriesId)}/Seasons`,
+  );
+  if (!result.ok) return [];
+  return (result.data?.Items ?? [])
     .filter((item) => item.Id)
     .map((item) => ({
       Id: item.Id!,
@@ -75,12 +79,15 @@ export async function getSeasons(seriesId: string): Promise<SeasonItem[]> {
 }
 
 export async function getEpisodes(seriesId: string, seasonId: string): Promise<EpisodeItem[]> {
-  const result = await getTvShowsApi(getApi()).getEpisodes({
-    seriesId,
+  const params = new URLSearchParams({
     seasonId,
-    enableImages: true,
+    enableImages: "true",
   });
-  return (result.data.Items ?? [])
+  const result = await getJson<JellyfinItemsResponse<JellyfinEpisodeItem>>(
+    `Shows/${encodeURIComponent(seriesId)}/Episodes?${params.toString()}`,
+  );
+  if (!result.ok) return [];
+  return (result.data?.Items ?? [])
     .filter((item) => item.Id)
     .map((item) => ({
       Id: item.Id!,

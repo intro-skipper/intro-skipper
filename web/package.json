@@ -8,9 +8,6 @@
     "build": "tsc && vite build",
     "preview": "vite preview"
   },
-  "dependencies": {
-    "@jellyfin/sdk": "^0.13.0"
-  },
   "devDependencies": {
     "typescript": "~6.0.2",
     "vite": "^8.0.8"
