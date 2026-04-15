@@ -26,7 +26,10 @@ function isSupportedCollectionType(
 
 export async function getLibraries(): Promise<LibraryInfo[]> {
   const result = await getJson<JellyfinItemsResponse<JellyfinLibraryItem>>("UserViews");
-  if (!result.ok) return [];
+  if (!result.ok) {
+    console.error("Failed to load libraries", result.error);
+    return [];
+  }
   const items = result.data?.Items ?? [];
   return items
     .filter((item) => item.Id && isSupportedCollectionType(item.CollectionType))
@@ -51,7 +54,10 @@ export async function getShowsInLibrary(
   const result = await getJson<JellyfinItemsResponse<JellyfinMediaItem>>(
     `Items?${params.toString()}`,
   );
-  if (!result.ok) return [];
+  if (!result.ok) {
+    console.error("Failed to load shows for library", libraryId, result.error);
+    return [];
+  }
   return (result.data?.Items ?? [])
     .filter((item) => item.Id)
     .map((item) => ({
@@ -68,7 +74,10 @@ export async function getSeasons(seriesId: string): Promise<SeasonItem[]> {
   const result = await getJson<JellyfinItemsResponse<JellyfinSeasonItem>>(
     `Shows/${encodeURIComponent(seriesId)}/Seasons`,
   );
-  if (!result.ok) return [];
+  if (!result.ok) {
+    console.error("Failed to load seasons for series", seriesId, result.error);
+    return [];
+  }
   return (result.data?.Items ?? [])
     .filter((item) => item.Id)
     .map((item) => ({
@@ -86,7 +95,10 @@ export async function getEpisodes(seriesId: string, seasonId: string): Promise<E
   const result = await getJson<JellyfinItemsResponse<JellyfinEpisodeItem>>(
     `Shows/${encodeURIComponent(seriesId)}/Episodes?${params.toString()}`,
   );
-  if (!result.ok) return [];
+  if (!result.ok) {
+    console.error("Failed to load episodes for series", seriesId, result.error);
+    return [];
+  }
   return (result.data?.Items ?? [])
     .filter((item) => item.Id)
     .map((item) => ({
