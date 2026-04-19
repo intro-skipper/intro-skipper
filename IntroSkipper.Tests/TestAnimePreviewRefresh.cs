@@ -93,6 +93,24 @@ public class TestAnimePreviewRefresh
     }
 
     [Fact]
+    public void RefreshesPreview_WhenEpisodeDurationChanges()
+    {
+        // Episode file replaced with a longer cut: credits.End is unchanged but Preview.End is stale.
+        var timestamps = new Dictionary<AnalysisMode, Segment>
+        {
+            [AnalysisMode.Credits] = new Segment(EpisodeId, new TimeRange(1200.0, 1260.0)),
+            [AnalysisMode.Preview] = new Segment(EpisodeId, new TimeRange(1260.0, EpisodeDuration)),
+        };
+
+        const double newDuration = EpisodeDuration + 60.0;
+        var result = BaseItemAnalyzerTask.ComputeAnimePreviewFromCredits(EpisodeId, newDuration, timestamps);
+
+        Assert.NotNull(result);
+        Assert.Equal(1260.0, result!.Start);
+        Assert.Equal(newDuration, result.End);
+    }
+
+    [Fact]
     public void RefreshesPreview_WhenDriftExceedsTolerance()
     {
         var timestamps = new Dictionary<AnalysisMode, Segment>

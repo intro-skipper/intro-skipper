@@ -259,10 +259,12 @@ public partial class BaseItemAnalyzerTask(
     /// Decide whether an anime Preview segment needs to be written for an episode, and build it.
     /// </summary>
     /// <remarks>
-    /// Returns a new Segment when the Preview is missing or its Start no longer matches the current
-    /// credits.End (e.g. because settings changed and Credits was re-analyzed). Returns <see langword="null"/>
-    /// when there are no valid credits, the credits already cover the episode, or an existing Preview
-    /// already matches the current credits.End within or equal to <see cref="AnimePreviewStartTolerance"/>.
+    /// Returns a new Segment when the Preview is missing, its Start no longer matches the current
+    /// credits.End (e.g. because settings changed and Credits was re-analyzed), or its End no longer
+    /// matches the episode duration (e.g. because the underlying media file was replaced).
+    /// Returns <see langword="null"/> when there are no valid credits, the credits already cover the
+    /// episode, or an existing Preview already matches both the current credits.End and the episode
+    /// duration within or equal to <see cref="AnimePreviewStartTolerance"/>.
     /// </remarks>
     /// <param name="episodeId">Episode id.</param>
     /// <param name="episodeDuration">Episode duration in seconds.</param>
@@ -287,7 +289,8 @@ public partial class BaseItemAnalyzerTask(
 
         if (existingTimestamps.TryGetValue(AnalysisMode.Preview, out var existing)
             && existing.Valid
-            && Math.Abs(existing.Start - credits.End) <= AnimePreviewStartTolerance)
+            && Math.Abs(existing.Start - credits.End) <= AnimePreviewStartTolerance
+            && Math.Abs(existing.End - episodeDuration) <= AnimePreviewStartTolerance)
         {
             return null;
         }
