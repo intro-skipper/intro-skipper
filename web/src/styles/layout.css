@@ -1,484 +1,484 @@
 .app-shell {
-  display: grid;
-  grid-template-columns: var(--sidebar-width) 1fr;
-  grid-template-rows: var(--header-height) 1fr;
-  min-height: 80vh;
-  padding-bottom: calc(52px + env(safe-area-inset-bottom));
+    display: grid;
+    grid-template-columns: var(--sidebar-width) 1fr;
+    grid-template-rows: var(--header-height) 1fr;
+    min-height: 80vh;
+    padding-bottom: calc(52px + env(safe-area-inset-bottom));
 }
 
 .app-title {
-  margin: 0;
-  font-size: 1.4em;
+    margin: 0;
+    font-size: 1.4em;
 }
 
 .skip-link {
-  position: absolute;
-  top: 8px;
-  left: 16px;
-  z-index: 20;
-  padding: 8px 12px;
-  border-radius: 4px;
-  background: var(--is-accent);
-  color: var(--is-on-accent);
-  text-decoration: none;
-  transform: translateY(-160%);
+    position: absolute;
+    top: 8px;
+    left: 16px;
+    z-index: 20;
+    padding: 8px 12px;
+    border-radius: 4px;
+    background: var(--is-accent);
+    color: var(--is-on-accent);
+    text-decoration: none;
+    transform: translateY(-160%);
 }
 
 .skip-link:focus-visible {
-  transform: translateY(0);
-  outline: 2px solid var(--is-on-accent);
-  outline-offset: 2px;
+    transform: translateY(0);
+    outline: 2px solid var(--is-on-accent);
+    outline-offset: 2px;
 }
 
 .app-header {
-  grid-column: 1 / -1;
-  display: flex;
-  flex-direction: row;
-  align-items: center;
-  justify-content: space-between;
-  padding: 0 24px 0 72px;
-  border-bottom: 1px solid var(--is-border);
+    grid-column: 1 / -1;
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0 24px 0 72px;
+    border-bottom: 1px solid var(--is-border);
 }
 
 .app-sidebar {
-  display: flex;
-  flex-direction: column;
-  overflow-y: auto;
-  padding: 8px;
-  border-right: 1px solid var(--is-border);
+    display: flex;
+    flex-direction: column;
+    overflow-y: auto;
+    padding: 8px;
+    border-right: 1px solid var(--is-border);
 }
 
 .app-content {
-  overflow-y: auto;
-  padding: 24px 32px;
-  min-width: 0;
+    overflow-y: auto;
+    padding: 24px 32px;
+    min-width: 0;
 }
 
 .app-footer {
-  position: fixed;
-  bottom: 0;
-  left: 0;
-  right: 0;
-  display: flex;
-  justify-content: flex-end;
-  align-items: center;
-  gap: 12px;
-  padding: 12px 24px calc(12px + env(safe-area-inset-bottom));
-  border-top: 1px solid var(--is-border);
-  background: var(--is-bg);
-  z-index: 10;
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    display: flex;
+    justify-content: flex-end;
+    align-items: center;
+    gap: 12px;
+    padding: 12px 24px calc(12px + env(safe-area-inset-bottom));
+    border-top: 1px solid var(--is-border);
+    background: var(--is-bg);
+    z-index: 10;
 }
 
 .footer-status-message {
-  margin-right: auto;
-  font-size: 0.85em;
-  color: var(--is-text-muted);
+    margin-right: auto;
+    font-size: 0.85em;
+    color: var(--is-text-muted);
 }
 
 .footer-status-message[data-state="success"] {
-  color: var(--is-success);
+    color: var(--is-success);
 }
 
 .footer-status-message[data-state="error"] {
-  color: var(--is-error);
+    color: var(--is-error);
 }
 
 .tab-button {
-  display: block;
-  width: 100%;
-  text-align: left;
-  padding: 10px 16px;
-  border: none;
-  background: transparent;
-  color: var(--is-text);
-  cursor: pointer;
-  border-radius: 4px;
-  font-size: 0.95em;
-  touch-action: manipulation;
+    display: block;
+    width: 100%;
+    text-align: left;
+    padding: 10px 16px;
+    border: none;
+    background: transparent;
+    color: var(--is-text);
+    cursor: pointer;
+    border-radius: 4px;
+    font-size: 0.95em;
+    touch-action: manipulation;
 }
 
 .tab-button:hover {
-  background: var(--is-hover);
+    background: var(--is-hover);
 }
 
 .tab-button:focus-visible {
-  outline: 2px solid var(--is-accent);
-  outline-offset: 2px;
+    outline: 2px solid var(--is-accent);
+    outline-offset: 2px;
 }
 
 .tab-active {
-  background: color-mix(in srgb, var(--is-accent) 15%, transparent);
-  color: var(--is-accent);
-  font-weight: 600;
+    background: color-mix(in srgb, var(--is-accent) 15%, transparent);
+    color: var(--is-accent);
+    font-weight: 600;
 }
 
 .dirty-indicator {
-  display: none;
-  font-size: 0.85em;
-  color: var(--is-warning);
-  white-space: nowrap;
+    display: none;
+    font-size: 0.85em;
+    color: var(--is-warning);
+    white-space: nowrap;
 }
 
 .save-button {
-  background: var(--is-accent);
-  color: var(--is-on-accent);
-  border: none;
-  padding: 8px 20px;
-  border-radius: 4px;
-  cursor: pointer;
-  font-size: 0.95em;
-  touch-action: manipulation;
+    background: var(--is-accent);
+    color: var(--is-on-accent);
+    border: none;
+    padding: 8px 20px;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 0.95em;
+    touch-action: manipulation;
 }
 
 .save-button:hover {
-  opacity: 0.9;
+    opacity: 0.9;
 }
 
 .save-button:focus-visible {
-  outline: 2px solid var(--is-accent);
-  outline-offset: 2px;
+    outline: 2px solid var(--is-accent);
+    outline-offset: 2px;
 }
 
 .save-button:disabled {
-  opacity: 0.7;
-  cursor: progress;
+    opacity: 0.7;
+    cursor: progress;
 }
 
 /* Timestamp tab breadcrumbs and search. */
 
 .ts-top-bar {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  padding: 12px 0;
-  border-bottom: 1px solid var(--is-border);
-  margin-bottom: 12px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 12px 0;
+    border-bottom: 1px solid var(--is-border);
+    margin-bottom: 12px;
 }
 
 .ts-breadcrumbs-nav {
-  min-width: 0;
+    min-width: 0;
 }
 
 .ts-breadcrumbs {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  font-size: 0.9em;
-  flex-wrap: wrap;
-  min-width: 0;
-  list-style: none;
-  margin: 0;
-  padding: 0;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 0.9em;
+    flex-wrap: wrap;
+    min-width: 0;
+    list-style: none;
+    margin: 0;
+    padding: 0;
 }
 
 .ts-breadcrumb-item {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  min-width: 0;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    min-width: 0;
 }
 
 .ts-breadcrumb-link {
-  color: var(--is-accent);
-  cursor: pointer;
-  background: none;
-  border: none;
-  padding: 2px 4px;
-  margin: -2px -4px;
-  font: inherit;
-  text-decoration: underline;
-  text-decoration-color: transparent;
-  transition: text-decoration-color 0.15s;
+    color: var(--is-accent);
+    cursor: pointer;
+    background: none;
+    border: none;
+    padding: 2px 4px;
+    margin: -2px -4px;
+    font: inherit;
+    text-decoration: underline;
+    text-decoration-color: transparent;
+    transition: text-decoration-color 0.15s;
 }
 
 .ts-breadcrumb-link:hover {
-  text-decoration-color: currentColor;
+    text-decoration-color: currentColor;
 }
 
 .ts-breadcrumb-link:focus-visible {
-  outline: 2px solid var(--is-accent);
-  outline-offset: 2px;
-  border-radius: 2px;
+    outline: 2px solid var(--is-accent);
+    outline-offset: 2px;
+    border-radius: 2px;
 }
 
 .ts-breadcrumb-sep {
-  color: var(--is-text-muted);
-  user-select: none;
+    color: var(--is-text-muted);
+    user-select: none;
 }
 
 .ts-breadcrumb-current {
-  color: var(--is-text);
+    color: var(--is-text);
 }
 
 .ts-search-wrapper {
-  position: relative;
-  width: 220px;
-  flex-shrink: 0;
+    position: relative;
+    width: 220px;
+    flex-shrink: 0;
 }
 
 .ts-search-input {
-  width: 100%;
-  padding: 6px 10px 6px 28px;
-  background: var(--is-input-bg);
-  border: 1px solid var(--is-input-border);
-  border-radius: 4px;
-  color: var(--is-text);
-  font-size: 0.85em;
-  outline: none;
-  box-sizing: border-box;
+    width: 100%;
+    padding: 6px 10px 6px 28px;
+    background: var(--is-input-bg);
+    border: 1px solid var(--is-input-border);
+    border-radius: 4px;
+    color: var(--is-text);
+    font-size: 0.85em;
+    outline: none;
+    box-sizing: border-box;
 }
 
 .ts-search-input:focus-visible {
-  border-color: var(--is-input-focus);
-  box-shadow: 0 0 0 1px var(--is-input-focus);
+    border-color: var(--is-input-focus);
+    box-shadow: 0 0 0 1px var(--is-input-focus);
 }
 
 .ts-search-icon {
-  position: absolute;
-  left: 9px;
-  top: 50%;
-  transform: translateY(-50%);
-  color: var(--is-text-muted);
-  font-size: 0.85em;
-  pointer-events: none;
+    position: absolute;
+    left: 9px;
+    top: 50%;
+    transform: translateY(-50%);
+    color: var(--is-text-muted);
+    font-size: 0.85em;
+    pointer-events: none;
 }
 
 .ts-search-results {
-  position: absolute;
-  top: 100%;
-  left: 0;
-  right: 0;
-  max-height: 300px;
-  overflow-y: auto;
-  background: var(--is-surface);
-  border: 1px solid var(--is-border);
-  border-radius: 0 0 4px 4px;
-  z-index: 20;
-  display: none;
+    position: absolute;
+    top: 100%;
+    left: 0;
+    right: 0;
+    max-height: 300px;
+    overflow-y: auto;
+    background: var(--is-surface);
+    border: 1px solid var(--is-border);
+    border-radius: 0 0 4px 4px;
+    z-index: 20;
+    display: none;
 }
 
 .ts-search-results.open {
-  display: block;
+    display: block;
 }
 
 .ts-search-group-label {
-  padding: 6px 10px 2px;
-  font-size: 0.75em;
-  color: var(--is-text-muted);
-  text-transform: uppercase;
+    padding: 6px 10px 2px;
+    font-size: 0.75em;
+    color: var(--is-text-muted);
+    text-transform: uppercase;
 }
 
 .ts-search-result {
-  padding: 6px 10px;
-  cursor: pointer;
-  font-size: 0.85em;
-  color: var(--is-text);
-  border: none;
-  background: none;
-  width: 100%;
-  text-align: left;
-  font-family: inherit;
+    padding: 6px 10px;
+    cursor: pointer;
+    font-size: 0.85em;
+    color: var(--is-text);
+    border: none;
+    background: none;
+    width: 100%;
+    text-align: left;
+    font-family: inherit;
 }
 
 .ts-search-result:hover {
-  background: var(--is-hover);
+    background: var(--is-hover);
 }
 
 .ts-search-result.active {
-  background: var(--is-hover-strong);
+    background: var(--is-hover-strong);
 }
 
 .ts-search-result:focus-visible {
-  outline: 2px solid var(--is-accent);
-  outline-offset: -2px;
+    outline: 2px solid var(--is-accent);
+    outline-offset: -2px;
 }
 
 .ts-search-empty {
-  padding: 8px 10px;
-  color: var(--is-text-muted);
-  font-size: 0.85em;
+    padding: 8px 10px;
+    color: var(--is-text-muted);
+    font-size: 0.85em;
 }
 
 /* Timestamp tab season tabs. */
 
 .ts-season-bar {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  padding: 8px 0;
-  border-bottom: 1px solid var(--is-border);
-  margin-bottom: 12px;
-  flex-wrap: wrap;
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    padding: 8px 0;
+    border-bottom: 1px solid var(--is-border);
+    margin-bottom: 12px;
+    flex-wrap: wrap;
 }
 
 .ts-season-tab {
-  background: var(--is-input-bg);
-  color: var(--is-text-muted);
-  border: 1px solid transparent;
-  padding: 5px 14px;
-  border-radius: 4px 4px 0 0;
-  cursor: pointer;
-  font-size: 0.85em;
-  font-family: inherit;
-  touch-action: manipulation;
-  transition:
-    color 0.15s,
-    border-color 0.15s;
+    background: var(--is-input-bg);
+    color: var(--is-text-muted);
+    border: 1px solid transparent;
+    padding: 5px 14px;
+    border-radius: 4px 4px 0 0;
+    cursor: pointer;
+    font-size: 0.85em;
+    font-family: inherit;
+    touch-action: manipulation;
+    transition:
+        color 0.15s,
+        border-color 0.15s;
 }
 
 .ts-season-tab:hover {
-  color: var(--is-text);
+    color: var(--is-text);
 }
 
 .ts-season-tab:focus-visible {
-  outline: 2px solid var(--is-accent);
-  outline-offset: 2px;
+    outline: 2px solid var(--is-accent);
+    outline-offset: 2px;
 }
 
 .ts-season-tab.active {
-  color: var(--is-accent);
-  border-bottom: 2px solid var(--is-accent);
-  font-weight: 600;
+    color: var(--is-accent);
+    border-bottom: 2px solid var(--is-accent);
+    font-weight: 600;
 }
 
 .ts-season-spacer {
-  flex: 1;
+    flex: 1;
 }
 
 .ts-manage-toggle {
-  background: var(--is-input-bg);
-  color: var(--is-text-muted);
-  border: 1px solid var(--is-input-border);
-  padding: 5px 12px;
-  border-radius: 4px;
-  cursor: pointer;
-  font-size: 0.8em;
-  font-family: inherit;
-  touch-action: manipulation;
+    background: var(--is-input-bg);
+    color: var(--is-text-muted);
+    border: 1px solid var(--is-input-border);
+    padding: 5px 12px;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 0.8em;
+    font-family: inherit;
+    touch-action: manipulation;
 }
 
 .ts-manage-toggle:hover {
-  color: var(--is-text);
+    color: var(--is-text);
 }
 
 .ts-manage-toggle:focus-visible {
-  outline: 2px solid var(--is-accent);
-  outline-offset: 2px;
+    outline: 2px solid var(--is-accent);
+    outline-offset: 2px;
 }
 
 .ts-season-panel {
-  min-width: 0;
+    min-width: 0;
 }
 
 @media (max-width: 768px) {
-  .app-shell {
-    grid-template-columns: 1fr;
-    grid-template-rows: auto auto 1fr;
-  }
+    .app-shell {
+        grid-template-columns: 1fr;
+        grid-template-rows: auto auto 1fr;
+    }
 
-  .app-header {
-    min-height: 56px;
-    padding: 0 16px;
-  }
+    .app-header {
+        min-height: 56px;
+        padding: 0 16px;
+    }
 
-  .app-header h1 {
-    display: none;
-  }
+    .app-header h1 {
+        display: none;
+    }
 
-  .app-sidebar {
-    flex-direction: row;
-    overflow-x: auto;
-    overflow-y: hidden;
-    border-right: none;
-    border-bottom: 1px solid var(--is-border);
-    white-space: nowrap;
-  }
+    .app-sidebar {
+        flex-direction: row;
+        overflow-x: auto;
+        overflow-y: hidden;
+        border-right: none;
+        border-bottom: 1px solid var(--is-border);
+        white-space: nowrap;
+    }
 
-  .tab-button {
-    width: auto;
-  }
+    .tab-button {
+        width: auto;
+    }
 
-  .app-content {
-    padding: 16px;
-  }
+    .app-content {
+        padding: 16px;
+    }
 
-  .app-footer {
-    padding-left: 16px;
-    padding-right: 16px;
-  }
+    .app-footer {
+        padding-left: 16px;
+        padding-right: 16px;
+    }
 
-  .ts-top-bar {
-    flex-direction: column;
-    align-items: stretch;
-  }
+    .ts-top-bar {
+        flex-direction: column;
+        align-items: stretch;
+    }
 
-  .ts-search-wrapper {
-    width: 100%;
-  }
+    .ts-search-wrapper {
+        width: 100%;
+    }
 
-  .ts-season-bar {
-    overflow-x: auto;
-    flex-wrap: nowrap;
-  }
+    .ts-season-bar {
+        overflow-x: auto;
+        flex-wrap: nowrap;
+    }
 
-  .ts-action-row {
-    flex-direction: column;
-    align-items: stretch;
-  }
+    .ts-action-row {
+        flex-direction: column;
+        align-items: stretch;
+    }
 
-  .ts-action-buttons {
-    margin-left: 0;
-  }
+    .ts-action-buttons {
+        margin-left: 0;
+    }
 
-  /* Keep library and show cards horizontal on mobile and truncate long titles. */
+    /* Keep library and show cards horizontal on mobile and truncate long titles. */
 
-  .ts-episode-card {
-    overflow: hidden;
-    max-width: 100%;
-  }
+    .ts-episode-card {
+        overflow: hidden;
+        max-width: 100%;
+    }
 
-  .ts-episode-info {
-    min-width: 0;
-    max-width: 100%;
-    overflow: hidden;
-  }
+    .ts-episode-info {
+        min-width: 0;
+        max-width: 100%;
+        overflow: hidden;
+    }
 
-  .ts-episode-header {
-    min-width: 0;
-    overflow: hidden;
-  }
+    .ts-episode-header {
+        min-width: 0;
+        overflow: hidden;
+    }
 
-  .ts-episode-name {
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-    min-width: 0;
-  }
+    .ts-episode-name {
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        min-width: 0;
+    }
 
-  /* Shrink episode cards on mobile without stacking the metadata. */
+    /* Shrink episode cards on mobile without stacking the metadata. */
 
-  .ts-episode-thumb {
-    width: 80px;
-    height: 46px;
-    align-self: flex-start;
-    flex-shrink: 0;
-  }
+    .ts-episode-thumb {
+        width: 80px;
+        height: 46px;
+        align-self: flex-start;
+        flex-shrink: 0;
+    }
 
-  .ts-episode-timestamps {
-    gap: 4px 6px;
-  }
+    .ts-episode-timestamps {
+        gap: 4px 6px;
+    }
 
-  .ts-timestamp-pill,
-  .ts-timestamp-missing {
-    font-size: 0.75em;
-    padding: 1px 6px;
-  }
+    .ts-timestamp-pill,
+    .ts-timestamp-missing {
+        font-size: 0.75em;
+        padding: 1px 6px;
+    }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .ts-breadcrumb-link,
-  .ts-season-tab {
-    transition: none;
-  }
+    .ts-breadcrumb-link,
+    .ts-season-tab {
+        transition: none;
+    }
 }

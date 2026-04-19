@@ -176,13 +176,13 @@ public partial class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
             },
             new PluginPageInfo
             {
-                Name = "index.js",
-                EmbeddedResourcePath = GetType().Namespace + ".Configuration.index.js"
+                Name = "introskipper.js",
+                EmbeddedResourcePath = GetType().Namespace + ".Configuration.introskipper.js"
             },
             new PluginPageInfo
             {
-                Name = "index.css",
-                EmbeddedResourcePath = GetType().Namespace + ".Configuration.index.css"
+                Name = "introskipper.css",
+                EmbeddedResourcePath = GetType().Namespace + ".Configuration.introskipper.css"
             }
         ];
     }
