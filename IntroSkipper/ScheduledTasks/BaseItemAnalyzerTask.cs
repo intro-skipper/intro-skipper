@@ -13,6 +13,7 @@ using System.Threading.Tasks;
 using IntroSkipper.Analyzers;
 using IntroSkipper.Configuration;
 using IntroSkipper.Data;
+using IntroSkipper.Db;
 using IntroSkipper.Manager;
 using MediaBrowser.Controller.Library;
 using MediaBrowser.Controller.Providers;
@@ -41,6 +42,13 @@ public partial class BaseItemAnalyzerTask(
     IFileSystem fileSystem,
     MediaSegmentUpdateManager mediaSegmentUpdateManager)
 {
+    /// <summary>
+    /// Tolerance (seconds) when comparing an existing anime Preview's start to a newly-computed
+    /// credits.End. Chromaprint timestamps are quantised to ~0.124 s and a sub-second delta has
+    /// no user-visible effect, so treat "close enough" as equal for idempotency.
+    /// </summary>
+    private const double AnimePreviewStartTolerance = 0.5;
+
     private readonly ILogger _logger = logger;
     private readonly ILoggerFactory _loggerFactory = loggerFactory;
     private readonly ILibraryManager _libraryManager = libraryManager;
@@ -103,6 +111,8 @@ public partial class BaseItemAnalyzerTask(
             CancellationToken = cancellationToken
         };
 
+        var plugin = Plugin.Instance ?? throw new InvalidOperationException("Plugin instance is null");
+
         await Parallel.ForEachAsync(queue, options, async (season, ct) =>
         {
             var updateMediaSegments = false;
@@ -128,6 +138,7 @@ public partial class BaseItemAnalyzerTask(
                 {
                     ct.ThrowIfCancellationRequested();
                     int analyzed = await AnalyzeItemsAsync(
+                        plugin,
                         episodes,
                         mode,
                         ct).ConfigureAwait(false);
@@ -157,17 +168,19 @@ public partial class BaseItemAnalyzerTask(
             }
         }).ConfigureAwait(false);
 
-        Plugin.Instance!.AnalyzeAgain = false;
+        plugin.AnalyzeAgain = false;
     }
 
     /// <summary>
     /// Analyze a group of media items for skippable segments.
     /// </summary>
+    /// <param name="plugin">Plugin instance.</param>
     /// <param name="items">Media items to analyze.</param>
     /// <param name="mode">Analysis mode.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>Number of items successfully analyzed.</returns>
     private async Task<int> AnalyzeItemsAsync(
+        Plugin plugin,
         IReadOnlyList<QueuedEpisode> items,
         AnalysisMode mode,
         CancellationToken cancellationToken)
@@ -188,7 +201,6 @@ public partial class BaseItemAnalyzerTask(
         }
 
         var totalItems = items.Count(e => e.GetAnalyzed(mode) != EpisodeState.Analyzed);
-        var plugin = Plugin.Instance ?? throw new InvalidOperationException("Plugin instance is null");
         var action = await plugin.GetAnalyzerActionAsync(first.SeasonId, mode, cancellationToken).ConfigureAwait(false);
 
         var chromaprintOnly = _ffmpegValid && _config.PreferChromaprint && action is AnalyzerAction.Default or AnalyzerAction.Chromaprint;
@@ -234,21 +246,66 @@ public partial class BaseItemAnalyzerTask(
         // For anime, optionally create a Preview segment from the end of credits to the end of the episode.
         if (mode == AnalysisMode.Credits && isAnime && _config.AnimePreviewFromCreditsEnd)
         {
-            await CreateAnimePreviewFromCreditsAsync(items, cancellationToken).ConfigureAwait(false);
+            await CreateAnimePreviewFromCreditsAsync(plugin, items, cancellationToken).ConfigureAwait(false);
         }
 
         // Set the episode IDs for the analyzed items
-        await Plugin.Instance!.SetEpisodeIdsAsync(first.SeasonId, mode, items.Select(i => i.EpisodeId), cancellationToken).ConfigureAwait(false);
+        await plugin.SetEpisodeIdsAsync(first.SeasonId, mode, items.Select(i => i.EpisodeId), cancellationToken).ConfigureAwait(false);
 
         return totalItems - items.Count(e => e.GetAnalyzed(mode) != EpisodeState.Analyzed);
     }
 
     /// <summary>
-    /// For anime episodes, creates a Preview segment covering the remaining content after the credits end.
+    /// Decide whether an anime Preview segment needs to be written for an episode, and build it.
     /// </summary>
+    /// <remarks>
+    /// Returns a new Segment when the Preview is missing, its Start no longer matches the current
+    /// credits.End (e.g. because settings changed and Credits was re-analyzed), or its End no longer
+    /// matches the episode duration (e.g. because the underlying media file was replaced).
+    /// Returns <see langword="null"/> when there are no valid credits, the credits already cover the
+    /// episode, or an existing Preview already matches both the current credits.End and the episode
+    /// duration within or equal to <see cref="AnimePreviewStartTolerance"/>.
+    /// </remarks>
+    /// <param name="episodeId">Episode id.</param>
+    /// <param name="episodeDuration">Episode duration in seconds.</param>
+    /// <param name="existingTimestamps">Current segments keyed by mode for this episode.</param>
+    /// <returns>Segment to write, or <see langword="null"/> when no write is needed.</returns>
+    public static Segment? ComputeAnimePreviewFromCredits(
+        Guid episodeId,
+        double episodeDuration,
+        IReadOnlyDictionary<AnalysisMode, Segment> existingTimestamps)
+    {
+        ArgumentNullException.ThrowIfNull(existingTimestamps);
+
+        if (!existingTimestamps.TryGetValue(AnalysisMode.Credits, out var credits) || !credits.Valid)
+        {
+            return null;
+        }
+
+        if (credits.End >= episodeDuration)
+        {
+            return null;
+        }
+
+        if (existingTimestamps.TryGetValue(AnalysisMode.Preview, out var existing)
+            && existing.Valid
+            && Math.Abs(existing.Start - credits.End) <= AnimePreviewStartTolerance
+            && Math.Abs(existing.End - episodeDuration) <= AnimePreviewStartTolerance)
+        {
+            return null;
+        }
+
+        return new Segment(episodeId, new TimeRange(credits.End, episodeDuration));
+    }
+
+    /// <summary>
+    /// For anime episodes, creates or refreshes a Preview segment covering the remaining content after the credits end.
+    /// </summary>
+    /// <param name="plugin">Plugin instance.</param>
     /// <param name="items">Media items to process.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     private async Task CreateAnimePreviewFromCreditsAsync(
+        Plugin plugin,
         IReadOnlyList<QueuedEpisode> items,
         CancellationToken cancellationToken)
     {
@@ -259,35 +316,39 @@ public partial class BaseItemAnalyzerTask(
                 break;
             }
 
-            var timestamps = await Plugin.Instance!.GetTimestampsAsync(episode.EpisodeId, cancellationToken).ConfigureAwait(false);
+            // Use GetSegmentsAsync (not GetTimestampsAsync) so we can see IsUserProvided.
+            // UpdateTimestampAsync silently no-ops when a user-provided Preview exists, which would
+            // otherwise leave us emitting a misleading "Created anime preview" log + Analyzed state.
+            var dbSegments = await plugin.GetSegmentsAsync(episode.EpisodeId, cancellationToken).ConfigureAwait(false);
 
-            // Skip episodes that already have a preview
-            if (timestamps.TryGetValue(AnalysisMode.Preview, out var existing) && existing.Valid)
+            if (dbSegments.Any(s => s.Type == AnalysisMode.Preview && s.IsUserProvided))
+            {
+                LogSkippedUserProvidedPreview(_logger, episode.Name);
+                continue;
+            }
+
+            var timestamps = dbSegments
+                .GroupBy(s => s.Type)
+                .ToDictionary(g => g.Key, g => g.OrderBy(s => s.Start).First().ToSegment());
+
+            var preview = ComputeAnimePreviewFromCredits(episode.EpisodeId, episode.Duration, timestamps);
+            if (preview is null)
             {
                 continue;
             }
 
-            if (!timestamps.TryGetValue(AnalysisMode.Credits, out var credits) || !credits.Valid)
-            {
-                continue;
-            }
-
-            // Only create a preview when there is content remaining after the credits
-            if (credits.End >= episode.Duration)
-            {
-                continue;
-            }
-
-            var preview = new Segment(episode.EpisodeId, new TimeRange(credits.End, episode.Duration));
-            await Plugin.Instance!.UpdateTimestampAsync(preview, AnalysisMode.Preview, cancellationToken: cancellationToken).ConfigureAwait(false);
+            await plugin.UpdateTimestampAsync(preview, AnalysisMode.Preview, cancellationToken: cancellationToken).ConfigureAwait(false);
             episode.SetAnalyzed(AnalysisMode.Preview, EpisodeState.Analyzed);
 
-            LogCreatedAnimePreview(_logger, episode.Name, credits.End, episode.Duration);
+            LogCreatedAnimePreview(_logger, episode.Name, preview.Start, preview.End);
         }
     }
 
     [LoggerMessage(Level = LogLevel.Debug, Message = "Created anime preview for {Episode}: {Start:F2}s to {End:F2}s")]
     private static partial void LogCreatedAnimePreview(ILogger logger, string episode, double start, double end);
+
+    [LoggerMessage(Level = LogLevel.Debug, Message = "Skipping anime preview for {Episode}: a user-provided Preview already exists.")]
+    private static partial void LogSkippedUserProvidedPreview(ILogger logger, string episode);
 
     [LoggerMessage(Level = LogLevel.Information, Message = "No libraries selected for analysis. To enable, check library configuration > Media Segment Providers.")]
     private static partial void LogNoLibrariesSelected(ILogger logger);
