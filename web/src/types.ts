@@ -29,6 +29,7 @@ export interface PluginConfig {
 
   // String settings persisted in the plugin configuration.
   ProcessPriority: string;
+  CacheCompressionLevel: "NoCompression" | "Fastest" | "Optimal" | "SmallestSize";
   ChapterAnalyzerIntroductionPattern: string;
   ChapterAnalyzerEndCreditsPattern: string;
   ChapterAnalyzerPreviewPattern: string;
