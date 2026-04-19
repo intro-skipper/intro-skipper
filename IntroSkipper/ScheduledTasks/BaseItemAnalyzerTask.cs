@@ -13,6 +13,7 @@ using System.Threading.Tasks;
 using IntroSkipper.Analyzers;
 using IntroSkipper.Configuration;
 using IntroSkipper.Data;
+using IntroSkipper.Db;
 using IntroSkipper.Manager;
 using MediaBrowser.Controller.Library;
 using MediaBrowser.Controller.Providers;
@@ -261,7 +262,7 @@ public partial class BaseItemAnalyzerTask(
     /// Returns a new Segment when the Preview is missing or its Start no longer matches the current
     /// credits.End (e.g. because settings changed and Credits was re-analyzed). Returns <see langword="null"/>
     /// when there are no valid credits, the credits already cover the episode, or an existing Preview
-    /// already matches the current credits.End within <see cref="AnimePreviewStartTolerance"/>.
+    /// already matches the current credits.End within or equal to <see cref="AnimePreviewStartTolerance"/>.
     /// </remarks>
     /// <param name="episodeId">Episode id.</param>
     /// <param name="episodeDuration">Episode duration in seconds.</param>
@@ -286,7 +287,7 @@ public partial class BaseItemAnalyzerTask(
 
         if (existingTimestamps.TryGetValue(AnalysisMode.Preview, out var existing)
             && existing.Valid
-            && Math.Abs(existing.Start - credits.End) < AnimePreviewStartTolerance)
+            && Math.Abs(existing.Start - credits.End) <= AnimePreviewStartTolerance)
         {
             return null;
         }
@@ -312,7 +313,21 @@ public partial class BaseItemAnalyzerTask(
                 break;
             }
 
-            var timestamps = await plugin.GetTimestampsAsync(episode.EpisodeId, cancellationToken).ConfigureAwait(false);
+            // Use GetSegmentsAsync (not GetTimestampsAsync) so we can see IsUserProvided.
+            // UpdateTimestampAsync silently no-ops when a user-provided Preview exists, which would
+            // otherwise leave us emitting a misleading "Created anime preview" log + Analyzed state.
+            var dbSegments = await plugin.GetSegmentsAsync(episode.EpisodeId, cancellationToken).ConfigureAwait(false);
+
+            if (dbSegments.Any(s => s.Type == AnalysisMode.Preview && s.IsUserProvided))
+            {
+                LogSkippedUserProvidedPreview(_logger, episode.Name);
+                continue;
+            }
+
+            var timestamps = dbSegments
+                .GroupBy(s => s.Type)
+                .ToDictionary(g => g.Key, g => g.OrderBy(s => s.Start).First().ToSegment());
+
             var preview = ComputeAnimePreviewFromCredits(episode.EpisodeId, episode.Duration, timestamps);
             if (preview is null)
             {
@@ -328,6 +343,9 @@ public partial class BaseItemAnalyzerTask(
 
     [LoggerMessage(Level = LogLevel.Debug, Message = "Created anime preview for {Episode}: {Start:F2}s to {End:F2}s")]
     private static partial void LogCreatedAnimePreview(ILogger logger, string episode, double start, double end);
+
+    [LoggerMessage(Level = LogLevel.Debug, Message = "Skipping anime preview for {Episode}: a user-provided Preview already exists.")]
+    private static partial void LogSkippedUserProvidedPreview(ILogger logger, string episode);
 
     [LoggerMessage(Level = LogLevel.Information, Message = "No libraries selected for analysis. To enable, check library configuration > Media Segment Providers.")]
     private static partial void LogNoLibrariesSelected(ILogger logger);

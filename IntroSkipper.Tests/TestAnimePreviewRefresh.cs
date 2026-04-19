@@ -78,6 +78,21 @@ public class TestAnimePreviewRefresh
     }
 
     [Fact]
+    public void TreatsExactBoundaryDriftAsEqual()
+    {
+        // A drift of exactly 0.5s should be treated as equal (matches the "within or equal to" doc).
+        var timestamps = new Dictionary<AnalysisMode, Segment>
+        {
+            [AnalysisMode.Credits] = new Segment(EpisodeId, new TimeRange(1200.0, 1260.5)),
+            [AnalysisMode.Preview] = new Segment(EpisodeId, new TimeRange(1260.0, EpisodeDuration)),
+        };
+
+        var result = BaseItemAnalyzerTask.ComputeAnimePreviewFromCredits(EpisodeId, EpisodeDuration, timestamps);
+
+        Assert.Null(result);
+    }
+
+    [Fact]
     public void RefreshesPreview_WhenDriftExceedsTolerance()
     {
         var timestamps = new Dictionary<AnalysisMode, Segment>
