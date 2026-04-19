@@ -8,37 +8,37 @@ const TIMESTAMP_FETCH_CONCURRENCY = 6;
 export type LibraryItem = { Id: string; Name: string };
 
 export function getLibraries(): Promise<LibraryItem[]> {
-  return jellyfinClient.getLibraries();
+    return jellyfinClient.getLibraries();
 }
 
 export function getShowsInLibrary(libraryId: string, libraryName: string): Promise<ShowItem[]> {
-  return jellyfinClient.getShowsInLibrary(libraryId, libraryName);
+    return jellyfinClient.getShowsInLibrary(libraryId, libraryName);
 }
 
 export function getSeasons(showId: string): Promise<SeasonItem[]> {
-  return jellyfinClient.getSeasons(showId);
+    return jellyfinClient.getSeasons(showId);
 }
 
 export async function getEpisodesWithTimestamps(
-  showId: string,
-  seasonId: string,
+    showId: string,
+    seasonId: string,
 ): Promise<{
-  episodes: EpisodeItem[];
-  timestamps: Array<ApiResult<TimestampMap> | null>;
+    episodes: EpisodeItem[];
+    timestamps: Array<ApiResult<TimestampMap> | null>;
 }> {
-  const episodes = await jellyfinClient.getEpisodes(showId, seasonId);
+    const episodes = await jellyfinClient.getEpisodes(showId, seasonId);
 
-  if (episodes.length === 0) {
-    return { episodes: [], timestamps: [] };
-  }
+    if (episodes.length === 0) {
+        return { episodes: [], timestamps: [] };
+    }
 
-  const timestamps = await mapWithConcurrency(episodes, TIMESTAMP_FETCH_CONCURRENCY, (ep) =>
-    api.getEpisodeTimestamps(ep.Id),
-  );
+    const timestamps = await mapWithConcurrency(episodes, TIMESTAMP_FETCH_CONCURRENCY, (ep) =>
+        api.getEpisodeTimestamps(ep.Id),
+    );
 
-  return { episodes, timestamps };
+    return { episodes, timestamps };
 }
 
 export async function getMovieTimestamps(showId: string): Promise<ApiResult<TimestampMap>> {
-  return api.getEpisodeTimestamps(showId);
+    return api.getEpisodeTimestamps(showId);
 }

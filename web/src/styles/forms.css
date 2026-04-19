@@ -1,674 +1,674 @@
 .input-container {
-  margin-bottom: 16px;
+    margin-bottom: 16px;
 }
 
 .input-label {
-  display: block;
-  font-size: 0.9em;
-  margin-bottom: 4px;
-  color: var(--is-text);
+    display: block;
+    font-size: 0.9em;
+    margin-bottom: 4px;
+    color: var(--is-text);
 }
 
 .field-description {
-  font-size: 0.85em;
-  color: var(--is-text-muted);
-  margin-top: 4px;
+    font-size: 0.85em;
+    color: var(--is-text-muted);
+    margin-top: 4px;
 }
 
 .field-warning {
-  font-size: 0.85em;
-  color: var(--is-warning);
-  margin-top: 4px;
+    font-size: 0.85em;
+    color: var(--is-warning);
+    margin-top: 4px;
 }
 
 .field-error {
-  font-size: 0.85em;
-  color: var(--is-error);
-  display: none;
-  margin-top: 4px;
+    font-size: 0.85em;
+    color: var(--is-error);
+    display: none;
+    margin-top: 4px;
 }
 
 .field-error-active {
-  border-color: var(--is-error);
+    border-color: var(--is-error);
 }
 
 .checkbox-container {
-  margin-bottom: 12px;
+    margin-bottom: 12px;
 }
 
 .checkbox-container-withDescription {
-  margin-bottom: 16px;
+    margin-bottom: 16px;
 }
 
 .checkbox-label {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    cursor: pointer;
 }
 
 .analyze-for {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 0.5rem 1rem;
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 0.5rem 1rem;
 }
 
 .analyze-for-group {
-  border: 0;
-  padding: 0;
-  margin: 0 0 16px;
-  min-inline-size: 0;
+    border: 0;
+    padding: 0;
+    margin: 0 0 16px;
+    min-inline-size: 0;
 }
 
 .analyze-for-legend {
-  padding: 0;
+    padding: 0;
 }
 
 .analyze-for .title {
-  font-weight: 600;
-  white-space: nowrap;
+    font-weight: 600;
+    white-space: nowrap;
 }
 
 .action-button {
-  background: var(--is-accent);
-  color: var(--is-on-accent);
-  border: none;
-  padding: 8px 16px;
-  border-radius: 4px;
-  cursor: pointer;
-  margin-top: 8px;
+    background: var(--is-accent);
+    color: var(--is-on-accent);
+    border: none;
+    padding: 8px 16px;
+    border-radius: 4px;
+    cursor: pointer;
+    margin-top: 8px;
 }
 
 .action-button:hover {
-  opacity: 0.9;
+    opacity: 0.9;
 }
 
 .action-button:focus-visible {
-  outline: 2px solid var(--is-accent);
-  outline-offset: 2px;
+    outline: 2px solid var(--is-accent);
+    outline-offset: 2px;
 }
 
 .action-button:disabled {
-  opacity: 0.6;
+    opacity: 0.6;
 }
 
 .select-container {
-  margin-bottom: 16px;
+    margin-bottom: 16px;
 }
 
 .select-label {
-  display: block;
-  font-size: 0.9em;
-  margin-bottom: 4px;
-  color: var(--is-text);
+    display: block;
+    font-size: 0.9em;
+    margin-bottom: 4px;
+    color: var(--is-text);
 }
 
 .disabled-block {
-  opacity: 0.6;
+    opacity: 0.6;
 }
 
 .disabled-block input,
 .disabled-block select,
 .disabled-block button {
-  pointer-events: none;
+    pointer-events: none;
 }
 
 .disabled-block label {
-  font-style: italic;
+    font-style: italic;
 }
 
 .side-by-side {
-  display: flex;
-  gap: 24px;
+    display: flex;
+    gap: 24px;
 }
 
 .side-by-side > * {
-  flex: 1;
+    flex: 1;
 }
 
 input[type="number"],
 input[type="text"],
 select {
-  width: 100%;
-  padding: 8px;
-  border: 1px solid var(--is-input-border);
-  background: var(--is-input-bg);
-  color: var(--is-text);
-  border-radius: 4px;
-  box-sizing: border-box;
-  font-size: 1em;
+    width: 100%;
+    padding: 8px;
+    border: 1px solid var(--is-input-border);
+    background: var(--is-input-bg);
+    color: var(--is-text);
+    border-radius: 4px;
+    box-sizing: border-box;
+    font-size: 1em;
 }
 
 input[type="number"]:focus-visible,
 input[type="text"]:focus-visible,
 select:focus-visible {
-  border-color: var(--is-input-focus);
-  outline: 2px solid var(--is-accent);
-  outline-offset: 2px;
+    border-color: var(--is-input-focus);
+    outline: 2px solid var(--is-accent);
+    outline-offset: 2px;
 }
 
 input[type="number"]:focus:not(:focus-visible),
 input[type="text"]:focus:not(:focus-visible),
 select:focus:not(:focus-visible) {
-  border-color: var(--is-input-focus);
-  outline: none;
+    border-color: var(--is-input-focus);
+    outline: none;
 }
 
 fieldset {
-  border: 1px solid var(--is-border);
-  border-radius: 4px;
-  padding: 16px;
-  margin-bottom: 16px;
+    border: 1px solid var(--is-border);
+    border-radius: 4px;
+    padding: 16px;
+    margin-bottom: 16px;
 }
 
 legend {
-  font-weight: 600;
-  padding: 0 8px;
+    font-weight: 600;
+    padding: 0 8px;
 }
 
 details summary {
-  cursor: pointer;
-  padding: 10px;
-  text-align: center;
-  font-size: 1em;
-  outline: 2px solid var(--is-border-muted);
-  margin-bottom: 8px;
+    cursor: pointer;
+    padding: 10px;
+    text-align: center;
+    font-size: 1em;
+    outline: 2px solid var(--is-border-muted);
+    margin-bottom: 8px;
 }
 
 textarea {
-  width: 100%;
-  background: var(--is-input-bg);
-  color: var(--is-text);
-  border: 1px solid var(--is-input-border);
-  border-radius: 4px;
-  padding: 8px;
-  font-family: monospace;
-  box-sizing: border-box;
+    width: 100%;
+    background: var(--is-input-bg);
+    color: var(--is-text);
+    border: 1px solid var(--is-input-border);
+    border-radius: 4px;
+    padding: 8px;
+    font-family: monospace;
+    box-sizing: border-box;
 }
 
 table {
-  width: 100%;
-  border-collapse: collapse;
+    width: 100%;
+    border-collapse: collapse;
 }
 
 th {
-  padding: 8px;
-  text-align: left;
-  border-bottom: 2px solid var(--is-border-strong);
+    padding: 8px;
+    text-align: left;
+    border-bottom: 2px solid var(--is-border-strong);
 }
 
 td {
-  padding: 4px 8px;
+    padding: 4px 8px;
 }
 
 tr {
-  border-bottom: 1px solid var(--is-border);
+    border-bottom: 1px solid var(--is-border);
 }
 
 .status-message {
-  margin-top: 8px;
-  font-size: 0.9em;
+    margin-top: 8px;
+    font-size: 0.9em;
 }
 
 .tab-readonly-section + .tab-readonly-section {
-  margin-top: 24px;
+    margin-top: 24px;
 }
 
 .pattern-field {
-  margin-bottom: 16px;
+    margin-bottom: 16px;
 }
 
 .reset-button {
-  font-size: 0.85em;
-  padding: 4px 12px;
-  background: transparent;
-  border: 1px solid var(--is-input-border);
-  color: var(--is-text-muted);
-  cursor: pointer;
-  border-radius: 4px;
-  margin-top: 4px;
+    font-size: 0.85em;
+    padding: 4px 12px;
+    background: transparent;
+    border: 1px solid var(--is-input-border);
+    color: var(--is-text-muted);
+    cursor: pointer;
+    border-radius: 4px;
+    margin-top: 4px;
 }
 
 .reset-button:hover {
-  background: var(--is-hover);
-  color: var(--is-text);
+    background: var(--is-hover);
+    color: var(--is-text);
 }
 
 .reset-button:focus-visible {
-  outline: 2px solid var(--is-accent);
-  outline-offset: 2px;
+    outline: 2px solid var(--is-accent);
+    outline-offset: 2px;
 }
 
 .checkbox-list-label {
-  font-weight: 600;
-  margin-bottom: 4px;
+    font-weight: 600;
+    margin-bottom: 4px;
 }
 
 .raised.block {
-  display: block;
-  width: 100%;
+    display: block;
+    width: 100%;
 }
 
 .tab-warning {
-  display: flex;
-  align-items: flex-start;
-  gap: 8px;
-  padding: 10px 12px;
-  margin-bottom: 16px;
-  background: rgba(232, 168, 54, 0.08);
-  border: 1px solid rgba(232, 168, 54, 0.25);
-  border-radius: 4px;
-  font-size: 0.85em;
-  color: var(--is-warning);
-  line-height: 1.4;
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+    padding: 10px 12px;
+    margin-bottom: 16px;
+    background: rgba(232, 168, 54, 0.08);
+    border: 1px solid rgba(232, 168, 54, 0.25);
+    border-radius: 4px;
+    font-size: 0.85em;
+    color: var(--is-warning);
+    line-height: 1.4;
 }
 
 .tab-warning-icon {
-  flex-shrink: 0;
+    flex-shrink: 0;
 }
 
 a {
-  color: var(--is-accent);
+    color: var(--is-accent);
 }
 
 /* Storage usage list (information tab). */
 
 .storage-list {
-  list-style: none;
-  margin: 0;
-  padding: 0;
+    list-style: none;
+    margin: 0;
+    padding: 0;
 }
 
 .storage-item {
-  display: flex;
-  align-items: flex-start;
-  gap: 12px;
-  padding: 8px 0;
-  border-bottom: 1px solid var(--is-border);
+    display: flex;
+    align-items: flex-start;
+    gap: 12px;
+    padding: 8px 0;
+    border-bottom: 1px solid var(--is-border);
 }
 
 .storage-item-body {
-  flex: 1;
-  min-width: 0;
+    flex: 1;
+    min-width: 0;
 }
 
 .storage-item-name {
-  font-size: 0.875em;
+    font-size: 0.875em;
 }
 
 .storage-item-path {
-  font-size: 0.8em;
-  color: var(--is-text-muted);
-  margin: 1px 0 4px;
+    font-size: 0.8em;
+    color: var(--is-text-muted);
+    margin: 1px 0 4px;
 }
 
 .storage-bar-track {
-  height: 4px;
-  background: var(--is-input-bg);
-  border-radius: 2px;
-  overflow: hidden;
+    height: 4px;
+    background: var(--is-input-bg);
+    border-radius: 2px;
+    overflow: hidden;
 }
 
 .storage-bar-fill {
-  height: 100%;
-  border-radius: 2px;
+    height: 100%;
+    border-radius: 2px;
 }
 
 .storage-item-usage {
-  font-size: 0.75em;
-  color: var(--is-text-muted);
-  margin-top: 2px;
+    font-size: 0.75em;
+    color: var(--is-text-muted);
+    margin-top: 2px;
 }
 
 @media (max-width: 768px) {
-  .side-by-side {
-    flex-direction: column;
-    gap: 0;
-  }
+    .side-by-side {
+        flex-direction: column;
+        gap: 0;
+    }
 }
 
 /* Timestamp tab action bar. */
 
 .ts-action-bar {
-  background: rgba(0, 0, 0, 0.2);
-  padding: 10px 12px;
-  border-bottom: 1px solid var(--is-border);
-  margin-bottom: 12px;
-  border-radius: 4px;
-  display: none;
+    background: rgba(0, 0, 0, 0.2);
+    padding: 10px 12px;
+    border-bottom: 1px solid var(--is-border);
+    margin-bottom: 12px;
+    border-radius: 4px;
+    display: none;
 }
 
 .ts-action-bar.open {
-  display: block;
+    display: block;
 }
 
 .ts-action-row {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  flex-wrap: wrap;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex-wrap: wrap;
 }
 
 .ts-analyzer-group {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  flex-wrap: wrap;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
 }
 
 .ts-analyzer-item {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
 }
 
 .ts-analyzer-label {
-  font-size: 0.7em;
-  color: var(--is-text-muted);
-  text-transform: uppercase;
+    font-size: 0.7em;
+    color: var(--is-text-muted);
+    text-transform: uppercase;
 }
 
 .ts-action-buttons {
-  display: flex;
-  gap: 6px;
-  margin-left: auto;
+    display: flex;
+    gap: 6px;
+    margin-left: auto;
 }
 
 .ts-action-btn {
-  padding: 5px 12px;
-  border-radius: 4px;
-  font-size: 0.8em;
-  cursor: pointer;
-  border: none;
-  font-family: inherit;
-  color: var(--is-text);
+    padding: 5px 12px;
+    border-radius: 4px;
+    font-size: 0.8em;
+    cursor: pointer;
+    border: none;
+    font-family: inherit;
+    color: var(--is-text);
 }
 
 .ts-action-btn:focus-visible {
-  outline: 2px solid var(--is-accent);
-  outline-offset: 2px;
+    outline: 2px solid var(--is-accent);
+    outline-offset: 2px;
 }
 
 .ts-action-btn.apply {
-  background: var(--is-input-bg);
-  border: 1px solid var(--is-input-border);
+    background: var(--is-input-bg);
+    border: 1px solid var(--is-input-border);
 }
 
 .ts-action-btn.scan {
-  background: rgba(76, 175, 80, 0.2);
+    background: rgba(76, 175, 80, 0.2);
 }
 
 .ts-action-btn.erase {
-  background: rgba(244, 67, 54, 0.2);
+    background: rgba(244, 67, 54, 0.2);
 }
 
 .ts-action-btn:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
+    opacity: 0.5;
+    cursor: not-allowed;
 }
 
 .ts-action-meta {
-  margin-top: 8px;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  font-size: 0.8em;
+    margin-top: 8px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 0.8em;
 }
 
 .ts-action-meta a {
-  color: var(--is-accent);
-  text-decoration: underline;
+    color: var(--is-accent);
+    text-decoration: underline;
 }
 
 .ts-action-meta a:focus-visible {
-  outline: 2px solid var(--is-accent);
-  outline-offset: 2px;
-  border-radius: 2px;
+    outline: 2px solid var(--is-accent);
+    outline-offset: 2px;
+    border-radius: 2px;
 }
 
 .ts-action-status {
-  display: none;
-  margin-top: 8px;
-  font-size: 0.85em;
+    display: none;
+    margin-top: 8px;
+    font-size: 0.85em;
 }
 
 /* Timestamp tab episode list. */
 
 .ts-filter-bar {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin-bottom: 8px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 8px;
 }
 
 .ts-filter-input {
-  flex: 1;
-  padding: 5px 10px;
-  background: var(--is-input-bg);
-  border: 1px solid var(--is-input-border);
-  border-radius: 4px;
-  color: var(--is-text);
-  font-size: 0.85em;
-  outline: none;
-  box-sizing: border-box;
+    flex: 1;
+    padding: 5px 10px;
+    background: var(--is-input-bg);
+    border: 1px solid var(--is-input-border);
+    border-radius: 4px;
+    color: var(--is-text);
+    font-size: 0.85em;
+    outline: none;
+    box-sizing: border-box;
 }
 
 .ts-filter-input:focus-visible {
-  border-color: var(--is-input-focus);
-  box-shadow: 0 0 0 1px var(--is-input-focus);
+    border-color: var(--is-input-focus);
+    box-shadow: 0 0 0 1px var(--is-input-focus);
 }
 
 .ts-episode-count {
-  color: var(--is-text-muted);
-  font-size: 0.85em;
-  white-space: nowrap;
+    color: var(--is-text-muted);
+    font-size: 0.85em;
+    white-space: nowrap;
 }
 
 .ts-episode-card {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  background: var(--is-surface);
-  border-radius: 6px;
-  padding: 10px 12px;
-  margin-bottom: 6px;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    background: var(--is-surface);
+    border-radius: 6px;
+    padding: 10px 12px;
+    margin-bottom: 6px;
 }
 
 .ts-episode-card-button {
-  width: 100%;
-  border: 1px solid transparent;
-  appearance: none;
-  font: inherit;
-  color: inherit;
-  text-align: left;
-  cursor: pointer;
-  touch-action: manipulation;
+    width: 100%;
+    border: 1px solid transparent;
+    appearance: none;
+    font: inherit;
+    color: inherit;
+    text-align: left;
+    cursor: pointer;
+    touch-action: manipulation;
 }
 
 .ts-episode-card-button:hover {
-  background: rgba(255, 255, 255, 0.04);
+    background: rgba(255, 255, 255, 0.04);
 }
 
 .ts-episode-card-button:focus-visible {
-  outline: 2px solid var(--is-accent);
-  outline-offset: 2px;
+    outline: 2px solid var(--is-accent);
+    outline-offset: 2px;
 }
 
 .ts-episode-card.error {
-  border-left: 3px solid var(--is-error);
+    border-left: 3px solid var(--is-error);
 }
 
 .ts-episode-thumb {
-  width: 64px;
-  height: 38px;
-  border-radius: 3px;
-  flex-shrink: 0;
-  object-fit: cover;
-  background: var(--is-hover);
+    width: 64px;
+    height: 38px;
+    border-radius: 3px;
+    flex-shrink: 0;
+    object-fit: cover;
+    background: var(--is-hover);
 }
 
 .ts-episode-info {
-  flex: 1;
-  min-width: 0;
+    flex: 1;
+    min-width: 0;
 }
 
 .ts-episode-header {
-  display: flex;
-  align-items: baseline;
-  gap: 8px;
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
 }
 
 .ts-episode-name {
-  font-size: 0.95em;
-  font-weight: 600;
-  color: var(--is-text);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+    font-size: 0.95em;
+    font-weight: 600;
+    color: var(--is-text);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
 }
 
 .ts-episode-runtime {
-  font-size: 0.8em;
-  color: var(--is-text-muted);
-  white-space: nowrap;
-  flex-shrink: 0;
-  font-variant-numeric: tabular-nums;
+    font-size: 0.8em;
+    color: var(--is-text-muted);
+    white-space: nowrap;
+    flex-shrink: 0;
+    font-variant-numeric: tabular-nums;
 }
 
 .ts-episode-timestamps {
-  display: flex;
-  gap: 8px;
-  margin-top: 4px;
-  flex-wrap: wrap;
+    display: flex;
+    gap: 8px;
+    margin-top: 4px;
+    flex-wrap: wrap;
 }
 
 .ts-timestamp-pill {
-  padding: 2px 8px;
-  border-radius: 10px;
-  font-size: 0.8em;
-  background: rgba(76, 175, 80, 0.15);
-  color: var(--is-success);
-  font-variant-numeric: tabular-nums;
+    padding: 2px 8px;
+    border-radius: 10px;
+    font-size: 0.8em;
+    background: rgba(76, 175, 80, 0.15);
+    color: var(--is-success);
+    font-variant-numeric: tabular-nums;
 }
 
 .ts-timestamp-missing {
-  padding: 2px 8px;
-  font-size: 0.8em;
-  color: var(--is-text-muted);
+    padding: 2px 8px;
+    font-size: 0.8em;
+    color: var(--is-text-muted);
 }
 
 .ts-episode-error {
-  font-size: 0.8em;
-  color: var(--is-error);
-  margin-top: 4px;
+    font-size: 0.8em;
+    color: var(--is-error);
+    margin-top: 4px;
 }
 
 .ts-retry-link {
-  color: var(--is-accent);
-  cursor: pointer;
-  margin-left: 8px;
-  text-decoration: underline;
-  background: none;
-  border: none;
-  font: inherit;
-  font-size: inherit;
-  padding: 2px 4px;
-  margin: -2px 0 -2px 4px;
+    color: var(--is-accent);
+    cursor: pointer;
+    margin-left: 8px;
+    text-decoration: underline;
+    background: none;
+    border: none;
+    font: inherit;
+    font-size: inherit;
+    padding: 2px 4px;
+    margin: -2px 0 -2px 4px;
 }
 
 .ts-retry-link:focus-visible {
-  outline: 2px solid var(--is-accent);
-  outline-offset: 2px;
-  border-radius: 2px;
+    outline: 2px solid var(--is-accent);
+    outline-offset: 2px;
+    border-radius: 2px;
 }
 
 .ts-status-msg {
-  font-size: 0.85em;
-  padding: 8px 0;
+    font-size: 0.85em;
+    padding: 8px 0;
 }
 
 /* Confirm dialog (used for destructive actions with optional checkbox). */
 
 .is-confirm-dialog {
-  background: var(--is-surface);
-  color: var(--is-text);
-  border: 1px solid var(--is-border);
-  border-radius: 8px;
-  padding: 24px;
-  max-width: 420px;
-  width: calc(100% - 32px);
-  box-sizing: border-box;
+    background: var(--is-surface);
+    color: var(--is-text);
+    border: 1px solid var(--is-border);
+    border-radius: 8px;
+    padding: 24px;
+    max-width: 420px;
+    width: calc(100% - 32px);
+    box-sizing: border-box;
 }
 
 .is-confirm-dialog::backdrop {
-  background: rgba(0, 0, 0, 0.6);
+    background: rgba(0, 0, 0, 0.6);
 }
 
 .is-confirm-title {
-  margin: 0 0 8px;
-  font-size: 1.1em;
-  font-weight: 600;
+    margin: 0 0 8px;
+    font-size: 1.1em;
+    font-weight: 600;
 }
 
 .is-confirm-body {
-  margin: 0 0 16px;
-  font-size: 0.9em;
-  color: var(--is-text-muted);
-  line-height: 1.5;
+    margin: 0 0 16px;
+    font-size: 0.9em;
+    color: var(--is-text-muted);
+    line-height: 1.5;
 }
 
 .is-confirm-checkbox-row {
-  margin-bottom: 20px;
-  padding: 10px 12px;
-  background: var(--is-hover);
-  border: 1px solid var(--is-border);
-  border-radius: 4px;
+    margin-bottom: 20px;
+    padding: 10px 12px;
+    background: var(--is-hover);
+    border: 1px solid var(--is-border);
+    border-radius: 4px;
 }
 
 .is-confirm-checkbox-label {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  cursor: pointer;
-  font-size: 0.9em;
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    cursor: pointer;
+    font-size: 0.9em;
 }
 
 .is-confirm-actions {
-  display: flex;
-  justify-content: flex-end;
-  gap: 8px;
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
 }
 
 .is-confirm-btn {
-  padding: 7px 16px;
-  border-radius: 4px;
-  font-size: 0.85em;
-  cursor: pointer;
-  border: none;
-  font-family: inherit;
+    padding: 7px 16px;
+    border-radius: 4px;
+    font-size: 0.85em;
+    cursor: pointer;
+    border: none;
+    font-family: inherit;
 }
 
 .is-confirm-btn:focus-visible {
-  outline: 2px solid var(--is-accent);
-  outline-offset: 2px;
+    outline: 2px solid var(--is-accent);
+    outline-offset: 2px;
 }
 
 .is-confirm-btn.cancel {
-  background: var(--is-input-bg);
-  border: 1px solid var(--is-input-border);
-  color: var(--is-text);
+    background: var(--is-input-bg);
+    border: 1px solid var(--is-input-border);
+    color: var(--is-text);
 }
 
 .is-confirm-btn.cancel:hover {
-  background: var(--is-hover-strong);
+    background: var(--is-hover-strong);
 }
 
 .is-confirm-btn.confirm {
-  background: rgba(244, 67, 54, 0.2);
-  color: var(--is-error);
+    background: rgba(244, 67, 54, 0.2);
+    color: var(--is-error);
 }
 
 .is-confirm-btn.confirm:hover {
-  background: rgba(244, 67, 54, 0.3);
+    background: rgba(244, 67, 54, 0.3);
 }
