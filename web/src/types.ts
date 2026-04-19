@@ -29,6 +29,7 @@ export interface PluginConfig {
 
     // String settings persisted in the plugin configuration.
     ProcessPriority: string;
+    CacheCompressionLevel: "NoCompression" | "Fastest" | "Optimal" | "SmallestSize";
     ChapterAnalyzerIntroductionPattern: string;
     ChapterAnalyzerEndCreditsPattern: string;
     ChapterAnalyzerPreviewPattern: string;
@@ -142,38 +143,6 @@ export type JellyfinEpisodeItem = {
     IndexNumber?: number;
     RunTimeTicks?: number;
     SeriesName?: string;
-};
-
-// Raw Jellyfin API response shapes (only the fields we actually read).
-export type JellyfinItemsResponse<T> = {
-  Items?: T[];
-};
-
-export type JellyfinLibraryItem = {
-  Id?: string;
-  Name?: string;
-  CollectionType?: string;
-};
-
-export type JellyfinMediaItem = {
-  Id?: string;
-  Name?: string;
-  ProductionYear?: number;
-  Type?: string;
-};
-
-export type JellyfinSeasonItem = {
-  Id?: string;
-  Name?: string;
-  IndexNumber?: number;
-};
-
-export type JellyfinEpisodeItem = {
-  Id?: string;
-  Name?: string;
-  IndexNumber?: number;
-  RunTimeTicks?: number;
-  SeriesName?: string;
 };
 
 // Simplified Jellyfin SDK shapes used by the timestamps UI.
