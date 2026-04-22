@@ -205,6 +205,7 @@ public partial class BaseItemAnalyzerTask(
 
         if (action == AnalyzerAction.None)
         {
+            LogSkippingNoneAction(_logger, mode, first.SeriesName, first.SeasonNumber);
             return 0;
         }
 
@@ -436,4 +437,7 @@ public partial class BaseItemAnalyzerTask(
 
     [LoggerMessage(Level = LogLevel.Information, Message = "[Mode: {Mode}] Analyzing {Count} files from {Name} season {Season}")]
     private static partial void LogAnalyzingFiles(ILogger logger, AnalysisMode mode, int count, string name, int season);
+
+    [LoggerMessage(Level = LogLevel.Information, Message = "[Mode: {Mode}] Skipping {Name} season {Season}: analyzer action is set to None")]
+    private static partial void LogSkippingNoneAction(ILogger logger, AnalysisMode mode, string name, int season);
 }
