@@ -49,7 +49,7 @@ public class SegmentEditorController(MediaSegmentUpdateManager mediaSegmentUpdat
     {
         var json = new
         {
-            version = Plugin.Instance!.Version.ToString(3),
+            version = Plugin.Instance!.Version.ToString(4),
         };
 
         return new JsonResult(json);

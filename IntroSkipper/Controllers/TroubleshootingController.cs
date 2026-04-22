@@ -76,7 +76,7 @@ public partial class TroubleshootingController : ControllerBase
         bundle.Append(_applicationHost.ApplicationVersionString);
         bundle.Append('\n');
 
-        var version = Plugin.Instance.Version.ToString(3);
+        var version = Plugin.Instance.Version.ToString(4);
 
         try
         {
