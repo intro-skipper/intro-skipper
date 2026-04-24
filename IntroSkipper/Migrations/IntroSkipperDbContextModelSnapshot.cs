@@ -3,6 +3,7 @@ using System;
 using IntroSkipper.Db;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 
 #nullable disable
 
@@ -14,7 +15,7 @@ namespace IntroSkipper.Migrations
         protected override void BuildModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
-            modelBuilder.HasAnnotation("ProductVersion", "8.0.10");
+            modelBuilder.HasAnnotation("ProductVersion", "9.0.11");
 
             modelBuilder.Entity("IntroSkipper.Db.DbSeasonInfo", b =>
                 {
@@ -42,10 +43,8 @@ namespace IntroSkipper.Migrations
 
             modelBuilder.Entity("IntroSkipper.Db.DbSegment", b =>
                 {
-                    b.Property<Guid>("ItemId")
-                        .HasColumnType("TEXT");
-
-                    b.Property<int>("Type")
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
                         .HasColumnType("INTEGER");
 
                     b.Property<double>("End")
@@ -53,14 +52,35 @@ namespace IntroSkipper.Migrations
                         .HasColumnType("REAL")
                         .HasDefaultValue(0.0);
 
+                    b.Property<bool>("IsUserProvided")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER")
+                        .HasDefaultValue(false);
+
+                    b.Property<Guid>("ItemId")
+                        .HasColumnType("TEXT");
+
                     b.Property<double>("Start")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("REAL")
                         .HasDefaultValue(0.0);
 
-                    b.HasKey("ItemId", "Type");
+                    b.Property<int>("Type")
+                        .HasColumnType("INTEGER");
+
+                    b.HasKey("Id");
 
                     b.HasIndex("ItemId");
+
+                    b.HasIndex("ItemId", "Type")
+                        .IsUnique()
+                        .HasDatabaseName("IX_DbSegment_NonCommercial_Unique")
+                        .HasFilter("Type != 4");
+
+                    b.HasIndex("ItemId", "Type", "Start", "End")
+                        .IsUnique()
+                        .HasDatabaseName("IX_DbSegment_Commercial_Unique")
+                        .HasFilter("Type = 4");
 
                     b.ToTable("DbSegment", (string)null);
                 });

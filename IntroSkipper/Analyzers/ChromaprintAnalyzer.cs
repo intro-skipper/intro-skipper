@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: 2022 ConfusedPolarBear
+// SPDX-FileCopyrightText: 2024-2026 AbandonedCart
 // SPDX-FileCopyrightText: 2024-2026 Kilian von Pflugk
 // SPDX-FileCopyrightText: 2024-2026 rlauuzo
-// SPDX-FileCopyrightText: 2024-2025 AbandonedCart
 // SPDX-License-Identifier: GPL-3.0-only
 
 using System;
@@ -39,8 +39,11 @@ public partial class ChromaprintAnalyzer(ILogger<ChromaprintAnalyzer> logger) : 
         AnalysisMode mode,
         CancellationToken cancellationToken)
     {
-        // Episodes that were not analyzed or have a fingerprint cache.
-        var episodeAnalysisQueue = analysisQueue.Where(e => e.GetAnalyzed(mode) != EpisodeState.Analyzed || File.Exists(FFmpegWrapper.GetFingerprintCachePath(e, mode))).ToList();
+        // Episodes that need analysis (not yet analyzed or not user-provided) plus already-analyzed
+        // episodes that still have a fingerprint cache and can be re-analyzed.
+        var episodeAnalysisQueue = analysisQueue.Where(e =>
+            e.NeedsAnalysis(mode) ||
+            (e.GetAnalyzed(mode) == EpisodeState.Analyzed && File.Exists(FFmpegWrapper.GetFingerprintCachePath(e, mode)))).ToList();
 
         if (analysisQueue.Count <= 1 || episodeAnalysisQueue.All(e => e.GetAnalyzed(mode) == EpisodeState.Analyzed))
         {
@@ -171,7 +174,7 @@ public partial class ChromaprintAnalyzer(ILogger<ChromaprintAnalyzer> logger) : 
             {
                 var adjustedIntro = timeAdjustmentHelper.AdjustIntroTimes(currentEpisode, intro);
                 currentEpisode.SetAnalyzed(mode, EpisodeState.Analyzed);
-                await Plugin.Instance!.UpdateTimestampAsync(adjustedIntro, mode, cancellationToken).ConfigureAwait(false);
+                await Plugin.Instance!.UpdateTimestampAsync(adjustedIntro, mode, cancellationToken: cancellationToken).ConfigureAwait(false);
             }
         }
 

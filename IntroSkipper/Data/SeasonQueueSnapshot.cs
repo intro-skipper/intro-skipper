@@ -1,3 +1,4 @@
+// SPDX-FileCopyrightText: 2026 AbandonedCart
 // SPDX-FileCopyrightText: 2026 Kilian von Pflugk
 // SPDX-FileCopyrightText: 2026 rlauuzo
 // SPDX-License-Identifier: GPL-3.0-only
@@ -12,6 +13,8 @@ namespace IntroSkipper.Data;
 /// </summary>
 /// <param name="EpisodeIdsByMode">Episode identifiers grouped by analysis mode.</param>
 /// <param name="SegmentsByEpisodeId">Existing segments grouped by episode and analysis mode.</param>
+/// <param name="UserProvidedByMode">User-provided episode identifiers grouped by analysis mode.</param>
 internal sealed record SeasonQueueSnapshot(
     IReadOnlyDictionary<AnalysisMode, IReadOnlySet<Guid>> EpisodeIdsByMode,
-    IReadOnlyDictionary<Guid, IReadOnlyDictionary<AnalysisMode, Segment>> SegmentsByEpisodeId);
+    IReadOnlyDictionary<Guid, IReadOnlyDictionary<AnalysisMode, Segment>> SegmentsByEpisodeId,
+    IReadOnlyDictionary<AnalysisMode, IReadOnlySet<Guid>> UserProvidedByMode);

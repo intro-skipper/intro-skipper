@@ -27,14 +27,15 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Sanitize head_ref
+      - name: Sanitize branch name
+        env:
+          HEAD_REF: ${{ github.head_ref }}
         run: |
           # Get the branch name and sanitize it
-          SANITIZED_BRANCH_NAME=$(echo "${{ github.head_ref }}" | sed 's/[^a-zA-Z0-9.-]/_/g')
+          SANITIZED=$(echo "$HEAD_REF" | sed 's/[^a-zA-Z0-9.-]/_/g')
 
           # Export it as an environment variable
-          echo "SANITIZED_BRANCH_NAME=$SANITIZED_BRANCH_NAME" >> $GITHUB_ENV
-
+          echo "SANITIZED_BRANCH_NAME=$SANITIZED" >> $GITHUB_ENV
       - uses: actions/checkout@v6
 
       - name: Read build configuration
@@ -52,14 +53,17 @@ jobs:
         with:
           dotnet-version: ${{ env.DOTNET_VERSION }}
 
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v6
+        with:
+          version: 10
+
       - name: Setup Node.js
         uses: actions/setup-node@v6
         with:
-          node-version: "lts/*"
-
-      - name: Minify HTML
-        run: |
-          npx html-minifier-terser --collapse-boolean-attributes --collapse-whitespace --remove-comments --remove-optional-tags --remove-redundant-attributes --remove-script-type-attributes --remove-tag-whitespace --use-short-doctype --minify-css true --minify-js true -o IntroSkipper/Configuration/configPage.html IntroSkipper/Configuration/configPage.html
+          node-version: 'lts/*'
+          cache: 'pnpm'
+          cache-dependency-path: web/pnpm-lock.yaml
 
       - name: Configure NuGet for beta
         if: ${{ env.IS_BETA == 'true' }}

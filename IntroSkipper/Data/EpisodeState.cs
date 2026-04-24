@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: 2022 ConfusedPolarBear
+// SPDX-FileCopyrightText: 2024-2026 AbandonedCart
 // SPDX-FileCopyrightText: 2024-2026 Kilian von Pflugk
 // SPDX-FileCopyrightText: 2024-2026 rlauuzo
-// SPDX-FileCopyrightText: 2024 AbandonedCart
 // SPDX-License-Identifier: GPL-3.0-only
 
 namespace IntroSkipper.Data;
@@ -25,4 +25,9 @@ public enum EpisodeState
     /// Episode has been analyzed but no segments were found.
     /// </summary>
     NoSegments,
+
+    /// <summary>
+    /// Episode segment was provided externally via the segment editor and must not be overwritten by automatic analysis.
+    /// </summary>
+    UserProvided,
 }

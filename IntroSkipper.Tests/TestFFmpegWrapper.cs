@@ -28,7 +28,7 @@ public class TestFFmpegWrapper
         // The test passes if FFmpeg version check succeeds (no error)
         // and no "Trailing option" warning is in the logs
         Assert.True(result, "FFmpeg version check should pass");
-        Assert.DoesNotContain("Trailing option", logs);
+        Assert.DoesNotContain("Trailing option", logs, StringComparison.Ordinal);
     }
 
     [FactSkipFFmpegTests]
@@ -92,7 +92,7 @@ public class TestFFmpegWrapper
         process.WaitForExit();
 
         // OLD behavior produces this warning - test should FAIL with old code
-        Assert.Contains("Trailing option", output);
+        Assert.Contains("Trailing option", output, StringComparison.Ordinal);
     }
 
     #endregion
@@ -205,7 +205,7 @@ public class TestFFmpegWrapper
         process.WaitForExit();
 
         // Verify no "Trailing option" warning
-        Assert.DoesNotContain("Trailing option", output);
+        Assert.DoesNotContain("Trailing option", output, StringComparison.Ordinal);
     }
 
     private static QueuedEpisode QueueFile(string path)

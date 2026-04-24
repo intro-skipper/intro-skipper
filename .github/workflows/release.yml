@@ -41,14 +41,17 @@ jobs:
         with:
           dotnet-version: ${{ env.DOTNET_VERSION }}
 
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v6
+        with:
+          version: 10
+
       - name: Setup Node.js
         uses: actions/setup-node@v6
         with:
-          node-version: "lts/*"
-
-      - name: Minify HTML
-        run: |
-          npx html-minifier-terser --collapse-boolean-attributes --collapse-whitespace --remove-comments --remove-optional-tags --remove-redundant-attributes --remove-script-type-attributes --remove-tag-whitespace --use-short-doctype --minify-css true --minify-js true -o IntroSkipper/Configuration/configPage.html IntroSkipper/Configuration/configPage.html
+          node-version: 'lts/*'
+          cache: 'pnpm'
+          cache-dependency-path: web/pnpm-lock.yaml
 
       - name: Configure NuGet for beta
         if: ${{ env.IS_BETA == 'true' }}
@@ -84,10 +87,9 @@ jobs:
           if-no-files-found: error
           retention-days: 1
 
-
       - name: Sign package artifacts
         if: ${{ github.repository == 'intro-skipper/intro-skipper' && !inputs.skip_signing }}
-        uses: signpath/github-action-submit-signing-request@v2.0
+        uses: signpath/github-action-submit-signing-request@v2.2
         with:
           api-token: '${{ secrets.SIGNPATH_API_TOKEN }}'
           organization-id: '2533cbeb-14b8-4d23-905e-37196de94787'

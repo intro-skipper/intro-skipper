@@ -7,7 +7,6 @@
 
 using System;
 using System.Collections.Generic;
-using System.Globalization;
 using System.Linq;
 using System.Net.Mime;
 using System.Threading;
@@ -51,68 +50,6 @@ public partial class VisualizationController(ILogger<VisualizationController> lo
     private readonly IProviderManager _providerManager = providerManager;
     private readonly IFileSystem _fileSystem = fileSystem;
     private readonly ILoggerFactory _loggerFactory = loggerFactory;
-
-    /// <summary>
-    /// Returns all show names and seasons.
-    /// </summary>
-    /// <param name="cancellationToken">Cancellation token.</param>
-    /// <returns>Dictionary of show names to a list of season names.</returns>
-    [HttpGet("Shows")]
-    [ProducesResponseType(StatusCodes.Status200OK)]
-    public async Task<ActionResult<Dictionary<Guid, ShowInfos>>> GetShowSeasons(CancellationToken cancellationToken = default)
-    {
-        LogReturningSeasonIds(_logger);
-
-        // Ensure the queue is up to date
-        await new QueueManager(_loggerFactory.CreateLogger<QueueManager>(), _libraryManager, _providerManager, _fileSystem).GetMediaItems(cancellationToken).ConfigureAwait(false);
-
-        var showSeasons = new Dictionary<Guid, ShowInfos>();
-
-        foreach (var kvp in Plugin.Instance!.QueuedMediaItems)
-        {
-            if (kvp.Value.FirstOrDefault() is not QueuedEpisode first)
-            {
-                continue;
-            }
-
-            var seriesId = first.SeriesId;
-            var seasonId = kvp.Key;
-
-            var seasonNumber = first.SeasonNumber;
-            if (!showSeasons.TryGetValue(seriesId, out var showInfo))
-            {
-                showInfo = new ShowInfos
-                {
-                    SeriesName = first.SeriesName,
-                    ProductionYear = GetProductionYear(seriesId),
-                    LibraryName = GetLibraryName(seriesId),
-                    IsMovie = IsMovie(first),
-                    Seasons = []
-                };
-                showSeasons[seriesId] = showInfo;
-            }
-
-            showInfo.Seasons[seasonId] = seasonNumber;
-        }
-
-        // Sort the dictionary by SeriesName and the seasons by SeasonName
-        var sortedShowSeasons = showSeasons
-            .OrderBy(kvp => kvp.Value.SeriesName)
-            .ToDictionary(
-                kvp => kvp.Key,
-                kvp => new ShowInfos
-                {
-                    SeriesName = kvp.Value.SeriesName,
-                    ProductionYear = kvp.Value.ProductionYear,
-                    LibraryName = kvp.Value.LibraryName,
-                    IsMovie = kvp.Value.IsMovie,
-                    Seasons = kvp.Value.Seasons
-                        .OrderBy(s => s.Value)
-                        .ToDictionary(s => s.Key, s => s.Value)
-                });
-
-        return sortedShowSeasons;
-    }
 
     /// <summary>
     /// Returns the analyzer actions for the provided season.
@@ -328,31 +265,6 @@ public partial class VisualizationController(ILogger<VisualizationController> lo
         // Immediately return to the client; background task continues
         return Accepted();
     }
-
-    private static string GetProductionYear(Guid seriesId)
-    {
-        return seriesId == Guid.Empty
-            ? "Unknown"
-            : Plugin.Instance?.GetItem(seriesId)?.ProductionYear?.ToString(CultureInfo.InvariantCulture) ?? "Unknown";
-    }
-
-    private static string GetLibraryName(Guid seriesId)
-    {
-        if (seriesId == Guid.Empty)
-        {
-            return "Unknown";
-        }
-
-        var collectionFolders = Plugin.Instance?.GetCollectionFolders(seriesId);
-        return collectionFolders?.Count > 0
-            ? string.Join(", ", collectionFolders.Select(folder => folder.Name))
-            : "Unknown";
-    }
-
-    private static bool IsMovie(QueuedEpisode episode) => episode.Category == QueuedMediaCategory.Movie;
-
-    [LoggerMessage(Level = LogLevel.Debug, Message = "Returning season IDs by series name")]
-    private static partial void LogReturningSeasonIds(ILogger logger);
 
     [LoggerMessage(Level = LogLevel.Information, Message = "Erasing timestamps for series {SeriesId} season {SeasonId} at user request")]
     private static partial void LogErasingTimestamps(ILogger logger, Guid seriesId, Guid seasonId);

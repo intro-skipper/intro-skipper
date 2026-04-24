@@ -1,6 +1,6 @@
-// SPDX-FileCopyrightText: 2024-2025 rlauuzo
 // SPDX-FileCopyrightText: 2024-2025 AbandonedCart
-// SPDX-FileCopyrightText: 2024-2026 Kilian von Pflugk
+// SPDX-FileCopyrightText: 2024-2025 rlauuzo
+// SPDX-FileCopyrightText: 2024 Kilian von Pflugk
 // SPDX-License-Identifier: GPL-3.0-only
 using System;
 using Microsoft.EntityFrameworkCore.Migrations;

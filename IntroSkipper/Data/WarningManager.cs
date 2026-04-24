@@ -1,6 +1,6 @@
 // SPDX-FileCopyrightText: 2022 ConfusedPolarBear
-// SPDX-FileCopyrightText: 2024-2026 Kilian von Pflugk
 // SPDX-FileCopyrightText: 2024-2026 rlauuzo
+// SPDX-FileCopyrightText: 2024-2026 Kilian von Pflugk
 // SPDX-FileCopyrightText: 2024 AbandonedCart
 // SPDX-License-Identifier: GPL-3.0-only
 
@@ -37,15 +37,5 @@ public static class WarningManager
     public static string GetWarnings()
     {
         return _warnings.ToString();
-    }
-
-    /// <summary>
-    /// Check if a specific warning flag is set.
-    /// </summary>
-    /// <param name="warning">Warning flag to check.</param>
-    /// <returns>True if the flag is set, otherwise false.</returns>
-    public static bool HasFlag(PluginWarning warning)
-    {
-        return (_warnings & warning) == warning;
     }
 }

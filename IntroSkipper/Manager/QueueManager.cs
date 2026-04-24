@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: 2022-2023 ConfusedPolarBear
+// SPDX-FileCopyrightText: 2024-2026 AbandonedCart
 // SPDX-FileCopyrightText: 2024-2026 Kilian von Pflugk
 // SPDX-FileCopyrightText: 2024-2026 rlauuzo
-// SPDX-FileCopyrightText: 2024-2025 AbandonedCart
 // SPDX-License-Identifier: GPL-3.0-only
 
 using System;
@@ -424,7 +424,16 @@ public partial class QueueManager(ILogger<QueueManager> logger, ILibraryManager 
                     if (snapshot.SegmentsByEpisodeId.TryGetValue(candidate.EpisodeId, out var hasSegments) &&
                         hasSegments.TryGetValue(mode, out _))
                     {
-                        candidate.SetAnalyzed(mode, EpisodeState.Analyzed);
+                        var isUserProvided = snapshot.UserProvidedByMode.TryGetValue(mode, out var userProvided) &&
+                                             userProvided.Contains(candidate.EpisodeId);
+
+                        // Always preserve user-provided segments. When AnalyzeAgain is true (settings
+                        // changed), leave automatically-analyzed segments as NotAnalyzed so they are
+                        // re-analyzed and their timestamps updated to reflect the new settings.
+                        if (isUserProvided || !plugin.AnalyzeAgain)
+                        {
+                            candidate.SetAnalyzed(mode, isUserProvided ? EpisodeState.UserProvided : EpisodeState.Analyzed);
+                        }
                     }
                     else if (!plugin.AnalyzeAgain &&
                              snapshot.EpisodeIdsByMode.TryGetValue(mode, out var ids) &&

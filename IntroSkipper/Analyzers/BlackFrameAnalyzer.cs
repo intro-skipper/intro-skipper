@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: 2022 ConfusedPolarBear
+// SPDX-FileCopyrightText: 2024-2026 AbandonedCart
 // SPDX-FileCopyrightText: 2024-2026 Kilian von Pflugk
 // SPDX-FileCopyrightText: 2024-2026 rlauuzo
-// SPDX-FileCopyrightText: 2024-2025 AbandonedCart
 // SPDX-License-Identifier: GPL-3.0-only
 
 using System;
@@ -41,7 +41,7 @@ public sealed partial class BlackFrameAnalyzer(ILogger<BlackFrameAnalyzer> logge
         }
 
         var unanalyzedEpisodes = analysisQueue
-            .Where(e => e.GetAnalyzed(mode) != EpisodeState.Analyzed)
+            .Where(e => e.NeedsAnalysis(mode))
             .ToList();
 
         if (unanalyzedEpisodes.Count == 0)
@@ -90,7 +90,7 @@ public sealed partial class BlackFrameAnalyzer(ILogger<BlackFrameAnalyzer> logge
                 LogFoundCredits(_logger, episode.Name, credit.Start);
 
                 episode.SetAnalyzed(mode, EpisodeState.Analyzed);
-                await Plugin.Instance!.UpdateTimestampAsync(credit, mode, cancellationToken).ConfigureAwait(false);
+                await Plugin.Instance!.UpdateTimestampAsync(credit, mode, cancellationToken: cancellationToken).ConfigureAwait(false);
 
                 // Update search start for next episode based on this result
                 searchStart = episode.Duration - credit.Start + _config.MinimumCreditsDuration;

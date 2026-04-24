@@ -1,6 +1,6 @@
-// SPDX-FileCopyrightText: 2024-2026 rlauuzo
 // SPDX-FileCopyrightText: 2024-2026 AbandonedCart
 // SPDX-FileCopyrightText: 2024-2026 Kilian von Pflugk
+// SPDX-FileCopyrightText: 2024-2026 rlauuzo
 // SPDX-License-Identifier: GPL-3.0-only
 
 using System;
@@ -75,9 +75,20 @@ public class IntroSkipperDbContext : DbContext
         modelBuilder.Entity<DbSegment>(entity =>
         {
             entity.ToTable("DbSegment");
-            entity.HasKey(s => new { s.ItemId, s.Type });
+            entity.HasKey(s => s.Id);
+
+            entity.Property(e => e.Id)
+                  .ValueGeneratedOnAdd();
 
             entity.HasIndex(e => e.ItemId);
+            entity.HasIndex(e => new { e.ItemId, e.Type, e.Start, e.End })
+                .HasDatabaseName("IX_DbSegment_Commercial_Unique")
+                .HasFilter($"Type = {(int)AnalysisMode.Commercial}")
+                .IsUnique();
+            entity.HasIndex(e => new { e.ItemId, e.Type })
+                .HasDatabaseName("IX_DbSegment_NonCommercial_Unique")
+                .HasFilter($"Type != {(int)AnalysisMode.Commercial}")
+                .IsUnique();
 
             entity.Property(e => e.Start)
                   .HasDefaultValue(0.0)
@@ -85,6 +96,10 @@ public class IntroSkipperDbContext : DbContext
 
             entity.Property(e => e.End)
                   .HasDefaultValue(0.0)
+                  .IsRequired();
+
+            entity.Property(e => e.IsUserProvided)
+                  .HasDefaultValue(false)
                   .IsRequired();
         });
 
