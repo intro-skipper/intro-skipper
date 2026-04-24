@@ -8,13 +8,7 @@
 // SPDX-FileCopyrightText: 2024 theMasterpc
 // SPDX-License-Identifier: GPL-3.0-only
 
-using System;
 using System.Collections.Concurrent;
-using System.Collections.Generic;
-using System.IO;
-using System.Linq;
-using System.Threading;
-using System.Threading.Tasks;
 using IntroSkipper.Configuration;
 using IntroSkipper.Data;
 using IntroSkipper.Db;
@@ -281,6 +275,15 @@ public partial class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
             .AsNoTracking()
             .Where(s => s.ItemId == id)
             .ToListAsync(cancellationToken)
+            .ConfigureAwait(false);
+    }
+
+    internal async Task DeleteItemSegmentsAsync(Guid itemId, CancellationToken cancellationToken = default)
+    {
+        using var db = CreateDbContext();
+        await db.DbSegment
+            .Where(s => s.ItemId == itemId)
+            .ExecuteDeleteAsync(cancellationToken)
             .ConfigureAwait(false);
     }
 

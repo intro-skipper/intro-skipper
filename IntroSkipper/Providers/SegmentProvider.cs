@@ -3,11 +3,6 @@
 // SPDX-FileCopyrightText: 2024-2026 Kilian von Pflugk
 // SPDX-License-Identifier: GPL-3.0-only
 
-using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Threading;
-using System.Threading.Tasks;
 using IntroSkipper.Data;
 using Jellyfin.Database.Implementations.Enums;
 using MediaBrowser.Controller.Entities;
@@ -79,6 +74,13 @@ namespace IntroSkipper.Providers
             }
 
             return segments;
+        }
+
+        /// <inheritdoc/>
+        public async Task CleanupExtractedData(Guid itemId, CancellationToken cancellationToken)
+        {
+            ArgumentNullException.ThrowIfNull(Plugin.Instance);
+            await Plugin.Instance.DeleteItemSegmentsAsync(itemId, cancellationToken).ConfigureAwait(false);
         }
 
         /// <inheritdoc/>

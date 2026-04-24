@@ -3,7 +3,6 @@
 // SPDX-FileCopyrightText: 2024-2026 rlauuzo
 // SPDX-License-Identifier: GPL-3.0-only
 
-using System;
 using IntroSkipper.Data;
 
 namespace IntroSkipper.Db;
