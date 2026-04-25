@@ -122,7 +122,9 @@ public sealed partial class BlackFrameAltAnalyzer(ILogger<BlackFrameAltAnalyzer>
             var scene = scenes[i];
 
             // Refine the start time using full-frame boundary probing
-            var refinedStartTime = RefineBoundary(episode, blackFrames, scene, minimum, threshold);
+            var refinedStartTime = _config.RefineCreditsBoundary
+                ? RefineBoundary(episode, blackFrames, scene, minimum, threshold)
+                : scene.StartTime;
 
             var segment = new Segment(episode.EpisodeId, new TimeRange(refinedStartTime + episode.CreditsFingerprintStart, scene.EndTime + episode.CreditsFingerprintStart));
 

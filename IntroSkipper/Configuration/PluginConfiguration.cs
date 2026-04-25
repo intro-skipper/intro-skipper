@@ -59,6 +59,13 @@ public class PluginConfiguration : BasePluginConfiguration
     /// </summary>
     public bool UseAlternativeBlackFrameAnalyzer { get; set; }
 
+    /// <summary>
+    /// Gets or sets a value indicating whether to refine credits boundaries with frame-level analysis.
+    /// When enabled, the alternative black frame analyzer probes the gap between keyframes
+    /// to find the exact frame where credits begin. Disable for faster analysis with keyframe-only accuracy.
+    /// </summary>
+    public bool RefineCreditsBoundary { get; set; } = true;
+
     // ===== Media Segment handling =====
 
     /// <summary>
