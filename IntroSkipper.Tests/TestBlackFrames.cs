@@ -8,9 +8,7 @@ namespace IntroSkipper.Tests;
 
 using System;
 using System.Collections.Generic;
-using System.Globalization;
 using System.IO;
-using System.Text.RegularExpressions;
 using IntroSkipper.Analyzers;
 using IntroSkipper.Data;
 using Microsoft.Extensions.Logging;
@@ -411,36 +409,16 @@ public class TestBlackFrames
 
     // ── Helpers ─────────────────────────────────────────────────────────
 
-    private static readonly Regex _blackFrameRegex = new(
-        @"\[Parsed_blackframe_0 @ [^\]]+\] frame:(\d+) pblack:(\d+) .*? t:([\d.]+)",
-        RegexOptions.Compiled);
-
     /// <summary>
     /// Parses a raw FFmpeg blackframe filter output file into a list of <see cref="BlackFrame"/> records.
-    /// Mirrors the regex and parsing logic of <c>FFmpegWrapper.ParseBlackFrame</c>.
+    /// Delegates to the production <see cref="FFmpegWrapper.ParseBlackFrame"/> parser to avoid
+    /// regex/format drift between tests and implementation.
     /// </summary>
     private static List<BlackFrame> ParseFingerprintFile(string filename)
     {
         var path = Path.Combine("..", "..", "..", "fingerprints", filename);
-        var lines = File.ReadAllLines(path);
-        var frames = new List<BlackFrame>(lines.Length);
-
-        foreach (var line in lines)
-        {
-            var match = _blackFrameRegex.Match(line);
-            if (!match.Success)
-            {
-                continue;
-            }
-
-            var frame = int.Parse(match.Groups[1].Value, CultureInfo.InvariantCulture);
-            var percentage = int.Parse(match.Groups[2].Value, CultureInfo.InvariantCulture);
-            var time = double.Parse(match.Groups[3].Value, CultureInfo.InvariantCulture);
-
-            frames.Add(new BlackFrame(percentage, time, frame));
-        }
-
-        return frames;
+        var raw = File.ReadAllText(path);
+        return [.. FFmpegWrapper.ParseBlackFrame(raw)];
     }
 
     private static QueuedEpisode QueueFile(string path)

@@ -267,6 +267,22 @@ public sealed partial class BlackFrameAltAnalyzer(ILogger<BlackFrameAltAnalyzer>
     /// <returns>Refined start time in seconds (relative to CreditsFingerprintStart).</returns>
     internal static double ConvertProbeTimestamp(double probeTime, double lastKeyframeTime) => probeTime + lastKeyframeTime;
 
+    /// <summary>
+    /// Checks whether a scene meets the minimum black-frame density threshold.
+    /// </summary>
+    /// <remarks>
+    /// <paramref name="searchStart"/> is an optimization index passed by reference. It tracks the
+    /// first frame index that falls within (or after) the most recently checked scene. Because both
+    /// frames and scenes are time-sorted, later scenes can skip frames that precede them.
+    ///
+    /// <para><b>Invariant:</b> <paramref name="searchStart"/> only advances forward. Each call sets it
+    /// to the index of the first frame at or after <c>scene.StartTime</c>, so the next call with a
+    /// later scene starts scanning from there instead of from 0.</para>
+    ///
+    /// <para><b>Exception:</b> Callers checking a <em>merged</em> span (which may start earlier than the
+    /// previous individual scene) must pass a fresh <c>searchStart = 0</c> to avoid skipping frames
+    /// that fall within the merged range.</para>
+    /// </remarks>
     private static bool HasMinimumBlackFrameDensity(List<BlackFrame> frames, CreditScene scene, int minimum, ref int searchStart)
     {
         var totalInScene = 0;
@@ -343,6 +359,9 @@ public sealed partial class BlackFrameAltAnalyzer(ILogger<BlackFrameAltAnalyzer>
         // Density gating: reject scenes where the ratio of black keyframes to total keyframes is too low.
         // First filter individual scenes, then re-check merged spans so long non-black gaps do not
         // turn separate dense scenes into one mostly non-black segment.
+        //
+        // searchStart advances monotonically across this loop because scenes are time-sorted —
+        // each scene starts at or after the previous one, so we never need to revisit earlier frames.
         var densityFiltered = new List<CreditScene>(scenes.Count);
         var searchStart = 0;
         foreach (var scene in scenes)
@@ -373,7 +392,11 @@ public sealed partial class BlackFrameAltAnalyzer(ILogger<BlackFrameAltAnalyzer>
             {
                 var scene = densityFiltered[i];
                 var mergedScene = new CreditScene(current.StartFrame, scene.EndFrame, current.StartTime, scene.EndTime);
-                var mergeSearchStart = 0; // Fresh per merge: merged span always starts at current.StartTime
+
+                // Fresh searchStart: the merged span reaches back to current.StartTime, which may
+                // precede the index left by the per-scene density pass. Restarting from 0 ensures
+                // no frames in the merged range are skipped.
+                var mergeSearchStart = 0;
                 if (scene.StartTime - current.EndTime <= MaximumTimeSkip &&
                     HasMinimumBlackFrameDensity(frames, mergedScene, minimum, ref mergeSearchStart))
                 {
@@ -389,7 +412,9 @@ public sealed partial class BlackFrameAltAnalyzer(ILogger<BlackFrameAltAnalyzer>
             merged.Add(current);
         }
 
-        // Find the transition frame for each merged scene
+        // Find the transition frame for each merged scene.
+        // searchStart is reset to 0 and advances monotonically — merged scenes are frame-sorted,
+        // so each scene's startFrame is at or after the previous one's.
         var finalScenes = new List<CreditScene>(merged.Count);
         searchStart = 0;
         foreach (var scene in merged)
