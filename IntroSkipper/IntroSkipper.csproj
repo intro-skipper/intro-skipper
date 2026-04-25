@@ -11,6 +11,9 @@
     <AnalysisMode>AllEnabledByDefault</AnalysisMode>
   </PropertyGroup>
   <ItemGroup>
+    <InternalsVisibleTo Include="IntroSkipper.Tests" />
+  </ItemGroup>
+  <ItemGroup>
     <PackageReference Include="Jellyfin.Controller" Version="10.11.*-*" />
     <PackageReference Include="Jellyfin.Model" Version="10.11.*-*" />
     <PackageReference Include="Microsoft.EntityFrameworkCore.Sqlite" Version="9.0.10" />
