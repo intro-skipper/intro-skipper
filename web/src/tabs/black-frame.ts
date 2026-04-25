@@ -17,6 +17,13 @@ export const blackFrameTab: Tab = {
                     "If enabled, the alternative black frame analyzer will be used. This analyzer is experimental and may not work as expected.",
             }),
             checkboxField({
+                id: "RefineCreditsBoundary",
+                label: "Refine credits boundary",
+                description:
+                    "Use frame-level analysis to find the exact credits boundary. Disable for faster analysis with keyframe-only accuracy.",
+                visible: () => configStore.get("UseAlternativeBlackFrameAnalyzer") === true,
+            }),
+            checkboxField({
                 id: "UseChapterMarkersBlackFrame",
                 label: "Use chapter markers for credits detection",
                 description:
