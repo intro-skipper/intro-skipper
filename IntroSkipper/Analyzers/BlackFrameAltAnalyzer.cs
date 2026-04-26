@@ -26,6 +26,7 @@ public sealed partial class BlackFrameAltAnalyzer(ILogger<BlackFrameAltAnalyzer>
 {
     private const int MaximumTimeSkip = 20;
     private const double MinimumBlackFrameDensity = 0.50;
+    private const double MinimumBoundaryProbeWindow = 0.50;
     private readonly PluginConfiguration _config = Plugin.Instance?.Configuration ?? new PluginConfiguration();
     private readonly ILogger<BlackFrameAltAnalyzer> _logger = logger ?? throw new ArgumentNullException(nameof(logger));
 
@@ -123,7 +124,7 @@ public sealed partial class BlackFrameAltAnalyzer(ILogger<BlackFrameAltAnalyzer>
 
             // Refine the start time using full-frame boundary probing
             var refinedStartTime = _config.RefineCreditsBoundary
-                ? RefineBoundary(episode, blackFrames, scene, sceneChange, threshold)
+                ? RefineBoundary(episode, blackFrames, scene, sceneChange, threshold, minimumDuration)
                 : scene.StartTime;
 
             var segment = new Segment(episode.EpisodeId, new TimeRange(refinedStartTime + episode.CreditsFingerprintStart, scene.EndTime + episode.CreditsFingerprintStart));
@@ -206,13 +207,15 @@ public sealed partial class BlackFrameAltAnalyzer(ILogger<BlackFrameAltAnalyzer>
     /// <param name="scene">The credit scene whose start time to refine.</param>
     /// <param name="sceneChange">Normalized transition threshold used to select the scene start.</param>
     /// <param name="threshold">Pixel luminance threshold for black detection.</param>
+    /// <param name="minimumDuration">Minimum duration required for a credits segment.</param>
     /// <returns>Refined start time in seconds (relative to CreditsFingerprintStart).</returns>
     private double RefineBoundary(
         QueuedEpisode episode,
         List<BlackFrame> frames,
         CreditScene scene,
         int sceneChange,
-        int threshold)
+        int threshold,
+        int minimumDuration)
     {
         var boundary = FindBoundaryKeyframeTimes(frames, scene);
         if (boundary is null)
@@ -221,6 +224,12 @@ public sealed partial class BlackFrameAltAnalyzer(ILogger<BlackFrameAltAnalyzer>
         }
 
         var (lastKeyframeTime, firstBlackTime) = boundary.Value;
+        if (!ShouldRefineBoundary(scene, lastKeyframeTime, minimumDuration))
+        {
+            return scene.StartTime;
+        }
+
+        var probeMinimum = SelectProbeMinimum(frames, scene, sceneChange);
 
         // Probe the gap between the preceding keyframe and the first black keyframe
         // using full-frame analysis (no -skip_frame nokey).
@@ -229,7 +238,6 @@ public sealed partial class BlackFrameAltAnalyzer(ILogger<BlackFrameAltAnalyzer>
         var probeEnd = firstBlackTime + episode.CreditsFingerprintStart;
         var probeRange = new TimeRange(probeStart, probeEnd);
 
-        var probeMinimum = SelectProbeMinimum(frames, scene, sceneChange);
         var probeFrames = FFmpegWrapper.DetectBlackFrames(episode, probeRange, probeMinimum, threshold);
 
         if (probeFrames.Length == 0)
@@ -264,6 +272,28 @@ public sealed partial class BlackFrameAltAnalyzer(ILogger<BlackFrameAltAnalyzer>
     {
         var startFrame = frames.First(frame => frame.Frame == scene.StartFrame);
         return Math.Min(startFrame.Percentage, sceneChange);
+    }
+
+    /// <summary>
+    /// Determines whether boundary refinement is likely to materially change the result.
+    /// </summary>
+    /// <param name="scene">The credit scene whose start boundary is being refined.</param>
+    /// <param name="lastKeyframeTime">Time of the preceding keyframe.</param>
+    /// <param name="minimumDuration">Minimum duration required for a credits segment.</param>
+    /// <returns>
+    /// <see langword="true"/> when the preceding keyframe gap is large enough to matter and the
+    /// additional time could affect segment validity; otherwise, <see langword="false"/>.
+    /// </returns>
+    internal static bool ShouldRefineBoundary(CreditScene scene, double lastKeyframeTime, int minimumDuration)
+    {
+        var maximumRefinementWindow = scene.StartTime - lastKeyframeTime;
+        if (maximumRefinementWindow <= MinimumBoundaryProbeWindow)
+        {
+            return false;
+        }
+
+        var currentDuration = scene.EndTime - scene.StartTime;
+        return currentDuration + maximumRefinementWindow >= minimumDuration;
     }
 
     /// <summary>

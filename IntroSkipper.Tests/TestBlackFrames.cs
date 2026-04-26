@@ -372,6 +372,36 @@ public class TestBlackFrames
     }
 
     [Fact]
+    public void TestShouldRefineBoundary_SkipsSmallKeyframeGap()
+    {
+        var scene = new CreditScene(20, 40, 10.4, 30.0);
+
+        var shouldRefine = BlackFrameAltAnalyzer.ShouldRefineBoundary(scene, lastKeyframeTime: 10.0, minimumDuration: 15);
+
+        Assert.False(shouldRefine);
+    }
+
+    [Fact]
+    public void TestShouldRefineBoundary_SkipsSceneThatCannotReachMinimumDuration()
+    {
+        var scene = new CreditScene(20, 40, 10.0, 20.0);
+
+        var shouldRefine = BlackFrameAltAnalyzer.ShouldRefineBoundary(scene, lastKeyframeTime: 8.0, minimumDuration: 15);
+
+        Assert.False(shouldRefine);
+    }
+
+    [Fact]
+    public void TestShouldRefineBoundary_AcceptsMeaningfulBoundaryWindow()
+    {
+        var scene = new CreditScene(20, 40, 10.0, 24.0);
+
+        var shouldRefine = BlackFrameAltAnalyzer.ShouldRefineBoundary(scene, lastKeyframeTime: 8.5, minimumDuration: 15);
+
+        Assert.True(shouldRefine);
+    }
+
+    [Fact]
     public void TestTryRefineBoundaryTime_RejectsProbeAtPrecedingKeyframe()
     {
         var refined = BlackFrameAltAnalyzer.TryRefineBoundaryTime(
