@@ -490,6 +490,14 @@ public class TestBlackFrames
         Assert.Equal(853.12, scenes[1].EndTime);
     }
 
+    [Fact]
+    public void TestParseFingerprintFile_RootedPathThrows()
+    {
+        var rootedPath = Path.GetFullPath("blackframe-alt-3");
+
+        Assert.Throws<ArgumentException>(() => ParseFingerprintFile(rootedPath));
+    }
+
     // ── Helpers ─────────────────────────────────────────────────────────
 
     /// <summary>
@@ -499,6 +507,11 @@ public class TestBlackFrames
     /// </summary>
     private static List<BlackFrame> ParseFingerprintFile(string filename)
     {
+        if (Path.IsPathRooted(filename))
+        {
+            throw new ArgumentException("Fingerprint filename must be a relative path.", nameof(filename));
+        }
+
         var path = Path.Combine("..", "..", "..", "fingerprints", filename);
         var raw = File.ReadAllText(path);
         return [.. FFmpegWrapper.ParseBlackFrame(raw)];
