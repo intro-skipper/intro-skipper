@@ -335,6 +335,89 @@ public class TestBlackFrames
         Assert.Equal(1.5, result);
     }
 
+    [Fact]
+    public void TestSelectProbeMinimum_UsesLowerOfSceneStartAndSceneChange()
+    {
+        var frames = new List<BlackFrame>
+        {
+            new(20, 0.0, 0),
+            new(30, 0.5, 1),
+            new(92, 1.0, 2),
+            new(95, 1.5, 3),
+        };
+
+        var scene = new CreditScene(2, 3, 1.0, 1.5);
+
+        var probeMinimum = BlackFrameAltAnalyzer.SelectProbeMinimum(frames, scene, sceneChange: 95);
+
+        Assert.Equal(92, probeMinimum);
+    }
+
+    [Fact]
+    public void TestSelectProbeMinimum_CapsAtSceneChange()
+    {
+        var frames = new List<BlackFrame>
+        {
+            new(20, 0.0, 0),
+            new(30, 0.5, 1),
+            new(99, 1.0, 2),
+            new(99, 1.5, 3),
+        };
+
+        var scene = new CreditScene(2, 3, 1.0, 1.5);
+
+        var probeMinimum = BlackFrameAltAnalyzer.SelectProbeMinimum(frames, scene, sceneChange: 95);
+
+        Assert.Equal(95, probeMinimum);
+    }
+
+    [Fact]
+    public void TestTryRefineBoundaryTime_RejectsProbeAtPrecedingKeyframe()
+    {
+        var refined = BlackFrameAltAnalyzer.TryRefineBoundaryTime(
+            probeTime: 0.0,
+            lastKeyframeTime: 10.0,
+            sceneStartTime: 15.0);
+
+        Assert.Null(refined);
+    }
+
+    [Fact]
+    public void TestTryRefineBoundaryTime_AcceptsProbeInsideBoundaryWindow()
+    {
+        var refined = BlackFrameAltAnalyzer.TryRefineBoundaryTime(
+            probeTime: 2.5,
+            lastKeyframeTime: 10.0,
+            sceneStartTime: 15.0);
+
+        Assert.Equal(12.5, refined);
+    }
+
+    [Fact]
+    public void TestTryRefineBoundaryTime_AcceptsProbeAtExactSceneStart()
+    {
+        // When probeTime + lastKeyframeTime == sceneStartTime, the refinement
+        // lands exactly at the original scene start (a no-op). This should be
+        // accepted, not rejected — guarding against an accidental > to >= change.
+        var refined = BlackFrameAltAnalyzer.TryRefineBoundaryTime(
+            probeTime: 5.0,
+            lastKeyframeTime: 10.0,
+            sceneStartTime: 15.0);
+
+        Assert.Equal(15.0, refined);
+    }
+
+    [Fact]
+    public void TestTryRefineBoundaryTime_RejectsProbeAfterSceneStart()
+    {
+        var refined = BlackFrameAltAnalyzer.TryRefineBoundaryTime(
+            probeTime: 6.0,
+            lastKeyframeTime: 10.0,
+            sceneStartTime: 15.0);
+
+        Assert.Null(refined);
+    }
+
     // ── Fingerprint-based integration tests ──────────────────────────────
 
     [Fact]

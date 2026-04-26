@@ -123,7 +123,7 @@ public sealed partial class BlackFrameAltAnalyzer(ILogger<BlackFrameAltAnalyzer>
 
             // Refine the start time using full-frame boundary probing
             var refinedStartTime = _config.RefineCreditsBoundary
-                ? RefineBoundary(episode, blackFrames, scene, minimum, threshold)
+                ? RefineBoundary(episode, blackFrames, scene, sceneChange, threshold)
                 : scene.StartTime;
 
             var segment = new Segment(episode.EpisodeId, new TimeRange(refinedStartTime + episode.CreditsFingerprintStart, scene.EndTime + episode.CreditsFingerprintStart));
@@ -204,14 +204,14 @@ public sealed partial class BlackFrameAltAnalyzer(ILogger<BlackFrameAltAnalyzer>
     /// <param name="episode">The episode being analyzed.</param>
     /// <param name="frames">All detected keyframes.</param>
     /// <param name="scene">The credit scene whose start time to refine.</param>
-    /// <param name="minimum">Normalized minimum black percentage threshold.</param>
+    /// <param name="sceneChange">Normalized transition threshold used to select the scene start.</param>
     /// <param name="threshold">Pixel luminance threshold for black detection.</param>
     /// <returns>Refined start time in seconds (relative to CreditsFingerprintStart).</returns>
     private double RefineBoundary(
         QueuedEpisode episode,
         List<BlackFrame> frames,
         CreditScene scene,
-        int minimum,
+        int sceneChange,
         int threshold)
     {
         var boundary = FindBoundaryKeyframeTimes(frames, scene);
@@ -229,25 +229,41 @@ public sealed partial class BlackFrameAltAnalyzer(ILogger<BlackFrameAltAnalyzer>
         var probeEnd = firstBlackTime + episode.CreditsFingerprintStart;
         var probeRange = new TimeRange(probeStart, probeEnd);
 
-        var probeFrames = FFmpegWrapper.DetectBlackFrames(episode, probeRange, minimum, threshold);
+        var probeMinimum = SelectProbeMinimum(frames, scene, sceneChange);
+        var probeFrames = FFmpegWrapper.DetectBlackFrames(episode, probeRange, probeMinimum, threshold);
 
         if (probeFrames.Length == 0)
         {
             return scene.StartTime;
         }
 
-        var refinedTime = ConvertProbeTimestamp(probeFrames[0].Time, lastKeyframeTime);
-
-        // Guard: ensure refined time stays within the probe window [lastKeyframeTime, firstBlackTime]
-        // to protect against FFmpeg seek imprecision producing out-of-range timestamps.
-        if (refinedTime < lastKeyframeTime || refinedTime > firstBlackTime)
+        var refinedTime = TryRefineBoundaryTime(probeFrames[0].Time, lastKeyframeTime, scene.StartTime);
+        if (refinedTime is null)
         {
             return scene.StartTime;
         }
 
-        LogRefinedBoundary(scene.StartTime, refinedTime);
+        LogRefinedBoundary(scene.StartTime, refinedTime.Value);
 
-        return refinedTime;
+        return refinedTime.Value;
+    }
+
+    /// <summary>
+    /// Selects the minimum black percentage threshold for boundary probing.
+    /// </summary>
+    /// <remarks>
+    /// Probing should not use a weaker threshold than the final scene start decision.
+    /// When the scene start was chosen by the stronger transition threshold, probing is capped at that value.
+    /// Otherwise, probing uses the selected start frame's measured black level.
+    /// </remarks>
+    /// <param name="frames">All detected keyframes.</param>
+    /// <param name="scene">The credit scene whose start boundary is being refined.</param>
+    /// <param name="sceneChange">Normalized transition threshold used to select the scene start.</param>
+    /// <returns>The minimum black percentage to use for full-frame probing.</returns>
+    internal static int SelectProbeMinimum(List<BlackFrame> frames, CreditScene scene, int sceneChange)
+    {
+        var startFrame = frames.First(frame => frame.Frame == scene.StartFrame);
+        return Math.Min(startFrame.Percentage, sceneChange);
     }
 
     /// <summary>
@@ -266,6 +282,22 @@ public sealed partial class BlackFrameAltAnalyzer(ILogger<BlackFrameAltAnalyzer>
     /// <param name="lastKeyframeTime">Time of the preceding keyframe (relative to CreditsFingerprintStart).</param>
     /// <returns>Refined start time in seconds (relative to CreditsFingerprintStart).</returns>
     internal static double ConvertProbeTimestamp(double probeTime, double lastKeyframeTime) => probeTime + lastKeyframeTime;
+
+    /// <summary>
+    /// Validates a probe timestamp for boundary refinement and converts it to scene-relative time.
+    /// </summary>
+    /// <param name="probeTime">Timestamp from FFmpeg probe output (relative to seek point).</param>
+    /// <param name="lastKeyframeTime">Time of the preceding keyframe.</param>
+    /// <param name="sceneStartTime">Current scene start chosen by keyframe analysis.</param>
+    /// <returns>
+    /// The refined start time when the probe lands strictly after the preceding keyframe and no later than
+    /// the current scene start; otherwise <see langword="null"/>.
+    /// </returns>
+    internal static double? TryRefineBoundaryTime(double probeTime, double lastKeyframeTime, double sceneStartTime)
+    {
+        var refinedTime = ConvertProbeTimestamp(probeTime, lastKeyframeTime);
+        return refinedTime <= lastKeyframeTime || refinedTime > sceneStartTime ? null : refinedTime;
+    }
 
     /// <summary>
     /// Checks whether a scene meets the minimum black-frame density threshold.
