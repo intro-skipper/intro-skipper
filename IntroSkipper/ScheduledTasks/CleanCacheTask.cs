@@ -4,12 +4,6 @@
 // SPDX-FileCopyrightText: 2024 theMasterpc
 // SPDX-License-Identifier: GPL-3.0-only
 
-using System;
-using System.Collections.Generic;
-using System.IO;
-using System.Linq;
-using System.Threading;
-using System.Threading.Tasks;
 using IntroSkipper.Manager;
 using MediaBrowser.Controller.Library;
 using MediaBrowser.Controller.Providers;

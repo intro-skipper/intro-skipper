@@ -2,7 +2,6 @@
 // SPDX-FileCopyrightText: 2025-2026 Kilian von Pflugk
 // SPDX-License-Identifier: GPL-3.0-only
 
-using System;
 using System.Globalization;
 using System.Text.RegularExpressions;
 

@@ -1,7 +1,6 @@
 // SPDX-FileCopyrightText: 2026 rlauuzo
 // SPDX-License-Identifier: GPL-3.0-only
 
-using System;
 using Jellyfin.Extensions;
 using MediaBrowser.Controller.Entities.TV;
 

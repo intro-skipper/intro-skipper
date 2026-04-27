@@ -4,13 +4,7 @@
 // SPDX-FileCopyrightText: 2024-2026 rlauuzo
 // SPDX-License-Identifier: GPL-3.0-only
 
-using System;
-using System.Collections.Generic;
-using System.IO;
-using System.Linq;
 using System.Text.RegularExpressions;
-using System.Threading;
-using System.Threading.Tasks;
 using IntroSkipper.Data;
 using IntroSkipper.Helper;
 using Jellyfin.Data.Enums;

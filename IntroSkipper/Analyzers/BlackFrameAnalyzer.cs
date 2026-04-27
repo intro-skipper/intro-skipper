@@ -4,11 +4,6 @@
 // SPDX-FileCopyrightText: 2024-2026 rlauuzo
 // SPDX-License-Identifier: GPL-3.0-only
 
-using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Threading;
-using System.Threading.Tasks;
 using IntroSkipper.Configuration;
 using IntroSkipper.Data;
 using Microsoft.Extensions.Logging;

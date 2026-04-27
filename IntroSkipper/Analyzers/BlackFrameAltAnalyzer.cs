@@ -3,11 +3,6 @@
 // SPDX-FileCopyrightText: 2026 Kilian von Pflugk
 // SPDX-License-Identifier: GPL-3.0-only
 
-using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Threading;
-using System.Threading.Tasks;
 using IntroSkipper.Configuration;
 using IntroSkipper.Data;
 using Microsoft.Extensions.Logging;
@@ -16,7 +11,7 @@ namespace IntroSkipper.Analyzers;
 
 /// <summary>
 /// Media file analyzer used to detect end credits that consist of text overlaid on a black background.
-/// Uses an adaptive binary search algorithm to efficiently locate the start of credits.
+/// Uses full keyframe scanning with density gating and boundary refinement for robust credit detection.
 /// </summary>
 /// <remarks>
 /// Initializes a new instance of the <see cref="BlackFrameAltAnalyzer"/> class.
@@ -24,7 +19,9 @@ namespace IntroSkipper.Analyzers;
 /// <param name="logger">Logger for the analyzer.</param>
 public sealed partial class BlackFrameAltAnalyzer(ILogger<BlackFrameAltAnalyzer> logger) : IMediaFileAnalyzer
 {
-    private const int MaximumTimeSkip = 15;
+    private const int MaximumTimeSkip = 20;
+    private const double MinimumBlackFrameDensity = 0.50;
+    private const double MinimumBoundaryProbeWindow = 0.50;
     private readonly PluginConfiguration _config = Plugin.Instance?.Configuration ?? new PluginConfiguration();
     private readonly ILogger<BlackFrameAltAnalyzer> _logger = logger ?? throw new ArgumentNullException(nameof(logger));
 
@@ -108,7 +105,8 @@ public sealed partial class BlackFrameAltAnalyzer(ILogger<BlackFrameAltAnalyzer>
             return null;
         }
 
-        var scenes = DetectCreditScenes(blackFrames, minimumPercentage);
+        var (minimum, sceneChange) = NormalizeThreshold(blackFrames, minimumPercentage);
+        var scenes = DetectCreditScenes(blackFrames, minimum, sceneChange);
         if (scenes.Count == 0)
         {
             return null;
@@ -118,7 +116,13 @@ public sealed partial class BlackFrameAltAnalyzer(ILogger<BlackFrameAltAnalyzer>
         for (var i = scenes.Count - 1; i >= 0; i--)
         {
             var scene = scenes[i];
-            var segment = new Segment(episode.EpisodeId, new TimeRange(scene.StartTime + episode.CreditsFingerprintStart, scene.EndTime + episode.CreditsFingerprintStart));
+
+            // Refine the start time using full-frame boundary probing
+            var refinedStartTime = _config.RefineCreditsBoundary
+                ? RefineBoundary(episode, blackFrames, scene, sceneChange, threshold, minimumDuration)
+                : scene.StartTime;
+
+            var segment = new Segment(episode.EpisodeId, new TimeRange(refinedStartTime + episode.CreditsFingerprintStart, scene.EndTime + episode.CreditsFingerprintStart));
 
             if (segment.Duration >= minimumDuration)
             {
@@ -131,19 +135,246 @@ public sealed partial class BlackFrameAltAnalyzer(ILogger<BlackFrameAltAnalyzer>
         return null;
     }
 
-    private static List<CreditScene> DetectCreditScenes(List<BlackFrame> frames, int minimumPercentage)
+    /// <summary>
+    /// Normalizes black frame detection thresholds based on the video's natural black levels.
+    /// Uses the 1st-percentile frame as a floor (capped at 30%) and scales the minimum
+    /// percentage and scene-change threshold accordingly.
+    /// </summary>
+    /// <param name="frames">All detected keyframes.</param>
+    /// <param name="minimumPercentage">Configured minimum black percentage.</param>
+    /// <returns>Normalized (minimum, sceneChange) thresholds.</returns>
+    internal static (int Minimum, int SceneChange) NormalizeThreshold(List<BlackFrame> frames, int minimumPercentage)
     {
-        var scenes = new List<CreditScene>();
-        BlackFrame? sceneStart = null;
-        BlackFrame? lastBlack = null;
+        ArgumentOutOfRangeException.ThrowIfZero(frames.Count, nameof(frames));
 
-        // Normalize the threshold based on consistent dark elements, capping floor at 30%
-        // Adapts the detection sensitivity to the video's natural black levels
         var orderedFrames = frames.OrderBy(f => f.Percentage).ToList();
         var percentileIndex = (int)(frames.Count * 0.01); // 1st percentile
         var floor = Math.Min(orderedFrames[percentileIndex].Percentage, 30);
         var minimum = (minimumPercentage * (100 - floor) / 100) + floor;
         var sceneChange = (95 * (100 - floor) / 100) + floor;
+        return (minimum, sceneChange);
+    }
+
+    /// <summary>
+    /// Finds the bounding keyframe times for a credit scene transition.
+    /// Returns the time of the immediately preceding keyframe and the first keyframe at or after the scene start.
+    /// </summary>
+    /// <param name="frames">All detected keyframes.</param>
+    /// <param name="scene">The credit scene to find boundaries for.</param>
+    /// <returns>Boundary times, or null if no preceding keyframe exists.</returns>
+    internal static (double LastKeyframeTime, double FirstBlackTime)? FindBoundaryKeyframeTimes(
+        List<BlackFrame> frames,
+        CreditScene scene)
+    {
+        double? lastKeyframeTime = null;
+        double? firstBlackTime = null;
+
+        for (var i = 0; i < frames.Count; i++)
+        {
+            var frame = frames[i];
+
+            if (frame.Time < scene.StartTime)
+            {
+                lastKeyframeTime = frame.Time;
+            }
+
+            if (frame.Time >= scene.StartTime && firstBlackTime is null)
+            {
+                firstBlackTime = frame.Time;
+                break;
+            }
+        }
+
+        if (lastKeyframeTime is null || firstBlackTime is null)
+        {
+            return null;
+        }
+
+        return (lastKeyframeTime.Value, firstBlackTime.Value);
+    }
+
+    /// <summary>
+    /// Refines the start time of a credit scene by probing the gap between keyframes
+    /// with full-frame (non-keyframe-only) analysis.
+    /// </summary>
+    /// <param name="episode">The episode being analyzed.</param>
+    /// <param name="frames">All detected keyframes.</param>
+    /// <param name="scene">The credit scene whose start time to refine.</param>
+    /// <param name="sceneChange">Normalized transition threshold used to select the scene start.</param>
+    /// <param name="threshold">Pixel luminance threshold for black detection.</param>
+    /// <param name="minimumDuration">Minimum duration required for a credits segment.</param>
+    /// <returns>Refined start time in seconds (relative to CreditsFingerprintStart).</returns>
+    private double RefineBoundary(
+        QueuedEpisode episode,
+        List<BlackFrame> frames,
+        CreditScene scene,
+        int sceneChange,
+        int threshold,
+        int minimumDuration)
+    {
+        var boundary = FindBoundaryKeyframeTimes(frames, scene);
+        if (boundary is null)
+        {
+            return scene.StartTime;
+        }
+
+        var (lastKeyframeTime, firstBlackTime) = boundary.Value;
+        if (!ShouldRefineBoundary(scene, lastKeyframeTime, minimumDuration))
+        {
+            return scene.StartTime;
+        }
+
+        var probeMinimum = SelectProbeMinimum(frames, scene, sceneChange);
+
+        // Probe the gap between the preceding keyframe and the first black keyframe
+        // using full-frame analysis (no -skip_frame nokey).
+        // Times are relative to CreditsFingerprintStart, so offset for the range-based overload.
+        var probeStart = lastKeyframeTime + episode.CreditsFingerprintStart;
+        var probeEnd = firstBlackTime + episode.CreditsFingerprintStart;
+        var probeRange = new TimeRange(probeStart, probeEnd);
+
+        var probeFrames = FFmpegWrapper.DetectBlackFrames(episode, probeRange, probeMinimum, threshold);
+
+        if (probeFrames.Length == 0)
+        {
+            return scene.StartTime;
+        }
+
+        var refinedTime = TryRefineBoundaryTime(probeFrames[0].Time, lastKeyframeTime, scene.StartTime);
+        if (refinedTime is null)
+        {
+            return scene.StartTime;
+        }
+
+        LogRefinedBoundary(scene.StartTime, refinedTime.Value);
+
+        return refinedTime.Value;
+    }
+
+    /// <summary>
+    /// Selects the minimum black percentage threshold for boundary probing.
+    /// </summary>
+    /// <remarks>
+    /// Probing should not use a weaker threshold than the final scene start decision.
+    /// When the scene start was chosen by the stronger transition threshold, probing is capped at that value.
+    /// Otherwise, probing uses the selected start frame's measured black level.
+    /// </remarks>
+    /// <param name="frames">All detected keyframes.</param>
+    /// <param name="scene">The credit scene whose start boundary is being refined.</param>
+    /// <param name="sceneChange">Normalized transition threshold used to select the scene start.</param>
+    /// <returns>The minimum black percentage to use for full-frame probing.</returns>
+    internal static int SelectProbeMinimum(List<BlackFrame> frames, CreditScene scene, int sceneChange)
+    {
+        var startFrame = frames.First(frame => frame.Frame == scene.StartFrame);
+        return Math.Min(startFrame.Percentage, sceneChange);
+    }
+
+    /// <summary>
+    /// Determines whether boundary refinement is likely to materially change the result.
+    /// </summary>
+    /// <param name="scene">The credit scene whose start boundary is being refined.</param>
+    /// <param name="lastKeyframeTime">Time of the preceding keyframe.</param>
+    /// <param name="minimumDuration">Minimum duration required for a credits segment.</param>
+    /// <returns>
+    /// <see langword="true"/> when the preceding keyframe gap is large enough to matter and the
+    /// additional time could affect segment validity; otherwise, <see langword="false"/>.
+    /// </returns>
+    internal static bool ShouldRefineBoundary(CreditScene scene, double lastKeyframeTime, int minimumDuration)
+    {
+        var maximumRefinementWindow = scene.StartTime - lastKeyframeTime;
+        if (maximumRefinementWindow <= MinimumBoundaryProbeWindow)
+        {
+            return false;
+        }
+
+        var currentDuration = scene.EndTime - scene.StartTime;
+        return currentDuration + maximumRefinementWindow >= minimumDuration;
+    }
+
+    /// <summary>
+    /// Converts an FFmpeg probe timestamp (relative to the seek point) back to
+    /// CreditsFingerprintStart-relative time.
+    /// </summary>
+    /// <remarks>
+    /// The range-based FFmpeg overload uses -ss before -i (input seeking),
+    /// so output timestamps are relative to the seek point (lastKeyframeTime + CreditsFingerprintStart).
+    /// Converting back:
+    ///   absoluteTime = probeTime + lastKeyframeTime + CreditsFingerprintStart,
+    ///   relativeTime = absoluteTime - CreditsFingerprintStart
+    ///                = probeTime + lastKeyframeTime.
+    /// </remarks>
+    /// <param name="probeTime">Timestamp from FFmpeg probe output (relative to seek point).</param>
+    /// <param name="lastKeyframeTime">Time of the preceding keyframe (relative to CreditsFingerprintStart).</param>
+    /// <returns>Refined start time in seconds (relative to CreditsFingerprintStart).</returns>
+    internal static double ConvertProbeTimestamp(double probeTime, double lastKeyframeTime) => probeTime + lastKeyframeTime;
+
+    /// <summary>
+    /// Validates a probe timestamp for boundary refinement and converts it to scene-relative time.
+    /// </summary>
+    /// <param name="probeTime">Timestamp from FFmpeg probe output (relative to seek point).</param>
+    /// <param name="lastKeyframeTime">Time of the preceding keyframe.</param>
+    /// <param name="sceneStartTime">Current scene start chosen by keyframe analysis.</param>
+    /// <returns>
+    /// The refined start time when the probe lands strictly after the preceding keyframe and no later than
+    /// the current scene start; otherwise <see langword="null"/>.
+    /// </returns>
+    internal static double? TryRefineBoundaryTime(double probeTime, double lastKeyframeTime, double sceneStartTime)
+    {
+        var refinedTime = ConvertProbeTimestamp(probeTime, lastKeyframeTime);
+        return refinedTime <= lastKeyframeTime || refinedTime > sceneStartTime ? null : refinedTime;
+    }
+
+    /// <summary>
+    /// Checks whether a scene meets the minimum black-frame density threshold.
+    /// </summary>
+    /// <remarks>
+    /// <paramref name="searchStart"/> is an optimization index passed by reference. It tracks the
+    /// first frame index that falls within (or after) the most recently checked scene. Because both
+    /// frames and scenes are time-sorted, later scenes can skip frames that precede them.
+    ///
+    /// <para><b>Invariant:</b> <paramref name="searchStart"/> only advances forward. Each call sets it
+    /// to the index of the first frame at or after <c>scene.StartTime</c>, so the next call with a
+    /// later scene starts scanning from there instead of from 0.</para>
+    ///
+    /// <para><b>Exception:</b> Callers checking a <em>merged</em> span (which may start earlier than the
+    /// previous individual scene) must pass a fresh <c>searchStart = 0</c> to avoid skipping frames
+    /// that fall within the merged range.</para>
+    /// </remarks>
+    private static bool HasMinimumBlackFrameDensity(List<BlackFrame> frames, CreditScene scene, int minimum, ref int searchStart)
+    {
+        var totalInScene = 0;
+        var blackInScene = 0;
+        for (var i = searchStart; i < frames.Count; i++)
+        {
+            var frame = frames[i];
+            if (frame.Time > scene.EndTime)
+            {
+                break; // Frames are time-sorted; no more matches possible
+            }
+
+            if (frame.Time >= scene.StartTime)
+            {
+                if (totalInScene == 0)
+                {
+                    searchStart = i; // Advance for later scenes that start at or after this one
+                }
+
+                totalInScene++;
+                if (frame.Percentage >= minimum)
+                {
+                    blackInScene++;
+                }
+            }
+        }
+
+        return totalInScene > 0 && (double)blackInScene / totalInScene >= MinimumBlackFrameDensity;
+    }
+
+    internal static List<CreditScene> DetectCreditScenes(List<BlackFrame> frames, int minimum, int sceneChange)
+    {
+        var scenes = new List<CreditScene>();
+        BlackFrame? sceneStart = null;
+        BlackFrame? lastBlack = null;
 
         for (var i = 0; i < frames.Count; i++)
         {
@@ -182,33 +413,67 @@ public sealed partial class BlackFrameAltAnalyzer(ILogger<BlackFrameAltAnalyzer>
             scenes.Add(new CreditScene(sceneStart.Frame, lastBlack.Frame, sceneStart.Time, lastBlack.Time));
         }
 
-        // Merge scenes that are close together
-        if (scenes.Count <= 1)
+        // Density gating: reject scenes where the ratio of black keyframes to total keyframes is too low.
+        // First filter individual scenes, then re-check merged spans so long non-black gaps do not
+        // turn separate dense scenes into one mostly non-black segment.
+        //
+        // searchStart advances monotonically across this loop because scenes are time-sorted —
+        // each scene starts at or after the previous one, so we never need to revisit earlier frames.
+        var densityFiltered = new List<CreditScene>(scenes.Count);
+        var searchStart = 0;
+        foreach (var scene in scenes)
         {
-            return scenes;
-        }
-
-        var merged = new List<CreditScene>(scenes.Count);
-        var current = scenes[0];
-
-        for (var i = 1; i < scenes.Count; i++)
-        {
-            var scene = scenes[i];
-            if (scene.StartTime - current.EndTime <= MaximumTimeSkip)
+            if (HasMinimumBlackFrameDensity(frames, scene, minimum, ref searchStart))
             {
-                current = new CreditScene(current.StartFrame, scene.EndFrame, current.StartTime, scene.EndTime);
-            }
-            else
-            {
-                merged.Add(current);
-                current = scene;
+                densityFiltered.Add(scene);
             }
         }
 
-        merged.Add(current);
+        if (densityFiltered.Count == 0)
+        {
+            return densityFiltered;
+        }
 
-        // Find the transition frame for each merged scene
+        // Merge density-filtered scenes that are close together
+        List<CreditScene> merged;
+        if (densityFiltered.Count <= 1)
+        {
+            merged = densityFiltered;
+        }
+        else
+        {
+            merged = new List<CreditScene>(densityFiltered.Count);
+            var current = densityFiltered[0];
+
+            for (var i = 1; i < densityFiltered.Count; i++)
+            {
+                var scene = densityFiltered[i];
+                var mergedScene = new CreditScene(current.StartFrame, scene.EndFrame, current.StartTime, scene.EndTime);
+
+                // Fresh searchStart: the merged span reaches back to current.StartTime, which may
+                // precede the index left by the per-scene density pass. Restarting from 0 ensures
+                // no frames in the merged range are skipped.
+                var mergeSearchStart = 0;
+                if (scene.StartTime - current.EndTime <= MaximumTimeSkip &&
+                    HasMinimumBlackFrameDensity(frames, mergedScene, minimum, ref mergeSearchStart))
+                {
+                    current = mergedScene;
+                }
+                else
+                {
+                    merged.Add(current);
+                    current = scene;
+                }
+            }
+
+            merged.Add(current);
+        }
+
+        // Find the transition frame for each merged scene.
+        // searchStart is reset to 0 and advances monotonically — merged scenes are frame-sorted,
+        // so each scene's startFrame is at or after the previous one's.
         var finalScenes = new List<CreditScene>(merged.Count);
+        searchStart = 0;
         foreach (var scene in merged)
         {
             var startFrame = scene.StartFrame;
@@ -217,14 +482,29 @@ public sealed partial class BlackFrameAltAnalyzer(ILogger<BlackFrameAltAnalyzer>
             var endTime = scene.EndTime;
 
             // Look for a scene change in the first part of the scene
-            for (var i = 0; i < frames.Count; i++)
+            for (var i = searchStart; i < frames.Count; i++)
             {
                 var frame = frames[i];
-                if (frame.Frame >= startFrame && frame.Frame <= endFrame && frame.Percentage >= sceneChange)
+                if (frame.Frame > endFrame)
                 {
-                    startFrame = frame.Frame;
-                    startTime = frame.Time;
-                    break;
+                    break; // Frames are frame-sorted; no more matches possible
+                }
+
+                if (frame.Frame >= startFrame)
+                {
+                    // Record the first in-range index so the next scene can skip past earlier frames.
+                    // Only set once: later frames in this scene are irrelevant for the next scene's start.
+                    if (searchStart < i)
+                    {
+                        searchStart = i;
+                    }
+
+                    if (frame.Percentage >= sceneChange)
+                    {
+                        startFrame = frame.Frame;
+                        startTime = frame.Time;
+                        break;
+                    }
                 }
             }
 
@@ -251,4 +531,7 @@ public sealed partial class BlackFrameAltAnalyzer(ILogger<BlackFrameAltAnalyzer>
 
     [LoggerMessage(Level = LogLevel.Trace, Message = "Found valid credits segment: start={Start:F2}s, end={End:F2}s, duration={Duration:F2}s")]
     private partial void LogFoundValidCreditsSegment(double start, double end, double duration);
+
+    [LoggerMessage(Level = LogLevel.Trace, Message = "Refined credit boundary from {OriginalStart:F2}s to {RefinedStart:F2}s")]
+    private partial void LogRefinedBoundary(double originalStart, double refinedStart);
 }

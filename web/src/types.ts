@@ -42,6 +42,7 @@ export interface PluginConfig {
     AnalyzeSeasonZero: boolean;
     UpdateMediaSegments: boolean;
     UseAlternativeBlackFrameAnalyzer: boolean;
+    RefineCreditsBoundary: boolean;
     UseChapterMarkersBlackFrame: boolean;
     FullLengthChapters: boolean;
     SkipFirstEpisode: boolean;

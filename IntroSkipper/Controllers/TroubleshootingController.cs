@@ -4,7 +4,6 @@
 // SPDX-FileCopyrightText: 2024-2025 AbandonedCart
 // SPDX-License-Identifier: GPL-3.0-only
 
-using System;
 using System.Net.Mime;
 using System.Text;
 using IntroSkipper.Data;
@@ -76,7 +75,7 @@ public partial class TroubleshootingController : ControllerBase
         bundle.Append(_applicationHost.ApplicationVersionString);
         bundle.Append('\n');
 
-        var version = Plugin.Instance.Version.ToString(3);
+        var version = Plugin.Instance.Version.ToString(4);
 
         try
         {
