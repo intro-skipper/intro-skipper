@@ -4,7 +4,6 @@
 // SPDX-FileCopyrightText: 2024 AbandonedCart
 // SPDX-License-Identifier: GPL-3.0-only
 
-using System;
 using System.Runtime.Serialization;
 using System.Text.Json.Serialization;
 

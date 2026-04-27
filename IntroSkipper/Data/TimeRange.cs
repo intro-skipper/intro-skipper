@@ -4,8 +4,6 @@
 // SPDX-FileCopyrightText: 2024-2025 AbandonedCart
 // SPDX-License-Identifier: GPL-3.0-only
 
-using System;
-
 namespace IntroSkipper.Data;
 
 #pragma warning disable CA1036 // Override methods on comparable types
