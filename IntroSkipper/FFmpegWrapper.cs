@@ -269,7 +269,7 @@ public static partial class FFmpegWrapper
         return ParseBlackFrame(raw);
     }
 
-    private static BlackFrame[] ParseBlackFrame(string raw, int minimum = 0)
+    internal static BlackFrame[] ParseBlackFrame(string raw, int minimum = 0)
     {
         var blackFrames = new List<BlackFrame>();
         /* Run the blackframe filter.
