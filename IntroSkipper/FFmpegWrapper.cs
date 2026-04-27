@@ -333,7 +333,7 @@ public static partial class FFmpegWrapper
         return [.. keyframes];
     }
 
-    private static BlackFrame[] ParseBlackFrame(string raw)
+    internal static BlackFrame[] ParseBlackFrame(string raw)
     {
         var blackFrames = new List<BlackFrame>();
         /* Run the blackframe filter.

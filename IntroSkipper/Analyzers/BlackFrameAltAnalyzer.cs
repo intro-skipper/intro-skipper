@@ -233,7 +233,7 @@ public sealed partial class BlackFrameAltAnalyzer(ILogger<BlackFrameAltAnalyzer>
         var probeEnd = firstBlackTime + episode.CreditsFingerprintStart;
         var probeRange = new TimeRange(probeStart, probeEnd);
 
-        var probeFrames = FFmpegWrapper.DetectBlackFrames(episode, probeRange, probeMinimum, threshold);
+        var probeFrames = FFmpegWrapper.DetectBlackFrames(episode, probeRange, probeMinimum, threshold, AnalysisMode.Credits);
 
         if (probeFrames.Length == 0)
         {
