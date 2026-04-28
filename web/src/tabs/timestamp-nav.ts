@@ -113,7 +113,10 @@ export function createNavState() {
 
     function getAllCachedShows(): ShowItem[] {
         return Array.from(libraryShows.values()).reduce<ShowItem[]>(
-            (allShows, shows) => allShows.concat(shows),
+            (allShows, shows) => {
+                allShows.push(...shows);
+                return allShows;
+            },
             [],
         );
     }
