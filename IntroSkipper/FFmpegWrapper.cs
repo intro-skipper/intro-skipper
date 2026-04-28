@@ -5,6 +5,7 @@
 // SPDX-FileCopyrightText: 2024-2025 AbandonedCart
 // SPDX-License-Identifier: GPL-3.0-only
 
+using System.Data.Common;
 using System.Diagnostics;
 using System.Globalization;
 using System.IO.Compression;
@@ -794,7 +795,7 @@ public static partial class FFmpegWrapper
 
             return true;
         }
-        catch (Exception ex) when (ex is JsonException or NotSupportedException or InvalidDataException)
+        catch (Exception ex) when (ex is JsonException or NotSupportedException or InvalidDataException or DbException)
         {
             if (Logger is { } logger)
             {
@@ -814,15 +815,15 @@ public static partial class FFmpegWrapper
 
         var data = CompressBrotli(items);
 
-        using var db = Plugin.CreateCacheDbContext();
-
-        // NOTE: Start/End are compared with == which is safe only because the exact same
-        // double values that were written are used for lookup (no intermediate arithmetic).
-        var existing = db.DetectionCache
-            .FirstOrDefault(e => e.ItemId == itemId && e.Mode == mode && e.Type == type && e.Start == start && e.End == end);
-
         try
         {
+            using var db = Plugin.CreateCacheDbContext();
+
+            // NOTE: Start/End are compared with == which is safe only because the exact same
+            // double values that were written are used for lookup (no intermediate arithmetic).
+            var existing = db.DetectionCache
+                .FirstOrDefault(e => e.ItemId == itemId && e.Mode == mode && e.Type == type && e.Start == start && e.End == end);
+
             if (existing is not null)
             {
                 existing.Data = data;
@@ -834,11 +835,10 @@ public static partial class FFmpegWrapper
 
             db.SaveChanges();
         }
-        catch (DbUpdateException)
+        catch (Exception ex) when (ex is DbUpdateException or DbException)
         {
-            // Suppress duplicate-insert races. The cache is a performance optimization;
-            // if another thread already inserted the same composite key, the data is identical
-            // and the failure is harmless.
+            // Suppress duplicate-insert races and database-level cache failures. The cache is a
+            // performance optimization; write failures should never discard valid analysis results.
         }
     }
 
