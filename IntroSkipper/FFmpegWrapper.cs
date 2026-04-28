@@ -665,9 +665,19 @@ public static partial class FFmpegWrapper
     /// <param name="id">Media item ID to remove from cache.</param>
     public static void DeleteFingerprintCache(Guid id)
     {
-        // Delete from the SQLite cache database.
-        using var db = Plugin.CreateCacheDbContext();
-        db.DetectionCache.Where(e => e.ItemId == id).ExecuteDelete();
+        try
+        {
+            // Delete from the SQLite cache database.
+            using var db = Plugin.CreateCacheDbContext();
+            db.DetectionCache.Where(e => e.ItemId == id).ExecuteDelete();
+        }
+        catch (Exception ex) when (ex is DbUpdateException or DbException)
+        {
+            if (Logger is { } logger)
+            {
+                LogDetectionCacheDeleteError(logger, ex, id.ToString("N"));
+            }
+        }
 
         var cacheDir = Plugin.Instance?.FingerprintCachePath;
         if (cacheDir is not null && Directory.Exists(cacheDir))
@@ -701,9 +711,19 @@ public static partial class FFmpegWrapper
     /// <param name="mode">Analysis mode.</param>
     public static void DeleteCacheFiles(AnalysisMode mode)
     {
-        // Delete from the SQLite cache database.
-        using var db = Plugin.CreateCacheDbContext();
-        db.DetectionCache.Where(e => e.Mode == mode).ExecuteDelete();
+        try
+        {
+            // Delete from the SQLite cache database.
+            using var db = Plugin.CreateCacheDbContext();
+            db.DetectionCache.Where(e => e.Mode == mode).ExecuteDelete();
+        }
+        catch (Exception ex) when (ex is DbUpdateException or DbException)
+        {
+            if (Logger is { } logger)
+            {
+                LogDetectionCacheDeleteError(logger, ex, mode.ToString());
+            }
+        }
 
         var cacheDir = Plugin.Instance?.FingerprintCachePath;
         if (cacheDir is not null && Directory.Exists(cacheDir))
@@ -1027,6 +1047,9 @@ public static partial class FFmpegWrapper
 
     [LoggerMessage(Level = LogLevel.Debug, Message = "Error writing detection cache for {CacheKey}")]
     private static partial void LogDetectionCacheWriteError(ILogger logger, Exception ex, string cacheKey);
+
+    [LoggerMessage(Level = LogLevel.Debug, Message = "Error deleting detection cache for {CacheKey}")]
+    private static partial void LogDetectionCacheDeleteError(ILogger logger, Exception ex, string cacheKey);
 
     [LoggerMessage(Level = LogLevel.Debug, Message = "Migrating legacy cache {LegacyKey} to {NewKey}")]
     private static partial void LogMigratingLegacyCache(ILogger logger, string legacyKey, string newKey);
