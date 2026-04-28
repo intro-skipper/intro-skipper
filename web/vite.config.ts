@@ -3,6 +3,7 @@ import { defineConfig } from "vite";
 
 export default defineConfig({
     build: {
+        target: "es2018",
         lib: {
             entry: resolve(import.meta.dirname, "src/main.ts"),
             name: "IntroSkipperDashboard",
