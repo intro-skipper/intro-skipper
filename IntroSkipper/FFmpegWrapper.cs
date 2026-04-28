@@ -710,8 +710,10 @@ public static partial class FFmpegWrapper
         {
             foreach (var filePath in Directory.EnumerateFiles(cacheDir)
                 .Where(f => mode == AnalysisMode.Introduction
-                    ? !Path.GetFileName(f).Contains("-credits", StringComparison.OrdinalIgnoreCase)
-                    : Path.GetFileName(f).Contains("-credits", StringComparison.OrdinalIgnoreCase)))
+                    ? !Path.GetFileName(f).Contains("credit", StringComparison.OrdinalIgnoreCase)
+                        && !Path.GetFileName(f).Contains("blackframes", StringComparison.OrdinalIgnoreCase)
+                    : Path.GetFileName(f).Contains("credit", StringComparison.OrdinalIgnoreCase)
+                        || Path.GetFileName(f).Contains("blackframes", StringComparison.OrdinalIgnoreCase)))
             {
                 try
                 {
@@ -904,9 +906,8 @@ public static partial class FFmpegWrapper
             var raw = File.ReadAllText(legacyTextPath, Encoding.UTF8);
             result = rawParser(raw);
 
-            // If the parser returned nothing the legacy file is corrupt or unreadable.
-            // Delete it so it doesn't block future attempts, then fall through to re-analysis.
-            if (result.Length == 0)
+            // An empty chromaprint legacy file is corrupt; empty detection result caches are valid.
+            if (type == CacheEntryType.Chromaprint && result.Length == 0)
             {
                 File.Delete(legacyTextPath);
                 return false;

@@ -37,20 +37,20 @@ export const ffmpegTab: Tab = {
                 description:
                     "Number of simultaneous processes to use for FFmpeg operations. Setting 0 (default) uses the maximum threads available.",
             }),
-          selectField({
-          id: "CacheCompressionLevel",
-          label: "Cache Compression Level",
-          options: [
-            { value: "NoCompression", label: "No Compression" },
-            { value: "Fastest", label: "Fastest" },
-            { value: "Optimal", label: "Optimal" },
-            { value: "SmallestSize", label: "Smallest Size" },
-          ],
-          description:
-            "Controls the Brotli compression level for the detection cache. " +
-            "Higher compression reduces disk usage but increases CPU time during analysis. " +
-            "Changing this only affects newly cached data.",
-        }),
+            selectField({
+                id: "CacheCompressionLevel",
+                label: "Cache Compression Level",
+                options: [
+                    { value: "NoCompression", label: "No Compression" },
+                    { value: "Fastest", label: "Fastest" },
+                    { value: "Optimal", label: "Optimal" },
+                    { value: "SmallestSize", label: "Smallest Size" },
+                ],
+                description:
+                    "Controls the Brotli compression level for the detection cache. " +
+                    "Higher compression reduces disk usage but increases CPU time during analysis. " +
+                    "Changing this only affects newly cached data.",
+            }),
         );
     },
 };
