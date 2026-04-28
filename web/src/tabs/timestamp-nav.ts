@@ -112,7 +112,13 @@ export function createNavState() {
     }
 
     function getAllCachedShows(): ShowItem[] {
-        return Array.from(libraryShows.values()).flat();
+        return Array.from(libraryShows.values()).reduce<ShowItem[]>(
+            (allShows, shows) => {
+                allShows.push(...shows);
+                return allShows;
+            },
+            [],
+        );
     }
 
     function formatItemCount(count: number): string {
