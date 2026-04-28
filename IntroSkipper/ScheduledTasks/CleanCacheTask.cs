@@ -4,6 +4,7 @@
 // SPDX-FileCopyrightText: 2024 theMasterpc
 // SPDX-License-Identifier: GPL-3.0-only
 
+using System.Data.Common;
 using IntroSkipper.Manager;
 using MediaBrowser.Controller.Library;
 using MediaBrowser.Controller.Providers;
@@ -163,11 +164,18 @@ public partial class CleanCacheTask(
 
         if (invalidEpisodeIds.Count > 0)
         {
-            using var deleteDb = Plugin.CreateCacheDbContext();
-            await deleteDb.DetectionCache
-                .Where(e => invalidEpisodeIds.Contains(e.ItemId))
-                .ExecuteDeleteAsync(cancellationToken)
-                .ConfigureAwait(false);
+            try
+            {
+                using var deleteDb = Plugin.CreateCacheDbContext();
+                await deleteDb.DetectionCache
+                    .Where(e => invalidEpisodeIds.Contains(e.ItemId))
+                    .ExecuteDeleteAsync(cancellationToken)
+                    .ConfigureAwait(false);
+            }
+            catch (Exception ex) when (ex is DbUpdateException or DbException)
+            {
+                LogDeletingCacheRowsFailed(_logger, ex);
+            }
         }
 
         // Delete leftover legacy files for invalid episodes.
@@ -205,6 +213,9 @@ public partial class CleanCacheTask(
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "Failed to delete stale legacy cache file '{FilePath}'")]
     private static partial void LogDeletingLegacyFileFailed(ILogger logger, Exception exception, string filePath);
+
+    [LoggerMessage(Level = LogLevel.Debug, Message = "Failed to delete stale detection cache rows")]
+    private static partial void LogDeletingCacheRowsFailed(ILogger logger, Exception exception);
 
     [LoggerMessage(Level = LogLevel.Debug, Message = "Deleting non-migratable legacy cache file: {FilePath}")]
     private static partial void LogDeletingNonMigratableLegacyFile(ILogger logger, string filePath);
