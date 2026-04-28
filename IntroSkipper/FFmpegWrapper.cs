@@ -743,15 +743,25 @@ public static partial class FFmpegWrapper
 
         var (start, end) = GetFingerprintRange(episode, mode);
 
-        using var db = Plugin.CreateCacheDbContext();
-        if (db.DetectionCache.Any(e =>
-            e.ItemId == episode.EpisodeId &&
-            e.Mode == mode &&
-            e.Type == CacheEntryType.Chromaprint &&
-            e.Start == start &&
-            e.End == end))
+        try
         {
-            return true;
+            using var db = Plugin.CreateCacheDbContext();
+            if (db.DetectionCache.Any(e =>
+                e.ItemId == episode.EpisodeId &&
+                e.Mode == mode &&
+                e.Type == CacheEntryType.Chromaprint &&
+                e.Start == start &&
+                e.End == end))
+            {
+                return true;
+            }
+        }
+        catch (DbException ex)
+        {
+            if (Logger is { } logger)
+            {
+                LogDetectionCacheReadError(logger, ex, $"{episode.EpisodeId:N}-{mode}-{CacheEntryType.Chromaprint}");
+            }
         }
 
         var id = episode.EpisodeId.ToString("N");
