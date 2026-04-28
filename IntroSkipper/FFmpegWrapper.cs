@@ -847,6 +847,11 @@ public static partial class FFmpegWrapper
         }
         catch (Exception ex) when (ex is DbUpdateException or DbException)
         {
+            if (Logger is { } logger)
+            {
+                LogDetectionCacheWriteError(logger, ex, $"{itemId:N}-{mode}-{type}");
+            }
+
             // Suppress duplicate-insert races and database-level cache failures. The cache is a
             // performance optimization; write failures should never discard valid analysis results.
         }
@@ -889,6 +894,11 @@ public static partial class FFmpegWrapper
 
         // Migrate legacy on-disk text files into the SQLite cache.
         var legacyTextPath = GetLegacyFilePath(legacyCacheKey);
+        if (!File.Exists(legacyTextPath))
+        {
+            return false;
+        }
+
         try
         {
             var raw = File.ReadAllText(legacyTextPath, Encoding.UTF8);
@@ -1013,6 +1023,9 @@ public static partial class FFmpegWrapper
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "Error reading detection cache from {Path}")]
     private static partial void LogDetectionCacheReadError(ILogger logger, Exception ex, string path);
+
+    [LoggerMessage(Level = LogLevel.Debug, Message = "Error writing detection cache for {CacheKey}")]
+    private static partial void LogDetectionCacheWriteError(ILogger logger, Exception ex, string cacheKey);
 
     [LoggerMessage(Level = LogLevel.Debug, Message = "Migrating legacy cache {LegacyKey} to {NewKey}")]
     private static partial void LogMigratingLegacyCache(ILogger logger, string legacyKey, string newKey);
