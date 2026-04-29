@@ -6,7 +6,6 @@
 using IntroSkipper.Helper;
 using Jellyfin.Data.Enums;
 using Jellyfin.Database.Implementations.Enums;
-using Jellyfin.Extensions;
 using MediaBrowser.Controller.Entities;
 using MediaBrowser.Controller.Entities.TV;
 using MediaBrowser.Controller.Library;
@@ -37,12 +36,6 @@ public sealed partial class MediaSegmentsFirstEpisodeFilter(
     /// <inheritdoc />
     public async Task OnResultExecutionAsync(ResultExecutingContext context, ResultExecutionDelegate next)
     {
-        if (!IsMediaSegmentsRequest(context))
-        {
-            await next().ConfigureAwait(false);
-            return;
-        }
-
         if (!TryGetItemId(context, out var itemId))
         {
             LogMissingItemId(_logger, context.RouteData.Values);
@@ -138,26 +131,6 @@ public sealed partial class MediaSegmentsFirstEpisodeFilter(
             SeriesHelper.IsAnime(series);
     }
 
-    private static bool IsMediaSegmentsRequest(ResultExecutingContext context)
-    {
-        static bool ContainsMediaSegments(string? value)
-            => value?.Contains("MediaSegments", StringComparison.OrdinalIgnoreCase) == true;
-
-        if (context.RouteData.Values.TryGetValue("controller", out var controller)
-            && ContainsMediaSegments(controller?.ToString()))
-        {
-            return true;
-        }
-
-        if (ContainsMediaSegments(context.ActionDescriptor.DisplayName))
-        {
-            return true;
-        }
-
-        var path = context.HttpContext.Request.Path.Value;
-        return ContainsMediaSegments(path);
-    }
-
     private static bool TryGetItemId(ResultExecutingContext context, out Guid itemId)
     {
         foreach (var key in _routeItemKeys)
@@ -213,7 +186,7 @@ public sealed partial class MediaSegmentsFirstEpisodeFilter(
             : [.. segments.Where(segment => segment.Type != MediaSegmentType.Intro)];
     }
 
-    [LoggerMessage(Level = LogLevel.Warning, Message = "MediaSegments request missing item id. Route: {RouteValues}")]
+    [LoggerMessage(Level = LogLevel.Debug, Message = "MediaSegments request missing item id. Route: {RouteValues}")]
     private static partial void LogMissingItemId(ILogger logger, object routeValues);
 
     [LoggerMessage(Level = LogLevel.Debug, Message = "Filtering intro segments for first episode {EpisodeId} (SeasonId: {SeasonId}, Index: {Index})")]

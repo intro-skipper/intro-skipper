@@ -29,7 +29,7 @@ namespace IntroSkipper
             serviceCollection.AddSingleton<MediaSegmentsFirstEpisodeFilter>();
             serviceCollection.Configure<MvcOptions>(options =>
             {
-                options.Filters.AddService<MediaSegmentsFirstEpisodeFilter>();
+                options.Conventions.Add(new MediaSegmentsFilterConvention());
             });
         }
     }
