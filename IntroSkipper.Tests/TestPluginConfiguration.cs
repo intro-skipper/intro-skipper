@@ -8,6 +8,16 @@ namespace IntroSkipper.Tests;
 
 public class TestPluginConfiguration
 {
+    [Fact]
+    public void Constructor_UsesConfiguredAnalysisDefaults()
+    {
+        var config = new PluginConfiguration();
+
+        Assert.Equal(PluginConfiguration.DefaultAnalysisPercent, config.AnalysisPercent);
+        Assert.Equal(PluginConfiguration.DefaultAnalysisLengthLimit, config.AnalysisLengthLimit);
+        Assert.Equal(PluginConfiguration.DefaultMinimumIntroDuration, config.MinimumIntroDuration);
+    }
+
     [Theory]
     [InlineData(PluginConfiguration.MinimumAnalysisPercent - 2, PluginConfiguration.MinimumAnalysisPercent)]
     [InlineData(PluginConfiguration.MinimumAnalysisPercent - 1, PluginConfiguration.MinimumAnalysisPercent)]

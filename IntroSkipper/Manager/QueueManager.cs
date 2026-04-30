@@ -128,7 +128,9 @@ public partial class QueueManager(ILogger<QueueManager> logger, ILibraryManager 
         _excludeSeries = [.. config.ExcludeSeries.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)];
 
         // If analysis settings have been changed from the default, log the modified settings.
-        if (config.AnalysisLengthLimit != 10 || config.AnalysisPercent != PluginConfiguration.DefaultAnalysisPercent || config.MinimumIntroDuration != 15)
+        if (config.AnalysisLengthLimit != PluginConfiguration.DefaultAnalysisLengthLimit
+            || config.AnalysisPercent != PluginConfiguration.DefaultAnalysisPercent
+            || config.MinimumIntroDuration != PluginConfiguration.DefaultMinimumIntroDuration)
         {
             LogAnalysisSettingsChanged(_logger, config.AnalysisPercent, config.AnalysisLengthLimit, config.MinimumIntroDuration);
         }
