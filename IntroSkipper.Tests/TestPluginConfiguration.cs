@@ -9,12 +9,12 @@ namespace IntroSkipper.Tests;
 public class TestPluginConfiguration
 {
     [Theory]
-    [InlineData(-1, 1)]
-    [InlineData(0, 1)]
-    [InlineData(25, 25)]
-    [InlineData(50, 50)]
-    [InlineData(51, 50)]
-    public void AnalysisPercent_Setter_ClampsValuesBetweenOneAndFifty(int value, int expected)
+    [InlineData(PluginConfiguration.MinimumAnalysisPercent - 2, PluginConfiguration.MinimumAnalysisPercent)]
+    [InlineData(PluginConfiguration.MinimumAnalysisPercent - 1, PluginConfiguration.MinimumAnalysisPercent)]
+    [InlineData(PluginConfiguration.DefaultAnalysisPercent, PluginConfiguration.DefaultAnalysisPercent)]
+    [InlineData(PluginConfiguration.MaximumAnalysisPercent, PluginConfiguration.MaximumAnalysisPercent)]
+    [InlineData(PluginConfiguration.MaximumAnalysisPercent + 1, PluginConfiguration.MaximumAnalysisPercent)]
+    public void AnalysisPercent_Setter_ClampsValuesWithinConfiguredBounds(int value, int expected)
     {
         var config = new PluginConfiguration { AnalysisPercent = value };
 

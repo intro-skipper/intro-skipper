@@ -5,6 +5,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
 using System.Text.RegularExpressions;
+using IntroSkipper.Configuration;
 using IntroSkipper.Data;
 using IntroSkipper.Helper;
 using Jellyfin.Data.Enums;
@@ -127,7 +128,7 @@ public partial class QueueManager(ILogger<QueueManager> logger, ILibraryManager 
         _excludeSeries = [.. config.ExcludeSeries.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)];
 
         // If analysis settings have been changed from the default, log the modified settings.
-        if (config.AnalysisLengthLimit != 10 || config.AnalysisPercent != 25 || config.MinimumIntroDuration != 15)
+        if (config.AnalysisLengthLimit != 10 || config.AnalysisPercent != PluginConfiguration.DefaultAnalysisPercent || config.MinimumIntroDuration != 15)
         {
             LogAnalysisSettingsChanged(_logger, config.AnalysisPercent, config.AnalysisLengthLimit, config.MinimumIntroDuration);
         }

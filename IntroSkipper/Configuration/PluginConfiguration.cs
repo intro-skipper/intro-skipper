@@ -20,7 +20,22 @@ namespace IntroSkipper.Configuration;
 /// </summary>
 public class PluginConfiguration : BasePluginConfiguration
 {
-    private int _analysisPercent = 25;
+    /// <summary>
+    /// Default percentage of each episode's audio track to analyze.
+    /// </summary>
+    public const int DefaultAnalysisPercent = 25;
+
+    /// <summary>
+    /// Minimum percentage of each episode's audio track to analyze.
+    /// </summary>
+    public const int MinimumAnalysisPercent = 1;
+
+    /// <summary>
+    /// Maximum percentage of each episode's audio track to analyze.
+    /// </summary>
+    public const int MaximumAnalysisPercent = 50;
+
+    private int _analysisPercent = DefaultAnalysisPercent;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="PluginConfiguration"/> class.
@@ -108,7 +123,7 @@ public class PluginConfiguration : BasePluginConfiguration
     public int AnalysisPercent
     {
         get => _analysisPercent;
-        set => _analysisPercent = Math.Clamp(value, 1, 50);
+        set => _analysisPercent = Math.Clamp(value, MinimumAnalysisPercent, MaximumAnalysisPercent);
     }
 
     /// <summary>
