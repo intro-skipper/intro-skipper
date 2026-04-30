@@ -20,6 +20,8 @@ namespace IntroSkipper.Configuration;
 /// </summary>
 public class PluginConfiguration : BasePluginConfiguration
 {
+    private int _analysisPercent = 25;
+
     /// <summary>
     /// Initializes a new instance of the <see cref="PluginConfiguration"/> class.
     /// </summary>
@@ -103,7 +105,11 @@ public class PluginConfiguration : BasePluginConfiguration
     /// <summary>
     /// Gets or sets the percentage of each episode's audio track to analyze.
     /// </summary>
-    public int AnalysisPercent { get; set; } = 25;
+    public int AnalysisPercent
+    {
+        get => _analysisPercent;
+        set => _analysisPercent = Math.Min(value, 50);
+    }
 
     /// <summary>
     /// Gets or sets the upper limit (in minutes) on the length of each episode's audio track that will be analyzed.

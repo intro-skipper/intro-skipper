@@ -59,7 +59,7 @@ export const analysisTab: Tab = {
                 id: "AnalysisPercent",
                 label: "Percent of media to analyze",
                 min: 1,
-                max: 90,
+                max: 50,
                 description:
                     "Analysis will be limited to this percentage of each item's runtime. For example, a value of 25 (the default) will limit analysis to the first quarter of each item.",
             }),

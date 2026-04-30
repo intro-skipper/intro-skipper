@@ -26,7 +26,7 @@ export function validRegex(): ValidationRule<string> {
 
 // Per-field validation rules.
 export const validationRules: Partial<Record<keyof PluginConfig, ValidationRule<any>[]>> = {
-    AnalysisPercent: [range(1, 90)],
+    AnalysisPercent: [range(1, 50)],
     AnalysisLengthLimit: [minValue(1)],
     MinimumIntroDuration: [minValue(1)],
     MaximumIntroDuration: [minValue(1)],
