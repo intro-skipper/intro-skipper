@@ -108,7 +108,7 @@ public class PluginConfiguration : BasePluginConfiguration
     public int AnalysisPercent
     {
         get => _analysisPercent;
-        set => _analysisPercent = Math.Min(value, 50);
+        set => _analysisPercent = Math.Clamp(value, 1, 50);
     }
 
     /// <summary>
