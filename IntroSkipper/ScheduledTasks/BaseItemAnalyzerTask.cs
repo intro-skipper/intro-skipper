@@ -52,6 +52,13 @@ public partial class BaseItemAnalyzerTask(
     private readonly PluginConfiguration _config = Plugin.Instance?.Configuration ?? new PluginConfiguration();
     private readonly bool _ffmpegValid = FFmpegWrapper.CheckFFmpegVersion();
 
+    internal enum MediaFileAnalyzerKind
+    {
+        Chapter,
+        Chromaprint,
+        BlackFrame
+    }
+
     /// <summary>
     /// Analyze all media items on the server.
     /// </summary>
@@ -205,71 +212,9 @@ public partial class BaseItemAnalyzerTask(
 
         LogAnalyzingFiles(_logger, mode, items.Count, first.SeriesName, first.SeasonNumber);
 
-        // Build the default analyzer chain for this mode and content type.
-        // All applicable analyzers are always included — the order determines priority,
-        // and each analyzer skips episodes already handled by earlier ones via NeedsAnalysis().
-        var analyzers = new List<IMediaFileAnalyzer>
-        {
-            // ChapterAnalyzer: supports all modes and content types
-            new ChapterAnalyzer(_loggerFactory.CreateLogger<ChapterAnalyzer>())
-        };
-
-        if (mode is AnalysisMode.Credits)
-        {
-            if (isAnime)
-            {
-                // Anime credits: Chromaprint before BlackFrame (fingerprint matching preferred)
-                if (_ffmpegValid)
-                {
-                    analyzers.Add(new ChromaprintAnalyzer(_loggerFactory.CreateLogger<ChromaprintAnalyzer>()));
-                }
-
-                analyzers.Add(CreateBlackFrameAnalyzer());
-            }
-            else
-            {
-                // Non-anime credits: BlackFrame before Chromaprint
-                analyzers.Add(CreateBlackFrameAnalyzer());
-
-                if (!isMovie && _ffmpegValid)
-                {
-                    analyzers.Add(new ChromaprintAnalyzer(_loggerFactory.CreateLogger<ChromaprintAnalyzer>()));
-                }
-            }
-        }
-        else if (mode is AnalysisMode.Introduction)
-        {
-            // Introduction: Chromaprint is the only non-chapter analyzer
-            if (!isMovie && _ffmpegValid)
-            {
-                analyzers.Add(new ChromaprintAnalyzer(_loggerFactory.CreateLogger<ChromaprintAnalyzer>()));
-            }
-        }
-
-        // Recap, Preview, Commercial: only ChapterAnalyzer (already added above)
-
-        // Apply priority overrides to reorder the analyzer chain.
-        // The specified analyzer moves to the front; others keep their relative order.
-        // AnalyzerAction per-season override takes precedence over PreferChromaprint config.
-        switch (action)
-        {
-            case AnalyzerAction.Chapter:
-                PromoteAnalyzer(analyzers, static a => a is ChapterAnalyzer);
-                break;
-            case AnalyzerAction.Chromaprint:
-                PromoteAnalyzer(analyzers, static a => a is ChromaprintAnalyzer);
-                break;
-            case AnalyzerAction.BlackFrame:
-                PromoteAnalyzer(analyzers, static a => a is BlackFrameAnalyzer or BlackFrameAltAnalyzer);
-                break;
-            default:
-                if (_config.PreferChromaprint && _ffmpegValid)
-                {
-                    PromoteAnalyzer(analyzers, static a => a is ChromaprintAnalyzer);
-                }
-
-                break;
-        }
+        var analyzers = GetAnalyzerOrder(mode, category, _ffmpegValid, action, _config.PreferChromaprint)
+            .Select(CreateAnalyzer)
+            .ToList();
 
         // Execute each analyzer in order. Analyzers skip episodes already
         // marked as analyzed by earlier ones via NeedsAnalysis().
@@ -342,18 +287,91 @@ public partial class BaseItemAnalyzerTask(
         ? new BlackFrameAltAnalyzer(_loggerFactory.CreateLogger<BlackFrameAltAnalyzer>())
         : new BlackFrameAnalyzer(_loggerFactory.CreateLogger<BlackFrameAnalyzer>());
 
+    internal static IReadOnlyList<MediaFileAnalyzerKind> GetAnalyzerOrder(
+        AnalysisMode mode,
+        QueuedMediaCategory category,
+        bool ffmpegValid,
+        AnalyzerAction action,
+        bool preferChromaprint)
+    {
+        var isMovie = category == QueuedMediaCategory.Movie;
+        var isAnime = category == QueuedMediaCategory.AnimeEpisode;
+        var analyzers = new List<MediaFileAnalyzerKind>
+        {
+            MediaFileAnalyzerKind.Chapter
+        };
+
+        if (mode is AnalysisMode.Credits)
+        {
+            if (isAnime)
+            {
+                if (ffmpegValid)
+                {
+                    analyzers.Add(MediaFileAnalyzerKind.Chromaprint);
+                }
+
+                analyzers.Add(MediaFileAnalyzerKind.BlackFrame);
+            }
+            else
+            {
+                analyzers.Add(MediaFileAnalyzerKind.BlackFrame);
+
+                if (!isMovie && ffmpegValid)
+                {
+                    analyzers.Add(MediaFileAnalyzerKind.Chromaprint);
+                }
+            }
+
+            return analyzers;
+        }
+
+        if (mode is AnalysisMode.Introduction && !isMovie && ffmpegValid)
+        {
+            analyzers.Add(MediaFileAnalyzerKind.Chromaprint);
+        }
+
+        switch (action)
+        {
+            case AnalyzerAction.Chapter:
+                PromoteAnalyzer(analyzers, MediaFileAnalyzerKind.Chapter);
+                break;
+            case AnalyzerAction.Chromaprint:
+                PromoteAnalyzer(analyzers, MediaFileAnalyzerKind.Chromaprint);
+                break;
+            case AnalyzerAction.BlackFrame:
+                PromoteAnalyzer(analyzers, MediaFileAnalyzerKind.BlackFrame);
+                break;
+            default:
+                if (preferChromaprint && ffmpegValid)
+                {
+                    PromoteAnalyzer(analyzers, MediaFileAnalyzerKind.Chromaprint);
+                }
+
+                break;
+        }
+
+        return analyzers;
+    }
+
+    private IMediaFileAnalyzer CreateAnalyzer(MediaFileAnalyzerKind analyzer) => analyzer switch
+    {
+        MediaFileAnalyzerKind.Chapter => new ChapterAnalyzer(_loggerFactory.CreateLogger<ChapterAnalyzer>()),
+        MediaFileAnalyzerKind.Chromaprint => new ChromaprintAnalyzer(_loggerFactory.CreateLogger<ChromaprintAnalyzer>()),
+        MediaFileAnalyzerKind.BlackFrame => CreateBlackFrameAnalyzer(),
+        _ => throw new ArgumentOutOfRangeException(nameof(analyzer), analyzer, "Unexpected analyzer kind")
+    };
+
     /// <summary>
-    /// Moves the first analyzer matching <paramref name="predicate"/> to the front of the list,
+    /// Moves the first analyzer matching <paramref name="analyzer"/> to the front of the list,
     /// preserving the relative order of all other analyzers.
     /// </summary>
     /// <param name="analyzers">The analyzer list to reorder in place.</param>
-    /// <param name="predicate">Predicate identifying the analyzer to promote.</param>
-    private static void PromoteAnalyzer(List<IMediaFileAnalyzer> analyzers, Func<IMediaFileAnalyzer, bool> predicate)
+    /// <param name="analyzer">Analyzer to promote.</param>
+    private static void PromoteAnalyzer(List<MediaFileAnalyzerKind> analyzers, MediaFileAnalyzerKind analyzer)
     {
-        var index = analyzers.FindIndex(a => predicate(a));
+        var index = analyzers.IndexOf(analyzer);
         if (index > 0)
         {
-            var analyzer = analyzers[index];
             analyzers.RemoveAt(index);
             analyzers.Insert(0, analyzer);
         }
