@@ -822,8 +822,7 @@ public static partial class FFmpegWrapper
                 continue;
             }
 
-            if (episode.Category != QueuedMediaCategory.Movie &&
-                processed.Add((episode.EpisodeId, AnalysisMode.Introduction)) &&
+            if (processed.Add((episode.EpisodeId, AnalysisMode.Introduction)) &&
                 TryMigrateLegacyFingerprintCache(episode, AnalysisMode.Introduction))
             {
                 migrated++;
@@ -867,7 +866,8 @@ public static partial class FFmpegWrapper
             start,
             end,
             ParseFingerprintRaw,
-            out uint[] _);
+            out uint[] _,
+            out var persistedToCache) && persistedToCache;
     }
 
     private static string GetLegacyFingerprintCacheKey(Guid itemId, AnalysisMode mode)
@@ -937,11 +937,11 @@ public static partial class FFmpegWrapper
         }
     }
 
-    private static void WriteJsonCache<T>(Guid itemId, AnalysisMode mode, CacheEntryType type, double start, double end, T[] items)
+    private static bool WriteJsonCache<T>(Guid itemId, AnalysisMode mode, CacheEntryType type, double start, double end, T[] items)
     {
         if (!IsCachingEnabled())
         {
-            return;
+            return false;
         }
 
         var data = CompressBrotli(items);
@@ -965,6 +965,7 @@ public static partial class FFmpegWrapper
             }
 
             db.SaveChanges();
+            return true;
         }
         catch (Exception ex) when (ex is DbUpdateException or DbException)
         {
@@ -975,6 +976,7 @@ public static partial class FFmpegWrapper
 
             // Suppress duplicate-insert races and database-level cache failures. The cache is a
             // performance optimization; write failures should never discard valid analysis results.
+            return false;
         }
     }
 
@@ -1005,8 +1007,30 @@ public static partial class FFmpegWrapper
         double end,
         Func<string, T[]> rawParser,
         out T[] result)
+        => TryLoadLegacyCache(
+            legacyCacheKey,
+            itemId,
+            mode,
+            type,
+            start,
+            end,
+            rawParser,
+            out result,
+            out _);
+
+    private static bool TryLoadLegacyCache<T>(
+        string legacyCacheKey,
+        Guid itemId,
+        AnalysisMode mode,
+        CacheEntryType type,
+        double start,
+        double end,
+        Func<string, T[]> rawParser,
+        out T[] result,
+        out bool persistedToCache)
     {
         result = [];
+        persistedToCache = false;
 
         if (!IsCachingEnabled())
         {
@@ -1028,7 +1052,7 @@ public static partial class FFmpegWrapper
             // An empty chromaprint legacy file is corrupt; empty detection result caches are valid.
             if (type == CacheEntryType.Chromaprint && result.Length == 0)
             {
-                File.Delete(legacyTextPath);
+                DeleteLegacyCacheFile(legacyCacheKey);
                 return false;
             }
 
@@ -1045,7 +1069,7 @@ public static partial class FFmpegWrapper
                         LogLegacyDurationMismatch(mismatchLogger, legacyCacheKey, inferredDuration, expectedDuration);
                     }
 
-                    File.Delete(legacyTextPath);
+                    DeleteLegacyCacheFile(legacyCacheKey);
                     return false;
                 }
             }
@@ -1055,8 +1079,13 @@ public static partial class FFmpegWrapper
                 LogMigratingLegacyCache(logger, legacyCacheKey, $"{itemId:N}-{mode}-{type}");
             }
 
-            WriteJsonCache(itemId, mode, type, start, end, result);
-            File.Delete(legacyTextPath);
+            if (!WriteJsonCache(itemId, mode, type, start, end, result))
+            {
+                return true;
+            }
+
+            DeleteLegacyCacheFile(legacyCacheKey);
+            persistedToCache = true;
 
             return true;
         }
