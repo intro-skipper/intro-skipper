@@ -137,7 +137,7 @@ public sealed partial class BlackFrameAnalyzer(ILogger<BlackFrameAnalyzer> logge
                 var timeRange = new TimeRange(scanTime, scanTime + 2);
 
                 // Detect black frames in the current time range
-                var blackFrames = FFmpegWrapper.DetectBlackFrames(episode, timeRange, minimumBlackPercentage, threshold);
+                var blackFrames = FFmpegWrapper.DetectBlackFrames(episode, timeRange, minimumBlackPercentage, threshold, AnalysisMode.Credits);
 
                 LogBlackFramesDetected(_logger, episode.Name, timeRange.Start, blackFrames.Length);
 
@@ -227,7 +227,8 @@ public sealed partial class BlackFrameAnalyzer(ILogger<BlackFrameAnalyzer> logge
                 episode,
                 startRange,
                 percentage,
-                threshold).Length > 0;
+                threshold,
+                AnalysisMode.Credits).Length > 0;
 
             if (!hasBlackFramesAtStart)
             {
@@ -241,7 +242,8 @@ public sealed partial class BlackFrameAnalyzer(ILogger<BlackFrameAnalyzer> logge
                 episode,
                 beforeRange,
                 percentage,
-                threshold).Length > 0;
+                threshold,
+                AnalysisMode.Credits).Length > 0;
 
             if (!hasBlackFramesBefore)
             {
@@ -278,7 +280,7 @@ public sealed partial class BlackFrameAnalyzer(ILogger<BlackFrameAnalyzer> logge
 
             var timeRange = new TimeRange(scanTime - 1.0, scanTime);
 
-            var blackFrames = FFmpegWrapper.DetectBlackFrames(episode, timeRange, percentage, threshold);
+            var blackFrames = FFmpegWrapper.DetectBlackFrames(episode, timeRange, percentage, threshold, AnalysisMode.Credits);
 
             LogSearchScanning(_logger, scanTime, searchStart, blackFrames.Length);
 

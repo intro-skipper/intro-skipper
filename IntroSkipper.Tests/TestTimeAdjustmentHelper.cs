@@ -13,7 +13,7 @@ namespace IntroSkipper.Tests;
 
 public class TestTimeAdjustmentHelper
 {
-    private static (TimeAdjustmentHelper helper, PluginConfiguration cfg) CreateHelper(PluginConfiguration? cfg = null)
+    private static (TimeAdjustmentHelper helper, PluginConfiguration cfg) CreateHelper(PluginConfiguration? cfg = null, AnalysisMode mode = AnalysisMode.Introduction)
     {
         cfg ??= new PluginConfiguration
         {
@@ -27,7 +27,7 @@ public class TestTimeAdjustmentHelper
             IntroEndOffset = 0,
         };
 
-        return (new TimeAdjustmentHelper(new NullLoggerFactory().CreateLogger("Test"), cfg), cfg);
+        return (new TimeAdjustmentHelper(new NullLoggerFactory().CreateLogger("Test"), cfg, mode), cfg);
     }
 
     [Fact]

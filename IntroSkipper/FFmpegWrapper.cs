@@ -5,11 +5,16 @@
 // SPDX-FileCopyrightText: 2024-2025 AbandonedCart
 // SPDX-License-Identifier: GPL-3.0-only
 
+using System.Data.Common;
 using System.Diagnostics;
 using System.Globalization;
+using System.IO.Compression;
 using System.Text;
+using System.Text.Json;
 using System.Text.RegularExpressions;
 using IntroSkipper.Data;
+using IntroSkipper.Db;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 
 namespace IntroSkipper;
@@ -35,6 +40,12 @@ public static partial class FFmpegWrapper
     public static ILogger? Logger { get; set; }
 
     private static Dictionary<string, string> ChromaprintLogs { get; set; } = [];
+
+    private static bool IsCachingEnabled()
+        => Plugin.Instance?.Configuration.CacheFingerprints ?? false;
+
+    private static string GetLegacyFilePath(string cacheKey)
+        => Path.Join(Plugin.Instance?.FingerprintCachePath ?? string.Empty, cacheKey);
 
     /// <summary>
     /// Check that the installed version of ffmpeg supports chromaprint.
@@ -108,6 +119,16 @@ public static partial class FFmpegWrapper
         }
     }
 
+    private static (double Start, double End) GetFingerprintRange(QueuedEpisode episode, AnalysisMode mode)
+    {
+        return mode switch
+        {
+            AnalysisMode.Introduction => (0, episode.IntroFingerprintEnd),
+            AnalysisMode.Credits => (episode.CreditsFingerprintStart, episode.Duration),
+            _ => throw new ArgumentException("Unknown analysis mode " + mode),
+        };
+    }
+
     /// <summary>
     /// Fingerprint a queued episode.
     /// </summary>
@@ -116,23 +137,7 @@ public static partial class FFmpegWrapper
     /// <returns>Numerical fingerprint points.</returns>
     public static uint[] Fingerprint(QueuedEpisode episode, AnalysisMode mode)
     {
-        double start, end;
-
-        if (mode == AnalysisMode.Introduction)
-        {
-            start = 0;
-            end = episode.IntroFingerprintEnd;
-        }
-        else if (mode == AnalysisMode.Credits)
-        {
-            start = episode.CreditsFingerprintStart;
-            end = episode.Duration;
-        }
-        else
-        {
-            throw new ArgumentException("Unknown analysis mode " + mode);
-        }
-
+        var (start, end) = GetFingerprintRange(episode, mode);
         return Fingerprint(episode, mode, start, end);
     }
 
@@ -141,8 +146,9 @@ public static partial class FFmpegWrapper
     /// </summary>
     /// <param name="episode">Queued episode.</param>
     /// <param name="range">Time range to search.</param>
+    /// <param name="mode">Analysis mode, used to correctly key the cache entry.</param>
     /// <returns>Array of TimeRange objects that are silent in the queued episode.</returns>
-    public static TimeRange[] DetectSilence(QueuedEpisode episode, TimeRange range)
+    public static TimeRange[] DetectSilence(QueuedEpisode episode, TimeRange range, AnalysisMode mode)
     {
         if (Logger is { } detectLogger)
         {
@@ -161,16 +167,18 @@ public static partial class FFmpegWrapper
             "-f", "null", "-",
         };
 
-        // Cache the output of this command to "GUID-intro-silence-v2"
-        var cacheKey = string.Format(
+        var legacyCacheKey = string.Format(
             CultureInfo.InvariantCulture,
             "{0}-silence-{1}-{2}-v2",
             episode.EpisodeId.ToString("N"),
             range.Start,
             range.End);
 
-        var currentRange = new TimeRange();
-        var silenceRanges = new List<TimeRange>();
+        if (TryReadJsonCache(episode.EpisodeId, mode, CacheEntryType.Silence, range.Start, range.End, out TimeRange[] cached) ||
+            TryLoadLegacyCache(legacyCacheKey, episode.EpisodeId, mode, CacheEntryType.Silence, range.Start, range.End, raw => ParseSilenceRaw(raw, range.Start), out cached))
+        {
+            return cached;
+        }
 
         /* Each match will have a type (either "start" or "end") and a timecode (a double).
          *
@@ -178,24 +186,11 @@ public static partial class FFmpegWrapper
          * [silencedetect @ 0x000000000000] silence_start: 12.34
          * [silencedetect @ 0x000000000000] silence_end: 56.123 | silence_duration: 43.783
         */
-        var raw = Encoding.UTF8.GetString(GetOutput(args, cacheKey, true));
-        foreach (Match match in _silenceDetectionExpression.Matches(raw))
-        {
-            var isStart = match.Groups["type"].Value == "start";
-            var time = Convert.ToDouble(match.Groups["time"].Value, CultureInfo.InvariantCulture);
+        var raw = Encoding.UTF8.GetString(GetOutput(args, true));
+        var result = ParseSilenceRaw(raw, range.Start);
+        WriteJsonCache(episode.EpisodeId, mode, CacheEntryType.Silence, range.Start, range.End, result);
 
-            if (isStart)
-            {
-                currentRange.Start = time + range.Start;
-            }
-            else
-            {
-                currentRange.End = time + range.Start;
-                silenceRanges.Add(new TimeRange(currentRange));
-            }
-        }
-
-        return [.. silenceRanges];
+        return result;
     }
 
     /// <summary>
@@ -205,12 +200,14 @@ public static partial class FFmpegWrapper
     /// <param name="range">Time range to search.</param>
     /// <param name="minimum">Percentage of the frame that must be black.</param>
     /// <param name="threshold">Threshold for black frame detection.</param>
+    /// <param name="mode">Analysis mode, used to correctly key the cache entry.</param>
     /// <returns>Array of frames that are mostly black.</returns>
     public static BlackFrame[] DetectBlackFrames(
         QueuedEpisode episode,
         TimeRange range,
         int minimum,
-        int threshold)
+        int threshold,
+        AnalysisMode mode)
     {
         // Seek to the start of the time range and find frames that are at least 50% black.
         var args = new List<string>
@@ -223,17 +220,24 @@ public static partial class FFmpegWrapper
             "-f", "null", "-",
         };
 
-        // Cache the results to GUID-blackframes-START-END-v1.
-        var cacheKey = string.Format(
+        var legacyCacheKey = string.Format(
             CultureInfo.InvariantCulture,
             "{0}-blackframes-{1}-{2}-v1",
             episode.EpisodeId.ToString("N"),
             range.Start,
             range.End);
 
-        var raw = Encoding.UTF8.GetString(GetOutput(args, cacheKey, true));
+        if (TryReadJsonCache(episode.EpisodeId, mode, CacheEntryType.BlackFrame, range.Start, range.End, out BlackFrame[] cached) ||
+            TryLoadLegacyCache(legacyCacheKey, episode.EpisodeId, mode, CacheEntryType.BlackFrame, range.Start, range.End, static raw => ParseBlackFrame(raw), out cached))
+        {
+            return [.. cached.Where(bf => bf.Percentage >= minimum)];
+        }
 
-        return ParseBlackFrame(raw, minimum);
+        var raw = Encoding.UTF8.GetString(GetOutput(args, true));
+        var allFrames = ParseBlackFrame(raw);
+        WriteJsonCache(episode.EpisodeId, mode, CacheEntryType.BlackFrame, range.Start, range.End, allFrames);
+
+        return [.. allFrames.Where(bf => bf.Percentage >= minimum)];
     }
 
     /// <summary>
@@ -257,19 +261,80 @@ public static partial class FFmpegWrapper
             "-f", "null", "-",
         };
 
-        // Cache the results to GUID-blackframes-START-END-v1.
-        var cacheKey = string.Format(
+        var legacyCacheKey = string.Format(
             CultureInfo.InvariantCulture,
             "{0}-blackframes-{1}-alt",
             episode.EpisodeId.ToString("N"),
             episode.CreditsFingerprintStart);
 
-        var raw = Encoding.UTF8.GetString(GetOutput(args, cacheKey, true));
+        if (TryReadJsonCache(episode.EpisodeId, AnalysisMode.Credits, CacheEntryType.BlackFrame, episode.CreditsFingerprintStart, 0, out BlackFrame[] cached) ||
+            TryLoadLegacyCache(legacyCacheKey, episode.EpisodeId, AnalysisMode.Credits, CacheEntryType.BlackFrame, episode.CreditsFingerprintStart, 0, static raw => ParseBlackFrame(raw), out cached))
+        {
+            return cached;
+        }
 
-        return ParseBlackFrame(raw);
+        var raw = Encoding.UTF8.GetString(GetOutput(args, true));
+        var allFrames = ParseBlackFrame(raw);
+        WriteJsonCache(episode.EpisodeId, AnalysisMode.Credits, CacheEntryType.BlackFrame, episode.CreditsFingerprintStart, 0, allFrames);
+
+        return allFrames;
     }
 
-    internal static BlackFrame[] ParseBlackFrame(string raw, int minimum = 0)
+    private static TimeRange[] ParseSilenceRaw(string raw, double rangeStart)
+    {
+        var currentRange = new TimeRange();
+        var silenceRanges = new List<TimeRange>();
+
+        foreach (Match match in _silenceDetectionExpression.Matches(raw))
+        {
+            var isStart = match.Groups["type"].Value == "start";
+            var time = Convert.ToDouble(match.Groups["time"].Value, CultureInfo.InvariantCulture);
+
+            if (isStart)
+            {
+                currentRange.Start = time + rangeStart;
+            }
+            else
+            {
+                currentRange.End = time + rangeStart;
+                silenceRanges.Add(new TimeRange(currentRange));
+            }
+        }
+
+        return [.. silenceRanges];
+    }
+
+    private static double[] ParseKeyFramesRaw(string raw, double rangeStart)
+    {
+        var keyframes = new List<double>();
+
+        foreach (var line in raw.Split('\n', StringSplitOptions.RemoveEmptyEntries))
+        {
+            var ptsIndex = line.IndexOf("pts_time:", StringComparison.OrdinalIgnoreCase);
+            if (ptsIndex == -1)
+            {
+                continue;
+            }
+
+            var ptsTimeStr = line[(ptsIndex + 9)..].Split(' ', 2)[0];
+
+            if (double.TryParse(ptsTimeStr, CultureInfo.InvariantCulture, out double timestamp))
+            {
+                keyframes.Add(timestamp + rangeStart);
+            }
+            else
+            {
+                if (Logger is { } parseLogger)
+                {
+                    LogFailedToParseTimestamp(parseLogger, ptsTimeStr, line);
+                }
+            }
+        }
+
+        return [.. keyframes];
+    }
+
+    internal static BlackFrame[] ParseBlackFrame(string raw)
     {
         var blackFrames = new List<BlackFrame>();
         /* Run the blackframe filter.
@@ -290,12 +355,7 @@ public static partial class FFmpegWrapper
             var percentage = int.Parse(match.Groups[2].Value, CultureInfo.InvariantCulture);
             var time = double.Parse(match.Groups[3].Value, CultureInfo.InvariantCulture);
 
-            var bf = new BlackFrame(percentage, time, frame);
-
-            if (bf.Percentage >= minimum)
-            {
-                blackFrames.Add(bf);
-            }
+            blackFrames.Add(new BlackFrame(percentage, time, frame));
         }
 
         return [.. blackFrames];
@@ -306,8 +366,9 @@ public static partial class FFmpegWrapper
     /// </summary>
     /// <param name="episode">Media file to analyze.</param>
     /// <param name="range">Time range to search.</param>
+    /// <param name="mode">Analysis mode, used to correctly key the cache entry.</param>
     /// <returns>Array of timestamps of key frames.</returns>
-    public static double[] DetectKeyFrames(QueuedEpisode episode, TimeRange range)
+    public static double[] DetectKeyFrames(QueuedEpisode episode, TimeRange range, AnalysisMode mode)
     {
         var args = new List<string>
         {
@@ -320,40 +381,24 @@ public static partial class FFmpegWrapper
             "-f", "null", "-",
         };
 
-        var cacheKey = string.Format(
+        var legacyCacheKey = string.Format(
             CultureInfo.InvariantCulture,
             "{0}-keyframes-{1}-{2}-v1",
             episode.EpisodeId.ToString("N"),
             range.Start,
             range.End);
 
-        var keyframes = new List<double>();
-        var raw = Encoding.UTF8.GetString(GetOutput(args, cacheKey, stderr: true));
-
-        foreach (var line in raw.Split('\n', StringSplitOptions.RemoveEmptyEntries))
+        if (TryReadJsonCache(episode.EpisodeId, mode, CacheEntryType.Keyframe, range.Start, range.End, out double[] cached) ||
+            TryLoadLegacyCache(legacyCacheKey, episode.EpisodeId, mode, CacheEntryType.Keyframe, range.Start, range.End, raw => ParseKeyFramesRaw(raw, range.Start), out cached))
         {
-            var ptsIndex = line.IndexOf("pts_time:", StringComparison.OrdinalIgnoreCase);
-            if (ptsIndex == -1)
-            {
-                continue;
-            }
-
-            var ptsTimeStr = line[(ptsIndex + 9)..].Split(' ', 2)[0];
-
-            if (double.TryParse(ptsTimeStr, CultureInfo.InvariantCulture, out double timestamp))
-            {
-                keyframes.Add(timestamp + range.Start);
-            }
-            else
-            {
-                if (Logger is { } parseLogger)
-                {
-                    LogFailedToParseTimestamp(parseLogger, ptsTimeStr, line);
-                }
-            }
+            return cached;
         }
 
-        return [.. keyframes];
+        var raw = Encoding.UTF8.GetString(GetOutput(args, stderr: true));
+        var result = ParseKeyFramesRaw(raw, range.Start);
+        WriteJsonCache(episode.EpisodeId, mode, CacheEntryType.Keyframe, range.Start, range.End, result);
+
+        return result;
     }
 
     /// <summary>
@@ -403,7 +448,7 @@ public static partial class FFmpegWrapper
             LogCheckingRequirement(requirementLogger, arguments);
         }
 
-        var output = Encoding.UTF8.GetString(GetOutput(arguments.Split(' ', StringSplitOptions.RemoveEmptyEntries), string.Empty, false, 2000));
+        var output = Encoding.UTF8.GetString(GetOutput(arguments.Split(' ', StringSplitOptions.RemoveEmptyEntries), false, 2000));
         if (requirementLogger is not null)
         {
             LogFfmpegOutput(requirementLogger, arguments, output);
@@ -431,15 +476,12 @@ public static partial class FFmpegWrapper
 
     /// <summary>
     /// Runs ffmpeg and returns standard output (or error).
-    /// If caching is enabled, will use cacheFilename to cache the output of this command.
     /// </summary>
     /// <param name="args">Arguments to pass to ffmpeg as individual tokens.</param>
-    /// <param name="cacheFilename">Filename to cache the output of this command to, or string.Empty if this command should not be cached.</param>
     /// <param name="stderr">If standard error should be returned.</param>
     /// <param name="timeout">Timeout (in miliseconds) to wait for ffmpeg to exit.</param>
     private static ReadOnlySpan<byte> GetOutput(
         IReadOnlyList<string> args,
-        string cacheFilename,
         bool stderr = false,
         int timeout = 60 * 1000)
     {
@@ -452,33 +494,6 @@ public static partial class FFmpegWrapper
             a.Contains("showinfo", StringComparison.OrdinalIgnoreCase));
 
         var logLevel = useInfoLevel ? "info" : "warning";
-
-        var cacheOutput =
-            (Plugin.Instance?.Configuration.CacheFingerprints ?? false) &&
-            !string.IsNullOrEmpty(cacheFilename);
-
-        // If caching is enabled, try to load the output of this command from the cached file.
-        if (cacheOutput)
-        {
-            // Calculate the absolute path to the cached file.
-            cacheFilename = Path.Join(Plugin.Instance!.FingerprintCachePath, cacheFilename);
-
-            // If the cached file exists, return whatever it holds.
-            if (File.Exists(cacheFilename))
-            {
-                if (Logger is { } cacheLogger)
-                {
-                    LogReturningCacheContents(cacheLogger, cacheFilename);
-                }
-
-                return File.ReadAllBytes(cacheFilename);
-            }
-
-            if (Logger is { } cacheMissLogger)
-            {
-                LogCacheNotFound(cacheMissLogger, cacheFilename);
-            }
-        }
 
         // For FFmpeg info queries (-version, -muxers, -h), don't add the thread count flag
         // to avoid "Trailing option(s) found" warning. These are quick queries.
@@ -547,15 +562,7 @@ public static partial class FFmpegWrapper
 
         ffmpeg.WaitForExit(timeout);
 
-        var output = ms.ToArray();
-
-        // If caching is enabled, cache the output of this command.
-        if (cacheOutput)
-        {
-            File.WriteAllBytes(cacheFilename, output);
-        }
-
-        return output;
+        return ms.ToArray();
     }
 
     /// <summary>
@@ -569,7 +576,7 @@ public static partial class FFmpegWrapper
     private static uint[] Fingerprint(QueuedEpisode episode, AnalysisMode mode, double start, double end)
     {
         // Try to load this episode from cache before running ffmpeg.
-        if (LoadCachedFingerprint(episode, mode, out uint[] cachedFingerprint))
+        if (LoadCachedFingerprint(episode, mode, start, end, out uint[] cachedFingerprint))
         {
             if (Logger is { } cacheLogger)
             {
@@ -596,7 +603,7 @@ public static partial class FFmpegWrapper
         };
 
         // Returns all fingerprint points as raw 32-bit unsigned integers (little endian).
-        var rawPoints = GetOutput(args, string.Empty);
+        var rawPoints = GetOutput(args);
         if (rawPoints.Length == 0 || rawPoints.Length % 4 != 0)
         {
             if (Logger is { } chromaLogger)
@@ -615,186 +622,356 @@ public static partial class FFmpegWrapper
         }
 
         // Try to cache this fingerprint.
-        CacheFingerprint(episode, mode, results);
+        WriteJsonCache(episode.EpisodeId, mode, CacheEntryType.Chromaprint, start, end, [.. results]);
 
         return [.. results];
     }
 
     /// <summary>
     /// Tries to load an episode's fingerprint from cache. If caching is not enabled, calling this function is a no-op.
-    /// This function was created before the unified caching mechanism was introduced (in v0.1.7).
+    /// Checks the SQLite detection cache first, then migrates legacy on-disk files on the fly.
     /// </summary>
     /// <param name="episode">Episode to try to load from cache.</param>
     /// <param name="mode">Analysis mode.</param>
+    /// <param name="start">Start time (in seconds) used when the fingerprint was cached.</param>
+    /// <param name="end">End time (in seconds) used when the fingerprint was cached.</param>
     /// <param name="fingerprint">Array to store the fingerprint in.</param>
-    /// <returns>true if the episode was successfully loaded from cache, false on any other error.</returns>
+    /// <returns><c>true</c> if the episode was successfully loaded from cache; otherwise <c>false</c>.</returns>
     private static bool LoadCachedFingerprint(
         QueuedEpisode episode,
         AnalysisMode mode,
+        double start,
+        double end,
         out uint[] fingerprint)
     {
         fingerprint = [];
 
-        // If fingerprint caching isn't enabled, don't try to load anything.
-        if (!(Plugin.Instance?.Configuration.CacheFingerprints ?? false))
+        if (!IsCachingEnabled())
         {
             return false;
         }
 
-        var path = GetFingerprintCachePath(episode, mode);
+        var id = episode.EpisodeId.ToString("N");
+        var suffix = mode == AnalysisMode.Credits ? "-credits" : string.Empty;
+        var legacyCacheKey = id + suffix;
 
-        // If this episode isn't cached, bail out.
-        if (!File.Exists(path))
-        {
-            return false;
-        }
-
-        string[] raw;
-        try
-        {
-            raw = File.ReadAllLines(path, Encoding.UTF8);
-        }
-        catch (IOException ex)
-        {
-            if (Logger is { } ioLogger)
-            {
-                LogFingerprintCacheReadIoError(ioLogger, ex, path);
-            }
-
-            return false;
-        }
-        catch (UnauthorizedAccessException ex)
-        {
-            if (Logger is { } accessLogger)
-            {
-                LogFingerprintCacheReadAccessError(accessLogger, ex, path);
-            }
-
-            return false;
-        }
-
-        var result = new List<uint>(raw.Length);
-
-        foreach (var rawNumber in raw)
-        {
-            if (uint.TryParse(rawNumber, NumberStyles.Integer, CultureInfo.InvariantCulture, out uint number))
-            {
-                result.Add(number);
-            }
-            else
-            {
-                if (Logger is { } invalidLogger)
-                {
-                    LogInvalidFingerprintEntry(invalidLogger, rawNumber, episode.Path, episode.EpisodeId);
-                }
-
-                return false;
-            }
-        }
-
-        fingerprint = [.. result];
-        return true;
+        return TryReadJsonCache(episode.EpisodeId, mode, CacheEntryType.Chromaprint, start, end, out fingerprint) ||
+            TryLoadLegacyCache(legacyCacheKey, episode.EpisodeId, mode, CacheEntryType.Chromaprint, start, end, ParseFingerprintRaw, out fingerprint);
     }
 
     /// <summary>
-    /// Cache an episode's fingerprint to disk. If caching is not enabled, calling this function is a no-op.
-    /// This function was created before the unified caching mechanism was introduced (in v0.1.7).
-    /// </summary>
-    /// <param name="episode">Episode to store in cache.</param>
-    /// <param name="mode">Analysis mode.</param>
-    /// <param name="fingerprint">Fingerprint of the episode to store.</param>
-    private static void CacheFingerprint(
-        QueuedEpisode episode,
-        AnalysisMode mode,
-        List<uint> fingerprint)
-    {
-        // Bail out if caching isn't enabled.
-        if (!(Plugin.Instance?.Configuration.CacheFingerprints ?? false))
-        {
-            return;
-        }
-
-        // Stringify each data point.
-        var lines = new List<string>();
-        foreach (var number in fingerprint)
-        {
-            lines.Add(number.ToString(CultureInfo.InvariantCulture));
-        }
-
-        // Cache the episode.
-        File.WriteAllLinesAsync(
-            GetFingerprintCachePath(episode, mode),
-            lines,
-            Encoding.UTF8).ConfigureAwait(false);
-    }
-
-    /// <summary>
-    /// Remove a cached episode fingerprint from disk.
+    /// Remove a cached episode fingerprint from the database.
     /// </summary>
     /// <param name="id">Media item ID to remove from cache.</param>
     public static void DeleteFingerprintCache(Guid id)
     {
-        var cachePath = Path.Join(
-            Plugin.Instance!.FingerprintCachePath,
-            id.ToString("N"));
-
-        // File.Delete(cachePath);
-        // File.Delete(cachePath + "-intro-silence-v1");
-        // File.Delete(cachePath + "-credits");
-
-        var filePattern = Path.GetFileName(cachePath) + "*";
-        foreach (var filePath in Directory.EnumerateFiles(Plugin.Instance!.FingerprintCachePath, filePattern))
+        try
         {
-            if (Logger is { } deleteLogger)
+            // Delete from the SQLite cache database.
+            using var db = Plugin.CreateCacheDbContext();
+            db.DetectionCache.Where(e => e.ItemId == id).ExecuteDelete();
+        }
+        catch (Exception ex) when (ex is DbUpdateException or DbException)
+        {
+            if (Logger is { } logger)
             {
-                LogDeleteEpisodeCache(deleteLogger, filePath);
+                LogDetectionCacheDeleteError(logger, ex, id.ToString("N"));
             }
+        }
 
-            File.Delete(filePath);
+        var cacheDir = Plugin.Instance?.FingerprintCachePath;
+        if (cacheDir is not null && Directory.Exists(cacheDir))
+        {
+            var filePattern = id.ToString("N") + "*";
+            foreach (var filePath in Directory.EnumerateFiles(cacheDir, filePattern))
+            {
+                if (Logger is { } deleteLogger)
+                {
+                    LogDeleteEpisodeCache(deleteLogger, filePath);
+                }
+
+                try
+                {
+                    File.Delete(filePath);
+                }
+                catch (IOException ex)
+                {
+                    if (Logger is { } errLogger)
+                    {
+                        LogDeleteLegacyCacheFileFailed(errLogger, ex, filePath);
+                    }
+                }
+            }
         }
     }
 
     /// <summary>
-    /// Remove cached fingerprints from disk by mode.
+    /// Remove cached fingerprints from the database by mode.
     /// </summary>
     /// <param name="mode">Analysis mode.</param>
     public static void DeleteCacheFiles(AnalysisMode mode)
     {
-        foreach (var filePath in Directory.EnumerateFiles(Plugin.Instance!.FingerprintCachePath)
-            .Where(f => mode == AnalysisMode.Introduction
-                ? !f.Contains("credit", StringComparison.OrdinalIgnoreCase)
-                    && !f.Contains("blackframes", StringComparison.OrdinalIgnoreCase)
-                : f.Contains("credit", StringComparison.OrdinalIgnoreCase)
-                    || f.Contains("blackframes", StringComparison.OrdinalIgnoreCase)))
+        try
         {
-            File.Delete(filePath);
+            // Delete from the SQLite cache database.
+            using var db = Plugin.CreateCacheDbContext();
+            db.DetectionCache.Where(e => e.Mode == mode).ExecuteDelete();
+        }
+        catch (Exception ex) when (ex is DbUpdateException or DbException)
+        {
+            if (Logger is { } logger)
+            {
+                LogDetectionCacheDeleteError(logger, ex, mode.ToString());
+            }
+        }
+
+        var cacheDir = Plugin.Instance?.FingerprintCachePath;
+        if (cacheDir is not null && Directory.Exists(cacheDir))
+        {
+            foreach (var filePath in Directory.EnumerateFiles(cacheDir)
+                .Where(f => mode == AnalysisMode.Introduction
+                    ? !Path.GetFileName(f).Contains("credit", StringComparison.OrdinalIgnoreCase)
+                        && !Path.GetFileName(f).Contains("blackframes", StringComparison.OrdinalIgnoreCase)
+                    : Path.GetFileName(f).Contains("credit", StringComparison.OrdinalIgnoreCase)
+                        || Path.GetFileName(f).Contains("blackframes", StringComparison.OrdinalIgnoreCase)))
+            {
+                try
+                {
+                    File.Delete(filePath);
+                }
+                catch (IOException ex)
+                {
+                    if (Logger is { } errLogger)
+                    {
+                        LogDeleteLegacyCacheFileFailed(errLogger, ex, filePath);
+                    }
+                }
+            }
         }
     }
 
     /// <summary>
-    /// Determines the path an episode should be cached at.
-    /// This function was created before the unified caching mechanism was introduced (in v0.1.7).
+    /// Returns <c>true</c> if a fingerprint cache entry exists for the episode in the SQLite cache or as a legacy on-disk text file.
     /// </summary>
     /// <param name="episode">Episode.</param>
     /// <param name="mode">Analysis mode.</param>
-    /// <returns>Path.</returns>
-    public static string GetFingerprintCachePath(QueuedEpisode episode, AnalysisMode mode)
+    /// <returns><c>true</c> if any fingerprint cache entry exists; otherwise <c>false</c>.</returns>
+    public static bool HasCachedFingerprint(QueuedEpisode episode, AnalysisMode mode)
     {
-        var basePath = Path.Join(
-            Plugin.Instance!.FingerprintCachePath,
-            episode.EpisodeId.ToString("N"));
-
-        if (mode == AnalysisMode.Introduction)
+        if (!IsCachingEnabled())
         {
-            return basePath;
+            return false;
         }
 
-        if (mode == AnalysisMode.Credits)
+        var (start, end) = GetFingerprintRange(episode, mode);
+
+        try
         {
-            return basePath + "-credits";
+            using var db = Plugin.CreateCacheDbContext();
+            if (db.DetectionCache.Any(e =>
+                e.ItemId == episode.EpisodeId &&
+                e.Mode == mode &&
+                e.Type == CacheEntryType.Chromaprint &&
+                e.Start == start &&
+                e.End == end))
+            {
+                return true;
+            }
+        }
+        catch (DbException ex)
+        {
+            if (Logger is { } logger)
+            {
+                LogDetectionCacheReadError(logger, ex, $"{episode.EpisodeId:N}-{mode}-{CacheEntryType.Chromaprint}");
+            }
         }
 
-        throw new ArgumentException("Unknown analysis mode " + mode);
+        var id = episode.EpisodeId.ToString("N");
+        var suffix = mode == AnalysisMode.Credits ? "-credits" : string.Empty;
+        var legacyPath = GetLegacyFilePath(id + suffix);
+
+        return File.Exists(legacyPath);
+    }
+
+    private static bool TryReadJsonCache<T>(Guid itemId, AnalysisMode mode, CacheEntryType type, double start, double end, out T[] result)
+    {
+        result = [];
+
+        if (!IsCachingEnabled())
+        {
+            return false;
+        }
+
+        try
+        {
+            using var db = Plugin.CreateCacheDbContext();
+
+            // NOTE: Start/End are compared with == which is safe only because the exact same
+            // double values that were written are used for lookup (no intermediate arithmetic).
+            // If a future caller computes start/end differently, the lookup will silently miss.
+            var entry = db.DetectionCache
+                .FirstOrDefault(e => e.ItemId == itemId && e.Mode == mode && e.Type == type && e.Start == start && e.End == end);
+
+            if (entry is null)
+            {
+                return false;
+            }
+
+            var json = DecompressBrotli<T[]>(entry.Data);
+            result = json ?? [];
+
+            if (Logger is { } logger)
+            {
+                LogDetectionCacheHit(logger, $"{itemId:N}-{mode}-{type}");
+            }
+
+            return true;
+        }
+        catch (Exception ex) when (ex is JsonException or NotSupportedException or InvalidDataException or DbException)
+        {
+            if (Logger is { } logger)
+            {
+                LogDetectionCacheReadError(logger, ex, $"{itemId:N}-{mode}-{type}");
+            }
+
+            return false;
+        }
+    }
+
+    private static void WriteJsonCache<T>(Guid itemId, AnalysisMode mode, CacheEntryType type, double start, double end, T[] items)
+    {
+        if (!IsCachingEnabled())
+        {
+            return;
+        }
+
+        var data = CompressBrotli(items);
+
+        try
+        {
+            using var db = Plugin.CreateCacheDbContext();
+
+            // NOTE: Start/End are compared with == which is safe only because the exact same
+            // double values that were written are used for lookup (no intermediate arithmetic).
+            var existing = db.DetectionCache
+                .FirstOrDefault(e => e.ItemId == itemId && e.Mode == mode && e.Type == type && e.Start == start && e.End == end);
+
+            if (existing is not null)
+            {
+                existing.Data = data;
+            }
+            else
+            {
+                db.DetectionCache.Add(new DbDetectionCache(itemId, mode, type, data, start, end));
+            }
+
+            db.SaveChanges();
+        }
+        catch (Exception ex) when (ex is DbUpdateException or DbException)
+        {
+            if (Logger is { } logger)
+            {
+                LogDetectionCacheWriteError(logger, ex, $"{itemId:N}-{mode}-{type}");
+            }
+
+            // Suppress duplicate-insert races and database-level cache failures. The cache is a
+            // performance optimization; write failures should never discard valid analysis results.
+        }
+    }
+
+    private static uint[] ParseFingerprintRaw(string raw)
+    {
+        var lines = raw.Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries);
+        var result = new List<uint>(lines.Length);
+        foreach (var line in lines)
+        {
+            if (!uint.TryParse(line, NumberStyles.Integer, CultureInfo.InvariantCulture, out var value))
+            {
+                // Any invalid entry means the file is corrupt — abort so FFmpeg re-analyzes.
+                return [];
+            }
+
+            result.Add(value);
+        }
+
+        return [.. result];
+    }
+
+    private static bool TryLoadLegacyCache<T>(
+        string legacyCacheKey,
+        Guid itemId,
+        AnalysisMode mode,
+        CacheEntryType type,
+        double start,
+        double end,
+        Func<string, T[]> rawParser,
+        out T[] result)
+    {
+        result = [];
+
+        if (!IsCachingEnabled())
+        {
+            return false;
+        }
+
+        // Migrate legacy on-disk text files into the SQLite cache.
+        var legacyTextPath = GetLegacyFilePath(legacyCacheKey);
+        if (!File.Exists(legacyTextPath))
+        {
+            return false;
+        }
+
+        try
+        {
+            var raw = File.ReadAllText(legacyTextPath, Encoding.UTF8);
+            result = rawParser(raw);
+
+            // An empty chromaprint legacy file is corrupt; empty detection result caches are valid.
+            if (type == CacheEntryType.Chromaprint && result.Length == 0)
+            {
+                File.Delete(legacyTextPath);
+                return false;
+            }
+
+            // Crosscheck chromaprint fingerprint duration against current settings.
+            if (type == CacheEntryType.Chromaprint)
+            {
+                var inferredDuration = ChromaprintConstants.InferDuration(result.Length);
+                var expectedDuration = Math.Round(end - start);
+
+                if (Math.Abs(inferredDuration - expectedDuration) > ChromaprintConstants.DurationTolerance)
+                {
+                    if (Logger is { } mismatchLogger)
+                    {
+                        LogLegacyDurationMismatch(mismatchLogger, legacyCacheKey, inferredDuration, expectedDuration);
+                    }
+
+                    File.Delete(legacyTextPath);
+                    return false;
+                }
+            }
+
+            if (Logger is { } logger)
+            {
+                LogMigratingLegacyCache(logger, legacyCacheKey, $"{itemId:N}-{mode}-{type}");
+            }
+
+            WriteJsonCache(itemId, mode, type, start, end, result);
+            File.Delete(legacyTextPath);
+
+            return true;
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            // FileNotFoundException is a subclass of IOException and is the normal case when the
+            // legacy text file simply does not exist — suppress it silently to avoid log noise.
+            if (ex is not FileNotFoundException && Logger is { } logger)
+            {
+                LogDetectionCacheReadError(logger, ex, legacyTextPath);
+            }
+
+            return false;
+        }
     }
 
     private static string FormatFFmpegLog(string key)
@@ -841,12 +1018,6 @@ public static partial class FFmpegWrapper
     [LoggerMessage(Level = LogLevel.Debug, Message = "FFmpeg requirement {Arguments} met")]
     private static partial void LogFfmpegRequirementMet(ILogger logger, string arguments);
 
-    [LoggerMessage(Level = LogLevel.Trace, Message = "Returning contents of cache {Cache}")]
-    private static partial void LogReturningCacheContents(ILogger logger, string cache);
-
-    [LoggerMessage(Level = LogLevel.Trace, Message = "Not returning contents of cache {Cache} (not found)")]
-    private static partial void LogCacheNotFound(ILogger logger, string cache);
-
     [LoggerMessage(Level = LogLevel.Debug, Message = "Starting ffmpeg with the following arguments: {Arguments}")]
     private static partial void LogStartingFfmpeg(ILogger logger, string arguments);
 
@@ -862,20 +1033,63 @@ public static partial class FFmpegWrapper
     [LoggerMessage(Level = LogLevel.Warning, Message = "Chromaprint returned {Count} points for \"{Path}\"")]
     private static partial void LogChromaprintReturnedPoints(ILogger logger, int count, string path);
 
-    [LoggerMessage(Level = LogLevel.Error, Message = "I/O error while reading fingerprint cache from {Path}")]
-    private static partial void LogFingerprintCacheReadIoError(ILogger logger, Exception ex, string path);
-
-    [LoggerMessage(Level = LogLevel.Error, Message = "Access error while reading fingerprint cache from {Path}")]
-    private static partial void LogFingerprintCacheReadAccessError(ILogger logger, Exception ex, string path);
-
-    [LoggerMessage(Level = LogLevel.Debug, Message = "Invalid fingerprint entry '{RawNumber}' found in cache for {Path} ({Id}), ignoring cache")]
-    private static partial void LogInvalidFingerprintEntry(ILogger logger, string rawNumber, string path, Guid id);
-
     [LoggerMessage(Level = LogLevel.Debug, Message = "DeleteEpisodeCache {FilePath}")]
     private static partial void LogDeleteEpisodeCache(ILogger logger, string filePath);
 
+    [LoggerMessage(Level = LogLevel.Warning, Message = "Failed to delete legacy cache file '{FilePath}'")]
+    private static partial void LogDeleteLegacyCacheFileFailed(ILogger logger, Exception ex, string filePath);
+
+    [LoggerMessage(Level = LogLevel.Trace, Message = "Detection cache hit for {CacheKey}")]
+    private static partial void LogDetectionCacheHit(ILogger logger, string cacheKey);
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "Error reading detection cache from {Path}")]
+    private static partial void LogDetectionCacheReadError(ILogger logger, Exception ex, string path);
+
+    [LoggerMessage(Level = LogLevel.Debug, Message = "Error writing detection cache for {CacheKey}")]
+    private static partial void LogDetectionCacheWriteError(ILogger logger, Exception ex, string cacheKey);
+
+    [LoggerMessage(Level = LogLevel.Debug, Message = "Error deleting detection cache for {CacheKey}")]
+    private static partial void LogDetectionCacheDeleteError(ILogger logger, Exception ex, string cacheKey);
+
+    [LoggerMessage(Level = LogLevel.Debug, Message = "Migrating legacy cache {LegacyKey} to {NewKey}")]
+    private static partial void LogMigratingLegacyCache(ILogger logger, string legacyKey, string newKey);
+
+    [LoggerMessage(Level = LogLevel.Information, Message = "Legacy fingerprint {CacheKey} duration mismatch (inferred {Inferred}s vs expected {Expected}s), re-fingerprinting")]
+    private static partial void LogLegacyDurationMismatch(ILogger logger, string cacheKey, double inferred, double expected);
+
     [GeneratedRegex("silence_(?<type>start|end): (?<time>[0-9\\.]+)")]
     private static partial Regex SilenceRegex();
+
+    /// <summary>
+    /// Serializes and compresses a value using Brotli compression.
+    /// </summary>
+    /// <typeparam name="T">The type of the value to serialize.</typeparam>
+    /// <param name="value">The value to serialize and compress.</param>
+    /// <returns>The Brotli-compressed data.</returns>
+    internal static byte[] CompressBrotli<T>(T value)
+    {
+        var level = Plugin.Instance?.Configuration.CacheCompressionLevel ?? CompressionLevel.Optimal;
+        using var output = new MemoryStream();
+        using (var brotli = new BrotliStream(output, level))
+        {
+            JsonSerializer.Serialize(brotli, value);
+        }
+
+        return output.ToArray();
+    }
+
+    /// <summary>
+    /// Decompresses and deserializes Brotli-compressed data.
+    /// </summary>
+    /// <typeparam name="T">The type to deserialize to.</typeparam>
+    /// <param name="compressed">The Brotli-compressed data.</param>
+    /// <returns>The deserialized value, or the default if deserialization returns null.</returns>
+    internal static T? DecompressBrotli<T>(byte[] compressed)
+    {
+        using var input = new MemoryStream(compressed);
+        using var brotli = new BrotliStream(input, CompressionMode.Decompress);
+        return JsonSerializer.Deserialize<T>(brotli);
+    }
 
     [GeneratedRegex(@"\[Parsed_blackframe_0 @ [^\]]+\] frame:(\d+) pblack:(\d+) .*? t:([\d.]+)")]
     private static partial Regex BlackFrameRegex();

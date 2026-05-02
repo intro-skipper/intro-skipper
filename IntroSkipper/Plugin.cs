@@ -22,6 +22,7 @@ using MediaBrowser.Controller.Library;
 using MediaBrowser.Model.Entities;
 using MediaBrowser.Model.Plugins;
 using MediaBrowser.Model.Serialization;
+using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 
@@ -38,6 +39,7 @@ public partial class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
     private readonly IPluginManager _pluginManager;
     private readonly ILogger<Plugin> _logger;
     private readonly string _dbPath;
+    private readonly string _cacheDbPath;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="Plugin"/> class.
@@ -76,15 +78,14 @@ public partial class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
         var introsDirectory = Path.Join(applicationPaths.DataPath, pluginDirName);
         FingerprintCachePath = Path.Join(introsDirectory, pluginCachePath);
 
-        _dbPath = Path.Join(applicationPaths.DataPath, pluginDirName, "introskipper.db");
+        _dbPath = Path.Join(introsDirectory, "introskipper.db");
+        _cacheDbPath = Path.Join(introsDirectory, "introskipper-cache.db");
 
-        // Create the base & cache directories (if needed).
-        if (!Directory.Exists(FingerprintCachePath))
-        {
-            Directory.CreateDirectory(FingerprintCachePath);
-        }
+        // Create the base directories (if needed).
+        // Directory.CreateDirectory is already a no-op when the directory exists, so we can call it unconditionally without checking first.
+        Directory.CreateDirectory(introsDirectory);
 
-        // Initialize database, restore timestamps if available.
+        // Initialize segment database.
         try
         {
             using var db = CreateDbContext();
@@ -95,15 +96,31 @@ public partial class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
             LogDatabaseInitializationError(_logger, ex);
         }
 
+        // Initialize detection cache database.
+        try
+        {
+            using var cacheDb = CreateCacheDbContext();
+            cacheDb.EnsureSchema();
+        }
+        catch (Exception ex) when (ex is IOException or SqliteException)
+        {
+            LogCacheDbInitializationError(_logger, ex);
+        }
+
         Configuration.FileTransformationPluginEnabled = _pluginManager
             .Plugins
             .Any(p => p.Id == Guid.Parse("5e87cc92-571a-4d8d-8d98-d2d4147f9f90")); // File Transformation plugin ID
     }
 
     /// <summary>
-    /// Gets the path to the database.
+    /// Gets the path to the segment database.
     /// </summary>
     public string DbPath => _dbPath;
+
+    /// <summary>
+    /// Gets the path to the detection cache database.
+    /// </summary>
+    public string CacheDbPath => _cacheDbPath;
 
     /// <summary>
     /// Gets or sets a value indicating whether to analyze again.
@@ -155,6 +172,17 @@ public partial class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
     {
         ArgumentNullException.ThrowIfNull(Instance);
         return new IntroSkipperDbContext(Instance.DbPath);
+    }
+
+    /// <summary>
+    /// Creates a new <see cref="DetectionCacheDbContext"/> instance configured for the plugin cache database.
+    /// </summary>
+    /// <returns>A new <see cref="DetectionCacheDbContext"/>.</returns>
+    /// <exception cref="ArgumentNullException">Thrown when the plugin has not been initialized.</exception>
+    public static DetectionCacheDbContext CreateCacheDbContext()
+    {
+        ArgumentNullException.ThrowIfNull(Instance);
+        return new DetectionCacheDbContext(Instance.CacheDbPath);
     }
 
     /// <inheritdoc />
@@ -497,6 +525,9 @@ public partial class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "Error initializing database")]
     private static partial void LogDatabaseInitializationError(ILogger logger, Exception exception);
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "Error initializing detection cache database")]
+    private static partial void LogCacheDbInitializationError(ILogger logger, Exception exception);
 
     [LoggerMessage(Level = LogLevel.Error, Message = "Failed to update timestamp for episode {EpisodeId}")]
     private static partial void LogFailedToUpdateTimestamp(ILogger logger, Exception ex, Guid episodeId);

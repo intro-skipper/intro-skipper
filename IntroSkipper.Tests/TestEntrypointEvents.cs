@@ -7,6 +7,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Reflection;
 using System.Runtime.Serialization;
+using System.Text;
 using IntroSkipper.Configuration;
 using IntroSkipper.Services;
 using MediaBrowser.Controller.Entities.Movies;
@@ -249,6 +250,8 @@ public sealed class TestFingerprintCacheDeletionOnRemove
 
 internal static class EntrypointTestHelpers
 {
+    internal static readonly byte[] EmptyJsonArray = Encoding.UTF8.GetBytes("[]");
+
     internal static Entrypoint CreateEntrypoint(bool autoDetectIntros)
     {
         // Entrypoint's ctor reads Plugin.Instance?.Configuration. Ensure Plugin.Instance is null during construction.
@@ -419,9 +422,15 @@ internal static class EntrypointTestHelpers
     {
         private readonly Plugin? _original;
 
-        public PluginInstanceScope(string cacheDir)
+        public PluginInstanceScope(string cacheDir, string? cacheDbPath = null)
         {
             CacheDir = cacheDir;
+            // Place the cache DB outside cacheDir to avoid accidental inclusion in legacy file sweeps.
+            var cacheBaseDir = System.IO.Path.Combine(
+                System.IO.Path.GetTempPath(),
+                System.IO.Path.GetFileName("IntroSkipper.Tests"));
+            CacheDbPath = cacheDbPath ?? System.IO.Path.Combine(
+                cacheBaseDir, Guid.NewGuid().ToString("N") + "-cache.db");
 
             var instanceProp = typeof(Plugin).GetProperty("Instance", BindingFlags.Public | BindingFlags.Static);
             Assert.NotNull(instanceProp);
@@ -433,14 +442,21 @@ internal static class EntrypointTestHelpers
 #pragma warning restore SYSLIB0050
 
             SetPropertyOrField(plugin, "FingerprintCachePath", CacheDir);
+            SetPropertyOrField(plugin, "_cacheDbPath", CacheDbPath);
 
             // Plugin.Instance has a private setter; invoke it via reflection.
             var setter = instanceProp.SetMethod ?? instanceProp.GetSetMethod(nonPublic: true);
             Assert.NotNull(setter);
             setter!.Invoke(null, [plugin]);
+
+            // Ensure the schema exists so tests can write to the cache DB.
+            using var cacheDb = new IntroSkipper.Db.DetectionCacheDbContext(CacheDbPath);
+            cacheDb.EnsureSchema();
         }
 
         public string CacheDir { get; }
+
+        public string CacheDbPath { get; }
 
         public void Dispose()
         {
