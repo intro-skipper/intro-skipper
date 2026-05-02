@@ -82,9 +82,12 @@ public partial class CleanCacheTask(
         // QueueManager.GetMediaItems() already skips libraries where the plugin is disabled via
         // LibraryOptions.DisabledMediaSegmentProviders (same mechanism LegacyMigrations writes to).
         var queue = await queueManager.GetMediaItems(cancellationToken).ConfigureAwait(false);
+        var enabledLibraryEpisodes = queue.Values.SelectMany(static episodes => episodes).ToList();
 
-        var enabledLibraryEpisodeIds = queue.Values
-            .SelectMany(episodes => episodes.Select(e => e.EpisodeId))
+        FFmpegWrapper.MigrateLegacyFingerprintCache(enabledLibraryEpisodes, cancellationToken);
+
+        var enabledLibraryEpisodeIds = enabledLibraryEpisodes
+            .Select(e => e.EpisodeId)
             .ToHashSet();
 
         await plugin.CleanTimestampsAsync(enabledLibraryEpisodeIds, cancellationToken).ConfigureAwait(false);
@@ -131,9 +134,9 @@ public partial class CleanCacheTask(
                     continue;
                 }
 
-                // Valid episode with a legacy file — delete it now; on-demand migration in
-                // TryLoadLegacyCache will repopulate the DB entry when the episode is next accessed.
-                LogDeletingNonMigratableLegacyFile(_logger, filePath);
+                // Valid episode with a remaining legacy file — fingerprint entries were already
+                // migrated above, and the clean task removes leftover file-based cache entries.
+                LogDeletingRemainingLegacyCacheFile(_logger, filePath);
                 try
                 {
                     File.Delete(filePath);
@@ -217,6 +220,6 @@ public partial class CleanCacheTask(
     [LoggerMessage(Level = LogLevel.Debug, Message = "Failed to delete stale detection cache rows")]
     private static partial void LogDeletingCacheRowsFailed(ILogger logger, Exception exception);
 
-    [LoggerMessage(Level = LogLevel.Debug, Message = "Deleting non-migratable legacy cache file: {FilePath}")]
-    private static partial void LogDeletingNonMigratableLegacyFile(ILogger logger, string filePath);
+    [LoggerMessage(Level = LogLevel.Debug, Message = "Deleting remaining legacy cache file: {FilePath}")]
+    private static partial void LogDeletingRemainingLegacyCacheFile(ILogger logger, string filePath);
 }

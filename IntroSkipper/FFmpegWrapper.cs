@@ -651,9 +651,7 @@ public static partial class FFmpegWrapper
             return false;
         }
 
-        var id = episode.EpisodeId.ToString("N");
-        var suffix = mode == AnalysisMode.Credits ? "-credits" : string.Empty;
-        var legacyCacheKey = id + suffix;
+        var legacyCacheKey = GetLegacyFingerprintCacheKey(episode.EpisodeId, mode);
 
         return TryReadJsonCache(episode.EpisodeId, mode, CacheEntryType.Chromaprint, start, end, out fingerprint) ||
             TryLoadLegacyCache(legacyCacheKey, episode.EpisodeId, mode, CacheEntryType.Chromaprint, start, end, ParseFingerprintRaw, out fingerprint);
@@ -786,11 +784,112 @@ public static partial class FFmpegWrapper
             }
         }
 
-        var id = episode.EpisodeId.ToString("N");
-        var suffix = mode == AnalysisMode.Credits ? "-credits" : string.Empty;
-        var legacyPath = GetLegacyFilePath(id + suffix);
+        var legacyPath = GetLegacyFilePath(GetLegacyFingerprintCacheKey(episode.EpisodeId, mode));
 
         return File.Exists(legacyPath);
+    }
+
+    /// <summary>
+    /// Migrates legacy on-disk chromaprint fingerprint cache files for queued media items into the SQLite cache.
+    /// </summary>
+    /// <param name="episodes">Queued media items whose IDs are still present in enabled libraries.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>The number of legacy fingerprint files migrated.</returns>
+    internal static int MigrateLegacyFingerprintCache(IEnumerable<QueuedEpisode> episodes, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(episodes);
+
+        if (!IsCachingEnabled())
+        {
+            return 0;
+        }
+
+        var cacheDir = Plugin.Instance?.FingerprintCachePath;
+        if (string.IsNullOrEmpty(cacheDir) || !Directory.Exists(cacheDir))
+        {
+            return 0;
+        }
+
+        var migrated = 0;
+        var processed = new HashSet<(Guid ItemId, AnalysisMode Mode)>();
+
+        foreach (var episode in episodes)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+
+            if (episode.EpisodeId == Guid.Empty)
+            {
+                continue;
+            }
+
+            if (episode.Category != QueuedMediaCategory.Movie &&
+                processed.Add((episode.EpisodeId, AnalysisMode.Introduction)) &&
+                TryMigrateLegacyFingerprintCache(episode, AnalysisMode.Introduction))
+            {
+                migrated++;
+            }
+
+            if (processed.Add((episode.EpisodeId, AnalysisMode.Credits)) &&
+                TryMigrateLegacyFingerprintCache(episode, AnalysisMode.Credits))
+            {
+                migrated++;
+            }
+        }
+
+        return migrated;
+    }
+
+    private static bool TryMigrateLegacyFingerprintCache(QueuedEpisode episode, AnalysisMode mode)
+    {
+        var (start, end) = GetFingerprintRange(episode, mode);
+        if (end <= start)
+        {
+            return false;
+        }
+
+        var legacyCacheKey = GetLegacyFingerprintCacheKey(episode.EpisodeId, mode);
+        if (!File.Exists(GetLegacyFilePath(legacyCacheKey)))
+        {
+            return false;
+        }
+
+        if (TryReadJsonCache(episode.EpisodeId, mode, CacheEntryType.Chromaprint, start, end, out uint[] _))
+        {
+            DeleteLegacyCacheFile(legacyCacheKey);
+            return false;
+        }
+
+        return TryLoadLegacyCache(
+            legacyCacheKey,
+            episode.EpisodeId,
+            mode,
+            CacheEntryType.Chromaprint,
+            start,
+            end,
+            ParseFingerprintRaw,
+            out uint[] _);
+    }
+
+    private static string GetLegacyFingerprintCacheKey(Guid itemId, AnalysisMode mode)
+    {
+        var suffix = mode == AnalysisMode.Credits ? "-credits" : string.Empty;
+        return itemId.ToString("N") + suffix;
+    }
+
+    private static void DeleteLegacyCacheFile(string legacyCacheKey)
+    {
+        var legacyTextPath = GetLegacyFilePath(legacyCacheKey);
+        try
+        {
+            File.Delete(legacyTextPath);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            if (Logger is { } logger)
+            {
+                LogDeleteLegacyCacheFileFailed(logger, ex, legacyTextPath);
+            }
+        }
     }
 
     private static bool TryReadJsonCache<T>(Guid itemId, AnalysisMode mode, CacheEntryType type, double start, double end, out T[] result)

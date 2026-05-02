@@ -618,6 +618,68 @@ public sealed class TestCacheOperations
         Assert.Equal(1800, entry.End);
     }
 
+    [Fact]
+    public void MigrateLegacyFingerprintCache_MigratesOnlyQueuedItemIds()
+    {
+        var episode = new QueuedEpisode
+        {
+            EpisodeId = Guid.NewGuid(),
+            IntroFingerprintEnd = 60,
+        };
+        var staleEpisodeId = Guid.NewGuid();
+        var cacheDir = EntrypointTestHelpers.CreateTempCacheDir();
+        var lineCount = (int)Math.Round((60.0 - ChromaprintConstants.HashWindowDuration) / ChromaprintConstants.SampleDuration);
+        var validLegacyPath = Path.Combine(cacheDir, episode.EpisodeId.ToString("N"));
+        var staleLegacyPath = Path.Combine(cacheDir, staleEpisodeId.ToString("N"));
+        var lines = Enumerable.Range(1, lineCount)
+            .Select(i => ((uint)i).ToString(CultureInfo.InvariantCulture))
+            .ToArray();
+
+        File.WriteAllLines(validLegacyPath, lines);
+        File.WriteAllLines(staleLegacyPath, lines);
+
+        int migrated;
+        string cacheDbPath;
+        using (var scope = new CachingPluginScope(cacheDir))
+        {
+            cacheDbPath = scope.CacheDbPath;
+            migrated = FFmpegWrapper.MigrateLegacyFingerprintCache([episode]);
+        }
+
+        Assert.Equal(1, migrated);
+        Assert.False(File.Exists(validLegacyPath));
+        Assert.True(File.Exists(staleLegacyPath));
+
+        using var db = new DetectionCacheDbContext(cacheDbPath);
+        Assert.True(db.DetectionCache.Any(e => e.ItemId == episode.EpisodeId));
+        Assert.False(db.DetectionCache.Any(e => e.ItemId == staleEpisodeId));
+    }
+
+    [Fact]
+    public void MigrateLegacyFingerprintCache_DoesNothingWhenChromaprintFolderMissing()
+    {
+        var missingCacheDir = Path.Combine(
+            Path.GetTempPath(),
+            "IntroSkipper.Tests",
+            "chromaprints",
+            Guid.NewGuid().ToString("N"));
+        var cacheDbPath = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N") + "-cache.db");
+        var episode = new QueuedEpisode
+        {
+            EpisodeId = Guid.NewGuid(),
+            IntroFingerprintEnd = 60,
+        };
+
+        int migrated;
+        using (new CachingPluginScope(missingCacheDir, cacheDbPath))
+        {
+            migrated = FFmpegWrapper.MigrateLegacyFingerprintCache([episode]);
+        }
+
+        Assert.Equal(0, migrated);
+        Assert.False(Directory.Exists(missingCacheDir));
+    }
+
     [Theory]
     [InlineData(CompressionLevel.NoCompression)]
     [InlineData(CompressionLevel.Fastest)]

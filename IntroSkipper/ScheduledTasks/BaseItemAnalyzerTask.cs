@@ -86,6 +86,10 @@ public partial class BaseItemAnalyzerTask(
                          .ToDictionary(kvp => kvp.Key, kvp => kvp.Value);
         }
 
+        FFmpegWrapper.MigrateLegacyFingerprintCache(
+            queue.Values.SelectMany(static episodes => episodes),
+            cancellationToken);
+
         int totalQueued = queue.Sum(kvp => kvp.Value.Count) * modes.Count;
         if (totalQueued == 0)
         {
