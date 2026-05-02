@@ -127,29 +127,18 @@ public partial class CleanCacheTask(
                     continue;
                 }
 
-                if (!enabledLibraryEpisodeIds.Contains(legacyId))
+                if (enabledLibraryEpisodeIds.Contains(legacyId))
                 {
-                    // Invalid episode — track for deletion once the DB rows are cleaned up.
-                    invalidEpisodeIds.Add(legacyId);
-                    invalidLegacyFiles.Add(filePath);
                     continue;
                 }
 
-                // Valid episode with a remaining legacy file — fingerprint entries were already
-                // migrated above, and the clean task removes leftover file-based cache entries.
-                LogDeletingRemainingLegacyCacheFile(_logger, filePath);
-                try
-                {
-                    File.Delete(filePath);
-                }
-                catch (IOException ex)
-                {
-                    LogDeletingLegacyFileFailed(_logger, ex, filePath);
-                }
+                // Invalid episode — track for deletion once the DB rows are cleaned up.
+                invalidEpisodeIds.Add(legacyId);
+                invalidLegacyFiles.Add(filePath);
             }
 
-            // Try to remove the legacy directory. Throws IOException when non-empty (invalid-episode
-            // files are still present) — those will be removed below and the directory on the next run.
+            // Try to remove the legacy directory. Throws IOException when non-empty (for example,
+            // valid files intentionally left for on-demand migration or invalid files pending deletion).
             try
             {
                 Directory.Delete(plugin.FingerprintCachePath);
@@ -220,7 +209,4 @@ public partial class CleanCacheTask(
 
     [LoggerMessage(Level = LogLevel.Debug, Message = "Failed to delete stale detection cache rows")]
     private static partial void LogDeletingCacheRowsFailed(ILogger logger, Exception exception);
-
-    [LoggerMessage(Level = LogLevel.Debug, Message = "Deleting remaining legacy cache file: {FilePath}")]
-    private static partial void LogDeletingRemainingLegacyCacheFile(ILogger logger, string filePath);
 }

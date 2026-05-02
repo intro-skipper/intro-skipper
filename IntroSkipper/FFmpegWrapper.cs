@@ -811,7 +811,6 @@ public static partial class FFmpegWrapper
         }
 
         var migrated = 0;
-        var processed = new HashSet<(Guid ItemId, AnalysisMode Mode)>();
 
         foreach (var episode in episodes)
         {
@@ -822,14 +821,12 @@ public static partial class FFmpegWrapper
                 continue;
             }
 
-            if (processed.Add((episode.EpisodeId, AnalysisMode.Introduction)) &&
-                TryMigrateLegacyFingerprintCache(episode, AnalysisMode.Introduction))
+            if (TryMigrateLegacyFingerprintCache(episode, AnalysisMode.Introduction))
             {
                 migrated++;
             }
 
-            if (processed.Add((episode.EpisodeId, AnalysisMode.Credits)) &&
-                TryMigrateLegacyFingerprintCache(episode, AnalysisMode.Credits))
+            if (TryMigrateLegacyFingerprintCache(episode, AnalysisMode.Credits))
             {
                 migrated++;
             }
