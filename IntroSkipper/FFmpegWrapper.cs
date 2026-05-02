@@ -844,15 +844,16 @@ public static partial class FFmpegWrapper
 
     private static bool TryMigrateLegacyFingerprintCache(QueuedEpisode episode, AnalysisMode mode)
     {
-        var (start, end) = GetFingerprintRange(episode, mode);
-        if (end <= start)
+        var legacyCacheKey = GetLegacyFingerprintCacheKey(episode.EpisodeId, mode);
+        if (!File.Exists(GetLegacyFilePath(legacyCacheKey)))
         {
             return false;
         }
 
-        var legacyCacheKey = GetLegacyFingerprintCacheKey(episode.EpisodeId, mode);
-        if (!File.Exists(GetLegacyFilePath(legacyCacheKey)))
+        var (start, end) = GetFingerprintRange(episode, mode);
+        if (end <= start)
         {
+            DeleteLegacyCacheFile(legacyCacheKey);
             return false;
         }
 

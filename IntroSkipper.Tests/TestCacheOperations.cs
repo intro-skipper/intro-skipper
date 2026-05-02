@@ -694,6 +694,34 @@ public sealed class TestCacheOperations
     }
 
     [Fact]
+    public void MigrateLegacyFingerprintCache_DeletesLegacyFileWhenCurrentRangeInvalid()
+    {
+        var episode = new QueuedEpisode
+        {
+            EpisodeId = Guid.NewGuid(),
+            IntroFingerprintEnd = 0,
+        };
+        var cacheDir = EntrypointTestHelpers.CreateTempCacheDir();
+        var legacyPath = Path.Join(cacheDir, episode.EpisodeId.ToString("N"));
+
+        File.WriteAllText(legacyPath, "1");
+
+        int migrated;
+        string cacheDbPath;
+        using (var scope = new CachingPluginScope(cacheDir))
+        {
+            cacheDbPath = scope.CacheDbPath;
+            migrated = FFmpegWrapper.MigrateLegacyFingerprintCache([episode]);
+        }
+
+        Assert.Equal(0, migrated);
+        Assert.False(File.Exists(legacyPath));
+
+        using var db = new DetectionCacheDbContext(cacheDbPath);
+        Assert.False(db.DetectionCache.Any(e => e.ItemId == episode.EpisodeId));
+    }
+
+    [Fact]
     public void MigrateLegacyFingerprintCache_DoesNothingWhenChromaprintFolderMissing()
     {
         var missingCacheDir = Path.Join(
