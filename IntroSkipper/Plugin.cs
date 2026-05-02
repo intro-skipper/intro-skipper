@@ -33,6 +33,7 @@ namespace IntroSkipper;
 public partial class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
 {
     private const double SegmentComparisonEpsilon = 0.001;
+    private const int SqliteParameterBatchSize = 500;
     private readonly ILibraryManager _libraryManager;
     private readonly IChapterManager _chapterRepository;
     private readonly IPluginManager _pluginManager;
@@ -289,11 +290,27 @@ public partial class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
 
     internal async Task CleanTimestampsAsync(IEnumerable<Guid> episodeIds, CancellationToken cancellationToken = default)
     {
+        var enabledEpisodeIds = episodeIds.ToHashSet();
+
         using var db = CreateDbContext();
-        await db.DbSegment
-            .Where(s => !episodeIds.Contains(s.ItemId))
-            .ExecuteDeleteAsync(cancellationToken)
+        var segmentEpisodeIds = await db.DbSegment
+            .AsNoTracking()
+            .Select(s => s.ItemId)
+            .Distinct()
+            .ToListAsync(cancellationToken)
             .ConfigureAwait(false);
+
+        var staleEpisodeIds = segmentEpisodeIds
+            .Where(id => !enabledEpisodeIds.Contains(id))
+            .ToArray();
+
+        foreach (var staleEpisodeIdBatch in staleEpisodeIds.Chunk(SqliteParameterBatchSize))
+        {
+            await db.DbSegment
+                .Where(s => staleEpisodeIdBatch.Contains(s.ItemId))
+                .ExecuteDeleteAsync(cancellationToken)
+                .ConfigureAwait(false);
+        }
     }
 
     internal async Task SetAnalyzerActionAsync(Guid id, IReadOnlyDictionary<AnalysisMode, AnalyzerAction> analyzerActions, CancellationToken cancellationToken = default)
