@@ -82,9 +82,13 @@ public partial class CleanCacheTask(
         // QueueManager.GetMediaItems() already skips libraries where the plugin is disabled via
         // LibraryOptions.DisabledMediaSegmentProviders (same mechanism LegacyMigrations writes to).
         var queue = await queueManager.GetMediaItems(cancellationToken).ConfigureAwait(false);
+        var enabledLibraryEpisodes = queue.Values.SelectMany(static episodes => episodes).ToList();
 
-        var enabledLibraryEpisodeIds = queue.Values
-            .SelectMany(episodes => episodes.Select(e => e.EpisodeId))
+        FFmpegWrapper.MigrateLegacyFingerprintCache(enabledLibraryEpisodes, cancellationToken);
+        plugin.LegacyFingerprintMigrationDone = true;
+
+        var enabledLibraryEpisodeIds = enabledLibraryEpisodes
+            .Select(e => e.EpisodeId)
             .ToHashSet();
 
         await plugin.CleanTimestampsAsync(enabledLibraryEpisodeIds, cancellationToken).ConfigureAwait(false);
@@ -123,29 +127,18 @@ public partial class CleanCacheTask(
                     continue;
                 }
 
-                if (!enabledLibraryEpisodeIds.Contains(legacyId))
+                if (enabledLibraryEpisodeIds.Contains(legacyId))
                 {
-                    // Invalid episode — track for deletion once the DB rows are cleaned up.
-                    invalidEpisodeIds.Add(legacyId);
-                    invalidLegacyFiles.Add(filePath);
                     continue;
                 }
 
-                // Valid episode with a legacy file — delete it now; on-demand migration in
-                // TryLoadLegacyCache will repopulate the DB entry when the episode is next accessed.
-                LogDeletingNonMigratableLegacyFile(_logger, filePath);
-                try
-                {
-                    File.Delete(filePath);
-                }
-                catch (IOException ex)
-                {
-                    LogDeletingLegacyFileFailed(_logger, ex, filePath);
-                }
+                // Invalid episode — track for deletion once the DB rows are cleaned up.
+                invalidEpisodeIds.Add(legacyId);
+                invalidLegacyFiles.Add(filePath);
             }
 
-            // Try to remove the legacy directory. Throws IOException when non-empty (invalid-episode
-            // files are still present) — those will be removed below and the directory on the next run.
+            // Try to remove the legacy directory. Throws IOException when non-empty (for example,
+            // valid files intentionally left for on-demand migration or invalid files pending deletion).
             try
             {
                 Directory.Delete(plugin.FingerprintCachePath);
@@ -216,7 +209,4 @@ public partial class CleanCacheTask(
 
     [LoggerMessage(Level = LogLevel.Debug, Message = "Failed to delete stale detection cache rows")]
     private static partial void LogDeletingCacheRowsFailed(ILogger logger, Exception exception);
-
-    [LoggerMessage(Level = LogLevel.Debug, Message = "Deleting non-migratable legacy cache file: {FilePath}")]
-    private static partial void LogDeletingNonMigratableLegacyFile(ILogger logger, string filePath);
 }
