@@ -34,6 +34,13 @@ public static partial class FFmpegWrapper
     /// </summary>
     private static readonly Regex _blackFrameRegex = BlackFrameRegex();
 
+    private enum LegacyCacheLoadStatus
+    {
+        Miss,
+        Loaded,
+        Migrated
+    }
+
     /// <summary>
     /// Gets or sets the logger.
     /// </summary>
@@ -855,7 +862,7 @@ public static partial class FFmpegWrapper
             return false;
         }
 
-        return TryLoadLegacyCache(
+        return LoadLegacyCache(
             legacyCacheKey,
             episode.EpisodeId,
             mode,
@@ -863,8 +870,7 @@ public static partial class FFmpegWrapper
             start,
             end,
             ParseFingerprintRaw,
-            out uint[] _,
-            out var persistedToCache) && persistedToCache;
+            out uint[] _) == LegacyCacheLoadStatus.Migrated;
     }
 
     private static string GetLegacyFingerprintCacheKey(Guid itemId, AnalysisMode mode)
@@ -1004,7 +1010,7 @@ public static partial class FFmpegWrapper
         double end,
         Func<string, T[]> rawParser,
         out T[] result)
-        => TryLoadLegacyCache(
+        => LoadLegacyCache(
             legacyCacheKey,
             itemId,
             mode,
@@ -1012,10 +1018,9 @@ public static partial class FFmpegWrapper
             start,
             end,
             rawParser,
-            out result,
-            out _);
+            out result) != LegacyCacheLoadStatus.Miss;
 
-    private static bool TryLoadLegacyCache<T>(
+    private static LegacyCacheLoadStatus LoadLegacyCache<T>(
         string legacyCacheKey,
         Guid itemId,
         AnalysisMode mode,
@@ -1023,22 +1028,20 @@ public static partial class FFmpegWrapper
         double start,
         double end,
         Func<string, T[]> rawParser,
-        out T[] result,
-        out bool persistedToCache)
+        out T[] result)
     {
         result = [];
-        persistedToCache = false;
 
         if (!IsCachingEnabled())
         {
-            return false;
+            return LegacyCacheLoadStatus.Miss;
         }
 
         // Migrate legacy on-disk text files into the SQLite cache.
         var legacyTextPath = GetLegacyFilePath(legacyCacheKey);
         if (!File.Exists(legacyTextPath))
         {
-            return false;
+            return LegacyCacheLoadStatus.Miss;
         }
 
         try
@@ -1050,7 +1053,7 @@ public static partial class FFmpegWrapper
             if (type == CacheEntryType.Chromaprint && result.Length == 0)
             {
                 DeleteLegacyCacheFile(legacyCacheKey);
-                return false;
+                return LegacyCacheLoadStatus.Miss;
             }
 
             // Crosscheck chromaprint fingerprint duration against current settings.
@@ -1067,7 +1070,7 @@ public static partial class FFmpegWrapper
                     }
 
                     DeleteLegacyCacheFile(legacyCacheKey);
-                    return false;
+                    return LegacyCacheLoadStatus.Miss;
                 }
             }
 
@@ -1078,13 +1081,11 @@ public static partial class FFmpegWrapper
 
             if (!WriteJsonCache(itemId, mode, type, start, end, result))
             {
-                return true;
+                return LegacyCacheLoadStatus.Loaded;
             }
 
             DeleteLegacyCacheFile(legacyCacheKey);
-            persistedToCache = true;
-
-            return true;
+            return LegacyCacheLoadStatus.Migrated;
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
@@ -1095,7 +1096,7 @@ public static partial class FFmpegWrapper
                 LogDetectionCacheReadError(logger, ex, legacyTextPath);
             }
 
-            return false;
+            return LegacyCacheLoadStatus.Miss;
         }
     }
 
