@@ -1,5 +1,6 @@
 // SPDX-FileCopyrightText: 2025-2026 rlauuzo
 // SPDX-FileCopyrightText: 2026 Kilian von Pflugk
+// SPDX-FileCopyrightText: 2026 AbandonedCart
 // SPDX-License-Identifier: GPL-3.0-only
 
 using IntroSkipper.Configuration;
@@ -12,11 +13,12 @@ namespace IntroSkipper.Analyzers;
 /// <summary>
 /// Helper class for adjusting intro times.
 /// </summary>
-public partial class TimeAdjustmentHelper(ILogger logger, PluginConfiguration config)
+public partial class TimeAdjustmentHelper(ILogger logger, PluginConfiguration config, AnalysisMode mode)
 {
     private const double Epsilon = 1e-3; // 1 ms tolerance for floating point comparisons
     private readonly ILogger _logger = logger;
     private readonly PluginConfiguration _config = config;
+    private readonly AnalysisMode _mode = mode;
 
     /// <summary>
     /// Adjusts the intro times of an episode and returns a new Segment with the adjusted times.
@@ -168,7 +170,7 @@ public partial class TimeAdjustmentHelper(ILogger logger, PluginConfiguration co
     {
         try
         {
-            var silence = FFmpegWrapper.DetectSilence(episode, searchRange);
+            var silence = FFmpegWrapper.DetectSilence(episode, searchRange, _mode);
             if (silence is not { Length: > 0 })
             {
                 LogNoSilenceDetected(_logger, episode.EpisodeId, episode.Name);
@@ -205,9 +207,9 @@ public partial class TimeAdjustmentHelper(ILogger logger, PluginConfiguration co
     /// <summary>
     /// Snaps a timestamp to the nearest keyframe within the search range.
     /// </summary>
-    private static double SnapToNearestKeyframe(QueuedEpisode episode, double time, TimeRange searchRange)
+    private double SnapToNearestKeyframe(QueuedEpisode episode, double time, TimeRange searchRange)
     {
-        var keyframes = FFmpegWrapper.DetectKeyFrames(episode, searchRange);
+        var keyframes = FFmpegWrapper.DetectKeyFrames(episode, searchRange, _mode);
         return SelectNearest(keyframes, time);
     }
 

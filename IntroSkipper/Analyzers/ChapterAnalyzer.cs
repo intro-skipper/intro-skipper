@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: 2022 ConfusedPolarBear
-// SPDX-FileCopyrightText: 2024-2026 AbandonedCart
 // SPDX-FileCopyrightText: 2024-2026 Kilian von Pflugk
 // SPDX-FileCopyrightText: 2024-2026 rlauuzo
+// SPDX-FileCopyrightText: 2024-2026 AbandonedCart
 // SPDX-License-Identifier: GPL-3.0-only
 
 using System.Globalization;
@@ -46,7 +46,7 @@ public partial class ChapterAnalyzer(ILogger<ChapterAnalyzer> logger) : IMediaFi
             return analysisQueue;
         }
 
-        var timeAdjustmentHelper = new TimeAdjustmentHelper(_logger, _config);
+        var timeAdjustmentHelper = new TimeAdjustmentHelper(_logger, _config, mode);
 
         var episodesWithoutIntros = analysisQueue.Where(e => e.NeedsAnalysis(mode)).ToList();
 

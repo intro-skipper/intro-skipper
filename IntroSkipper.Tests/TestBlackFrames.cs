@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: 2022 ConfusedPolarBear
-// SPDX-FileCopyrightText: 2024-2026 rlauuzo
 // SPDX-FileCopyrightText: 2024-2026 Kilian von Pflugk
-// SPDX-FileCopyrightText: 2024 AbandonedCart
+// SPDX-FileCopyrightText: 2024-2026 rlauuzo
+// SPDX-FileCopyrightText: 2024-2026 AbandonedCart
 // SPDX-License-Identifier: GPL-3.0-only
 
 namespace IntroSkipper.Tests;
@@ -26,7 +26,7 @@ public class TestBlackFrames
         expected.AddRange(CreateFrameSequence(5, 6));
         expected.AddRange(CreateFrameSequence(8, 9.96));
 
-        var actual = FFmpegWrapper.DetectBlackFrames(QueueFile("rainbow.mp4"), new(0, 10), 85, 32);
+        var actual = FFmpegWrapper.DetectBlackFrames(QueueFile("rainbow.mp4"), new(0, 10), 85, 32, AnalysisMode.Introduction);
 
         for (var i = 0; i < expected.Count; i++)
         {

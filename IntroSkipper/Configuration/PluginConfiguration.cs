@@ -2,14 +2,15 @@
 // SPDX-FileCopyrightText: 2019 Phallacy
 // SPDX-FileCopyrightText: 2021 Cody Robibero
 // SPDX-FileCopyrightText: 2022-2023 ConfusedPolarBear
+// SPDX-FileCopyrightText: 2024-2026 Kilian von Pflugk
 // SPDX-FileCopyrightText: 2024-2026 rlauuzo
 // SPDX-FileCopyrightText: 2024-2026 AbandonedCart
-// SPDX-FileCopyrightText: 2024-2026 Kilian von Pflugk
 // SPDX-FileCopyrightText: 2024 theMasterpc
 // SPDX-FileCopyrightText: 2024 CasuallyFilthy
 // SPDX-License-Identifier: GPL-3.0-only
 
 using System.Diagnostics;
+using System.IO.Compression;
 using System.Xml.Serialization;
 using MediaBrowser.Model.Plugins;
 
@@ -53,6 +54,12 @@ public class PluginConfiguration : BasePluginConfiguration
     /// Gets or sets a value indicating whether the episode's fingerprint should be cached to the filesystem.
     /// </summary>
     public bool CacheFingerprints { get; set; } = true;
+
+    /// <summary>
+    /// Gets or sets the Brotli compression level used for the detection cache.
+    /// Higher compression reduces disk usage but increases CPU time during analysis.
+    /// </summary>
+    public CompressionLevel CacheCompressionLevel { get; set; } = CompressionLevel.Optimal;
 
     /// <summary>
     /// Gets or sets a value indicating whether to use the alternative black frame analyzer.

@@ -1,14 +1,16 @@
-// SPDX-FileCopyrightText: 2024-2026 rlauuzo
 // SPDX-FileCopyrightText: 2024-2026 Kilian von Pflugk
-// SPDX-FileCopyrightText: 2024 AbandonedCart
+// SPDX-FileCopyrightText: 2024-2026 rlauuzo
+// SPDX-FileCopyrightText: 2024-2026 AbandonedCart
 // SPDX-FileCopyrightText: 2024 theMasterpc
 // SPDX-License-Identifier: GPL-3.0-only
 
+using System.Data.Common;
 using IntroSkipper.Manager;
 using MediaBrowser.Controller.Library;
 using MediaBrowser.Controller.Providers;
 using MediaBrowser.Model.IO;
 using MediaBrowser.Model.Tasks;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 
 namespace IntroSkipper.ScheduledTasks;
@@ -87,18 +89,106 @@ public partial class CleanCacheTask(
 
         await plugin.CleanTimestampsAsync(enabledLibraryEpisodeIds, cancellationToken).ConfigureAwait(false);
 
-        // Identify episode IDs with cached files that are no longer in enabled libraries
-        var invalidEpisodeIds = Directory.EnumerateFiles(plugin.FingerprintCachePath)
-            .Select(filePath => Path.GetFileNameWithoutExtension(filePath).Split('-')[0])
-            .Where(episodeIdStr => Guid.TryParse(episodeIdStr, out var episodeId) && !enabledLibraryEpisodeIds.Contains(episodeId))
-            .Select(Guid.Parse)
-            .ToHashSet();
+        // Identify episode IDs in the SQLite cache that are no longer in enabled libraries.
+        HashSet<Guid> invalidEpisodeIds;
+        using (var cacheDb = Plugin.CreateCacheDbContext())
+        {
+            invalidEpisodeIds = cacheDb.DetectionCache
+                .Select(e => e.ItemId)
+                .Distinct()
+                .Where(id => !enabledLibraryEpisodeIds.Contains(id))
+                .ToHashSet();
+        }
 
-        // Delete cache files for invalid episode IDs
+        // Sweep the legacy on-disk cache directory (pre-migration installs).
+        var invalidLegacyFiles = new List<string>();
+        if (Directory.Exists(plugin.FingerprintCachePath))
+        {
+            List<string> legacyFiles;
+            try
+            {
+                legacyFiles = [.. Directory.EnumerateFiles(plugin.FingerprintCachePath)];
+            }
+            catch (DirectoryNotFoundException)
+            {
+                legacyFiles = [];
+            }
+
+            foreach (var filePath in legacyFiles)
+            {
+                var filename = Path.GetFileName(filePath);
+                var parts = filename.Split('-');
+                if (parts.Length == 0 || !Guid.TryParse(parts[0], out var legacyId))
+                {
+                    continue;
+                }
+
+                if (!enabledLibraryEpisodeIds.Contains(legacyId))
+                {
+                    // Invalid episode — track for deletion once the DB rows are cleaned up.
+                    invalidEpisodeIds.Add(legacyId);
+                    invalidLegacyFiles.Add(filePath);
+                    continue;
+                }
+
+                // Valid episode with a legacy file — delete it now; on-demand migration in
+                // TryLoadLegacyCache will repopulate the DB entry when the episode is next accessed.
+                LogDeletingNonMigratableLegacyFile(_logger, filePath);
+                try
+                {
+                    File.Delete(filePath);
+                }
+                catch (IOException ex)
+                {
+                    LogDeletingLegacyFileFailed(_logger, ex, filePath);
+                }
+            }
+
+            // Try to remove the legacy directory. Throws IOException when non-empty (invalid-episode
+            // files are still present) — those will be removed below and the directory on the next run.
+            try
+            {
+                Directory.Delete(plugin.FingerprintCachePath);
+            }
+            catch (IOException)
+            {
+                // Directory still contains files; will be removed on a future run.
+            }
+        }
+
+        // Log and batch-delete all invalid episode DB rows in a single round-trip.
         foreach (var episodeId in invalidEpisodeIds)
         {
             LogDeletingCacheFiles(_logger, episodeId);
-            FFmpegWrapper.DeleteFingerprintCache(episodeId);
+        }
+
+        if (invalidEpisodeIds.Count > 0)
+        {
+            try
+            {
+                using var deleteDb = Plugin.CreateCacheDbContext();
+                await deleteDb.DetectionCache
+                    .Where(e => invalidEpisodeIds.Contains(e.ItemId))
+                    .ExecuteDeleteAsync(cancellationToken)
+                    .ConfigureAwait(false);
+            }
+            catch (Exception ex) when (ex is DbUpdateException or DbException)
+            {
+                LogDeletingCacheRowsFailed(_logger, ex);
+            }
+        }
+
+        // Delete leftover legacy files for invalid episodes.
+        foreach (var filePath in invalidLegacyFiles)
+        {
+            try
+            {
+                File.Delete(filePath);
+            }
+            catch (IOException ex)
+            {
+                LogDeletingLegacyFileFailed(_logger, ex, filePath);
+            }
         }
 
         // Clean up Season information by removing items that are no longer exist.
@@ -120,4 +210,13 @@ public partial class CleanCacheTask(
 
     [LoggerMessage(Level = LogLevel.Debug, Message = "Deleting cache files for episode ID: {EpisodeId}")]
     private static partial void LogDeletingCacheFiles(ILogger logger, Guid episodeId);
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "Failed to delete stale legacy cache file '{FilePath}'")]
+    private static partial void LogDeletingLegacyFileFailed(ILogger logger, Exception exception, string filePath);
+
+    [LoggerMessage(Level = LogLevel.Debug, Message = "Failed to delete stale detection cache rows")]
+    private static partial void LogDeletingCacheRowsFailed(ILogger logger, Exception exception);
+
+    [LoggerMessage(Level = LogLevel.Debug, Message = "Deleting non-migratable legacy cache file: {FilePath}")]
+    private static partial void LogDeletingNonMigratableLegacyFile(ILogger logger, string filePath);
 }

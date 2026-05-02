@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: 2022 ConfusedPolarBear
-// SPDX-FileCopyrightText: 2024-2026 AbandonedCart
 // SPDX-FileCopyrightText: 2024-2026 Kilian von Pflugk
 // SPDX-FileCopyrightText: 2024-2026 rlauuzo
+// SPDX-FileCopyrightText: 2024-2026 AbandonedCart
 // SPDX-License-Identifier: GPL-3.0-only
 
 using System.Numerics;
@@ -17,11 +17,6 @@ namespace IntroSkipper.Analyzers;
 /// <param name="logger">Logger.</param>
 public partial class ChromaprintAnalyzer(ILogger<ChromaprintAnalyzer> logger) : IMediaFileAnalyzer
 {
-    /// <summary>
-    /// Seconds of audio in one fingerprint point.
-    /// This value is defined by the Chromaprint library and should not be changed.
-    /// </summary>
-    private const double SamplesToSeconds = 0.1238;
     private readonly PluginConfiguration _config = Plugin.Instance?.Configuration ?? new PluginConfiguration();
     private readonly ILogger<ChromaprintAnalyzer> _logger = logger;
     private readonly Dictionary<Guid, Dictionary<uint, int>> _invertedIndexCache = [];
@@ -37,7 +32,7 @@ public partial class ChromaprintAnalyzer(ILogger<ChromaprintAnalyzer> logger) : 
         // episodes that still have a fingerprint cache and can be re-analyzed.
         var episodeAnalysisQueue = analysisQueue.Where(e =>
             e.NeedsAnalysis(mode) ||
-            (e.GetAnalyzed(mode) == EpisodeState.Analyzed && File.Exists(FFmpegWrapper.GetFingerprintCachePath(e, mode)))).ToList();
+            (e.GetAnalyzed(mode) == EpisodeState.Analyzed && FFmpegWrapper.HasCachedFingerprint(e, mode))).ToList();
 
         if (analysisQueue.Count <= 1 || episodeAnalysisQueue.All(e => e.GetAnalyzed(mode) == EpisodeState.Analyzed))
         {
@@ -46,7 +41,7 @@ public partial class ChromaprintAnalyzer(ILogger<ChromaprintAnalyzer> logger) : 
 
         _analysisMode = mode;
 
-        var timeAdjustmentHelper = new TimeAdjustmentHelper(_logger, _config);
+        var timeAdjustmentHelper = new TimeAdjustmentHelper(_logger, _config, mode);
 
         // All intros for this season.
         var seasonIntros = new Dictionary<Guid, Segment>();
@@ -68,12 +63,6 @@ public partial class ChromaprintAnalyzer(ILogger<ChromaprintAnalyzer> logger) : 
             try
             {
                 fingerprintCache[episode.EpisodeId] = FFmpegWrapper.Fingerprint(episode, mode);
-
-                // Use reversed fingerprints for credits
-                if (_analysisMode == AnalysisMode.Credits)
-                {
-                    Array.Reverse(fingerprintCache[episode.EpisodeId]);
-                }
 
                 if (cancellationToken.IsCancellationRequested)
                 {
@@ -127,20 +116,14 @@ public partial class ChromaprintAnalyzer(ILogger<ChromaprintAnalyzer> logger) : 
                  * While this is desired behavior for detecting introductions, it breaks credit
                  * detection, as the audio we're analyzing was extracted from some point into the file.
                  *
-                 * To fix this, the starting and ending times need to be switched, as they were previously reversed
-                 * and subtracted from the episode duration to get the reported time range.
+                 * To fix this, add the starting time of the fingerprint to the reported time range.
                  */
                 if (_analysisMode == AnalysisMode.Credits)
                 {
-                    // Calculate new values for the current intro
-                    double currentOriginalIntroStart = currentIntro.Start;
-                    currentIntro.Start = currentEpisode.Duration - currentIntro.End;
-                    currentIntro.End = currentEpisode.Duration - currentOriginalIntroStart;
-
-                    // Calculate new values for the remaining intro
-                    double remainingIntroOriginalStart = remainingIntro.Start;
-                    remainingIntro.Start = remainingEpisode.Duration - remainingIntro.End;
-                    remainingIntro.End = remainingEpisode.Duration - remainingIntroOriginalStart;
+                    currentIntro.Start += currentEpisode.CreditsFingerprintStart;
+                    currentIntro.End += currentEpisode.CreditsFingerprintStart;
+                    remainingIntro.Start += remainingEpisode.CreditsFingerprintStart;
+                    remainingIntro.End += remainingEpisode.CreditsFingerprintStart;
                 }
 
                 // Only save the discovered intro if it is:
@@ -339,8 +322,8 @@ public partial class ChromaprintAnalyzer(ILogger<ChromaprintAnalyzer> logger) : 
                 continue;
             }
 
-            var lhsTime = lhsPosition * SamplesToSeconds;
-            var rhsTime = rhsPosition * SamplesToSeconds;
+            var lhsTime = lhsPosition * ChromaprintConstants.SampleDuration;
+            var rhsTime = rhsPosition * ChromaprintConstants.SampleDuration;
 
             lhsTimes.Add(lhsTime);
             rhsTimes.Add(rhsTime);

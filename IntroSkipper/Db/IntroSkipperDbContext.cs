@@ -1,6 +1,6 @@
-// SPDX-FileCopyrightText: 2024-2026 AbandonedCart
 // SPDX-FileCopyrightText: 2024-2026 Kilian von Pflugk
 // SPDX-FileCopyrightText: 2024-2026 rlauuzo
+// SPDX-FileCopyrightText: 2024-2026 AbandonedCart
 // SPDX-License-Identifier: GPL-3.0-only
 
 using System.Text.Json;
@@ -19,6 +19,7 @@ namespace IntroSkipper.Db;
 /// </remarks>
 public class IntroSkipperDbContext : DbContext
 {
+    private static readonly SqlitePragmaInterceptor _pragmaInterceptor = new();
     private readonly string? _dbPath;
 
     /// <summary>
@@ -59,7 +60,8 @@ public class IntroSkipperDbContext : DbContext
         if (!optionsBuilder.IsConfigured)
         {
             optionsBuilder
-                .UseSqlite($"Data Source={_dbPath}");
+                .UseSqlite($"Data Source={_dbPath}")
+                .AddInterceptors(_pragmaInterceptor);
         }
     }
 
