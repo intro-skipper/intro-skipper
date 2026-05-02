@@ -85,7 +85,7 @@ public partial class CleanCacheTask(
         var enabledLibraryEpisodes = queue.Values.SelectMany(static episodes => episodes).ToList();
 
         FFmpegWrapper.MigrateLegacyFingerprintCache(enabledLibraryEpisodes, cancellationToken);
-        plugin.MarkAnalyzerOpportunisticLegacyFingerprintMigrationHandled();
+        plugin.AnalyzerOpportunisticLegacyFingerprintMigrationCompleted = true;
 
         var enabledLibraryEpisodeIds = enabledLibraryEpisodes
             .Select(e => e.EpisodeId)

@@ -88,20 +88,12 @@ public partial class BaseItemAnalyzerTask(
                          .ToDictionary(kvp => kvp.Key, kvp => kvp.Value);
         }
 
-        if (plugin.TryBeginAnalyzerOpportunisticLegacyFingerprintMigration())
+        if (!plugin.AnalyzerOpportunisticLegacyFingerprintMigrationCompleted)
         {
-            try
-            {
-                FFmpegWrapper.MigrateLegacyFingerprintCache(
-                    queue.Values.SelectMany(static episodes => episodes),
-                    cancellationToken);
-                plugin.MarkAnalyzerOpportunisticLegacyFingerprintMigrationHandled();
-            }
-            catch
-            {
-                plugin.AbortAnalyzerOpportunisticLegacyFingerprintMigration();
-                throw;
-            }
+            FFmpegWrapper.MigrateLegacyFingerprintCache(
+                queue.Values.SelectMany(static episodes => episodes),
+                cancellationToken);
+            plugin.AnalyzerOpportunisticLegacyFingerprintMigrationCompleted = true;
         }
 
         int totalQueued = queue.Sum(kvp => kvp.Value.Count) * modes.Count;

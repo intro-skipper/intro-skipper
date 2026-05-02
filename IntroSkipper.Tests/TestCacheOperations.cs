@@ -19,36 +19,6 @@ using Xunit;
 public sealed class TestCacheOperations
 {
     [Fact]
-    public void AnalyzerOpportunisticLegacyFingerprintMigration_AllowsOnlyOneBeginUntilHandledOrAborted()
-    {
-        var plugin = EntrypointTestHelpers.CreateUninitialized<Plugin>();
-
-        Assert.True(plugin.TryBeginAnalyzerOpportunisticLegacyFingerprintMigration());
-        Assert.False(plugin.TryBeginAnalyzerOpportunisticLegacyFingerprintMigration());
-
-        plugin.AbortAnalyzerOpportunisticLegacyFingerprintMigration();
-
-        Assert.True(plugin.TryBeginAnalyzerOpportunisticLegacyFingerprintMigration());
-
-        plugin.MarkAnalyzerOpportunisticLegacyFingerprintMigrationHandled();
-
-        Assert.False(plugin.TryBeginAnalyzerOpportunisticLegacyFingerprintMigration());
-    }
-
-    [Fact]
-    public void AnalyzerOpportunisticLegacyFingerprintMigration_HandledStateSurvivesAbort()
-    {
-        var plugin = EntrypointTestHelpers.CreateUninitialized<Plugin>();
-
-        Assert.True(plugin.TryBeginAnalyzerOpportunisticLegacyFingerprintMigration());
-
-        plugin.MarkAnalyzerOpportunisticLegacyFingerprintMigrationHandled();
-        plugin.AbortAnalyzerOpportunisticLegacyFingerprintMigration();
-
-        Assert.False(plugin.TryBeginAnalyzerOpportunisticLegacyFingerprintMigration());
-    }
-
-    [Fact]
     public void DeleteCacheFiles_Introduction_DeletesIntroFilesOnly()
     {
         var itemId = Guid.NewGuid();
