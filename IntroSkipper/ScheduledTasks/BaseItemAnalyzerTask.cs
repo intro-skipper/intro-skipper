@@ -88,12 +88,12 @@ public partial class BaseItemAnalyzerTask(
                          .ToDictionary(kvp => kvp.Key, kvp => kvp.Value);
         }
 
-        if (!plugin.AnalyzerOpportunisticLegacyFingerprintMigrationCompleted)
+        if (!plugin.LegacyFingerprintMigrationDone)
         {
             FFmpegWrapper.MigrateLegacyFingerprintCache(
                 queue.Values.SelectMany(static episodes => episodes),
                 cancellationToken);
-            plugin.AnalyzerOpportunisticLegacyFingerprintMigrationCompleted = true;
+            plugin.LegacyFingerprintMigrationDone = true;
         }
 
         int totalQueued = queue.Sum(kvp => kvp.Value.Count) * modes.Count;

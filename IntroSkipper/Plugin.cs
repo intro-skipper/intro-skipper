@@ -128,7 +128,7 @@ public partial class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
     /// </summary>
     public bool AnalyzeAgain { get; set; }
 
-    internal bool AnalyzerOpportunisticLegacyFingerprintMigrationCompleted { get; set; }
+    internal bool LegacyFingerprintMigrationDone { get; set; }
 
     /// <summary>
     /// Gets the most recent media item queue.
