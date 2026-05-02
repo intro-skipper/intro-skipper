@@ -1,4 +1,6 @@
 // SPDX-FileCopyrightText: 2026 Kilian von Pflugk
+// SPDX-FileCopyrightText: 2026 rlauuzo
+// SPDX-FileCopyrightText: 2026 AbandonedCart
 // SPDX-License-Identifier: GPL-3.0-only
 
 /* These tests require that the host system has a version of FFmpeg installed
