@@ -43,8 +43,6 @@ public partial class BaseItemAnalyzerTask(
     /// </summary>
     private const double AnimePreviewStartTolerance = 0.5;
 
-    private static bool _legacyFingerprintMigrationCompleted;
-
     private readonly ILogger _logger = logger;
     private readonly ILoggerFactory _loggerFactory = loggerFactory;
     private readonly ILibraryManager _libraryManager = libraryManager;
@@ -74,6 +72,8 @@ public partial class BaseItemAnalyzerTask(
             .. _config.ScanCommercial ? [AnalysisMode.Commercial] : Array.Empty<AnalysisMode>()
         ];
 
+        var plugin = Plugin.Instance ?? throw new InvalidOperationException("Plugin instance is null");
+
         var queueManager = new QueueManager(
             _loggerFactory.CreateLogger<QueueManager>(),
             _libraryManager,
@@ -88,12 +88,20 @@ public partial class BaseItemAnalyzerTask(
                          .ToDictionary(kvp => kvp.Key, kvp => kvp.Value);
         }
 
-        if (!_legacyFingerprintMigrationCompleted)
+        if (plugin.TryBeginAnalyzerOpportunisticLegacyFingerprintMigration())
         {
-            FFmpegWrapper.MigrateLegacyFingerprintCache(
-                queue.Values.SelectMany(static episodes => episodes),
-                cancellationToken);
-            _legacyFingerprintMigrationCompleted = true;
+            try
+            {
+                FFmpegWrapper.MigrateLegacyFingerprintCache(
+                    queue.Values.SelectMany(static episodes => episodes),
+                    cancellationToken);
+                plugin.MarkAnalyzerOpportunisticLegacyFingerprintMigrationHandled();
+            }
+            catch
+            {
+                plugin.AbortAnalyzerOpportunisticLegacyFingerprintMigration();
+                throw;
+            }
         }
 
         int totalQueued = queue.Sum(kvp => kvp.Value.Count) * modes.Count;
@@ -114,8 +122,6 @@ public partial class BaseItemAnalyzerTask(
             MaxDegreeOfParallelism = Math.Max(1, _config.MaxParallelism),
             CancellationToken = cancellationToken
         };
-
-        var plugin = Plugin.Instance ?? throw new InvalidOperationException("Plugin instance is null");
 
         await Parallel.ForEachAsync(queue, options, async (season, ct) =>
         {

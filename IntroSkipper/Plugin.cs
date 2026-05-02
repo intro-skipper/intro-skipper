@@ -35,12 +35,16 @@ public partial class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
 {
     private const double SegmentComparisonEpsilon = 0.001;
     private const int SqliteParameterBatchSize = 500;
+    private const int AnalyzerOpportunisticLegacyFingerprintMigrationPending = 0;
+    private const int AnalyzerOpportunisticLegacyFingerprintMigrationInProgress = 1;
+    private const int AnalyzerOpportunisticLegacyFingerprintMigrationHandled = 2;
     private readonly ILibraryManager _libraryManager;
     private readonly IChapterManager _chapterRepository;
     private readonly IPluginManager _pluginManager;
     private readonly ILogger<Plugin> _logger;
     private readonly string _dbPath;
     private readonly string _cacheDbPath;
+    private int _analyzerOpportunisticLegacyFingerprintMigrationState;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="Plugin"/> class.
@@ -184,6 +188,29 @@ public partial class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
     {
         ArgumentNullException.ThrowIfNull(Instance);
         return new DetectionCacheDbContext(Instance.CacheDbPath);
+    }
+
+    internal bool TryBeginAnalyzerOpportunisticLegacyFingerprintMigration()
+    {
+        return Interlocked.CompareExchange(
+            ref _analyzerOpportunisticLegacyFingerprintMigrationState,
+            AnalyzerOpportunisticLegacyFingerprintMigrationInProgress,
+            AnalyzerOpportunisticLegacyFingerprintMigrationPending) == AnalyzerOpportunisticLegacyFingerprintMigrationPending;
+    }
+
+    internal void MarkAnalyzerOpportunisticLegacyFingerprintMigrationHandled()
+    {
+        Volatile.Write(
+            ref _analyzerOpportunisticLegacyFingerprintMigrationState,
+            AnalyzerOpportunisticLegacyFingerprintMigrationHandled);
+    }
+
+    internal void AbortAnalyzerOpportunisticLegacyFingerprintMigration()
+    {
+        _ = Interlocked.CompareExchange(
+            ref _analyzerOpportunisticLegacyFingerprintMigrationState,
+            AnalyzerOpportunisticLegacyFingerprintMigrationPending,
+            AnalyzerOpportunisticLegacyFingerprintMigrationInProgress);
     }
 
     /// <inheritdoc />
