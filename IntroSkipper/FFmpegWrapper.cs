@@ -674,9 +674,10 @@ public static partial class FFmpegWrapper
         }
         catch (Exception ex) when (ex is DbUpdateException or DbException)
         {
-            if (Logger is { } logger)
+            if (Logger is { } logger && logger.IsEnabled(LogLevel.Debug))
             {
-                LogDetectionCacheDeleteError(logger, ex, id.ToString("N"));
+                var cacheKey = id.ToString("N");
+                LogDetectionCacheDeleteError(logger, ex, cacheKey);
             }
         }
 
@@ -720,9 +721,10 @@ public static partial class FFmpegWrapper
         }
         catch (Exception ex) when (ex is DbUpdateException or DbException)
         {
-            if (Logger is { } logger)
+            if (Logger is { } logger && logger.IsEnabled(LogLevel.Debug))
             {
-                LogDetectionCacheDeleteError(logger, ex, mode.ToString());
+                var cacheKey = mode.ToString();
+                LogDetectionCacheDeleteError(logger, ex, cacheKey);
             }
         }
 
@@ -821,9 +823,10 @@ public static partial class FFmpegWrapper
             var json = DecompressBrotli<T[]>(entry.Data);
             result = json ?? [];
 
-            if (Logger is { } logger)
+            if (Logger is { } logger && logger.IsEnabled(LogLevel.Trace))
             {
-                LogDetectionCacheHit(logger, $"{itemId:N}-{mode}-{type}");
+                var cacheKey = $"{itemId:N}-{mode}-{type}";
+                LogDetectionCacheHit(logger, cacheKey);
             }
 
             return true;
@@ -870,9 +873,10 @@ public static partial class FFmpegWrapper
         }
         catch (Exception ex) when (ex is DbUpdateException or DbException)
         {
-            if (Logger is { } logger)
+            if (Logger is { } logger && logger.IsEnabled(LogLevel.Debug))
             {
-                LogDetectionCacheWriteError(logger, ex, $"{itemId:N}-{mode}-{type}");
+                var cacheKey = $"{itemId:N}-{mode}-{type}";
+                LogDetectionCacheWriteError(logger, ex, cacheKey);
             }
 
             // Suppress duplicate-insert races and database-level cache failures. The cache is a
@@ -952,9 +956,10 @@ public static partial class FFmpegWrapper
                 }
             }
 
-            if (Logger is { } logger)
+            if (Logger is { } logger && logger.IsEnabled(LogLevel.Debug))
             {
-                LogMigratingLegacyCache(logger, legacyCacheKey, $"{itemId:N}-{mode}-{type}");
+                var cacheKey = $"{itemId:N}-{mode}-{type}";
+                LogMigratingLegacyCache(logger, legacyCacheKey, cacheKey);
             }
 
             WriteJsonCache(itemId, mode, type, start, end, result);
