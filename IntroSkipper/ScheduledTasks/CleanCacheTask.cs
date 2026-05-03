@@ -84,7 +84,7 @@ public partial class CleanCacheTask(
         var queue = await queueManager.GetMediaItems(cancellationToken).ConfigureAwait(false);
         var enabledLibraryEpisodes = queue.Values.SelectMany(static episodes => episodes).ToList();
 
-        FFmpegWrapper.MigrateLegacyFingerprintCache(enabledLibraryEpisodes, cancellationToken);
+        FFmpegWrapper.MigrateLegacyDetectionCache(enabledLibraryEpisodes, cancellationToken);
         plugin.LegacyFingerprintMigrationDone = true;
 
         var enabledLibraryEpisodeIds = enabledLibraryEpisodes

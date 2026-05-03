@@ -619,7 +619,7 @@ public sealed class TestCacheOperations
     }
 
     [Fact]
-    public void MigrateLegacyFingerprintCache_MigratesOnlyQueuedItemIds()
+    public void MigrateLegacyDetectionCache_MigratesOnlyQueuedItemIds()
     {
         var episode = new QueuedEpisode
         {
@@ -644,7 +644,7 @@ public sealed class TestCacheOperations
         using (var scope = new CachingPluginScope(cacheDir))
         {
             cacheDbPath = scope.CacheDbPath;
-            migrated = FFmpegWrapper.MigrateLegacyFingerprintCache([episode]);
+            migrated = FFmpegWrapper.MigrateLegacyDetectionCache([episode]);
         }
 
         Assert.Equal(1, migrated);
@@ -657,7 +657,7 @@ public sealed class TestCacheOperations
     }
 
     [Fact]
-    public void MigrateLegacyFingerprintCache_MigratesRecognizedDetectionFiles()
+    public void MigrateLegacyDetectionCache_MigratesRecognizedDetectionFiles()
     {
         var episode = new QueuedEpisode
         {
@@ -687,7 +687,7 @@ public sealed class TestCacheOperations
         using (var scope = new CachingPluginScope(cacheDir))
         {
             cacheDbPath = scope.CacheDbPath;
-            migrated = FFmpegWrapper.MigrateLegacyFingerprintCache([episode]);
+            migrated = FFmpegWrapper.MigrateLegacyDetectionCache([episode]);
         }
 
         Assert.Equal(4, migrated);
@@ -753,7 +753,7 @@ public sealed class TestCacheOperations
     }
 
     [Fact]
-    public void MigrateLegacyFingerprintCache_MigratesMovieIntroductionWhenRangePresent()
+    public void MigrateLegacyDetectionCache_MigratesMovieIntroductionWhenRangePresent()
     {
         var episode = new QueuedEpisode
         {
@@ -776,7 +776,7 @@ public sealed class TestCacheOperations
         using (var scope = new CachingPluginScope(cacheDir))
         {
             cacheDbPath = scope.CacheDbPath;
-            migrated = FFmpegWrapper.MigrateLegacyFingerprintCache([episode]);
+            migrated = FFmpegWrapper.MigrateLegacyDetectionCache([episode]);
         }
 
         Assert.Equal(1, migrated);
@@ -790,7 +790,7 @@ public sealed class TestCacheOperations
     }
 
     [Fact]
-    public void MigrateLegacyFingerprintCache_DeletesLegacyFileWhenCurrentRangeInvalid()
+    public void MigrateLegacyDetectionCache_DeletesLegacyFileWhenCurrentRangeInvalid()
     {
         var episode = new QueuedEpisode
         {
@@ -807,7 +807,7 @@ public sealed class TestCacheOperations
         using (var scope = new CachingPluginScope(cacheDir))
         {
             cacheDbPath = scope.CacheDbPath;
-            migrated = FFmpegWrapper.MigrateLegacyFingerprintCache([episode]);
+            migrated = FFmpegWrapper.MigrateLegacyDetectionCache([episode]);
         }
 
         Assert.Equal(0, migrated);
@@ -818,7 +818,7 @@ public sealed class TestCacheOperations
     }
 
     [Fact]
-    public void MigrateLegacyFingerprintCache_DoesNothingWhenChromaprintFolderMissing()
+    public void MigrateLegacyDetectionCache_DoesNothingWhenChromaprintFolderMissing()
     {
         var missingCacheDir = Path.Join(
             Path.GetTempPath(),
@@ -835,7 +835,7 @@ public sealed class TestCacheOperations
         int migrated;
         using (new CachingPluginScope(missingCacheDir, cacheDbPath))
         {
-            migrated = FFmpegWrapper.MigrateLegacyFingerprintCache([episode]);
+            migrated = FFmpegWrapper.MigrateLegacyDetectionCache([episode]);
         }
 
         Assert.Equal(0, migrated);

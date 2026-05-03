@@ -805,7 +805,7 @@ public static partial class FFmpegWrapper
     /// <param name="episodes">Queued media items whose IDs are still present in enabled libraries.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>The number of legacy cache files migrated.</returns>
-    internal static int MigrateLegacyFingerprintCache(IEnumerable<QueuedEpisode> episodes, CancellationToken cancellationToken = default)
+    internal static int MigrateLegacyDetectionCache(IEnumerable<QueuedEpisode> episodes, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(episodes);
 
@@ -849,20 +849,14 @@ public static partial class FFmpegWrapper
 
     private static int MigrateLegacyDetectionCacheFiles(string cacheDir, QueuedEpisode episode)
     {
-        var id = episode.EpisodeId.ToString("N");
+        var prefix = episode.EpisodeId.ToString("N") + "-";
         var migrated = 0;
 
         try
         {
-            foreach (var filePath in Directory.EnumerateFiles(cacheDir, id + "-*"))
+            foreach (var filePath in Directory.EnumerateFiles(cacheDir, prefix + "*"))
             {
                 var filename = Path.GetFileName(filePath);
-                var prefix = id + "-";
-                if (!filename.StartsWith(prefix, StringComparison.Ordinal))
-                {
-                    continue;
-                }
-
                 if (TryMigrateLegacyDetectionCacheFile(filename, filename[prefix.Length..], episode.EpisodeId))
                 {
                     migrated++;
