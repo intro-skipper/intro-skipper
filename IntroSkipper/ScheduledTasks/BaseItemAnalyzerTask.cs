@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: 2023 ConfusedPolarBear
 // SPDX-FileCopyrightText: 2024-2026 rlauuzo
 // SPDX-FileCopyrightText: 2024-2026 Kilian von Pflugk
-// SPDX-FileCopyrightText: 2024-2025 AbandonedCart
+// SPDX-FileCopyrightText: 2024-2026 AbandonedCart
 // SPDX-FileCopyrightText: 2024 theMasterpc
 // SPDX-License-Identifier: GPL-3.0-only
 
@@ -72,6 +72,8 @@ public partial class BaseItemAnalyzerTask(
             .. _config.ScanCommercial ? [AnalysisMode.Commercial] : Array.Empty<AnalysisMode>()
         ];
 
+        var plugin = Plugin.Instance ?? throw new InvalidOperationException("Plugin instance is null");
+
         var queueManager = new QueueManager(
             _loggerFactory.CreateLogger<QueueManager>(),
             _libraryManager,
@@ -84,6 +86,14 @@ public partial class BaseItemAnalyzerTask(
         {
             queue = queue.Where(kvp => seasonsToAnalyze.Contains(kvp.Key))
                          .ToDictionary(kvp => kvp.Key, kvp => kvp.Value);
+        }
+
+        if (!plugin.LegacyFingerprintMigrationDone)
+        {
+            FFmpegWrapper.MigrateLegacyDetectionCache(
+                queue.Values.SelectMany(static episodes => episodes),
+                cancellationToken);
+            plugin.LegacyFingerprintMigrationDone = true;
         }
 
         int totalQueued = queue.Sum(kvp => kvp.Value.Count) * modes.Count;
@@ -104,8 +114,6 @@ public partial class BaseItemAnalyzerTask(
             MaxDegreeOfParallelism = Math.Max(1, _config.MaxParallelism),
             CancellationToken = cancellationToken
         };
-
-        var plugin = Plugin.Instance ?? throw new InvalidOperationException("Plugin instance is null");
 
         await Parallel.ForEachAsync(queue, options, async (season, ct) =>
         {

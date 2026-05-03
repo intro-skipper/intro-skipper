@@ -2,7 +2,9 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
 using System;
+using System.IO;
 using System.Linq;
+using System.Threading.Tasks;
 using IntroSkipper.Data;
 using IntroSkipper.Db;
 using Microsoft.Data.Sqlite;
@@ -142,6 +144,65 @@ public sealed class TestDbSegmentStorage
                 .Single(s => s.ItemId == itemId && s.Type == AnalysisMode.Introduction);
 
             Assert.True(segment.IsUserProvided);
+        }
+    }
+
+    [Fact]
+    public async Task CleanTimestampsAsync_DoesNotExceedSqliteVariableLimit_WhenEpisodeListIsLarge()
+    {
+        const int LargeEpisodeCount = 33_000;
+
+        var dbPath = Path.Combine(Path.GetTempPath(), "IntroSkipper.Tests", Guid.NewGuid().ToString("N") + ".db");
+        Directory.CreateDirectory(Path.GetDirectoryName(dbPath)!);
+
+        var retainedItemId = Guid.NewGuid();
+        var staleItemId = Guid.NewGuid();
+        var enabledEpisodeIds = Enumerable.Range(0, LargeEpisodeCount - 1)
+            .Select(_ => Guid.NewGuid())
+            .Append(retainedItemId)
+            .ToHashSet();
+
+        try
+        {
+            using (var db = new IntroSkipperDbContext(dbPath))
+            {
+                await db.Database.EnsureCreatedAsync();
+                db.DbSegment.AddRange(
+                    new DbSegment(new Segment(retainedItemId, new TimeRange(0, 10)), AnalysisMode.Introduction),
+                    new DbSegment(new Segment(staleItemId, new TimeRange(20, 30)), AnalysisMode.Introduction));
+                await db.SaveChangesAsync();
+            }
+
+            using (new EntrypointTestHelpers.PluginInstanceScope(EntrypointTestHelpers.CreateTempCacheDir()))
+            {
+                var plugin = Plugin.Instance!;
+                EntrypointTestHelpers.SetPrivateField(plugin, "_dbPath", dbPath);
+
+                await plugin.CleanTimestampsAsync(enabledEpisodeIds);
+            }
+
+            using (var db = new IntroSkipperDbContext(dbPath))
+            {
+                var itemId = Assert.Single(db.DbSegment.Select(segment => segment.ItemId));
+                Assert.Equal(retainedItemId, itemId);
+            }
+        }
+        finally
+        {
+            DeleteSqliteFiles(dbPath);
+        }
+    }
+
+    private static void DeleteSqliteFiles(string dbPath)
+    {
+        SqliteConnection.ClearAllPools();
+
+        foreach (var path in new[] { dbPath, dbPath + "-wal", dbPath + "-shm" })
+        {
+            if (File.Exists(path))
+            {
+                File.Delete(path);
+            }
         }
     }
 }
