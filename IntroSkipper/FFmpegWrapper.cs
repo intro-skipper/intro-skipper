@@ -877,8 +877,7 @@ public static partial class FFmpegWrapper
         var parts = suffix.Split('-');
 
         if (parts is ["silence", var silenceStart, var silenceEnd, "v2"] &&
-            TryParseLegacyCacheTime(silenceStart, out var parsedSilenceStart) &&
-            TryParseLegacyCacheTime(silenceEnd, out var parsedSilenceEnd))
+            TryParseLegacyCacheRange(silenceStart, silenceEnd, out var parsedSilenceStart, out var parsedSilenceEnd))
         {
             return TryMigrateLegacyCacheForAllModes(
                 legacyCacheKey,
@@ -891,8 +890,7 @@ public static partial class FFmpegWrapper
         }
 
         if (parts is ["keyframes", var keyframesStart, var keyframesEnd, "v1"] &&
-            TryParseLegacyCacheTime(keyframesStart, out var parsedKeyframesStart) &&
-            TryParseLegacyCacheTime(keyframesEnd, out var parsedKeyframesEnd))
+            TryParseLegacyCacheRange(keyframesStart, keyframesEnd, out var parsedKeyframesStart, out var parsedKeyframesEnd))
         {
             return TryMigrateLegacyCacheForAllModes(
                 legacyCacheKey,
@@ -905,8 +903,7 @@ public static partial class FFmpegWrapper
         }
 
         if (parts is ["blackframes", var blackframesStart, var blackframesEnd, "v1"] &&
-            TryParseLegacyCacheTime(blackframesStart, out var parsedBlackframesStart) &&
-            TryParseLegacyCacheTime(blackframesEnd, out var parsedBlackframesEnd))
+            TryParseLegacyCacheRange(blackframesStart, blackframesEnd, out var parsedBlackframesStart, out var parsedBlackframesEnd))
         {
             return TryMigrateLegacyBlackFrameCache(
                 legacyCacheKey,
@@ -987,6 +984,13 @@ public static partial class FFmpegWrapper
 
     private static bool TryParseLegacyCacheTime(string value, out double result)
         => double.TryParse(value, NumberStyles.Float, CultureInfo.InvariantCulture, out result);
+
+    private static bool TryParseLegacyCacheRange(string startValue, string endValue, out double start, out double end)
+    {
+        var parsedStart = TryParseLegacyCacheTime(startValue, out start);
+        var parsedEnd = TryParseLegacyCacheTime(endValue, out end);
+        return parsedStart && parsedEnd;
+    }
 
     private static bool TryMigrateLegacyChromaprintCache(QueuedEpisode episode, AnalysisMode mode)
     {
@@ -1141,14 +1145,14 @@ public static partial class FFmpegWrapper
             using var db = Plugin.CreateCacheDbContext();
             using var transaction = db.Database.BeginTransaction();
 
+            if (Logger is { } logger && logger.IsEnabled(LogLevel.Debug))
+            {
+                var cacheKey = $"{itemId:N}-all-modes-{type}";
+                LogMigratingLegacyCache(logger, legacyCacheKey, cacheKey);
+            }
+
             foreach (var mode in Enum.GetValues<AnalysisMode>())
             {
-                if (Logger is { } logger && logger.IsEnabled(LogLevel.Debug))
-                {
-                    var cacheKey = $"{itemId:N}-{mode}-{type}";
-                    LogMigratingLegacyCache(logger, legacyCacheKey, cacheKey);
-                }
-
                 UpsertJsonCacheEntry(db, itemId, mode, type, start, end, data);
             }
 
