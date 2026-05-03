@@ -247,7 +247,9 @@ public sealed class TestDbSegmentStorage
     public async Task UpdateTimestampAsync_CreditsOverlapGuard(
         double creditsStart, double creditsEnd, bool isUserProvided, int expectedCount)
     {
-        var dbPath = Path.Combine(Path.GetTempPath(), "IntroSkipper.Tests", Guid.NewGuid().ToString("N") + ".db");
+        var tempDir = Path.Join(Path.GetTempPath(), "IntroSkipper.Tests");
+        var dbFileName = Guid.NewGuid().ToString("N") + ".db";
+        var dbPath = Path.Combine(tempDir, dbFileName);
         Directory.CreateDirectory(Path.GetDirectoryName(dbPath)!);
 
         var itemId = Guid.NewGuid();
