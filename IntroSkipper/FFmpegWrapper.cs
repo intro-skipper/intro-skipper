@@ -820,16 +820,23 @@ public static partial class FFmpegWrapper
             return 0;
         }
 
+        var queuedEpisodes = episodes
+            .Where(static episode => episode.EpisodeId != Guid.Empty)
+            .ToList();
+        if (queuedEpisodes.Count == 0)
+        {
+            return 0;
+        }
+
+        var queuedEpisodeIds = queuedEpisodes
+            .Select(static episode => episode.EpisodeId)
+            .ToHashSet();
+        var detectionCacheFiles = GetLegacyDetectionCacheFiles(cacheDir, queuedEpisodeIds, cancellationToken);
         var migrated = 0;
 
-        foreach (var episode in episodes)
+        foreach (var episode in queuedEpisodes)
         {
             cancellationToken.ThrowIfCancellationRequested();
-
-            if (episode.EpisodeId == Guid.Empty)
-            {
-                continue;
-            }
 
             if (TryMigrateLegacyChromaprintCache(episode, AnalysisMode.Introduction))
             {
@@ -841,91 +848,171 @@ public static partial class FFmpegWrapper
                 migrated++;
             }
 
-            migrated += MigrateLegacyDetectionCacheFiles(cacheDir, episode);
-        }
-
-        return migrated;
-    }
-
-    private static int MigrateLegacyDetectionCacheFiles(string cacheDir, QueuedEpisode episode)
-    {
-        var prefix = episode.EpisodeId.ToString("N") + "-";
-        var migrated = 0;
-
-        try
-        {
-            foreach (var filePath in Directory.EnumerateFiles(cacheDir, prefix + "*"))
+            if (!detectionCacheFiles.TryGetValue(episode.EpisodeId, out var legacyFiles))
             {
-                var filename = Path.GetFileName(filePath);
-                var suffix = filename[prefix.Length..];
-                if (TryMigrateLegacyDetectionCacheFile(filePath, filename, suffix, episode.EpisodeId))
+                continue;
+            }
+
+            foreach (var legacyFile in legacyFiles)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+
+                if (TryMigrateLegacyDetectionCacheFile(legacyFile))
                 {
                     migrated++;
                 }
             }
         }
-        catch (DirectoryNotFoundException)
-        {
-            return migrated;
-        }
 
         return migrated;
     }
 
-    private static bool TryMigrateLegacyDetectionCacheFile(string legacyTextPath, string legacyCacheKey, string suffix, Guid itemId)
+    private static Dictionary<Guid, List<LegacyDetectionCacheFile>> GetLegacyDetectionCacheFiles(
+        string cacheDir,
+        HashSet<Guid> queuedEpisodeIds,
+        CancellationToken cancellationToken)
     {
+        var result = new Dictionary<Guid, List<LegacyDetectionCacheFile>>();
+
+        try
+        {
+            foreach (var filePath in Directory.EnumerateFiles(cacheDir))
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+
+                if (!TryParseLegacyDetectionCacheFile(filePath, out var file) ||
+                    !queuedEpisodeIds.Contains(file.ItemId))
+                {
+                    continue;
+                }
+
+                if (!result.TryGetValue(file.ItemId, out var files))
+                {
+                    files = [];
+                    result[file.ItemId] = files;
+                }
+
+                files.Add(file);
+            }
+        }
+        catch (DirectoryNotFoundException)
+        {
+            return result;
+        }
+
+        return result;
+    }
+
+    private static bool TryParseLegacyDetectionCacheFile(string legacyTextPath, out LegacyDetectionCacheFile file)
+    {
+        file = default;
+
+        var legacyCacheKey = Path.GetFileName(legacyTextPath);
+        var separatorIndex = legacyCacheKey.IndexOf('-', StringComparison.Ordinal);
+        if (separatorIndex <= 0)
+        {
+            return false;
+        }
+
+        var itemIdText = legacyCacheKey[..separatorIndex];
+        if (!Guid.TryParseExact(itemIdText, "N", out var itemId) ||
+            !string.Equals(itemIdText, itemId.ToString("N"), StringComparison.Ordinal))
+        {
+            return false;
+        }
+
+        var suffix = legacyCacheKey[(separatorIndex + 1)..];
         var parts = suffix.Split('-');
 
         if (parts is ["silence", var silenceStart, var silenceEnd, "v2"] &&
             TryParseLegacyCacheRange(silenceStart, silenceEnd, out var parsedSilenceStart, out var parsedSilenceEnd))
         {
-            return TryMigrateLegacyCacheForAllModes(
+            file = new LegacyDetectionCacheFile(
+                itemId,
                 legacyCacheKey,
                 legacyTextPath,
-                itemId,
                 CacheEntryType.Silence,
                 parsedSilenceStart,
                 parsedSilenceEnd,
-                raw => ParseSilenceRaw(raw, parsedSilenceStart));
+                null);
+            return true;
         }
 
         if (parts is ["keyframes", var keyframesStart, var keyframesEnd, "v1"] &&
             TryParseLegacyCacheRange(keyframesStart, keyframesEnd, out var parsedKeyframesStart, out var parsedKeyframesEnd))
         {
-            return TryMigrateLegacyCacheForAllModes(
+            file = new LegacyDetectionCacheFile(
+                itemId,
                 legacyCacheKey,
                 legacyTextPath,
-                itemId,
                 CacheEntryType.Keyframe,
                 parsedKeyframesStart,
                 parsedKeyframesEnd,
-                raw => ParseKeyFramesRaw(raw, parsedKeyframesStart));
+                null);
+            return true;
         }
 
         if (parts is ["blackframes", var blackframesStart, var blackframesEnd, "v1"] &&
             TryParseLegacyCacheRange(blackframesStart, blackframesEnd, out var parsedBlackframesStart, out var parsedBlackframesEnd))
         {
-            return TryMigrateLegacyBlackFrameCache(
+            file = new LegacyDetectionCacheFile(
+                itemId,
                 legacyCacheKey,
                 legacyTextPath,
-                itemId,
+                CacheEntryType.BlackFrame,
                 parsedBlackframesStart,
-                parsedBlackframesEnd);
+                parsedBlackframesEnd,
+                AnalysisMode.Credits);
+            return true;
         }
 
         if (parts is ["blackframes", var altBlackframesStart, "alt"] &&
             TryParseLegacyCacheTime(altBlackframesStart, out var parsedAltBlackframesStart))
         {
-            return TryMigrateLegacyBlackFrameCache(
+            file = new LegacyDetectionCacheFile(
+                itemId,
                 legacyCacheKey,
                 legacyTextPath,
-                itemId,
+                CacheEntryType.BlackFrame,
                 parsedAltBlackframesStart,
-                0);
+                0,
+                AnalysisMode.Credits);
+            return true;
         }
 
         return false;
     }
+
+    private static bool TryMigrateLegacyDetectionCacheFile(LegacyDetectionCacheFile file)
+        => file.Type switch
+        {
+            CacheEntryType.Silence when file.Mode is null => TryMigrateLegacyCacheForAllModes(
+                file.LegacyCacheKey,
+                file.LegacyTextPath,
+                file.ItemId,
+                file.Type,
+                file.Start,
+                file.End,
+                raw => ParseSilenceRaw(raw, file.Start)),
+
+            CacheEntryType.Keyframe when file.Mode is null => TryMigrateLegacyCacheForAllModes(
+                file.LegacyCacheKey,
+                file.LegacyTextPath,
+                file.ItemId,
+                file.Type,
+                file.Start,
+                file.End,
+                raw => ParseKeyFramesRaw(raw, file.Start)),
+
+            CacheEntryType.BlackFrame when file.Mode == AnalysisMode.Credits => TryMigrateLegacyBlackFrameCache(
+                file.LegacyCacheKey,
+                file.LegacyTextPath,
+                file.ItemId,
+                file.Start,
+                file.End),
+
+            _ => false,
+        };
 
     private static bool TryMigrateLegacyBlackFrameCache(
         string legacyCacheKey,
@@ -1453,4 +1540,13 @@ public static partial class FFmpegWrapper
 
     [GeneratedRegex(@"\[Parsed_blackframe_0 @ [^\]]+\] frame:(\d+) pblack:(\d+) .*? t:([\d.]+)")]
     private static partial Regex BlackFrameRegex();
+
+    private readonly record struct LegacyDetectionCacheFile(
+        Guid ItemId,
+        string LegacyCacheKey,
+        string LegacyTextPath,
+        CacheEntryType Type,
+        double Start,
+        double End,
+        AnalysisMode? Mode);
 }

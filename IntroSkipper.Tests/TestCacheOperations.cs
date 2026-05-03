@@ -753,6 +753,43 @@ public sealed class TestCacheOperations
     }
 
     [Fact]
+    public void MigrateLegacyDetectionCache_LeavesInvalidDetectionFilenamesUntouched()
+    {
+        var episode = new QueuedEpisode
+        {
+            EpisodeId = Guid.NewGuid(),
+        };
+        var cacheDir = EntrypointTestHelpers.CreateTempCacheDir();
+        var id = episode.EpisodeId.ToString("N");
+        string[] invalidPaths = [
+            Path.Join(cacheDir, $"{id}-silence-10.5-v2"),
+            Path.Join(cacheDir, $"{id}-silence-10.5-20.5-v1"),
+            Path.Join(cacheDir, $"{id}-unknown-10.5-20.5-v2"),
+            Path.Join(cacheDir, $"{id}-silence-invalid-20.5-v2"),
+            Path.Join(cacheDir, $"{Guid.NewGuid():D}-silence-10.5-20.5-v2"),
+        ];
+
+        foreach (var path in invalidPaths)
+        {
+            File.WriteAllText(path, "silence_start: 1.0\nsilence_end: 2.5\n");
+        }
+
+        int migrated;
+        string cacheDbPath;
+        using (var scope = new CachingPluginScope(cacheDir))
+        {
+            cacheDbPath = scope.CacheDbPath;
+            migrated = FFmpegWrapper.MigrateLegacyDetectionCache([episode]);
+        }
+
+        Assert.Equal(0, migrated);
+        Assert.All(invalidPaths, path => Assert.True(File.Exists(path)));
+
+        using var db = new DetectionCacheDbContext(cacheDbPath);
+        Assert.False(db.DetectionCache.Any(e => e.ItemId == episode.EpisodeId));
+    }
+
+    [Fact]
     public void MigrateLegacyDetectionCache_MigratesMovieIntroductionWhenRangePresent()
     {
         var episode = new QueuedEpisode
