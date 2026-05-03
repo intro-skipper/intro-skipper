@@ -19,5 +19,4 @@ web/node_modules
 # JetBrains Rider
 .idea/
 /.cursor
-web
 .agents/
