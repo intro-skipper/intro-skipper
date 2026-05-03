@@ -200,7 +200,7 @@ public sealed class TestDbSegmentStorage
     {
         const int LargeEpisodeCount = 1_001;
 
-        var tempDir = Path.Combine(Path.GetTempPath(), "IntroSkipper.Tests");
+        var tempDir = Path.Join(Path.GetTempPath(), "IntroSkipper.Tests");
         Directory.CreateDirectory(tempDir);
         var dbPath = Path.Join(tempDir, Guid.NewGuid().ToString("N") + ".db");
 
@@ -249,6 +249,10 @@ public sealed class TestDbSegmentStorage
     {
         var tempDir = Path.Join(Path.GetTempPath(), "IntroSkipper.Tests");
         var dbFileName = Guid.NewGuid().ToString("N") + ".db";
+        if (Path.IsPathRooted(dbFileName))
+        {
+            throw new ArgumentException("dbFileName must be a relative file name.", nameof(dbFileName));
+        }
         var dbPath = Path.Combine(tempDir, dbFileName);
         Directory.CreateDirectory(Path.GetDirectoryName(dbPath)!);
 
