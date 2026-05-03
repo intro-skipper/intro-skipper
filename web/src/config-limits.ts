@@ -1,0 +1,2 @@
+export const MINIMUM_ANALYSIS_PERCENT = 1;
+export const MAXIMUM_ANALYSIS_PERCENT = 50;

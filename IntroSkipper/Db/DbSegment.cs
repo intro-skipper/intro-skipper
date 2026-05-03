@@ -1,7 +1,8 @@
-﻿// Copyright (C) 2026 Intro-Skipper contributors <intro-skipper.org>
+// SPDX-FileCopyrightText: 2024-2026 rlauuzo
+// SPDX-FileCopyrightText: 2024-2026 AbandonedCart
+// SPDX-FileCopyrightText: 2024-2026 Kilian von Pflugk
 // SPDX-License-Identifier: GPL-3.0-only
 
-using System;
 using IntroSkipper.Data;
 
 namespace IntroSkipper.Db;
@@ -19,12 +20,14 @@ public class DbSegment
     /// </summary>
     /// <param name="segment">The segment to initialize the instance with.</param>
     /// <param name="type">The type of analysis that was used to determine this segment.</param>
-    public DbSegment(Segment segment, AnalysisMode type)
+    /// <param name="isUserProvided">Whether this segment was provided by the user via the segment editor.</param>
+    public DbSegment(Segment segment, AnalysisMode type, bool isUserProvided = false)
     {
         ItemId = segment.EpisodeId;
         Start = segment.Start;
         End = segment.End;
         Type = type;
+        IsUserProvided = isUserProvided;
     }
 
     /// <summary>
@@ -33,6 +36,11 @@ public class DbSegment
     public DbSegment()
     {
     }
+
+    /// <summary>
+    /// Gets or sets the unique identifier for the segment.
+    /// </summary>
+    public long Id { get; set; }
 
     /// <summary>
     /// Gets or sets the episode id.
@@ -53,6 +61,12 @@ public class DbSegment
     /// Gets the type of analysis that was used to determine this segment.
     /// </summary>
     public AnalysisMode Type { get; private set; }
+
+    /// <summary>
+    /// Gets or sets a value indicating whether this segment was provided by the user via the segment editor,
+    /// and must not be overwritten by automatic analysis.
+    /// </summary>
+    public bool IsUserProvided { get; set; }
 
     /// <summary>
     /// Converts the instance to a <see cref="Segment"/> object.

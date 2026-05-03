@@ -1,13 +1,11 @@
-﻿// Copyright (C) 2026 Intro-Skipper contributors <intro-skipper.org>
+// SPDX-FileCopyrightText: 2022 ConfusedPolarBear
+// SPDX-FileCopyrightText: 2024-2026 Kilian von Pflugk
+// SPDX-FileCopyrightText: 2024-2026 rlauuzo
+// SPDX-FileCopyrightText: 2024-2026 AbandonedCart
 // SPDX-License-Identifier: GPL-3.0-only
 
-using System;
-using System.Collections.Generic;
 using System.Globalization;
-using System.Linq;
 using System.Text.RegularExpressions;
-using System.Threading;
-using System.Threading.Tasks;
 using IntroSkipper.Configuration;
 using IntroSkipper.Data;
 using MediaBrowser.Model.Entities;
@@ -22,7 +20,7 @@ namespace IntroSkipper.Analyzers;
 /// Initializes a new instance of the <see cref="ChapterAnalyzer"/> class.
 /// </remarks>
 /// <param name="logger">Logger.</param>
-public class ChapterAnalyzer(ILogger<ChapterAnalyzer> logger) : IMediaFileAnalyzer
+public partial class ChapterAnalyzer(ILogger<ChapterAnalyzer> logger) : IMediaFileAnalyzer
 {
     private readonly ILogger<ChapterAnalyzer> _logger = logger;
     private readonly PluginConfiguration _config = Plugin.Instance?.Configuration ?? new PluginConfiguration();
@@ -48,9 +46,9 @@ public class ChapterAnalyzer(ILogger<ChapterAnalyzer> logger) : IMediaFileAnalyz
             return analysisQueue;
         }
 
-        var timeAdjustmentHelper = new TimeAdjustmentHelper(_logger, _config);
+        var timeAdjustmentHelper = new TimeAdjustmentHelper(_logger, _config, mode);
 
-        var episodesWithoutIntros = analysisQueue.Where(e => e.GetAnalyzed(mode) != EpisodeState.Analyzed).ToList();
+        var episodesWithoutIntros = analysisQueue.Where(e => e.NeedsAnalysis(mode)).ToList();
 
         foreach (var episode in episodesWithoutIntros)
         {
@@ -73,7 +71,7 @@ public class ChapterAnalyzer(ILogger<ChapterAnalyzer> logger) : IMediaFileAnalyz
             skipRange = timeAdjustmentHelper.AdjustIntroTimes(episode, skipRange, false);
 
             episode.SetAnalyzed(mode, EpisodeState.Analyzed);
-            await Plugin.Instance!.UpdateTimestampAsync(skipRange, mode).ConfigureAwait(false);
+            await Plugin.Instance!.UpdateTimestampAsync(skipRange, mode, cancellationToken: cancellationToken).ConfigureAwait(false);
         }
 
         return analysisQueue;
@@ -129,7 +127,7 @@ public class ChapterAnalyzer(ILogger<ChapterAnalyzer> logger) : IMediaFileAnalyz
 
             if (currentRange.Duration < minDuration || currentRange.Duration > maxDuration)
             {
-                _logger.LogTrace("{Base}: ignoring (invalid duration)", baseMessage);
+                LogIgnoringInvalidDuration(baseMessage);
                 continue;
             }
 
@@ -143,7 +141,7 @@ public class ChapterAnalyzer(ILogger<ChapterAnalyzer> logger) : IMediaFileAnalyz
 
             if (!match)
             {
-                _logger.LogTrace("{Base}: ignoring (does not match regular expression)", baseMessage);
+                LogIgnoringNoRegexMatch(baseMessage);
                 continue;
             }
 
@@ -160,12 +158,12 @@ public class ChapterAnalyzer(ILogger<ChapterAnalyzer> logger) : IMediaFileAnalyz
 
                 if (overlap)
                 {
-                    _logger.LogTrace("{Base}: ignoring (adjacent chapter also matches)", baseMessage);
+                    LogIgnoringAdjacentMatch(baseMessage);
                     continue;
                 }
             }
 
-            _logger.LogTrace("{Base}: okay", baseMessage);
+            LogChapterOk(baseMessage);
             return new Segment(episode.EpisodeId, currentRange);
         }
 
@@ -194,4 +192,16 @@ public class ChapterAnalyzer(ILogger<ChapterAnalyzer> logger) : IMediaFileAnalyz
             _ => throw new ArgumentOutOfRangeException(nameof(mode), $"Unsupported analysis mode: {mode}")
         };
     }
+
+    [LoggerMessage(Level = LogLevel.Trace, Message = "{Base}: ignoring (invalid duration)")]
+    private partial void LogIgnoringInvalidDuration(string @base);
+
+    [LoggerMessage(Level = LogLevel.Trace, Message = "{Base}: ignoring (does not match regular expression)")]
+    private partial void LogIgnoringNoRegexMatch(string @base);
+
+    [LoggerMessage(Level = LogLevel.Trace, Message = "{Base}: ignoring (adjacent chapter also matches)")]
+    private partial void LogIgnoringAdjacentMatch(string @base);
+
+    [LoggerMessage(Level = LogLevel.Trace, Message = "{Base}: okay")]
+    private partial void LogChapterOk(string @base);
 }

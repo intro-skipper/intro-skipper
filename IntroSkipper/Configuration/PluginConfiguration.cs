@@ -1,7 +1,16 @@
-﻿// Copyright (C) 2026 Intro-Skipper contributors <intro-skipper.org>
+// SPDX-FileCopyrightText: 2019 dkanada
+// SPDX-FileCopyrightText: 2019 Phallacy
+// SPDX-FileCopyrightText: 2021 Cody Robibero
+// SPDX-FileCopyrightText: 2022-2023 ConfusedPolarBear
+// SPDX-FileCopyrightText: 2024-2026 Kilian von Pflugk
+// SPDX-FileCopyrightText: 2024-2026 rlauuzo
+// SPDX-FileCopyrightText: 2024-2026 AbandonedCart
+// SPDX-FileCopyrightText: 2024 theMasterpc
+// SPDX-FileCopyrightText: 2024 CasuallyFilthy
 // SPDX-License-Identifier: GPL-3.0-only
 
 using System.Diagnostics;
+using System.IO.Compression;
 using System.Xml.Serialization;
 using MediaBrowser.Model.Plugins;
 
@@ -12,6 +21,33 @@ namespace IntroSkipper.Configuration;
 /// </summary>
 public class PluginConfiguration : BasePluginConfiguration
 {
+    /// <summary>
+    /// Default percentage of each episode's audio track to analyze.
+    /// </summary>
+    public const int DefaultAnalysisPercent = 25;
+
+    /// <summary>
+    /// Default upper limit (in minutes) on the length of each episode's audio track that will be analyzed.
+    /// </summary>
+    public const int DefaultAnalysisLengthLimit = 10;
+
+    /// <summary>
+    /// Default minimum length of similar audio that will be considered an introduction.
+    /// </summary>
+    public const int DefaultMinimumIntroDuration = 15;
+
+    /// <summary>
+    /// Minimum percentage of each episode's audio track to analyze.
+    /// </summary>
+    public const int MinimumAnalysisPercent = 1;
+
+    /// <summary>
+    /// Maximum percentage of each episode's audio track to analyze.
+    /// </summary>
+    public const int MaximumAnalysisPercent = 50;
+
+    private int _analysisPercent = DefaultAnalysisPercent;
+
     /// <summary>
     /// Initializes a new instance of the <see cref="PluginConfiguration"/> class.
     /// </summary>
@@ -47,9 +83,22 @@ public class PluginConfiguration : BasePluginConfiguration
     public bool CacheFingerprints { get; set; } = true;
 
     /// <summary>
+    /// Gets or sets the Brotli compression level used for the detection cache.
+    /// Higher compression reduces disk usage but increases CPU time during analysis.
+    /// </summary>
+    public CompressionLevel CacheCompressionLevel { get; set; } = CompressionLevel.Optimal;
+
+    /// <summary>
     /// Gets or sets a value indicating whether to use the alternative black frame analyzer.
     /// </summary>
     public bool UseAlternativeBlackFrameAnalyzer { get; set; }
+
+    /// <summary>
+    /// Gets or sets a value indicating whether to refine credits boundaries with frame-level analysis.
+    /// When enabled, the alternative black frame analyzer probes the gap between keyframes
+    /// to find the exact frame where credits begin. Disable for faster analysis with keyframe-only accuracy.
+    /// </summary>
+    public bool RefineCreditsBoundary { get; set; } = true;
 
     // ===== Media Segment handling =====
 
@@ -57,13 +106,6 @@ public class PluginConfiguration : BasePluginConfiguration
     /// Gets or sets a value indicating whether to update Media Segments.
     /// </summary>
     public bool UpdateMediaSegments { get; set; } = true;
-
-    /// <summary>
-    /// Gets or sets a value indicating whether to regenerate all Media Segments during the next scan.
-    /// By default, Media Segments are only written for a season if the season had at least one newly analyzed episode.
-    /// If this is set, all Media Segments will be regenerated and overwrite any existing Media Segments.
-    /// </summary>
-    public bool RebuildMediaSegments { get; set; } = true;
 
     // ===== Custom analysis settings =====
 
@@ -95,12 +137,16 @@ public class PluginConfiguration : BasePluginConfiguration
     /// <summary>
     /// Gets or sets the percentage of each episode's audio track to analyze.
     /// </summary>
-    public int AnalysisPercent { get; set; } = 25;
+    public int AnalysisPercent
+    {
+        get => _analysisPercent;
+        set => _analysisPercent = Math.Clamp(value, MinimumAnalysisPercent, MaximumAnalysisPercent);
+    }
 
     /// <summary>
     /// Gets or sets the upper limit (in minutes) on the length of each episode's audio track that will be analyzed.
     /// </summary>
-    public int AnalysisLengthLimit { get; set; } = 10;
+    public int AnalysisLengthLimit { get; set; } = DefaultAnalysisLengthLimit;
 
     /// <summary>
     /// Gets or sets a value indicating whether to use the minimum and maximum duration for chapters.
@@ -118,9 +164,15 @@ public class PluginConfiguration : BasePluginConfiguration
     public bool SkipFirstEpisodeAnime { get; set; } = false;
 
     /// <summary>
+    /// Gets or sets a value indicating whether the remaining content after the credits should be set as a preview for anime episodes.
+    /// When enabled, a Preview segment covering the time from the end of the credits to the end of the episode is created for anime.
+    /// </summary>
+    public bool AnimePreviewFromCreditsEnd { get; set; } = false;
+
+    /// <summary>
     /// Gets or sets the minimum length of similar audio that will be considered an introduction.
     /// </summary>
-    public int MinimumIntroDuration { get; set; } = 15;
+    public int MinimumIntroDuration { get; set; } = DefaultMinimumIntroDuration;
 
     /// <summary>
     /// Gets or sets the maximum length of similar audio that will be considered an introduction.

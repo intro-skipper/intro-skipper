@@ -1,4 +1,6 @@
-﻿// Copyright (C) 2026 Intro-Skipper contributors <intro-skipper.org>
+// SPDX-FileCopyrightText: 2025-2026 rlauuzo
+// SPDX-FileCopyrightText: 2026 Kilian von Pflugk
+// SPDX-FileCopyrightText: 2026 AbandonedCart
 // SPDX-License-Identifier: GPL-3.0-only
 
 using System;
@@ -12,7 +14,7 @@ namespace IntroSkipper.Tests;
 
 public class TestTimeAdjustmentHelper
 {
-    private static (TimeAdjustmentHelper helper, PluginConfiguration cfg) CreateHelper(PluginConfiguration? cfg = null)
+    private static (TimeAdjustmentHelper helper, PluginConfiguration cfg) CreateHelper(PluginConfiguration? cfg = null, AnalysisMode mode = AnalysisMode.Introduction)
     {
         cfg ??= new PluginConfiguration
         {
@@ -26,7 +28,7 @@ public class TestTimeAdjustmentHelper
             IntroEndOffset = 0,
         };
 
-        return (new TimeAdjustmentHelper(new NullLoggerFactory().CreateLogger("Test"), cfg), cfg);
+        return (new TimeAdjustmentHelper(new NullLoggerFactory().CreateLogger("Test"), cfg, mode), cfg);
     }
 
     [Fact]

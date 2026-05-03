@@ -1,11 +1,9 @@
-﻿// Copyright (C) 2026 Intro-Skipper contributors <intro-skipper.org>
+// SPDX-FileCopyrightText: 2022 ConfusedPolarBear
+// SPDX-FileCopyrightText: 2024-2026 Kilian von Pflugk
+// SPDX-FileCopyrightText: 2024-2026 rlauuzo
+// SPDX-FileCopyrightText: 2024-2026 AbandonedCart
 // SPDX-License-Identifier: GPL-3.0-only
 
-using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Threading;
-using System.Threading.Tasks;
 using IntroSkipper.Configuration;
 using IntroSkipper.Data;
 using Microsoft.Extensions.Logging;
@@ -20,7 +18,7 @@ namespace IntroSkipper.Analyzers;
 /// Initializes a new instance of the <see cref="BlackFrameAnalyzer"/> class.
 /// </remarks>
 /// <param name="logger">Logger for the analyzer.</param>
-public sealed class BlackFrameAnalyzer(ILogger<BlackFrameAnalyzer> logger) : IMediaFileAnalyzer
+public sealed partial class BlackFrameAnalyzer(ILogger<BlackFrameAnalyzer> logger) : IMediaFileAnalyzer
 {
     private readonly PluginConfiguration _config = Plugin.Instance?.Configuration ?? new PluginConfiguration();
     private readonly TimeSpan _maximumError = TimeSpan.FromSeconds(4);
@@ -38,7 +36,7 @@ public sealed class BlackFrameAnalyzer(ILogger<BlackFrameAnalyzer> logger) : IMe
         }
 
         var unanalyzedEpisodes = analysisQueue
-            .Where(e => e.GetAnalyzed(mode) != EpisodeState.Analyzed)
+            .Where(e => e.NeedsAnalysis(mode))
             .ToList();
 
         if (unanalyzedEpisodes.Count == 0)
@@ -46,7 +44,7 @@ public sealed class BlackFrameAnalyzer(ILogger<BlackFrameAnalyzer> logger) : IMe
             return analysisQueue;
         }
 
-        _logger.LogDebug("Analyzing {Count} episodes for credits using black frame detection", unanalyzedEpisodes.Count);
+        LogAnalyzingEpisodes(_logger, unanalyzedEpisodes.Count);
 
         double searchStart = 0.0;
 
@@ -65,6 +63,15 @@ public sealed class BlackFrameAnalyzer(ILogger<BlackFrameAnalyzer> logger) : IMe
                 // First try to use chapter markers if available
                 if (!_config.UseChapterMarkersBlackFrame || !TryAnalyzeChapters(episode, percentage, threshold, out var credit))
                 {
+                    // Reset searchStart if it exceeds the valid search range for this episode.
+                    // This can happen when a previous longer episode sets a large searchStart that
+                    // causes lowerLimit > upperLimit in AnalyzeMediaFile, breaking the binary search.
+                    var maxSearchDistance = episode.Duration - episode.CreditsFingerprintStart;
+                    if (searchStart > maxSearchDistance)
+                    {
+                        searchStart = 0.0;
+                    }
+
                     // If no suitable chapters found, use black frame detection
                     if (searchStart < _config.MinimumCreditsDuration)
                     {
@@ -80,21 +87,25 @@ public sealed class BlackFrameAnalyzer(ILogger<BlackFrameAnalyzer> logger) : IMe
 
                 if (credit is null || !credit.Valid)
                 {
-                    _logger.LogDebug("No valid credits found for {Episode}", episode.Name);
+                    LogNoValidCreditsFound(_logger, episode.Name);
                     continue;
                 }
 
-                _logger.LogDebug("Found credits for {Episode} at {Start:F2}s", episode.Name, credit.Start);
+                LogFoundCredits(_logger, episode.Name, credit.Start);
 
                 episode.SetAnalyzed(mode, EpisodeState.Analyzed);
-                await Plugin.Instance!.UpdateTimestampAsync(credit, mode).ConfigureAwait(false);
+                await Plugin.Instance!.UpdateTimestampAsync(credit, mode, cancellationToken: cancellationToken).ConfigureAwait(false);
 
                 // Update search start for next episode based on this result
                 searchStart = episode.Duration - credit.Start + _config.MinimumCreditsDuration;
             }
+            catch (OperationCanceledException)
+            {
+                throw;
+            }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error analyzing {Episode} for credits", episode.Name);
+                LogErrorAnalyzingCredits(_logger, ex, episode.Name);
             }
         }
 
@@ -135,13 +146,9 @@ public sealed class BlackFrameAnalyzer(ILogger<BlackFrameAnalyzer> logger) : IMe
                 var timeRange = new TimeRange(scanTime, scanTime + 2);
 
                 // Detect black frames in the current time range
-                var blackFrames = FFmpegWrapper.DetectBlackFrames(episode, timeRange, minimumBlackPercentage, threshold);
+                var blackFrames = FFmpegWrapper.DetectBlackFrames(episode, timeRange, minimumBlackPercentage, threshold, AnalysisMode.Credits);
 
-                _logger.LogTrace(
-                    "{Episode} at {Start:F2}s has {Count} black frames",
-                    episode.Name,
-                    timeRange.Start,
-                    blackFrames.Length);
+                LogBlackFramesDetected(_logger, episode.Name, timeRange.Start, blackFrames.Length);
 
                 if (blackFrames.Length == 0)
                 {
@@ -154,7 +161,7 @@ public sealed class BlackFrameAnalyzer(ILogger<BlackFrameAnalyzer> logger) : IMe
                         lowerLimit = Math.Max(lowerLimit - (0.5 * searchDistance), _config.MinimumCreditsDuration);
                         searchEnd = TimeSpan.FromSeconds(lowerLimit);
 
-                        _logger.LogTrace("Expanded search range: new lower limit = {Limit:F2}s", lowerLimit);
+                        LogExpandedSearchLowerLimit(_logger, lowerLimit);
                     }
                 }
                 else
@@ -171,7 +178,7 @@ public sealed class BlackFrameAnalyzer(ILogger<BlackFrameAnalyzer> logger) : IMe
                             episode.Duration - episode.CreditsFingerprintStart);
                         searchStart = TimeSpan.FromSeconds(upperLimit);
 
-                        _logger.LogTrace("Expanded search range: new upper limit = {Limit:F2}s", upperLimit);
+                        LogExpandedSearchUpperLimit(_logger, upperLimit);
                     }
                 }
             }
@@ -188,7 +195,7 @@ public sealed class BlackFrameAnalyzer(ILogger<BlackFrameAnalyzer> logger) : IMe
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Error during black frame analysis for {Episode}", episode.Name);
+            LogErrorDuringAnalysis(_logger, ex, episode.Name);
             return null;
         }
     }
@@ -215,7 +222,7 @@ public sealed class BlackFrameAnalyzer(ILogger<BlackFrameAnalyzer> logger) : IMe
 
         if (suitableChapters.Count == 0)
         {
-            _logger.LogTrace("No suitable chapters found for {Episode}", episode.Name);
+            LogNoSuitableChaptersFound(_logger, episode.Name);
             segment = null;
             return false;
         }
@@ -229,11 +236,12 @@ public sealed class BlackFrameAnalyzer(ILogger<BlackFrameAnalyzer> logger) : IMe
                 episode,
                 startRange,
                 percentage,
-                threshold).Length > 0;
+                threshold,
+                AnalysisMode.Credits).Length > 0;
 
             if (!hasBlackFramesAtStart)
             {
-                _logger.LogTrace("Chapter at {Start:F2}s has no black frames at start", chapterStart);
+                LogChapterNoBlackFramesAtStart(_logger, chapterStart);
                 break;
             }
 
@@ -243,11 +251,12 @@ public sealed class BlackFrameAnalyzer(ILogger<BlackFrameAnalyzer> logger) : IMe
                 episode,
                 beforeRange,
                 percentage,
-                threshold).Length > 0;
+                threshold,
+                AnalysisMode.Credits).Length > 0;
 
             if (!hasBlackFramesBefore)
             {
-                _logger.LogTrace("Found credits using chapter marker at {Start:F2}s", chapterStart);
+                LogFoundCreditsWithChapterMarker(_logger, chapterStart);
                 segment = new Segment(episode.EpisodeId, new TimeRange(chapterStart, episode.Duration));
                 return true;
             }
@@ -280,29 +289,64 @@ public sealed class BlackFrameAnalyzer(ILogger<BlackFrameAnalyzer> logger) : IMe
 
             var timeRange = new TimeRange(scanTime - 1.0, scanTime);
 
-            var blackFrames = FFmpegWrapper.DetectBlackFrames(episode, timeRange, percentage, threshold);
+            var blackFrames = FFmpegWrapper.DetectBlackFrames(episode, timeRange, percentage, threshold, AnalysisMode.Credits);
 
-            _logger.LogTrace(
-                "Search: scanning at {Position:F2}s ({DistanceFromEnd:F2}s from end), found {Count} black frames",
-                scanTime,
-                searchStart,
-                blackFrames.Length);
+            LogSearchScanning(_logger, scanTime, searchStart, blackFrames.Length);
 
             if (blackFrames.Length < 3)
             {
                 // No black frames found, this is a good starting point
-                _logger.LogTrace("Found suitable search start at {DistanceFromEnd:F2}s from end", searchStart);
+                LogFoundSearchStart(_logger, searchStart);
                 return searchStart;
             }
 
             searchStart += stepSize;
         }
 
-        _logger.LogDebug(
-            "Maximum distance reached when finding search start for {Episode}. Using {DistanceFromEnd:F2}s from end",
-            episode.Name,
-            maxSearchStart);
+        LogMaxSearchDistanceReached(_logger, episode.Name, maxSearchStart);
 
         return maxSearchStart;
     }
+
+    [LoggerMessage(Level = LogLevel.Debug, Message = "Analyzing {Count} episodes for credits using black frame detection")]
+    private static partial void LogAnalyzingEpisodes(ILogger logger, int count);
+
+    [LoggerMessage(Level = LogLevel.Debug, Message = "No valid credits found for {Episode}")]
+    private static partial void LogNoValidCreditsFound(ILogger logger, string episode);
+
+    [LoggerMessage(Level = LogLevel.Debug, Message = "Found credits for {Episode} at {Start:F2}s")]
+    private static partial void LogFoundCredits(ILogger logger, string episode, double start);
+
+    [LoggerMessage(Level = LogLevel.Error, Message = "Error analyzing {Episode} for credits")]
+    private static partial void LogErrorAnalyzingCredits(ILogger logger, Exception ex, string episode);
+
+    [LoggerMessage(Level = LogLevel.Trace, Message = "{Episode} at {Start:F2}s has {Count} black frames")]
+    private static partial void LogBlackFramesDetected(ILogger logger, string episode, double start, int count);
+
+    [LoggerMessage(Level = LogLevel.Trace, Message = "Expanded search range: new lower limit = {Limit:F2}s")]
+    private static partial void LogExpandedSearchLowerLimit(ILogger logger, double limit);
+
+    [LoggerMessage(Level = LogLevel.Trace, Message = "Expanded search range: new upper limit = {Limit:F2}s")]
+    private static partial void LogExpandedSearchUpperLimit(ILogger logger, double limit);
+
+    [LoggerMessage(Level = LogLevel.Error, Message = "Error during black frame analysis for {Episode}")]
+    private static partial void LogErrorDuringAnalysis(ILogger logger, Exception ex, string episode);
+
+    [LoggerMessage(Level = LogLevel.Trace, Message = "No suitable chapters found for {Episode}")]
+    private static partial void LogNoSuitableChaptersFound(ILogger logger, string episode);
+
+    [LoggerMessage(Level = LogLevel.Trace, Message = "Chapter at {Start:F2}s has no black frames at start")]
+    private static partial void LogChapterNoBlackFramesAtStart(ILogger logger, double start);
+
+    [LoggerMessage(Level = LogLevel.Trace, Message = "Found credits using chapter marker at {Start:F2}s")]
+    private static partial void LogFoundCreditsWithChapterMarker(ILogger logger, double start);
+
+    [LoggerMessage(Level = LogLevel.Trace, Message = "Search: scanning at {Position:F2}s ({DistanceFromEnd:F2}s from end), found {Count} black frames")]
+    private static partial void LogSearchScanning(ILogger logger, double position, double distanceFromEnd, int count);
+
+    [LoggerMessage(Level = LogLevel.Trace, Message = "Found suitable search start at {DistanceFromEnd:F2}s from end")]
+    private static partial void LogFoundSearchStart(ILogger logger, double distanceFromEnd);
+
+    [LoggerMessage(Level = LogLevel.Debug, Message = "Maximum distance reached when finding search start for {Episode}. Using {DistanceFromEnd:F2}s from end")]
+    private static partial void LogMaxSearchDistanceReached(ILogger logger, string episode, double distanceFromEnd);
 }

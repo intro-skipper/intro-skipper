@@ -1,16 +1,15 @@
-﻿// Copyright (C) 2026 Intro-Skipper contributors <intro-skipper.org>
+// SPDX-FileCopyrightText: 2022-2023 ConfusedPolarBear
+// SPDX-FileCopyrightText: 2024-2026 rlauuzo
+// SPDX-FileCopyrightText: 2024-2026 Kilian von Pflugk
+// SPDX-FileCopyrightText: 2024-2026 AbandonedCart
 // SPDX-License-Identifier: GPL-3.0-only
 
-using System;
-using System.Globalization;
-using System.IO;
 using System.Net.Mime;
 using System.Text;
 using IntroSkipper.Data;
 using IntroSkipper.Helper;
 using MediaBrowser.Common;
 using MediaBrowser.Common.Api;
-using MediaBrowser.Controller.Library;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
@@ -25,9 +24,8 @@ namespace IntroSkipper.Controllers;
 [ApiController]
 [Produces(MediaTypeNames.Application.Json)]
 [Route("IntroSkipper")]
-public class TroubleshootingController : ControllerBase
+public partial class TroubleshootingController : ControllerBase
 {
-    private readonly ILibraryManager _libraryManager;
     private readonly IApplicationHost _applicationHost;
     private readonly ILogger<TroubleshootingController> _logger;
 
@@ -35,14 +33,11 @@ public class TroubleshootingController : ControllerBase
     /// Initializes a new instance of the <see cref="TroubleshootingController"/> class.
     /// </summary>
     /// <param name="applicationHost">Application host.</param>
-    /// <param name="libraryManager">Library Manager.</param>
     /// <param name="logger">Logger.</param>
     public TroubleshootingController(
         IApplicationHost applicationHost,
-        ILibraryManager libraryManager,
         ILogger<TroubleshootingController> logger)
     {
-        _libraryManager = libraryManager;
         _applicationHost = applicationHost;
         _logger = logger;
     }
@@ -80,7 +75,7 @@ public class TroubleshootingController : ControllerBase
         bundle.Append(_applicationHost.ApplicationVersionString);
         bundle.Append('\n');
 
-        var version = Plugin.Instance.Version.ToString(3);
+        var version = Plugin.Instance.Version.ToString(4);
 
         try
         {
@@ -92,7 +87,7 @@ public class TroubleshootingController : ControllerBase
         }
         catch (Exception ex)
         {
-            _logger.LogWarning("Unable to append commit to version: {Exception}", ex);
+            LogUnableToAppendCommit(_logger, ex);
         }
 
         bundle.Append("* Plugin version: ");
@@ -118,77 +113,6 @@ public class TroubleshootingController : ControllerBase
         return bundle.ToString();
     }
 
-    /// <summary>
-    /// Gets a Markdown formatted support bundle.
-    /// </summary>
-    /// <response code="200">Support bundle created.</response>
-    /// <returns>Support bundle.</returns>
-    [HttpGet("Storage")]
-    [Produces(MediaTypeNames.Text.Plain)]
-    public ActionResult<string> GetFreeSpace()
-    {
-        ArgumentNullException.ThrowIfNull(Plugin.Instance);
-        var bundle = new StringBuilder();
-
-        var libraries = _libraryManager.GetVirtualFolders();
-        foreach (var library in libraries)
-        {
-            bundle.AppendFormat(CultureInfo.CurrentCulture, "Library: {0}\n", library.Name);
-
-            if (library.Locations.Length == 0)
-            {
-                bundle.Append("No locations found for this library.\n\n");
-                continue;
-            }
-
-            foreach (var location in library.Locations)
-            {
-                try
-                {
-                    DriveInfo driveInfo = new DriveInfo(location);
-                    // Get available free space in bytes
-                    long availableFreeSpace = driveInfo.AvailableFreeSpace;
-
-                    // Get total size of the drive in bytes
-                    long totalSize = driveInfo.TotalSize;
-
-                    // Get total used space in Percentage
-                    double usedSpacePercentage = totalSize > 0 ? (totalSize - availableFreeSpace) / (double)totalSize * 100 : 0;
-
-                    bundle.AppendFormat(CultureInfo.CurrentCulture, "Location: {0}\n", location);
-                    bundle.AppendFormat(CultureInfo.CurrentCulture, "Drive: {0}\n", driveInfo.Name);
-                    bundle.AppendFormat(CultureInfo.CurrentCulture, "Total Size: {0}\n", GetHumanReadableSize(totalSize));
-                    bundle.AppendFormat(CultureInfo.CurrentCulture, "Available Free Space: {0}\n", GetHumanReadableSize(availableFreeSpace));
-                    bundle.AppendFormat(CultureInfo.CurrentCulture, "Total used in Percentage: {0}%\n", Math.Round(usedSpacePercentage, 2));
-                    bundle.Append("-----\n");
-                }
-                catch (Exception ex)
-                {
-                    bundle.AppendFormat(CultureInfo.CurrentCulture, "Location: {0}\n", location);
-                    bundle.AppendFormat(CultureInfo.CurrentCulture, "Unable to get drive information: {0}\n", ex.Message);
-                    bundle.Append("-----\n");
-                    _logger.LogWarning("Unable to get DriveInfo for location {Location}: {Exception}", location, ex);
-                }
-            }
-
-            bundle.Append('\n');
-        }
-
-        return bundle.ToString().TrimEnd('\n');
-    }
-
-    private static string GetHumanReadableSize(long bytes)
-    {
-        string[] sizes = ["Bytes", "KB", "MB", "GB", "TB", "PB", "EB", "ZB", "YB"];
-        double len = bytes;
-        int order = 0;
-
-        while (len >= 1024 && order < sizes.Length - 1)
-        {
-            order++;
-            len /= 1024;
-        }
-
-        return $"{len:0.##} {sizes[order]}";
-    }
+    [LoggerMessage(Level = LogLevel.Warning, Message = "Unable to append commit to version: {Exception}")]
+    private static partial void LogUnableToAppendCommit(ILogger logger, object exception);
 }

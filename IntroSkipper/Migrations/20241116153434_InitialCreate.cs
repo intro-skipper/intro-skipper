@@ -1,4 +1,7 @@
-using System;
+// SPDX-FileCopyrightText: 2024-2026 rlauuzo
+// SPDX-FileCopyrightText: 2024-2025 AbandonedCart
+// SPDX-FileCopyrightText: 2024 Kilian von Pflugk
+// SPDX-License-Identifier: GPL-3.0-only
 using Microsoft.EntityFrameworkCore.Migrations;
 
 #nullable disable

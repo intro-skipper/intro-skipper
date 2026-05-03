@@ -9,7 +9,12 @@ on:
       - ".github/ISSUE_TEMPLATE/**"
       - "docs/**"
       - "images/**"
-      - "manifest.json"
+  pull_request:
+    types:
+      - opened
+      - reopened
+      - synchronize
+      - ready_for_review
 
 permissions:
   contents: write
@@ -22,55 +27,53 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Sanitize head_ref
+      - name: Sanitize branch name
+        env:
+          HEAD_REF: ${{ github.head_ref }}
         run: |
           # Get the branch name and sanitize it
-          SANITIZED_BRANCH_NAME=$(echo "${{ github.head_ref }}" | sed 's/[^a-zA-Z0-9.-]/_/g')
+          SANITIZED=$(echo "$HEAD_REF" | sed 's/[^a-zA-Z0-9.-]/_/g')
 
           # Export it as an environment variable
-          echo "SANITIZED_BRANCH_NAME=$SANITIZED_BRANCH_NAME" >> $GITHUB_ENV
-
+          echo "SANITIZED_BRANCH_NAME=$SANITIZED" >> $GITHUB_ENV
       - uses: actions/checkout@v6
 
-      - name: Read version from VERSION.txt
-        id: read-version
+      - name: Read build configuration
+        id: read-config
         run: |
-          MAIN_VERSION=$(cat VERSION.txt)
-          echo "MAIN_VERSION=${MAIN_VERSION}"
-          echo "MAIN_VERSION=$MAIN_VERSION" >> $GITHUB_ENV
-
-      - name: Check for BETA file
-        id: check-beta
-        run: |
-          if [ -f "BETA" ]; then
-            echo "IS_BETA=true" >> $GITHUB_ENV
-          else
-            echo "IS_BETA=false" >> $GITHUB_ENV
-          fi
+          CONFIG=$(cat build.json)
+          echo "MAIN_VERSION=$(echo "$CONFIG" | jq -r '.version')" >> $GITHUB_ENV
+          echo "IS_BETA=$(echo "$CONFIG" | jq -r '.beta')" >> $GITHUB_ENV
+          echo "DOTNET_VERSION=$(echo "$CONFIG" | jq -r '."dotnet-version"')" >> $GITHUB_ENV
+          DOTNET_MAJOR=$(echo "$CONFIG" | jq -r '."dotnet-version"' | cut -d'.' -f1)
+          echo "DOTNET_TFM=net${DOTNET_MAJOR}.0" >> $GITHUB_ENV
 
       - name: Setup .NET
         uses: actions/setup-dotnet@v5
         with:
-          dotnet-version: 9.0.x
+          dotnet-version: ${{ env.DOTNET_VERSION }}
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v6
+        with:
+          version: 10
 
       - name: Setup Node.js
         uses: actions/setup-node@v6
         with:
-          node-version: "lts/*"
+          node-version: 'lts/*'
+          cache: 'pnpm'
+          cache-dependency-path: web/pnpm-lock.yaml
 
-      - name: Minify HTML
+      - name: Configure NuGet for beta
+        if: ${{ env.IS_BETA == 'true' }}
         run: |
-          npx html-minifier-terser --collapse-boolean-attributes --collapse-whitespace --remove-comments --remove-optional-tags --remove-redundant-attributes --remove-script-type-attributes --remove-tag-whitespace --use-short-doctype --minify-css true --minify-js true -o IntroSkipper/Configuration/configPage.html IntroSkipper/Configuration/configPage.html
-
-      - name: Download Jellyfin dependencies
-        if: ${{env.IS_BETA == 'true' }}
-        run: |
-          dotnet nuget add source --username ${{ github.repository_owner }} --password ${{ secrets.GITHUB_TOKEN }} --store-password-in-clear-text --name jellyfin-pre "https://nuget.pkg.github.com/jellyfin/index.json"
+          cp nuget/NuGet.Beta.Config IntroSkipper/NuGet.Config
+          dotnet nuget add source --username ${{ github.repository_owner }} --password ${{ secrets.GITHUB_TOKEN }} --store-password-in-clear-text --name github-jellyfin "https://nuget.pkg.github.com/jellyfin/index.json"
           dotnet tool install --global dotnet-outdated-tool
           dotnet outdated -pre Always -u -inc Jellyfin
 
       - name: Restore dependencies
-        if: ${{env.IS_BETA == 'false' }}
         run: dotnet restore
 
       - name: Embed version info
@@ -87,20 +90,20 @@ jobs:
         run: dotnet build --no-restore
 
       - name: Upload artifact
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         with:
           name: IntroSkipper-${{ env.GIT_HASH }}.dll
-          path: IntroSkipper/bin/Debug/net9.0/IntroSkipper.dll
+          path: IntroSkipper/bin/Debug/${{ env.DOTNET_TFM }}/IntroSkipper.dll
           if-no-files-found: error
 
       - name: Create archive
         if: startsWith(github.ref_name, '10.') # only do a preview release on 10.x branches
-        run: zip -j "intro-skipper-${{ env.GIT_HASH }}.zip" IntroSkipper/bin/Debug/net9.0/IntroSkipper.dll
+        run: zip -j "intro-skipper-${{ env.GIT_HASH }}.zip" IntroSkipper/bin/Debug/${{ env.DOTNET_TFM }}/IntroSkipper.dll
 
-      - name: Create/replace the preview release and upload artifacts
+      - name: Create/replace the prerelease and upload artifacts
         if: startsWith(github.ref_name, '10.') # only do a preview release on 10.x branches
         run: |
-          gh release delete "${{ env.MAIN_VERSION }}/preview" --cleanup-tag --yes || true
-          gh release create "${{ env.MAIN_VERSION }}/preview" "intro-skipper-${{ env.GIT_HASH }}.zip" --prerelease --title "intro-skipper-${{ env.GIT_HASH }}" --notes "This is a prerelease version."  --target ${{ env.MAIN_VERSION }}
+          gh release delete "${{ env.MAIN_VERSION }}/prerelease" --cleanup-tag --yes || true
+          gh release create "${{ env.MAIN_VERSION }}/prerelease" "intro-skipper-${{ env.GIT_HASH }}.zip" --prerelease --title "intro-skipper-${{ env.GIT_HASH }}" --notes "This is a prerelease version."  --target ${{ env.MAIN_VERSION }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

@@ -1,10 +1,9 @@
-﻿// Copyright (C) 2026 Intro-Skipper contributors <intro-skipper.org>
+// SPDX-FileCopyrightText: 2022-2023 ConfusedPolarBear
+// SPDX-FileCopyrightText: 2024-2026 rlauuzo
+// SPDX-FileCopyrightText: 2024-2026 AbandonedCart
+// SPDX-FileCopyrightText: 2024-2026 Kilian von Pflugk
 // SPDX-License-Identifier: GPL-3.0-only
 
-using System;
-using System.Collections.Generic;
-using System.Threading;
-using System.Threading.Tasks;
 using IntroSkipper.Manager;
 using IntroSkipper.Services;
 using MediaBrowser.Controller.Library;
@@ -27,7 +26,7 @@ namespace IntroSkipper.ScheduledTasks;
 /// <param name="fileSystem">File system.</param>
 /// <param name="logger">Logger.</param>
 /// <param name="mediaSegmentUpdateManager">Media segment update manager.</param>
-public class DetectSegmentsTask(
+public partial class DetectSegmentsTask(
     ILogger<DetectSegmentsTask> logger,
     ILoggerFactory loggerFactory,
     ILibraryManager libraryManager,
@@ -78,13 +77,13 @@ public class DetectSegmentsTask(
         // abort automatic analyzer if running
         if (Entrypoint.AutomaticTaskState == TaskState.Running || Entrypoint.AutomaticTaskState == TaskState.Cancelling)
         {
-            _logger.LogInformation("Automatic Task is {TaskState} and will be canceled.", Entrypoint.AutomaticTaskState);
+            LogAutomaticTaskWillBeCanceled(_logger, Entrypoint.AutomaticTaskState);
             await Entrypoint.CancelAutomaticTaskAsync(cancellationToken).ConfigureAwait(false);
         }
 
         using (await ScheduledTaskSemaphore.AcquireAsync(cancellationToken).ConfigureAwait(false))
         {
-            _logger.LogInformation("Scheduled Task is starting");
+            LogScheduledTaskStarting(_logger);
 
             var baseIntroAnalyzer = new BaseItemAnalyzerTask(
                 _loggerFactory.CreateLogger<DetectSegmentsTask>(),
@@ -113,4 +112,10 @@ public class DetectSegmentsTask(
             }
         ];
     }
+
+    [LoggerMessage(Level = LogLevel.Information, Message = "Automatic Task is {TaskState} and will be canceled.")]
+    private static partial void LogAutomaticTaskWillBeCanceled(ILogger logger, TaskState taskState);
+
+    [LoggerMessage(Level = LogLevel.Information, Message = "Scheduled Task is starting")]
+    private static partial void LogScheduledTaskStarting(ILogger logger);
 }

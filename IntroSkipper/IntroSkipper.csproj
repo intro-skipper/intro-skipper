@@ -2,14 +2,17 @@
   <PropertyGroup>
     <TargetFramework>net9.0</TargetFramework>
     <RootNamespace>IntroSkipper</RootNamespace>
-    <AssemblyVersion>1.10.11.13</AssemblyVersion>
-    <FileVersion>1.10.11.13</FileVersion>
+    <AssemblyVersion>1.10.11.19</AssemblyVersion>
+    <FileVersion>1.10.11.19</FileVersion>
     <GenerateDocumentationFile>true</GenerateDocumentationFile>
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <AnalysisMode>AllEnabledByDefault</AnalysisMode>
-    <CodeAnalysisRuleSet>../jellyfin.ruleset</CodeAnalysisRuleSet>
   </PropertyGroup>
+  <ItemGroup>
+    <InternalsVisibleTo Include="IntroSkipper.Tests" />
+  </ItemGroup>
   <ItemGroup>
     <PackageReference Include="Jellyfin.Controller" Version="10.11.*-*" />
     <PackageReference Include="Jellyfin.Model" Version="10.11.*-*" />
@@ -24,5 +27,13 @@
   <ItemGroup>
     <None Remove="Configuration\configPage.html" />
     <EmbeddedResource Include="Configuration\configPage.html" />
+    <None Remove="Configuration\introskipper.js" />
+    <EmbeddedResource Include="Configuration\introskipper.js" />
+    <None Remove="Configuration\introskipper.css" />
+    <EmbeddedResource Include="Configuration\introskipper.css" />
   </ItemGroup>
+  <Target Name="WebBuild" BeforeTargets="CoreCompile" Condition="'$(SkipWebBuild)' != 'true'">
+    <Exec WorkingDirectory="$(MSBuildProjectDirectory)\..\web"
+          Command="pnpm install --frozen-lockfile &amp;&amp; pnpm build" />
+  </Target>
 </Project>

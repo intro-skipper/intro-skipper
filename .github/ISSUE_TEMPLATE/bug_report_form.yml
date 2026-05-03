@@ -12,7 +12,7 @@ body:
 
         If you are unable to skip segments, please see [Troubleshooting](https://github.com/intro-skipper/intro-skipper/wiki/Troubleshooting) before reporting.
       options:
-        - label: I use Jellyfin 10.11.5 (or newer) and my permissions are correct
+        - label: I use Jellyfin 10.11.8 (or newer) and my permissions are correct
           required: true
         - label: I installed the Plugin using `https://intro-skipper.org/manifest.json` or `https://manifest.intro-skipper.org/manifest.json`
           required: true
@@ -64,8 +64,8 @@ body:
 
   - type: textarea
     attributes:
-      label: Support Bundle
-      placeholder: go to Dashboard -> Plugins -> Intro Skipper -> Support Bundle (at the bottom of the page) and paste the contents of the textbox here
+      label: Intro Skipper Support Log
+      placeholder: go to Dashboard -> Plugins -> Intro Skipper -> Expand Intro Skipper Support Log (at the bottom of the page) and paste the contents of the textbox here
       render: shell
     validations:
       required: true

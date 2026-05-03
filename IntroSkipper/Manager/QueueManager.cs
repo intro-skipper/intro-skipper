@@ -1,14 +1,13 @@
-﻿// Copyright (C) 2026 Intro-Skipper contributors <intro-skipper.org>
+// SPDX-FileCopyrightText: 2022-2023 ConfusedPolarBear
+// SPDX-FileCopyrightText: 2024-2026 rlauuzo
+// SPDX-FileCopyrightText: 2024-2026 AbandonedCart
+// SPDX-FileCopyrightText: 2024-2026 Kilian von Pflugk
 // SPDX-License-Identifier: GPL-3.0-only
 
-using System;
-using System.Collections.Generic;
-using System.IO;
-using System.Linq;
 using System.Text.RegularExpressions;
-using System.Threading;
-using System.Threading.Tasks;
+using IntroSkipper.Configuration;
 using IntroSkipper.Data;
+using IntroSkipper.Helper;
 using Jellyfin.Data.Enums;
 using Jellyfin.Database.Implementations.Enums;
 using Jellyfin.Extensions;
@@ -53,7 +52,7 @@ public partial class QueueManager(ILogger<QueueManager> logger, ILibraryManager 
         var plugin = Plugin.Instance;
         if (plugin is null)
         {
-            _logger.LogError("Plugin instance is null in GetMediaItems()");
+            LogPluginInstanceNull(_logger);
             return _queuedEpisodes;
         }
 
@@ -65,7 +64,7 @@ public partial class QueueManager(ILogger<QueueManager> logger, ILibraryManager 
         var virtualFolders = _libraryManager.GetVirtualFolders();
         if (virtualFolders is null)
         {
-            _logger.LogError("Library manager returned null when requesting virtual folders");
+            LogLibraryManagerNull(_logger);
             return _queuedEpisodes;
         }
 
@@ -74,11 +73,11 @@ public partial class QueueManager(ILogger<QueueManager> logger, ILibraryManager 
             // If libraries have been selected for analysis, ensure this library was selected.
             if (folder.LibraryOptions?.DisabledMediaSegmentProviders?.Contains(plugin.Name) == true)
             {
-                _logger.LogDebug("Not analyzing library \"{Name}\": Intro Skipper is disabled in library settings. To enable, check library configuration > Media Segment Providers", folder.Name);
+                LogLibraryDisabled(_logger, folder.Name);
                 continue;
             }
 
-            _logger.LogInformation("Running enqueue of items in library {Name}", folder.Name);
+            LogRunningEnqueueLibrary(_logger, folder.Name);
 
             // Some virtual folders don't have a proper item id.
             if (!Guid.TryParse(folder.ItemId, out var folderId))
@@ -90,15 +89,19 @@ public partial class QueueManager(ILogger<QueueManager> logger, ILibraryManager 
             {
                 await QueueLibraryContents(folderId, cancellationToken).ConfigureAwait(false);
             }
+            catch (OperationCanceledException)
+            {
+                throw;
+            }
             catch (Exception ex)
             {
-                _logger.LogError("Failed to enqueue items from library {Name}: {Exception}", folder.Name, ex);
+                LogFailedEnqueueLibrary(_logger, folder.Name, ex);
             }
         }
 
         if (_refreshedEpisodes.Count > 0)
         {
-            _logger.LogInformation("Refreshed metadata for {Count} episodes with invalid SeasonIds", _refreshedEpisodes.Count);
+            LogRefreshedMetadata(_logger, _refreshedEpisodes.Count);
         }
 
         plugin.TotalSeasons = _queuedEpisodes.Count;
@@ -125,19 +128,17 @@ public partial class QueueManager(ILogger<QueueManager> logger, ILibraryManager 
         _excludeSeries = [.. config.ExcludeSeries.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)];
 
         // If analysis settings have been changed from the default, log the modified settings.
-        if (config.AnalysisLengthLimit != 10 || config.AnalysisPercent != 25 || config.MinimumIntroDuration != 15)
+        if (config.AnalysisLengthLimit != PluginConfiguration.DefaultAnalysisLengthLimit
+            || config.AnalysisPercent != PluginConfiguration.DefaultAnalysisPercent
+            || config.MinimumIntroDuration != PluginConfiguration.DefaultMinimumIntroDuration)
         {
-            _logger.LogInformation(
-                "Analysis settings have been changed to: {Percent}% / {Minutes}m and a minimum of {Minimum}s",
-                config.AnalysisPercent,
-                config.AnalysisLengthLimit,
-                config.MinimumIntroDuration);
+            LogAnalysisSettingsChanged(_logger, config.AnalysisPercent, config.AnalysisLengthLimit, config.MinimumIntroDuration);
         }
     }
 
     private async Task QueueLibraryContents(Guid id, CancellationToken cancellationToken)
     {
-        _logger.LogDebug("Constructing anonymous internal query");
+        LogConstructingQuery(_logger);
 
         var query = new InternalItemsQuery
         {
@@ -155,12 +156,12 @@ public partial class QueueManager(ILogger<QueueManager> logger, ILibraryManager 
 
         if (items is null)
         {
-            _logger.LogError("Library query result is null");
+            LogLibraryQueryNull(_logger);
             return;
         }
 
         // Queue all episodes on the server for fingerprinting.
-        _logger.LogDebug("Iterating through library items");
+        LogIteratingLibraryItems(_logger);
 
         foreach (var item in items)
         {
@@ -174,7 +175,7 @@ public partial class QueueManager(ILogger<QueueManager> logger, ILibraryManager 
                     }
                     else
                     {
-                        _logger.LogDebug("Skipping excluded series: {Series}", episode.SeriesName);
+                        LogSkippingExcludedSeries(_logger, episode.SeriesName);
                     }
                 }
                 else if (item is Movie movie)
@@ -183,16 +184,20 @@ public partial class QueueManager(ILogger<QueueManager> logger, ILibraryManager 
                 }
                 else
                 {
-                    _logger.LogDebug("Item {Name} is not an episode or movie", item.Name);
+                    LogItemNotEpisodeOrMovie(_logger, item.Name);
                 }
+            }
+            catch (OperationCanceledException)
+            {
+                throw;
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error processing item {Name} ({Id})", item.Name, item.Id);
+                LogErrorProcessingItem(_logger, ex, item.Name, item.Id);
             }
         }
 
-        _logger.LogDebug("Queued {Count} episodes", items.Count);
+        LogQueuedEpisodes(_logger, items.Count);
     }
 
     /// <summary>
@@ -238,25 +243,12 @@ public partial class QueueManager(ILogger<QueueManager> logger, ILibraryManager 
 
         if (string.IsNullOrEmpty(episode.Path))
         {
-            _logger.LogWarning(
-                "Not queuing episode \"{Name}\" from series \"{Series}\" ({Id}) as no path was provided by Jellyfin",
-                episode.Name,
-                episode.SeriesName,
-                episode.Id);
+            LogNotQueuingEpisodeNoPath(_logger, episode.Name, episode.SeriesName, episode.Id);
             return;
         }
 
         // Allocate a new list for each new season
         var seasonId = await GetSeasonId(episode, cancellationToken).ConfigureAwait(false);
-        if (seasonId == Guid.Empty)
-        {
-            _logger.LogWarning(
-                "Not queuing episode \"{Name}\" from series \"{Series}\" ({Id}) as SeasonId could not be resolved",
-                episode.Name,
-                episode.SeriesName,
-                episode.Id);
-            return;
-        }
 
         if (!_queuedEpisodes.TryGetValue(seasonId, out var seasonEpisodes))
         {
@@ -302,8 +294,7 @@ public partial class QueueManager(ILogger<QueueManager> logger, ILibraryManager 
         }
 
         if (pluginInstance.GetItem(episode.SeriesId) is Series series &&
-            (series.Tags.Contains("anime", StringComparison.OrdinalIgnoreCase) ||
-             series.Genres.Contains("anime", StringComparison.OrdinalIgnoreCase)))
+            SeriesHelper.IsAnime(series))
         {
             return QueuedMediaCategory.AnimeEpisode;
         }
@@ -317,10 +308,7 @@ public partial class QueueManager(ILogger<QueueManager> logger, ILibraryManager 
 
         if (string.IsNullOrEmpty(movie.Path))
         {
-            _logger.LogWarning(
-                "Not queuing movie \"{Name}\" ({Id}) as no path was provided by Jellyfin",
-                movie.Name,
-                movie.Id);
+            LogNotQueuingMovieNoPath(_logger, movie.Name, movie.Id);
             return;
         }
 
@@ -363,7 +351,7 @@ public partial class QueueManager(ILogger<QueueManager> logger, ILibraryManager 
 
         if (episode.SeasonId == Guid.Empty && episode.ParentIndexNumber is not null && !_refreshedEpisodes.Contains(episode.Id))
         {
-            _logger.LogInformation("Episode {Name} ({Id}) has an invalid SeasonId", episode.Name, episode.Id);
+            LogInvalidSeasonId(_logger, episode.Name, episode.Id);
             _refreshedEpisodes.Add(episode.Id);
 
             var refreshOptions = new MetadataRefreshOptions(new DirectoryService(_fileSystem))
@@ -382,11 +370,12 @@ public partial class QueueManager(ILogger<QueueManager> logger, ILibraryManager 
 
             if (episode.SeasonId == Guid.Empty)
             {
-                _logger.LogWarning("Failed to resolve SeasonId for episode {Name} ({Id}) after metadata refresh", episode.Name, episode.Id);
+                LogFailedResolveSeasonId(_logger, episode.Name, episode.Id);
+                episode.SeasonId = episode.Id; // Use episode ID as fallback to avoid losing this episode entirely, it just won't be grouped with the rest of the season
             }
             else
             {
-                _logger.LogDebug("Successfully resolved SeasonId {SeasonId} for episode {Name} ({Id})", episode.SeasonId, episode.Name, episode.Id);
+                LogResolvedSeasonId(_logger, episode.SeasonId, episode.Name, episode.Id);
             }
         }
 
@@ -399,8 +388,9 @@ public partial class QueueManager(ILogger<QueueManager> logger, ILibraryManager 
     /// </summary>
     /// <param name="candidates">Queued media items.</param>
     /// <param name="modes">Analysis modes.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>Media items that have been verified to exist in Jellyfin and in storage.</returns>
-    internal IReadOnlyList<QueuedEpisode> VerifyQueue(IReadOnlyList<QueuedEpisode> candidates, IReadOnlyCollection<AnalysisMode> modes)
+    internal async Task<IReadOnlyList<QueuedEpisode>> VerifyQueueAsync(IReadOnlyList<QueuedEpisode> candidates, IReadOnlyCollection<AnalysisMode> modes, CancellationToken cancellationToken = default)
     {
         if (candidates == null || candidates.Count == 0)
         {
@@ -409,43 +399,54 @@ public partial class QueueManager(ILogger<QueueManager> logger, ILibraryManager 
 
         var verified = new List<QueuedEpisode>(candidates.Count);
         var plugin = Plugin.Instance ?? throw new InvalidOperationException("Plugin instance is null");
-        var episodeIds = plugin.GetEpisodeIds(candidates[0].SeasonId);
+        var snapshot = await plugin.GetSeasonQueueSnapshotAsync(candidates[0].SeasonId, [.. candidates.Select(c => c.EpisodeId)], cancellationToken).ConfigureAwait(false);
 
         foreach (var candidate in candidates)
         {
             try
             {
+                cancellationToken.ThrowIfCancellationRequested();
                 var path = plugin.GetItemPath(candidate.EpisodeId);
 
                 if (string.IsNullOrEmpty(path) || !File.Exists(path))
                 {
-                    _logger.LogDebug("Skipping {Name} ({Id}): file not found", candidate.Name, candidate.EpisodeId);
+                    LogSkippingFileNotFound(_logger, candidate.Name, candidate.EpisodeId);
                     continue;
                 }
 
                 verified.Add(candidate);
 
-                var hasSegments = plugin.GetTimestamps(candidate.EpisodeId);
-
                 foreach (var mode in modes)
                 {
-                    if (hasSegments.TryGetValue(mode, out var seg))
+                    if (snapshot.SegmentsByEpisodeId.TryGetValue(candidate.EpisodeId, out var hasSegments) &&
+                        hasSegments.TryGetValue(mode, out _))
                     {
-                        candidate.SetAnalyzed(mode, EpisodeState.Analyzed);
+                        var isUserProvided = snapshot.UserProvidedByMode.TryGetValue(mode, out var userProvided) &&
+                                             userProvided.Contains(candidate.EpisodeId);
+
+                        // Always preserve user-provided segments. When AnalyzeAgain is true (settings
+                        // changed), leave automatically-analyzed segments as NotAnalyzed so they are
+                        // re-analyzed and their timestamps updated to reflect the new settings.
+                        if (isUserProvided || !plugin.AnalyzeAgain)
+                        {
+                            candidate.SetAnalyzed(mode, isUserProvided ? EpisodeState.UserProvided : EpisodeState.Analyzed);
+                        }
                     }
-                    else if (!plugin.AnalyzeAgain && episodeIds.TryGetValue(mode, out var ids) && ids.Contains(candidate.EpisodeId))
+                    else if (!plugin.AnalyzeAgain &&
+                             snapshot.EpisodeIdsByMode.TryGetValue(mode, out var ids) &&
+                             ids.Contains(candidate.EpisodeId))
                     {
                         candidate.SetAnalyzed(mode, EpisodeState.NoSegments);
                     }
                 }
             }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                throw;
+            }
             catch (Exception ex)
             {
-                _logger.LogDebug(
-                    "Skipping analysis of {Name} ({Id}): {Exception}",
-                    candidate.Name,
-                    candidate.EpisodeId,
-                    ex);
+                LogSkippingAnalysisException(_logger, candidate.Name, candidate.EpisodeId, ex);
             }
         }
 
@@ -454,4 +455,67 @@ public partial class QueueManager(ILogger<QueueManager> logger, ILibraryManager 
 
     [GeneratedRegex(@"[^\w\s]")]
     private static partial Regex NormalizeSeriesNameRegex();
+
+    [LoggerMessage(Level = LogLevel.Error, Message = "Plugin instance is null in GetMediaItems()")]
+    private static partial void LogPluginInstanceNull(ILogger logger);
+
+    [LoggerMessage(Level = LogLevel.Error, Message = "Library manager returned null when requesting virtual folders")]
+    private static partial void LogLibraryManagerNull(ILogger logger);
+
+    [LoggerMessage(Level = LogLevel.Debug, Message = "Not analyzing library \"{Name}\": Intro Skipper is disabled in library settings. To enable, check library configuration > Media Segment Providers")]
+    private static partial void LogLibraryDisabled(ILogger logger, string name);
+
+    [LoggerMessage(Level = LogLevel.Information, Message = "Running enqueue of items in library {Name}")]
+    private static partial void LogRunningEnqueueLibrary(ILogger logger, string name);
+
+    [LoggerMessage(Level = LogLevel.Error, Message = "Failed to enqueue items from library {Name}")]
+    private static partial void LogFailedEnqueueLibrary(ILogger logger, string name, Exception exception);
+
+    [LoggerMessage(Level = LogLevel.Information, Message = "Refreshed metadata for {Count} episodes with invalid SeasonIds")]
+    private static partial void LogRefreshedMetadata(ILogger logger, int count);
+
+    [LoggerMessage(Level = LogLevel.Information, Message = "Analysis settings have been changed to: {Percent}% / {Minutes}m and a minimum of {Minimum}s")]
+    private static partial void LogAnalysisSettingsChanged(ILogger logger, int percent, int minutes, int minimum);
+
+    [LoggerMessage(Level = LogLevel.Debug, Message = "Constructing anonymous internal query")]
+    private static partial void LogConstructingQuery(ILogger logger);
+
+    [LoggerMessage(Level = LogLevel.Error, Message = "Library query result is null")]
+    private static partial void LogLibraryQueryNull(ILogger logger);
+
+    [LoggerMessage(Level = LogLevel.Debug, Message = "Iterating through library items")]
+    private static partial void LogIteratingLibraryItems(ILogger logger);
+
+    [LoggerMessage(Level = LogLevel.Debug, Message = "Skipping excluded series: {Series}")]
+    private static partial void LogSkippingExcludedSeries(ILogger logger, string series);
+
+    [LoggerMessage(Level = LogLevel.Debug, Message = "Item {Name} is not an episode or movie")]
+    private static partial void LogItemNotEpisodeOrMovie(ILogger logger, string name);
+
+    [LoggerMessage(Level = LogLevel.Error, Message = "Error processing item {Name} ({Id})")]
+    private static partial void LogErrorProcessingItem(ILogger logger, Exception ex, string name, Guid id);
+
+    [LoggerMessage(Level = LogLevel.Debug, Message = "Queued {Count} episodes")]
+    private static partial void LogQueuedEpisodes(ILogger logger, int count);
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "Not queuing episode \"{Name}\" from series \"{Series}\" ({Id}) as no path was provided by Jellyfin")]
+    private static partial void LogNotQueuingEpisodeNoPath(ILogger logger, string name, string series, Guid id);
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "Not queuing movie \"{Name}\" ({Id}) as no path was provided by Jellyfin")]
+    private static partial void LogNotQueuingMovieNoPath(ILogger logger, string name, Guid id);
+
+    [LoggerMessage(Level = LogLevel.Information, Message = "Episode {Name} ({Id}) has an invalid SeasonId")]
+    private static partial void LogInvalidSeasonId(ILogger logger, string name, Guid id);
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "Failed to resolve SeasonId for episode {Name} ({Id}) after metadata refresh")]
+    private static partial void LogFailedResolveSeasonId(ILogger logger, string name, Guid id);
+
+    [LoggerMessage(Level = LogLevel.Debug, Message = "Successfully resolved SeasonId {SeasonId} for episode {Name} ({Id})")]
+    private static partial void LogResolvedSeasonId(ILogger logger, Guid seasonId, string name, Guid id);
+
+    [LoggerMessage(Level = LogLevel.Debug, Message = "Skipping {Name} ({Id}): file not found")]
+    private static partial void LogSkippingFileNotFound(ILogger logger, string name, Guid id);
+
+    [LoggerMessage(Level = LogLevel.Debug, Message = "Skipping analysis of {Name} ({Id})")]
+    private static partial void LogSkippingAnalysisException(ILogger logger, string name, Guid id, Exception exception);
 }

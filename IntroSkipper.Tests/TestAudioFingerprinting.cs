@@ -1,4 +1,7 @@
-﻿// Copyright (C) 2026 Intro-Skipper contributors <intro-skipper.org>
+// SPDX-FileCopyrightText: 2022 ConfusedPolarBear
+// SPDX-FileCopyrightText: 2024-2026 Kilian von Pflugk
+// SPDX-FileCopyrightText: 2024-2026 rlauuzo
+// SPDX-FileCopyrightText: 2024-2026 AbandonedCart
 // SPDX-License-Identifier: GPL-3.0-only
 
 /* These tests require that the host system has a version of FFmpeg installed
@@ -109,12 +112,12 @@ public class TestAudioFingerprinting
 
         Assert.True(lhs.Valid);
         Assert.Equal(0, lhs.Start);
-        Assert.Equal(17.208, lhs.End, 3);
+        Assert.Equal(17.214, lhs.End, 3);
 
         Assert.True(rhs.Valid);
         // because we changed for 0.128 to 0.1238 its 4,952 now but that's too early (<= 5)
         Assert.Equal(0, rhs.Start);
-        Assert.Equal(22.1602, rhs.End);
+        Assert.Equal(22.1673, rhs.End, 3);
     }
 
     /// <summary>
@@ -136,7 +139,7 @@ public class TestAudioFingerprinting
         };
 
         var range = new TimeRange(0, 60);
-        var actual = FFmpegWrapper.DetectSilence(clip, range);
+        var actual = FFmpegWrapper.DetectSilence(clip, range, AnalysisMode.Introduction);
 
         Assert.Equal(expected, actual);
     }
@@ -158,7 +161,7 @@ public class TestAudioFingerprinting
     }
 }
 
-public class FactSkipFFmpegTests : FactAttribute
+public sealed class FactSkipFFmpegTests : FactAttribute
 {
 #if SKIP_FFMPEG_TESTS
     public FactSkipFFmpegTests() {

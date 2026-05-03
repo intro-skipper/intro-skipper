@@ -1,13 +1,10 @@
-﻿// Copyright (C) 2026 Intro-Skipper contributors <intro-skipper.org>
+// SPDX-FileCopyrightText: 2022 ConfusedPolarBear
+// SPDX-FileCopyrightText: 2024-2026 Kilian von Pflugk
+// SPDX-FileCopyrightText: 2024-2026 rlauuzo
+// SPDX-FileCopyrightText: 2024-2026 AbandonedCart
 // SPDX-License-Identifier: GPL-3.0-only
 
-using System;
-using System.Collections.Generic;
-using System.IO;
-using System.Linq;
 using System.Numerics;
-using System.Threading;
-using System.Threading.Tasks;
 using IntroSkipper.Configuration;
 using IntroSkipper.Data;
 using Microsoft.Extensions.Logging;
@@ -18,13 +15,8 @@ namespace IntroSkipper.Analyzers;
 /// Initializes a new instance of the <see cref="ChromaprintAnalyzer"/> class.
 /// </summary>
 /// <param name="logger">Logger.</param>
-public class ChromaprintAnalyzer(ILogger<ChromaprintAnalyzer> logger) : IMediaFileAnalyzer
+public partial class ChromaprintAnalyzer(ILogger<ChromaprintAnalyzer> logger) : IMediaFileAnalyzer
 {
-    /// <summary>
-    /// Seconds of audio in one fingerprint point.
-    /// This value is defined by the Chromaprint library and should not be changed.
-    /// </summary>
-    private const double SamplesToSeconds = 0.1238;
     private readonly PluginConfiguration _config = Plugin.Instance?.Configuration ?? new PluginConfiguration();
     private readonly ILogger<ChromaprintAnalyzer> _logger = logger;
     private readonly Dictionary<Guid, Dictionary<uint, int>> _invertedIndexCache = [];
@@ -36,8 +28,11 @@ public class ChromaprintAnalyzer(ILogger<ChromaprintAnalyzer> logger) : IMediaFi
         AnalysisMode mode,
         CancellationToken cancellationToken)
     {
-        // Episodes that were not analyzed or have a fingerprint cache.
-        var episodeAnalysisQueue = analysisQueue.Where(e => e.GetAnalyzed(mode) != EpisodeState.Analyzed || File.Exists(FFmpegWrapper.GetFingerprintCachePath(e, mode))).ToList();
+        // Episodes that need analysis (not yet analyzed or not user-provided) plus already-analyzed
+        // episodes that still have a fingerprint cache and can be re-analyzed.
+        var episodeAnalysisQueue = analysisQueue.Where(e =>
+            e.NeedsAnalysis(mode) ||
+            (e.GetAnalyzed(mode) == EpisodeState.Analyzed && FFmpegWrapper.HasCachedFingerprint(e, mode))).ToList();
 
         if (analysisQueue.Count <= 1 || episodeAnalysisQueue.All(e => e.GetAnalyzed(mode) == EpisodeState.Analyzed))
         {
@@ -46,7 +41,7 @@ public class ChromaprintAnalyzer(ILogger<ChromaprintAnalyzer> logger) : IMediaFi
 
         _analysisMode = mode;
 
-        var timeAdjustmentHelper = new TimeAdjustmentHelper(_logger, _config);
+        var timeAdjustmentHelper = new TimeAdjustmentHelper(_logger, _config, mode);
 
         // All intros for this season.
         var seasonIntros = new Dictionary<Guid, Segment>();
@@ -69,12 +64,6 @@ public class ChromaprintAnalyzer(ILogger<ChromaprintAnalyzer> logger) : IMediaFi
             {
                 fingerprintCache[episode.EpisodeId] = FFmpegWrapper.Fingerprint(episode, mode);
 
-                // Use reversed fingerprints for credits
-                if (_analysisMode == AnalysisMode.Credits)
-                {
-                    Array.Reverse(fingerprintCache[episode.EpisodeId]);
-                }
-
                 if (cancellationToken.IsCancellationRequested)
                 {
                     return analysisQueue;
@@ -82,7 +71,7 @@ public class ChromaprintAnalyzer(ILogger<ChromaprintAnalyzer> logger) : IMediaFi
             }
             catch (FingerprintException ex)
             {
-                _logger.LogDebug("Caught fingerprint error: {Ex}", ex);
+                LogCaughtFingerprintError(ex);
                 WarningManager.SetFlag(PluginWarning.InvalidChromaprintFingerprint);
 
                 // Fallback to an empty fingerprint on any error
@@ -127,20 +116,14 @@ public class ChromaprintAnalyzer(ILogger<ChromaprintAnalyzer> logger) : IMediaFi
                  * While this is desired behavior for detecting introductions, it breaks credit
                  * detection, as the audio we're analyzing was extracted from some point into the file.
                  *
-                 * To fix this, the starting and ending times need to be switched, as they were previously reversed
-                 * and subtracted from the episode duration to get the reported time range.
+                 * To fix this, add the starting time of the fingerprint to the reported time range.
                  */
                 if (_analysisMode == AnalysisMode.Credits)
                 {
-                    // Calculate new values for the current intro
-                    double currentOriginalIntroStart = currentIntro.Start;
-                    currentIntro.Start = currentEpisode.Duration - currentIntro.End;
-                    currentIntro.End = currentEpisode.Duration - currentOriginalIntroStart;
-
-                    // Calculate new values for the remaining intro
-                    double remainingIntroOriginalStart = remainingIntro.Start;
-                    remainingIntro.Start = remainingEpisode.Duration - remainingIntro.End;
-                    remainingIntro.End = remainingEpisode.Duration - remainingIntroOriginalStart;
+                    currentIntro.Start += currentEpisode.CreditsFingerprintStart;
+                    currentIntro.End += currentEpisode.CreditsFingerprintStart;
+                    remainingIntro.Start += remainingEpisode.CreditsFingerprintStart;
+                    remainingIntro.End += remainingEpisode.CreditsFingerprintStart;
                 }
 
                 // Only save the discovered intro if it is:
@@ -168,7 +151,7 @@ public class ChromaprintAnalyzer(ILogger<ChromaprintAnalyzer> logger) : IMediaFi
             {
                 var adjustedIntro = timeAdjustmentHelper.AdjustIntroTimes(currentEpisode, intro);
                 currentEpisode.SetAnalyzed(mode, EpisodeState.Analyzed);
-                await Plugin.Instance!.UpdateTimestampAsync(adjustedIntro, mode).ConfigureAwait(false);
+                await Plugin.Instance!.UpdateTimestampAsync(adjustedIntro, mode, cancellationToken: cancellationToken).ConfigureAwait(false);
             }
         }
 
@@ -195,15 +178,12 @@ public class ChromaprintAnalyzer(ILogger<ChromaprintAnalyzer> logger) : IMediaFi
 
         if (lhsRanges.Count > 0)
         {
-            _logger.LogTrace("Index search successful");
+            LogIndexSearchSuccessful();
 
             return GetLongestTimeRange(lhsId, lhsRanges, rhsId, rhsRanges);
         }
 
-        _logger.LogTrace(
-            "Unable to find a shared introduction sequence between {LHS} and {RHS}",
-            lhsId,
-            rhsId);
+        LogSharedIntroNotFound(lhsId, rhsId);
 
         return (new Segment(lhsId), new Segment(rhsId));
     }
@@ -342,8 +322,8 @@ public class ChromaprintAnalyzer(ILogger<ChromaprintAnalyzer> logger) : IMediaFi
                 continue;
             }
 
-            var lhsTime = lhsPosition * SamplesToSeconds;
-            var rhsTime = rhsPosition * SamplesToSeconds;
+            var lhsTime = lhsPosition * ChromaprintConstants.SampleDuration;
+            var rhsTime = rhsPosition * ChromaprintConstants.SampleDuration;
 
             lhsTimes.Add(lhsTime);
             rhsTimes.Add(rhsTime);
@@ -403,4 +383,13 @@ public class ChromaprintAnalyzer(ILogger<ChromaprintAnalyzer> logger) : IMediaFi
     {
         return BitOperations.PopCount(number);
     }
+
+    [LoggerMessage(Level = LogLevel.Debug, Message = "Caught fingerprint error")]
+    private partial void LogCaughtFingerprintError(Exception exception);
+
+    [LoggerMessage(Level = LogLevel.Trace, Message = "Index search successful")]
+    private partial void LogIndexSearchSuccessful();
+
+    [LoggerMessage(Level = LogLevel.Trace, Message = "Unable to find a shared introduction sequence between {LHS} and {RHS}")]
+    private partial void LogSharedIntroNotFound(Guid lhs, Guid rhs);
 }

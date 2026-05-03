@@ -1,10 +1,8 @@
-﻿// Copyright (C) 2026 Intro-Skipper contributors <intro-skipper.org>
+// SPDX-FileCopyrightText: 2024-2026 rlauuzo
+// SPDX-FileCopyrightText: 2024-2026 AbandonedCart
+// SPDX-FileCopyrightText: 2024-2026 Kilian von Pflugk
 // SPDX-License-Identifier: GPL-3.0-only
 
-using System;
-using System.Collections.Generic;
-using System.Threading;
-using System.Threading.Tasks;
 using IntroSkipper.Data;
 using Jellyfin.Database.Implementations.Enums;
 using MediaBrowser.Controller.Entities;
@@ -37,32 +35,45 @@ namespace IntroSkipper.Providers
         public string Name => Plugin.Instance!.Name;
 
         /// <inheritdoc/>
-        public Task<IReadOnlyList<MediaSegmentDto>> GetMediaSegments(MediaSegmentGenerationRequest request, CancellationToken cancellationToken)
+        public async Task<IReadOnlyList<MediaSegmentDto>> GetMediaSegments(MediaSegmentGenerationRequest request, CancellationToken cancellationToken)
         {
             ArgumentNullException.ThrowIfNull(request);
             ArgumentNullException.ThrowIfNull(Plugin.Instance);
 
             var segments = new List<MediaSegmentDto>();
-            var itemSegments = Plugin.Instance.GetTimestamps(request.ItemId);
+            var itemSegments = await Plugin.Instance.GetSegmentsAsync(request.ItemId, cancellationToken).ConfigureAwait(false);
+            var dedupedModes = new HashSet<AnalysisMode>();
 
-            foreach (var (mode, type) in _segmentMappings)
+            foreach (var segment in itemSegments.OrderBy(segment => segment.Start))
             {
-                if (itemSegments.TryGetValue(mode, out var segment) && segment.Valid)
+                if (!_segmentMappings.TryGetValue(segment.Type, out var type))
                 {
-                    long startTicks = (long)(segment.Start * TimeSpan.TicksPerSecond);
-                    long endTicks = (long)(segment.End * TimeSpan.TicksPerSecond);
-
-                    segments.Add(new MediaSegmentDto
-                    {
-                        StartTicks = startTicks,
-                        EndTicks = endTicks,
-                        ItemId = request.ItemId,
-                        Type = type
-                    });
+                    continue;
                 }
+
+                if (segment.End <= 0.0)
+                {
+                    continue;
+                }
+
+                if (segment.Type != AnalysisMode.Commercial && !dedupedModes.Add(segment.Type))
+                {
+                    continue;
+                }
+
+                long startTicks = (long)(segment.Start * TimeSpan.TicksPerSecond);
+                long endTicks = (long)(segment.End * TimeSpan.TicksPerSecond);
+
+                segments.Add(new MediaSegmentDto
+                {
+                    StartTicks = startTicks,
+                    EndTicks = endTicks,
+                    ItemId = request.ItemId,
+                    Type = type
+                });
             }
 
-            return Task.FromResult<IReadOnlyList<MediaSegmentDto>>(segments);
+            return segments;
         }
 
         /// <inheritdoc/>

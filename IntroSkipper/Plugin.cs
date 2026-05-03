@@ -1,13 +1,14 @@
-﻿// Copyright (C) 2026 Intro-Skipper contributors <intro-skipper.org>
+// SPDX-FileCopyrightText: 2019 dkanada
+// SPDX-FileCopyrightText: 2019 Phallacy
+// SPDX-FileCopyrightText: 2021 Cody Robibero
+// SPDX-FileCopyrightText: 2022-2023 ConfusedPolarBear
+// SPDX-FileCopyrightText: 2024-2026 Kilian von Pflugk
+// SPDX-FileCopyrightText: 2024-2026 rlauuzo
+// SPDX-FileCopyrightText: 2024-2026 AbandonedCart
+// SPDX-FileCopyrightText: 2024 theMasterpc
 // SPDX-License-Identifier: GPL-3.0-only
 
-using System;
 using System.Collections.Concurrent;
-using System.Collections.Generic;
-using System.IO;
-using System.Linq;
-using System.Threading;
-using System.Threading.Tasks;
 using IntroSkipper.Configuration;
 using IntroSkipper.Data;
 using IntroSkipper.Db;
@@ -25,6 +26,7 @@ using MediaBrowser.Controller.Persistence;
 using MediaBrowser.Model.Entities;
 using MediaBrowser.Model.Plugins;
 using MediaBrowser.Model.Serialization;
+using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 
@@ -33,8 +35,10 @@ namespace IntroSkipper;
 /// <summary>
 /// Intro skipper plugin. Uses audio analysis to find common sequences of audio shared between episodes.
 /// </summary>
-public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
+public partial class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
 {
+    private const double SegmentComparisonEpsilon = 0.001;
+    private const int SqliteParameterBatchSize = 500;
     private readonly ILibraryManager _libraryManager;
     private readonly IChapterManager _chapterRepository;
     private readonly IPluginManager _pluginManager;
@@ -42,6 +46,7 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
     private readonly IMediaEncoder _mediaEncoder;
     private readonly ILogger<Plugin> _logger;
     private readonly string _dbPath;
+    private readonly string _cacheDbPath;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="Plugin"/> class.
@@ -88,23 +93,33 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
         var introsDirectory = Path.Join(applicationPaths.DataPath, pluginDirName);
         FingerprintCachePath = Path.Join(introsDirectory, pluginCachePath);
 
-        _dbPath = Path.Join(applicationPaths.DataPath, pluginDirName, "introskipper.db");
+        _dbPath = Path.Join(introsDirectory, "introskipper.db");
+        _cacheDbPath = Path.Join(introsDirectory, "introskipper-cache.db");
 
-        // Create the base & cache directories (if needed).
-        if (!Directory.Exists(FingerprintCachePath))
-        {
-            Directory.CreateDirectory(FingerprintCachePath);
-        }
+        // Create the base directories (if needed).
+        // Directory.CreateDirectory is already a no-op when the directory exists, so we can call it unconditionally without checking first.
+        Directory.CreateDirectory(introsDirectory);
 
-        // Initialize database, restore timestamps if available.
+        // Initialize segment database.
         try
         {
-            using var db = new IntroSkipperDbContext(_dbPath);
+            using var db = CreateDbContext();
             db.ApplyMigrations();
         }
         catch (Exception ex)
         {
-            logger.LogWarning("Error initializing database: {Exception}", ex);
+            LogDatabaseInitializationError(_logger, ex);
+        }
+
+        // Initialize detection cache database.
+        try
+        {
+            using var cacheDb = CreateCacheDbContext();
+            cacheDb.EnsureSchema();
+        }
+        catch (Exception ex) when (ex is IOException or SqliteException)
+        {
+            LogCacheDbInitializationError(_logger, ex);
         }
 
         Configuration.FileTransformationPluginEnabled = _pluginManager
@@ -113,14 +128,21 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
     }
 
     /// <summary>
-    /// Gets the path to the database.
+    /// Gets the path to the segment database.
     /// </summary>
     public string DbPath => _dbPath;
+
+    /// <summary>
+    /// Gets the path to the detection cache database.
+    /// </summary>
+    public string CacheDbPath => _cacheDbPath;
 
     /// <summary>
     /// Gets or sets a value indicating whether to analyze again.
     /// </summary>
     public bool AnalyzeAgain { get; set; }
+
+    internal bool LegacyFingerprintMigrationDone { get; set; }
 
     /// <summary>
     /// Gets the most recent media item queue.
@@ -168,6 +190,28 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
     /// </summary>
     public static Plugin? Instance { get; private set; }
 
+    /// <summary>
+    /// Creates a new <see cref="IntroSkipperDbContext"/> instance configured for the plugin database.
+    /// </summary>
+    /// <returns>A new <see cref="IntroSkipperDbContext"/>.</returns>
+    /// <exception cref="ArgumentNullException">Thrown when the plugin has not been initialized.</exception>
+    public static IntroSkipperDbContext CreateDbContext()
+    {
+        ArgumentNullException.ThrowIfNull(Instance);
+        return new IntroSkipperDbContext(Instance.DbPath);
+    }
+
+    /// <summary>
+    /// Creates a new <see cref="DetectionCacheDbContext"/> instance configured for the plugin cache database.
+    /// </summary>
+    /// <returns>A new <see cref="DetectionCacheDbContext"/>.</returns>
+    /// <exception cref="ArgumentNullException">Thrown when the plugin has not been initialized.</exception>
+    public static DetectionCacheDbContext CreateCacheDbContext()
+    {
+        ArgumentNullException.ThrowIfNull(Instance);
+        return new DetectionCacheDbContext(Instance.CacheDbPath);
+    }
+
     /// <inheritdoc />
     public IEnumerable<PluginPageInfo> GetPages()
     {
@@ -178,6 +222,16 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
                 Name = Name,
                 EnableInMainMenu = Instance?.Configuration.EnableMainMenu ?? true,
                 EmbeddedResourcePath = GetType().Namespace + ".Configuration.configPage.html"
+            },
+            new PluginPageInfo
+            {
+                Name = "introskipper.js",
+                EmbeddedResourcePath = GetType().Namespace + ".Configuration.introskipper.js"
+            },
+            new PluginPageInfo
+            {
+                Name = "introskipper.css",
+                EmbeddedResourcePath = GetType().Namespace + ".Configuration.introskipper.css"
             }
         ];
     }
@@ -231,56 +285,142 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
         _ = _keyframeRepository.SaveKeyframeDataAsync(id, keyframes, cancellationToken);
     }
 
-    internal async Task UpdateTimestampAsync(Segment segment, AnalysisMode mode)
+    internal async Task UpdateTimestampAsync(Segment segment, AnalysisMode mode, bool isUserProvided = false, CancellationToken cancellationToken = default)
     {
-        using var db = new IntroSkipperDbContext(_dbPath);
+        using var db = CreateDbContext();
 
         try
         {
-            var existing = await db.DbSegment
-                .FirstOrDefaultAsync(s => s.ItemId == segment.EpisodeId && s.Type == mode)
-                .ConfigureAwait(false);
+            var dbSegment = new DbSegment(segment, mode, isUserProvided);
 
-            var dbSegment = new DbSegment(segment, mode);
-            if (existing is not null)
+            if (mode == AnalysisMode.Commercial)
             {
-                db.Entry(existing).CurrentValues.SetValues(dbSegment);
+                var exists = await db.DbSegment
+                    .AnyAsync(
+                        s => s.ItemId == segment.EpisodeId
+                             && s.Type == mode
+                             && Math.Abs(s.Start - dbSegment.Start) <= SegmentComparisonEpsilon
+                             && Math.Abs(s.End - dbSegment.End) <= SegmentComparisonEpsilon,
+                        cancellationToken)
+                    .ConfigureAwait(false);
+
+                if (!exists)
+                {
+                    db.DbSegment.Add(dbSegment);
+                    await db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+                }
             }
             else
             {
-                db.DbSegment.Add(dbSegment);
-            }
+                var transaction = await db.Database.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
+                try
+                {
+                    var existingSegments = await db.DbSegment
+                        .Where(s => s.ItemId == segment.EpisodeId && s.Type == mode)
+                        .ToListAsync(cancellationToken)
+                        .ConfigureAwait(false);
 
-            await db.SaveChangesAsync().ConfigureAwait(false);
+                    // Do not overwrite a user-provided segment with an analysis result.
+                    if (!isUserProvided && existingSegments.Any(s => s.IsUserProvided))
+                    {
+                        return;
+                    }
+
+                    // Guard: prevent auto-detected credits from overlapping with the introduction.
+                    if (mode == AnalysisMode.Credits && !isUserProvided)
+                    {
+                        var intro = await db.DbSegment
+                            .AsNoTracking()
+                            .Where(s => s.ItemId == segment.EpisodeId && s.Type == AnalysisMode.Introduction)
+                            .FirstOrDefaultAsync(cancellationToken)
+                            .ConfigureAwait(false);
+
+                        if (intro is not null && segment.Start < intro.End && intro.Start < segment.End)
+                        {
+                            LogCreditsOverlapWithIntro(_logger, segment.EpisodeId);
+                            return;
+                        }
+                    }
+
+                    if (existingSegments.Count > 0)
+                    {
+                        db.DbSegment.RemoveRange(existingSegments);
+                    }
+
+                    db.DbSegment.Add(dbSegment);
+                    await db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+                    await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
+                }
+                finally
+                {
+                    await transaction.DisposeAsync().ConfigureAwait(false);
+                }
+            }
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Failed to update timestamp for episode {EpisodeId}", segment.EpisodeId);
+            LogFailedToUpdateTimestamp(_logger, ex, segment.EpisodeId);
             throw;
         }
     }
 
-    internal IReadOnlyDictionary<AnalysisMode, Segment> GetTimestamps(Guid id)
+    internal async Task<IReadOnlyDictionary<AnalysisMode, Segment>> GetTimestampsAsync(Guid id, CancellationToken cancellationToken = default)
     {
-        using var db = new IntroSkipperDbContext(_dbPath);
-        return db.DbSegment.Where(s => s.ItemId == id)
-            .ToDictionary(s => s.Type, s => s.ToSegment());
+        using var db = CreateDbContext();
+        var segments = await db.DbSegment
+            .AsNoTracking()
+            .Where(s => s.ItemId == id)
+            .ToListAsync(cancellationToken)
+            .ConfigureAwait(false);
+
+        return segments
+            .GroupBy(segment => segment.Type)
+            .ToDictionary(
+                group => group.Key,
+                group => group.OrderBy(segment => segment.Start).First().ToSegment());
     }
 
-    internal async Task CleanTimestamps(IEnumerable<Guid> episodeIds)
+    internal async Task<IReadOnlyList<DbSegment>> GetSegmentsAsync(Guid id, CancellationToken cancellationToken = default)
     {
-        using var db = new IntroSkipperDbContext(_dbPath);
-        db.DbSegment.RemoveRange(db.DbSegment
-            .Where(s => !episodeIds.Contains(s.ItemId)));
-        await db.SaveChangesAsync().ConfigureAwait(false);
+        using var db = CreateDbContext();
+        return await db.DbSegment
+            .AsNoTracking()
+            .Where(s => s.ItemId == id)
+            .ToListAsync(cancellationToken)
+            .ConfigureAwait(false);
     }
 
-    internal async Task SetAnalyzerActionAsync(Guid id, IReadOnlyDictionary<AnalysisMode, AnalyzerAction> analyzerActions)
+    internal async Task CleanTimestampsAsync(IEnumerable<Guid> episodeIds, CancellationToken cancellationToken = default)
     {
-        using var db = new IntroSkipperDbContext(_dbPath);
+        var enabledEpisodeIds = episodeIds.ToHashSet();
+
+        using var db = CreateDbContext();
+        var segmentEpisodeIds = await db.DbSegment
+            .AsNoTracking()
+            .Select(s => s.ItemId)
+            .Distinct()
+            .ToListAsync(cancellationToken)
+            .ConfigureAwait(false);
+
+        var staleEpisodeIds = segmentEpisodeIds
+            .Where(id => !enabledEpisodeIds.Contains(id))
+            .ToArray();
+
+        foreach (var staleEpisodeIdBatch in staleEpisodeIds.Chunk(SqliteParameterBatchSize))
+        {
+            await db.DbSegment
+                .Where(s => staleEpisodeIdBatch.Contains(s.ItemId))
+                .ExecuteDeleteAsync(cancellationToken)
+                .ConfigureAwait(false);
+        }
+    }
+
+    internal async Task SetAnalyzerActionAsync(Guid id, IReadOnlyDictionary<AnalysisMode, AnalyzerAction> analyzerActions, CancellationToken cancellationToken = default)
+    {
+        using var db = CreateDbContext();
         var existingEntries = await db.DbSeasonInfo
             .Where(s => s.SeasonId == id)
-            .ToDictionaryAsync(s => s.Type)
+            .ToDictionaryAsync(s => s.Type, cancellationToken)
             .ConfigureAwait(false);
 
         foreach (var (mode, action) in analyzerActions)
@@ -295,13 +435,15 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
             }
         }
 
-        await db.SaveChangesAsync().ConfigureAwait(false);
+        await db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
     }
 
-    internal async Task SetEpisodeIdsAsync(Guid id, AnalysisMode mode, IEnumerable<Guid> episodeIds)
+    internal async Task SetEpisodeIdsAsync(Guid id, AnalysisMode mode, IEnumerable<Guid> episodeIds, CancellationToken cancellationToken = default)
     {
-        using var db = new IntroSkipperDbContext(_dbPath);
-        var seasonInfo = db.DbSeasonInfo.FirstOrDefault(s => s.SeasonId == id && s.Type == mode);
+        using var db = CreateDbContext();
+        var seasonInfo = await db.DbSeasonInfo
+            .FirstOrDefaultAsync(s => s.SeasonId == id && s.Type == mode, cancellationToken)
+            .ConfigureAwait(false);
 
         if (seasonInfo is null)
         {
@@ -313,30 +455,126 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
             db.Entry(seasonInfo).Property(s => s.EpisodeIds).CurrentValue = episodeIds;
         }
 
-        await db.SaveChangesAsync().ConfigureAwait(false);
+        await db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
     }
 
-    internal IReadOnlyDictionary<AnalysisMode, IEnumerable<Guid>> GetEpisodeIds(Guid id)
+    /// <summary>
+    /// Removes a single episode ID from the season's analyzed-state list for the given mode.
+    /// The read and write share one <see cref="IntroSkipperDbContext"/> to keep the window for
+    /// concurrent overwrites as small as possible, and the write is skipped entirely when the
+    /// ID is not present in the stored list.
+    /// </summary>
+    /// <param name="seasonId">Season ID.</param>
+    /// <param name="mode">Analysis mode.</param>
+    /// <param name="episodeId">Episode ID to remove.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>A <see cref="Task"/> representing the asynchronous operation.</returns>
+    internal async Task RemoveEpisodeIdAsync(Guid seasonId, AnalysisMode mode, Guid episodeId, CancellationToken cancellationToken = default)
     {
-        using var db = new IntroSkipperDbContext(_dbPath);
-        return db.DbSeasonInfo.Where(s => s.SeasonId == id)
-            .ToDictionary(s => s.Type, s => s.EpisodeIds);
+        using var db = CreateDbContext();
+        var seasonInfo = await db.DbSeasonInfo
+            .FirstOrDefaultAsync(s => s.SeasonId == seasonId && s.Type == mode, cancellationToken)
+            .ConfigureAwait(false);
+
+        if (seasonInfo is null)
+        {
+            return;
+        }
+
+        var currentIds = seasonInfo.EpisodeIds.ToList();
+        if (!currentIds.Remove(episodeId))
+        {
+            return; // Episode was not in the list — no write needed.
+        }
+
+        db.Entry(seasonInfo).Property(s => s.EpisodeIds).CurrentValue = currentIds;
+        await db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
     }
 
-    internal AnalyzerAction GetAnalyzerAction(Guid id, AnalysisMode mode)
+    internal async Task<IReadOnlyDictionary<AnalysisMode, IEnumerable<Guid>>> GetEpisodeIdsAsync(Guid id, CancellationToken cancellationToken = default)
     {
-        using var db = new IntroSkipperDbContext(_dbPath);
-        return db.DbSeasonInfo.FirstOrDefault(s => s.SeasonId == id && s.Type == mode)?.Action ?? AnalyzerAction.Default;
+        using var db = CreateDbContext();
+        return await db.DbSeasonInfo.Where(s => s.SeasonId == id)
+            .ToDictionaryAsync(s => s.Type, s => s.EpisodeIds, cancellationToken)
+            .ConfigureAwait(false);
     }
 
-    internal async Task CleanSeasonInfoAsync(IEnumerable<Guid> ids)
+    internal async Task<SeasonQueueSnapshot> GetSeasonQueueSnapshotAsync(Guid seasonId, IReadOnlyCollection<Guid> episodeIds, CancellationToken cancellationToken = default)
     {
-        using var db = new IntroSkipperDbContext(_dbPath);
-        var obsoleteSeasons = await db.DbSeasonInfo
+        using var db = CreateDbContext();
+        var episodeIdArray = (Guid[])[.. episodeIds.Distinct()];
+
+        var seasonInfos = await db.DbSeasonInfo
+            .AsNoTracking()
+            .Where(s => s.SeasonId == seasonId)
+            .ToListAsync(cancellationToken)
+            .ConfigureAwait(false);
+
+        var allSegments = new List<DbSegment>();
+        foreach (var batch in episodeIdArray.Chunk(SqliteParameterBatchSize))
+        {
+            allSegments.AddRange(await db.DbSegment
+                .AsNoTracking()
+                .Where(s => batch.Contains(s.ItemId))
+                .ToListAsync(cancellationToken)
+                .ConfigureAwait(false));
+        }
+
+        var segments = allSegments;
+
+        return new SeasonQueueSnapshot(
+            seasonInfos.ToDictionary(s => s.Type, s => (IReadOnlySet<Guid>)s.EpisodeIds.ToHashSet()),
+            segments
+                .GroupBy(s => s.ItemId)
+                .ToDictionary(
+                    group => group.Key,
+                    group => (IReadOnlyDictionary<AnalysisMode, Segment>)group
+                        .GroupBy(segment => segment.Type)
+                        .ToDictionary(
+                            segmentGroup => segmentGroup.Key,
+                            segmentGroup => segmentGroup.OrderBy(segment => segment.Start).First().ToSegment())),
+            segments
+                .Where(s => s.IsUserProvided)
+                .GroupBy(s => s.Type)
+                .ToDictionary(
+                    group => group.Key,
+                    group => (IReadOnlySet<Guid>)group.Select(s => s.ItemId).ToHashSet()));
+    }
+
+    internal async Task<IReadOnlyDictionary<AnalysisMode, AnalyzerAction>> GetAllAnalyzerActionsAsync(Guid seasonId, CancellationToken cancellationToken = default)
+    {
+        using var db = CreateDbContext();
+        var infos = await db.DbSeasonInfo
+            .Where(s => s.SeasonId == seasonId)
+            .ToDictionaryAsync(s => s.Type, s => s.Action, cancellationToken)
+            .ConfigureAwait(false);
+
+        // Fill in defaults for any missing modes
+        var result = new Dictionary<AnalysisMode, AnalyzerAction>();
+        foreach (var mode in Enum.GetValues<AnalysisMode>())
+        {
+            result[mode] = infos.TryGetValue(mode, out var action) ? action : AnalyzerAction.Default;
+        }
+
+        return result;
+    }
+
+    internal async Task<AnalyzerAction> GetAnalyzerActionAsync(Guid id, AnalysisMode mode, CancellationToken cancellationToken = default)
+    {
+        using var db = CreateDbContext();
+        var info = await db.DbSeasonInfo
+            .FirstOrDefaultAsync(s => s.SeasonId == id && s.Type == mode, cancellationToken)
+            .ConfigureAwait(false);
+        return info?.Action ?? AnalyzerAction.Default;
+    }
+
+    internal async Task CleanSeasonInfoAsync(IEnumerable<Guid> ids, CancellationToken cancellationToken = default)
+    {
+        using var db = CreateDbContext();
+        await db.DbSeasonInfo
             .Where(s => !ids.Contains(s.SeasonId))
-            .ToListAsync().ConfigureAwait(false);
-        db.DbSeasonInfo.RemoveRange(obsoleteSeasons);
-        await db.SaveChangesAsync().ConfigureAwait(false);
+            .ExecuteDeleteAsync(cancellationToken)
+            .ConfigureAwait(false);
     }
 
     internal static AnalysisMode MapSegmentTypeToMode(MediaSegmentType type)
@@ -357,15 +595,47 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
     /// </summary>
     /// <param name="itemId">The item id whose timestamp should be removed.</param>
     /// <param name="mode">The analysis mode representing the segment type.</param>
+    /// <param name="segment">Optional segment details used to remove a specific entry.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>A <see cref="Task"/> representing the asynchronous operation.</returns>
-    internal async Task DeleteTimestampAsync(Guid itemId, AnalysisMode mode)
+    internal async Task DeleteTimestampAsync(
+        Guid itemId,
+        AnalysisMode mode,
+        Segment? segment = null,
+        CancellationToken cancellationToken = default)
     {
-        using var db = new IntroSkipperDbContext(_dbPath);
-        var entry = await db.DbSegment.FirstOrDefaultAsync(s => s.ItemId == itemId && s.Type == mode).ConfigureAwait(false);
-        if (entry is not null)
+        using var db = CreateDbContext();
+        if (segment is null && mode == AnalysisMode.Commercial)
         {
-            db.DbSegment.Remove(entry);
-            await db.SaveChangesAsync().ConfigureAwait(false);
+            return;
+        }
+
+        var query = db.DbSegment.Where(s => s.ItemId == itemId && s.Type == mode);
+
+        if (segment is not null)
+        {
+            query = query.Where(s =>
+                Math.Abs(s.Start - segment.Start) <= SegmentComparisonEpsilon
+                && Math.Abs(s.End - segment.End) <= SegmentComparisonEpsilon);
+        }
+
+        var entries = await query.ToListAsync(cancellationToken).ConfigureAwait(false);
+        if (entries.Count > 0)
+        {
+            db.DbSegment.RemoveRange(entries);
+            await db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
         }
     }
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "Error initializing database")]
+    private static partial void LogDatabaseInitializationError(ILogger logger, Exception exception);
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "Error initializing detection cache database")]
+    private static partial void LogCacheDbInitializationError(ILogger logger, Exception exception);
+
+    [LoggerMessage(Level = LogLevel.Debug, Message = "Skipping credits for episode {EpisodeId}: detected segment overlaps with introduction")]
+    private static partial void LogCreditsOverlapWithIntro(ILogger logger, Guid episodeId);
+
+    [LoggerMessage(Level = LogLevel.Error, Message = "Failed to update timestamp for episode {EpisodeId}")]
+    private static partial void LogFailedToUpdateTimestamp(ILogger logger, Exception ex, Guid episodeId);
 }

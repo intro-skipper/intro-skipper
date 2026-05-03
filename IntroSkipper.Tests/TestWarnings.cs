@@ -1,4 +1,7 @@
-﻿// Copyright (C) 2026 Intro-Skipper contributors <intro-skipper.org>
+// SPDX-FileCopyrightText: 2022 ConfusedPolarBear
+// SPDX-FileCopyrightText: 2024-2026 Kilian von Pflugk
+// SPDX-FileCopyrightText: 2024-2026 AbandonedCart
+// SPDX-FileCopyrightText: 2025-2026 rlauuzo
 // SPDX-License-Identifier: GPL-3.0-only
 
 namespace IntroSkipper.Tests;
@@ -21,7 +24,6 @@ public class TestFlags
         WarningManager.Clear();
         WarningManager.SetFlag(PluginWarning.IncompatibleFFmpegBuild);
         Assert.Equal("IncompatibleFFmpegBuild", WarningManager.GetWarnings());
-        Assert.True(WarningManager.HasFlag(PluginWarning.IncompatibleFFmpegBuild));
     }
 
     [Fact]
@@ -31,22 +33,9 @@ public class TestFlags
         WarningManager.SetFlag(PluginWarning.IncompatibleFFmpegBuild);
         WarningManager.SetFlag(PluginWarning.InvalidChromaprintFingerprint);
         WarningManager.SetFlag(PluginWarning.InvalidChromaprintFingerprint);
-        Assert.True(WarningManager.HasFlag(PluginWarning.IncompatibleFFmpegBuild) && WarningManager.HasFlag(PluginWarning.InvalidChromaprintFingerprint));
         Assert.Equal(
             "InvalidChromaprintFingerprint, IncompatibleFFmpegBuild",
             WarningManager.GetWarnings());
     }
 
-    [Fact]
-    public void TestHasFlag()
-    {
-        WarningManager.Clear();
-        Assert.True(WarningManager.HasFlag(PluginWarning.None));
-        Assert.False(WarningManager.HasFlag(PluginWarning.IncompatibleFFmpegBuild) && WarningManager.HasFlag(PluginWarning.InvalidChromaprintFingerprint));
-        WarningManager.SetFlag(PluginWarning.IncompatibleFFmpegBuild);
-        WarningManager.SetFlag(PluginWarning.InvalidChromaprintFingerprint);
-        Assert.True(WarningManager.HasFlag(PluginWarning.IncompatibleFFmpegBuild) && WarningManager.HasFlag(PluginWarning.InvalidChromaprintFingerprint));
-        Assert.True(WarningManager.HasFlag(PluginWarning.IncompatibleFFmpegBuild));
-        Assert.True(WarningManager.HasFlag(PluginWarning.None));
-    }
 }

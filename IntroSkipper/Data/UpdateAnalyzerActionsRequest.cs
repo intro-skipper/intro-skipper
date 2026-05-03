@@ -1,24 +1,21 @@
-﻿// Copyright (C) 2026 Intro-Skipper contributors <intro-skipper.org>
+// SPDX-FileCopyrightText: 2024-2026 rlauuzo
+// SPDX-FileCopyrightText: 2024-2026 Kilian von Pflugk
 // SPDX-License-Identifier: GPL-3.0-only
 
-using System;
-using System.Collections.Generic;
+namespace IntroSkipper.Data;
 
-namespace IntroSkipper.Data
+/// <summary>
+/// Update analyzer actions request.
+/// </summary>
+public class UpdateAnalyzerActionsRequest
 {
     /// <summary>
-    /// /// Update analyzer actions request.
+    /// Gets or sets season ID.
     /// </summary>
-    public class UpdateAnalyzerActionsRequest
-    {
-        /// <summary>
-        /// Gets or sets season ID.
-        /// </summary>
-        public Guid Id { get; set; }
+    public Guid Id { get; set; }
 
-        /// <summary>
-        /// Gets or sets analyzer actions.
-        /// </summary>
-        public IReadOnlyDictionary<AnalysisMode, AnalyzerAction> AnalyzerActions { get; set; } = new Dictionary<AnalysisMode, AnalyzerAction>();
-    }
+    /// <summary>
+    /// Gets or sets analyzer actions.
+    /// </summary>
+    public IReadOnlyDictionary<AnalysisMode, AnalyzerAction> AnalyzerActions { get; set; } = new Dictionary<AnalysisMode, AnalyzerAction>();
 }

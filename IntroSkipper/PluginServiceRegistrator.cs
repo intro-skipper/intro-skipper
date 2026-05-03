@@ -1,4 +1,6 @@
-﻿// Copyright (C) 2026 Intro-Skipper contributors <intro-skipper.org>
+// SPDX-FileCopyrightText: 2024-2026 Kilian von Pflugk
+// SPDX-FileCopyrightText: 2024-2026 rlauuzo
+// SPDX-FileCopyrightText: 2024-2026 AbandonedCart
 // SPDX-License-Identifier: GPL-3.0-only
 
 using IntroSkipper.Filters;
@@ -27,7 +29,7 @@ namespace IntroSkipper
             serviceCollection.AddSingleton<MediaSegmentsFirstEpisodeFilter>();
             serviceCollection.Configure<MvcOptions>(options =>
             {
-                options.Filters.AddService<MediaSegmentsFirstEpisodeFilter>();
+                options.Conventions.Add(new MediaSegmentsFilterConvention());
             });
         }
     }
