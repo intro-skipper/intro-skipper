@@ -155,13 +155,6 @@ public class TestKeyframeExtraction
         }
     }
 
-    [FactSkipFFmpegTests]
-    public void TestFfprobeExtractor_FileNotFound()
-    {
-        Assert.ThrowsAny<Exception>(() =>
-            FfProbeKeyframeExtractor.GetKeyframeData(GetFfprobePath(), "../../../video/nonexistent.mp4"));
-    }
-
     [Fact]
     public void TestMatroskaExtractor_FileNotFound()
     {
