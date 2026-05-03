@@ -657,6 +657,102 @@ public sealed class TestCacheOperations
     }
 
     [Fact]
+    public void MigrateLegacyFingerprintCache_MigratesRecognizedDetectionFiles()
+    {
+        var episode = new QueuedEpisode
+        {
+            EpisodeId = Guid.NewGuid(),
+        };
+        var staleEpisodeId = Guid.NewGuid();
+        var cacheDir = EntrypointTestHelpers.CreateTempCacheDir();
+        var id = episode.EpisodeId.ToString("N");
+        var staleId = staleEpisodeId.ToString("N");
+
+        var silencePath = Path.Join(cacheDir, $"{id}-silence-10.5-20.5-v2");
+        var keyframesPath = Path.Join(cacheDir, $"{id}-keyframes-30.25-40.75-v1");
+        var blackframesPath = Path.Join(cacheDir, $"{id}-blackframes-100.5-120.5-v1");
+        var altBlackframesPath = Path.Join(cacheDir, $"{id}-blackframes-1560.5-alt");
+        var invalidPath = Path.Join(cacheDir, $"{id}-silence-invalid-20.5-v2");
+        var stalePath = Path.Join(cacheDir, $"{staleId}-silence-10.5-20.5-v2");
+
+        File.WriteAllText(silencePath, "silence_start: 1.0\nsilence_end: 2.5\n");
+        File.WriteAllText(keyframesPath, "[Parsed_showinfo_0 @ 0x0] n:0 pts:0 pts_time:3.25 pos:0\n");
+        File.WriteAllText(blackframesPath, "[Parsed_blackframe_0 @ 0xabc] frame:12 pblack:95 pts:1 t:12.34 type:P last_keyframe:0\n");
+        File.WriteAllText(altBlackframesPath, "[Parsed_blackframe_0 @ 0xdef] frame:34 pblack:88 pts:2 t:56.78 type:I last_keyframe:34\n");
+        File.WriteAllText(invalidPath, "silence_start: 1.0\nsilence_end: 2.5\n");
+        File.WriteAllText(stalePath, "silence_start: 1.0\nsilence_end: 2.5\n");
+
+        int migrated;
+        string cacheDbPath;
+        using (var scope = new CachingPluginScope(cacheDir))
+        {
+            cacheDbPath = scope.CacheDbPath;
+            migrated = FFmpegWrapper.MigrateLegacyFingerprintCache([episode]);
+        }
+
+        Assert.Equal(4, migrated);
+        Assert.False(File.Exists(silencePath));
+        Assert.False(File.Exists(keyframesPath));
+        Assert.False(File.Exists(blackframesPath));
+        Assert.False(File.Exists(altBlackframesPath));
+        Assert.True(File.Exists(invalidPath));
+        Assert.True(File.Exists(stalePath));
+
+        using var db = new DetectionCacheDbContext(cacheDbPath);
+        var modes = Enum.GetValues<AnalysisMode>();
+        Assert.Equal(
+            modes.Length,
+            db.DetectionCache.Count(e => e.ItemId == episode.EpisodeId && e.Type == CacheEntryType.Silence));
+        Assert.Equal(
+            modes.Length,
+            db.DetectionCache.Count(e => e.ItemId == episode.EpisodeId && e.Type == CacheEntryType.Keyframe));
+
+        foreach (var mode in modes)
+        {
+            var silence = ReadDetectionCache<TimeRange>(
+                db,
+                episode.EpisodeId,
+                mode,
+                CacheEntryType.Silence,
+                10.5,
+                20.5);
+            var silenceRange = Assert.Single(silence);
+            Assert.Equal(11.5, silenceRange.Start);
+            Assert.Equal(13.0, silenceRange.End);
+
+            var keyframes = ReadDetectionCache<double>(
+                db,
+                episode.EpisodeId,
+                mode,
+                CacheEntryType.Keyframe,
+                30.25,
+                40.75);
+            var keyframe = Assert.Single(keyframes);
+            Assert.Equal(33.5, keyframe);
+        }
+
+        var rangeBlackframes = ReadDetectionCache<BlackFrame>(
+            db,
+            episode.EpisodeId,
+            AnalysisMode.Credits,
+            CacheEntryType.BlackFrame,
+            100.5,
+            120.5);
+        Assert.Equal(new BlackFrame(95, 12.34, 12), Assert.Single(rangeBlackframes));
+
+        var altBlackframes = ReadDetectionCache<BlackFrame>(
+            db,
+            episode.EpisodeId,
+            AnalysisMode.Credits,
+            CacheEntryType.BlackFrame,
+            1560.5,
+            0);
+        Assert.Equal(new BlackFrame(88, 56.78, 34), Assert.Single(altBlackframes));
+
+        Assert.False(db.DetectionCache.Any(e => e.ItemId == staleEpisodeId));
+    }
+
+    [Fact]
     public void MigrateLegacyFingerprintCache_MigratesMovieIntroductionWhenRangePresent()
     {
         var episode = new QueuedEpisode
@@ -785,6 +881,30 @@ public sealed class TestCacheOperations
         }
 
         var result = FFmpegWrapper.DecompressBrotli<uint[]>(entry.Data);
+        return result ?? [];
+    }
+
+    private static T[] ReadDetectionCache<T>(
+        DetectionCacheDbContext db,
+        Guid itemId,
+        AnalysisMode mode,
+        CacheEntryType type,
+        double start,
+        double end)
+    {
+        var entry = db.DetectionCache.FirstOrDefault(e =>
+            e.ItemId == itemId &&
+            e.Mode == mode &&
+            e.Type == type &&
+            e.Start == start &&
+            e.End == end);
+
+        if (entry is null)
+        {
+            return [];
+        }
+
+        var result = FFmpegWrapper.DecompressBrotli<T[]>(entry.Data);
         return result ?? [];
     }
 

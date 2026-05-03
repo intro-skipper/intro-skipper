@@ -800,11 +800,11 @@ public static partial class FFmpegWrapper
     }
 
     /// <summary>
-    /// Migrates legacy on-disk chromaprint fingerprint cache files for queued media items into the SQLite cache.
+    /// Migrates recognized legacy on-disk detection cache files for queued media items into the SQLite cache.
     /// </summary>
     /// <param name="episodes">Queued media items whose IDs are still present in enabled libraries.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
-    /// <returns>The number of legacy fingerprint files migrated.</returns>
+    /// <returns>The number of legacy cache files migrated.</returns>
     internal static int MigrateLegacyFingerprintCache(IEnumerable<QueuedEpisode> episodes, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(episodes);
@@ -840,10 +840,154 @@ public static partial class FFmpegWrapper
             {
                 migrated++;
             }
+
+            migrated += MigrateLegacyDetectionCacheFiles(cacheDir, episode);
         }
 
         return migrated;
     }
+
+    private static int MigrateLegacyDetectionCacheFiles(string cacheDir, QueuedEpisode episode)
+    {
+        var id = episode.EpisodeId.ToString("N");
+        var migrated = 0;
+
+        try
+        {
+            foreach (var filePath in Directory.EnumerateFiles(cacheDir, id + "-*"))
+            {
+                var filename = Path.GetFileName(filePath);
+                var prefix = id + "-";
+                if (!filename.StartsWith(prefix, StringComparison.Ordinal))
+                {
+                    continue;
+                }
+
+                if (TryMigrateLegacyDetectionCacheFile(filename, filename[prefix.Length..], episode.EpisodeId))
+                {
+                    migrated++;
+                }
+            }
+        }
+        catch (DirectoryNotFoundException)
+        {
+            return migrated;
+        }
+
+        return migrated;
+    }
+
+    private static bool TryMigrateLegacyDetectionCacheFile(string legacyCacheKey, string suffix, Guid itemId)
+    {
+        var parts = suffix.Split('-');
+
+        if (parts is ["silence", var silenceStart, var silenceEnd, "v2"] &&
+            TryParseLegacyCacheTime(silenceStart, out var parsedSilenceStart) &&
+            TryParseLegacyCacheTime(silenceEnd, out var parsedSilenceEnd))
+        {
+            return TryMigrateLegacyCacheForAllModes(
+                legacyCacheKey,
+                itemId,
+                CacheEntryType.Silence,
+                parsedSilenceStart,
+                parsedSilenceEnd,
+                raw => ParseSilenceRaw(raw, parsedSilenceStart));
+        }
+
+        if (parts is ["keyframes", var keyframesStart, var keyframesEnd, "v1"] &&
+            TryParseLegacyCacheTime(keyframesStart, out var parsedKeyframesStart) &&
+            TryParseLegacyCacheTime(keyframesEnd, out var parsedKeyframesEnd))
+        {
+            return TryMigrateLegacyCacheForAllModes(
+                legacyCacheKey,
+                itemId,
+                CacheEntryType.Keyframe,
+                parsedKeyframesStart,
+                parsedKeyframesEnd,
+                raw => ParseKeyFramesRaw(raw, parsedKeyframesStart));
+        }
+
+        if (parts is ["blackframes", var blackframesStart, var blackframesEnd, "v1"] &&
+            TryParseLegacyCacheTime(blackframesStart, out var parsedBlackframesStart) &&
+            TryParseLegacyCacheTime(blackframesEnd, out var parsedBlackframesEnd))
+        {
+            return LoadLegacyCache(
+                legacyCacheKey,
+                itemId,
+                AnalysisMode.Credits,
+                CacheEntryType.BlackFrame,
+                parsedBlackframesStart,
+                parsedBlackframesEnd,
+                static raw => ParseBlackFrame(raw),
+                out BlackFrame[] _) == LegacyCacheLoadStatus.Migrated;
+        }
+
+        if (parts is ["blackframes", var altBlackframesStart, "alt"] &&
+            TryParseLegacyCacheTime(altBlackframesStart, out var parsedAltBlackframesStart))
+        {
+            return LoadLegacyCache(
+                legacyCacheKey,
+                itemId,
+                AnalysisMode.Credits,
+                CacheEntryType.BlackFrame,
+                parsedAltBlackframesStart,
+                0,
+                static raw => ParseBlackFrame(raw),
+                out BlackFrame[] _) == LegacyCacheLoadStatus.Migrated;
+        }
+
+        return false;
+    }
+
+    private static bool TryMigrateLegacyCacheForAllModes<T>(
+        string legacyCacheKey,
+        Guid itemId,
+        CacheEntryType type,
+        double start,
+        double end,
+        Func<string, T[]> rawParser)
+    {
+        var legacyTextPath = GetLegacyFilePath(legacyCacheKey);
+        if (!File.Exists(legacyTextPath))
+        {
+            return false;
+        }
+
+        try
+        {
+            var raw = File.ReadAllText(legacyTextPath, Encoding.UTF8);
+            var result = rawParser(raw);
+
+            foreach (var mode in Enum.GetValues<AnalysisMode>())
+            {
+                if (Logger is { } logger && logger.IsEnabled(LogLevel.Debug))
+                {
+                    var cacheKey = $"{itemId:N}-{mode}-{type}";
+                    LogMigratingLegacyCache(logger, legacyCacheKey, cacheKey);
+                }
+
+                if (!WriteJsonCache(itemId, mode, type, start, end, result))
+                {
+                    return false;
+                }
+            }
+
+            DeleteLegacyCacheFile(legacyCacheKey);
+            return true;
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            if (ex is not FileNotFoundException && Logger is { } logger)
+            {
+                LogDetectionCacheReadError(logger, ex, legacyTextPath);
+            }
+
+            return false;
+        }
+    }
+
+    private static bool TryParseLegacyCacheTime(string value, out double result)
+        => double.TryParse(value, CultureInfo.InvariantCulture, out result);
 
     private static bool TryMigrateLegacyFingerprintCache(QueuedEpisode episode, AnalysisMode mode)
     {
