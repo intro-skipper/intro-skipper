@@ -153,8 +153,9 @@ public sealed class TestDbSegmentStorage
     {
         const int LargeEpisodeCount = 33_000;
 
-        var dbPath = Path.Combine(Path.GetTempPath(), "IntroSkipper.Tests", Guid.NewGuid().ToString("N") + ".db");
-        Directory.CreateDirectory(Path.GetDirectoryName(dbPath)!);
+        var tempDir = Path.Combine(Path.GetTempPath(), "IntroSkipper.Tests");
+        Directory.CreateDirectory(tempDir);
+        var dbPath = Path.Join(tempDir, Guid.NewGuid().ToString("N") + ".db");
 
         var retainedItemId = Guid.NewGuid();
         var staleItemId = Guid.NewGuid();
@@ -199,8 +200,9 @@ public sealed class TestDbSegmentStorage
     {
         const int LargeEpisodeCount = 1_001;
 
-        var dbPath = Path.Combine(Path.GetTempPath(), "IntroSkipper.Tests", Guid.NewGuid().ToString("N") + ".db");
-        Directory.CreateDirectory(Path.GetDirectoryName(dbPath)!);
+        var tempDir = Path.Combine(Path.GetTempPath(), "IntroSkipper.Tests");
+        Directory.CreateDirectory(tempDir);
+        var dbPath = Path.Join(tempDir, Guid.NewGuid().ToString("N") + ".db");
 
         var seasonId = Guid.NewGuid();
         var episodeWithSegmentId = Guid.NewGuid();
