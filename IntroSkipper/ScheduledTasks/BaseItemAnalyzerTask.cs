@@ -90,7 +90,7 @@ public partial class BaseItemAnalyzerTask(
 
         if (!plugin.LegacyFingerprintMigrationDone)
         {
-            FFmpegWrapper.MigrateLegacyFingerprintCache(
+            FFmpegWrapper.MigrateLegacyDetectionCache(
                 queue.Values.SelectMany(static episodes => episodes),
                 cancellationToken);
             plugin.LegacyFingerprintMigrationDone = true;
