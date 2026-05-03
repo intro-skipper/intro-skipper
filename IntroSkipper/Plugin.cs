@@ -128,6 +128,8 @@ public partial class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
     /// </summary>
     public bool AnalyzeAgain { get; set; }
 
+    internal bool LegacyFingerprintMigrationDone { get; set; }
+
     /// <summary>
     /// Gets the most recent media item queue.
     /// </summary>
@@ -309,11 +311,27 @@ public partial class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
 
     internal async Task DeleteItemSegmentsAsync(Guid itemId, CancellationToken cancellationToken = default)
     {
+        var enabledEpisodeIds = episodeIds.ToHashSet();
+
         using var db = CreateDbContext();
-        await db.DbSegment
-            .Where(s => s.ItemId == itemId)
-            .ExecuteDeleteAsync(cancellationToken)
+        var segmentEpisodeIds = await db.DbSegment
+            .AsNoTracking()
+            .Select(s => s.ItemId)
+            .Distinct()
+            .ToListAsync(cancellationToken)
             .ConfigureAwait(false);
+
+        var staleEpisodeIds = segmentEpisodeIds
+            .Where(id => !enabledEpisodeIds.Contains(id))
+            .ToArray();
+
+        foreach (var staleEpisodeIdBatch in staleEpisodeIds.Chunk(SqliteParameterBatchSize))
+        {
+            await db.DbSegment
+                .Where(s => staleEpisodeIdBatch.Contains(s.ItemId))
+                .ExecuteDeleteAsync(cancellationToken)
+                .ConfigureAwait(false);
+        }
     }
 
     internal async Task CleanTimestampsAsync(IEnumerable<Guid> episodeIds, CancellationToken cancellationToken = default)
