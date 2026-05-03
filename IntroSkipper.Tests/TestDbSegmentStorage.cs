@@ -230,8 +230,8 @@ public sealed class TestDbSegmentStorage
                 // Should not throw even with 1001 episode IDs (above the SQLite 999-parameter limit).
                 var snapshot = await plugin.GetSeasonQueueSnapshotAsync(seasonId, episodeIds);
 
-                Assert.True(snapshot.SegmentsByEpisodeId.ContainsKey(episodeWithSegmentId));
-                Assert.True(snapshot.SegmentsByEpisodeId[episodeWithSegmentId].ContainsKey(AnalysisMode.Introduction));
+                Assert.True(snapshot.SegmentsByEpisodeId.TryGetValue(episodeWithSegmentId, out var segmentsByAnalysisMode));
+                Assert.True(segmentsByAnalysisMode!.TryGetValue(AnalysisMode.Introduction, out _));
             }
         }
         finally
