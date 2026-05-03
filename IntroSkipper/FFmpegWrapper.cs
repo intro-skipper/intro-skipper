@@ -880,8 +880,10 @@ public static partial class FFmpegWrapper
             {
                 cancellationToken.ThrowIfCancellationRequested();
 
-                if (!TryParseLegacyDetectionCacheFile(filePath, out var file) ||
-                    !queuedEpisodeIds.Contains(file.ItemId))
+                var filename = Path.GetFileName(filePath);
+                if (!TryGetLegacyDetectionCacheItemId(filename, out var itemId) ||
+                    !queuedEpisodeIds.Contains(itemId) ||
+                    !TryParseLegacyDetectionCacheFile(filePath, out var file))
                 {
                     continue;
                 }
@@ -895,12 +897,28 @@ public static partial class FFmpegWrapper
                 files.Add(file);
             }
         }
-        catch (DirectoryNotFoundException)
+        catch (Exception ex) when (ex is DirectoryNotFoundException or IOException or UnauthorizedAccessException)
         {
+            if (Logger is { } logger)
+            {
+                LogLegacyDetectionCacheScanFailed(logger, ex, cacheDir);
+            }
+
             return result;
         }
 
         return result;
+    }
+
+    private static bool TryGetLegacyDetectionCacheItemId(string filename, out Guid itemId)
+    {
+        itemId = Guid.Empty;
+        if (filename.Length <= 32 || filename[32] != '-')
+        {
+            return false;
+        }
+
+        return Guid.TryParseExact(filename[..32], "N", out itemId);
     }
 
     private static bool TryParseLegacyDetectionCacheFile(string legacyTextPath, out LegacyDetectionCacheFile file)
@@ -1226,6 +1244,7 @@ public static partial class FFmpegWrapper
         }
 
         var data = CompressBrotli(items);
+        var cacheKey = $"{itemId:N}-all-modes-{type}";
 
         try
         {
@@ -1234,13 +1253,24 @@ public static partial class FFmpegWrapper
 
             if (Logger is { } logger && logger.IsEnabled(LogLevel.Debug))
             {
-                var cacheKey = $"{itemId:N}-all-modes-{type}";
                 LogMigratingLegacyCache(logger, legacyCacheKey, cacheKey);
             }
 
+            var existingEntries = db.DetectionCache
+                .Where(e => e.ItemId == itemId && e.Type == type && e.Start == start && e.End == end)
+                .ToList();
+
             foreach (var mode in Enum.GetValues<AnalysisMode>())
             {
-                UpsertJsonCacheEntry(db, itemId, mode, type, start, end, data);
+                var existing = existingEntries.FirstOrDefault(e => e.Mode == mode);
+                if (existing is not null)
+                {
+                    existing.Data = data;
+                }
+                else
+                {
+                    db.DetectionCache.Add(new DbDetectionCache(itemId, mode, type, data, start, end));
+                }
             }
 
             db.SaveChanges();
@@ -1251,7 +1281,6 @@ public static partial class FFmpegWrapper
         {
             if (Logger is { } logger && logger.IsEnabled(LogLevel.Debug))
             {
-                var cacheKey = $"{itemId:N}-{type}";
                 LogDetectionCacheWriteError(logger, ex, cacheKey);
             }
 
@@ -1500,6 +1529,9 @@ public static partial class FFmpegWrapper
 
     [LoggerMessage(Level = LogLevel.Debug, Message = "Migrating legacy cache {LegacyKey} to {NewKey}")]
     private static partial void LogMigratingLegacyCache(ILogger logger, string legacyKey, string newKey);
+
+    [LoggerMessage(Level = LogLevel.Debug, Message = "Failed to scan legacy detection cache directory {CacheDir}")]
+    private static partial void LogLegacyDetectionCacheScanFailed(ILogger logger, Exception ex, string cacheDir);
 
     [LoggerMessage(Level = LogLevel.Information, Message = "Legacy fingerprint {CacheKey} duration mismatch (inferred {Inferred}s vs expected {Expected}s), re-fingerprinting")]
     private static partial void LogLegacyDurationMismatch(ILogger logger, string cacheKey, double inferred, double expected);
