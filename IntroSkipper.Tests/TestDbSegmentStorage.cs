@@ -9,6 +9,7 @@ using IntroSkipper.Data;
 using IntroSkipper.Db;
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging;
 using Xunit;
 
 namespace IntroSkipper.Tests;
@@ -152,8 +153,9 @@ public sealed class TestDbSegmentStorage
     {
         const int LargeEpisodeCount = 33_000;
 
-        var dbPath = Path.Combine(Path.GetTempPath(), "IntroSkipper.Tests", Guid.NewGuid().ToString("N") + ".db");
-        Directory.CreateDirectory(Path.GetDirectoryName(dbPath)!);
+        var tempDir = Path.Join(Path.GetTempPath(), "IntroSkipper.Tests");
+        Directory.CreateDirectory(tempDir);
+        var dbPath = Path.Join(tempDir, Guid.NewGuid().ToString("N") + ".db");
 
         var retainedItemId = Guid.NewGuid();
         var staleItemId = Guid.NewGuid();
@@ -191,6 +193,109 @@ public sealed class TestDbSegmentStorage
         {
             DeleteSqliteFiles(dbPath);
         }
+    }
+
+    [Fact]
+    public async Task GetSeasonQueueSnapshotAsync_DoesNotExceedSqliteVariableLimit_WhenEpisodeListIsLarge()
+    {
+        const int LargeEpisodeCount = 1_001;
+
+        var tempDir = Path.Join(Path.GetTempPath(), "IntroSkipper.Tests");
+        Directory.CreateDirectory(tempDir);
+        var dbPath = Path.Join(tempDir, Guid.NewGuid().ToString("N") + ".db");
+
+        var seasonId = Guid.NewGuid();
+        var episodeWithSegmentId = Guid.NewGuid();
+        var episodeIds = Enumerable.Range(0, LargeEpisodeCount - 1)
+            .Select(_ => Guid.NewGuid())
+            .Append(episodeWithSegmentId)
+            .ToList();
+
+        try
+        {
+            using (var db = new IntroSkipperDbContext(dbPath))
+            {
+                await db.Database.EnsureCreatedAsync();
+                db.DbSegment.Add(new DbSegment(
+                    new Segment(episodeWithSegmentId, new TimeRange(0, 30)),
+                    AnalysisMode.Introduction));
+                await db.SaveChangesAsync();
+            }
+
+            using (new EntrypointTestHelpers.PluginInstanceScope(EntrypointTestHelpers.CreateTempCacheDir()))
+            {
+                var plugin = Plugin.Instance!;
+                EntrypointTestHelpers.SetPrivateField(plugin, "_dbPath", dbPath);
+
+                // Should not throw even with 1001 episode IDs (above the SQLite 999-parameter limit).
+                var snapshot = await plugin.GetSeasonQueueSnapshotAsync(seasonId, episodeIds);
+
+                Assert.True(snapshot.SegmentsByEpisodeId.TryGetValue(episodeWithSegmentId, out var segmentsByAnalysisMode));
+                Assert.True(segmentsByAnalysisMode!.TryGetValue(AnalysisMode.Introduction, out _));
+            }
+        }
+        finally
+        {
+            DeleteSqliteFiles(dbPath);
+        }
+    }
+
+    [Theory]
+    [InlineData(60.0, 1440.0, false, 0)]   // overlapping, auto-detected → rejected
+    [InlineData(1200.0, 1440.0, false, 1)] // non-overlapping, auto-detected → accepted
+    [InlineData(60.0, 1440.0, true, 1)]    // overlapping, user-provided → accepted
+    public async Task UpdateTimestampAsync_CreditsOverlapGuard(
+        double creditsStart, double creditsEnd, bool isUserProvided, int expectedCount)
+    {
+        var tempDir = Path.Join(Path.GetTempPath(), "IntroSkipper.Tests");
+        var dbFileName = Guid.NewGuid().ToString("N") + ".db";
+        if (Path.IsPathRooted(dbFileName))
+        {
+            throw new ArgumentException("dbFileName must be a relative file name.", nameof(dbFileName));
+        }
+        var dbPath = Path.Join(tempDir, dbFileName);
+        Directory.CreateDirectory(Path.GetDirectoryName(dbPath)!);
+
+        var itemId = Guid.NewGuid();
+
+        try
+        {
+            using (var db = new IntroSkipperDbContext(dbPath))
+            {
+                await db.Database.EnsureCreatedAsync();
+                // Store an intro: 0–90 s.
+                db.DbSegment.Add(new DbSegment(
+                    new Segment(itemId, new TimeRange(0, 90)),
+                    AnalysisMode.Introduction));
+                await db.SaveChangesAsync();
+            }
+
+            using (new EntrypointTestHelpers.PluginInstanceScope(EntrypointTestHelpers.CreateTempCacheDir()))
+            {
+                var plugin = Plugin.Instance!;
+                EntrypointTestHelpers.SetPrivateField(plugin, "_dbPath", dbPath);
+                ConfigurePluginLogger(plugin);
+
+                var credits = new Segment(itemId, new TimeRange(creditsStart, creditsEnd));
+                await plugin.UpdateTimestampAsync(credits, AnalysisMode.Credits, isUserProvided);
+            }
+
+            using (var db = new IntroSkipperDbContext(dbPath))
+            {
+                var count = db.DbSegment.Count(s => s.ItemId == itemId && s.Type == AnalysisMode.Credits);
+                Assert.Equal(expectedCount, count);
+            }
+        }
+        finally
+        {
+            DeleteSqliteFiles(dbPath);
+        }
+    }
+
+    private static void ConfigurePluginLogger(Plugin plugin)
+    {
+        using var loggerFactory = LoggerFactory.Create(_ => { });
+        EntrypointTestHelpers.SetPrivateField(plugin, "_logger", loggerFactory.CreateLogger<Plugin>());
     }
 
     private static void DeleteSqliteFiles(string dbPath)

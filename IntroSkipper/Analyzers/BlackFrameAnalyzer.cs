@@ -63,6 +63,15 @@ public sealed partial class BlackFrameAnalyzer(ILogger<BlackFrameAnalyzer> logge
                 // First try to use chapter markers if available
                 if (!_config.UseChapterMarkersBlackFrame || !TryAnalyzeChapters(episode, percentage, threshold, out var credit))
                 {
+                    // Reset searchStart if it exceeds the valid search range for this episode.
+                    // This can happen when a previous longer episode sets a large searchStart that
+                    // causes lowerLimit > upperLimit in AnalyzeMediaFile, breaking the binary search.
+                    var maxSearchDistance = episode.Duration - episode.CreditsFingerprintStart;
+                    if (searchStart > maxSearchDistance)
+                    {
+                        searchStart = 0.0;
+                    }
+
                     // If no suitable chapters found, use black frame detection
                     if (searchStart < _config.MinimumCreditsDuration)
                     {
