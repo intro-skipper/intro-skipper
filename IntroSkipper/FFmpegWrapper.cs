@@ -857,7 +857,8 @@ public static partial class FFmpegWrapper
             foreach (var filePath in Directory.EnumerateFiles(cacheDir, prefix + "*"))
             {
                 var filename = Path.GetFileName(filePath);
-                if (TryMigrateLegacyDetectionCacheFile(filename, filename[prefix.Length..], episode.EpisodeId))
+                var suffix = filename.Length >= prefix.Length ? filename[prefix.Length..] : string.Empty;
+                if (TryMigrateLegacyDetectionCacheFile(filePath, filename, suffix, episode.EpisodeId))
                 {
                     migrated++;
                 }
@@ -871,7 +872,7 @@ public static partial class FFmpegWrapper
         return migrated;
     }
 
-    private static bool TryMigrateLegacyDetectionCacheFile(string legacyCacheKey, string suffix, Guid itemId)
+    private static bool TryMigrateLegacyDetectionCacheFile(string legacyTextPath, string legacyCacheKey, string suffix, Guid itemId)
     {
         var parts = suffix.Split('-');
 
@@ -881,6 +882,7 @@ public static partial class FFmpegWrapper
         {
             return TryMigrateLegacyCacheForAllModes(
                 legacyCacheKey,
+                legacyTextPath,
                 itemId,
                 CacheEntryType.Silence,
                 parsedSilenceStart,
@@ -894,6 +896,7 @@ public static partial class FFmpegWrapper
         {
             return TryMigrateLegacyCacheForAllModes(
                 legacyCacheKey,
+                legacyTextPath,
                 itemId,
                 CacheEntryType.Keyframe,
                 parsedKeyframesStart,
@@ -907,6 +910,7 @@ public static partial class FFmpegWrapper
         {
             return LoadLegacyCache(
                 legacyCacheKey,
+                legacyTextPath,
                 itemId,
                 AnalysisMode.Credits,
                 CacheEntryType.BlackFrame,
@@ -921,6 +925,7 @@ public static partial class FFmpegWrapper
         {
             return LoadLegacyCache(
                 legacyCacheKey,
+                legacyTextPath,
                 itemId,
                 AnalysisMode.Credits,
                 CacheEntryType.BlackFrame,
@@ -935,13 +940,13 @@ public static partial class FFmpegWrapper
 
     private static bool TryMigrateLegacyCacheForAllModes<T>(
         string legacyCacheKey,
+        string legacyTextPath,
         Guid itemId,
         CacheEntryType type,
         double start,
         double end,
         Func<string, T[]> rawParser)
     {
-        var legacyTextPath = GetLegacyFilePath(legacyCacheKey);
         if (!File.Exists(legacyTextPath))
         {
             return false;
@@ -952,21 +957,22 @@ public static partial class FFmpegWrapper
             var raw = File.ReadAllText(legacyTextPath, Encoding.UTF8);
             var result = rawParser(raw);
 
-            foreach (var mode in Enum.GetValues<AnalysisMode>())
+            var modes = Enum.GetValues<AnalysisMode>();
+            foreach (var mode in modes)
             {
                 if (Logger is { } logger && logger.IsEnabled(LogLevel.Debug))
                 {
                     var cacheKey = $"{itemId:N}-{mode}-{type}";
                     LogMigratingLegacyCache(logger, legacyCacheKey, cacheKey);
                 }
-
-                if (!WriteJsonCache(itemId, mode, type, start, end, result))
-                {
-                    return false;
-                }
             }
 
-            DeleteLegacyCacheFile(legacyCacheKey);
+            if (!WriteJsonCacheForAllModes(itemId, type, start, end, result, modes))
+            {
+                return false;
+            }
+
+            DeleteLegacyCacheFilePath(legacyTextPath);
             return true;
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
@@ -981,7 +987,7 @@ public static partial class FFmpegWrapper
     }
 
     private static bool TryParseLegacyCacheTime(string value, out double result)
-        => double.TryParse(value, CultureInfo.InvariantCulture, out result);
+        => double.TryParse(value, NumberStyles.Float, CultureInfo.InvariantCulture, out result);
 
     private static bool TryMigrateLegacyFingerprintCache(QueuedEpisode episode, AnalysisMode mode)
     {
@@ -1022,8 +1028,10 @@ public static partial class FFmpegWrapper
     }
 
     private static void DeleteLegacyCacheFile(string legacyCacheKey)
+        => DeleteLegacyCacheFilePath(GetLegacyFilePath(legacyCacheKey));
+
+    private static void DeleteLegacyCacheFilePath(string legacyTextPath)
     {
-        var legacyTextPath = GetLegacyFilePath(legacyCacheKey);
         try
         {
             File.Delete(legacyTextPath);
@@ -1127,6 +1135,57 @@ public static partial class FFmpegWrapper
         }
     }
 
+    private static bool WriteJsonCacheForAllModes<T>(
+        Guid itemId,
+        CacheEntryType type,
+        double start,
+        double end,
+        T[] items,
+        AnalysisMode[] modes)
+    {
+        if (!IsCachingEnabled())
+        {
+            return false;
+        }
+
+        var data = CompressBrotli(items);
+
+        try
+        {
+            using var db = Plugin.CreateCacheDbContext();
+            using var transaction = db.Database.BeginTransaction();
+
+            foreach (var mode in modes)
+            {
+                var existing = db.DetectionCache
+                    .FirstOrDefault(e => e.ItemId == itemId && e.Mode == mode && e.Type == type && e.Start == start && e.End == end);
+
+                if (existing is not null)
+                {
+                    existing.Data = data;
+                }
+                else
+                {
+                    db.DetectionCache.Add(new DbDetectionCache(itemId, mode, type, data, start, end));
+                }
+            }
+
+            db.SaveChanges();
+            transaction.Commit();
+            return true;
+        }
+        catch (Exception ex) when (ex is DbUpdateException or DbException)
+        {
+            if (Logger is { } logger && logger.IsEnabled(LogLevel.Debug))
+            {
+                var cacheKey = $"{itemId:N}-{type}";
+                LogDetectionCacheWriteError(logger, ex, cacheKey);
+            }
+
+            return false;
+        }
+    }
+
     private static uint[] ParseFingerprintRaw(string raw)
     {
         var lines = raw.Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries);
@@ -1173,6 +1232,27 @@ public static partial class FFmpegWrapper
         double end,
         Func<string, T[]> rawParser,
         out T[] result)
+        => LoadLegacyCache(
+            legacyCacheKey,
+            GetLegacyFilePath(legacyCacheKey),
+            itemId,
+            mode,
+            type,
+            start,
+            end,
+            rawParser,
+            out result);
+
+    private static LegacyCacheLoadStatus LoadLegacyCache<T>(
+        string legacyCacheKey,
+        string legacyTextPath,
+        Guid itemId,
+        AnalysisMode mode,
+        CacheEntryType type,
+        double start,
+        double end,
+        Func<string, T[]> rawParser,
+        out T[] result)
     {
         result = [];
 
@@ -1182,7 +1262,6 @@ public static partial class FFmpegWrapper
         }
 
         // Migrate legacy on-disk text files into the SQLite cache.
-        var legacyTextPath = GetLegacyFilePath(legacyCacheKey);
         if (!File.Exists(legacyTextPath))
         {
             return LegacyCacheLoadStatus.Miss;
@@ -1196,7 +1275,7 @@ public static partial class FFmpegWrapper
             // An empty chromaprint legacy file is corrupt; empty detection result caches are valid.
             if (type == CacheEntryType.Chromaprint && result.Length == 0)
             {
-                DeleteLegacyCacheFile(legacyCacheKey);
+                DeleteLegacyCacheFilePath(legacyTextPath);
                 return LegacyCacheLoadStatus.Miss;
             }
 
@@ -1213,7 +1292,7 @@ public static partial class FFmpegWrapper
                         LogLegacyDurationMismatch(mismatchLogger, legacyCacheKey, inferredDuration, expectedDuration);
                     }
 
-                    DeleteLegacyCacheFile(legacyCacheKey);
+                    DeleteLegacyCacheFilePath(legacyTextPath);
                     return LegacyCacheLoadStatus.Miss;
                 }
             }
@@ -1229,7 +1308,7 @@ public static partial class FFmpegWrapper
                 return LegacyCacheLoadStatus.Loaded;
             }
 
-            DeleteLegacyCacheFile(legacyCacheKey);
+            DeleteLegacyCacheFilePath(legacyTextPath);
             return LegacyCacheLoadStatus.Migrated;
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
