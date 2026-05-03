@@ -8,6 +8,9 @@ using System.IO;
 using System.Threading;
 using IntroSkipper.Configuration;
 using IntroSkipper.Data;
+using Jellyfin.MediaEncoding.Keyframes;
+using Jellyfin.MediaEncoding.Keyframes.FfProbe;
+using Jellyfin.MediaEncoding.Keyframes.Matroska;
 using MediaBrowser.Model.Entities;
 using Microsoft.Extensions.Logging;
 
@@ -302,7 +305,7 @@ public class TimeAdjustmentHelper(ILogger logger, PluginConfiguration config)
         // Try MKV-specific extraction first for .mkv files (faster)
         if (path.EndsWith(".mkv", StringComparison.OrdinalIgnoreCase))
         {
-            data = TryExtractKeyframes(path, static () => new MkvKeyframeExtractor());
+            data = TryExtractKeyframes(path, MatroskaKeyframeExtractor.GetKeyframeData);
 
             if (data?.KeyframeTicks.Count is > 0)
             {
@@ -316,7 +319,7 @@ public class TimeAdjustmentHelper(ILogger logger, PluginConfiguration config)
         }
 
         // Fall back to ffprobe if MKV extraction failed or for non-MKV files
-        data ??= TryExtractKeyframes(path, () => new FfprobeKeyframeExtractor(_ffprobePath, _logger));
+        data ??= TryExtractKeyframes(path, p => FfProbeKeyframeExtractor.GetKeyframeData(_ffprobePath, p));
 
         if (data is null)
         {
@@ -326,38 +329,16 @@ public class TimeAdjustmentHelper(ILogger logger, PluginConfiguration config)
 
         _logger.LogInformation("{EpisodeId}: Extracted {Count} keyframes", id, data.KeyframeTicks.Count);
 
-        // Save to cache (best-effort; keyframe repository may be unavailable)
-        try
-        {
-            Plugin.Instance!.SaveKeyframeData(id, data, CancellationToken.None);
-        }
-        catch (FileNotFoundException ex)
-        {
-            _logger.LogDebug(ex, "{EpisodeId}: Keyframe library not available, skipping cache save", id);
-        }
-        catch (FileLoadException ex)
-        {
-            _logger.LogDebug(ex, "{EpisodeId}: Failed to load keyframe library, skipping cache save", id);
-        }
-        catch (BadImageFormatException ex)
-        {
-            _logger.LogDebug(ex, "{EpisodeId}: Invalid keyframe library, skipping cache save", id);
-        }
-        catch (TypeLoadException ex)
-        {
-            _logger.LogDebug(ex, "{EpisodeId}: Keyframe types unavailable, skipping cache save", id);
-        }
+        Plugin.Instance!.SaveKeyframeData(id, data, CancellationToken.None);
 
         return data;
     }
 
-    private KeyframeData? TryExtractKeyframes(
-        string episodePath,
-        Func<IKeyframeExtractor> extractor)
+    private KeyframeData? TryExtractKeyframes(string episodePath, Func<string, KeyframeData> extractor)
     {
         try
         {
-            return extractor().GetKeyframeData(episodePath);
+            return extractor(episodePath);
         }
         catch (Exception ex)
         {

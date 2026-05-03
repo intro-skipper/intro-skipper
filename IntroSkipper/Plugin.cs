@@ -2,7 +2,6 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
 using System;
-using System.Collections;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.IO;
@@ -13,6 +12,8 @@ using IntroSkipper.Configuration;
 using IntroSkipper.Data;
 using IntroSkipper.Db;
 using Jellyfin.Database.Implementations.Enums;
+using Jellyfin.MediaEncoding.Keyframes;
+using MediaBrowser.Common;
 using MediaBrowser.Common.Configuration;
 using MediaBrowser.Common.Plugins;
 using MediaBrowser.Controller.Chapters;
@@ -37,7 +38,7 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
     private readonly ILibraryManager _libraryManager;
     private readonly IChapterManager _chapterRepository;
     private readonly IPluginManager _pluginManager;
-    private readonly object? _keyframeRepository;
+    private readonly IKeyframeRepository? _keyframeRepository;
     private readonly IMediaEncoder _mediaEncoder;
     private readonly ILogger<Plugin> _logger;
     private readonly string _dbPath;
@@ -51,6 +52,7 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
     /// <param name="libraryManager">Library manager.</param>
     /// <param name="chapterRepository">Chapter repository.</param>
     /// <param name="pluginManager">Plugin manager.</param>
+    /// <param name="applicationHost">Application host.</param>
     /// <param name="serviceProvider">Service provider.</param>
     /// <param name="mediaEncoder">Media encoder.</param>
     /// <param name="logger">Logger.</param>
@@ -61,6 +63,7 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
         ILibraryManager libraryManager,
         IChapterManager chapterRepository,
         IPluginManager pluginManager,
+        IApplicationHost applicationHost,
         IServiceProvider serviceProvider,
         IMediaEncoder mediaEncoder,
         ILogger<Plugin> logger)
@@ -71,7 +74,7 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
         _libraryManager = libraryManager;
         _chapterRepository = chapterRepository;
         _pluginManager = pluginManager;
-        _keyframeRepository = ResolveKeyframeRepository(serviceProvider, logger);
+        _keyframeRepository = ResolveKeyframeRepository(applicationHost, serviceProvider, logger);
         _mediaEncoder = mediaEncoder;
         _logger = logger;
 
@@ -179,18 +182,18 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
         ];
     }
 
-    private static object? ResolveKeyframeRepository(IServiceProvider serviceProvider, ILogger logger)
+    private static IKeyframeRepository? ResolveKeyframeRepository(IApplicationHost applicationHost, IServiceProvider serviceProvider, ILogger logger)
     {
         try
         {
-            var repoType = Type.GetType("Jellyfin.MediaEncoding.Keyframes.IKeyframeRepository, Jellyfin.MediaEncoding.Keyframes");
-            if (repoType is null)
+            var implType = applicationHost.GetExportTypes<IKeyframeRepository>().FirstOrDefault();
+            if (implType is null)
             {
-                logger.LogDebug("Keyframe repository type not found; keyframe caching disabled.");
+                logger.LogDebug("IKeyframeRepository implementation not found; keyframe caching disabled.");
                 return null;
             }
 
-            var repo = serviceProvider.GetService(repoType);
+            var repo = serviceProvider.GetService(typeof(IKeyframeRepository)) as IKeyframeRepository;
             if (repo is null)
             {
                 logger.LogDebug("Keyframe repository service not available; keyframe caching disabled.");
@@ -198,19 +201,9 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
 
             return repo;
         }
-        catch (FileNotFoundException ex)
+        catch (Exception ex) when (ex is FileNotFoundException or FileLoadException or TypeLoadException or BadImageFormatException)
         {
-            logger.LogDebug(ex, "Keyframe repository assembly not available; keyframe caching disabled.");
-            return null;
-        }
-        catch (FileLoadException ex)
-        {
-            logger.LogDebug(ex, "Failed to load keyframe repository assembly; keyframe caching disabled.");
-            return null;
-        }
-        catch (BadImageFormatException ex)
-        {
-            logger.LogDebug(ex, "Invalid keyframe repository assembly; keyframe caching disabled.");
+            logger.LogDebug(ex, "Jellyfin.MediaEncoding.Keyframes not available; keyframe caching disabled.");
             return null;
         }
     }
@@ -223,42 +216,9 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
 
     internal IReadOnlyList<ChapterInfo> GetChapters(Guid id) => _chapterRepository.GetChapters(id);
 
-    // internal IReadOnlyList<KeyframeData> GetKeyframeData(Guid id) => (IReadOnlyList<KeyframeData>)_keyframeRepository.GetKeyframeData(id);
-
-    // internal async Task SaveKeyframeDataAsync(Guid id, KeyframeData keyframes, CancellationToken cancellationToken) =>
-    //                         await _keyframeRepository.SaveKeyframeDataAsync(id, keyframes, cancellationToken).ConfigureAwait(false);
-
     internal IReadOnlyList<KeyframeData> GetKeyframeData(Guid id)
     {
-        if (_keyframeRepository is null)
-        {
-            return [];
-        }
-
-        try
-        {
-            var method = _keyframeRepository.GetType().GetMethod("GetKeyframeData");
-            var result = method?.Invoke(_keyframeRepository, [id]);
-            return MapKeyframeDataList(result);
-        }
-        catch (FileNotFoundException ex)
-        {
-            _logger.LogDebug(ex, "Keyframe repository assembly not available; skipping cache read.");
-        }
-        catch (FileLoadException ex)
-        {
-            _logger.LogDebug(ex, "Failed to load keyframe repository assembly; skipping cache read.");
-        }
-        catch (BadImageFormatException ex)
-        {
-            _logger.LogDebug(ex, "Invalid keyframe repository assembly; skipping cache read.");
-        }
-        catch (TypeLoadException ex)
-        {
-            _logger.LogDebug(ex, "Keyframe repository types unavailable; skipping cache read.");
-        }
-
-        return [];
+        return _keyframeRepository?.GetKeyframeData(id) ?? [];
     }
 
     internal void SaveKeyframeData(Guid id, KeyframeData keyframes, CancellationToken cancellationToken)
@@ -268,110 +228,7 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
             return;
         }
 
-        try
-        {
-            var method = _keyframeRepository.GetType().GetMethod("SaveKeyframeDataAsync");
-            var repoKeyframe = CreateRepositoryKeyframeData(keyframes);
-            if (method is null || repoKeyframe is null)
-            {
-                return;
-            }
-
-            method.Invoke(_keyframeRepository, [id, repoKeyframe, cancellationToken]);
-        }
-        catch (FileNotFoundException ex)
-        {
-            _logger.LogDebug(ex, "Keyframe repository assembly not available; skipping cache save.");
-        }
-        catch (FileLoadException ex)
-        {
-            _logger.LogDebug(ex, "Failed to load keyframe repository assembly; skipping cache save.");
-        }
-        catch (BadImageFormatException ex)
-        {
-            _logger.LogDebug(ex, "Invalid keyframe repository assembly; skipping cache save.");
-        }
-        catch (TypeLoadException ex)
-        {
-            _logger.LogDebug(ex, "Keyframe repository types unavailable; skipping cache save.");
-        }
-    }
-
-    private static List<KeyframeData> MapKeyframeDataList(object? result)
-    {
-        if (result is not IEnumerable enumerable)
-        {
-            return [];
-        }
-
-        var list = new List<KeyframeData>();
-        foreach (var item in enumerable)
-        {
-            var mapped = TryMapKeyframeData(item);
-            if (mapped is not null)
-            {
-                list.Add(mapped);
-            }
-        }
-
-        return list;
-    }
-
-    private static KeyframeData? TryMapKeyframeData(object? item)
-    {
-        if (item is null)
-        {
-            return null;
-        }
-
-        var type = item.GetType();
-        var durationProp = type.GetProperty("DurationTicks");
-        var keyframesProp = type.GetProperty("KeyframeTicks");
-
-        if (durationProp?.GetValue(item) is not long durationTicks)
-        {
-            return null;
-        }
-
-        var keyframesValue = keyframesProp?.GetValue(item);
-        if (keyframesValue is IEnumerable<long> longKeyframes)
-        {
-            return new KeyframeData(durationTicks, longKeyframes.ToList());
-        }
-
-        if (keyframesValue is IEnumerable keyframeEnumerable)
-        {
-            var list = new List<long>();
-            foreach (var entry in keyframeEnumerable)
-            {
-                if (entry is long ticks)
-                {
-                    list.Add(ticks);
-                }
-            }
-
-            return new KeyframeData(durationTicks, list);
-        }
-
-        return null;
-    }
-
-    private static object? CreateRepositoryKeyframeData(KeyframeData keyframes)
-    {
-        var keyframeType = Type.GetType("Jellyfin.MediaEncoding.Keyframes.KeyframeData, Jellyfin.MediaEncoding.Keyframes");
-        if (keyframeType is null)
-        {
-            return null;
-        }
-
-        try
-        {
-            return Activator.CreateInstance(keyframeType, keyframes.DurationTicks, keyframes.KeyframeTicks);
-        }
-        catch
-        {
-            return null;
-        }
+        _ = _keyframeRepository.SaveKeyframeDataAsync(id, keyframes, cancellationToken);
     }
 
     internal async Task UpdateTimestampAsync(Segment segment, AnalysisMode mode)
