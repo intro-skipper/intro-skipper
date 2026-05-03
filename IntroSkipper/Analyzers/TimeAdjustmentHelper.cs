@@ -4,7 +4,6 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
 using System.Diagnostics;
-using System.Runtime.CompilerServices;
 using IntroSkipper.Configuration;
 using IntroSkipper.Data;
 using Jellyfin.MediaEncoding.Keyframes;
@@ -230,12 +229,28 @@ public partial class TimeAdjustmentHelper(ILogger logger, PluginConfiguration co
             return time;
         }
 
-        // SnapToNearestKeyframeCore must not be inlined: if Jellyfin.MediaEncoding.Keyframes is
-        // unavailable the CLR throws FileNotFoundException during JIT of that method, which must
-        // happen inside this try so the catch blocks below can intercept it.
         try
         {
-            return SnapToNearestKeyframeCore(episode, time);
+            var stopwatch = Stopwatch.StartNew();
+
+            var cachedKeyframes = Plugin.Instance?.GetKeyframeData(episode.EpisodeId);
+            KeyframeData? extractedKeyframes = cachedKeyframes is { Count: > 0 } ? cachedKeyframes[0] : TryExtractKeyframes(episode);
+
+            stopwatch.Stop();
+
+            _logger.LogInformation(
+                "{EpisodeId} {Name}: Keyframe extraction took {ElapsedMs}ms and found {Count} keyframes",
+                episode.EpisodeId,
+                episode.Name,
+                stopwatch.ElapsedMilliseconds,
+                extractedKeyframes?.KeyframeTicks.Count ?? 0);
+
+            if (extractedKeyframes is not null)
+            {
+                long timeTicks = TimeSpan.FromSeconds(time).Ticks;
+                long nearestTicks = SelectNearestTicks(extractedKeyframes.KeyframeTicks, timeTicks);
+                return TimeSpan.FromTicks(nearestTicks).TotalSeconds;
+            }
         }
         catch (FileNotFoundException ex)
         {
@@ -252,33 +267,6 @@ public partial class TimeAdjustmentHelper(ILogger logger, PluginConfiguration co
         catch (TypeLoadException ex)
         {
             _logger.LogWarning(ex, "{EpisodeId} {Name}: Keyframe types unavailable, skipping keyframe snap", episode.EpisodeId, episode.Name);
-        }
-
-        return time;
-    }
-
-    [MethodImpl(MethodImplOptions.NoInlining)]
-    private double SnapToNearestKeyframeCore(QueuedEpisode episode, double time)
-    {
-        var stopwatch = Stopwatch.StartNew();
-
-        var cachedKeyframes = Plugin.Instance?.GetKeyframeData(episode.EpisodeId);
-        KeyframeData? extractedKeyframes = cachedKeyframes is { Count: > 0 } ? cachedKeyframes[0] : TryExtractKeyframes(episode);
-
-        stopwatch.Stop();
-
-        _logger.LogInformation(
-            "{EpisodeId} {Name}: Keyframe extraction took {ElapsedMs}ms and found {Count} keyframes",
-            episode.EpisodeId,
-            episode.Name,
-            stopwatch.ElapsedMilliseconds,
-            extractedKeyframes?.KeyframeTicks.Count ?? 0);
-
-        if (extractedKeyframes is not null)
-        {
-            long timeTicks = TimeSpan.FromSeconds(time).Ticks;
-            long nearestTicks = SelectNearestTicks(extractedKeyframes.KeyframeTicks, timeTicks);
-            return TimeSpan.FromTicks(nearestTicks).TotalSeconds;
         }
 
         return time;
