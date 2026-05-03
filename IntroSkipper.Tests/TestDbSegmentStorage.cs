@@ -153,7 +153,7 @@ public sealed class TestDbSegmentStorage
     {
         const int LargeEpisodeCount = 33_000;
 
-        var tempDir = Path.Combine(Path.GetTempPath(), "IntroSkipper.Tests");
+        var tempDir = Path.Join(Path.GetTempPath(), "IntroSkipper.Tests");
         Directory.CreateDirectory(tempDir);
         var dbPath = Path.Join(tempDir, Guid.NewGuid().ToString("N") + ".db");
 
