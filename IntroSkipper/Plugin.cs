@@ -261,6 +261,22 @@ public partial class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
                         return;
                     }
 
+                    // Guard: prevent auto-detected credits from overlapping with the introduction.
+                    if (mode == AnalysisMode.Credits && !isUserProvided)
+                    {
+                        var intro = await db.DbSegment
+                            .AsNoTracking()
+                            .Where(s => s.ItemId == segment.EpisodeId && s.Type == AnalysisMode.Introduction)
+                            .FirstOrDefaultAsync(cancellationToken)
+                            .ConfigureAwait(false);
+
+                        if (intro is not null && segment.Start < intro.End && intro.Start < segment.End)
+                        {
+                            LogCreditsOverlapWithIntro(_logger, segment.EpisodeId);
+                            return;
+                        }
+                    }
+
                     if (existingSegments.Count > 0)
                     {
                         db.DbSegment.RemoveRange(existingSegments);
@@ -429,13 +445,17 @@ public partial class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
             .ToListAsync(cancellationToken)
             .ConfigureAwait(false);
 
-        var segments = episodeIdArray.Length == 0
-            ? []
-            : await db.DbSegment
+        var allSegments = new List<DbSegment>();
+        foreach (var batch in episodeIdArray.Chunk(SqliteParameterBatchSize))
+        {
+            allSegments.AddRange(await db.DbSegment
                 .AsNoTracking()
-                .Where(s => episodeIdArray.Contains(s.ItemId))
+                .Where(s => batch.Contains(s.ItemId))
                 .ToListAsync(cancellationToken)
-                .ConfigureAwait(false);
+                .ConfigureAwait(false));
+        }
+
+        var segments = allSegments;
 
         return new SeasonQueueSnapshot(
             seasonInfos.ToDictionary(s => s.Type, s => (IReadOnlySet<Guid>)s.EpisodeIds.ToHashSet()),
@@ -547,6 +567,9 @@ public partial class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "Error initializing detection cache database")]
     private static partial void LogCacheDbInitializationError(ILogger logger, Exception exception);
+
+    [LoggerMessage(Level = LogLevel.Debug, Message = "Skipping credits for episode {EpisodeId}: detected segment overlaps with introduction")]
+    private static partial void LogCreditsOverlapWithIntro(ILogger logger, Guid episodeId);
 
     [LoggerMessage(Level = LogLevel.Error, Message = "Failed to update timestamp for episode {EpisodeId}")]
     private static partial void LogFailedToUpdateTimestamp(ILogger logger, Exception ex, Guid episodeId);
