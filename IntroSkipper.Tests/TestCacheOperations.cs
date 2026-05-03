@@ -766,6 +766,7 @@ public sealed class TestCacheOperations
             Path.Join(cacheDir, $"{id}-silence-10.5-20.5-v1"),
             Path.Join(cacheDir, $"{id}-unknown-10.5-20.5-v2"),
             Path.Join(cacheDir, $"{id}-silence-invalid-20.5-v2"),
+            Path.Join(cacheDir, $"{id.ToUpperInvariant()}-silence-10.5-20.5-v2"),
             Path.Join(cacheDir, $"{Guid.NewGuid():D}-silence-10.5-20.5-v2"),
         ];
 

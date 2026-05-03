@@ -881,9 +881,9 @@ public static partial class FFmpegWrapper
                 cancellationToken.ThrowIfCancellationRequested();
 
                 var filename = Path.GetFileName(filePath);
-                if (!TryGetLegacyDetectionCacheItemId(filename, out var itemId) ||
+                if (!TryGetLegacyDetectionCacheParts(filename, out var itemId, out var suffix) ||
                     !queuedEpisodeIds.Contains(itemId) ||
-                    !TryParseLegacyDetectionCacheFile(filePath, out var file))
+                    !TryParseLegacyDetectionCacheFile(filePath, filename, itemId, suffix, out var file))
                 {
                     continue;
                 }
@@ -910,36 +910,34 @@ public static partial class FFmpegWrapper
         return result;
     }
 
-    private static bool TryGetLegacyDetectionCacheItemId(string filename, out Guid itemId)
+    private static bool TryGetLegacyDetectionCacheParts(string filename, out Guid itemId, out string suffix)
     {
         itemId = Guid.Empty;
+        suffix = string.Empty;
         if (filename.Length <= 32 || filename[32] != '-')
         {
             return false;
         }
 
-        return Guid.TryParseExact(filename[..32], "N", out itemId);
-    }
-
-    private static bool TryParseLegacyDetectionCacheFile(string legacyTextPath, out LegacyDetectionCacheFile file)
-    {
-        file = default;
-
-        var legacyCacheKey = Path.GetFileName(legacyTextPath);
-        var separatorIndex = legacyCacheKey.IndexOf('-', StringComparison.Ordinal);
-        if (separatorIndex <= 0)
-        {
-            return false;
-        }
-
-        var itemIdText = legacyCacheKey[..separatorIndex];
-        if (!Guid.TryParseExact(itemIdText, "N", out var itemId) ||
+        var itemIdText = filename[..32];
+        if (!Guid.TryParseExact(itemIdText, "N", out itemId) ||
             !string.Equals(itemIdText, itemId.ToString("N"), StringComparison.Ordinal))
         {
             return false;
         }
 
-        var suffix = legacyCacheKey[(separatorIndex + 1)..];
+        suffix = filename[33..];
+        return true;
+    }
+
+    private static bool TryParseLegacyDetectionCacheFile(
+        string legacyTextPath,
+        string legacyCacheKey,
+        Guid itemId,
+        string suffix,
+        out LegacyDetectionCacheFile file)
+    {
+        file = default;
         var parts = suffix.Split('-');
 
         if (parts is ["silence", var silenceStart, var silenceEnd, "v2"] &&
