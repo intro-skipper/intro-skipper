@@ -1,4 +1,5 @@
 import type { PluginConfig } from "../types.ts";
+import { MAXIMUM_ANALYSIS_PERCENT, MINIMUM_ANALYSIS_PERCENT } from "../config-limits.ts";
 
 // Small validation helpers shared by the config store and form fields.
 export type ValidationRule<T> = (value: T) => string | null;
@@ -26,7 +27,7 @@ export function validRegex(): ValidationRule<string> {
 
 // Per-field validation rules.
 export const validationRules: Partial<Record<keyof PluginConfig, ValidationRule<any>[]>> = {
-    AnalysisPercent: [range(1, 90)],
+    AnalysisPercent: [range(MINIMUM_ANALYSIS_PERCENT, MAXIMUM_ANALYSIS_PERCENT)],
     AnalysisLengthLimit: [minValue(1)],
     MinimumIntroDuration: [minValue(1)],
     MaximumIntroDuration: [minValue(1)],

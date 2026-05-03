@@ -22,6 +22,33 @@ namespace IntroSkipper.Configuration;
 public class PluginConfiguration : BasePluginConfiguration
 {
     /// <summary>
+    /// Default percentage of each episode's audio track to analyze.
+    /// </summary>
+    public const int DefaultAnalysisPercent = 25;
+
+    /// <summary>
+    /// Default upper limit (in minutes) on the length of each episode's audio track that will be analyzed.
+    /// </summary>
+    public const int DefaultAnalysisLengthLimit = 10;
+
+    /// <summary>
+    /// Default minimum length of similar audio that will be considered an introduction.
+    /// </summary>
+    public const int DefaultMinimumIntroDuration = 15;
+
+    /// <summary>
+    /// Minimum percentage of each episode's audio track to analyze.
+    /// </summary>
+    public const int MinimumAnalysisPercent = 1;
+
+    /// <summary>
+    /// Maximum percentage of each episode's audio track to analyze.
+    /// </summary>
+    public const int MaximumAnalysisPercent = 50;
+
+    private int _analysisPercent = DefaultAnalysisPercent;
+
+    /// <summary>
     /// Initializes a new instance of the <see cref="PluginConfiguration"/> class.
     /// </summary>
     public PluginConfiguration()
@@ -110,12 +137,16 @@ public class PluginConfiguration : BasePluginConfiguration
     /// <summary>
     /// Gets or sets the percentage of each episode's audio track to analyze.
     /// </summary>
-    public int AnalysisPercent { get; set; } = 25;
+    public int AnalysisPercent
+    {
+        get => _analysisPercent;
+        set => _analysisPercent = Math.Clamp(value, MinimumAnalysisPercent, MaximumAnalysisPercent);
+    }
 
     /// <summary>
     /// Gets or sets the upper limit (in minutes) on the length of each episode's audio track that will be analyzed.
     /// </summary>
-    public int AnalysisLengthLimit { get; set; } = 10;
+    public int AnalysisLengthLimit { get; set; } = DefaultAnalysisLengthLimit;
 
     /// <summary>
     /// Gets or sets a value indicating whether to use the minimum and maximum duration for chapters.
@@ -141,7 +172,7 @@ public class PluginConfiguration : BasePluginConfiguration
     /// <summary>
     /// Gets or sets the minimum length of similar audio that will be considered an introduction.
     /// </summary>
-    public int MinimumIntroDuration { get; set; } = 15;
+    public int MinimumIntroDuration { get; set; } = DefaultMinimumIntroDuration;
 
     /// <summary>
     /// Gets or sets the maximum length of similar audio that will be considered an introduction.

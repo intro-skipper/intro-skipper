@@ -6,6 +6,7 @@ import { appendTabContent, fieldRow } from "../components/tab-layout.ts";
 import { tabWarning } from "../components/tab-warning.ts";
 import { checkboxField } from "../components/checkbox-field.ts";
 import { numberField } from "../components/number-field.ts";
+import { MAXIMUM_ANALYSIS_PERCENT, MINIMUM_ANALYSIS_PERCENT } from "../config-limits.ts";
 
 function durationPair(
     minId: string,
@@ -58,8 +59,8 @@ export const analysisTab: Tab = {
             numberField({
                 id: "AnalysisPercent",
                 label: "Percent of media to analyze",
-                min: 1,
-                max: 90,
+                min: MINIMUM_ANALYSIS_PERCENT,
+                max: MAXIMUM_ANALYSIS_PERCENT,
                 description:
                     "Analysis will be limited to this percentage of each item's runtime. For example, a value of 25 (the default) will limit analysis to the first quarter of each item.",
             }),
