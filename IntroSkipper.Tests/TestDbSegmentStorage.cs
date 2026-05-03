@@ -253,7 +253,7 @@ public sealed class TestDbSegmentStorage
         {
             throw new ArgumentException("dbFileName must be a relative file name.", nameof(dbFileName));
         }
-        var dbPath = Path.Combine(tempDir, dbFileName);
+        var dbPath = Path.Join(tempDir, dbFileName);
         Directory.CreateDirectory(Path.GetDirectoryName(dbPath)!);
 
         var itemId = Guid.NewGuid();
