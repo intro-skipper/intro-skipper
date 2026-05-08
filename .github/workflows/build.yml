@@ -97,11 +97,11 @@ jobs:
           if-no-files-found: error
 
       - name: Create archive
-        if: startsWith(github.ref_name, '10.') # only do a preview release on 10.x branches
+        if: startsWith(github.ref_name, '10.') || startsWith(github.ref_name, '12.') # only do a preview release on 10.x/12.x branches
         run: zip -j "intro-skipper-${{ env.GIT_HASH }}.zip" IntroSkipper/bin/Debug/${{ env.DOTNET_TFM }}/IntroSkipper.dll
 
       - name: Create/replace the prerelease and upload artifacts
-        if: startsWith(github.ref_name, '10.') # only do a preview release on 10.x branches
+        if: startsWith(github.ref_name, '10.') || startsWith(github.ref_name, '12.') # only do a preview release on 10.x/12.x branches
         run: |
           gh release delete "${{ env.MAIN_VERSION }}/prerelease" --cleanup-tag --yes || true
           gh release create "${{ env.MAIN_VERSION }}/prerelease" "intro-skipper-${{ env.GIT_HASH }}.zip" --prerelease --title "intro-skipper-${{ env.GIT_HASH }}" --notes "This is a prerelease version."  --target ${{ env.MAIN_VERSION }}
