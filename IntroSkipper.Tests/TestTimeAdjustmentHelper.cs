@@ -29,7 +29,9 @@ public class TestTimeAdjustmentHelper
             IntroEndOffset = 0,
         };
 
-        return (new TimeAdjustmentHelper(new NullLoggerFactory().CreateLogger("Test"), cfg, mode, new FailingMediaDetectionService()), cfg);
+        using var loggerFactory = new NullLoggerFactory();
+        var logger = loggerFactory.CreateLogger("Test");
+        return (new TimeAdjustmentHelper(logger, cfg, mode, new FailingMediaDetectionService()), cfg);
     }
 
     [Fact]

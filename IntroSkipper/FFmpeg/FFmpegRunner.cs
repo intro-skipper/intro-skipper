@@ -5,6 +5,7 @@
 // SPDX-FileCopyrightText: 2024-2026 AbandonedCart
 // SPDX-License-Identifier: GPL-3.0-only
 
+using System.ComponentModel;
 using System.Diagnostics;
 using System.Globalization;
 using Microsoft.Extensions.Logging;
@@ -283,7 +284,10 @@ public sealed partial class FFmpegRunner : IFFmpegRunner
         {
             process.PriorityClass = _options.ProcessPriority;
         }
-        catch (Exception e)
+        catch (Exception e) when (e is InvalidOperationException or
+            Win32Exception or
+            NotSupportedException or
+            PlatformNotSupportedException)
         {
             LogFfmpegPriorityNotModified(_logger, e.Message);
         }

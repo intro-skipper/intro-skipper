@@ -343,12 +343,13 @@ public sealed class TestCacheOperations
         }
 
         using var db = new DetectionCacheDbContext(cacheDbPath);
+        const double tolerance = 1e-6;
         Assert.False(db.DetectionCache.Any(e =>
             e.ItemId == episode.EpisodeId &&
             e.Mode == AnalysisMode.Introduction &&
             e.Type == CacheEntryType.Silence &&
-            e.Start == range.Start &&
-            e.End == range.End));
+            Math.Abs(e.Start - range.Start) <= tolerance &&
+            Math.Abs(e.End - range.End) <= tolerance));
     }
 
     [Fact]

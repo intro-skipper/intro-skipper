@@ -22,6 +22,8 @@ namespace IntroSkipper.FFmpeg;
 /// </summary>
 public sealed partial class DetectionCacheService : IDetectionCacheService
 {
+    private const double CacheTimeTolerance = 1e-6;
+
     private readonly IFFmpegOptionsProvider _options;
     private readonly ILogger<DetectionCacheService> _logger;
 
@@ -54,11 +56,16 @@ public sealed partial class DetectionCacheService : IDetectionCacheService
         {
             using var db = Plugin.CreateCacheDbContext();
 
-            // NOTE: Start/End are compared with == which is safe only because the exact same
-            // double values that were written are used for lookup (no intermediate arithmetic).
-            // If a future caller computes start/end differently, the lookup will silently miss.
             var entry = await db.DetectionCache
-                .FirstOrDefaultAsync(e => e.ItemId == key.ItemId && e.Mode == key.Mode && e.Type == key.Type && e.Start == key.Start && e.End == key.End, cancellationToken)
+                .FirstOrDefaultAsync(
+                    e => e.ItemId == key.ItemId &&
+                        e.Mode == key.Mode &&
+                        e.Type == key.Type &&
+                        e.Start >= key.Start - CacheTimeTolerance &&
+                        e.Start <= key.Start + CacheTimeTolerance &&
+                        e.End >= key.End - CacheTimeTolerance &&
+                        e.End <= key.End + CacheTimeTolerance,
+                    cancellationToken)
                 .ConfigureAwait(false);
 
             if (entry is null)
@@ -328,8 +335,10 @@ public sealed partial class DetectionCacheService : IDetectionCacheService
                 e => e.ItemId == episode.EpisodeId &&
                     e.Mode == mode &&
                     e.Type == CacheEntryType.Chromaprint &&
-                    e.Start == start &&
-                    e.End == end,
+                    e.Start >= start - CacheTimeTolerance &&
+                    e.Start <= start + CacheTimeTolerance &&
+                    e.End >= end - CacheTimeTolerance &&
+                    e.End <= end + CacheTimeTolerance,
                 cancellationToken).ConfigureAwait(false))
             {
                 return true;
@@ -402,7 +411,12 @@ public sealed partial class DetectionCacheService : IDetectionCacheService
                 LogMigratingLegacyCache(_logger, legacyCacheKey, cacheKey);
 
                 var existingEntries = await db.DetectionCache
-                    .Where(e => e.ItemId == itemId && e.Type == type && e.Start == start && e.End == end)
+                    .Where(e => e.ItemId == itemId &&
+                        e.Type == type &&
+                        e.Start >= start - CacheTimeTolerance &&
+                        e.Start <= start + CacheTimeTolerance &&
+                        e.End >= end - CacheTimeTolerance &&
+                        e.End <= end + CacheTimeTolerance)
                     .ToListAsync(cancellationToken)
                     .ConfigureAwait(false);
 
@@ -499,10 +513,16 @@ public sealed partial class DetectionCacheService : IDetectionCacheService
         byte[] data,
         CancellationToken cancellationToken)
     {
-        // NOTE: Start/End are compared with == which is safe only because the exact same
-        // double values that were written are used for lookup (no intermediate arithmetic).
         var existing = await db.DetectionCache
-            .FirstOrDefaultAsync(e => e.ItemId == itemId && e.Mode == mode && e.Type == type && e.Start == start && e.End == end, cancellationToken)
+            .FirstOrDefaultAsync(
+                e => e.ItemId == itemId &&
+                    e.Mode == mode &&
+                    e.Type == type &&
+                    e.Start >= start - CacheTimeTolerance &&
+                    e.Start <= start + CacheTimeTolerance &&
+                    e.End >= end - CacheTimeTolerance &&
+                    e.End <= end + CacheTimeTolerance,
+                cancellationToken)
             .ConfigureAwait(false);
 
         UpsertJsonCacheEntry(db, existing, itemId, mode, type, start, end, data);
