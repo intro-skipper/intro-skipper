@@ -4,11 +4,11 @@
 // SPDX-FileCopyrightText: 2025-2026 rlauuzo
 // SPDX-License-Identifier: GPL-3.0-only
 
-namespace IntroSkipper.Tests;
 
 using IntroSkipper.Data;
 using Xunit;
 
+namespace IntroSkipper.Tests;
 public class TestFlags
 {
     [Fact]

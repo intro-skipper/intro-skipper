@@ -1,8 +1,6 @@
 // SPDX-FileCopyrightText: 2026 Kilian von Pflugk
 // SPDX-License-Identifier: GPL-3.0-only
 
-using System;
-using System.Linq;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.ApplicationModels;
 

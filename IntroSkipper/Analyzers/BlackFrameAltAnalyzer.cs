@@ -5,6 +5,7 @@
 
 using IntroSkipper.Configuration;
 using IntroSkipper.Data;
+using IntroSkipper.FFmpeg;
 using Microsoft.Extensions.Logging;
 
 namespace IntroSkipper.Analyzers;
@@ -17,13 +18,15 @@ namespace IntroSkipper.Analyzers;
 /// Initializes a new instance of the <see cref="BlackFrameAltAnalyzer"/> class.
 /// </remarks>
 /// <param name="logger">Logger for the analyzer.</param>
-public sealed partial class BlackFrameAltAnalyzer(ILogger<BlackFrameAltAnalyzer> logger) : IMediaFileAnalyzer
+/// <param name="detectionService">Media detection service.</param>
+public sealed partial class BlackFrameAltAnalyzer(ILogger<BlackFrameAltAnalyzer> logger, IMediaDetectionService detectionService) : IMediaFileAnalyzer
 {
     private const int MaximumTimeSkip = 20;
     private const double MinimumBlackFrameDensity = 0.50;
     private const double MinimumBoundaryProbeWindow = 0.50;
     private readonly PluginConfiguration _config = Plugin.Instance?.Configuration ?? new PluginConfiguration();
     private readonly ILogger<BlackFrameAltAnalyzer> _logger = logger ?? throw new ArgumentNullException(nameof(logger));
+    private readonly IMediaDetectionService _detectionService = detectionService;
 
     /// <inheritdoc />
     public async Task<IReadOnlyList<QueuedEpisode>> AnalyzeMediaFiles(
@@ -45,7 +48,7 @@ public sealed partial class BlackFrameAltAnalyzer(ILogger<BlackFrameAltAnalyzer>
             return analysisQueue;
         }
 
-        var timeAdjustmentHelper = new TimeAdjustmentHelper(_logger, _config, mode);
+        var timeAdjustmentHelper = new TimeAdjustmentHelper(_logger, _config, mode, _detectionService);
 
         LogAnalyzingEpisodes(unanalyzedEpisodes.Count);
 
@@ -60,7 +63,7 @@ public sealed partial class BlackFrameAltAnalyzer(ILogger<BlackFrameAltAnalyzer>
 
             try
             {
-                var credit = DetectCredits(episode, minimumPercentage, threshold, minimumDuration);
+                var credit = await DetectCreditsAsync(episode, minimumPercentage, threshold, minimumDuration, cancellationToken).ConfigureAwait(false);
 
                 if (credit is null || !credit.Valid)
                 {
@@ -68,7 +71,7 @@ public sealed partial class BlackFrameAltAnalyzer(ILogger<BlackFrameAltAnalyzer>
                     continue;
                 }
 
-                credit = timeAdjustmentHelper.AdjustIntroTimes(episode, credit);
+                credit = await timeAdjustmentHelper.AdjustIntroTimesAsync(episode, credit, cancellationToken: cancellationToken).ConfigureAwait(false);
                 LogFoundCredits(episode.Name, credit.Start);
 
                 episode.SetAnalyzed(mode, EpisodeState.Analyzed);
@@ -89,16 +92,17 @@ public sealed partial class BlackFrameAltAnalyzer(ILogger<BlackFrameAltAnalyzer>
     }
 
     /// <summary>
-    /// Detects the start of blackframe credits from FFmpeg blackframe filter output.
+    /// Detects the start of blackframe credits from FFmpeg blackframe filter output asynchronously.
     /// </summary>
     /// <param name="episode">Media file to analyze.</param>
     /// <param name="minimumPercentage">Minimum percentage of the frame that must be black.</param>
     /// <param name="threshold">Threshold for black frame detection.</param>
     /// <param name="minimumDuration">Minimum duration of the credits.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>Time range of the detected credits.</returns>
-    public Segment? DetectCredits(QueuedEpisode episode, int minimumPercentage, int threshold, int minimumDuration)
+    public async Task<Segment?> DetectCreditsAsync(QueuedEpisode episode, int minimumPercentage, int threshold, int minimumDuration, CancellationToken cancellationToken = default)
     {
-        var blackFrames = FFmpegWrapper.DetectBlackFrames(episode, threshold).ToList();
+        var blackFrames = (await _detectionService.DetectBlackFramesAsync(episode, threshold, cancellationToken).ConfigureAwait(false)).ToList();
 
         if (blackFrames.Count == 0)
         {
@@ -119,7 +123,7 @@ public sealed partial class BlackFrameAltAnalyzer(ILogger<BlackFrameAltAnalyzer>
 
             // Refine the start time using full-frame boundary probing
             var refinedStartTime = _config.RefineCreditsBoundary
-                ? RefineBoundary(episode, blackFrames, scene, sceneChange, threshold, minimumDuration)
+                ? await RefineBoundaryAsync(episode, blackFrames, scene, sceneChange, threshold, minimumDuration, cancellationToken).ConfigureAwait(false)
                 : scene.StartTime;
 
             var segment = new Segment(episode.EpisodeId, new TimeRange(refinedStartTime + episode.CreditsFingerprintStart, scene.EndTime + episode.CreditsFingerprintStart));
@@ -203,14 +207,16 @@ public sealed partial class BlackFrameAltAnalyzer(ILogger<BlackFrameAltAnalyzer>
     /// <param name="sceneChange">Normalized transition threshold used to select the scene start.</param>
     /// <param name="threshold">Pixel luminance threshold for black detection.</param>
     /// <param name="minimumDuration">Minimum duration required for a credits segment.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>Refined start time in seconds (relative to CreditsFingerprintStart).</returns>
-    private double RefineBoundary(
+    private async Task<double> RefineBoundaryAsync(
         QueuedEpisode episode,
         List<BlackFrame> frames,
         CreditScene scene,
         int sceneChange,
         int threshold,
-        int minimumDuration)
+        int minimumDuration,
+        CancellationToken cancellationToken)
     {
         var boundary = FindBoundaryKeyframeTimes(frames, scene);
         if (boundary is null)
@@ -233,7 +239,7 @@ public sealed partial class BlackFrameAltAnalyzer(ILogger<BlackFrameAltAnalyzer>
         var probeEnd = firstBlackTime + episode.CreditsFingerprintStart;
         var probeRange = new TimeRange(probeStart, probeEnd);
 
-        var probeFrames = FFmpegWrapper.DetectBlackFrames(episode, probeRange, probeMinimum, threshold, AnalysisMode.Credits);
+        var probeFrames = await _detectionService.DetectBlackFramesAsync(episode, probeRange, probeMinimum, threshold, AnalysisMode.Credits, cancellationToken).ConfigureAwait(false);
 
         if (probeFrames.Length == 0)
         {

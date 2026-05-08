@@ -4,9 +4,6 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
 using System.Data.Common;
-using System.Threading;
-using System.Threading.Tasks;
-using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore.Diagnostics;
 
 namespace IntroSkipper.Db;
@@ -20,26 +17,12 @@ internal sealed class SqlitePragmaInterceptor : DbConnectionInterceptor
     public override void ConnectionOpened(DbConnection connection, ConnectionEndEventData eventData)
     {
         using var cmd = connection.CreateCommand();
-        try
-        {
-            SqlitePragmas.Apply(cmd);
-        }
-        catch (SqliteException)
-        {
-            // Fall back to SQLite defaults when optional pragmas such as busy_timeout cannot be applied.
-        }
+        SqlitePragmas.Apply(cmd);
     }
 
     public override async Task ConnectionOpenedAsync(DbConnection connection, ConnectionEndEventData eventData, CancellationToken cancellationToken = default)
     {
         using var cmd = connection.CreateCommand();
-        try
-        {
-            await SqlitePragmas.ApplyAsync(cmd, cancellationToken).ConfigureAwait(false);
-        }
-        catch (SqliteException)
-        {
-            // Fall back to SQLite defaults when optional pragmas such as busy_timeout cannot be applied.
-        }
+        await SqlitePragmas.ApplyAsync(cmd, cancellationToken).ConfigureAwait(false);
     }
 }

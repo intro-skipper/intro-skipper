@@ -3,7 +3,6 @@
 // SPDX-FileCopyrightText: 2026 AbandonedCart
 // SPDX-License-Identifier: GPL-3.0-only
 
-namespace IntroSkipper.Tests;
 
 using System;
 using System.IO;
@@ -14,6 +13,7 @@ using IntroSkipper.Db;
 using Microsoft.EntityFrameworkCore;
 using Xunit;
 
+namespace IntroSkipper.Tests;
 public sealed class TestDetectionCacheDbContext : IDisposable
 {
     private readonly string _dbPath;
@@ -80,7 +80,7 @@ public sealed class TestDetectionCacheDbContext : IDisposable
     [Fact]
     public void Write_OverwritesExistingEntry()
     {
-        // Mirrors the upsert pattern in FFmpegWrapper.WriteJsonCache:
+        // Mirrors the upsert pattern in DetectionCacheService.WriteJsonCache:
         // find by composite key, update Data if found, else add new.
         var id = Guid.NewGuid();
         var mode = AnalysisMode.Introduction;

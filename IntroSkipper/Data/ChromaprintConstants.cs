@@ -3,8 +3,6 @@
 // SPDX-FileCopyrightText: 2026 AbandonedCart
 // SPDX-License-Identifier: GPL-3.0-only
 
-using System;
-
 namespace IntroSkipper.Data;
 
 /// <summary>

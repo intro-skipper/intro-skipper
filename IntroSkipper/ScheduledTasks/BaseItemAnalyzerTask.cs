@@ -8,6 +8,7 @@
 using IntroSkipper.Analyzers;
 using IntroSkipper.Configuration;
 using IntroSkipper.Data;
+using IntroSkipper.FFmpeg;
 using IntroSkipper.Manager;
 using MediaBrowser.Controller.Library;
 using MediaBrowser.Controller.Providers;
@@ -28,13 +29,19 @@ namespace IntroSkipper.ScheduledTasks;
 /// <param name="providerManager">Provider manager.</param>
 /// <param name="fileSystem">File system.</param>
 /// <param name="mediaSegmentUpdateManager">Media segment update manager.</param>
+/// <param name="capabilityService">FFmpeg capability service.</param>
+/// <param name="cacheService">Detection cache service.</param>
+/// <param name="detectionService">Media detection service.</param>
 public partial class BaseItemAnalyzerTask(
     ILogger logger,
     ILoggerFactory loggerFactory,
     ILibraryManager libraryManager,
     IProviderManager providerManager,
     IFileSystem fileSystem,
-    MediaSegmentUpdateManager mediaSegmentUpdateManager)
+    MediaSegmentUpdateManager mediaSegmentUpdateManager,
+    IFFmpegCapabilityService capabilityService,
+    IDetectionCacheService cacheService,
+    IMediaDetectionService detectionService)
 {
     /// <summary>
     /// Tolerance (seconds) when comparing an existing anime Preview's start to a newly-computed
@@ -49,8 +56,10 @@ public partial class BaseItemAnalyzerTask(
     private readonly IProviderManager _providerManager = providerManager;
     private readonly IFileSystem _fileSystem = fileSystem;
     private readonly MediaSegmentUpdateManager _mediaSegmentUpdateManager = mediaSegmentUpdateManager;
+    private readonly IFFmpegCapabilityService _capabilityService = capabilityService;
+    private readonly IDetectionCacheService _cacheService = cacheService;
+    private readonly IMediaDetectionService _detectionService = detectionService;
     private readonly PluginConfiguration _config = Plugin.Instance?.Configuration ?? new PluginConfiguration();
-    private readonly bool _ffmpegValid = FFmpegWrapper.CheckFFmpegVersion();
 
     /// <summary>
     /// Analyze all media items on the server.
@@ -64,6 +73,8 @@ public partial class BaseItemAnalyzerTask(
         CancellationToken cancellationToken,
         IReadOnlyCollection<Guid>? seasonsToAnalyze = null)
     {
+        var ffmpegValid = _capabilityService.CheckFFmpegVersion();
+
         HashSet<AnalysisMode> modes = [
             .. _config.ScanIntroduction ? [AnalysisMode.Introduction] : Array.Empty<AnalysisMode>(),
             .. _config.ScanCredits ? [AnalysisMode.Credits] : Array.Empty<AnalysisMode>(),
@@ -88,14 +99,6 @@ public partial class BaseItemAnalyzerTask(
                          .ToDictionary(kvp => kvp.Key, kvp => kvp.Value);
         }
 
-        if (!plugin.LegacyFingerprintMigrationDone)
-        {
-            FFmpegWrapper.MigrateLegacyDetectionCache(
-                queue.Values.SelectMany(static episodes => episodes),
-                cancellationToken);
-            plugin.LegacyFingerprintMigrationDone = true;
-        }
-
         int totalQueued = queue.Sum(kvp => kvp.Value.Count) * modes.Count;
         if (totalQueued == 0)
         {
@@ -103,7 +106,7 @@ public partial class BaseItemAnalyzerTask(
             return;
         }
 
-        if (!_ffmpegValid)
+        if (!ffmpegValid)
         {
             LogSkippingChromaprint(_logger);
         }
@@ -143,6 +146,7 @@ public partial class BaseItemAnalyzerTask(
                         plugin,
                         episodes,
                         mode,
+                        ffmpegValid,
                         ct).ConfigureAwait(false);
                     Interlocked.Add(ref totalProcessed, episodes.Count);
 
@@ -179,12 +183,14 @@ public partial class BaseItemAnalyzerTask(
     /// <param name="plugin">Plugin instance.</param>
     /// <param name="items">Media items to analyze.</param>
     /// <param name="mode">Analysis mode.</param>
+    /// <param name="ffmpegValid">Whether FFmpeg supports chromaprint.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>Number of items successfully analyzed.</returns>
     private async Task<int> AnalyzeItemsAsync(
         Plugin plugin,
         IReadOnlyList<QueuedEpisode> items,
         AnalysisMode mode,
+        bool ffmpegValid,
         CancellationToken cancellationToken)
     {
         if (!items.Any(e => e.GetAnalyzed(mode) == EpisodeState.NotAnalyzed))
@@ -219,7 +225,7 @@ public partial class BaseItemAnalyzerTask(
         var analyzers = new List<IMediaFileAnalyzer>
         {
             // ChapterAnalyzer: supports all modes and content types
-            new ChapterAnalyzer(_loggerFactory.CreateLogger<ChapterAnalyzer>())
+            new ChapterAnalyzer(_loggerFactory.CreateLogger<ChapterAnalyzer>(), _detectionService)
         };
 
         if (mode is AnalysisMode.Credits)
@@ -227,9 +233,9 @@ public partial class BaseItemAnalyzerTask(
             if (isAnime)
             {
                 // Anime credits: Chromaprint before BlackFrame (fingerprint matching preferred)
-                if (_ffmpegValid)
+                if (ffmpegValid)
                 {
-                    analyzers.Add(new ChromaprintAnalyzer(_loggerFactory.CreateLogger<ChromaprintAnalyzer>()));
+                    analyzers.Add(new ChromaprintAnalyzer(_loggerFactory.CreateLogger<ChromaprintAnalyzer>(), _detectionService, _cacheService));
                 }
 
                 analyzers.Add(CreateBlackFrameAnalyzer());
@@ -239,18 +245,18 @@ public partial class BaseItemAnalyzerTask(
                 // Non-anime credits: BlackFrame before Chromaprint
                 analyzers.Add(CreateBlackFrameAnalyzer());
 
-                if (!isMovie && _ffmpegValid)
+                if (!isMovie && ffmpegValid)
                 {
-                    analyzers.Add(new ChromaprintAnalyzer(_loggerFactory.CreateLogger<ChromaprintAnalyzer>()));
+                    analyzers.Add(new ChromaprintAnalyzer(_loggerFactory.CreateLogger<ChromaprintAnalyzer>(), _detectionService, _cacheService));
                 }
             }
         }
         else if (mode is AnalysisMode.Introduction)
         {
             // Introduction: Chromaprint is the only non-chapter analyzer
-            if (!isMovie && _ffmpegValid)
+            if (!isMovie && ffmpegValid)
             {
-                analyzers.Add(new ChromaprintAnalyzer(_loggerFactory.CreateLogger<ChromaprintAnalyzer>()));
+                analyzers.Add(new ChromaprintAnalyzer(_loggerFactory.CreateLogger<ChromaprintAnalyzer>(), _detectionService, _cacheService));
             }
         }
 
@@ -271,7 +277,7 @@ public partial class BaseItemAnalyzerTask(
                 PromoteAnalyzer(analyzers, static a => a is BlackFrameAnalyzer or BlackFrameAltAnalyzer);
                 break;
             default:
-                if (_config.PreferChromaprint && _ffmpegValid)
+                if (_config.PreferChromaprint && ffmpegValid)
                 {
                     PromoteAnalyzer(analyzers, static a => a is ChromaprintAnalyzer);
                 }
@@ -347,8 +353,8 @@ public partial class BaseItemAnalyzerTask(
     /// </summary>
     /// <returns>A <see cref="BlackFrameAnalyzer"/> or <see cref="BlackFrameAltAnalyzer"/> based on configuration.</returns>
     private IMediaFileAnalyzer CreateBlackFrameAnalyzer() => _config.UseAlternativeBlackFrameAnalyzer
-        ? new BlackFrameAltAnalyzer(_loggerFactory.CreateLogger<BlackFrameAltAnalyzer>())
-        : new BlackFrameAnalyzer(_loggerFactory.CreateLogger<BlackFrameAnalyzer>());
+        ? new BlackFrameAltAnalyzer(_loggerFactory.CreateLogger<BlackFrameAltAnalyzer>(), _detectionService)
+        : new BlackFrameAnalyzer(_loggerFactory.CreateLogger<BlackFrameAnalyzer>(), _detectionService);
 
     /// <summary>
     /// Moves the first analyzer matching <paramref name="predicate"/> to the front of the list,

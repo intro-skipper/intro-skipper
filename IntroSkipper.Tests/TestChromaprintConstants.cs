@@ -3,12 +3,12 @@
 // SPDX-FileCopyrightText: 2026 AbandonedCart
 // SPDX-License-Identifier: GPL-3.0-only
 
-namespace IntroSkipper.Tests;
 
 using System;
 using IntroSkipper.Data;
 using Xunit;
 
+namespace IntroSkipper.Tests;
 public sealed class TestChromaprintConstants
 {
     [Fact]

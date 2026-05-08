@@ -1,0 +1,415 @@
+// SPDX-FileCopyrightText: 2022 ConfusedPolarBear
+// SPDX-FileCopyrightText: 2022 nyanmisaka
+// SPDX-FileCopyrightText: 2024-2026 Kilian von Pflugk
+// SPDX-FileCopyrightText: 2024-2026 rlauuzo
+// SPDX-FileCopyrightText: 2024-2026 AbandonedCart
+// SPDX-License-Identifier: GPL-3.0-only
+
+using System.Diagnostics;
+using System.Globalization;
+using Microsoft.Extensions.Logging;
+
+namespace IntroSkipper.FFmpeg;
+
+/// <summary>
+/// Runs FFmpeg processes with current process execution semantics:
+/// captures one selected stream (stdout or stderr), drains redirected streams,
+/// does not kill on timeout, and omits <c>-threads</c> for info queries.
+/// </summary>
+public sealed partial class FFmpegRunner : IFFmpegRunner
+{
+    private readonly IFFmpegOptionsProvider _options;
+    private readonly ILogger<FFmpegRunner> _logger;
+    private readonly Func<ProcessStartInfo, IProcess> _processFactory;
+
+    /// <summary>
+    /// Initializes a new instance of the <see cref="FFmpegRunner"/> class.
+    /// </summary>
+    /// <param name="options">Options provider for FFmpeg path and process configuration.</param>
+    /// <param name="logger">Logger instance.</param>
+    /// <exception cref="ArgumentNullException"><paramref name="options"/> or <paramref name="logger"/> is <see langword="null"/>.</exception>
+    public FFmpegRunner(IFFmpegOptionsProvider options, ILogger<FFmpegRunner> logger)
+        : this(options, logger, static startInfo => new SystemProcess(startInfo))
+    {
+    }
+
+    internal FFmpegRunner(
+        IFFmpegOptionsProvider options,
+        ILogger<FFmpegRunner> logger,
+        Func<ProcessStartInfo, IProcess> processFactory)
+    {
+        ArgumentNullException.ThrowIfNull(options);
+        ArgumentNullException.ThrowIfNull(logger);
+        ArgumentNullException.ThrowIfNull(processFactory);
+
+        _options = options;
+        _logger = logger;
+        _processFactory = processFactory;
+    }
+
+    internal interface IProcess : IDisposable
+    {
+        ProcessStartInfo StartInfo { get; }
+
+        Stream StandardOutput { get; }
+
+        Stream StandardError { get; }
+
+        bool HasExited { get; }
+
+        int ExitCode { get; }
+
+        ProcessPriorityClass PriorityClass { set; }
+
+        void Start();
+
+        void WaitForExit(int milliseconds);
+
+        Task WaitForExitAsync(CancellationToken cancellationToken = default);
+
+        void Kill(bool entireProcessTree);
+    }
+
+    /// <inheritdoc />
+    public FFmpegProcessResult Run(IReadOnlyList<string> args, bool stderr = false, int timeout = 60 * 1000)
+    {
+        using var ffmpeg = StartProcess(args, stderr);
+
+        using var ms = new MemoryStream();
+        var buf = new byte[4096];
+
+        using (var stream = stderr ? ffmpeg.StandardError : ffmpeg.StandardOutput)
+        {
+            int bytesRead;
+            while ((bytesRead = stream.Read(buf, 0, buf.Length)) > 0)
+            {
+                ms.Write(buf, 0, bytesRead);
+            }
+        }
+
+        ffmpeg.WaitForExit(timeout);
+
+        return new FFmpegProcessResult(ms.ToArray(), ffmpeg.HasExited ? ffmpeg.ExitCode : -1);
+    }
+
+    /// <inheritdoc />
+    public async Task<FFmpegProcessResult> RunAsync(IReadOnlyList<string> args, bool stderr = false, int timeout = 60 * 1000, CancellationToken cancellationToken = default)
+    {
+        if (timeout < Timeout.Infinite)
+        {
+            throw new ArgumentOutOfRangeException(nameof(timeout), timeout, "Timeout must be -1 (infinite) or a non-negative number of milliseconds.");
+        }
+
+        cancellationToken.ThrowIfCancellationRequested();
+
+        using var ffmpeg = StartProcess(args, stderr, redirectBoth: true);
+
+        // Read the selected stream asynchronously while draining the other to prevent deadlocks.
+        using var ms = new MemoryStream();
+        var selectedStream = stderr ? ffmpeg.StandardError : ffmpeg.StandardOutput;
+        var drainedStream = stderr ? ffmpeg.StandardOutput : ffmpeg.StandardError;
+
+        try
+        {
+            using var readCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            var exitTask = WaitForExitAsync(ffmpeg, timeout, cancellationToken);
+            var drainTask = DrainStreamAsync(drainedStream, readCts.Token);
+
+            var selectedStreamCompleted = await CopySelectedStreamAsync(selectedStream, ms, exitTask, readCts.Token).ConfigureAwait(false);
+            if (!selectedStreamCompleted)
+            {
+                return await ReturnTimeoutAsync().ConfigureAwait(false);
+            }
+
+            var completedTask = await Task.WhenAny(drainTask, exitTask).ConfigureAwait(false);
+            if (completedTask == exitTask)
+            {
+                var exited = await exitTask.ConfigureAwait(false);
+                if (!exited)
+                {
+                    return await ReturnTimeoutAsync().ConfigureAwait(false);
+                }
+            }
+
+            await drainTask.ConfigureAwait(false);
+            var processExited = await exitTask.ConfigureAwait(false);
+            var output = ms.ToArray();
+            cancellationToken.ThrowIfCancellationRequested();
+            return new FFmpegProcessResult(output, processExited ? ffmpeg.ExitCode : -1);
+
+            async Task<FFmpegProcessResult> ReturnTimeoutAsync()
+            {
+                await readCts.CancelAsync().ConfigureAwait(false);
+                ObserveFaultedTask(drainTask);
+                var output = ms.ToArray();
+                cancellationToken.ThrowIfCancellationRequested();
+                return new FFmpegProcessResult(output, -1);
+            }
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            await KillProcessAsync(ffmpeg).ConfigureAwait(false);
+            throw;
+        }
+    }
+
+    /// <summary>
+    /// Copies selected stream output until the stream closes or the process wait times out.
+    /// </summary>
+    /// <param name="source">The stream to copy from.</param>
+    /// <param name="destination">The stream to copy into.</param>
+    /// <param name="exitTask">The process exit wait task.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns><c>true</c> if the source stream closed before timeout; otherwise <c>false</c>.</returns>
+    private static async Task<bool> CopySelectedStreamAsync(Stream source, Stream destination, Task<bool> exitTask, CancellationToken cancellationToken)
+    {
+        var buffer = new byte[4096];
+        while (true)
+        {
+            var readTask = source.ReadAsync(buffer, cancellationToken).AsTask();
+            var completedTask = await Task.WhenAny(readTask, exitTask).ConfigureAwait(false);
+            if (completedTask == exitTask)
+            {
+                var exited = await exitTask.ConfigureAwait(false);
+                if (!exited)
+                {
+                    ObserveFaultedTask(readTask);
+                    return false;
+                }
+            }
+
+            var bytesRead = await readTask.ConfigureAwait(false);
+            if (bytesRead == 0)
+            {
+                return true;
+            }
+
+            await destination.WriteAsync(buffer.AsMemory(0, bytesRead), cancellationToken).ConfigureAwait(false);
+        }
+    }
+
+    /// <summary>
+    /// Creates a configured FFmpeg process start info without starting it.
+    /// </summary>
+    /// <param name="args">User-supplied FFmpeg arguments.</param>
+    /// <param name="stderr">If <c>true</c>, the selected capture stream is stderr; otherwise stdout.</param>
+    /// <param name="redirectBoth">If <c>true</c>, redirect both stdout and stderr (for async).</param>
+    /// <returns>A configured but not-yet-started <see cref="ProcessStartInfo"/>.</returns>
+    internal ProcessStartInfo CreateProcessStartInfo(IReadOnlyList<string> args, bool stderr, bool redirectBoth = false)
+    {
+        var ffmpegPath = _options.FFmpegPath;
+
+        // The silencedetect and blackframe filters output data at the info log level.
+        var useInfoLevel = args.Any(a =>
+            a.Contains("silencedetect", StringComparison.OrdinalIgnoreCase) ||
+            a.Contains("blackframe", StringComparison.OrdinalIgnoreCase) ||
+            a.Contains("showinfo", StringComparison.OrdinalIgnoreCase));
+
+        var logLevel = useInfoLevel ? "info" : "warning";
+
+        // For FFmpeg info queries (-version, -muxers, -h), don't add the thread count flag
+        // to avoid "Trailing option(s) found" warning. These are quick queries.
+        var firstArg = args.Count > 0 ? args[0] : string.Empty;
+        var isInfoQuery = firstArg.StartsWith("-version", StringComparison.Ordinal) ||
+            firstArg.StartsWith("-muxers", StringComparison.Ordinal) ||
+            firstArg.StartsWith("-h", StringComparison.Ordinal);
+
+        var info = new ProcessStartInfo(ffmpegPath)
+        {
+            WindowStyle = ProcessWindowStyle.Hidden,
+            CreateNoWindow = true,
+            UseShellExecute = false,
+            ErrorDialog = false,
+            RedirectStandardOutput = redirectBoth || !stderr,
+            RedirectStandardError = redirectBoth || stderr
+        };
+
+        // Prepend flags to suppress FFmpeg banner and set log level / thread count.
+        info.ArgumentList.Add("-hide_banner");
+        if (!isInfoQuery)
+        {
+            info.ArgumentList.Add("-threads");
+            info.ArgumentList.Add(_options.ProcessThreads.ToString(CultureInfo.InvariantCulture));
+        }
+
+        info.ArgumentList.Add("-loglevel");
+        info.ArgumentList.Add(logLevel);
+
+        foreach (var arg in args)
+        {
+            info.ArgumentList.Add(arg);
+        }
+
+        return info;
+    }
+
+    /// <summary>
+    /// Creates a configured FFmpeg process without starting it.
+    /// </summary>
+    /// <param name="args">User-supplied FFmpeg arguments.</param>
+    /// <param name="stderr">If <c>true</c>, the selected capture stream is stderr; otherwise stdout.</param>
+    /// <param name="redirectBoth">If <c>true</c>, redirect both stdout and stderr (for async).</param>
+    /// <returns>A configured but not-yet-started process.</returns>
+    private IProcess CreateProcess(IReadOnlyList<string> args, bool stderr, bool redirectBoth = false)
+        => _processFactory(CreateProcessStartInfo(args, stderr, redirectBoth));
+
+    /// <summary>
+    /// Creates, logs, starts, and applies configured priority to an FFmpeg process.
+    /// </summary>
+    /// <param name="args">User-supplied FFmpeg arguments.</param>
+    /// <param name="stderr">If <c>true</c>, the selected capture stream is stderr; otherwise stdout.</param>
+    /// <param name="redirectBoth">If <c>true</c>, redirect both stdout and stderr (for async).</param>
+    /// <returns>A started process.</returns>
+    private IProcess StartProcess(IReadOnlyList<string> args, bool stderr, bool redirectBoth = false)
+    {
+        var ffmpeg = CreateProcess(args, stderr, redirectBoth);
+        if (_logger.IsEnabled(LogLevel.Debug))
+        {
+            LogStartingFfmpeg(_logger, string.Join(" ", ffmpeg.StartInfo.ArgumentList));
+        }
+
+        ffmpeg.Start();
+        SetProcessPriority(ffmpeg);
+        return ffmpeg;
+    }
+
+    /// <summary>
+    /// Sets the process priority, logging a warning on failure.
+    /// </summary>
+    /// <param name="process">The process whose priority to set.</param>
+    private void SetProcessPriority(IProcess process)
+    {
+        try
+        {
+            process.PriorityClass = _options.ProcessPriority;
+        }
+        catch (Exception e)
+        {
+            LogFfmpegPriorityNotModified(_logger, e.Message);
+        }
+    }
+
+    /// <summary>
+    /// Waits for process exit and reports whether the process exited before the timeout.
+    /// </summary>
+    /// <param name="process">Process to wait for.</param>
+    /// <param name="timeout">Timeout in milliseconds, or <see cref="Timeout.Infinite"/>.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns><c>true</c> if the process exited before the timeout; otherwise <c>false</c>.</returns>
+    private static async Task<bool> WaitForExitAsync(IProcess process, int timeout, CancellationToken cancellationToken)
+    {
+        if (timeout == Timeout.Infinite)
+        {
+            await process.WaitForExitAsync(cancellationToken).ConfigureAwait(false);
+            return true;
+        }
+
+        var waitTask = process.WaitForExitAsync(cancellationToken);
+        var timeoutTask = Task.Delay(timeout, cancellationToken);
+        var completedTask = await Task.WhenAny(waitTask, timeoutTask).ConfigureAwait(false);
+        if (completedTask == waitTask)
+        {
+            await waitTask.ConfigureAwait(false);
+            return true;
+        }
+
+        await timeoutTask.ConfigureAwait(false);
+        ObserveFaultedTask(waitTask);
+        return false;
+    }
+
+    /// <summary>
+    /// Observes a background stream task if it faults after a timeout return.
+    /// </summary>
+    /// <param name="task">The task whose exception should be observed.</param>
+    private static void ObserveFaultedTask(Task task)
+        => _ = task.ContinueWith(
+            static completedTask => _ = completedTask.Exception,
+            CancellationToken.None,
+            TaskContinuationOptions.OnlyOnFaulted | TaskContinuationOptions.ExecuteSynchronously,
+            TaskScheduler.Default);
+
+    /// <summary>
+    /// Reads and discards all bytes from a stream to prevent pipe buffer deadlocks.
+    /// </summary>
+    /// <param name="stream">Stream to drain.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>A task that completes when the stream is fully drained.</returns>
+    private static async Task DrainStreamAsync(Stream stream, CancellationToken cancellationToken)
+    {
+        var buffer = new byte[4096];
+        while (await stream.ReadAsync(buffer, cancellationToken).ConfigureAwait(false) > 0)
+        {
+            // Discard bytes to prevent the pipe buffer from filling up.
+        }
+    }
+
+    /// <summary>
+    /// Attempts to kill an FFmpeg process and its child process tree.
+    /// </summary>
+    /// <param name="process">The FFmpeg process to kill.</param>
+    /// <returns>A task that completes when the process has been killed.</returns>
+    private async Task KillProcessAsync(IProcess process)
+    {
+        try
+        {
+            if (!process.HasExited)
+            {
+                process.Kill(entireProcessTree: true);
+                await process.WaitForExitAsync().ConfigureAwait(false);
+                LogFfmpegProcessKilled(_logger);
+            }
+        }
+        catch (Exception ex)
+        {
+            LogFfmpegKillFailed(_logger, ex.Message);
+        }
+    }
+
+    [LoggerMessage(Level = LogLevel.Debug, Message = "Starting ffmpeg with the following arguments: {Arguments}")]
+    private static partial void LogStartingFfmpeg(ILogger logger, string arguments);
+
+    [LoggerMessage(Level = LogLevel.Debug, Message = "ffmpeg priority could not be modified. {Message}")]
+    private static partial void LogFfmpegPriorityNotModified(ILogger logger, string message);
+
+    [LoggerMessage(Level = LogLevel.Debug, Message = "FFmpeg process killed due to cancellation")]
+    private static partial void LogFfmpegProcessKilled(ILogger logger);
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "Failed to kill FFmpeg process: {Message}")]
+    private static partial void LogFfmpegKillFailed(ILogger logger, string message);
+
+    private sealed class SystemProcess : IProcess
+    {
+        private readonly Process _process;
+
+        internal SystemProcess(ProcessStartInfo startInfo)
+        {
+            _process = new Process { StartInfo = startInfo };
+        }
+
+        public ProcessStartInfo StartInfo => _process.StartInfo;
+
+        public Stream StandardOutput => _process.StandardOutput.BaseStream;
+
+        public Stream StandardError => _process.StandardError.BaseStream;
+
+        public bool HasExited => _process.HasExited;
+
+        public int ExitCode => _process.ExitCode;
+
+        public ProcessPriorityClass PriorityClass
+        {
+            set => _process.PriorityClass = value;
+        }
+
+        public void Start() => _process.Start();
+
+        public void WaitForExit(int milliseconds) => _process.WaitForExit(milliseconds);
+
+        public Task WaitForExitAsync(CancellationToken cancellationToken = default) => _process.WaitForExitAsync(cancellationToken);
+
+        public void Kill(bool entireProcessTree) => _process.Kill(entireProcessTree);
+
+        public void Dispose() => _process.Dispose();
+    }
+}

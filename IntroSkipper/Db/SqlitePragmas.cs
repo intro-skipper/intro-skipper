@@ -4,8 +4,6 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
 using System.Data.Common;
-using System.Threading;
-using System.Threading.Tasks;
 
 namespace IntroSkipper.Db;
 

@@ -112,4 +112,20 @@ public class QueuedEpisode
     /// <returns><see langword="true"/> if the episode should be included in the analysis queue.</returns>
     public bool NeedsAnalysis(AnalysisMode mode)
         => GetAnalyzed(mode) is not (EpisodeState.Analyzed or EpisodeState.UserProvided);
+
+    /// <summary>
+    /// Gets the fingerprint time range for this episode based on the analysis mode.
+    /// </summary>
+    /// <param name="mode">Analysis mode.</param>
+    /// <returns>Start and end times in seconds.</returns>
+    /// <exception cref="ArgumentException"><paramref name="mode"/> is not a supported analysis mode.</exception>
+    public (double Start, double End) GetFingerprintRange(AnalysisMode mode)
+    {
+        return mode switch
+        {
+            AnalysisMode.Introduction => (0, IntroFingerprintEnd),
+            AnalysisMode.Credits => (CreditsFingerprintStart, Duration),
+            _ => throw new ArgumentException("Unknown analysis mode " + mode),
+        };
+    }
 }

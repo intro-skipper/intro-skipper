@@ -7,12 +7,10 @@
 
 using System.Net.Mime;
 using IntroSkipper.Data;
+using IntroSkipper.FFmpeg;
 using IntroSkipper.Manager;
 using IntroSkipper.ScheduledTasks;
 using MediaBrowser.Common.Api;
-using MediaBrowser.Controller.Library;
-using MediaBrowser.Controller.Providers;
-using MediaBrowser.Model.IO;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
@@ -29,22 +27,22 @@ namespace IntroSkipper.Controllers;
 /// </remarks>
 /// <param name="logger">Logger.</param>
 /// <param name="mediaSegmentUpdateManager">Media segment update manager.</param>
-/// <param name="libraryManager">libraryManager.</param>
-/// <param name="providerManager">providerManager.</param>
-/// <param name="fileSystem">fileSystem.</param>
-/// <param name="loggerFactory">loggerFactory.</param>
+/// <param name="analyzerTaskFactory">Analyzer task factory.</param>
+/// <param name="cacheService">Detection cache service.</param>
 [Authorize(Policy = Policies.RequiresElevation)]
 [ApiController]
 [Produces(MediaTypeNames.Application.Json)]
 [Route("Intros")]
-public partial class VisualizationController(ILogger<VisualizationController> logger, MediaSegmentUpdateManager mediaSegmentUpdateManager, ILibraryManager libraryManager, IProviderManager providerManager, IFileSystem fileSystem, ILoggerFactory loggerFactory) : ControllerBase
+public partial class VisualizationController(
+    ILogger<VisualizationController> logger,
+    MediaSegmentUpdateManager mediaSegmentUpdateManager,
+    BaseItemAnalyzerTaskFactory analyzerTaskFactory,
+    IDetectionCacheService cacheService) : ControllerBase
 {
     private readonly ILogger<VisualizationController> _logger = logger;
     private readonly MediaSegmentUpdateManager _mediaSegmentUpdateManager = mediaSegmentUpdateManager;
-    private readonly ILibraryManager _libraryManager = libraryManager;
-    private readonly IProviderManager _providerManager = providerManager;
-    private readonly IFileSystem _fileSystem = fileSystem;
-    private readonly ILoggerFactory _loggerFactory = loggerFactory;
+    private readonly BaseItemAnalyzerTaskFactory _analyzerTaskFactory = analyzerTaskFactory;
+    private readonly IDetectionCacheService _cacheService = cacheService;
 
     /// <summary>
     /// Returns the analyzer actions for the provided season.
@@ -137,7 +135,7 @@ public partial class VisualizationController(ILogger<VisualizationController> lo
                 // so aborting here would leave orphaned files with no way to clean them up.
                 foreach (var episode in episodes)
                 {
-                    await Task.Run(() => FFmpegWrapper.DeleteFingerprintCache(episode.EpisodeId), CancellationToken.None).ConfigureAwait(false);
+                    await _cacheService.DeleteFingerprintCacheAsync(episode.EpisodeId, CancellationToken.None).ConfigureAwait(false);
                 }
             }
 
@@ -203,18 +201,12 @@ public partial class VisualizationController(ILogger<VisualizationController> lo
     /// </summary>
     /// <param name="seriesId">Show ID.</param>
     /// <param name="seasonId">Season ID.</param>
-    /// <param name="cancellationToken">cancellationToken.</param>
     /// <returns>Accepted if the scan was started; Conflict if a scan is already running.</returns>
     [HttpPost("ScanSeason/{SeriesId}/{SeasonId}")]
     [ProducesResponseType(StatusCodes.Status202Accepted)]
     [ProducesResponseType(StatusCodes.Status409Conflict)]
-    public async Task<ActionResult> ScanSeason([FromRoute] Guid seriesId, [FromRoute] Guid seasonId, CancellationToken cancellationToken = default)
+    public async Task<ActionResult> ScanSeason([FromRoute] Guid seriesId, [FromRoute] Guid seasonId)
     {
-        if (_libraryManager is null)
-        {
-            throw new InvalidOperationException("Library manager was null");
-        }
-
         var scanLease = await ScheduledTaskSemaphore.TryAcquireAsync().ConfigureAwait(false);
         if (scanLease is null)
         {
@@ -235,13 +227,7 @@ public partial class VisualizationController(ILogger<VisualizationController> lo
                         // Erase season timestamps and cache first
                         await EraseSeasonAsync(seriesId, seasonId, true, CancellationToken.None).ConfigureAwait(false);
 
-                        var baseIntroAnalyzer = new BaseItemAnalyzerTask(
-                            _loggerFactory.CreateLogger<DetectSegmentsTask>(),
-                            _loggerFactory,
-                            _libraryManager,
-                            _providerManager,
-                            _fileSystem,
-                            _mediaSegmentUpdateManager);
+                        var baseIntroAnalyzer = _analyzerTaskFactory.Create(_logger);
 
                         await baseIntroAnalyzer.AnalyzeItemsAsync(new Progress<double>(), CancellationToken.None, [seasonId]).ConfigureAwait(false);
                     }

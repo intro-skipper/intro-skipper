@@ -9,23 +9,30 @@
 
 using System;
 using System.Diagnostics;
+using System.Threading.Tasks;
 using IntroSkipper.Data;
+using IntroSkipper.FFmpeg;
 using Xunit;
 
 namespace IntroSkipper.Tests;
 
-public class TestFFmpegWrapper
+public class TestFFmpegServices
 {
+    private static IFFmpegCapabilityService CreateCapabilityService() => TestServiceFactory.CreateCapabilityService();
+
+    private static IMediaDetectionService CreateDetectionService() => TestServiceFactory.CreateDetectionService();
+
     #region Info Query Tests
 
     [FactSkipFFmpegTests]
     public void TestNoTrailingOptionsWarning()
     {
         // Run FFmpeg version check to populate ChromaprintLogs
-        var result = FFmpegWrapper.CheckFFmpegVersion();
+        var capService = CreateCapabilityService();
+        var result = capService.CheckFFmpegVersion();
 
         // Get the logs and verify no "Trailing option" warning appears
-        var logs = FFmpegWrapper.GetChromaprintLogs();
+        var logs = capService.GetChromaprintLogs();
 
         // The test passes if FFmpeg version check succeeds (no error)
         // and no "Trailing option" warning is in the logs
@@ -36,7 +43,7 @@ public class TestFFmpegWrapper
     [FactSkipFFmpegTests]
     public void TestFFmpegVersionCheck()
     {
-        Assert.True(FFmpegWrapper.CheckFFmpegVersion());
+        Assert.True(CreateCapabilityService().CheckFFmpegVersion());
     }
 
     /// <summary>
@@ -66,57 +73,26 @@ public class TestFFmpegWrapper
         RunFFmpegAndVerifyNoWarning("-h filter=silencedetect");
     }
 
-    /// <summary>
-    /// This test demonstrates that the OLD behavior (threads before query) produces warnings.
-    /// It should FAIL - proving that the fix is necessary.
-    /// </summary>
-    [FactSkipFFmpegTests]
-    public void TestOldBehaviorProducesWarning()
-    {
-        // This simulates the OLD broken argument order:
-        // ffmpeg -hide_banner -threads 0 -loglevel warning -version
-        // This should produce "Trailing option" warning
-
-        var ffmpegPath = "ffmpeg";
-        var args = "-hide_banner -threads 0 -loglevel warning -version";
-
-        var info = new ProcessStartInfo(ffmpegPath, args)
-        {
-            WindowStyle = ProcessWindowStyle.Hidden,
-            CreateNoWindow = true,
-            UseShellExecute = false,
-            RedirectStandardOutput = true,
-            RedirectStandardError = true
-        };
-
-        using var process = Process.Start(info);
-        var output = process!.StandardOutput.ReadToEnd() + process.StandardError.ReadToEnd();
-        process.WaitForExit();
-
-        // OLD behavior produces this warning - test should FAIL with old code
-        Assert.Contains("Trailing option", output, StringComparison.Ordinal);
-    }
-
     #endregion
 
     #region Media Processing Tests
 
     [FactSkipFFmpegTests]
-    public void TestNoTrailingOptionsWithMediaFiles()
+    public async Task TestNoTrailingOptionsWithMediaFiles()
     {
         // Test with actual media file to ensure no trailing options warning
         var episode = QueueFile("rainbow.mp4");
         episode.Duration = 2;
 
         // Detect black frames - this should not produce "Trailing option" warning
-        var blackFrames = FFmpegWrapper.DetectBlackFrames(episode, new TimeRange(0, 2), 85, 32, AnalysisMode.Introduction);
+        var blackFrames = await CreateDetectionService().DetectBlackFramesAsync(episode, new TimeRange(0, 2), 85, 32, AnalysisMode.Introduction);
 
         // Verify we got results (meaning FFmpeg ran successfully without warnings)
         Assert.NotNull(blackFrames);
     }
 
     [FactSkipFFmpegTests]
-    public void TestNoTrailingOptionsWithBlackFrameDetectionAlt()
+    public async Task TestNoTrailingOptionsWithBlackFrameDetectionAlt()
     {
         // Test alternative black frame detection
         var episode = QueueFile("credits.mp4");
@@ -124,13 +100,13 @@ public class TestFFmpegWrapper
         episode.CreditsFingerprintStart = 0;
 
         // Alternative black frame detection
-        var blackFrames = FFmpegWrapper.DetectBlackFrames(episode, 32);
+        var blackFrames = await CreateDetectionService().DetectBlackFramesAsync(episode, 32);
 
         Assert.NotNull(blackFrames);
     }
 
     [FactSkipFFmpegTests]
-    public void TestNoTrailingOptionsWithSilenceDetection()
+    public async Task TestNoTrailingOptionsWithSilenceDetection()
     {
         // Test silence detection with actual media file
         var episode = QueueFile("rainbow.mp4");
@@ -138,28 +114,28 @@ public class TestFFmpegWrapper
         episode.IntroFingerprintEnd = 2;
 
         // Detect silence - this should not produce "Trailing option" warning
-        var silenceRanges = FFmpegWrapper.DetectSilence(episode, new TimeRange(0, 2), AnalysisMode.Introduction);
+        var silenceRanges = await CreateDetectionService().DetectSilenceAsync(episode, new TimeRange(0, 2), AnalysisMode.Introduction);
 
         // Verify FFmpeg ran successfully (null or empty list is fine)
         Assert.NotNull(silenceRanges);
     }
 
     [FactSkipFFmpegTests]
-    public void TestNoTrailingOptionsWithKeyFrameDetection()
+    public async Task TestNoTrailingOptionsWithKeyFrameDetection()
     {
         // Test key frame detection with actual media file
         var episode = QueueFile("rainbow.mp4");
         episode.Duration = 2;
 
         // Detect key frames - this should not produce "Trailing option" warning
-        var keyFrames = FFmpegWrapper.DetectKeyFrames(episode, new TimeRange(0, 2), AnalysisMode.Introduction);
+        var keyFrames = await CreateDetectionService().DetectKeyFramesAsync(episode, new TimeRange(0, 2), AnalysisMode.Introduction);
 
         // Verify FFmpeg ran successfully
         Assert.NotNull(keyFrames);
     }
 
     [FactSkipFFmpegTests]
-    public void TestNoTrailingOptionsWithChromaprintFingerprinting()
+    public async Task TestNoTrailingOptionsWithChromaprintFingerprinting()
     {
         // Test chromaprint fingerprinting with actual audio file
         var episode = new QueuedEpisode
@@ -173,18 +149,10 @@ public class TestFFmpegWrapper
         };
 
         // Fingerprint intro - this should not produce "Trailing option" warning
-        try
-        {
-            var fingerprint = FFmpegWrapper.Fingerprint(episode, AnalysisMode.Introduction);
+        var fingerprint = await CreateDetectionService().FingerprintAsync(episode, AnalysisMode.Introduction);
 
-            // Verify FFmpeg ran successfully
-            Assert.NotNull(fingerprint);
-        }
-        catch (Exception)
-        {
-            // Fingerprinting may fail due to chromaprint, but we check for warnings
-            // If it throws, that's a different issue - we just want to check for warnings
-        }
+        // Verify FFmpeg ran successfully
+        Assert.NotNull(fingerprint);
     }
 
     #endregion

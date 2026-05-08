@@ -3,23 +3,26 @@
 // SPDX-FileCopyrightText: 2026 AbandonedCart
 // SPDX-License-Identifier: GPL-3.0-only
 
-namespace IntroSkipper.Tests;
 
 using System;
+using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
 using System.IO.Compression;
 using System.Linq;
+using System.Threading.Tasks;
 using System.Text.Json;
 using IntroSkipper.Configuration;
 using IntroSkipper.Data;
 using IntroSkipper.Db;
+using IntroSkipper.FFmpeg;
 using Xunit;
 
+namespace IntroSkipper.Tests;
 public sealed class TestCacheOperations
 {
     [Fact]
-    public void DeleteCacheFiles_Introduction_DeletesIntroFilesOnly()
+    public async Task DeleteCacheFiles_Introduction_DeletesIntroFilesOnly()
     {
         var itemId = Guid.NewGuid();
         var cacheDir = EntrypointTestHelpers.CreateTempCacheDir();
@@ -46,12 +49,12 @@ public sealed class TestCacheOperations
         {
             db.DetectionCache.AddRange(shouldKeep);
             db.DetectionCache.AddRange(shouldDelete);
-            db.SaveChanges();
+            await db.SaveChangesAsync();
         }
 
         using (new CachingPluginScope(cacheDir, scope.CacheDbPath))
         {
-            FFmpegWrapper.DeleteCacheFiles(AnalysisMode.Introduction);
+            await CreateCacheService().DeleteCacheFilesAsync(AnalysisMode.Introduction);
         }
 
         using (var db = Plugin.CreateCacheDbContext())
@@ -69,7 +72,7 @@ public sealed class TestCacheOperations
     }
 
     [Fact]
-    public void DeleteCacheFiles_Credits_DeletesCreditsFilesOnly()
+    public async Task DeleteCacheFiles_Credits_DeletesCreditsFilesOnly()
     {
         var itemId = Guid.NewGuid();
         var cacheDir = EntrypointTestHelpers.CreateTempCacheDir();
@@ -96,12 +99,12 @@ public sealed class TestCacheOperations
         {
             db.DetectionCache.AddRange(shouldKeep);
             db.DetectionCache.AddRange(shouldDelete);
-            db.SaveChanges();
+            await db.SaveChangesAsync();
         }
 
         using (new CachingPluginScope(cacheDir, scope.CacheDbPath))
         {
-            FFmpegWrapper.DeleteCacheFiles(AnalysisMode.Credits);
+            await CreateCacheService().DeleteCacheFilesAsync(AnalysisMode.Credits);
         }
 
         using (var db = Plugin.CreateCacheDbContext())
@@ -119,7 +122,28 @@ public sealed class TestCacheOperations
     }
 
     [Fact]
-    public void HasCachedFingerprint_ReturnsTrueForDbRow()
+    public async Task DeleteStaleCachesAsync_DeletesBareGuidLegacyFingerprintFileWhenItemDisabled()
+    {
+        var staleId = Guid.NewGuid();
+        var retainedId = Guid.NewGuid();
+        var cacheDir = EntrypointTestHelpers.CreateTempCacheDir();
+        var stalePath = Path.Join(cacheDir, staleId.ToString("N"));
+        var retainedPath = Path.Join(cacheDir, retainedId.ToString("N"));
+
+        await File.WriteAllTextAsync(stalePath, "1");
+        await File.WriteAllTextAsync(retainedPath, "1");
+
+        using (new CachingPluginScope(cacheDir))
+        {
+            await CreateCacheService().DeleteStaleCachesAsync(new HashSet<Guid> { retainedId });
+        }
+
+        Assert.False(File.Exists(stalePath));
+        Assert.True(File.Exists(retainedPath));
+    }
+
+    [Fact]
+    public async Task HasCachedFingerprint_ReturnsTrueForDbRow()
     {
         var episode = new QueuedEpisode { EpisodeId = Guid.NewGuid() };
         var cacheDir = EntrypointTestHelpers.CreateTempCacheDir();
@@ -130,40 +154,40 @@ public sealed class TestCacheOperations
         {
             db.DetectionCache.Add(new DbDetectionCache(
                 episode.EpisodeId, AnalysisMode.Introduction, CacheEntryType.Chromaprint, EntrypointTestHelpers.EmptyJsonArray));
-            db.SaveChanges();
+            await db.SaveChangesAsync();
         }
 
         using (new CachingPluginScope(cacheDir, scope.CacheDbPath))
         {
-            Assert.True(FFmpegWrapper.HasCachedFingerprint(episode, AnalysisMode.Introduction));
+            Assert.True(await CreateCacheService().HasCachedFingerprintAsync(episode, AnalysisMode.Introduction));
         }
     }
 
     [Fact]
-    public void HasCachedFingerprint_ReturnsTrueForLegacyFile()
+    public async Task HasCachedFingerprint_ReturnsTrueForLegacyFile()
     {
         var episode = new QueuedEpisode { EpisodeId = Guid.NewGuid() };
         var cacheDir = EntrypointTestHelpers.CreateTempCacheDir();
 
         // Legacy path: just the episode ID, no suffix (text format on disk)
-        File.WriteAllText(cacheDir + Path.DirectorySeparatorChar + episode.EpisodeId.ToString("N"), "x");
+        await File.WriteAllTextAsync(cacheDir + Path.DirectorySeparatorChar + episode.EpisodeId.ToString("N"), "x");
 
         using var _ = new CachingPluginScope(cacheDir);
-        Assert.True(FFmpegWrapper.HasCachedFingerprint(episode, AnalysisMode.Introduction));
+        Assert.True(await CreateCacheService().HasCachedFingerprintAsync(episode, AnalysisMode.Introduction));
     }
 
     [Fact]
-    public void HasCachedFingerprint_ReturnsFalseWhenNoFile()
+    public async Task HasCachedFingerprint_ReturnsFalseWhenNoFile()
     {
         var episode = new QueuedEpisode { EpisodeId = Guid.NewGuid() };
         var cacheDir = EntrypointTestHelpers.CreateTempCacheDir();
 
         using var _ = new CachingPluginScope(cacheDir);
-        Assert.False(FFmpegWrapper.HasCachedFingerprint(episode, AnalysisMode.Introduction));
+        Assert.False(await CreateCacheService().HasCachedFingerprintAsync(episode, AnalysisMode.Introduction));
     }
 
     [Fact]
-    public void LegacyFingerprintCache_MigratedToDbAndDeleted()
+    public async Task LegacyFingerprintCache_MigratedToDbAndDeleted()
     {
         var episode = new QueuedEpisode
         {
@@ -195,7 +219,7 @@ public sealed class TestCacheOperations
         using (var scope = new CachingPluginScope(cacheDir))
         {
             cacheDbPath = scope.CacheDbPath;
-            result = FFmpegWrapper.Fingerprint(episode, AnalysisMode.Introduction);
+            result = await CreateDetectionService().FingerprintAsync(episode, AnalysisMode.Introduction);
         }
 
         Assert.False(File.Exists(legacyPath), "Legacy text cache file should be deleted after migration");
@@ -214,7 +238,7 @@ public sealed class TestCacheOperations
     }
 
     [Fact]
-    public void CorruptLegacyFingerprintCache_DeletedAndReanalyzed()
+    public async Task CorruptLegacyFingerprintCache_DeletedAndReanalyzed()
     {
         var episode = new QueuedEpisode
         {
@@ -237,11 +261,8 @@ public sealed class TestCacheOperations
 
             // Fingerprint() will fail because the path doesn't exist, but that's fine —
             // we only care that the corrupt legacy file was deleted and no DB row was written.
-            try { FFmpegWrapper.Fingerprint(episode, AnalysisMode.Introduction); }
-            catch (FingerprintException)
-            {
-                // Expected in this test for non-existent paths; ignore and verify side effects instead.
-            }
+            await Assert.ThrowsAsync<FingerprintException>(() =>
+                CreateDetectionService().FingerprintAsync(episode, AnalysisMode.Introduction));
         }
 
         Assert.False(File.Exists(legacyPath), "Corrupt legacy cache file should be deleted");
@@ -260,7 +281,7 @@ public sealed class TestCacheOperations
     /// Before the fix, TryReadJsonCache returned false for empty arrays, causing unnecessary re-analysis.
     /// </summary>
     [Fact]
-    public void EmptyArrayCacheEntry_TreatedAsCacheHit()
+    public async Task EmptyArrayCacheEntry_TreatedAsCacheHit()
     {
         var episode = new QueuedEpisode
         {
@@ -272,7 +293,7 @@ public sealed class TestCacheOperations
         var range = new TimeRange(0, 30);
 
         // The cache row must be Brotli-compressed because TryReadJsonCache calls DecompressBrotli.
-        var compressedEmpty = FFmpegWrapper.CompressBrotli(Array.Empty<TimeRange>());
+        var compressedEmpty = CreateCacheService().CompressBrotli(Array.Empty<TimeRange>());
 
         using var scope = new EntrypointTestHelpers.PluginInstanceScope(cacheDir);
 
@@ -285,14 +306,14 @@ public sealed class TestCacheOperations
                 compressedEmpty,
                 range.Start,
                 range.End));
-            db.SaveChanges();
+            await db.SaveChangesAsync();
         }
 
         TimeRange[] result;
         using (new CachingPluginScope(cacheDir, scope.CacheDbPath))
         {
             // If the empty-array bug were present this would throw FingerprintException (file not found).
-            result = FFmpegWrapper.DetectSilence(episode, range, AnalysisMode.Introduction);
+            result = await CreateDetectionService().DetectSilenceAsync(episode, range, AnalysisMode.Introduction);
         }
 
         Assert.Empty(result);
@@ -325,7 +346,7 @@ public sealed class TestCacheOperations
     }
 
     [Fact]
-    public void CachedFingerprint_StoresRealStartEnd()
+    public async Task CachedFingerprint_StoresRealStartEnd()
     {
         var episode = new QueuedEpisode
         {
@@ -337,7 +358,7 @@ public sealed class TestCacheOperations
 
         // Pre-populate the DB with a fingerprint at the correct start/end.
         var fingerprint = new uint[] { 111u, 222u, 333u };
-        var compressed = FFmpegWrapper.CompressBrotli(fingerprint);
+        var compressed = CreateCacheService().CompressBrotli(fingerprint);
 
         string cacheDbPath;
         using (var scope = new EntrypointTestHelpers.PluginInstanceScope(cacheDir))
@@ -351,21 +372,21 @@ public sealed class TestCacheOperations
                 compressed,
                 0,        // start
                 600));    // end = IntroFingerprintEnd
-            db.SaveChanges();
+            await db.SaveChangesAsync();
         }
 
         uint[] result;
         using (new CachingPluginScope(cacheDir, cacheDbPath))
         {
             // Should hit cache because start=0, end=600 matches
-            result = FFmpegWrapper.Fingerprint(episode, AnalysisMode.Introduction);
+            result = await CreateDetectionService().FingerprintAsync(episode, AnalysisMode.Introduction);
         }
 
         Assert.Equal(fingerprint, result);
     }
 
     [Fact]
-    public void CachedFingerprint_MissesOnDifferentEnd()
+    public async Task CachedFingerprint_MissesOnDifferentEnd()
     {
         var episode = new QueuedEpisode
         {
@@ -377,7 +398,7 @@ public sealed class TestCacheOperations
 
         // Pre-populate DB with a fingerprint cached at old setting (end=600)
         var fingerprint = new uint[] { 111u, 222u, 333u };
-        var compressed = FFmpegWrapper.CompressBrotli(fingerprint);
+        var compressed = CreateCacheService().CompressBrotli(fingerprint);
 
         string cacheDbPath;
         using (var scope = new EntrypointTestHelpers.PluginInstanceScope(cacheDir))
@@ -391,20 +412,20 @@ public sealed class TestCacheOperations
                 compressed,
                 0,      // start
                 600));  // old end
-            db.SaveChanges();
+            await db.SaveChangesAsync();
         }
 
         using (new CachingPluginScope(cacheDir, cacheDbPath))
         {
             // Should miss cache (end mismatch: 600 vs 900) and then throw
             // because the file doesn't actually exist for ffmpeg
-            Assert.Throws<FingerprintException>(
-                () => FFmpegWrapper.Fingerprint(episode, AnalysisMode.Introduction));
+            await Assert.ThrowsAsync<FingerprintException>(
+                async () => await CreateDetectionService().FingerprintAsync(episode, AnalysisMode.Introduction));
         }
     }
 
     [Fact]
-    public void HasCachedFingerprint_ReturnsFalseForStaleEntry()
+    public async Task HasCachedFingerprint_ReturnsFalseForStaleEntry()
     {
         var episode = new QueuedEpisode
         {
@@ -420,18 +441,18 @@ public sealed class TestCacheOperations
             // Stale entry: cached with old end=600
             db.DetectionCache.Add(new DbDetectionCache(
                 episode.EpisodeId, AnalysisMode.Introduction, CacheEntryType.Chromaprint, EntrypointTestHelpers.EmptyJsonArray, 0, 600));
-            db.SaveChanges();
+            await db.SaveChangesAsync();
         }
 
         using (new CachingPluginScope(cacheDir, scope.CacheDbPath))
         {
             // Should return false: DB has end=600 but episode expects end=900
-            Assert.False(FFmpegWrapper.HasCachedFingerprint(episode, AnalysisMode.Introduction));
+            Assert.False(await CreateCacheService().HasCachedFingerprintAsync(episode, AnalysisMode.Introduction));
         }
     }
 
     [Fact]
-    public void HasCachedFingerprint_ReturnsTrueForMatchingEntry()
+    public async Task HasCachedFingerprint_ReturnsTrueForMatchingEntry()
     {
         var episode = new QueuedEpisode
         {
@@ -446,17 +467,17 @@ public sealed class TestCacheOperations
         {
             db.DetectionCache.Add(new DbDetectionCache(
                 episode.EpisodeId, AnalysisMode.Introduction, CacheEntryType.Chromaprint, EntrypointTestHelpers.EmptyJsonArray, 0, 600));
-            db.SaveChanges();
+            await db.SaveChangesAsync();
         }
 
         using (new CachingPluginScope(cacheDir, scope.CacheDbPath))
         {
-            Assert.True(FFmpegWrapper.HasCachedFingerprint(episode, AnalysisMode.Introduction));
+            Assert.True(await CreateCacheService().HasCachedFingerprintAsync(episode, AnalysisMode.Introduction));
         }
     }
 
     [Fact]
-    public void HasCachedFingerprint_Credits_ReturnsTrueForMatchingEntry()
+    public async Task HasCachedFingerprint_Credits_ReturnsTrueForMatchingEntry()
     {
         var episode = new QueuedEpisode
         {
@@ -472,17 +493,17 @@ public sealed class TestCacheOperations
         {
             db.DetectionCache.Add(new DbDetectionCache(
                 episode.EpisodeId, AnalysisMode.Credits, CacheEntryType.Chromaprint, EntrypointTestHelpers.EmptyJsonArray, 1560, 1800));
-            db.SaveChanges();
+            await db.SaveChangesAsync();
         }
 
         using (new CachingPluginScope(cacheDir, scope.CacheDbPath))
         {
-            Assert.True(FFmpegWrapper.HasCachedFingerprint(episode, AnalysisMode.Credits));
+            Assert.True(await CreateCacheService().HasCachedFingerprintAsync(episode, AnalysisMode.Credits));
         }
     }
 
     [Fact]
-    public void LegacyMigration_Accepted_WhenDurationMatchesCurrentSettings()
+    public async Task LegacyMigration_Accepted_WhenDurationMatchesCurrentSettings()
     {
         // 4825 lines → InferDuration ≈ 600s. Episode expects end=600 → |600-600| <= 5 → accept.
         var episode = new QueuedEpisode
@@ -510,7 +531,7 @@ public sealed class TestCacheOperations
         using (var scope = new CachingPluginScope(cacheDir))
         {
             cacheDbPath = scope.CacheDbPath;
-            result = FFmpegWrapper.Fingerprint(episode, AnalysisMode.Introduction);
+            result = await CreateDetectionService().FingerprintAsync(episode, AnalysisMode.Introduction);
         }
 
         Assert.False(File.Exists(legacyPath), "Legacy file should be deleted after successful migration");
@@ -527,7 +548,7 @@ public sealed class TestCacheOperations
     }
 
     [Fact]
-    public void LegacyMigration_Rejected_WhenDurationMismatch()
+    public async Task LegacyMigration_Rejected_WhenDurationMismatch()
     {
         // 4825 lines → InferDuration ≈ 600s. Episode expects end=900 → |600-900| = 300 > 5 → reject.
         var episode = new QueuedEpisode
@@ -555,8 +576,8 @@ public sealed class TestCacheOperations
         {
             cacheDbPath = scope.CacheDbPath;
             // Should reject legacy cache and then throw because path doesn't exist for ffmpeg
-            Assert.Throws<FingerprintException>(
-                () => FFmpegWrapper.Fingerprint(episode, AnalysisMode.Introduction));
+            await Assert.ThrowsAsync<FingerprintException>(
+                async () => await CreateDetectionService().FingerprintAsync(episode, AnalysisMode.Introduction));
         }
 
         Assert.False(File.Exists(legacyPath), "Legacy file should be deleted even on rejection");
@@ -570,7 +591,7 @@ public sealed class TestCacheOperations
     }
 
     [Fact]
-    public void LegacyMigration_Credits_AcceptedWithCorrectStartEnd()
+    public async Task LegacyMigration_Credits_AcceptedWithCorrectStartEnd()
     {
         // Credits: start=1560, end=1800, duration=240s
         // Need ~1916 lines: (240 - 2.6) / 0.12383 ≈ 1916 lines → InferDuration ≈ 240
@@ -602,7 +623,7 @@ public sealed class TestCacheOperations
         using (var scope = new CachingPluginScope(cacheDir))
         {
             cacheDbPath = scope.CacheDbPath;
-            result = FFmpegWrapper.Fingerprint(episode, AnalysisMode.Credits);
+            result = await CreateDetectionService().FingerprintAsync(episode, AnalysisMode.Credits);
         }
 
         Assert.False(File.Exists(legacyPath));
@@ -619,99 +640,44 @@ public sealed class TestCacheOperations
     }
 
     [Fact]
-    public void MigrateLegacyDetectionCache_MigratesOnlyQueuedItemIds()
+    public async Task TryReadOrMigrateCacheAsync_ModeAgnosticLegacySilenceCache_WritesAllModes()
     {
-        var episode = new QueuedEpisode
-        {
-            EpisodeId = Guid.NewGuid(),
-            IntroFingerprintEnd = 60,
-        };
-        var staleEpisodeId = Guid.NewGuid();
+        var episodeId = Guid.NewGuid();
         var cacheDir = EntrypointTestHelpers.CreateTempCacheDir();
-        var lineCount = (int)Math.Round((60.0 - ChromaprintConstants.HashWindowDuration) / ChromaprintConstants.SampleDuration);
-        var validLegacyPath = Path.Join(cacheDir, episode.EpisodeId.ToString("N"));
-        var staleLegacyPath = Path.Join(cacheDir, staleEpisodeId.ToString("N"));
-        string[] lines = [
-            .. Enumerable.Range(1, lineCount)
-                .Select(i => ((uint)i).ToString(CultureInfo.InvariantCulture))
-        ];
+        var legacyPath = Path.Join(cacheDir, $"{episodeId:N}-silence-10.5-20.5-v2");
 
-        File.WriteAllLines(validLegacyPath, lines);
-        File.WriteAllLines(staleLegacyPath, lines);
+        await File.WriteAllTextAsync(legacyPath, "silence_start: 1.0\nsilence_end: 2.5\n");
 
-        int migrated;
         string cacheDbPath;
         using (var scope = new CachingPluginScope(cacheDir))
         {
             cacheDbPath = scope.CacheDbPath;
-            migrated = FFmpegWrapper.MigrateLegacyDetectionCache([episode]);
+            var cacheService = CreateCacheService();
+            var key = new DetectionCacheKey(episodeId, AnalysisMode.Introduction, CacheEntryType.Silence, 10.5, 20.5);
+
+            var result = await cacheService.TryReadOrMigrateCacheAsync(
+                key,
+                DetectionCacheKind.Silence,
+                raw => FFmpegOutputParser.ParseSilenceRaw(raw, 10.5));
+
+            var silenceRange = Assert.Single(result!);
+            Assert.Equal(11.5, silenceRange.Start);
+            Assert.Equal(13.0, silenceRange.End);
         }
 
-        Assert.Equal(1, migrated);
-        Assert.False(File.Exists(validLegacyPath));
-        Assert.True(File.Exists(staleLegacyPath));
-
-        using var db = new DetectionCacheDbContext(cacheDbPath);
-        Assert.True(db.DetectionCache.Any(e => e.ItemId == episode.EpisodeId));
-        Assert.False(db.DetectionCache.Any(e => e.ItemId == staleEpisodeId));
-    }
-
-    [Fact]
-    public void MigrateLegacyDetectionCache_MigratesRecognizedDetectionFiles()
-    {
-        var episode = new QueuedEpisode
-        {
-            EpisodeId = Guid.NewGuid(),
-        };
-        var staleEpisodeId = Guid.NewGuid();
-        var cacheDir = EntrypointTestHelpers.CreateTempCacheDir();
-        var id = episode.EpisodeId.ToString("N");
-        var staleId = staleEpisodeId.ToString("N");
-
-        var silencePath = Path.Join(cacheDir, $"{id}-silence-10.5-20.5-v2");
-        var keyframesPath = Path.Join(cacheDir, $"{id}-keyframes-30.25-40.75-v1");
-        var blackframesPath = Path.Join(cacheDir, $"{id}-blackframes-100.5-120.5-v1");
-        var altBlackframesPath = Path.Join(cacheDir, $"{id}-blackframes-1560.5-alt");
-        var invalidPath = Path.Join(cacheDir, $"{id}-silence-invalid-20.5-v2");
-        var stalePath = Path.Join(cacheDir, $"{staleId}-silence-10.5-20.5-v2");
-
-        File.WriteAllText(silencePath, "silence_start: 1.0\nsilence_end: 2.5\n");
-        File.WriteAllText(keyframesPath, "[Parsed_showinfo_0 @ 0x0] n:0 pts:0 pts_time:3.25 pos:0\n");
-        File.WriteAllText(blackframesPath, "[Parsed_blackframe_0 @ 0xabc] frame:12 pblack:95 pts:1 t:12.34 type:P last_keyframe:0\n");
-        File.WriteAllText(altBlackframesPath, "[Parsed_blackframe_0 @ 0xdef] frame:34 pblack:88 pts:2 t:56.78 type:I last_keyframe:34\n");
-        File.WriteAllText(invalidPath, "silence_start: 1.0\nsilence_end: 2.5\n");
-        File.WriteAllText(stalePath, "silence_start: 1.0\nsilence_end: 2.5\n");
-
-        int migrated;
-        string cacheDbPath;
-        using (var scope = new CachingPluginScope(cacheDir))
-        {
-            cacheDbPath = scope.CacheDbPath;
-            migrated = FFmpegWrapper.MigrateLegacyDetectionCache([episode]);
-        }
-
-        Assert.Equal(4, migrated);
-        Assert.False(File.Exists(silencePath));
-        Assert.False(File.Exists(keyframesPath));
-        Assert.False(File.Exists(blackframesPath));
-        Assert.False(File.Exists(altBlackframesPath));
-        Assert.True(File.Exists(invalidPath));
-        Assert.True(File.Exists(stalePath));
+        Assert.False(File.Exists(legacyPath));
 
         using var db = new DetectionCacheDbContext(cacheDbPath);
         var modes = Enum.GetValues<AnalysisMode>();
         Assert.Equal(
             modes.Length,
-            db.DetectionCache.Count(e => e.ItemId == episode.EpisodeId && e.Type == CacheEntryType.Silence));
-        Assert.Equal(
-            modes.Length,
-            db.DetectionCache.Count(e => e.ItemId == episode.EpisodeId && e.Type == CacheEntryType.Keyframe));
+            db.DetectionCache.Count(e => e.ItemId == episodeId && e.Type == CacheEntryType.Silence));
 
         foreach (var mode in modes)
         {
             var silence = ReadDetectionCache<TimeRange>(
                 db,
-                episode.EpisodeId,
+                episodeId,
                 mode,
                 CacheEntryType.Silence,
                 10.5,
@@ -719,165 +685,7 @@ public sealed class TestCacheOperations
             var silenceRange = Assert.Single(silence);
             Assert.Equal(11.5, silenceRange.Start);
             Assert.Equal(13.0, silenceRange.End);
-
-            var keyframes = ReadDetectionCache<double>(
-                db,
-                episode.EpisodeId,
-                mode,
-                CacheEntryType.Keyframe,
-                30.25,
-                40.75);
-            var keyframe = Assert.Single(keyframes);
-            Assert.Equal(33.5, keyframe);
         }
-
-        var rangeBlackframes = ReadDetectionCache<BlackFrame>(
-            db,
-            episode.EpisodeId,
-            AnalysisMode.Credits,
-            CacheEntryType.BlackFrame,
-            100.5,
-            120.5);
-        Assert.Equal(new BlackFrame(95, 12.34, 12), Assert.Single(rangeBlackframes));
-
-        var altBlackframes = ReadDetectionCache<BlackFrame>(
-            db,
-            episode.EpisodeId,
-            AnalysisMode.Credits,
-            CacheEntryType.BlackFrame,
-            1560.5,
-            0);
-        Assert.Equal(new BlackFrame(88, 56.78, 34), Assert.Single(altBlackframes));
-
-        Assert.False(db.DetectionCache.Any(e => e.ItemId == staleEpisodeId));
-    }
-
-    [Fact]
-    public void MigrateLegacyDetectionCache_LeavesInvalidDetectionFilenamesUntouched()
-    {
-        var episode = new QueuedEpisode
-        {
-            EpisodeId = Guid.NewGuid(),
-        };
-        var cacheDir = EntrypointTestHelpers.CreateTempCacheDir();
-        var id = episode.EpisodeId.ToString("N");
-        string[] invalidPaths = [
-            Path.Join(cacheDir, $"{id}-silence-10.5-v2"),
-            Path.Join(cacheDir, $"{id}-silence-10.5-20.5-v1"),
-            Path.Join(cacheDir, $"{id}-unknown-10.5-20.5-v2"),
-            Path.Join(cacheDir, $"{id}-silence-invalid-20.5-v2"),
-            Path.Join(cacheDir, $"{id.ToUpperInvariant()}-silence-10.5-20.5-v2"),
-            Path.Join(cacheDir, $"{Guid.NewGuid():D}-silence-10.5-20.5-v2"),
-        ];
-
-        foreach (var path in invalidPaths)
-        {
-            File.WriteAllText(path, "silence_start: 1.0\nsilence_end: 2.5\n");
-        }
-
-        int migrated;
-        string cacheDbPath;
-        using (var scope = new CachingPluginScope(cacheDir))
-        {
-            cacheDbPath = scope.CacheDbPath;
-            migrated = FFmpegWrapper.MigrateLegacyDetectionCache([episode]);
-        }
-
-        Assert.Equal(0, migrated);
-        Assert.All(invalidPaths, path => Assert.True(File.Exists(path)));
-
-        using var db = new DetectionCacheDbContext(cacheDbPath);
-        Assert.False(db.DetectionCache.Any(e => e.ItemId == episode.EpisodeId));
-    }
-
-    [Fact]
-    public void MigrateLegacyDetectionCache_MigratesMovieIntroductionWhenRangePresent()
-    {
-        var episode = new QueuedEpisode
-        {
-            EpisodeId = Guid.NewGuid(),
-            Category = QueuedMediaCategory.Movie,
-            IntroFingerprintEnd = 60,
-        };
-        var cacheDir = EntrypointTestHelpers.CreateTempCacheDir();
-        var lineCount = (int)Math.Round((60.0 - ChromaprintConstants.HashWindowDuration) / ChromaprintConstants.SampleDuration);
-        var legacyPath = Path.Join(cacheDir, episode.EpisodeId.ToString("N"));
-        string[] lines = [
-            .. Enumerable.Range(1, lineCount)
-                .Select(i => ((uint)i).ToString(CultureInfo.InvariantCulture))
-        ];
-
-        File.WriteAllLines(legacyPath, lines);
-
-        int migrated;
-        string cacheDbPath;
-        using (var scope = new CachingPluginScope(cacheDir))
-        {
-            cacheDbPath = scope.CacheDbPath;
-            migrated = FFmpegWrapper.MigrateLegacyDetectionCache([episode]);
-        }
-
-        Assert.Equal(1, migrated);
-        Assert.False(File.Exists(legacyPath));
-
-        using var db = new DetectionCacheDbContext(cacheDbPath);
-        Assert.True(db.DetectionCache.Any(e =>
-            e.ItemId == episode.EpisodeId &&
-            e.Mode == AnalysisMode.Introduction &&
-            e.Type == CacheEntryType.Chromaprint));
-    }
-
-    [Fact]
-    public void MigrateLegacyDetectionCache_DeletesLegacyFileWhenCurrentRangeInvalid()
-    {
-        var episode = new QueuedEpisode
-        {
-            EpisodeId = Guid.NewGuid(),
-            IntroFingerprintEnd = 0,
-        };
-        var cacheDir = EntrypointTestHelpers.CreateTempCacheDir();
-        var legacyPath = Path.Join(cacheDir, episode.EpisodeId.ToString("N"));
-
-        File.WriteAllText(legacyPath, "1");
-
-        int migrated;
-        string cacheDbPath;
-        using (var scope = new CachingPluginScope(cacheDir))
-        {
-            cacheDbPath = scope.CacheDbPath;
-            migrated = FFmpegWrapper.MigrateLegacyDetectionCache([episode]);
-        }
-
-        Assert.Equal(0, migrated);
-        Assert.False(File.Exists(legacyPath));
-
-        using var db = new DetectionCacheDbContext(cacheDbPath);
-        Assert.False(db.DetectionCache.Any(e => e.ItemId == episode.EpisodeId));
-    }
-
-    [Fact]
-    public void MigrateLegacyDetectionCache_DoesNothingWhenChromaprintFolderMissing()
-    {
-        var missingCacheDir = Path.Join(
-            Path.GetTempPath(),
-            "IntroSkipper.Tests",
-            "chromaprints",
-            Guid.NewGuid().ToString("N"));
-        var cacheDbPath = Path.Join(Path.GetTempPath(), Guid.NewGuid().ToString("N") + "-cache.db");
-        var episode = new QueuedEpisode
-        {
-            EpisodeId = Guid.NewGuid(),
-            IntroFingerprintEnd = 60,
-        };
-
-        int migrated;
-        using (new CachingPluginScope(missingCacheDir, cacheDbPath))
-        {
-            migrated = FFmpegWrapper.MigrateLegacyDetectionCache([episode]);
-        }
-
-        Assert.Equal(0, migrated);
-        Assert.False(Directory.Exists(missingCacheDir));
     }
 
     [Theory]
@@ -899,12 +707,16 @@ public sealed class TestCacheOperations
             new PluginConfiguration { CacheCompressionLevel = level });
 
         uint[] original = [1u, 2u, 3u, 100u, 200u, 42u];
-        var compressed = FFmpegWrapper.CompressBrotli(original);
-        var decompressed = FFmpegWrapper.DecompressBrotli<uint[]>(compressed);
+        var compressed = CreateCacheService().CompressBrotli(original);
+        var decompressed = CreateCacheService().DecompressBrotli<uint[]>(compressed);
 
         Assert.NotNull(decompressed);
         Assert.Equal(original, decompressed);
     }
+
+    private static DetectionCacheService CreateCacheService() => TestServiceFactory.CreateCacheService();
+
+    private static IMediaDetectionService CreateDetectionService() => TestServiceFactory.CreateDetectionService();
 
     private static uint[] ReadFingerprintFromDb(DetectionCacheDbContext db, Guid itemId, AnalysisMode mode)
     {
@@ -918,7 +730,7 @@ public sealed class TestCacheOperations
             return [];
         }
 
-        var result = FFmpegWrapper.DecompressBrotli<uint[]>(entry.Data);
+        var result = CreateCacheService().DecompressBrotli<uint[]>(entry.Data);
         return result ?? [];
     }
 
@@ -942,7 +754,7 @@ public sealed class TestCacheOperations
             return [];
         }
 
-        var result = FFmpegWrapper.DecompressBrotli<T[]>(entry.Data);
+        var result = CreateCacheService().DecompressBrotli<T[]>(entry.Data);
         return result ?? [];
     }
 

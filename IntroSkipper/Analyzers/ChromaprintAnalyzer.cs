@@ -7,6 +7,7 @@
 using System.Numerics;
 using IntroSkipper.Configuration;
 using IntroSkipper.Data;
+using IntroSkipper.FFmpeg;
 using Microsoft.Extensions.Logging;
 
 namespace IntroSkipper.Analyzers;
@@ -15,10 +16,14 @@ namespace IntroSkipper.Analyzers;
 /// Initializes a new instance of the <see cref="ChromaprintAnalyzer"/> class.
 /// </summary>
 /// <param name="logger">Logger.</param>
-public partial class ChromaprintAnalyzer(ILogger<ChromaprintAnalyzer> logger) : IMediaFileAnalyzer
+/// <param name="detectionService">Media detection service.</param>
+/// <param name="cacheService">Detection cache service.</param>
+public partial class ChromaprintAnalyzer(ILogger<ChromaprintAnalyzer> logger, IMediaDetectionService detectionService, IDetectionCacheService cacheService) : IMediaFileAnalyzer
 {
     private readonly PluginConfiguration _config = Plugin.Instance?.Configuration ?? new PluginConfiguration();
     private readonly ILogger<ChromaprintAnalyzer> _logger = logger;
+    private readonly IMediaDetectionService _detectionService = detectionService;
+    private readonly IDetectionCacheService _cacheService = cacheService;
     private readonly Dictionary<Guid, Dictionary<uint, int>> _invertedIndexCache = [];
     private AnalysisMode _analysisMode;
 
@@ -30,9 +35,16 @@ public partial class ChromaprintAnalyzer(ILogger<ChromaprintAnalyzer> logger) : 
     {
         // Episodes that need analysis (not yet analyzed or not user-provided) plus already-analyzed
         // episodes that still have a fingerprint cache and can be re-analyzed.
-        var episodeAnalysisQueue = analysisQueue.Where(e =>
-            e.NeedsAnalysis(mode) ||
-            (e.GetAnalyzed(mode) == EpisodeState.Analyzed && FFmpegWrapper.HasCachedFingerprint(e, mode))).ToList();
+        var episodeAnalysisQueue = new List<QueuedEpisode>();
+        foreach (var episode in analysisQueue)
+        {
+            if (episode.NeedsAnalysis(mode) ||
+                (episode.GetAnalyzed(mode) == EpisodeState.Analyzed &&
+                    await _cacheService.HasCachedFingerprintAsync(episode, mode, cancellationToken).ConfigureAwait(false)))
+            {
+                episodeAnalysisQueue.Add(episode);
+            }
+        }
 
         if (analysisQueue.Count <= 1 || episodeAnalysisQueue.All(e => e.GetAnalyzed(mode) == EpisodeState.Analyzed))
         {
@@ -41,7 +53,7 @@ public partial class ChromaprintAnalyzer(ILogger<ChromaprintAnalyzer> logger) : 
 
         _analysisMode = mode;
 
-        var timeAdjustmentHelper = new TimeAdjustmentHelper(_logger, _config, mode);
+        var timeAdjustmentHelper = new TimeAdjustmentHelper(_logger, _config, mode, _detectionService);
 
         // All intros for this season.
         var seasonIntros = new Dictionary<Guid, Segment>();
@@ -62,7 +74,7 @@ public partial class ChromaprintAnalyzer(ILogger<ChromaprintAnalyzer> logger) : 
         {
             try
             {
-                fingerprintCache[episode.EpisodeId] = FFmpegWrapper.Fingerprint(episode, mode);
+                fingerprintCache[episode.EpisodeId] = await _detectionService.FingerprintAsync(episode, mode, cancellationToken).ConfigureAwait(false);
 
                 if (cancellationToken.IsCancellationRequested)
                 {
@@ -149,7 +161,7 @@ public partial class ChromaprintAnalyzer(ILogger<ChromaprintAnalyzer> logger) : 
             // If an intro is found for this episode, adjust its times and save it else add it to the list of episodes without intros.
             if (seasonIntros.TryGetValue(currentEpisode.EpisodeId, out var intro))
             {
-                var adjustedIntro = timeAdjustmentHelper.AdjustIntroTimes(currentEpisode, intro);
+                var adjustedIntro = await timeAdjustmentHelper.AdjustIntroTimesAsync(currentEpisode, intro, cancellationToken: cancellationToken).ConfigureAwait(false);
                 currentEpisode.SetAnalyzed(mode, EpisodeState.Analyzed);
                 await Plugin.Instance!.UpdateTimestampAsync(adjustedIntro, mode, cancellationToken: cancellationToken).ConfigureAwait(false);
             }
@@ -317,7 +329,7 @@ public partial class ChromaprintAnalyzer(ILogger<ChromaprintAnalyzer> logger) : 
             var diff = lhs[lhsPosition] ^ rhs[rhsPosition];
 
             // If the difference between the samples is small, flag both times as similar.
-            if (CountBits(diff) > _config.MaximumFingerprintPointDifferences)
+            if (BitOperations.PopCount(diff) > _config.MaximumFingerprintPointDifferences)
             {
                 continue;
             }
@@ -372,16 +384,6 @@ public partial class ChromaprintAnalyzer(ILogger<ChromaprintAnalyzer> logger) : 
         _invertedIndexCache[id] = invIndex;
 
         return invIndex;
-    }
-
-    /// <summary>
-    /// Count the number of bits that are set in the provided number.
-    /// </summary>
-    /// <param name="number">Number to count bits in.</param>
-    /// <returns>Number of bits that are equal to 1.</returns>
-    public static int CountBits(uint number)
-    {
-        return BitOperations.PopCount(number);
     }
 
     [LoggerMessage(Level = LogLevel.Debug, Message = "Caught fingerprint error")]

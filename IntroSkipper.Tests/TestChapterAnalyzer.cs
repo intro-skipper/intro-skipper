@@ -4,7 +4,6 @@
 // SPDX-FileCopyrightText: 2024-2026 AbandonedCart
 // SPDX-License-Identifier: GPL-3.0-only
 
-namespace IntroSkipper.Tests;
 
 using System;
 using System.Collections.Generic;
@@ -15,6 +14,7 @@ using MediaBrowser.Model.Entities;
 using Microsoft.Extensions.Logging;
 using Xunit;
 
+namespace IntroSkipper.Tests;
 public class TestChapterAnalyzer
 {
     [Theory]
@@ -52,7 +52,7 @@ public class TestChapterAnalyzer
     private Segment? FindChapter(Collection<ChapterInfo> chapters, AnalysisMode mode)
     {
         var logger = new LoggerFactory().CreateLogger<ChapterAnalyzer>();
-        var analyzer = new ChapterAnalyzer(logger);
+        var analyzer = new ChapterAnalyzer(logger, TestServiceFactory.CreateDetectionService());
 
         var config = new Configuration.PluginConfiguration();
         var expression = mode == AnalysisMode.Introduction ?

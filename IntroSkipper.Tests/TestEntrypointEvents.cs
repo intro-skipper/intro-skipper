@@ -9,7 +9,9 @@ using System.IO;
 using System.Reflection;
 using System.Runtime.Serialization;
 using System.Text;
+using System.Threading.Tasks;
 using IntroSkipper.Configuration;
+using IntroSkipper.FFmpeg;
 using IntroSkipper.Services;
 using MediaBrowser.Controller.Entities.Movies;
 using MediaBrowser.Controller.Entities.TV;
@@ -18,6 +20,7 @@ using MediaBrowser.Model.Entities;
 using MediaBrowser.Model.Plugins;
 using MediaBrowser.Model.Tasks;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 using Xunit;
 
 namespace IntroSkipper.Tests;
@@ -151,7 +154,7 @@ public sealed class TestEntrypointEvents
 public sealed class TestFingerprintCacheDeletionOnRemove
 {
     [Fact]
-    public void DeletesFingerprintCache_OnMovieRemoval_WhenAutoDetectEnabled()
+    public async Task DeletesFingerprintCache_OnMovieRemoval_WhenAutoDetectEnabled()
     {
         var removedId = Guid.NewGuid();
         var otherId = Guid.NewGuid();
@@ -165,10 +168,10 @@ public sealed class TestFingerprintCacheDeletionOnRemove
         var file3 = Path.Combine(cacheDir, removedBaseName + "-blackframes-0-10-v1");
         var otherFile = Path.Combine(cacheDir, otherBaseName);
 
-        File.WriteAllText(file1, "x");
-        File.WriteAllText(file2, "x");
-        File.WriteAllText(file3, "x");
-        File.WriteAllText(otherFile, "x");
+        await File.WriteAllTextAsync(file1, "x");
+        await File.WriteAllTextAsync(file2, "x");
+        await File.WriteAllTextAsync(file3, "x");
+        await File.WriteAllTextAsync(otherFile, "x");
 
         var entrypoint = EntrypointTestHelpers.CreateEntrypoint(autoDetectIntros: true);
 
@@ -181,7 +184,7 @@ public sealed class TestFingerprintCacheDeletionOnRemove
         var args = EntrypointTestHelpers.CreateItemChangeEventArgs(item: movie, updateReason: 0);
         using (new EntrypointTestHelpers.PluginInstanceScope(cacheDir))
         {
-            EntrypointTestHelpers.InvokePrivate(entrypoint, "OnItemRemoved", args);
+            await EntrypointTestHelpers.InvokePrivateAsync(entrypoint, "OnItemRemovedAsync", args);
         }
 
         Assert.False(File.Exists(file1));
@@ -191,7 +194,7 @@ public sealed class TestFingerprintCacheDeletionOnRemove
     }
 
     [Fact]
-    public void DoesNotDeleteFingerprintCache_OnMovieRemoval_WhenAutoDetectDisabled()
+    public async Task DoesNotDeleteFingerprintCache_OnMovieRemoval_WhenAutoDetectDisabled()
     {
         var removedId = Guid.NewGuid();
         var removedBaseName = removedId.ToString("N");
@@ -200,8 +203,8 @@ public sealed class TestFingerprintCacheDeletionOnRemove
         var file1 = Path.Combine(cacheDir, removedBaseName);
         var file2 = Path.Combine(cacheDir, removedBaseName + "-credits");
 
-        File.WriteAllText(file1, "x");
-        File.WriteAllText(file2, "x");
+        await File.WriteAllTextAsync(file1, "x");
+        await File.WriteAllTextAsync(file2, "x");
 
         var entrypoint = EntrypointTestHelpers.CreateEntrypoint(autoDetectIntros: false);
 
@@ -214,7 +217,7 @@ public sealed class TestFingerprintCacheDeletionOnRemove
         var args = EntrypointTestHelpers.CreateItemChangeEventArgs(item: movie, updateReason: 0);
         using (new EntrypointTestHelpers.PluginInstanceScope(cacheDir))
         {
-            EntrypointTestHelpers.InvokePrivate(entrypoint, "OnItemRemoved", args);
+            await EntrypointTestHelpers.InvokePrivateAsync(entrypoint, "OnItemRemovedAsync", args);
         }
 
         Assert.True(File.Exists(file1));
@@ -222,14 +225,14 @@ public sealed class TestFingerprintCacheDeletionOnRemove
     }
 
     [Fact]
-    public void DoesNotDeleteFingerprintCache_WhenIdIsEmpty()
+    public async Task DoesNotDeleteFingerprintCache_WhenIdIsEmpty()
     {
         var removedId = Guid.Empty;
         var removedBaseName = removedId.ToString("N");
 
         var cacheDir = EntrypointTestHelpers.CreateTempCacheDir();
         var file1 = Path.Combine(cacheDir, removedBaseName);
-        File.WriteAllText(file1, "x");
+        await File.WriteAllTextAsync(file1, "x");
 
         var entrypoint = EntrypointTestHelpers.CreateEntrypoint(autoDetectIntros: true);
 
@@ -242,7 +245,7 @@ public sealed class TestFingerprintCacheDeletionOnRemove
         var args = EntrypointTestHelpers.CreateItemChangeEventArgs(item: movie, updateReason: 0);
         using (new EntrypointTestHelpers.PluginInstanceScope(cacheDir))
         {
-            EntrypointTestHelpers.InvokePrivate(entrypoint, "OnItemRemoved", args);
+            await EntrypointTestHelpers.InvokePrivateAsync(entrypoint, "OnItemRemovedAsync", args);
         }
 
         Assert.True(File.Exists(file1));
@@ -261,18 +264,15 @@ internal static class EntrypointTestHelpers
         var loggerFactory = LoggerFactory.Create(builder => { });
         var logger = loggerFactory.CreateLogger<Entrypoint>();
 
-#pragma warning disable SYSLIB0050 // FormatterServices is obsolete; used only for test scaffolding.
-        var mediaSegmentUpdateManager = (IntroSkipper.Manager.MediaSegmentUpdateManager)FormatterServices.GetUninitializedObject(typeof(IntroSkipper.Manager.MediaSegmentUpdateManager));
-#pragma warning restore SYSLIB0050
-
         var entrypoint = new Entrypoint(
             libraryManager: null!,
-            providerManager: null!,
-            fileSystem: null!,
             taskManager: null!,
             logger: logger,
-            loggerFactory: loggerFactory,
-            mediaSegmentUpdateManager: mediaSegmentUpdateManager);
+            capabilityService: null!,
+            cacheService: new DetectionCacheService(
+                new PluginFFmpegOptionsProvider(),
+                NullLogger<DetectionCacheService>.Instance),
+            analyzerTaskFactory: null!);
 
         SetPrivateField(entrypoint, "_config", new PluginConfiguration { AutoDetectIntros = autoDetectIntros });
         return entrypoint;
@@ -316,6 +316,14 @@ internal static class EntrypointTestHelpers
         var method = typeof(Entrypoint).GetMethod(methodName, BindingFlags.Instance | BindingFlags.NonPublic);
         Assert.NotNull(method);
         method!.Invoke(entrypoint, [null, arg]);
+    }
+
+    internal static async Task InvokePrivateAsync(Entrypoint entrypoint, string methodName, object arg)
+    {
+        var method = typeof(Entrypoint).GetMethod(methodName, BindingFlags.Instance | BindingFlags.NonPublic);
+        Assert.NotNull(method);
+        var task = Assert.IsAssignableFrom<Task>(method!.Invoke(entrypoint, [arg]));
+        await task;
     }
 
     internal static object GetPrivateField(object instance, string fieldName)

@@ -8,6 +8,7 @@ using System.Globalization;
 using System.Text.RegularExpressions;
 using IntroSkipper.Configuration;
 using IntroSkipper.Data;
+using IntroSkipper.FFmpeg;
 using MediaBrowser.Model.Entities;
 using Microsoft.Extensions.Logging;
 
@@ -20,9 +21,11 @@ namespace IntroSkipper.Analyzers;
 /// Initializes a new instance of the <see cref="ChapterAnalyzer"/> class.
 /// </remarks>
 /// <param name="logger">Logger.</param>
-public partial class ChapterAnalyzer(ILogger<ChapterAnalyzer> logger) : IMediaFileAnalyzer
+/// <param name="detectionService">Media detection service.</param>
+public partial class ChapterAnalyzer(ILogger<ChapterAnalyzer> logger, IMediaDetectionService detectionService) : IMediaFileAnalyzer
 {
     private readonly ILogger<ChapterAnalyzer> _logger = logger;
+    private readonly IMediaDetectionService _detectionService = detectionService;
     private readonly PluginConfiguration _config = Plugin.Instance?.Configuration ?? new PluginConfiguration();
 
     /// <inheritdoc />
@@ -46,7 +49,7 @@ public partial class ChapterAnalyzer(ILogger<ChapterAnalyzer> logger) : IMediaFi
             return analysisQueue;
         }
 
-        var timeAdjustmentHelper = new TimeAdjustmentHelper(_logger, _config, mode);
+        var timeAdjustmentHelper = new TimeAdjustmentHelper(_logger, _config, mode, _detectionService);
 
         var episodesWithoutIntros = analysisQueue.Where(e => e.NeedsAnalysis(mode)).ToList();
 
@@ -68,7 +71,7 @@ public partial class ChapterAnalyzer(ILogger<ChapterAnalyzer> logger) : IMediaFi
                 continue;
             }
 
-            skipRange = timeAdjustmentHelper.AdjustIntroTimes(episode, skipRange, false);
+            skipRange = await timeAdjustmentHelper.AdjustIntroTimesAsync(episode, skipRange, false, cancellationToken).ConfigureAwait(false);
 
             episode.SetAnalyzed(mode, EpisodeState.Analyzed);
             await Plugin.Instance!.UpdateTimestampAsync(skipRange, mode, cancellationToken: cancellationToken).ConfigureAwait(false);

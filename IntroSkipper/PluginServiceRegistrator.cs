@@ -3,9 +3,11 @@
 // SPDX-FileCopyrightText: 2024-2026 AbandonedCart
 // SPDX-License-Identifier: GPL-3.0-only
 
+using IntroSkipper.FFmpeg;
 using IntroSkipper.Filters;
 using IntroSkipper.Manager;
 using IntroSkipper.Providers;
+using IntroSkipper.ScheduledTasks;
 using IntroSkipper.Services;
 using MediaBrowser.Controller;
 using MediaBrowser.Controller.MediaSegments;
@@ -26,11 +28,19 @@ namespace IntroSkipper
             serviceCollection.AddHostedService<Entrypoint>();
             serviceCollection.AddSingleton<IMediaSegmentProvider, SegmentProvider>();
             serviceCollection.AddTransient<MediaSegmentUpdateManager>();
+            serviceCollection.AddTransient<BaseItemAnalyzerTaskFactory>();
             serviceCollection.AddSingleton<MediaSegmentsFirstEpisodeFilter>();
             serviceCollection.Configure<MvcOptions>(options =>
             {
                 options.Conventions.Add(new MediaSegmentsFilterConvention());
             });
+
+            // FFmpeg services
+            serviceCollection.AddSingleton<IFFmpegOptionsProvider, PluginFFmpegOptionsProvider>();
+            serviceCollection.AddSingleton<IFFmpegRunner, FFmpegRunner>();
+            serviceCollection.AddSingleton<IDetectionCacheService, DetectionCacheService>();
+            serviceCollection.AddSingleton<IMediaDetectionService, MediaDetectionService>();
+            serviceCollection.AddSingleton<IFFmpegCapabilityService, FFmpegCapabilityService>();
         }
     }
 }

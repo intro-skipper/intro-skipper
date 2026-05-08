@@ -8,16 +8,14 @@ using System.Diagnostics.CodeAnalysis;
 using System.Reflection;
 using System.Runtime.Loader;
 using IntroSkipper.Configuration;
+using IntroSkipper.FFmpeg;
 using IntroSkipper.Helper;
-using IntroSkipper.Manager;
 using IntroSkipper.ScheduledTasks;
 using MediaBrowser.Controller.Entities;
 using MediaBrowser.Controller.Entities.Movies;
 using MediaBrowser.Controller.Entities.TV;
 using MediaBrowser.Controller.Library;
-using MediaBrowser.Controller.Providers;
 using MediaBrowser.Model.Entities;
-using MediaBrowser.Model.IO;
 using MediaBrowser.Model.Plugins;
 using MediaBrowser.Model.Tasks;
 using Microsoft.Extensions.Hosting;
@@ -33,11 +31,10 @@ namespace IntroSkipper.Services
     {
         private readonly ITaskManager _taskManager;
         private readonly ILibraryManager _libraryManager;
-        private readonly IProviderManager _providerManager;
-        private readonly IFileSystem _fileSystem;
         private readonly ILogger<Entrypoint> _logger;
-        private readonly ILoggerFactory _loggerFactory;
-        private readonly MediaSegmentUpdateManager _mediaSegmentUpdateManager;
+        private readonly IFFmpegCapabilityService _capabilityService;
+        private readonly IDetectionCacheService _cacheService;
+        private readonly BaseItemAnalyzerTaskFactory _analyzerTaskFactory;
         private readonly HashSet<Guid> _seasonsToAnalyze = [];
         private readonly object _seasonsLock = new();
         private readonly Timer _queueTimer;
@@ -50,28 +47,25 @@ namespace IntroSkipper.Services
         /// Initializes a new instance of the <see cref="Entrypoint"/> class.
         /// </summary>
         /// <param name="libraryManager">Library manager.</param>
-        /// <param name="providerManager">Provider manager.</param>
-        /// <param name="fileSystem">File system.</param>
         /// <param name="taskManager">Task manager.</param>
         /// <param name="logger">Logger.</param>
-        /// <param name="loggerFactory">Logger factory.</param>
-        /// <param name="mediaSegmentUpdateManager">Media segment update manager.</param>
+        /// <param name="capabilityService">FFmpeg capability service.</param>
+        /// <param name="cacheService">Detection cache service.</param>
+        /// <param name="analyzerTaskFactory">Analyzer task factory.</param>
         public Entrypoint(
             ILibraryManager libraryManager,
-            IProviderManager providerManager,
-            IFileSystem fileSystem,
             ITaskManager taskManager,
             ILogger<Entrypoint> logger,
-            ILoggerFactory loggerFactory,
-            MediaSegmentUpdateManager mediaSegmentUpdateManager)
+            IFFmpegCapabilityService capabilityService,
+            IDetectionCacheService cacheService,
+            BaseItemAnalyzerTaskFactory analyzerTaskFactory)
         {
             _libraryManager = libraryManager;
-            _providerManager = providerManager;
-            _fileSystem = fileSystem;
             _taskManager = taskManager;
             _logger = logger;
-            _loggerFactory = loggerFactory;
-            _mediaSegmentUpdateManager = mediaSegmentUpdateManager;
+            _capabilityService = capabilityService;
+            _cacheService = cacheService;
+            _analyzerTaskFactory = analyzerTaskFactory;
 
             _config = Plugin.Instance?.Configuration ?? new PluginConfiguration();
             _queueTimer = new Timer(
@@ -107,8 +101,7 @@ namespace IntroSkipper.Services
             _taskManager.TaskCompleted += OnLibraryRefresh;
             Plugin.Instance!.ConfigurationChanged += OnSettingsChanged;
 
-            FFmpegWrapper.Logger = _logger;
-            FFmpegWrapper.CheckFFmpegVersion();
+            _capabilityService.CheckFFmpegVersion();
 
             // Initialize web injector for skip button timeout modification
             if (_config.FileTransformationPluginEnabled == true)
@@ -201,6 +194,9 @@ namespace IntroSkipper.Services
         /// <param name="sender">The sending entity.</param>
         /// <param name="itemChangeEventArgs">The <see cref="ItemChangeEventArgs"/>.</param>
         private void OnItemRemoved(object? sender, ItemChangeEventArgs itemChangeEventArgs)
+            => _ = OnItemRemovedAsync(itemChangeEventArgs);
+
+        private async Task OnItemRemovedAsync(ItemChangeEventArgs itemChangeEventArgs)
         {
             try
             {
@@ -222,7 +218,7 @@ namespace IntroSkipper.Services
                 }
 
                 LogMediaItemRemoved(id.Value);
-                FFmpegWrapper.DeleteFingerprintCache(id.Value);
+                await _cacheService.DeleteFingerprintCacheAsync(id.Value).ConfigureAwait(false);
             }
             catch (Exception ex)
             {
@@ -344,7 +340,7 @@ namespace IntroSkipper.Services
 
                         _analyzeAgain = false;
 
-                        var analyzer = new BaseItemAnalyzerTask(_loggerFactory.CreateLogger<Entrypoint>(), _loggerFactory, _libraryManager, _providerManager, _fileSystem, _mediaSegmentUpdateManager);
+                        var analyzer = _analyzerTaskFactory.Create(_logger);
                         await analyzer.AnalyzeItemsAsync(new Progress<double>(), cts.Token, seasonIds).ConfigureAwait(false);
 
                         if (_analyzeAgain && !cts.IsCancellationRequested)
