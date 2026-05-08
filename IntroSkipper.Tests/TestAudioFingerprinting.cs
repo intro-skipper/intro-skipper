@@ -11,8 +11,10 @@
 using System;
 using System.Collections.Generic;
 using System.Numerics;
+using System.Threading;
 using System.Threading.Tasks;
 using IntroSkipper.Analyzers;
+using IntroSkipper.Configuration;
 using IntroSkipper.Data;
 using IntroSkipper.FFmpeg;
 using Microsoft.Extensions.Logging;
@@ -97,6 +99,27 @@ public class TestAudioFingerprinting
         Assert.Equal(expected, actual);
     }
 
+    [Fact]
+    public async Task AnalyzeMediaFiles_ContinuesWhenFingerprintingTimesOut()
+    {
+        WarningManager.Clear();
+
+        using var pluginScope = new EntrypointTestHelpers.PluginInstanceScope(EntrypointTestHelpers.CreateTempCacheDir());
+        EntrypointTestHelpers.SetPropertyOrField(Plugin.Instance!, "Configuration", new PluginConfiguration());
+        var analyzer = CreateChromaprintAnalyzer(new FailingMediaDetectionService(
+            fingerprintException: new TimeoutException("FFmpeg process timed out before completing media detection.")));
+        var episodes = new[]
+        {
+            QueueEpisode("episode1.mkv"),
+            QueueEpisode("episode2.mkv"),
+        };
+
+        var result = await analyzer.AnalyzeMediaFiles(episodes, AnalysisMode.Introduction, CancellationToken.None);
+
+        Assert.Same(episodes, result);
+        Assert.Contains(nameof(PluginWarning.InvalidChromaprintFingerprint), WarningManager.GetWarnings(), StringComparison.Ordinal);
+    }
+
     [FactSkipFFmpegTests]
     public async Task TestIntroDetection()
     {
@@ -163,10 +186,14 @@ public class TestAudioFingerprinting
     private static IMediaDetectionService CreateDetectionService() => TestServiceFactory.CreateDetectionService();
 
     private static ChromaprintAnalyzer CreateChromaprintAnalyzer()
+        => CreateChromaprintAnalyzer(TestServiceFactory.CreateDetectionService());
+
+    private static ChromaprintAnalyzer CreateChromaprintAnalyzer(IMediaDetectionService detectionService)
     {
         var logger = new LoggerFactory().CreateLogger<ChromaprintAnalyzer>();
-        return new(logger, TestServiceFactory.CreateDetectionService(), TestServiceFactory.CreateCacheService());
+        return new(logger, detectionService, TestServiceFactory.CreateCacheService());
     }
+
 }
 
 public sealed class FactSkipFFmpegTests : FactAttribute

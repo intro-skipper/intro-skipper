@@ -11,8 +11,17 @@ namespace IntroSkipper.Tests;
 
 internal sealed class FailingMediaDetectionService : IMediaDetectionService
 {
+    private readonly Exception? _fingerprintException;
+    private readonly Exception? _keyframeException;
+
+    public FailingMediaDetectionService(Exception? fingerprintException = null, Exception? keyframeException = null)
+    {
+        _fingerprintException = fingerprintException;
+        _keyframeException = keyframeException;
+    }
+
     public Task<uint[]> FingerprintAsync(QueuedEpisode episode, AnalysisMode mode, CancellationToken cancellationToken = default)
-        => throw CreateException();
+        => throw _fingerprintException ?? CreateException();
 
     public Task<TimeRange[]> DetectSilenceAsync(QueuedEpisode episode, TimeRange range, AnalysisMode mode, CancellationToken cancellationToken = default)
         => throw CreateException();
@@ -30,7 +39,7 @@ internal sealed class FailingMediaDetectionService : IMediaDetectionService
         => throw CreateException();
 
     public Task<double[]> DetectKeyFramesAsync(QueuedEpisode episode, TimeRange range, AnalysisMode mode, CancellationToken cancellationToken = default)
-        => throw CreateException();
+        => throw _keyframeException ?? CreateException();
 
     private static InvalidOperationException CreateException()
         => new("This test helper was created without a media detection service. Provide a test double for paths that call media detection.");

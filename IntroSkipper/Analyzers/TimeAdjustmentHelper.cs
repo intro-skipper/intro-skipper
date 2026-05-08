@@ -213,8 +213,16 @@ public partial class TimeAdjustmentHelper(ILogger logger, PluginConfiguration co
     /// </summary>
     private async Task<double> SnapToNearestKeyframeAsync(QueuedEpisode episode, double time, TimeRange searchRange, CancellationToken cancellationToken)
     {
-        var keyframes = await _detectionService.DetectKeyFramesAsync(episode, searchRange, _mode, cancellationToken).ConfigureAwait(false);
-        return SelectNearest(keyframes, time);
+        try
+        {
+            var keyframes = await _detectionService.DetectKeyFramesAsync(episode, searchRange, _mode, cancellationToken).ConfigureAwait(false);
+            return SelectNearest(keyframes, time);
+        }
+        catch (TimeoutException ex)
+        {
+            LogErrorDetectingKeyframes(_logger, episode.EpisodeId, episode.Name, ex.Message);
+            return time;
+        }
     }
 
     /// <summary>
@@ -276,4 +284,7 @@ public partial class TimeAdjustmentHelper(ILogger logger, PluginConfiguration co
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "{EpisodeId} {Name}: Error detecting silence: {Error}")]
     private static partial void LogErrorDetectingSilence(ILogger logger, Guid episodeId, string name, string error);
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "{EpisodeId} {Name}: Error detecting keyframes: {Error}")]
+    private static partial void LogErrorDetectingKeyframes(ILogger logger, Guid episodeId, string name, string error);
 }

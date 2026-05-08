@@ -15,7 +15,10 @@ namespace IntroSkipper.Tests;
 
 public class TestTimeAdjustmentHelper
 {
-    private static (TimeAdjustmentHelper helper, PluginConfiguration cfg) CreateHelper(PluginConfiguration? cfg = null, AnalysisMode mode = AnalysisMode.Introduction)
+    private static (TimeAdjustmentHelper helper, PluginConfiguration cfg) CreateHelper(
+        PluginConfiguration? cfg = null,
+        AnalysisMode mode = AnalysisMode.Introduction,
+        FailingMediaDetectionService? detectionService = null)
     {
         cfg ??= new PluginConfiguration
         {
@@ -31,7 +34,7 @@ public class TestTimeAdjustmentHelper
 
         using var loggerFactory = new NullLoggerFactory();
         var logger = loggerFactory.CreateLogger("Test");
-        return (new TimeAdjustmentHelper(logger, cfg, mode, new FailingMediaDetectionService()), cfg);
+        return (new TimeAdjustmentHelper(logger, cfg, mode, detectionService ?? new FailingMediaDetectionService()), cfg);
     }
 
     [Fact]
@@ -78,5 +81,20 @@ public class TestTimeAdjustmentHelper
 
         Assert.Equal(0, adjusted.Start); // clamped from -5 to 0 and snapped
         Assert.Equal(30, adjusted.End);  // clamped from 200 to duration before end logic kicks in
+    }
+
+    [Fact]
+    public async Task KeyframeTimeout_KeepsCurrentEnd()
+    {
+        var (helper, cfg) = CreateHelper(detectionService: new FailingMediaDetectionService(
+            keyframeException: new TimeoutException("FFmpeg process timed out before completing media detection.")));
+        cfg.SnapToKeyframe = true;
+        var episode = new QueuedEpisode { EpisodeId = Guid.NewGuid(), Duration = 60 };
+        var original = new Segment(episode.EpisodeId) { Start = 5, End = 12 };
+
+        var adjusted = await helper.AdjustIntroTimesAsync(episode, original);
+
+        Assert.Equal(5, adjusted.Start);
+        Assert.Equal(12, adjusted.End);
     }
 }
