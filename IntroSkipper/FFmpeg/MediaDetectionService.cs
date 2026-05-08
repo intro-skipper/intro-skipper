@@ -62,6 +62,7 @@ public sealed partial class MediaDetectionService : IMediaDetectionService
 
         LogFingerprinting(_logger, start, end, episode.Path, episode.EpisodeId);
         var processResult = await _runner.RunAsync(BuildArgs(), stderr: false, cancellationToken: cancellationToken).ConfigureAwait(false);
+        ThrowIfFFmpegTimedOut(processResult);
         var fingerprint = ParseChromaprintBytes(processResult.Output.AsSpan(), episode.Path);
         await _cacheService.WriteJsonCacheAsync(key, fingerprint, cancellationToken).ConfigureAwait(false);
         return fingerprint;
@@ -210,6 +211,7 @@ public sealed partial class MediaDetectionService : IMediaDetectionService
         }
 
         var processResult = await _runner.RunAsync(buildArgs(), stderr, cancellationToken: cancellationToken).ConfigureAwait(false);
+        ThrowIfFFmpegTimedOut(processResult);
         var result = parseRawOutput(DecodeOutput(processResult));
         await _cacheService.WriteJsonCacheAsync(key, result, cancellationToken).ConfigureAwait(false);
         return result;
@@ -217,6 +219,14 @@ public sealed partial class MediaDetectionService : IMediaDetectionService
 
     private static string DecodeOutput(FFmpegProcessResult result)
         => Encoding.UTF8.GetString(result.Output);
+
+    private static void ThrowIfFFmpegTimedOut(FFmpegProcessResult result)
+    {
+        if (result.ExitCode == -1)
+        {
+            throw new TimeoutException("FFmpeg process timed out before completing media detection.");
+        }
+    }
 
     private uint[] ParseChromaprintBytes(ReadOnlySpan<byte> rawPoints, string path)
     {

@@ -10,12 +10,14 @@ using System.Globalization;
 using System.IO;
 using System.IO.Compression;
 using System.Linq;
-using System.Threading.Tasks;
 using System.Text.Json;
+using System.Threading;
+using System.Threading.Tasks;
 using IntroSkipper.Configuration;
 using IntroSkipper.Data;
 using IntroSkipper.Db;
 using IntroSkipper.FFmpeg;
+using Microsoft.Extensions.Logging.Abstractions;
 using Xunit;
 
 namespace IntroSkipper.Tests;
@@ -317,6 +319,64 @@ public sealed class TestCacheOperations
         }
 
         Assert.Empty(result);
+    }
+
+    [Fact]
+    public async Task DetectSilenceAsync_DoesNotCachePartialOutputWhenFFmpegTimesOut()
+    {
+        var episode = new QueuedEpisode
+        {
+            EpisodeId = Guid.NewGuid(),
+            Path = "/does/not/matter.mkv",
+        };
+        var range = new TimeRange(0, 30);
+        var cacheDir = EntrypointTestHelpers.CreateTempCacheDir();
+
+        string cacheDbPath;
+        using (var scope = new CachingPluginScope(cacheDir))
+        {
+            cacheDbPath = scope.CacheDbPath;
+            var detectionService = CreateDetectionService(new FixedRunner("silence_start: 0\nsilence_end: 1\n", -1));
+
+            await Assert.ThrowsAsync<TimeoutException>(() =>
+                detectionService.DetectSilenceAsync(episode, range, AnalysisMode.Introduction));
+        }
+
+        using var db = new DetectionCacheDbContext(cacheDbPath);
+        Assert.False(db.DetectionCache.Any(e =>
+            e.ItemId == episode.EpisodeId &&
+            e.Mode == AnalysisMode.Introduction &&
+            e.Type == CacheEntryType.Silence &&
+            e.Start == range.Start &&
+            e.End == range.End));
+    }
+
+    [Fact]
+    public async Task FingerprintAsync_DoesNotCachePartialOutputWhenFFmpegTimesOut()
+    {
+        var episode = new QueuedEpisode
+        {
+            EpisodeId = Guid.NewGuid(),
+            Path = "/does/not/matter.mkv",
+            IntroFingerprintEnd = 30,
+        };
+        var cacheDir = EntrypointTestHelpers.CreateTempCacheDir();
+
+        string cacheDbPath;
+        using (var scope = new CachingPluginScope(cacheDir))
+        {
+            cacheDbPath = scope.CacheDbPath;
+            var detectionService = CreateDetectionService(new FixedRunner("\u0001\u0000\u0000\u0000", -1));
+
+            await Assert.ThrowsAsync<TimeoutException>(() =>
+                detectionService.FingerprintAsync(episode, AnalysisMode.Introduction));
+        }
+
+        using var db = new DetectionCacheDbContext(cacheDbPath);
+        Assert.False(db.DetectionCache.Any(e =>
+            e.ItemId == episode.EpisodeId &&
+            e.Mode == AnalysisMode.Introduction &&
+            e.Type == CacheEntryType.Chromaprint));
     }
 
     /// <summary>
@@ -718,6 +778,16 @@ public sealed class TestCacheOperations
 
     private static IMediaDetectionService CreateDetectionService() => TestServiceFactory.CreateDetectionService();
 
+    private static IMediaDetectionService CreateDetectionService(IFFmpegRunner runner)
+    {
+        var optionsProvider = new PluginFFmpegOptionsProvider();
+        return new MediaDetectionService(
+            runner,
+            new DetectionCacheService(optionsProvider, NullLogger<DetectionCacheService>.Instance),
+            optionsProvider,
+            NullLogger<MediaDetectionService>.Instance);
+    }
+
     private static uint[] ReadFingerprintFromDb(DetectionCacheDbContext db, Guid itemId, AnalysisMode mode)
     {
         var entry = db.DetectionCache.FirstOrDefault(e =>
@@ -781,5 +851,21 @@ public sealed class TestCacheOperations
         public string CacheDbPath => _inner.CacheDbPath;
 
         public void Dispose() => _inner.Dispose();
+    }
+
+    private sealed class FixedRunner(string output, int exitCode) : IFFmpegRunner
+    {
+        public FFmpegProcessResult Run(IReadOnlyList<string> args, bool stderr = false, int timeout = 60 * 1000)
+            => CreateResult();
+
+        public Task<FFmpegProcessResult> RunAsync(
+            IReadOnlyList<string> args,
+            bool stderr = false,
+            int timeout = 60 * 1000,
+            CancellationToken cancellationToken = default)
+            => Task.FromResult(CreateResult());
+
+        private FFmpegProcessResult CreateResult()
+            => new(System.Text.Encoding.UTF8.GetBytes(output), exitCode);
     }
 }
