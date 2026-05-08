@@ -17,12 +17,24 @@ internal sealed class SqlitePragmaInterceptor : DbConnectionInterceptor
     public override void ConnectionOpened(DbConnection connection, ConnectionEndEventData eventData)
     {
         using var cmd = connection.CreateCommand();
-        SqlitePragmas.Apply(cmd);
+        try
+        {
+            SqlitePragmas.Apply(cmd);
+        }
+        catch (DbException)
+        {
+        }
     }
 
     public override async Task ConnectionOpenedAsync(DbConnection connection, ConnectionEndEventData eventData, CancellationToken cancellationToken = default)
     {
         using var cmd = connection.CreateCommand();
-        await SqlitePragmas.ApplyAsync(cmd, cancellationToken).ConfigureAwait(false);
+        try
+        {
+            await SqlitePragmas.ApplyAsync(cmd, cancellationToken).ConfigureAwait(false);
+        }
+        catch (DbException)
+        {
+        }
     }
 }
