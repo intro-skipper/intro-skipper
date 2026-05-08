@@ -364,7 +364,10 @@ public sealed partial class FFmpegRunner : IFFmpegRunner
                 LogFfmpegProcessKilled(_logger);
             }
         }
-        catch (Exception ex)
+        catch (Exception ex) when (ex is InvalidOperationException or
+            Win32Exception or
+            NotSupportedException or
+            PlatformNotSupportedException)
         {
             LogFfmpegKillFailed(_logger, ex.Message);
         }

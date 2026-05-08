@@ -35,12 +35,15 @@ public partial class ChromaprintAnalyzer(ILogger<ChromaprintAnalyzer> logger, IM
     {
         // Episodes that need analysis (not yet analyzed or not user-provided) plus already-analyzed
         // episodes that still have a fingerprint cache and can be re-analyzed.
+        async Task<bool> ShouldAnalyzeEpisodeAsync(QueuedEpisode episode) =>
+            episode.NeedsAnalysis(mode) ||
+            (episode.GetAnalyzed(mode) == EpisodeState.Analyzed &&
+                await _cacheService.HasCachedFingerprintAsync(episode, mode, cancellationToken).ConfigureAwait(false));
+
         var episodeAnalysisQueue = new List<QueuedEpisode>();
         foreach (var episode in analysisQueue)
         {
-            if (episode.NeedsAnalysis(mode) ||
-                (episode.GetAnalyzed(mode) == EpisodeState.Analyzed &&
-                    await _cacheService.HasCachedFingerprintAsync(episode, mode, cancellationToken).ConfigureAwait(false)))
+            if (await ShouldAnalyzeEpisodeAsync(episode).ConfigureAwait(false))
             {
                 episodeAnalysisQueue.Add(episode);
             }

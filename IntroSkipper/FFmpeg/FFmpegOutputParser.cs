@@ -93,29 +93,20 @@ internal static partial class FFmpegOutputParser
     /// <returns>Array of detected black frames.</returns>
     internal static BlackFrame[] ParseBlackFrames(string raw)
     {
-        var blackFrames = new List<BlackFrame>();
         /* Run the blackframe filter.
          *
          * Sample output:
          * [Parsed_blackframe_0 @ 0x0000000] frame:1 pblack:99 pts:43 t:0.043000 type:B last_keyframe:0
          * [Parsed_blackframe_0 @ 0x0000000] frame:2 pblack:99 pts:85 t:0.085000 type:B last_keyframe:0
          */
-        foreach (var line in raw.Split('\n'))
-        {
-            var match = _blackFrameRegex.Match(line);
-            if (!match.Success)
-            {
-                continue;
-            }
-
-            var frame = int.Parse(match.Groups[1].Value, CultureInfo.InvariantCulture);
-            var percentage = int.Parse(match.Groups[2].Value, CultureInfo.InvariantCulture);
-            var time = double.Parse(match.Groups[3].Value, CultureInfo.InvariantCulture);
-
-            blackFrames.Add(new BlackFrame(percentage, time, frame));
-        }
-
-        return [.. blackFrames];
+        return raw.Split('\n')
+            .Select(line => _blackFrameRegex.Match(line))
+            .Where(match => match.Success)
+            .Select(match => new BlackFrame(
+                int.Parse(match.Groups[2].Value, CultureInfo.InvariantCulture),
+                double.Parse(match.Groups[3].Value, CultureInfo.InvariantCulture),
+                int.Parse(match.Groups[1].Value, CultureInfo.InvariantCulture)))
+            .ToArray();
     }
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "Failed to parse timestamp: {PtsTimeStr} from line: {Line}")]
