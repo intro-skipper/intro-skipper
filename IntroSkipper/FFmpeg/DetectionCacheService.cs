@@ -658,13 +658,11 @@ public sealed partial class DetectionCacheService : IDetectionCacheService
             var key = new DetectionCacheKey(itemId, mode, CacheEntryType.Chromaprint, start, end);
             var legacyCacheKey = GetLegacyFingerprintCacheKey(itemId, mode);
 
-            if (TryLoadLegacyCache(legacyCacheKey, filePath, key, ParseFingerprintRaw, out var result))
+            if (TryLoadLegacyCache(legacyCacheKey, filePath, key, ParseFingerprintRaw, out var result) &&
+                await WriteJsonCacheAsync(key, result, cancellationToken).ConfigureAwait(false))
             {
-                if (await WriteJsonCacheAsync(key, result, cancellationToken).ConfigureAwait(false))
-                {
-                    DeleteLegacyCacheFilePath(filePath);
-                    return true;
-                }
+                DeleteLegacyCacheFilePath(filePath);
+                return true;
             }
 
             return false;
