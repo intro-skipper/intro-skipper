@@ -8,6 +8,7 @@ import { episodeList } from "../components/episode-list.ts";
 import { actionBar } from "../components/action-bar.ts";
 import { clickableCard } from "../components/clickable-card.ts";
 import { createManageBar } from "../components/manage-bar.ts";
+import { t } from "../i18n/index.ts";
 
 export function createTimestampsBrowser(container: HTMLElement): { destroy: () => void } {
     const nav$ = createNavState();
@@ -17,7 +18,7 @@ export function createTimestampsBrowser(container: HTMLElement): { destroy: () =
     const libraryCountEls = new Map<string, HTMLElement>();
 
     const nav = breadcrumbNav({
-        segments: [{ label: "All Libraries" }],
+        segments: [{ label: t("timestamps_allLibraries") }],
         allShows: [],
         onSearchSelect: (show) => {
             void navigateToShow(show).catch(console.error);
@@ -95,13 +96,13 @@ export function createTimestampsBrowser(container: HTMLElement): { destroy: () =
                 const countEl = el(
                     "span",
                     { className: "ts-episode-runtime" },
-                    "Loading items\u2026",
+                    t("timestamps_loadingItems"),
                 );
                 libraryCountEls.set(lib.Id, countEl);
 
                 const card = clickableCard({
                     title: lib.Name,
-                    subtitle: "Loading items\u2026",
+                    subtitle: t("timestamps_loadingItems"),
                     onClick: () => {
                         void navigateToShows(lib.Id, lib.Name).catch(console.error);
                     },
@@ -121,7 +122,7 @@ export function createTimestampsBrowser(container: HTMLElement): { destroy: () =
                                 setLibraryCount(lib.Id, count);
                                 syncSearchIndex();
                             },
-                            () => setLibraryCount(lib.Id, "Unavailable"),
+                            () => setLibraryCount(lib.Id, t("timestamps_unavailable")),
                         )
                         .catch(() => []),
                 ),
@@ -130,8 +131,9 @@ export function createTimestampsBrowser(container: HTMLElement): { destroy: () =
             if (!nav$.isCurrentView(viewToken)) return;
             contentEl.append(
                 createStatusMessage(
-                    "Failed to load libraries: " +
-                        (err instanceof Error ? err.message : "Unknown error"),
+                    t("timestamps_failedToLoadLibraries", {
+                        error: err instanceof Error ? err.message : "Unknown error",
+                    }),
                     "var(--is-error)",
                 ),
             );
@@ -150,14 +152,14 @@ export function createTimestampsBrowser(container: HTMLElement): { destroy: () =
         let libShows = nav$.getCachedShows(libraryId);
 
         if (!libShows) {
-            contentEl.append(createStatusMessage("Loading shows\u2026"));
+            contentEl.append(createStatusMessage(t("timestamps_loadingShows")));
             nav$.showDashboardLoading();
             try {
                 libShows = await nav$.ensureLibraryShows(
                     libraryId,
                     libraryName,
                     (count) => setLibraryCount(libraryId, count),
-                    () => setLibraryCount(libraryId, "Unavailable"),
+                    () => setLibraryCount(libraryId, t("timestamps_unavailable")),
                 );
                 syncSearchIndex();
                 if (!nav$.isCurrentView(viewToken)) return;
@@ -167,8 +169,9 @@ export function createTimestampsBrowser(container: HTMLElement): { destroy: () =
                 contentEl.replaceChildren();
                 contentEl.append(
                     createStatusMessage(
-                        "Failed to load shows: " +
-                            (err instanceof Error ? err.message : "Unknown error"),
+                        t("timestamps_failedToLoadShows", {
+                            error: err instanceof Error ? err.message : "Unknown error",
+                        }),
                         "var(--is-error)",
                     ),
                 );
@@ -181,7 +184,7 @@ export function createTimestampsBrowser(container: HTMLElement): { destroy: () =
         if (!nav$.isCurrentView(viewToken)) return;
 
         if (!libShows || libShows.length === 0) {
-            contentEl.append(createStatusMessage("No shows found in this library."));
+            contentEl.append(createStatusMessage(t("timestamps_noShowsFound")));
             return;
         }
 
@@ -223,7 +226,7 @@ export function createTimestampsBrowser(container: HTMLElement): { destroy: () =
             if (!nav$.isCurrentView(viewToken)) return;
 
             if (seasons.length === 0) {
-                contentEl.append(createStatusMessage("No seasons found."));
+                contentEl.append(createStatusMessage(t("timestamps_noSeasonsFound")));
                 return;
             }
 
@@ -255,8 +258,9 @@ export function createTimestampsBrowser(container: HTMLElement): { destroy: () =
             if (!nav$.isCurrentView(viewToken)) return;
             contentEl.append(
                 createStatusMessage(
-                    "Failed to load seasons: " +
-                        (err instanceof Error ? err.message : "Unknown error"),
+                    t("timestamps_failedToLoadSeasons", {
+                        error: err instanceof Error ? err.message : "Unknown error",
+                    }),
                     "var(--is-error)",
                 ),
             );
@@ -279,7 +283,7 @@ export function createTimestampsBrowser(container: HTMLElement): { destroy: () =
 
         setPanelBusy(true);
         epList.clear();
-        epList.setStatus("Loading episodes\u2026");
+        epList.setStatus(t("timestamps_loadingEpisodes"));
         actions.toggle(false);
 
         nav$.showDashboardLoading();
@@ -291,7 +295,7 @@ export function createTimestampsBrowser(container: HTMLElement): { destroy: () =
             if (!nav$.isCurrentPanel(panelToken)) return;
 
             if (episodes.length === 0) {
-                epList.setStatus("No episodes found.");
+                epList.setStatus(t("timestamps_noEpisodesFound"));
                 return;
             }
 
@@ -300,8 +304,9 @@ export function createTimestampsBrowser(container: HTMLElement): { destroy: () =
         } catch (err) {
             if (!nav$.isCurrentPanel(panelToken)) return;
             epList.setStatus(
-                "Failed to load episodes: " +
-                    (err instanceof Error ? err.message : "Unknown error"),
+                t("timestamps_failedToLoadEpisodes", {
+                    error: err instanceof Error ? err.message : "Unknown error",
+                }),
                 "var(--is-error)",
             );
         } finally {
@@ -317,7 +322,7 @@ export function createTimestampsBrowser(container: HTMLElement): { destroy: () =
 
         setPanelBusy(true);
         epList.clear();
-        epList.setStatus("Loading timestamps\u2026");
+        epList.setStatus(t("timestamps_loadingTimestamps"));
         actions.toggle(false);
 
         nav$.showDashboardLoading();
@@ -338,8 +343,9 @@ export function createTimestampsBrowser(container: HTMLElement): { destroy: () =
         } catch (err) {
             if (!nav$.isCurrentPanel(panelToken)) return;
             epList.setStatus(
-                "Failed to load timestamps: " +
-                    (err instanceof Error ? err.message : "Unknown error"),
+                t("timestamps_failedToLoadTimestamps", {
+                    error: err instanceof Error ? err.message : "Unknown error",
+                }),
                 "var(--is-error)",
             );
         } finally {
@@ -369,7 +375,7 @@ export function createTimestampsBrowser(container: HTMLElement): { destroy: () =
         const segments: BreadcrumbSegment[] = [];
 
         segments.push({
-            label: "All Libraries",
+            label: t("timestamps_allLibraries"),
             onClick:
                 state.view !== "libraries"
                     ? () => {

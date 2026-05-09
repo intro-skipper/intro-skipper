@@ -1,5 +1,6 @@
 import type { PluginConfig } from "../types.ts";
 import { validationRules, CROSS_FIELD_PAIRS } from "./rules.ts";
+import { t } from "../i18n/index.ts";
 
 // Runs field-level and paired min/max validation for the config store.
 export class Validator {
@@ -37,12 +38,12 @@ export class Validator {
             if (field === minField) {
                 const minVal = config[minField] as number;
                 const maxVal = config[maxField] as number;
-                return minVal >= maxVal ? "Must be less than maximum" : null;
+                return minVal >= maxVal ? t("validation_mustBeLessThanMax") : null;
             }
             if (field === maxField) {
                 const minVal = config[minField] as number;
                 const maxVal = config[maxField] as number;
-                return minVal >= maxVal ? "Must be greater than minimum" : null;
+                return minVal >= maxVal ? t("validation_mustBeGreaterThanMin") : null;
             }
         }
         return null;
@@ -68,8 +69,8 @@ export class Validator {
                 const minVal = config[minField] as number;
                 const maxVal = config[maxField] as number;
                 if (minVal >= maxVal) {
-                    errors.set(minField, "Must be less than maximum");
-                    errors.set(maxField, "Must be greater than minimum");
+                    errors.set(minField, t("validation_mustBeLessThanMax"));
+                    errors.set(maxField, t("validation_mustBeGreaterThanMin"));
                 }
             }
         }

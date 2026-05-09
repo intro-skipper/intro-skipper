@@ -17,12 +17,13 @@ export function el<K extends keyof HTMLElementTagNameMap>(
 }
 
 /**
- * Create an element and set its innerHTML from a **static** template string.
+ * Create an element and set its innerHTML from a **static** template string
+ * or a **trusted locale string** retrieved via `t()`.
  *
  * This helper exists to centralise the few places the dashboard needs inline
  * HTML (rich descriptions, formatted paragraphs, links) and make them easy
- * to audit.  Every call site MUST pass a compile-time-constant string — never
- * user input.
+ * to audit.  Every call site MUST pass either a compile-time-constant string
+ * or a value from the built-in locale files — never user input.
  */
 export function htmlEl<K extends keyof HTMLElementTagNameMap>(
     tag: K,

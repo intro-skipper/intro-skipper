@@ -1,16 +1,17 @@
 import type { PluginConfig } from "../types.ts";
 import { MAXIMUM_ANALYSIS_PERCENT, MINIMUM_ANALYSIS_PERCENT } from "../config-limits.ts";
+import { t } from "../i18n/index.ts";
 
 // Small validation helpers shared by the config store and form fields.
 export type ValidationRule<T> = (value: T) => string | null;
 
 // Rule factories.
 export function range(min: number, max: number): ValidationRule<number> {
-    return (value) => (value < min || value > max ? `Must be between ${min} and ${max}` : null);
+    return (value) => (value < min || value > max ? t("validation_mustBeBetween", { min, max }) : null);
 }
 
 export function minValue(min: number): ValidationRule<number> {
-    return (value) => (value < min ? `Must be at least ${min}` : null);
+    return (value) => (value < min ? t("validation_mustBeAtLeast", { min }) : null);
 }
 
 export function validRegex(): ValidationRule<string> {
@@ -20,7 +21,7 @@ export function validRegex(): ValidationRule<string> {
             new RegExp(value);
             return null;
         } catch {
-            return "Invalid regular expression";
+            return t("validation_invalidRegex");
         }
     };
 }

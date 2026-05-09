@@ -1,5 +1,6 @@
 import type { ShowItem } from "../types.ts";
 import * as tsData from "./timestamp-data.ts";
+import { t } from "../i18n/index.ts";
 
 // Navigation state discriminated union.
 export type NavState =
@@ -116,7 +117,7 @@ export function createNavState() {
     }
 
     function formatItemCount(count: number): string {
-        return count === 1 ? "1 item" : count + " items";
+        return count === 1 ? t("nav_oneItem") : t("nav_manyItems", { count });
     }
 
     function getState(): NavState {

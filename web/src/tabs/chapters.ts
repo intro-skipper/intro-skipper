@@ -3,6 +3,7 @@ import { configStore } from "../store/config-store.ts";
 import { el } from "../components/dom.ts";
 import { appendTabContent } from "../components/tab-layout.ts";
 import { textField } from "../components/text-field.ts";
+import { t } from "../i18n/index.ts";
 
 const DEFAULTS: Record<string, string> = {
     ChapterAnalyzerIntroductionPattern: "(^|\\s)(Intro|Introduction|OP|Opening)(?!\\sEnd)(\\s|$)",
@@ -14,7 +15,7 @@ const DEFAULTS: Record<string, string> = {
     ChapterAnalyzerCommercialPattern: "(^|\\s)(Ad(vert(isement)?)?|Commercial)(?!\\sEnd)(\\s|$)",
 };
 
-function patternField(id: string, label: string, typeNoun: string): HTMLElement {
+function patternField(id: string, label: string, typeNounKey: string): HTMLElement {
     const wrapper = el("div", { className: "pattern-field" });
     const defaultPattern = DEFAULTS[id];
 
@@ -23,19 +24,14 @@ function patternField(id: string, label: string, typeNoun: string): HTMLElement 
             id,
             label,
             placeholder: defaultPattern,
-            description:
-                "Enter a regular expression to detect " +
-                typeNoun +
-                " chapters. <br/>Default: <code>" +
-                defaultPattern +
-                "</code>",
+            description: t("chapters_patternDesc", { typeNoun: t(typeNounKey as Parameters<typeof t>[0]), defaultPattern }),
         }),
     );
 
     const resetBtn = el(
         "button",
         { className: "action-button reset-button", type: "button" },
-        "Reset to default",
+        t("chapters_resetButton"),
     );
     resetBtn.addEventListener("click", () => {
         configStore.set(id as keyof PluginConfig, DEFAULTS[id]);
@@ -47,15 +43,15 @@ function patternField(id: string, label: string, typeNoun: string): HTMLElement 
 
 export const chaptersTab: Tab = {
     id: "chapters",
-    label: "Chapters",
+    label: t("tab_chapters"),
     render(container) {
         appendTabContent(
             container,
-            patternField("ChapterAnalyzerIntroductionPattern", "Introductions", "introduction"),
-            patternField("ChapterAnalyzerEndCreditsPattern", "Credits", "credits"),
-            patternField("ChapterAnalyzerPreviewPattern", "Preview", "preview"),
-            patternField("ChapterAnalyzerRecapPattern", "Recaps", "recap"),
-            patternField("ChapterAnalyzerCommercialPattern", "Commercials", "commercial"),
+            patternField("ChapterAnalyzerIntroductionPattern", t("chapters_introductionsLabel"), "chapters_introductionNoun"),
+            patternField("ChapterAnalyzerEndCreditsPattern", t("chapters_creditsLabel"), "chapters_creditsNoun"),
+            patternField("ChapterAnalyzerPreviewPattern", t("chapters_previewLabel"), "chapters_previewNoun"),
+            patternField("ChapterAnalyzerRecapPattern", t("chapters_recapsLabel"), "chapters_recapNoun"),
+            patternField("ChapterAnalyzerCommercialPattern", t("chapters_commercialsLabel"), "chapters_commercialNoun"),
         );
     },
 };

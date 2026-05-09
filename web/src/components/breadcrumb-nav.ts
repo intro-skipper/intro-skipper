@@ -1,5 +1,6 @@
 import { el } from "./dom.ts";
 import type { ShowItem } from "../types.ts";
+import { t } from "../i18n/index.ts";
 
 /** Delay before executing a search query (ms). */
 const SEARCH_DEBOUNCE_MS = 150;
@@ -32,7 +33,7 @@ export function breadcrumbNav(opts: BreadcrumbNavOptions): {
     destroy: () => void;
 } {
     const container = el("div", { className: "ts-top-bar" });
-    const crumbsNav = el("nav", { className: "ts-breadcrumbs-nav", "aria-label": "Breadcrumb" });
+    const crumbsNav = el("nav", { className: "ts-breadcrumbs-nav", "aria-label": t("breadcrumb_navLabel") });
     const crumbsEl = el("ol", { className: "ts-breadcrumbs" });
     crumbsNav.append(crumbsEl);
 
@@ -42,9 +43,9 @@ export function breadcrumbNav(opts: BreadcrumbNavOptions): {
     const searchInput = el("input", {
         className: "ts-search-input",
         type: "search",
-        placeholder: "Search all shows\u2026",
+        placeholder: t("breadcrumb_searchPlaceholder"),
     }) as HTMLInputElement;
-    searchInput.setAttribute("aria-label", "Search all shows");
+    searchInput.setAttribute("aria-label", t("breadcrumb_searchAriaLabel"));
     searchInput.setAttribute("autocomplete", "off");
     searchInput.setAttribute("name", "show-search");
     searchInput.setAttribute("role", "combobox");
@@ -54,7 +55,7 @@ export function breadcrumbNav(opts: BreadcrumbNavOptions): {
     const resultsEl = el("div", { className: "ts-search-results" });
     resultsEl.id = "ts-show-search-results-" + String(++searchListCounter);
     resultsEl.setAttribute("role", "listbox");
-    resultsEl.setAttribute("aria-label", "Search results");
+    resultsEl.setAttribute("aria-label", t("breadcrumb_searchResultsLabel"));
     searchInput.setAttribute("aria-controls", resultsEl.id);
     searchInput.setAttribute("aria-expanded", "false");
 
@@ -175,7 +176,7 @@ export function breadcrumbNav(opts: BreadcrumbNavOptions): {
 
         if (matches.length === 0) {
             resultsEl.append(
-                el("div", { className: "ts-search-empty", role: "status" }, "No shows found."),
+                el("div", { className: "ts-search-empty", role: "status" }, t("breadcrumb_noShowsFound")),
             );
             openResults();
             return;

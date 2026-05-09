@@ -4,6 +4,7 @@ import { confirmDialog } from "./confirm-dialog.ts";
 import * as api from "../store/api.ts";
 import type { AnalyzerActions } from "../types.ts";
 import { delay } from "../utils.ts";
+import { t } from "../i18n/index.ts";
 
 const ANALYZER_ACTION_ORDER: ReadonlyArray<{
     key: string;
@@ -12,50 +13,50 @@ const ANALYZER_ACTION_ORDER: ReadonlyArray<{
 }> = [
     {
         key: "Recap",
-        label: "Recap",
+        label: t("actionBar_recapLabel"),
         options: [
-            { value: "Default", label: "Default" },
-            { value: "Chapter", label: "Chapter" },
-            { value: "None", label: "None" },
+            { value: "Default", label: t("actionBar_optionDefault") },
+            { value: "Chapter", label: t("actionBar_optionChapter") },
+            { value: "None", label: t("actionBar_optionNone") },
         ],
     },
     {
         key: "Introduction",
-        label: "Intro",
+        label: t("actionBar_introLabel"),
         options: [
-            { value: "Default", label: "Default" },
-            { value: "Chapter", label: "Chapter" },
-            { value: "Chromaprint", label: "Chromaprint" },
-            { value: "None", label: "None" },
+            { value: "Default", label: t("actionBar_optionDefault") },
+            { value: "Chapter", label: t("actionBar_optionChapter") },
+            { value: "Chromaprint", label: t("actionBar_optionChromaprint") },
+            { value: "None", label: t("actionBar_optionNone") },
         ],
     },
     {
         key: "Credits",
-        label: "Credits",
+        label: t("actionBar_creditsLabel"),
         options: [
-            { value: "Default", label: "Default" },
-            { value: "Chapter", label: "Chapter" },
-            { value: "Chromaprint", label: "Chromaprint" },
-            { value: "BlackFrame", label: "BlackFrame" },
-            { value: "None", label: "None" },
+            { value: "Default", label: t("actionBar_optionDefault") },
+            { value: "Chapter", label: t("actionBar_optionChapter") },
+            { value: "Chromaprint", label: t("actionBar_optionChromaprint") },
+            { value: "BlackFrame", label: t("actionBar_optionBlackFrame") },
+            { value: "None", label: t("actionBar_optionNone") },
         ],
     },
     {
         key: "Preview",
-        label: "Preview",
+        label: t("actionBar_previewLabel"),
         options: [
-            { value: "Default", label: "Default" },
-            { value: "Chapter", label: "Chapter" },
-            { value: "None", label: "None" },
+            { value: "Default", label: t("actionBar_optionDefault") },
+            { value: "Chapter", label: t("actionBar_optionChapter") },
+            { value: "None", label: t("actionBar_optionNone") },
         ],
     },
     {
         key: "Commercial",
-        label: "Commercial",
+        label: t("actionBar_commercialLabel"),
         options: [
-            { value: "Default", label: "Default" },
-            { value: "Chapter", label: "Chapter" },
-            { value: "None", label: "None" },
+            { value: "Default", label: t("actionBar_optionDefault") },
+            { value: "Chapter", label: t("actionBar_optionChapter") },
+            { value: "None", label: t("actionBar_optionNone") },
         ],
     },
 ];
@@ -102,17 +103,17 @@ export function actionBar(opts: ActionBarOptions): {
     const applyBtn = el(
         "button",
         { className: "ts-action-btn apply", type: "button" },
-        "Save Analyzer Overrides",
+        t("actionBar_saveOverridesButton"),
     );
     const scanBtn = el(
         "button",
         { className: "ts-action-btn scan", type: "button" },
-        "Scan Season",
+        t("actionBar_scanSeasonButton"),
     );
     const eraseBtn = el(
         "button",
         { className: "ts-action-btn erase", type: "button" },
-        "Erase Season Timestamps",
+        t("actionBar_eraseSeasonButton"),
     );
 
     const buttonsDiv = el("div", { className: "ts-action-buttons" });
@@ -129,7 +130,7 @@ export function actionBar(opts: ActionBarOptions): {
         {
             href: "#/dashboard/plugins/" + SEGMENT_EDITOR_PLUGIN_ID + "?name=Segment Editor",
         },
-        "Segment Editor \u2192",
+        t("actionBar_segmentEditorLink"),
     );
     metaRow.append(editorLink);
 
@@ -143,10 +144,10 @@ export function actionBar(opts: ActionBarOptions): {
     let scanVersion = 0;
 
     function updateActionLabels(): void {
-        scanBtn.textContent = currentIsMovie ? "Scan Movie" : "Scan Season";
+        scanBtn.textContent = currentIsMovie ? t("actionBar_scanMovieButton") : t("actionBar_scanSeasonButton");
         eraseBtn.textContent = currentIsMovie
-            ? "Erase Movie Timestamps"
-            : "Erase Season Timestamps";
+            ? t("actionBar_eraseMovieButton")
+            : t("actionBar_eraseSeasonButton");
     }
 
     function resetScanButton(): void {
@@ -157,7 +158,7 @@ export function actionBar(opts: ActionBarOptions): {
     const handleApplyClick = async () => {
         if (destroyed) return;
 
-        statusMessage.show("Saving analyzer overrides\u2026", "var(--is-text-muted)");
+        statusMessage.show(t("actionBar_savingOverrides"), "var(--is-text-muted)");
 
         try {
             await withDashboardLoading(async () => {
@@ -170,11 +171,11 @@ export function actionBar(opts: ActionBarOptions): {
                 };
                 await api.updateAnalyzerActions(currentSeasonId, actions);
             });
-            statusMessage.show("Analyzer overrides updated.", "var(--is-success)");
-            window.Dashboard.alert("Analyzer actions updated");
+            statusMessage.show(t("actionBar_overridesSaved"), "var(--is-success)");
+            window.Dashboard.alert(t("actionBar_analyzerActionsUpdated"));
         } catch {
-            statusMessage.show("Failed to update analyzer overrides.", "var(--is-error)");
-            window.Dashboard.alert("Failed to update analyzer actions");
+            statusMessage.show(t("actionBar_overridesFailed"), "var(--is-error)");
+            window.Dashboard.alert(t("actionBar_analyzerActionsFailed"));
         }
     };
 
@@ -201,7 +202,7 @@ export function actionBar(opts: ActionBarOptions): {
 
             if (status.ok && !status.data?.isRunning) {
                 resetScanButton();
-                statusMessage.show("Scan finished. Results refreshed.", "var(--is-success)");
+                statusMessage.show(t("actionBar_scanFinished"), "var(--is-success)");
                 await Promise.resolve(opts.onScanComplete());
                 return;
             }
@@ -219,10 +220,10 @@ export function actionBar(opts: ActionBarOptions): {
 
         resetScanButton();
         statusMessage.show(
-            "Scan status polling timed out. Refresh to check results.",
+            t("actionBar_scanPollingTimeout"),
             "var(--is-warning)",
         );
-        window.Dashboard.alert("Scan status polling timed out. Refresh to check results.");
+        window.Dashboard.alert(t("actionBar_scanPollingTimeout"));
     };
 
     const handleScanClick = async () => {
@@ -230,7 +231,7 @@ export function actionBar(opts: ActionBarOptions): {
 
         const scanToken = ++scanVersion;
         scanBtn.disabled = true;
-        statusMessage.show("Starting scan\u2026", "var(--is-text-muted)");
+        statusMessage.show(t("actionBar_startingScan"), "var(--is-text-muted)");
         try {
             const response = await withDashboardLoading(async () => {
                 const seasonId = currentIsMovie ? currentShowId : currentSeasonId;
@@ -242,33 +243,33 @@ export function actionBar(opts: ActionBarOptions): {
             }
 
             if (response.status === 409) {
-                statusMessage.show("A scan is already in progress.", "var(--is-warning)");
-                window.Dashboard.alert("A scan is already in progress.");
+                statusMessage.show(t("actionBar_scanAlreadyRunning"), "var(--is-warning)");
+                window.Dashboard.alert(t("actionBar_scanAlreadyRunning"));
             } else if (!response.ok) {
                 resetScanButton();
-                statusMessage.show("Unable to start the scan.", "var(--is-error)");
-                window.Dashboard.alert("Unable to start the scan.");
+                statusMessage.show(t("actionBar_scanUnableToStart"), "var(--is-error)");
+                window.Dashboard.alert(t("actionBar_scanUnableToStart"));
                 return;
             }
 
-            scanBtn.textContent = "Scan in progress\u2026";
+            scanBtn.textContent = t("actionBar_scanInProgressButton");
             statusMessage.show(
-                "Scan in progress\u2026 This can take several minutes.",
+                t("actionBar_scanInProgress"),
                 "var(--is-text-muted)",
             );
 
             void pollForScanCompletion(scanToken).catch(console.error);
         } catch {
             resetScanButton();
-            statusMessage.show("Unable to start the scan.", "var(--is-error)");
-            window.Dashboard.alert("Unable to start the scan.");
+            statusMessage.show(t("actionBar_scanUnableToStart"), "var(--is-error)");
+            window.Dashboard.alert(t("actionBar_scanUnableToStart"));
         }
     };
 
     const handleEraseClick = async () => {
         if (destroyed) return;
 
-        const label = currentIsMovie ? "movie" : "season";
+        const label = currentIsMovie ? t("actionBar_movieLabel") : t("actionBar_seasonLabel");
         const url = currentIsMovie
             ? "Intros/Show/" + encodeURIComponent(currentShowId)
             : "Intros/Show/" +
@@ -276,27 +277,27 @@ export function actionBar(opts: ActionBarOptions): {
               "/" +
               encodeURIComponent(currentSeasonId);
         const result = await confirmDialog({
-            title: "Confirm Timestamp Erasure",
-            body: "Are you sure you want to erase all timestamps for this " + label + "?",
-            confirmLabel: "Erase",
-            checkbox: { label: "Include cached fingerprints" },
+            title: t("actionBar_eraseDialogTitle"),
+            body: t("actionBar_eraseDialogBody", { label }),
+            confirmLabel: t("actionBar_eraseConfirmLabel"),
+            checkbox: { label: t("actionBar_eraseIncludeFingerprints") },
         });
         if (destroyed) return;
         if (!result) return;
-        statusMessage.show("Erasing timestamps\u2026", "var(--is-text-muted)");
+        statusMessage.show(t("actionBar_erasingTimestamps"), "var(--is-text-muted)");
         try {
             const response = await api.eraseItemTimestamps(url, result.checkboxChecked);
             if (!response.ok) {
-                statusMessage.show("Failed to erase timestamps.", "var(--is-error)");
-                window.Dashboard.alert("Failed to erase timestamps");
+                statusMessage.show(t("actionBar_eraseTimestampsFailed"), "var(--is-error)");
+                window.Dashboard.alert(t("actionBar_eraseTimestampsFailedAlert"));
                 return;
             }
-            statusMessage.show("Timestamps erased.", "var(--is-success)");
-            window.Dashboard.alert("Timestamps erased");
+            statusMessage.show(t("actionBar_eraseTimestampsSuccess"), "var(--is-success)");
+            window.Dashboard.alert(t("actionBar_eraseTimestampsSuccessAlert"));
             await Promise.resolve(opts.onScanComplete());
         } catch {
-            statusMessage.show("Failed to erase timestamps.", "var(--is-error)");
-            window.Dashboard.alert("Failed to erase timestamps");
+            statusMessage.show(t("actionBar_eraseTimestampsFailed"), "var(--is-error)");
+            window.Dashboard.alert(t("actionBar_eraseTimestampsFailedAlert"));
         }
     };
 
@@ -371,9 +372,9 @@ export function actionBar(opts: ActionBarOptions): {
 
             if (status.ok && status.data?.isRunning) {
                 scanBtn.disabled = true;
-                scanBtn.textContent = "Scan in progress\u2026";
+                scanBtn.textContent = t("actionBar_scanInProgressButton");
                 statusMessage.show(
-                    "Scan in progress\u2026 This can take several minutes.",
+                    t("actionBar_scanInProgress"),
                     "var(--is-text-muted)",
                 );
             }

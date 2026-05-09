@@ -3,6 +3,7 @@ import { formatTime } from "../utils.ts";
 import * as api from "../store/api.ts";
 import { getImageUrl } from "../store/jellyfin-client.ts";
 import type { EpisodeItem, TimestampMap, ApiResult } from "../types.ts";
+import { t } from "../i18n/index.ts";
 
 /** Delay before filtering the episode list (ms). */
 const FILTER_DEBOUNCE_MS = 120;
@@ -32,10 +33,10 @@ export function episodeList(): {
     const filterInput = el("input", {
         className: "ts-filter-input",
         type: "text",
-        placeholder: "Filter episodes\u2026",
+        placeholder: t("epList_filterPlaceholder"),
         name: "episode-filter",
     });
-    filterInput.setAttribute("aria-label", "Filter episodes by name");
+    filterInput.setAttribute("aria-label", t("epList_filterAriaLabel"));
     filterInput.setAttribute("autocomplete", "off");
     const countEl = el("span", { className: "ts-episode-count" });
     countEl.setAttribute("aria-live", "polite");
@@ -98,13 +99,13 @@ export function episodeList(): {
         if (!result || !result.ok) {
             card.classList.add("error");
             const errorDiv = el("div", { className: "ts-episode-error" });
-            errorDiv.append(document.createTextNode("Failed to load timestamps"));
+            errorDiv.append(document.createTextNode(t("epList_failedToLoadTimestamps")));
 
-            const retryBtn = el("button", { className: "ts-retry-link", type: "button" }, "Retry");
-            retryBtn.setAttribute("aria-label", "Retry loading timestamps for " + ep.Name);
+            const retryBtn = el("button", { className: "ts-retry-link", type: "button" }, t("epList_retry"));
+            retryBtn.setAttribute("aria-label", t("epList_retryAriaLabel", { name: ep.Name }));
             retryBtn.addEventListener("click", async () => {
                 // Retry only this episode so one failed request does not force a full reload.
-                retryBtn.textContent = "Loading\u2026";
+                retryBtn.textContent = t("epList_loading");
                 retryBtn.style.pointerEvents = "none";
                 const retryResult = await api.getEpisodeTimestamps(ep.Id);
                 if (retryResult && retryResult.ok) {
@@ -112,7 +113,7 @@ export function episodeList(): {
                     info.removeChild(errorDiv);
                     info.append(buildTimestampPills(retryResult.data ?? {}));
                 } else {
-                    retryBtn.textContent = "Retry";
+                    retryBtn.textContent = t("epList_retry");
                     retryBtn.style.pointerEvents = "";
                 }
             });
@@ -158,11 +159,14 @@ export function episodeList(): {
         });
 
         if (query && visibleCount === 0) {
-            countEl.textContent = "No matching episodes";
+            countEl.textContent = t("epList_noMatchingEpisodes");
             return;
         }
 
-        countEl.textContent = visibleCount + " episode" + (visibleCount !== 1 ? "s" : "");
+        countEl.textContent =
+            visibleCount === 1
+                ? t("epList_oneEpisode")
+                : t("epList_manyEpisodes", { count: visibleCount });
     }
 
     const handleFilterInput = () => {
@@ -190,7 +194,7 @@ export function episodeList(): {
             filterInput.value = "";
 
             if (episodes.length === 0) {
-                listEl.append(el("div", { className: "ts-status-msg" }, "No episodes found."));
+                listEl.append(el("div", { className: "ts-status-msg" }, t("epList_noEpisodesFound")));
                 countEl.textContent = "";
                 return;
             }
@@ -201,7 +205,10 @@ export function episodeList(): {
                 listEl.append(card);
             }
 
-            countEl.textContent = episodes.length + " episode" + (episodes.length !== 1 ? "s" : "");
+            countEl.textContent =
+                episodes.length === 1
+                    ? t("epList_oneEpisode")
+                    : t("epList_manyEpisodes", { count: episodes.length });
             statusEl.style.display = "none";
         },
 

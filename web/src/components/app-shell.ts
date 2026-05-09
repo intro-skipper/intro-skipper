@@ -1,6 +1,7 @@
 import { validator } from "../validation/validator.ts";
 import { configStore } from "../store/config-store.ts";
 import { el } from "./dom.ts";
+import { t } from "../i18n/index.ts";
 
 /** How long the "Changes saved" message stays visible (ms). */
 const STATUS_CLEAR_MS = 3000;
@@ -12,19 +13,19 @@ export function createAppShell(rootEl: HTMLElement): {
 } {
     const shell = el("div", { className: "app-shell" });
 
-    const skipLink = el("a", { className: "skip-link", href: "#settings-main" }, "Skip to content");
+    const skipLink = el("a", { className: "skip-link", href: "#settings-main" }, t("shell_skipToContent"));
 
     const titleId = "app-title";
-    const title = el("h1", { className: "app-title", id: titleId }, "Intro Skipper Configuration");
+    const title = el("h1", { className: "app-title", id: titleId }, t("shell_title"));
 
     const header = el("header", { className: "app-header", "aria-labelledby": titleId });
     header.append(title);
 
-    const sidebar = el("nav", { className: "app-sidebar", "aria-label": "Settings Sections" });
+    const sidebar = el("nav", { className: "app-sidebar", "aria-label": t("shell_settingsSections") });
 
     const content = el("main", { className: "app-content", id: "settings-main", tabindex: "-1" });
 
-    const footer = el("footer", { className: "app-footer", "aria-label": "Save controls" });
+    const footer = el("footer", { className: "app-footer", "aria-label": t("shell_saveControls") });
 
     const footerStatus = el("span", {
         className: "footer-status-message",
@@ -36,14 +37,14 @@ export function createAppShell(rootEl: HTMLElement): {
     const dirtyIndicator = el(
         "span",
         { className: "dirty-indicator", "aria-live": "polite" },
-        "\u25cf Unsaved changes",
+        t("shell_unsavedChanges"),
     );
     dirtyIndicator.style.display = "none";
 
     const saveButton = el(
         "button",
-        { className: "save-button", type: "button", "aria-label": "Save configuration" },
-        "Save",
+        { className: "save-button", type: "button", "aria-label": t("shell_saveAriaLabel") },
+        t("shell_save"),
     );
 
     footer.append(footerStatus, dirtyIndicator, saveButton);
@@ -86,18 +87,18 @@ export function createAppShell(rootEl: HTMLElement): {
         if (saveButton.disabled) return;
 
         saveButton.disabled = true;
-        saveButton.textContent = "Saving\u2026";
-        setStatus("Saving\u2026", "info");
+        saveButton.textContent = t("shell_saving");
+        setStatus(t("shell_saving"), "info");
 
         try {
             await configStore.save();
-            setStatus("Changes saved", "success");
+            setStatus(t("shell_changesSaved"), "success");
         } catch {
-            setStatus("Save failed", "error");
-            window.Dashboard.alert("Failed to save configuration");
+            setStatus(t("shell_saveFailed"), "error");
+            window.Dashboard.alert(t("shell_failedToSaveConfig"));
         } finally {
             saveButton.disabled = false;
-            saveButton.textContent = "Save";
+            saveButton.textContent = t("shell_save");
         }
     };
 
@@ -106,8 +107,8 @@ export function createAppShell(rootEl: HTMLElement): {
         if (errors.size > 0) {
             // Let the user save through warnings after an explicit confirmation.
             window.Dashboard.confirm(
-                "There are validation warnings. Save anyway?",
-                "Validation",
+                t("shell_validationWarning"),
+                t("shell_validationTitle"),
                 (result: boolean) => {
                     if (result) {
                         void runSave();

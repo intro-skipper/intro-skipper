@@ -1,4 +1,5 @@
 import { el } from "./dom.ts";
+import { t } from "../i18n/index.ts";
 
 export type ManageBarOptions = {
     managePanelId?: string;
@@ -27,9 +28,9 @@ export function appendManageToggle(container: HTMLElement, opts: ManageBarOption
     const btn = el(
         "button",
         { className: "ts-manage-toggle", type: "button" },
-        "\u2699 Manage",
+        t("manageBar_manage"),
     ) as HTMLButtonElement;
-    btn.setAttribute("aria-label", "Toggle management panel");
+    btn.setAttribute("aria-label", t("manageBar_toggleAriaLabel"));
     btn.setAttribute("aria-expanded", "false");
     if (opts.managePanelId) {
         btn.setAttribute("aria-controls", opts.managePanelId);

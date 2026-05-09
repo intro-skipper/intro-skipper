@@ -10,44 +10,45 @@ import { numberField } from "../components/number-field.ts";
 import { inlineCheckboxGroup } from "../components/inline-checkbox-group.ts";
 import { actionButton } from "../components/action-button.ts";
 import { createStatusMessage } from "../components/async-feedback.ts";
+import { t } from "../i18n/index.ts";
 
 export const generalTab: Tab = {
     id: "general",
-    label: "General",
+    label: t("tab_general"),
     render(container) {
         const injectSection = el("div", { className: "input-container" });
         injectSection.append(
-            el("h3", { className: "checkbox-list-label" }, "Inject Skip Button CSS"),
+            el("h3", { className: "checkbox-list-label" }, t("general_injectCssTitle")),
         );
         injectSection.append(
             el(
                 "div",
                 { className: "field-description" },
-                "Inject CSS to load skip button styles into your Jellyfin branding setting using an @import statement.",
+                t("general_injectCssDesc"),
             ),
         );
 
         const statusMessage = createStatusMessage();
 
         injectSection.append(
-            actionButton("Inject CSS", async () => {
-                statusMessage.show("Injecting CSS\u2026", "var(--is-accent)");
+            actionButton(t("general_injectCssButton"), async () => {
+                statusMessage.show(t("general_injectingCss"), "var(--is-accent)");
                 try {
                     const response = await injectSkipButtonCss();
                     if (response.ok) {
                         statusMessage.show(
-                            "Skip button CSS injected successfully!",
+                            t("general_injectCssSuccess"),
                             "var(--is-success)",
                         );
                     } else {
                         statusMessage.show(
-                            `Failed to inject CSS: Server returned ${String(response.status)}`,
+                            t("general_injectCssFailedStatus", { status: String(response.status) }),
                             "var(--is-error)",
                         );
                     }
                 } catch (error: unknown) {
                     const msg = error instanceof Error ? error.message : "Unknown error";
-                    statusMessage.show(`Failed to inject CSS: ${msg}`, "var(--is-error)");
+                    statusMessage.show(t("general_injectCssFailedMsg", { msg }), "var(--is-error)");
                 }
             }),
         );
@@ -56,9 +57,7 @@ export const generalTab: Tab = {
         const ftWarning = htmlEl(
             "div",
             { className: "field-warning" },
-            "<strong>File Transformation Plugin Required</strong><br/>" +
-                "This feature requires the File Transformation plugin to work. " +
-                '<a href="https://github.com/IAmParadox27/jellyfin-plugin-file-transformation" target="_blank">Install it here</a>',
+            t("general_ftWarning"),
         );
         bindVisibility(ftWarning, () => !configStore.get("FileTransformationPluginEnabled"));
 
@@ -66,58 +65,51 @@ export const generalTab: Tab = {
             container,
             checkboxField({
                 id: "AutoDetectIntros",
-                label: "Automatically Analyze New Media",
-                description:
-                    'If enabled, new media will be automatically analyzed for skippable segments when added to the library<br/><br/>Note: To configure the scheduled task, see <a is="emby-linkbutton" class="button-link" href="#/dashboard/tasks">scheduled tasks</a>.',
+                label: t("general_autoAnalyzeLabel"),
+                description: t("general_autoAnalyzeDesc"),
             }),
             checkboxField({
                 id: "UpdateMediaSegments",
-                label: "Update Missing Segments During Scan",
-                description:
-                    "Enable this option to update media segments for any uncached media during a library scan.<br/>This includes recently added, modified, or previously skipped (but not ignored) files.<br/><b>Warning:</b> This should be disabled if you're using media segment providers other than Intro Skipper.",
+                label: t("general_updateSegmentsLabel"),
+                description: t("general_updateSegmentsDesc"),
             }),
             textField({
                 id: "ExcludeSeries",
-                label: "Exclude series",
-                description:
-                    "Exclude series from analysis. Enter a comma-separated list of series names to exclude.",
+                label: t("general_excludeSeriesLabel"),
+                description: t("general_excludeSeriesDesc"),
             }),
-            inlineCheckboxGroup("Analyze for:", [
-                { id: "ScanIntroduction", label: "Introduction" },
-                { id: "ScanCredits", label: "Credits" },
-                { id: "ScanRecap", label: "Recap" },
-                { id: "ScanPreview", label: "Preview" },
-                { id: "ScanCommercial", label: "Commercials" },
+            inlineCheckboxGroup(t("general_analyzeForLabel"), [
+                { id: "ScanIntroduction", label: t("general_segIntroduction") },
+                { id: "ScanCredits", label: t("general_segCredits") },
+                { id: "ScanRecap", label: t("general_segRecap") },
+                { id: "ScanPreview", label: t("general_segPreview") },
+                { id: "ScanCommercial", label: t("general_segCommercials") },
             ]),
             checkboxField({
                 id: "AnalyzeSeasonZero",
-                label: "Analyze Season 0 (Specials / Extras)",
-                description:
-                    "Note: Shows containing both a specials and extra folder will identify extras as season 0 and ignore specials, regardless of this setting.",
+                label: t("general_analyzeSeasonZeroLabel"),
+                description: t("general_analyzeSeasonZeroDesc"),
             }),
             checkboxField({
                 id: "UseFileTransformationPlugin",
-                label: "Use File Transformation Plugin to patch the web interface",
+                label: t("general_useFileTransformLabel"),
                 disabled: () => !configStore.get("FileTransformationPluginEnabled"),
             }),
             ftWarning,
             numberField({
                 id: "SkipbuttonHideDelay",
-                label: "Skip button hide delay (in seconds)",
+                label: t("general_skipButtonDelayLabel"),
                 min: 0,
                 max: 1000,
-                description:
-                    "Time in seconds before the skip button automatically hides. Set to 0 for persistent skip button (never hides).",
+                description: t("general_skipButtonDelayDesc"),
                 visible: () => configStore.get("UseFileTransformationPlugin") === true,
-                warning:
-                    "Note: This setting only applies to the web client (browsers, LG webOS, Android with web player enabled, etc). May require a refresh or clearing cache to see changes.",
+                warning: t("general_skipButtonDelayWarning"),
             }),
             injectSection,
             checkboxField({
                 id: "EnableMainMenu",
-                label: "Show Intro Skipper in Main Menu",
-                description:
-                    "Toggle the Intro Skipper entry in the server's main navigation. Save and refresh the client (or clear cache) to apply.",
+                label: t("general_enableMainMenuLabel"),
+                description: t("general_enableMainMenuDesc"),
             }),
         );
     },

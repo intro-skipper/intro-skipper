@@ -7,6 +7,7 @@ import { tabWarning } from "../components/tab-warning.ts";
 import { checkboxField } from "../components/checkbox-field.ts";
 import { numberField } from "../components/number-field.ts";
 import { MAXIMUM_ANALYSIS_PERCENT, MINIMUM_ANALYSIS_PERCENT } from "../config-limits.ts";
+import { t } from "../i18n/index.ts";
 
 function durationPair(
     minId: string,
@@ -27,99 +28,90 @@ function durationPair(
 
 export const analysisTab: Tab = {
     id: "analysis",
-    label: "Analysis",
+    label: t("tab_analysis"),
     render(container) {
         const info = htmlEl(
             "div",
             { className: "field-description" },
-            "<p>The amount of each item's content that will be analyzed is determined using the percentage and maximum runtime. The minimum of (duration &times; percent, maximum runtime) is the amount that will be analyzed.</p>" +
-                "<p>If the percentage or maximum runtime settings are modified, the cached fingerprints and timestamps for each series, season, or movie you want to analyze with the modified settings <b>will have to be recreated</b>.</p>" +
-                "<p>Increasing either of the above settings will cause episode analysis to take much longer.</p>",
+            t("analysis_info"),
         );
 
         const chaptersOff = () => configStore.get("FullLengthChapters") !== true;
 
         appendTabContent(
             container,
-            tabWarning(
-                "Changes here require regenerating media segments to take effect. Per the MediaSegments API, records are updated individually and may be slow.",
-            ),
+            tabWarning(t("analysis_warning")),
             checkboxField({
                 id: "PreferChromaprint",
-                label: "Prefer Chromaprint Analysis",
-                description:
-                    "Only use chromaprint for analysis, unless it is not available. Setting an analysis mode in the advanced options will override this setting.",
+                label: t("analysis_preferChromaprintLabel"),
+                description: t("analysis_preferChromaprintDesc"),
             }),
             checkboxField({
                 id: "FullLengthChapters",
-                label: "Ignore duration limits for chapters",
-                description:
-                    "Allow segments to extend to the end of a chapter when the marker exceeds other user settings, such as percentage or duration.",
+                label: t("analysis_fullLengthChaptersLabel"),
+                description: t("analysis_fullLengthChaptersDesc"),
             }),
             numberField({
                 id: "AnalysisPercent",
-                label: "Percent of media to analyze",
+                label: t("analysis_percentLabel"),
                 min: MINIMUM_ANALYSIS_PERCENT,
                 max: MAXIMUM_ANALYSIS_PERCENT,
-                description:
-                    "Analysis will be limited to this percentage of each item's runtime. For example, a value of 25 (the default) will limit analysis to the first quarter of each item.",
+                description: t("analysis_percentDesc"),
             }),
             numberField({
                 id: "AnalysisLengthLimit",
-                label: "Maximum runtime to analyze (in minutes)",
+                label: t("analysis_maxRuntimeLabel"),
                 min: 1,
-                description:
-                    "Analysis will be limited to this amount of each item's runtime. For example, a value of 10 (the default) will limit analysis to the first 10 minutes of each item.",
+                description: t("analysis_maxRuntimeDesc"),
             }),
             info,
             durationPair(
                 "MinimumIntroDuration",
                 "MaximumIntroDuration",
-                "Minimum introduction duration (in seconds)",
-                "Maximum introduction duration (in seconds)",
-                "Segments or similar sounding audio which is shorter than this duration will not be considered an introduction.",
-                "Segments or similar sounding audio which is longer than this duration will not be considered an introduction.",
+                t("analysis_minIntroDurationLabel"),
+                t("analysis_maxIntroDurationLabel"),
+                t("analysis_minIntroDurationDesc"),
+                t("analysis_maxIntroDurationDesc"),
             ),
             durationPair(
                 "MinimumCreditsDuration",
                 "MaximumCreditsDuration",
-                "Minimum credits duration (in seconds)",
-                "Maximum credits duration (in seconds)",
-                "Segments or similar sounding audio which is shorter than this duration will not be considered credits.",
-                "Segments or similar sounding audio which is longer than this duration will not be considered credits.",
+                t("analysis_minCreditsDurationLabel"),
+                t("analysis_maxCreditsDurationLabel"),
+                t("analysis_minCreditsDurationDesc"),
+                t("analysis_maxCreditsDurationDesc"),
             ),
             numberField({
                 id: "MaximumMovieCreditsDuration",
-                label: "Maximum movie credits duration (in seconds)",
+                label: t("analysis_maxMovieCreditsDurationLabel"),
                 min: 1,
-                description:
-                    "Segments longer than this duration will not be considered movie credits.",
+                description: t("analysis_maxMovieCreditsDurationDesc"),
             }),
             durationPair(
                 "MinimumRecapDuration",
                 "MaximumRecapDuration",
-                "Minimum recap duration (in seconds)",
-                "Maximum recap duration (in seconds)",
-                "Segments which are shorter than this duration will not be considered a recap.",
-                "Segments which are longer than this duration will not be considered a recap.",
+                t("analysis_minRecapDurationLabel"),
+                t("analysis_maxRecapDurationLabel"),
+                t("analysis_minRecapDurationDesc"),
+                t("analysis_maxRecapDurationDesc"),
                 chaptersOff,
             ),
             durationPair(
                 "MinimumPreviewDuration",
                 "MaximumPreviewDuration",
-                "Minimum preview duration (in seconds)",
-                "Maximum preview duration (in seconds)",
-                "Segments which are shorter than this duration will not be considered a preview.",
-                "Segments which are longer than this duration will not be considered a preview.",
+                t("analysis_minPreviewDurationLabel"),
+                t("analysis_maxPreviewDurationLabel"),
+                t("analysis_minPreviewDurationDesc"),
+                t("analysis_maxPreviewDurationDesc"),
                 chaptersOff,
             ),
             durationPair(
                 "MinimumCommercialDuration",
                 "MaximumCommercialDuration",
-                "Minimum commercial duration (in seconds)",
-                "Maximum commercial duration (in seconds)",
-                "Segments which are shorter than this duration will not be considered a commercial.",
-                "Segments which are longer than this duration will not be considered a commercial.",
+                t("analysis_minCommercialDurationLabel"),
+                t("analysis_maxCommercialDurationLabel"),
+                t("analysis_minCommercialDurationDesc"),
+                t("analysis_maxCommercialDurationDesc"),
                 chaptersOff,
             ),
         );

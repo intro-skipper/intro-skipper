@@ -4,10 +4,11 @@ import { checkboxField } from "../components/checkbox-field.ts";
 import { numberField } from "../components/number-field.ts";
 import { fieldGroup } from "../components/field-group.ts";
 import { appendTabContent } from "../components/tab-layout.ts";
+import { t } from "../i18n/index.ts";
 
 export const detectionTab: Tab = {
     id: "detection",
-    label: "Detection",
+    label: t("tab_detection"),
     render(container) {
         const silenceVisible = () => configStore.get("AdjustIntroBasedOnSilence") === true;
 
@@ -15,94 +16,83 @@ export const detectionTab: Tab = {
             container,
             checkboxField({
                 id: "AdjustIntroBasedOnSilence",
-                label: "Enable silence detection",
-                description:
-                    "When enabled, segment endpoints will be adjusted to the nearest silence point.",
+                label: t("detection_silenceLabel"),
+                description: t("detection_silenceDesc"),
             }),
             numberField({
                 id: "SilenceDetectionMaximumNoise",
-                label: "Noise tolerance",
+                label: t("detection_noiseLabel"),
                 min: -90,
                 max: 0,
-                description: "Noise tolerance in negative decibels.",
+                description: t("detection_noiseDesc"),
                 visible: silenceVisible,
             }),
             numberField({
                 id: "SilenceDetectionMinimumDuration",
-                label: "Minimum silence duration",
+                label: t("detection_minSilenceLabel"),
                 min: 0,
                 step: 0.01,
-                description:
-                    "Minimum silence duration in seconds before adjusting introduction end time.",
+                description: t("detection_minSilenceDesc"),
                 visible: silenceVisible,
             }),
             checkboxField({
                 id: "SnapToKeyframe",
-                label: "Enable keyframe snapping",
-                description:
-                    "When enabled, segment endpoints will be adjusted to the nearest video keyframe for smoother seek transitions during skipping.",
+                label: t("detection_keyframeLabel"),
+                description: t("detection_keyframeDesc"),
             }),
             checkboxField({
                 id: "AdjustIntroBasedOnChapters",
-                label: "Enable chapter snapping",
-                description:
-                    "When enabled, segment start and end times will be adjusted to the nearest chapter boundary.",
+                label: t("detection_chapterSnapLabel"),
+                description: t("detection_chapterSnapDesc"),
             }),
             numberField({
                 id: "AdjustWindowInward",
-                label: "Adjustment window (inward)",
+                label: t("detection_adjustWindowInwardLabel"),
                 min: 0,
-                description:
-                    "Maximum number of seconds to search toward a segment's interior for adjustment points (like chapter boundaries, silence, or keyframes). Used to tighten segment boundaries.",
+                description: t("detection_adjustWindowInwardDesc"),
             }),
             numberField({
                 id: "AdjustWindowOutward",
-                label: "Adjustment window (outward)",
+                label: t("detection_adjustWindowOutwardLabel"),
                 min: 0,
-                description:
-                    "Maximum number of seconds to search away from a segment for adjustment points (like chapter boundaries, silence, or keyframes). Used to expand segment boundaries.",
+                description: t("detection_adjustWindowOutwardDesc"),
             }),
             numberField({
                 id: "EndSnapThreshold",
-                label: "Snap to episode start/end threshold",
+                label: t("detection_endSnapThresholdLabel"),
                 min: 0,
-                description:
-                    "If a segment's start or end is within this many seconds of the episode's start or end, it will be automatically adjusted (snapped) to match the episode boundary. Set to 0 to disable snapping.",
+                description: t("detection_endSnapThresholdDesc"),
             }),
             checkboxField({
                 id: "SkipFirstEpisode",
-                label: "Ignore intros for first episode of a season",
+                label: t("detection_skipFirstEpisodeLabel"),
             }),
             checkboxField({
                 id: "SkipFirstEpisodeAnime",
-                label: "Only ignore first episode of an anime season",
-                description:
-                    "If checked, the previous ignore option will only be applied to anime seasons.",
+                label: t("detection_skipFirstAnimeLabel"),
+                description: t("detection_skipFirstAnimeDesc"),
                 visible: () => configStore.get("SkipFirstEpisode") === true,
             }),
             checkboxField({
                 id: "AnimePreviewFromCreditsEnd",
-                label: "Set after credits scene as preview for anime",
-                description:
-                    "When enabled, a preview segment covering the time from the end of the credits to the end of the episode is created for anime without a detected preview.",
+                label: t("detection_animePreviewLabel"),
+                description: t("detection_animePreviewDesc"),
             }),
             fieldGroup(
-                "Segment Offset Adjustment",
+                t("detection_segmentOffsetTitle"),
                 numberField({
                     id: "IntroStartOffset",
-                    label: "Intro Start Offset (seconds)",
+                    label: t("detection_introStartOffsetLabel"),
                     min: 0,
                     step: 0.5,
-                    description:
-                        "Default: 0. Example: If set to 3, the first 3 seconds of the intro will play before skipping.",
+                    description: t("detection_introStartOffsetDesc"),
                 }),
                 numberField({
                     id: "IntroEndOffset",
-                    label: "Intro End Offset (seconds)",
+                    label: t("detection_introEndOffsetLabel"),
                     min: 0,
                     step: 0.5,
-                    description:
-                        "Default: 0. Example: If set to 3, playback will resume 3 seconds before the end of the intro.",
+                    description: t("detection_introEndOffsetDesc"),
                 }),
             ),
         );

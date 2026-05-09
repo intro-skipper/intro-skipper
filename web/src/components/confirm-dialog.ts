@@ -1,4 +1,5 @@
 import { el } from "./dom.ts";
+import { t } from "../i18n/index.ts";
 
 /**
  * A custom confirmation dialog that supports an optional checkbox,
@@ -55,12 +56,12 @@ export function confirmDialog(opts: ConfirmDialogOptions): Promise<ConfirmDialog
         const cancelBtn = el(
             "button",
             { className: "is-confirm-btn cancel", type: "button" },
-            opts.cancelLabel ?? "Cancel",
+            opts.cancelLabel ?? t("dialog_cancel"),
         );
         const confirmBtn = el(
             "button",
             { className: "is-confirm-btn confirm", type: "button" },
-            opts.confirmLabel ?? "Confirm",
+            opts.confirmLabel ?? t("dialog_confirm"),
         );
 
         const actions = el("div", { className: "is-confirm-actions" });
