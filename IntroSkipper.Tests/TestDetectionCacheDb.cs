@@ -14,6 +14,7 @@ using Microsoft.EntityFrameworkCore;
 using Xunit;
 
 namespace IntroSkipper.Tests;
+
 public sealed class TestDetectionCacheDbContext : IDisposable
 {
     private readonly string _dbPath;

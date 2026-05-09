@@ -9,6 +9,7 @@ using IntroSkipper.Data;
 using Xunit;
 
 namespace IntroSkipper.Tests;
+
 public class TestFlags
 {
     [Fact]

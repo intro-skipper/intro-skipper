@@ -21,6 +21,7 @@ using Microsoft.Extensions.Logging.Abstractions;
 using Xunit;
 
 namespace IntroSkipper.Tests;
+
 public sealed class TestCacheOperations
 {
     [Fact]
@@ -166,7 +167,7 @@ public sealed class TestCacheOperations
     }
 
     [Fact]
-    public async Task HasCachedFingerprint_ReturnsTrueForLegacyFile()
+    public async Task HasCachedFingerprint_ReturnsFalseForLegacyFileAlone()
     {
         var episode = new QueuedEpisode { EpisodeId = Guid.NewGuid() };
         var cacheDir = EntrypointTestHelpers.CreateTempCacheDir();
@@ -175,7 +176,7 @@ public sealed class TestCacheOperations
         await File.WriteAllTextAsync(cacheDir + Path.DirectorySeparatorChar + episode.EpisodeId.ToString("N"), "x");
 
         using var _ = new CachingPluginScope(cacheDir);
-        Assert.True(await CreateCacheService().HasCachedFingerprintAsync(episode, AnalysisMode.Introduction));
+        Assert.False(await CreateCacheService().HasCachedFingerprintAsync(episode, AnalysisMode.Introduction));
     }
 
     [Fact]
@@ -216,12 +217,11 @@ public sealed class TestCacheOperations
             legacyPath,
             Array.ConvertAll(expectedFingerprint, v => v.ToString(CultureInfo.InvariantCulture)));
 
-        uint[] result;
         string cacheDbPath;
         using (var scope = new CachingPluginScope(cacheDir))
         {
             cacheDbPath = scope.CacheDbPath;
-            result = await CreateDetectionService().FingerprintAsync(episode, AnalysisMode.Introduction);
+            await CreateCacheService().MigrateLegacyCachesAsync([episode]);
         }
 
         Assert.False(File.Exists(legacyPath), "Legacy text cache file should be deleted after migration");
@@ -235,7 +235,6 @@ public sealed class TestCacheOperations
             "DB row should be created after migration");
 
         var migrated = ReadFingerprintFromDb(db, episode.EpisodeId, AnalysisMode.Introduction);
-        Assert.Equal(expectedFingerprint, result);
         Assert.Equal(expectedFingerprint, migrated);
     }
 
@@ -260,11 +259,7 @@ public sealed class TestCacheOperations
         using (var scope = new CachingPluginScope(cacheDir))
         {
             cacheDbPath = scope.CacheDbPath;
-
-            // Fingerprint() will fail because the path doesn't exist, but that's fine —
-            // we only care that the corrupt legacy file was deleted and no DB row was written.
-            await Assert.ThrowsAsync<FingerprintException>(() =>
-                CreateDetectionService().FingerprintAsync(episode, AnalysisMode.Introduction));
+            await CreateCacheService().MigrateLegacyCachesAsync([episode]);
         }
 
         Assert.False(File.Exists(legacyPath), "Corrupt legacy cache file should be deleted");
@@ -587,16 +582,14 @@ public sealed class TestCacheOperations
 
         File.WriteAllLines(legacyPath, lines);
 
-        uint[] result;
         string cacheDbPath;
         using (var scope = new CachingPluginScope(cacheDir))
         {
             cacheDbPath = scope.CacheDbPath;
-            result = await CreateDetectionService().FingerprintAsync(episode, AnalysisMode.Introduction);
+            await CreateCacheService().MigrateLegacyCachesAsync([episode]);
         }
 
         Assert.False(File.Exists(legacyPath), "Legacy file should be deleted after successful migration");
-        Assert.Equal(4825, result.Length);
 
         using var db = new DetectionCacheDbContext(cacheDbPath);
         var entry = db.DetectionCache.FirstOrDefault(e =>
@@ -606,6 +599,9 @@ public sealed class TestCacheOperations
         Assert.NotNull(entry);
         Assert.Equal(0, entry.Start);
         Assert.Equal(600, entry.End);
+
+        var migrated = ReadFingerprintFromDb(db, episode.EpisodeId, AnalysisMode.Introduction);
+        Assert.Equal(4825, migrated.Length);
     }
 
     [Fact]
@@ -636,9 +632,7 @@ public sealed class TestCacheOperations
         using (var scope = new CachingPluginScope(cacheDir))
         {
             cacheDbPath = scope.CacheDbPath;
-            // Should reject legacy cache and then throw because path doesn't exist for ffmpeg
-            await Assert.ThrowsAsync<FingerprintException>(
-                async () => await CreateDetectionService().FingerprintAsync(episode, AnalysisMode.Introduction));
+            await CreateCacheService().MigrateLegacyCachesAsync([episode]);
         }
 
         Assert.False(File.Exists(legacyPath), "Legacy file should be deleted even on rejection");
@@ -679,16 +673,14 @@ public sealed class TestCacheOperations
 
         File.WriteAllLines(legacyPath, lines);
 
-        uint[] result;
         string cacheDbPath;
         using (var scope = new CachingPluginScope(cacheDir))
         {
             cacheDbPath = scope.CacheDbPath;
-            result = await CreateDetectionService().FingerprintAsync(episode, AnalysisMode.Credits);
+            await CreateCacheService().MigrateLegacyCachesAsync([episode]);
         }
 
         Assert.False(File.Exists(legacyPath));
-        Assert.Equal(lineCount, result.Length);
 
         using var db = new DetectionCacheDbContext(cacheDbPath);
         var entry = db.DetectionCache.FirstOrDefault(e =>
@@ -698,10 +690,13 @@ public sealed class TestCacheOperations
         Assert.NotNull(entry);
         Assert.Equal(1560, entry.Start);
         Assert.Equal(1800, entry.End);
+
+        var migrated = ReadFingerprintFromDb(db, episode.EpisodeId, AnalysisMode.Credits);
+        Assert.Equal(lineCount, migrated.Length);
     }
 
     [Fact]
-    public async Task TryReadOrMigrateCacheAsync_ModeAgnosticLegacySilenceCache_WritesAllModes()
+    public async Task MigrateLegacyCachesAsync_ModeAgnosticSilenceFile_WritesAllModes()
     {
         var episodeId = Guid.NewGuid();
         var cacheDir = EntrypointTestHelpers.CreateTempCacheDir();
@@ -709,21 +704,19 @@ public sealed class TestCacheOperations
 
         await File.WriteAllTextAsync(legacyPath, "silence_start: 1.0\nsilence_end: 2.5\n");
 
+        var episode = new QueuedEpisode
+        {
+            EpisodeId = episodeId,
+            Path = "/does/not/exist.mkv",
+        };
+
         string cacheDbPath;
         using (var scope = new CachingPluginScope(cacheDir))
         {
             cacheDbPath = scope.CacheDbPath;
             var cacheService = CreateCacheService();
-            var key = new DetectionCacheKey(episodeId, AnalysisMode.Introduction, CacheEntryType.Silence, 10.5, 20.5);
 
-            var result = await cacheService.TryReadOrMigrateCacheAsync(
-                key,
-                DetectionCacheKind.Silence,
-                raw => FFmpegOutputParser.ParseSilenceRaw(raw, 10.5));
-
-            var silenceRange = Assert.Single(result!);
-            Assert.Equal(11.5, silenceRange.Start);
-            Assert.Equal(13.0, silenceRange.End);
+            await cacheService.MigrateLegacyCachesAsync([episode]);
         }
 
         Assert.False(File.Exists(legacyPath));

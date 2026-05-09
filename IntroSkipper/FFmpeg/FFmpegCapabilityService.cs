@@ -20,6 +20,7 @@ public sealed partial class FFmpegCapabilityService : IFFmpegCapabilityService
     private readonly IFFmpegRunner _runner;
     private readonly ILogger<FFmpegCapabilityService> _logger;
     private readonly ConcurrentDictionary<string, string> _chromaprintLogs = new();
+    private volatile bool _ffmpegCheckPassed;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="FFmpegCapabilityService"/> class.
@@ -41,6 +42,13 @@ public sealed partial class FFmpegCapabilityService : IFFmpegCapabilityService
     /// <inheritdoc />
     public bool CheckFFmpegVersion()
     {
+        // Only cache successful results. Failures are retried so that installing or
+        // upgrading FFmpeg takes effect without restarting the server.
+        if (_ffmpegCheckPassed)
+        {
+            return true;
+        }
+
         try
         {
             // Always log ffmpeg's version information.
@@ -94,6 +102,7 @@ public sealed partial class FFmpegCapabilityService : IFFmpegCapabilityService
             LogFfmpegVersionValid(_logger);
 
             _chromaprintLogs["error"] = "okay";
+            _ffmpegCheckPassed = true;
             return true;
         }
         catch (Exception ex) when (ex is not OutOfMemoryException)

@@ -53,7 +53,7 @@ public sealed partial class MediaDetectionService : IMediaDetectionService
         var (start, end) = episode.GetFingerprintRange(mode);
         var key = new DetectionCacheKey(episode.EpisodeId, mode, CacheEntryType.Chromaprint, start, end);
 
-        var cached = await _cacheService.LoadCachedFingerprintAsync(episode, mode, start, end, cancellationToken).ConfigureAwait(false);
+        var cached = await _cacheService.TryReadJsonCacheAsync<uint>(key, cancellationToken).ConfigureAwait(false);
         if (cached is not null)
         {
             LogFingerprintCacheHit(_logger, episode.Path);
@@ -94,7 +94,6 @@ public sealed partial class MediaDetectionService : IMediaDetectionService
         */
         return await RunCachedDetectionAsync(
             key,
-            DetectionCacheKind.Silence,
             raw => FFmpegOutputParser.ParseSilenceRaw(raw, range.Start),
             BuildArgs,
             stderr: true,
@@ -128,7 +127,6 @@ public sealed partial class MediaDetectionService : IMediaDetectionService
         var key = new DetectionCacheKey(episode.EpisodeId, mode, CacheEntryType.BlackFrame, range.Start, range.End);
         var allFrames = await RunCachedDetectionAsync(
             key,
-            DetectionCacheKind.BlackFrameRange,
             static raw => FFmpegOutputParser.ParseBlackFrames(raw),
             BuildArgs,
             stderr: true,
@@ -155,7 +153,6 @@ public sealed partial class MediaDetectionService : IMediaDetectionService
         var key = new DetectionCacheKey(episode.EpisodeId, AnalysisMode.Credits, CacheEntryType.BlackFrame, episode.CreditsFingerprintStart, 0);
         return await RunCachedDetectionAsync(
             key,
-            DetectionCacheKind.BlackFrameAlt,
             static raw => FFmpegOutputParser.ParseBlackFrames(raw),
             BuildArgs,
             stderr: true,
@@ -178,7 +175,6 @@ public sealed partial class MediaDetectionService : IMediaDetectionService
         var key = new DetectionCacheKey(episode.EpisodeId, mode, CacheEntryType.Keyframe, range.Start, range.End);
         return await RunCachedDetectionAsync(
             key,
-            DetectionCacheKind.Keyframe,
             raw => FFmpegOutputParser.ParseKeyFramesRaw(raw, range.Start, _logger),
             BuildArgs,
             stderr: true,
@@ -198,13 +194,12 @@ public sealed partial class MediaDetectionService : IMediaDetectionService
 
     private async Task<T[]> RunCachedDetectionAsync<T>(
         DetectionCacheKey key,
-        DetectionCacheKind cacheKind,
         Func<string, T[]> parseRawOutput,
         Func<IReadOnlyList<string>> buildArgs,
         bool stderr,
         CancellationToken cancellationToken)
     {
-        var cached = await _cacheService.TryReadOrMigrateCacheAsync(key, cacheKind, parseRawOutput, cancellationToken).ConfigureAwait(false);
+        var cached = await _cacheService.TryReadJsonCacheAsync<T>(key, cancellationToken).ConfigureAwait(false);
         if (cached is not null)
         {
             return cached;
@@ -212,13 +207,10 @@ public sealed partial class MediaDetectionService : IMediaDetectionService
 
         var processResult = await _runner.RunAsync(buildArgs(), stderr, cancellationToken: cancellationToken).ConfigureAwait(false);
         ThrowIfFFmpegTimedOut(processResult);
-        var result = parseRawOutput(DecodeOutput(processResult));
+        var result = parseRawOutput(Encoding.UTF8.GetString(processResult.Output));
         await _cacheService.WriteJsonCacheAsync(key, result, cancellationToken).ConfigureAwait(false);
         return result;
     }
-
-    private static string DecodeOutput(FFmpegProcessResult result)
-        => Encoding.UTF8.GetString(result.Output);
 
     private static void ThrowIfFFmpegTimedOut(FFmpegProcessResult result)
     {

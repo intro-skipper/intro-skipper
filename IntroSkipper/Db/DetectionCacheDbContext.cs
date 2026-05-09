@@ -9,7 +9,7 @@ namespace IntroSkipper.Db;
 
 /// <summary>
 /// EF Core database context for the FFmpeg detection cache.
-/// Stored in a separate SQLite file (<c>introskipper-cache-v2.db</c>) so cache corruption
+/// Stored in a separate SQLite file (<c>introskipper-cache.db</c>) so cache corruption
 /// does not affect the main segment/season database.
 /// </summary>
 public class DetectionCacheDbContext : DbContext

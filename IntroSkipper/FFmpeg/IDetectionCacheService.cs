@@ -33,28 +33,6 @@ public interface IDetectionCacheService
     Task<bool> WriteJsonCacheAsync<T>(DetectionCacheKey key, T[] items, CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// Tries to read a cache entry from SQLite asynchronously or migrate its matching legacy on-disk text file.
-    /// </summary>
-    /// <typeparam name="T">Element type of the cached array.</typeparam>
-    /// <param name="key">Cache entry key.</param>
-    /// <param name="kind">Detection operation kind.</param>
-    /// <param name="rawParser">Function to parse the legacy text file content into a typed array.</param>
-    /// <param name="cancellationToken">Cancellation token.</param>
-    /// <returns>The cached array on success; otherwise <c>null</c>.</returns>
-    Task<T[]?> TryReadOrMigrateCacheAsync<T>(DetectionCacheKey key, DetectionCacheKind kind, Func<string, T[]> rawParser, CancellationToken cancellationToken = default);
-
-    /// <summary>
-    /// Tries to load a cached fingerprint from the SQLite cache or legacy on-disk file asynchronously.
-    /// </summary>
-    /// <param name="episode">Episode to load.</param>
-    /// <param name="mode">Analysis mode.</param>
-    /// <param name="start">Start time used when the fingerprint was cached.</param>
-    /// <param name="end">End time used when the fingerprint was cached.</param>
-    /// <param name="cancellationToken">Cancellation token.</param>
-    /// <returns>The cached fingerprint on success; otherwise <c>null</c>.</returns>
-    Task<uint[]?> LoadCachedFingerprintAsync(QueuedEpisode episode, AnalysisMode mode, double start, double end, CancellationToken cancellationToken = default);
-
-    /// <summary>
     /// Removes all cache entries for a media item from the SQLite cache and legacy on-disk files.
     /// </summary>
     /// <param name="id">Media item identifier.</param>
@@ -71,7 +49,7 @@ public interface IDetectionCacheService
     Task DeleteCacheFilesAsync(AnalysisMode mode, CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// Returns <c>true</c> if a fingerprint cache entry exists in the SQLite cache or as a legacy on-disk file.
+    /// Returns <c>true</c> if a fingerprint cache entry exists in the SQLite cache.
     /// </summary>
     /// <param name="episode">Episode to check.</param>
     /// <param name="mode">Analysis mode.</param>
@@ -86,4 +64,13 @@ public interface IDetectionCacheService
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>Task.</returns>
     Task DeleteStaleCachesAsync(IReadOnlySet<Guid> enabledItemIds, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Batch-migrates all legacy on-disk cache files into the SQLite database.
+    /// This method is idempotent and only performs migration work on the first call.
+    /// </summary>
+    /// <param name="episodes">All queued episodes, used to resolve fingerprint ranges for chromaprint migration.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>Task.</returns>
+    Task MigrateLegacyCachesAsync(IEnumerable<QueuedEpisode> episodes, CancellationToken cancellationToken = default);
 }

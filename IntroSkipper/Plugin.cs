@@ -80,7 +80,7 @@ public partial class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
         FingerprintCachePath = Path.Join(introsDirectory, pluginCachePath);
 
         _dbPath = Path.Join(introsDirectory, "introskipper.db");
-        _cacheDbPath = Path.Join(introsDirectory, "introskipper-cache-v2.db");
+        _cacheDbPath = Path.Join(introsDirectory, "introskipper-cache.db");
 
         // Create the base directories (if needed).
         // Directory.CreateDirectory is already a no-op when the directory exists, so we can call it unconditionally without checking first.

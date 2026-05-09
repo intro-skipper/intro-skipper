@@ -15,6 +15,7 @@ using Microsoft.Extensions.Logging;
 using Xunit;
 
 namespace IntroSkipper.Tests;
+
 public class TestChapterAnalyzer
 {
     [Theory]

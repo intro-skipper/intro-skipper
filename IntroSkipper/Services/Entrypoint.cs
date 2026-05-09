@@ -104,7 +104,7 @@ namespace IntroSkipper.Services
             _capabilityService.CheckFFmpegVersion();
 
             // Initialize web injector for skip button timeout modification
-            if (_config.FileTransformationPluginEnabled == true)
+            if (_config.FileTransformationPluginEnabled)
             {
                 InitializeWebInjector();
             }
@@ -190,6 +190,9 @@ namespace IntroSkipper.Services
 
         /// <summary>
         /// Library item was removed.
+        /// Cache deletion is fire-and-forget because the event handler must be synchronous.
+        /// In-flight deletions may still be running after <see cref="StopAsync"/> unsubscribes
+        /// the handler; this is acceptable because cache deletion is best-effort.
         /// </summary>
         /// <param name="sender">The sending entity.</param>
         /// <param name="itemChangeEventArgs">The <see cref="ItemChangeEventArgs"/>.</param>

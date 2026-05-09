@@ -75,13 +75,31 @@ public partial class BaseItemAnalyzerTask(
     {
         var ffmpegValid = _capabilityService.CheckFFmpegVersion();
 
-        HashSet<AnalysisMode> modes = [
-            .. _config.ScanIntroduction ? [AnalysisMode.Introduction] : Array.Empty<AnalysisMode>(),
-            .. _config.ScanCredits ? [AnalysisMode.Credits] : Array.Empty<AnalysisMode>(),
-            .. _config.ScanRecap ? [AnalysisMode.Recap] : Array.Empty<AnalysisMode>(),
-            .. _config.ScanPreview ? [AnalysisMode.Preview] : Array.Empty<AnalysisMode>(),
-            .. _config.ScanCommercial ? [AnalysisMode.Commercial] : Array.Empty<AnalysisMode>()
-        ];
+        var modes = new HashSet<AnalysisMode>();
+        if (_config.ScanIntroduction)
+        {
+            modes.Add(AnalysisMode.Introduction);
+        }
+
+        if (_config.ScanCredits)
+        {
+            modes.Add(AnalysisMode.Credits);
+        }
+
+        if (_config.ScanRecap)
+        {
+            modes.Add(AnalysisMode.Recap);
+        }
+
+        if (_config.ScanPreview)
+        {
+            modes.Add(AnalysisMode.Preview);
+        }
+
+        if (_config.ScanCommercial)
+        {
+            modes.Add(AnalysisMode.Commercial);
+        }
 
         var plugin = Plugin.Instance ?? throw new InvalidOperationException("Plugin instance is null");
 
@@ -92,6 +110,11 @@ public partial class BaseItemAnalyzerTask(
             _fileSystem);
 
         var queue = await queueManager.GetMediaItems(cancellationToken).ConfigureAwait(false);
+
+        // Batch-migrate any remaining legacy on-disk cache files into the SQLite cache.
+        // This is idempotent and a no-op once all legacy files have been migrated.
+        var allEpisodes = queue.Values.SelectMany(static episodes => episodes).ToList();
+        await _cacheService.MigrateLegacyCachesAsync(allEpisodes, cancellationToken).ConfigureAwait(false);
 
         if (seasonsToAnalyze?.Count > 0)
         {
@@ -150,7 +173,7 @@ public partial class BaseItemAnalyzerTask(
                         ct).ConfigureAwait(false);
                     Interlocked.Add(ref totalProcessed, episodes.Count);
 
-                    updateMediaSegments = analyzed > 0 || updateMediaSegments;
+                    updateMediaSegments |= analyzed > 0;
                     progress.Report((double)totalProcessed / totalQueued * 100);
                 }
             }

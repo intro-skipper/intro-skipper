@@ -19,7 +19,7 @@ namespace IntroSkipper.Tests;
 public class TestFFmpegCapabilityService
 {
     [Fact]
-    public void CheckFFmpegVersion_RunsRequirementsOnEveryCall()
+    public void CheckFFmpegVersion_CachesSuccessfulResult()
     {
         var runner = new CapabilityRunner();
         var service = new FFmpegCapabilityService(runner, NullLogger<FFmpegCapabilityService>.Instance);
@@ -27,11 +27,12 @@ public class TestFFmpegCapabilityService
         Assert.True(service.CheckFFmpegVersion());
         Assert.True(service.CheckFFmpegVersion());
 
-        Assert.Equal(8, runner.Calls.Count);
-        Assert.Equal(2, runner.Calls.Count(call => call == "-version"));
-        Assert.Equal(2, runner.Calls.Count(call => call == "-muxers"));
-        Assert.Equal(2, runner.Calls.Count(call => call == "-h muxer=chromaprint"));
-        Assert.Equal(2, runner.Calls.Count(call => call == "-h filter=silencedetect"));
+        // Second call should be served from cache — only 4 subprocess invocations total.
+        Assert.Equal(4, runner.Calls.Count);
+        Assert.Single(runner.Calls, call => call == "-version");
+        Assert.Single(runner.Calls, call => call == "-muxers");
+        Assert.Single(runner.Calls, call => call == "-h muxer=chromaprint");
+        Assert.Single(runner.Calls, call => call == "-h filter=silencedetect");
     }
 
     [Fact]

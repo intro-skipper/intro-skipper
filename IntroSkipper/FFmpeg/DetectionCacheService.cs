@@ -26,6 +26,7 @@ public sealed partial class DetectionCacheService : IDetectionCacheService
 
     private readonly IFFmpegOptionsProvider _options;
     private readonly ILogger<DetectionCacheService> _logger;
+    private volatile bool _legacyMigrationCompleted;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="DetectionCacheService"/> class.
@@ -117,47 +118,6 @@ public sealed partial class DetectionCacheService : IDetectionCacheService
     }
 
     /// <inheritdoc />
-    public async Task<T[]?> TryReadOrMigrateCacheAsync<T>(DetectionCacheKey key, DetectionCacheKind kind, Func<string, T[]> rawParser, CancellationToken cancellationToken = default)
-    {
-        var result = await TryReadJsonCacheAsync<T>(key, cancellationToken).ConfigureAwait(false);
-        if (result is not null)
-        {
-            return result;
-        }
-
-        var legacyCacheKey = GetLegacyDetectionCacheKey(key, kind);
-        var legacyPath = GetLegacyFilePath(legacyCacheKey);
-        return kind is DetectionCacheKind.Silence or DetectionCacheKind.Keyframe
-            ? await LoadLegacyCacheForAllModesAsync(legacyCacheKey, legacyPath, key, rawParser, cancellationToken).ConfigureAwait(false)
-            : await LoadLegacyCacheAsync(legacyCacheKey, legacyPath, key, rawParser, cancellationToken).ConfigureAwait(false);
-    }
-
-    /// <inheritdoc />
-    public async Task<uint[]?> LoadCachedFingerprintAsync(QueuedEpisode episode, AnalysisMode mode, double start, double end, CancellationToken cancellationToken = default)
-    {
-        if (!_options.CacheFingerprints)
-        {
-            return null;
-        }
-
-        var key = new DetectionCacheKey(episode.EpisodeId, mode, CacheEntryType.Chromaprint, start, end);
-        var result = await TryReadJsonCacheAsync<uint>(key, cancellationToken).ConfigureAwait(false);
-        if (result is not null)
-        {
-            return result;
-        }
-
-        var legacyCacheKey = GetLegacyFingerprintCacheKey(episode.EpisodeId, mode);
-        return await LoadLegacyCacheAsync(
-                legacyCacheKey,
-                GetLegacyFilePath(legacyCacheKey),
-                key,
-                ParseFingerprintRaw,
-                cancellationToken)
-            .ConfigureAwait(false);
-    }
-
-    /// <inheritdoc />
     public async Task DeleteFingerprintCacheAsync(Guid id, CancellationToken cancellationToken = default)
     {
         try
@@ -214,11 +174,13 @@ public sealed partial class DetectionCacheService : IDetectionCacheService
         if (cacheDir is not null && Directory.Exists(cacheDir))
         {
             foreach (var filePath in Directory.EnumerateFiles(cacheDir)
-                .Where(f => mode == AnalysisMode.Introduction
-                    ? !Path.GetFileName(f).Contains("credit", StringComparison.OrdinalIgnoreCase)
-                        && !Path.GetFileName(f).Contains("blackframes", StringComparison.OrdinalIgnoreCase)
-                    : Path.GetFileName(f).Contains("credit", StringComparison.OrdinalIgnoreCase)
-                        || Path.GetFileName(f).Contains("blackframes", StringComparison.OrdinalIgnoreCase)))
+                .Where(f =>
+                {
+                    var name = Path.GetFileName(f);
+                    var isCreditOrBlackframe = name.Contains("credit", StringComparison.OrdinalIgnoreCase)
+                        || name.Contains("blackframes", StringComparison.OrdinalIgnoreCase);
+                    return mode == AnalysisMode.Introduction ? !isCreditOrBlackframe : isCreditOrBlackframe;
+                }))
             {
                 cancellationToken.ThrowIfCancellationRequested();
                 try
@@ -316,6 +278,85 @@ public sealed partial class DetectionCacheService : IDetectionCacheService
                 LogDeleteLegacyCacheFileFailed(_logger, ex, filePath);
             }
         }
+
+        // Remove the legacy cache directory if it's now empty.
+        if (!string.IsNullOrEmpty(cacheDir))
+        {
+            TryRemoveEmptyCacheDirectory(cacheDir);
+        }
+    }
+
+    /// <inheritdoc />
+    public async Task MigrateLegacyCachesAsync(IEnumerable<QueuedEpisode> episodes, CancellationToken cancellationToken = default)
+    {
+        if (_legacyMigrationCompleted)
+        {
+            return;
+        }
+
+        var cacheDir = _options.FingerprintCachePath;
+        if (string.IsNullOrEmpty(cacheDir) || !Directory.Exists(cacheDir) || !_options.CacheFingerprints)
+        {
+            _legacyMigrationCompleted = true;
+            return;
+        }
+
+        List<string> files;
+        try
+        {
+            files = [.. Directory.EnumerateFiles(cacheDir)];
+        }
+        catch (DirectoryNotFoundException)
+        {
+            _legacyMigrationCompleted = true;
+            return;
+        }
+
+        if (files.Count == 0)
+        {
+            TryRemoveEmptyCacheDirectory(cacheDir);
+            _legacyMigrationCompleted = true;
+            return;
+        }
+
+        var episodeLookup = new Dictionary<Guid, QueuedEpisode>();
+        foreach (var ep in episodes)
+        {
+            episodeLookup.TryAdd(ep.EpisodeId, ep);
+        }
+
+        int migrated = 0;
+
+        foreach (var filePath in files)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+
+            var filename = Path.GetFileName(filePath);
+            if (!TryGetLegacyDetectionCacheParts(filename, out var itemId, out var suffix))
+            {
+                continue;
+            }
+
+            try
+            {
+                if (await TryMigrateLegacyFileAsync(filePath, filename, itemId, suffix, episodeLookup, cancellationToken).ConfigureAwait(false))
+                {
+                    migrated++;
+                }
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                LogDetectionCacheReadError(_logger, ex, filePath);
+            }
+        }
+
+        if (migrated > 0)
+        {
+            LogBatchMigrationCompleted(_logger, migrated);
+        }
+
+        TryRemoveEmptyCacheDirectory(cacheDir);
+        _legacyMigrationCompleted = true;
     }
 
     /// <inheritdoc />
@@ -331,7 +372,7 @@ public sealed partial class DetectionCacheService : IDetectionCacheService
         try
         {
             using var db = Plugin.CreateCacheDbContext();
-            if (await db.DetectionCache.AnyAsync(
+            return await db.DetectionCache.AnyAsync(
                 e => e.ItemId == episode.EpisodeId &&
                     e.Mode == mode &&
                     e.Type == CacheEntryType.Chromaprint &&
@@ -339,19 +380,13 @@ public sealed partial class DetectionCacheService : IDetectionCacheService
                     e.Start <= start + CacheTimeTolerance &&
                     e.End >= end - CacheTimeTolerance &&
                     e.End <= end + CacheTimeTolerance,
-                cancellationToken).ConfigureAwait(false))
-            {
-                return true;
-            }
+                cancellationToken).ConfigureAwait(false);
         }
         catch (DbException ex)
         {
             LogDetectionCacheReadError(_logger, ex, $"{episode.EpisodeId:N}-{mode}-{CacheEntryType.Chromaprint}");
+            return false;
         }
-
-        var legacyPath = GetLegacyFilePath(GetLegacyFingerprintCacheKey(episode.EpisodeId, mode));
-
-        return File.Exists(legacyPath);
     }
 
     /// <summary>
@@ -453,35 +488,6 @@ public sealed partial class DetectionCacheService : IDetectionCacheService
         return itemId.ToString("N") + suffix;
     }
 
-    private static string GetLegacyDetectionCacheKey(DetectionCacheKey key, DetectionCacheKind kind)
-        => kind switch
-        {
-            DetectionCacheKind.Silence => string.Format(
-                CultureInfo.InvariantCulture,
-                "{0}-silence-{1}-{2}-v2",
-                key.ItemId.ToString("N"),
-                key.Start,
-                key.End),
-            DetectionCacheKind.BlackFrameRange => string.Format(
-                CultureInfo.InvariantCulture,
-                "{0}-blackframes-{1}-{2}-v1",
-                key.ItemId.ToString("N"),
-                key.Start,
-                key.End),
-            DetectionCacheKind.BlackFrameAlt => string.Format(
-                CultureInfo.InvariantCulture,
-                "{0}-blackframes-{1}-alt",
-                key.ItemId.ToString("N"),
-                key.Start),
-            DetectionCacheKind.Keyframe => string.Format(
-                CultureInfo.InvariantCulture,
-                "{0}-keyframes-{1}-{2}-v1",
-                key.ItemId.ToString("N"),
-                key.Start,
-                key.End),
-            _ => throw new ArgumentOutOfRangeException(nameof(kind), kind, null),
-        };
-
     private static string GetCacheLogKey(DetectionCacheKey key)
         => $"{key.ItemId:N}-{key.Mode}-{key.Type}";
 
@@ -525,19 +531,6 @@ public sealed partial class DetectionCacheService : IDetectionCacheService
                 cancellationToken)
             .ConfigureAwait(false);
 
-        UpsertJsonCacheEntry(db, existing, itemId, mode, type, start, end, data);
-    }
-
-    private static void UpsertJsonCacheEntry(
-        DetectionCacheDbContext db,
-        DbDetectionCache? existing,
-        Guid itemId,
-        AnalysisMode mode,
-        CacheEntryType type,
-        double start,
-        double end,
-        byte[] data)
-    {
         if (existing is not null)
         {
             existing.Data = data;
@@ -558,8 +551,7 @@ public sealed partial class DetectionCacheService : IDetectionCacheService
         }
 
         var itemIdText = filename[..32];
-        if (!Guid.TryParseExact(itemIdText, "N", out itemId) ||
-            !string.Equals(itemIdText, itemId.ToString("N"), StringComparison.Ordinal))
+        if (!Guid.TryParseExact(itemIdText, "N", out itemId))
         {
             return false;
         }
@@ -567,9 +559,6 @@ public sealed partial class DetectionCacheService : IDetectionCacheService
         suffix = filename.Length == 32 ? string.Empty : filename[33..];
         return true;
     }
-
-    private string GetLegacyFilePath(string cacheKey)
-        => Path.Join(_options.FingerprintCachePath ?? string.Empty, cacheKey);
 
     private void DeleteLegacyCacheFilePath(string legacyTextPath)
     {
@@ -583,53 +572,6 @@ public sealed partial class DetectionCacheService : IDetectionCacheService
         }
     }
 
-    private async Task<T[]?> LoadLegacyCacheAsync<T>(
-        string legacyCacheKey,
-        string legacyTextPath,
-        DetectionCacheKey key,
-        Func<string, T[]> rawParser,
-        CancellationToken cancellationToken)
-    {
-        if (!TryLoadLegacyCache(legacyCacheKey, legacyTextPath, key, rawParser, out var result))
-        {
-            return null;
-        }
-
-        if (await WriteJsonCacheAsync(key, result, cancellationToken).ConfigureAwait(false))
-        {
-            DeleteLegacyCacheFilePath(legacyTextPath);
-        }
-
-        return result;
-    }
-
-    private async Task<T[]?> LoadLegacyCacheForAllModesAsync<T>(
-        string legacyCacheKey,
-        string legacyTextPath,
-        DetectionCacheKey key,
-        Func<string, T[]> rawParser,
-        CancellationToken cancellationToken)
-    {
-        if (!TryLoadLegacyCache(legacyCacheKey, legacyTextPath, key, rawParser, out var result))
-        {
-            return null;
-        }
-
-        if (await WriteJsonCacheForAllModesAsync(
-                legacyCacheKey,
-                key.ItemId,
-                key.Type,
-                key.Start,
-                key.End,
-                result,
-                cancellationToken).ConfigureAwait(false))
-        {
-            DeleteLegacyCacheFilePath(legacyTextPath);
-        }
-
-        return result;
-    }
-
     private bool TryLoadLegacyCache<T>(
         string legacyCacheKey,
         string legacyTextPath,
@@ -640,12 +582,6 @@ public sealed partial class DetectionCacheService : IDetectionCacheService
         result = [];
 
         if (!_options.CacheFingerprints)
-        {
-            return false;
-        }
-
-        // Migrate legacy on-disk text files into the SQLite cache.
-        if (!File.Exists(legacyTextPath))
         {
             return false;
         }
@@ -682,14 +618,223 @@ public sealed partial class DetectionCacheService : IDetectionCacheService
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
-            // FileNotFoundException is a subclass of IOException and is the normal case when the
-            // legacy text file simply does not exist — suppress it silently to avoid log noise.
             if (ex is not FileNotFoundException)
             {
                 LogDetectionCacheReadError(_logger, ex, legacyTextPath);
             }
 
             return false;
+        }
+    }
+
+    /// <summary>
+    /// Attempts to migrate a single legacy on-disk cache file into the SQLite cache.
+    /// </summary>
+    private async Task<bool> TryMigrateLegacyFileAsync(
+        string filePath,
+        string filename,
+        Guid itemId,
+        string suffix,
+        Dictionary<Guid, QueuedEpisode> episodeLookup,
+        CancellationToken cancellationToken)
+    {
+        // Determine what kind of legacy file this is based on its suffix.
+        // Fingerprint files: "{guid}" or "{guid}-credits"
+        // Silence files: "{guid}-silence-{start}-{end}-v2"
+        // BlackFrame files: "{guid}-blackframes-{start}-{end}-v1" or "{guid}-blackframes-{start}-alt"
+        // Keyframe files: "{guid}-keyframes-{start}-{end}-v1"
+
+        if (string.IsNullOrEmpty(suffix) || suffix == "credits")
+        {
+            // Chromaprint fingerprint file
+            var mode = suffix == "credits" ? AnalysisMode.Credits : AnalysisMode.Introduction;
+
+            if (!episodeLookup.TryGetValue(itemId, out var episode))
+            {
+                return false; // Episode not in queue; stale cache cleanup will handle it
+            }
+
+            var (start, end) = episode.GetFingerprintRange(mode);
+            var key = new DetectionCacheKey(itemId, mode, CacheEntryType.Chromaprint, start, end);
+            var legacyCacheKey = GetLegacyFingerprintCacheKey(itemId, mode);
+
+            if (TryLoadLegacyCache(legacyCacheKey, filePath, key, ParseFingerprintRaw, out var result))
+            {
+                if (await WriteJsonCacheAsync(key, result, cancellationToken).ConfigureAwait(false))
+                {
+                    DeleteLegacyCacheFilePath(filePath);
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        // Non-fingerprint legacy files: parse the suffix to build a DetectionCacheKey
+        if (TryParseLegacySuffix(suffix, out var cacheKind, out var legacyStart, out var legacyEnd))
+        {
+            return cacheKind switch
+            {
+                DetectionCacheKind.Silence => await MigrateLegacyTypedAsync(
+                    filePath,
+                    filename,
+                    itemId,
+                    CacheEntryType.Silence,
+                    legacyStart,
+                    legacyEnd,
+                    raw => FFmpegOutputParser.ParseSilenceRaw(raw, legacyStart),
+                    modeAgnostic: true,
+                    cancellationToken).ConfigureAwait(false),
+
+                DetectionCacheKind.BlackFrameRange or DetectionCacheKind.BlackFrameAlt => await MigrateLegacyTypedAsync(
+                    filePath,
+                    filename,
+                    itemId,
+                    CacheEntryType.BlackFrame,
+                    legacyStart,
+                    legacyEnd,
+                    static raw => FFmpegOutputParser.ParseBlackFrames(raw),
+                    modeAgnostic: false,
+                    cancellationToken).ConfigureAwait(false),
+
+                DetectionCacheKind.Keyframe => await MigrateLegacyTypedAsync(
+                    filePath,
+                    filename,
+                    itemId,
+                    CacheEntryType.Keyframe,
+                    legacyStart,
+                    legacyEnd,
+                    raw => FFmpegOutputParser.ParseKeyFramesRaw(raw, legacyStart),
+                    modeAgnostic: true,
+                    cancellationToken).ConfigureAwait(false),
+
+                _ => false,
+            };
+        }
+
+        return false;
+    }
+
+    /// <summary>
+    /// Strongly-typed helper that migrates a single non-fingerprint legacy cache file into SQLite.
+    /// </summary>
+    private async Task<bool> MigrateLegacyTypedAsync<T>(
+        string filePath,
+        string legacyCacheKey,
+        Guid itemId,
+        CacheEntryType type,
+        double start,
+        double end,
+        Func<string, T[]> rawParser,
+        bool modeAgnostic,
+        CancellationToken cancellationToken)
+    {
+        var key = new DetectionCacheKey(itemId, AnalysisMode.Introduction, type, start, end);
+
+        if (!TryLoadLegacyCache(legacyCacheKey, filePath, key, rawParser, out var result))
+        {
+            return false;
+        }
+
+        var written = modeAgnostic
+            ? await WriteJsonCacheForAllModesAsync(
+                legacyCacheKey, itemId, type, start, end, result, cancellationToken).ConfigureAwait(false)
+            : await WriteJsonCacheAsync(key, result, cancellationToken).ConfigureAwait(false);
+
+        if (written)
+        {
+            DeleteLegacyCacheFilePath(filePath);
+        }
+
+        return written;
+    }
+
+    /// <summary>
+    /// Parses the suffix portion of a legacy cache filename to determine its kind and time range.
+    /// </summary>
+    private static bool TryParseLegacySuffix(
+        string suffix,
+        out DetectionCacheKind kind,
+        out double start,
+        out double end)
+    {
+        kind = default;
+        start = 0;
+        end = 0;
+
+        // silence-{start}-{end}-v2
+        if (suffix.StartsWith("silence-", StringComparison.Ordinal) && suffix.EndsWith("-v2", StringComparison.Ordinal))
+        {
+            var inner = suffix["silence-".Length..^"-v2".Length];
+            var parts = inner.Split('-');
+            if (parts.Length == 2 &&
+                double.TryParse(parts[0], CultureInfo.InvariantCulture, out start) &&
+                double.TryParse(parts[1], CultureInfo.InvariantCulture, out end))
+            {
+                kind = DetectionCacheKind.Silence;
+                return true;
+            }
+        }
+
+        // blackframes-{start}-{end}-v1
+        else if (suffix.StartsWith("blackframes-", StringComparison.Ordinal) && suffix.EndsWith("-v1", StringComparison.Ordinal))
+        {
+            var inner = suffix["blackframes-".Length..^"-v1".Length];
+            var parts = inner.Split('-');
+            if (parts.Length == 2 &&
+                double.TryParse(parts[0], CultureInfo.InvariantCulture, out start) &&
+                double.TryParse(parts[1], CultureInfo.InvariantCulture, out end))
+            {
+                kind = DetectionCacheKind.BlackFrameRange;
+                return true;
+            }
+        }
+
+        // blackframes-{start}-alt
+        else if (suffix.StartsWith("blackframes-", StringComparison.Ordinal) && suffix.EndsWith("-alt", StringComparison.Ordinal))
+        {
+            var inner = suffix["blackframes-".Length..^"-alt".Length];
+            if (double.TryParse(inner, CultureInfo.InvariantCulture, out start))
+            {
+                kind = DetectionCacheKind.BlackFrameAlt;
+                end = 0;
+                return true;
+            }
+        }
+
+        // keyframes-{start}-{end}-v1
+        else if (suffix.StartsWith("keyframes-", StringComparison.Ordinal) && suffix.EndsWith("-v1", StringComparison.Ordinal))
+        {
+            var inner = suffix["keyframes-".Length..^"-v1".Length];
+            var parts = inner.Split('-');
+            if (parts.Length == 2 &&
+                double.TryParse(parts[0], CultureInfo.InvariantCulture, out start) &&
+                double.TryParse(parts[1], CultureInfo.InvariantCulture, out end))
+            {
+                kind = DetectionCacheKind.Keyframe;
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /// <summary>
+    /// Removes the legacy cache directory if it exists and is empty.
+    /// </summary>
+    private void TryRemoveEmptyCacheDirectory(string cacheDir)
+    {
+        try
+        {
+            if (Directory.Exists(cacheDir) && !Directory.EnumerateFileSystemEntries(cacheDir).Any())
+            {
+                Directory.Delete(cacheDir);
+                LogRemovedEmptyCacheDirectory(_logger, cacheDir);
+            }
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            // Best-effort: directory removal is not critical.
         }
     }
 
@@ -719,4 +864,10 @@ public sealed partial class DetectionCacheService : IDetectionCacheService
 
     [LoggerMessage(Level = LogLevel.Information, Message = "Legacy fingerprint {CacheKey} duration mismatch (inferred {Inferred}s vs expected {Expected}s), re-fingerprinting")]
     private static partial void LogLegacyDurationMismatch(ILogger logger, string cacheKey, double inferred, double expected);
+
+    [LoggerMessage(Level = LogLevel.Information, Message = "Batch legacy cache migration completed: {Count} files migrated to SQLite")]
+    private static partial void LogBatchMigrationCompleted(ILogger logger, int count);
+
+    [LoggerMessage(Level = LogLevel.Debug, Message = "Removed empty legacy cache directory: {Path}")]
+    private static partial void LogRemovedEmptyCacheDirectory(ILogger logger, string path);
 }
