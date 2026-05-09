@@ -3,7 +3,7 @@ import { configStore } from "../store/config-store.ts";
 import { el } from "../components/dom.ts";
 import { appendTabContent } from "../components/tab-layout.ts";
 import { textField } from "../components/text-field.ts";
-import { t } from "../i18n/index.ts";
+import { t, type LocaleKey } from "../i18n/index.ts";
 
 const DEFAULTS: Record<string, string> = {
     ChapterAnalyzerIntroductionPattern: "(^|\\s)(Intro|Introduction|OP|Opening)(?!\\sEnd)(\\s|$)",
@@ -15,7 +15,7 @@ const DEFAULTS: Record<string, string> = {
     ChapterAnalyzerCommercialPattern: "(^|\\s)(Ad(vert(isement)?)?|Commercial)(?!\\sEnd)(\\s|$)",
 };
 
-function patternField(id: string, label: string, typeNounKey: string): HTMLElement {
+function patternField(id: string, label: string, typeNounKey: LocaleKey): HTMLElement {
     const wrapper = el("div", { className: "pattern-field" });
     const defaultPattern = DEFAULTS[id];
 
@@ -24,7 +24,7 @@ function patternField(id: string, label: string, typeNounKey: string): HTMLEleme
             id,
             label,
             placeholder: defaultPattern,
-            description: t("chapters_patternDesc", { typeNoun: t(typeNounKey as Parameters<typeof t>[0]), defaultPattern }),
+            description: t("chapters_patternDesc", { typeNoun: t(typeNounKey), defaultPattern }),
         }),
     );
 
