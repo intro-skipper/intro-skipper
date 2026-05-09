@@ -7,6 +7,7 @@ export type LocaleKey = keyof typeof en;
 export type LocaleParams = Record<string, string | number>;
 
 let currentStrings: Record<string, string> = en as Record<string, string>;
+const localeListeners = new Set<() => void>();
 
 /**
  * Loads an additional locale by merging it over the English defaults.
@@ -16,6 +17,16 @@ let currentStrings: Record<string, string> = en as Record<string, string>;
  */
 export function loadLocale(strings: Record<string, string>): void {
     currentStrings = { ...(en as Record<string, string>), ...strings };
+    for (const listener of localeListeners) {
+        listener();
+    }
+}
+
+export function subscribeLocaleChange(listener: () => void): () => void {
+    localeListeners.add(listener);
+    return () => {
+        localeListeners.delete(listener);
+    };
 }
 
 /**

@@ -6,60 +6,62 @@ import type { AnalyzerActions } from "../types.ts";
 import { delay } from "../utils.ts";
 import { t } from "../i18n/index.ts";
 
-const ANALYZER_ACTION_ORDER: ReadonlyArray<{
+function getAnalyzerActionOrder(): ReadonlyArray<{
     key: string;
     label: string;
     options: ReadonlyArray<{ value: string; label: string }>;
-}> = [
-    {
-        key: "Recap",
-        label: t("actionBar_recapLabel"),
-        options: [
-            { value: "Default", label: t("actionBar_optionDefault") },
-            { value: "Chapter", label: t("actionBar_optionChapter") },
-            { value: "None", label: t("actionBar_optionNone") },
-        ],
-    },
-    {
-        key: "Introduction",
-        label: t("actionBar_introLabel"),
-        options: [
-            { value: "Default", label: t("actionBar_optionDefault") },
-            { value: "Chapter", label: t("actionBar_optionChapter") },
-            { value: "Chromaprint", label: t("actionBar_optionChromaprint") },
-            { value: "None", label: t("actionBar_optionNone") },
-        ],
-    },
-    {
-        key: "Credits",
-        label: t("actionBar_creditsLabel"),
-        options: [
-            { value: "Default", label: t("actionBar_optionDefault") },
-            { value: "Chapter", label: t("actionBar_optionChapter") },
-            { value: "Chromaprint", label: t("actionBar_optionChromaprint") },
-            { value: "BlackFrame", label: t("actionBar_optionBlackFrame") },
-            { value: "None", label: t("actionBar_optionNone") },
-        ],
-    },
-    {
-        key: "Preview",
-        label: t("actionBar_previewLabel"),
-        options: [
-            { value: "Default", label: t("actionBar_optionDefault") },
-            { value: "Chapter", label: t("actionBar_optionChapter") },
-            { value: "None", label: t("actionBar_optionNone") },
-        ],
-    },
-    {
-        key: "Commercial",
-        label: t("actionBar_commercialLabel"),
-        options: [
-            { value: "Default", label: t("actionBar_optionDefault") },
-            { value: "Chapter", label: t("actionBar_optionChapter") },
-            { value: "None", label: t("actionBar_optionNone") },
-        ],
-    },
-];
+}> {
+    return [
+        {
+            key: "Recap",
+            label: t("actionBar_recapLabel"),
+            options: [
+                { value: "Default", label: t("actionBar_optionDefault") },
+                { value: "Chapter", label: t("actionBar_optionChapter") },
+                { value: "None", label: t("actionBar_optionNone") },
+            ],
+        },
+        {
+            key: "Introduction",
+            label: t("actionBar_introLabel"),
+            options: [
+                { value: "Default", label: t("actionBar_optionDefault") },
+                { value: "Chapter", label: t("actionBar_optionChapter") },
+                { value: "Chromaprint", label: t("actionBar_optionChromaprint") },
+                { value: "None", label: t("actionBar_optionNone") },
+            ],
+        },
+        {
+            key: "Credits",
+            label: t("actionBar_creditsLabel"),
+            options: [
+                { value: "Default", label: t("actionBar_optionDefault") },
+                { value: "Chapter", label: t("actionBar_optionChapter") },
+                { value: "Chromaprint", label: t("actionBar_optionChromaprint") },
+                { value: "BlackFrame", label: t("actionBar_optionBlackFrame") },
+                { value: "None", label: t("actionBar_optionNone") },
+            ],
+        },
+        {
+            key: "Preview",
+            label: t("actionBar_previewLabel"),
+            options: [
+                { value: "Default", label: t("actionBar_optionDefault") },
+                { value: "Chapter", label: t("actionBar_optionChapter") },
+                { value: "None", label: t("actionBar_optionNone") },
+            ],
+        },
+        {
+            key: "Commercial",
+            label: t("actionBar_commercialLabel"),
+            options: [
+                { value: "Default", label: t("actionBar_optionDefault") },
+                { value: "Chapter", label: t("actionBar_optionChapter") },
+                { value: "None", label: t("actionBar_optionNone") },
+            ],
+        },
+    ];
+}
 
 const SEGMENT_EDITOR_PLUGIN_ID = "ace21d44a4e54a85ae75acd2e24a9574";
 
@@ -78,8 +80,9 @@ export function actionBar(opts: ActionBarOptions): {
 
     const actionSelects: Record<string, HTMLSelectElement> = {};
     const analyzerGroup = el("div", { className: "ts-analyzer-group" });
+    const analyzerActionOrder = getAnalyzerActionOrder();
 
-    for (const action of ANALYZER_ACTION_ORDER) {
+    for (const action of analyzerActionOrder) {
         const item = el("div", { className: "ts-analyzer-item" });
         const selectId = "ts-analyzer-" + action.key.toLowerCase();
         const labelEl = el(

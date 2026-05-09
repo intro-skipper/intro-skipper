@@ -28,7 +28,7 @@ function durationPair(
 
 export const analysisTab: Tab = {
     id: "analysis",
-    label: t("tab_analysis"),
+    label: () => t("tab_analysis"),
     render(container) {
         const info = htmlEl(
             "div",

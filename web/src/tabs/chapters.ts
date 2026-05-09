@@ -43,7 +43,7 @@ function patternField(id: string, label: string, typeNounKey: LocaleKey): HTMLEl
 
 export const chaptersTab: Tab = {
     id: "chapters",
-    label: t("tab_chapters"),
+    label: () => t("tab_chapters"),
     render(container) {
         appendTabContent(
             container,

@@ -211,7 +211,7 @@ export type StoreEvent = "loaded" | "changed" | "saved" | "validation";
 
 export interface Tab {
     id: string;
-    label: string;
+    label: string | (() => string);
     render: (container: HTMLElement) => void;
     destroy?: () => void;
 }

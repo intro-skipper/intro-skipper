@@ -6,9 +6,26 @@ import { appendTabContent } from "../components/tab-layout.ts";
 import { tabWarning } from "../components/tab-warning.ts";
 import { t } from "../i18n/index.ts";
 
+const SEGMENT_TYPES = [
+    { value: "introduction", apiValue: "Introduction", labelKey: "tools_segIntroduction" },
+    { value: "recap", apiValue: "Recap", labelKey: "tools_segRecap" },
+    { value: "credits", apiValue: "Credits", labelKey: "tools_segCredits" },
+    { value: "preview", apiValue: "Preview", labelKey: "tools_segPreview" },
+    { value: "commercial", apiValue: "Commercial", labelKey: "tools_segCommercial" },
+] as const;
+
+function getSegmentType(value: string) {
+    return SEGMENT_TYPES.find((segmentType) => segmentType.value === value);
+}
+
+function getSegmentLabel(value: string): string {
+    const segmentType = getSegmentType(value);
+    return segmentType ? t(segmentType.labelKey) : value;
+}
+
 export const toolsTab: Tab = {
     id: "tools",
-    label: t("tab_tools"),
+    label: () => t("tab_tools"),
 
     render(container) {
         const globalSelectId = "global-timestamp-type";
@@ -22,52 +39,28 @@ export const toolsTab: Tab = {
             id: globalSelectId,
             name: "global-timestamp-type",
         });
-        globalSelect.append(el("option", { value: "introduction" }, t("tools_segIntroduction")));
-        globalSelect.append(el("option", { value: "recap" }, t("tools_segRecap")));
-        globalSelect.append(el("option", { value: "credits" }, t("tools_segCredits")));
-        globalSelect.append(el("option", { value: "preview" }, t("tools_segPreview")));
-        globalSelect.append(el("option", { value: "commercial" }, t("tools_segCommercial")));
+        for (const segmentType of SEGMENT_TYPES) {
+            globalSelect.append(
+                el("option", { value: segmentType.value }, t(segmentType.labelKey)),
+            );
+        }
         globalSelectGroup.append(globalSelectLabel, globalSelect);
 
         const globalEraseBtn = el(
             "button",
             { className: "action-button raised block", type: "button" },
-            t("tools_eraseAllButton", { type: t("tools_segIntroduction") }),
+            t("tools_eraseAllButton", { type: getSegmentLabel("introduction") }),
         );
 
         globalSelect.addEventListener("change", () => {
-            const typeMap: Record<string, string> = {
-                introduction: t("tools_segIntroduction"),
-                recap: t("tools_segRecap"),
-                credits: t("tools_segCredits"),
-                preview: t("tools_segPreview"),
-                commercial: t("tools_segCommercial"),
-            };
-            const label = typeMap[globalSelect.value] ?? globalSelect.value;
+            const label = getSegmentLabel(globalSelect.value);
             globalEraseBtn.textContent = t("tools_eraseAllButton", { type: label });
         });
 
         globalEraseBtn.addEventListener("click", async () => {
-            const typeMap: Record<string, string> = {
-                introduction: "Introduction",
-                recap: "Recap",
-                credits: "Credits",
-                preview: "Preview",
-                commercial: "Commercial",
-            };
-            const type = typeMap[globalSelect.value];
-            if (!type) return;
-
-            const typeLabel = (() => {
-                const labelMap: Record<string, string> = {
-                    introduction: t("tools_segIntroduction"),
-                    recap: t("tools_segRecap"),
-                    credits: t("tools_segCredits"),
-                    preview: t("tools_segPreview"),
-                    commercial: t("tools_segCommercial"),
-                };
-                return labelMap[globalSelect.value] ?? globalSelect.value;
-            })();
+            const segmentType = getSegmentType(globalSelect.value);
+            if (!segmentType) return;
+            const typeLabel = getSegmentLabel(globalSelect.value);
 
             const result = await confirmDialog({
                 title: t("tools_eraseDialogTitle"),
@@ -77,7 +70,7 @@ export const toolsTab: Tab = {
             });
             if (!result) return;
             try {
-                const response = await api.eraseTimestamps(type, result.checkboxChecked);
+                const response = await api.eraseTimestamps(segmentType.apiValue, result.checkboxChecked);
                 if (!response.ok) {
                     window.Dashboard.alert(t("tools_eraseFailed", { type: typeLabel }));
                     return;
