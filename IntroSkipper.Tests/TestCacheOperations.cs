@@ -705,7 +705,7 @@ public sealed class TestCacheOperations
             IntroFingerprintEnd = 600,
         };
         var cacheDir = EntrypointTestHelpers.CreateTempCacheDir();
-        var legacyPath = Path.Combine(cacheDir, episode.EpisodeId.ToString("N"));
+        var legacyPath = Path.Join(cacheDir, episode.EpisodeId.ToString("N"));
 
         await File.WriteAllLinesAsync(
             legacyPath,
