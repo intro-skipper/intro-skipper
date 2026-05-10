@@ -6,27 +6,15 @@ export type LocaleKey = keyof typeof en;
 /** Substitution parameters for interpolated strings. */
 export type LocaleParams = Record<string, string | number>;
 
-let currentStrings: Record<string, string> = en as Record<string, string>;
-const localeListeners = new Set<() => void>();
+const FORCE_ENGLISH = false;
+const locales: Record<string, Record<LocaleKey, string>> = { en };
 
-/**
- * Loads an additional locale by merging it over the English defaults.
- * Any key that is absent from the provided locale falls back to English.
- *
- * @param strings - A flat key→value map of translated strings.
- */
-export function loadLocale(strings: Record<string, string>): void {
-    currentStrings = { ...(en as Record<string, string>), ...strings };
-    for (const listener of localeListeners) {
-        listener();
-    }
-}
+function getCurrentStrings(): Record<LocaleKey, string> {
+    if (FORCE_ENGLISH) return en;
 
-export function subscribeLocaleChange(listener: () => void): () => void {
-    localeListeners.add(listener);
-    return () => {
-        localeListeners.delete(listener);
-    };
+    const lang = document.documentElement.lang.toLowerCase();
+    const locale = lang.split("-")[0];
+    return locales[lang] ?? locales[locale] ?? en;
 }
 
 /**
@@ -39,7 +27,7 @@ export function subscribeLocaleChange(listener: () => void): () => void {
  * @param params - Optional map of placeholder names to substitution values.
  */
 export function t(key: LocaleKey, params?: LocaleParams): string {
-    const str = currentStrings[key] ?? key;
+    const str = getCurrentStrings()[key] ?? en[key] ?? key;
     if (!params) return str;
     return str.replace(/\{(\w+)\}/g, (_, k: string) => String(params[k] ?? ""));
 }

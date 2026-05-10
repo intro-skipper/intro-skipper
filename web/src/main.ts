@@ -5,7 +5,6 @@ import "./styles/forms.css";
 import { createAppShell } from "./components/app-shell.ts";
 import { Router } from "./router/router.ts";
 import { configStore } from "./store/config-store.ts";
-import { subscribeLocaleChange } from "./i18n/index.ts";
 
 import type { Tab } from "./types.ts";
 import { generalTab } from "./tabs/general.ts";
@@ -61,20 +60,8 @@ function mountPage(rootEl: HTMLElement): void {
     const currentMountVersion = mountVersion;
     const { navEl, contentEl, destroy: destroyShell } = createAppShell(rootEl);
     const router = new Router(navEl, contentEl);
-    const unsubscribeLocaleChange = subscribeLocaleChange(() => {
-        if (currentMountVersion !== mountVersion) {
-            return;
-        }
-
-        router.refreshLabels();
-        const activeTabId = router.getActiveTabId();
-        if (activeTabId) {
-            router.switchTo(activeTabId);
-        }
-    });
 
     cleanupPage = () => {
-        unsubscribeLocaleChange();
         router.destroy();
         destroyShell();
     };

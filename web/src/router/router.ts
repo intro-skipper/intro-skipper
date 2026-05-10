@@ -5,7 +5,6 @@ import { el } from "../components/dom.ts";
 export class Router {
     private tabs: Tab[] = [];
     private activeTab: Tab | null = null;
-    private activeTabId: string | null = null;
     private contentEl: HTMLElement;
     private navEl: HTMLElement;
 
@@ -44,7 +43,6 @@ export class Router {
         configStore.beginScope();
         tab.render(this.contentEl);
         this.activeTab = tab;
-        this.activeTabId = tabId;
 
         const buttons = this.navEl.querySelectorAll<HTMLButtonElement>(".tab-button");
         for (const btn of buttons) {
@@ -60,21 +58,5 @@ export class Router {
         configStore.endScope();
         this.activeTab?.destroy?.();
         this.activeTab = null;
-        this.activeTabId = null;
-    }
-
-    getActiveTabId(): string | null {
-        return this.activeTabId;
-    }
-
-    refreshLabels(): void {
-        const buttons = this.navEl.querySelectorAll<HTMLButtonElement>(".tab-button");
-        for (const btn of buttons) {
-            const tabId = btn.getAttribute("data-tab-id");
-            if (!tabId) continue;
-            const tab = this.tabs.find((t) => t.id === tabId);
-            if (!tab) continue;
-            btn.textContent = this.resolveTabLabel(tab);
-        }
     }
 }
