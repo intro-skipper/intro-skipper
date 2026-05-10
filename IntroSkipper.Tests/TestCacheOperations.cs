@@ -696,6 +696,46 @@ public sealed class TestCacheOperations
     }
 
     [Fact]
+    public async Task MigrateLegacyCachesAsync_CacheDisabledThenEnabled_MigratesOnRetry()
+    {
+        var episode = new QueuedEpisode
+        {
+            EpisodeId = Guid.NewGuid(),
+            Path = "/does/not/exist.mkv",
+            IntroFingerprintEnd = 600,
+        };
+        var cacheDir = EntrypointTestHelpers.CreateTempCacheDir();
+        var legacyPath = Path.Combine(cacheDir, episode.EpisodeId.ToString("N"));
+
+        await File.WriteAllLinesAsync(
+            legacyPath,
+            Enumerable.Range(0, 4825).Select(i => ((uint)(i * 12345)).ToString(CultureInfo.InvariantCulture)));
+
+        string cacheDbPath;
+        using (var scope = new CachingPluginScope(cacheDir))
+        {
+            cacheDbPath = scope.CacheDbPath;
+            var cacheService = CreateCacheService();
+            SetCacheFingerprints(false);
+
+            await cacheService.MigrateLegacyCachesAsync([episode]);
+
+            Assert.True(File.Exists(legacyPath));
+
+            SetCacheFingerprints(true);
+            await cacheService.MigrateLegacyCachesAsync([episode]);
+        }
+
+        Assert.False(File.Exists(legacyPath));
+
+        using var db = new DetectionCacheDbContext(cacheDbPath);
+        Assert.True(db.DetectionCache.Any(e =>
+            e.ItemId == episode.EpisodeId &&
+            e.Mode == AnalysisMode.Introduction &&
+            e.Type == CacheEntryType.Chromaprint));
+    }
+
+    [Fact]
     public async Task MigrateLegacyCachesAsync_ModeAgnosticSilenceFile_WritesAllModes()
     {
         var episodeId = Guid.NewGuid();
@@ -780,6 +820,17 @@ public sealed class TestCacheOperations
             new DetectionCacheService(optionsProvider, NullLogger<DetectionCacheService>.Instance),
             optionsProvider,
             NullLogger<MediaDetectionService>.Instance);
+    }
+
+    private static void SetCacheFingerprints(bool enabled)
+    {
+        var plugin = Plugin.Instance;
+        Assert.NotNull(plugin);
+
+        EntrypointTestHelpers.SetPropertyOrField(
+            plugin,
+            "Configuration",
+            new PluginConfiguration { CacheFingerprints = enabled });
     }
 
     private static uint[] ReadFingerprintFromDb(DetectionCacheDbContext db, Guid itemId, AnalysisMode mode)

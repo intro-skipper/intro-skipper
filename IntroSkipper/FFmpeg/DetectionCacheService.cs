@@ -45,6 +45,14 @@ public sealed partial class DetectionCacheService : IDetectionCacheService
         _logger = logger;
     }
 
+    private enum DetectionCacheKind
+    {
+        Silence,
+        BlackFrameRange,
+        BlackFrameAlt,
+        Keyframe
+    }
+
     /// <inheritdoc />
     public async Task<T[]?> TryReadJsonCacheAsync<T>(DetectionCacheKey key, CancellationToken cancellationToken = default)
     {
@@ -57,16 +65,8 @@ public sealed partial class DetectionCacheService : IDetectionCacheService
         {
             using var db = Plugin.CreateCacheDbContext();
 
-            var entry = await db.DetectionCache
-                .FirstOrDefaultAsync(
-                    e => e.ItemId == key.ItemId &&
-                        e.Mode == key.Mode &&
-                        e.Type == key.Type &&
-                        e.Start >= key.Start - CacheTimeTolerance &&
-                        e.Start <= key.Start + CacheTimeTolerance &&
-                        e.End >= key.End - CacheTimeTolerance &&
-                        e.End <= key.End + CacheTimeTolerance,
-                    cancellationToken)
+            var entry = await WhereCacheKey(db.DetectionCache, key)
+                .FirstOrDefaultAsync(cancellationToken)
                 .ConfigureAwait(false);
 
             if (entry is null)
@@ -294,8 +294,13 @@ public sealed partial class DetectionCacheService : IDetectionCacheService
             return;
         }
 
+        if (!_options.CacheFingerprints)
+        {
+            return;
+        }
+
         var cacheDir = _options.FingerprintCachePath;
-        if (string.IsNullOrEmpty(cacheDir) || !Directory.Exists(cacheDir) || !_options.CacheFingerprints)
+        if (string.IsNullOrEmpty(cacheDir) || !Directory.Exists(cacheDir))
         {
             _legacyMigrationCompleted = true;
             return;
@@ -372,15 +377,14 @@ public sealed partial class DetectionCacheService : IDetectionCacheService
         try
         {
             using var db = Plugin.CreateCacheDbContext();
-            return await db.DetectionCache.AnyAsync(
-                e => e.ItemId == episode.EpisodeId &&
-                    e.Mode == mode &&
-                    e.Type == CacheEntryType.Chromaprint &&
-                    e.Start >= start - CacheTimeTolerance &&
-                    e.Start <= start + CacheTimeTolerance &&
-                    e.End >= end - CacheTimeTolerance &&
-                    e.End <= end + CacheTimeTolerance,
-                cancellationToken).ConfigureAwait(false);
+            return await WhereCacheKey(
+                    db.DetectionCache,
+                    episode.EpisodeId,
+                    mode,
+                    CacheEntryType.Chromaprint,
+                    start,
+                    end)
+                .AnyAsync(cancellationToken).ConfigureAwait(false);
         }
         catch (DbException ex)
         {
@@ -445,13 +449,7 @@ public sealed partial class DetectionCacheService : IDetectionCacheService
             {
                 LogMigratingLegacyCache(_logger, legacyCacheKey, cacheKey);
 
-                var existingEntries = await db.DetectionCache
-                    .Where(e => e.ItemId == itemId &&
-                        e.Type == type &&
-                        e.Start >= start - CacheTimeTolerance &&
-                        e.Start <= start + CacheTimeTolerance &&
-                        e.End >= end - CacheTimeTolerance &&
-                        e.End <= end + CacheTimeTolerance)
+                var existingEntries = await WhereCacheRange(db.DetectionCache, itemId, type, start, end)
                     .ToListAsync(cancellationToken)
                     .ConfigureAwait(false);
 
@@ -509,6 +507,34 @@ public sealed partial class DetectionCacheService : IDetectionCacheService
         return [.. result];
     }
 
+    private static IQueryable<DbDetectionCache> WhereCacheKey(
+        IQueryable<DbDetectionCache> query,
+        DetectionCacheKey key)
+        => WhereCacheKey(query, key.ItemId, key.Mode, key.Type, key.Start, key.End);
+
+    private static IQueryable<DbDetectionCache> WhereCacheKey(
+        IQueryable<DbDetectionCache> query,
+        Guid itemId,
+        AnalysisMode mode,
+        CacheEntryType type,
+        double start,
+        double end)
+        => WhereCacheRange(query, itemId, type, start, end)
+            .Where(e => e.Mode == mode);
+
+    private static IQueryable<DbDetectionCache> WhereCacheRange(
+        IQueryable<DbDetectionCache> query,
+        Guid itemId,
+        CacheEntryType type,
+        double start,
+        double end)
+        => query.Where(e => e.ItemId == itemId &&
+            e.Type == type &&
+            e.Start >= start - CacheTimeTolerance &&
+            e.Start <= start + CacheTimeTolerance &&
+            e.End >= end - CacheTimeTolerance &&
+            e.End <= end + CacheTimeTolerance);
+
     private static async Task UpsertJsonCacheEntryAsync(
         DetectionCacheDbContext db,
         Guid itemId,
@@ -519,16 +545,8 @@ public sealed partial class DetectionCacheService : IDetectionCacheService
         byte[] data,
         CancellationToken cancellationToken)
     {
-        var existing = await db.DetectionCache
-            .FirstOrDefaultAsync(
-                e => e.ItemId == itemId &&
-                    e.Mode == mode &&
-                    e.Type == type &&
-                    e.Start >= start - CacheTimeTolerance &&
-                    e.Start <= start + CacheTimeTolerance &&
-                    e.End >= end - CacheTimeTolerance &&
-                    e.End <= end + CacheTimeTolerance,
-                cancellationToken)
+        var existing = await WhereCacheKey(db.DetectionCache, itemId, mode, type, start, end)
+            .FirstOrDefaultAsync(cancellationToken)
             .ConfigureAwait(false);
 
         if (existing is not null)
