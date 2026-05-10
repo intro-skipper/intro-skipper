@@ -6,7 +6,7 @@ import { t } from "../i18n/index.ts";
 
 export const ffmpegTab: Tab = {
     id: "ffmpeg",
-    label: () => t("tab_ffmpeg"),
+    label: t("tab_ffmpeg"),
     render(container) {
         appendTabContent(
             container,

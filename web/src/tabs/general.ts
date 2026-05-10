@@ -14,7 +14,7 @@ import { t } from "../i18n/index.ts";
 
 export const generalTab: Tab = {
     id: "general",
-    label: () => t("tab_general"),
+    label: t("tab_general"),
     render(container) {
         const injectSection = el("div", { className: "input-container" });
         injectSection.append(

@@ -7,7 +7,7 @@ import { t } from "../i18n/index.ts";
 
 export const blackFrameTab: Tab = {
     id: "black-frame",
-    label: () => t("tab_blackFrame"),
+    label: t("tab_blackFrame"),
     render(container) {
         appendTabContent(
             container,

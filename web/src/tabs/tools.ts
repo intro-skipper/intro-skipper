@@ -25,7 +25,7 @@ function getSegmentLabel(value: string): string {
 
 export const toolsTab: Tab = {
     id: "tools",
-    label: () => t("tab_tools"),
+    label: t("tab_tools"),
 
     render(container) {
         const globalSelectId = "global-timestamp-type";

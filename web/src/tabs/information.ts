@@ -7,7 +7,7 @@ import { t } from "../i18n/index.ts";
 
 export const informationTab: Tab = {
     id: "information",
-    label: () => t("tab_information"),
+    label: t("tab_information"),
     render(container) {
         const supportSection = readonlyTextSection({
             title: t("information_supportTitle"),

@@ -18,7 +18,7 @@ export class Router {
         const button = el(
             "button",
             { className: "tab-button", "data-tab-id": tab.id },
-            this.resolveTabLabel(tab),
+            tab.label,
         );
         button.addEventListener("click", () => {
             this.switchTo(tab.id);
@@ -26,9 +26,6 @@ export class Router {
         this.navEl.appendChild(button);
     }
 
-    private resolveTabLabel(tab: Tab): string {
-        return typeof tab.label === "function" ? tab.label() : tab.label;
-    }
 
     switchTo(tabId: string): void {
         // Remove subscriptions created by the previous tab before tearing it down.
