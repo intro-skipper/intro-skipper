@@ -8,12 +8,13 @@ export class Router {
     private contentEl: HTMLElement;
     private navEl: HTMLElement;
     private langObserver: MutationObserver;
+    private isDestroyed = false;
 
     constructor(navEl: HTMLElement, contentEl: HTMLElement) {
         this.navEl = navEl;
         this.contentEl = contentEl;
         this.langObserver = new MutationObserver(() => {
-            this.refreshTabLabels();
+            this.refreshLocale();
         });
         this.langObserver.observe(document.documentElement, {
             attributes: true,
@@ -34,6 +35,20 @@ export class Router {
         this.navEl.appendChild(button);
     }
 
+    private isConnected(): boolean {
+        return this.navEl.isConnected && this.contentEl.isConnected;
+    }
+
+    private refreshLocale(): void {
+        if (this.isDestroyed || !this.isConnected()) return;
+
+        this.refreshTabLabels();
+
+        if (this.activeTab) {
+            this.switchTo(this.activeTab.id);
+        }
+    }
+
     private refreshTabLabels(): void {
         const buttons = this.navEl.querySelectorAll<HTMLButtonElement>(".tab-button");
         for (const button of buttons) {
@@ -46,6 +61,8 @@ export class Router {
     }
 
     switchTo(tabId: string): void {
+        if (this.isDestroyed) return;
+
         // Remove subscriptions created by the previous tab before tearing it down.
         configStore.endScope();
         this.activeTab?.destroy?.();
@@ -70,6 +87,9 @@ export class Router {
     }
 
     destroy(): void {
+        if (this.isDestroyed) return;
+
+        this.isDestroyed = true;
         this.langObserver.disconnect();
         configStore.endScope();
         this.activeTab?.destroy?.();
