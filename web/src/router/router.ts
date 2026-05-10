@@ -7,10 +7,18 @@ export class Router {
     private activeTab: Tab | null = null;
     private contentEl: HTMLElement;
     private navEl: HTMLElement;
+    private langObserver: MutationObserver;
 
     constructor(navEl: HTMLElement, contentEl: HTMLElement) {
         this.navEl = navEl;
         this.contentEl = contentEl;
+        this.langObserver = new MutationObserver(() => {
+            this.refreshTabLabels();
+        });
+        this.langObserver.observe(document.documentElement, {
+            attributes: true,
+            attributeFilter: ["lang"],
+        });
     }
 
     register(tab: Tab): void {
@@ -18,7 +26,7 @@ export class Router {
         const button = el(
             "button",
             { className: "tab-button", "data-tab-id": tab.id },
-            tab.label,
+            tab.getLabel(),
         );
         button.addEventListener("click", () => {
             this.switchTo(tab.id);
@@ -26,6 +34,16 @@ export class Router {
         this.navEl.appendChild(button);
     }
 
+    private refreshTabLabels(): void {
+        const buttons = this.navEl.querySelectorAll<HTMLButtonElement>(".tab-button");
+        for (const button of buttons) {
+            const tabId = button.getAttribute("data-tab-id");
+            const tab = this.tabs.find((t) => t.id === tabId);
+            if (tab) {
+                button.textContent = tab.getLabel();
+            }
+        }
+    }
 
     switchTo(tabId: string): void {
         // Remove subscriptions created by the previous tab before tearing it down.
@@ -52,6 +70,7 @@ export class Router {
     }
 
     destroy(): void {
+        this.langObserver.disconnect();
         configStore.endScope();
         this.activeTab?.destroy?.();
         this.activeTab = null;

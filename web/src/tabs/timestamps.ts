@@ -6,7 +6,7 @@ let activeBrowser: ReturnType<typeof createTimestampsBrowser> | null = null;
 
 export const timestampsTab: Tab = {
     id: "timestamps",
-    label: t("tab_timestamps"),
+    getLabel: () => t("tab_timestamps"),
 
     render(container) {
         activeBrowser?.destroy();

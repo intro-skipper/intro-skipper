@@ -8,7 +8,7 @@ import { t } from "../i18n/index.ts";
 
 export const detectionTab: Tab = {
     id: "detection",
-    label: t("tab_detection"),
+    getLabel: () => t("tab_detection"),
     render(container) {
         const silenceVisible = () => configStore.get("AdjustIntroBasedOnSilence") === true;
 
