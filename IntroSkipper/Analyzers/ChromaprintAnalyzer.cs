@@ -41,20 +41,15 @@ public partial class ChromaprintAnalyzer(ILogger<ChromaprintAnalyzer> logger, IM
             (episode.GetAnalyzed(mode) == EpisodeState.Analyzed &&
                 await _cacheService.HasCachedFingerprintAsync(episode, mode, cancellationToken).ConfigureAwait(false));
 
-        const int cacheCheckBatchSize = 8;
-        var episodeAnalysisResults = new List<(QueuedEpisode Episode, bool ShouldAnalyze)>(analysisQueue.Count);
-        foreach (var episodeBatch in analysisQueue.Chunk(cacheCheckBatchSize))
+        var episodeAnalysisResults = await Task.WhenAll(analysisQueue.Select(async episode =>
         {
-            episodeAnalysisResults.AddRange(await Task.WhenAll(episodeBatch.Select(async episode =>
-            {
-                var shouldAnalyze = await ShouldAnalyzeEpisodeAsync(episode).ConfigureAwait(false);
-                return (episode, shouldAnalyze);
-            })).ConfigureAwait(false));
-        }
+            var shouldAnalyze = await ShouldAnalyzeEpisodeAsync(episode).ConfigureAwait(false);
+            return (episode, shouldAnalyze);
+        })).ConfigureAwait(false);
 
         var episodeAnalysisQueue = episodeAnalysisResults
-            .Where(result => result.ShouldAnalyze)
-            .Select(result => result.Episode)
+            .Where(result => result.shouldAnalyze)
+            .Select(result => result.episode)
             .ToList();
 
         if (analysisQueue.Count <= 1 || episodeAnalysisQueue.All(e => e.GetAnalyzed(mode) == EpisodeState.Analyzed))
