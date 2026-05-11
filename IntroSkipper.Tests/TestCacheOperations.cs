@@ -736,6 +736,99 @@ public sealed class TestCacheOperations
     }
 
     [Fact]
+    public async Task MigrateLegacyCachesAsync_DbWriteFailure_RetriesOnNextCall()
+    {
+        var episode = new QueuedEpisode
+        {
+            EpisodeId = Guid.NewGuid(),
+            Path = "/does/not/exist.mkv",
+            IntroFingerprintEnd = 600,
+        };
+        var cacheDir = EntrypointTestHelpers.CreateTempCacheDir();
+        var legacyPath = Path.Join(cacheDir, episode.EpisodeId.ToString("N"));
+
+        await File.WriteAllLinesAsync(
+            legacyPath,
+            Enumerable.Range(0, 4825).Select(i => ((uint)(i * 12345)).ToString(CultureInfo.InvariantCulture)));
+
+        string cacheDbPath;
+        using (var scope = new CachingPluginScope(cacheDir))
+        {
+            cacheDbPath = scope.CacheDbPath;
+            var cacheService = CreateCacheService();
+            var invalidPath = Path.Join(cacheDir, "missing", "introskipper-cache.db");
+
+            EntrypointTestHelpers.SetPropertyOrField(Plugin.Instance!, "_cacheDbPath", invalidPath);
+            await cacheService.MigrateLegacyCachesAsync([episode]);
+
+            Assert.True(File.Exists(legacyPath));
+
+            EntrypointTestHelpers.SetPropertyOrField(Plugin.Instance!, "_cacheDbPath", cacheDbPath);
+            await cacheService.MigrateLegacyCachesAsync([episode]);
+        }
+
+        Assert.False(File.Exists(legacyPath));
+
+        using var db = new DetectionCacheDbContext(cacheDbPath);
+        Assert.True(db.DetectionCache.Any(e =>
+            e.ItemId == episode.EpisodeId &&
+            e.Mode == AnalysisMode.Introduction &&
+            e.Type == CacheEntryType.Chromaprint));
+    }
+
+    [Theory]
+    [InlineData("blackframes-10.5-20.5-v1", 10.5, 20.5)]
+    [InlineData("blackframes-10.5-alt", 10.5, 0)]
+    public async Task MigrateLegacyCachesAsync_BlackframeFile_WritesCreditsMode(string suffix, double expectedStart, double expectedEnd)
+    {
+        var episodeId = Guid.NewGuid();
+        var cacheDir = EntrypointTestHelpers.CreateTempCacheDir();
+        var legacyPath = Path.Join(cacheDir, $"{episodeId:N}-{suffix}");
+
+        await File.WriteAllTextAsync(
+            legacyPath,
+            "[Parsed_blackframe_0 @ 0x0000000] frame:1 pblack:99 pts:43 t:0.043000 type:B last_keyframe:0");
+
+        var episode = new QueuedEpisode
+        {
+            EpisodeId = episodeId,
+            Path = "/does/not/exist.mkv",
+        };
+
+        string cacheDbPath;
+        using (var scope = new CachingPluginScope(cacheDir))
+        {
+            cacheDbPath = scope.CacheDbPath;
+            await CreateCacheService().MigrateLegacyCachesAsync([episode]);
+        }
+
+        Assert.False(File.Exists(legacyPath));
+
+        using var db = new DetectionCacheDbContext(cacheDbPath);
+        Assert.Equal(1, db.DetectionCache.Count(e => e.ItemId == episodeId && e.Type == CacheEntryType.BlackFrame));
+        Assert.True(db.DetectionCache.Any(e =>
+            e.ItemId == episodeId &&
+            e.Type == CacheEntryType.BlackFrame &&
+            e.Mode == AnalysisMode.Credits));
+        Assert.False(db.DetectionCache.Any(e =>
+            e.ItemId == episodeId &&
+            e.Type == CacheEntryType.BlackFrame &&
+            e.Mode == AnalysisMode.Introduction));
+
+        var blackFrames = ReadDetectionCache<BlackFrame>(
+            db,
+            episodeId,
+            AnalysisMode.Credits,
+            CacheEntryType.BlackFrame,
+            expectedStart,
+            expectedEnd);
+        var blackFrame = Assert.Single(blackFrames);
+        Assert.Equal(99, blackFrame.Percentage);
+        Assert.Equal(0.043, blackFrame.Time, 3);
+        Assert.Equal(1, blackFrame.Frame);
+    }
+
+    [Fact]
     public async Task MigrateLegacyCachesAsync_ModeAgnosticSilenceFile_WritesAllModes()
     {
         var episodeId = Guid.NewGuid();

@@ -120,6 +120,33 @@ public class TestAudioFingerprinting
         Assert.Contains(nameof(PluginWarning.InvalidChromaprintFingerprint), WarningManager.GetWarnings(), StringComparison.Ordinal);
     }
 
+    [Fact]
+    public async Task AnalyzeMediaFiles_ChecksCachedFingerprintsSequentially()
+    {
+        using var pluginScope = new EntrypointTestHelpers.PluginInstanceScope(EntrypointTestHelpers.CreateTempCacheDir());
+        EntrypointTestHelpers.SetPropertyOrField(Plugin.Instance!, "Configuration", new PluginConfiguration());
+        var cacheService = new CountingCacheService();
+        var analyzer = CreateChromaprintAnalyzer(
+            new FailingMediaDetectionService(fingerprintException: new NotSupportedException()),
+            cacheService);
+        var episodes = new[]
+        {
+            QueueEpisode("episode1.mkv"),
+            QueueEpisode("episode2.mkv"),
+            QueueEpisode("episode3.mkv"),
+            QueueEpisode("episode4.mkv"),
+        };
+        foreach (var episode in episodes)
+        {
+            episode.SetAnalyzed(AnalysisMode.Introduction, EpisodeState.Analyzed);
+        }
+
+        await analyzer.AnalyzeMediaFiles(episodes, AnalysisMode.Introduction, CancellationToken.None);
+
+        Assert.Equal(episodes.Length, cacheService.CallCount);
+        Assert.Equal(1, cacheService.MaxConcurrent);
+    }
+
     [FactSkipFFmpegTests]
     public async Task TestIntroDetection()
     {
@@ -189,9 +216,62 @@ public class TestAudioFingerprinting
         => CreateChromaprintAnalyzer(TestServiceFactory.CreateDetectionService());
 
     private static ChromaprintAnalyzer CreateChromaprintAnalyzer(IMediaDetectionService detectionService)
+        => CreateChromaprintAnalyzer(detectionService, TestServiceFactory.CreateCacheService());
+
+    private static ChromaprintAnalyzer CreateChromaprintAnalyzer(
+        IMediaDetectionService detectionService,
+        IDetectionCacheService cacheService)
     {
         var logger = new LoggerFactory().CreateLogger<ChromaprintAnalyzer>();
-        return new(logger, detectionService, TestServiceFactory.CreateCacheService());
+        return new(logger, detectionService, cacheService);
+    }
+
+    private sealed class CountingCacheService : IDetectionCacheService
+    {
+        private readonly object _syncLock = new();
+        private int _current;
+
+        public int CallCount { get; private set; }
+
+        public int MaxConcurrent { get; private set; }
+
+        public async Task<bool> HasCachedFingerprintAsync(QueuedEpisode episode, AnalysisMode mode, CancellationToken cancellationToken = default)
+        {
+            var current = Interlocked.Increment(ref _current);
+            lock (_syncLock)
+            {
+                CallCount++;
+                MaxConcurrent = Math.Max(MaxConcurrent, current);
+            }
+
+            try
+            {
+                await Task.Delay(25, cancellationToken);
+                return true;
+            }
+            finally
+            {
+                Interlocked.Decrement(ref _current);
+            }
+        }
+
+        public Task<T[]?> TryReadJsonCacheAsync<T>(DetectionCacheKey key, CancellationToken cancellationToken = default)
+            => throw new NotSupportedException();
+
+        public Task<bool> WriteJsonCacheAsync<T>(DetectionCacheKey key, T[] items, CancellationToken cancellationToken = default)
+            => throw new NotSupportedException();
+
+        public Task DeleteFingerprintCacheAsync(Guid id, CancellationToken cancellationToken = default)
+            => throw new NotSupportedException();
+
+        public Task DeleteCacheFilesAsync(AnalysisMode mode, CancellationToken cancellationToken = default)
+            => throw new NotSupportedException();
+
+        public Task DeleteStaleCachesAsync(IReadOnlySet<Guid> enabledItemIds, CancellationToken cancellationToken = default)
+            => throw new NotSupportedException();
+
+        public Task MigrateLegacyCachesAsync(IEnumerable<QueuedEpisode> episodes, CancellationToken cancellationToken = default)
+            => throw new NotSupportedException();
     }
 
 }

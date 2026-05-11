@@ -361,7 +361,7 @@ public sealed partial class DetectionCacheService : IDetectionCacheService
         }
 
         TryRemoveEmptyCacheDirectory(cacheDir);
-        _legacyMigrationCompleted = true;
+        _legacyMigrationCompleted = !HasRemainingLegacyMigrationCandidates(cacheDir);
     }
 
     /// <inheritdoc />
@@ -699,9 +699,11 @@ public sealed partial class DetectionCacheService : IDetectionCacheService
                     legacyStart,
                     legacyEnd,
                     raw => FFmpegOutputParser.ParseSilenceRaw(raw, legacyStart),
+                    AnalysisMode.Introduction,
                     modeAgnostic: true,
                     cancellationToken).ConfigureAwait(false),
 
+                // Legacy blackframe caches are Credits-only because blackframe analyzers run in Credits mode.
                 DetectionCacheKind.BlackFrameRange or DetectionCacheKind.BlackFrameAlt => await MigrateLegacyTypedAsync(
                     filePath,
                     filename,
@@ -710,6 +712,7 @@ public sealed partial class DetectionCacheService : IDetectionCacheService
                     legacyStart,
                     legacyEnd,
                     static raw => FFmpegOutputParser.ParseBlackFrames(raw),
+                    AnalysisMode.Credits,
                     modeAgnostic: false,
                     cancellationToken).ConfigureAwait(false),
 
@@ -721,6 +724,7 @@ public sealed partial class DetectionCacheService : IDetectionCacheService
                     legacyStart,
                     legacyEnd,
                     raw => FFmpegOutputParser.ParseKeyFramesRaw(raw, legacyStart),
+                    AnalysisMode.Introduction,
                     modeAgnostic: true,
                     cancellationToken).ConfigureAwait(false),
 
@@ -742,10 +746,11 @@ public sealed partial class DetectionCacheService : IDetectionCacheService
         double start,
         double end,
         Func<string, T[]> rawParser,
+        AnalysisMode mode,
         bool modeAgnostic,
         CancellationToken cancellationToken)
     {
-        var key = new DetectionCacheKey(itemId, AnalysisMode.Introduction, type, start, end);
+        var key = new DetectionCacheKey(itemId, mode, type, start, end);
 
         if (!TryLoadLegacyCache(legacyCacheKey, filePath, key, rawParser, out var result))
         {
@@ -833,6 +838,42 @@ public sealed partial class DetectionCacheService : IDetectionCacheService
         }
 
         return false;
+    }
+
+    private static bool HasRemainingLegacyMigrationCandidates(string cacheDir)
+    {
+        if (string.IsNullOrEmpty(cacheDir) || !Directory.Exists(cacheDir))
+        {
+            return false;
+        }
+
+        try
+        {
+            foreach (var filePath in Directory.EnumerateFiles(cacheDir))
+            {
+                if (TryGetLegacyDetectionCacheParts(Path.GetFileName(filePath), out _, out var suffix) &&
+                    IsSupportedLegacySuffix(suffix))
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            return true;
+        }
+    }
+
+    private static bool IsSupportedLegacySuffix(string suffix)
+    {
+        if (string.IsNullOrEmpty(suffix) || suffix == "credits")
+        {
+            return true;
+        }
+
+        return TryParseLegacySuffix(suffix, out _, out _, out _);
     }
 
     /// <summary>

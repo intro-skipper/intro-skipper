@@ -4,7 +4,6 @@
 // SPDX-FileCopyrightText: 2024-2026 AbandonedCart
 // SPDX-License-Identifier: GPL-3.0-only
 
-using System.Linq;
 using System.Numerics;
 using IntroSkipper.Configuration;
 using IntroSkipper.Data;
@@ -41,16 +40,14 @@ public partial class ChromaprintAnalyzer(ILogger<ChromaprintAnalyzer> logger, IM
             (episode.GetAnalyzed(mode) == EpisodeState.Analyzed &&
                 await _cacheService.HasCachedFingerprintAsync(episode, mode, cancellationToken).ConfigureAwait(false));
 
-        var episodeAnalysisResults = await Task.WhenAll(analysisQueue.Select(async episode =>
+        var episodeAnalysisQueue = new List<QueuedEpisode>();
+        foreach (var episode in analysisQueue)
         {
-            var shouldAnalyze = await ShouldAnalyzeEpisodeAsync(episode).ConfigureAwait(false);
-            return (episode, shouldAnalyze);
-        })).ConfigureAwait(false);
-
-        var episodeAnalysisQueue = episodeAnalysisResults
-            .Where(result => result.shouldAnalyze)
-            .Select(result => result.episode)
-            .ToList();
+            if (await ShouldAnalyzeEpisodeAsync(episode).ConfigureAwait(false))
+            {
+                episodeAnalysisQueue.Add(episode);
+            }
+        }
 
         if (analysisQueue.Count <= 1 || episodeAnalysisQueue.All(e => e.GetAnalyzed(mode) == EpisodeState.Analyzed))
         {

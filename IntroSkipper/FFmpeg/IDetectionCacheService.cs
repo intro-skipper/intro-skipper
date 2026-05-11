@@ -67,7 +67,8 @@ public interface IDetectionCacheService
 
     /// <summary>
     /// Batch-migrates all legacy on-disk cache files into the SQLite database.
-    /// This method is idempotent and only performs migration work on the first call.
+    /// The method is idempotent; after a successful pass with no supported legacy candidates
+    /// remaining, later calls are no-ops. Failed or disabled passes may be retried.
     /// </summary>
     /// <param name="episodes">All queued episodes, used to resolve fingerprint ranges for chromaprint migration.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
