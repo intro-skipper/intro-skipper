@@ -8,7 +8,6 @@
 using System.Data.Common;
 using System.Globalization;
 using System.IO.Compression;
-using System.Linq;
 using System.Text;
 using System.Text.Json;
 using IntroSkipper.Data;
@@ -850,10 +849,16 @@ public sealed partial class DetectionCacheService : IDetectionCacheService
 
         try
         {
-            return Directory.EnumerateFiles(cacheDir)
-                .Any(filePath =>
-                    TryGetLegacyDetectionCacheParts(Path.GetFileName(filePath), out _, out var suffix) &&
-                    IsSupportedLegacySuffix(suffix));
+            foreach (var filePath in Directory.EnumerateFiles(cacheDir))
+            {
+                if (TryGetLegacyDetectionCacheParts(Path.GetFileName(filePath), out _, out var suffix) &&
+                    IsSupportedLegacySuffix(suffix))
+                {
+                    return true;
+                }
+            }
+
+            return false;
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
