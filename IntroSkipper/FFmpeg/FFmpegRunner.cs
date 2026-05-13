@@ -15,7 +15,7 @@ namespace IntroSkipper.FFmpeg;
 /// <summary>
 /// Runs FFmpeg processes with current process execution semantics:
 /// captures one selected stream (stdout or stderr), drains redirected streams,
-/// does not kill on timeout, and omits <c>-threads</c> for info queries.
+/// kills the process on timeout or cancellation, and omits <c>-threads</c> for info queries.
 /// </summary>
 public sealed partial class FFmpegRunner : IFFmpegRunner
 {
@@ -140,6 +140,7 @@ public sealed partial class FFmpegRunner : IFFmpegRunner
 
             async Task<FFmpegProcessResult> ReturnTimeoutAsync()
             {
+                await KillProcessAsync(ffmpeg).ConfigureAwait(false);
                 await readCts.CancelAsync().ConfigureAwait(false);
                 ObserveFaultedTask(drainTask);
                 var output = ms.ToArray();

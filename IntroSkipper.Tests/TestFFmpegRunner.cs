@@ -100,7 +100,7 @@ public class TestFFmpegRunner
         Assert.True(completed, "RunAsync should return on exit timeout even when redirected streams stay open.");
         var result = await task;
         Assert.Equal(-1, result.ExitCode);
-        Assert.False(process.Killed);
+        Assert.True(process.Killed);
     }
 
     [Fact]
@@ -125,7 +125,7 @@ public class TestFFmpegRunner
         Assert.True(completed, "RunAsync should return on exit timeout even when the drained stream stays open.");
         var result = await task;
         Assert.Equal(-1, result.ExitCode);
-        Assert.False(process.Killed);
+        Assert.True(process.Killed);
     }
 
     [Fact]
