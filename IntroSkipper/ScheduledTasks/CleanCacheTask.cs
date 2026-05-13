@@ -76,12 +76,14 @@ public partial class CleanCacheTask(
         // QueueManager.GetMediaItems() already skips libraries where the plugin is disabled via
         // LibraryOptions.DisabledMediaSegmentProviders (same mechanism LegacyMigrations writes to).
         var queue = await queueManager.GetMediaItems(cancellationToken).ConfigureAwait(false);
-        var enabledLibraryEpisodeIds = queue.Values
-            .SelectMany(static episodes => episodes)
-            .Select(e => e.EpisodeId)
-            .ToHashSet();
+        var allEpisodes = queue.Values.SelectMany(static episodes => episodes).ToList();
+        var enabledLibraryEpisodeIds = allEpisodes.Select(e => e.EpisodeId).ToHashSet();
 
         await plugin.CleanTimestampsAsync(enabledLibraryEpisodeIds, cancellationToken).ConfigureAwait(false);
+
+        // Migrate any remaining legacy on-disk cache files before deleting stale entries,
+        // so data is not lost if cleanup runs before any analysis task.
+        await _cacheService.MigrateLegacyCachesAsync(allEpisodes, cancellationToken).ConfigureAwait(false);
 
         await _cacheService.DeleteStaleCachesAsync(enabledLibraryEpisodeIds, cancellationToken).ConfigureAwait(false);
 
