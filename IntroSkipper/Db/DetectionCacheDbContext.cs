@@ -94,9 +94,7 @@ public class DetectionCacheDbContext : DbContext
     /// </summary>
     public void EnsureSchema()
     {
-        Database.EnsureCreated();
-
-        if (!HasExpectedSchema())
+        if (!Database.EnsureCreated() && !HasExpectedSchema())
         {
             Database.EnsureDeleted();
             Database.EnsureCreated();
@@ -155,7 +153,20 @@ public class DetectionCacheDbContext : DbContext
         using var cmd = Database.GetDbConnection().CreateCommand();
         cmd.CommandText = "PRAGMA index_info('IX_DetectionCache_Unique')";
 
-        using var reader = cmd.ExecuteReader();
-        return reader.HasRows;
+        var columns = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        using (var reader = cmd.ExecuteReader())
+        {
+            while (reader.Read())
+            {
+                columns.Add(reader.GetString(2)); // column name
+            }
+        }
+
+        return columns.Count == 5 &&
+            columns.Contains("ItemId") &&
+            columns.Contains("Mode") &&
+            columns.Contains("Type") &&
+            columns.Contains("Start") &&
+            columns.Contains("End");
     }
 }
