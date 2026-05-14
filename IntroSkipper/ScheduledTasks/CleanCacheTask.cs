@@ -22,7 +22,7 @@ namespace IntroSkipper.ScheduledTasks;
 /// <param name="providerManager">Provider manager.</param>
 /// <param name="fileSystem">File system.</param>
 /// <param name="cacheService">Detection cache service.</param>
-public partial class CleanCacheTask(
+public class CleanCacheTask(
     ILoggerFactory loggerFactory,
     ILibraryManager libraryManager,
     IProviderManager providerManager,
