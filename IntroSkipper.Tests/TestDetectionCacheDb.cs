@@ -79,6 +79,41 @@ public sealed class TestDetectionCacheDbContext : IDisposable
     }
 
     [Fact]
+    public void EnsureSchema_RecreatesIncompatibleExistingDatabase()
+    {
+        using (var db = CreateContext())
+        {
+            db.Database.EnsureDeleted();
+            db.Database.ExecuteSqlRaw(
+                """
+                CREATE TABLE DetectionCache (
+                    Id INTEGER NOT NULL CONSTRAINT PK_DetectionCache PRIMARY KEY AUTOINCREMENT,
+                    ItemId TEXT NOT NULL,
+                    Mode INTEGER NOT NULL,
+                    Type INTEGER NOT NULL,
+                    Data BLOB NOT NULL
+                );
+                """);
+        }
+
+        var id = Guid.NewGuid();
+        using (var db = CreateContext())
+        {
+            db.EnsureSchema();
+            db.DetectionCache.Add(new DbDetectionCache(id, AnalysisMode.Introduction, CacheEntryType.Silence, EntrypointTestHelpers.EmptyJsonArray, 10, 20));
+            db.SaveChanges();
+        }
+
+        using (var db = CreateContext())
+        {
+            var entry = Assert.Single(db.DetectionCache);
+            Assert.Equal(id, entry.ItemId);
+            Assert.Equal(10, entry.Start);
+            Assert.Equal(20, entry.End);
+        }
+    }
+
+    [Fact]
     public void Write_OverwritesExistingEntry()
     {
         // Mirrors the upsert pattern in DetectionCacheService.WriteJsonCache:

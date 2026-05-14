@@ -3,6 +3,7 @@
 // SPDX-FileCopyrightText: 2026 AbandonedCart
 // SPDX-License-Identifier: GPL-3.0-only
 
+using System.Data.Common;
 using Microsoft.EntityFrameworkCore;
 
 namespace IntroSkipper.Db;
@@ -94,5 +95,67 @@ public class DetectionCacheDbContext : DbContext
     public void EnsureSchema()
     {
         Database.EnsureCreated();
+
+        if (!HasExpectedSchema())
+        {
+            Database.EnsureDeleted();
+            Database.EnsureCreated();
+        }
+    }
+
+    private bool HasExpectedSchema()
+    {
+        try
+        {
+            Database.OpenConnection();
+            try
+            {
+                return HasExpectedColumns() && HasExpectedUniqueIndex();
+            }
+            finally
+            {
+                Database.CloseConnection();
+            }
+        }
+        catch (Exception ex) when (ex is DbException or InvalidOperationException)
+        {
+            return false;
+        }
+    }
+
+    private bool HasExpectedColumns()
+    {
+        using var cmd = Database.GetDbConnection().CreateCommand();
+        cmd.CommandText = "PRAGMA table_info('DetectionCache')";
+
+        var columns = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        using (var reader = cmd.ExecuteReader())
+        {
+            while (reader.Read())
+            {
+                columns[reader.GetString(1)] = reader.GetString(2);
+            }
+        }
+
+        return HasColumn("Id", "INTEGER") &&
+            HasColumn("ItemId", "TEXT") &&
+            HasColumn("Mode", "INTEGER") &&
+            HasColumn("Type", "INTEGER") &&
+            HasColumn("Start", "REAL") &&
+            HasColumn("End", "REAL") &&
+            HasColumn("Data", "BLOB");
+
+        bool HasColumn(string name, string type)
+            => columns.TryGetValue(name, out var actualType) &&
+                string.Equals(actualType, type, StringComparison.OrdinalIgnoreCase);
+    }
+
+    private bool HasExpectedUniqueIndex()
+    {
+        using var cmd = Database.GetDbConnection().CreateCommand();
+        cmd.CommandText = "PRAGMA index_info('IX_DetectionCache_Unique')";
+
+        using var reader = cmd.ExecuteReader();
+        return reader.HasRows;
     }
 }
