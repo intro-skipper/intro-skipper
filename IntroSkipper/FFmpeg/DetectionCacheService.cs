@@ -209,7 +209,7 @@ public sealed partial class DetectionCacheService : IDetectionCacheService
     {
         ArgumentNullException.ThrowIfNull(enabledItemIds);
 
-        var invalidItemIds = new HashSet<Guid>();
+        HashSet<Guid> invalidItemIds;
         try
         {
             using var db = Plugin.CreateCacheDbContext();
@@ -223,6 +223,7 @@ public sealed partial class DetectionCacheService : IDetectionCacheService
         catch (Exception ex) when (ex is DbUpdateException or DbException)
         {
             LogDetectionCacheDeleteError(_logger, ex, "stale-detection-cache-scan");
+            invalidItemIds = [];
         }
 
         var staleLegacyFiles = new List<string>();

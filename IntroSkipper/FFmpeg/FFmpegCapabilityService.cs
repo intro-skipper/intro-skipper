@@ -51,51 +51,31 @@ public sealed partial class FFmpegCapabilityService : IFFmpegCapabilityService
 
         try
         {
-            // Always log ffmpeg's version information.
             if (!CheckFFmpegRequirement(
-                "-version",
-                "ffmpeg",
-                "version",
-                "Unknown error with FFmpeg version"))
+                    "-version",
+                    "ffmpeg",
+                    "version",
+                    "Unknown error with FFmpeg version",
+                    "unknown_error") ||
+                !CheckFFmpegRequirement(
+                    "-muxers",
+                    "chromaprint",
+                    "muxer list",
+                    "The installed version of ffmpeg does not support chromaprint",
+                    "chromaprint_not_supported") ||
+                !CheckFFmpegRequirement(
+                    "-h muxer=chromaprint",
+                    "binary raw fingerprint",
+                    "chromaprint options",
+                    "The installed version of ffmpeg does not support raw binary fingerprints",
+                    "fp_format_not_supported") ||
+                !CheckFFmpegRequirement(
+                    "-h filter=silencedetect",
+                    "noise tolerance",
+                    "silencedetect options",
+                    "The installed version of ffmpeg does not support the silencedetect filter",
+                    "silencedetect_not_supported"))
             {
-                _chromaprintLogs["error"] = "unknown_error";
-                WarningManager.SetFlag(PluginWarning.IncompatibleFFmpegBuild);
-                return false;
-            }
-
-            // First, validate that the installed version of ffmpeg supports chromaprint at all.
-            if (!CheckFFmpegRequirement(
-                "-muxers",
-                "chromaprint",
-                "muxer list",
-                "The installed version of ffmpeg does not support chromaprint"))
-            {
-                _chromaprintLogs["error"] = "chromaprint_not_supported";
-                WarningManager.SetFlag(PluginWarning.IncompatibleFFmpegBuild);
-                return false;
-            }
-
-            // Second, validate that the Chromaprint muxer understands the "-fp_format raw" option.
-            if (!CheckFFmpegRequirement(
-                "-h muxer=chromaprint",
-                "binary raw fingerprint",
-                "chromaprint options",
-                "The installed version of ffmpeg does not support raw binary fingerprints"))
-            {
-                _chromaprintLogs["error"] = "fp_format_not_supported";
-                WarningManager.SetFlag(PluginWarning.IncompatibleFFmpegBuild);
-                return false;
-            }
-
-            // Third, validate that ffmpeg supports of the all required silencedetect options.
-            if (!CheckFFmpegRequirement(
-                "-h filter=silencedetect",
-                "noise tolerance",
-                "silencedetect options",
-                "The installed version of ffmpeg does not support the silencedetect filter"))
-            {
-                _chromaprintLogs["error"] = "silencedetect_not_supported";
-                WarningManager.SetFlag(PluginWarning.IncompatibleFFmpegBuild);
                 return false;
             }
 
@@ -141,18 +121,20 @@ public sealed partial class FFmpegCapabilityService : IFFmpegCapabilityService
 
     /// <summary>
     /// Run an FFmpeg command with the provided arguments and validate that the output contains
-    /// the provided string.
+    /// the provided string. On failure, sets the error key and incompatible-build warning.
     /// </summary>
     /// <param name="arguments">Arguments to pass to FFmpeg.</param>
     /// <param name="mustContain">String that the output must contain. Case-insensitive.</param>
     /// <param name="bundleName">Support bundle key to store FFmpeg's output under.</param>
     /// <param name="errorMessage">Error message to log if this requirement is not met.</param>
+    /// <param name="errorKey">Value to store in <c>_chromaprintLogs["error"]</c> on failure.</param>
     /// <returns>true on success, false on error.</returns>
     private bool CheckFFmpegRequirement(
         string arguments,
         string mustContain,
         string bundleName,
-        string errorMessage)
+        string errorMessage,
+        string errorKey)
     {
         LogCheckingRequirement(_logger, arguments);
 
@@ -166,6 +148,8 @@ public sealed partial class FFmpegCapabilityService : IFFmpegCapabilityService
         if (!output.Contains(mustContain, StringComparison.OrdinalIgnoreCase))
         {
             LogFfmpegRequirementFailed(_logger, errorMessage);
+            _chromaprintLogs["error"] = errorKey;
+            WarningManager.SetFlag(PluginWarning.IncompatibleFFmpegBuild);
             return false;
         }
 
