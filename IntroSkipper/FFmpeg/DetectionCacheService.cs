@@ -22,10 +22,19 @@ namespace IntroSkipper.FFmpeg;
 /// </summary>
 public sealed partial class DetectionCacheService : IDetectionCacheService
 {
+    /// <summary>
+    /// Epsilon for floating-point cache-key lookups. Using a tolerance instead of exact
+    /// equality avoids misses caused by floating-point round-trip through SQLite storage.
+    /// </summary>
     private const double CacheTimeTolerance = 1e-6;
 
     private readonly IFFmpegOptionsProvider _options;
     private readonly ILogger<DetectionCacheService> _logger;
+
+    /// <summary>
+    /// Fast-path guard, not a mutex. Concurrent callers may both enter the migration body,
+    /// which is safe because all operations inside (upserts, file deletes) are idempotent.
+    /// </summary>
     private volatile bool _legacyMigrationCompleted;
 
     /// <summary>
