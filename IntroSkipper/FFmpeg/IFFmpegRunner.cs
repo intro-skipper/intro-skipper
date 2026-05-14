@@ -13,9 +13,14 @@ public interface IFFmpegRunner
     /// <summary>
     /// Runs FFmpeg with the provided arguments and returns the captured output.
     /// </summary>
+    /// <remarks>
+    /// The selected stream is read to completion before <paramref name="timeout" /> is evaluated,
+    /// so the timeout only guards against a process that lingers after closing its output stream.
+    /// If the process is still running after the timeout, it is killed.
+    /// </remarks>
     /// <param name="args">Arguments to pass to FFmpeg as individual tokens.</param>
     /// <param name="stderr">If <c>true</c>, capture standard error; otherwise capture standard output.</param>
-    /// <param name="timeout">Timeout in milliseconds to wait for FFmpeg to exit.</param>
+    /// <param name="timeout">Timeout in milliseconds to wait for FFmpeg to exit after output has been read.</param>
     /// <returns>The captured output bytes and process exit code.</returns>
     FFmpegProcessResult Run(IReadOnlyList<string> args, bool stderr = false, int timeout = 60 * 1000);
 
@@ -24,8 +29,9 @@ public interface IFFmpegRunner
     /// </summary>
     /// <remarks>
     /// Both stdout and stderr are redirected. If <paramref name="timeout" /> elapses before FFmpeg
-    /// exits, reading stops and the result contains any selected-stream output captured so far with
-    /// an exit code of <c>-1</c>. Timeout does not kill the process; caller cancellation does.
+    /// exits, the process is killed and the result contains any selected-stream output captured so
+    /// far with an exit code of <c>-1</c>. Caller cancellation via
+    /// <paramref name="cancellationToken" /> also kills the process.
     /// </remarks>
     /// <param name="args">Arguments to pass to FFmpeg as individual tokens.</param>
     /// <param name="stderr">If <c>true</c>, capture standard error; otherwise capture standard output.</param>
