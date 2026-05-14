@@ -6,7 +6,6 @@
 using System;
 using System.Diagnostics;
 using System.IO;
-using System.IO.Compression;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
@@ -174,16 +173,8 @@ public class TestFFmpegRunner
 
     private static MemoryStream CreateStream(string value) => new(Encoding.UTF8.GetBytes(value));
 
-    private sealed class StubOptionsProvider : IFFmpegOptionsProvider
+    private sealed class StubOptionsProvider : IFFmpegProcessOptions
     {
-        public bool CacheFingerprints => false;
-
-        public CompressionLevel CacheCompressionLevel => CompressionLevel.Optimal;
-
-        public string? FingerprintCachePath => null;
-
-        public int SilenceDetectionMaximumNoise => -50;
-
         public string FFmpegPath => "ffmpeg";
 
         public int ProcessThreads { get; init; }

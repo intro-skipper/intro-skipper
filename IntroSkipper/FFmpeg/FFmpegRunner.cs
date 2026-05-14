@@ -19,7 +19,7 @@ namespace IntroSkipper.FFmpeg;
 /// </summary>
 public sealed partial class FFmpegRunner : IFFmpegRunner
 {
-    private readonly IFFmpegOptionsProvider _options;
+    private readonly IFFmpegProcessOptions _options;
     private readonly ILogger<FFmpegRunner> _logger;
     private readonly Func<ProcessStartInfo, IProcess> _processFactory;
 
@@ -29,13 +29,13 @@ public sealed partial class FFmpegRunner : IFFmpegRunner
     /// <param name="options">Options provider for FFmpeg path and process configuration.</param>
     /// <param name="logger">Logger instance.</param>
     /// <exception cref="ArgumentNullException"><paramref name="options"/> or <paramref name="logger"/> is <see langword="null"/>.</exception>
-    public FFmpegRunner(IFFmpegOptionsProvider options, ILogger<FFmpegRunner> logger)
+    public FFmpegRunner(IFFmpegProcessOptions options, ILogger<FFmpegRunner> logger)
         : this(options, logger, static startInfo => new SystemProcess(startInfo))
     {
     }
 
     internal FFmpegRunner(
-        IFFmpegOptionsProvider options,
+        IFFmpegProcessOptions options,
         ILogger<FFmpegRunner> logger,
         Func<ProcessStartInfo, IProcess> processFactory)
     {
@@ -268,8 +268,7 @@ public sealed partial class FFmpegRunner : IFFmpegRunner
         }
         catch (Exception e) when (e is InvalidOperationException or
             Win32Exception or
-            NotSupportedException or
-            PlatformNotSupportedException)
+            NotSupportedException)
         {
             LogFfmpegPriorityNotModified(_logger, e.Message);
         }
@@ -348,8 +347,7 @@ public sealed partial class FFmpegRunner : IFFmpegRunner
         }
         catch (Exception ex) when (ex is InvalidOperationException or
             Win32Exception or
-            NotSupportedException or
-            PlatformNotSupportedException)
+            NotSupportedException)
         {
             LogFfmpegKillFailed(_logger, ex.Message);
         }

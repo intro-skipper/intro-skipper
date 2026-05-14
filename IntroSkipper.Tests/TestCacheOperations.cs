@@ -907,7 +907,7 @@ public sealed class TestCacheOperations
 
     private static IMediaDetectionService CreateDetectionService(IFFmpegRunner runner)
     {
-        var optionsProvider = new PluginFFmpegOptionsProvider();
+        var optionsProvider = new PluginOptionsProvider();
         return new MediaDetectionService(
             runner,
             new DetectionCacheService(optionsProvider, NullLogger<DetectionCacheService>.Instance),

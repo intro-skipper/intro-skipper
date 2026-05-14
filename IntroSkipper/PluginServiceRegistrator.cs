@@ -36,7 +36,10 @@ namespace IntroSkipper
             });
 
             // FFmpeg services
-            serviceCollection.AddSingleton<IFFmpegOptionsProvider, PluginFFmpegOptionsProvider>();
+            serviceCollection.AddSingleton<PluginOptionsProvider>();
+            serviceCollection.AddSingleton<IFFmpegProcessOptions>(sp => sp.GetRequiredService<PluginOptionsProvider>());
+            serviceCollection.AddSingleton<IDetectionCacheOptions>(sp => sp.GetRequiredService<PluginOptionsProvider>());
+            serviceCollection.AddSingleton<IMediaDetectionOptions>(sp => sp.GetRequiredService<PluginOptionsProvider>());
             serviceCollection.AddSingleton<IFFmpegRunner, FFmpegRunner>();
             serviceCollection.AddSingleton<IDetectionCacheService, DetectionCacheService>();
             serviceCollection.AddSingleton<IMediaDetectionService, MediaDetectionService>();

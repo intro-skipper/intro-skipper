@@ -28,7 +28,7 @@ public sealed partial class DetectionCacheService : IDetectionCacheService
     /// </summary>
     private const double CacheTimeTolerance = 1e-6;
 
-    private readonly IFFmpegOptionsProvider _options;
+    private readonly IDetectionCacheOptions _options;
     private readonly ILogger<DetectionCacheService> _logger;
 
     /// <summary>
@@ -44,7 +44,7 @@ public sealed partial class DetectionCacheService : IDetectionCacheService
     /// <param name="logger">Logger instance.</param>
     /// <exception cref="ArgumentNullException"><paramref name="options"/> or <paramref name="logger"/> is <see langword="null"/>.</exception>
     public DetectionCacheService(
-        IFFmpegOptionsProvider options,
+        IDetectionCacheOptions options,
         ILogger<DetectionCacheService> logger)
     {
         ArgumentNullException.ThrowIfNull(options);
@@ -446,11 +446,6 @@ public sealed partial class DetectionCacheService : IDetectionCacheService
         T[] items,
         CancellationToken cancellationToken)
     {
-        if (!_options.CacheFingerprints)
-        {
-            return false;
-        }
-
         var data = CompressBrotli(items);
         var cacheKey = $"{itemId:N}-all-modes-{type}";
 
@@ -611,11 +606,6 @@ public sealed partial class DetectionCacheService : IDetectionCacheService
         out T[] result)
     {
         result = [];
-
-        if (!_options.CacheFingerprints)
-        {
-            return false;
-        }
 
         try
         {

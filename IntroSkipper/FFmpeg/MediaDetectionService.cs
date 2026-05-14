@@ -6,6 +6,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
 using System.Globalization;
+using System.Runtime.InteropServices;
 using System.Text;
 using IntroSkipper.Data;
 using Microsoft.Extensions.Logging;
@@ -19,7 +20,7 @@ public sealed partial class MediaDetectionService : IMediaDetectionService
 {
     private readonly IFFmpegRunner _runner;
     private readonly IDetectionCacheService _cacheService;
-    private readonly IFFmpegOptionsProvider _options;
+    private readonly IMediaDetectionOptions _options;
     private readonly ILogger<MediaDetectionService> _logger;
 
     /// <summary>
@@ -27,13 +28,13 @@ public sealed partial class MediaDetectionService : IMediaDetectionService
     /// </summary>
     /// <param name="runner">FFmpeg process runner.</param>
     /// <param name="cacheService">Detection cache service.</param>
-    /// <param name="options">FFmpeg options provider.</param>
+    /// <param name="options">Media detection options.</param>
     /// <param name="logger">Logger.</param>
     /// <exception cref="ArgumentNullException"><paramref name="runner"/>, <paramref name="cacheService"/>, <paramref name="options"/>, or <paramref name="logger"/> is <see langword="null"/>.</exception>
     public MediaDetectionService(
         IFFmpegRunner runner,
         IDetectionCacheService cacheService,
-        IFFmpegOptionsProvider options,
+        IMediaDetectionOptions options,
         ILogger<MediaDetectionService> logger)
     {
         ArgumentNullException.ThrowIfNull(runner);
@@ -229,13 +230,7 @@ public sealed partial class MediaDetectionService : IMediaDetectionService
             throw new FingerprintException("chromaprint output for \"" + path + "\" was malformed");
         }
 
-        var results = new uint[rawPoints.Length / 4];
-        for (var i = 0; i < results.Length; i++)
-        {
-            results[i] = BitConverter.ToUInt32(rawPoints.Slice(i * 4, 4));
-        }
-
-        return results;
+        return MemoryMarshal.Cast<byte, uint>(rawPoints).ToArray();
     }
 
     [LoggerMessage(Level = LogLevel.Trace, Message = "Detecting silence in \"{File}\" (range {Start}-{End}, id {Id})")]

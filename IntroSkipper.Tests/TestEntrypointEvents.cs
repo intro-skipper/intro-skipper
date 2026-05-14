@@ -270,7 +270,7 @@ internal static class EntrypointTestHelpers
             logger: logger,
             capabilityService: null!,
             cacheService: new DetectionCacheService(
-                new PluginFFmpegOptionsProvider(),
+                new PluginOptionsProvider(),
                 NullLogger<DetectionCacheService>.Instance),
             analyzerTaskFactory: null!);
 

@@ -15,14 +15,14 @@ internal static class TestServiceFactory
 {
     internal static IFFmpegCapabilityService CreateCapabilityService()
     {
-        var optionsProvider = new PluginFFmpegOptionsProvider();
+        var optionsProvider = new PluginOptionsProvider();
         var runner = new FFmpegRunner(optionsProvider, NullLogger<FFmpegRunner>.Instance);
         return new FFmpegCapabilityService(runner, NullLogger<FFmpegCapabilityService>.Instance);
     }
 
     internal static IMediaDetectionService CreateDetectionService()
     {
-        var optionsProvider = new PluginFFmpegOptionsProvider();
+        var optionsProvider = new PluginOptionsProvider();
         var runner = new FFmpegRunner(optionsProvider, NullLogger<FFmpegRunner>.Instance);
         var cacheService = new DetectionCacheService(optionsProvider, NullLogger<DetectionCacheService>.Instance);
         return new MediaDetectionService(runner, cacheService, optionsProvider, NullLogger<MediaDetectionService>.Instance);
@@ -30,7 +30,7 @@ internal static class TestServiceFactory
 
     internal static DetectionCacheService CreateCacheService()
     {
-        var optionsProvider = new PluginFFmpegOptionsProvider();
+        var optionsProvider = new PluginOptionsProvider();
         return new DetectionCacheService(optionsProvider, NullLogger<DetectionCacheService>.Instance);
     }
 }
