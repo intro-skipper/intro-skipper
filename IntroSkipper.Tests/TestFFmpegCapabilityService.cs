@@ -19,13 +19,13 @@ namespace IntroSkipper.Tests;
 public class TestFFmpegCapabilityService
 {
     [Fact]
-    public void CheckFFmpegVersion_CachesSuccessfulResult()
+    public async Task CheckFFmpegVersion_CachesSuccessfulResult()
     {
         var runner = new CapabilityRunner();
         var service = new FFmpegCapabilityService(runner, NullLogger<FFmpegCapabilityService>.Instance);
 
-        Assert.True(service.CheckFFmpegVersion());
-        Assert.True(service.CheckFFmpegVersion());
+        Assert.True(await service.CheckFFmpegVersionAsync().ConfigureAwait(true));
+        Assert.True(await service.CheckFFmpegVersionAsync().ConfigureAwait(true));
 
         // Second call should be served from cache — only 4 subprocess invocations total.
         Assert.Equal(4, runner.Calls.Count);
@@ -36,11 +36,11 @@ public class TestFFmpegCapabilityService
     }
 
     [Fact]
-    public void GetChromaprintLogs_OrdersKnownDiagnosticsDeterministically()
+    public async Task GetChromaprintLogs_OrdersKnownDiagnosticsDeterministically()
     {
         var service = new FFmpegCapabilityService(new CapabilityRunner(), NullLogger<FFmpegCapabilityService>.Instance);
 
-        Assert.True(service.CheckFFmpegVersion());
+        Assert.True(await service.CheckFFmpegVersionAsync().ConfigureAwait(true));
 
         var logs = service.GetChromaprintLogs();
         Assert.True(logs.IndexOf("FFmpeg version:", StringComparison.Ordinal) < logs.IndexOf("FFmpeg muxer list:", StringComparison.Ordinal));
@@ -49,7 +49,7 @@ public class TestFFmpegCapabilityService
     }
 
     [Fact]
-    public void CheckFFmpegVersion_RechecksAfterFailure()
+    public async Task CheckFFmpegVersion_RechecksAfterFailure()
     {
         WarningManager.Clear();
         var runner = new CapabilityRunner { FailFirstVersionCheck = true };
@@ -57,8 +57,8 @@ public class TestFFmpegCapabilityService
 
         try
         {
-            Assert.False(service.CheckFFmpegVersion());
-            Assert.True(service.CheckFFmpegVersion());
+            Assert.False(await service.CheckFFmpegVersionAsync().ConfigureAwait(true));
+            Assert.True(await service.CheckFFmpegVersionAsync().ConfigureAwait(true));
 
             Assert.Equal(5, runner.Calls.Count);
             Assert.Equal(2, runner.Calls.Count(call => call == "-version"));
@@ -77,32 +77,29 @@ public class TestFFmpegCapabilityService
 
         public List<string> Calls { get; } = [];
 
-        public FFmpegProcessResult Run(IReadOnlyList<string> args, bool stderr = false, int timeout = 60 * 1000)
+        public Task<FFmpegProcessResult> RunAsync(
+            IReadOnlyList<string> args,
+            bool stderr = false,
+            int timeout = 60 * 1000,
+            CancellationToken cancellationToken = default)
         {
             var key = string.Join(" ", args);
             Calls.Add(key);
 
             if (FailFirstVersionCheck && key == "-version" && _versionChecks++ == 0)
             {
-                return CreateResult("not a supported build");
+                return Task.FromResult(CreateResult("not a supported build"));
             }
 
-            return key switch
+            return Task.FromResult(key switch
             {
                 "-version" => CreateResult("ffmpeg version test"),
                 "-muxers" => CreateResult("chromaprint"),
                 "-h muxer=chromaprint" => CreateResult("binary raw fingerprint"),
                 "-h filter=silencedetect" => CreateResult("noise tolerance"),
                 _ => CreateResult(string.Empty)
-            };
+            });
         }
-
-        public Task<FFmpegProcessResult> RunAsync(
-            IReadOnlyList<string> args,
-            bool stderr = false,
-            int timeout = 60 * 1000,
-            CancellationToken cancellationToken = default)
-            => throw new NotSupportedException();
 
         private static FFmpegProcessResult CreateResult(string output)
             => new(Encoding.UTF8.GetBytes(output), 0);

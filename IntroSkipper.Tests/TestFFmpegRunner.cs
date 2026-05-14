@@ -63,7 +63,7 @@ public class TestFFmpegRunner
     }
 
     [Fact]
-    public async Task RunAsync_ExitTimeoutDoesNotKillProcessAndReturnsMinusOneExitCode()
+    public async Task RunAsync_WhenStreamsCloseBeforeProcessExits_TimesOutAndReturnsMinusOne()
     {
         var process = new FakeProcess(
             new ProcessStartInfo("ffmpeg"),
@@ -75,7 +75,7 @@ public class TestFFmpegRunner
         var result = await runner.RunAsync(["-i", "input"], timeout: 10);
 
         Assert.Equal(-1, result.ExitCode);
-        Assert.False(process.Killed);
+        Assert.True(process.Killed);
     }
 
     [Fact]
@@ -228,12 +228,6 @@ public class TestFFmpegRunner
 
         public void Start()
         {
-        }
-
-        public void WaitForExit(int milliseconds)
-        {
-            HasExited = true;
-            _exit.TrySetResult();
         }
 
         public async Task WaitForExitAsync(CancellationToken cancellationToken = default)

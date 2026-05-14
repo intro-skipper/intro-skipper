@@ -64,50 +64,9 @@ public sealed partial class FFmpegRunner : IFFmpegRunner
 
         void Start();
 
-        void WaitForExit(int milliseconds);
-
         Task WaitForExitAsync(CancellationToken cancellationToken = default);
 
         void Kill(bool entireProcessTree);
-    }
-
-    /// <inheritdoc />
-    public FFmpegProcessResult Run(IReadOnlyList<string> args, bool stderr = false, int timeout = 60 * 1000)
-    {
-        using var ffmpeg = StartProcess(args, stderr);
-
-        using var ms = new MemoryStream();
-        var buf = new byte[4096];
-
-        using (var stream = stderr ? ffmpeg.StandardError : ffmpeg.StandardOutput)
-        {
-            int bytesRead;
-            while ((bytesRead = stream.Read(buf, 0, buf.Length)) > 0)
-            {
-                ms.Write(buf, 0, bytesRead);
-            }
-        }
-
-        ffmpeg.WaitForExit(timeout);
-
-        if (!ffmpeg.HasExited)
-        {
-            try
-            {
-                ffmpeg.Kill(entireProcessTree: true);
-                ffmpeg.WaitForExit(5000);
-                LogFfmpegProcessKilled(_logger);
-            }
-            catch (Exception ex) when (ex is InvalidOperationException or
-                Win32Exception or
-                NotSupportedException or
-                PlatformNotSupportedException)
-            {
-                LogFfmpegKillFailed(_logger, ex.Message);
-            }
-        }
-
-        return new FFmpegProcessResult(ms.ToArray(), ffmpeg.HasExited ? ffmpeg.ExitCode : -1);
     }
 
     /// <inheritdoc />
@@ -151,6 +110,11 @@ public sealed partial class FFmpegRunner : IFFmpegRunner
 
             await drainTask.ConfigureAwait(false);
             var processExited = await exitTask.ConfigureAwait(false);
+            if (!processExited)
+            {
+                await KillProcessAsync(ffmpeg).ConfigureAwait(false);
+            }
+
             var output = ms.ToArray();
             cancellationToken.ThrowIfCancellationRequested();
             return new FFmpegProcessResult(output, processExited ? ffmpeg.ExitCode : -1);
@@ -428,8 +392,6 @@ public sealed partial class FFmpegRunner : IFFmpegRunner
         }
 
         public void Start() => _process.Start();
-
-        public void WaitForExit(int milliseconds) => _process.WaitForExit(milliseconds);
 
         public Task WaitForExitAsync(CancellationToken cancellationToken = default) => _process.WaitForExitAsync(cancellationToken);
 

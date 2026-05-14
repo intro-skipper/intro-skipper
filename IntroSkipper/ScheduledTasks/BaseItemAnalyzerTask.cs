@@ -73,7 +73,7 @@ public partial class BaseItemAnalyzerTask(
         CancellationToken cancellationToken,
         IReadOnlyCollection<Guid>? seasonsToAnalyze = null)
     {
-        var ffmpegValid = _capabilityService.CheckFFmpegVersion();
+        var ffmpegValid = await _capabilityService.CheckFFmpegVersionAsync(cancellationToken).ConfigureAwait(false);
 
         var modes = new HashSet<AnalysisMode>();
         if (_config.ScanIntroduction)

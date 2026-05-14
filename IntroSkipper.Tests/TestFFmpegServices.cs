@@ -25,11 +25,11 @@ public class TestFFmpegServices
     #region Info Query Tests
 
     [FactSkipFFmpegTests]
-    public void TestNoTrailingOptionsWarning()
+    public async Task TestNoTrailingOptionsWarning()
     {
         // Run FFmpeg version check to populate ChromaprintLogs
         var capService = CreateCapabilityService();
-        var result = capService.CheckFFmpegVersion();
+        var result = await capService.CheckFFmpegVersionAsync().ConfigureAwait(true);
 
         // Get the logs and verify no "Trailing option" warning appears
         var logs = capService.GetChromaprintLogs();
@@ -41,9 +41,9 @@ public class TestFFmpegServices
     }
 
     [FactSkipFFmpegTests]
-    public void TestFFmpegVersionCheck()
+    public async Task TestFFmpegVersionCheck()
     {
-        Assert.True(CreateCapabilityService().CheckFFmpegVersion());
+        Assert.True(await CreateCapabilityService().CheckFFmpegVersionAsync().ConfigureAwait(true));
     }
 
     /// <summary>

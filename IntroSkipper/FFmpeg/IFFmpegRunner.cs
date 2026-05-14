@@ -11,20 +11,6 @@ namespace IntroSkipper.FFmpeg;
 public interface IFFmpegRunner
 {
     /// <summary>
-    /// Runs FFmpeg with the provided arguments and returns the captured output.
-    /// </summary>
-    /// <remarks>
-    /// The selected stream is read to completion before <paramref name="timeout" /> is evaluated,
-    /// so the timeout only guards against a process that lingers after closing its output stream.
-    /// If the process is still running after the timeout, it is killed.
-    /// </remarks>
-    /// <param name="args">Arguments to pass to FFmpeg as individual tokens.</param>
-    /// <param name="stderr">If <c>true</c>, capture standard error; otherwise capture standard output.</param>
-    /// <param name="timeout">Timeout in milliseconds to wait for FFmpeg to exit after output has been read.</param>
-    /// <returns>The captured output bytes and process exit code.</returns>
-    FFmpegProcessResult Run(IReadOnlyList<string> args, bool stderr = false, int timeout = 60 * 1000);
-
-    /// <summary>
     /// Runs FFmpeg asynchronously with the provided arguments and returns the captured output.
     /// </summary>
     /// <remarks>

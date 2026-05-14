@@ -993,9 +993,6 @@ public sealed class TestCacheOperations
 
     private sealed class FixedRunner(string output, int exitCode) : IFFmpegRunner
     {
-        public FFmpegProcessResult Run(IReadOnlyList<string> args, bool stderr = false, int timeout = 60 * 1000)
-            => CreateResult();
-
         public Task<FFmpegProcessResult> RunAsync(
             IReadOnlyList<string> args,
             bool stderr = false,

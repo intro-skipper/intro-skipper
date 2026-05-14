@@ -40,7 +40,7 @@ public sealed partial class FFmpegCapabilityService : IFFmpegCapabilityService
     }
 
     /// <inheritdoc />
-    public bool CheckFFmpegVersion()
+    public async Task<bool> CheckFFmpegVersionAsync(CancellationToken cancellationToken = default)
     {
         // Only cache successful results. Failures are retried so that installing or
         // upgrading FFmpeg takes effect without restarting the server.
@@ -51,30 +51,34 @@ public sealed partial class FFmpegCapabilityService : IFFmpegCapabilityService
 
         try
         {
-            if (!CheckFFmpegRequirement(
+            if (!await CheckFFmpegRequirementAsync(
                     "-version",
                     "ffmpeg",
                     "version",
                     "Unknown error with FFmpeg version",
-                    "unknown_error") ||
-                !CheckFFmpegRequirement(
+                    "unknown_error",
+                    cancellationToken).ConfigureAwait(false) ||
+                !await CheckFFmpegRequirementAsync(
                     "-muxers",
                     "chromaprint",
                     "muxer list",
                     "The installed version of ffmpeg does not support chromaprint",
-                    "chromaprint_not_supported") ||
-                !CheckFFmpegRequirement(
+                    "chromaprint_not_supported",
+                    cancellationToken).ConfigureAwait(false) ||
+                !await CheckFFmpegRequirementAsync(
                     "-h muxer=chromaprint",
                     "binary raw fingerprint",
                     "chromaprint options",
                     "The installed version of ffmpeg does not support raw binary fingerprints",
-                    "fp_format_not_supported") ||
-                !CheckFFmpegRequirement(
+                    "fp_format_not_supported",
+                    cancellationToken).ConfigureAwait(false) ||
+                !await CheckFFmpegRequirementAsync(
                     "-h filter=silencedetect",
                     "noise tolerance",
                     "silencedetect options",
                     "The installed version of ffmpeg does not support the silencedetect filter",
-                    "silencedetect_not_supported"))
+                    "silencedetect_not_supported",
+                    cancellationToken).ConfigureAwait(false))
             {
                 return false;
             }
@@ -84,6 +88,10 @@ public sealed partial class FFmpegCapabilityService : IFFmpegCapabilityService
             _chromaprintLogs["error"] = "okay";
             _ffmpegCheckPassed = true;
             return true;
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
         }
         catch (Exception ex) when (ex is not OutOfMemoryException)
         {
@@ -128,24 +136,30 @@ public sealed partial class FFmpegCapabilityService : IFFmpegCapabilityService
     /// <param name="bundleName">Support bundle key to store FFmpeg's output under.</param>
     /// <param name="errorMessage">Error message to log if this requirement is not met.</param>
     /// <param name="errorKey">Value to store in <c>_chromaprintLogs["error"]</c> on failure.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>true on success, false on error.</returns>
-    private bool CheckFFmpegRequirement(
+    private async Task<bool> CheckFFmpegRequirementAsync(
         string arguments,
         string mustContain,
         string bundleName,
         string errorMessage,
-        string errorKey)
+        string errorKey,
+        CancellationToken cancellationToken)
     {
         LogCheckingRequirement(_logger, arguments);
 
-        var output = Encoding.UTF8.GetString(
-            _runner.Run(arguments.Split(' ', StringSplitOptions.RemoveEmptyEntries), false, 2000).Output);
+        var result = await _runner.RunAsync(
+            arguments.Split(' ', StringSplitOptions.RemoveEmptyEntries),
+            false,
+            2000,
+            cancellationToken).ConfigureAwait(false);
+        var output = Encoding.UTF8.GetString(result.Output);
 
         LogFfmpegOutput(_logger, arguments, output);
 
         _chromaprintLogs[bundleName] = output;
 
-        if (!output.Contains(mustContain, StringComparison.OrdinalIgnoreCase))
+        if (result.ExitCode != 0 || !output.Contains(mustContain, StringComparison.OrdinalIgnoreCase))
         {
             LogFfmpegRequirementFailed(_logger, errorMessage);
             _chromaprintLogs["error"] = errorKey;

@@ -18,8 +18,9 @@ public interface IFFmpegCapabilityService
     /// failures are retried on every call so that installing or upgrading FFmpeg
     /// takes effect without restarting the server.
     /// </summary>
+    /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>true if a compatible version of ffmpeg is installed, false on any error.</returns>
-    bool CheckFFmpegVersion();
+    Task<bool> CheckFFmpegVersionAsync(CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Gets Chromaprint debugging logs.

@@ -25,9 +25,9 @@ namespace IntroSkipper.Tests;
 public class TestAudioFingerprinting
 {
     [FactSkipFFmpegTests]
-    public void TestInstallationCheck()
+    public async Task TestInstallationCheck()
     {
-        Assert.True(CreateCapabilityService().CheckFFmpegVersion());
+        Assert.True(await CreateCapabilityService().CheckFFmpegVersionAsync().ConfigureAwait(true));
     }
 
     [Theory]
