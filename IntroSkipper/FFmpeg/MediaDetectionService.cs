@@ -20,7 +20,7 @@ public sealed partial class MediaDetectionService : IMediaDetectionService
 {
     private readonly IFFmpegRunner _runner;
     private readonly IDetectionCacheService _cacheService;
-    private readonly IMediaDetectionOptions _options;
+    private readonly PluginOptionsProvider _options;
     private readonly ILogger<MediaDetectionService> _logger;
 
     /// <summary>
@@ -34,7 +34,7 @@ public sealed partial class MediaDetectionService : IMediaDetectionService
     public MediaDetectionService(
         IFFmpegRunner runner,
         IDetectionCacheService cacheService,
-        IMediaDetectionOptions options,
+        PluginOptionsProvider options,
         ILogger<MediaDetectionService> logger)
     {
         ArgumentNullException.ThrowIfNull(runner);

@@ -19,7 +19,7 @@ namespace IntroSkipper.FFmpeg;
 /// </summary>
 public sealed partial class FFmpegRunner : IFFmpegRunner
 {
-    private readonly IFFmpegProcessOptions _options;
+    private readonly PluginOptionsProvider _options;
     private readonly ILogger<FFmpegRunner> _logger;
     private readonly Func<ProcessStartInfo, IProcess> _processFactory;
 
@@ -29,13 +29,13 @@ public sealed partial class FFmpegRunner : IFFmpegRunner
     /// <param name="options">Options provider for FFmpeg path and process configuration.</param>
     /// <param name="logger">Logger instance.</param>
     /// <exception cref="ArgumentNullException"><paramref name="options"/> or <paramref name="logger"/> is <see langword="null"/>.</exception>
-    public FFmpegRunner(IFFmpegProcessOptions options, ILogger<FFmpegRunner> logger)
+    public FFmpegRunner(PluginOptionsProvider options, ILogger<FFmpegRunner> logger)
         : this(options, logger, static startInfo => new SystemProcess(startInfo))
     {
     }
 
     internal FFmpegRunner(
-        IFFmpegProcessOptions options,
+        PluginOptionsProvider options,
         ILogger<FFmpegRunner> logger,
         Func<ProcessStartInfo, IProcess> processFactory)
     {

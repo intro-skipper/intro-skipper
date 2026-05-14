@@ -28,7 +28,6 @@ namespace IntroSkipper
             serviceCollection.AddHostedService<Entrypoint>();
             serviceCollection.AddSingleton<IMediaSegmentProvider, SegmentProvider>();
             serviceCollection.AddSingleton<MediaSegmentUpdateManager>();
-            serviceCollection.AddSingleton<BaseItemAnalyzerTaskFactory>();
             serviceCollection.AddSingleton<MediaSegmentsFirstEpisodeFilter>();
             serviceCollection.Configure<MvcOptions>(options =>
             {
@@ -37,13 +36,10 @@ namespace IntroSkipper
 
             // FFmpeg services
             serviceCollection.AddSingleton<PluginOptionsProvider>();
-            serviceCollection.AddSingleton<IFFmpegProcessOptions>(sp => sp.GetRequiredService<PluginOptionsProvider>());
-            serviceCollection.AddSingleton<IDetectionCacheOptions>(sp => sp.GetRequiredService<PluginOptionsProvider>());
-            serviceCollection.AddSingleton<IMediaDetectionOptions>(sp => sp.GetRequiredService<PluginOptionsProvider>());
             serviceCollection.AddSingleton<IFFmpegRunner, FFmpegRunner>();
             serviceCollection.AddSingleton<IDetectionCacheService, DetectionCacheService>();
             serviceCollection.AddSingleton<IMediaDetectionService, MediaDetectionService>();
-            serviceCollection.AddSingleton<IFFmpegCapabilityService, FFmpegCapabilityService>();
+            serviceCollection.AddSingleton<FFmpegCapabilityService>();
         }
     }
 }

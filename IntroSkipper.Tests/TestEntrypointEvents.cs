@@ -272,7 +272,7 @@ internal static class EntrypointTestHelpers
             cacheService: new DetectionCacheService(
                 new PluginOptionsProvider(),
                 NullLogger<DetectionCacheService>.Instance),
-            analyzerTaskFactory: null!);
+            serviceProvider: null!);
 
         SetPrivateField(entrypoint, "_config", new PluginConfiguration { AutoDetectIntros = autoDetectIntros });
         return entrypoint;

@@ -18,6 +18,7 @@ using MediaBrowser.Controller.Library;
 using MediaBrowser.Model.Entities;
 using MediaBrowser.Model.Plugins;
 using MediaBrowser.Model.Tasks;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Newtonsoft.Json.Linq;
@@ -32,9 +33,9 @@ namespace IntroSkipper.Services
         private readonly ITaskManager _taskManager;
         private readonly ILibraryManager _libraryManager;
         private readonly ILogger<Entrypoint> _logger;
-        private readonly IFFmpegCapabilityService _capabilityService;
+        private readonly FFmpegCapabilityService _capabilityService;
         private readonly IDetectionCacheService _cacheService;
-        private readonly BaseItemAnalyzerTaskFactory _analyzerTaskFactory;
+        private readonly IServiceProvider _serviceProvider;
         private readonly HashSet<Guid> _seasonsToAnalyze = [];
         private readonly object _seasonsLock = new();
         private readonly Timer _queueTimer;
@@ -52,21 +53,21 @@ namespace IntroSkipper.Services
         /// <param name="logger">Logger.</param>
         /// <param name="capabilityService">FFmpeg capability service.</param>
         /// <param name="cacheService">Detection cache service.</param>
-        /// <param name="analyzerTaskFactory">Analyzer task factory.</param>
+        /// <param name="serviceProvider">Service provider for creating analyzer tasks.</param>
         public Entrypoint(
             ILibraryManager libraryManager,
             ITaskManager taskManager,
             ILogger<Entrypoint> logger,
-            IFFmpegCapabilityService capabilityService,
+            FFmpegCapabilityService capabilityService,
             IDetectionCacheService cacheService,
-            BaseItemAnalyzerTaskFactory analyzerTaskFactory)
+            IServiceProvider serviceProvider)
         {
             _libraryManager = libraryManager;
             _taskManager = taskManager;
             _logger = logger;
             _capabilityService = capabilityService;
             _cacheService = cacheService;
-            _analyzerTaskFactory = analyzerTaskFactory;
+            _serviceProvider = serviceProvider;
 
             _config = Plugin.Instance?.Configuration ?? new PluginConfiguration();
             _queueTimer = new Timer(
@@ -352,7 +353,7 @@ namespace IntroSkipper.Services
 
                         _analyzeAgain = false;
 
-                        var analyzer = _analyzerTaskFactory.Create(_logger);
+                        var analyzer = ActivatorUtilities.CreateInstance<BaseItemAnalyzerTask>(_serviceProvider);
                         await analyzer.AnalyzeItemsAsync(new Progress<double>(), cts.Token, seasonIds).ConfigureAwait(false);
 
                         if (_analyzeAgain && !cts.IsCancellationRequested)

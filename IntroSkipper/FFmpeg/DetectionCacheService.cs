@@ -28,7 +28,7 @@ public sealed partial class DetectionCacheService : IDetectionCacheService
     /// </summary>
     private const double CacheTimeTolerance = 1e-6;
 
-    private readonly IDetectionCacheOptions _options;
+    private readonly PluginOptionsProvider _options;
     private readonly ILogger<DetectionCacheService> _logger;
 
     /// <summary>
@@ -44,7 +44,7 @@ public sealed partial class DetectionCacheService : IDetectionCacheService
     /// <param name="logger">Logger instance.</param>
     /// <exception cref="ArgumentNullException"><paramref name="options"/> or <paramref name="logger"/> is <see langword="null"/>.</exception>
     public DetectionCacheService(
-        IDetectionCacheOptions options,
+        PluginOptionsProvider options,
         ILogger<DetectionCacheService> logger)
     {
         ArgumentNullException.ThrowIfNull(options);

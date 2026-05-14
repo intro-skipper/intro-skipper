@@ -29,7 +29,7 @@ public partial class TroubleshootingController : ControllerBase
 {
     private readonly IApplicationHost _applicationHost;
     private readonly ILogger<TroubleshootingController> _logger;
-    private readonly IFFmpegCapabilityService _capabilityService;
+    private readonly FFmpegCapabilityService _capabilityService;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="TroubleshootingController"/> class.
@@ -40,7 +40,7 @@ public partial class TroubleshootingController : ControllerBase
     public TroubleshootingController(
         IApplicationHost applicationHost,
         ILogger<TroubleshootingController> logger,
-        IFFmpegCapabilityService capabilityService)
+        FFmpegCapabilityService capabilityService)
     {
         _applicationHost = applicationHost;
         _logger = logger;

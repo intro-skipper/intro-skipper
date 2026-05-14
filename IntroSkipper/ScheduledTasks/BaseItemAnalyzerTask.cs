@@ -33,13 +33,13 @@ namespace IntroSkipper.ScheduledTasks;
 /// <param name="cacheService">Detection cache service.</param>
 /// <param name="detectionService">Media detection service.</param>
 public partial class BaseItemAnalyzerTask(
-    ILogger logger,
+    ILogger<BaseItemAnalyzerTask> logger,
     ILoggerFactory loggerFactory,
     ILibraryManager libraryManager,
     IProviderManager providerManager,
     IFileSystem fileSystem,
     MediaSegmentUpdateManager mediaSegmentUpdateManager,
-    IFFmpegCapabilityService capabilityService,
+    FFmpegCapabilityService capabilityService,
     IDetectionCacheService cacheService,
     IMediaDetectionService detectionService)
 {
@@ -50,16 +50,16 @@ public partial class BaseItemAnalyzerTask(
     /// </summary>
     private const double AnimePreviewStartTolerance = 0.5;
 
-    private readonly ILogger _logger = logger;
+    private readonly ILogger<BaseItemAnalyzerTask> _logger = logger;
     private readonly ILoggerFactory _loggerFactory = loggerFactory;
     private readonly ILibraryManager _libraryManager = libraryManager;
     private readonly IProviderManager _providerManager = providerManager;
     private readonly IFileSystem _fileSystem = fileSystem;
     private readonly MediaSegmentUpdateManager _mediaSegmentUpdateManager = mediaSegmentUpdateManager;
-    private readonly IFFmpegCapabilityService _capabilityService = capabilityService;
+    private readonly FFmpegCapabilityService _capabilityService = capabilityService;
     private readonly IDetectionCacheService _cacheService = cacheService;
     private readonly IMediaDetectionService _detectionService = detectionService;
-    private readonly PluginConfiguration _config = Plugin.Instance?.Configuration ?? new PluginConfiguration();
+    private PluginConfiguration _config = new PluginConfiguration();
 
     /// <summary>
     /// Analyze all media items on the server.
@@ -73,6 +73,7 @@ public partial class BaseItemAnalyzerTask(
         CancellationToken cancellationToken,
         IReadOnlyCollection<Guid>? seasonsToAnalyze = null)
     {
+        _config = Plugin.Instance?.Configuration ?? new PluginConfiguration();
         var ffmpegValid = await _capabilityService.CheckFFmpegVersionAsync(cancellationToken).ConfigureAwait(false);
 
         var modes = new HashSet<AnalysisMode>();
@@ -242,6 +243,47 @@ public partial class BaseItemAnalyzerTask(
 
         LogAnalyzingFiles(_logger, mode, items.Count, first.SeriesName, first.SeasonNumber);
 
+        var analyzers = CreateAnalyzerPipeline(mode, category, ffmpegValid, action);
+
+        // Execute each analyzer in order. Analyzers skip episodes already
+        // marked as analyzed by earlier ones via NeedsAnalysis().
+        foreach (var analyzer in analyzers)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            items = await analyzer.AnalyzeMediaFiles(items, mode, cancellationToken).ConfigureAwait(false);
+        }
+
+        // For anime, optionally create a Preview segment from the end of credits to the end of the episode.
+        if (mode == AnalysisMode.Credits && isAnime && _config.AnimePreviewFromCreditsEnd)
+        {
+            await CreateAnimePreviewFromCreditsAsync(plugin, items, cancellationToken).ConfigureAwait(false);
+        }
+
+        // Set the episode IDs for the analyzed items
+        await plugin.SetEpisodeIdsAsync(first.SeasonId, mode, items.Select(i => i.EpisodeId), cancellationToken).ConfigureAwait(false);
+
+        return totalItems - items.Count(e => e.GetAnalyzed(mode) != EpisodeState.Analyzed);
+    }
+
+    /// <summary>
+    /// Builds the ordered analyzer chain for the given mode, content category, FFmpeg availability,
+    /// and per-season action override. All applicable analyzers are always included — the order
+    /// determines priority, and each analyzer skips episodes already handled by earlier ones.
+    /// </summary>
+    /// <param name="mode">Analysis mode.</param>
+    /// <param name="category">Content category (Episode, AnimeEpisode, Movie).</param>
+    /// <param name="ffmpegValid">Whether FFmpeg supports chromaprint.</param>
+    /// <param name="action">Per-season analyzer action override.</param>
+    /// <returns>Ordered list of analyzers to execute.</returns>
+    internal List<IMediaFileAnalyzer> CreateAnalyzerPipeline(
+        AnalysisMode mode,
+        QueuedMediaCategory category,
+        bool ffmpegValid,
+        AnalyzerAction action)
+    {
+        var isMovie = category == QueuedMediaCategory.Movie;
+        var isAnime = category == QueuedMediaCategory.AnimeEpisode;
+
         // Build the default analyzer chain for this mode and content type.
         // All applicable analyzers are always included — the order determines priority,
         // and each analyzer skips episodes already handled by earlier ones via NeedsAnalysis().
@@ -308,24 +350,7 @@ public partial class BaseItemAnalyzerTask(
                 break;
         }
 
-        // Execute each analyzer in order. Analyzers skip episodes already
-        // marked as analyzed by earlier ones via NeedsAnalysis().
-        foreach (var analyzer in analyzers)
-        {
-            cancellationToken.ThrowIfCancellationRequested();
-            items = await analyzer.AnalyzeMediaFiles(items, mode, cancellationToken).ConfigureAwait(false);
-        }
-
-        // For anime, optionally create a Preview segment from the end of credits to the end of the episode.
-        if (mode == AnalysisMode.Credits && isAnime && _config.AnimePreviewFromCreditsEnd)
-        {
-            await CreateAnimePreviewFromCreditsAsync(plugin, items, cancellationToken).ConfigureAwait(false);
-        }
-
-        // Set the episode IDs for the analyzed items
-        await plugin.SetEpisodeIdsAsync(first.SeasonId, mode, items.Select(i => i.EpisodeId), cancellationToken).ConfigureAwait(false);
-
-        return totalItems - items.Count(e => e.GetAnalyzed(mode) != EpisodeState.Analyzed);
+        return analyzers;
     }
 
     /// <summary>

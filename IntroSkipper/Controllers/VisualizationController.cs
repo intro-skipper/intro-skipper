@@ -15,6 +15,7 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 
 namespace IntroSkipper.Controllers;
@@ -27,7 +28,7 @@ namespace IntroSkipper.Controllers;
 /// </remarks>
 /// <param name="logger">Logger.</param>
 /// <param name="mediaSegmentUpdateManager">Media segment update manager.</param>
-/// <param name="analyzerTaskFactory">Analyzer task factory.</param>
+/// <param name="serviceProvider">Service provider for creating analyzer tasks.</param>
 /// <param name="cacheService">Detection cache service.</param>
 [Authorize(Policy = Policies.RequiresElevation)]
 [ApiController]
@@ -36,12 +37,12 @@ namespace IntroSkipper.Controllers;
 public partial class VisualizationController(
     ILogger<VisualizationController> logger,
     MediaSegmentUpdateManager mediaSegmentUpdateManager,
-    BaseItemAnalyzerTaskFactory analyzerTaskFactory,
+    IServiceProvider serviceProvider,
     IDetectionCacheService cacheService) : ControllerBase
 {
     private readonly ILogger<VisualizationController> _logger = logger;
     private readonly MediaSegmentUpdateManager _mediaSegmentUpdateManager = mediaSegmentUpdateManager;
-    private readonly BaseItemAnalyzerTaskFactory _analyzerTaskFactory = analyzerTaskFactory;
+    private readonly IServiceProvider _serviceProvider = serviceProvider;
     private readonly IDetectionCacheService _cacheService = cacheService;
 
     /// <summary>
@@ -105,69 +106,80 @@ public partial class VisualizationController(
     [ProducesResponseType(StatusCodes.Status500InternalServerError)]
     public async Task<ActionResult> EraseSeasonAsync([FromRoute] Guid seriesId, [FromRoute] Guid seasonId, [FromQuery] bool eraseCache = false, CancellationToken cancellationToken = default)
     {
-        if (!Plugin.Instance!.QueuedMediaItems.TryGetValue(seasonId, out var episodes))
-        {
-            return NotFound();
-        }
-
-        if (episodes.Count == 0)
-        {
-            return NotFound();
-        }
-
-        LogErasingTimestamps(_logger, seriesId, seasonId);
-
         try
         {
-            using var db = Plugin.CreateDbContext();
-
-            // ExecuteDeleteAsync runs a single server-side DELETE and bypasses the change tracker.
-            // This is safe here because the tracked operations below target DbSeasonInfo, not DbSegment.
-            var episodeIds = episodes.Select(e => e.EpisodeId).ToHashSet();
-            await db.DbSegment
-                .Where(s => episodeIds.Contains(s.ItemId))
-                .ExecuteDeleteAsync(cancellationToken)
-                .ConfigureAwait(false);
-
-            if (eraseCache)
+            if (!await EraseSeasonDataAsync(seriesId, seasonId, eraseCache, cancellationToken).ConfigureAwait(false))
             {
-                // Cache deletion must run to completion — the DB rows are already gone,
-                // so aborting here would leave orphaned files with no way to clean them up.
-                foreach (var episode in episodes)
-                {
-                    await _cacheService.DeleteFingerprintCacheAsync(episode.EpisodeId, CancellationToken.None).ConfigureAwait(false);
-                }
-            }
-
-            // Batch-load season info and clear episode IDs
-            var seasonInfos = await db.DbSeasonInfo
-                .Where(s => s.SeasonId == seasonId)
-                .ToListAsync(cancellationToken)
-                .ConfigureAwait(false);
-
-            foreach (var info in seasonInfos)
-            {
-                db.Entry(info).Property(s => s.EpisodeIds).CurrentValue = [];
-            }
-
-            await db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
-
-            if (Plugin.Instance.Configuration.UpdateMediaSegments)
-            {
-                await _mediaSegmentUpdateManager.UpdateMediaSegmentsAsync(episodes, cancellationToken).ConfigureAwait(false);
+                return NotFound();
             }
 
             return NoContent();
         }
-        catch (OperationCanceledException)
-        {
-            throw;
-        }
-        catch (Exception ex)
+        catch (Exception ex) when (ex is not OperationCanceledException)
         {
             LogFailedToEraseTimestamps(_logger, ex, seriesId, seasonId);
             return Problem("An unexpected error occurred while erasing season data.", statusCode: StatusCodes.Status500InternalServerError);
         }
+    }
+
+    /// <summary>
+    /// Core erase logic shared by the HTTP action and background rescan.
+    /// Deletes all segments for the season, optionally erases the fingerprint cache,
+    /// clears analyzed-state lists, and updates media segments if configured.
+    /// </summary>
+    /// <param name="seriesId">Show ID.</param>
+    /// <param name="seasonId">Season ID.</param>
+    /// <param name="eraseCache">Whether to erase fingerprint cache files.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns><see langword="true"/> if the season was found and erased; <see langword="false"/> if not found.</returns>
+    private async Task<bool> EraseSeasonDataAsync(Guid seriesId, Guid seasonId, bool eraseCache, CancellationToken cancellationToken)
+    {
+        if (!Plugin.Instance!.QueuedMediaItems.TryGetValue(seasonId, out var episodes) || episodes.Count == 0)
+        {
+            return false;
+        }
+
+        LogErasingTimestamps(_logger, seriesId, seasonId);
+
+        using var db = Plugin.CreateDbContext();
+
+        // ExecuteDeleteAsync runs a single server-side DELETE and bypasses the change tracker.
+        // This is safe here because the tracked operations below target DbSeasonInfo, not DbSegment.
+        var episodeIds = episodes.Select(e => e.EpisodeId).ToHashSet();
+        await db.DbSegment
+            .Where(s => episodeIds.Contains(s.ItemId))
+            .ExecuteDeleteAsync(cancellationToken)
+            .ConfigureAwait(false);
+
+        if (eraseCache)
+        {
+            // Cache deletion must run to completion — the DB rows are already gone,
+            // so aborting here would leave orphaned files with no way to clean them up.
+            foreach (var episode in episodes)
+            {
+                await _cacheService.DeleteFingerprintCacheAsync(episode.EpisodeId, CancellationToken.None).ConfigureAwait(false);
+            }
+        }
+
+        // Batch-load season info and clear episode IDs
+        var seasonInfos = await db.DbSeasonInfo
+            .Where(s => s.SeasonId == seasonId)
+            .ToListAsync(cancellationToken)
+            .ConfigureAwait(false);
+
+        foreach (var info in seasonInfos)
+        {
+            db.Entry(info).Property(s => s.EpisodeIds).CurrentValue = [];
+        }
+
+        await db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+
+        if (Plugin.Instance.Configuration.UpdateMediaSegments)
+        {
+            await _mediaSegmentUpdateManager.UpdateMediaSegmentsAsync(episodes, cancellationToken).ConfigureAwait(false);
+        }
+
+        return true;
     }
 
     /// <summary>
@@ -225,9 +237,9 @@ public partial class VisualizationController(
                         LogStartRescan(_logger, seasonId);
 
                         // Erase season timestamps and cache first
-                        await EraseSeasonAsync(seriesId, seasonId, true, CancellationToken.None).ConfigureAwait(false);
+                        await EraseSeasonDataAsync(seriesId, seasonId, eraseCache: true, CancellationToken.None).ConfigureAwait(false);
 
-                        var baseIntroAnalyzer = _analyzerTaskFactory.Create(_logger);
+                        var baseIntroAnalyzer = ActivatorUtilities.CreateInstance<BaseItemAnalyzerTask>(_serviceProvider);
 
                         await baseIntroAnalyzer.AnalyzeItemsAsync(new Progress<double>(), CancellationToken.None, [seasonId]).ConfigureAwait(false);
                     }

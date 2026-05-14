@@ -7,6 +7,7 @@ using System.ComponentModel.DataAnnotations;
 using System.Net.Mime;
 using IntroSkipper.Data;
 using IntroSkipper.Manager;
+using Jellyfin.Database.Implementations.Enums;
 using MediaBrowser.Common.Api;
 using MediaBrowser.Controller.Entities.TV;
 using MediaBrowser.Model.MediaSegments;
@@ -75,7 +76,7 @@ public class SegmentEditorController(MediaSegmentUpdateManager mediaSegmentUpdat
         }
 
         var seg = new Segment(itemId, new TimeRange(TimeSpan.FromTicks(segment.StartTicks).TotalSeconds, TimeSpan.FromTicks(segment.EndTicks).TotalSeconds));
-        var mode = Plugin.MapSegmentTypeToMode(segment.Type);
+        var mode = segment.Type.ToAnalysisMode();
 
         await Plugin.Instance!.UpdateTimestampAsync(seg, mode, isUserProvided: true, cancellationToken).ConfigureAwait(false);
 
@@ -105,15 +106,7 @@ public class SegmentEditorController(MediaSegmentUpdateManager mediaSegmentUpdat
             .GetSegmentAsync(itemId, segmentId, cancellationToken)
             .ConfigureAwait(false);
 
-        AnalysisMode mode = type.ToLowerInvariant() switch
-        {
-            "intro" => AnalysisMode.Introduction,
-            "recap" => AnalysisMode.Recap,
-            "preview" => AnalysisMode.Preview,
-            "outro" or "credits" => AnalysisMode.Credits,
-            "commercial" => AnalysisMode.Commercial,
-            _ => throw new ArgumentOutOfRangeException(nameof(type), $"Unknown segment type '{type}'")
-        };
+        var mode = AnalysisModeExtensions.ParseSegmentType(type);
 
         Segment? dbSegment = null;
         if (existingSegment is not null)

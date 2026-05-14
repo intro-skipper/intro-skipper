@@ -12,7 +12,6 @@ using System.Collections.Concurrent;
 using IntroSkipper.Configuration;
 using IntroSkipper.Data;
 using IntroSkipper.Db;
-using Jellyfin.Database.Implementations.Enums;
 using MediaBrowser.Common.Configuration;
 using MediaBrowser.Common.Plugins;
 using MediaBrowser.Controller.Chapters;
@@ -508,19 +507,6 @@ public partial class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
             .Where(s => !ids.Contains(s.SeasonId))
             .ExecuteDeleteAsync(cancellationToken)
             .ConfigureAwait(false);
-    }
-
-    internal static AnalysisMode MapSegmentTypeToMode(MediaSegmentType type)
-    {
-        return type switch
-        {
-            MediaSegmentType.Intro => AnalysisMode.Introduction,
-            MediaSegmentType.Recap => AnalysisMode.Recap,
-            MediaSegmentType.Preview => AnalysisMode.Preview,
-            MediaSegmentType.Outro => AnalysisMode.Credits,
-            MediaSegmentType.Commercial => AnalysisMode.Commercial,
-            _ => throw new NotImplementedException(),
-        };
     }
 
     /// <summary>

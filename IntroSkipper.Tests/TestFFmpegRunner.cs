@@ -20,7 +20,7 @@ public class TestFFmpegRunner
     [Fact]
     public void CreateProcessStartInfo_InfoQuery_OmitsThreadArguments()
     {
-        var runner = CreateRunner(new StubOptionsProvider { ProcessThreads = 7 });
+        var runner = CreateRunner(new StubOptionsProvider { TestProcessThreads = 7 });
 
         var info = runner.CreateProcessStartInfo(["-version"], stderr: false);
 
@@ -34,7 +34,7 @@ public class TestFFmpegRunner
     [Fact]
     public void CreateProcessStartInfo_FilterQuery_UsesInfoLogLevelAndThreadArguments()
     {
-        var runner = CreateRunner(new StubOptionsProvider { ProcessThreads = 7 });
+        var runner = CreateRunner(new StubOptionsProvider { TestProcessThreads = 7 });
 
         var info = runner.CreateProcessStartInfo(["-vf", "showinfo", "-f", "null", "-"], stderr: true);
 
@@ -173,13 +173,15 @@ public class TestFFmpegRunner
 
     private static MemoryStream CreateStream(string value) => new(Encoding.UTF8.GetBytes(value));
 
-    private sealed class StubOptionsProvider : IFFmpegProcessOptions
+    private sealed class StubOptionsProvider : PluginOptionsProvider
     {
-        public string FFmpegPath => "ffmpeg";
+        public override string FFmpegPath => "ffmpeg";
 
-        public int ProcessThreads { get; init; }
+        public int TestProcessThreads { get; set; }
 
-        public ProcessPriorityClass ProcessPriority => ProcessPriorityClass.Normal;
+        public override int ProcessThreads => TestProcessThreads;
+
+        public override ProcessPriorityClass ProcessPriority => ProcessPriorityClass.Normal;
     }
 
     private sealed class FakeProcess : FFmpegRunner.IProcess

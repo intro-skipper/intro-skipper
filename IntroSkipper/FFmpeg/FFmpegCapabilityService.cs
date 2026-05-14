@@ -15,7 +15,7 @@ namespace IntroSkipper.FFmpeg;
 /// <summary>
 /// Checks FFmpeg installation capabilities and provides diagnostic logs.
 /// </summary>
-public sealed partial class FFmpegCapabilityService : IFFmpegCapabilityService
+public sealed partial class FFmpegCapabilityService
 {
     private readonly IFFmpegRunner _runner;
     private readonly ILogger<FFmpegCapabilityService> _logger;
@@ -39,7 +39,14 @@ public sealed partial class FFmpegCapabilityService : IFFmpegCapabilityService
         _logger = logger;
     }
 
-    /// <inheritdoc />
+    /// <summary>
+    /// Check that the installed version of ffmpeg supports chromaprint.
+    /// A successful result is cached for the lifetime of the service instance;
+    /// failures are retried on every call so that installing or upgrading FFmpeg
+    /// takes effect without restarting the server.
+    /// </summary>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>true if a compatible version of ffmpeg is installed, false on any error.</returns>
     public async Task<bool> CheckFFmpegVersionAsync(CancellationToken cancellationToken = default)
     {
         // Only cache successful results. Failures are retried so that installing or
@@ -101,7 +108,10 @@ public sealed partial class FFmpegCapabilityService : IFFmpegCapabilityService
         }
     }
 
-    /// <inheritdoc />
+    /// <summary>
+    /// Gets Chromaprint debugging logs.
+    /// </summary>
+    /// <returns>Markdown formatted logs.</returns>
     public string GetChromaprintLogs()
     {
         // Print the FFmpeg detection status at the top.

@@ -6,6 +6,7 @@
 
 using IntroSkipper.Services;
 using MediaBrowser.Model.Tasks;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 
 namespace IntroSkipper.ScheduledTasks;
@@ -17,13 +18,13 @@ namespace IntroSkipper.ScheduledTasks;
 /// Initializes a new instance of the <see cref="DetectSegmentsTask"/> class.
 /// </remarks>
 /// <param name="logger">Logger.</param>
-/// <param name="analyzerTaskFactory">Analyzer task factory.</param>
+/// <param name="serviceProvider">Service provider for creating analyzer tasks.</param>
 public partial class DetectSegmentsTask(
     ILogger<DetectSegmentsTask> logger,
-    BaseItemAnalyzerTaskFactory analyzerTaskFactory) : IScheduledTask
+    IServiceProvider serviceProvider) : IScheduledTask
 {
     private readonly ILogger<DetectSegmentsTask> _logger = logger;
-    private readonly BaseItemAnalyzerTaskFactory _analyzerTaskFactory = analyzerTaskFactory;
+    private readonly IServiceProvider _serviceProvider = serviceProvider;
 
     /// <summary>
     /// Gets the task name.
@@ -64,7 +65,7 @@ public partial class DetectSegmentsTask(
         {
             LogScheduledTaskStarting(_logger);
 
-            var baseIntroAnalyzer = _analyzerTaskFactory.Create(_logger);
+            var baseIntroAnalyzer = ActivatorUtilities.CreateInstance<BaseItemAnalyzerTask>(_serviceProvider);
 
             await baseIntroAnalyzer.AnalyzeItemsAsync(progress, cancellationToken).ConfigureAwait(false);
         }
