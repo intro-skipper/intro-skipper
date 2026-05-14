@@ -11,7 +11,7 @@ namespace IntroSkipper.FFmpeg;
 /// <summary>
 /// Reads FFmpeg-related configuration from <see cref="Plugin.Instance"/> on each property access.
 /// </summary>
-public class PluginFFmpegOptionsProvider : IFFmpegOptionsProvider
+public sealed class PluginFFmpegOptionsProvider : IFFmpegOptionsProvider
 {
     /// <inheritdoc />
     public bool CacheFingerprints => Plugin.Instance?.Configuration.CacheFingerprints ?? false;

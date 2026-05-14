@@ -90,6 +90,23 @@ public sealed partial class FFmpegRunner : IFFmpegRunner
 
         ffmpeg.WaitForExit(timeout);
 
+        if (!ffmpeg.HasExited)
+        {
+            try
+            {
+                ffmpeg.Kill(entireProcessTree: true);
+                ffmpeg.WaitForExit(5000);
+                LogFfmpegProcessKilled(_logger);
+            }
+            catch (Exception ex) when (ex is InvalidOperationException or
+                Win32Exception or
+                NotSupportedException or
+                PlatformNotSupportedException)
+            {
+                LogFfmpegKillFailed(_logger, ex.Message);
+            }
+        }
+
         return new FFmpegProcessResult(ms.ToArray(), ffmpeg.HasExited ? ffmpeg.ExitCode : -1);
     }
 
@@ -380,7 +397,7 @@ public sealed partial class FFmpegRunner : IFFmpegRunner
     [LoggerMessage(Level = LogLevel.Debug, Message = "ffmpeg priority could not be modified. {Message}")]
     private static partial void LogFfmpegPriorityNotModified(ILogger logger, string message);
 
-    [LoggerMessage(Level = LogLevel.Debug, Message = "FFmpeg process killed due to cancellation")]
+    [LoggerMessage(Level = LogLevel.Debug, Message = "FFmpeg process killed after timeout or cancellation")]
     private static partial void LogFfmpegProcessKilled(ILogger logger);
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "Failed to kill FFmpeg process: {Message}")]

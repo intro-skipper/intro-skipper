@@ -18,7 +18,7 @@ namespace IntroSkipper.Analyzers;
 /// <param name="logger">Logger.</param>
 /// <param name="detectionService">Media detection service.</param>
 /// <param name="cacheService">Detection cache service.</param>
-public partial class ChromaprintAnalyzer(ILogger<ChromaprintAnalyzer> logger, IMediaDetectionService detectionService, IDetectionCacheService cacheService) : IMediaFileAnalyzer
+public sealed partial class ChromaprintAnalyzer(ILogger<ChromaprintAnalyzer> logger, IMediaDetectionService detectionService, IDetectionCacheService cacheService) : IMediaFileAnalyzer
 {
     private readonly PluginConfiguration _config = Plugin.Instance?.Configuration ?? new PluginConfiguration();
     private readonly ILogger<ChromaprintAnalyzer> _logger = logger;

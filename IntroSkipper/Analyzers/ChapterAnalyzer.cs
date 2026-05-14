@@ -22,7 +22,7 @@ namespace IntroSkipper.Analyzers;
 /// </remarks>
 /// <param name="logger">Logger.</param>
 /// <param name="detectionService">Media detection service.</param>
-public partial class ChapterAnalyzer(ILogger<ChapterAnalyzer> logger, IMediaDetectionService detectionService) : IMediaFileAnalyzer
+public sealed partial class ChapterAnalyzer(ILogger<ChapterAnalyzer> logger, IMediaDetectionService detectionService) : IMediaFileAnalyzer
 {
     private readonly ILogger<ChapterAnalyzer> _logger = logger;
     private readonly IMediaDetectionService _detectionService = detectionService;

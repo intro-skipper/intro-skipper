@@ -25,7 +25,7 @@ public sealed partial class BlackFrameAltAnalyzer(ILogger<BlackFrameAltAnalyzer>
     private const double MinimumBlackFrameDensity = 0.50;
     private const double MinimumBoundaryProbeWindow = 0.50;
     private readonly PluginConfiguration _config = Plugin.Instance?.Configuration ?? new PluginConfiguration();
-    private readonly ILogger<BlackFrameAltAnalyzer> _logger = logger ?? throw new ArgumentNullException(nameof(logger));
+    private readonly ILogger<BlackFrameAltAnalyzer> _logger = logger;
     private readonly IMediaDetectionService _detectionService = detectionService;
 
     /// <inheritdoc />

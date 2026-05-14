@@ -24,7 +24,7 @@ public sealed partial class BlackFrameAnalyzer(ILogger<BlackFrameAnalyzer> logge
 {
     private readonly PluginConfiguration _config = Plugin.Instance?.Configuration ?? new PluginConfiguration();
     private readonly TimeSpan _maximumError = TimeSpan.FromSeconds(4);
-    private readonly ILogger<BlackFrameAnalyzer> _logger = logger ?? throw new ArgumentNullException(nameof(logger));
+    private readonly ILogger<BlackFrameAnalyzer> _logger = logger;
     private readonly IMediaDetectionService _detectionService = detectionService;
 
     /// <inheritdoc />

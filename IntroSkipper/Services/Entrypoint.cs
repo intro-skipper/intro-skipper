@@ -39,6 +39,7 @@ namespace IntroSkipper.Services
         private readonly object _seasonsLock = new();
         private readonly Timer _queueTimer;
         private static readonly SemaphoreSlim _analysisSemaphore = new(1, 1);
+        private readonly CancellationTokenSource _shutdownCts = new();
         private PluginConfiguration _config;
         private volatile bool _analyzeAgain;
         private static CancellationTokenSource? _cancellationTokenSource;
@@ -121,6 +122,7 @@ namespace IntroSkipper.Services
             _taskManager.TaskCompleted -= OnLibraryRefresh;
             Plugin.Instance!.ConfigurationChanged -= OnSettingsChanged;
 
+            await _shutdownCts.CancelAsync().ConfigureAwait(false);
             _queueTimer.Change(Timeout.Infinite, 0);
             await CancelAutomaticTaskAsync(cancellationToken).ConfigureAwait(false);
         }
@@ -191,8 +193,8 @@ namespace IntroSkipper.Services
         /// <summary>
         /// Library item was removed.
         /// Cache deletion is fire-and-forget because the event handler must be synchronous.
-        /// In-flight deletions may still be running after <see cref="StopAsync"/> unsubscribes
-        /// the handler; this is acceptable because cache deletion is best-effort.
+        /// The <see cref="_shutdownCts"/> token prevents new deletions from starting after
+        /// <see cref="StopAsync"/> has been called.
         /// </summary>
         /// <param name="sender">The sending entity.</param>
         /// <param name="itemChangeEventArgs">The <see cref="ItemChangeEventArgs"/>.</param>
@@ -203,6 +205,11 @@ namespace IntroSkipper.Services
         {
             try
             {
+                if (_shutdownCts.IsCancellationRequested)
+                {
+                    return;
+                }
+
                 if (!TryGetValidItemForAutoProcessing(itemChangeEventArgs, out var item))
                 {
                     return;
@@ -221,7 +228,11 @@ namespace IntroSkipper.Services
                 }
 
                 LogMediaItemRemoved(id.Value);
-                await _cacheService.DeleteFingerprintCacheAsync(id.Value).ConfigureAwait(false);
+                await _cacheService.DeleteFingerprintCacheAsync(id.Value, _shutdownCts.Token).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException) when (_shutdownCts.IsCancellationRequested)
+            {
+                // Shutdown in progress; cache deletion is best-effort.
             }
             catch (Exception ex)
             {
@@ -399,6 +410,7 @@ namespace IntroSkipper.Services
         public void Dispose()
         {
             _queueTimer.Dispose();
+            _shutdownCts.Dispose();
             _cancellationTokenSource?.Dispose();
         }
 

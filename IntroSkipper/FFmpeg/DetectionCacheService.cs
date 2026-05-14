@@ -179,8 +179,11 @@ public sealed partial class DetectionCacheService : IDetectionCacheService
             LogDetectionCacheDeleteError(_logger, ex, mode.ToString());
         }
 
+        // Legacy on-disk cache files only existed for Introduction and Credits modes.
+        // Other modes (Preview, Recap, Commercial) never produced legacy files.
         var cacheDir = _options.FingerprintCachePath;
-        if (cacheDir is not null && Directory.Exists(cacheDir))
+        if (cacheDir is not null && Directory.Exists(cacheDir) &&
+            mode is AnalysisMode.Introduction or AnalysisMode.Credits)
         {
             foreach (var filePath in Directory.EnumerateFiles(cacheDir)
                 .Where(f =>

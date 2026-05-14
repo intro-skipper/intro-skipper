@@ -27,8 +27,8 @@ namespace IntroSkipper
         {
             serviceCollection.AddHostedService<Entrypoint>();
             serviceCollection.AddSingleton<IMediaSegmentProvider, SegmentProvider>();
-            serviceCollection.AddTransient<MediaSegmentUpdateManager>();
-            serviceCollection.AddTransient<BaseItemAnalyzerTaskFactory>();
+            serviceCollection.AddSingleton<MediaSegmentUpdateManager>();
+            serviceCollection.AddSingleton<BaseItemAnalyzerTaskFactory>();
             serviceCollection.AddSingleton<MediaSegmentsFirstEpisodeFilter>();
             serviceCollection.Configure<MvcOptions>(options =>
             {
