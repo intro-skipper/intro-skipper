@@ -68,6 +68,7 @@ public partial class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
         _chapterRepository = chapterRepository;
         _pluginManager = pluginManager;
         _logger = logger;
+        ServerConfigurationManager = serverConfiguration;
 
         FFmpegPath = serverConfiguration.GetEncodingOptions().EncoderAppPathDisplay;
 
@@ -154,6 +155,11 @@ public partial class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
     /// Gets the full path to FFmpeg.
     /// </summary>
     public string FFmpegPath { get; private set; }
+
+    /// <summary>
+    /// Gets the server configuration manager.
+    /// </summary>
+    internal IServerConfigurationManager ServerConfigurationManager { get; }
 
     /// <inheritdoc />
     public override string Name => "Intro Skipper";

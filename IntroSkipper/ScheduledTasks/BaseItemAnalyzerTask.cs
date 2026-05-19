@@ -343,7 +343,7 @@ public partial class BaseItemAnalyzerTask(
     }
 
     /// <summary>
-    /// Creates the configured black frame analyzer variant.
+    /// Creates the configured blackframe analyzer variant.
     /// </summary>
     /// <returns>A <see cref="BlackFrameAnalyzer"/> or <see cref="BlackFrameAltAnalyzer"/> based on configuration.</returns>
     private IMediaFileAnalyzer CreateBlackFrameAnalyzer() => _config.UseAlternativeBlackFrameAnalyzer

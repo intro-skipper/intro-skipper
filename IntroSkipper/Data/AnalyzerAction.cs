@@ -25,7 +25,7 @@ public enum AnalyzerAction
     Chromaprint,
 
     /// <summary>
-    /// Detect black frames.
+    /// Detect blackframe matches.
     /// </summary>
     BlackFrame,
 

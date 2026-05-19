@@ -43,6 +43,7 @@ export interface PluginConfig {
     UpdateMediaSegments: boolean;
     UseAlternativeBlackFrameAnalyzer: boolean;
     RefineCreditsBoundary: boolean;
+    UseHardwareAccelerationForBlackFrames: boolean;
     UseChapterMarkersBlackFrame: boolean;
     FullLengthChapters: boolean;
     SkipFirstEpisode: boolean;

@@ -13,20 +13,25 @@ public enum CacheEntryType
     /// <summary>
     /// Audio fingerprint data (Chromaprint).
     /// </summary>
-    Chromaprint,
+    Chromaprint = 0,
 
     /// <summary>
     /// Silence detection results.
     /// </summary>
-    Silence,
+    Silence = 1,
 
     /// <summary>
-    /// Black frame detection results.
+    /// Blackframe detection results.
     /// </summary>
-    BlackFrame,
+    BlackFrame = 2,
 
     /// <summary>
     /// Key frame timestamp data.
     /// </summary>
-    Keyframe,
+    Keyframe = 3,
+
+    /// <summary>
+    /// Blackframe detection results generated from downscaled analysis frames.
+    /// </summary>
+    BlackFrameScaled480 = 4,
 }

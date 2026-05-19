@@ -30,6 +30,12 @@ export const blackFrameTab: Tab = {
                     "If enabled, chapter markers will be used to identify credits segments. Tries to detect credits by looking for black frames close to chapter markers.",
                 visible: () => configStore.get("UseAlternativeBlackFrameAnalyzer") !== true,
             }),
+            checkboxField({
+                id: "UseHardwareAccelerationForBlackFrames",
+                label: "Use hardware acceleration for black frame analysis",
+                description:
+                    "Uses Jellyfin's configured hardware acceleration for black frame scans when ffmpeg supports it. Falls back to software analysis if hardware decoding fails.",
+            }),
             numberField({
                 id: "BlackFrameMinimumPercentage",
                 label: "Minimum percentage of black pixels",

@@ -89,13 +89,13 @@ public class PluginConfiguration : BasePluginConfiguration
     public CompressionLevel CacheCompressionLevel { get; set; } = CompressionLevel.Optimal;
 
     /// <summary>
-    /// Gets or sets a value indicating whether to use the alternative black frame analyzer.
+    /// Gets or sets a value indicating whether to use the alternative blackframe analyzer.
     /// </summary>
     public bool UseAlternativeBlackFrameAnalyzer { get; set; }
 
     /// <summary>
     /// Gets or sets a value indicating whether to refine credits boundaries with frame-level analysis.
-    /// When enabled, the alternative black frame analyzer probes the gap between keyframes
+    /// When enabled, the alternative blackframe analyzer probes the gap between keyframes
     /// to find the exact frame where credits begin. Disable for faster analysis with keyframe-only accuracy.
     /// </summary>
     public bool RefineCreditsBoundary { get; set; } = true;
@@ -225,14 +225,19 @@ public class PluginConfiguration : BasePluginConfiguration
     public int MaximumCommercialDuration { get; set; } = 120;
 
     /// <summary>
-    /// Gets or sets the minimum percentage of a frame that must consist of black pixels before it is considered a black frame.
+    /// Gets or sets the minimum percentage of a frame that must consist of black pixels before it is considered a blackframe match.
     /// </summary>
     public int BlackFrameMinimumPercentage { get; set; } = 85;
 
     /// <summary>
-    /// Gets or sets the threshold for black frame detection.
+    /// Gets or sets the threshold for blackframe detection.
     /// </summary>
     public int BlackFrameThreshold { get; set; } = 28;
+
+    /// <summary>
+    /// Gets or sets a value indicating whether blackframe detection should use Jellyfin's configured hardware acceleration when available.
+    /// </summary>
+    public bool UseHardwareAccelerationForBlackFrames { get; set; } = true;
 
     /// <summary>
     /// Gets or sets a value indicating whether to use chapter markers for credits detection.

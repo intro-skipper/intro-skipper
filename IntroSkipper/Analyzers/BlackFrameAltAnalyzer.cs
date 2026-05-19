@@ -93,7 +93,7 @@ public sealed partial class BlackFrameAltAnalyzer(ILogger<BlackFrameAltAnalyzer>
     /// </summary>
     /// <param name="episode">Media file to analyze.</param>
     /// <param name="minimumPercentage">Minimum percentage of the frame that must be black.</param>
-    /// <param name="threshold">Threshold for black frame detection.</param>
+    /// <param name="threshold">Threshold for blackframe detection.</param>
     /// <param name="minimumDuration">Minimum duration of the credits.</param>
     /// <returns>Time range of the detected credits.</returns>
     public Segment? DetectCredits(QueuedEpisode episode, int minimumPercentage, int threshold, int minimumDuration)
@@ -136,7 +136,7 @@ public sealed partial class BlackFrameAltAnalyzer(ILogger<BlackFrameAltAnalyzer>
     }
 
     /// <summary>
-    /// Normalizes black frame detection thresholds based on the video's natural black levels.
+    /// Normalizes blackframe detection thresholds based on the video's natural black levels.
     /// Uses the 1st-percentile frame as a floor (capped at 30%) and scales the minimum
     /// percentage and scene-change threshold accordingly.
     /// </summary>

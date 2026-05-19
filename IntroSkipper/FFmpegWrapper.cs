@@ -5,6 +5,7 @@
 // SPDX-FileCopyrightText: 2024-2026 AbandonedCart
 // SPDX-License-Identifier: GPL-3.0-only
 
+using System.Collections.Concurrent;
 using System.Data.Common;
 using System.Diagnostics;
 using System.Globalization;
@@ -24,6 +25,9 @@ namespace IntroSkipper;
 /// </summary>
 public static partial class FFmpegWrapper
 {
+    private const int BlackFrameHardwareAnalysisHeight = 480;
+    private static readonly ConcurrentDictionary<string, bool> _hwaccelSupportCache = new(StringComparer.OrdinalIgnoreCase);
+
     /// <summary>
     /// Used with FFmpeg's silencedetect filter to extract the start and end times of silence.
     /// </summary>
@@ -40,6 +44,12 @@ public static partial class FFmpegWrapper
         Loaded,
         Migrated
     }
+
+    private readonly record struct BlackFrameFfmpegPlan(
+        IReadOnlyList<string> HardwareArgs,
+        string FilterPrefix,
+        string FallbackFilterPrefix,
+        CacheEntryType CacheType);
 
     /// <summary>
     /// Gets or sets the logger.
@@ -201,12 +211,12 @@ public static partial class FFmpegWrapper
     }
 
     /// <summary>
-    /// Finds the location of all black frames in a media file within a time range.
+    /// Finds the location of all blackframe matches in a media file within a time range.
     /// </summary>
     /// <param name="episode">Media file to analyze.</param>
     /// <param name="range">Time range to search.</param>
     /// <param name="minimum">Percentage of the frame that must be black.</param>
-    /// <param name="threshold">Threshold for black frame detection.</param>
+    /// <param name="threshold">Threshold for blackframe detection.</param>
     /// <param name="mode">Analysis mode, used to correctly key the cache entry.</param>
     /// <returns>Array of frames that are mostly black.</returns>
     public static BlackFrame[] DetectBlackFrames(
@@ -216,16 +226,10 @@ public static partial class FFmpegWrapper
         int threshold,
         AnalysisMode mode)
     {
+        var ffmpegPlan = GetBlackFrameFfmpegPlan();
+
         // Seek to the start of the time range and find frames that are at least 50% black.
-        var args = new List<string>
-        {
-            "-ss", range.Start.ToString(CultureInfo.InvariantCulture),
-            "-i", episode.Path,
-            "-to", range.Duration.ToString(CultureInfo.InvariantCulture),
-            "-an", "-dn", "-sn",
-            "-vf", $"blackframe=amount=50:threshold={threshold}",
-            "-f", "null", "-",
-        };
+        var args = BuildRangedBlackFrameArgs(episode, range, threshold, ffmpegPlan.HardwareArgs, ffmpegPlan.FilterPrefix);
 
         var legacyCacheKey = string.Format(
             CultureInfo.InvariantCulture,
@@ -234,39 +238,36 @@ public static partial class FFmpegWrapper
             range.Start,
             range.End);
 
-        if (TryReadJsonCache(episode.EpisodeId, mode, CacheEntryType.BlackFrame, range.Start, range.End, out BlackFrame[] cached) ||
-            TryLoadLegacyCache(legacyCacheKey, episode.EpisodeId, mode, CacheEntryType.BlackFrame, range.Start, range.End, static raw => ParseBlackFrame(raw), out cached))
+        if (TryReadJsonCache(episode.EpisodeId, mode, ffmpegPlan.CacheType, range.Start, range.End, out BlackFrame[] cached) ||
+            (ffmpegPlan.CacheType == CacheEntryType.BlackFrame &&
+                TryLoadLegacyCache(legacyCacheKey, episode.EpisodeId, mode, CacheEntryType.BlackFrame, range.Start, range.End, static raw => ParseBlackFrame(raw), out cached)))
         {
             return [.. cached.Where(bf => bf.Percentage >= minimum)];
         }
 
-        var raw = Encoding.UTF8.GetString(GetOutput(args, true));
+        var raw = GetBlackFrameOutput(
+            args,
+            ffmpegPlan,
+            () => BuildRangedBlackFrameArgs(episode, range, threshold, [], ffmpegPlan.FallbackFilterPrefix));
         var allFrames = ParseBlackFrame(raw);
-        WriteJsonCache(episode.EpisodeId, mode, CacheEntryType.BlackFrame, range.Start, range.End, allFrames);
+        WriteJsonCache(episode.EpisodeId, mode, ffmpegPlan.CacheType, range.Start, range.End, allFrames);
 
         return [.. allFrames.Where(bf => bf.Percentage >= minimum)];
     }
 
     /// <summary>
-    /// Finds the location of all black frames in a media file starting at a given time.
+    /// Finds the location of all blackframe matches in a media file starting at a given time.
     /// </summary>
     /// <param name="episode">Media file to analyze.</param>
-    /// <param name="threshold">Threshold for black frame detection.</param>
+    /// <param name="threshold">Threshold for blackframe detection.</param>
     /// <returns>Array of frames that are mostly black.</returns>
     public static BlackFrame[] DetectBlackFrames(QueuedEpisode episode, int threshold)
     {
         ArgumentNullException.ThrowIfNull(episode);
+        var ffmpegPlan = GetBlackFrameFfmpegPlan();
 
         // Seek to the start of the time range and get the black level of each frame.
-        var args = new List<string>
-        {
-            "-skip_frame", "nokey",
-            "-ss", episode.CreditsFingerprintStart.ToString(CultureInfo.InvariantCulture),
-            "-i", episode.Path,
-            "-an", "-dn", "-sn",
-            "-vf", $"blackframe=amount=0:threshold={threshold}",
-            "-f", "null", "-",
-        };
+        var args = BuildAlternativeBlackFrameArgs(episode, threshold, ffmpegPlan.HardwareArgs, ffmpegPlan.FilterPrefix);
 
         var legacyCacheKey = string.Format(
             CultureInfo.InvariantCulture,
@@ -274,17 +275,207 @@ public static partial class FFmpegWrapper
             episode.EpisodeId.ToString("N"),
             episode.CreditsFingerprintStart);
 
-        if (TryReadJsonCache(episode.EpisodeId, AnalysisMode.Credits, CacheEntryType.BlackFrame, episode.CreditsFingerprintStart, 0, out BlackFrame[] cached) ||
-            TryLoadLegacyCache(legacyCacheKey, episode.EpisodeId, AnalysisMode.Credits, CacheEntryType.BlackFrame, episode.CreditsFingerprintStart, 0, static raw => ParseBlackFrame(raw), out cached))
+        if (TryReadJsonCache(episode.EpisodeId, AnalysisMode.Credits, ffmpegPlan.CacheType, episode.CreditsFingerprintStart, 0, out BlackFrame[] cached) ||
+            (ffmpegPlan.CacheType == CacheEntryType.BlackFrame &&
+                TryLoadLegacyCache(legacyCacheKey, episode.EpisodeId, AnalysisMode.Credits, CacheEntryType.BlackFrame, episode.CreditsFingerprintStart, 0, static raw => ParseBlackFrame(raw), out cached)))
         {
             return cached;
         }
 
-        var raw = Encoding.UTF8.GetString(GetOutput(args, true));
+        var raw = GetBlackFrameOutput(
+            args,
+            ffmpegPlan,
+            () => BuildAlternativeBlackFrameArgs(episode, threshold, [], ffmpegPlan.FallbackFilterPrefix));
         var allFrames = ParseBlackFrame(raw);
-        WriteJsonCache(episode.EpisodeId, AnalysisMode.Credits, CacheEntryType.BlackFrame, episode.CreditsFingerprintStart, 0, allFrames);
+        WriteJsonCache(episode.EpisodeId, AnalysisMode.Credits, ffmpegPlan.CacheType, episode.CreditsFingerprintStart, 0, allFrames);
 
         return allFrames;
+    }
+
+    private static List<string> BuildRangedBlackFrameArgs(
+        QueuedEpisode episode,
+        TimeRange range,
+        int threshold,
+        IReadOnlyList<string> hardwareArgs,
+        string filterPrefix)
+    {
+        var args = new List<string>();
+        args.AddRange(hardwareArgs);
+        args.AddRange(
+        [
+            "-ss", range.Start.ToString(CultureInfo.InvariantCulture),
+            "-i", episode.Path,
+            "-to", range.Duration.ToString(CultureInfo.InvariantCulture),
+            "-an", "-dn", "-sn",
+            "-vf", $"{filterPrefix}blackframe=amount=50:threshold={threshold}",
+            "-f", "null", "-",
+        ]);
+
+        return args;
+    }
+
+    private static List<string> BuildAlternativeBlackFrameArgs(
+        QueuedEpisode episode,
+        int threshold,
+        IReadOnlyList<string> hardwareArgs,
+        string filterPrefix)
+    {
+        var args = new List<string>();
+        args.AddRange(hardwareArgs);
+        args.AddRange(
+        [
+            "-skip_frame", "nokey",
+            "-ss", episode.CreditsFingerprintStart.ToString(CultureInfo.InvariantCulture),
+            "-i", episode.Path,
+            "-an", "-dn", "-sn",
+            "-vf", $"{filterPrefix}blackframe=amount=0:threshold={threshold}",
+            "-f", "null", "-",
+        ]);
+
+        return args;
+    }
+
+    private static string GetBlackFrameOutput(
+        IReadOnlyList<string> args,
+        BlackFrameFfmpegPlan ffmpegPlan,
+        Func<IReadOnlyList<string>> buildFallbackArgs)
+    {
+        if (ffmpegPlan.HardwareArgs.Count == 0)
+        {
+            return Encoding.UTF8.GetString(GetOutput(args, true));
+        }
+
+        var (output, exitCode) = GetOutputWithExitCode(args, true);
+        if (exitCode == 0)
+        {
+            return Encoding.UTF8.GetString(output);
+        }
+
+        if (Logger is { } logger)
+        {
+            LogBlackFrameHardwareFallback(logger, exitCode);
+        }
+
+        var (fallbackOutput, fallbackExitCode) = GetOutputWithExitCode(buildFallbackArgs(), true);
+        if (fallbackExitCode != 0)
+        {
+            throw new InvalidOperationException(
+                string.Format(
+                    CultureInfo.InvariantCulture,
+                    "Software black frame detection fallback failed with exit code {0}.",
+                    fallbackExitCode));
+        }
+
+        return Encoding.UTF8.GetString(fallbackOutput);
+    }
+
+    private static BlackFrameFfmpegPlan GetBlackFrameFfmpegPlan()
+    {
+        if (Plugin.Instance?.Configuration.UseHardwareAccelerationForBlackFrames != true)
+        {
+            return new BlackFrameFfmpegPlan([], string.Empty, string.Empty, CacheEntryType.BlackFrame);
+        }
+
+        var encodingOptions = Plugin.Instance.ServerConfigurationManager.GetEncodingOptions();
+        var hwType = encodingOptions.HardwareAccelerationType.ToString().ToUpperInvariant();
+        if (hwType == "NONE")
+        {
+            return new BlackFrameFfmpegPlan([], string.Empty, string.Empty, CacheEntryType.BlackFrame);
+        }
+
+        var hwaccelName = hwType switch
+        {
+            "VAAPI" => "vaapi",
+            "NVENC" => "cuda",
+            "QSV" => "qsv",
+            "VIDEOTOOLBOX" => "videotoolbox",
+            _ => null,
+        };
+
+        if (hwaccelName is null || !SupportsFfmpegHardwareAcceleration(hwaccelName))
+        {
+            return new BlackFrameFfmpegPlan([], string.Empty, string.Empty, CacheEntryType.BlackFrame);
+        }
+
+        var vaapiDevice = encodingOptions.VaapiDevice;
+        if (string.IsNullOrWhiteSpace(vaapiDevice))
+        {
+            vaapiDevice = "/dev/dri/renderD128";
+        }
+
+        IReadOnlyList<string> hardwareArgs = hwType switch
+        {
+            "QSV" => OperatingSystem.IsLinux()
+                ?
+                [
+                    "-init_hw_device", $"vaapi=va:{vaapiDevice}",
+                    "-init_hw_device", "qsv=qs@va",
+                    "-filter_hw_device", "qs",
+                    "-hwaccel", "qsv",
+                    "-hwaccel_output_format", "qsv",
+                ]
+                :
+                [
+                    "-init_hw_device", "qsv=qs",
+                    "-filter_hw_device", "qs",
+                    "-hwaccel", "qsv",
+                    "-hwaccel_output_format", "qsv",
+                ],
+            "VAAPI" =>
+            [
+                "-init_hw_device", $"vaapi=va:{vaapiDevice}",
+                "-filter_hw_device", "va",
+                "-hwaccel", "vaapi",
+                "-hwaccel_output_format", "vaapi",
+            ],
+            "NVENC" =>
+            [
+                "-init_hw_device", "cuda=cu:0",
+                "-filter_hw_device", "cu",
+                "-hwaccel", "cuda",
+                "-hwaccel_output_format", "cuda",
+            ],
+            "VIDEOTOOLBOX" =>
+            [
+                "-init_hw_device", "videotoolbox=vt",
+                "-hwaccel", "videotoolbox",
+                "-hwaccel_output_format", "videotoolbox_vld",
+            ],
+            _ => [],
+        };
+
+        var filterPrefix = hwType switch
+        {
+            "QSV" => $"vpp_qsv=h={BlackFrameHardwareAnalysisHeight}:w=-1:format=nv12,hwdownload,format=nv12,",
+            "VAAPI" => $"scale_vaapi=h={BlackFrameHardwareAnalysisHeight}:w=-2:format=nv12,hwdownload,format=nv12,",
+            "NVENC" => $"scale_cuda=-2:{BlackFrameHardwareAnalysisHeight}:format=nv12,hwdownload,format=nv12,",
+            "VIDEOTOOLBOX" => $"scale_vt=h={BlackFrameHardwareAnalysisHeight}:w=-2,hwdownload,format=nv12,",
+            _ => string.Empty,
+        };
+
+        return new BlackFrameFfmpegPlan(
+            hardwareArgs,
+            filterPrefix,
+            $"scale=-2:{BlackFrameHardwareAnalysisHeight},",
+            CacheEntryType.BlackFrameScaled480);
+    }
+
+    private static bool SupportsFfmpegHardwareAcceleration(string hwaccelName)
+        => _hwaccelSupportCache.GetOrAdd(hwaccelName, static name => SupportsFfmpegHardwareAccelerationUncached(name));
+
+    private static bool SupportsFfmpegHardwareAccelerationUncached(string hwaccelName)
+    {
+        try
+        {
+            var output = Encoding.UTF8.GetString(GetOutput(["-hwaccels"], false, 2000));
+            return output
+                .Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries)
+                .Any(line => string.Equals(line.Trim(), hwaccelName, StringComparison.OrdinalIgnoreCase));
+        }
+        catch
+        {
+            return false;
+        }
     }
 
     private static TimeRange[] ParseSilenceRaw(string raw, double rangeStart)
@@ -491,6 +682,12 @@ public static partial class FFmpegWrapper
         IReadOnlyList<string> args,
         bool stderr = false,
         int timeout = 60 * 1000)
+        => GetOutputWithExitCode(args, stderr, timeout).Output;
+
+    private static (byte[] Output, int ExitCode) GetOutputWithExitCode(
+        IReadOnlyList<string> args,
+        bool stderr = false,
+        int timeout = 60 * 1000)
     {
         var ffmpegPath = Plugin.Instance?.FFmpegPath ?? "ffmpeg";
 
@@ -507,6 +704,7 @@ public static partial class FFmpegWrapper
         var firstArg = args.Count > 0 ? args[0] : string.Empty;
         var isInfoQuery = firstArg.StartsWith("-version", StringComparison.Ordinal) ||
             firstArg.StartsWith("-muxers", StringComparison.Ordinal) ||
+            firstArg.StartsWith("-hwaccels", StringComparison.Ordinal) ||
             firstArg.StartsWith("-h", StringComparison.Ordinal);
 
         var info = new ProcessStartInfo(ffmpegPath)
@@ -567,9 +765,24 @@ public static partial class FFmpegWrapper
             }
         }
 
-        ffmpeg.WaitForExit(timeout);
+        var exitCode = -1;
+        if (ffmpeg.WaitForExit(timeout))
+        {
+            exitCode = ffmpeg.ExitCode;
+        }
+        else
+        {
+            try
+            {
+                ffmpeg.Kill(true);
+                ffmpeg.WaitForExit();
+            }
+            catch (InvalidOperationException)
+            {
+            }
+        }
 
-        return ms.ToArray();
+        return (ms.ToArray(), exitCode);
     }
 
     /// <summary>
@@ -1489,6 +1702,9 @@ public static partial class FFmpegWrapper
     [LoggerMessage(Level = LogLevel.Debug, Message = "Starting ffmpeg with the following arguments: {Arguments}")]
     private static partial void LogStartingFfmpeg(ILogger logger, string arguments);
 
+    [LoggerMessage(Level = LogLevel.Warning, Message = "Hardware-accelerated black frame detection failed with exit code {ExitCode}; retrying with software decoding")]
+    private static partial void LogBlackFrameHardwareFallback(ILogger logger, int exitCode);
+
     [LoggerMessage(Level = LogLevel.Debug, Message = "ffmpeg priority could not be modified. {Message}")]
     private static partial void LogFfmpegPriorityNotModified(ILogger logger, string message);
 
@@ -1562,7 +1778,7 @@ public static partial class FFmpegWrapper
         return JsonSerializer.Deserialize<T>(brotli);
     }
 
-    [GeneratedRegex(@"\[Parsed_blackframe_0 @ [^\]]+\] frame:(\d+) pblack:(\d+) .*? t:([\d.]+)")]
+    [GeneratedRegex(@"\[Parsed_blackframe_\d+ @ [^\]]+\] frame:(\d+) pblack:(\d+) .*? t:([\d.]+)")]
     private static partial Regex BlackFrameRegex();
 
     private readonly record struct LegacyDetectionCacheFile(
