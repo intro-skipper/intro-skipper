@@ -34,7 +34,7 @@ public class TestAnalyzerPipeline
             null!, // IProviderManager
             null!, // IFileSystem
             null!, // MediaSegmentUpdateManager
-            null!, // FFmpegCapabilityService
+            null!, // IFFmpegCapabilityService
             null!, // IDetectionCacheService — stored but not invoked during construction
             null!); // IMediaDetectionService
 

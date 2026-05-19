@@ -109,6 +109,15 @@ internal static partial class FFmpegOutputParser
             .ToArray();
     }
 
+    /// <summary>
+    /// Shifts all black frame timestamps by the specified offset.
+    /// </summary>
+    /// <param name="frames">Parsed black frames.</param>
+    /// <param name="offset">Seconds to add to each timestamp.</param>
+    /// <returns>A new array with adjusted timestamps.</returns>
+    internal static BlackFrame[] OffsetBlackFrames(BlackFrame[] frames, double offset)
+        => [.. frames.Select(frame => frame with { Time = frame.Time + offset })];
+
     [LoggerMessage(Level = LogLevel.Warning, Message = "Failed to parse timestamp: {PtsTimeStr} from line: {Line}")]
     private static partial void LogFailedToParseTimestamp(ILogger logger, string ptsTimeStr, string line);
 

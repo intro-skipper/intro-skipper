@@ -33,7 +33,7 @@ namespace IntroSkipper.Services
         private readonly ITaskManager _taskManager;
         private readonly ILibraryManager _libraryManager;
         private readonly ILogger<Entrypoint> _logger;
-        private readonly FFmpegCapabilityService _capabilityService;
+        private readonly IFFmpegCapabilityService _capabilityService;
         private readonly IDetectionCacheService _cacheService;
         private readonly IServiceProvider _serviceProvider;
         private readonly HashSet<Guid> _seasonsToAnalyze = [];
@@ -58,7 +58,7 @@ namespace IntroSkipper.Services
             ILibraryManager libraryManager,
             ITaskManager taskManager,
             ILogger<Entrypoint> logger,
-            FFmpegCapabilityService capabilityService,
+            IFFmpegCapabilityService capabilityService,
             IDetectionCacheService cacheService,
             IServiceProvider serviceProvider)
         {

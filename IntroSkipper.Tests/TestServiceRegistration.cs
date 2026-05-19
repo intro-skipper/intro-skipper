@@ -24,6 +24,6 @@ public class TestServiceRegistration
         Assert.NotNull(provider.GetRequiredService<IFFmpegRunner>());
         Assert.NotNull(provider.GetRequiredService<IDetectionCacheService>());
         Assert.NotNull(provider.GetRequiredService<IMediaDetectionService>());
-        Assert.NotNull(provider.GetRequiredService<FFmpegCapabilityService>());
+        Assert.NotNull(provider.GetRequiredService<IFFmpegCapabilityService>());
     }
 }

@@ -512,9 +512,6 @@ public sealed partial class DetectionCacheService : IDetectionCacheService
         return [.. result];
     }
 
-    private static BlackFrame[] OffsetBlackFrames(BlackFrame[] frames, double offset)
-        => [.. frames.Select(frame => frame with { Time = frame.Time + offset })];
-
     private static IQueryable<DbDetectionCache> WhereCacheKey(
         IQueryable<DbDetectionCache> query,
         DetectionCacheKey key)
@@ -689,7 +686,7 @@ public sealed partial class DetectionCacheService : IDetectionCacheService
                 CacheEntryType.BlackFrame,
                 legacyFile.Start,
                 legacyFile.End,
-                raw => OffsetBlackFrames(FFmpegOutputParser.ParseBlackFrames(raw), legacyFile.Start),
+                raw => FFmpegOutputParser.OffsetBlackFrames(FFmpegOutputParser.ParseBlackFrames(raw), legacyFile.Start),
                 AnalysisMode.Credits,
                 legacyFile.Kind == LegacyCacheKind.BlackFrameCredits
                     ? DetectionCacheVariant.BlackFrameCredits(_options.BlackFrameThreshold)

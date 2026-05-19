@@ -39,7 +39,7 @@ namespace IntroSkipper
             serviceCollection.AddSingleton<IFFmpegRunner, FFmpegRunner>();
             serviceCollection.AddSingleton<IDetectionCacheService, DetectionCacheService>();
             serviceCollection.AddSingleton<IMediaDetectionService, MediaDetectionService>();
-            serviceCollection.AddSingleton<FFmpegCapabilityService>();
+            serviceCollection.AddSingleton<IFFmpegCapabilityService, FFmpegCapabilityService>();
         }
     }
 }

@@ -15,7 +15,7 @@ namespace IntroSkipper.FFmpeg;
 /// <summary>
 /// Checks FFmpeg installation capabilities and provides diagnostic logs.
 /// </summary>
-public sealed partial class FFmpegCapabilityService
+public sealed partial class FFmpegCapabilityService : IFFmpegCapabilityService
 {
     private readonly IFFmpegRunner _runner;
     private readonly ILogger<FFmpegCapabilityService> _logger;

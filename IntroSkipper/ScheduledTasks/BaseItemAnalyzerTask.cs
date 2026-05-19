@@ -39,7 +39,7 @@ public partial class BaseItemAnalyzerTask(
     IProviderManager providerManager,
     IFileSystem fileSystem,
     MediaSegmentUpdateManager mediaSegmentUpdateManager,
-    FFmpegCapabilityService capabilityService,
+    IFFmpegCapabilityService capabilityService,
     IDetectionCacheService cacheService,
     IMediaDetectionService detectionService)
 {
@@ -56,7 +56,7 @@ public partial class BaseItemAnalyzerTask(
     private readonly IProviderManager _providerManager = providerManager;
     private readonly IFileSystem _fileSystem = fileSystem;
     private readonly MediaSegmentUpdateManager _mediaSegmentUpdateManager = mediaSegmentUpdateManager;
-    private readonly FFmpegCapabilityService _capabilityService = capabilityService;
+    private readonly IFFmpegCapabilityService _capabilityService = capabilityService;
     private readonly IDetectionCacheService _cacheService = cacheService;
     private readonly IMediaDetectionService _detectionService = detectionService;
     private PluginConfiguration _config = new PluginConfiguration();

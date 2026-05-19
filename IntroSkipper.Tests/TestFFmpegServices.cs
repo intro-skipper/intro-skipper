@@ -18,7 +18,7 @@ namespace IntroSkipper.Tests;
 
 public class TestFFmpegServices
 {
-    private static FFmpegCapabilityService CreateCapabilityService() => TestServiceFactory.CreateCapabilityService();
+    private static IFFmpegCapabilityService CreateCapabilityService() => TestServiceFactory.CreateCapabilityService();
 
     private static IMediaDetectionService CreateDetectionService() => TestServiceFactory.CreateDetectionService();
 

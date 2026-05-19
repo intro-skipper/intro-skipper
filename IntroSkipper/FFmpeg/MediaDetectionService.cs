@@ -130,7 +130,7 @@ public sealed partial class MediaDetectionService : IMediaDetectionService
         var key = new DetectionCacheKey(episode.EpisodeId, mode, CacheEntryType.BlackFrame, range.Start, range.End, DetectionCacheVariant.BlackFrameRange(threshold));
         var allFrames = await RunCachedDetectionAsync(
             key,
-            raw => OffsetBlackFrames(FFmpegOutputParser.ParseBlackFrames(raw), range.Start),
+            raw => FFmpegOutputParser.OffsetBlackFrames(FFmpegOutputParser.ParseBlackFrames(raw), range.Start),
             BuildArgs,
             FFmpegOutputStream.Stderr,
             cancellationToken: cancellationToken).ConfigureAwait(false);
@@ -156,7 +156,7 @@ public sealed partial class MediaDetectionService : IMediaDetectionService
         var key = new DetectionCacheKey(episode.EpisodeId, AnalysisMode.Credits, CacheEntryType.BlackFrame, episode.CreditsFingerprintStart, 0, DetectionCacheVariant.BlackFrameCredits(threshold));
         return await RunCachedDetectionAsync(
             key,
-            raw => OffsetBlackFrames(FFmpegOutputParser.ParseBlackFrames(raw), episode.CreditsFingerprintStart),
+            raw => FFmpegOutputParser.OffsetBlackFrames(FFmpegOutputParser.ParseBlackFrames(raw), episode.CreditsFingerprintStart),
             BuildArgs,
             FFmpegOutputStream.Stderr,
             cancellationToken: cancellationToken).ConfigureAwait(false);
@@ -214,9 +214,6 @@ public sealed partial class MediaDetectionService : IMediaDetectionService
         await _cacheService.WriteJsonCacheAsync(key, result, cancellationToken).ConfigureAwait(false);
         return result;
     }
-
-    private static BlackFrame[] OffsetBlackFrames(BlackFrame[] frames, double offset)
-        => [.. frames.Select(frame => frame with { Time = frame.Time + offset })];
 
     /// <summary>
     /// Throws <see cref="TimeoutException"/> if the process timed out, or

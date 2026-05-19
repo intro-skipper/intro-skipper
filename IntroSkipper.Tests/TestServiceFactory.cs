@@ -13,7 +13,7 @@ namespace IntroSkipper.Tests;
 /// </summary>
 internal static class TestServiceFactory
 {
-    internal static FFmpegCapabilityService CreateCapabilityService()
+    internal static IFFmpegCapabilityService CreateCapabilityService()
     {
         var optionsProvider = new PluginOptionsProvider();
         var runner = new FFmpegRunner(optionsProvider, NullLogger<FFmpegRunner>.Instance);
