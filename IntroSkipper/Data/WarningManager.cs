@@ -23,6 +23,15 @@ public static class WarningManager
     }
 
     /// <summary>
+    /// Clear warning.
+    /// </summary>
+    /// <param name="warning">Warning.</param>
+    public static void ClearFlag(PluginWarning warning)
+    {
+        _warnings &= ~warning;
+    }
+
+    /// <summary>
     /// Clear warnings.
     /// </summary>
     public static void Clear()

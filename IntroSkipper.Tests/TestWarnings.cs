@@ -39,4 +39,16 @@ public class TestFlags
             WarningManager.GetWarnings());
     }
 
+    [Fact]
+    public void TestClearSingleFlag()
+    {
+        WarningManager.Clear();
+        WarningManager.SetFlag(PluginWarning.IncompatibleFFmpegBuild);
+        WarningManager.SetFlag(PluginWarning.InvalidChromaprintFingerprint);
+
+        WarningManager.ClearFlag(PluginWarning.IncompatibleFFmpegBuild);
+
+        Assert.Equal("InvalidChromaprintFingerprint", WarningManager.GetWarnings());
+    }
+
 }

@@ -28,7 +28,7 @@ namespace IntroSkipper.Controllers;
 /// </remarks>
 /// <param name="logger">Logger.</param>
 /// <param name="mediaSegmentUpdateManager">Media segment update manager.</param>
-/// <param name="serviceProvider">Service provider for creating analyzer tasks.</param>
+/// <param name="serviceScopeFactory">Service scope factory for background analyzer tasks.</param>
 /// <param name="cacheService">Detection cache service.</param>
 [Authorize(Policy = Policies.RequiresElevation)]
 [ApiController]
@@ -37,12 +37,12 @@ namespace IntroSkipper.Controllers;
 public partial class VisualizationController(
     ILogger<VisualizationController> logger,
     MediaSegmentUpdateManager mediaSegmentUpdateManager,
-    IServiceProvider serviceProvider,
+    IServiceScopeFactory serviceScopeFactory,
     IDetectionCacheService cacheService) : ControllerBase
 {
     private readonly ILogger<VisualizationController> _logger = logger;
     private readonly MediaSegmentUpdateManager _mediaSegmentUpdateManager = mediaSegmentUpdateManager;
-    private readonly IServiceProvider _serviceProvider = serviceProvider;
+    private readonly IServiceScopeFactory _serviceScopeFactory = serviceScopeFactory;
     private readonly IDetectionCacheService _cacheService = cacheService;
 
     /// <summary>
@@ -239,7 +239,8 @@ public partial class VisualizationController(
                         // Erase season timestamps and cache first
                         await EraseSeasonDataAsync(seriesId, seasonId, eraseCache: true, CancellationToken.None).ConfigureAwait(false);
 
-                        var baseIntroAnalyzer = ActivatorUtilities.CreateInstance<BaseItemAnalyzerTask>(_serviceProvider);
+                        using var scope = _serviceScopeFactory.CreateScope();
+                        var baseIntroAnalyzer = ActivatorUtilities.CreateInstance<BaseItemAnalyzerTask>(scope.ServiceProvider);
 
                         await baseIntroAnalyzer.AnalyzeItemsAsync(new Progress<double>(), CancellationToken.None, [seasonId]).ConfigureAwait(false);
                     }

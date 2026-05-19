@@ -93,6 +93,7 @@ public sealed partial class FFmpegCapabilityService
             LogFfmpegVersionValid(_logger);
 
             _chromaprintLogs["error"] = "okay";
+            WarningManager.ClearFlag(PluginWarning.IncompatibleFFmpegBuild);
             _ffmpegCheckPassed = true;
             return true;
         }

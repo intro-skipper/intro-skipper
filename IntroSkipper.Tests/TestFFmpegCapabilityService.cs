@@ -62,6 +62,7 @@ public class TestFFmpegCapabilityService
 
             Assert.Equal(5, runner.Calls.Count);
             Assert.Equal(2, runner.Calls.Count(call => call == "-version"));
+            Assert.Equal("None", WarningManager.GetWarnings());
         }
         finally
         {
