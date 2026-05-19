@@ -1251,7 +1251,8 @@ public static partial class FFmpegWrapper
             }
 
             var expectedHash = ConfigHasher.DetectionCache(Plugin.Instance?.Configuration ?? new(), type, mode);
-            if (!string.Equals(entry.ConfigHash, expectedHash, StringComparison.Ordinal))
+            if (!string.IsNullOrEmpty(entry.ConfigHash)
+                && !string.Equals(entry.ConfigHash, expectedHash, StringComparison.Ordinal))
             {
                 return false;
             }
