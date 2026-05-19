@@ -596,13 +596,15 @@ public class TestBlackFrames
 
     private static BlackFrameAnalyzer CreateBlackFrameAnalyzer()
     {
-        var logger = new LoggerFactory().CreateLogger<BlackFrameAnalyzer>();
+        using var loggerFactory = new LoggerFactory();
+        var logger = loggerFactory.CreateLogger<BlackFrameAnalyzer>();
         return new(logger, TestServiceFactory.CreateDetectionService());
     }
 
     private static BlackFrameAltAnalyzer CreateBlackFrameAltAnalyzer(IMediaDetectionService detectionService)
     {
-        var logger = new LoggerFactory().CreateLogger<BlackFrameAltAnalyzer>();
+        using var loggerFactory = new LoggerFactory();
+        var logger = loggerFactory.CreateLogger<BlackFrameAltAnalyzer>();
         return new(logger, detectionService);
     }
 

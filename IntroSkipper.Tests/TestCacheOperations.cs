@@ -895,7 +895,7 @@ public sealed class TestCacheOperations
         Assert.True(db.DetectionCache.Any(e =>
             e.ItemId == episodeId &&
             e.Type == CacheEntryType.BlackFrame &&
-            e.Variant == (expectedEnd == 0 ? DetectionCacheVariant.BlackFrameCredits(32) : DetectionCacheVariant.BlackFrameRange(32)) &&
+            e.Variant == (Math.Abs(expectedEnd) < 1e-9 ? DetectionCacheVariant.BlackFrameCredits(32) : DetectionCacheVariant.BlackFrameRange(32)) &&
             e.Mode == AnalysisMode.Credits));
         Assert.False(db.DetectionCache.Any(e =>
             e.ItemId == episodeId &&
@@ -939,7 +939,7 @@ public sealed class TestCacheOperations
         using var db = new DetectionCacheDbContext(cacheDbPath);
         var entry = Assert.Single(db.DetectionCache.Where(e => e.ItemId == episodeId && e.Type == CacheEntryType.BlackFrame));
         Assert.Equal(
-            expectedEnd == 0 ? DetectionCacheVariant.BlackFrameCredits(28) : DetectionCacheVariant.BlackFrameRange(28),
+            Math.Abs(expectedEnd) < 1e-9 ? DetectionCacheVariant.BlackFrameCredits(28) : DetectionCacheVariant.BlackFrameRange(28),
             entry.Variant);
         Assert.Equal(expectedStart, entry.Start);
         Assert.Equal(expectedEnd, entry.End);

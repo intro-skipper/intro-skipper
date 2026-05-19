@@ -13,6 +13,8 @@ namespace IntroSkipper.Db;
 /// </summary>
 public class DbDetectionCache
 {
+    private const double ZeroTolerance = 1e-9;
+
     /// <summary>
     /// Initializes a new instance of the <see cref="DbDetectionCache"/> class.
     /// </summary>
@@ -113,7 +115,7 @@ public class DbDetectionCache
             CacheEntryType.Chromaprint => IntroSkipper.FFmpeg.DetectionCacheVariant.Chromaprint(),
             CacheEntryType.Silence => IntroSkipper.FFmpeg.DetectionCacheVariant.Silence(-50),
             CacheEntryType.Keyframe => IntroSkipper.FFmpeg.DetectionCacheVariant.Keyframe(),
-            CacheEntryType.BlackFrame when end == 0 => IntroSkipper.FFmpeg.DetectionCacheVariant.BlackFrameCredits(28),
+            CacheEntryType.BlackFrame when Math.Abs(end) < ZeroTolerance => IntroSkipper.FFmpeg.DetectionCacheVariant.BlackFrameCredits(28),
             CacheEntryType.BlackFrame => IntroSkipper.FFmpeg.DetectionCacheVariant.BlackFrameRange(28),
             _ => type.ToString(),
         };
