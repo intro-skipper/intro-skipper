@@ -23,7 +23,7 @@ public class DbDetectionCache
     /// <param name="data">The Brotli-compressed, UTF-8 JSON detection data.</param>
     /// <param name="start">The start time of the analyzed range.</param>
     /// <param name="end">The end time of the analyzed range.</param>
-    public DbDetectionCache(Guid itemId, AnalysisMode mode, CacheEntryType type, byte[] data, double start = 0, double end = 0)
+    public DbDetectionCache(Guid itemId, AnalysisMode mode, CacheEntryType type, byte[] data, double start = 0, double end = 0, string configHash = "")
     {
         ItemId = itemId;
         Mode = mode;
@@ -31,6 +31,7 @@ public class DbDetectionCache
         Data = data;
         Start = start;
         End = end;
+        ConfigHash = configHash;
     }
 
     /// <summary>
@@ -83,4 +84,9 @@ public class DbDetectionCache
     /// </value>
     [SuppressMessage("Performance", "CA1819:Properties should not return arrays", Justification = "EF Core requires byte[] for BLOB column mapping.")]
     public byte[] Data { get; set; } = [];
+
+    /// <summary>
+    /// Gets or sets the configuration hash that produced this cache entry.
+    /// </summary>
+    public string ConfigHash { get; set; } = string.Empty;
 }

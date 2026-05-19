@@ -97,6 +97,10 @@ public class IntroSkipperDbContext : DbContext
             entity.Property(e => e.IsUserProvided)
                   .HasDefaultValue(false)
                   .IsRequired();
+
+            entity.Property(e => e.ConfigHash)
+                  .HasDefaultValue(string.Empty)
+                  .IsRequired();
         });
 
         modelBuilder.Entity<DbSeasonInfo>(entity =>
@@ -118,6 +122,10 @@ public class IntroSkipperDbContext : DbContext
                           (c1, c2) => (c1 ?? new List<Guid>()).SequenceEqual(c2 ?? new List<Guid>()),
                           c => c.Aggregate(0, (a, v) => HashCode.Combine(a, v.GetHashCode())),
                           c => c.ToList()));
+
+            entity.Property(e => e.ConfigHash)
+                  .HasDefaultValue(string.Empty)
+                  .IsRequired();
         });
 
         base.OnModelCreating(modelBuilder);

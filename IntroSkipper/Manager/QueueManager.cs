@@ -261,8 +261,10 @@ public partial class QueueManager(ILogger<QueueManager> logger, ILibraryManager 
             duration >= 5 * 60 ? duration * _analysisPercent : duration,
             60 * pluginInstance.Configuration.AnalysisLengthLimit);
 
+        var creditsDuration = ResolveCreditsFingerprintEnd(episode.Path, duration);
+
         var maxCreditsDuration = Math.Min(
-            duration >= 5 * 60 ? duration * _analysisPercent : duration,
+            creditsDuration >= 5 * 60 ? creditsDuration * _analysisPercent : creditsDuration,
             60 * pluginInstance.Configuration.MaximumCreditsDuration);
 
         // Queue the episode for analysis
@@ -280,7 +282,8 @@ public partial class QueueManager(ILogger<QueueManager> logger, ILibraryManager 
             Path = episode.Path,
             Duration = duration,
             IntroFingerprintEnd = fingerprintDuration,
-            CreditsFingerprintStart = Math.Max(0, duration - maxCreditsDuration),
+            CreditsFingerprintStart = Math.Max(0, creditsDuration - maxCreditsDuration),
+            CreditsFingerprintEnd = creditsDuration,
         });
 
         pluginInstance.TotalQueued++;
@@ -316,6 +319,7 @@ public partial class QueueManager(ILogger<QueueManager> logger, ILibraryManager 
         _queuedEpisodes.TryAdd(movie.Id, []);
 
         var duration = TimeSpan.FromTicks(movie.RunTimeTicks ?? 0).TotalSeconds;
+        var creditsDuration = ResolveCreditsFingerprintEnd(movie.Path, duration);
 
         _queuedEpisodes[movie.Id].Add(new QueuedEpisode
         {
@@ -326,12 +330,27 @@ public partial class QueueManager(ILogger<QueueManager> logger, ILibraryManager 
             Name = movie.Name,
             Path = movie.Path,
             Duration = duration,
-            CreditsFingerprintStart = Math.Max(0, duration - pluginInstance.Configuration.MaximumMovieCreditsDuration),
+            CreditsFingerprintStart = Math.Max(0, creditsDuration - pluginInstance.Configuration.MaximumMovieCreditsDuration),
+            CreditsFingerprintEnd = creditsDuration,
             Category = QueuedMediaCategory.Movie,
             IsExcluded = IsSeriesExcluded(movie.Name),
         });
 
         pluginInstance.TotalQueued++;
+    }
+
+    private double ResolveCreditsFingerprintEnd(string path, double duration)
+    {
+        var pluginInstance = Plugin.Instance ?? throw new InvalidOperationException("Plugin instance was null");
+        if (!pluginInstance.Configuration.ProbeAudioDuration)
+        {
+            return duration;
+        }
+
+        var audioDuration = FFmpegWrapper.ProbeAudioDuration(path);
+        return audioDuration is > 0 && audioDuration.Value < duration
+            ? audioDuration.Value
+            : duration;
     }
 
     private async Task<Guid> GetSeasonId(Episode episode, CancellationToken cancellationToken)
@@ -418,6 +437,13 @@ public partial class QueueManager(ILogger<QueueManager> logger, ILibraryManager 
 
                 foreach (var mode in modes)
                 {
+                    var action = snapshot.AnalyzerActionByMode.TryGetValue(mode, out var savedAction)
+                        ? savedAction
+                        : AnalyzerAction.Default;
+                    var expectedHash = ConfigHasher.Analysis(plugin.Configuration, mode, action);
+                    var hashMatches = snapshot.ConfigHashByMode.TryGetValue(mode, out var savedHash) &&
+                        string.Equals(savedHash, expectedHash, StringComparison.Ordinal);
+
                     if (snapshot.SegmentsByEpisodeId.TryGetValue(candidate.EpisodeId, out var hasSegments) &&
                         hasSegments.TryGetValue(mode, out _))
                     {
@@ -427,12 +453,12 @@ public partial class QueueManager(ILogger<QueueManager> logger, ILibraryManager 
                         // Always preserve user-provided segments. When AnalyzeAgain is true (settings
                         // changed), leave automatically-analyzed segments as NotAnalyzed so they are
                         // re-analyzed and their timestamps updated to reflect the new settings.
-                        if (isUserProvided || !plugin.AnalyzeAgain)
+                        if (isUserProvided || (!plugin.AnalyzeAgain && hashMatches))
                         {
                             candidate.SetAnalyzed(mode, isUserProvided ? EpisodeState.UserProvided : EpisodeState.Analyzed);
                         }
                     }
-                    else if (!plugin.AnalyzeAgain &&
+                    else if (!plugin.AnalyzeAgain && hashMatches &&
                              snapshot.EpisodeIdsByMode.TryGetValue(mode, out var ids) &&
                              ids.Contains(candidate.EpisodeId))
                     {

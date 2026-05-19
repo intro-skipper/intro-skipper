@@ -77,7 +77,7 @@ public class SegmentEditorController(MediaSegmentUpdateManager mediaSegmentUpdat
         var seg = new Segment(itemId, new TimeRange(TimeSpan.FromTicks(segment.StartTicks).TotalSeconds, TimeSpan.FromTicks(segment.EndTicks).TotalSeconds));
         var mode = Plugin.MapSegmentTypeToMode(segment.Type);
 
-        await Plugin.Instance!.UpdateTimestampAsync(seg, mode, isUserProvided: true, cancellationToken).ConfigureAwait(false);
+        await Plugin.Instance!.UpdateTimestampAsync(seg, mode, isUserProvided: true, cancellationToken: cancellationToken).ConfigureAwait(false);
 
         await _mediaSegmentUpdateManager.CreateOrReplaceSegmentAsync(item, segment, cancellationToken).ConfigureAwait(false);
 
@@ -153,7 +153,7 @@ public class SegmentEditorController(MediaSegmentUpdateManager mediaSegmentUpdat
             // Jellyfin delete failed — restore the plugin DB entry to avoid an orphaned Jellyfin segment.
             if (dbSegment is not null)
             {
-                await Plugin.Instance!.UpdateTimestampAsync(dbSegment, mode, isUserProvided: wasUserProvided, CancellationToken.None).ConfigureAwait(false);
+                await Plugin.Instance!.UpdateTimestampAsync(dbSegment, mode, isUserProvided: wasUserProvided, cancellationToken: CancellationToken.None).ConfigureAwait(false);
             }
 
             throw;

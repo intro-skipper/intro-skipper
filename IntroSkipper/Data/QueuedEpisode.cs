@@ -79,9 +79,20 @@ public class QueuedEpisode
     public double CreditsFingerprintStart { get; set; }
 
     /// <summary>
+    /// Gets or sets the timestamp (in seconds) to stop looking for end credits at.
+    /// This can differ from <see cref="Duration"/> when the container runtime is longer than the audio stream.
+    /// </summary>
+    public double CreditsFingerprintEnd { get; set; }
+
+    /// <summary>
     /// Gets or sets the total duration of this media file (in seconds).
     /// </summary>
     public double Duration { get; set; }
+
+    /// <summary>
+    /// Gets or sets the configuration hash for the current analysis pass.
+    /// </summary>
+    public string AnalysisConfigHash { get; set; } = string.Empty;
 
     /// <summary>
     /// Sets a value indicating whether this media has been already analyzed.

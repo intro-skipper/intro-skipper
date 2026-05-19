@@ -55,6 +55,7 @@ export interface PluginConfig {
     ScanCommercial: boolean;
     EnableMainMenu: boolean;
     PreferChromaprint: boolean;
+    ProbeAudioDuration: boolean;
     SnapToKeyframe: boolean;
     AdjustIntroBasedOnSilence: boolean;
     AdjustIntroBasedOnChapters: boolean;

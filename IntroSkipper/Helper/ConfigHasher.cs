@@ -1,0 +1,114 @@
+// SPDX-FileCopyrightText: 2026 Intro-Skipper contributors <intro-skipper.org>
+// SPDX-License-Identifier: GPL-3.0-only
+
+using System.Globalization;
+using System.Security.Cryptography;
+using System.Text;
+using IntroSkipper.Configuration;
+using IntroSkipper.Data;
+
+namespace IntroSkipper.Helper;
+
+/// <summary>
+/// Computes deterministic hashes for the configuration subsets that affect analysis output.
+/// </summary>
+public static class ConfigHasher
+{
+    /// <summary>
+    /// Computes a hash for a stored analysis result.
+    /// </summary>
+    /// <param name="config">Plugin configuration.</param>
+    /// <param name="mode">Analysis mode.</param>
+    /// <param name="action">Analyzer priority/action used for the season.</param>
+    /// <returns>A compact hex hash.</returns>
+    public static string Analysis(PluginConfiguration config, AnalysisMode mode, AnalyzerAction action)
+    {
+        ArgumentNullException.ThrowIfNull(config);
+
+        var input = mode switch
+        {
+            AnalysisMode.Introduction => string.Create(
+                CultureInfo.InvariantCulture,
+                $"analysis|v1|mode={mode}|action={action}|prefer={config.PreferChromaprint}|chap={config.ChapterAnalyzerIntroductionPattern}|fullchap={config.FullLengthChapters}"
+                + $"|pct={config.AnalysisPercent}|limit={config.AnalysisLengthLimit}|min={config.MinimumIntroDuration}|max={config.MaximumIntroDuration}"
+                + $"|fpbits={config.MaximumFingerprintPointDifferences}|skip={config.MaximumTimeSkip}|shift={config.InvertedIndexShift}"
+                + AdjustmentHash(config)),
+
+            AnalysisMode.Credits => string.Create(
+                CultureInfo.InvariantCulture,
+                $"analysis|v1|mode={mode}|action={action}|prefer={config.PreferChromaprint}|chap={config.ChapterAnalyzerEndCreditsPattern}|fullchap={config.FullLengthChapters}"
+                + $"|pct={config.AnalysisPercent}|maxCredits={config.MaximumCreditsDuration}|maxMovie={config.MaximumMovieCreditsDuration}|probe={config.ProbeAudioDuration}"
+                + $"|min={config.MinimumCreditsDuration}|bfmin={config.BlackFrameMinimumPercentage}|bfthr={config.BlackFrameThreshold}|bfchap={config.UseChapterMarkersBlackFrame}"
+                + $"|bfalt={config.UseAlternativeBlackFrameAnalyzer}|bfrefine={config.RefineCreditsBoundary}"
+                + $"|fpbits={config.MaximumFingerprintPointDifferences}|skip={config.MaximumTimeSkip}|shift={config.InvertedIndexShift}"
+                + $"|animePreview={config.AnimePreviewFromCreditsEnd}"
+                + AdjustmentHash(config)),
+
+            AnalysisMode.Recap => string.Create(
+                CultureInfo.InvariantCulture,
+                $"analysis|v1|mode={mode}|action={action}|chap={config.ChapterAnalyzerRecapPattern}|fullchap={config.FullLengthChapters}|min={config.MinimumRecapDuration}|max={config.MaximumRecapDuration}"
+                + AdjustmentHash(config)),
+
+            AnalysisMode.Preview => string.Create(
+                CultureInfo.InvariantCulture,
+                $"analysis|v1|mode={mode}|action={action}|chap={config.ChapterAnalyzerPreviewPattern}|fullchap={config.FullLengthChapters}|min={config.MinimumPreviewDuration}|max={config.MaximumPreviewDuration}"
+                + AdjustmentHash(config)),
+
+            AnalysisMode.Commercial => string.Create(
+                CultureInfo.InvariantCulture,
+                $"analysis|v1|mode={mode}|action={action}|chap={config.ChapterAnalyzerCommercialPattern}|fullchap={config.FullLengthChapters}|min={config.MinimumCommercialDuration}|max={config.MaximumCommercialDuration}"
+                + AdjustmentHash(config)),
+
+            _ => throw new ArgumentOutOfRangeException(nameof(mode), mode, null)
+        };
+
+        return ComputeHash(input);
+    }
+
+    /// <summary>
+    /// Computes a hash for FFmpeg detection cache rows.
+    /// </summary>
+    /// <param name="config">Plugin configuration.</param>
+    /// <param name="type">Cache entry type.</param>
+    /// <param name="mode">Analysis mode.</param>
+    /// <returns>A compact hex hash.</returns>
+    public static string DetectionCache(PluginConfiguration config, CacheEntryType type, AnalysisMode mode)
+    {
+        ArgumentNullException.ThrowIfNull(config);
+
+        var input = type switch
+        {
+            CacheEntryType.Chromaprint => string.Create(
+                CultureInfo.InvariantCulture,
+                $"cache|v1|{type}|{mode}|pct={config.AnalysisPercent}|limit={config.AnalysisLengthLimit}|maxCredits={config.MaximumCreditsDuration}|maxMovie={config.MaximumMovieCreditsDuration}|probe={config.ProbeAudioDuration}"),
+
+            CacheEntryType.Silence => string.Create(
+                CultureInfo.InvariantCulture,
+                $"cache|v1|{type}|noise={config.SilenceDetectionMaximumNoise}|dur={config.SilenceDetectionMinimumDuration}"),
+
+            CacheEntryType.BlackFrame => string.Create(
+                CultureInfo.InvariantCulture,
+                $"cache|v1|{type}|{mode}|threshold={config.BlackFrameThreshold}"),
+
+            CacheEntryType.Keyframe => $"cache|v1|{type}",
+
+            _ => throw new ArgumentOutOfRangeException(nameof(type), type, null)
+        };
+
+        return ComputeHash(input);
+    }
+
+    private static string AdjustmentHash(PluginConfiguration config)
+        => string.Create(
+            CultureInfo.InvariantCulture,
+            $"|chapAdjust={config.AdjustIntroBasedOnChapters}|silence={config.AdjustIntroBasedOnSilence}|keyframe={config.SnapToKeyframe}"
+            + $"|endSnap={config.EndSnapThreshold}|winIn={config.AdjustWindowInward}|winOut={config.AdjustWindowOutward}"
+            + $"|noise={config.SilenceDetectionMaximumNoise}|silDur={config.SilenceDetectionMinimumDuration}"
+            + $"|startOffset={config.IntroStartOffset}|endOffset={config.IntroEndOffset}");
+
+    private static string ComputeHash(string input)
+    {
+        var hash = SHA256.HashData(Encoding.UTF8.GetBytes(input));
+        return Convert.ToHexString(hash, 0, 8);
+    }
+}
