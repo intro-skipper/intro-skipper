@@ -160,8 +160,8 @@ public sealed partial class FFmpegCapabilityService
 
         var result = await _runner.RunAsync(
             arguments.Split(' ', StringSplitOptions.RemoveEmptyEntries),
-            false,
-            2000,
+            FFmpegOutputStream.Stdout,
+            TimeSpan.FromMilliseconds(2000),
             cancellationToken).ConfigureAwait(false);
         var output = Encoding.UTF8.GetString(result.Output);
 
@@ -169,7 +169,7 @@ public sealed partial class FFmpegCapabilityService
 
         _chromaprintLogs[bundleName] = output;
 
-        if (result.ExitCode != 0 || !output.Contains(mustContain, StringComparison.OrdinalIgnoreCase))
+        if (result.Status != FFmpegProcessStatus.Completed || result.ExitCode != 0 || !output.Contains(mustContain, StringComparison.OrdinalIgnoreCase))
         {
             LogFfmpegRequirementFailed(_logger, errorMessage);
             _chromaprintLogs["error"] = errorKey;

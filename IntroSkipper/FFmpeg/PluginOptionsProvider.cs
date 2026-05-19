@@ -34,4 +34,7 @@ public class PluginOptionsProvider
 
     /// <summary>Gets the maximum noise level (in dB) for silence detection.</summary>
     public virtual int SilenceDetectionMaximumNoise => Plugin.Instance?.Configuration.SilenceDetectionMaximumNoise ?? -50;
+
+    /// <summary>Gets the black frame detection threshold.</summary>
+    public virtual int BlackFrameThreshold => Plugin.Instance?.Configuration.BlackFrameThreshold ?? 28;
 }

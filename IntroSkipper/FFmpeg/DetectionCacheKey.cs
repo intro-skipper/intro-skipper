@@ -15,4 +15,5 @@ namespace IntroSkipper.FFmpeg;
 /// <param name="Type">Cache entry type.</param>
 /// <param name="Start">Range start in seconds.</param>
 /// <param name="End">Range end in seconds.</param>
-public readonly record struct DetectionCacheKey(Guid ItemId, AnalysisMode Mode, CacheEntryType Type, double Start, double End);
+/// <param name="Variant">Versioned cache variant identifier.</param>
+public readonly record struct DetectionCacheKey(Guid ItemId, AnalysisMode Mode, CacheEntryType Type, double Start, double End, string Variant);

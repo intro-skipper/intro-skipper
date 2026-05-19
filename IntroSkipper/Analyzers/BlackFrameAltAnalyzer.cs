@@ -102,7 +102,9 @@ public sealed partial class BlackFrameAltAnalyzer(ILogger<BlackFrameAltAnalyzer>
     /// <returns>Time range of the detected credits.</returns>
     public async Task<Segment?> DetectCreditsAsync(QueuedEpisode episode, int minimumPercentage, int threshold, int minimumDuration, CancellationToken cancellationToken = default)
     {
-        var blackFrames = (await _detectionService.DetectBlackFramesAsync(episode, threshold, cancellationToken).ConfigureAwait(false)).ToList();
+        var blackFrames = (await _detectionService.DetectCreditBlackFramesAsync(episode, threshold, cancellationToken).ConfigureAwait(false))
+            .Select(frame => frame with { Time = frame.Time - episode.CreditsFingerprintStart })
+            .ToList();
 
         if (blackFrames.Count == 0)
         {
@@ -239,14 +241,15 @@ public sealed partial class BlackFrameAltAnalyzer(ILogger<BlackFrameAltAnalyzer>
         var probeEnd = firstBlackTime + episode.CreditsFingerprintStart;
         var probeRange = new TimeRange(probeStart, probeEnd);
 
-        var probeFrames = await _detectionService.DetectBlackFramesAsync(episode, probeRange, probeMinimum, threshold, AnalysisMode.Credits, cancellationToken).ConfigureAwait(false);
+        var probeFrames = await _detectionService.DetectBlackFramesInRangeAsync(episode, probeRange, probeMinimum, threshold, AnalysisMode.Credits, cancellationToken).ConfigureAwait(false);
 
         if (probeFrames.Length == 0)
         {
             return scene.StartTime;
         }
 
-        var refinedTime = TryRefineBoundaryTime(probeFrames[0].Time, lastKeyframeTime, scene.StartTime);
+        var cfpRelative = ConvertProbeTimestamp(probeFrames[0].Time, episode.CreditsFingerprintStart);
+        var refinedTime = TryRefineBoundaryTime(cfpRelative, lastKeyframeTime, scene.StartTime);
         if (refinedTime is null)
         {
             return scene.StartTime;
@@ -298,26 +301,20 @@ public sealed partial class BlackFrameAltAnalyzer(ILogger<BlackFrameAltAnalyzer>
     }
 
     /// <summary>
-    /// Converts an FFmpeg probe timestamp (relative to the seek point) back to
-    /// CreditsFingerprintStart-relative time.
+    /// Converts an absolute media timestamp to CreditsFingerprintStart-relative time.
     /// </summary>
     /// <remarks>
-    /// The range-based FFmpeg overload uses -ss before -i (input seeking),
-    /// so output timestamps are relative to the seek point (lastKeyframeTime + CreditsFingerprintStart).
-    /// Converting back:
-    ///   absoluteTime = probeTime + lastKeyframeTime + CreditsFingerprintStart,
-    ///   relativeTime = absoluteTime - CreditsFingerprintStart
-    ///                = probeTime + lastKeyframeTime.
+    /// Range-based blackframe detection returns public absolute media time.
     /// </remarks>
-    /// <param name="probeTime">Timestamp from FFmpeg probe output (relative to seek point).</param>
-    /// <param name="lastKeyframeTime">Time of the preceding keyframe (relative to CreditsFingerprintStart).</param>
+    /// <param name="absoluteTime">Absolute media timestamp.</param>
+    /// <param name="creditsFingerprintStart">Credits fingerprint start time.</param>
     /// <returns>Refined start time in seconds (relative to CreditsFingerprintStart).</returns>
-    internal static double ConvertProbeTimestamp(double probeTime, double lastKeyframeTime) => probeTime + lastKeyframeTime;
+    internal static double ConvertProbeTimestamp(double absoluteTime, double creditsFingerprintStart) => absoluteTime - creditsFingerprintStart;
 
     /// <summary>
     /// Validates a probe timestamp for boundary refinement and converts it to scene-relative time.
     /// </summary>
-    /// <param name="probeTime">Timestamp from FFmpeg probe output (relative to seek point).</param>
+    /// <param name="probeTime">Probe timestamp relative to CreditsFingerprintStart.</param>
     /// <param name="lastKeyframeTime">Time of the preceding keyframe.</param>
     /// <param name="sceneStartTime">Current scene start chosen by keyframe analysis.</param>
     /// <returns>
@@ -326,8 +323,7 @@ public sealed partial class BlackFrameAltAnalyzer(ILogger<BlackFrameAltAnalyzer>
     /// </returns>
     internal static double? TryRefineBoundaryTime(double probeTime, double lastKeyframeTime, double sceneStartTime)
     {
-        var refinedTime = ConvertProbeTimestamp(probeTime, lastKeyframeTime);
-        return refinedTime <= lastKeyframeTime || refinedTime > sceneStartTime ? null : refinedTime;
+        return probeTime <= lastKeyframeTime || probeTime > sceneStartTime ? null : probeTime;
     }
 
     /// <summary>

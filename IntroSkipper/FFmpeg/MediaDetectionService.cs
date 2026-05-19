@@ -18,6 +18,8 @@ namespace IntroSkipper.FFmpeg;
 /// </summary>
 public sealed partial class MediaDetectionService : IMediaDetectionService
 {
+    private const int MaxFailureDiagnosticLength = 2048;
+
     private readonly IFFmpegRunner _runner;
     private readonly IDetectionCacheService _cacheService;
     private readonly PluginOptionsProvider _options;
@@ -52,7 +54,7 @@ public sealed partial class MediaDetectionService : IMediaDetectionService
     public async Task<uint[]> FingerprintAsync(QueuedEpisode episode, AnalysisMode mode, CancellationToken cancellationToken)
     {
         var (start, end) = episode.GetFingerprintRange(mode);
-        var key = new DetectionCacheKey(episode.EpisodeId, mode, CacheEntryType.Chromaprint, start, end);
+        var key = new DetectionCacheKey(episode.EpisodeId, mode, CacheEntryType.Chromaprint, start, end, DetectionCacheVariant.Chromaprint());
 
         var cached = await _cacheService.TryReadJsonCacheAsync<uint>(key, cancellationToken).ConfigureAwait(false);
         if (cached is not null)
@@ -62,8 +64,8 @@ public sealed partial class MediaDetectionService : IMediaDetectionService
         }
 
         LogFingerprinting(_logger, start, end, episode.Path, episode.EpisodeId);
-        var processResult = await _runner.RunAsync(BuildArgs(), stderr: false, timeout: Timeout.Infinite, cancellationToken: cancellationToken).ConfigureAwait(false);
-        ThrowIfFFmpegTimedOut(processResult);
+        var processResult = await _runner.RunAsync(BuildArgs(), FFmpegOutputStream.Stdout, Timeout.InfiniteTimeSpan, cancellationToken).ConfigureAwait(false);
+        ThrowOnFailure(processResult, includeOutput: false);
         var fingerprint = ParseChromaprintBytes(processResult.Output.AsSpan(), episode.Path);
         await _cacheService.WriteJsonCacheAsync(key, fingerprint, cancellationToken).ConfigureAwait(false);
         return fingerprint;
@@ -85,7 +87,7 @@ public sealed partial class MediaDetectionService : IMediaDetectionService
     {
         LogDetectingSilence(_logger, episode.Path, range.Start, range.End, episode.EpisodeId);
 
-        var key = new DetectionCacheKey(episode.EpisodeId, mode, CacheEntryType.Silence, range.Start, range.End);
+        var key = new DetectionCacheKey(episode.EpisodeId, mode, CacheEntryType.Silence, range.Start, range.End, DetectionCacheVariant.Silence(_options.SilenceDetectionMaximumNoise));
 
         /* Each match will have a type (either "start" or "end") and a timecode (a double).
          *
@@ -97,7 +99,7 @@ public sealed partial class MediaDetectionService : IMediaDetectionService
             key,
             raw => FFmpegOutputParser.ParseSilenceRaw(raw, range.Start),
             BuildArgs,
-            stderr: true,
+            FFmpegOutputStream.Stderr,
             cancellationToken: cancellationToken).ConfigureAwait(false);
 
         string[] BuildArgs()
@@ -117,7 +119,7 @@ public sealed partial class MediaDetectionService : IMediaDetectionService
     }
 
     /// <inheritdoc />
-    public async Task<BlackFrame[]> DetectBlackFramesAsync(
+    public async Task<BlackFrame[]> DetectBlackFramesInRangeAsync(
         QueuedEpisode episode,
         TimeRange range,
         int minimum,
@@ -125,12 +127,12 @@ public sealed partial class MediaDetectionService : IMediaDetectionService
         AnalysisMode mode,
         CancellationToken cancellationToken)
     {
-        var key = new DetectionCacheKey(episode.EpisodeId, mode, CacheEntryType.BlackFrame, range.Start, range.End);
+        var key = new DetectionCacheKey(episode.EpisodeId, mode, CacheEntryType.BlackFrame, range.Start, range.End, DetectionCacheVariant.BlackFrameRange(threshold));
         var allFrames = await RunCachedDetectionAsync(
             key,
-            static raw => FFmpegOutputParser.ParseBlackFrames(raw),
+            raw => OffsetBlackFrames(FFmpegOutputParser.ParseBlackFrames(raw), range.Start),
             BuildArgs,
-            stderr: true,
+            FFmpegOutputStream.Stderr,
             cancellationToken: cancellationToken).ConfigureAwait(false);
 
         return [.. allFrames.Where(bf => bf.Percentage >= minimum)];
@@ -147,16 +149,16 @@ public sealed partial class MediaDetectionService : IMediaDetectionService
     }
 
     /// <inheritdoc />
-    public async Task<BlackFrame[]> DetectBlackFramesAsync(QueuedEpisode episode, int threshold, CancellationToken cancellationToken)
+    public async Task<BlackFrame[]> DetectCreditBlackFramesAsync(QueuedEpisode episode, int threshold, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(episode);
 
-        var key = new DetectionCacheKey(episode.EpisodeId, AnalysisMode.Credits, CacheEntryType.BlackFrame, episode.CreditsFingerprintStart, 0);
+        var key = new DetectionCacheKey(episode.EpisodeId, AnalysisMode.Credits, CacheEntryType.BlackFrame, episode.CreditsFingerprintStart, 0, DetectionCacheVariant.BlackFrameCredits(threshold));
         return await RunCachedDetectionAsync(
             key,
-            static raw => FFmpegOutputParser.ParseBlackFrames(raw),
+            raw => OffsetBlackFrames(FFmpegOutputParser.ParseBlackFrames(raw), episode.CreditsFingerprintStart),
             BuildArgs,
-            stderr: true,
+            FFmpegOutputStream.Stderr,
             cancellationToken: cancellationToken).ConfigureAwait(false);
 
         string[] BuildArgs() =>
@@ -173,12 +175,12 @@ public sealed partial class MediaDetectionService : IMediaDetectionService
     /// <inheritdoc />
     public async Task<double[]> DetectKeyFramesAsync(QueuedEpisode episode, TimeRange range, AnalysisMode mode, CancellationToken cancellationToken)
     {
-        var key = new DetectionCacheKey(episode.EpisodeId, mode, CacheEntryType.Keyframe, range.Start, range.End);
+        var key = new DetectionCacheKey(episode.EpisodeId, mode, CacheEntryType.Keyframe, range.Start, range.End, DetectionCacheVariant.Keyframe());
         return await RunCachedDetectionAsync(
             key,
             raw => FFmpegOutputParser.ParseKeyFramesRaw(raw, range.Start, _logger),
             BuildArgs,
-            stderr: true,
+            FFmpegOutputStream.Stderr,
             cancellationToken: cancellationToken).ConfigureAwait(false);
 
         string[] BuildArgs() =>
@@ -197,7 +199,7 @@ public sealed partial class MediaDetectionService : IMediaDetectionService
         DetectionCacheKey key,
         Func<string, T[]> parseRawOutput,
         Func<IReadOnlyList<string>> buildArgs,
-        bool stderr,
+        FFmpegOutputStream outputStream,
         CancellationToken cancellationToken)
     {
         var cached = await _cacheService.TryReadJsonCacheAsync<T>(key, cancellationToken).ConfigureAwait(false);
@@ -206,19 +208,66 @@ public sealed partial class MediaDetectionService : IMediaDetectionService
             return cached;
         }
 
-        var processResult = await _runner.RunAsync(buildArgs(), stderr, timeout: Timeout.Infinite, cancellationToken: cancellationToken).ConfigureAwait(false);
-        ThrowIfFFmpegTimedOut(processResult);
+        var processResult = await _runner.RunAsync(buildArgs(), outputStream, Timeout.InfiniteTimeSpan, cancellationToken).ConfigureAwait(false);
+        ThrowOnFailure(processResult, includeOutput: outputStream == FFmpegOutputStream.Stderr);
         var result = parseRawOutput(Encoding.UTF8.GetString(processResult.Output));
         await _cacheService.WriteJsonCacheAsync(key, result, cancellationToken).ConfigureAwait(false);
         return result;
     }
 
-    private static void ThrowIfFFmpegTimedOut(FFmpegProcessResult result)
+    private static BlackFrame[] OffsetBlackFrames(BlackFrame[] frames, double offset)
+        => [.. frames.Select(frame => frame with { Time = frame.Time + offset })];
+
+    /// <summary>
+    /// Throws <see cref="TimeoutException"/> if the process timed out, or
+    /// <see cref="FFmpegDetectionException"/> if it exited with a nonzero exit code.
+    /// </summary>
+    private static void ThrowOnFailure(FFmpegProcessResult result, bool includeOutput)
     {
-        if (result.ExitCode == -1)
+        if (result.Status == FFmpegProcessStatus.Completed && result.ExitCode == 0)
+        {
+            return;
+        }
+
+        if (result.Status == FFmpegProcessStatus.TimedOut)
         {
             throw new TimeoutException("FFmpeg process timed out before completing media detection.");
         }
+
+        // When the selected output isn't diagnostic (e.g. binary fingerprint on stdout),
+        // fall back to the drained stream (stderr) for error context.
+        var diagnosticOutput = includeOutput ? result.Output : result.DrainedOutput;
+
+        throw new FFmpegDetectionException(
+            BuildFailureMessage(result.ExitCode, diagnosticOutput))
+        {
+            ExitCode = result.ExitCode ?? -1,
+        };
+    }
+
+    private static string BuildFailureMessage(int? exitCode, byte[] diagnosticOutput)
+    {
+        var message = exitCode is null
+            ? "FFmpeg did not complete successfully and did not provide an exit code."
+            : $"FFmpeg exited with code {exitCode.Value}.";
+
+        if (diagnosticOutput.Length == 0)
+        {
+            return message;
+        }
+
+        var diagnostic = Encoding.UTF8.GetString(diagnosticOutput).Trim();
+        if (diagnostic.Length == 0)
+        {
+            return message;
+        }
+
+        if (diagnostic.Length > MaxFailureDiagnosticLength)
+        {
+            diagnostic = diagnostic[..MaxFailureDiagnosticLength] + "...";
+        }
+
+        return $"{message} {diagnostic}";
     }
 
     private uint[] ParseChromaprintBytes(ReadOnlySpan<byte> rawPoints, string path)

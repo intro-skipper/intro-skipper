@@ -65,8 +65,8 @@ public class DetectionCacheDbContext : DbContext
             entity.Property(e => e.Id)
                   .ValueGeneratedOnAdd();
 
-            // Composite unique index: one cache entry per (ItemId, Mode, Type, Start, End).
-            entity.HasIndex(e => new { e.ItemId, e.Mode, e.Type, e.Start, e.End })
+            // Composite unique index: one cache entry per variant and analyzed range.
+            entity.HasIndex(e => new { e.ItemId, e.Mode, e.Type, e.Start, e.End, e.Variant })
                   .HasDatabaseName("IX_DetectionCache_Unique")
                   .IsUnique();
 
@@ -79,6 +79,10 @@ public class DetectionCacheDbContext : DbContext
 
             entity.Property(e => e.End)
                   .HasDefaultValue(0.0)
+                  .IsRequired();
+
+            entity.Property(e => e.Variant)
+                  .HasMaxLength(128)
                   .IsRequired();
 
             entity.Property(e => e.Data)
@@ -141,6 +145,7 @@ public class DetectionCacheDbContext : DbContext
             HasColumn("Type", "INTEGER") &&
             HasColumn("Start", "REAL") &&
             HasColumn("End", "REAL") &&
+            HasColumn("Variant", "TEXT") &&
             HasColumn("Data", "BLOB");
 
         bool HasColumn(string name, string type)
@@ -150,6 +155,26 @@ public class DetectionCacheDbContext : DbContext
 
     private bool HasExpectedUniqueIndex()
     {
+        using (var listCmd = Database.GetDbConnection().CreateCommand())
+        {
+            listCmd.CommandText = "PRAGMA index_list('DetectionCache')";
+            using var listReader = listCmd.ExecuteReader();
+            var foundUnique = false;
+            while (listReader.Read())
+            {
+                if (string.Equals(listReader.GetString(1), "IX_DetectionCache_Unique", StringComparison.OrdinalIgnoreCase))
+                {
+                    foundUnique = listReader.GetInt32(2) == 1;
+                    break;
+                }
+            }
+
+            if (!foundUnique)
+            {
+                return false;
+            }
+        }
+
         using var cmd = Database.GetDbConnection().CreateCommand();
         cmd.CommandText = "PRAGMA index_info('IX_DetectionCache_Unique')";
 
@@ -162,11 +187,12 @@ public class DetectionCacheDbContext : DbContext
             }
         }
 
-        return columns.Count == 5 &&
+        return columns.Count == 6 &&
             columns.Contains("ItemId") &&
             columns.Contains("Mode") &&
             columns.Contains("Type") &&
             columns.Contains("Start") &&
-            columns.Contains("End");
+            columns.Contains("End") &&
+            columns.Contains("Variant");
     }
 }

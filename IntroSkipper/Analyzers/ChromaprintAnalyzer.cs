@@ -84,7 +84,7 @@ public sealed partial class ChromaprintAnalyzer(ILogger<ChromaprintAnalyzer> log
                     return analysisQueue;
                 }
             }
-            catch (Exception ex) when (ex is FingerprintException or TimeoutException)
+            catch (Exception ex) when (ex is FingerprintException or FFmpegDetectionException or TimeoutException)
             {
                 LogCaughtFingerprintError(ex);
                 WarningManager.SetFlag(PluginWarning.InvalidChromaprintFingerprint);

@@ -11,6 +11,8 @@ namespace IntroSkipper.FFmpeg;
 /// Encapsulates the raw byte output from an FFmpeg process execution.
 /// </summary>
 /// <param name="Output">The captured stdout or stderr bytes from the FFmpeg process.</param>
-/// <param name="ExitCode">The process exit code, or -1 if the process did not exit cleanly.</param>
+/// <param name="DrainedOutput">The bytes from the non-selected stream, captured for failure diagnostics.</param>
+/// <param name="Status">Indicates whether the process completed or timed out.</param>
+/// <param name="ExitCode">The process exit code, or <see langword="null"/> if the process was killed due to a timeout.</param>
 [SuppressMessage("Performance", "CA1819:Properties should not return arrays", Justification = "Lightweight data carrier for raw FFmpeg output; callers consume via ReadOnlySpan<byte>.")]
-public readonly record struct FFmpegProcessResult(byte[] Output, int ExitCode);
+public readonly record struct FFmpegProcessResult(byte[] Output, byte[] DrainedOutput, FFmpegProcessStatus Status, int? ExitCode);

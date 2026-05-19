@@ -79,8 +79,8 @@ public class TestFFmpegCapabilityService
 
         public Task<FFmpegProcessResult> RunAsync(
             IReadOnlyList<string> args,
-            bool stderr = false,
-            int timeout = 60 * 1000,
+            FFmpegOutputStream outputStream = FFmpegOutputStream.Stdout,
+            TimeSpan? timeout = null,
             CancellationToken cancellationToken = default)
         {
             var key = string.Join(" ", args);
@@ -102,6 +102,6 @@ public class TestFFmpegCapabilityService
         }
 
         private static FFmpegProcessResult CreateResult(string output)
-            => new(Encoding.UTF8.GetBytes(output), 0);
+            => new(Encoding.UTF8.GetBytes(output), Array.Empty<byte>(), FFmpegProcessStatus.Completed, 0);
     }
 }

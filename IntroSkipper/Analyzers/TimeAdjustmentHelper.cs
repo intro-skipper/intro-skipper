@@ -218,7 +218,7 @@ public partial class TimeAdjustmentHelper(ILogger logger, PluginConfiguration co
             var keyframes = await _detectionService.DetectKeyFramesAsync(episode, searchRange, _mode, cancellationToken).ConfigureAwait(false);
             return SelectNearest(keyframes, time);
         }
-        catch (TimeoutException ex)
+        catch (Exception ex) when (ex is FFmpegDetectionException or TimeoutException)
         {
             LogErrorDetectingKeyframes(_logger, episode.EpisodeId, episode.Name, ex.Message);
             return time;

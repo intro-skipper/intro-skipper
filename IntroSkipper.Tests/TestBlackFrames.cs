@@ -8,6 +8,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Threading;
 using System.Threading.Tasks;
 using IntroSkipper.Analyzers;
 using IntroSkipper.Data;
@@ -29,7 +30,7 @@ public class TestBlackFrames
         expected.AddRange(CreateFrameSequence(5, 6));
         expected.AddRange(CreateFrameSequence(8, 9.96));
 
-        var actual = await CreateDetectionService().DetectBlackFramesAsync(QueueFile("rainbow.mp4"), new(0, 10), 85, 32, AnalysisMode.Introduction);
+        var actual = await CreateDetectionService().DetectBlackFramesInRangeAsync(QueueFile("rainbow.mp4"), new(0, 10), 85, 32, AnalysisMode.Introduction);
 
         for (var i = 0; i < expected.Count; i++)
         {
@@ -53,6 +54,33 @@ public class TestBlackFrames
         var result = await analyzer.AnalyzeMediaFileAsync(episode, 240, 85, 32);
         Assert.NotNull(result);
         Assert.InRange(result.Start, 300 - range, 300 + range);
+    }
+
+    [Fact]
+    public async Task TestAltAnalyzer_DetectCredits_UsesAbsoluteServiceTimestampsOnce()
+    {
+        var episode = QueueFile("absolute-credits.mp4");
+        episode.CreditsFingerprintStart = 100;
+        episode.Duration = 130;
+
+        var frames = new BlackFrame[]
+        {
+            new(100, 110.0, 0),
+            new(100, 111.0, 1),
+            new(100, 112.0, 2),
+            new(100, 113.0, 3),
+            new(100, 114.0, 4),
+            new(100, 115.0, 5),
+            new(100, 116.0, 6),
+        };
+
+        var analyzer = CreateBlackFrameAltAnalyzer(new FixedCreditBlackFrameService(frames));
+
+        var segment = await analyzer.DetectCreditsAsync(episode, minimumPercentage: 85, threshold: 28, minimumDuration: 5);
+
+        Assert.NotNull(segment);
+        Assert.Equal(110.0, segment.Start);
+        Assert.Equal(116.0, segment.End);
     }
 
     [Fact]
@@ -310,31 +338,23 @@ public class TestBlackFrames
     }
 
     [Fact]
-    public void TestConvertProbeTimestamp_ConvertsToRelativeTime()
+    public void TestConvertProbeTimestamp_ConvertsAbsoluteTimeToRelativeTime()
     {
-        // Simulate: CreditsFingerprintStart=240s, lastKeyframeTime=55s (relative to CreditsFingerprintStart),
-        // probeStart = 55 + 240 = 295s (absolute seek point passed to FFmpeg).
-        // FFmpeg returns probeTime=2.5s (relative to seek point 295s).
-        // Expected: absoluteTime = 2.5 + 295 = 297.5s
-        //           relativeTime = 297.5 - 240 = 57.5s = probeTime + lastKeyframeTime
-        var result = BlackFrameAltAnalyzer.ConvertProbeTimestamp(probeTime: 2.5, lastKeyframeTime: 55.0);
+        var result = BlackFrameAltAnalyzer.ConvertProbeTimestamp(absoluteTime: 297.5, creditsFingerprintStart: 240.0);
         Assert.Equal(57.5, result);
     }
 
     [Fact]
-    public void TestConvertProbeTimestamp_ZeroProbeTime_ReturnsLastKeyframeTime()
+    public void TestConvertProbeTimestamp_AtCreditsFingerprintStart_ReturnsZero()
     {
-        // When the first probe frame is at the seek point itself (probeTime=0),
-        // the refined time equals the preceding keyframe time.
-        var result = BlackFrameAltAnalyzer.ConvertProbeTimestamp(probeTime: 0.0, lastKeyframeTime: 30.0);
-        Assert.Equal(30.0, result);
+        var result = BlackFrameAltAnalyzer.ConvertProbeTimestamp(absoluteTime: 240.0, creditsFingerprintStart: 240.0);
+        Assert.Equal(0.0, result);
     }
 
     [Fact]
-    public void TestConvertProbeTimestamp_ZeroLastKeyframeTime()
+    public void TestConvertProbeTimestamp_ZeroCreditsFingerprintStart()
     {
-        // Edge case: preceding keyframe is at the very start (time 0).
-        var result = BlackFrameAltAnalyzer.ConvertProbeTimestamp(probeTime: 1.5, lastKeyframeTime: 0.0);
+        var result = BlackFrameAltAnalyzer.ConvertProbeTimestamp(absoluteTime: 1.5, creditsFingerprintStart: 0.0);
         Assert.Equal(1.5, result);
     }
 
@@ -419,7 +439,7 @@ public class TestBlackFrames
     public void TestTryRefineBoundaryTime_AcceptsProbeInsideBoundaryWindow()
     {
         var refined = BlackFrameAltAnalyzer.TryRefineBoundaryTime(
-            probeTime: 2.5,
+            probeTime: 12.5,
             lastKeyframeTime: 10.0,
             sceneStartTime: 15.0);
 
@@ -433,7 +453,7 @@ public class TestBlackFrames
         // lands exactly at the original scene start (a no-op). This should be
         // accepted, not rejected — guarding against an accidental > to >= change.
         var refined = BlackFrameAltAnalyzer.TryRefineBoundaryTime(
-            probeTime: 5.0,
+            probeTime: 15.0,
             lastKeyframeTime: 10.0,
             sceneStartTime: 15.0);
 
@@ -444,7 +464,7 @@ public class TestBlackFrames
     public void TestTryRefineBoundaryTime_RejectsProbeAfterSceneStart()
     {
         var refined = BlackFrameAltAnalyzer.TryRefineBoundaryTime(
-            probeTime: 6.0,
+            probeTime: 16.0,
             lastKeyframeTime: 10.0,
             sceneStartTime: 15.0);
 
@@ -578,5 +598,35 @@ public class TestBlackFrames
     {
         var logger = new LoggerFactory().CreateLogger<BlackFrameAnalyzer>();
         return new(logger, TestServiceFactory.CreateDetectionService());
+    }
+
+    private static BlackFrameAltAnalyzer CreateBlackFrameAltAnalyzer(IMediaDetectionService detectionService)
+    {
+        var logger = new LoggerFactory().CreateLogger<BlackFrameAltAnalyzer>();
+        return new(logger, detectionService);
+    }
+
+    private sealed class FixedCreditBlackFrameService(BlackFrame[] creditBlackFrames) : IMediaDetectionService
+    {
+        public Task<uint[]> FingerprintAsync(QueuedEpisode episode, AnalysisMode mode, CancellationToken cancellationToken = default)
+            => Task.FromResult(Array.Empty<uint>());
+
+        public Task<TimeRange[]> DetectSilenceAsync(QueuedEpisode episode, TimeRange range, AnalysisMode mode, CancellationToken cancellationToken = default)
+            => Task.FromResult(Array.Empty<TimeRange>());
+
+        public Task<BlackFrame[]> DetectBlackFramesInRangeAsync(
+            QueuedEpisode episode,
+            TimeRange range,
+            int minimum,
+            int threshold,
+            AnalysisMode mode,
+            CancellationToken cancellationToken = default)
+            => Task.FromResult(Array.Empty<BlackFrame>());
+
+        public Task<BlackFrame[]> DetectCreditBlackFramesAsync(QueuedEpisode episode, int threshold, CancellationToken cancellationToken = default)
+            => Task.FromResult(creditBlackFrames);
+
+        public Task<double[]> DetectKeyFramesAsync(QueuedEpisode episode, TimeRange range, AnalysisMode mode, CancellationToken cancellationToken = default)
+            => Task.FromResult(Array.Empty<double>());
     }
 }

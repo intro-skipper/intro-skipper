@@ -19,6 +19,9 @@ namespace IntroSkipper.FFmpeg;
 /// </summary>
 public sealed partial class FFmpegRunner : IFFmpegRunner
 {
+    private static readonly TimeSpan DefaultTimeout = TimeSpan.FromSeconds(60);
+    private static readonly TimeSpan MaximumDelayTimeout = TimeSpan.FromMilliseconds(uint.MaxValue - 1d);
+
     private readonly PluginOptionsProvider _options;
     private readonly ILogger<FFmpegRunner> _logger;
     private readonly Func<ProcessStartInfo, IProcess> _processFactory;
@@ -70,15 +73,18 @@ public sealed partial class FFmpegRunner : IFFmpegRunner
     }
 
     /// <inheritdoc />
-    public async Task<FFmpegProcessResult> RunAsync(IReadOnlyList<string> args, bool stderr = false, int timeout = 60 * 1000, CancellationToken cancellationToken = default)
+    public async Task<FFmpegProcessResult> RunAsync(
+        IReadOnlyList<string> args,
+        FFmpegOutputStream outputStream = FFmpegOutputStream.Stdout,
+        TimeSpan? timeout = null,
+        CancellationToken cancellationToken = default)
     {
-        if (timeout < Timeout.Infinite)
-        {
-            throw new ArgumentOutOfRangeException(nameof(timeout), timeout, "Timeout must be -1 (infinite) or a non-negative number of milliseconds.");
-        }
+        var effectiveTimeout = timeout ?? DefaultTimeout;
+        ValidateTimeout(timeout, effectiveTimeout);
 
         cancellationToken.ThrowIfCancellationRequested();
 
+        var stderr = outputStream == FFmpegOutputStream.Stderr;
         using var ffmpeg = StartProcess(args, stderr, redirectBoth: true);
 
         // Read the selected stream asynchronously while draining the other to prevent deadlocks.
@@ -89,7 +95,7 @@ public sealed partial class FFmpegRunner : IFFmpegRunner
         try
         {
             using var readCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-            var exitTask = WaitForExitAsync(ffmpeg, timeout, cancellationToken);
+            var exitTask = WaitForExitAsync(ffmpeg, effectiveTimeout, cancellationToken);
             var drainTask = DrainStreamAsync(drainedStream, readCts.Token);
 
             var selectedStreamCompleted = await CopySelectedStreamAsync(selectedStream, ms, exitTask, readCts.Token).ConfigureAwait(false);
@@ -108,7 +114,7 @@ public sealed partial class FFmpegRunner : IFFmpegRunner
                 }
             }
 
-            await drainTask.ConfigureAwait(false);
+            var drainedOutput = await drainTask.ConfigureAwait(false);
             var processExited = await exitTask.ConfigureAwait(false);
             if (!processExited)
             {
@@ -117,7 +123,9 @@ public sealed partial class FFmpegRunner : IFFmpegRunner
 
             var output = ms.ToArray();
             cancellationToken.ThrowIfCancellationRequested();
-            return new FFmpegProcessResult(output, processExited ? ffmpeg.ExitCode : -1);
+            return processExited
+                ? new FFmpegProcessResult(output, drainedOutput, FFmpegProcessStatus.Completed, ffmpeg.ExitCode)
+                : new FFmpegProcessResult(output, Array.Empty<byte>(), FFmpegProcessStatus.TimedOut, null);
 
             async Task<FFmpegProcessResult> ReturnTimeoutAsync()
             {
@@ -126,13 +134,26 @@ public sealed partial class FFmpegRunner : IFFmpegRunner
                 ObserveFaultedTask(drainTask);
                 var output = ms.ToArray();
                 cancellationToken.ThrowIfCancellationRequested();
-                return new FFmpegProcessResult(output, -1);
+                return new FFmpegProcessResult(output, Array.Empty<byte>(), FFmpegProcessStatus.TimedOut, null);
             }
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
             await KillProcessAsync(ffmpeg).ConfigureAwait(false);
             throw;
+        }
+    }
+
+    private static void ValidateTimeout(TimeSpan? timeout, TimeSpan effectiveTimeout)
+    {
+        if (effectiveTimeout < TimeSpan.Zero && effectiveTimeout != Timeout.InfiniteTimeSpan)
+        {
+            throw new ArgumentOutOfRangeException(nameof(timeout), timeout, "Timeout must be null, Timeout.InfiniteTimeSpan, or a non-negative TimeSpan.");
+        }
+
+        if (effectiveTimeout != Timeout.InfiniteTimeSpan && effectiveTimeout > MaximumDelayTimeout)
+        {
+            throw new ArgumentOutOfRangeException(nameof(timeout), timeout, $"Timeout must be less than or equal to {MaximumDelayTimeout}.");
         }
     }
 
@@ -278,12 +299,12 @@ public sealed partial class FFmpegRunner : IFFmpegRunner
     /// Waits for process exit and reports whether the process exited before the timeout.
     /// </summary>
     /// <param name="process">Process to wait for.</param>
-    /// <param name="timeout">Timeout in milliseconds, or <see cref="Timeout.Infinite"/>.</param>
+    /// <param name="timeout">Timeout duration, or <see cref="Timeout.InfiniteTimeSpan"/>.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns><c>true</c> if the process exited before the timeout; otherwise <c>false</c>.</returns>
-    private static async Task<bool> WaitForExitAsync(IProcess process, int timeout, CancellationToken cancellationToken)
+    private static async Task<bool> WaitForExitAsync(IProcess process, TimeSpan timeout, CancellationToken cancellationToken)
     {
-        if (timeout == Timeout.Infinite)
+        if (timeout == Timeout.InfiniteTimeSpan)
         {
             await process.WaitForExitAsync(cancellationToken).ConfigureAwait(false);
             return true;
@@ -315,18 +336,22 @@ public sealed partial class FFmpegRunner : IFFmpegRunner
             TaskScheduler.Default);
 
     /// <summary>
-    /// Reads and discards all bytes from a stream to prevent pipe buffer deadlocks.
+    /// Reads all bytes from a stream to prevent pipe buffer deadlocks, capturing them for failure diagnostics.
     /// </summary>
     /// <param name="stream">Stream to drain.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
-    /// <returns>A task that completes when the stream is fully drained.</returns>
-    private static async Task DrainStreamAsync(Stream stream, CancellationToken cancellationToken)
+    /// <returns>The captured bytes from the drained stream.</returns>
+    private static async Task<byte[]> DrainStreamAsync(Stream stream, CancellationToken cancellationToken)
     {
+        using var ms = new MemoryStream();
         var buffer = new byte[4096];
-        while (await stream.ReadAsync(buffer, cancellationToken).ConfigureAwait(false) > 0)
+        int bytesRead;
+        while ((bytesRead = await stream.ReadAsync(buffer, cancellationToken).ConfigureAwait(false)) > 0)
         {
-            // Discard bytes to prevent the pipe buffer from filling up.
+            await ms.WriteAsync(buffer.AsMemory(0, bytesRead), cancellationToken).ConfigureAwait(false);
         }
+
+        return ms.ToArray();
     }
 
     /// <summary>

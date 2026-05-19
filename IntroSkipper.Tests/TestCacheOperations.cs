@@ -146,6 +146,38 @@ public sealed class TestCacheOperations
     }
 
     [Fact]
+    public void LegacyDetectionCacheFileName_TryParse_InvalidName_ReturnsNull()
+    {
+        Assert.Null(LegacyDetectionCacheFileName.TryParse("not-a-guid-silence-1-2-v2"));
+    }
+
+    [Fact]
+    public void LegacyDetectionCacheFileName_TryParse_UnsupportedSuffix_ReturnsUnsupportedWithItemId()
+    {
+        var itemId = Guid.NewGuid();
+
+        var unsupported = LegacyDetectionCacheFileName.TryParse($"{itemId:N}-unknown-suffix");
+
+        Assert.NotNull(unsupported);
+        Assert.Equal(itemId, unsupported.ItemId);
+        Assert.Equal(LegacyDetectionCacheFileName.LegacyCacheKind.Unsupported, unsupported.Kind);
+    }
+
+    [Fact]
+    public void LegacyDetectionCacheFileName_TryParse_SilenceName_ReturnsParsedRange()
+    {
+        var itemId = Guid.NewGuid();
+
+        var silence = LegacyDetectionCacheFileName.TryParse($"{itemId:N}-silence-10.5-20.5-v2");
+
+        Assert.NotNull(silence);
+        Assert.Equal(itemId, silence.ItemId);
+        Assert.Equal(LegacyDetectionCacheFileName.LegacyCacheKind.Silence, silence.Kind);
+        Assert.Equal(10.5, silence.Start);
+        Assert.Equal(20.5, silence.End);
+    }
+
+    [Fact]
     public async Task HasCachedFingerprint_ReturnsTrueForDbRow()
     {
         var episode = new QueuedEpisode { EpisodeId = Guid.NewGuid() };
@@ -156,7 +188,7 @@ public sealed class TestCacheOperations
         using (var db = Plugin.CreateCacheDbContext())
         {
             db.DetectionCache.Add(new DbDetectionCache(
-                episode.EpisodeId, AnalysisMode.Introduction, CacheEntryType.Chromaprint, EntrypointTestHelpers.EmptyJsonArray));
+                episode.EpisodeId, AnalysisMode.Introduction, CacheEntryType.Chromaprint, DetectionCacheVariant.Chromaprint(), EntrypointTestHelpers.EmptyJsonArray));
             await db.SaveChangesAsync();
         }
 
@@ -262,7 +294,7 @@ public sealed class TestCacheOperations
             await CreateCacheService().MigrateLegacyCachesAsync([episode]);
         }
 
-        Assert.False(File.Exists(legacyPath), "Corrupt legacy cache file should be deleted");
+        Assert.True(File.Exists(legacyPath), "Corrupt legacy cache file should be retained for retry or inspection");
 
         using var db = new DetectionCacheDbContext(cacheDbPath);
         Assert.False(
@@ -331,7 +363,7 @@ public sealed class TestCacheOperations
         using (var scope = new CachingPluginScope(cacheDir))
         {
             cacheDbPath = scope.CacheDbPath;
-            var detectionService = CreateDetectionService(new FixedRunner("silence_start: 0\nsilence_end: 1\n", -1));
+            var detectionService = CreateDetectionService(new FixedRunner("silence_start: 0\nsilence_end: 1\n", simulateTimeout: true));
 
             await Assert.ThrowsAsync<TimeoutException>(() =>
                 detectionService.DetectSilenceAsync(episode, range, AnalysisMode.Introduction));
@@ -362,7 +394,7 @@ public sealed class TestCacheOperations
         using (var scope = new CachingPluginScope(cacheDir))
         {
             cacheDbPath = scope.CacheDbPath;
-            var detectionService = CreateDetectionService(new FixedRunner("\u0001\u0000\u0000\u0000", -1));
+            var detectionService = CreateDetectionService(new FixedRunner("\u0001\u0000\u0000\u0000", simulateTimeout: true));
 
             await Assert.ThrowsAsync<TimeoutException>(() =>
                 detectionService.FingerprintAsync(episode, AnalysisMode.Introduction));
@@ -475,7 +507,7 @@ public sealed class TestCacheOperations
         {
             // Should miss cache (end mismatch: 600 vs 900) and then throw
             // because the file doesn't actually exist for ffmpeg
-            await Assert.ThrowsAsync<FingerprintException>(
+            await Assert.ThrowsAsync<FFmpegDetectionException>(
                 async () => await CreateDetectionService().FingerprintAsync(episode, AnalysisMode.Introduction));
         }
     }
@@ -635,7 +667,7 @@ public sealed class TestCacheOperations
             await CreateCacheService().MigrateLegacyCachesAsync([episode]);
         }
 
-        Assert.False(File.Exists(legacyPath), "Legacy file should be deleted even on rejection");
+        Assert.True(File.Exists(legacyPath), "Rejected legacy file should be retained for retry or inspection");
 
         using var db = new DetectionCacheDbContext(cacheDbPath);
         Assert.False(
@@ -776,6 +808,59 @@ public sealed class TestCacheOperations
             e.Type == CacheEntryType.Chromaprint));
     }
 
+    [Fact]
+    public async Task MigrateLegacyCachesAsync_UnsupportedSuffix_IgnoredForMigrationButDeletedAsStale()
+    {
+        var episodeId = Guid.NewGuid();
+        var cacheDir = EntrypointTestHelpers.CreateTempCacheDir();
+        var legacyPath = Path.Join(cacheDir, $"{episodeId:N}-unsupported-suffix");
+
+        await File.WriteAllTextAsync(legacyPath, "legacy data");
+
+        using (new CachingPluginScope(cacheDir))
+        {
+            await CreateCacheService().MigrateLegacyCachesAsync([
+                new QueuedEpisode { EpisodeId = episodeId, Path = "/does/not/exist.mkv" }]);
+        }
+
+        Assert.True(File.Exists(legacyPath));
+
+        using (new CachingPluginScope(cacheDir))
+        {
+            await CreateCacheService().DeleteStaleCachesAsync(new HashSet<Guid>());
+        }
+
+        Assert.False(File.Exists(legacyPath));
+    }
+
+    [Fact]
+    public async Task MigrateLegacyCachesAsync_SuccessfulMigration_IsIdempotentOnRepeatCall()
+    {
+        var episodeId = Guid.NewGuid();
+        var cacheDir = EntrypointTestHelpers.CreateTempCacheDir();
+        var legacyPath = Path.Join(cacheDir, $"{episodeId:N}-silence-10.5-20.5-v2");
+
+        await File.WriteAllTextAsync(legacyPath, "silence_start: 1.0\nsilence_end: 2.5\n");
+
+        string cacheDbPath;
+        using (var scope = new CachingPluginScope(cacheDir))
+        {
+            cacheDbPath = scope.CacheDbPath;
+            var cacheService = CreateCacheService();
+            var episode = new QueuedEpisode { EpisodeId = episodeId, Path = "/does/not/exist.mkv" };
+
+            await cacheService.MigrateLegacyCachesAsync([episode]);
+            await cacheService.MigrateLegacyCachesAsync([episode]);
+        }
+
+        Assert.False(File.Exists(legacyPath));
+
+        using var db = new DetectionCacheDbContext(cacheDbPath);
+        Assert.Equal(
+            Enum.GetValues<AnalysisMode>().Length,
+            db.DetectionCache.Count(e => e.ItemId == episodeId && e.Type == CacheEntryType.Silence));
+    }
+
     [Theory]
     [InlineData("blackframes-10.5-20.5-v1", 10.5, 20.5)]
     [InlineData("blackframes-10.5-alt", 10.5, 0)]
@@ -799,6 +884,7 @@ public sealed class TestCacheOperations
         using (var scope = new CachingPluginScope(cacheDir))
         {
             cacheDbPath = scope.CacheDbPath;
+            SetCacheConfiguration(new PluginConfiguration { CacheFingerprints = true, BlackFrameThreshold = 32 });
             await CreateCacheService().MigrateLegacyCachesAsync([episode]);
         }
 
@@ -809,6 +895,7 @@ public sealed class TestCacheOperations
         Assert.True(db.DetectionCache.Any(e =>
             e.ItemId == episodeId &&
             e.Type == CacheEntryType.BlackFrame &&
+            e.Variant == (expectedEnd == 0 ? DetectionCacheVariant.BlackFrameCredits(32) : DetectionCacheVariant.BlackFrameRange(32)) &&
             e.Mode == AnalysisMode.Credits));
         Assert.False(db.DetectionCache.Any(e =>
             e.ItemId == episodeId &&
@@ -824,8 +911,38 @@ public sealed class TestCacheOperations
             expectedEnd);
         var blackFrame = Assert.Single(blackFrames);
         Assert.Equal(99, blackFrame.Percentage);
-        Assert.Equal(0.043, blackFrame.Time, 3);
+        Assert.Equal(expectedStart + 0.043, blackFrame.Time, 3);
         Assert.Equal(1, blackFrame.Frame);
+    }
+
+    [Theory]
+    [InlineData("blackframes-10.5-20.5-v1", 10.5, 20.5)]
+    [InlineData("blackframes-10.5-alt", 10.5, 0)]
+    public async Task MigrateLegacyCachesAsync_BlackframeFile_UsesDefaultVariant(string suffix, double expectedStart, double expectedEnd)
+    {
+        var episodeId = Guid.NewGuid();
+        var cacheDir = EntrypointTestHelpers.CreateTempCacheDir();
+        var legacyPath = Path.Join(cacheDir, $"{episodeId:N}-{suffix}");
+
+        await File.WriteAllTextAsync(
+            legacyPath,
+            "[Parsed_blackframe_0 @ 0x0000000] frame:1 pblack:99 pts:43 t:0.043000 type:B last_keyframe:0");
+
+        string cacheDbPath;
+        using (var scope = new CachingPluginScope(cacheDir))
+        {
+            cacheDbPath = scope.CacheDbPath;
+            await CreateCacheService().MigrateLegacyCachesAsync([
+                new QueuedEpisode { EpisodeId = episodeId, Path = "/does/not/exist.mkv" }]);
+        }
+
+        using var db = new DetectionCacheDbContext(cacheDbPath);
+        var entry = Assert.Single(db.DetectionCache.Where(e => e.ItemId == episodeId && e.Type == CacheEntryType.BlackFrame));
+        Assert.Equal(
+            expectedEnd == 0 ? DetectionCacheVariant.BlackFrameCredits(28) : DetectionCacheVariant.BlackFrameRange(28),
+            entry.Variant);
+        Assert.Equal(expectedStart, entry.Start);
+        Assert.Equal(expectedEnd, entry.End);
     }
 
     [Fact]
@@ -847,6 +964,7 @@ public sealed class TestCacheOperations
         using (var scope = new CachingPluginScope(cacheDir))
         {
             cacheDbPath = scope.CacheDbPath;
+            SetCacheConfiguration(new PluginConfiguration { CacheFingerprints = true, SilenceDetectionMaximumNoise = -45 });
             var cacheService = CreateCacheService();
 
             await cacheService.MigrateLegacyCachesAsync([episode]);
@@ -859,6 +977,9 @@ public sealed class TestCacheOperations
         Assert.Equal(
             modes.Length,
             db.DetectionCache.Count(e => e.ItemId == episodeId && e.Type == CacheEntryType.Silence));
+        Assert.All(
+            db.DetectionCache.Where(e => e.ItemId == episodeId && e.Type == CacheEntryType.Silence),
+            entry => Assert.Equal(DetectionCacheVariant.Silence(-45), entry.Variant));
 
         foreach (var mode in modes)
         {
@@ -873,6 +994,98 @@ public sealed class TestCacheOperations
             Assert.Equal(11.5, silenceRange.Start);
             Assert.Equal(13.0, silenceRange.End);
         }
+    }
+
+    [Fact]
+    public async Task MigrateLegacyCachesAsync_SilenceFile_UsesDefaultVariant()
+    {
+        var episodeId = Guid.NewGuid();
+        var cacheDir = EntrypointTestHelpers.CreateTempCacheDir();
+        var legacyPath = Path.Join(cacheDir, $"{episodeId:N}-silence-10.5-20.5-v2");
+
+        await File.WriteAllTextAsync(legacyPath, "silence_start: 1.0\nsilence_end: 2.5\n");
+
+        string cacheDbPath;
+        using (var scope = new CachingPluginScope(cacheDir))
+        {
+            cacheDbPath = scope.CacheDbPath;
+            await CreateCacheService().MigrateLegacyCachesAsync([
+                new QueuedEpisode { EpisodeId = episodeId, Path = "/does/not/exist.mkv" }]);
+        }
+
+        using var db = new DetectionCacheDbContext(cacheDbPath);
+        var silenceEntries = db.DetectionCache.Where(e => e.ItemId == episodeId && e.Type == CacheEntryType.Silence).ToList();
+        Assert.Equal(Enum.GetValues<AnalysisMode>().Length, silenceEntries.Count);
+        Assert.All(
+            silenceEntries,
+            entry => Assert.Equal(DetectionCacheVariant.Silence(-50), entry.Variant));
+    }
+
+    [Fact]
+    public async Task MigrateLegacyCachesAsync_SilenceVariant_ChangesWithCurrentNoiseSetting()
+    {
+        var defaultEpisodeId = Guid.NewGuid();
+        var configuredEpisodeId = Guid.NewGuid();
+        var cacheDir = EntrypointTestHelpers.CreateTempCacheDir();
+        var defaultLegacyPath = Path.Join(cacheDir, $"{defaultEpisodeId:N}-silence-10.5-20.5-v2");
+        var configuredLegacyPath = Path.Join(cacheDir, $"{configuredEpisodeId:N}-silence-10.5-20.5-v2");
+
+        await File.WriteAllTextAsync(defaultLegacyPath, "silence_start: 1.0\nsilence_end: 2.5\n");
+
+        string cacheDbPath;
+        using (var scope = new CachingPluginScope(cacheDir))
+        {
+            cacheDbPath = scope.CacheDbPath;
+            await CreateCacheService().MigrateLegacyCachesAsync([
+                new QueuedEpisode { EpisodeId = defaultEpisodeId, Path = "/does/not/exist.mkv" }]);
+
+            Directory.CreateDirectory(cacheDir);
+            await File.WriteAllTextAsync(configuredLegacyPath, "silence_start: 1.0\nsilence_end: 2.5\n");
+            SetCacheConfiguration(new PluginConfiguration { CacheFingerprints = true, SilenceDetectionMaximumNoise = -45 });
+            await CreateCacheService().MigrateLegacyCachesAsync([
+                new QueuedEpisode { EpisodeId = configuredEpisodeId, Path = "/does/not/exist.mkv" }]);
+        }
+
+        using var db = new DetectionCacheDbContext(cacheDbPath);
+        var defaultEntries = db.DetectionCache.Where(e => e.ItemId == defaultEpisodeId && e.Type == CacheEntryType.Silence).ToList();
+        var configuredEntries = db.DetectionCache.Where(e => e.ItemId == configuredEpisodeId && e.Type == CacheEntryType.Silence).ToList();
+        Assert.Equal(Enum.GetValues<AnalysisMode>().Length, defaultEntries.Count);
+        Assert.Equal(Enum.GetValues<AnalysisMode>().Length, configuredEntries.Count);
+        Assert.All(
+            defaultEntries,
+            entry => Assert.Equal(DetectionCacheVariant.Silence(-50), entry.Variant));
+        Assert.All(
+            configuredEntries,
+            entry => Assert.Equal(DetectionCacheVariant.Silence(-45), entry.Variant));
+    }
+
+    [Fact]
+    public async Task MigrateLegacyCachesAsync_ModeAgnosticKeyframeFile_WritesAllModesWithFinalVariant()
+    {
+        var episodeId = Guid.NewGuid();
+        var cacheDir = EntrypointTestHelpers.CreateTempCacheDir();
+        var legacyPath = Path.Join(cacheDir, $"{episodeId:N}-keyframes-10.5-20.5-v1");
+
+        await File.WriteAllTextAsync(legacyPath, "[Parsed_showinfo_0] n:0 pts_time:0.5\n[Parsed_showinfo_0] n:1 pts_time:2.0\n");
+
+        string cacheDbPath;
+        using (var scope = new CachingPluginScope(cacheDir))
+        {
+            cacheDbPath = scope.CacheDbPath;
+            await CreateCacheService().MigrateLegacyCachesAsync([
+                new QueuedEpisode { EpisodeId = episodeId, Path = "/does/not/exist.mkv" }]);
+        }
+
+        Assert.False(File.Exists(legacyPath));
+
+        using var db = new DetectionCacheDbContext(cacheDbPath);
+        var modes = Enum.GetValues<AnalysisMode>();
+        Assert.Equal(
+            modes.Length,
+            db.DetectionCache.Count(e => e.ItemId == episodeId && e.Type == CacheEntryType.Keyframe));
+        Assert.All(
+            db.DetectionCache.Where(e => e.ItemId == episodeId && e.Type == CacheEntryType.Keyframe),
+            entry => Assert.Equal(DetectionCacheVariant.Keyframe(), entry.Variant));
     }
 
     [Theory]
@@ -924,6 +1137,14 @@ public sealed class TestCacheOperations
             plugin,
             "Configuration",
             new PluginConfiguration { CacheFingerprints = enabled });
+    }
+
+    private static void SetCacheConfiguration(PluginConfiguration configuration)
+    {
+        var plugin = Plugin.Instance;
+        Assert.NotNull(plugin);
+
+        EntrypointTestHelpers.SetPropertyOrField(plugin, "Configuration", configuration);
     }
 
     private static uint[] ReadFingerprintFromDb(DetectionCacheDbContext db, Guid itemId, AnalysisMode mode)
@@ -991,16 +1212,39 @@ public sealed class TestCacheOperations
         public void Dispose() => _inner.Dispose();
     }
 
-    private sealed class FixedRunner(string output, int exitCode) : IFFmpegRunner
+    private sealed class FixedRunner(string output, bool simulateTimeout = false, int exitCode = 0) : IFFmpegRunner
     {
         public Task<FFmpegProcessResult> RunAsync(
             IReadOnlyList<string> args,
-            bool stderr = false,
-            int timeout = 60 * 1000,
+            FFmpegOutputStream outputStream = FFmpegOutputStream.Stdout,
+            TimeSpan? timeout = null,
             CancellationToken cancellationToken = default)
             => Task.FromResult(CreateResult());
 
         private FFmpegProcessResult CreateResult()
-            => new(System.Text.Encoding.UTF8.GetBytes(output), exitCode);
+            => simulateTimeout
+                ? new(System.Text.Encoding.UTF8.GetBytes(output), Array.Empty<byte>(), FFmpegProcessStatus.TimedOut, null)
+                : new(System.Text.Encoding.UTF8.GetBytes(output), Array.Empty<byte>(), FFmpegProcessStatus.Completed, exitCode);
+    }
+
+    [Fact]
+    public async Task HasCachedFingerprint_ReturnsFalseForNonChromaprintVariant()
+    {
+        var episode = new QueuedEpisode { EpisodeId = Guid.NewGuid() };
+        var cacheDir = EntrypointTestHelpers.CreateTempCacheDir();
+
+        using var scope = new EntrypointTestHelpers.PluginInstanceScope(cacheDir);
+
+        using (var db = Plugin.CreateCacheDbContext())
+        {
+            db.DetectionCache.Add(new DbDetectionCache(
+                episode.EpisodeId, AnalysisMode.Introduction, CacheEntryType.Chromaprint, "chromaprint:v0", EntrypointTestHelpers.EmptyJsonArray));
+            await db.SaveChangesAsync();
+        }
+
+        using (new CachingPluginScope(cacheDir, scope.CacheDbPath))
+        {
+            Assert.False(await CreateCacheService().HasCachedFingerprintAsync(episode, AnalysisMode.Introduction));
+        }
     }
 }

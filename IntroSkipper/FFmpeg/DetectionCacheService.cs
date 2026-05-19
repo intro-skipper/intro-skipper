@@ -14,6 +14,8 @@ using IntroSkipper.Data;
 using IntroSkipper.Db;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
+using LegacyCacheKind = IntroSkipper.FFmpeg.LegacyDetectionCacheFileName.LegacyCacheKind;
+using LegacyParseResult = IntroSkipper.FFmpeg.LegacyDetectionCacheFileName.LegacyParseResult;
 
 namespace IntroSkipper.FFmpeg;
 
@@ -52,14 +54,6 @@ public sealed partial class DetectionCacheService : IDetectionCacheService
 
         _options = options;
         _logger = logger;
-    }
-
-    private enum DetectionCacheKind
-    {
-        Silence,
-        BlackFrameRange,
-        BlackFrameAlt,
-        Keyframe
     }
 
     /// <inheritdoc />
@@ -111,7 +105,7 @@ public sealed partial class DetectionCacheService : IDetectionCacheService
         {
             using var db = Plugin.CreateCacheDbContext();
 
-            await UpsertJsonCacheEntryAsync(db, key.ItemId, key.Mode, key.Type, key.Start, key.End, data, cancellationToken)
+            await UpsertJsonCacheEntryAsync(db, key.ItemId, key.Mode, key.Type, key.Start, key.End, key.Variant, data, cancellationToken)
                 .ConfigureAwait(false);
             await db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
             return true;
@@ -248,13 +242,13 @@ public sealed partial class DetectionCacheService : IDetectionCacheService
                 cancellationToken.ThrowIfCancellationRequested();
 
                 var filename = Path.GetFileName(filePath);
-                if (!TryGetLegacyDetectionCacheParts(filename, out var legacyId, out _) ||
-                    enabledItemIds.Contains(legacyId))
+                var legacyFile = LegacyDetectionCacheFileName.TryParse(filename);
+                if (legacyFile is null || enabledItemIds.Contains(legacyFile.ItemId))
                 {
                     continue;
                 }
 
-                invalidItemIds.Add(legacyId);
+                invalidItemIds.Add(legacyFile.ItemId);
                 staleLegacyFiles.Add(filePath);
             }
         }
@@ -350,14 +344,15 @@ public sealed partial class DetectionCacheService : IDetectionCacheService
             cancellationToken.ThrowIfCancellationRequested();
 
             var filename = Path.GetFileName(filePath);
-            if (!TryGetLegacyDetectionCacheParts(filename, out var itemId, out var suffix))
+            var legacyFile = LegacyDetectionCacheFileName.TryParse(filename);
+            if (legacyFile is null || legacyFile.Kind == LegacyCacheKind.Unsupported)
             {
                 continue;
             }
 
             try
             {
-                if (await TryMigrateLegacyFileAsync(filePath, filename, itemId, suffix, episodeLookup, cancellationToken).ConfigureAwait(false))
+                if (await TryMigrateLegacyFileAsync(filePath, filename, legacyFile, episodeLookup, cancellationToken).ConfigureAwait(false))
                 {
                     migrated++;
                 }
@@ -396,7 +391,8 @@ public sealed partial class DetectionCacheService : IDetectionCacheService
                     mode,
                     CacheEntryType.Chromaprint,
                     start,
-                    end)
+                    end,
+                    DetectionCacheVariant.Chromaprint())
                 .AnyAsync(cancellationToken).ConfigureAwait(false);
         }
         catch (DbException ex)
@@ -443,6 +439,7 @@ public sealed partial class DetectionCacheService : IDetectionCacheService
         CacheEntryType type,
         double start,
         double end,
+        string variant,
         T[] items,
         CancellationToken cancellationToken)
     {
@@ -457,7 +454,7 @@ public sealed partial class DetectionCacheService : IDetectionCacheService
             {
                 LogMigratingLegacyCache(_logger, legacyCacheKey, cacheKey);
 
-                var existingEntries = await WhereCacheRange(db.DetectionCache, itemId, type, start, end)
+                var existingEntries = await WhereCacheRange(db.DetectionCache, itemId, type, start, end, variant)
                     .ToListAsync(cancellationToken)
                     .ConfigureAwait(false);
 
@@ -470,7 +467,7 @@ public sealed partial class DetectionCacheService : IDetectionCacheService
                     }
                     else
                     {
-                        db.DetectionCache.Add(new DbDetectionCache(itemId, mode, type, data, start, end));
+                        db.DetectionCache.Add(new DbDetectionCache(itemId, mode, type, variant, data, start, end));
                     }
                 }
 
@@ -495,7 +492,7 @@ public sealed partial class DetectionCacheService : IDetectionCacheService
     }
 
     private static string GetCacheLogKey(DetectionCacheKey key)
-        => $"{key.ItemId:N}-{key.Mode}-{key.Type}";
+        => $"{key.ItemId:N}-{key.Mode}-{key.Type}-{key.Variant}";
 
     private static uint[] ParseFingerprintRaw(string raw)
     {
@@ -515,10 +512,13 @@ public sealed partial class DetectionCacheService : IDetectionCacheService
         return [.. result];
     }
 
+    private static BlackFrame[] OffsetBlackFrames(BlackFrame[] frames, double offset)
+        => [.. frames.Select(frame => frame with { Time = frame.Time + offset })];
+
     private static IQueryable<DbDetectionCache> WhereCacheKey(
         IQueryable<DbDetectionCache> query,
         DetectionCacheKey key)
-        => WhereCacheKey(query, key.ItemId, key.Mode, key.Type, key.Start, key.End);
+        => WhereCacheKey(query, key.ItemId, key.Mode, key.Type, key.Start, key.End, key.Variant);
 
     private static IQueryable<DbDetectionCache> WhereCacheKey(
         IQueryable<DbDetectionCache> query,
@@ -526,8 +526,9 @@ public sealed partial class DetectionCacheService : IDetectionCacheService
         AnalysisMode mode,
         CacheEntryType type,
         double start,
-        double end)
-        => WhereCacheRange(query, itemId, type, start, end)
+        double end,
+        string variant)
+        => WhereCacheRange(query, itemId, type, start, end, variant)
             .Where(e => e.Mode == mode);
 
     private static IQueryable<DbDetectionCache> WhereCacheRange(
@@ -535,9 +536,11 @@ public sealed partial class DetectionCacheService : IDetectionCacheService
         Guid itemId,
         CacheEntryType type,
         double start,
-        double end)
+        double end,
+        string variant)
         => query.Where(e => e.ItemId == itemId &&
             e.Type == type &&
+            e.Variant == variant &&
             e.Start >= start - CacheTimeTolerance &&
             e.Start <= start + CacheTimeTolerance &&
             e.End >= end - CacheTimeTolerance &&
@@ -550,10 +553,11 @@ public sealed partial class DetectionCacheService : IDetectionCacheService
         CacheEntryType type,
         double start,
         double end,
+        string variant,
         byte[] data,
         CancellationToken cancellationToken)
     {
-        var existing = await WhereCacheKey(db.DetectionCache, itemId, mode, type, start, end)
+        var existing = await WhereCacheKey(db.DetectionCache, itemId, mode, type, start, end, variant)
             .FirstOrDefaultAsync(cancellationToken)
             .ConfigureAwait(false);
 
@@ -563,27 +567,8 @@ public sealed partial class DetectionCacheService : IDetectionCacheService
         }
         else
         {
-            db.DetectionCache.Add(new DbDetectionCache(itemId, mode, type, data, start, end));
+            db.DetectionCache.Add(new DbDetectionCache(itemId, mode, type, variant, data, start, end));
         }
-    }
-
-    internal static bool TryGetLegacyDetectionCacheParts(string filename, out Guid itemId, out string suffix)
-    {
-        itemId = Guid.Empty;
-        suffix = string.Empty;
-        if (filename.Length < 32 || (filename.Length > 32 && filename[32] != '-'))
-        {
-            return false;
-        }
-
-        var itemIdText = filename[..32];
-        if (!Guid.TryParseExact(itemIdText, "N", out itemId))
-        {
-            return false;
-        }
-
-        suffix = filename.Length == 32 ? string.Empty : filename[33..];
-        return true;
     }
 
     private void DeleteLegacyCacheFilePath(string legacyTextPath)
@@ -615,7 +600,6 @@ public sealed partial class DetectionCacheService : IDetectionCacheService
             // An empty chromaprint legacy file is corrupt; empty detection result caches are valid.
             if (key.Type == CacheEntryType.Chromaprint && result.Length == 0)
             {
-                DeleteLegacyCacheFilePath(legacyTextPath);
                 return false;
             }
 
@@ -629,7 +613,6 @@ public sealed partial class DetectionCacheService : IDetectionCacheService
                 {
                     LogLegacyDurationMismatch(_logger, legacyCacheKey, inferredDuration, expectedDuration);
 
-                    DeleteLegacyCacheFilePath(legacyTextPath);
                     return false;
                 }
             }
@@ -654,21 +637,15 @@ public sealed partial class DetectionCacheService : IDetectionCacheService
     private async Task<bool> TryMigrateLegacyFileAsync(
         string filePath,
         string filename,
-        Guid itemId,
-        string suffix,
+        LegacyParseResult legacyFile,
         Dictionary<Guid, QueuedEpisode> episodeLookup,
         CancellationToken cancellationToken)
     {
-        // Determine what kind of legacy file this is based on its suffix.
-        // Fingerprint files: "{guid}" or "{guid}-credits"
-        // Silence files: "{guid}-silence-{start}-{end}-v2"
-        // BlackFrame files: "{guid}-blackframes-{start}-{end}-v1" or "{guid}-blackframes-{start}-alt"
-        // Keyframe files: "{guid}-keyframes-{start}-{end}-v1"
-
-        if (string.IsNullOrEmpty(suffix) || suffix == "credits")
+        var itemId = legacyFile.ItemId;
+        if (legacyFile.Kind is LegacyCacheKind.Fingerprint or LegacyCacheKind.CreditFingerprint)
         {
             // Chromaprint fingerprint file
-            var mode = suffix == "credits" ? AnalysisMode.Credits : AnalysisMode.Introduction;
+            var mode = legacyFile.Kind == LegacyCacheKind.CreditFingerprint ? AnalysisMode.Credits : AnalysisMode.Introduction;
 
             if (!episodeLookup.TryGetValue(itemId, out var episode))
             {
@@ -676,7 +653,7 @@ public sealed partial class DetectionCacheService : IDetectionCacheService
             }
 
             var (start, end) = episode.GetFingerprintRange(mode);
-            var key = new DetectionCacheKey(itemId, mode, CacheEntryType.Chromaprint, start, end);
+            var key = new DetectionCacheKey(itemId, mode, CacheEntryType.Chromaprint, start, end, DetectionCacheVariant.Chromaprint());
             var legacyCacheKey = GetLegacyFingerprintCacheKey(itemId, mode);
 
             if (TryLoadLegacyCache(legacyCacheKey, filePath, key, ParseFingerprintRaw, out var result) &&
@@ -689,53 +666,52 @@ public sealed partial class DetectionCacheService : IDetectionCacheService
             return false;
         }
 
-        // Non-fingerprint legacy files: parse the suffix to build a DetectionCacheKey
-        if (TryParseLegacySuffix(suffix, out var cacheKind, out var legacyStart, out var legacyEnd))
+        return legacyFile.Kind switch
         {
-            return cacheKind switch
-            {
-                DetectionCacheKind.Silence => await MigrateLegacyTypedAsync(
-                    filePath,
-                    filename,
-                    itemId,
-                    CacheEntryType.Silence,
-                    legacyStart,
-                    legacyEnd,
-                    raw => FFmpegOutputParser.ParseSilenceRaw(raw, legacyStart),
-                    AnalysisMode.Introduction,
-                    modeAgnostic: true,
-                    cancellationToken).ConfigureAwait(false),
+            LegacyCacheKind.Silence => await MigrateLegacyTypedAsync(
+                filePath,
+                filename,
+                itemId,
+                CacheEntryType.Silence,
+                legacyFile.Start,
+                legacyFile.End,
+                raw => FFmpegOutputParser.ParseSilenceRaw(raw, legacyFile.Start),
+                AnalysisMode.Introduction,
+                DetectionCacheVariant.Silence(_options.SilenceDetectionMaximumNoise),
+                modeAgnostic: true,
+                cancellationToken).ConfigureAwait(false),
 
-                // Legacy blackframe caches are Credits-only because blackframe analyzers run in Credits mode.
-                DetectionCacheKind.BlackFrameRange or DetectionCacheKind.BlackFrameAlt => await MigrateLegacyTypedAsync(
-                    filePath,
-                    filename,
-                    itemId,
-                    CacheEntryType.BlackFrame,
-                    legacyStart,
-                    legacyEnd,
-                    static raw => FFmpegOutputParser.ParseBlackFrames(raw),
-                    AnalysisMode.Credits,
-                    modeAgnostic: false,
-                    cancellationToken).ConfigureAwait(false),
+            // Legacy blackframe caches are Credits-only because blackframe analyzers run in Credits mode.
+            LegacyCacheKind.BlackFrameRange or LegacyCacheKind.BlackFrameCredits => await MigrateLegacyTypedAsync(
+                filePath,
+                filename,
+                itemId,
+                CacheEntryType.BlackFrame,
+                legacyFile.Start,
+                legacyFile.End,
+                raw => OffsetBlackFrames(FFmpegOutputParser.ParseBlackFrames(raw), legacyFile.Start),
+                AnalysisMode.Credits,
+                legacyFile.Kind == LegacyCacheKind.BlackFrameCredits
+                    ? DetectionCacheVariant.BlackFrameCredits(_options.BlackFrameThreshold)
+                    : DetectionCacheVariant.BlackFrameRange(_options.BlackFrameThreshold),
+                modeAgnostic: false,
+                cancellationToken).ConfigureAwait(false),
 
-                DetectionCacheKind.Keyframe => await MigrateLegacyTypedAsync(
-                    filePath,
-                    filename,
-                    itemId,
-                    CacheEntryType.Keyframe,
-                    legacyStart,
-                    legacyEnd,
-                    raw => FFmpegOutputParser.ParseKeyFramesRaw(raw, legacyStart),
-                    AnalysisMode.Introduction,
-                    modeAgnostic: true,
-                    cancellationToken).ConfigureAwait(false),
+            LegacyCacheKind.Keyframe => await MigrateLegacyTypedAsync(
+                filePath,
+                filename,
+                itemId,
+                CacheEntryType.Keyframe,
+                legacyFile.Start,
+                legacyFile.End,
+                raw => FFmpegOutputParser.ParseKeyFramesRaw(raw, legacyFile.Start),
+                AnalysisMode.Introduction,
+                DetectionCacheVariant.Keyframe(),
+                modeAgnostic: true,
+                cancellationToken).ConfigureAwait(false),
 
-                _ => false,
-            };
-        }
-
-        return false;
+            _ => false,
+        };
     }
 
     /// <summary>
@@ -750,10 +726,11 @@ public sealed partial class DetectionCacheService : IDetectionCacheService
         double end,
         Func<string, T[]> rawParser,
         AnalysisMode mode,
+        string variant,
         bool modeAgnostic,
         CancellationToken cancellationToken)
     {
-        var key = new DetectionCacheKey(itemId, mode, type, start, end);
+        var key = new DetectionCacheKey(itemId, mode, type, start, end, variant);
 
         if (!TryLoadLegacyCache(legacyCacheKey, filePath, key, rawParser, out var result))
         {
@@ -762,7 +739,7 @@ public sealed partial class DetectionCacheService : IDetectionCacheService
 
         var written = modeAgnostic
             ? await WriteJsonCacheForAllModesAsync(
-                legacyCacheKey, itemId, type, start, end, result, cancellationToken).ConfigureAwait(false)
+                legacyCacheKey, itemId, type, start, end, variant, result, cancellationToken).ConfigureAwait(false)
             : await WriteJsonCacheAsync(key, result, cancellationToken).ConfigureAwait(false);
 
         if (written)
@@ -771,76 +748,6 @@ public sealed partial class DetectionCacheService : IDetectionCacheService
         }
 
         return written;
-    }
-
-    /// <summary>
-    /// Parses the suffix portion of a legacy cache filename to determine its kind and time range.
-    /// </summary>
-    private static bool TryParseLegacySuffix(
-        string suffix,
-        out DetectionCacheKind kind,
-        out double start,
-        out double end)
-    {
-        kind = default;
-        start = 0;
-        end = 0;
-
-        // silence-{start}-{end}-v2
-        if (suffix.StartsWith("silence-", StringComparison.Ordinal) && suffix.EndsWith("-v2", StringComparison.Ordinal))
-        {
-            var inner = suffix["silence-".Length..^"-v2".Length];
-            var parts = inner.Split('-');
-            if (parts.Length == 2 &&
-                double.TryParse(parts[0], CultureInfo.InvariantCulture, out start) &&
-                double.TryParse(parts[1], CultureInfo.InvariantCulture, out end))
-            {
-                kind = DetectionCacheKind.Silence;
-                return true;
-            }
-        }
-
-        // blackframes-{start}-{end}-v1
-        else if (suffix.StartsWith("blackframes-", StringComparison.Ordinal) && suffix.EndsWith("-v1", StringComparison.Ordinal))
-        {
-            var inner = suffix["blackframes-".Length..^"-v1".Length];
-            var parts = inner.Split('-');
-            if (parts.Length == 2 &&
-                double.TryParse(parts[0], CultureInfo.InvariantCulture, out start) &&
-                double.TryParse(parts[1], CultureInfo.InvariantCulture, out end))
-            {
-                kind = DetectionCacheKind.BlackFrameRange;
-                return true;
-            }
-        }
-
-        // blackframes-{start}-alt
-        else if (suffix.StartsWith("blackframes-", StringComparison.Ordinal) && suffix.EndsWith("-alt", StringComparison.Ordinal))
-        {
-            var inner = suffix["blackframes-".Length..^"-alt".Length];
-            if (double.TryParse(inner, CultureInfo.InvariantCulture, out start))
-            {
-                kind = DetectionCacheKind.BlackFrameAlt;
-                end = 0;
-                return true;
-            }
-        }
-
-        // keyframes-{start}-{end}-v1
-        else if (suffix.StartsWith("keyframes-", StringComparison.Ordinal) && suffix.EndsWith("-v1", StringComparison.Ordinal))
-        {
-            var inner = suffix["keyframes-".Length..^"-v1".Length];
-            var parts = inner.Split('-');
-            if (parts.Length == 2 &&
-                double.TryParse(parts[0], CultureInfo.InvariantCulture, out start) &&
-                double.TryParse(parts[1], CultureInfo.InvariantCulture, out end))
-            {
-                kind = DetectionCacheKind.Keyframe;
-                return true;
-            }
-        }
-
-        return false;
     }
 
     private static bool HasRemainingLegacyMigrationCandidates(string cacheDir)
@@ -854,8 +761,8 @@ public sealed partial class DetectionCacheService : IDetectionCacheService
         {
             foreach (var filePath in Directory.EnumerateFiles(cacheDir))
             {
-                if (TryGetLegacyDetectionCacheParts(Path.GetFileName(filePath), out _, out var suffix) &&
-                    IsSupportedLegacySuffix(suffix))
+                var legacyFile = LegacyDetectionCacheFileName.TryParse(Path.GetFileName(filePath));
+                if (legacyFile is not null && legacyFile.Kind != LegacyCacheKind.Unsupported)
                 {
                     return true;
                 }
@@ -867,16 +774,6 @@ public sealed partial class DetectionCacheService : IDetectionCacheService
         {
             return true;
         }
-    }
-
-    private static bool IsSupportedLegacySuffix(string suffix)
-    {
-        if (string.IsNullOrEmpty(suffix) || suffix == "credits")
-        {
-            return true;
-        }
-
-        return TryParseLegacySuffix(suffix, out _, out _, out _);
     }
 
     /// <summary>

@@ -85,7 +85,7 @@ public class TestFFmpegServices
         episode.Duration = 2;
 
         // Detect black frames - this should not produce "Trailing option" warning
-        var blackFrames = await CreateDetectionService().DetectBlackFramesAsync(episode, new TimeRange(0, 2), 85, 32, AnalysisMode.Introduction);
+        var blackFrames = await CreateDetectionService().DetectBlackFramesInRangeAsync(episode, new TimeRange(0, 2), 85, 32, AnalysisMode.Introduction);
 
         // Verify we got results (meaning FFmpeg ran successfully without warnings)
         Assert.NotNull(blackFrames);
@@ -100,7 +100,7 @@ public class TestFFmpegServices
         episode.CreditsFingerprintStart = 0;
 
         // Alternative black frame detection
-        var blackFrames = await CreateDetectionService().DetectBlackFramesAsync(episode, 32);
+        var blackFrames = await CreateDetectionService().DetectCreditBlackFramesAsync(episode, 32);
 
         Assert.NotNull(blackFrames);
     }
@@ -109,9 +109,14 @@ public class TestFFmpegServices
     public async Task TestNoTrailingOptionsWithSilenceDetection()
     {
         // Test silence detection with actual media file
-        var episode = QueueFile("rainbow.mp4");
-        episode.Duration = 2;
-        episode.IntroFingerprintEnd = 2;
+        var episode = new QueuedEpisode
+        {
+            EpisodeId = Guid.NewGuid(),
+            Name = "big_buck_bunny_clip.mp3",
+            Path = "../../../audio/big_buck_bunny_clip.mp3",
+            Duration = 2,
+            IntroFingerprintEnd = 2,
+        };
 
         // Detect silence - this should not produce "Trailing option" warning
         var silenceRanges = await CreateDetectionService().DetectSilenceAsync(episode, new TimeRange(0, 2), AnalysisMode.Introduction);

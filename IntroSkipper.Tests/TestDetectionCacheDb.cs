@@ -10,6 +10,7 @@ using System.Linq;
 using System.Text;
 using IntroSkipper.Data;
 using IntroSkipper.Db;
+using IntroSkipper.FFmpeg;
 using Microsoft.EntityFrameworkCore;
 using Xunit;
 
@@ -110,6 +111,79 @@ public sealed class TestDetectionCacheDbContext : IDisposable
             Assert.Equal(id, entry.ItemId);
             Assert.Equal(10, entry.Start);
             Assert.Equal(20, entry.End);
+        }
+    }
+
+    [Fact]
+    public void EnsureSchema_RecreatesDatabaseMissingVariantColumn()
+    {
+        using (var db = CreateContext())
+        {
+            db.Database.EnsureDeleted();
+            db.Database.ExecuteSqlRaw(
+                """
+                CREATE TABLE DetectionCache (
+                    Id INTEGER NOT NULL CONSTRAINT PK_DetectionCache PRIMARY KEY AUTOINCREMENT,
+                    ItemId TEXT NOT NULL,
+                    Mode INTEGER NOT NULL,
+                    Type INTEGER NOT NULL,
+                    Start REAL NOT NULL DEFAULT 0.0,
+                    End REAL NOT NULL DEFAULT 0.0,
+                    Data BLOB NOT NULL
+                );
+                CREATE UNIQUE INDEX IX_DetectionCache_Unique ON DetectionCache (ItemId, Mode, Type, Start, End);
+                """);
+        }
+
+        var id = Guid.NewGuid();
+        using (var db = CreateContext())
+        {
+            db.EnsureSchema();
+            db.DetectionCache.Add(new DbDetectionCache(id, AnalysisMode.Introduction, CacheEntryType.Silence, DetectionCacheVariant.Silence(-50), EntrypointTestHelpers.EmptyJsonArray, 10, 20));
+            db.SaveChanges();
+        }
+
+        using (var db = CreateContext())
+        {
+            var entry = Assert.Single(db.DetectionCache);
+            Assert.Equal(DetectionCacheVariant.Silence(-50), entry.Variant);
+        }
+    }
+
+    [Fact]
+    public void EnsureSchema_RecreatesDatabaseWithNonUniqueVariantIndex()
+    {
+        using (var db = CreateContext())
+        {
+            db.Database.EnsureDeleted();
+            db.Database.ExecuteSqlRaw(
+                """
+                CREATE TABLE DetectionCache (
+                    Id INTEGER NOT NULL CONSTRAINT PK_DetectionCache PRIMARY KEY AUTOINCREMENT,
+                    ItemId TEXT NOT NULL,
+                    Mode INTEGER NOT NULL,
+                    Type INTEGER NOT NULL,
+                    Start REAL NOT NULL DEFAULT 0.0,
+                    End REAL NOT NULL DEFAULT 0.0,
+                    Variant TEXT NOT NULL,
+                    Data BLOB NOT NULL
+                );
+                CREATE INDEX IX_DetectionCache_Unique ON DetectionCache (ItemId, Mode, Type, Start, End, Variant);
+                """);
+        }
+
+        var id = Guid.NewGuid();
+        using (var db = CreateContext())
+        {
+            db.EnsureSchema();
+            db.DetectionCache.Add(new DbDetectionCache(id, AnalysisMode.Introduction, CacheEntryType.Silence, DetectionCacheVariant.Silence(-50), EntrypointTestHelpers.EmptyJsonArray, 10, 20));
+            db.SaveChanges();
+        }
+
+        using (var db = CreateContext())
+        {
+            db.DetectionCache.Add(new DbDetectionCache(id, AnalysisMode.Introduction, CacheEntryType.Silence, DetectionCacheVariant.Silence(-50), EntrypointTestHelpers.EmptyJsonArray, 10, 20));
+            Assert.ThrowsAny<DbUpdateException>(() => db.SaveChanges());
         }
     }
 
@@ -316,6 +390,24 @@ public sealed class TestDetectionCacheDbContext : IDisposable
         {
             db.DetectionCache.Add(new DbDetectionCache(id, AnalysisMode.Introduction, CacheEntryType.Silence, Encoding.UTF8.GetBytes("[1]"), 0, 30));
             Assert.ThrowsAny<DbUpdateException>(() => db.SaveChanges());
+        }
+    }
+
+    [Fact]
+    public void UniqueIndex_AllowsDifferentVariantsForSameRange()
+    {
+        var id = Guid.NewGuid();
+
+        using (var db = CreateContext())
+        {
+            db.DetectionCache.Add(new DbDetectionCache(id, AnalysisMode.Introduction, CacheEntryType.Silence, DetectionCacheVariant.Silence(-50), EntrypointTestHelpers.EmptyJsonArray, 0, 30));
+            db.DetectionCache.Add(new DbDetectionCache(id, AnalysisMode.Introduction, CacheEntryType.Silence, DetectionCacheVariant.Silence(-45), EntrypointTestHelpers.EmptyJsonArray, 0, 30));
+            db.SaveChanges();
+        }
+
+        using (var db = CreateContext())
+        {
+            Assert.Equal(2, db.DetectionCache.Count(e => e.ItemId == id && e.Type == CacheEntryType.Silence));
         }
     }
 

@@ -19,22 +19,41 @@ public class DbDetectionCache
     /// <param name="itemId">The episode identifier.</param>
     /// <param name="mode">The analysis mode.</param>
     /// <param name="type">The type of detection data.</param>
+    /// <param name="variant">The versioned cache variant identifier.</param>
     /// <param name="data">The Brotli-compressed, UTF-8 JSON detection data.</param>
     /// <param name="start">The start time of the analyzed range.</param>
     /// <param name="end">The end time of the analyzed range.</param>
-    public DbDetectionCache(Guid itemId, AnalysisMode mode, CacheEntryType type, byte[] data, double start = 0, double end = 0)
+    [SetsRequiredMembers]
+    public DbDetectionCache(Guid itemId, AnalysisMode mode, CacheEntryType type, string variant, byte[] data, double start = 0, double end = 0)
     {
         ItemId = itemId;
         Mode = mode;
         Type = type;
+        Variant = variant;
         Data = data;
         Start = start;
         End = end;
     }
 
     /// <summary>
+    /// Initializes a new instance of the <see cref="DbDetectionCache"/> class using the default variant for tests and legacy callers.
+    /// </summary>
+    /// <param name="itemId">The episode identifier.</param>
+    /// <param name="mode">The analysis mode.</param>
+    /// <param name="type">The type of detection data.</param>
+    /// <param name="data">The Brotli-compressed, UTF-8 JSON detection data.</param>
+    /// <param name="start">The start time of the analyzed range.</param>
+    /// <param name="end">The end time of the analyzed range.</param>
+    [SetsRequiredMembers]
+    public DbDetectionCache(Guid itemId, AnalysisMode mode, CacheEntryType type, byte[] data, double start = 0, double end = 0)
+        : this(itemId, mode, type, GetDefaultVariant(type, end), data, start, end)
+    {
+    }
+
+    /// <summary>
     /// Initializes a new instance of the <see cref="DbDetectionCache"/> class.
     /// </summary>
+    [SetsRequiredMembers]
     public DbDetectionCache()
     {
     }
@@ -60,6 +79,11 @@ public class DbDetectionCache
     public CacheEntryType Type { get; private set; }
 
     /// <summary>
+    /// Gets or sets the versioned cache variant identifier.
+    /// </summary>
+    public required string Variant { get; set; } = string.Empty;
+
+    /// <summary>
     /// Gets the start time of the analyzed range (in seconds).
     /// </summary>
     /// <value>The range start in seconds. For chromaprint entries, this is the fingerprint start time (0 for introductions).</value>
@@ -82,4 +106,15 @@ public class DbDetectionCache
     /// </value>
     [SuppressMessage("Performance", "CA1819:Properties should not return arrays", Justification = "EF Core requires byte[] for BLOB column mapping.")]
     public byte[] Data { get; set; } = [];
+
+    private static string GetDefaultVariant(CacheEntryType type, double end)
+        => type switch
+        {
+            CacheEntryType.Chromaprint => IntroSkipper.FFmpeg.DetectionCacheVariant.Chromaprint(),
+            CacheEntryType.Silence => IntroSkipper.FFmpeg.DetectionCacheVariant.Silence(-50),
+            CacheEntryType.Keyframe => IntroSkipper.FFmpeg.DetectionCacheVariant.Keyframe(),
+            CacheEntryType.BlackFrame when end == 0 => IntroSkipper.FFmpeg.DetectionCacheVariant.BlackFrameCredits(28),
+            CacheEntryType.BlackFrame => IntroSkipper.FFmpeg.DetectionCacheVariant.BlackFrameRange(28),
+            _ => type.ToString(),
+        };
 }

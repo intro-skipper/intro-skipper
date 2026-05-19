@@ -15,15 +15,22 @@ public interface IFFmpegRunner
     /// </summary>
     /// <remarks>
     /// Both stdout and stderr are redirected. If <paramref name="timeout" /> elapses before FFmpeg
-    /// exits, the process is killed and the result contains any selected-stream output captured so
-    /// far with an exit code of <c>-1</c>. Caller cancellation via
+    /// exits, the process is killed and the result has
+    /// <see cref="FFmpegProcessStatus.TimedOut" /> status. Caller cancellation via
     /// <paramref name="cancellationToken" /> also kills the process.
     /// </remarks>
     /// <param name="args">Arguments to pass to FFmpeg as individual tokens.</param>
-    /// <param name="stderr">If <c>true</c>, capture standard error; otherwise capture standard output.</param>
-    /// <param name="timeout">Timeout in milliseconds to wait for FFmpeg to exit, or <see cref="Timeout.Infinite" /> to wait indefinitely.</param>
+    /// <param name="outputStream">Which output stream to capture.</param>
+    /// <param name="timeout">
+    /// Maximum time to wait for FFmpeg to exit, <see langword="null" /> to use the default 60-second timeout,
+    /// or <see cref="Timeout.InfiniteTimeSpan" /> to wait indefinitely.
+    /// </param>
     /// <param name="cancellationToken">Cancellation token.</param>
-    /// <returns>The captured selected-stream output bytes and process exit code.</returns>
-    /// <exception cref="ArgumentOutOfRangeException"><paramref name="timeout" /> is less than <see cref="Timeout.Infinite" />.</exception>
-    Task<FFmpegProcessResult> RunAsync(IReadOnlyList<string> args, bool stderr = false, int timeout = 60 * 1000, CancellationToken cancellationToken = default);
+    /// <returns>The captured selected-stream output bytes, process status, and exit code.</returns>
+    /// <exception cref="ArgumentOutOfRangeException"><paramref name="timeout" /> is negative and not <see cref="Timeout.InfiniteTimeSpan" />.</exception>
+    Task<FFmpegProcessResult> RunAsync(
+        IReadOnlyList<string> args,
+        FFmpegOutputStream outputStream = FFmpegOutputStream.Stdout,
+        TimeSpan? timeout = null,
+        CancellationToken cancellationToken = default);
 }

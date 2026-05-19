@@ -160,7 +160,7 @@ public sealed partial class BlackFrameAnalyzer(ILogger<BlackFrameAnalyzer> logge
                 var timeRange = new TimeRange(scanTime, scanTime + 2);
 
                 // Detect black frames in the current time range
-                var blackFrames = await _detectionService.DetectBlackFramesAsync(episode, timeRange, minimumBlackPercentage, threshold, AnalysisMode.Credits, cancellationToken).ConfigureAwait(false);
+                var blackFrames = await _detectionService.DetectBlackFramesInRangeAsync(episode, timeRange, minimumBlackPercentage, threshold, AnalysisMode.Credits, cancellationToken).ConfigureAwait(false);
 
                 LogBlackFramesDetected(_logger, episode.Name, timeRange.Start, blackFrames.Length);
 
@@ -182,7 +182,7 @@ public sealed partial class BlackFrameAnalyzer(ILogger<BlackFrameAnalyzer> logge
                 {
                     // Black frames found, move search range toward the beginning
                     searchEnd = midpoint;
-                    firstBlackFrameTime = blackFrames[0].Time + scanTime;
+                    firstBlackFrameTime = blackFrames[0].Time;
 
                     // If we're close to the upper limit, expand search range
                     if (upperLimit - midpoint.TotalSeconds < _maximumError.TotalSeconds)
@@ -245,7 +245,7 @@ public sealed partial class BlackFrameAnalyzer(ILogger<BlackFrameAnalyzer> logge
         {
             // Check for black frames at chapter start
             var startRange = new TimeRange(chapterStart, chapterStart + 1);
-            var hasBlackFramesAtStart = (await _detectionService.DetectBlackFramesAsync(
+            var hasBlackFramesAtStart = (await _detectionService.DetectBlackFramesInRangeAsync(
                 episode,
                 startRange,
                 percentage,
@@ -261,7 +261,7 @@ public sealed partial class BlackFrameAnalyzer(ILogger<BlackFrameAnalyzer> logge
 
             // Verify no black frames before chapter start (to confirm this is the actual start)
             var beforeRange = new TimeRange(chapterStart - 5, chapterStart - 4);
-            var hasBlackFramesBefore = (await _detectionService.DetectBlackFramesAsync(
+            var hasBlackFramesBefore = (await _detectionService.DetectBlackFramesInRangeAsync(
                 episode,
                 beforeRange,
                 percentage,
@@ -305,7 +305,7 @@ public sealed partial class BlackFrameAnalyzer(ILogger<BlackFrameAnalyzer> logge
 
             var timeRange = new TimeRange(scanTime - 1.0, scanTime);
 
-            var blackFrames = await _detectionService.DetectBlackFramesAsync(episode, timeRange, percentage, threshold, AnalysisMode.Credits, cancellationToken).ConfigureAwait(false);
+            var blackFrames = await _detectionService.DetectBlackFramesInRangeAsync(episode, timeRange, percentage, threshold, AnalysisMode.Credits, cancellationToken).ConfigureAwait(false);
 
             LogSearchScanning(_logger, scanTime, searchStart, blackFrames.Length);
 

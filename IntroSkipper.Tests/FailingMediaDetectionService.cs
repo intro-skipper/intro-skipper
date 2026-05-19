@@ -26,7 +26,7 @@ internal sealed class FailingMediaDetectionService : IMediaDetectionService
     public Task<TimeRange[]> DetectSilenceAsync(QueuedEpisode episode, TimeRange range, AnalysisMode mode, CancellationToken cancellationToken = default)
         => throw CreateException();
 
-    public Task<BlackFrame[]> DetectBlackFramesAsync(
+    public Task<BlackFrame[]> DetectBlackFramesInRangeAsync(
         QueuedEpisode episode,
         TimeRange range,
         int minimum,
@@ -35,7 +35,7 @@ internal sealed class FailingMediaDetectionService : IMediaDetectionService
         CancellationToken cancellationToken = default)
         => throw CreateException();
 
-    public Task<BlackFrame[]> DetectBlackFramesAsync(QueuedEpisode episode, int threshold, CancellationToken cancellationToken = default)
+    public Task<BlackFrame[]> DetectCreditBlackFramesAsync(QueuedEpisode episode, int threshold, CancellationToken cancellationToken = default)
         => throw CreateException();
 
     public Task<double[]> DetectKeyFramesAsync(QueuedEpisode episode, TimeRange range, AnalysisMode mode, CancellationToken cancellationToken = default)

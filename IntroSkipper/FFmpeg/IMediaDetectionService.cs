@@ -41,8 +41,8 @@ public interface IMediaDetectionService
     /// <param name="threshold">Threshold for black frame detection.</param>
     /// <param name="mode">Analysis mode, used to correctly key the cache entry.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
-    /// <returns>Array of frames that are mostly black.</returns>
-    Task<BlackFrame[]> DetectBlackFramesAsync(
+    /// <returns>Array of frames that are mostly black, with absolute media timestamps.</returns>
+    Task<BlackFrame[]> DetectBlackFramesInRangeAsync(
         QueuedEpisode episode,
         TimeRange range,
         int minimum,
@@ -51,13 +51,14 @@ public interface IMediaDetectionService
         CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// Finds the location of all black frames in a media file starting at a given time asynchronously.
+    /// Finds the location of all black frames in a media file starting at the credits fingerprint position asynchronously.
+    /// Scans only key frames for efficiency.
     /// </summary>
     /// <param name="episode">Media file to analyze.</param>
     /// <param name="threshold">Threshold for black frame detection.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
-    /// <returns>Array of frames that are mostly black.</returns>
-    Task<BlackFrame[]> DetectBlackFramesAsync(QueuedEpisode episode, int threshold, CancellationToken cancellationToken = default);
+    /// <returns>Array of frames that are mostly black, with absolute media timestamps.</returns>
+    Task<BlackFrame[]> DetectCreditBlackFramesAsync(QueuedEpisode episode, int threshold, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Detects key frames in a media file within a time range asynchronously.
@@ -66,6 +67,6 @@ public interface IMediaDetectionService
     /// <param name="range">Time range to search.</param>
     /// <param name="mode">Analysis mode, used to correctly key the cache entry.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
-    /// <returns>Array of timestamps of key frames.</returns>
+    /// <returns>Array of absolute media timestamps of key frames.</returns>
     Task<double[]> DetectKeyFramesAsync(QueuedEpisode episode, TimeRange range, AnalysisMode mode, CancellationToken cancellationToken = default);
 }

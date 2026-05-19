@@ -54,15 +54,62 @@ public class TestFFmpegRunner
                 CreateStream("stdout"),
                 CreateStream("stderr")));
 
-        var stdout = await runner.RunAsync(["-i", "input"], stderr: false);
-        var stderr = await runner.RunAsync(["-i", "input"], stderr: true);
+        var stdout = await runner.RunAsync(["-i", "input"], FFmpegOutputStream.Stdout);
+        var stderr = await runner.RunAsync(["-i", "input"], FFmpegOutputStream.Stderr);
 
         Assert.Equal("stdout", Encoding.UTF8.GetString(stdout.Output));
         Assert.Equal("stderr", Encoding.UTF8.GetString(stderr.Output));
     }
 
     [Fact]
-    public async Task RunAsync_WhenStreamsCloseBeforeProcessExits_TimesOutAndReturnsMinusOne()
+    public async Task RunAsync_NegativeTimeoutOtherThanInfinite_ThrowsBeforeStartingProcess()
+    {
+        var factoryCalled = false;
+        var runner = CreateRunner(processFactory: startInfo =>
+        {
+            factoryCalled = true;
+            return new FakeProcess(startInfo, Stream.Null, Stream.Null);
+        });
+
+        await Assert.ThrowsAsync<ArgumentOutOfRangeException>(
+            () => runner.RunAsync(["-i", "input"], timeout: TimeSpan.FromMilliseconds(-2)));
+
+        Assert.False(factoryCalled);
+    }
+
+    [Fact]
+    public async Task RunAsync_InfiniteTimeout_IsAccepted()
+    {
+        var runner = CreateRunner(
+            processFactory: startInfo => new FakeProcess(
+                startInfo,
+                CreateStream("stdout"),
+                Stream.Null));
+
+        var result = await runner.RunAsync(["-i", "input"], timeout: Timeout.InfiniteTimeSpan);
+
+        Assert.Equal(FFmpegProcessStatus.Completed, result.Status);
+        Assert.Equal(0, result.ExitCode);
+    }
+
+    [Fact]
+    public async Task RunAsync_TooLargeTimeout_ThrowsBeforeStartingProcess()
+    {
+        var factoryCalled = false;
+        var runner = CreateRunner(processFactory: startInfo =>
+        {
+            factoryCalled = true;
+            return new FakeProcess(startInfo, Stream.Null, Stream.Null);
+        });
+
+        await Assert.ThrowsAsync<ArgumentOutOfRangeException>(
+            () => runner.RunAsync(["-i", "input"], timeout: TimeSpan.MaxValue));
+
+        Assert.False(factoryCalled);
+    }
+
+    [Fact]
+    public async Task RunAsync_WhenStreamsCloseBeforeProcessExits_ReturnsTimedOutStatus()
     {
         var process = new FakeProcess(
             new ProcessStartInfo("ffmpeg"),
@@ -71,9 +118,10 @@ public class TestFFmpegRunner
             hasExited: false);
         var runner = CreateRunner(processFactory: _ => process);
 
-        var result = await runner.RunAsync(["-i", "input"], timeout: 10);
+        var result = await runner.RunAsync(["-i", "input"], timeout: TimeSpan.FromMilliseconds(10));
 
-        Assert.Equal(-1, result.ExitCode);
+        Assert.Equal(FFmpegProcessStatus.TimedOut, result.Status);
+        Assert.Null(result.ExitCode);
         Assert.True(process.Killed);
     }
 
@@ -88,7 +136,7 @@ public class TestFFmpegRunner
         var runner = CreateRunner(processFactory: _ => process);
         using var cts = new CancellationTokenSource();
 
-        var task = runner.RunAsync(["-i", "input"], timeout: 10, cancellationToken: cts.Token);
+        var task = runner.RunAsync(["-i", "input"], timeout: TimeSpan.FromMilliseconds(10), cancellationToken: cts.Token);
         var completed = await Task.WhenAny(task, Task.Delay(TimeSpan.FromMilliseconds(500))) == task;
         if (!completed)
         {
@@ -98,7 +146,8 @@ public class TestFFmpegRunner
 
         Assert.True(completed, "RunAsync should return on exit timeout even when redirected streams stay open.");
         var result = await task;
-        Assert.Equal(-1, result.ExitCode);
+        Assert.Equal(FFmpegProcessStatus.TimedOut, result.Status);
+        Assert.Null(result.ExitCode);
         Assert.True(process.Killed);
     }
 
@@ -113,7 +162,7 @@ public class TestFFmpegRunner
         var runner = CreateRunner(processFactory: _ => process);
         using var cts = new CancellationTokenSource();
 
-        var task = runner.RunAsync(["-i", "input"], timeout: 10, cancellationToken: cts.Token);
+        var task = runner.RunAsync(["-i", "input"], timeout: TimeSpan.FromMilliseconds(10), cancellationToken: cts.Token);
         var completed = await Task.WhenAny(task, Task.Delay(TimeSpan.FromMilliseconds(500))) == task;
         if (!completed)
         {
@@ -123,7 +172,8 @@ public class TestFFmpegRunner
 
         Assert.True(completed, "RunAsync should return on exit timeout even when the drained stream stays open.");
         var result = await task;
-        Assert.Equal(-1, result.ExitCode);
+        Assert.Equal(FFmpegProcessStatus.TimedOut, result.Status);
+        Assert.Null(result.ExitCode);
         Assert.True(process.Killed);
     }
 
@@ -138,7 +188,7 @@ public class TestFFmpegRunner
         var runner = CreateRunner(processFactory: _ => process);
         using var cts = new CancellationTokenSource();
 
-        var task = runner.RunAsync(["-i", "input"], timeout: 1000, cancellationToken: cts.Token);
+        var task = runner.RunAsync(["-i", "input"], timeout: TimeSpan.FromMilliseconds(1000), cancellationToken: cts.Token);
         cts.CancelAfter(10);
 
         await Assert.ThrowsAnyAsync<OperationCanceledException>(() => task);
@@ -156,7 +206,7 @@ public class TestFFmpegRunner
         var runner = CreateRunner(processFactory: _ => process);
         using var cts = new CancellationTokenSource();
 
-        var task = runner.RunAsync(["-i", "input"], timeout: 1000, cancellationToken: cts.Token);
+        var task = runner.RunAsync(["-i", "input"], timeout: TimeSpan.FromMilliseconds(1000), cancellationToken: cts.Token);
         cts.CancelAfter(10);
 
         await Assert.ThrowsAnyAsync<OperationCanceledException>(() => task);
