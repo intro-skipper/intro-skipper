@@ -26,32 +26,32 @@ public static class ConfigHasher
 
         var input = mode switch
         {
-            AnalysisMode.Introduction => FormattableString.Invariant(
-                $"analysis|v1|mode={mode}|action={action}|prefer={config.PreferChromaprint}|chap={config.ChapterAnalyzerIntroductionPattern}|fullchap={config.FullLengthChapters}"
-                + $"|pct={config.AnalysisPercent}|limit={config.AnalysisLengthLimit}|min={config.MinimumIntroDuration}|max={config.MaximumIntroDuration}"
-                + $"|fpbits={config.MaximumFingerprintPointDifferences}|skip={config.MaximumTimeSkip}|shift={config.InvertedIndexShift}"
-                + AdjustmentHash(config)),
+            AnalysisMode.Introduction => Invariant(
+                $"analysis|v1|mode={mode}|action={action}|prefer={config.PreferChromaprint}|chap={config.ChapterAnalyzerIntroductionPattern}|fullchap={config.FullLengthChapters}",
+                $"|pct={config.AnalysisPercent}|limit={config.AnalysisLengthLimit}|min={config.MinimumIntroDuration}|max={config.MaximumIntroDuration}",
+                $"|fpbits={config.MaximumFingerprintPointDifferences}|skip={config.MaximumTimeSkip}|shift={config.InvertedIndexShift}",
+                $"{AdjustmentHash(config)}"),
 
-            AnalysisMode.Credits => FormattableString.Invariant(
-                $"analysis|v1|mode={mode}|action={action}|prefer={config.PreferChromaprint}|chap={config.ChapterAnalyzerEndCreditsPattern}|fullchap={config.FullLengthChapters}"
-                + $"|pct={config.AnalysisPercent}|maxCredits={config.MaximumCreditsDuration}|maxMovie={config.MaximumMovieCreditsDuration}|probe={config.ProbeAudioDuration}"
-                + $"|min={config.MinimumCreditsDuration}|bfmin={config.BlackFrameMinimumPercentage}|bfthr={config.BlackFrameThreshold}|bfchap={config.UseChapterMarkersBlackFrame}"
-                + $"|bfalt={config.UseAlternativeBlackFrameAnalyzer}|bfrefine={config.RefineCreditsBoundary}"
-                + $"|fpbits={config.MaximumFingerprintPointDifferences}|skip={config.MaximumTimeSkip}|shift={config.InvertedIndexShift}"
-                + $"|animePreview={config.AnimePreviewFromCreditsEnd}"
-                + AdjustmentHash(config)),
+            AnalysisMode.Credits => Invariant(
+                $"analysis|v1|mode={mode}|action={action}|prefer={config.PreferChromaprint}|chap={config.ChapterAnalyzerEndCreditsPattern}|fullchap={config.FullLengthChapters}",
+                $"|pct={config.AnalysisPercent}|maxCredits={config.MaximumCreditsDuration}|maxMovie={config.MaximumMovieCreditsDuration}|probe={config.ProbeAudioDuration}",
+                $"|min={config.MinimumCreditsDuration}|bfmin={config.BlackFrameMinimumPercentage}|bfthr={config.BlackFrameThreshold}|bfchap={config.UseChapterMarkersBlackFrame}",
+                $"|bfalt={config.UseAlternativeBlackFrameAnalyzer}|bfrefine={config.RefineCreditsBoundary}",
+                $"|fpbits={config.MaximumFingerprintPointDifferences}|skip={config.MaximumTimeSkip}|shift={config.InvertedIndexShift}",
+                $"|animePreview={config.AnimePreviewFromCreditsEnd}",
+                $"{AdjustmentHash(config)}"),
 
-            AnalysisMode.Recap => FormattableString.Invariant(
-                $"analysis|v1|mode={mode}|action={action}|chap={config.ChapterAnalyzerRecapPattern}|fullchap={config.FullLengthChapters}|min={config.MinimumRecapDuration}|max={config.MaximumRecapDuration}"
-                + AdjustmentHash(config)),
+            AnalysisMode.Recap => Invariant(
+                $"analysis|v1|mode={mode}|action={action}|chap={config.ChapterAnalyzerRecapPattern}|fullchap={config.FullLengthChapters}|min={config.MinimumRecapDuration}|max={config.MaximumRecapDuration}",
+                $"{AdjustmentHash(config)}"),
 
-            AnalysisMode.Preview => FormattableString.Invariant(
-                $"analysis|v1|mode={mode}|action={action}|chap={config.ChapterAnalyzerPreviewPattern}|fullchap={config.FullLengthChapters}|min={config.MinimumPreviewDuration}|max={config.MaximumPreviewDuration}"
-                + AdjustmentHash(config)),
+            AnalysisMode.Preview => Invariant(
+                $"analysis|v1|mode={mode}|action={action}|chap={config.ChapterAnalyzerPreviewPattern}|fullchap={config.FullLengthChapters}|min={config.MinimumPreviewDuration}|max={config.MaximumPreviewDuration}",
+                $"{AdjustmentHash(config)}"),
 
-            AnalysisMode.Commercial => FormattableString.Invariant(
-                $"analysis|v1|mode={mode}|action={action}|chap={config.ChapterAnalyzerCommercialPattern}|fullchap={config.FullLengthChapters}|min={config.MinimumCommercialDuration}|max={config.MaximumCommercialDuration}"
-                + AdjustmentHash(config)),
+            AnalysisMode.Commercial => Invariant(
+                $"analysis|v1|mode={mode}|action={action}|chap={config.ChapterAnalyzerCommercialPattern}|fullchap={config.FullLengthChapters}|min={config.MinimumCommercialDuration}|max={config.MaximumCommercialDuration}",
+                $"{AdjustmentHash(config)}"),
 
             _ => throw new ArgumentOutOfRangeException(nameof(mode), mode, null)
         };
@@ -72,13 +72,13 @@ public static class ConfigHasher
 
         var input = type switch
         {
-            CacheEntryType.Chromaprint => FormattableString.Invariant(
+            CacheEntryType.Chromaprint => Invariant(
                 $"cache|v1|{type}|{mode}|pct={config.AnalysisPercent}|limit={config.AnalysisLengthLimit}|maxCredits={config.MaximumCreditsDuration}|maxMovie={config.MaximumMovieCreditsDuration}|probe={config.ProbeAudioDuration}"),
 
-            CacheEntryType.Silence => FormattableString.Invariant(
+            CacheEntryType.Silence => Invariant(
                 $"cache|v1|{type}|noise={config.SilenceDetectionMaximumNoise}|dur={config.SilenceDetectionMinimumDuration}"),
 
-            CacheEntryType.BlackFrame => FormattableString.Invariant(
+            CacheEntryType.BlackFrame => Invariant(
                 $"cache|v1|{type}|{mode}|threshold={config.BlackFrameThreshold}"),
 
             CacheEntryType.Keyframe => $"cache|v1|{type}",
@@ -90,11 +90,14 @@ public static class ConfigHasher
     }
 
     private static string AdjustmentHash(PluginConfiguration config)
-        => FormattableString.Invariant(
-            $"|chapAdjust={config.AdjustIntroBasedOnChapters}|silence={config.AdjustIntroBasedOnSilence}|keyframe={config.SnapToKeyframe}"
-            + $"|endSnap={config.EndSnapThreshold}|winIn={config.AdjustWindowInward}|winOut={config.AdjustWindowOutward}"
-            + $"|noise={config.SilenceDetectionMaximumNoise}|silDur={config.SilenceDetectionMinimumDuration}"
-            + $"|startOffset={config.IntroStartOffset}|endOffset={config.IntroEndOffset}");
+        => Invariant(
+            $"|chapAdjust={config.AdjustIntroBasedOnChapters}|silence={config.AdjustIntroBasedOnSilence}|keyframe={config.SnapToKeyframe}",
+            $"|endSnap={config.EndSnapThreshold}|winIn={config.AdjustWindowInward}|winOut={config.AdjustWindowOutward}",
+            $"|noise={config.SilenceDetectionMaximumNoise}|silDur={config.SilenceDetectionMinimumDuration}",
+            $"|startOffset={config.IntroStartOffset}|endOffset={config.IntroEndOffset}");
+
+    private static string Invariant(params FormattableString[] parts)
+        => string.Concat(parts.Select(FormattableString.Invariant));
 
     private static string ComputeHash(string input)
     {
