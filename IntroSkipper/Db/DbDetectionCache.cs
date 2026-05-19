@@ -78,7 +78,7 @@ public class DbDetectionCache
     /// <value>The cached data as a compressed BLOB. The decompressed JSON shape depends on <see cref="Type"/>:
     /// <see cref="CacheEntryType.Chromaprint"/> stores <c>uint[]</c>,
     /// <see cref="CacheEntryType.Silence"/> stores <c>TimeRange[]</c>,
-    /// <see cref="CacheEntryType.BlackFrame"/> and <see cref="CacheEntryType.BlackFrameScaled480"/> store <c>BlackFrame[]</c>,
+    /// <see cref="CacheEntryType.BlackFrame"/> stores <c>BlackFrame[]</c>,
     /// <see cref="CacheEntryType.Keyframe"/> stores <c>double[]</c>.
     /// </value>
     [SuppressMessage("Performance", "CA1819:Properties should not return arrays", Justification = "EF Core requires byte[] for BLOB column mapping.")]
