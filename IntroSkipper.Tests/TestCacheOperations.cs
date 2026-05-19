@@ -981,16 +981,14 @@ public sealed class TestCacheOperations
             db.DetectionCache.Where(e => e.ItemId == episodeId && e.Type == CacheEntryType.Silence),
             entry => Assert.Equal(DetectionCacheVariant.Silence(-45), entry.Variant));
 
-        foreach (var mode in modes)
+        foreach (var silenceRange in modes.Select(mode => Assert.Single(ReadDetectionCache<TimeRange>(
+            db,
+            episodeId,
+            mode,
+            CacheEntryType.Silence,
+            10.5,
+            20.5))))
         {
-            var silence = ReadDetectionCache<TimeRange>(
-                db,
-                episodeId,
-                mode,
-                CacheEntryType.Silence,
-                10.5,
-                20.5);
-            var silenceRange = Assert.Single(silence);
             Assert.Equal(11.5, silenceRange.Start);
             Assert.Equal(13.0, silenceRange.End);
         }
