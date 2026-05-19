@@ -645,7 +645,7 @@ public static partial class FFmpegWrapper
             return candidate;
         }
 
-        return ffmpegPath.Replace("ffmpeg", "ffprobe", StringComparison.OrdinalIgnoreCase);
+        return Path.Combine(Path.GetDirectoryName(ffmpegPath) ?? string.Empty, "ffprobe" + extension);
     }
 
     /// <summary>
