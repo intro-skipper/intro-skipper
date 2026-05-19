@@ -856,7 +856,7 @@ public static partial class FFmpegWrapper
                 e.Type == CacheEntryType.Chromaprint &&
                 e.Start == start &&
                 e.End == end &&
-                e.ConfigHash == expectedHash))
+                (e.ConfigHash == string.Empty || e.ConfigHash == expectedHash)))
             {
                 return true;
             }
