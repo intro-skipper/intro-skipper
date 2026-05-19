@@ -38,7 +38,7 @@ namespace IntroSkipper.Migrations
                         .IsRequired()
                         .ValueGeneratedOnAdd()
                         .HasColumnType("TEXT")
-                        .HasDefaultValue("");
+                        .HasDefaultValue(string.Empty);
 
                     b.HasKey("SeasonId", "Type");
 
@@ -67,7 +67,7 @@ namespace IntroSkipper.Migrations
                         .IsRequired()
                         .ValueGeneratedOnAdd()
                         .HasColumnType("TEXT")
-                        .HasDefaultValue("");
+                        .HasDefaultValue(string.Empty);
 
                     b.Property<Guid>("ItemId")
                         .HasColumnType("TEXT");

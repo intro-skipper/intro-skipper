@@ -18,14 +18,14 @@ namespace IntroSkipper.Migrations
                 table: "DbSegment",
                 type: "TEXT",
                 nullable: false,
-                defaultValue: "");
+                defaultValue: string.Empty);
 
             migrationBuilder.AddColumn<string>(
                 name: "ConfigHash",
                 table: "DbSeasonInfo",
                 type: "TEXT",
                 nullable: false,
-                defaultValue: "");
+                defaultValue: string.Empty);
         }
 
         /// <inheritdoc />

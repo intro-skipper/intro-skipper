@@ -22,7 +22,20 @@ public class DbSeasonInfo
     /// <param name="mode">Analysis mode.</param>
     /// <param name="action">Analyzer action.</param>
     /// <param name="episodeIds">Episode IDs.</param>
-    public DbSeasonInfo(Guid seasonId, AnalysisMode mode, AnalyzerAction action, IEnumerable<Guid>? episodeIds = null, string configHash = "")
+    public DbSeasonInfo(Guid seasonId, AnalysisMode mode, AnalyzerAction action, IEnumerable<Guid>? episodeIds = null)
+        : this(seasonId, mode, action, episodeIds, string.Empty)
+    {
+    }
+
+    /// <summary>
+    /// Initializes a new instance of the <see cref="DbSeasonInfo"/> class.
+    /// </summary>
+    /// <param name="seasonId">Season ID.</param>
+    /// <param name="mode">Analysis mode.</param>
+    /// <param name="action">Analyzer action.</param>
+    /// <param name="episodeIds">Episode IDs.</param>
+    /// <param name="configHash">Configuration hash used when the episode ID set was last analyzed.</param>
+    public DbSeasonInfo(Guid seasonId, AnalysisMode mode, AnalyzerAction action, IEnumerable<Guid>? episodeIds, string configHash)
     {
         SeasonId = seasonId;
         Type = mode;

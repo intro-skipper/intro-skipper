@@ -1,7 +1,6 @@
 // SPDX-FileCopyrightText: 2026 Intro-Skipper contributors <intro-skipper.org>
 // SPDX-License-Identifier: GPL-3.0-only
 
-using System.Globalization;
 using System.Security.Cryptography;
 using System.Text;
 using IntroSkipper.Configuration;
@@ -27,15 +26,13 @@ public static class ConfigHasher
 
         var input = mode switch
         {
-            AnalysisMode.Introduction => string.Create(
-                CultureInfo.InvariantCulture,
+            AnalysisMode.Introduction => FormattableString.Invariant(
                 $"analysis|v1|mode={mode}|action={action}|prefer={config.PreferChromaprint}|chap={config.ChapterAnalyzerIntroductionPattern}|fullchap={config.FullLengthChapters}"
                 + $"|pct={config.AnalysisPercent}|limit={config.AnalysisLengthLimit}|min={config.MinimumIntroDuration}|max={config.MaximumIntroDuration}"
                 + $"|fpbits={config.MaximumFingerprintPointDifferences}|skip={config.MaximumTimeSkip}|shift={config.InvertedIndexShift}"
                 + AdjustmentHash(config)),
 
-            AnalysisMode.Credits => string.Create(
-                CultureInfo.InvariantCulture,
+            AnalysisMode.Credits => FormattableString.Invariant(
                 $"analysis|v1|mode={mode}|action={action}|prefer={config.PreferChromaprint}|chap={config.ChapterAnalyzerEndCreditsPattern}|fullchap={config.FullLengthChapters}"
                 + $"|pct={config.AnalysisPercent}|maxCredits={config.MaximumCreditsDuration}|maxMovie={config.MaximumMovieCreditsDuration}|probe={config.ProbeAudioDuration}"
                 + $"|min={config.MinimumCreditsDuration}|bfmin={config.BlackFrameMinimumPercentage}|bfthr={config.BlackFrameThreshold}|bfchap={config.UseChapterMarkersBlackFrame}"
@@ -44,18 +41,15 @@ public static class ConfigHasher
                 + $"|animePreview={config.AnimePreviewFromCreditsEnd}"
                 + AdjustmentHash(config)),
 
-            AnalysisMode.Recap => string.Create(
-                CultureInfo.InvariantCulture,
+            AnalysisMode.Recap => FormattableString.Invariant(
                 $"analysis|v1|mode={mode}|action={action}|chap={config.ChapterAnalyzerRecapPattern}|fullchap={config.FullLengthChapters}|min={config.MinimumRecapDuration}|max={config.MaximumRecapDuration}"
                 + AdjustmentHash(config)),
 
-            AnalysisMode.Preview => string.Create(
-                CultureInfo.InvariantCulture,
+            AnalysisMode.Preview => FormattableString.Invariant(
                 $"analysis|v1|mode={mode}|action={action}|chap={config.ChapterAnalyzerPreviewPattern}|fullchap={config.FullLengthChapters}|min={config.MinimumPreviewDuration}|max={config.MaximumPreviewDuration}"
                 + AdjustmentHash(config)),
 
-            AnalysisMode.Commercial => string.Create(
-                CultureInfo.InvariantCulture,
+            AnalysisMode.Commercial => FormattableString.Invariant(
                 $"analysis|v1|mode={mode}|action={action}|chap={config.ChapterAnalyzerCommercialPattern}|fullchap={config.FullLengthChapters}|min={config.MinimumCommercialDuration}|max={config.MaximumCommercialDuration}"
                 + AdjustmentHash(config)),
 
@@ -78,16 +72,13 @@ public static class ConfigHasher
 
         var input = type switch
         {
-            CacheEntryType.Chromaprint => string.Create(
-                CultureInfo.InvariantCulture,
+            CacheEntryType.Chromaprint => FormattableString.Invariant(
                 $"cache|v1|{type}|{mode}|pct={config.AnalysisPercent}|limit={config.AnalysisLengthLimit}|maxCredits={config.MaximumCreditsDuration}|maxMovie={config.MaximumMovieCreditsDuration}|probe={config.ProbeAudioDuration}"),
 
-            CacheEntryType.Silence => string.Create(
-                CultureInfo.InvariantCulture,
+            CacheEntryType.Silence => FormattableString.Invariant(
                 $"cache|v1|{type}|noise={config.SilenceDetectionMaximumNoise}|dur={config.SilenceDetectionMinimumDuration}"),
 
-            CacheEntryType.BlackFrame => string.Create(
-                CultureInfo.InvariantCulture,
+            CacheEntryType.BlackFrame => FormattableString.Invariant(
                 $"cache|v1|{type}|{mode}|threshold={config.BlackFrameThreshold}"),
 
             CacheEntryType.Keyframe => $"cache|v1|{type}",
@@ -99,8 +90,7 @@ public static class ConfigHasher
     }
 
     private static string AdjustmentHash(PluginConfiguration config)
-        => string.Create(
-            CultureInfo.InvariantCulture,
+        => FormattableString.Invariant(
             $"|chapAdjust={config.AdjustIntroBasedOnChapters}|silence={config.AdjustIntroBasedOnSilence}|keyframe={config.SnapToKeyframe}"
             + $"|endSnap={config.EndSnapThreshold}|winIn={config.AdjustWindowInward}|winOut={config.AdjustWindowOutward}"
             + $"|noise={config.SilenceDetectionMaximumNoise}|silDur={config.SilenceDetectionMinimumDuration}"
