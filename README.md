@@ -2,7 +2,7 @@
 
 <div align="center">
     <p>
-        <img alt="Plugin Banner" src="https://raw.githubusercontent.com/intro-skipper/intro-skipper/10.10/images/logo.png" />
+        <img alt="Plugin Banner" src="https://raw.githubusercontent.com/intro-skipper/intro-skipper/10.11/images/logo.png" />
     </p>
     <p>
         Analyzes the audio of television episodes to detect and skip over intros.
