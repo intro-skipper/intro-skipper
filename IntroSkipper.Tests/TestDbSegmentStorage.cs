@@ -105,7 +105,7 @@ public sealed class TestDbSegmentStorage
                 new DbSegment(new Segment(itemIdA, new TimeRange(0, 10)), AnalysisMode.Introduction),
                 new DbSegment(new Segment(itemIdB, new TimeRange(0, 10)), AnalysisMode.Introduction));
 
-            // No exception — different items may have the same mode.
+            // No exception, different items may have the same mode.
             db.SaveChanges();
         }
 

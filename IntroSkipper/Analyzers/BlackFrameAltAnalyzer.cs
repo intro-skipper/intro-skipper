@@ -472,7 +472,7 @@ public sealed partial class BlackFrameAltAnalyzer(ILogger<BlackFrameAltAnalyzer>
         }
 
         // Find the transition frame for each merged scene.
-        // searchStart is reset to 0 and advances monotonically — merged scenes are frame-sorted,
+        // searchStart is reset to 0 and advances monotonically, merged scenes are frame-sorted,
         // so each scene's startFrame is at or after the previous one's.
         var finalScenes = new List<CreditScene>(merged.Count);
         searchStart = 0;

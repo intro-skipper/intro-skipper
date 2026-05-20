@@ -27,7 +27,7 @@ public class TestFFmpegCapabilityService
         Assert.True(await service.CheckFFmpegVersionAsync().ConfigureAwait(true));
         Assert.True(await service.CheckFFmpegVersionAsync().ConfigureAwait(true));
 
-        // Second call should be served from cache — only 4 subprocess invocations total.
+        // Second call should be served from cache, only 4 subprocess invocations total.
         Assert.Equal(4, runner.Calls.Count);
         Assert.Single(runner.Calls, call => call == "-version");
         Assert.Single(runner.Calls, call => call == "-muxers");

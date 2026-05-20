@@ -15,7 +15,7 @@ export function minValue(min: number): ValidationRule<number> {
 
 export function validRegex(): ValidationRule<string> {
     return (value) => {
-        if (!value || value.trim().length === 0) return null; // empty is OK — falls back to default
+        if (!value || value.trim().length === 0) return null; // empty is OK, falls back to default
         try {
             new RegExp(value);
             return null;

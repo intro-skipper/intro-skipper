@@ -61,7 +61,7 @@ export const informationTab: Tab = {
 
         loadSupportBundle().catch(console.error);
 
-        // Storage usage — structured list with progress bars.
+        // Storage usage, structured list with progress bars.
         const storageContainer = el("section", { className: "tab-readonly-section" });
         const storageTitle = el("h3", { className: "checkbox-list-label" }, "Storage Usage");
         storageTitle.id = "storage-usage-label";

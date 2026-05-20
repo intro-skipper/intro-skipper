@@ -17,6 +17,8 @@ namespace IntroSkipper.FFmpeg;
 /// </summary>
 public sealed partial class FFmpegCapabilityService : IFFmpegCapabilityService
 {
+    private static readonly TimeSpan CapabilityCheckTimeout = TimeSpan.FromSeconds(2);
+
     private readonly IFFmpegRunner _runner;
     private readonly ILogger<FFmpegCapabilityService> _logger;
     private readonly ConcurrentDictionary<string, string> _chromaprintLogs = new();
@@ -162,7 +164,7 @@ public sealed partial class FFmpegCapabilityService : IFFmpegCapabilityService
         var result = await _runner.RunAsync(
             arguments.Split(' ', StringSplitOptions.RemoveEmptyEntries),
             FFmpegOutputStream.Stdout,
-            TimeSpan.FromMilliseconds(2000),
+            CapabilityCheckTimeout,
             cancellationToken).ConfigureAwait(false);
         var output = Encoding.UTF8.GetString(result.Output);
 

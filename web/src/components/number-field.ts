@@ -52,7 +52,7 @@ export function numberField(opts: NumberFieldOptions): HTMLElement {
     input.addEventListener("input", () => {
         if (debounceTimer) clearTimeout(debounceTimer);
         debounceTimer = setTimeout(() => {
-            if (input.value === "") return; // ignore empty — user is still typing
+            if (input.value === "") return; // ignore empty, user is still typing
             const num = Number(input.value);
             if (Number.isNaN(num)) return;
             configStore.set(fieldKey, num);

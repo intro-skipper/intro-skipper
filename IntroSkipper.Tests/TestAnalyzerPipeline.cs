@@ -30,12 +30,12 @@ public class TestAnalyzerPipeline
         var task = new BaseItemAnalyzerTask(
             NullLogger<BaseItemAnalyzerTask>.Instance,
             NullLoggerFactory.Instance,
-            null!, // ILibraryManager — unused by CreateAnalyzerPipeline
+            null!, // ILibraryManager, unused by CreateAnalyzerPipeline
             null!, // IProviderManager
             null!, // IFileSystem
             null!, // MediaSegmentUpdateManager
             null!, // IFFmpegCapabilityService
-            null!, // IDetectionCacheService — stored but not invoked during construction
+            null!, // IDetectionCacheService, stored but not invoked during construction
             null!); // IMediaDetectionService
 
         if (config is not null)

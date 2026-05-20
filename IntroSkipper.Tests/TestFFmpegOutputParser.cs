@@ -68,7 +68,7 @@ public class TestFFmpegOutputParser
     [Fact]
     public void ParseSilenceRaw_UnpairedStart_ReturnsEmpty()
     {
-        // Only a start with no end — no complete range to return
+        // Only a start with no end, no complete range to return
         var raw = "silence_start: 1.0\n";
         var result = FFmpegOutputParser.ParseSilenceRaw(raw, 0);
         Assert.Empty(result);

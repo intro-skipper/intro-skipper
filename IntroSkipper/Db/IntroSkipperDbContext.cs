@@ -158,7 +158,7 @@ public class IntroSkipperDbContext : DbContext
         var seasonInfos = new List<DbSeasonInfo>();
         var backupFailed = false;
 
-        // Best-effort backup — a corrupted DB will fail here, and that's fine.
+        // Best-effort backup, a corrupted DB will fail here, and that's fine.
         try
         {
             using var db = contextFactory();

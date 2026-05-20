@@ -64,6 +64,8 @@ public sealed partial class MediaDetectionService : IMediaDetectionService
         }
 
         LogFingerprinting(_logger, start, end, episode.Path, episode.EpisodeId);
+        // Media detection intentionally waits indefinitely, analysis duration scales with file
+        // length and codec complexity. Callers provide a CancellationToken for task/server shutdown.
         var processResult = await _runner.RunAsync(BuildArgs(), FFmpegOutputStream.Stdout, Timeout.InfiniteTimeSpan, cancellationToken).ConfigureAwait(false);
         ThrowOnFailure(processResult, includeOutput: false);
         var fingerprint = ParseChromaprintBytes(processResult.Output.AsSpan(), episode.Path);
@@ -208,6 +210,7 @@ public sealed partial class MediaDetectionService : IMediaDetectionService
             return cached;
         }
 
+        // Intentionally unbounded, see FingerprintAsync for rationale.
         var processResult = await _runner.RunAsync(buildArgs(), outputStream, Timeout.InfiniteTimeSpan, cancellationToken).ConfigureAwait(false);
         ThrowOnFailure(processResult, includeOutput: outputStream == FFmpegOutputStream.Stderr);
         var result = parseRawOutput(Encoding.UTF8.GetString(processResult.Output));

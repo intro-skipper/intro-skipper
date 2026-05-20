@@ -267,7 +267,7 @@ public partial class BaseItemAnalyzerTask(
 
     /// <summary>
     /// Builds the ordered analyzer chain for the given mode, content category, FFmpeg availability,
-    /// and per-season action override. All applicable analyzers are always included — the order
+    /// and per-season action override. All applicable analyzers are always included, the order
     /// determines priority, and each analyzer skips episodes already handled by earlier ones.
     /// </summary>
     /// <param name="mode">Analysis mode.</param>
@@ -285,7 +285,7 @@ public partial class BaseItemAnalyzerTask(
         var isAnime = category == QueuedMediaCategory.AnimeEpisode;
 
         // Build the default analyzer chain for this mode and content type.
-        // All applicable analyzers are always included — the order determines priority,
+        // All applicable analyzers are always included, the order determines priority,
         // and each analyzer skips episodes already handled by earlier ones via NeedsAnalysis().
         var analyzers = new List<IMediaFileAnalyzer>
         {

@@ -21,7 +21,7 @@ export function el<K extends keyof HTMLElementTagNameMap>(
  *
  * This helper exists to centralise the few places the dashboard needs inline
  * HTML (rich descriptions, formatted paragraphs, links) and make them easy
- * to audit.  Every call site MUST pass a compile-time-constant string — never
+ * to audit.  Every call site MUST pass a compile-time-constant string, never
  * user input.
  */
 export function htmlEl<K extends keyof HTMLElementTagNameMap>(

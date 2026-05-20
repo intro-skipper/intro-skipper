@@ -199,7 +199,7 @@ public class SkipIntroController(MediaSegmentUpdateManager mediaSegmentUpdateMan
 
         if (eraseCache && mode is AnalysisMode.Introduction or AnalysisMode.Credits)
         {
-            // Cache deletion must run to completion — the DB rows are already gone,
+            // Cache deletion must run to completion, the DB rows are already gone,
             // so aborting here would leave orphaned files with no way to clean them up.
             await _cacheService.DeleteCacheFilesAsync(mode, CancellationToken.None).ConfigureAwait(false);
         }
@@ -216,7 +216,7 @@ public class SkipIntroController(MediaSegmentUpdateManager mediaSegmentUpdateMan
     [HttpPost("Intros/RebuildDatabase")]
     public async Task<ActionResult> RebuildDatabase()
     {
-        // Database rebuild is destructive and must run to completion — do not bind to HttpContext.RequestAborted.
+        // Database rebuild is destructive and must run to completion, do not bind to HttpContext.RequestAborted.
         using var db = Plugin.CreateDbContext();
         await db.RebuildDatabaseAsync(Plugin.CreateDbContext).ConfigureAwait(false);
         return NoContent();

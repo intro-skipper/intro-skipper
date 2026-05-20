@@ -366,7 +366,18 @@ public sealed partial class FFmpegRunner : IFFmpegRunner
             if (!process.HasExited)
             {
                 process.Kill(entireProcessTree: true);
-                await process.WaitForExitAsync().ConfigureAwait(false);
+
+                // Bound the post-kill wait so a stuck process cannot hang the timeout path itself.
+                using var killCts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+                try
+                {
+                    await process.WaitForExitAsync(killCts.Token).ConfigureAwait(false);
+                }
+                catch (OperationCanceledException) when (killCts.IsCancellationRequested)
+                {
+                    LogFfmpegKillFailed(_logger, "Process did not exit within 5 seconds after Kill()");
+                }
+
                 LogFfmpegProcessKilled(_logger);
             }
         }

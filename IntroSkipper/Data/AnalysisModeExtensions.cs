@@ -8,7 +8,7 @@ namespace IntroSkipper.Data;
 /// <summary>
 /// Extension and helper methods for mapping between <see cref="AnalysisMode"/>,
 /// Jellyfin <see cref="MediaSegmentType"/>, and segment type strings used by the segment editor API.
-/// This is the single source of truth — all production code should use these methods
+/// This is the single source of truth, all production code should use these methods
 /// instead of maintaining local dictionaries or switch expressions.
 /// </summary>
 public static class AnalysisModeExtensions

@@ -502,7 +502,7 @@ public sealed partial class DetectionCacheService : IDetectionCacheService
         {
             if (!uint.TryParse(line, NumberStyles.Integer, CultureInfo.InvariantCulture, out var value))
             {
-                // Any invalid entry means the file is corrupt — abort so FFmpeg re-analyzes.
+                // Any invalid entry means the file is corrupt, abort so FFmpeg re-analyzes.
                 return [];
             }
 

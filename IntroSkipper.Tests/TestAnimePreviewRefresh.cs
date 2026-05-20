@@ -35,7 +35,7 @@ public class TestAnimePreviewRefresh
     public void RefreshesPreview_WhenCreditsEndShifts()
     {
         // Scenario: previous analysis produced Credits ending at 1080s and a Preview [1080, 1320].
-        // A settings change triggered re-analysis, Credits is now [..., 1260] — the old Preview is stale.
+        // A settings change triggered re-analysis, Credits is now [..., 1260], the old Preview is stale.
         var timestamps = new Dictionary<AnalysisMode, Segment>
         {
             [AnalysisMode.Credits] = new Segment(EpisodeId, new TimeRange(1200.0, 1260.0)),
@@ -66,7 +66,7 @@ public class TestAnimePreviewRefresh
     [Fact]
     public void TreatsSubSecondDriftAsEqual()
     {
-        // Chromaprint quantises timestamps to ~0.124s — a 0.3s delta between runs is noise, not a real change.
+        // Chromaprint quantises timestamps to ~0.124s, a 0.3s delta between runs is noise, not a real change.
         var timestamps = new Dictionary<AnalysisMode, Segment>
         {
             [AnalysisMode.Credits] = new Segment(EpisodeId, new TimeRange(1200.0, 1260.3)),

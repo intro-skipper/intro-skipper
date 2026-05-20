@@ -105,7 +105,7 @@ public class QueuedEpisode
 
     /// <summary>
     /// Returns <see langword="true"/> when the episode still needs automatic analysis for
-    /// the given mode — i.e. it is neither already <see cref="EpisodeState.Analyzed"/>
+    /// the given mode, i.e. it is neither already <see cref="EpisodeState.Analyzed"/>
     /// nor protected by a <see cref="EpisodeState.UserProvided"/> segment.
     /// </summary>
     /// <param name="mode">Analysis mode.</param>

@@ -143,7 +143,7 @@ public class SegmentEditorController(MediaSegmentUpdateManager mediaSegmentUpdat
         }
         catch
         {
-            // Jellyfin delete failed — restore the plugin DB entry to avoid an orphaned Jellyfin segment.
+            // Jellyfin delete failed, restore the plugin DB entry to avoid an orphaned Jellyfin segment.
             if (dbSegment is not null)
             {
                 await Plugin.Instance!.UpdateTimestampAsync(dbSegment, mode, isUserProvided: wasUserProvided, CancellationToken.None).ConfigureAwait(false);
@@ -152,7 +152,7 @@ public class SegmentEditorController(MediaSegmentUpdateManager mediaSegmentUpdat
             throw;
         }
 
-        // Jellyfin delete succeeded — remove the episode from the season's analyzed-state list so
+        // Jellyfin delete succeeded, remove the episode from the season's analyzed-state list so
         // that the episode returns to NotAnalyzed and can be re-processed by the next analysis run.
         var deletedItem = Plugin.Instance!.GetItem(itemId);
         if (deletedItem is not null)

@@ -416,7 +416,7 @@ public partial class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
         var currentIds = seasonInfo.EpisodeIds.ToList();
         if (!currentIds.Remove(episodeId))
         {
-            return; // Episode was not in the list — no write needed.
+            return; // Episode was not in the list, no write needed.
         }
 
         db.Entry(seasonInfo).Property(s => s.EpisodeIds).CurrentValue = currentIds;

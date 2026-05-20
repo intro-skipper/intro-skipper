@@ -158,7 +158,7 @@ public class TestBlackFrames
     [Fact]
     public void TestNormalizeThreshold_UniformFrames()
     {
-        // All frames at 90% black — floor should be 30% (capped), not 90%
+        // All frames at 90% black, floor should be 30% (capped), not 90%
         var frames = new List<BlackFrame>();
         for (var i = 0; i < 100; i++)
         {
@@ -177,7 +177,7 @@ public class TestBlackFrames
     [Fact]
     public void TestNormalizeThreshold_LowFloor()
     {
-        // Frames with low 1st-percentile (5%) — floor stays at 5%, not capped
+        // Frames with low 1st-percentile (5%), floor stays at 5%, not capped
         var frames = new List<BlackFrame>();
         for (var i = 0; i < 100; i++)
         {
@@ -246,7 +246,7 @@ public class TestBlackFrames
 
         var scene = new CreditScene(0, 5, 0.0, 2.5);
 
-        // Scene starts at the first keyframe — no preceding keyframe exists
+        // Scene starts at the first keyframe, no preceding keyframe exists
         var result = BlackFrameAltAnalyzer.FindBoundaryKeyframeTimes(frames, scene);
         Assert.Null(result);
     }
@@ -259,8 +259,8 @@ public class TestBlackFrames
         var frames = new List<BlackFrame>
         {
             new(20, 0.0, 0),   // non-black
-            new(30, 0.5, 1),   // non-black — immediately precedes scene
-            new(95, 1.0, 2),   // black — scene start
+            new(30, 0.5, 1),   // non-black, immediately precedes scene
+            new(95, 1.0, 2),   // black, scene start
             new(95, 1.5, 3),
             new(95, 2.0, 4),
             new(95, 2.5, 5),
@@ -284,8 +284,8 @@ public class TestBlackFrames
         {
             new(10, 0.0, 0),   // non-black (far back)
             new(90, 5.0, 1),   // black (but not credits)
-            new(88, 10.0, 2),  // black (but not credits) — immediately precedes scene
-            new(95, 15.0, 3),  // black — scene start
+            new(88, 10.0, 2),  // black (but not credits), immediately precedes scene
+            new(95, 15.0, 3),  // black, scene start
             new(95, 20.0, 4),
             new(95, 25.0, 5),
         };
@@ -451,7 +451,7 @@ public class TestBlackFrames
     {
         // When probeTime + lastKeyframeTime == sceneStartTime, the refinement
         // lands exactly at the original scene start (a no-op). This should be
-        // accepted, not rejected — guarding against an accidental > to >= change.
+        // accepted, not rejected, guarding against an accidental > to >= change.
         var refined = BlackFrameAltAnalyzer.TryRefineBoundaryTime(
             probeTime: 15.0,
             lastKeyframeTime: 10.0,
@@ -538,7 +538,7 @@ public class TestBlackFrames
         Assert.Equal(609.328, scenes[0].StartTime);
         Assert.Equal(637.12, scenes[0].EndTime);
 
-        // Second block (post-stinger credits) — backward iteration picks this one.
+        // Second block (post-stinger credits), backward iteration picks this one.
         Assert.Equal(725.12, scenes[1].StartTime);
         Assert.Equal(853.12, scenes[1].EndTime);
     }
