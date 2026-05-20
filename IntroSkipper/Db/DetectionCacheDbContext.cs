@@ -3,7 +3,6 @@
 // SPDX-FileCopyrightText: 2026 AbandonedCart
 // SPDX-License-Identifier: GPL-3.0-only
 
-using System.Data.Common;
 using Microsoft.EntityFrameworkCore;
 
 namespace IntroSkipper.Db;
@@ -100,28 +99,24 @@ public class DetectionCacheDbContext : DbContext
     {
         if (!Database.EnsureCreated() && !HasExpectedSchema())
         {
-            Database.EnsureDeleted();
-            Database.EnsureCreated();
+            if (!HasExpectedSchema())
+            {
+                Database.EnsureDeleted();
+                Database.EnsureCreated();
+            }
         }
     }
 
     private bool HasExpectedSchema()
     {
+        Database.OpenConnection();
         try
         {
-            Database.OpenConnection();
-            try
-            {
-                return HasExpectedColumns() && HasExpectedUniqueIndex();
-            }
-            finally
-            {
-                Database.CloseConnection();
-            }
+            return HasExpectedColumns() && HasExpectedUniqueIndex();
         }
-        catch (Exception ex) when (ex is DbException or InvalidOperationException)
+        finally
         {
-            return false;
+            Database.CloseConnection();
         }
     }
 
