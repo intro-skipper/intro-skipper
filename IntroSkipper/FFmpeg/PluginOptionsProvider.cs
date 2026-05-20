@@ -12,7 +12,7 @@ namespace IntroSkipper.FFmpeg;
 /// Reads FFmpeg and detection configuration from <see cref="Plugin.Instance"/> on each property access.
 /// Registered as a singleton and injected directly into FFmpeg service consumers.
 /// </summary>
-public class PluginOptionsProvider
+public class PluginOptionsProvider : IPluginOptionsProvider
 {
     /// <summary>Gets the path to the FFmpeg executable.</summary>
     public virtual string FFmpegPath => Plugin.Instance?.FFmpegPath ?? "ffmpeg";

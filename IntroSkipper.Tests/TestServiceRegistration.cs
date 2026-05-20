@@ -20,7 +20,7 @@ public class TestServiceRegistration
         new PluginServiceRegistrator().RegisterServices(services, applicationHost: null!);
 
         using var provider = services.BuildServiceProvider();
-        Assert.NotNull(provider.GetRequiredService<PluginOptionsProvider>());
+        Assert.NotNull(provider.GetRequiredService<IPluginOptionsProvider>());
         Assert.NotNull(provider.GetRequiredService<IFFmpegRunner>());
         Assert.NotNull(provider.GetRequiredService<IDetectionCacheService>());
         Assert.NotNull(provider.GetRequiredService<IMediaDetectionService>());
