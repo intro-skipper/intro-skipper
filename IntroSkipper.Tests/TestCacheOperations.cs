@@ -294,7 +294,7 @@ public sealed class TestCacheOperations
             await CreateCacheService().MigrateLegacyCachesAsync([episode]);
         }
 
-        Assert.True(File.Exists(legacyPath), "Corrupt legacy cache file should be retained for retry or inspection");
+        Assert.False(File.Exists(legacyPath), "Corrupt legacy cache file should be deleted (unrecoverable)");
 
         using var db = new DetectionCacheDbContext(cacheDbPath);
         Assert.False(
@@ -667,7 +667,7 @@ public sealed class TestCacheOperations
             await CreateCacheService().MigrateLegacyCachesAsync([episode]);
         }
 
-        Assert.True(File.Exists(legacyPath), "Rejected legacy file should be retained for retry or inspection");
+        Assert.False(File.Exists(legacyPath), "Duration-mismatched legacy file should be deleted (unrecoverable)");
 
         using var db = new DetectionCacheDbContext(cacheDbPath);
         Assert.False(
@@ -834,6 +834,39 @@ public sealed class TestCacheOperations
     }
 
     [Fact]
+    public async Task MigrateLegacyCachesAsync_SupportedFileForUnqueuedEpisode_IgnoredForMigrationButDeletedAsStale()
+    {
+        var staleEpisodeId = Guid.NewGuid();
+        var queuedEpisodeId = Guid.NewGuid();
+        var cacheDir = EntrypointTestHelpers.CreateTempCacheDir();
+        var legacyPath = Path.Join(cacheDir, $"{staleEpisodeId:N}-silence-10.5-20.5-v2");
+
+        await File.WriteAllTextAsync(legacyPath, "silence_start: 1.0\nsilence_end: 2.5\n");
+
+        string cacheDbPath;
+        using (var scope = new CachingPluginScope(cacheDir))
+        {
+            cacheDbPath = scope.CacheDbPath;
+            await CreateCacheService().MigrateLegacyCachesAsync([
+                new QueuedEpisode { EpisodeId = queuedEpisodeId, Path = "/does/not/exist.mkv" }]);
+        }
+
+        Assert.True(File.Exists(legacyPath));
+
+        using (var db = new DetectionCacheDbContext(cacheDbPath))
+        {
+            Assert.False(db.DetectionCache.Any(e => e.ItemId == staleEpisodeId));
+        }
+
+        using (new CachingPluginScope(cacheDir, cacheDbPath))
+        {
+            await CreateCacheService().DeleteStaleCachesAsync(new HashSet<Guid> { queuedEpisodeId });
+        }
+
+        Assert.False(File.Exists(legacyPath));
+    }
+
+    [Fact]
     public async Task MigrateLegacyCachesAsync_SuccessfulMigration_IsIdempotentOnRepeatCall()
     {
         var episodeId = Guid.NewGuid();
@@ -859,6 +892,59 @@ public sealed class TestCacheOperations
         Assert.Equal(
             Enum.GetValues<AnalysisMode>().Length,
             db.DetectionCache.Count(e => e.ItemId == episodeId && e.Type == CacheEntryType.Silence));
+    }
+
+    [Fact]
+    public async Task MigrateLegacyCachesAsync_ConcurrentCalls_MigrateOnceWithoutDuplicates()
+    {
+        var episode = new QueuedEpisode
+        {
+            EpisodeId = Guid.NewGuid(),
+            Path = "/does/not/exist.mkv",
+            IntroFingerprintEnd = 60,
+        };
+        var cacheDir = EntrypointTestHelpers.CreateTempCacheDir();
+        var legacyPath = Path.Join(cacheDir, episode.EpisodeId.ToString("N"));
+
+        var lineCount = (int)Math.Round((60.0 - ChromaprintConstants.HashWindowDuration) / ChromaprintConstants.SampleDuration);
+        uint[] expectedFingerprint = new uint[lineCount];
+        for (var i = 0; i < lineCount; i++)
+        {
+            expectedFingerprint[i] = (uint)(i + 1);
+        }
+
+        await File.WriteAllLinesAsync(
+            legacyPath,
+            Array.ConvertAll(expectedFingerprint, v => v.ToString(CultureInfo.InvariantCulture)));
+
+        string cacheDbPath;
+        using (var scope = new CachingPluginScope(cacheDir))
+        {
+            cacheDbPath = scope.CacheDbPath;
+            var cacheService = CreateCacheService();
+            var startGate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+
+            var migrations = Enumerable.Range(0, 4)
+                .Select(_ => Task.Run(async () =>
+                {
+                    await startGate.Task.ConfigureAwait(false);
+                    await cacheService.MigrateLegacyCachesAsync([episode]).ConfigureAwait(false);
+                }))
+                .ToArray();
+
+            startGate.SetResult();
+            await Task.WhenAll(migrations);
+        }
+
+        Assert.False(File.Exists(legacyPath));
+
+        using var db = new DetectionCacheDbContext(cacheDbPath);
+        var entries = db.DetectionCache
+            .Where(e => e.ItemId == episode.EpisodeId && e.Mode == AnalysisMode.Introduction && e.Type == CacheEntryType.Chromaprint)
+            .ToList();
+
+        var entry = Assert.Single(entries);
+        Assert.Equal(expectedFingerprint, CreateCacheService().DecompressBrotli<uint[]>(entry.Data));
     }
 
     [Theory]

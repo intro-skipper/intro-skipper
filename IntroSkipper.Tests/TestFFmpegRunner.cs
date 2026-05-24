@@ -22,10 +22,10 @@ public class TestFFmpegRunner
     {
         var runner = CreateRunner(new StubOptionsProvider { TestProcessThreads = 7 });
 
-        var info = runner.CreateProcessStartInfo(["-version"], stderr: false);
+        var info = runner.CreateProcessStartInfo(["-version"]);
 
         Assert.True(info.RedirectStandardOutput);
-        Assert.False(info.RedirectStandardError);
+        Assert.True(info.RedirectStandardError);
         Assert.Equal(
             ["-hide_banner", "-loglevel", "warning", "-version"],
             info.ArgumentList);
@@ -36,9 +36,9 @@ public class TestFFmpegRunner
     {
         var runner = CreateRunner(new StubOptionsProvider { TestProcessThreads = 7 });
 
-        var info = runner.CreateProcessStartInfo(["-vf", "showinfo", "-f", "null", "-"], stderr: true);
+        var info = runner.CreateProcessStartInfo(["-vf", "showinfo", "-f", "null", "-"]);
 
-        Assert.False(info.RedirectStandardOutput);
+        Assert.True(info.RedirectStandardOutput);
         Assert.True(info.RedirectStandardError);
         Assert.Equal(
             ["-hide_banner", "-threads", "7", "-loglevel", "info", "-vf", "showinfo", "-f", "null", "-"],
@@ -59,6 +59,24 @@ public class TestFFmpegRunner
 
         Assert.Equal("stdout", Encoding.UTF8.GetString(stdout.Output));
         Assert.Equal("stderr", Encoding.UTF8.GetString(stderr.Output));
+    }
+
+    [Fact]
+    public async Task RunAsync_CompletedProcess_PreservesNonzeroExitCodeAndBothStreams()
+    {
+        var runner = CreateRunner(
+            processFactory: startInfo => new FakeProcess(
+                startInfo,
+                CreateStream("stdout"),
+                CreateStream("stderr"),
+                exitCode: 1));
+
+        var result = await runner.RunAsync(["-i", "input"], FFmpegOutputStream.Stdout);
+
+        Assert.Equal(FFmpegProcessStatus.Completed, result.Status);
+        Assert.Equal(1, result.ExitCode);
+        Assert.Equal("stdout", Encoding.UTF8.GetString(result.Output));
+        Assert.Equal("stderr", Encoding.UTF8.GetString(result.DrainedOutput));
     }
 
     [Fact]
@@ -130,7 +148,7 @@ public class TestFFmpegRunner
     {
         var process = new FakeProcess(
             new ProcessStartInfo("ffmpeg"),
-            new CancelOnlyStream(),
+            new BlockingReadStream(),
             Stream.Null,
             hasExited: false);
         var runner = CreateRunner(processFactory: _ => process);
@@ -157,7 +175,7 @@ public class TestFFmpegRunner
         var process = new FakeProcess(
             new ProcessStartInfo("ffmpeg"),
             Stream.Null,
-            new CancelOnlyStream(),
+            new BlockingReadStream(),
             hasExited: false);
         var runner = CreateRunner(processFactory: _ => process);
         using var cts = new CancellationTokenSource();
@@ -200,7 +218,7 @@ public class TestFFmpegRunner
     {
         var process = new FakeProcess(
             new ProcessStartInfo("ffmpeg"),
-            new CancelOnlyStream(),
+            new BlockingReadStream(),
             Stream.Null,
             hasExited: false);
         var runner = CreateRunner(processFactory: _ => process);
@@ -211,6 +229,70 @@ public class TestFFmpegRunner
 
         await Assert.ThrowsAnyAsync<OperationCanceledException>(() => task);
         Assert.True(process.Killed);
+    }
+
+    [Fact]
+    public async Task RunAsync_CallerCancellationWithFaultedDrainedStream_KillsProcessAndThrowsCancellation()
+    {
+        var process = new FakeProcess(
+            new ProcessStartInfo("ffmpeg"),
+            new BlockingReadStream(),
+            new BlockingReadStream(faultOnCancellation: true),
+            hasExited: false);
+        var runner = CreateRunner(processFactory: _ => process);
+        using var cts = new CancellationTokenSource();
+
+        var task = runner.RunAsync(["-i", "input"], timeout: TimeSpan.FromMilliseconds(1000), cancellationToken: cts.Token);
+        cts.CancelAfter(10);
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => task);
+        Assert.True(process.Killed);
+    }
+
+    [Fact]
+    public async Task RunAsync_ProcessStartThrows_DisposesProcess()
+    {
+        var disposed = false;
+        var runner = CreateRunner(processFactory: startInfo =>
+        {
+            var process = new ThrowOnStartProcess(startInfo, onDispose: () => disposed = true);
+            return process;
+        });
+
+        await Assert.ThrowsAsync<InvalidOperationException>(
+            () => runner.RunAsync(["-i", "input"]));
+
+        Assert.True(disposed, "Process must be disposed when Start() throws");
+    }
+
+    [Fact]
+    public async Task RunAsync_StdoutSelected_DrainedOutputContainsStderr()
+    {
+        var runner = CreateRunner(
+            processFactory: startInfo => new FakeProcess(
+                startInfo,
+                CreateStream("stdout-data"),
+                CreateStream("stderr-data")));
+
+        var result = await runner.RunAsync(["-i", "input"], FFmpegOutputStream.Stdout);
+
+        Assert.Equal("stdout-data", Encoding.UTF8.GetString(result.Output));
+        Assert.Equal("stderr-data", Encoding.UTF8.GetString(result.DrainedOutput));
+    }
+
+    [Fact]
+    public async Task RunAsync_StderrSelected_DrainedOutputContainsStdout()
+    {
+        var runner = CreateRunner(
+            processFactory: startInfo => new FakeProcess(
+                startInfo,
+                CreateStream("stdout-data"),
+                CreateStream("stderr-data")));
+
+        var result = await runner.RunAsync(["-i", "input"], FFmpegOutputStream.Stderr);
+
+        Assert.Equal("stderr-data", Encoding.UTF8.GetString(result.Output));
+        Assert.Equal("stdout-data", Encoding.UTF8.GetString(result.DrainedOutput));
     }
 
     private static FFmpegRunner CreateRunner(
@@ -242,12 +324,14 @@ public class TestFFmpegRunner
             ProcessStartInfo startInfo,
             Stream standardOutput,
             Stream standardError,
-            bool hasExited = true)
+            bool hasExited = true,
+            int exitCode = 0)
         {
             StartInfo = startInfo;
             StandardOutput = standardOutput;
             StandardError = standardError;
             HasExited = hasExited;
+            ExitCode = exitCode;
 
             if (hasExited)
             {
@@ -292,7 +376,7 @@ public class TestFFmpegRunner
         }
     }
 
-    private sealed class CancelOnlyStream : Stream
+    private sealed class BlockingReadStream(bool faultOnCancellation = false) : Stream
     {
         public override bool CanRead => true;
 
@@ -316,13 +400,13 @@ public class TestFFmpegRunner
 
         public override async Task<int> ReadAsync(byte[] buffer, int offset, int count, CancellationToken cancellationToken)
         {
-            await Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken).ConfigureAwait(false);
+            await ReadUntilCanceledAsync(cancellationToken).ConfigureAwait(false);
             return 0;
         }
 
         public override async ValueTask<int> ReadAsync(Memory<byte> buffer, CancellationToken cancellationToken = default)
         {
-            await Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken).ConfigureAwait(false);
+            await ReadUntilCanceledAsync(cancellationToken).ConfigureAwait(false);
             return 0;
         }
 
@@ -331,5 +415,57 @@ public class TestFFmpegRunner
         public override void SetLength(long value) => throw new NotSupportedException();
 
         public override void Write(byte[] buffer, int offset, int count) => throw new NotSupportedException();
+
+        private static async Task DelayUntilCanceledAsync(CancellationToken cancellationToken)
+            => await Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken).ConfigureAwait(false);
+
+        private async Task ReadUntilCanceledAsync(CancellationToken cancellationToken)
+        {
+            if (!faultOnCancellation)
+            {
+                await DelayUntilCanceledAsync(cancellationToken).ConfigureAwait(false);
+                return;
+            }
+
+            try
+            {
+                await DelayUntilCanceledAsync(cancellationToken).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                throw new InvalidOperationException("Simulated drained-stream fault after cancellation");
+            }
+        }
+    }
+
+    private sealed class ThrowOnStartProcess : FFmpegRunner.IProcess
+    {
+        private readonly Action _onDispose;
+
+        internal ThrowOnStartProcess(ProcessStartInfo startInfo, Action onDispose)
+        {
+            StartInfo = startInfo;
+            _onDispose = onDispose;
+        }
+
+        public ProcessStartInfo StartInfo { get; }
+
+        public Stream StandardOutput => Stream.Null;
+
+        public Stream StandardError => Stream.Null;
+
+        public bool HasExited => false;
+
+        public int ExitCode => 0;
+
+        public ProcessPriorityClass PriorityClass { set { } }
+
+        public void Start() => throw new InvalidOperationException("Simulated start failure");
+
+        public Task WaitForExitAsync(CancellationToken cancellationToken = default) => Task.CompletedTask;
+
+        public void Kill(bool entireProcessTree) { }
+
+        public void Dispose() => _onDispose();
     }
 }

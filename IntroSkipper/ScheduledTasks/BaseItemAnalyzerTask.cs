@@ -112,16 +112,16 @@ public partial class BaseItemAnalyzerTask(
 
         var queue = await queueManager.GetMediaItems(cancellationToken).ConfigureAwait(false);
 
-        // Batch-migrate any remaining legacy on-disk cache files into the SQLite cache.
-        // This is idempotent and a no-op once all legacy files have been migrated.
-        var allEpisodes = queue.Values.SelectMany(static episodes => episodes).ToList();
-        await _cacheService.MigrateLegacyCachesAsync(allEpisodes, cancellationToken).ConfigureAwait(false);
-
         if (seasonsToAnalyze?.Count > 0)
         {
             queue = queue.Where(kvp => seasonsToAnalyze.Contains(kvp.Key))
                          .ToDictionary(kvp => kvp.Key, kvp => kvp.Value);
         }
+
+        // Batch-migrate any remaining legacy on-disk cache files for episodes eligible for this scan.
+        // This is idempotent and a no-op once all legacy files have been migrated.
+        var allEpisodes = queue.Values.SelectMany(static episodes => episodes).ToList();
+        await _cacheService.MigrateLegacyCachesAsync(allEpisodes, cancellationToken).ConfigureAwait(false);
 
         int totalQueued = queue.Sum(kvp => kvp.Value.Count) * modes.Count;
         if (totalQueued == 0)

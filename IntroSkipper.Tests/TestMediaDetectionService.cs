@@ -38,22 +38,9 @@ public class TestMediaDetectionService
         await svc.FingerprintAsync(episode, AnalysisMode.Introduction);
 
         Assert.NotNull(captured);
-        Assert.Contains("-ss", captured);
-        Assert.Contains("-i", captured);
-        Assert.Contains("-to", captured);
-        Assert.Contains("-ac", captured);
-        Assert.Contains("2", captured);
-        Assert.Contains("-f", captured);
-        Assert.Contains("chromaprint", captured);
-        Assert.Contains("-fp_format", captured);
-        Assert.Contains("raw", captured);
-        Assert.Contains("-", captured);
-
-        // -ss must precede -i (seek before input)
-        Assert.True(IndexOf(captured, "-ss") < IndexOf(captured, "-i"), "-ss must precede -i");
-
-        // Path follows -i
-        Assert.Equal(episode.Path, captured[IndexOf(captured, "-i") + 1]);
+        Assert.Equal(
+            ["-ss", "0", "-i", episode.Path, "-to", "60", "-ac", "2", "-f", "chromaprint", "-fp_format", "raw", "-"],
+            captured);
     }
 
     [Fact]
@@ -188,6 +175,45 @@ public class TestMediaDetectionService
         Assert.Equal(0, cache.WriteCount);
     }
 
+    [Fact]
+    public async Task FingerprintAsync_NonzeroExit_UsesDrainedStderrForDiagnostics()
+    {
+        var episode = CreateEpisode(introEnd: 60);
+        const string StderrMessage = "No such file or directory";
+
+        var svc = CreateService(
+            runner: (_, _, _, _) => new FFmpegProcessResult(
+                FourByteFingerprint,
+                Encoding.UTF8.GetBytes(StderrMessage),
+                FFmpegProcessStatus.Completed,
+                1));
+
+        var ex = await Assert.ThrowsAsync<FFmpegDetectionException>(
+            () => svc.FingerprintAsync(episode, AnalysisMode.Introduction));
+
+        Assert.Contains(StderrMessage, ex.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task FingerprintAsync_NonzeroExit_LongDiagnosticTruncated()
+    {
+        var episode = CreateEpisode(introEnd: 60);
+        var longMessage = new string('x', 3000);
+
+        var svc = CreateService(
+            runner: (_, _, _, _) => new FFmpegProcessResult(
+                FourByteFingerprint,
+                Encoding.UTF8.GetBytes(longMessage),
+                FFmpegProcessStatus.Completed,
+                1));
+
+        var ex = await Assert.ThrowsAsync<FFmpegDetectionException>(
+            () => svc.FingerprintAsync(episode, AnalysisMode.Introduction));
+
+        Assert.Contains("...", ex.Message, StringComparison.Ordinal);
+        Assert.True(ex.Message.Length < longMessage.Length, "Long diagnostic output must be truncated in the exception message");
+    }
+
     // === DetectSilenceAsync: text stderr path ===
 
     [Fact]
@@ -199,23 +225,14 @@ public class TestMediaDetectionService
 
         var svc = CreateService(
             runner: (args, _, _, _) => { captured = args; return SuccessResult(""); },
-            noise: -50);
+            noise: -45);
 
         await svc.DetectSilenceAsync(episode, range, AnalysisMode.Introduction);
 
         Assert.NotNull(captured);
-        Assert.Contains("-vn", captured);
-        Assert.Contains("-sn", captured);
-        Assert.Contains("-dn", captured);
-        Assert.Contains("-ss", captured);
-        Assert.Contains("-i", captured);
-        Assert.Contains("-to", captured);
-        Assert.Contains("-af", captured);
-        Assert.Contains("-f", captured);
-
-        var afValue = captured[IndexOf(captured, "-af") + 1];
-        Assert.Contains("silencedetect", afValue, StringComparison.Ordinal);
-        Assert.Contains("noise=-50dB", afValue, StringComparison.Ordinal);
+        Assert.Equal(
+            ["-vn", "-sn", "-dn", "-ss", "10", "-i", episode.Path, "-to", "20", "-af", "silencedetect=noise=-45dB:duration=0.1", "-f", "null", "-"],
+            captured);
     }
 
     [Fact]
@@ -335,19 +352,12 @@ public class TestMediaDetectionService
         var svc = CreateService(
             runner: (args, _, _, _) => { captured = args; return SuccessResult(""); });
 
-        await svc.DetectBlackFramesInRangeAsync(episode, range, 50, 28, AnalysisMode.Credits);
+        await svc.DetectBlackFramesInRangeAsync(episode, range, 85, 28, AnalysisMode.Credits);
 
         Assert.NotNull(captured);
-        Assert.Contains("-ss", captured);
-        Assert.Contains("-an", captured);
-        Assert.Contains("-dn", captured);
-        Assert.Contains("-sn", captured);
-        Assert.Contains("-vf", captured);
-
-        var vfValue = captured[IndexOf(captured, "-vf") + 1];
-        Assert.Contains("blackframe", vfValue, StringComparison.Ordinal);
-        Assert.Contains("amount=50", vfValue, StringComparison.Ordinal);
-        Assert.Contains("threshold=28", vfValue, StringComparison.Ordinal);
+        Assert.Equal(
+            ["-ss", "100", "-i", episode.Path, "-to", "100", "-an", "-dn", "-sn", "-vf", "blackframe=amount=50:threshold=28", "-f", "null", "-"],
+            captured);
     }
 
     [Fact]
@@ -434,13 +444,9 @@ public class TestMediaDetectionService
         await svc.DetectCreditBlackFramesAsync(episode, 28);
 
         Assert.NotNull(captured);
-        Assert.Contains("-skip_frame", captured);
-        Assert.Contains("nokey", captured);
-
-        var vfValue = captured[IndexOf(captured, "-vf") + 1];
-        Assert.Contains("blackframe", vfValue, StringComparison.Ordinal);
-        Assert.Contains("amount=0", vfValue, StringComparison.Ordinal);
-        Assert.Contains("threshold=28", vfValue, StringComparison.Ordinal);
+        Assert.Equal(
+            ["-skip_frame", "nokey", "-ss", "1500", "-i", episode.Path, "-an", "-dn", "-sn", "-vf", "blackframe=amount=0:threshold=28", "-f", "null", "-"],
+            captured);
     }
 
     [Fact]
@@ -518,10 +524,9 @@ public class TestMediaDetectionService
         await svc.DetectKeyFramesAsync(episode, range, AnalysisMode.Credits);
 
         Assert.NotNull(captured);
-        Assert.Contains("-skip_frame", captured);
-        Assert.Contains("nokey", captured);
-        Assert.Contains("-vf", captured);
-        Assert.Equal("showinfo", captured[IndexOf(captured, "-vf") + 1]);
+        Assert.Equal(
+            ["-skip_frame", "nokey", "-ss", "50", "-i", episode.Path, "-to", "50", "-an", "-dn", "-sn", "-vf", "showinfo", "-f", "null", "-"],
+            captured);
     }
 
     [Fact]
@@ -586,19 +591,6 @@ public class TestMediaDetectionService
 
     private static FFmpegProcessResult TimedOutResult() => new(Array.Empty<byte>(), Array.Empty<byte>(), FFmpegProcessStatus.TimedOut, null);
 
-    private static int IndexOf(IReadOnlyList<string> list, string value)
-    {
-        for (int i = 0; i < list.Count; i++)
-        {
-            if (list[i] == value)
-            {
-                return i;
-            }
-        }
-
-        return -1;
-    }
-
     private sealed class StubOptions : PluginOptionsProvider
     {
         public int TestNoise { get; set; } = -50;
@@ -626,9 +618,8 @@ public class TestMediaDetectionService
 
     /// <summary>
     /// Thin stub cache using dictionary for cache-hit injection.
-    /// Minimizes interface-update cost when Task 3 changes the cache key.
     /// </summary>
-    private sealed class StubCacheService : IDetectionCacheService
+    private sealed class StubCacheService : IDetectionResultCache
     {
         private readonly Dictionary<DetectionCacheKey, object> _hits = new();
 
@@ -651,19 +642,5 @@ public class TestMediaDetectionService
             return Task.FromResult(true);
         }
 
-        public Task DeleteFingerprintCacheAsync(Guid id, CancellationToken cancellationToken = default)
-            => Task.CompletedTask;
-
-        public Task DeleteCacheFilesAsync(AnalysisMode mode, CancellationToken cancellationToken = default)
-            => Task.CompletedTask;
-
-        public Task<bool> HasCachedFingerprintAsync(QueuedEpisode episode, AnalysisMode mode, CancellationToken cancellationToken = default)
-            => Task.FromResult(false);
-
-        public Task DeleteStaleCachesAsync(IReadOnlySet<Guid> enabledItemIds, CancellationToken cancellationToken = default)
-            => Task.CompletedTask;
-
-        public Task MigrateLegacyCachesAsync(IEnumerable<QueuedEpisode> episodes, CancellationToken cancellationToken = default)
-            => Task.CompletedTask;
     }
 }

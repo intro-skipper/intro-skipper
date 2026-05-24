@@ -38,6 +38,7 @@ namespace IntroSkipper
             serviceCollection.AddSingleton<IPluginOptionsProvider, PluginOptionsProvider>();
             serviceCollection.AddSingleton<IFFmpegRunner, FFmpegRunner>();
             serviceCollection.AddSingleton<IDetectionCacheService, DetectionCacheService>();
+            serviceCollection.AddSingleton<IDetectionResultCache>(serviceProvider => serviceProvider.GetRequiredService<IDetectionCacheService>());
             serviceCollection.AddSingleton<IMediaDetectionService, MediaDetectionService>();
             serviceCollection.AddSingleton<IFFmpegCapabilityService, FFmpegCapabilityService>();
         }

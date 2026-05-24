@@ -8,10 +8,10 @@
  */
 
 using System;
-using System.Diagnostics;
 using System.Threading.Tasks;
 using IntroSkipper.Data;
 using IntroSkipper.FFmpeg;
+using Microsoft.Extensions.Logging.Abstractions;
 using Xunit;
 
 namespace IntroSkipper.Tests;
@@ -47,30 +47,15 @@ public class TestFFmpegServices
     }
 
     /// <summary>
-    /// Test that -muxers query produces no warning.
+    /// Test that info queries are not built with trailing thread options.
     /// </summary>
-    [FactSkipFFmpegTests]
-    public void TestMuxersQueryNoWarning()
+    [Theory]
+    [InlineData("warning", "-muxers")]
+    [InlineData("warning", "-h", "muxer=chromaprint")]
+    [InlineData("info", "-h", "filter=silencedetect")]
+    public void TestInfoQueryNoTrailingThreadOption(string expectedLogLevel, params string[] args)
     {
-        RunFFmpegAndVerifyNoWarning("-muxers");
-    }
-
-    /// <summary>
-    /// Test that -h muxer=chromaprint query produces no warning.
-    /// </summary>
-    [FactSkipFFmpegTests]
-    public void TestHelpMuxerQueryNoWarning()
-    {
-        RunFFmpegAndVerifyNoWarning("-h muxer=chromaprint");
-    }
-
-    /// <summary>
-    /// Test that -h filter=silencedetect query produces no warning.
-    /// </summary>
-    [FactSkipFFmpegTests]
-    public void TestHelpFilterQueryNoWarning()
-    {
-        RunFFmpegAndVerifyNoWarning("-h filter=silencedetect");
+        AssertRunnerBuildsInfoQueryWithoutTrailingThreadOption(expectedLogLevel, args);
     }
 
     #endregion
@@ -169,25 +154,15 @@ public class TestFFmpegServices
 
     #endregion
 
-    private static void RunFFmpegAndVerifyNoWarning(string args)
+    private static void AssertRunnerBuildsInfoQueryWithoutTrailingThreadOption(string expectedLogLevel, string[] args)
     {
-        var ffmpegPath = "ffmpeg";
+        var runner = new FFmpegRunner(new PluginOptionsProvider(), NullLogger<FFmpegRunner>.Instance);
+        var info = runner.CreateProcessStartInfo(args);
 
-        var info = new ProcessStartInfo(ffmpegPath, args)
-        {
-            WindowStyle = ProcessWindowStyle.Hidden,
-            CreateNoWindow = true,
-            UseShellExecute = false,
-            RedirectStandardOutput = true,
-            RedirectStandardError = true
-        };
-
-        using var process = Process.Start(info);
-        var output = process!.StandardOutput.ReadToEnd() + process.StandardError.ReadToEnd();
-        process.WaitForExit();
-
-        // Verify no "Trailing option" warning
-        Assert.DoesNotContain("Trailing option", output, StringComparison.Ordinal);
+        Assert.True(info.RedirectStandardOutput);
+        Assert.True(info.RedirectStandardError);
+        Assert.DoesNotContain("-threads", info.ArgumentList);
+        Assert.Equal(["-hide_banner", "-loglevel", expectedLogLevel, .. args], info.ArgumentList);
     }
 
     private static QueuedEpisode QueueFile(string path)

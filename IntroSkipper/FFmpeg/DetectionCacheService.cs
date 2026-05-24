@@ -452,8 +452,6 @@ public sealed partial class DetectionCacheService : IDetectionCacheService
             var transaction = await db.Database.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
             await using (transaction.ConfigureAwait(false))
             {
-                LogMigratingLegacyCache(_logger, legacyCacheKey, cacheKey);
-
                 var existingEntries = await WhereCacheRange(db.DetectionCache, itemId, type, start, end, variant)
                     .ToListAsync(cancellationToken)
                     .ConfigureAwait(false);
@@ -597,6 +595,8 @@ public sealed partial class DetectionCacheService : IDetectionCacheService
             // An empty chromaprint legacy file is corrupt; empty detection result caches are valid.
             if (key.Type == CacheEntryType.Chromaprint && result.Length == 0)
             {
+                // Unrecoverable: corrupt/empty fingerprint file. Delete so it is not retried forever.
+                DeleteLegacyCacheFilePath(legacyTextPath);
                 return false;
             }
 
@@ -610,6 +610,8 @@ public sealed partial class DetectionCacheService : IDetectionCacheService
                 {
                     LogLegacyDurationMismatch(_logger, legacyCacheKey, inferredDuration, expectedDuration);
 
+                    // Unrecoverable: fingerprint was generated with different settings. Delete so it is not retried forever.
+                    DeleteLegacyCacheFilePath(legacyTextPath);
                     return false;
                 }
             }
@@ -639,15 +641,15 @@ public sealed partial class DetectionCacheService : IDetectionCacheService
         CancellationToken cancellationToken)
     {
         var itemId = legacyFile.ItemId;
+        if (!episodeLookup.TryGetValue(itemId, out var episode))
+        {
+            return false; // Episode not in queue; stale cache cleanup will handle it.
+        }
+
         if (legacyFile.Kind is LegacyCacheKind.Fingerprint or LegacyCacheKind.CreditFingerprint)
         {
             // Chromaprint fingerprint file
             var mode = legacyFile.Kind == LegacyCacheKind.CreditFingerprint ? AnalysisMode.Credits : AnalysisMode.Introduction;
-
-            if (!episodeLookup.TryGetValue(itemId, out var episode))
-            {
-                return false; // Episode not in queue; stale cache cleanup will handle it
-            }
 
             var (start, end) = episode.GetFingerprintRange(mode);
             var key = new DetectionCacheKey(itemId, mode, CacheEntryType.Chromaprint, start, end, DetectionCacheVariant.Chromaprint());

@@ -8,30 +8,10 @@ using IntroSkipper.Data;
 namespace IntroSkipper.FFmpeg;
 
 /// <summary>
-/// Provides detection-cache operations: SQLite read/write, Brotli compression,
-/// legacy on-disk cache migration, and cache management (delete by item or mode).
+/// Provides cache management operations beyond hot-path detection-result read/write.
 /// </summary>
-public interface IDetectionCacheService
+public interface IDetectionCacheService : IDetectionResultCache
 {
-    /// <summary>
-    /// Tries to read a cached detection result from the SQLite cache asynchronously.
-    /// </summary>
-    /// <typeparam name="T">Element type of the cached array.</typeparam>
-    /// <param name="key">Cache entry key.</param>
-    /// <param name="cancellationToken">Cancellation token.</param>
-    /// <returns>The cached array on success; otherwise <c>null</c>.</returns>
-    Task<T[]?> TryReadJsonCacheAsync<T>(DetectionCacheKey key, CancellationToken cancellationToken = default);
-
-    /// <summary>
-    /// Writes a detection result to the SQLite cache with Brotli compression asynchronously.
-    /// </summary>
-    /// <typeparam name="T">Element type of the array to cache.</typeparam>
-    /// <param name="key">Cache entry key.</param>
-    /// <param name="items">Data to cache.</param>
-    /// <param name="cancellationToken">Cancellation token.</param>
-    /// <returns><c>true</c> if the write succeeded; <c>false</c> on database error (non-fatal).</returns>
-    Task<bool> WriteJsonCacheAsync<T>(DetectionCacheKey key, T[] items, CancellationToken cancellationToken = default);
-
     /// <summary>
     /// Removes all cache entries for a media item from the SQLite cache and legacy on-disk files.
     /// </summary>
@@ -70,7 +50,7 @@ public interface IDetectionCacheService
     /// The method is idempotent; after a successful pass with no supported legacy candidates
     /// remaining, later calls are no-ops. Failed or disabled passes may be retried.
     /// </summary>
-    /// <param name="episodes">All queued episodes, used to resolve fingerprint ranges for chromaprint migration.</param>
+    /// <param name="episodes">Episodes eligible for this migration pass, used to resolve fingerprint ranges for chromaprint migration.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>Task.</returns>
     Task MigrateLegacyCachesAsync(IEnumerable<QueuedEpisode> episodes, CancellationToken cancellationToken = default);

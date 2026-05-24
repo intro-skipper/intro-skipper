@@ -85,18 +85,19 @@ public sealed partial class FFmpegRunner : IFFmpegRunner
         cancellationToken.ThrowIfCancellationRequested();
 
         var stderr = outputStream == FFmpegOutputStream.Stderr;
-        using var ffmpeg = StartProcess(args, stderr, redirectBoth: true);
+        using var ffmpeg = StartProcess(args);
 
         // Read the selected stream asynchronously while draining the other to prevent deadlocks.
         using var ms = new MemoryStream();
         var selectedStream = stderr ? ffmpeg.StandardError : ffmpeg.StandardOutput;
         var drainedStream = stderr ? ffmpeg.StandardOutput : ffmpeg.StandardError;
 
+        Task<byte[]>? drainTask = null;
         try
         {
             using var readCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
             var exitTask = WaitForExitAsync(ffmpeg, effectiveTimeout, cancellationToken);
-            var drainTask = DrainStreamAsync(drainedStream, readCts.Token);
+            drainTask = DrainStreamAsync(drainedStream, readCts.Token);
 
             var selectedStreamCompleted = await CopySelectedStreamAsync(selectedStream, ms, exitTask, readCts.Token).ConfigureAwait(false);
             if (!selectedStreamCompleted)
@@ -140,6 +141,11 @@ public sealed partial class FFmpegRunner : IFFmpegRunner
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
             await KillProcessAsync(ffmpeg).ConfigureAwait(false);
+            if (drainTask is not null)
+            {
+                ObserveFaultedTask(drainTask);
+            }
+
             throw;
         }
     }
@@ -196,10 +202,8 @@ public sealed partial class FFmpegRunner : IFFmpegRunner
     /// Creates a configured FFmpeg process start info without starting it.
     /// </summary>
     /// <param name="args">User-supplied FFmpeg arguments.</param>
-    /// <param name="stderr">If <c>true</c>, the selected capture stream is stderr; otherwise stdout.</param>
-    /// <param name="redirectBoth">If <c>true</c>, redirect both stdout and stderr (for async).</param>
     /// <returns>A configured but not-yet-started <see cref="ProcessStartInfo"/>.</returns>
-    internal ProcessStartInfo CreateProcessStartInfo(IReadOnlyList<string> args, bool stderr, bool redirectBoth = false)
+    internal ProcessStartInfo CreateProcessStartInfo(IReadOnlyList<string> args)
     {
         var ffmpegPath = _options.FFmpegPath;
 
@@ -224,8 +228,8 @@ public sealed partial class FFmpegRunner : IFFmpegRunner
             CreateNoWindow = true,
             UseShellExecute = false,
             ErrorDialog = false,
-            RedirectStandardOutput = redirectBoth || !stderr,
-            RedirectStandardError = redirectBoth || stderr
+            RedirectStandardOutput = true,
+            RedirectStandardError = true
         };
 
         // Prepend flags to suppress FFmpeg banner and set log level / thread count.
@@ -251,28 +255,33 @@ public sealed partial class FFmpegRunner : IFFmpegRunner
     /// Creates a configured FFmpeg process without starting it.
     /// </summary>
     /// <param name="args">User-supplied FFmpeg arguments.</param>
-    /// <param name="stderr">If <c>true</c>, the selected capture stream is stderr; otherwise stdout.</param>
-    /// <param name="redirectBoth">If <c>true</c>, redirect both stdout and stderr (for async).</param>
     /// <returns>A configured but not-yet-started process.</returns>
-    private IProcess CreateProcess(IReadOnlyList<string> args, bool stderr, bool redirectBoth = false)
-        => _processFactory(CreateProcessStartInfo(args, stderr, redirectBoth));
+    private IProcess CreateProcess(IReadOnlyList<string> args)
+        => _processFactory(CreateProcessStartInfo(args));
 
     /// <summary>
     /// Creates, logs, starts, and applies configured priority to an FFmpeg process.
     /// </summary>
     /// <param name="args">User-supplied FFmpeg arguments.</param>
-    /// <param name="stderr">If <c>true</c>, the selected capture stream is stderr; otherwise stdout.</param>
-    /// <param name="redirectBoth">If <c>true</c>, redirect both stdout and stderr (for async).</param>
     /// <returns>A started process.</returns>
-    private IProcess StartProcess(IReadOnlyList<string> args, bool stderr, bool redirectBoth = false)
+    private IProcess StartProcess(IReadOnlyList<string> args)
     {
-        var ffmpeg = CreateProcess(args, stderr, redirectBoth);
+        var ffmpeg = CreateProcess(args);
         if (_logger.IsEnabled(LogLevel.Debug))
         {
             LogStartingFfmpeg(_logger, string.Join(" ", ffmpeg.StartInfo.ArgumentList));
         }
 
-        ffmpeg.Start();
+        try
+        {
+            ffmpeg.Start();
+        }
+        catch
+        {
+            ffmpeg.Dispose();
+            throw;
+        }
+
         SetProcessPriority(ffmpeg);
         return ffmpeg;
     }

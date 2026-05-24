@@ -21,7 +21,7 @@ public sealed partial class MediaDetectionService : IMediaDetectionService
     private const int MaxFailureDiagnosticLength = 2048;
 
     private readonly IFFmpegRunner _runner;
-    private readonly IDetectionCacheService _cacheService;
+    private readonly IDetectionResultCache _cacheService;
     private readonly IPluginOptionsProvider _options;
     private readonly ILogger<MediaDetectionService> _logger;
 
@@ -29,13 +29,13 @@ public sealed partial class MediaDetectionService : IMediaDetectionService
     /// Initializes a new instance of the <see cref="MediaDetectionService"/> class.
     /// </summary>
     /// <param name="runner">FFmpeg process runner.</param>
-    /// <param name="cacheService">Detection cache service.</param>
+    /// <param name="cacheService">Detection-result cache.</param>
     /// <param name="options">Media detection options.</param>
     /// <param name="logger">Logger.</param>
     /// <exception cref="ArgumentNullException"><paramref name="runner"/>, <paramref name="cacheService"/>, <paramref name="options"/>, or <paramref name="logger"/> is <see langword="null"/>.</exception>
     public MediaDetectionService(
         IFFmpegRunner runner,
-        IDetectionCacheService cacheService,
+        IDetectionResultCache cacheService,
         IPluginOptionsProvider options,
         ILogger<MediaDetectionService> logger)
     {

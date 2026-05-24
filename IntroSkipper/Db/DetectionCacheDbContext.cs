@@ -99,11 +99,8 @@ public class DetectionCacheDbContext : DbContext
     {
         if (!Database.EnsureCreated() && !HasExpectedSchema())
         {
-            if (!HasExpectedSchema())
-            {
-                Database.EnsureDeleted();
-                Database.EnsureCreated();
-            }
+            Database.EnsureDeleted();
+            Database.EnsureCreated();
         }
     }
 

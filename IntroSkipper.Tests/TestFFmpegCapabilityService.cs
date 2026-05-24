@@ -70,11 +70,89 @@ public class TestFFmpegCapabilityService
         }
     }
 
+    [Fact]
+    public async Task CheckFFmpegVersion_Timeout_ReturnsFalseAndSetsWarning()
+    {
+        WarningManager.Clear();
+        var runner = new CapabilityRunner { VersionResult = FFmpegProcessStatus.TimedOut };
+        var service = new FFmpegCapabilityService(runner, NullLogger<FFmpegCapabilityService>.Instance);
+
+        try
+        {
+            var result = await service.CheckFFmpegVersionAsync().ConfigureAwait(true);
+
+            Assert.False(result);
+            Assert.Contains("IncompatibleFFmpegBuild", WarningManager.GetWarnings(), StringComparison.Ordinal);
+            AssertIncompatibleVersionDiagnostic(service, "ffmpeg version test");
+        }
+        finally
+        {
+            WarningManager.Clear();
+        }
+    }
+
+    [Fact]
+    public async Task CheckFFmpegVersion_NonzeroExit_ReturnsFalseAndSetsWarning()
+    {
+        WarningManager.Clear();
+        var runner = new CapabilityRunner { VersionExitCode = 1 };
+        var service = new FFmpegCapabilityService(runner, NullLogger<FFmpegCapabilityService>.Instance);
+
+        try
+        {
+            var result = await service.CheckFFmpegVersionAsync().ConfigureAwait(true);
+
+            Assert.False(result);
+            Assert.Contains("IncompatibleFFmpegBuild", WarningManager.GetWarnings(), StringComparison.Ordinal);
+            AssertIncompatibleVersionDiagnostic(service, "ffmpeg version test");
+        }
+        finally
+        {
+            WarningManager.Clear();
+        }
+    }
+
+    [Fact]
+    public async Task CheckFFmpegVersion_MissingRequiredOutput_ReturnsFalseAndSetsWarning()
+    {
+        WarningManager.Clear();
+        var runner = new CapabilityRunner { VersionOutput = "unexpected garbage output" };
+        var service = new FFmpegCapabilityService(runner, NullLogger<FFmpegCapabilityService>.Instance);
+
+        try
+        {
+            var result = await service.CheckFFmpegVersionAsync().ConfigureAwait(true);
+
+            Assert.False(result);
+            Assert.Contains("IncompatibleFFmpegBuild", WarningManager.GetWarnings(), StringComparison.Ordinal);
+            AssertIncompatibleVersionDiagnostic(service, "unexpected garbage output");
+        }
+        finally
+        {
+            WarningManager.Clear();
+        }
+    }
+
+    private static void AssertIncompatibleVersionDiagnostic(FFmpegCapabilityService service, string expectedVersionOutput)
+    {
+        var logs = service.GetChromaprintLogs();
+
+        Assert.Contains("* FFmpeg: `unknown_error`", logs, StringComparison.Ordinal);
+        Assert.Contains("FFmpeg version:", logs, StringComparison.Ordinal);
+        Assert.Contains(expectedVersionOutput, logs, StringComparison.Ordinal);
+    }
+
     private sealed class CapabilityRunner : IFFmpegRunner
     {
         private int _versionChecks;
 
         public bool FailFirstVersionCheck { get; init; }
+
+        public FFmpegProcessStatus VersionResult { get; init; } = FFmpegProcessStatus.Completed;
+
+        public int VersionExitCode { get; init; }
+
+        public string? VersionOutput { get; init; }
 
         public List<string> Calls { get; } = [];
 
@@ -87,9 +165,22 @@ public class TestFFmpegCapabilityService
             var key = string.Join(" ", args);
             Calls.Add(key);
 
-            if (FailFirstVersionCheck && key == "-version" && _versionChecks++ == 0)
+            if (key == "-version")
             {
-                return Task.FromResult(CreateResult("not a supported build"));
+                if (FailFirstVersionCheck && _versionChecks++ == 0)
+                {
+                    return Task.FromResult(CreateResult("not a supported build"));
+                }
+
+                if (VersionResult != FFmpegProcessStatus.Completed || VersionExitCode != 0 || VersionOutput is not null)
+                {
+                    var output = VersionOutput ?? "ffmpeg version test";
+                    return Task.FromResult(new FFmpegProcessResult(
+                        Encoding.UTF8.GetBytes(output),
+                        Array.Empty<byte>(),
+                        VersionResult,
+                        VersionResult == FFmpegProcessStatus.Completed ? VersionExitCode : null));
+                }
             }
 
             return Task.FromResult(key switch
