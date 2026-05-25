@@ -23,6 +23,8 @@ public class TestChapterAnalyzer
     [InlineData("Intro")]
     [InlineData("Intro Start")]
     [InlineData("Introduction")]
+    [InlineData("Intermission/Intro Animation")]
+    [InlineData("[SponsorBlock]: Intermission/Intro Animation")]
     public void TestIntroductionExpression(string chapterName)
     {
         var chapters = CreateChapters(chapterName, AnalysisMode.Introduction);
@@ -39,6 +41,8 @@ public class TestChapterAnalyzer
     [InlineData("Credit start")]
     [InlineData("Closing Credits")]
     [InlineData("Credits")]
+    [InlineData("Endcards/Credits")]
+    [InlineData("[SponsorBlock]: Endcards/Credits")]
     public void TestEndCreditsExpression(string chapterName)
     {
         var chapters = CreateChapters(chapterName, AnalysisMode.Credits);
