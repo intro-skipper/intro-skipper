@@ -6,8 +6,8 @@ import { textField } from "../components/text-field.ts";
 
 const DEFAULTS: Record<string, string> = {
     ChapterAnalyzerIntroductionPattern:
-        "(^|\\s)(Intro|Introduction|OP|Opening|Intermission\\/Intro(\\sAnimation)?)(?!\\sEnd)(\\s|:|$)",
-    ChapterAnalyzerEndCreditsPattern: "(^|\\s)(Credits?|ED|Ending|Outro|Endcards\\/Credits)(?!\\sEnd)(\\s|:|$)",
+        "(^|\\s)(Intro|Introduction|OP|Opening|Intermission/Intro(\\sAnimation)?)(?!\\sEnd)(\\s|:|$)",
+    ChapterAnalyzerEndCreditsPattern: "(^|\\s)(Credits?|ED|Ending|Outro|Endcards/Credits)(?!\\sEnd)(\\s|:|$)",
     ChapterAnalyzerPreviewPattern:
         "(^|\\s)(Preview|PV|Sneak\\s?Peek|Coming\\s?(Up|Soon)|Next\\s+(time|on|episode)|Extra|Teaser|Trailer)(?!\\sEnd)(\\s|:|$)",
     ChapterAnalyzerRecapPattern:
