@@ -5,14 +5,14 @@ import { appendTabContent } from "../components/tab-layout.ts";
 import { textField } from "../components/text-field.ts";
 
 const DEFAULTS: Record<string, string> = {
-    ChapterAnalyzerIntroductionPattern:
-        "(^|\\s)(Intro|Introduction|OP|Opening|Intermission/Intro(\\sAnimation)?)(?!\\sEnd)(\\s|:|$)",
+    ChapterAnalyzerIntroductionPattern: "(^|\\s)(Intro|Introduction|OP|Opening)(?!\\sEnd)(\\s|:|$)",
     ChapterAnalyzerEndCreditsPattern: "(^|\\s)(Credits?|ED|Ending|Outro|Endcards/Credits)(?!\\sEnd)(\\s|:|$)",
     ChapterAnalyzerPreviewPattern:
         "(^|\\s)(Preview|PV|Sneak\\s?Peek|Coming\\s?(Up|Soon)|Next\\s+(time|on|episode)|Extra|Teaser|Trailer)(?!\\sEnd)(\\s|:|$)",
     ChapterAnalyzerRecapPattern:
         "(^|\\s)(Re?cap|Sum{1,2}ary|Prev(ious(ly)?)?|(Last|Earlier)(\\s\\w+)?|Catch[ -]up)(?!\\sEnd)(\\s|:|$)",
-    ChapterAnalyzerCommercialPattern: "(^|\\s)(Ad(vert(isement)?)?|Commercial)(?!\\sEnd)(\\s|$)",
+    ChapterAnalyzerCommercialPattern:
+        "(^|\\s)(Ad(vert(isement)?)?|Commercial|Intermission(/Intro(\\sAnimation)?)?)(?!\\sEnd)(\\s|:|$)",
 };
 
 function patternField(id: string, label: string, typeNoun: string): HTMLElement {

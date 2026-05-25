@@ -284,7 +284,7 @@ public class PluginConfiguration : BasePluginConfiguration
     /// Gets or sets the regular expression used to detect introduction chapters.
     /// </summary>
     public string ChapterAnalyzerIntroductionPattern { get; set; } =
-        @"(^|\s)(Intro|Introduction|OP|Opening|Intermission/Intro(\sAnimation)?)(?!\sEnd)(\s|:|$)";
+        @"(^|\s)(Intro|Introduction|OP|Opening)(?!\sEnd)(\s|:|$)";
 
     /// <summary>
     /// Gets or sets the regular expression used to detect ending credit chapters.
@@ -308,7 +308,7 @@ public class PluginConfiguration : BasePluginConfiguration
     /// Gets or sets the regular expression used to detect Commercial chapters.
     /// </summary>
     public string ChapterAnalyzerCommercialPattern { get; set; } =
-        @"(^|\s)(Ad(vert(isement)?)?|Commercial)(?!\sEnd)(\s|$)";
+        @"(^|\s)(Ad(vert(isement)?)?|Commercial|Intermission(/Intro(\sAnimation)?)?)(?!\sEnd)(\s|:|$)";
 
     // ===== Playback settings =====
 
