@@ -71,7 +71,7 @@ public partial class ChapterAnalyzer(ILogger<ChapterAnalyzer> logger) : IMediaFi
             skipRange = timeAdjustmentHelper.AdjustIntroTimes(episode, skipRange, false);
 
             episode.SetAnalyzed(mode, EpisodeState.Analyzed);
-            await Plugin.Instance!.UpdateTimestampAsync(skipRange, mode, cancellationToken: cancellationToken).ConfigureAwait(false);
+            await Plugin.Instance!.UpdateTimestampAsync(skipRange, mode, configHash: episode.AnalysisConfigHash, cancellationToken: cancellationToken).ConfigureAwait(false);
         }
 
         return analysisQueue;

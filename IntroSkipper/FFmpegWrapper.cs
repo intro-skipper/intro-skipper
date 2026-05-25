@@ -14,6 +14,7 @@ using System.Text.Json;
 using System.Text.RegularExpressions;
 using IntroSkipper.Data;
 using IntroSkipper.Db;
+using IntroSkipper.Helper;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 
@@ -131,9 +132,63 @@ public static partial class FFmpegWrapper
         return mode switch
         {
             AnalysisMode.Introduction => (0, episode.IntroFingerprintEnd),
-            AnalysisMode.Credits => (episode.CreditsFingerprintStart, episode.Duration),
+            AnalysisMode.Credits => (episode.CreditsFingerprintStart, episode.CreditsFingerprintEnd > 0 ? episode.CreditsFingerprintEnd : episode.Duration),
             _ => throw new ArgumentException("Unknown analysis mode " + mode),
         };
+    }
+
+    /// <summary>
+    /// Probes the first audio stream's actual duration with ffprobe.
+    /// </summary>
+    /// <param name="filePath">Media path.</param>
+    /// <returns>Audio duration in seconds, or null when unavailable.</returns>
+    public static double? ProbeAudioDuration(string filePath)
+    {
+        try
+        {
+            var ffprobePath = GetFFprobePath();
+            var args = new List<string>
+            {
+                "-v", "error",
+                "-select_streams", "a:0",
+                "-show_entries", "stream=duration:stream_tags=DURATION",
+                "-of", "csv=p=0",
+                filePath,
+            };
+
+            var output = Encoding.UTF8.GetString(GetProcessOutput(ffprobePath, args, stderr: false, timeout: 10 * 1000)).Trim();
+            if (string.IsNullOrWhiteSpace(output))
+            {
+                return null;
+            }
+
+            foreach (var value in output.Split('\n')[0].Split(',').Select(static f => f.Trim()))
+            {
+                if (string.IsNullOrWhiteSpace(value) || string.Equals(value, "N/A", StringComparison.OrdinalIgnoreCase))
+                {
+                    continue;
+                }
+
+                if (double.TryParse(value, CultureInfo.InvariantCulture, out var seconds) && seconds > 0)
+                {
+                    return seconds;
+                }
+
+                if (TimeSpan.TryParse(value, CultureInfo.InvariantCulture, out var duration) && duration.TotalSeconds > 0)
+                {
+                    return duration.TotalSeconds;
+                }
+            }
+        }
+        catch (Exception ex) when (ex is IOException or InvalidOperationException or UnauthorizedAccessException or System.ComponentModel.Win32Exception)
+        {
+            if (Logger is { } logger)
+            {
+                LogAudioDurationProbeFailed(logger, ex, filePath);
+            }
+        }
+
+        return null;
     }
 
     /// <summary>
@@ -492,8 +547,6 @@ public static partial class FFmpegWrapper
         bool stderr = false,
         int timeout = 60 * 1000)
     {
-        var ffmpegPath = Plugin.Instance?.FFmpegPath ?? "ffmpeg";
-
         // The silencedetect and blackframe filters output data at the info log level.
         var useInfoLevel = args.Any(a =>
             a.Contains("silencedetect", StringComparison.OrdinalIgnoreCase) ||
@@ -509,7 +562,27 @@ public static partial class FFmpegWrapper
             firstArg.StartsWith("-muxers", StringComparison.Ordinal) ||
             firstArg.StartsWith("-h", StringComparison.Ordinal);
 
-        var info = new ProcessStartInfo(ffmpegPath)
+        var processArgs = new List<string> { "-hide_banner" };
+        if (!isInfoQuery)
+        {
+            processArgs.Add("-threads");
+            processArgs.Add((Plugin.Instance?.Configuration.ProcessThreads ?? 0).ToString(CultureInfo.InvariantCulture));
+        }
+
+        processArgs.Add("-loglevel");
+        processArgs.Add(logLevel);
+        processArgs.AddRange(args);
+
+        return GetProcessOutput(Plugin.Instance?.FFmpegPath ?? "ffmpeg", processArgs, stderr, timeout);
+    }
+
+    private static ReadOnlySpan<byte> GetProcessOutput(
+        string processPath,
+        IReadOnlyList<string> args,
+        bool stderr = false,
+        int timeout = 60 * 1000)
+    {
+        var info = new ProcessStartInfo(processPath)
         {
             WindowStyle = ProcessWindowStyle.Hidden,
             CreateNoWindow = true,
@@ -518,17 +591,6 @@ public static partial class FFmpegWrapper
             RedirectStandardOutput = !stderr,
             RedirectStandardError = stderr
         };
-
-        // Prepend flags to suppress FFmpeg banner and set log level / thread count.
-        info.ArgumentList.Add("-hide_banner");
-        if (!isInfoQuery)
-        {
-            info.ArgumentList.Add("-threads");
-            info.ArgumentList.Add((Plugin.Instance?.Configuration.ProcessThreads ?? 0).ToString(CultureInfo.InvariantCulture));
-        }
-
-        info.ArgumentList.Add("-loglevel");
-        info.ArgumentList.Add(logLevel);
 
         foreach (var arg in args)
         {
@@ -570,6 +632,20 @@ public static partial class FFmpegWrapper
         ffmpeg.WaitForExit(timeout);
 
         return ms.ToArray();
+    }
+
+    private static string GetFFprobePath()
+    {
+        var ffmpegPath = Plugin.Instance?.FFmpegPath ?? "ffmpeg";
+        var extension = Path.GetExtension(ffmpegPath);
+        var withoutExtension = Path.ChangeExtension(ffmpegPath, null);
+        var candidate = withoutExtension + "probe" + extension;
+        if (File.Exists(candidate))
+        {
+            return candidate;
+        }
+
+        return Path.Combine(Path.GetDirectoryName(ffmpegPath) ?? string.Empty, "ffprobe" + extension);
     }
 
     /// <summary>
@@ -773,12 +849,14 @@ public static partial class FFmpegWrapper
         try
         {
             using var db = Plugin.CreateCacheDbContext();
+            var expectedHash = ConfigHasher.DetectionCache(Plugin.Instance?.Configuration ?? new(), CacheEntryType.Chromaprint, mode);
             if (db.DetectionCache.Any(e =>
                 e.ItemId == episode.EpisodeId &&
                 e.Mode == mode &&
                 e.Type == CacheEntryType.Chromaprint &&
                 e.Start == start &&
-                e.End == end))
+                e.End == end &&
+                (e.ConfigHash == string.Empty || e.ConfigHash == expectedHash)))
             {
                 return true;
             }
@@ -1172,6 +1250,13 @@ public static partial class FFmpegWrapper
                 return false;
             }
 
+            var expectedHash = ConfigHasher.DetectionCache(Plugin.Instance?.Configuration ?? new(), type, mode);
+            if (!string.IsNullOrEmpty(entry.ConfigHash)
+                && !string.Equals(entry.ConfigHash, expectedHash, StringComparison.Ordinal))
+            {
+                return false;
+            }
+
             var json = DecompressBrotli<T[]>(entry.Data);
             result = json ?? [];
 
@@ -1201,12 +1286,13 @@ public static partial class FFmpegWrapper
         }
 
         var data = CompressBrotli(items);
+        var configHash = ConfigHasher.DetectionCache(Plugin.Instance?.Configuration ?? new(), type, mode);
 
         try
         {
             using var db = Plugin.CreateCacheDbContext();
 
-            UpsertJsonCacheEntry(db, itemId, mode, type, start, end, data);
+            UpsertJsonCacheEntry(db, itemId, mode, type, start, end, data, configHash);
             db.SaveChanges();
             return true;
         }
@@ -1255,14 +1341,16 @@ public static partial class FFmpegWrapper
 
             foreach (var mode in Enum.GetValues<AnalysisMode>())
             {
+                var configHash = ConfigHasher.DetectionCache(Plugin.Instance?.Configuration ?? new(), type, mode);
                 var existing = existingEntries.FirstOrDefault(e => e.Mode == mode);
                 if (existing is not null)
                 {
                     existing.Data = data;
+                    existing.ConfigHash = configHash;
                 }
                 else
                 {
-                    db.DetectionCache.Add(new DbDetectionCache(itemId, mode, type, data, start, end));
+                    db.DetectionCache.Add(new DbDetectionCache(itemId, mode, type, data, start, end, configHash));
                 }
             }
 
@@ -1288,7 +1376,8 @@ public static partial class FFmpegWrapper
         CacheEntryType type,
         double start,
         double end,
-        byte[] data)
+        byte[] data,
+        string configHash)
     {
         // NOTE: Start/End are compared with == which is safe only because the exact same
         // double values that were written are used for lookup (no intermediate arithmetic).
@@ -1298,10 +1387,11 @@ public static partial class FFmpegWrapper
         if (existing is not null)
         {
             existing.Data = data;
+            existing.ConfigHash = configHash;
         }
         else
         {
-            db.DetectionCache.Add(new DbDetectionCache(itemId, mode, type, data, start, end));
+            db.DetectionCache.Add(new DbDetectionCache(itemId, mode, type, data, start, end, configHash));
         }
     }
 
@@ -1524,6 +1614,9 @@ public static partial class FFmpegWrapper
 
     [LoggerMessage(Level = LogLevel.Debug, Message = "Failed to scan legacy detection cache directory {CacheDir}")]
     private static partial void LogLegacyDetectionCacheScanFailed(ILogger logger, Exception ex, string cacheDir);
+
+    [LoggerMessage(Level = LogLevel.Debug, Message = "Failed to probe audio duration for {File}")]
+    private static partial void LogAudioDurationProbeFailed(ILogger logger, Exception ex, string file);
 
     [LoggerMessage(Level = LogLevel.Information, Message = "Legacy fingerprint {CacheKey} duration mismatch (inferred {Inferred}s vs expected {Expected}s), re-fingerprinting")]
     private static partial void LogLegacyDurationMismatch(ILogger logger, string cacheKey, double inferred, double expected);

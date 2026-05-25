@@ -1,4 +1,5 @@
 import type { Tab } from "../types.ts";
+import { checkboxField } from "../components/checkbox-field.ts";
 import { numberField } from "../components/number-field.ts";
 import { selectField } from "../components/select-field.ts";
 import { appendTabContent } from "../components/tab-layout.ts";
@@ -36,6 +37,12 @@ export const ffmpegTab: Tab = {
                 max: 16,
                 description:
                     "Number of simultaneous processes to use for FFmpeg operations. Setting 0 (default) uses the maximum threads available.",
+            }),
+            checkboxField({
+                id: "ProbeAudioDuration",
+                label: "Probe audio duration for credits",
+                description:
+                    "Use ffprobe to base credits fingerprinting on the first audio stream duration when container runtime is longer than the audio.",
             }),
             selectField({
                 id: "CacheCompressionLevel",

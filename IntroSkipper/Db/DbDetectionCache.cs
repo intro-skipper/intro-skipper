@@ -24,6 +24,21 @@ public class DbDetectionCache
     /// <param name="start">The start time of the analyzed range.</param>
     /// <param name="end">The end time of the analyzed range.</param>
     public DbDetectionCache(Guid itemId, AnalysisMode mode, CacheEntryType type, byte[] data, double start = 0, double end = 0)
+        : this(itemId, mode, type, data, start, end, string.Empty)
+    {
+    }
+
+    /// <summary>
+    /// Initializes a new instance of the <see cref="DbDetectionCache"/> class.
+    /// </summary>
+    /// <param name="itemId">The episode identifier.</param>
+    /// <param name="mode">The analysis mode.</param>
+    /// <param name="type">The type of detection data.</param>
+    /// <param name="data">The Brotli-compressed, UTF-8 JSON detection data.</param>
+    /// <param name="start">The start time of the analyzed range.</param>
+    /// <param name="end">The end time of the analyzed range.</param>
+    /// <param name="configHash">Configuration hash that produced this cache entry.</param>
+    public DbDetectionCache(Guid itemId, AnalysisMode mode, CacheEntryType type, byte[] data, double start, double end, string configHash)
     {
         ItemId = itemId;
         Mode = mode;
@@ -31,6 +46,7 @@ public class DbDetectionCache
         Data = data;
         Start = start;
         End = end;
+        ConfigHash = configHash;
     }
 
     /// <summary>
@@ -83,4 +99,9 @@ public class DbDetectionCache
     /// </value>
     [SuppressMessage("Performance", "CA1819:Properties should not return arrays", Justification = "EF Core requires byte[] for BLOB column mapping.")]
     public byte[] Data { get; set; } = [];
+
+    /// <summary>
+    /// Gets or sets the configuration hash that produced this cache entry.
+    /// </summary>
+    public string ConfigHash { get; set; } = string.Empty;
 }

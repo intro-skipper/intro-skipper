@@ -85,6 +85,10 @@ public class DetectionCacheDbContext : DbContext
 
             entity.Property(e => e.Data)
                   .IsRequired();
+
+            entity.Property(e => e.ConfigHash)
+                  .HasDefaultValue(string.Empty)
+                  .IsRequired();
         });
 
         base.OnModelCreating(modelBuilder);
@@ -140,6 +144,7 @@ public class DetectionCacheDbContext : DbContext
                         ["Start"] = "REAL",
                         ["End"] = "REAL",
                         ["Data"] = "BLOB",
+                        ["ConfigHash"] = "TEXT",
                     };
 
                     foreach (var (name, type) in expectedColumns)
