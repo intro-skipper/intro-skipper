@@ -195,6 +195,15 @@ public sealed partial class FFmpegRunner : IFFmpegRunner
             }
 
             await destination.WriteAsync(buffer.AsMemory(0, bytesRead), cancellationToken).ConfigureAwait(false);
+
+            if (exitTask.IsCompleted)
+            {
+                var exited = await exitTask.ConfigureAwait(false);
+                if (!exited)
+                {
+                    return false;
+                }
+            }
         }
     }
 

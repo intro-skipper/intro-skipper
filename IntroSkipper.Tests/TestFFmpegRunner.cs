@@ -196,6 +196,32 @@ public class TestFFmpegRunner
     }
 
     [Fact]
+    public async Task RunAsync_ExitTimeoutReturnsWhenSelectedStreamKeepsProducingOutput()
+    {
+        var process = new FakeProcess(
+            new ProcessStartInfo("ffmpeg"),
+            new RepeatingReadStream(),
+            Stream.Null,
+            hasExited: false);
+        var runner = CreateRunner(processFactory: _ => process);
+        using var cts = new CancellationTokenSource();
+
+        var task = runner.RunAsync(["-i", "input"], timeout: TimeSpan.FromMilliseconds(10), cancellationToken: cts.Token);
+        var completed = await Task.WhenAny(task, Task.Delay(TimeSpan.FromMilliseconds(500))) == task;
+        if (!completed)
+        {
+            await cts.CancelAsync();
+            await Assert.ThrowsAnyAsync<OperationCanceledException>(() => task);
+        }
+
+        Assert.True(completed, "RunAsync should return on exit timeout even when selected output keeps arriving.");
+        var result = await task;
+        Assert.Equal(FFmpegProcessStatus.TimedOut, result.Status);
+        Assert.Null(result.ExitCode);
+        Assert.True(process.Killed);
+    }
+
+    [Fact]
     public async Task RunAsync_CallerCancellationWhileWaitingForExit_KillsProcessAndThrows()
     {
         var process = new FakeProcess(
@@ -374,6 +400,46 @@ public class TestFFmpegRunner
             StandardOutput.Dispose();
             StandardError.Dispose();
         }
+    }
+
+    private sealed class RepeatingReadStream : Stream
+    {
+        private static readonly byte[] Chunk = Encoding.UTF8.GetBytes("ffmpeg-output");
+
+        public override bool CanRead => true;
+
+        public override bool CanSeek => false;
+
+        public override bool CanWrite => false;
+
+        public override long Length => throw new NotSupportedException();
+
+        public override long Position
+        {
+            get => throw new NotSupportedException();
+            set => throw new NotSupportedException();
+        }
+
+        public override void Flush()
+        {
+        }
+
+        public override int Read(byte[] buffer, int offset, int count) => throw new NotSupportedException();
+
+        public override async ValueTask<int> ReadAsync(Memory<byte> buffer, CancellationToken cancellationToken = default)
+        {
+            await Task.Yield();
+            cancellationToken.ThrowIfCancellationRequested();
+            var bytesToCopy = Math.Min(buffer.Length, Chunk.Length);
+            Chunk.AsMemory(0, bytesToCopy).CopyTo(buffer);
+            return bytesToCopy;
+        }
+
+        public override long Seek(long offset, SeekOrigin origin) => throw new NotSupportedException();
+
+        public override void SetLength(long value) => throw new NotSupportedException();
+
+        public override void Write(byte[] buffer, int offset, int count) => throw new NotSupportedException();
     }
 
     private sealed class BlockingReadStream(bool faultOnCancellation = false) : Stream

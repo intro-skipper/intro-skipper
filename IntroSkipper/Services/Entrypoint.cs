@@ -97,13 +97,13 @@ namespace IntroSkipper.Services
         /// <inheritdoc />
         public async Task StartAsync(CancellationToken cancellationToken)
         {
+            await _capabilityService.CheckFFmpegVersionAsync(cancellationToken).ConfigureAwait(false);
+
             _libraryManager.ItemAdded += OnItemChanged;
             _libraryManager.ItemUpdated += OnItemChanged;
             _libraryManager.ItemRemoved += OnItemRemoved;
             _taskManager.TaskCompleted += OnLibraryRefresh;
             Plugin.Instance!.ConfigurationChanged += OnSettingsChanged;
-
-            await _capabilityService.CheckFFmpegVersionAsync(cancellationToken).ConfigureAwait(false);
 
             // Initialize web injector for skip button timeout modification
             if (_config.FileTransformationPluginEnabled)
