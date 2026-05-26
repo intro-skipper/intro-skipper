@@ -128,11 +128,10 @@ public class TestFFmpegServices
     public async Task TestNoTrailingOptionsWithChromaprintFingerprinting()
     {
         var capService = CreateCapabilityService();
-        if (!await capService.CheckFFmpegVersionAsync().ConfigureAwait(true))
-        {
-            Assert.DoesNotContain("Trailing option", capService.GetChromaprintLogs(), StringComparison.Ordinal);
-            return;
-        }
+        var ffmpegValid = await capService.CheckFFmpegVersionAsync().ConfigureAwait(true);
+        var chromaprintLogs = capService.GetChromaprintLogs();
+        Assert.True(ffmpegValid, chromaprintLogs);
+        Assert.DoesNotContain("Trailing option", chromaprintLogs, StringComparison.Ordinal);
 
         // Test chromaprint fingerprinting with actual audio file
         var episode = new QueuedEpisode
