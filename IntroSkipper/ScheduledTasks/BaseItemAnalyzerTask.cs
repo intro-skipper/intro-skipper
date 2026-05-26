@@ -112,7 +112,7 @@ public partial class BaseItemAnalyzerTask(
             _fileSystem,
             _detectionService);
 
-        var queue = await queueManager.GetMediaItems(modes.Contains(AnalysisMode.Credits), cancellationToken).ConfigureAwait(false);
+        var queue = await queueManager.GetMediaItems(probeAudioDuration: true, cancellationToken).ConfigureAwait(false);
 
         if (seasonsToAnalyze?.Count > 0)
         {
