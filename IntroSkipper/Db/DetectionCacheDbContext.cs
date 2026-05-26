@@ -16,6 +16,7 @@ namespace IntroSkipper.Db;
 public class DetectionCacheDbContext : DbContext
 {
     private const int SchemaValidationAttempts = 2;
+    private static readonly TimeSpan _schemaValidationRetryDelay = TimeSpan.FromMilliseconds(50);
     private static readonly SqlitePragmaInterceptor _pragmaInterceptor = new();
     private readonly string? _dbPath;
 
@@ -115,6 +116,11 @@ public class DetectionCacheDbContext : DbContext
             if (HasExpectedSchema())
             {
                 return true;
+            }
+
+            if (attempt < SchemaValidationAttempts - 1)
+            {
+                Thread.Sleep(_schemaValidationRetryDelay);
             }
         }
 
