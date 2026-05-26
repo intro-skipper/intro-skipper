@@ -127,6 +127,13 @@ public class TestFFmpegServices
     [FactSkipFFmpegTests]
     public async Task TestNoTrailingOptionsWithChromaprintFingerprinting()
     {
+        var capService = CreateCapabilityService();
+        if (!await capService.CheckFFmpegVersionAsync().ConfigureAwait(true))
+        {
+            Assert.DoesNotContain("Trailing option", capService.GetChromaprintLogs(), StringComparison.Ordinal);
+            return;
+        }
+
         // Test chromaprint fingerprinting with actual audio file
         var episode = new QueuedEpisode
         {
@@ -139,17 +146,10 @@ public class TestFFmpegServices
         };
 
         // Fingerprint intro - this should not produce "Trailing option" warning
-        try
-        {
-            var fingerprint = await CreateDetectionService().FingerprintAsync(episode, AnalysisMode.Introduction);
+        var fingerprint = await CreateDetectionService().FingerprintAsync(episode, AnalysisMode.Introduction);
 
-            // Verify FFmpeg ran successfully
-            Assert.NotNull(fingerprint);
-        }
-        catch (Exception ex) when (ex is FingerprintException or FFmpegDetectionException)
-        {
-            // Fingerprinting may fail if chromaprint is unavailable, but this test only checks for warnings.
-        }
+        // Verify FFmpeg ran successfully
+        Assert.NotNull(fingerprint);
     }
 
     #endregion
