@@ -74,7 +74,7 @@ public sealed partial class ChapterAnalyzer(ILogger<ChapterAnalyzer> logger, IMe
             skipRange = await timeAdjustmentHelper.AdjustIntroTimesAsync(episode, skipRange, false, cancellationToken).ConfigureAwait(false);
 
             episode.SetAnalyzed(mode, EpisodeState.Analyzed);
-            await Plugin.Instance!.UpdateTimestampAsync(skipRange, mode, cancellationToken: cancellationToken).ConfigureAwait(false);
+            await Plugin.Instance!.UpdateTimestampAsync(skipRange, mode, configHash: episode.AnalysisConfigHash, cancellationToken: cancellationToken).ConfigureAwait(false);
         }
 
         return analysisQueue;

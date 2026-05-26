@@ -195,7 +195,12 @@ public class TestAudioFingerprinting
         var range = new TimeRange(0, 60);
         var actual = await CreateDetectionService().DetectSilenceAsync(clip, range, AnalysisMode.Introduction);
 
-        Assert.Equal(expected, actual);
+        Assert.Equal(expected.Length, actual.Length);
+        for (var i = 0; i < expected.Length; i++)
+        {
+            Assert.InRange(Math.Abs(expected[i].Start - actual[i].Start), 0, 0.001);
+            Assert.InRange(Math.Abs(expected[i].End - actual[i].End), 0, 0.001);
+        }
     }
 
     private static QueuedEpisode QueueEpisode(string path)

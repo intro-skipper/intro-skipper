@@ -22,12 +22,25 @@ public class DbSegment
     /// <param name="type">The type of analysis that was used to determine this segment.</param>
     /// <param name="isUserProvided">Whether this segment was provided by the user via the segment editor.</param>
     public DbSegment(Segment segment, AnalysisMode type, bool isUserProvided = false)
+        : this(segment, type, isUserProvided, string.Empty)
+    {
+    }
+
+    /// <summary>
+    /// Initializes a new instance of the <see cref="DbSegment"/> class.
+    /// </summary>
+    /// <param name="segment">The segment to initialize the instance with.</param>
+    /// <param name="type">The type of analysis that was used to determine this segment.</param>
+    /// <param name="isUserProvided">Whether this segment was provided by the user via the segment editor.</param>
+    /// <param name="configHash">Configuration hash that produced this segment.</param>
+    public DbSegment(Segment segment, AnalysisMode type, bool isUserProvided, string configHash)
     {
         ItemId = segment.EpisodeId;
         Start = segment.Start;
         End = segment.End;
         Type = type;
         IsUserProvided = isUserProvided;
+        ConfigHash = configHash;
     }
 
     /// <summary>
@@ -67,6 +80,11 @@ public class DbSegment
     /// and must not be overwritten by automatic analysis.
     /// </summary>
     public bool IsUserProvided { get; set; }
+
+    /// <summary>
+    /// Gets or sets the configuration hash that produced this segment.
+    /// </summary>
+    public string ConfigHash { get; set; } = string.Empty;
 
     /// <summary>
     /// Converts the instance to a <see cref="Segment"/> object.

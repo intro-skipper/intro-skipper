@@ -447,6 +447,13 @@ public partial class QueueManager(
 
                 foreach (var mode in modes)
                 {
+                    var action = snapshot.AnalyzerActionByMode.TryGetValue(mode, out var savedAction)
+                        ? savedAction
+                        : AnalyzerAction.Default;
+                    var expectedHash = ConfigHasher.Analysis(plugin.Configuration, mode, action);
+                    var hashMatches = snapshot.ConfigHashByMode.TryGetValue(mode, out var savedHash) &&
+                        string.Equals(savedHash, expectedHash, StringComparison.Ordinal);
+
                     if (snapshot.SegmentsByEpisodeId.TryGetValue(candidate.EpisodeId, out var hasSegments) &&
                         hasSegments.TryGetValue(mode, out _))
                     {
@@ -456,12 +463,12 @@ public partial class QueueManager(
                         // Always preserve user-provided segments. When AnalyzeAgain is true (settings
                         // changed), leave automatically-analyzed segments as NotAnalyzed so they are
                         // re-analyzed and their timestamps updated to reflect the new settings.
-                        if (isUserProvided || !plugin.AnalyzeAgain)
+                        if (isUserProvided || (!plugin.AnalyzeAgain && hashMatches))
                         {
                             candidate.SetAnalyzed(mode, isUserProvided ? EpisodeState.UserProvided : EpisodeState.Analyzed);
                         }
                     }
-                    else if (!plugin.AnalyzeAgain &&
+                    else if (!plugin.AnalyzeAgain && hashMatches &&
                              snapshot.EpisodeIdsByMode.TryGetValue(mode, out var ids) &&
                              ids.Contains(candidate.EpisodeId))
                     {

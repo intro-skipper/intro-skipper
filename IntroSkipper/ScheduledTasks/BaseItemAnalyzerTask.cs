@@ -9,6 +9,7 @@ using IntroSkipper.Analyzers;
 using IntroSkipper.Configuration;
 using IntroSkipper.Data;
 using IntroSkipper.FFmpeg;
+using IntroSkipper.Helper;
 using IntroSkipper.Manager;
 using MediaBrowser.Controller.Library;
 using MediaBrowser.Controller.Providers;
@@ -241,11 +242,26 @@ public partial class BaseItemAnalyzerTask(
 
         var totalItems = items.Count(e => e.GetAnalyzed(mode) != EpisodeState.Analyzed);
         var action = await plugin.GetAnalyzerActionAsync(first.SeasonId, mode, cancellationToken).ConfigureAwait(false);
+        var configHash = ConfigHasher.Analysis(_config, mode, action);
 
         if (action == AnalyzerAction.None)
         {
             LogSkippingNoneAction(_logger, mode, first.SeriesName, first.SeasonNumber);
             return 0;
+        }
+
+        foreach (var item in items)
+        {
+            item.AnalysisConfigHash = configHash;
+        }
+
+        if (!plugin.AnalyzeAgain)
+        {
+            await plugin.CleanStaleAutomaticSegmentsAsync(
+                items.Where(e => e.GetAnalyzed(mode) != EpisodeState.UserProvided).Select(e => e.EpisodeId),
+                mode,
+                configHash,
+                cancellationToken).ConfigureAwait(false);
         }
 
         LogAnalyzingFiles(_logger, mode, items.Count, first.SeriesName, first.SeasonNumber);
@@ -268,7 +284,7 @@ public partial class BaseItemAnalyzerTask(
         }
 
         // Set the episode IDs for the analyzed items
-        await plugin.SetEpisodeIdsAsync(first.SeasonId, mode, items.Select(i => i.EpisodeId), cancellationToken).ConfigureAwait(false);
+        await plugin.SetEpisodeIdsAsync(first.SeasonId, mode, items.Select(i => i.EpisodeId), configHash, cancellationToken).ConfigureAwait(false);
 
         if (plugin.AnalyzeAgain)
         {
@@ -476,7 +492,7 @@ public partial class BaseItemAnalyzerTask(
                 continue;
             }
 
-            await plugin.UpdateTimestampAsync(preview, AnalysisMode.Preview, cancellationToken: cancellationToken).ConfigureAwait(false);
+            await plugin.UpdateTimestampAsync(preview, AnalysisMode.Preview, configHash: episode.AnalysisConfigHash, cancellationToken: cancellationToken).ConfigureAwait(false);
             episode.SetAnalyzed(AnalysisMode.Preview, EpisodeState.Analyzed);
 
             LogCreatedAnimePreview(_logger, episode.Name, preview.Start, preview.End);

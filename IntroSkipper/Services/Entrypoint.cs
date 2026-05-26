@@ -294,7 +294,10 @@ namespace IntroSkipper.Services
         private void OnSettingsChanged(object? sender, BasePluginConfiguration e)
         {
             _config = (PluginConfiguration)e;
-            Plugin.Instance!.AnalyzeAgain = true;
+            if (Plugin.Instance is { } plugin)
+            {
+                plugin.AnalyzeAgain = true;
+            }
         }
 
         /// <summary>

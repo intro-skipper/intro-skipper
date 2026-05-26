@@ -105,7 +105,7 @@ public sealed partial class BlackFrameAnalyzer(ILogger<BlackFrameAnalyzer> logge
                 LogFoundCredits(_logger, episode.Name, credit.Start);
 
                 episode.SetAnalyzed(mode, EpisodeState.Analyzed);
-                await Plugin.Instance!.UpdateTimestampAsync(credit, mode, cancellationToken: cancellationToken).ConfigureAwait(false);
+                await Plugin.Instance!.UpdateTimestampAsync(credit, mode, configHash: episode.AnalysisConfigHash, cancellationToken: cancellationToken).ConfigureAwait(false);
 
                 // Update search start for next episode based on this result
                 searchStart = episode.CreditsFingerprintEnd - credit.Start + _config.MinimumCreditsDuration;

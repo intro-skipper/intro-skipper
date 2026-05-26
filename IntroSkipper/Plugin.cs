@@ -217,13 +217,18 @@ public partial class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
 
     internal IReadOnlyList<ChapterInfo> GetChapters(Guid id) => _chapterRepository.GetChapters(id);
 
-    internal async Task UpdateTimestampAsync(Segment segment, AnalysisMode mode, bool isUserProvided = false, CancellationToken cancellationToken = default)
+    internal async Task UpdateTimestampAsync(
+        Segment segment,
+        AnalysisMode mode,
+        bool isUserProvided = false,
+        string configHash = "",
+        CancellationToken cancellationToken = default)
     {
         using var db = CreateDbContext();
 
         try
         {
-            var dbSegment = new DbSegment(segment, mode, isUserProvided);
+            var dbSegment = new DbSegment(segment, mode, isUserProvided, configHash);
 
             if (mode == AnalysisMode.Commercial)
             {
@@ -399,7 +404,7 @@ public partial class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
         await db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
     }
 
-    internal async Task SetEpisodeIdsAsync(Guid id, AnalysisMode mode, IEnumerable<Guid> episodeIds, CancellationToken cancellationToken = default)
+    internal async Task SetEpisodeIdsAsync(Guid id, AnalysisMode mode, IEnumerable<Guid> episodeIds, string configHash = "", CancellationToken cancellationToken = default)
     {
         using var db = CreateDbContext();
         var seasonInfo = await db.DbSeasonInfo
@@ -408,12 +413,13 @@ public partial class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
 
         if (seasonInfo is null)
         {
-            seasonInfo = new DbSeasonInfo(id, mode, AnalyzerAction.Default, episodeIds);
+            seasonInfo = new DbSeasonInfo(id, mode, AnalyzerAction.Default, episodeIds, configHash);
             db.DbSeasonInfo.Add(seasonInfo);
         }
         else
         {
             db.Entry(seasonInfo).Property(s => s.EpisodeIds).CurrentValue = episodeIds;
+            db.Entry(seasonInfo).Property(s => s.ConfigHash).CurrentValue = configHash;
         }
 
         await db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
@@ -452,6 +458,40 @@ public partial class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
         await db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
     }
 
+    /// <summary>
+    /// Removes stale automatic segments for the supplied items and mode.
+    /// User-provided segments are intentionally preserved.
+    /// </summary>
+    /// <param name="itemIds">Item IDs to inspect.</param>
+    /// <param name="mode">Analysis mode.</param>
+    /// <param name="configHash">Current configuration hash.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>A <see cref="Task"/> representing the asynchronous operation.</returns>
+    internal async Task CleanStaleAutomaticSegmentsAsync(
+        IEnumerable<Guid> itemIds,
+        AnalysisMode mode,
+        string configHash,
+        CancellationToken cancellationToken = default)
+    {
+        var ids = itemIds.Distinct().ToArray();
+        if (ids.Length == 0)
+        {
+            return;
+        }
+
+        using var db = CreateDbContext();
+        foreach (var batch in ids.Chunk(SqliteParameterBatchSize))
+        {
+            await db.DbSegment
+                .Where(s => batch.Contains(s.ItemId)
+                    && s.Type == mode
+                    && !s.IsUserProvided
+                    && s.ConfigHash != configHash)
+                .ExecuteDeleteAsync(cancellationToken)
+                .ConfigureAwait(false);
+        }
+    }
+
     internal async Task<IReadOnlyDictionary<AnalysisMode, IEnumerable<Guid>>> GetEpisodeIdsAsync(Guid id, CancellationToken cancellationToken = default)
     {
         using var db = CreateDbContext();
@@ -485,6 +525,8 @@ public partial class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
 
         return new SeasonQueueSnapshot(
             seasonInfos.ToDictionary(s => s.Type, s => (IReadOnlySet<Guid>)s.EpisodeIds.ToHashSet()),
+            seasonInfos.ToDictionary(s => s.Type, s => s.ConfigHash),
+            seasonInfos.ToDictionary(s => s.Type, s => s.Action),
             segments
                 .GroupBy(s => s.ItemId)
                 .ToDictionary(

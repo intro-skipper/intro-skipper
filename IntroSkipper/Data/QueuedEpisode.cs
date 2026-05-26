@@ -95,6 +95,11 @@ public class QueuedEpisode
     public double Duration { get; set; }
 
     /// <summary>
+    /// Gets or sets the configuration hash for the current analysis pass.
+    /// </summary>
+    public string AnalysisConfigHash { get; set; } = string.Empty;
+
+    /// <summary>
     /// Sets a value indicating whether this media has been already analyzed.
     /// </summary>
     /// <param name="mode">Analysis mode.</param>
