@@ -15,6 +15,7 @@ namespace IntroSkipper.Db;
 /// </summary>
 public class DetectionCacheDbContext : DbContext
 {
+    private const int SchemaValidationAttempts = 2;
     private static readonly SqlitePragmaInterceptor _pragmaInterceptor = new();
     private readonly string? _dbPath;
 
@@ -98,18 +99,26 @@ public class DetectionCacheDbContext : DbContext
     /// </summary>
     public void EnsureSchema()
     {
-        if (Database.EnsureCreated() || HasExpectedSchema())
-        {
-            return;
-        }
-
-        if (HasExpectedSchema())
+        if (Database.EnsureCreated() || HasExpectedSchemaWithRetry())
         {
             return;
         }
 
         Database.EnsureDeleted();
         Database.EnsureCreated();
+    }
+
+    private bool HasExpectedSchemaWithRetry()
+    {
+        for (var attempt = 0; attempt < SchemaValidationAttempts; attempt++)
+        {
+            if (HasExpectedSchema())
+            {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private bool HasExpectedSchema()
