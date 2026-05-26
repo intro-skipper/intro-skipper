@@ -113,7 +113,7 @@ public sealed partial class ChromaprintAnalyzer(ILogger<ChromaprintAnalyzer> log
 
                 var maxDuration = _analysisMode == AnalysisMode.Introduction
                     ? Plugin.Instance!.Configuration.MaximumIntroDuration
-                    : (int)(remainingEpisode.Duration - remainingEpisode.CreditsFingerprintStart - 1); // dont allow perfect matches to avoid false positives from duplicates
+                    : (int)(remainingEpisode.CreditsFingerprintEnd - remainingEpisode.CreditsFingerprintStart - 1); // dont allow perfect matches to avoid false positives from duplicates
 
                 // Ignore this comparison result if:
                 // - one of the intros isn't valid, or

@@ -92,19 +92,30 @@ public sealed partial class MediaDetectionService : IMediaDetectionService
             return null;
         }
 
-        var ffprobePath = GetFFprobePath(_options.FFmpegPath);
-        var result = await _runner.RunExecutableAsync(
-            ffprobePath,
-            [
-                "-v", "error",
-                "-select_streams", "a:0",
-                "-show_entries", "stream=duration:stream_tags=DURATION",
-                "-of", "csv=p=0",
-                filePath,
-            ],
-            FFmpegOutputStream.Stdout,
-            TimeSpan.FromSeconds(10),
-            cancellationToken).ConfigureAwait(false);
+        FFmpegProcessResult result;
+        try
+        {
+            result = await _runner.RunFFprobeAsync(
+                [
+                    "-v", "error",
+                    "-select_streams", "a:0",
+                    "-show_entries", "stream=duration:stream_tags=DURATION",
+                    "-of", "csv=p=0",
+                    filePath,
+                ],
+                FFmpegOutputStream.Stdout,
+                TimeSpan.FromSeconds(10),
+                cancellationToken).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            LogAudioDurationProbeFailed(_logger, ex, filePath);
+            return null;
+        }
 
         if (result.Status != FFmpegProcessStatus.Completed || result.ExitCode != 0)
         {
@@ -186,7 +197,7 @@ public sealed partial class MediaDetectionService : IMediaDetectionService
     {
         ArgumentNullException.ThrowIfNull(episode);
 
-        var key = new DetectionCacheKey(episode.EpisodeId, AnalysisMode.Credits, CacheEntryType.BlackFrame, episode.CreditsFingerprintStart, 0, DetectionCacheVariant.BlackFrameCredits(threshold));
+        var key = new DetectionCacheKey(episode.EpisodeId, AnalysisMode.Credits, CacheEntryType.BlackFrame, episode.CreditsFingerprintStart, episode.CreditsFingerprintEnd, DetectionCacheVariant.BlackFrameCredits(threshold));
         return await RunCachedDetectionAsync(
             key,
             raw => FFmpegOutputParser.OffsetBlackFrames(FFmpegOutputParser.ParseBlackFrames(raw), episode.CreditsFingerprintStart),
@@ -199,6 +210,7 @@ public sealed partial class MediaDetectionService : IMediaDetectionService
             "-skip_frame", "nokey",
             "-ss", episode.CreditsFingerprintStart.ToString(CultureInfo.InvariantCulture),
             "-i", episode.Path,
+            "-to", (episode.CreditsFingerprintEnd - episode.CreditsFingerprintStart).ToString(CultureInfo.InvariantCulture),
             "-an", "-dn", "-sn",
             "-vf", $"blackframe=amount=0:threshold={threshold}",
             "-f", "null", "-",
@@ -320,31 +332,35 @@ public sealed partial class MediaDetectionService : IMediaDetectionService
                 return seconds;
             }
 
-            if (TimeSpan.TryParse(value, CultureInfo.InvariantCulture, out var duration) && duration.TotalSeconds > 0)
+            if (TryParseTimestampDuration(value, out var duration) && duration > 0)
             {
-                return duration.TotalSeconds;
+                return duration;
             }
         }
 
         return null;
     }
 
-    private static string GetFFprobePath(string ffmpegPath)
+    private static bool TryParseTimestampDuration(string value, out double seconds)
     {
-        if (string.IsNullOrWhiteSpace(ffmpegPath))
+        seconds = 0;
+        if (TimeSpan.TryParse(value, CultureInfo.InvariantCulture, out var duration))
         {
-            return "ffprobe";
+            seconds = duration.TotalSeconds;
+            return true;
         }
 
-        var extension = Path.GetExtension(ffmpegPath);
-        var withoutExtension = Path.ChangeExtension(ffmpegPath, null);
-        var candidate = withoutExtension + "probe" + extension;
-        if (File.Exists(candidate))
+        var parts = value.Split(':');
+        if (parts.Length != 3 ||
+            !double.TryParse(parts[0], NumberStyles.Integer, CultureInfo.InvariantCulture, out var hours) ||
+            !double.TryParse(parts[1], NumberStyles.Integer, CultureInfo.InvariantCulture, out var minutes) ||
+            !double.TryParse(parts[2], NumberStyles.AllowDecimalPoint, CultureInfo.InvariantCulture, out var secondsPart))
         {
-            return candidate;
+            return false;
         }
 
-        return Path.Combine(Path.GetDirectoryName(ffmpegPath) ?? string.Empty, "ffprobe" + extension);
+        seconds = (hours * 60 * 60) + (minutes * 60) + secondsPart;
+        return true;
     }
 
     private uint[] ParseChromaprintBytes(ReadOnlySpan<byte> rawPoints, string path)
@@ -373,4 +389,7 @@ public sealed partial class MediaDetectionService : IMediaDetectionService
 
     [LoggerMessage(Level = LogLevel.Debug, Message = "Failed to probe audio duration for {File}")]
     private static partial void LogAudioDurationProbeFailed(ILogger logger, string file);
+
+    [LoggerMessage(Level = LogLevel.Debug, Message = "Failed to probe audio duration for {File}")]
+    private static partial void LogAudioDurationProbeFailed(ILogger logger, Exception exception, string file);
 }

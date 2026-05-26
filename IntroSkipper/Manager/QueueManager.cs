@@ -53,9 +53,10 @@ public partial class QueueManager(
     /// <summary>
     /// Gets all media items on the server.
     /// </summary>
+    /// <param name="probeAudioDuration">Whether to probe audio duration for credits ranges.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>Queued media items.</returns>
-    public async Task<IReadOnlyDictionary<Guid, List<QueuedEpisode>>> GetMediaItems(CancellationToken cancellationToken = default)
+    public async Task<IReadOnlyDictionary<Guid, List<QueuedEpisode>>> GetMediaItems(bool probeAudioDuration = false, CancellationToken cancellationToken = default)
     {
         var plugin = Plugin.Instance;
         if (plugin is null)
@@ -95,7 +96,7 @@ public partial class QueueManager(
 
             try
             {
-                await QueueLibraryContents(folderId, cancellationToken).ConfigureAwait(false);
+                await QueueLibraryContents(folderId, probeAudioDuration, cancellationToken).ConfigureAwait(false);
             }
             catch (OperationCanceledException)
             {
@@ -144,7 +145,7 @@ public partial class QueueManager(
         }
     }
 
-    private async Task QueueLibraryContents(Guid id, CancellationToken cancellationToken)
+    private async Task QueueLibraryContents(Guid id, bool probeAudioDuration, CancellationToken cancellationToken)
     {
         LogConstructingQuery(_logger);
 
@@ -179,7 +180,7 @@ public partial class QueueManager(
                 {
                     if (!IsSeriesExcluded(episode.SeriesName))
                     {
-                        await QueueEpisode(episode, cancellationToken).ConfigureAwait(false);
+                        await QueueEpisode(episode, probeAudioDuration, cancellationToken).ConfigureAwait(false);
                     }
                     else
                     {
@@ -188,7 +189,7 @@ public partial class QueueManager(
                 }
                 else if (item is Movie movie)
                 {
-                    await QueueMovie(movie, cancellationToken).ConfigureAwait(false);
+                    await QueueMovie(movie, probeAudioDuration, cancellationToken).ConfigureAwait(false);
                 }
                 else
                 {
@@ -245,7 +246,7 @@ public partial class QueueManager(
         return _excludeSeries.Contains(normalizedName);
     }
 
-    private async Task QueueEpisode(Episode episode, CancellationToken cancellationToken)
+    private async Task QueueEpisode(Episode episode, bool probeAudioDuration, CancellationToken cancellationToken)
     {
         var pluginInstance = Plugin.Instance ?? throw new InvalidOperationException("Plugin instance was null");
 
@@ -269,7 +270,7 @@ public partial class QueueManager(
             duration >= 5 * 60 ? duration * _analysisPercent : duration,
             60 * pluginInstance.Configuration.AnalysisLengthLimit);
 
-        var creditsDuration = await ResolveCreditsFingerprintEndAsync(episode.Path, duration, cancellationToken).ConfigureAwait(false);
+        var creditsDuration = await ResolveCreditsFingerprintEndAsync(episode.Path, duration, probeAudioDuration, cancellationToken).ConfigureAwait(false);
 
         var maxCreditsDuration = Math.Min(
             creditsDuration >= 5 * 60 ? creditsDuration * _analysisPercent : creditsDuration,
@@ -291,6 +292,7 @@ public partial class QueueManager(
             Duration = duration,
             IntroFingerprintEnd = fingerprintDuration,
             CreditsFingerprintStart = Math.Max(0, creditsDuration - maxCreditsDuration),
+            CreditsFingerprintEnd = creditsDuration,
         });
 
         pluginInstance.TotalQueued++;
@@ -312,7 +314,7 @@ public partial class QueueManager(
         return QueuedMediaCategory.Episode;
     }
 
-    private async Task QueueMovie(Movie movie, CancellationToken cancellationToken)
+    private async Task QueueMovie(Movie movie, bool probeAudioDuration, CancellationToken cancellationToken)
     {
         var pluginInstance = Plugin.Instance ?? throw new InvalidOperationException("Plugin instance was null");
 
@@ -327,7 +329,7 @@ public partial class QueueManager(
 
         var duration = TimeSpan.FromTicks(movie.RunTimeTicks ?? 0).TotalSeconds;
 
-        var creditsDuration = await ResolveCreditsFingerprintEndAsync(movie.Path, duration, cancellationToken).ConfigureAwait(false);
+        var creditsDuration = await ResolveCreditsFingerprintEndAsync(movie.Path, duration, probeAudioDuration, cancellationToken).ConfigureAwait(false);
 
         _queuedEpisodes[movie.Id].Add(new QueuedEpisode
         {
@@ -339,6 +341,7 @@ public partial class QueueManager(
             Path = movie.Path,
             Duration = duration,
             CreditsFingerprintStart = Math.Max(0, creditsDuration - pluginInstance.Configuration.MaximumMovieCreditsDuration),
+            CreditsFingerprintEnd = creditsDuration,
             Category = QueuedMediaCategory.Movie,
             IsExcluded = IsSeriesExcluded(movie.Name),
         });
@@ -346,10 +349,10 @@ public partial class QueueManager(
         pluginInstance.TotalQueued++;
     }
 
-    private async Task<double> ResolveCreditsFingerprintEndAsync(string path, double duration, CancellationToken cancellationToken)
+    private async Task<double> ResolveCreditsFingerprintEndAsync(string path, double duration, bool probeAudioDuration, CancellationToken cancellationToken)
     {
         var pluginInstance = Plugin.Instance ?? throw new InvalidOperationException("Plugin instance was null");
-        if (!pluginInstance.Configuration.ProbeAudioDuration || _detectionService is null)
+        if (!probeAudioDuration || !pluginInstance.Configuration.ProbeAudioDuration || _detectionService is null)
         {
             return duration;
         }

@@ -46,6 +46,24 @@ public class TestFFmpegRunner
     }
 
     [Fact]
+    public async Task RunFFprobeAsync_DoesNotPrependFfmpegArguments()
+    {
+        ProcessStartInfo? captured = null;
+        var runner = CreateRunner(processFactory: startInfo =>
+        {
+            captured = startInfo;
+            return new FakeProcess(startInfo, CreateStream("123"), Stream.Null);
+        });
+
+        var result = await runner.RunFFprobeAsync(["-v", "error", "input.mkv"]);
+
+        Assert.Equal(FFmpegProcessStatus.Completed, result.Status);
+        Assert.NotNull(captured);
+        Assert.Equal(["-v", "error", "input.mkv"], captured.ArgumentList);
+        Assert.DoesNotContain("-threads", captured.ArgumentList);
+    }
+
+    [Fact]
     public async Task RunAsync_CapturesOnlySelectedOutputStream()
     {
         var runner = CreateRunner(

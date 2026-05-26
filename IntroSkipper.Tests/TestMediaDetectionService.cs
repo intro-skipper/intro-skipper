@@ -445,20 +445,20 @@ public class TestMediaDetectionService
 
         Assert.NotNull(captured);
         Assert.Equal(
-            ["-skip_frame", "nokey", "-ss", "1500", "-i", episode.Path, "-an", "-dn", "-sn", "-vf", "blackframe=amount=0:threshold=28", "-f", "null", "-"],
+            ["-skip_frame", "nokey", "-ss", "1500", "-i", episode.Path, "-to", "300", "-an", "-dn", "-sn", "-vf", "blackframe=amount=0:threshold=28", "-f", "null", "-"],
             captured);
     }
 
     [Fact]
-    public async Task DetectCreditBlackFramesAsync_UsesCreditsFingerprintStartInCacheKey()
+    public async Task DetectCreditBlackFramesAsync_UsesCreditsFingerprintRangeInCacheKey()
     {
         var episode = CreateEpisode(creditsFingerprintStart: 1500, duration: 1800);
         var cache = new StubCacheService();
         var expected = new[] { new BlackFrame(99, 0.5, 1) };
 
-        // The credits overload uses CreditsFingerprintStart as start and 0 as end in the cache key.
+        // The credits overload uses the resolved credits fingerprint range in the cache key.
         cache.SetCacheHit(
-            new DetectionCacheKey(episode.EpisodeId, AnalysisMode.Credits, CacheEntryType.BlackFrame, 1500, 0, DetectionCacheVariant.BlackFrameCredits(28)),
+            new DetectionCacheKey(episode.EpisodeId, AnalysisMode.Credits, CacheEntryType.BlackFrame, 1500, 1800, DetectionCacheVariant.BlackFrameCredits(28)),
             expected);
 
         bool runnerCalled = false;
@@ -481,7 +481,7 @@ public class TestMediaDetectionService
         bool runnerCalled = false;
 
         cache.SetCacheHit(
-            new DetectionCacheKey(episode.EpisodeId, AnalysisMode.Credits, CacheEntryType.BlackFrame, 1500, 0, DetectionCacheVariant.BlackFrameCredits(28)),
+            new DetectionCacheKey(episode.EpisodeId, AnalysisMode.Credits, CacheEntryType.BlackFrame, 1500, 1800, DetectionCacheVariant.BlackFrameCredits(28)),
             expected);
 
         var svc = CreateService(
@@ -557,9 +557,18 @@ public class TestMediaDetectionService
         Assert.Equal(Timeout.InfiniteTimeSpan, capturedTimeout);
     }
 
+    [Fact]
+    public async Task ProbeAudioDurationAsync_RunFailure_ReturnsNull()
+    {
+        var svc = CreateService(runner: (_, _, _, _) => throw new InvalidOperationException("ffprobe missing"));
+
+        Assert.Null(await svc.ProbeAudioDurationAsync("/media/test.mkv"));
+    }
+
     [Theory]
     [InlineData("123.45\n", 123.45)]
     [InlineData("N/A,00:02:03.5000000\n", 123.5)]
+    [InlineData("N/A,00:02:03.500000000\n", 123.5)]
     public void TryParseAudioDuration_ValidValues_ReturnsDuration(string output, double expected)
     {
         Assert.Equal(expected, MediaDetectionService.TryParseAudioDuration(output));
@@ -626,6 +635,13 @@ public class TestMediaDetectionService
         Func<IReadOnlyList<string>, FFmpegOutputStream, TimeSpan?, CancellationToken, FFmpegProcessResult> handler) : IFFmpegRunner
     {
         public Task<FFmpegProcessResult> RunAsync(
+            IReadOnlyList<string> args,
+            FFmpegOutputStream outputStream = FFmpegOutputStream.Stdout,
+            TimeSpan? timeout = null,
+            CancellationToken cancellationToken = default)
+            => Task.FromResult(handler(args, outputStream, timeout, cancellationToken));
+
+        public Task<FFmpegProcessResult> RunFFprobeAsync(
             IReadOnlyList<string> args,
             FFmpegOutputStream outputStream = FFmpegOutputStream.Stdout,
             TimeSpan? timeout = null,

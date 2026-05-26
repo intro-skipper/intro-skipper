@@ -22,21 +22,18 @@ namespace IntroSkipper.ScheduledTasks;
 /// <param name="providerManager">Provider manager.</param>
 /// <param name="fileSystem">File system.</param>
 /// <param name="cacheService">Detection cache service.</param>
-/// <param name="detectionService">Media detection service.</param>
 public class CleanCacheTask(
     ILoggerFactory loggerFactory,
     ILibraryManager libraryManager,
     IProviderManager providerManager,
     IFileSystem fileSystem,
-    IDetectionCacheService cacheService,
-    IMediaDetectionService detectionService) : IScheduledTask
+    IDetectionCacheService cacheService) : IScheduledTask
 {
     private readonly ILoggerFactory _loggerFactory = loggerFactory;
     private readonly ILibraryManager _libraryManager = libraryManager;
     private readonly IProviderManager _providerManager = providerManager;
     private readonly IFileSystem _fileSystem = fileSystem;
     private readonly IDetectionCacheService _cacheService = cacheService;
-    private readonly IMediaDetectionService _detectionService = detectionService;
 
     /// <summary>
     /// Gets the task name.
@@ -74,12 +71,11 @@ public class CleanCacheTask(
             _loggerFactory.CreateLogger<QueueManager>(),
             _libraryManager,
             _providerManager,
-            _fileSystem,
-            _detectionService);
+            _fileSystem);
 
         // QueueManager.GetMediaItems() already skips libraries where the plugin is disabled via
         // LibraryOptions.DisabledMediaSegmentProviders (same mechanism LegacyMigrations writes to).
-        var queue = await queueManager.GetMediaItems(cancellationToken).ConfigureAwait(false);
+        var queue = await queueManager.GetMediaItems(cancellationToken: cancellationToken).ConfigureAwait(false);
         var allEpisodes = queue.Values.SelectMany(static episodes => episodes).ToList();
         var enabledLibraryEpisodeIds = allEpisodes.Select(e => e.EpisodeId).ToHashSet();
 

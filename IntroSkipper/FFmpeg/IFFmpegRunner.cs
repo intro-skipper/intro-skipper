@@ -35,19 +35,17 @@ public interface IFFmpegRunner
         CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// Runs the supplied executable asynchronously with the provided arguments and returns the captured output.
+    /// Runs FFprobe asynchronously with the provided arguments and returns the captured output.
     /// </summary>
-    /// <param name="executablePath">Executable path.</param>
-    /// <param name="args">Arguments to pass as individual tokens.</param>
+    /// <param name="args">Arguments to pass to FFprobe as individual tokens.</param>
     /// <param name="outputStream">Which output stream to capture.</param>
     /// <param name="timeout">Maximum time to wait for the process to exit.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>The captured selected-stream output bytes, process status, and exit code.</returns>
-    Task<FFmpegProcessResult> RunExecutableAsync(
-        string executablePath,
+    Task<FFmpegProcessResult> RunFFprobeAsync(
         IReadOnlyList<string> args,
         FFmpegOutputStream outputStream = FFmpegOutputStream.Stdout,
         TimeSpan? timeout = null,
         CancellationToken cancellationToken = default)
-        => throw new NotSupportedException("This runner cannot execute alternate FFmpeg tools.");
+        => throw new NotSupportedException("This runner cannot execute FFprobe.");
 }

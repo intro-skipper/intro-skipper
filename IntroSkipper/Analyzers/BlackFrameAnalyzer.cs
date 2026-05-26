@@ -76,7 +76,7 @@ public sealed partial class BlackFrameAnalyzer(ILogger<BlackFrameAnalyzer> logge
                     // Reset searchStart if it exceeds the valid search range for this episode.
                     // This can happen when a previous longer episode sets a large searchStart that
                     // causes lowerLimit > upperLimit in AnalyzeMediaFile, breaking the binary search.
-                    var maxSearchDistance = episode.Duration - episode.CreditsFingerprintStart;
+                    var maxSearchDistance = episode.CreditsFingerprintEnd - episode.CreditsFingerprintStart;
                     if (searchStart > maxSearchDistance)
                     {
                         searchStart = 0.0;
@@ -108,7 +108,7 @@ public sealed partial class BlackFrameAnalyzer(ILogger<BlackFrameAnalyzer> logge
                 await Plugin.Instance!.UpdateTimestampAsync(credit, mode, cancellationToken: cancellationToken).ConfigureAwait(false);
 
                 // Update search start for next episode based on this result
-                searchStart = episode.Duration - credit.Start + _config.MinimumCreditsDuration;
+                searchStart = episode.CreditsFingerprintEnd - credit.Start + _config.MinimumCreditsDuration;
             }
             catch (OperationCanceledException)
             {
@@ -138,7 +138,7 @@ public sealed partial class BlackFrameAnalyzer(ILogger<BlackFrameAnalyzer> logge
 
         // Calculate search boundaries
         var searchDistance = 2 * _config.MinimumCreditsDuration;
-        var upperLimit = Math.Min(initialStart, episode.Duration - episode.CreditsFingerprintStart);
+        var upperLimit = Math.Min(initialStart, episode.CreditsFingerprintEnd - episode.CreditsFingerprintStart);
         var lowerLimit = Math.Max(initialStart - searchDistance, _config.MinimumCreditsDuration);
 
         // Convert to TimeSpan for more accurate comparisons
@@ -156,7 +156,7 @@ public sealed partial class BlackFrameAnalyzer(ILogger<BlackFrameAnalyzer> logge
 
                 // Calculate midpoint and scan window
                 var midpoint = (searchStart + searchEnd) / 2;
-                var scanTime = episode.Duration - midpoint.TotalSeconds;
+                var scanTime = episode.CreditsFingerprintEnd - midpoint.TotalSeconds;
                 var timeRange = new TimeRange(scanTime, scanTime + 2);
 
                 // Detect black frames in the current time range
@@ -189,7 +189,7 @@ public sealed partial class BlackFrameAnalyzer(ILogger<BlackFrameAnalyzer> logge
                     {
                         upperLimit = Math.Min(
                             upperLimit + (0.5 * searchDistance),
-                            episode.Duration - episode.CreditsFingerprintStart);
+                            episode.CreditsFingerprintEnd - episode.CreditsFingerprintStart);
                         searchStart = TimeSpan.FromSeconds(upperLimit);
 
                         LogExpandedSearchUpperLimit(_logger, upperLimit);
@@ -202,7 +202,7 @@ public sealed partial class BlackFrameAnalyzer(ILogger<BlackFrameAnalyzer> logge
             {
                 return new Segment(
                     episode.EpisodeId,
-                    new TimeRange(firstBlackFrameTime.Value, episode.Duration));
+                    new TimeRange(firstBlackFrameTime.Value, episode.CreditsFingerprintEnd));
             }
 
             return null;
@@ -230,7 +230,7 @@ public sealed partial class BlackFrameAnalyzer(ILogger<BlackFrameAnalyzer> logge
         var suitableChapters = Plugin.Instance!.GetChapters(episode.EpisodeId)
             .Select(c => TimeSpan.FromTicks(c.StartPositionTicks).TotalSeconds)
             .Where(s => s >= episode.CreditsFingerprintStart &&
-                        s <= episode.Duration - _config.MinimumCreditsDuration)
+                        s <= episode.CreditsFingerprintEnd - _config.MinimumCreditsDuration)
             .OrderByDescending(s => s)
             .ToList();
 
@@ -272,7 +272,7 @@ public sealed partial class BlackFrameAnalyzer(ILogger<BlackFrameAnalyzer> logge
             if (!hasBlackFramesBefore)
             {
                 LogFoundCreditsWithChapterMarker(_logger, chapterStart);
-                return new Segment(episode.EpisodeId, new TimeRange(chapterStart, episode.Duration));
+                return new Segment(episode.EpisodeId, new TimeRange(chapterStart, episode.CreditsFingerprintEnd));
             }
         }
 
@@ -293,7 +293,7 @@ public sealed partial class BlackFrameAnalyzer(ILogger<BlackFrameAnalyzer> logge
 
         // Initial search parameters
         var searchStart = 3d * _config.MinimumCreditsDuration;
-        var maxSearchStart = episode.Duration - episode.CreditsFingerprintStart;
+        var maxSearchStart = episode.CreditsFingerprintEnd - episode.CreditsFingerprintStart;
 
         var stepSize = 2d * _config.MinimumCreditsDuration;
 
@@ -301,7 +301,7 @@ public sealed partial class BlackFrameAnalyzer(ILogger<BlackFrameAnalyzer> logge
         {
             cancellationToken.ThrowIfCancellationRequested();
 
-            var scanTime = episode.Duration - searchStart;
+            var scanTime = episode.CreditsFingerprintEnd - searchStart;
 
             var timeRange = new TimeRange(scanTime - 1.0, scanTime);
 

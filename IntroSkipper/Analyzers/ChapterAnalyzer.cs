@@ -109,7 +109,7 @@ public sealed partial class ChapterAnalyzer(ILogger<ChapterAnalyzer> logger, IMe
         {
             var chapter = chapters[i];
             var next = chapters.ElementAtOrDefault(i + 1) ??
-                new ChapterInfo { StartPositionTicks = TimeSpan.FromSeconds(episode.Duration).Ticks }; // Since the ending credits chapter may be the last chapter in the file, append a virtual chapter.
+                new ChapterInfo { StartPositionTicks = TimeSpan.FromSeconds(GetChapterEnd(mode, episode)).Ticks }; // Since the ending credits chapter may be the last chapter in the file, append a virtual chapter.
 
             if (string.IsNullOrWhiteSpace(chapter.Name))
             {
@@ -173,6 +173,9 @@ public sealed partial class ChapterAnalyzer(ILogger<ChapterAnalyzer> logger, IMe
         return null;
     }
 
+    private static double GetChapterEnd(AnalysisMode mode, QueuedEpisode episode)
+        => mode == AnalysisMode.Credits ? episode.CreditsFingerprintEnd : episode.Duration;
+
     private (double Min, double Max) GetBounds(AnalysisMode mode, QueuedEpisode episode)
     {
         ArgumentNullException.ThrowIfNull(episode);
@@ -180,7 +183,7 @@ public sealed partial class ChapterAnalyzer(ILogger<ChapterAnalyzer> logger, IMe
         if (_config.FullLengthChapters)
         {
             // Leave 1 second buffer at start and end
-            return (1, episode.Duration - 1);
+            return (1, GetChapterEnd(mode, episode) - 1);
         }
 
         // Map analysis mode to duration bounds

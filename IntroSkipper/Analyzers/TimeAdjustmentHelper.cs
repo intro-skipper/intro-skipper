@@ -48,7 +48,7 @@ public partial class TimeAdjustmentHelper(ILogger logger, PluginConfiguration co
         }
 
         bool useChapters = adjustIntroBasedOnChapters ?? _config.AdjustIntroBasedOnChapters;
-        var duration = episode.Duration;
+        var duration = _mode == AnalysisMode.Credits ? episode.CreditsFingerprintEnd : episode.Duration;
         var chapters = useChapters ? Plugin.Instance?.GetChapters(episode.EpisodeId) ?? [] : [];
 
         LogOriginalIntro(

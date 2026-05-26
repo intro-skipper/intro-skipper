@@ -111,7 +111,7 @@ public partial class BaseItemAnalyzerTask(
             _fileSystem,
             _detectionService);
 
-        var queue = await queueManager.GetMediaItems(cancellationToken).ConfigureAwait(false);
+        var queue = await queueManager.GetMediaItems(modes.Contains(AnalysisMode.Credits), cancellationToken).ConfigureAwait(false);
 
         if (seasonsToAnalyze?.Count > 0)
         {
@@ -143,6 +143,7 @@ public partial class BaseItemAnalyzerTask(
             CancellationToken = cancellationToken
         };
 
+        var analysisIncomplete = 0;
         await Parallel.ForEachAsync(queue, options, async (season, ct) =>
         {
             var updateMediaSegments = false;
@@ -181,10 +182,12 @@ public partial class BaseItemAnalyzerTask(
             }
             catch (OperationCanceledException)
             {
+                Interlocked.Exchange(ref analysisIncomplete, 1);
                 LogAnalysisCanceled(_logger);
             }
             catch (FingerprintException ex)
             {
+                Interlocked.Exchange(ref analysisIncomplete, 1);
                 LogFingerprintExceptionDuringAnalysis(_logger, ex);
             }
             catch (Exception ex)
@@ -199,7 +202,10 @@ public partial class BaseItemAnalyzerTask(
             }
         }).ConfigureAwait(false);
 
-        plugin.AnalyzeAgain = false;
+        if (Volatile.Read(ref analysisIncomplete) == 0 && !cancellationToken.IsCancellationRequested)
+        {
+            plugin.AnalyzeAgain = false;
+        }
     }
 
     /// <summary>
@@ -242,14 +248,6 @@ public partial class BaseItemAnalyzerTask(
             return 0;
         }
 
-        if (plugin.AnalyzeAgain)
-        {
-            await plugin.DeleteAutomaticSegmentsAsync(
-                items.Where(e => e.GetAnalyzed(mode) != EpisodeState.UserProvided).Select(e => e.EpisodeId),
-                mode,
-                cancellationToken).ConfigureAwait(false);
-        }
-
         LogAnalyzingFiles(_logger, mode, items.Count, first.SeriesName, first.SeasonNumber);
 
         var analyzers = CreateAnalyzerPipeline(mode, category, ffmpegValid, action);
@@ -260,6 +258,7 @@ public partial class BaseItemAnalyzerTask(
         {
             cancellationToken.ThrowIfCancellationRequested();
             items = await analyzer.AnalyzeMediaFiles(items, mode, cancellationToken).ConfigureAwait(false);
+            cancellationToken.ThrowIfCancellationRequested();
         }
 
         // For anime, optionally create a Preview segment from the end of credits to the end of the episode.
@@ -270,6 +269,14 @@ public partial class BaseItemAnalyzerTask(
 
         // Set the episode IDs for the analyzed items
         await plugin.SetEpisodeIdsAsync(first.SeasonId, mode, items.Select(i => i.EpisodeId), cancellationToken).ConfigureAwait(false);
+
+        if (plugin.AnalyzeAgain)
+        {
+            await plugin.DeleteAutomaticSegmentsAsync(
+                items.Where(e => e.GetAnalyzed(mode) != EpisodeState.Analyzed).Select(e => e.EpisodeId),
+                mode,
+                cancellationToken).ConfigureAwait(false);
+        }
 
         return totalItems - items.Count(e => e.GetAnalyzed(mode) != EpisodeState.Analyzed);
     }

@@ -12,6 +12,7 @@ namespace IntroSkipper.Data;
 public class QueuedEpisode
 {
     private readonly EpisodeState[] _isAnalyzed = new EpisodeState[Enum.GetValues<AnalysisMode>().Length];
+    private double? _creditsFingerprintEnd;
 
     /// <summary>
     /// Gets or sets the series name.
@@ -79,6 +80,16 @@ public class QueuedEpisode
     public double CreditsFingerprintStart { get; set; }
 
     /// <summary>
+    /// Gets or sets the timestamp (in seconds) to stop looking for end credits at.
+    /// Defaults to <see cref="Duration"/> when no separate credits end was resolved.
+    /// </summary>
+    public double CreditsFingerprintEnd
+    {
+        get => _creditsFingerprintEnd ?? Duration;
+        set => _creditsFingerprintEnd = value;
+    }
+
+    /// <summary>
     /// Gets or sets the total duration of this media file (in seconds).
     /// </summary>
     public double Duration { get; set; }
@@ -124,7 +135,7 @@ public class QueuedEpisode
         return mode switch
         {
             AnalysisMode.Introduction => (0, IntroFingerprintEnd),
-            AnalysisMode.Credits => (CreditsFingerprintStart, Duration),
+            AnalysisMode.Credits => (CreditsFingerprintStart, CreditsFingerprintEnd),
             _ => throw new ArgumentException("Unknown analysis mode " + mode),
         };
     }
