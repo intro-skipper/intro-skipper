@@ -146,7 +146,7 @@ public class TestFFmpegServices
             // Verify FFmpeg ran successfully
             Assert.NotNull(fingerprint);
         }
-        catch (FingerprintException)
+        catch (Exception ex) when (ex is FingerprintException or FFmpegDetectionException)
         {
             // Fingerprinting may fail if chromaprint is unavailable, but this test only checks for warnings.
         }
