@@ -705,7 +705,9 @@ public sealed partial class DetectionCacheService : IDetectionCacheService
                 itemId,
                 CacheEntryType.BlackFrame,
                 legacyFile.Start,
-                legacyFile.End,
+                legacyFile.Kind == LegacyCacheKind.BlackFrameCredits
+                    ? episode.CreditsFingerprintEnd
+                    : legacyFile.End,
                 raw => FFmpegOutputParser.OffsetBlackFrames(FFmpegOutputParser.ParseBlackFrames(raw), legacyFile.Start),
                 AnalysisMode.Credits,
                 legacyFile.Kind == LegacyCacheKind.BlackFrameCredits

@@ -1016,9 +1016,14 @@ public sealed class TestCacheOperations
     }
 
     [Theory]
-    [InlineData("blackframes-10.5-20.5-v1", 10.5, 20.5)]
-    [InlineData("blackframes-10.5-alt", 10.5, 0)]
-    public async Task MigrateLegacyCachesAsync_BlackframeFile_WritesCreditsMode(string suffix, double expectedStart, double expectedEnd)
+    [InlineData("blackframes-10.5-20.5-v1", 10.5, 60, 20.5, false)]
+    [InlineData("blackframes-10.5-alt", 10.5, 60, 60, true)]
+    public async Task MigrateLegacyCachesAsync_BlackframeFile_WritesCreditsMode(
+        string suffix,
+        double expectedStart,
+        double episodeCreditsEnd,
+        double expectedEnd,
+        bool expectedCreditsVariant)
     {
         var episodeId = Guid.NewGuid();
         var cacheDir = EntrypointTestHelpers.CreateTempCacheDir();
@@ -1032,6 +1037,8 @@ public sealed class TestCacheOperations
         {
             EpisodeId = episodeId,
             Path = "/does/not/exist.mkv",
+            CreditsFingerprintStart = expectedStart,
+            CreditsFingerprintEnd = episodeCreditsEnd,
         };
 
         string cacheDbPath;
@@ -1049,7 +1056,7 @@ public sealed class TestCacheOperations
         Assert.True(db.DetectionCache.Any(e =>
             e.ItemId == episodeId &&
             e.Type == CacheEntryType.BlackFrame &&
-            e.Variant == (Math.Abs(expectedEnd) < 1e-9 ? DetectionCacheVariant.BlackFrameCredits(32) : DetectionCacheVariant.BlackFrameRange(32)) &&
+            e.Variant == (expectedCreditsVariant ? DetectionCacheVariant.BlackFrameCredits(32) : DetectionCacheVariant.BlackFrameRange(32)) &&
             e.Mode == AnalysisMode.Credits));
         Assert.False(db.DetectionCache.Any(e =>
             e.ItemId == episodeId &&
@@ -1070,9 +1077,14 @@ public sealed class TestCacheOperations
     }
 
     [Theory]
-    [InlineData("blackframes-10.5-20.5-v1", 10.5, 20.5)]
-    [InlineData("blackframes-10.5-alt", 10.5, 0)]
-    public async Task MigrateLegacyCachesAsync_BlackframeFile_UsesDefaultVariant(string suffix, double expectedStart, double expectedEnd)
+    [InlineData("blackframes-10.5-20.5-v1", 10.5, 60, 20.5, false)]
+    [InlineData("blackframes-10.5-alt", 10.5, 60, 60, true)]
+    public async Task MigrateLegacyCachesAsync_BlackframeFile_UsesDefaultVariant(
+        string suffix,
+        double expectedStart,
+        double episodeCreditsEnd,
+        double expectedEnd,
+        bool expectedCreditsVariant)
     {
         var episodeId = Guid.NewGuid();
         var cacheDir = EntrypointTestHelpers.CreateTempCacheDir();
@@ -1087,13 +1099,19 @@ public sealed class TestCacheOperations
         {
             cacheDbPath = scope.CacheDbPath;
             await CreateCacheService().MigrateLegacyCachesAsync([
-                new QueuedEpisode { EpisodeId = episodeId, Path = "/does/not/exist.mkv" }]);
+                new QueuedEpisode
+                {
+                    EpisodeId = episodeId,
+                    Path = "/does/not/exist.mkv",
+                    CreditsFingerprintStart = expectedStart,
+                    CreditsFingerprintEnd = episodeCreditsEnd,
+                }]);
         }
 
         using var db = new DetectionCacheDbContext(cacheDbPath);
         var entry = Assert.Single(db.DetectionCache.Where(e => e.ItemId == episodeId && e.Type == CacheEntryType.BlackFrame));
         Assert.Equal(
-            Math.Abs(expectedEnd) < 1e-9 ? DetectionCacheVariant.BlackFrameCredits(28) : DetectionCacheVariant.BlackFrameRange(28),
+            expectedCreditsVariant ? DetectionCacheVariant.BlackFrameCredits(28) : DetectionCacheVariant.BlackFrameRange(28),
             entry.Variant);
         Assert.Equal(expectedStart, entry.Start);
         Assert.Equal(expectedEnd, entry.End);
