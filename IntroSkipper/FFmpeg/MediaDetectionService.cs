@@ -111,10 +111,21 @@ public sealed partial class MediaDetectionService : IMediaDetectionService
         {
             throw;
         }
-        catch (Exception ex)
+        catch (TimeoutException ex)
         {
-            LogAudioDurationProbeFailed(_logger, ex, filePath);
-            return null;
+            return ProbeFailed(ex);
+        }
+        catch (InvalidOperationException ex)
+        {
+            return ProbeFailed(ex);
+        }
+        catch (IOException ex)
+        {
+            return ProbeFailed(ex);
+        }
+        catch (ExternalException ex)
+        {
+            return ProbeFailed(ex);
         }
 
         if (result.Status != FFmpegProcessStatus.Completed || result.ExitCode != 0)
@@ -124,6 +135,12 @@ public sealed partial class MediaDetectionService : IMediaDetectionService
         }
 
         return TryParseAudioDuration(Encoding.UTF8.GetString(result.Output));
+
+        double? ProbeFailed(Exception ex)
+        {
+            LogAudioDurationProbeFailed(_logger, ex, filePath);
+            return null;
+        }
     }
 
     /// <inheritdoc />
