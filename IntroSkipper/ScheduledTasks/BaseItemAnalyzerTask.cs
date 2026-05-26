@@ -108,7 +108,8 @@ public partial class BaseItemAnalyzerTask(
             _loggerFactory.CreateLogger<QueueManager>(),
             _libraryManager,
             _providerManager,
-            _fileSystem);
+            _fileSystem,
+            _detectionService);
 
         var queue = await queueManager.GetMediaItems(cancellationToken).ConfigureAwait(false);
 
@@ -239,6 +240,14 @@ public partial class BaseItemAnalyzerTask(
         {
             LogSkippingNoneAction(_logger, mode, first.SeriesName, first.SeasonNumber);
             return 0;
+        }
+
+        if (plugin.AnalyzeAgain)
+        {
+            await plugin.DeleteAutomaticSegmentsAsync(
+                items.Where(e => e.GetAnalyzed(mode) != EpisodeState.UserProvided).Select(e => e.EpisodeId),
+                mode,
+                cancellationToken).ConfigureAwait(false);
         }
 
         LogAnalyzingFiles(_logger, mode, items.Count, first.SeriesName, first.SeasonNumber);

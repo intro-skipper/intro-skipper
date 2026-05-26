@@ -613,6 +613,9 @@ public class TestBlackFrames
         public Task<uint[]> FingerprintAsync(QueuedEpisode episode, AnalysisMode mode, CancellationToken cancellationToken = default)
             => Task.FromResult(Array.Empty<uint>());
 
+        public Task<double?> ProbeAudioDurationAsync(string filePath, CancellationToken cancellationToken = default)
+            => Task.FromResult<double?>(null);
+
         public Task<TimeRange[]> DetectSilenceAsync(QueuedEpisode episode, TimeRange range, AnalysisMode mode, CancellationToken cancellationToken = default)
             => Task.FromResult(Array.Empty<TimeRange>());
 

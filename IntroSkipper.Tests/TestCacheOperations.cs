@@ -678,6 +678,74 @@ public sealed class TestCacheOperations
     }
 
     [Fact]
+    public async Task LegacyMigration_InvalidFingerprintRange_DeletesFileWithoutDbRow()
+    {
+        var episode = new QueuedEpisode
+        {
+            EpisodeId = Guid.NewGuid(),
+            Path = "/does/not/exist.mkv",
+            IntroFingerprintEnd = 0,
+        };
+        var cacheDir = EntrypointTestHelpers.CreateTempCacheDir();
+        var legacyPath = Path.Combine(cacheDir, episode.EpisodeId.ToString("N"));
+
+        await File.WriteAllLinesAsync(legacyPath, ["1"]);
+
+        string cacheDbPath;
+        using (var scope = new CachingPluginScope(cacheDir))
+        {
+            cacheDbPath = scope.CacheDbPath;
+            await CreateCacheService().MigrateLegacyCachesAsync([episode]);
+        }
+
+        Assert.False(File.Exists(legacyPath));
+
+        using var db = new DetectionCacheDbContext(cacheDbPath);
+        Assert.False(db.DetectionCache.Any(e => e.ItemId == episode.EpisodeId));
+    }
+
+    [Fact]
+    public async Task LegacyMigration_ExistingDbFingerprint_DeletesLegacyWithoutOverwrite()
+    {
+        var episode = new QueuedEpisode
+        {
+            EpisodeId = Guid.NewGuid(),
+            Path = "/does/not/exist.mkv",
+            IntroFingerprintEnd = 60,
+        };
+        var cacheDir = EntrypointTestHelpers.CreateTempCacheDir();
+        var legacyPath = Path.Combine(cacheDir, episode.EpisodeId.ToString("N"));
+        var lineCount = (int)Math.Round((60.0 - ChromaprintConstants.HashWindowDuration) / ChromaprintConstants.SampleDuration);
+
+        await File.WriteAllLinesAsync(
+            legacyPath,
+            Enumerable.Range(0, lineCount).Select(i => ((uint)(i + 1000)).ToString(CultureInfo.InvariantCulture)));
+
+        string cacheDbPath;
+        uint[] existing = [7u, 8u, 9u];
+        using (var scope = new CachingPluginScope(cacheDir))
+        {
+            cacheDbPath = scope.CacheDbPath;
+            var cacheService = CreateCacheService();
+            var key = new DetectionCacheKey(
+                episode.EpisodeId,
+                AnalysisMode.Introduction,
+                CacheEntryType.Chromaprint,
+                0,
+                60,
+                DetectionCacheVariant.Chromaprint());
+
+            await cacheService.WriteJsonCacheAsync(key, existing);
+            await cacheService.MigrateLegacyCachesAsync([episode]);
+        }
+
+        Assert.False(File.Exists(legacyPath));
+
+        using var db = new DetectionCacheDbContext(cacheDbPath);
+        Assert.Equal(existing, ReadFingerprintFromDb(db, episode.EpisodeId, AnalysisMode.Introduction));
+    }
+
+    [Fact]
     public async Task LegacyMigration_Credits_AcceptedWithCorrectStartEnd()
     {
         // Credits: start=1560, end=1800, duration=240s

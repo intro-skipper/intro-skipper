@@ -7,6 +7,7 @@
 using System.Text.RegularExpressions;
 using IntroSkipper.Configuration;
 using IntroSkipper.Data;
+using IntroSkipper.FFmpeg;
 using IntroSkipper.Helper;
 using Jellyfin.Data.Enums;
 using Jellyfin.Database.Implementations.Enums;
@@ -31,12 +32,19 @@ namespace IntroSkipper.Manager;
 /// <param name="libraryManager">Library manager.</param>
 /// <param name="providerManager">Provider manager.</param>
 /// <param name="fileSystem">File system.</param>
-public partial class QueueManager(ILogger<QueueManager> logger, ILibraryManager libraryManager, IProviderManager providerManager, IFileSystem fileSystem)
+/// <param name="detectionService">Media detection service.</param>
+public partial class QueueManager(
+    ILogger<QueueManager> logger,
+    ILibraryManager libraryManager,
+    IProviderManager providerManager,
+    IFileSystem fileSystem,
+    IMediaDetectionService? detectionService = null)
 {
     private readonly ILibraryManager _libraryManager = libraryManager;
     private readonly IFileSystem _fileSystem = fileSystem;
     private readonly IProviderManager _providerManager = providerManager;
     private readonly ILogger<QueueManager> _logger = logger;
+    private readonly IMediaDetectionService? _detectionService = detectionService;
     private readonly Dictionary<Guid, List<QueuedEpisode>> _queuedEpisodes = [];
     private readonly HashSet<Guid> _refreshedEpisodes = [];
     private double _analysisPercent;
@@ -180,7 +188,7 @@ public partial class QueueManager(ILogger<QueueManager> logger, ILibraryManager 
                 }
                 else if (item is Movie movie)
                 {
-                    QueueMovie(movie);
+                    await QueueMovie(movie, cancellationToken).ConfigureAwait(false);
                 }
                 else
                 {
@@ -261,8 +269,10 @@ public partial class QueueManager(ILogger<QueueManager> logger, ILibraryManager 
             duration >= 5 * 60 ? duration * _analysisPercent : duration,
             60 * pluginInstance.Configuration.AnalysisLengthLimit);
 
+        var creditsDuration = await ResolveCreditsFingerprintEndAsync(episode.Path, duration, cancellationToken).ConfigureAwait(false);
+
         var maxCreditsDuration = Math.Min(
-            duration >= 5 * 60 ? duration * _analysisPercent : duration,
+            creditsDuration >= 5 * 60 ? creditsDuration * _analysisPercent : creditsDuration,
             60 * pluginInstance.Configuration.MaximumCreditsDuration);
 
         // Queue the episode for analysis
@@ -280,7 +290,7 @@ public partial class QueueManager(ILogger<QueueManager> logger, ILibraryManager 
             Path = episode.Path,
             Duration = duration,
             IntroFingerprintEnd = fingerprintDuration,
-            CreditsFingerprintStart = Math.Max(0, duration - maxCreditsDuration),
+            CreditsFingerprintStart = Math.Max(0, creditsDuration - maxCreditsDuration),
         });
 
         pluginInstance.TotalQueued++;
@@ -302,7 +312,7 @@ public partial class QueueManager(ILogger<QueueManager> logger, ILibraryManager 
         return QueuedMediaCategory.Episode;
     }
 
-    private void QueueMovie(Movie movie)
+    private async Task QueueMovie(Movie movie, CancellationToken cancellationToken)
     {
         var pluginInstance = Plugin.Instance ?? throw new InvalidOperationException("Plugin instance was null");
 
@@ -317,6 +327,8 @@ public partial class QueueManager(ILogger<QueueManager> logger, ILibraryManager 
 
         var duration = TimeSpan.FromTicks(movie.RunTimeTicks ?? 0).TotalSeconds;
 
+        var creditsDuration = await ResolveCreditsFingerprintEndAsync(movie.Path, duration, cancellationToken).ConfigureAwait(false);
+
         _queuedEpisodes[movie.Id].Add(new QueuedEpisode
         {
             SeriesName = movie.Name,
@@ -326,12 +338,26 @@ public partial class QueueManager(ILogger<QueueManager> logger, ILibraryManager 
             Name = movie.Name,
             Path = movie.Path,
             Duration = duration,
-            CreditsFingerprintStart = Math.Max(0, duration - pluginInstance.Configuration.MaximumMovieCreditsDuration),
+            CreditsFingerprintStart = Math.Max(0, creditsDuration - pluginInstance.Configuration.MaximumMovieCreditsDuration),
             Category = QueuedMediaCategory.Movie,
             IsExcluded = IsSeriesExcluded(movie.Name),
         });
 
         pluginInstance.TotalQueued++;
+    }
+
+    private async Task<double> ResolveCreditsFingerprintEndAsync(string path, double duration, CancellationToken cancellationToken)
+    {
+        var pluginInstance = Plugin.Instance ?? throw new InvalidOperationException("Plugin instance was null");
+        if (!pluginInstance.Configuration.ProbeAudioDuration || _detectionService is null)
+        {
+            return duration;
+        }
+
+        var audioDuration = await _detectionService.ProbeAudioDurationAsync(path, cancellationToken).ConfigureAwait(false);
+        return audioDuration is > 0 && audioDuration.Value < duration
+            ? audioDuration.Value
+            : duration;
     }
 
     private async Task<Guid> GetSeasonId(Episode episode, CancellationToken cancellationToken)

@@ -557,6 +557,23 @@ public class TestMediaDetectionService
         Assert.Equal(Timeout.InfiniteTimeSpan, capturedTimeout);
     }
 
+    [Theory]
+    [InlineData("123.45\n", 123.45)]
+    [InlineData("N/A,00:02:03.5000000\n", 123.5)]
+    public void TryParseAudioDuration_ValidValues_ReturnsDuration(string output, double expected)
+    {
+        Assert.Equal(expected, MediaDetectionService.TryParseAudioDuration(output));
+    }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData("N/A\n")]
+    [InlineData("0\n")]
+    [InlineData("-1\n")]
+    public void TryParseAudioDuration_InvalidValues_ReturnsNull(string output)
+    {
+        Assert.Null(MediaDetectionService.TryParseAudioDuration(output));
+    }
     // === Helpers ===
 
     private static QueuedEpisode CreateEpisode(

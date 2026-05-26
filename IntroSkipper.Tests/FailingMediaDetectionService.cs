@@ -23,6 +23,8 @@ internal sealed class FailingMediaDetectionService : IMediaDetectionService
     public Task<uint[]> FingerprintAsync(QueuedEpisode episode, AnalysisMode mode, CancellationToken cancellationToken = default)
         => throw _fingerprintException ?? CreateException();
 
+    public Task<double?> ProbeAudioDurationAsync(string filePath, CancellationToken cancellationToken = default)
+        => throw CreateException();
     public Task<TimeRange[]> DetectSilenceAsync(QueuedEpisode episode, TimeRange range, AnalysisMode mode, CancellationToken cancellationToken = default)
         => throw CreateException();
 

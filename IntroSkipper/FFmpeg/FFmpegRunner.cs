@@ -73,7 +73,16 @@ public sealed partial class FFmpegRunner : IFFmpegRunner
     }
 
     /// <inheritdoc />
-    public async Task<FFmpegProcessResult> RunAsync(
+    public Task<FFmpegProcessResult> RunAsync(
+        IReadOnlyList<string> args,
+        FFmpegOutputStream outputStream = FFmpegOutputStream.Stdout,
+        TimeSpan? timeout = null,
+        CancellationToken cancellationToken = default)
+        => RunExecutableAsync(_options.FFmpegPath, args, outputStream, timeout, cancellationToken);
+
+    /// <inheritdoc />
+    public async Task<FFmpegProcessResult> RunExecutableAsync(
+        string executablePath,
         IReadOnlyList<string> args,
         FFmpegOutputStream outputStream = FFmpegOutputStream.Stdout,
         TimeSpan? timeout = null,
@@ -85,7 +94,7 @@ public sealed partial class FFmpegRunner : IFFmpegRunner
         cancellationToken.ThrowIfCancellationRequested();
 
         var stderr = outputStream == FFmpegOutputStream.Stderr;
-        using var ffmpeg = StartProcess(args);
+        using var ffmpeg = StartProcess(executablePath, args);
 
         // Read the selected stream asynchronously while draining the other to prevent deadlocks.
         using var ms = new MemoryStream();
@@ -213,9 +222,10 @@ public sealed partial class FFmpegRunner : IFFmpegRunner
     /// <param name="args">User-supplied FFmpeg arguments.</param>
     /// <returns>A configured but not-yet-started <see cref="ProcessStartInfo"/>.</returns>
     internal ProcessStartInfo CreateProcessStartInfo(IReadOnlyList<string> args)
-    {
-        var ffmpegPath = _options.FFmpegPath;
+        => CreateProcessStartInfo(_options.FFmpegPath, args);
 
+    internal ProcessStartInfo CreateProcessStartInfo(string executablePath, IReadOnlyList<string> args)
+    {
         // The silencedetect and blackframe filters output data at the info log level.
         var useInfoLevel = args.Any(a =>
             a.Contains("silencedetect", StringComparison.OrdinalIgnoreCase) ||
@@ -230,8 +240,9 @@ public sealed partial class FFmpegRunner : IFFmpegRunner
         var isInfoQuery = firstArg.StartsWith("-version", StringComparison.Ordinal) ||
             firstArg.StartsWith("-muxers", StringComparison.Ordinal) ||
             firstArg.StartsWith("-h", StringComparison.Ordinal);
+        var isConfiguredFfmpeg = string.Equals(executablePath, _options.FFmpegPath, StringComparison.OrdinalIgnoreCase);
 
-        var info = new ProcessStartInfo(ffmpegPath)
+        var info = new ProcessStartInfo(executablePath)
         {
             WindowStyle = ProcessWindowStyle.Hidden,
             CreateNoWindow = true,
@@ -243,7 +254,7 @@ public sealed partial class FFmpegRunner : IFFmpegRunner
 
         // Prepend flags to suppress FFmpeg banner and set log level / thread count.
         info.ArgumentList.Add("-hide_banner");
-        if (!isInfoQuery)
+        if (isConfiguredFfmpeg && !isInfoQuery)
         {
             info.ArgumentList.Add("-threads");
             info.ArgumentList.Add(_options.ProcessThreads.ToString(CultureInfo.InvariantCulture));
@@ -263,19 +274,21 @@ public sealed partial class FFmpegRunner : IFFmpegRunner
     /// <summary>
     /// Creates a configured FFmpeg process without starting it.
     /// </summary>
+    /// <param name="executablePath">Executable path.</param>
     /// <param name="args">User-supplied FFmpeg arguments.</param>
     /// <returns>A configured but not-yet-started process.</returns>
-    private IProcess CreateProcess(IReadOnlyList<string> args)
-        => _processFactory(CreateProcessStartInfo(args));
+    private IProcess CreateProcess(string executablePath, IReadOnlyList<string> args)
+        => _processFactory(CreateProcessStartInfo(executablePath, args));
 
     /// <summary>
     /// Creates, logs, starts, and applies configured priority to an FFmpeg process.
     /// </summary>
+    /// <param name="executablePath">Executable path.</param>
     /// <param name="args">User-supplied FFmpeg arguments.</param>
     /// <returns>A started process.</returns>
-    private IProcess StartProcess(IReadOnlyList<string> args)
+    private IProcess StartProcess(string executablePath, IReadOnlyList<string> args)
     {
-        var ffmpeg = CreateProcess(args);
+        var ffmpeg = CreateProcess(executablePath, args);
         if (_logger.IsEnabled(LogLevel.Debug))
         {
             LogStartingFfmpeg(_logger, string.Join(" ", ffmpeg.StartInfo.ArgumentList));

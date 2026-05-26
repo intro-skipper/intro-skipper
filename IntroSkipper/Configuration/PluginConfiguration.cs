@@ -195,6 +195,12 @@ public class PluginConfiguration : BasePluginConfiguration
     public int MaximumMovieCreditsDuration { get; set; } = 900;
 
     /// <summary>
+    /// Gets or sets a value indicating whether to probe the actual audio stream duration for credits fingerprinting.
+    /// This helps with containers whose reported runtime is inflated by subtitle tracks.
+    /// </summary>
+    public bool ProbeAudioDuration { get; set; }
+
+    /// <summary>
     /// Gets or sets the minimum length of similar audio that will be considered a recap.
     /// </summary>
     public int MinimumRecapDuration { get; set; } = 15;

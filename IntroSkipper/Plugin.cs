@@ -347,6 +347,35 @@ public partial class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
         }
     }
 
+    /// <summary>
+    /// Removes automatic segments for the supplied items and mode.
+    /// User-provided segments are intentionally preserved.
+    /// </summary>
+    /// <param name="itemIds">Item IDs to inspect.</param>
+    /// <param name="mode">Analysis mode.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>A <see cref="Task"/> representing the asynchronous operation.</returns>
+    internal async Task DeleteAutomaticSegmentsAsync(
+        IEnumerable<Guid> itemIds,
+        AnalysisMode mode,
+        CancellationToken cancellationToken = default)
+    {
+        var ids = itemIds.Distinct().ToArray();
+        if (ids.Length == 0)
+        {
+            return;
+        }
+
+        using var db = CreateDbContext();
+        foreach (var batch in ids.Chunk(SqliteParameterBatchSize))
+        {
+            await db.DbSegment
+                .Where(s => batch.Contains(s.ItemId) && s.Type == mode && !s.IsUserProvided)
+                .ExecuteDeleteAsync(cancellationToken)
+                .ConfigureAwait(false);
+        }
+    }
+
     internal async Task SetAnalyzerActionAsync(Guid id, IReadOnlyDictionary<AnalysisMode, AnalyzerAction> analyzerActions, CancellationToken cancellationToken = default)
     {
         using var db = CreateDbContext();

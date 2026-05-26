@@ -85,6 +85,37 @@ public sealed partial class MediaDetectionService : IMediaDetectionService
     }
 
     /// <inheritdoc />
+    public async Task<double?> ProbeAudioDurationAsync(string filePath, CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(filePath))
+        {
+            return null;
+        }
+
+        var ffprobePath = GetFFprobePath(_options.FFmpegPath);
+        var result = await _runner.RunExecutableAsync(
+            ffprobePath,
+            [
+                "-v", "error",
+                "-select_streams", "a:0",
+                "-show_entries", "stream=duration:stream_tags=DURATION",
+                "-of", "csv=p=0",
+                filePath,
+            ],
+            FFmpegOutputStream.Stdout,
+            TimeSpan.FromSeconds(10),
+            cancellationToken).ConfigureAwait(false);
+
+        if (result.Status != FFmpegProcessStatus.Completed || result.ExitCode != 0)
+        {
+            LogAudioDurationProbeFailed(_logger, filePath);
+            return null;
+        }
+
+        return TryParseAudioDuration(Encoding.UTF8.GetString(result.Output));
+    }
+
+    /// <inheritdoc />
     public async Task<TimeRange[]> DetectSilenceAsync(QueuedEpisode episode, TimeRange range, AnalysisMode mode, CancellationToken cancellationToken)
     {
         LogDetectingSilence(_logger, episode.Path, range.Start, range.End, episode.EpisodeId);
@@ -270,6 +301,52 @@ public sealed partial class MediaDetectionService : IMediaDetectionService
         return $"{message} {diagnostic}";
     }
 
+    internal static double? TryParseAudioDuration(string output)
+    {
+        if (string.IsNullOrWhiteSpace(output))
+        {
+            return null;
+        }
+
+        foreach (var value in output.Split('\n')[0].Split(',').Select(static f => f.Trim()))
+        {
+            if (string.IsNullOrWhiteSpace(value) || string.Equals(value, "N/A", StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            if (double.TryParse(value, CultureInfo.InvariantCulture, out var seconds) && seconds > 0)
+            {
+                return seconds;
+            }
+
+            if (TimeSpan.TryParse(value, CultureInfo.InvariantCulture, out var duration) && duration.TotalSeconds > 0)
+            {
+                return duration.TotalSeconds;
+            }
+        }
+
+        return null;
+    }
+
+    private static string GetFFprobePath(string ffmpegPath)
+    {
+        if (string.IsNullOrWhiteSpace(ffmpegPath))
+        {
+            return "ffprobe";
+        }
+
+        var extension = Path.GetExtension(ffmpegPath);
+        var withoutExtension = Path.ChangeExtension(ffmpegPath, null);
+        var candidate = withoutExtension + "probe" + extension;
+        if (File.Exists(candidate))
+        {
+            return candidate;
+        }
+
+        return Path.Combine(Path.GetDirectoryName(ffmpegPath) ?? string.Empty, "ffprobe" + extension);
+    }
+
     private uint[] ParseChromaprintBytes(ReadOnlySpan<byte> rawPoints, string path)
     {
         // Returns all fingerprint points as raw 32-bit unsigned integers (little endian).
@@ -293,4 +370,7 @@ public sealed partial class MediaDetectionService : IMediaDetectionService
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "Chromaprint returned {Count} points for \"{Path}\"")]
     private static partial void LogChromaprintReturnedPoints(ILogger logger, int count, string path);
+
+    [LoggerMessage(Level = LogLevel.Debug, Message = "Failed to probe audio duration for {File}")]
+    private static partial void LogAudioDurationProbeFailed(ILogger logger, string file);
 }

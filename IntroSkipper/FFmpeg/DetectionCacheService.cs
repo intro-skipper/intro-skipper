@@ -318,9 +318,14 @@ public sealed partial class DetectionCacheService : IDetectionCacheService
         {
             files = [.. Directory.EnumerateFiles(cacheDir)];
         }
-        catch (DirectoryNotFoundException)
+        catch (Exception ex) when (ex is DirectoryNotFoundException or IOException or UnauthorizedAccessException)
         {
-            _legacyMigrationCompleted = true;
+            if (ex is not DirectoryNotFoundException)
+            {
+                LogDetectionCacheReadError(_logger, ex, cacheDir);
+            }
+
+            _legacyMigrationCompleted = ex is DirectoryNotFoundException;
             return;
         }
 
@@ -652,8 +657,21 @@ public sealed partial class DetectionCacheService : IDetectionCacheService
             var mode = legacyFile.Kind == LegacyCacheKind.CreditFingerprint ? AnalysisMode.Credits : AnalysisMode.Introduction;
 
             var (start, end) = episode.GetFingerprintRange(mode);
+
+            if (end <= start)
+            {
+                DeleteLegacyCacheFilePath(filePath);
+                return false;
+            }
+
             var key = new DetectionCacheKey(itemId, mode, CacheEntryType.Chromaprint, start, end, DetectionCacheVariant.Chromaprint());
             var legacyCacheKey = GetLegacyFingerprintCacheKey(itemId, mode);
+
+            if (await TryReadJsonCacheAsync<uint>(key, cancellationToken).ConfigureAwait(false) is not null)
+            {
+                DeleteLegacyCacheFilePath(filePath);
+                return false;
+            }
 
             if (TryLoadLegacyCache(legacyCacheKey, filePath, key, ParseFingerprintRaw, out var result) &&
                 await WriteJsonCacheAsync(key, result, cancellationToken).ConfigureAwait(false))

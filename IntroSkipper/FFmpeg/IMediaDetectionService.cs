@@ -23,6 +23,14 @@ public interface IMediaDetectionService
     Task<uint[]> FingerprintAsync(QueuedEpisode episode, AnalysisMode mode, CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// Probes the first audio stream's actual duration.
+    /// </summary>
+    /// <param name="filePath">Media path.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>Audio duration in seconds, or <see langword="null"/> when unavailable.</returns>
+    Task<double?> ProbeAudioDurationAsync(string filePath, CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// Detects ranges of silence in the provided episode asynchronously.
     /// </summary>
     /// <param name="episode">Queued episode.</param>

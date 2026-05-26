@@ -292,6 +292,50 @@ public sealed class TestDbSegmentStorage
         }
     }
 
+    [Fact]
+    public async Task DeleteAutomaticSegmentsAsync_RemovesOnlyAutomaticSegmentsForMode()
+    {
+        var tempDir = Path.Join(Path.GetTempPath(), "IntroSkipper.Tests");
+        Directory.CreateDirectory(tempDir);
+        var dbPath = Path.Join(tempDir, Guid.NewGuid().ToString("N") + ".db");
+        var automaticItemId = Guid.NewGuid();
+        var userProvidedItemId = Guid.NewGuid();
+        var otherModeItemId = Guid.NewGuid();
+
+        try
+        {
+            using (var db = new IntroSkipperDbContext(dbPath))
+            {
+                await db.Database.EnsureCreatedAsync();
+                db.DbSegment.AddRange(
+                    new DbSegment(new Segment(automaticItemId, new TimeRange(0, 10)), AnalysisMode.Introduction),
+                    new DbSegment(new Segment(userProvidedItemId, new TimeRange(20, 30)), AnalysisMode.Introduction, isUserProvided: true),
+                    new DbSegment(new Segment(otherModeItemId, new TimeRange(40, 50)), AnalysisMode.Credits));
+                await db.SaveChangesAsync();
+            }
+
+            using (new EntrypointTestHelpers.PluginInstanceScope(EntrypointTestHelpers.CreateTempCacheDir()))
+            {
+                var plugin = Plugin.Instance!;
+                EntrypointTestHelpers.SetPrivateField(plugin, "_dbPath", dbPath);
+
+                await plugin.DeleteAutomaticSegmentsAsync(
+                    [automaticItemId, userProvidedItemId, otherModeItemId],
+                    AnalysisMode.Introduction);
+            }
+
+            using (var db = new IntroSkipperDbContext(dbPath))
+            {
+                Assert.DoesNotContain(db.DbSegment, s => s.ItemId == automaticItemId);
+                Assert.Contains(db.DbSegment, s => s.ItemId == userProvidedItemId && s.IsUserProvided);
+                Assert.Contains(db.DbSegment, s => s.ItemId == otherModeItemId && s.Type == AnalysisMode.Credits);
+            }
+        }
+        finally
+        {
+            DeleteSqliteFiles(dbPath);
+        }
+    }
     private static void ConfigurePluginLogger(Plugin plugin)
     {
         using var loggerFactory = LoggerFactory.Create(_ => { });
