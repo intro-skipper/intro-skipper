@@ -21,6 +21,7 @@ public sealed partial class FFmpegRunner : IFFmpegRunner
 {
     private static readonly TimeSpan DefaultTimeout = TimeSpan.FromSeconds(60);
     private static readonly TimeSpan MaximumDelayTimeout = TimeSpan.FromMilliseconds(uint.MaxValue - 1d);
+    private static readonly TimeSpan PostExitStreamCloseTimeout = TimeSpan.FromMilliseconds(250);
 
     private readonly IPluginOptionsProvider _options;
     private readonly ILogger<FFmpegRunner> _logger;
@@ -112,11 +113,12 @@ public sealed partial class FFmpegRunner : IFFmpegRunner
         Task<byte[]>? drainTask = null;
         try
         {
-            using var readCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            using var selectedReadCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            using var drainReadCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
             var exitTask = WaitForExitAsync(ffmpeg, effectiveTimeout, cancellationToken);
-            drainTask = DrainStreamAsync(drainedStream, readCts.Token);
+            drainTask = DrainStreamAsync(drainedStream, drainReadCts.Token);
 
-            var selectedStreamCompleted = await CopySelectedStreamAsync(selectedStream, ms, exitTask, readCts.Token).ConfigureAwait(false);
+            var selectedStreamCompleted = await CopySelectedStreamAsync(selectedStream, ms, exitTask, selectedReadCts, cancellationToken).ConfigureAwait(false);
             if (!selectedStreamCompleted)
             {
                 return await ReturnTimeoutAsync().ConfigureAwait(false);
@@ -132,8 +134,12 @@ public sealed partial class FFmpegRunner : IFFmpegRunner
                 }
             }
 
-            var drainedOutput = await drainTask.ConfigureAwait(false);
-            var processExited = await exitTask.ConfigureAwait(false);
+            var drainedOutput = completedTask == drainTask
+                ? await drainTask.ConfigureAwait(false)
+                : await CompleteDrainAfterExitAsync(drainTask, drainReadCts, cancellationToken).ConfigureAwait(false);
+            var processExited = completedTask == exitTask
+                ? true
+                : await exitTask.ConfigureAwait(false);
             if (!processExited)
             {
                 await KillProcessAsync(ffmpeg).ConfigureAwait(false);
@@ -148,7 +154,8 @@ public sealed partial class FFmpegRunner : IFFmpegRunner
             async Task<FFmpegProcessResult> ReturnTimeoutAsync()
             {
                 await KillProcessAsync(ffmpeg).ConfigureAwait(false);
-                await readCts.CancelAsync().ConfigureAwait(false);
+                await selectedReadCts.CancelAsync().ConfigureAwait(false);
+                await drainReadCts.CancelAsync().ConfigureAwait(false);
                 ObserveFaultedTask(drainTask);
                 var output = ms.ToArray();
                 cancellationToken.ThrowIfCancellationRequested();
@@ -186,15 +193,22 @@ public sealed partial class FFmpegRunner : IFFmpegRunner
     /// <param name="source">The stream to copy from.</param>
     /// <param name="destination">The stream to copy into.</param>
     /// <param name="exitTask">The process exit wait task.</param>
+    /// <param name="readCts">Cancellation source for the selected stream read.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns><c>true</c> if the source stream closed before timeout; otherwise <c>false</c>.</returns>
-    private static async Task<bool> CopySelectedStreamAsync(Stream source, Stream destination, Task<bool> exitTask, CancellationToken cancellationToken)
+    private static async Task<bool> CopySelectedStreamAsync(
+        Stream source,
+        Stream destination,
+        Task<bool> exitTask,
+        CancellationTokenSource readCts,
+        CancellationToken cancellationToken)
     {
         var buffer = new byte[4096];
         while (true)
         {
-            var readTask = source.ReadAsync(buffer, cancellationToken).AsTask();
+            var readTask = source.ReadAsync(buffer, readCts.Token).AsTask();
             var completedTask = await Task.WhenAny(readTask, exitTask).ConfigureAwait(false);
+            int bytesRead;
             if (completedTask == exitTask)
             {
                 var exited = await exitTask.ConfigureAwait(false);
@@ -203,9 +217,20 @@ public sealed partial class FFmpegRunner : IFFmpegRunner
                     ObserveFaultedTask(readTask);
                     return false;
                 }
+
+                var postExitRead = await CompleteReadAfterExitAsync(readTask, readCts, cancellationToken).ConfigureAwait(false);
+                if (!postExitRead.HasValue)
+                {
+                    return true;
+                }
+
+                bytesRead = postExitRead.Value;
+            }
+            else
+            {
+                bytesRead = await readTask.ConfigureAwait(false);
             }
 
-            var bytesRead = await readTask.ConfigureAwait(false);
             if (bytesRead == 0)
             {
                 return true;
@@ -222,6 +247,47 @@ public sealed partial class FFmpegRunner : IFFmpegRunner
                 }
             }
         }
+    }
+
+    private static async Task<int?> CompleteReadAfterExitAsync(Task<int> readTask, CancellationTokenSource readCts, CancellationToken cancellationToken)
+    {
+        if (readTask.IsCompleted)
+        {
+            return await readTask.ConfigureAwait(false);
+        }
+
+        var completedTask = await Task.WhenAny(readTask, Task.Delay(PostExitStreamCloseTimeout, cancellationToken)).ConfigureAwait(false);
+        if (completedTask == readTask)
+        {
+            return await readTask.ConfigureAwait(false);
+        }
+
+        cancellationToken.ThrowIfCancellationRequested();
+        await readCts.CancelAsync().ConfigureAwait(false);
+        ObserveFaultedTask(readTask);
+        return null;
+    }
+
+    private static async Task<byte[]> CompleteDrainAfterExitAsync(
+        Task<byte[]> drainTask,
+        CancellationTokenSource drainCts,
+        CancellationToken cancellationToken)
+    {
+        if (drainTask.IsCompleted)
+        {
+            return await drainTask.ConfigureAwait(false);
+        }
+
+        var completedTask = await Task.WhenAny(drainTask, Task.Delay(PostExitStreamCloseTimeout, cancellationToken)).ConfigureAwait(false);
+        if (completedTask == drainTask)
+        {
+            return await drainTask.ConfigureAwait(false);
+        }
+
+        cancellationToken.ThrowIfCancellationRequested();
+        await drainCts.CancelAsync().ConfigureAwait(false);
+        ObserveFaultedTask(drainTask);
+        return [];
     }
 
     /// <summary>

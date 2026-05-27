@@ -214,6 +214,26 @@ public class TestFFmpegRunner
     }
 
     [Fact]
+    public async Task RunAsync_ProcessExitedReturnsWhenDrainedStreamStaysOpen()
+    {
+        var process = new FakeProcess(
+            new ProcessStartInfo("ffmpeg"),
+            CreateStream("stdout"),
+            new BlockingReadStream());
+        var runner = CreateRunner(processFactory: _ => process);
+
+        var task = runner.RunAsync(["-i", "input"], timeout: TimeSpan.FromSeconds(1));
+        var completed = await Task.WhenAny(task, Task.Delay(TimeSpan.FromSeconds(1))) == task;
+
+        Assert.True(completed, "RunAsync should not wait forever for a drained stream after the process exits.");
+        var result = await task;
+        Assert.Equal(FFmpegProcessStatus.Completed, result.Status);
+        Assert.Equal(0, result.ExitCode);
+        Assert.Equal("stdout", Encoding.UTF8.GetString(result.Output));
+        Assert.Empty(result.DrainedOutput);
+    }
+
+    [Fact]
     public async Task RunAsync_ExitTimeoutReturnsWhenSelectedStreamKeepsProducingOutput()
     {
         var process = new FakeProcess(

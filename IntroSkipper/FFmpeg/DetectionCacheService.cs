@@ -232,8 +232,13 @@ public sealed partial class DetectionCacheService : IDetectionCacheService
             {
                 legacyFiles = [.. Directory.EnumerateFiles(cacheDir)];
             }
-            catch (DirectoryNotFoundException)
+            catch (Exception ex) when (ex is DirectoryNotFoundException or IOException or UnauthorizedAccessException)
             {
+                if (ex is not DirectoryNotFoundException)
+                {
+                    LogDetectionCacheReadError(_logger, ex, cacheDir);
+                }
+
                 legacyFiles = [];
             }
 
@@ -280,7 +285,7 @@ public sealed partial class DetectionCacheService : IDetectionCacheService
             {
                 File.Delete(filePath);
             }
-            catch (IOException ex)
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
             {
                 LogDeleteLegacyCacheFileFailed(_logger, ex, filePath);
             }

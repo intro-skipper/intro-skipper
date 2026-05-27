@@ -97,33 +97,50 @@ namespace IntroSkipper.Services
         /// <inheritdoc />
         public async Task StartAsync(CancellationToken cancellationToken)
         {
-            await _capabilityService.CheckFFmpegVersionAsync(cancellationToken).ConfigureAwait(false);
-
-            _libraryManager.ItemAdded += OnItemChanged;
-            _libraryManager.ItemUpdated += OnItemChanged;
-            _libraryManager.ItemRemoved += OnItemRemoved;
-            _taskManager.TaskCompleted += OnLibraryRefresh;
-            Plugin.Instance!.ConfigurationChanged += OnSettingsChanged;
-
-            // Initialize web injector for skip button timeout modification
-            if (_config.FileTransformationPluginEnabled)
+            SubscribeEvents();
+            try
             {
-                InitializeWebInjector();
+                await _capabilityService.CheckFFmpegVersionAsync(cancellationToken).ConfigureAwait(false);
+
+                // Initialize web injector for skip button timeout modification
+                if (_config.FileTransformationPluginEnabled)
+                {
+                    InitializeWebInjector();
+                }
+            }
+            catch
+            {
+                UnsubscribeEvents();
+                throw;
             }
         }
 
         /// <inheritdoc />
         public async Task StopAsync(CancellationToken cancellationToken)
         {
+            UnsubscribeEvents();
+
+            await _shutdownCts.CancelAsync().ConfigureAwait(false);
+            _queueTimer.Change(Timeout.Infinite, 0);
+            await CancelAutomaticTaskAsync(cancellationToken).ConfigureAwait(false);
+        }
+
+        private void SubscribeEvents()
+        {
+            _libraryManager.ItemAdded += OnItemChanged;
+            _libraryManager.ItemUpdated += OnItemChanged;
+            _libraryManager.ItemRemoved += OnItemRemoved;
+            _taskManager.TaskCompleted += OnLibraryRefresh;
+            Plugin.Instance!.ConfigurationChanged += OnSettingsChanged;
+        }
+
+        private void UnsubscribeEvents()
+        {
             _libraryManager.ItemAdded -= OnItemChanged;
             _libraryManager.ItemUpdated -= OnItemChanged;
             _libraryManager.ItemRemoved -= OnItemRemoved;
             _taskManager.TaskCompleted -= OnLibraryRefresh;
             Plugin.Instance!.ConfigurationChanged -= OnSettingsChanged;
-
-            await _shutdownCts.CancelAsync().ConfigureAwait(false);
-            _queueTimer.Change(Timeout.Infinite, 0);
-            await CancelAutomaticTaskAsync(cancellationToken).ConfigureAwait(false);
         }
 
         /// <summary>
