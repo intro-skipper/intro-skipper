@@ -137,9 +137,7 @@ public sealed partial class FFmpegRunner : IFFmpegRunner
             var drainedOutput = completedTask == drainTask
                 ? await drainTask.ConfigureAwait(false)
                 : await CompleteDrainAfterExitAsync(drainTask, drainReadCts, cancellationToken).ConfigureAwait(false);
-            var processExited = completedTask == exitTask
-                ? true
-                : await exitTask.ConfigureAwait(false);
+            var processExited = completedTask == exitTask || await exitTask.ConfigureAwait(false);
             if (!processExited)
             {
                 await KillProcessAsync(ffmpeg).ConfigureAwait(false);
@@ -361,7 +359,7 @@ public sealed partial class FFmpegRunner : IFFmpegRunner
             return candidate;
         }
 
-        return Path.Combine(Path.GetDirectoryName(_options.FFmpegPath) ?? string.Empty, "ffprobe" + extension);
+        return Path.Join(Path.GetDirectoryName(_options.FFmpegPath) ?? string.Empty, "ffprobe" + extension);
     }
 
     /// <summary>
