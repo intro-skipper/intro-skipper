@@ -49,6 +49,35 @@ public class TestChapterAnalyzer
         Assert.Equal(2000, creditsChapter.End);
     }
 
+    [Fact]
+    public void BuildRecapFromFirstBlackFrame_ReturnsSegmentFromStartToFirstFrame()
+    {
+        var episodeId = Guid.NewGuid();
+        var frames = new List<BlackFrame>
+        {
+            new(95, 32.5, 123),
+            new(92, 18.25, 90),
+            new(90, 45, 150),
+        };
+
+        var recap = ChapterAnalyzer.BuildRecapFromFirstBlackFrame(episodeId, frames, minimumRecapDuration: 5, maximumRecapDuration: 120);
+
+        Assert.NotNull(recap);
+        Assert.Equal(episodeId, recap.EpisodeId);
+        Assert.Equal(0, recap.Start);
+        Assert.Equal(18.25, recap.End);
+    }
+
+    [Fact]
+    public void BuildRecapFromFirstBlackFrame_ReturnsNull_WhenFrameBeforeMinimumDuration()
+    {
+        var frames = new List<BlackFrame> { new(90, 3.5, 20) };
+
+        var recap = ChapterAnalyzer.BuildRecapFromFirstBlackFrame(Guid.NewGuid(), frames, minimumRecapDuration: 5, maximumRecapDuration: 120);
+
+        Assert.Null(recap);
+    }
+
     private Segment? FindChapter(Collection<ChapterInfo> chapters, AnalysisMode mode)
     {
         var logger = new LoggerFactory().CreateLogger<ChapterAnalyzer>();

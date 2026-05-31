@@ -43,6 +43,7 @@ public static class ConfigHasher
 
             AnalysisMode.Recap => Invariant(
                 $"analysis|v1|mode={mode}|action={action}|chap={config.ChapterAnalyzerRecapPattern}|fullchap={config.FullLengthChapters}|min={config.MinimumRecapDuration}|max={config.MaximumRecapDuration}",
+                $"|recapBlackFrame={config.DetectRecapUsingFirstBlackFrame}|bfmin={config.BlackFrameMinimumPercentage}|bfthr={config.BlackFrameThreshold}",
                 $"{AdjustmentHash(config)}"),
 
             AnalysisMode.Preview => Invariant(

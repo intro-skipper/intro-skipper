@@ -31,6 +31,7 @@ public partial class ChapterAnalyzer(ILogger<ChapterAnalyzer> logger) : IMediaFi
         AnalysisMode mode,
         CancellationToken cancellationToken)
     {
+        var enableRecapBlackFrameFallback = mode == AnalysisMode.Recap && _config.DetectRecapUsingFirstBlackFrame;
         var expression = mode switch
         {
             AnalysisMode.Introduction => _config.ChapterAnalyzerIntroductionPattern,
@@ -41,7 +42,7 @@ public partial class ChapterAnalyzer(ILogger<ChapterAnalyzer> logger) : IMediaFi
             _ => throw new ArgumentOutOfRangeException(nameof(mode), $"Unexpected analysis mode: {mode}")
         };
 
-        if (string.IsNullOrWhiteSpace(expression))
+        if (string.IsNullOrWhiteSpace(expression) && !enableRecapBlackFrameFallback)
         {
             return analysisQueue;
         }
@@ -57,18 +58,30 @@ public partial class ChapterAnalyzer(ILogger<ChapterAnalyzer> logger) : IMediaFi
                 break;
             }
 
-            var skipRange = FindMatchingChapter(
-                episode,
-                Plugin.Instance!.GetChapters(episode.EpisodeId),
-                expression,
-                mode);
+            var skipRange = !string.IsNullOrWhiteSpace(expression)
+                ? FindMatchingChapter(
+                    episode,
+                    Plugin.Instance!.GetChapters(episode.EpisodeId),
+                    expression,
+                    mode)
+                : null;
+            var fromBlackFrameFallback = false;
+
+            if ((skipRange is null || !skipRange.Valid) && enableRecapBlackFrameFallback)
+            {
+                skipRange = DetectRecapUsingFirstBlackFrame(episode);
+                fromBlackFrameFallback = skipRange is not null && skipRange.Valid;
+            }
 
             if (skipRange is null || !skipRange.Valid)
             {
                 continue;
             }
 
-            skipRange = timeAdjustmentHelper.AdjustIntroTimes(episode, skipRange, false);
+            if (!fromBlackFrameFallback)
+            {
+                skipRange = timeAdjustmentHelper.AdjustIntroTimes(episode, skipRange, false);
+            }
 
             episode.SetAnalyzed(mode, EpisodeState.Analyzed);
             await Plugin.Instance!.UpdateTimestampAsync(skipRange, mode, configHash: episode.AnalysisConfigHash, cancellationToken: cancellationToken).ConfigureAwait(false);
@@ -168,6 +181,52 @@ public partial class ChapterAnalyzer(ILogger<ChapterAnalyzer> logger) : IMediaFi
         }
 
         return null;
+    }
+
+    internal Segment? DetectRecapUsingFirstBlackFrame(QueuedEpisode episode)
+    {
+        var maxRecapBoundary = Math.Min(episode.Duration, _config.MaximumRecapDuration);
+        if (maxRecapBoundary <= 0)
+        {
+            return null;
+        }
+
+        var blackFrames = FFmpegWrapper.DetectBlackFrames(
+            episode,
+            new TimeRange(0, maxRecapBoundary),
+            _config.BlackFrameMinimumPercentage,
+            _config.BlackFrameThreshold,
+            AnalysisMode.Recap);
+
+        return BuildRecapFromFirstBlackFrame(
+            episode.EpisodeId,
+            blackFrames,
+            _config.MinimumRecapDuration,
+            _config.MaximumRecapDuration);
+    }
+
+    internal static Segment? BuildRecapFromFirstBlackFrame(
+        Guid episodeId,
+        IReadOnlyList<BlackFrame> blackFrames,
+        int minimumRecapDuration,
+        int maximumRecapDuration)
+    {
+        var firstBlackFrame = blackFrames
+            .OrderBy(frame => frame.Time)
+            .FirstOrDefault();
+
+        if (firstBlackFrame is null || firstBlackFrame.Time <= 0)
+        {
+            return null;
+        }
+
+        var recapEnd = Math.Min(firstBlackFrame.Time, maximumRecapDuration);
+        if (recapEnd < minimumRecapDuration)
+        {
+            return null;
+        }
+
+        return new Segment(episodeId, new TimeRange(0, recapEnd));
     }
 
     private (double Min, double Max) GetBounds(AnalysisMode mode, QueuedEpisode episode)

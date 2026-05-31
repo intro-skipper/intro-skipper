@@ -104,6 +104,13 @@ export const analysisTab: Tab = {
                 "Segments which are longer than this duration will not be considered a recap.",
                 chaptersOff,
             ),
+            checkboxField({
+                id: "DetectRecapUsingFirstBlackFrame",
+                label: "Detect recap using first black frame",
+                description:
+                    "When recap chapter detection fails, mark recap from 0:00 to the first detected black frame (capped by Maximum recap duration).",
+                visible: chaptersOff,
+            }),
             durationPair(
                 "MinimumPreviewDuration",
                 "MaximumPreviewDuration",
