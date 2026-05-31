@@ -9,7 +9,7 @@ using System.Text.RegularExpressions;
 using IntroSkipper.Data;
 using Microsoft.Extensions.Logging;
 
-namespace IntroSkipper.Analyzers;
+namespace IntroSkipper.FFmpeg;
 
 /// <summary>
 /// Pure parsing functions extracted from FFmpegWrapper.
