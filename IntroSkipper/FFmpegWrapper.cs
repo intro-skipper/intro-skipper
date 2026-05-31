@@ -11,12 +11,13 @@ using System.Globalization;
 using System.IO.Compression;
 using System.Text;
 using System.Text.Json;
-using System.Text.RegularExpressions;
 using IntroSkipper.Data;
 using IntroSkipper.Db;
+using IntroSkipper.FFmpeg;
 using IntroSkipper.Helper;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 
 namespace IntroSkipper;
 
@@ -25,15 +26,7 @@ namespace IntroSkipper;
 /// </summary>
 public static partial class FFmpegWrapper
 {
-    /// <summary>
-    /// Used with FFmpeg's silencedetect filter to extract the start and end times of silence.
-    /// </summary>
-    private static readonly Regex _silenceDetectionExpression = SilenceRegex();
-
-    /// <summary>
-    /// Used with FFmpeg's blackframe filter to extract the time and percentage of black pixels.
-    /// </summary>
-    private static readonly Regex _blackFrameRegex = BlackFrameRegex();
+    private static FFmpegProcess? _ffmpegProcess;
 
     private enum LegacyCacheLoadStatus
     {
@@ -343,85 +336,13 @@ public static partial class FFmpegWrapper
     }
 
     private static TimeRange[] ParseSilenceRaw(string raw, double rangeStart)
-    {
-        var currentRange = new TimeRange();
-        var silenceRanges = new List<TimeRange>();
-
-        foreach (Match match in _silenceDetectionExpression.Matches(raw))
-        {
-            var isStart = match.Groups["type"].Value == "start";
-            var time = Convert.ToDouble(match.Groups["time"].Value, CultureInfo.InvariantCulture);
-
-            if (isStart)
-            {
-                currentRange.Start = time + rangeStart;
-            }
-            else
-            {
-                currentRange.End = time + rangeStart;
-                silenceRanges.Add(new TimeRange(currentRange));
-            }
-        }
-
-        return [.. silenceRanges];
-    }
+        => FFmpegOutputParser.ParseSilence(raw, rangeStart);
 
     private static double[] ParseKeyFramesRaw(string raw, double rangeStart)
-    {
-        var keyframes = new List<double>();
-
-        foreach (var line in raw.Split('\n', StringSplitOptions.RemoveEmptyEntries))
-        {
-            var ptsIndex = line.IndexOf("pts_time:", StringComparison.OrdinalIgnoreCase);
-            if (ptsIndex == -1)
-            {
-                continue;
-            }
-
-            var ptsTimeStr = line[(ptsIndex + 9)..].Split(' ', 2)[0];
-
-            if (double.TryParse(ptsTimeStr, CultureInfo.InvariantCulture, out double timestamp))
-            {
-                keyframes.Add(timestamp + rangeStart);
-            }
-            else
-            {
-                if (Logger is { } parseLogger)
-                {
-                    LogFailedToParseTimestamp(parseLogger, ptsTimeStr, line);
-                }
-            }
-        }
-
-        return [.. keyframes];
-    }
+        => FFmpegOutputParser.ParseKeyFrames(raw, rangeStart);
 
     internal static BlackFrame[] ParseBlackFrame(string raw)
-    {
-        var blackFrames = new List<BlackFrame>();
-        /* Run the blackframe filter.
-         *
-         * Sample output:
-         * [Parsed_blackframe_0 @ 0x0000000] frame:1 pblack:99 pts:43 t:0.043000 type:B last_keyframe:0
-         * [Parsed_blackframe_0 @ 0x0000000] frame:2 pblack:99 pts:85 t:0.085000 type:B last_keyframe:0
-         */
-        foreach (var line in raw.Split('\n'))
-        {
-            var match = _blackFrameRegex.Match(line);
-            if (!match.Success)
-            {
-                continue;
-            }
-
-            var frame = int.Parse(match.Groups[1].Value, CultureInfo.InvariantCulture);
-            var percentage = int.Parse(match.Groups[2].Value, CultureInfo.InvariantCulture);
-            var time = double.Parse(match.Groups[3].Value, CultureInfo.InvariantCulture);
-
-            blackFrames.Add(new BlackFrame(percentage, time, frame));
-        }
-
-        return [.. blackFrames];
-    }
+        => FFmpegOutputParser.ParseBlackFrames(raw);
 
     /// <summary>
     /// Detects key frames in a media file within a time range.
@@ -582,56 +503,8 @@ public static partial class FFmpegWrapper
         bool stderr = false,
         int timeout = 60 * 1000)
     {
-        var info = new ProcessStartInfo(processPath)
-        {
-            WindowStyle = ProcessWindowStyle.Hidden,
-            CreateNoWindow = true,
-            UseShellExecute = false,
-            ErrorDialog = false,
-            RedirectStandardOutput = !stderr,
-            RedirectStandardError = stderr
-        };
-
-        foreach (var arg in args)
-        {
-            info.ArgumentList.Add(arg);
-        }
-
-        using var ffmpeg = new Process { StartInfo = info };
-        if (Logger is { } startLogger)
-        {
-            LogStartingFfmpeg(startLogger, string.Join(" ", info.ArgumentList));
-        }
-
-        ffmpeg.Start();
-
-        try
-        {
-            ffmpeg.PriorityClass = Plugin.Instance?.Configuration.ProcessPriority ?? ProcessPriorityClass.BelowNormal;
-        }
-        catch (Exception e)
-        {
-            if (Logger is { } priorityLogger)
-            {
-                LogFfmpegPriorityNotModified(priorityLogger, e.Message);
-            }
-        }
-
-        using var ms = new MemoryStream();
-        var buf = new byte[4096];
-
-        using (var streamReader = stderr ? ffmpeg.StandardError : ffmpeg.StandardOutput)
-        {
-            int bytesRead;
-            while ((bytesRead = streamReader.BaseStream.Read(buf, 0, buf.Length)) > 0)
-            {
-                ms.Write(buf, 0, bytesRead);
-            }
-        }
-
-        ffmpeg.WaitForExit(timeout);
-
-        return ms.ToArray();
+        _ffmpegProcess ??= new FFmpegProcess(Logger ?? NullLogger.Instance);
+        return _ffmpegProcess.RunAsync(processPath, args, stderr, timeout, Plugin.Instance?.Configuration.ProcessPriority).GetAwaiter().GetResult();
     }
 
     private static string GetFFprobePath()
@@ -1396,22 +1269,7 @@ public static partial class FFmpegWrapper
     }
 
     private static uint[] ParseFingerprintRaw(string raw)
-    {
-        var lines = raw.Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries);
-        var result = new List<uint>(lines.Length);
-        foreach (var line in lines)
-        {
-            if (!uint.TryParse(line, NumberStyles.Integer, CultureInfo.InvariantCulture, out var value))
-            {
-                // Any invalid entry means the file is corrupt — abort so FFmpeg re-analyzes.
-                return [];
-            }
-
-            result.Add(value);
-        }
-
-        return [.. result];
-    }
+        => FFmpegOutputParser.ParseFingerprint(raw);
 
     private static bool TryLoadLegacyCache<T>(
         string legacyCacheKey,
@@ -1561,9 +1419,6 @@ public static partial class FFmpegWrapper
     [LoggerMessage(Level = LogLevel.Trace, Message = "Detecting silence in \"{File}\" (range {Start}-{End}, id {Id})")]
     private static partial void LogDetectingSilence(ILogger logger, string file, double start, double end, Guid id);
 
-    [LoggerMessage(Level = LogLevel.Warning, Message = "Failed to parse timestamp: {PtsTimeStr} from line: {Line}")]
-    private static partial void LogFailedToParseTimestamp(ILogger logger, string ptsTimeStr, string line);
-
     [LoggerMessage(Level = LogLevel.Debug, Message = "Checking FFmpeg requirement {Arguments}")]
     private static partial void LogCheckingRequirement(ILogger logger, string arguments);
 
@@ -1575,12 +1430,6 @@ public static partial class FFmpegWrapper
 
     [LoggerMessage(Level = LogLevel.Debug, Message = "FFmpeg requirement {Arguments} met")]
     private static partial void LogFfmpegRequirementMet(ILogger logger, string arguments);
-
-    [LoggerMessage(Level = LogLevel.Debug, Message = "Starting ffmpeg with the following arguments: {Arguments}")]
-    private static partial void LogStartingFfmpeg(ILogger logger, string arguments);
-
-    [LoggerMessage(Level = LogLevel.Debug, Message = "ffmpeg priority could not be modified. {Message}")]
-    private static partial void LogFfmpegPriorityNotModified(ILogger logger, string message);
 
     [LoggerMessage(Level = LogLevel.Trace, Message = "Fingerprint cache hit on {File}")]
     private static partial void LogFingerprintCacheHit(ILogger logger, string file);
@@ -1621,9 +1470,6 @@ public static partial class FFmpegWrapper
     [LoggerMessage(Level = LogLevel.Information, Message = "Legacy fingerprint {CacheKey} duration mismatch (inferred {Inferred}s vs expected {Expected}s), re-fingerprinting")]
     private static partial void LogLegacyDurationMismatch(ILogger logger, string cacheKey, double inferred, double expected);
 
-    [GeneratedRegex("silence_(?<type>start|end): (?<time>[0-9\\.]+)")]
-    private static partial Regex SilenceRegex();
-
     /// <summary>
     /// Serializes and compresses a value using Brotli compression.
     /// </summary>
@@ -1654,9 +1500,6 @@ public static partial class FFmpegWrapper
         using var brotli = new BrotliStream(input, CompressionMode.Decompress);
         return JsonSerializer.Deserialize<T>(brotli);
     }
-
-    [GeneratedRegex(@"\[Parsed_blackframe_0 @ [^\]]+\] frame:(\d+) pblack:(\d+) .*? t:([\d.]+)")]
-    private static partial Regex BlackFrameRegex();
 
     private readonly record struct LegacyDetectionCacheFile(
         Guid ItemId,
