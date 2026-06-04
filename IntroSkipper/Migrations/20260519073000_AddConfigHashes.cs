@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: 2026 Intro-Skipper contributors <intro-skipper.org>
+// SPDX-FileCopyrightText: 2026 AbandonedCart
 // SPDX-License-Identifier: GPL-3.0-only
 
 using Microsoft.EntityFrameworkCore.Migrations;
