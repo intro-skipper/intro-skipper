@@ -155,7 +155,13 @@ public class IntroSkipperDbContext : DbContext
     /// </summary>
     public void EnsureConfigHashColumns()
     {
-        Database.OpenConnection();
+        var connection = Database.GetDbConnection();
+        var wasOpen = connection.State == System.Data.ConnectionState.Open;
+        if (!wasOpen)
+        {
+            Database.OpenConnection();
+        }
+
         try
         {
             EnsureConfigHashColumn("DbSegment");
@@ -163,7 +169,10 @@ public class IntroSkipperDbContext : DbContext
         }
         finally
         {
-            Database.CloseConnection();
+            if (!wasOpen)
+            {
+                Database.CloseConnection();
+            }
         }
     }
 
@@ -287,6 +296,9 @@ public class IntroSkipperDbContext : DbContext
         return builder.DataSource is not (null or "" or ":memory:") ? builder.DataSource : null;
     }
 
+    private static string QuoteIdentifier(string name) =>
+        "\"" + name.Replace("\"", "\"\"", StringComparison.Ordinal) + "\"";
+
     private void EnsureConfigHashColumn(string tableName)
     {
         if (!TableExists(tableName) || ColumnExists(tableName, "ConfigHash"))
@@ -294,14 +306,8 @@ public class IntroSkipperDbContext : DbContext
             return;
         }
 
-        var commandText = tableName switch
-        {
-            "DbSegment" => "ALTER TABLE \"DbSegment\" ADD COLUMN \"ConfigHash\" TEXT NOT NULL DEFAULT ''",
-            "DbSeasonInfo" => "ALTER TABLE \"DbSeasonInfo\" ADD COLUMN \"ConfigHash\" TEXT NOT NULL DEFAULT ''",
-            _ => throw new InvalidOperationException($"Unsupported table '{tableName}'."),
-        };
-
-        Database.ExecuteSqlRaw(commandText);
+        var sql = "ALTER TABLE " + QuoteIdentifier(tableName) + " ADD COLUMN \"ConfigHash\" TEXT NOT NULL DEFAULT ''";
+        Database.ExecuteSqlRaw(sql);
     }
 
     private bool TableExists(string tableName)
@@ -320,17 +326,9 @@ public class IntroSkipperDbContext : DbContext
     private bool ColumnExists(string tableName, string columnName)
     {
         using var command = Database.GetDbConnection().CreateCommand();
-        switch (tableName)
-        {
-            case "DbSegment":
-                command.CommandText = "PRAGMA table_info(\"DbSegment\")";
-                break;
-            case "DbSeasonInfo":
-                command.CommandText = "PRAGMA table_info(\"DbSeasonInfo\")";
-                break;
-            default:
-                throw new InvalidOperationException($"Unsupported table '{tableName}'.");
-        }
+#pragma warning disable CA2100 // tableName is quoted/escaped by QuoteIdentifier; no user input reaches this path
+        command.CommandText = "PRAGMA table_info(" + QuoteIdentifier(tableName) + ")";
+#pragma warning restore CA2100
 
         using var reader = command.ExecuteReader();
         while (reader.Read())
