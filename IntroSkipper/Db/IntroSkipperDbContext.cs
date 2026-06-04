@@ -294,7 +294,14 @@ public class IntroSkipperDbContext : DbContext
             return;
         }
 
-        Database.ExecuteSqlRaw($"ALTER TABLE \"{tableName}\" ADD COLUMN \"ConfigHash\" TEXT NOT NULL DEFAULT ''");
+        var commandText = tableName switch
+        {
+            "DbSegment" => "ALTER TABLE \"DbSegment\" ADD COLUMN \"ConfigHash\" TEXT NOT NULL DEFAULT ''",
+            "DbSeasonInfo" => "ALTER TABLE \"DbSeasonInfo\" ADD COLUMN \"ConfigHash\" TEXT NOT NULL DEFAULT ''",
+            _ => throw new InvalidOperationException($"Unsupported table '{tableName}'."),
+        };
+
+        Database.ExecuteSqlRaw(commandText);
     }
 
     private bool TableExists(string tableName)
@@ -313,7 +320,17 @@ public class IntroSkipperDbContext : DbContext
     private bool ColumnExists(string tableName, string columnName)
     {
         using var command = Database.GetDbConnection().CreateCommand();
-        command.CommandText = $"PRAGMA table_info(\"{tableName}\")";
+        switch (tableName)
+        {
+            case "DbSegment":
+                command.CommandText = "PRAGMA table_info(\"DbSegment\")";
+                break;
+            case "DbSeasonInfo":
+                command.CommandText = "PRAGMA table_info(\"DbSeasonInfo\")";
+                break;
+            default:
+                throw new InvalidOperationException($"Unsupported table '{tableName}'.");
+        }
 
         using var reader = command.ExecuteReader();
         while (reader.Read())
