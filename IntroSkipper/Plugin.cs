@@ -101,7 +101,7 @@ public partial class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
                 using var db = CreateDbContext();
                 db.EnsureConfigHashColumns();
             }
-            catch (Exception compatEx)
+            catch (Exception compatEx) when (compatEx is IOException or SqliteException)
             {
                 LogDatabaseCompatibilityInitializationError(_logger, compatEx);
             }
