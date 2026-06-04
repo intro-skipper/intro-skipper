@@ -241,6 +241,76 @@ public sealed class TestDbSegmentStorage
         }
     }
 
+    [Fact]
+    public async Task EnsureConfigHashColumns_AddsMissingColumnsForLegacySchema()
+    {
+        var tempDir = Path.Join(Path.GetTempPath(), "IntroSkipper.Tests");
+        Directory.CreateDirectory(tempDir);
+        var dbPath = Path.Join(tempDir, Guid.NewGuid().ToString("N") + ".db");
+
+        var seasonId = Guid.NewGuid();
+        var episodeId = Guid.NewGuid();
+
+        try
+        {
+            await using (var connection = new SqliteConnection($"Data Source={dbPath}"))
+            {
+                await connection.OpenAsync();
+                await using var command = connection.CreateCommand();
+                command.CommandText =
+                    """
+                    CREATE TABLE "DbSeasonInfo" (
+                        "SeasonId" TEXT NOT NULL,
+                        "Type" INTEGER NOT NULL,
+                        "Action" INTEGER NOT NULL DEFAULT 0,
+                        "EpisodeIds" TEXT NOT NULL,
+                        CONSTRAINT "PK_DbSeasonInfo" PRIMARY KEY ("SeasonId", "Type")
+                    );
+                    CREATE TABLE "DbSegment" (
+                        "Id" INTEGER NOT NULL CONSTRAINT "PK_DbSegment" PRIMARY KEY AUTOINCREMENT,
+                        "ItemId" TEXT NOT NULL,
+                        "Type" INTEGER NOT NULL,
+                        "Start" REAL NOT NULL DEFAULT 0.0,
+                        "End" REAL NOT NULL DEFAULT 0.0,
+                        "IsUserProvided" INTEGER NOT NULL DEFAULT 0
+                    );
+                    INSERT INTO "DbSeasonInfo" ("SeasonId", "Type", "Action", "EpisodeIds")
+                    VALUES ($seasonId, $type, $action, $episodeIds);
+                    INSERT INTO "DbSegment" ("ItemId", "Type", "Start", "End", "IsUserProvided")
+                    VALUES ($itemId, $segmentType, $start, $end, $isUserProvided);
+                    """;
+                command.Parameters.AddWithValue("$seasonId", seasonId.ToString());
+                command.Parameters.AddWithValue("$type", (int)AnalysisMode.Introduction);
+                command.Parameters.AddWithValue("$action", (int)AnalyzerAction.Default);
+                command.Parameters.AddWithValue("$episodeIds", $"[\"{episodeId}\"]");
+                command.Parameters.AddWithValue("$itemId", episodeId.ToString());
+                command.Parameters.AddWithValue("$segmentType", (int)AnalysisMode.Introduction);
+                command.Parameters.AddWithValue("$start", 0.0);
+                command.Parameters.AddWithValue("$end", 30.0);
+                command.Parameters.AddWithValue("$isUserProvided", false);
+                await command.ExecuteNonQueryAsync();
+            }
+
+            using (var db = new IntroSkipperDbContext(dbPath))
+            {
+                db.EnsureConfigHashColumns();
+            }
+
+            using (var db = new IntroSkipperDbContext(dbPath))
+            {
+                var seasonInfo = await db.DbSeasonInfo.SingleAsync();
+                var segment = await db.DbSegment.SingleAsync();
+
+                Assert.Equal(string.Empty, seasonInfo.ConfigHash);
+                Assert.Equal(string.Empty, segment.ConfigHash);
+            }
+        }
+        finally
+        {
+            DeleteSqliteFiles(dbPath);
+        }
+    }
+
     [Theory]
     [InlineData(60.0, 1440.0, false, 0)]   // overlapping, auto-detected → rejected
     [InlineData(1200.0, 1440.0, false, 1)] // non-overlapping, auto-detected → accepted

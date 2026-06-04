@@ -151,6 +151,23 @@ public class IntroSkipperDbContext : DbContext
     }
 
     /// <summary>
+    /// Ensures legacy databases contain the ConfigHash columns expected by the current model.
+    /// </summary>
+    public void EnsureConfigHashColumns()
+    {
+        Database.OpenConnection();
+        try
+        {
+            EnsureConfigHashColumn("DbSegment");
+            EnsureConfigHashColumn("DbSeasonInfo");
+        }
+        finally
+        {
+            Database.CloseConnection();
+        }
+    }
+
+    /// <summary>
     /// Asynchronously rebuilds the database while attempting to preserve valid segments and season information.
     /// </summary>
     /// <param name="contextFactory">Factory delegate to create sibling <see cref="IntroSkipperDbContext"/> instances.</param>
@@ -268,5 +285,45 @@ public class IntroSkipperDbContext : DbContext
 
         var builder = new SqliteConnectionStringBuilder(connectionString);
         return builder.DataSource is not (null or "" or ":memory:") ? builder.DataSource : null;
+    }
+
+    private void EnsureConfigHashColumn(string tableName)
+    {
+        if (!TableExists(tableName) || ColumnExists(tableName, "ConfigHash"))
+        {
+            return;
+        }
+
+        Database.ExecuteSqlRaw($"ALTER TABLE \"{tableName}\" ADD COLUMN \"ConfigHash\" TEXT NOT NULL DEFAULT ''");
+    }
+
+    private bool TableExists(string tableName)
+    {
+        using var command = Database.GetDbConnection().CreateCommand();
+        command.CommandText = "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = $name LIMIT 1";
+
+        var parameter = command.CreateParameter();
+        parameter.ParameterName = "$name";
+        parameter.Value = tableName;
+        command.Parameters.Add(parameter);
+
+        return command.ExecuteScalar() is not null;
+    }
+
+    private bool ColumnExists(string tableName, string columnName)
+    {
+        using var command = Database.GetDbConnection().CreateCommand();
+        command.CommandText = $"PRAGMA table_info(\"{tableName}\")";
+
+        using var reader = command.ExecuteReader();
+        while (reader.Read())
+        {
+            if (string.Equals(reader.GetString(1), columnName, StringComparison.OrdinalIgnoreCase))
+            {
+                return true;
+            }
+        }
+
+        return false;
     }
 }
