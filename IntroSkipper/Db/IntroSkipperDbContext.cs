@@ -333,19 +333,18 @@ public class IntroSkipperDbContext : DbContext
     private bool ColumnExists(string tableName, string columnName)
     {
         using var command = Database.GetDbConnection().CreateCommand();
-#pragma warning disable CA2100 // SQLite PRAGMA identifiers cannot be parameterized; QuoteIdentifier escapes the table name.
-        command.CommandText = "PRAGMA table_info(" + QuoteIdentifier(tableName) + ")";
-#pragma warning restore CA2100
+        command.CommandText = "SELECT 1 FROM pragma_table_info($tableName) WHERE name = $columnName COLLATE NOCASE LIMIT 1";
 
-        using var reader = command.ExecuteReader();
-        while (reader.Read())
-        {
-            if (string.Equals(reader.GetString(1), columnName, StringComparison.OrdinalIgnoreCase))
-            {
-                return true;
-            }
-        }
+        var tableParameter = command.CreateParameter();
+        tableParameter.ParameterName = "$tableName";
+        tableParameter.Value = tableName;
+        command.Parameters.Add(tableParameter);
 
-        return false;
+        var columnParameter = command.CreateParameter();
+        columnParameter.ParameterName = "$columnName";
+        columnParameter.Value = columnName;
+        command.Parameters.Add(columnParameter);
+
+        return command.ExecuteScalar() is not null;
     }
 }
