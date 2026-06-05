@@ -1,7 +1,6 @@
 // SPDX-FileCopyrightText: 2026 AbandonedCart
 // SPDX-License-Identifier: GPL-3.0-only
 
-using IntroSkipper.Data;
 using Microsoft.EntityFrameworkCore.Migrations;
 
 #nullable disable
@@ -14,7 +13,7 @@ namespace IntroSkipper.Migrations
         /// <inheritdoc />
         protected override void Up(MigrationBuilder migrationBuilder)
         {
-            var commercialType = (int)AnalysisMode.Commercial;
+            const int commercialType = 4;
 
             // Remove duplicate non-commercial segments before enforcing uniqueness.
             // For each (ItemId, Type) pair, keep the most recently inserted row (MAX Id).
