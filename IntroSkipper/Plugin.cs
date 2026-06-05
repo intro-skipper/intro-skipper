@@ -95,6 +95,16 @@ public partial class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
         catch (Exception ex)
         {
             LogDatabaseInitializationError(_logger, ex);
+            try
+            {
+                using var db = CreateDbContext();
+                db.RebuildDatabase(CreateDbContext, forceCleanOnBackupFailure: true);
+                LogDatabaseRebuiltAfterInitializationError(_logger);
+            }
+            catch (Exception rebuildEx)
+            {
+                LogDatabaseRebuildInitializationError(_logger, rebuildEx);
+            }
         }
 
         // Initialize detection cache database.
@@ -606,6 +616,12 @@ public partial class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "Error initializing database")]
     private static partial void LogDatabaseInitializationError(ILogger logger, Exception exception);
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "Rebuilt database after initialization failure")]
+    private static partial void LogDatabaseRebuiltAfterInitializationError(ILogger logger);
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "Error rebuilding database after initialization failure")]
+    private static partial void LogDatabaseRebuildInitializationError(ILogger logger, Exception exception);
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "Error initializing detection cache database")]
     private static partial void LogCacheDbInitializationError(ILogger logger, Exception exception);

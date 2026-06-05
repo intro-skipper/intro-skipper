@@ -3,11 +3,13 @@
 // SPDX-FileCopyrightText: 2024-2026 rlauuzo
 // SPDX-License-Identifier: GPL-3.0-only
 
+using System.Data;
 using System.Text.Json;
 using IntroSkipper.Data;
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.ChangeTracking;
+using Microsoft.EntityFrameworkCore.Storage;
 
 namespace IntroSkipper.Db;
 
@@ -138,6 +140,7 @@ public class IntroSkipperDbContext : DbContext
     public void ApplyMigrations()
     {
         Database.Migrate();
+        EnsureMissingConfigHashColumns();
     }
 
     /// <summary>
@@ -148,6 +151,65 @@ public class IntroSkipperDbContext : DbContext
     public async Task ApplyMigrationsAsync(CancellationToken cancellationToken = default)
     {
         await Database.MigrateAsync(cancellationToken).ConfigureAwait(false);
+        await EnsureMissingConfigHashColumnsAsync(cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Rebuilds the database while attempting to preserve valid segments and season information.
+    /// </summary>
+    /// <param name="contextFactory">Factory delegate to create sibling <see cref="IntroSkipperDbContext"/> instances.</param>
+    /// <param name="forceCleanOnBackupFailure">
+    /// When <c>true</c>, rebuild proceeds with an empty database if the backup read fails.
+    /// When <c>false</c>, the rebuild aborts to avoid data loss.
+    /// </param>
+    public void RebuildDatabase(Func<IntroSkipperDbContext> contextFactory, bool forceCleanOnBackupFailure = false)
+    {
+        var segments = new List<DbSegment>();
+        var seasonInfos = new List<DbSeasonInfo>();
+        var backupFailed = false;
+
+        try
+        {
+            using var db = contextFactory();
+            segments = [.. db.DbSegment.AsNoTracking().ToList().Where(s => s.ToSegment().Valid)];
+            seasonInfos = db.DbSeasonInfo.AsNoTracking().ToList();
+        }
+        catch (Exception ex) when (ex is SqliteException or DbUpdateException or JsonException)
+        {
+            if (!forceCleanOnBackupFailure)
+            {
+                throw new InvalidOperationException("Failed to back up the existing database before rebuild. Aborting rebuild to avoid data loss.", ex);
+            }
+
+            backupFailed = true;
+        }
+
+        if (backupFailed)
+        {
+            DeleteDatabaseFiles();
+        }
+        else
+        {
+            Database.EnsureDeleted();
+        }
+
+        ApplyMigrations();
+
+        if (segments.Count > 0 || seasonInfos.Count > 0)
+        {
+            using var db = contextFactory();
+            if (segments.Count > 0)
+            {
+                db.DbSegment.AddRange(segments);
+            }
+
+            if (seasonInfos.Count > 0)
+            {
+                db.DbSeasonInfo.AddRange(seasonInfos);
+            }
+
+            db.SaveChanges();
+        }
     }
 
     /// <summary>
@@ -268,5 +330,165 @@ public class IntroSkipperDbContext : DbContext
 
         var builder = new SqliteConnectionStringBuilder(connectionString);
         return builder.DataSource is not (null or "" or ":memory:") ? builder.DataSource : null;
+    }
+
+    private void EnsureMissingConfigHashColumns()
+    {
+        var connection = Database.GetDbConnection();
+        var wasOpen = connection.State == ConnectionState.Open;
+        if (!wasOpen)
+        {
+            Database.OpenConnection();
+        }
+
+        try
+        {
+            using var transaction = Database.BeginTransaction();
+            EnsureConfigHashColumn("DbSegment");
+            EnsureConfigHashColumn("DbSeasonInfo");
+            transaction.Commit();
+        }
+        finally
+        {
+            if (!wasOpen)
+            {
+                Database.CloseConnection();
+            }
+        }
+    }
+
+    private async Task EnsureMissingConfigHashColumnsAsync(CancellationToken cancellationToken)
+    {
+        var connection = Database.GetDbConnection();
+        var wasOpen = connection.State == ConnectionState.Open;
+        if (!wasOpen)
+        {
+            await Database.OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
+        }
+
+        try
+        {
+            var transaction = await Database.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
+            await using (transaction.ConfigureAwait(false))
+            {
+                await EnsureConfigHashColumnAsync("DbSegment", cancellationToken).ConfigureAwait(false);
+                await EnsureConfigHashColumnAsync("DbSeasonInfo", cancellationToken).ConfigureAwait(false);
+                await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
+            }
+        }
+        finally
+        {
+            if (!wasOpen)
+            {
+                await Database.CloseConnectionAsync().ConfigureAwait(false);
+            }
+        }
+    }
+
+    private void EnsureConfigHashColumn(string tableName)
+    {
+        if (!TableExists(tableName) || ColumnExists(tableName, "ConfigHash"))
+        {
+            return;
+        }
+
+        switch (tableName)
+        {
+            case "DbSegment":
+                Database.ExecuteSqlRaw("ALTER TABLE \"DbSegment\" ADD COLUMN \"ConfigHash\" TEXT NOT NULL DEFAULT ''");
+                break;
+            case "DbSeasonInfo":
+                Database.ExecuteSqlRaw("ALTER TABLE \"DbSeasonInfo\" ADD COLUMN \"ConfigHash\" TEXT NOT NULL DEFAULT ''");
+                break;
+            default:
+                throw new InvalidOperationException($"Unsupported table '{tableName}'.");
+        }
+    }
+
+    private async Task EnsureConfigHashColumnAsync(string tableName, CancellationToken cancellationToken)
+    {
+        if (!await TableExistsAsync(tableName, cancellationToken).ConfigureAwait(false)
+            || await ColumnExistsAsync(tableName, "ConfigHash", cancellationToken).ConfigureAwait(false))
+        {
+            return;
+        }
+
+        switch (tableName)
+        {
+            case "DbSegment":
+                await Database.ExecuteSqlRawAsync("ALTER TABLE \"DbSegment\" ADD COLUMN \"ConfigHash\" TEXT NOT NULL DEFAULT ''", cancellationToken).ConfigureAwait(false);
+                break;
+            case "DbSeasonInfo":
+                await Database.ExecuteSqlRawAsync("ALTER TABLE \"DbSeasonInfo\" ADD COLUMN \"ConfigHash\" TEXT NOT NULL DEFAULT ''", cancellationToken).ConfigureAwait(false);
+                break;
+            default:
+                throw new InvalidOperationException($"Unsupported table '{tableName}'.");
+        }
+    }
+
+    private bool TableExists(string tableName)
+    {
+        using var command = Database.GetDbConnection().CreateCommand();
+        command.CommandText = "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = $name LIMIT 1";
+        command.Transaction = Database.CurrentTransaction?.GetDbTransaction();
+
+        var parameter = command.CreateParameter();
+        parameter.ParameterName = "$name";
+        parameter.Value = tableName;
+        command.Parameters.Add(parameter);
+
+        return command.ExecuteScalar() is not null;
+    }
+
+    private async Task<bool> TableExistsAsync(string tableName, CancellationToken cancellationToken)
+    {
+        using var command = Database.GetDbConnection().CreateCommand();
+        command.CommandText = "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = $name LIMIT 1";
+        command.Transaction = Database.CurrentTransaction?.GetDbTransaction();
+
+        var parameter = command.CreateParameter();
+        parameter.ParameterName = "$name";
+        parameter.Value = tableName;
+        command.Parameters.Add(parameter);
+
+        return await command.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false) is not null;
+    }
+
+    private bool ColumnExists(string tableName, string columnName)
+    {
+        using var command = Database.GetDbConnection().CreateCommand();
+        command.CommandText = "SELECT 1 FROM pragma_table_info($tableName) WHERE name = $columnName LIMIT 1";
+        command.Transaction = Database.CurrentTransaction?.GetDbTransaction();
+
+        var tableParameter = command.CreateParameter();
+        tableParameter.ParameterName = "$tableName";
+        tableParameter.Value = tableName;
+        command.Parameters.Add(tableParameter);
+
+        var columnParameter = command.CreateParameter();
+        columnParameter.ParameterName = "$columnName";
+        columnParameter.Value = columnName;
+        command.Parameters.Add(columnParameter);
+
+        return command.ExecuteScalar() is not null;
+    }
+
+    private async Task<bool> ColumnExistsAsync(string tableName, string columnName, CancellationToken cancellationToken)
+    {
+        using var command = Database.GetDbConnection().CreateCommand();
+        command.CommandText = "SELECT 1 FROM pragma_table_info($tableName) WHERE name = $columnName LIMIT 1";
+        command.Transaction = Database.CurrentTransaction?.GetDbTransaction();
+
+        var tableParameter = command.CreateParameter();
+        tableParameter.ParameterName = "$tableName";
+        tableParameter.Value = tableName;
+        command.Parameters.Add(tableParameter);
+
+        var columnParameter = command.CreateParameter();
+        columnParameter.ParameterName = "$columnName";
+        columnParameter.Value = columnName;
+        command.Parameters.Add(columnParameter);
+
+        return await command.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false) is not null;
     }
 }

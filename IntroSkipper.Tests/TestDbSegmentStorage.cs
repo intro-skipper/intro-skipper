@@ -250,7 +250,7 @@ public sealed class TestDbSegmentStorage
 
         try
         {
-            await CreateDatabaseAtLastMigrationBeforeConfigHashesAsync(dbPath);
+            CreateDatabaseAtLastMigrationBeforeConfigHashes(dbPath);
 
             using (var db = new IntroSkipperDbContext(dbPath))
             {
@@ -265,6 +265,40 @@ public sealed class TestDbSegmentStorage
                 Assert.Equal(string.Empty, seasonInfo.ConfigHash);
 
                 var segment = Assert.Single(await db.DbSegment.AsNoTracking().ToListAsync());
+                Assert.Equal(string.Empty, segment.ConfigHash);
+            }
+        }
+        finally
+        {
+            DeleteSqliteFiles(dbPath);
+        }
+    }
+
+
+    [Fact]
+    public void ApplyMigrations_RepairsMissingConfigHashColumnsWhenMigrationAlreadyMarkedApplied()
+    {
+        var tempDir = Path.Join(Path.GetTempPath(), "IntroSkipper.Tests");
+        Directory.CreateDirectory(tempDir);
+        var dbPath = Path.Join(tempDir, Guid.NewGuid().ToString("N") + ".db");
+
+        try
+        {
+            CreateDatabaseAtLastMigrationBeforeConfigHashes(dbPath, markConfigHashesApplied: true);
+
+            using (var db = new IntroSkipperDbContext(dbPath))
+            {
+                db.ApplyMigrations();
+            }
+
+            using (var db = new IntroSkipperDbContext(dbPath))
+            {
+                Assert.Contains("20260519073000_AddConfigHashes", db.Database.GetAppliedMigrations());
+
+                var seasonInfo = Assert.Single(db.DbSeasonInfo.AsNoTracking().ToList());
+                Assert.Equal(string.Empty, seasonInfo.ConfigHash);
+
+                var segment = Assert.Single(db.DbSegment.AsNoTracking().ToList());
                 Assert.Equal(string.Empty, segment.ConfigHash);
             }
         }
@@ -326,12 +360,42 @@ public sealed class TestDbSegmentStorage
         }
     }
 
-    private static async Task CreateDatabaseAtLastMigrationBeforeConfigHashesAsync(string dbPath)
+    [Fact]
+    public void RebuildDatabase_RecreatesUnreadableDatabaseAfterMigrationFailure()
     {
-        await using var connection = new SqliteConnection($"Data Source={dbPath}");
-        await connection.OpenAsync();
+        var tempDir = Path.Join(Path.GetTempPath(), "IntroSkipper.Tests");
+        Directory.CreateDirectory(tempDir);
+        var dbPath = Path.Join(tempDir, Guid.NewGuid().ToString("N") + ".db");
 
-        await using var command = connection.CreateCommand();
+        try
+        {
+            CreateUnreadableSegmentDatabase(dbPath);
+
+            using (var db = new IntroSkipperDbContext(dbPath))
+            {
+                Assert.ThrowsAny<Exception>(() => db.ApplyMigrations());
+                db.RebuildDatabase(() => new IntroSkipperDbContext(dbPath), forceCleanOnBackupFailure: true);
+            }
+
+            using (var db = new IntroSkipperDbContext(dbPath))
+            {
+                Assert.Empty(db.Database.GetPendingMigrations());
+                Assert.Empty(db.DbSegment.AsNoTracking().ToList());
+                Assert.Empty(db.DbSeasonInfo.AsNoTracking().ToList());
+            }
+        }
+        finally
+        {
+            DeleteSqliteFiles(dbPath);
+        }
+    }
+
+    private static void CreateDatabaseAtLastMigrationBeforeConfigHashes(string dbPath, bool markConfigHashesApplied = false)
+    {
+        using var connection = new SqliteConnection($"Data Source={dbPath}");
+        connection.Open();
+
+        using var command = connection.CreateCommand();
         command.CommandText =
             """
             CREATE TABLE "__EFMigrationsHistory" (
@@ -378,7 +442,36 @@ public sealed class TestDbSegmentStorage
         command.Parameters.AddWithValue("$seasonId", Guid.NewGuid().ToString());
         command.Parameters.AddWithValue("$itemId", Guid.NewGuid().ToString());
 
-        await command.ExecuteNonQueryAsync();
+        command.ExecuteNonQuery();
+
+        if (markConfigHashesApplied)
+        {
+            command.CommandText =
+                """
+                INSERT INTO "__EFMigrationsHistory" ("MigrationId", "ProductVersion")
+                VALUES ('20260519073000_AddConfigHashes', '9.0.11');
+                """;
+            command.Parameters.Clear();
+            command.ExecuteNonQuery();
+        }
+    }
+
+    private static void CreateUnreadableSegmentDatabase(string dbPath)
+    {
+        using var connection = new SqliteConnection($"Data Source={dbPath}");
+        connection.Open();
+
+        using var command = connection.CreateCommand();
+        command.CommandText =
+            """
+            CREATE TABLE "DbSeasonInfo" (
+                "SeasonId" TEXT NOT NULL
+            );
+            CREATE TABLE "DbSegment" (
+                "ItemId" TEXT NOT NULL
+            );
+            """;
+        command.ExecuteNonQuery();
     }
 
     private static void ConfigurePluginLogger(Plugin plugin)
