@@ -241,6 +241,39 @@ public sealed class TestDbSegmentStorage
         }
     }
 
+    [Fact]
+    public async Task ApplyMigrations_AddsConfigHashColumnsToDatabaseFromPreviousMigration()
+    {
+        var tempDir = Path.Join(Path.GetTempPath(), "IntroSkipper.Tests");
+        Directory.CreateDirectory(tempDir);
+        var dbPath = Path.Join(tempDir, Guid.NewGuid().ToString("N") + ".db");
+
+        try
+        {
+            await CreateDatabaseAtLastMigrationBeforeConfigHashesAsync(dbPath);
+
+            using (var db = new IntroSkipperDbContext(dbPath))
+            {
+                await db.ApplyMigrationsAsync();
+            }
+
+            using (var db = new IntroSkipperDbContext(dbPath))
+            {
+                Assert.Contains("20260519073000_AddConfigHashes", await db.Database.GetAppliedMigrationsAsync());
+
+                var seasonInfo = Assert.Single(await db.DbSeasonInfo.AsNoTracking().ToListAsync());
+                Assert.Equal(string.Empty, seasonInfo.ConfigHash);
+
+                var segment = Assert.Single(await db.DbSegment.AsNoTracking().ToListAsync());
+                Assert.Equal(string.Empty, segment.ConfigHash);
+            }
+        }
+        finally
+        {
+            DeleteSqliteFiles(dbPath);
+        }
+    }
+
     [Theory]
     [InlineData(60.0, 1440.0, false, 0)]   // overlapping, auto-detected → rejected
     [InlineData(1200.0, 1440.0, false, 1)] // non-overlapping, auto-detected → accepted
@@ -291,6 +324,61 @@ public sealed class TestDbSegmentStorage
         {
             DeleteSqliteFiles(dbPath);
         }
+    }
+
+    private static async Task CreateDatabaseAtLastMigrationBeforeConfigHashesAsync(string dbPath)
+    {
+        await using var connection = new SqliteConnection($"Data Source={dbPath}");
+        await connection.OpenAsync();
+
+        await using var command = connection.CreateCommand();
+        command.CommandText =
+            """
+            CREATE TABLE "__EFMigrationsHistory" (
+                "MigrationId" TEXT NOT NULL CONSTRAINT "PK___EFMigrationsHistory" PRIMARY KEY,
+                "ProductVersion" TEXT NOT NULL
+            );
+
+            CREATE TABLE "DbSeasonInfo" (
+                "SeasonId" TEXT NOT NULL,
+                "Type" INTEGER NOT NULL,
+                "Action" INTEGER NOT NULL DEFAULT 0,
+                "EpisodeIds" TEXT NOT NULL,
+                CONSTRAINT "PK_DbSeasonInfo" PRIMARY KEY ("SeasonId", "Type")
+            );
+
+            CREATE TABLE "DbSegment" (
+                "Id" INTEGER NOT NULL CONSTRAINT "PK_DbSegment" PRIMARY KEY AUTOINCREMENT,
+                "ItemId" TEXT NOT NULL,
+                "Type" INTEGER NOT NULL,
+                "Start" REAL NOT NULL DEFAULT 0.0,
+                "End" REAL NOT NULL DEFAULT 0.0,
+                "IsUserProvided" INTEGER NOT NULL DEFAULT 0
+            );
+
+            CREATE INDEX "IX_DbSeasonInfo_SeasonId" ON "DbSeasonInfo" ("SeasonId");
+            CREATE INDEX "IX_DbSegment_ItemId" ON "DbSegment" ("ItemId");
+            CREATE UNIQUE INDEX "IX_DbSegment_Commercial_Unique" ON "DbSegment" ("ItemId", "Type", "Start", "End")
+                WHERE "Type" = 4;
+            CREATE UNIQUE INDEX "IX_DbSegment_NonCommercial_Unique" ON "DbSegment" ("ItemId", "Type")
+                WHERE "Type" != 4;
+
+            INSERT INTO "__EFMigrationsHistory" ("MigrationId", "ProductVersion") VALUES
+                ('20241116153434_InitialCreate', '9.0.11'),
+                ('20260309205737_AddIsUserProvided', '9.0.11'),
+                ('20260314184512_AddDbSegmentIdentity', '9.0.11'),
+                ('20260316060001_AddNonCommercialUniqueIndex', '9.0.11');
+
+            INSERT INTO "DbSeasonInfo" ("SeasonId", "Type", "Action", "EpisodeIds")
+            VALUES ($seasonId, 0, 0, '[]');
+
+            INSERT INTO "DbSegment" ("ItemId", "Type", "Start", "End", "IsUserProvided")
+            VALUES ($itemId, 0, 10.0, 20.0, 0);
+            """;
+        command.Parameters.AddWithValue("$seasonId", Guid.NewGuid().ToString());
+        command.Parameters.AddWithValue("$itemId", Guid.NewGuid().ToString());
+
+        await command.ExecuteNonQueryAsync();
     }
 
     private static void ConfigurePluginLogger(Plugin plugin)
