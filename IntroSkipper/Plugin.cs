@@ -90,21 +90,12 @@ public partial class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
         try
         {
             using var db = CreateDbContext();
-            db.ApplyMigrations();
             db.EnsureLegacySchemaCompatibility();
+            db.ApplyMigrations();
         }
         catch (Exception ex)
         {
             LogDatabaseInitializationError(_logger, ex);
-            try
-            {
-                using var db = CreateDbContext();
-                db.EnsureLegacySchemaCompatibility();
-            }
-            catch (Exception compatEx)
-            {
-                LogDatabaseCompatibilityInitializationError(_logger, compatEx);
-            }
         }
 
         // Initialize detection cache database.
@@ -616,9 +607,6 @@ public partial class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "Error initializing database")]
     private static partial void LogDatabaseInitializationError(ILogger logger, Exception exception);
-
-    [LoggerMessage(Level = LogLevel.Warning, Message = "Error applying legacy database compatibility updates")]
-    private static partial void LogDatabaseCompatibilityInitializationError(ILogger logger, Exception exception);
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "Error initializing detection cache database")]
     private static partial void LogCacheDbInitializationError(ILogger logger, Exception exception);
