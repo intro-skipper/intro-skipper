@@ -91,7 +91,7 @@ public partial class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
         {
             using var db = CreateDbContext();
             db.ApplyMigrations();
-            db.EnsureConfigHashColumns();
+            db.EnsureLegacySchemaCompatibility();
         }
         catch (Exception ex)
         {
@@ -99,7 +99,7 @@ public partial class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
             try
             {
                 using var db = CreateDbContext();
-                db.EnsureConfigHashColumns();
+                db.EnsureLegacySchemaCompatibility();
             }
             catch (Exception compatEx)
             {
