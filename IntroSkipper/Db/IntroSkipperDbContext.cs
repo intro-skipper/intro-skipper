@@ -20,6 +20,8 @@ namespace IntroSkipper.Db;
 /// </remarks>
 public class IntroSkipperDbContext : DbContext
 {
+    private const int CommercialType = (int)AnalysisMode.Commercial;
+
     private static readonly SqlitePragmaInterceptor _pragmaInterceptor = new();
     private static readonly string[] _currentMigrationIds =
     [
@@ -89,11 +91,11 @@ public class IntroSkipperDbContext : DbContext
             entity.HasIndex(e => e.ItemId);
             entity.HasIndex(e => new { e.ItemId, e.Type, e.Start, e.End })
                 .HasDatabaseName("IX_DbSegment_Commercial_Unique")
-                .HasFilter("Type = 4")
+                .HasFilter($"Type = {CommercialType}")
                 .IsUnique();
             entity.HasIndex(e => new { e.ItemId, e.Type })
                 .HasDatabaseName("IX_DbSegment_NonCommercial_Unique")
-                .HasFilter("Type != 4")
+                .HasFilter($"Type != {CommercialType}")
                 .IsUnique();
 
             entity.Property(e => e.Start)
@@ -394,39 +396,39 @@ public class IntroSkipperDbContext : DbContext
     {
         Database.ExecuteSqlRaw("CREATE INDEX IF NOT EXISTS \"IX_DbSegment_ItemId\" ON \"DbSegment\" (\"ItemId\")");
         Database.ExecuteSqlRaw(
-            """
+            $$"""
             DELETE FROM "DbSegment"
-            WHERE "Type" = 4
+            WHERE "Type" = {{CommercialType}}
             AND "Id" NOT IN (
                 SELECT MAX("Id")
                 FROM "DbSegment"
-                WHERE "Type" = 4
+                WHERE "Type" = {{CommercialType}}
                 GROUP BY "ItemId", "Type", "Start", "End"
             )
             """);
 
         Database.ExecuteSqlRaw(
-            """
+            $$"""
             CREATE UNIQUE INDEX IF NOT EXISTS "IX_DbSegment_Commercial_Unique" ON "DbSegment" ("ItemId", "Type", "Start", "End")
-                WHERE "Type" = 4
+                WHERE "Type" = {{CommercialType}}
             """);
 
         Database.ExecuteSqlRaw(
-            """
+            $$"""
             DELETE FROM "DbSegment"
-            WHERE "Type" != 4
+            WHERE "Type" != {{CommercialType}}
             AND "Id" NOT IN (
                 SELECT MAX("Id")
                 FROM "DbSegment"
-                WHERE "Type" != 4
+                WHERE "Type" != {{CommercialType}}
                 GROUP BY "ItemId", "Type"
             )
             """);
 
         Database.ExecuteSqlRaw(
-            """
+            $$"""
             CREATE UNIQUE INDEX IF NOT EXISTS "IX_DbSegment_NonCommercial_Unique" ON "DbSegment" ("ItemId", "Type")
-                WHERE "Type" != 4
+                WHERE "Type" != {{CommercialType}}
             """);
     }
 

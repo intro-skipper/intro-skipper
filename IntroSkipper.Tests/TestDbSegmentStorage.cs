@@ -402,7 +402,7 @@ public sealed class TestDbSegmentStorage
         {
             using (var db = new IntroSkipperDbContext(dbPath))
             {
-                db.ApplyMigrations();
+                await db.ApplyMigrationsAsync();
 
                 var pendingMigrations = await db.Database.GetPendingMigrationsAsync();
                 Assert.Empty(pendingMigrations);
