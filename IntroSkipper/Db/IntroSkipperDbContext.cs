@@ -3,7 +3,6 @@
 // SPDX-FileCopyrightText: 2024-2026 rlauuzo
 // SPDX-License-Identifier: GPL-3.0-only
 
-using System.Data.Common;
 using System.Text.Json;
 using IntroSkipper.Data;
 using Microsoft.Data.Sqlite;
@@ -90,11 +89,11 @@ public class IntroSkipperDbContext : DbContext
             entity.HasIndex(e => e.ItemId);
             entity.HasIndex(e => new { e.ItemId, e.Type, e.Start, e.End })
                 .HasDatabaseName("IX_DbSegment_Commercial_Unique")
-                .HasFilter($"Type = {(int)AnalysisMode.Commercial}")
+                .HasFilter("Type = 4")
                 .IsUnique();
             entity.HasIndex(e => new { e.ItemId, e.Type })
                 .HasDatabaseName("IX_DbSegment_NonCommercial_Unique")
-                .HasFilter($"Type != {(int)AnalysisMode.Commercial}")
+                .HasFilter("Type != 4")
                 .IsUnique();
 
             entity.Property(e => e.Start)
@@ -318,16 +317,6 @@ public class IntroSkipperDbContext : DbContext
         return builder.DataSource is not (null or "" or ":memory:") ? builder.DataSource : null;
     }
 
-    private static string QuoteIdentifier(string identifier)
-    {
-        if (string.IsNullOrWhiteSpace(identifier))
-        {
-            throw new ArgumentException("SQLite identifiers cannot be empty.", nameof(identifier));
-        }
-
-        return "\"" + identifier.Replace("\"", "\"\"", StringComparison.Ordinal) + "\"";
-    }
-
     private void EnsureConfigHashColumn(string tableName)
     {
         if (!TableExists(tableName) || ColumnExists(tableName, "ConfigHash"))
@@ -335,8 +324,17 @@ public class IntroSkipperDbContext : DbContext
             return;
         }
 
-        var sql = "ALTER TABLE " + QuoteIdentifier(tableName) + " ADD COLUMN \"ConfigHash\" TEXT NOT NULL DEFAULT ''";
-        Database.ExecuteSqlRaw(sql);
+        switch (tableName)
+        {
+            case "DbSegment":
+                Database.ExecuteSqlRaw("ALTER TABLE \"DbSegment\" ADD COLUMN \"ConfigHash\" TEXT NOT NULL DEFAULT ''");
+                break;
+            case "DbSeasonInfo":
+                Database.ExecuteSqlRaw("ALTER TABLE \"DbSeasonInfo\" ADD COLUMN \"ConfigHash\" TEXT NOT NULL DEFAULT ''");
+                break;
+            default:
+                throw new InvalidOperationException($"Unsupported table '{tableName}'.");
+        }
     }
 
     private void EnsureDbSegmentSchema()
@@ -477,11 +475,13 @@ public class IntroSkipperDbContext : DbContext
 
     private void InsertMigrationHistoryRecord(string migrationId)
     {
-        using var command = CreateCommand(
+        using var command = Database.GetDbConnection().CreateCommand();
+        command.CommandText =
             """
             INSERT OR IGNORE INTO "__EFMigrationsHistory" ("MigrationId", "ProductVersion")
             VALUES ($migrationId, $productVersion)
-            """);
+            """;
+        command.Transaction = Database.CurrentTransaction?.GetDbTransaction();
 
         var migrationParameter = command.CreateParameter();
         migrationParameter.ParameterName = "$migrationId";
@@ -498,7 +498,9 @@ public class IntroSkipperDbContext : DbContext
 
     private bool IndexExists(string tableName, string indexName)
     {
-        using var command = CreateCommand("SELECT 1 FROM sqlite_master WHERE type = 'index' AND tbl_name = $tableName AND name = $indexName LIMIT 1");
+        using var command = Database.GetDbConnection().CreateCommand();
+        command.CommandText = "SELECT 1 FROM sqlite_master WHERE type = 'index' AND tbl_name = $tableName AND name = $indexName LIMIT 1";
+        command.Transaction = Database.CurrentTransaction?.GetDbTransaction();
 
         var tableParameter = command.CreateParameter();
         tableParameter.ParameterName = "$tableName";
@@ -515,7 +517,9 @@ public class IntroSkipperDbContext : DbContext
 
     private bool TableExists(string tableName)
     {
-        using var command = CreateCommand("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = $name LIMIT 1");
+        using var command = Database.GetDbConnection().CreateCommand();
+        command.CommandText = "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = $name LIMIT 1";
+        command.Transaction = Database.CurrentTransaction?.GetDbTransaction();
 
         var parameter = command.CreateParameter();
         parameter.ParameterName = "$name";
@@ -527,7 +531,9 @@ public class IntroSkipperDbContext : DbContext
 
     private bool ColumnExists(string tableName, string columnName)
     {
-        using var command = CreateCommand("SELECT 1 FROM pragma_table_info($tableName) WHERE name = $columnName COLLATE NOCASE LIMIT 1");
+        using var command = Database.GetDbConnection().CreateCommand();
+        command.CommandText = "SELECT 1 FROM pragma_table_info($tableName) WHERE name = $columnName COLLATE NOCASE LIMIT 1";
+        command.Transaction = Database.CurrentTransaction?.GetDbTransaction();
 
         var tableParameter = command.CreateParameter();
         tableParameter.ParameterName = "$tableName";
@@ -540,13 +546,5 @@ public class IntroSkipperDbContext : DbContext
         command.Parameters.Add(columnParameter);
 
         return command.ExecuteScalar() is not null;
-    }
-
-    private DbCommand CreateCommand(string commandText)
-    {
-        var command = Database.GetDbConnection().CreateCommand();
-        command.CommandText = commandText;
-        command.Transaction = Database.CurrentTransaction?.GetDbTransaction();
-        return command;
     }
 }
