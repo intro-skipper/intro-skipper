@@ -65,12 +65,9 @@ public partial class ChapterAnalyzer(ILogger<ChapterAnalyzer> logger) : IMediaFi
                     expression,
                     mode)
                 : null;
-            var fromBlackFrameFallback = false;
-
             if ((skipRange is null || !skipRange.Valid) && enableRecapBlackFrameFallback)
             {
                 skipRange = DetectRecapUsingFirstBlackFrame(episode);
-                fromBlackFrameFallback = skipRange is not null && skipRange.Valid;
             }
 
             if (skipRange is null || !skipRange.Valid)
@@ -78,10 +75,7 @@ public partial class ChapterAnalyzer(ILogger<ChapterAnalyzer> logger) : IMediaFi
                 continue;
             }
 
-            if (!fromBlackFrameFallback)
-            {
-                skipRange = timeAdjustmentHelper.AdjustIntroTimes(episode, skipRange, false);
-            }
+            skipRange = timeAdjustmentHelper.AdjustIntroTimes(episode, skipRange, false);
 
             episode.SetAnalyzed(mode, EpisodeState.Analyzed);
             await Plugin.Instance!.UpdateTimestampAsync(skipRange, mode, configHash: episode.AnalysisConfigHash, cancellationToken: cancellationToken).ConfigureAwait(false);
@@ -211,9 +205,14 @@ public partial class ChapterAnalyzer(ILogger<ChapterAnalyzer> logger) : IMediaFi
         int minimumRecapDuration,
         int maximumRecapDuration)
     {
-        var firstBlackFrame = blackFrames
-            .OrderBy(frame => frame.Time)
-            .FirstOrDefault();
+        BlackFrame? firstBlackFrame = null;
+        foreach (var blackFrame in blackFrames)
+        {
+            if (firstBlackFrame is null || blackFrame.Time < firstBlackFrame.Time)
+            {
+                firstBlackFrame = blackFrame;
+            }
+        }
 
         if (firstBlackFrame is null || firstBlackFrame.Time <= 0)
         {
