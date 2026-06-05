@@ -296,9 +296,6 @@ public class IntroSkipperDbContext : DbContext
         return builder.DataSource is not (null or "" or ":memory:") ? builder.DataSource : null;
     }
 
-    private static string QuoteIdentifier(string name) =>
-        "\"" + name.Replace("\"", "\"\"", StringComparison.Ordinal) + "\"";
-
     private void EnsureConfigHashColumn(string tableName)
     {
         if (!TableExists(tableName) || ColumnExists(tableName, "ConfigHash"))
@@ -306,8 +303,17 @@ public class IntroSkipperDbContext : DbContext
             return;
         }
 
-        var sql = "ALTER TABLE " + QuoteIdentifier(tableName) + " ADD COLUMN \"ConfigHash\" TEXT NOT NULL DEFAULT ''";
-        Database.ExecuteSqlRaw(sql);
+        switch (tableName)
+        {
+            case "DbSegment":
+                Database.ExecuteSqlRaw("ALTER TABLE \"DbSegment\" ADD COLUMN \"ConfigHash\" TEXT NOT NULL DEFAULT ''");
+                break;
+            case "DbSeasonInfo":
+                Database.ExecuteSqlRaw("ALTER TABLE \"DbSeasonInfo\" ADD COLUMN \"ConfigHash\" TEXT NOT NULL DEFAULT ''");
+                break;
+            default:
+                throw new InvalidOperationException($"Unsupported table '{tableName}'.");
+        }
     }
 
     private bool TableExists(string tableName)
@@ -326,9 +332,17 @@ public class IntroSkipperDbContext : DbContext
     private bool ColumnExists(string tableName, string columnName)
     {
         using var command = Database.GetDbConnection().CreateCommand();
-#pragma warning disable CA2100 // tableName is quoted/escaped by QuoteIdentifier; no user input reaches this path
-        command.CommandText = "PRAGMA table_info(" + QuoteIdentifier(tableName) + ")";
-#pragma warning restore CA2100
+        switch (tableName)
+        {
+            case "DbSegment":
+                command.CommandText = "PRAGMA table_info(\"DbSegment\")";
+                break;
+            case "DbSeasonInfo":
+                command.CommandText = "PRAGMA table_info(\"DbSeasonInfo\")";
+                break;
+            default:
+                throw new InvalidOperationException($"Unsupported table '{tableName}'.");
+        }
 
         using var reader = command.ExecuteReader();
         while (reader.Read())
