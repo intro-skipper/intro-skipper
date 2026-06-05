@@ -2,7 +2,6 @@
 // SPDX-FileCopyrightText: 2026 AbandonedCart
 // SPDX-FileCopyrightText: 2026 Kilian von Pflugk
 // SPDX-License-Identifier: GPL-3.0-only
-using IntroSkipper.Data;
 using Microsoft.EntityFrameworkCore.Migrations;
 
 #nullable disable
@@ -15,9 +14,10 @@ namespace IntroSkipper.Migrations
         /// <inheritdoc />
         protected override void Up(MigrationBuilder migrationBuilder)
         {
-            var commercialType = (int)AnalysisMode.Commercial;
+            const int commercialType = 4;
+
             migrationBuilder.Sql(
-                $"""
+                $$"""
                 BEGIN TRANSACTION;
                 CREATE TABLE "DbSegment_Temp" (
                     "Id" INTEGER NOT NULL CONSTRAINT "PK_DbSegment_Temp" PRIMARY KEY AUTOINCREMENT,
@@ -34,7 +34,7 @@ namespace IntroSkipper.Migrations
                 ALTER TABLE "DbSegment_Temp" RENAME TO "DbSegment";
                 CREATE INDEX "IX_DbSegment_ItemId" ON "DbSegment" ("ItemId");
                 CREATE UNIQUE INDEX "IX_DbSegment_Commercial_Unique" ON "DbSegment" ("ItemId", "Type", "Start", "End")
-                    WHERE "Type" = {commercialType};
+                    WHERE "Type" = {{commercialType}};
                 COMMIT;
                 """,
                 suppressTransaction: true);
