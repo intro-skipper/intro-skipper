@@ -2,9 +2,9 @@
 // SPDX-FileCopyrightText: 2019 Phallacy
 // SPDX-FileCopyrightText: 2021 Cody Robibero
 // SPDX-FileCopyrightText: 2022-2023 ConfusedPolarBear
-// SPDX-FileCopyrightText: 2024-2026 Kilian von Pflugk
-// SPDX-FileCopyrightText: 2024-2026 rlauuzo
 // SPDX-FileCopyrightText: 2024-2026 AbandonedCart
+// SPDX-FileCopyrightText: 2024-2026 rlauuzo
+// SPDX-FileCopyrightText: 2024-2026 Kilian von Pflugk
 // SPDX-FileCopyrightText: 2024 theMasterpc
 // SPDX-License-Identifier: GPL-3.0-only
 
