@@ -296,6 +296,16 @@ public class IntroSkipperDbContext : DbContext
         return builder.DataSource is not (null or "" or ":memory:") ? builder.DataSource : null;
     }
 
+    private static string QuoteIdentifier(string identifier)
+    {
+        if (string.IsNullOrWhiteSpace(identifier))
+        {
+            throw new ArgumentException("SQLite identifiers cannot be empty.", nameof(identifier));
+        }
+
+        return "\"" + identifier.Replace("\"", "\"\"", StringComparison.Ordinal) + "\"";
+    }
+
     private void EnsureConfigHashColumn(string tableName)
     {
         if (!TableExists(tableName) || ColumnExists(tableName, "ConfigHash"))
@@ -303,17 +313,8 @@ public class IntroSkipperDbContext : DbContext
             return;
         }
 
-        switch (tableName)
-        {
-            case "DbSegment":
-                Database.ExecuteSqlRaw("ALTER TABLE \"DbSegment\" ADD COLUMN \"ConfigHash\" TEXT NOT NULL DEFAULT ''");
-                break;
-            case "DbSeasonInfo":
-                Database.ExecuteSqlRaw("ALTER TABLE \"DbSeasonInfo\" ADD COLUMN \"ConfigHash\" TEXT NOT NULL DEFAULT ''");
-                break;
-            default:
-                throw new InvalidOperationException($"Unsupported table '{tableName}'.");
-        }
+        var sql = "ALTER TABLE " + QuoteIdentifier(tableName) + " ADD COLUMN \"ConfigHash\" TEXT NOT NULL DEFAULT ''";
+        Database.ExecuteSqlRaw(sql);
     }
 
     private bool TableExists(string tableName)
@@ -332,17 +333,9 @@ public class IntroSkipperDbContext : DbContext
     private bool ColumnExists(string tableName, string columnName)
     {
         using var command = Database.GetDbConnection().CreateCommand();
-        switch (tableName)
-        {
-            case "DbSegment":
-                command.CommandText = "PRAGMA table_info(\"DbSegment\")";
-                break;
-            case "DbSeasonInfo":
-                command.CommandText = "PRAGMA table_info(\"DbSeasonInfo\")";
-                break;
-            default:
-                throw new InvalidOperationException($"Unsupported table '{tableName}'.");
-        }
+#pragma warning disable CA2100 // SQLite PRAGMA identifiers cannot be parameterized; QuoteIdentifier escapes the table name.
+        command.CommandText = "PRAGMA table_info(" + QuoteIdentifier(tableName) + ")";
+#pragma warning restore CA2100
 
         using var reader = command.ExecuteReader();
         while (reader.Read())
