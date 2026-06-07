@@ -266,13 +266,10 @@ public partial class BaseItemAnalyzerTask(
                 analyzers.Add(new ChromaprintAnalyzer(_loggerFactory.CreateLogger<ChromaprintAnalyzer>()));
             }
         }
-        else if (mode is AnalysisMode.Recap)
+        else if (mode is AnalysisMode.Recap && !isMovie && _ffmpegValid)
         {
             // Recap: Chromaprint can match the repeated "previously on" card/sting near the start.
-            if (!isMovie && _ffmpegValid)
-            {
-                analyzers.Add(new ChromaprintAnalyzer(_loggerFactory.CreateLogger<ChromaprintAnalyzer>()));
-            }
+            analyzers.Add(new ChromaprintAnalyzer(_loggerFactory.CreateLogger<ChromaprintAnalyzer>()));
         }
 
         // Preview, Commercial: only ChapterAnalyzer (already added above)

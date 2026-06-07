@@ -79,7 +79,6 @@ export const analysisTab: Tab = {
                 "Maximum recap duration (in seconds)",
                 "Recap chapters which are shorter than this duration will not be considered a recap.",
                 "Recap chapters which are longer than this duration will not be considered a recap.",
-                chaptersOff,
             ),
             durationPair(
                 "MinimumRecapDetectionDuration",
@@ -88,14 +87,12 @@ export const analysisTab: Tab = {
                 "Maximum detected recap duration (in seconds)",
                 "Blackframe/chromaprint recaps shorter than this duration will not be detected.",
                 "Blackframe/chromaprint recaps longer than this duration will be capped or ignored.",
-                chaptersOff,
             ),
             checkboxField({
                 id: "DetectRecapUsingFirstBlackFrame",
                 label: "Detect recap using black frames",
                 description:
                     "When recap chapter detection fails, mark recap from 0:00 to the latest detected black frame within the detected recap duration limits and before the intro.",
-                visible: chaptersOff,
             }),
             durationPair(
                 "MinimumIntroDuration",
