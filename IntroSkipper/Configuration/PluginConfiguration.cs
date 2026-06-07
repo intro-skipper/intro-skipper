@@ -154,6 +154,11 @@ public class PluginConfiguration : BasePluginConfiguration
     public bool FullLengthChapters { get; set; } = false;
 
     /// <summary>
+    /// Gets or sets a value indicating whether known SponsorBlock chapter labels are detected in addition to chapter regular expressions.
+    /// </summary>
+    public bool EnableSponsorBlockChapterDetection { get; set; } = true;
+
+    /// <summary>
     /// Gets or sets a value indicating whether the introduction in the first episode of a season should be ignored.
     /// </summary>
     public bool SkipFirstEpisode { get; set; } = false;
@@ -290,7 +295,7 @@ public class PluginConfiguration : BasePluginConfiguration
     /// Gets or sets the regular expression used to detect ending credit chapters.
     /// </summary>
     public string ChapterAnalyzerEndCreditsPattern { get; set; } =
-        @"(^|\s)(Credits?|ED|Ending|Outro|Endcards/Credits)(?!\sEnd)(\s|:|$)";
+        @"(^|\s)(Credits?|ED|Ending|Outro)(?!\sEnd)(\s|:|$)";
 
     /// <summary>
     /// Gets or sets the regular expression used to detect Preview chapters.
@@ -308,7 +313,7 @@ public class PluginConfiguration : BasePluginConfiguration
     /// Gets or sets the regular expression used to detect Commercial chapters.
     /// </summary>
     public string ChapterAnalyzerCommercialPattern { get; set; } =
-        @"(^|\s)(Ad(vert(isement)?)?|Commercial|Intermission(/Intro(\sAnimation)?)?)(?!\sEnd)(\s|:|$)";
+        @"(^|\s)(Ad(vert(isement)?)?|Commercial)(?!\sEnd)(\s|:|$)";
 
     // ===== Playback settings =====
 

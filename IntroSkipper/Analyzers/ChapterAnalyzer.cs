@@ -24,6 +24,52 @@ public partial class ChapterAnalyzer(ILogger<ChapterAnalyzer> logger) : IMediaFi
 {
     private readonly ILogger<ChapterAnalyzer> _logger = logger;
     private readonly PluginConfiguration _config = Plugin.Instance?.Configuration ?? new PluginConfiguration();
+    private static readonly IReadOnlyDictionary<AnalysisMode, IReadOnlySet<string>> _sponsorBlockChapterLabels =
+        new Dictionary<AnalysisMode, IReadOnlySet<string>>
+        {
+            [AnalysisMode.Introduction] = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+            {
+                "intro",
+                "intermission",
+                "intermission/intro animation"
+            },
+            [AnalysisMode.Credits] = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+            {
+                "outro",
+                "endcards/credits"
+            },
+            [AnalysisMode.Preview] = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+            {
+                "preview",
+                "preview/recap",
+                "preview/recap/hook",
+                "hook",
+                "hook/greetings"
+            },
+            [AnalysisMode.Recap] = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+            {
+                "recap",
+                "preview/recap",
+                "preview/recap/hook",
+                "hook",
+                "hook/greetings"
+            },
+            [AnalysisMode.Commercial] = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+            {
+                "sponsor",
+                "selfpromo",
+                "self promotion",
+                "unpaid/self promotion",
+                "interaction",
+                "interaction reminder",
+                "interaction reminder (subscribe)",
+                "filler",
+                "tangents/jokes",
+                "music_offtopic",
+                "music: non-music section",
+                "non-music section"
+            }
+        };
 
     /// <inheritdoc />
     public async Task<IReadOnlyList<QueuedEpisode>> AnalyzeMediaFiles(
@@ -41,7 +87,7 @@ public partial class ChapterAnalyzer(ILogger<ChapterAnalyzer> logger) : IMediaFi
             _ => throw new ArgumentOutOfRangeException(nameof(mode), $"Unexpected analysis mode: {mode}")
         };
 
-        if (string.IsNullOrWhiteSpace(expression))
+        if (string.IsNullOrWhiteSpace(expression) && !_config.EnableSponsorBlockChapterDetection)
         {
             return analysisQueue;
         }
@@ -61,7 +107,8 @@ public partial class ChapterAnalyzer(ILogger<ChapterAnalyzer> logger) : IMediaFi
                 episode,
                 Plugin.Instance!.GetChapters(episode.EpisodeId),
                 expression,
-                mode);
+                mode,
+                _config.EnableSponsorBlockChapterDetection);
 
             if (skipRange is null || !skipRange.Valid)
             {
@@ -90,7 +137,8 @@ public partial class ChapterAnalyzer(ILogger<ChapterAnalyzer> logger) : IMediaFi
         QueuedEpisode episode,
         IReadOnlyList<ChapterInfo> chapters,
         string expression,
-        AnalysisMode mode)
+        AnalysisMode mode,
+        bool enableSponsorBlockChapterDetection = true)
     {
         var count = chapters.Count;
         if (count == 0)
@@ -131,13 +179,7 @@ public partial class ChapterAnalyzer(ILogger<ChapterAnalyzer> logger) : IMediaFi
                 continue;
             }
 
-            // Regex.IsMatch() is used here in order to allow the runtime to cache the compiled regex
-            // between function invocations.
-            var match = Regex.IsMatch(
-                chapter.Name,
-                expression,
-                RegexOptions.IgnoreCase,
-                TimeSpan.FromSeconds(1));
+            var match = ChapterMatches(chapter.Name, expression, mode, enableSponsorBlockChapterDetection);
 
             if (!match)
             {
@@ -150,11 +192,11 @@ public partial class ChapterAnalyzer(ILogger<ChapterAnalyzer> logger) : IMediaFi
             if (adjacentChapter != null && !string.IsNullOrWhiteSpace(adjacentChapter.Name))
             {
                 // Check for possibility of overlapping keywords
-                var overlap = Regex.IsMatch(
+                var overlap = ChapterMatches(
                     adjacentChapter.Name,
                     expression,
-                    RegexOptions.None,
-                    TimeSpan.FromSeconds(1));
+                    mode,
+                    enableSponsorBlockChapterDetection);
 
                 if (overlap)
                 {
@@ -191,6 +233,45 @@ public partial class ChapterAnalyzer(ILogger<ChapterAnalyzer> logger) : IMediaFi
             AnalysisMode.Commercial => (_config.MinimumCommercialDuration, _config.MaximumCommercialDuration),
             _ => throw new ArgumentOutOfRangeException(nameof(mode), $"Unsupported analysis mode: {mode}")
         };
+    }
+
+    private static bool ChapterMatches(
+        string chapterName,
+        string expression,
+        AnalysisMode mode,
+        bool enableSponsorBlockChapterDetection)
+    {
+        if (enableSponsorBlockChapterDetection && TryGetSponsorBlockChapterLabel(chapterName, out var sponsorBlockLabel))
+        {
+            return _sponsorBlockChapterLabels.TryGetValue(mode, out var labels) && labels.Contains(sponsorBlockLabel);
+        }
+
+        if (string.IsNullOrWhiteSpace(expression))
+        {
+            return false;
+        }
+
+        // Regex.IsMatch() is used here in order to allow the runtime to cache the compiled regex
+        // between function invocations.
+        return Regex.IsMatch(
+            chapterName,
+            expression,
+            RegexOptions.IgnoreCase,
+            TimeSpan.FromSeconds(1));
+    }
+
+    private static bool TryGetSponsorBlockChapterLabel(string chapterName, out string label)
+    {
+        const string Prefix = "[SponsorBlock]:";
+
+        if (!chapterName.StartsWith(Prefix, StringComparison.OrdinalIgnoreCase))
+        {
+            label = string.Empty;
+            return false;
+        }
+
+        label = chapterName[Prefix.Length..].Trim();
+        return true;
     }
 
     [LoggerMessage(Level = LogLevel.Trace, Message = "{Base}: ignoring (invalid duration)")]

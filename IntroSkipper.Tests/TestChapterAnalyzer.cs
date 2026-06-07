@@ -24,6 +24,8 @@ public class TestChapterAnalyzer
     [InlineData("Intro Start")]
     [InlineData("Introduction")]
     [InlineData("[SponsorBlock]: Intro")]
+    [InlineData("[SponsorBlock]: intro")]
+    [InlineData("[SponsorBlock]: Intermission/Intro Animation")]
     public void TestIntroductionExpression(string chapterName)
     {
         var introChapter = FindChapter(chapterName, AnalysisMode.Introduction);
@@ -39,8 +41,9 @@ public class TestChapterAnalyzer
     [InlineData("Credit start")]
     [InlineData("Closing Credits")]
     [InlineData("Credits")]
-    [InlineData("Endcards/Credits")]
     [InlineData("[SponsorBlock]: Endcards/Credits")]
+    [InlineData("[SponsorBlock]: Outro")]
+    [InlineData("[SponsorBlock]: outro")]
     public void TestEndCreditsExpression(string chapterName)
     {
         var creditsChapter = FindChapter(chapterName, AnalysisMode.Credits);
@@ -52,6 +55,11 @@ public class TestChapterAnalyzer
 
     [Theory]
     [InlineData("[SponsorBlock]: Preview")]
+    [InlineData("[SponsorBlock]: preview")]
+    [InlineData("[SponsorBlock]: Preview/Recap")]
+    [InlineData("[SponsorBlock]: Preview/Recap/Hook")]
+    [InlineData("[SponsorBlock]: Hook/Greetings")]
+    [InlineData("[SponsorBlock]: hook")]
     public void TestPreviewExpression(string chapterName)
     {
         var previewChapter = FindChapter(chapterName, AnalysisMode.Preview);
@@ -63,6 +71,10 @@ public class TestChapterAnalyzer
 
     [Theory]
     [InlineData("[SponsorBlock]: Recap")]
+    [InlineData("[SponsorBlock]: Preview/Recap")]
+    [InlineData("[SponsorBlock]: Preview/Recap/Hook")]
+    [InlineData("[SponsorBlock]: Hook/Greetings")]
+    [InlineData("[SponsorBlock]: hook")]
     public void TestRecapExpression(string chapterName)
     {
         var recapChapter = FindChapter(chapterName, AnalysisMode.Recap);
@@ -73,10 +85,9 @@ public class TestChapterAnalyzer
     }
 
     [Theory]
-    [InlineData("Intermission")]
-    [InlineData("Intermission/Intro Animation")]
-    [InlineData("[SponsorBlock]: Intermission")]
-    [InlineData("[SponsorBlock]: Intermission/Intro Animation")]
+    [InlineData("Ad")]
+    [InlineData("Advertisement")]
+    [InlineData("Commercial")]
     public void TestCommercialExpression(string chapterName)
     {
         var commercialChapter = FindChapter(chapterName, AnalysisMode.Commercial);
@@ -86,7 +97,66 @@ public class TestChapterAnalyzer
         Assert.Equal(90, commercialChapter.End);
     }
 
-    private Segment? FindChapter(string chapterName, AnalysisMode mode)
+    [Theory]
+    [InlineData("[SponsorBlock]: Sponsor")]
+    [InlineData("[SponsorBlock]: sponsor")]
+    [InlineData("[SponsorBlock]: Unpaid/Self Promotion")]
+    [InlineData("[SponsorBlock]: Self Promotion")]
+    [InlineData("[SponsorBlock]: selfpromo")]
+    [InlineData("[SponsorBlock]: Interaction Reminder (Subscribe)")]
+    [InlineData("[SponsorBlock]: interaction")]
+    [InlineData("[SponsorBlock]: Tangents/Jokes")]
+    [InlineData("[SponsorBlock]: Filler")]
+    [InlineData("[SponsorBlock]: filler")]
+    [InlineData("[SponsorBlock]: Music: Non-Music Section")]
+    [InlineData("[SponsorBlock]: Non-Music Section")]
+    [InlineData("[SponsorBlock]: music_offtopic")]
+    public void TestSponsorBlockCommercialExpression(string chapterName)
+    {
+        var commercialChapter = FindChapter(chapterName, AnalysisMode.Commercial);
+
+        Assert.NotNull(commercialChapter);
+        Assert.Equal(60, commercialChapter.Start);
+        Assert.Equal(90, commercialChapter.End);
+    }
+
+    [Theory]
+    [InlineData("[SponsorBlock]: Intermission")]
+    [InlineData("[SponsorBlock]: Intermission/Intro Animation")]
+    public void TestSponsorBlockIntroDesignationsDoNotTranslateToCommercial(string chapterName)
+    {
+        var commercialChapter = FindChapter(chapterName, AnalysisMode.Commercial);
+
+        Assert.Null(commercialChapter);
+    }
+
+    [Fact]
+    public void TestSponsorBlockDetectionWorksWithoutUserRegex()
+    {
+        var introChapter = FindChapter("[SponsorBlock]: Intermission/Intro Animation", AnalysisMode.Introduction, expressionOverride: string.Empty);
+
+        Assert.NotNull(introChapter);
+        Assert.Equal(60, introChapter.Start);
+        Assert.Equal(90, introChapter.End);
+    }
+
+    [Fact]
+    public void TestSponsorBlockDetectionCanBeDisabled()
+    {
+        var introChapter = FindChapter(
+            "[SponsorBlock]: Intermission/Intro Animation",
+            AnalysisMode.Introduction,
+            expressionOverride: string.Empty,
+            enableSponsorBlockChapterDetection: false);
+
+        Assert.Null(introChapter);
+    }
+
+    private Segment? FindChapter(
+        string chapterName,
+        AnalysisMode mode,
+        string? expressionOverride = null,
+        bool enableSponsorBlockChapterDetection = true)
     {
         var logger = new LoggerFactory().CreateLogger<ChapterAnalyzer>();
         var analyzer = new ChapterAnalyzer(logger);
@@ -103,7 +173,12 @@ public class TestChapterAnalyzer
             _ => throw new ArgumentOutOfRangeException(nameof(mode), mode, null)
         };
 
-        return analyzer.FindMatchingChapter(new() { Duration = 2000 }, chapters, expression, mode);
+        return analyzer.FindMatchingChapter(
+            new() { Duration = 2000 },
+            chapters,
+            expressionOverride ?? expression,
+            mode,
+            enableSponsorBlockChapterDetection);
     }
 
     private Collection<ChapterInfo> CreateChapters(string name, AnalysisMode mode)
