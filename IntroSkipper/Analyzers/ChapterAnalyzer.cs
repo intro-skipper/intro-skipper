@@ -29,7 +29,8 @@ public partial class ChapterAnalyzer(ILogger<ChapterAnalyzer> logger) : IMediaFi
         {
             [AnalysisMode.Introduction] = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
             {
-                "intro"
+                "intro",
+                "intermission/intro animation"
             },
             [AnalysisMode.Credits] = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
             {
@@ -62,7 +63,6 @@ public partial class ChapterAnalyzer(ILogger<ChapterAnalyzer> logger) : IMediaFi
                 "interaction reminder",
                 "interaction reminder (subscribe)",
                 "intermission",
-                "intermission/intro animation",
                 "filler",
                 "tangents/jokes",
                 "music_offtopic",
