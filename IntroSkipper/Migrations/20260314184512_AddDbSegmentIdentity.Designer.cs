@@ -17,6 +17,8 @@ namespace IntroSkipper.Migrations
         protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
+            const int commercialType = 4;
+
             modelBuilder.HasAnnotation("ProductVersion", "8.0.10");
 
             modelBuilder.Entity("IntroSkipper.Db.DbSeasonInfo", b =>
@@ -76,7 +78,7 @@ namespace IntroSkipper.Migrations
 
                     b.HasIndex("ItemId", "Type", "Start", "End")
                         .IsUnique()
-                        .HasFilter("Type = 4")
+                        .HasFilter($"Type = {commercialType}")
                         .HasDatabaseName("IX_DbSegment_Commercial_Unique");
 
                     b.ToTable("DbSegment", (string)null);

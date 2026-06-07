@@ -1,6 +1,6 @@
+// SPDX-FileCopyrightText: 2024-2026 AbandonedCart
 // SPDX-FileCopyrightText: 2024-2026 Kilian von Pflugk
 // SPDX-FileCopyrightText: 2024-2026 rlauuzo
-// SPDX-FileCopyrightText: 2024-2026 AbandonedCart
 // SPDX-License-Identifier: GPL-3.0-only
 
 using System.Text.Json;
@@ -8,6 +8,7 @@ using IntroSkipper.Data;
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.ChangeTracking;
+using Microsoft.EntityFrameworkCore.Storage;
 
 namespace IntroSkipper.Db;
 
@@ -19,7 +20,18 @@ namespace IntroSkipper.Db;
 /// </remarks>
 public class IntroSkipperDbContext : DbContext
 {
+    private const int CommercialType = (int)AnalysisMode.Commercial;
+
     private static readonly SqlitePragmaInterceptor _pragmaInterceptor = new();
+    private static readonly string[] _currentMigrationIds =
+    [
+        "20241116153434_InitialCreate",
+        "20260309205737_AddIsUserProvided",
+        "20260314184512_AddDbSegmentIdentity",
+        "20260316060001_AddNonCommercialUniqueIndex",
+        "20260519073000_AddConfigHashes",
+    ];
+
     private readonly string? _dbPath;
 
     /// <summary>
@@ -79,11 +91,11 @@ public class IntroSkipperDbContext : DbContext
             entity.HasIndex(e => e.ItemId);
             entity.HasIndex(e => new { e.ItemId, e.Type, e.Start, e.End })
                 .HasDatabaseName("IX_DbSegment_Commercial_Unique")
-                .HasFilter($"Type = {(int)AnalysisMode.Commercial}")
+                .HasFilter($"Type = {CommercialType}")
                 .IsUnique();
             entity.HasIndex(e => new { e.ItemId, e.Type })
                 .HasDatabaseName("IX_DbSegment_NonCommercial_Unique")
-                .HasFilter($"Type != {(int)AnalysisMode.Commercial}")
+                .HasFilter($"Type != {CommercialType}")
                 .IsUnique();
 
             entity.Property(e => e.Start)
@@ -148,6 +160,43 @@ public class IntroSkipperDbContext : DbContext
     public async Task ApplyMigrationsAsync(CancellationToken cancellationToken = default)
     {
         await Database.MigrateAsync(cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Ensures legacy databases contain the ConfigHash columns expected by the current model.
+    /// </summary>
+    public void EnsureConfigHashColumns()
+    {
+        EnsureLegacySchemaCompatibility();
+    }
+
+    /// <summary>
+    /// Ensures legacy databases have the current schema shape without dropping existing data.
+    /// </summary>
+    public void EnsureLegacySchemaCompatibility()
+    {
+        var connection = Database.GetDbConnection();
+        var wasOpen = connection.State == System.Data.ConnectionState.Open;
+        if (!wasOpen)
+        {
+            Database.OpenConnection();
+        }
+
+        try
+        {
+            using var transaction = Database.BeginTransaction();
+            EnsureDbSegmentSchema();
+            EnsureDbSeasonInfoSchema();
+            EnsureMigrationHistoryForCurrentSchema();
+            transaction.Commit();
+        }
+        finally
+        {
+            if (!wasOpen)
+            {
+                Database.CloseConnection();
+            }
+        }
     }
 
     /// <summary>
@@ -268,5 +317,236 @@ public class IntroSkipperDbContext : DbContext
 
         var builder = new SqliteConnectionStringBuilder(connectionString);
         return builder.DataSource is not (null or "" or ":memory:") ? builder.DataSource : null;
+    }
+
+    private void EnsureConfigHashColumn(string tableName)
+    {
+        if (!TableExists(tableName) || ColumnExists(tableName, "ConfigHash"))
+        {
+            return;
+        }
+
+        switch (tableName)
+        {
+            case "DbSegment":
+                Database.ExecuteSqlRaw("ALTER TABLE \"DbSegment\" ADD COLUMN \"ConfigHash\" TEXT NOT NULL DEFAULT ''");
+                break;
+            case "DbSeasonInfo":
+                Database.ExecuteSqlRaw("ALTER TABLE \"DbSeasonInfo\" ADD COLUMN \"ConfigHash\" TEXT NOT NULL DEFAULT ''");
+                break;
+            default:
+                throw new InvalidOperationException($"Unsupported table '{tableName}'.");
+        }
+    }
+
+    private void EnsureDbSegmentSchema()
+    {
+        if (!TableExists("DbSegment"))
+        {
+            return;
+        }
+
+        if (!ColumnExists("DbSegment", "IsUserProvided"))
+        {
+            Database.ExecuteSqlRaw("ALTER TABLE \"DbSegment\" ADD COLUMN \"IsUserProvided\" INTEGER NOT NULL DEFAULT 0");
+        }
+
+        EnsureConfigHashColumn("DbSegment");
+
+        if (!ColumnExists("DbSegment", "Id"))
+        {
+            RebuildDbSegmentWithIdentity();
+        }
+
+        EnsureDbSegmentIndexes();
+    }
+
+    private void EnsureDbSeasonInfoSchema()
+    {
+        EnsureConfigHashColumn("DbSeasonInfo");
+
+        if (TableExists("DbSeasonInfo"))
+        {
+            Database.ExecuteSqlRaw("CREATE INDEX IF NOT EXISTS \"IX_DbSeasonInfo_SeasonId\" ON \"DbSeasonInfo\" (\"SeasonId\")");
+        }
+    }
+
+    private void RebuildDbSegmentWithIdentity()
+    {
+        Database.ExecuteSqlRaw(
+            """
+            CREATE TABLE "DbSegment_Temp" (
+                "Id" INTEGER NOT NULL CONSTRAINT "PK_DbSegment_Temp" PRIMARY KEY AUTOINCREMENT,
+                "ItemId" TEXT NOT NULL,
+                "Type" INTEGER NOT NULL,
+                "Start" REAL NOT NULL DEFAULT 0.0,
+                "End" REAL NOT NULL DEFAULT 0.0,
+                "IsUserProvided" INTEGER NOT NULL DEFAULT 0,
+                "ConfigHash" TEXT NOT NULL DEFAULT ''
+            );
+            INSERT INTO "DbSegment_Temp" ("ItemId", "Type", "Start", "End", "IsUserProvided", "ConfigHash")
+            SELECT "ItemId", "Type", "Start", "End", COALESCE("IsUserProvided", 0), COALESCE("ConfigHash", '')
+            FROM "DbSegment";
+            DROP TABLE "DbSegment";
+            ALTER TABLE "DbSegment_Temp" RENAME TO "DbSegment";
+            """);
+    }
+
+    private void EnsureDbSegmentIndexes()
+    {
+        Database.ExecuteSqlRaw("CREATE INDEX IF NOT EXISTS \"IX_DbSegment_ItemId\" ON \"DbSegment\" (\"ItemId\")");
+        Database.ExecuteSqlRaw(
+            $$"""
+            DELETE FROM "DbSegment"
+            WHERE "Type" = {{CommercialType}}
+            AND "Id" NOT IN (
+                SELECT MAX("Id")
+                FROM "DbSegment"
+                WHERE "Type" = {{CommercialType}}
+                GROUP BY "ItemId", "Type", "Start", "End"
+            )
+            """);
+
+        Database.ExecuteSqlRaw(
+            $$"""
+            CREATE UNIQUE INDEX IF NOT EXISTS "IX_DbSegment_Commercial_Unique" ON "DbSegment" ("ItemId", "Type", "Start", "End")
+                WHERE "Type" = {{CommercialType}}
+            """);
+
+        Database.ExecuteSqlRaw(
+            $$"""
+            DELETE FROM "DbSegment"
+            WHERE "Type" != {{CommercialType}}
+            AND "Id" NOT IN (
+                SELECT MAX("Id")
+                FROM "DbSegment"
+                WHERE "Type" != {{CommercialType}}
+                GROUP BY "ItemId", "Type"
+            )
+            """);
+
+        Database.ExecuteSqlRaw(
+            $$"""
+            CREATE UNIQUE INDEX IF NOT EXISTS "IX_DbSegment_NonCommercial_Unique" ON "DbSegment" ("ItemId", "Type")
+                WHERE "Type" != {{CommercialType}}
+            """);
+    }
+
+    private void EnsureMigrationHistoryForCurrentSchema()
+    {
+        if (!CurrentSchemaExists())
+        {
+            return;
+        }
+
+        Database.ExecuteSqlRaw(
+            """
+            CREATE TABLE IF NOT EXISTS "__EFMigrationsHistory" (
+                "MigrationId" TEXT NOT NULL CONSTRAINT "PK___EFMigrationsHistory" PRIMARY KEY,
+                "ProductVersion" TEXT NOT NULL
+            )
+            """);
+
+        foreach (var migrationId in _currentMigrationIds)
+        {
+            InsertMigrationHistoryRecord(migrationId);
+        }
+    }
+
+    private bool CurrentSchemaExists()
+    {
+        return TableExists("DbSegment")
+            && ColumnExists("DbSegment", "Id")
+            && ColumnExists("DbSegment", "ItemId")
+            && ColumnExists("DbSegment", "Type")
+            && ColumnExists("DbSegment", "Start")
+            && ColumnExists("DbSegment", "End")
+            && ColumnExists("DbSegment", "IsUserProvided")
+            && ColumnExists("DbSegment", "ConfigHash")
+            && IndexExists("DbSegment", "IX_DbSegment_ItemId")
+            && IndexExists("DbSegment", "IX_DbSegment_Commercial_Unique")
+            && IndexExists("DbSegment", "IX_DbSegment_NonCommercial_Unique")
+            && TableExists("DbSeasonInfo")
+            && ColumnExists("DbSeasonInfo", "SeasonId")
+            && ColumnExists("DbSeasonInfo", "Type")
+            && ColumnExists("DbSeasonInfo", "Action")
+            && ColumnExists("DbSeasonInfo", "EpisodeIds")
+            && ColumnExists("DbSeasonInfo", "ConfigHash")
+            && IndexExists("DbSeasonInfo", "IX_DbSeasonInfo_SeasonId");
+    }
+
+    private void InsertMigrationHistoryRecord(string migrationId)
+    {
+        using var command = Database.GetDbConnection().CreateCommand();
+        command.CommandText =
+            """
+            INSERT OR IGNORE INTO "__EFMigrationsHistory" ("MigrationId", "ProductVersion")
+            VALUES ($migrationId, $productVersion)
+            """;
+        command.Transaction = Database.CurrentTransaction?.GetDbTransaction();
+
+        var migrationParameter = command.CreateParameter();
+        migrationParameter.ParameterName = "$migrationId";
+        migrationParameter.Value = migrationId;
+        command.Parameters.Add(migrationParameter);
+
+        var productVersionParameter = command.CreateParameter();
+        productVersionParameter.ParameterName = "$productVersion";
+        productVersionParameter.Value = "9.0.11";
+        command.Parameters.Add(productVersionParameter);
+
+        command.ExecuteNonQuery();
+    }
+
+    private bool IndexExists(string tableName, string indexName)
+    {
+        using var command = Database.GetDbConnection().CreateCommand();
+        command.CommandText = "SELECT 1 FROM sqlite_master WHERE type = 'index' AND tbl_name = $tableName AND name = $indexName LIMIT 1";
+        command.Transaction = Database.CurrentTransaction?.GetDbTransaction();
+
+        var tableParameter = command.CreateParameter();
+        tableParameter.ParameterName = "$tableName";
+        tableParameter.Value = tableName;
+        command.Parameters.Add(tableParameter);
+
+        var indexParameter = command.CreateParameter();
+        indexParameter.ParameterName = "$indexName";
+        indexParameter.Value = indexName;
+        command.Parameters.Add(indexParameter);
+
+        return command.ExecuteScalar() is not null;
+    }
+
+    private bool TableExists(string tableName)
+    {
+        using var command = Database.GetDbConnection().CreateCommand();
+        command.CommandText = "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = $name LIMIT 1";
+        command.Transaction = Database.CurrentTransaction?.GetDbTransaction();
+
+        var parameter = command.CreateParameter();
+        parameter.ParameterName = "$name";
+        parameter.Value = tableName;
+        command.Parameters.Add(parameter);
+
+        return command.ExecuteScalar() is not null;
+    }
+
+    private bool ColumnExists(string tableName, string columnName)
+    {
+        using var command = Database.GetDbConnection().CreateCommand();
+        command.CommandText = "SELECT 1 FROM pragma_table_info($tableName) WHERE name = $columnName COLLATE NOCASE LIMIT 1";
+        command.Transaction = Database.CurrentTransaction?.GetDbTransaction();
+
+        var tableParameter = command.CreateParameter();
+        tableParameter.ParameterName = "$tableName";
+        tableParameter.Value = tableName;
+        command.Parameters.Add(tableParameter);
+
+        var columnParameter = command.CreateParameter();
+        columnParameter.ParameterName = "$columnName";
+        columnParameter.Value = columnName;
+        command.Parameters.Add(columnParameter);
+
+        return command.ExecuteScalar() is not null;
     }
 }

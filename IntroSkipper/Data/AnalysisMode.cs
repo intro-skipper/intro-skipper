@@ -14,25 +14,25 @@ public enum AnalysisMode
     /// <summary>
     /// Detect introduction sequences.
     /// </summary>
-    Introduction,
+    Introduction = 0,
 
     /// <summary>
     /// Detect credits.
     /// </summary>
-    Credits,
+    Credits = 1,
 
     /// <summary>
     /// Detect previews.
     /// </summary>
-    Preview,
+    Preview = 2,
 
     /// <summary>
     /// Detect recaps.
     /// </summary>
-    Recap,
+    Recap = 3,
 
     /// <summary>
     /// Detect commercials. Only for Segment editor.
     /// </summary>
-    Commercial
+    Commercial = 4
 }
