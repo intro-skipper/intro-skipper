@@ -242,12 +242,12 @@ public partial class ChapterAnalyzer(ILogger<ChapterAnalyzer> logger) : IMediaFi
         AnalysisMode mode,
         bool enableSponsorBlockChapterDetection)
     {
-        if (enableSponsorBlockChapterDetection && TryGetSponsorBlockChapterLabel(chapterName, out var sponsorBlockLabel))
+        if (enableSponsorBlockChapterDetection
+            && TryGetSponsorBlockChapterLabel(chapterName, out var sponsorBlockLabel)
+            && _sponsorBlockChapterLabels.TryGetValue(mode, out var labels)
+            && labels.Contains(sponsorBlockLabel))
         {
-            if (_sponsorBlockChapterLabels.TryGetValue(mode, out var labels) && labels.Contains(sponsorBlockLabel))
-            {
-                return true;
-            }
+            return true;
         }
 
         if (string.IsNullOrWhiteSpace(expression))
