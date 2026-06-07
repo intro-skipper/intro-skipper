@@ -90,6 +90,9 @@ public partial class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
         try
         {
             using var db = CreateDbContext();
+            // Legacy databases may be missing migration history or columns that EF migrations expect.
+            // Normalize those schemas first so recovery does not log a false initialization failure.
+            db.EnsureLegacySchemaCompatibility();
             db.ApplyMigrations();
         }
         catch (Exception ex)
