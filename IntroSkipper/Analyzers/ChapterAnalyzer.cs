@@ -75,6 +75,8 @@ public partial class ChapterAnalyzer(ILogger<ChapterAnalyzer> logger) : IMediaFi
                 continue;
             }
 
+            // The helper is initialized with the current mode, so recap fallback segments
+            // still receive the same mode-specific boundary adjustments as chapter matches.
             skipRange = timeAdjustmentHelper.AdjustIntroTimes(episode, skipRange, false);
 
             episode.SetAnalyzed(mode, EpisodeState.Analyzed);
