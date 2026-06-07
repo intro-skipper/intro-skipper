@@ -17,9 +17,15 @@ namespace IntroSkipper.Analyzers;
 /// <param name="logger">Logger.</param>
 public partial class ChromaprintAnalyzer(ILogger<ChromaprintAnalyzer> logger) : IMediaFileAnalyzer
 {
+    /// <summary>
+    /// Minimum duration (seconds) for a shared recap card/sting to count as a candidate.
+    /// </summary>
+    private const double RecapCardMinimumDuration = 3.0;
+
     private readonly PluginConfiguration _config = Plugin.Instance?.Configuration ?? new PluginConfiguration();
     private readonly ILogger<ChromaprintAnalyzer> _logger = logger;
     private readonly Dictionary<Guid, Dictionary<uint, int>> _invertedIndexCache = [];
+    private readonly Dictionary<Guid, IReadOnlyList<BlackFrame>> _recapBlackFrameCache = [];
     private AnalysisMode _analysisMode;
 
     /// <inheritdoc />
@@ -96,9 +102,7 @@ public partial class ChromaprintAnalyzer(ILogger<ChromaprintAnalyzer> logger) : 
                     remainingEpisode.EpisodeId,
                     fingerprintCache[remainingEpisode.EpisodeId]);
 
-                var maxDuration = _analysisMode == AnalysisMode.Introduction
-                    ? Plugin.Instance!.Configuration.MaximumIntroDuration
-                    : (int)(remainingEpisode.Duration - remainingEpisode.CreditsFingerprintStart - 1); // dont allow perfect matches to avoid false positives from duplicates
+                var maxDuration = GetMaximumSegmentDuration(remainingEpisode);
 
                 // Ignore this comparison result if:
                 // - one of the intros isn't valid, or
@@ -108,6 +112,25 @@ public partial class ChromaprintAnalyzer(ILogger<ChromaprintAnalyzer> logger) : 
                     remainingIntro.Duration > maxDuration)
                 {
                     continue;
+                }
+
+                if (_analysisMode == AnalysisMode.Recap)
+                {
+                    currentIntro = await BuildRecapFromChromaprintCandidateAsync(
+                        currentEpisode,
+                        currentIntro,
+                        cancellationToken).ConfigureAwait(false) ?? new Segment(currentEpisode.EpisodeId);
+                    remainingIntro = await BuildRecapFromChromaprintCandidateAsync(
+                        remainingEpisode,
+                        remainingIntro,
+                        cancellationToken).ConfigureAwait(false) ?? new Segment(remainingEpisode.EpisodeId);
+
+                    if (!currentIntro.Valid || !remainingIntro.Valid ||
+                        currentIntro.Duration > maxDuration ||
+                        remainingIntro.Duration > maxDuration)
+                    {
+                        continue;
+                    }
                 }
 
                 /* Since the Fingerprint() function returns an array of Chromaprint points without time
@@ -180,12 +203,123 @@ public partial class ChromaprintAnalyzer(ILogger<ChromaprintAnalyzer> logger) : 
         {
             LogIndexSearchSuccessful();
 
-            return GetLongestTimeRange(lhsId, lhsRanges, rhsId, rhsRanges);
+            return SelectSharedRegion(lhsId, lhsRanges, rhsId, rhsRanges, _analysisMode);
         }
 
         LogSharedIntroNotFound(lhsId, rhsId);
 
         return (new Segment(lhsId), new Segment(rhsId));
+    }
+
+    /// <summary>
+    /// Returns the minimum shared-region duration for the given analysis mode.
+    /// </summary>
+    /// <param name="mode">Analysis mode.</param>
+    /// <param name="minimumIntroDuration">Configured minimum intro duration.</param>
+    /// <returns>Minimum region duration in seconds.</returns>
+    internal static double GetMinimumRegionDuration(AnalysisMode mode, int minimumIntroDuration)
+        => mode == AnalysisMode.Recap ? RecapCardMinimumDuration : minimumIntroDuration;
+
+    /// <summary>
+    /// Selects which shared audio region should be returned for the given analysis mode.
+    /// Recap uses the earliest qualifying shared card/sting; other modes use the longest region.
+    /// </summary>
+    /// <param name="lhsId">First episode id.</param>
+    /// <param name="lhsRanges">First episode shared timecodes.</param>
+    /// <param name="rhsId">Second episode id.</param>
+    /// <param name="rhsRanges">Second episode shared timecodes.</param>
+    /// <param name="mode">Analysis mode.</param>
+    /// <returns>Segments for the first and second episodes.</returns>
+    internal static (Segment Lhs, Segment Rhs) SelectSharedRegion(
+        Guid lhsId,
+        List<TimeRange> lhsRanges,
+        Guid rhsId,
+        List<TimeRange> rhsRanges,
+        AnalysisMode mode)
+        => mode == AnalysisMode.Recap
+            ? GetEarliestTimeRange(lhsId, lhsRanges, rhsId, rhsRanges)
+            : GetLongestTimeRange(lhsId, lhsRanges, rhsId, rhsRanges);
+
+    private int GetMaximumSegmentDuration(QueuedEpisode episode)
+    {
+        return _analysisMode switch
+        {
+            AnalysisMode.Introduction => _config.MaximumIntroDuration,
+            AnalysisMode.Recap => _config.MaximumRecapDuration,
+            AnalysisMode.Credits => (int)(episode.Duration - episode.CreditsFingerprintStart - 1), // dont allow perfect matches to avoid false positives from duplicates
+            _ => (int)episode.Duration
+        };
+    }
+
+    private async Task<Segment?> BuildRecapFromChromaprintCandidateAsync(
+        QueuedEpisode episode,
+        Segment card,
+        CancellationToken cancellationToken)
+    {
+        if (!card.Valid)
+        {
+            return null;
+        }
+
+        var maximumBoundary = Math.Min(episode.Duration, _config.MaximumRecapDuration);
+        var timestamps = await Plugin.Instance!.GetTimestampsAsync(episode.EpisodeId, cancellationToken).ConfigureAwait(false);
+        if (timestamps.TryGetValue(AnalysisMode.Introduction, out var intro) && intro.Valid)
+        {
+            maximumBoundary = Math.Min(maximumBoundary, intro.Start);
+        }
+
+        if (maximumBoundary <= card.End)
+        {
+            return null;
+        }
+
+        if (!_recapBlackFrameCache.TryGetValue(episode.EpisodeId, out var blackFrames))
+        {
+            blackFrames = FFmpegWrapper.DetectBlackFrames(
+                episode,
+                new TimeRange(0, maximumBoundary),
+                _config.BlackFrameMinimumPercentage,
+                _config.BlackFrameThreshold,
+                AnalysisMode.Recap);
+            _recapBlackFrameCache[episode.EpisodeId] = blackFrames;
+        }
+
+        return ChapterAnalyzer.BuildRecapFromBlackFrames(
+            episode.EpisodeId,
+            blackFrames,
+            Math.Max(_config.MinimumRecapDuration, (int)Math.Ceiling(card.End)),
+            maximumBoundary);
+    }
+
+    private static (Segment Lhs, Segment Rhs) GetEarliestTimeRange(
+        Guid lhsId,
+        List<TimeRange> lhsRanges,
+        Guid rhsId,
+        List<TimeRange> rhsRanges)
+    {
+        var earliestIndex = 0;
+        for (var i = 1; i < lhsRanges.Count; i++)
+        {
+            if (lhsRanges[i].Start < lhsRanges[earliestIndex].Start)
+            {
+                earliestIndex = i;
+            }
+        }
+
+        var lhsRecap = new TimeRange(lhsRanges[earliestIndex]);
+        var rhsRecap = new TimeRange(rhsRanges[earliestIndex]);
+
+        if (lhsRecap.Start <= 5)
+        {
+            lhsRecap.Start = 0;
+        }
+
+        if (rhsRecap.Start <= 5)
+        {
+            rhsRecap.Start = 0;
+        }
+
+        return (new Segment(lhsId, lhsRecap), new Segment(rhsId, rhsRecap));
     }
 
     /// <summary>
@@ -335,7 +469,7 @@ public partial class ChromaprintAnalyzer(ILogger<ChromaprintAnalyzer> logger) : 
 
         // Now that both fingerprints have been compared at this shift, see if there's a contiguous time range.
         var lContiguous = TimeRangeHelpers.FindContiguous([.. lhsTimes], _config.MaximumTimeSkip);
-        if (lContiguous is null || lContiguous.Duration < _config.MinimumIntroDuration)
+        if (lContiguous is null || lContiguous.Duration < GetMinimumRegionDuration(_analysisMode, _config.MinimumIntroDuration))
         {
             return (new TimeRange(), new TimeRange());
         }

@@ -106,9 +106,9 @@ export const analysisTab: Tab = {
             ),
             checkboxField({
                 id: "DetectRecapUsingFirstBlackFrame",
-                label: "Detect recap using first black frame",
+                label: "Detect recap using black frames",
                 description:
-                    "When recap chapter detection fails, mark recap from 0:00 to the first detected black frame (capped by Maximum recap duration).",
+                    "When recap chapter detection fails, mark recap from 0:00 to the latest detected black frame within the recap duration limits and before the intro.",
                 visible: chaptersOff,
             }),
             durationPair(

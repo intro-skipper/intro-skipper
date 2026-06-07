@@ -67,7 +67,7 @@ public partial class ChapterAnalyzer(ILogger<ChapterAnalyzer> logger) : IMediaFi
                 : null;
             if ((skipRange is null || !skipRange.Valid) && enableRecapBlackFrameFallback)
             {
-                skipRange = DetectRecapUsingFirstBlackFrame(episode);
+                skipRange = await DetectRecapUsingBlackFrameAsync(episode, cancellationToken).ConfigureAwait(false);
             }
 
             if (skipRange is null || !skipRange.Valid)
@@ -177,9 +177,15 @@ public partial class ChapterAnalyzer(ILogger<ChapterAnalyzer> logger) : IMediaFi
         return null;
     }
 
-    internal Segment? DetectRecapUsingFirstBlackFrame(QueuedEpisode episode)
+    internal async Task<Segment?> DetectRecapUsingBlackFrameAsync(QueuedEpisode episode, CancellationToken cancellationToken)
     {
         var maxRecapBoundary = Math.Min(episode.Duration, _config.MaximumRecapDuration);
+        var timestamps = await Plugin.Instance!.GetTimestampsAsync(episode.EpisodeId, cancellationToken).ConfigureAwait(false);
+        if (timestamps.TryGetValue(AnalysisMode.Introduction, out var intro) && intro.Valid)
+        {
+            maxRecapBoundary = Math.Min(maxRecapBoundary, intro.Start);
+        }
+
         if (maxRecapBoundary <= 0)
         {
             return null;
@@ -192,40 +198,39 @@ public partial class ChapterAnalyzer(ILogger<ChapterAnalyzer> logger) : IMediaFi
             _config.BlackFrameThreshold,
             AnalysisMode.Recap);
 
-        return BuildRecapFromFirstBlackFrame(
+        return BuildRecapFromBlackFrames(
             episode.EpisodeId,
             blackFrames,
             _config.MinimumRecapDuration,
-            _config.MaximumRecapDuration);
+            maxRecapBoundary);
     }
 
-    internal static Segment? BuildRecapFromFirstBlackFrame(
+    internal static Segment? BuildRecapFromBlackFrames(
         Guid episodeId,
         IReadOnlyList<BlackFrame> blackFrames,
         int minimumRecapDuration,
-        int maximumRecapDuration)
+        double maximumRecapBoundary)
     {
-        BlackFrame? firstBlackFrame = null;
+        BlackFrame? selectedBlackFrame = null;
         foreach (var blackFrame in blackFrames)
         {
-            if (firstBlackFrame is null || blackFrame.Time < firstBlackFrame.Time)
+            if (blackFrame.Time < minimumRecapDuration || blackFrame.Time > maximumRecapBoundary)
             {
-                firstBlackFrame = blackFrame;
+                continue;
+            }
+
+            if (selectedBlackFrame is null || blackFrame.Time > selectedBlackFrame.Time)
+            {
+                selectedBlackFrame = blackFrame;
             }
         }
 
-        if (firstBlackFrame is null || firstBlackFrame.Time <= 0)
+        if (selectedBlackFrame is null)
         {
             return null;
         }
 
-        var recapEnd = Math.Min(firstBlackFrame.Time, maximumRecapDuration);
-        if (recapEnd < minimumRecapDuration)
-        {
-            return null;
-        }
-
-        return new Segment(episodeId, new TimeRange(0, recapEnd));
+        return new Segment(episodeId, new TimeRange(0, selectedBlackFrame.Time));
     }
 
     private (double Min, double Max) GetBounds(AnalysisMode mode, QueuedEpisode episode)

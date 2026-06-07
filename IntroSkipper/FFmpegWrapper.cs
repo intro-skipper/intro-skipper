@@ -132,6 +132,7 @@ public static partial class FFmpegWrapper
         return mode switch
         {
             AnalysisMode.Introduction => (0, episode.IntroFingerprintEnd),
+            AnalysisMode.Recap => (0, episode.IntroFingerprintEnd),
             AnalysisMode.Credits => (episode.CreditsFingerprintStart, episode.CreditsFingerprintEnd > 0 ? episode.CreditsFingerprintEnd : episode.Duration),
             _ => throw new ArgumentException("Unknown analysis mode " + mode),
         };

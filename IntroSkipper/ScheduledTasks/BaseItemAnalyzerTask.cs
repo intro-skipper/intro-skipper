@@ -65,7 +65,7 @@ public partial class BaseItemAnalyzerTask(
         CancellationToken cancellationToken,
         IReadOnlyCollection<Guid>? seasonsToAnalyze = null)
     {
-        HashSet<AnalysisMode> modes = [
+        List<AnalysisMode> modes = [
             .. _config.ScanIntroduction ? [AnalysisMode.Introduction] : Array.Empty<AnalysisMode>(),
             .. _config.ScanCredits ? [AnalysisMode.Credits] : Array.Empty<AnalysisMode>(),
             .. _config.ScanRecap ? [AnalysisMode.Recap] : Array.Empty<AnalysisMode>(),
@@ -266,8 +266,16 @@ public partial class BaseItemAnalyzerTask(
                 analyzers.Add(new ChromaprintAnalyzer(_loggerFactory.CreateLogger<ChromaprintAnalyzer>()));
             }
         }
+        else if (mode is AnalysisMode.Recap)
+        {
+            // Recap: Chromaprint can match the repeated "previously on" card/sting near the start.
+            if (!isMovie && _ffmpegValid)
+            {
+                analyzers.Add(new ChromaprintAnalyzer(_loggerFactory.CreateLogger<ChromaprintAnalyzer>()));
+            }
+        }
 
-        // Recap, Preview, Commercial: only ChapterAnalyzer (already added above)
+        // Preview, Commercial: only ChapterAnalyzer (already added above)
 
         // Apply priority overrides to reorder the analyzer chain.
         // The specified analyzer moves to the front; others keep their relative order.

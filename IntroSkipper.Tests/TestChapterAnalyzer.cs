@@ -50,7 +50,7 @@ public class TestChapterAnalyzer
     }
 
     [Fact]
-    public void BuildRecapFromFirstBlackFrame_ReturnsSegmentFromStartToFirstFrame()
+    public void BuildRecapFromBlackFrames_ReturnsSegmentFromStartToLatestFrameInRange()
     {
         var episodeId = Guid.NewGuid();
         var frames = new List<BlackFrame>
@@ -60,20 +60,37 @@ public class TestChapterAnalyzer
             new(90, 45, 150),
         };
 
-        var recap = ChapterAnalyzer.BuildRecapFromFirstBlackFrame(episodeId, frames, minimumRecapDuration: 5, maximumRecapDuration: 120);
+        var recap = ChapterAnalyzer.BuildRecapFromBlackFrames(episodeId, frames, minimumRecapDuration: 5, maximumRecapBoundary: 120);
 
         Assert.NotNull(recap);
         Assert.Equal(episodeId, recap.EpisodeId);
         Assert.Equal(0, recap.Start);
-        Assert.Equal(18.25, recap.End);
+        Assert.Equal(45, recap.End);
     }
 
     [Fact]
-    public void BuildRecapFromFirstBlackFrame_ReturnsNull_WhenFrameBeforeMinimumDuration()
+    public void BuildRecapFromBlackFrames_ReturnsLatestFrameBeforeIntroBoundary()
+    {
+        var episodeId = Guid.NewGuid();
+        var frames = new List<BlackFrame>
+        {
+            new(95, 32.5, 123),
+            new(92, 72, 250),
+            new(90, 90, 300),
+        };
+
+        var recap = ChapterAnalyzer.BuildRecapFromBlackFrames(episodeId, frames, minimumRecapDuration: 5, maximumRecapBoundary: 80);
+
+        Assert.NotNull(recap);
+        Assert.Equal(72, recap.End);
+    }
+
+    [Fact]
+    public void BuildRecapFromBlackFrames_ReturnsNull_WhenFrameBeforeMinimumDuration()
     {
         var frames = new List<BlackFrame> { new(90, 3.5, 20) };
 
-        var recap = ChapterAnalyzer.BuildRecapFromFirstBlackFrame(Guid.NewGuid(), frames, minimumRecapDuration: 5, maximumRecapDuration: 120);
+        var recap = ChapterAnalyzer.BuildRecapFromBlackFrames(Guid.NewGuid(), frames, minimumRecapDuration: 5, maximumRecapBoundary: 120);
 
         Assert.Null(recap);
     }
