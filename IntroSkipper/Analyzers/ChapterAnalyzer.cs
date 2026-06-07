@@ -132,6 +132,7 @@ public partial class ChapterAnalyzer(ILogger<ChapterAnalyzer> logger) : IMediaFi
     /// <param name="chapters">Media item chapters.</param>
     /// <param name="expression">Regular expression pattern.</param>
     /// <param name="mode">Analysis mode.</param>
+    /// <param name="enableSponsorBlockChapterDetection">Whether known SponsorBlock chapter labels should be matched in addition to the regular expression.</param>
     /// <returns>Intro object containing skippable time range, or null if no chapter matched.</returns>
     public Segment? FindMatchingChapter(
         QueuedEpisode episode,
