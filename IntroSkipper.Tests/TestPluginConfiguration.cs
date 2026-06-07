@@ -17,6 +17,8 @@ public class TestPluginConfiguration
         Assert.Equal(PluginConfiguration.DefaultAnalysisPercent, config.AnalysisPercent);
         Assert.Equal(PluginConfiguration.DefaultAnalysisLengthLimit, config.AnalysisLengthLimit);
         Assert.Equal(PluginConfiguration.DefaultMinimumIntroDuration, config.MinimumIntroDuration);
+        Assert.Equal(15, config.MinimumRecapDetectionDuration);
+        Assert.Equal(120, config.MaximumRecapDetectionDuration);
         Assert.False(config.DetectRecapUsingFirstBlackFrame);
     }
 

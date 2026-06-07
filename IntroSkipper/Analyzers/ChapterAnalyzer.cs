@@ -179,7 +179,7 @@ public partial class ChapterAnalyzer(ILogger<ChapterAnalyzer> logger) : IMediaFi
 
     internal async Task<Segment?> DetectRecapUsingBlackFrameAsync(QueuedEpisode episode, CancellationToken cancellationToken)
     {
-        var maxRecapBoundary = Math.Min(episode.Duration, _config.MaximumRecapDuration);
+        var maxRecapBoundary = Math.Min(episode.Duration, _config.MaximumRecapDetectionDuration);
         var timestamps = await Plugin.Instance!.GetTimestampsAsync(episode.EpisodeId, cancellationToken).ConfigureAwait(false);
         if (timestamps.TryGetValue(AnalysisMode.Introduction, out var intro) && intro.Valid)
         {
@@ -201,7 +201,7 @@ public partial class ChapterAnalyzer(ILogger<ChapterAnalyzer> logger) : IMediaFi
         return BuildRecapFromBlackFrames(
             episode.EpisodeId,
             blackFrames,
-            _config.MinimumRecapDuration,
+            _config.MinimumRecapDetectionDuration,
             maxRecapBoundary);
     }
 

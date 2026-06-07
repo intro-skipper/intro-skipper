@@ -11,6 +11,8 @@ export interface PluginConfig {
     MaximumMovieCreditsDuration: number;
     MinimumRecapDuration: number;
     MaximumRecapDuration: number;
+    MinimumRecapDetectionDuration: number;
+    MaximumRecapDetectionDuration: number;
     MinimumPreviewDuration: number;
     MaximumPreviewDuration: number;
     MinimumCommercialDuration: number;

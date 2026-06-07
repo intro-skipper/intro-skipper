@@ -245,7 +245,7 @@ public partial class ChromaprintAnalyzer(ILogger<ChromaprintAnalyzer> logger) : 
         return _analysisMode switch
         {
             AnalysisMode.Introduction => _config.MaximumIntroDuration,
-            AnalysisMode.Recap => _config.MaximumRecapDuration,
+            AnalysisMode.Recap => _config.MaximumRecapDetectionDuration,
             AnalysisMode.Credits => (int)(episode.Duration - episode.CreditsFingerprintStart - 1), // dont allow perfect matches to avoid false positives from duplicates
             _ => (int)episode.Duration
         };
@@ -261,7 +261,7 @@ public partial class ChromaprintAnalyzer(ILogger<ChromaprintAnalyzer> logger) : 
             return null;
         }
 
-        var maximumBoundary = Math.Min(episode.Duration, _config.MaximumRecapDuration);
+        var maximumBoundary = Math.Min(episode.Duration, _config.MaximumRecapDetectionDuration);
         var timestamps = await Plugin.Instance!.GetTimestampsAsync(episode.EpisodeId, cancellationToken).ConfigureAwait(false);
         if (timestamps.TryGetValue(AnalysisMode.Introduction, out var intro) && intro.Valid)
         {
@@ -287,7 +287,7 @@ public partial class ChromaprintAnalyzer(ILogger<ChromaprintAnalyzer> logger) : 
         return ChapterAnalyzer.BuildRecapFromBlackFrames(
             episode.EpisodeId,
             blackFrames,
-            Math.Max(_config.MinimumRecapDuration, (int)Math.Ceiling(card.End)),
+            Math.Max(_config.MinimumRecapDetectionDuration, (int)Math.Ceiling(card.End)),
             maximumBoundary);
     }
 

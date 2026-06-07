@@ -211,6 +211,16 @@ public class PluginConfiguration : BasePluginConfiguration
     public int MaximumRecapDuration { get; set; } = 120;
 
     /// <summary>
+    /// Gets or sets the minimum length of a detected black-frame/chromaprint recap.
+    /// </summary>
+    public int MinimumRecapDetectionDuration { get; set; } = 15;
+
+    /// <summary>
+    /// Gets or sets the maximum length of a detected black-frame/chromaprint recap.
+    /// </summary>
+    public int MaximumRecapDetectionDuration { get; set; } = 120;
+
+    /// <summary>
     /// Gets or sets a value indicating whether recap detection should use the first black frame as a fallback boundary.
     /// </summary>
     public bool DetectRecapUsingFirstBlackFrame { get; set; } = false;
