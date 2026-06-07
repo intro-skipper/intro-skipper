@@ -29,9 +29,7 @@ public partial class ChapterAnalyzer(ILogger<ChapterAnalyzer> logger) : IMediaFi
         {
             [AnalysisMode.Introduction] = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
             {
-                "intro",
-                "intermission",
-                "intermission/intro animation"
+                "intro"
             },
             [AnalysisMode.Credits] = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
             {
@@ -63,6 +61,8 @@ public partial class ChapterAnalyzer(ILogger<ChapterAnalyzer> logger) : IMediaFi
                 "interaction",
                 "interaction reminder",
                 "interaction reminder (subscribe)",
+                "intermission",
+                "intermission/intro animation",
                 "filler",
                 "tangents/jokes",
                 "music_offtopic",
@@ -244,7 +244,10 @@ public partial class ChapterAnalyzer(ILogger<ChapterAnalyzer> logger) : IMediaFi
     {
         if (enableSponsorBlockChapterDetection && TryGetSponsorBlockChapterLabel(chapterName, out var sponsorBlockLabel))
         {
-            return _sponsorBlockChapterLabels.TryGetValue(mode, out var labels) && labels.Contains(sponsorBlockLabel);
+            if (_sponsorBlockChapterLabels.TryGetValue(mode, out var labels) && labels.Contains(sponsorBlockLabel))
+            {
+                return true;
+            }
         }
 
         if (string.IsNullOrWhiteSpace(expression))

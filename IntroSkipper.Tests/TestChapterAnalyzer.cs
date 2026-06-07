@@ -25,7 +25,6 @@ public class TestChapterAnalyzer
     [InlineData("Introduction")]
     [InlineData("[SponsorBlock]: Intro")]
     [InlineData("[SponsorBlock]: intro")]
-    [InlineData("[SponsorBlock]: Intermission/Intro Animation")]
     public void TestIntroductionExpression(string chapterName)
     {
         var introChapter = FindChapter(chapterName, AnalysisMode.Introduction);
@@ -111,6 +110,8 @@ public class TestChapterAnalyzer
     [InlineData("[SponsorBlock]: Music: Non-Music Section")]
     [InlineData("[SponsorBlock]: Non-Music Section")]
     [InlineData("[SponsorBlock]: music_offtopic")]
+    [InlineData("[SponsorBlock]: Intermission")]
+    [InlineData("[SponsorBlock]: Intermission/Intro Animation")]
     public void TestSponsorBlockCommercialExpression(string chapterName)
     {
         var commercialChapter = FindChapter(chapterName, AnalysisMode.Commercial);
@@ -123,33 +124,49 @@ public class TestChapterAnalyzer
     [Theory]
     [InlineData("[SponsorBlock]: Intermission")]
     [InlineData("[SponsorBlock]: Intermission/Intro Animation")]
-    public void TestSponsorBlockIntroDesignationsDoNotTranslateToCommercial(string chapterName)
+    public void TestSponsorBlockIntermissionDesignationsDoNotTranslateToIntroduction(string chapterName)
     {
-        var commercialChapter = FindChapter(chapterName, AnalysisMode.Commercial);
+        var introChapter = FindChapter(chapterName, AnalysisMode.Introduction);
 
-        Assert.Null(commercialChapter);
+        Assert.Null(introChapter);
     }
 
     [Fact]
     public void TestSponsorBlockDetectionWorksWithoutUserRegex()
     {
-        var introChapter = FindChapter("[SponsorBlock]: Intermission/Intro Animation", AnalysisMode.Introduction, expressionOverride: string.Empty);
+        var commercialChapter = FindChapter(
+            "[SponsorBlock]: Intermission/Intro Animation",
+            AnalysisMode.Commercial,
+            expressionOverride: string.Empty);
 
-        Assert.NotNull(introChapter);
-        Assert.Equal(60, introChapter.Start);
-        Assert.Equal(90, introChapter.End);
+        Assert.NotNull(commercialChapter);
+        Assert.Equal(60, commercialChapter.Start);
+        Assert.Equal(90, commercialChapter.End);
     }
 
     [Fact]
     public void TestSponsorBlockDetectionCanBeDisabled()
     {
-        var introChapter = FindChapter(
+        var commercialChapter = FindChapter(
             "[SponsorBlock]: Intermission/Intro Animation",
-            AnalysisMode.Introduction,
+            AnalysisMode.Commercial,
             expressionOverride: string.Empty,
             enableSponsorBlockChapterDetection: false);
 
-        Assert.Null(introChapter);
+        Assert.Null(commercialChapter);
+    }
+
+    [Fact]
+    public void TestUnmappedSponsorBlockChapterFallsBackToUserRegex()
+    {
+        var introChapter = FindChapter(
+            "[SponsorBlock]: Custom Intro",
+            AnalysisMode.Introduction,
+            expressionOverride: "Custom Intro");
+
+        Assert.NotNull(introChapter);
+        Assert.Equal(60, introChapter.Start);
+        Assert.Equal(90, introChapter.End);
     }
 
     private Segment? FindChapter(
