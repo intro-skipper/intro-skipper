@@ -52,7 +52,7 @@ public class TestChapterAnalyzer
     private Segment? FindChapter(Collection<ChapterInfo> chapters, AnalysisMode mode)
     {
         var logger = new LoggerFactory().CreateLogger<ChapterAnalyzer>();
-        var analyzer = new ChapterAnalyzer(logger);
+        var analyzer = new ChapterAnalyzer(logger, null!);
 
         var config = new Configuration.PluginConfiguration();
         var expression = mode == AnalysisMode.Introduction ?

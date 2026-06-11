@@ -12,6 +12,7 @@ using System;
 using System.Collections.Generic;
 using IntroSkipper.Analyzers;
 using IntroSkipper.Data;
+using IntroSkipper.FFmpeg;
 using Microsoft.Extensions.Logging;
 using Xunit;
 
@@ -22,7 +23,7 @@ public class TestAudioFingerprinting
     [FactSkipFFmpegTests]
     public void TestInstallationCheck()
     {
-        Assert.True(FFmpegWrapper.CheckFFmpegVersion());
+        Assert.True(CreateFFmpegService().CheckFFmpegVersion());
     }
 
     [Theory]
@@ -66,7 +67,8 @@ public class TestAudioFingerprinting
             3472417825, 3395841056, 3458735136, 3341420624, 1076496560, 1076501168, 1076501136, 1076497024
         };
 
-        var actual = FFmpegWrapper.Fingerprint(
+        var ffmpegService = CreateFFmpegService();
+        var actual = ffmpegService.Fingerprint(
             QueueEpisode("audio/big_buck_bunny_intro.mp3"),
             AnalysisMode.Introduction);
 
@@ -101,8 +103,9 @@ public class TestAudioFingerprinting
 
         var lhsEpisode = QueueEpisode("audio/big_buck_bunny_intro.mp3");
         var rhsEpisode = QueueEpisode("audio/big_buck_bunny_clip.mp3");
-        var lhsFingerprint = FFmpegWrapper.Fingerprint(lhsEpisode, AnalysisMode.Introduction);
-        var rhsFingerprint = FFmpegWrapper.Fingerprint(rhsEpisode, AnalysisMode.Introduction);
+        var ffmpegService = CreateFFmpegService();
+        var lhsFingerprint = ffmpegService.Fingerprint(lhsEpisode, AnalysisMode.Introduction);
+        var rhsFingerprint = ffmpegService.Fingerprint(rhsEpisode, AnalysisMode.Introduction);
 
         var (lhs, rhs) = chromaprint.CompareEpisodes(
             lhsEpisode.EpisodeId,
@@ -139,7 +142,7 @@ public class TestAudioFingerprinting
         };
 
         var range = new TimeRange(0, 60);
-        var actual = FFmpegWrapper.DetectSilence(clip, range, AnalysisMode.Introduction);
+        var actual = CreateFFmpegService().DetectSilence(clip, range, AnalysisMode.Introduction);
 
         Assert.Equal(expected, actual);
     }
@@ -154,10 +157,17 @@ public class TestAudioFingerprinting
         };
     }
 
+    private static FFmpegService CreateFFmpegService()
+    {
+        var logger = new LoggerFactory().CreateLogger<FFmpegService>();
+        var cacheLogger = new LoggerFactory().CreateLogger<DetectionCacheService>();
+        return new FFmpegService(logger, new DetectionCacheService(cacheLogger));
+    }
+
     private static ChromaprintAnalyzer CreateChromaprintAnalyzer()
     {
         var logger = new LoggerFactory().CreateLogger<ChromaprintAnalyzer>();
-        return new(logger);
+        return new(logger, null!, null!);
     }
 }
 

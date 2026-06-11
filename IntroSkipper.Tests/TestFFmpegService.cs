@@ -9,23 +9,40 @@
 
 using System;
 using System.Diagnostics;
+using System.Runtime.InteropServices;
+using System.Threading;
+using System.Threading.Tasks;
 using IntroSkipper.Data;
+using IntroSkipper.FFmpeg;
+using Microsoft.Extensions.Logging;
 using Xunit;
 
 namespace IntroSkipper.Tests;
 
-public class TestFFmpegWrapper
+public class TestFFmpegService
 {
     #region Info Query Tests
+
+    [Fact]
+    public async Task RunAsync_KillsProcessTree_OnCancellation()
+    {
+        var runner = new FFmpegProcess(new LoggerFactory().CreateLogger<FFmpegProcess>());
+        var (processPath, args) = CreateLongRunningCommand();
+        using var cts = new CancellationTokenSource(TimeSpan.FromMilliseconds(100));
+
+        await Assert.ThrowsAsync<OperationCanceledException>(() =>
+            runner.RunAsync(processPath, args, cancellationToken: cts.Token));
+    }
 
     [FactSkipFFmpegTests]
     public void TestNoTrailingOptionsWarning()
     {
         // Run FFmpeg version check to populate ChromaprintLogs
-        var result = FFmpegWrapper.CheckFFmpegVersion();
+        var ffmpegService = CreateFFmpegService();
+        var result = ffmpegService.CheckFFmpegVersion();
 
         // Get the logs and verify no "Trailing option" warning appears
-        var logs = FFmpegWrapper.GetChromaprintLogs();
+        var logs = ffmpegService.GetChromaprintLogs();
 
         // The test passes if FFmpeg version check succeeds (no error)
         // and no "Trailing option" warning is in the logs
@@ -36,7 +53,7 @@ public class TestFFmpegWrapper
     [FactSkipFFmpegTests]
     public void TestFFmpegVersionCheck()
     {
-        Assert.True(FFmpegWrapper.CheckFFmpegVersion());
+        Assert.True(CreateFFmpegService().CheckFFmpegVersion());
     }
 
     /// <summary>
@@ -109,7 +126,7 @@ public class TestFFmpegWrapper
         episode.Duration = 2;
 
         // Detect black frames - this should not produce "Trailing option" warning
-        var blackFrames = FFmpegWrapper.DetectBlackFrames(episode, new TimeRange(0, 2), 85, 32, AnalysisMode.Introduction);
+        var blackFrames = CreateFFmpegService().DetectBlackFrames(episode, new TimeRange(0, 2), 85, 32, AnalysisMode.Introduction);
 
         // Verify we got results (meaning FFmpeg ran successfully without warnings)
         Assert.NotNull(blackFrames);
@@ -124,7 +141,7 @@ public class TestFFmpegWrapper
         episode.CreditsFingerprintStart = 0;
 
         // Alternative black frame detection
-        var blackFrames = FFmpegWrapper.DetectBlackFrames(episode, 32);
+        var blackFrames = CreateFFmpegService().DetectBlackFrames(episode, 32);
 
         Assert.NotNull(blackFrames);
     }
@@ -138,7 +155,7 @@ public class TestFFmpegWrapper
         episode.IntroFingerprintEnd = 2;
 
         // Detect silence - this should not produce "Trailing option" warning
-        var silenceRanges = FFmpegWrapper.DetectSilence(episode, new TimeRange(0, 2), AnalysisMode.Introduction);
+        var silenceRanges = CreateFFmpegService().DetectSilence(episode, new TimeRange(0, 2), AnalysisMode.Introduction);
 
         // Verify FFmpeg ran successfully (null or empty list is fine)
         Assert.NotNull(silenceRanges);
@@ -152,7 +169,7 @@ public class TestFFmpegWrapper
         episode.Duration = 2;
 
         // Detect key frames - this should not produce "Trailing option" warning
-        var keyFrames = FFmpegWrapper.DetectKeyFrames(episode, new TimeRange(0, 2), AnalysisMode.Introduction);
+        var keyFrames = CreateFFmpegService().DetectKeyFrames(episode, new TimeRange(0, 2), AnalysisMode.Introduction);
 
         // Verify FFmpeg ran successfully
         Assert.NotNull(keyFrames);
@@ -175,7 +192,7 @@ public class TestFFmpegWrapper
         // Fingerprint intro - this should not produce "Trailing option" warning
         try
         {
-            var fingerprint = FFmpegWrapper.Fingerprint(episode, AnalysisMode.Introduction);
+            var fingerprint = CreateFFmpegService().Fingerprint(episode, AnalysisMode.Introduction);
 
             // Verify FFmpeg ran successfully
             Assert.NotNull(fingerprint);
@@ -208,6 +225,23 @@ public class TestFFmpegWrapper
 
         // Verify no "Trailing option" warning
         Assert.DoesNotContain("Trailing option", output, StringComparison.Ordinal);
+    }
+
+    private static (string ProcessPath, string[] Args) CreateLongRunningCommand()
+    {
+        if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
+        {
+            return ("cmd.exe", ["/c", "ping -n 6 127.0.0.1 > nul"]);
+        }
+
+        return ("/bin/sh", ["-c", "sleep 5"]);
+    }
+
+    private static FFmpegService CreateFFmpegService()
+    {
+        var logger = new LoggerFactory().CreateLogger<FFmpegService>();
+        var cacheLogger = new LoggerFactory().CreateLogger<DetectionCacheService>();
+        return new FFmpegService(logger, new DetectionCacheService(cacheLogger));
     }
 
     private static QueuedEpisode QueueFile(string path)

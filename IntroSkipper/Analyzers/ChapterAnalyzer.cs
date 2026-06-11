@@ -8,6 +8,7 @@ using System.Globalization;
 using System.Text.RegularExpressions;
 using IntroSkipper.Configuration;
 using IntroSkipper.Data;
+using IntroSkipper.FFmpeg;
 using MediaBrowser.Model.Entities;
 using Microsoft.Extensions.Logging;
 
@@ -20,9 +21,11 @@ namespace IntroSkipper.Analyzers;
 /// Initializes a new instance of the <see cref="ChapterAnalyzer"/> class.
 /// </remarks>
 /// <param name="logger">Logger.</param>
-public partial class ChapterAnalyzer(ILogger<ChapterAnalyzer> logger) : IMediaFileAnalyzer
+/// <param name="ffmpegService">FFmpeg service.</param>
+public partial class ChapterAnalyzer(ILogger<ChapterAnalyzer> logger, IFFmpegService ffmpegService) : IMediaFileAnalyzer
 {
     private readonly ILogger<ChapterAnalyzer> _logger = logger;
+    private readonly IFFmpegService _ffmpegService = ffmpegService;
     private readonly PluginConfiguration _config = Plugin.Instance?.Configuration ?? new PluginConfiguration();
 
     /// <inheritdoc />
@@ -46,16 +49,13 @@ public partial class ChapterAnalyzer(ILogger<ChapterAnalyzer> logger) : IMediaFi
             return analysisQueue;
         }
 
-        var timeAdjustmentHelper = new TimeAdjustmentHelper(_logger, _config, mode);
+        var timeAdjustmentHelper = new TimeAdjustmentHelper(_logger, _config, mode, _ffmpegService);
 
         var episodesWithoutIntros = analysisQueue.Where(e => e.NeedsAnalysis(mode)).ToList();
 
         foreach (var episode in episodesWithoutIntros)
         {
-            if (cancellationToken.IsCancellationRequested)
-            {
-                break;
-            }
+            cancellationToken.ThrowIfCancellationRequested();
 
             var skipRange = FindMatchingChapter(
                 episode,
@@ -68,7 +68,7 @@ public partial class ChapterAnalyzer(ILogger<ChapterAnalyzer> logger) : IMediaFi
                 continue;
             }
 
-            skipRange = timeAdjustmentHelper.AdjustIntroTimes(episode, skipRange, false);
+            skipRange = timeAdjustmentHelper.AdjustIntroTimes(episode, skipRange, false, cancellationToken);
 
             episode.SetAnalyzed(mode, EpisodeState.Analyzed);
             await Plugin.Instance!.UpdateTimestampAsync(skipRange, mode, configHash: episode.AnalysisConfigHash, cancellationToken: cancellationToken).ConfigureAwait(false);

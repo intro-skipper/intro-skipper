@@ -47,6 +47,8 @@ public sealed class FFmpegProcess(ILogger logger)
         ProcessPriorityClass? priority = null,
         CancellationToken cancellationToken = default)
     {
+        cancellationToken.ThrowIfCancellationRequested();
+
         var info = new ProcessStartInfo(processPath)
         {
             WindowStyle = ProcessWindowStyle.Hidden,
@@ -62,7 +64,10 @@ public sealed class FFmpegProcess(ILogger logger)
             info.ArgumentList.Add(arg);
         }
 
-        _logger.LogDebug("Starting ffmpeg with the following arguments: {Arguments}", string.Join(" ", info.ArgumentList));
+        if (_logger.IsEnabled(LogLevel.Debug))
+        {
+            _logger.LogDebug("Starting ffmpeg with the following arguments: {Arguments}", string.Join(" ", info.ArgumentList));
+        }
 
         using var process = new Process { StartInfo = info };
         process.Start();
@@ -78,7 +83,7 @@ public sealed class FFmpegProcess(ILogger logger)
 
         // Register cancellation: kill the entire process tree so child processes don't linger.
         // The stream read loop below will then naturally throw OperationCanceledException.
-        using var cancellationRegistration = cancellationToken.Register(() => process.Kill(entireProcessTree: true));
+        using var cancellationRegistration = cancellationToken.Register(() => KillProcessTree(process));
 
         using var ms = new MemoryStream();
         var buffer = new byte[4096];
@@ -92,16 +97,43 @@ public sealed class FFmpegProcess(ILogger logger)
         }
 
         using var timeoutCts = new CancellationTokenSource(timeoutMs);
+        using var waitCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, timeoutCts.Token);
         try
         {
-            await process.WaitForExitAsync(timeoutCts.Token).ConfigureAwait(false);
+            await process.WaitForExitAsync(waitCts.Token).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            throw;
         }
         catch (OperationCanceledException) when (timeoutCts.IsCancellationRequested)
         {
             _logger.LogWarning("ffmpeg did not exit within {TimeoutMs}ms; killing process", timeoutMs);
-            process.Kill(entireProcessTree: true);
+            KillProcessTree(process);
         }
 
+        cancellationToken.ThrowIfCancellationRequested();
         return ms.ToArray();
+    }
+
+    private static void KillProcessTree(Process process)
+    {
+        try
+        {
+            if (!process.HasExited)
+            {
+                process.Kill(entireProcessTree: true);
+            }
+        }
+        catch (InvalidOperationException)
+        {
+        }
+        catch (System.ComponentModel.Win32Exception)
+        {
+        }
+        catch (NotSupportedException)
+        {
+        }
     }
 }

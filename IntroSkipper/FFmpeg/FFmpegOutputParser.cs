@@ -12,18 +12,13 @@ using Microsoft.Extensions.Logging;
 namespace IntroSkipper.FFmpeg;
 
 /// <summary>
-/// Pure parsing functions extracted from FFmpegWrapper.
+/// Parses FFmpeg output into Intro Skipper data types.
 /// </summary>
 public static partial class FFmpegOutputParser
 {
     private static readonly Regex _silenceDetectionExpression = SilenceRegex();
 
     private static readonly Regex _blackFrameRegex = BlackFrameRegex();
-
-    /// <summary>
-    /// Gets or sets the logger.
-    /// </summary>
-    public static ILogger? Logger { get; set; }
 
     internal static TimeRange[] ParseSilence(string raw, double rangeStart)
     {
@@ -49,7 +44,7 @@ public static partial class FFmpegOutputParser
         return [.. silenceRanges];
     }
 
-    internal static double[] ParseKeyFrames(string raw, double rangeStart)
+    internal static double[] ParseKeyFrames(string raw, double rangeStart, ILogger? logger = null)
     {
         var keyframes = new List<double>();
 
@@ -69,9 +64,9 @@ public static partial class FFmpegOutputParser
             }
             else
             {
-                if (Logger is { } parseLogger)
+                if (logger is not null)
                 {
-                    LogFailedToParseTimestamp(parseLogger, ptsTimeStr, line);
+                    LogFailedToParseTimestamp(logger, ptsTimeStr, line);
                 }
             }
         }
@@ -104,24 +99,6 @@ public static partial class FFmpegOutputParser
         }
 
         return [.. blackFrames];
-    }
-
-    internal static uint[] ParseFingerprint(string raw)
-    {
-        var lines = raw.Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries);
-        var result = new List<uint>(lines.Length);
-        foreach (var line in lines)
-        {
-            if (!uint.TryParse(line, NumberStyles.Integer, CultureInfo.InvariantCulture, out var value))
-            {
-                // Any invalid entry means the file is corrupt — abort so FFmpeg re-analyzes.
-                return [];
-            }
-
-            result.Add(value);
-        }
-
-        return [.. result];
     }
 
     [GeneratedRegex("silence_(?<type>start|end): (?<time>[0-9\\.]+)")]
