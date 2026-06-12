@@ -80,7 +80,7 @@ public partial class BaseItemAnalyzerTask(
         ];
 
         var plugin = Plugin.Instance ?? throw new InvalidOperationException("Plugin instance is null");
-        var ffmpegValid = _ffmpegService.CheckFFmpegVersion(cancellationToken);
+        var ffmpegValid = await _ffmpegService.CheckFFmpegVersionAsync(cancellationToken).ConfigureAwait(false);
 
         var queueManager = new QueueManager(
             _loggerFactory.CreateLogger<QueueManager>(),

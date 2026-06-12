@@ -183,10 +183,11 @@ internal static class WindowsFfmpegTestBootstrap
     private static void DownloadFile(string url, string destinationFilePath)
     {
         using var httpClient = new HttpClient();
-        using var response = httpClient.GetAsync(url, HttpCompletionOption.ResponseHeadersRead).GetAwaiter().GetResult();
+        using var request = new HttpRequestMessage(HttpMethod.Get, url);
+        using var response = httpClient.Send(request, HttpCompletionOption.ResponseHeadersRead);
         response.EnsureSuccessStatusCode();
 
-        using var httpStream = response.Content.ReadAsStreamAsync().GetAwaiter().GetResult();
+        using var httpStream = response.Content.ReadAsStream();
         using var fileStream = new FileStream(destinationFilePath, FileMode.Create, FileAccess.Write, FileShare.None);
         httpStream.CopyTo(fileStream);
         fileStream.Flush(flushToDisk: true);

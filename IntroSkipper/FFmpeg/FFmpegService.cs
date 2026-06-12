@@ -30,24 +30,24 @@ public sealed partial class FFmpegService(
     private readonly IDetectionCacheService _cacheService = cacheService;
     private readonly FFmpegProcess _process = new(logger);
 
-    // Written by CheckFFmpegVersion (serialized via ScheduledTaskSemaphore) but read concurrently
+    // Written by CheckFFmpegVersionAsync (serialized via ScheduledTaskSemaphore) but read concurrently
     // by the support bundle endpoint, so a concurrent dictionary is required.
     private readonly ConcurrentDictionary<string, string> _chromaprintLogs = new();
 
     /// <inheritdoc/>
-    public bool CheckFFmpegVersion(CancellationToken cancellationToken = default)
+    public async Task<bool> CheckFFmpegVersionAsync(CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
 
         try
         {
             // Always log ffmpeg's version information.
-            if (!CheckFFmpegRequirement(
+            if (!await CheckFFmpegRequirementAsync(
                 "-version",
                 "ffmpeg",
                 "version",
                 "Unknown error with FFmpeg version",
-                cancellationToken))
+                cancellationToken).ConfigureAwait(false))
             {
                 _chromaprintLogs["error"] = "unknown_error";
                 WarningManager.SetFlag(PluginWarning.IncompatibleFFmpegBuild);
@@ -55,12 +55,12 @@ public sealed partial class FFmpegService(
             }
 
             // First, validate that the installed version of ffmpeg supports chromaprint at all.
-            if (!CheckFFmpegRequirement(
+            if (!await CheckFFmpegRequirementAsync(
                 "-muxers",
                 "chromaprint",
                 "muxer list",
                 "The installed version of ffmpeg does not support chromaprint",
-                cancellationToken))
+                cancellationToken).ConfigureAwait(false))
             {
                 _chromaprintLogs["error"] = "chromaprint_not_supported";
                 WarningManager.SetFlag(PluginWarning.IncompatibleFFmpegBuild);
@@ -68,12 +68,12 @@ public sealed partial class FFmpegService(
             }
 
             // Second, validate that the Chromaprint muxer understands the "-fp_format raw" option.
-            if (!CheckFFmpegRequirement(
+            if (!await CheckFFmpegRequirementAsync(
                 "-h muxer=chromaprint",
                 "binary raw fingerprint",
                 "chromaprint options",
                 "The installed version of ffmpeg does not support raw binary fingerprints",
-                cancellationToken))
+                cancellationToken).ConfigureAwait(false))
             {
                 _chromaprintLogs["error"] = "fp_format_not_supported";
                 WarningManager.SetFlag(PluginWarning.IncompatibleFFmpegBuild);
@@ -81,12 +81,12 @@ public sealed partial class FFmpegService(
             }
 
             // Third, validate that ffmpeg supports all of the required silencedetect options.
-            if (!CheckFFmpegRequirement(
+            if (!await CheckFFmpegRequirementAsync(
                 "-h filter=silencedetect",
                 "noise tolerance",
                 "silencedetect options",
                 "The installed version of ffmpeg does not support the silencedetect filter",
-                cancellationToken))
+                cancellationToken).ConfigureAwait(false))
             {
                 _chromaprintLogs["error"] = "silencedetect_not_supported";
                 WarningManager.SetFlag(PluginWarning.IncompatibleFFmpegBuild);
@@ -112,16 +112,16 @@ public sealed partial class FFmpegService(
     }
 
     /// <inheritdoc/>
-    public uint[] Fingerprint(QueuedEpisode episode, AnalysisMode mode, CancellationToken cancellationToken = default)
+    public Task<uint[]> FingerprintAsync(QueuedEpisode episode, AnalysisMode mode, CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
 
         var (start, end) = episode.GetFingerprintRange(mode);
-        return Fingerprint(episode, mode, start, end, cancellationToken);
+        return FingerprintAsync(episode, mode, start, end, cancellationToken);
     }
 
     /// <inheritdoc/>
-    public TimeRange[] DetectSilence(QueuedEpisode episode, TimeRange range, AnalysisMode mode, CancellationToken cancellationToken = default)
+    public async Task<TimeRange[]> DetectSilenceAsync(QueuedEpisode episode, TimeRange range, AnalysisMode mode, CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
 
@@ -151,7 +151,7 @@ public sealed partial class FFmpegService(
          * [silencedetect @ 0x000000000000] silence_start: 12.34
          * [silencedetect @ 0x000000000000] silence_end: 56.123 | silence_duration: 43.783
         */
-        var raw = Encoding.UTF8.GetString(GetOutput(args, true, cancellationToken: cancellationToken));
+        var raw = Encoding.UTF8.GetString(await GetOutputAsync(args, true, cancellationToken: cancellationToken).ConfigureAwait(false));
         var result = FFmpegOutputParser.ParseSilence(raw, range.Start);
         cancellationToken.ThrowIfCancellationRequested();
         _cacheService.Write(episode.EpisodeId, mode, CacheEntryType.Silence, range.Start, range.End, result);
@@ -160,7 +160,7 @@ public sealed partial class FFmpegService(
     }
 
     /// <inheritdoc/>
-    public BlackFrame[] DetectBlackFrames(
+    public async Task<BlackFrame[]> DetectBlackFramesAsync(
         QueuedEpisode episode,
         TimeRange range,
         int minimum,
@@ -187,7 +187,7 @@ public sealed partial class FFmpegService(
             "-f", "null", "-",
         };
 
-        var raw = Encoding.UTF8.GetString(GetOutput(args, true, cancellationToken: cancellationToken));
+        var raw = Encoding.UTF8.GetString(await GetOutputAsync(args, true, cancellationToken: cancellationToken).ConfigureAwait(false));
         var allFrames = FFmpegOutputParser.ParseBlackFrames(raw);
         cancellationToken.ThrowIfCancellationRequested();
         _cacheService.Write(episode.EpisodeId, mode, CacheEntryType.BlackFrame, range.Start, range.End, allFrames);
@@ -196,7 +196,7 @@ public sealed partial class FFmpegService(
     }
 
     /// <inheritdoc/>
-    public BlackFrame[] DetectBlackFrames(QueuedEpisode episode, int threshold, CancellationToken cancellationToken = default)
+    public async Task<BlackFrame[]> DetectBlackFramesAsync(QueuedEpisode episode, int threshold, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(episode);
         cancellationToken.ThrowIfCancellationRequested();
@@ -218,7 +218,7 @@ public sealed partial class FFmpegService(
             "-f", "null", "-",
         };
 
-        var raw = Encoding.UTF8.GetString(GetOutput(args, true, cancellationToken: cancellationToken));
+        var raw = Encoding.UTF8.GetString(await GetOutputAsync(args, true, cancellationToken: cancellationToken).ConfigureAwait(false));
         var allFrames = FFmpegOutputParser.ParseBlackFrames(raw);
         cancellationToken.ThrowIfCancellationRequested();
         _cacheService.Write(episode.EpisodeId, AnalysisMode.Credits, CacheEntryType.BlackFrame, episode.CreditsFingerprintStart, 0, allFrames);
@@ -227,7 +227,7 @@ public sealed partial class FFmpegService(
     }
 
     /// <inheritdoc/>
-    public double[] DetectKeyFrames(QueuedEpisode episode, TimeRange range, AnalysisMode mode, CancellationToken cancellationToken = default)
+    public async Task<double[]> DetectKeyFramesAsync(QueuedEpisode episode, TimeRange range, AnalysisMode mode, CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
 
@@ -248,7 +248,7 @@ public sealed partial class FFmpegService(
             "-f", "null", "-",
         };
 
-        var raw = Encoding.UTF8.GetString(GetOutput(args, stderr: true, cancellationToken: cancellationToken));
+        var raw = Encoding.UTF8.GetString(await GetOutputAsync(args, stderr: true, cancellationToken: cancellationToken).ConfigureAwait(false));
         var result = FFmpegOutputParser.ParseKeyFrames(raw, range.Start, _logger);
         cancellationToken.ThrowIfCancellationRequested();
         _cacheService.Write(episode.EpisodeId, mode, CacheEntryType.Keyframe, range.Start, range.End, result);
@@ -257,7 +257,7 @@ public sealed partial class FFmpegService(
     }
 
     /// <inheritdoc/>
-    public double? ProbeAudioDuration(string filePath, CancellationToken cancellationToken = default)
+    public async Task<double?> ProbeAudioDurationAsync(string filePath, CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
 
@@ -273,7 +273,7 @@ public sealed partial class FFmpegService(
                 filePath,
             };
 
-            var output = Encoding.UTF8.GetString(GetProcessOutput(ffprobePath, args, stderr: false, timeout: 10 * 1000, cancellationToken: cancellationToken)).Trim();
+            var output = Encoding.UTF8.GetString(await GetProcessOutputAsync(ffprobePath, args, stderr: false, timeout: 10 * 1000, cancellationToken: cancellationToken).ConfigureAwait(false)).Trim();
             if (string.IsNullOrWhiteSpace(output))
             {
                 return null;
@@ -338,7 +338,7 @@ public sealed partial class FFmpegService(
     /// <param name="errorMessage">Error message to log if this requirement is not met.</param>
     /// <param name="cancellationToken">Token used to cancel the FFmpeg process.</param>
     /// <returns>true on success, false on error.</returns>
-    private bool CheckFFmpegRequirement(
+    private async Task<bool> CheckFFmpegRequirementAsync(
         string arguments,
         string mustContain,
         string bundleName,
@@ -347,7 +347,7 @@ public sealed partial class FFmpegService(
     {
         LogCheckingRequirement(_logger, arguments);
 
-        var output = Encoding.UTF8.GetString(GetOutput(arguments.Split(' ', StringSplitOptions.RemoveEmptyEntries), false, 2000, cancellationToken));
+        var output = Encoding.UTF8.GetString(await GetOutputAsync(arguments.Split(' ', StringSplitOptions.RemoveEmptyEntries), false, 2000, cancellationToken).ConfigureAwait(false));
         LogFfmpegOutput(_logger, arguments, output);
 
         _chromaprintLogs[bundleName] = output;
@@ -369,7 +369,7 @@ public sealed partial class FFmpegService(
     /// <param name="stderr">If standard error should be returned.</param>
     /// <param name="timeout">Timeout (in miliseconds) to wait for ffmpeg to exit.</param>
     /// <param name="cancellationToken">Token used to cancel the FFmpeg process.</param>
-    private ReadOnlySpan<byte> GetOutput(
+    private Task<byte[]> GetOutputAsync(
         IReadOnlyList<string> args,
         bool stderr = false,
         int timeout = 60 * 1000,
@@ -401,17 +401,17 @@ public sealed partial class FFmpegService(
         processArgs.Add(logLevel);
         processArgs.AddRange(args);
 
-        return GetProcessOutput(Plugin.Instance?.FFmpegPath ?? "ffmpeg", processArgs, stderr, timeout, cancellationToken);
+        return GetProcessOutputAsync(Plugin.Instance?.FFmpegPath ?? "ffmpeg", processArgs, stderr, timeout, cancellationToken);
     }
 
-    private ReadOnlySpan<byte> GetProcessOutput(
+    private Task<byte[]> GetProcessOutputAsync(
         string processPath,
         IReadOnlyList<string> args,
         bool stderr = false,
         int timeout = 60 * 1000,
         CancellationToken cancellationToken = default)
     {
-        return _process.RunAsync(processPath, args, stderr, timeout, Plugin.Instance?.Configuration.ProcessPriority, cancellationToken).GetAwaiter().GetResult();
+        return _process.RunAsync(processPath, args, stderr, timeout, Plugin.Instance?.Configuration.ProcessPriority, cancellationToken);
     }
 
     private static string GetFFprobePath()
@@ -437,7 +437,7 @@ public sealed partial class FFmpegService(
     /// <param name="end">Time (in seconds) relative to the start of the file to stop fingerprinting at.</param>
     /// <param name="cancellationToken">Token used to cancel the FFmpeg process.</param>
     /// <returns>Numerical fingerprint points.</returns>
-    private uint[] Fingerprint(QueuedEpisode episode, AnalysisMode mode, double start, double end, CancellationToken cancellationToken)
+    private async Task<uint[]> FingerprintAsync(QueuedEpisode episode, AnalysisMode mode, double start, double end, CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
 
@@ -463,7 +463,7 @@ public sealed partial class FFmpegService(
         };
 
         // Returns all fingerprint points as raw 32-bit unsigned integers (little endian).
-        var rawPoints = GetOutput(args, cancellationToken: cancellationToken);
+        var rawPoints = await GetOutputAsync(args, cancellationToken: cancellationToken).ConfigureAwait(false);
         if (rawPoints.Length == 0 || rawPoints.Length % 4 != 0)
         {
             LogChromaprintReturnedPoints(_logger, rawPoints.Length, episode.Path);
@@ -473,7 +473,7 @@ public sealed partial class FFmpegService(
         var results = new List<uint>();
         for (var i = 0; i < rawPoints.Length; i += 4)
         {
-            var rawPoint = rawPoints.Slice(i, 4);
+            var rawPoint = rawPoints.AsSpan(i, 4);
             results.Add(BitConverter.ToUInt32(rawPoint));
         }
 

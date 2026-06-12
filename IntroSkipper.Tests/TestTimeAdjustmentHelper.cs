@@ -4,6 +4,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
 using System;
+using System.Threading.Tasks;
 using IntroSkipper.Analyzers;
 using IntroSkipper.Configuration;
 using IntroSkipper.Data;
@@ -32,7 +33,7 @@ public class TestTimeAdjustmentHelper
     }
 
     [Fact]
-    public void StartOffset_IsIgnored_When_SnappingToEpisodeStart()
+    public async Task StartOffset_IsIgnored_When_SnappingToEpisodeStart()
     {
         var (helper, cfg) = CreateHelper();
         cfg.IntroStartOffset = 2; // user-configured offset
@@ -40,14 +41,14 @@ public class TestTimeAdjustmentHelper
         var episode = new QueuedEpisode { EpisodeId = Guid.NewGuid(), Duration = 60 };
         var original = new Segment(episode.EpisodeId) { Start = 1.2, End = 10 };
 
-        var adjusted = helper.AdjustIntroTimes(episode, original);
+        var adjusted = await helper.AdjustIntroTimesAsync(episode, original);
 
         Assert.Equal(0, adjusted.Start);
         Assert.Equal(10, adjusted.End);
     }
 
     [Fact]
-    public void StartOffset_IsApplied_When_NotSnapping()
+    public async Task StartOffset_IsApplied_When_NotSnapping()
     {
         var (helper, cfg) = CreateHelper();
         cfg.IntroStartOffset = 2;
@@ -55,14 +56,14 @@ public class TestTimeAdjustmentHelper
         var episode = new QueuedEpisode { EpisodeId = Guid.NewGuid(), Duration = 60 };
         var original = new Segment(episode.EpisodeId) { Start = 5, End = 12 };
 
-        var adjusted = helper.AdjustIntroTimes(episode, original);
+        var adjusted = await helper.AdjustIntroTimesAsync(episode, original);
 
         Assert.Equal(7, adjusted.Start);
         Assert.Equal(12, adjusted.End);
     }
 
     [Fact]
-    public void Start_And_End_Are_Clamped_To_Duration()
+    public async Task Start_And_End_Are_Clamped_To_Duration()
     {
         var (helper, cfg) = CreateHelper();
         cfg.IntroStartOffset = 0;
@@ -71,7 +72,7 @@ public class TestTimeAdjustmentHelper
         var episode = new QueuedEpisode { EpisodeId = Guid.NewGuid(), Duration = 30 };
         var original = new Segment(episode.EpisodeId) { Start = -5, End = 200 };
 
-        var adjusted = helper.AdjustIntroTimes(episode, original);
+        var adjusted = await helper.AdjustIntroTimesAsync(episode, original);
 
         Assert.Equal(0, adjusted.Start); // clamped from -5 to 0 and snapped
         Assert.Equal(30, adjusted.End);  // clamped from 200 to duration before end logic kicks in

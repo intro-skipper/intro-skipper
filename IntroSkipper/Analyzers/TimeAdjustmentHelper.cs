@@ -29,9 +29,9 @@ public partial class TimeAdjustmentHelper(ILogger logger, PluginConfiguration co
     /// <param name="originalIntro">The original intro segment.</param>
     /// <param name="adjustIntroBasedOnChapters">Whether to adjust based on chapters (overrides _config if true).</param>
     /// <param name="cancellationToken">Token used to cancel FFmpeg-based adjustment probes.</param>
-    /// <returns>A new Segment with adjusted intro times.</returns>
+    /// <returns>A task that returns a new Segment with adjusted intro times.</returns>
     /// <exception cref="ArgumentNullException">Thrown if episode or originalIntro is null.</exception>
-    public Segment AdjustIntroTimes(
+    public async Task<Segment> AdjustIntroTimesAsync(
         QueuedEpisode episode,
         Segment originalIntro,
         bool? adjustIntroBasedOnChapters = null,
@@ -114,7 +114,7 @@ public partial class TimeAdjustmentHelper(ILogger logger, PluginConfiguration co
             var silenceRange = GetSearchRange(adjustedEnd, duration, _config.AdjustWindowInward, _config.AdjustWindowOutward);
             if (_config.AdjustIntroBasedOnSilence)
             {
-                var silenceAdjusted = AdjustIntroEndBasedOnSilence(episode, adjustedEnd, silenceRange, _config.SilenceDetectionMinimumDuration, cancellationToken);
+                var silenceAdjusted = await AdjustIntroEndBasedOnSilenceAsync(episode, adjustedEnd, silenceRange, _config.SilenceDetectionMinimumDuration, cancellationToken).ConfigureAwait(false);
                 if (silenceAdjusted != adjustedEnd)
                 {
                     adjustedEnd = silenceAdjusted;
@@ -127,7 +127,7 @@ public partial class TimeAdjustmentHelper(ILogger logger, PluginConfiguration co
 
             if (_config.SnapToKeyframe)
             {
-                adjustedEnd = SnapToNearestKeyframe(episode, adjustedEnd, silenceRange, cancellationToken);
+                adjustedEnd = await SnapToNearestKeyframeAsync(episode, adjustedEnd, silenceRange, cancellationToken).ConfigureAwait(false);
             }
         }
 
@@ -169,11 +169,11 @@ public partial class TimeAdjustmentHelper(ILogger logger, PluginConfiguration co
     /// <summary>
     /// Adjusts the intro end based on detected silence within the search range.
     /// </summary>
-    private double AdjustIntroEndBasedOnSilence(QueuedEpisode episode, double currentEnd, TimeRange searchRange, double silenceDetectionMinimumDuration, CancellationToken cancellationToken)
+    private async Task<double> AdjustIntroEndBasedOnSilenceAsync(QueuedEpisode episode, double currentEnd, TimeRange searchRange, double silenceDetectionMinimumDuration, CancellationToken cancellationToken)
     {
         try
         {
-            var silence = _ffmpegService.DetectSilence(episode, searchRange, _mode, cancellationToken);
+            var silence = await _ffmpegService.DetectSilenceAsync(episode, searchRange, _mode, cancellationToken).ConfigureAwait(false);
             if (silence is not { Length: > 0 })
             {
                 LogNoSilenceDetected(_logger, episode.EpisodeId, episode.Name);
@@ -214,9 +214,9 @@ public partial class TimeAdjustmentHelper(ILogger logger, PluginConfiguration co
     /// <summary>
     /// Snaps a timestamp to the nearest keyframe within the search range.
     /// </summary>
-    private double SnapToNearestKeyframe(QueuedEpisode episode, double time, TimeRange searchRange, CancellationToken cancellationToken)
+    private async Task<double> SnapToNearestKeyframeAsync(QueuedEpisode episode, double time, TimeRange searchRange, CancellationToken cancellationToken)
     {
-        var keyframes = _ffmpegService.DetectKeyFrames(episode, searchRange, _mode, cancellationToken);
+        var keyframes = await _ffmpegService.DetectKeyFramesAsync(episode, searchRange, _mode, cancellationToken).ConfigureAwait(false);
         return SelectNearest(keyframes, time);
     }
 
