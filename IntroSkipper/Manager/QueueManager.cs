@@ -163,7 +163,7 @@ public partial class QueueManager(ILogger<QueueManager> logger, ILibraryManager 
             return;
         }
 
-        // Queue all episodes on the server for fingerprinting.
+        // Queue all supported library items on the server for analysis.
         LogIteratingLibraryItems(_logger);
 
         foreach (var item in items)
@@ -270,7 +270,7 @@ public partial class QueueManager(ILogger<QueueManager> logger, ILibraryManager 
             creditsDuration >= 5 * 60 ? creditsDuration * _analysisPercent : creditsDuration,
             60 * pluginInstance.Configuration.MaximumCreditsDuration);
 
-        // Queue the episode for analysis
+        // Queue the episode for analysis.
         seasonEpisodes.Add(new QueuedEpisode
         {
             SeriesName = episode.SeriesName,
@@ -318,7 +318,7 @@ public partial class QueueManager(ILogger<QueueManager> logger, ILibraryManager 
             return;
         }
 
-        // Allocate a new list for each Movie
+        // Allocate a new list for each movie.
         _queuedEpisodes.TryAdd(movie.Id, []);
 
         var duration = TimeSpan.FromTicks(movie.RunTimeTicks ?? 0).TotalSeconds;
