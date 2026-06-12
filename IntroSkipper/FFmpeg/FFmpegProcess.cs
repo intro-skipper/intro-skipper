@@ -117,7 +117,7 @@ public sealed class FFmpegProcess(ILogger logger)
         return ms.ToArray();
     }
 
-    private static void KillProcessTree(Process process)
+    private void KillProcessTree(Process process)
     {
         try
         {
@@ -126,14 +126,18 @@ public sealed class FFmpegProcess(ILogger logger)
                 process.Kill(entireProcessTree: true);
             }
         }
-        catch (InvalidOperationException)
+        catch (InvalidOperationException ex)
         {
+            // The process exited or was disposed between the HasExited check and Kill.
+            _logger.LogDebug("ffmpeg process already gone while killing process tree: {Message}", ex.Message);
         }
-        catch (System.ComponentModel.Win32Exception)
+        catch (System.ComponentModel.Win32Exception ex)
         {
+            _logger.LogWarning("Failed to kill ffmpeg process tree: {Message}", ex.Message);
         }
-        catch (NotSupportedException)
+        catch (NotSupportedException ex)
         {
+            _logger.LogWarning("Killing the ffmpeg process tree is not supported on this platform: {Message}", ex.Message);
         }
     }
 }

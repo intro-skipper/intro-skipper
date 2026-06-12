@@ -311,21 +311,21 @@ public sealed partial class FFmpegService(
         // Print the FFmpeg detection status at the top.
         // Format: "* FFmpeg: `error`"
         // Append two newlines to separate the bulleted list from the logs
-        var logs = string.Format(
-            CultureInfo.InvariantCulture,
-            "* FFmpeg: `{0}`\n\n",
-            _chromaprintLogs.GetValueOrDefault("error", "unknown"));
+        var logs = new StringBuilder()
+            .Append("* FFmpeg: `")
+            .Append(_chromaprintLogs.GetValueOrDefault("error", "unknown"))
+            .Append("`\n\n");
 
         // Always include ffmpeg version information
-        logs += FormatFFmpegLog("version");
+        logs.Append(FormatFFmpegLog("version"));
 
         // Include feature detection logs to verify no warnings
         foreach (var kvp in _chromaprintLogs.Where(kvp => kvp.Key is not "error" and not "version"))
         {
-            logs += FormatFFmpegLog(kvp.Key);
+            logs.Append(FormatFFmpegLog(kvp.Key));
         }
 
-        return logs;
+        return logs.ToString();
     }
 
     /// <summary>

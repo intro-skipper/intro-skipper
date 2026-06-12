@@ -28,7 +28,7 @@ public class TestTimeAdjustmentHelper
             IntroEndOffset = 0,
         };
 
-        return (new TimeAdjustmentHelper(new NullLoggerFactory().CreateLogger("Test"), cfg, mode, null!), cfg);
+        return (new TimeAdjustmentHelper(NullLogger.Instance, cfg, mode, null!), cfg);
     }
 
     [Fact]
