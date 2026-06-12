@@ -12,7 +12,7 @@ using System.Collections.ObjectModel;
 using IntroSkipper.Analyzers;
 using IntroSkipper.Data;
 using MediaBrowser.Model.Entities;
-using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 using Xunit;
 
 public class TestChapterAnalyzer
@@ -51,8 +51,7 @@ public class TestChapterAnalyzer
 
     private Segment? FindChapter(Collection<ChapterInfo> chapters, AnalysisMode mode)
     {
-        var logger = new LoggerFactory().CreateLogger<ChapterAnalyzer>();
-        var analyzer = new ChapterAnalyzer(logger, null!);
+        var analyzer = new ChapterAnalyzer(NullLogger<ChapterAnalyzer>.Instance, null!);
 
         var config = new Configuration.PluginConfiguration();
         var expression = mode == AnalysisMode.Introduction ?

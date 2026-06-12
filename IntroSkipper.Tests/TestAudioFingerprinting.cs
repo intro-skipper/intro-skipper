@@ -13,7 +13,7 @@ using System.Collections.Generic;
 using IntroSkipper.Analyzers;
 using IntroSkipper.Data;
 using IntroSkipper.FFmpeg;
-using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 using Xunit;
 
 namespace IntroSkipper.Tests;
@@ -159,15 +159,14 @@ public class TestAudioFingerprinting
 
     private static FFmpegService CreateFFmpegService()
     {
-        var logger = new LoggerFactory().CreateLogger<FFmpegService>();
-        var cacheLogger = new LoggerFactory().CreateLogger<DetectionCacheService>();
-        return new FFmpegService(logger, new DetectionCacheService(cacheLogger));
+        return new FFmpegService(
+            NullLogger<FFmpegService>.Instance,
+            new DetectionCacheService(NullLogger<DetectionCacheService>.Instance));
     }
 
     private static ChromaprintAnalyzer CreateChromaprintAnalyzer()
     {
-        var logger = new LoggerFactory().CreateLogger<ChromaprintAnalyzer>();
-        return new(logger, null!, null!);
+        return new(NullLogger<ChromaprintAnalyzer>.Instance, null!, null!);
     }
 }
 

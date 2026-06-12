@@ -5,6 +5,7 @@
 // SPDX-FileCopyrightText: 2024-2026 AbandonedCart
 // SPDX-License-Identifier: GPL-3.0-only
 
+using System.Collections.Concurrent;
 using System.Globalization;
 using System.Text;
 using IntroSkipper.Data;
@@ -28,7 +29,10 @@ public sealed partial class FFmpegService(
     private readonly ILogger<FFmpegService> _logger = logger;
     private readonly IDetectionCacheService _cacheService = cacheService;
     private readonly FFmpegProcess _process = new(logger);
-    private readonly Dictionary<string, string> _chromaprintLogs = [];
+
+    // Written by CheckFFmpegVersion (serialized via ScheduledTaskSemaphore) but read concurrently
+    // by the support bundle endpoint, so a concurrent dictionary is required.
+    private readonly ConcurrentDictionary<string, string> _chromaprintLogs = new();
 
     /// <inheritdoc/>
     public bool CheckFFmpegVersion(CancellationToken cancellationToken = default)
@@ -76,7 +80,7 @@ public sealed partial class FFmpegService(
                 return false;
             }
 
-            // Third, validate that ffmpeg supports of the all required silencedetect options.
+            // Third, validate that ffmpeg supports all of the required silencedetect options.
             if (!CheckFFmpegRequirement(
                 "-h filter=silencedetect",
                 "noise tolerance",
@@ -98,8 +102,9 @@ public sealed partial class FFmpegService(
         {
             throw;
         }
-        catch
+        catch (Exception ex)
         {
+            LogFfmpegVersionCheckFailed(_logger, ex);
             _chromaprintLogs["error"] = "unknown_error";
             WarningManager.SetFlag(PluginWarning.IncompatibleFFmpegBuild);
             return false;
@@ -111,7 +116,7 @@ public sealed partial class FFmpegService(
     {
         cancellationToken.ThrowIfCancellationRequested();
 
-        var (start, end) = GetFingerprintRange(episode, mode);
+        var (start, end) = episode.GetFingerprintRange(mode);
         return Fingerprint(episode, mode, start, end, cancellationToken);
     }
 
@@ -121,6 +126,12 @@ public sealed partial class FFmpegService(
         cancellationToken.ThrowIfCancellationRequested();
 
         LogDetectingSilence(_logger, episode.Path, range.Start, range.End, episode.EpisodeId);
+
+        if (_cacheService.TryRead(episode.EpisodeId, mode, CacheEntryType.Silence, range.Start, range.End, out TimeRange[] cached))
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            return cached;
+        }
 
         // -vn, -sn, -dn: ignore video, subtitle, and data tracks
         var noise = (Plugin.Instance?.Configuration.SilenceDetectionMaximumNoise ?? -50).ToString(CultureInfo.InvariantCulture);
@@ -133,12 +144,6 @@ public sealed partial class FFmpegService(
             "-af", $"silencedetect=noise={noise}dB:duration=0.1",
             "-f", "null", "-",
         };
-
-        if (_cacheService.TryRead(episode.EpisodeId, mode, CacheEntryType.Silence, range.Start, range.End, out TimeRange[] cached))
-        {
-            cancellationToken.ThrowIfCancellationRequested();
-            return cached;
-        }
 
         /* Each match will have a type (either "start" or "end") and a timecode (a double).
          *
@@ -165,6 +170,12 @@ public sealed partial class FFmpegService(
     {
         cancellationToken.ThrowIfCancellationRequested();
 
+        if (_cacheService.TryRead(episode.EpisodeId, mode, CacheEntryType.BlackFrame, range.Start, range.End, out BlackFrame[] cached))
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            return [.. cached.Where(bf => bf.Percentage >= minimum)];
+        }
+
         // Seek to the start of the time range and find frames that are at least 50% black.
         var args = new List<string>
         {
@@ -175,12 +186,6 @@ public sealed partial class FFmpegService(
             "-vf", $"blackframe=amount=50:threshold={threshold}",
             "-f", "null", "-",
         };
-
-        if (_cacheService.TryRead(episode.EpisodeId, mode, CacheEntryType.BlackFrame, range.Start, range.End, out BlackFrame[] cached))
-        {
-            cancellationToken.ThrowIfCancellationRequested();
-            return [.. cached.Where(bf => bf.Percentage >= minimum)];
-        }
 
         var raw = Encoding.UTF8.GetString(GetOutput(args, true, cancellationToken: cancellationToken));
         var allFrames = FFmpegOutputParser.ParseBlackFrames(raw);
@@ -196,6 +201,12 @@ public sealed partial class FFmpegService(
         ArgumentNullException.ThrowIfNull(episode);
         cancellationToken.ThrowIfCancellationRequested();
 
+        if (_cacheService.TryRead(episode.EpisodeId, AnalysisMode.Credits, CacheEntryType.BlackFrame, episode.CreditsFingerprintStart, 0, out BlackFrame[] cached))
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            return cached;
+        }
+
         // Seek to the start of the time range and get the black level of each frame.
         var args = new List<string>
         {
@@ -206,12 +217,6 @@ public sealed partial class FFmpegService(
             "-vf", $"blackframe=amount=0:threshold={threshold}",
             "-f", "null", "-",
         };
-
-        if (_cacheService.TryRead(episode.EpisodeId, AnalysisMode.Credits, CacheEntryType.BlackFrame, episode.CreditsFingerprintStart, 0, out BlackFrame[] cached))
-        {
-            cancellationToken.ThrowIfCancellationRequested();
-            return cached;
-        }
 
         var raw = Encoding.UTF8.GetString(GetOutput(args, true, cancellationToken: cancellationToken));
         var allFrames = FFmpegOutputParser.ParseBlackFrames(raw);
@@ -226,6 +231,12 @@ public sealed partial class FFmpegService(
     {
         cancellationToken.ThrowIfCancellationRequested();
 
+        if (_cacheService.TryRead(episode.EpisodeId, mode, CacheEntryType.Keyframe, range.Start, range.End, out double[] cached))
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            return cached;
+        }
+
         var args = new List<string>
         {
             "-skip_frame", "nokey",
@@ -236,12 +247,6 @@ public sealed partial class FFmpegService(
             "-vf", "showinfo",
             "-f", "null", "-",
         };
-
-        if (_cacheService.TryRead(episode.EpisodeId, mode, CacheEntryType.Keyframe, range.Start, range.End, out double[] cached))
-        {
-            cancellationToken.ThrowIfCancellationRequested();
-            return cached;
-        }
 
         var raw = Encoding.UTF8.GetString(GetOutput(args, stderr: true, cancellationToken: cancellationToken));
         var result = FFmpegOutputParser.ParseKeyFrames(raw, range.Start, _logger);
@@ -309,7 +314,7 @@ public sealed partial class FFmpegService(
         var logs = string.Format(
             CultureInfo.InvariantCulture,
             "* FFmpeg: `{0}`\n\n",
-            _chromaprintLogs["error"]);
+            _chromaprintLogs.GetValueOrDefault("error", "unknown"));
 
         // Always include ffmpeg version information
         logs += FormatFFmpegLog("version");
@@ -423,16 +428,6 @@ public sealed partial class FFmpegService(
         return Path.Combine(Path.GetDirectoryName(ffmpegPath) ?? string.Empty, "ffprobe" + extension);
     }
 
-    private static (double Start, double End) GetFingerprintRange(QueuedEpisode episode, AnalysisMode mode)
-    {
-        return mode switch
-        {
-            AnalysisMode.Introduction => (0, episode.IntroFingerprintEnd),
-            AnalysisMode.Credits => (episode.CreditsFingerprintStart, episode.CreditsFingerprintEnd > 0 ? episode.CreditsFingerprintEnd : episode.Duration),
-            _ => throw new ArgumentException("Unknown analysis mode " + mode),
-        };
-    }
-
     /// <summary>
     /// Fingerprint a queued episode.
     /// </summary>
@@ -519,7 +514,7 @@ public sealed partial class FFmpegService(
         */
 
         var formatted = string.Format(CultureInfo.InvariantCulture, "FFmpeg {0}:\n```\n", key);
-        formatted += _chromaprintLogs[key];
+        formatted += _chromaprintLogs.GetValueOrDefault(key, "(no output captured)");
 
         // Ensure the closing triple backtick is on a separate line
         if (!formatted.EndsWith('\n'))
@@ -534,6 +529,9 @@ public sealed partial class FFmpegService(
 
     [LoggerMessage(Level = LogLevel.Debug, Message = "Installed version of ffmpeg meets fingerprinting requirements")]
     private static partial void LogFfmpegVersionValid(ILogger logger);
+
+    [LoggerMessage(Level = LogLevel.Error, Message = "Unexpected error while checking the installed FFmpeg version")]
+    private static partial void LogFfmpegVersionCheckFailed(ILogger logger, Exception ex);
 
     [LoggerMessage(Level = LogLevel.Trace, Message = "Detecting silence in \"{File}\" (range {Start}-{End}, id {Id})")]
     private static partial void LogDetectingSilence(ILogger logger, string file, double start, double end, Guid id);

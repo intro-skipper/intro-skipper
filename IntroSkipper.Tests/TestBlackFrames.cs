@@ -12,7 +12,7 @@ using System.IO;
 using IntroSkipper.Analyzers;
 using IntroSkipper.Data;
 using IntroSkipper.FFmpeg;
-using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 using Xunit;
 
 public class TestBlackFrames
@@ -572,14 +572,13 @@ public class TestBlackFrames
 
     private static FFmpegService CreateFFmpegService()
     {
-        var logger = new LoggerFactory().CreateLogger<FFmpegService>();
-        var cacheLogger = new LoggerFactory().CreateLogger<DetectionCacheService>();
-        return new FFmpegService(logger, new DetectionCacheService(cacheLogger));
+        return new FFmpegService(
+            NullLogger<FFmpegService>.Instance,
+            new DetectionCacheService(NullLogger<DetectionCacheService>.Instance));
     }
 
     private static BlackFrameAnalyzer CreateBlackFrameAnalyzer()
     {
-        var logger = new LoggerFactory().CreateLogger<BlackFrameAnalyzer>();
-        return new(logger, CreateFFmpegService());
+        return new(NullLogger<BlackFrameAnalyzer>.Instance, CreateFFmpegService());
     }
 }

@@ -139,7 +139,7 @@ public sealed partial class DetectionCacheService(ILogger<DetectionCacheService>
             return false;
         }
 
-        var (start, end) = GetFingerprintRange(episode, mode);
+        var (start, end) = episode.GetFingerprintRange(mode);
 
         try
         {
@@ -219,16 +219,6 @@ public sealed partial class DetectionCacheService(ILogger<DetectionCacheService>
         {
             db.DetectionCache.Add(new DbDetectionCache(itemId, mode, type, data, start, end, configHash));
         }
-    }
-
-    private static (double Start, double End) GetFingerprintRange(QueuedEpisode episode, AnalysisMode mode)
-    {
-        return mode switch
-        {
-            AnalysisMode.Introduction => (0, episode.IntroFingerprintEnd),
-            AnalysisMode.Credits => (episode.CreditsFingerprintStart, episode.CreditsFingerprintEnd > 0 ? episode.CreditsFingerprintEnd : episode.Duration),
-            _ => throw new ArgumentException("Unknown analysis mode " + mode),
-        };
     }
 
     [LoggerMessage(Level = LogLevel.Trace, Message = "Detection cache hit for {CacheKey}")]

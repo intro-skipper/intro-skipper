@@ -14,7 +14,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using IntroSkipper.Data;
 using IntroSkipper.FFmpeg;
-using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 using Xunit;
 
 namespace IntroSkipper.Tests;
@@ -26,7 +26,7 @@ public class TestFFmpegService
     [Fact]
     public async Task RunAsync_KillsProcessTree_OnCancellation()
     {
-        var runner = new FFmpegProcess(new LoggerFactory().CreateLogger<FFmpegProcess>());
+        var runner = new FFmpegProcess(NullLogger<FFmpegProcess>.Instance);
         var (processPath, args) = CreateLongRunningCommand();
         using var cts = new CancellationTokenSource(TimeSpan.FromMilliseconds(100));
 
@@ -239,9 +239,9 @@ public class TestFFmpegService
 
     private static FFmpegService CreateFFmpegService()
     {
-        var logger = new LoggerFactory().CreateLogger<FFmpegService>();
-        var cacheLogger = new LoggerFactory().CreateLogger<DetectionCacheService>();
-        return new FFmpegService(logger, new DetectionCacheService(cacheLogger));
+        return new FFmpegService(
+            NullLogger<FFmpegService>.Instance,
+            new DetectionCacheService(NullLogger<DetectionCacheService>.Instance));
     }
 
     private static QueuedEpisode QueueFile(string path)

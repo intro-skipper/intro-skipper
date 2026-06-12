@@ -123,4 +123,23 @@ public class QueuedEpisode
     /// <returns><see langword="true"/> if the episode should be included in the analysis queue.</returns>
     public bool NeedsAnalysis(AnalysisMode mode)
         => GetAnalyzed(mode) is not (EpisodeState.Analyzed or EpisodeState.UserProvided);
+
+    /// <summary>
+    /// Gets the time range (in seconds) that is fingerprinted for the given analysis mode.
+    /// This is the single source of truth for detection cache keys: the exact values returned
+    /// here are used both when writing cache entries and when looking them up, so the cached
+    /// Start/End doubles always round-trip bit-exactly.
+    /// </summary>
+    /// <param name="mode">Analysis mode.</param>
+    /// <returns>Start and end timestamps of the fingerprint range.</returns>
+    /// <exception cref="ArgumentException">If the analysis mode has no fingerprint range.</exception>
+    public (double Start, double End) GetFingerprintRange(AnalysisMode mode)
+    {
+        return mode switch
+        {
+            AnalysisMode.Introduction => (0, IntroFingerprintEnd),
+            AnalysisMode.Credits => (CreditsFingerprintStart, CreditsFingerprintEnd > 0 ? CreditsFingerprintEnd : Duration),
+            _ => throw new ArgumentException("Unknown analysis mode " + mode),
+        };
+    }
 }
