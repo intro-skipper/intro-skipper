@@ -76,7 +76,7 @@ public sealed class FFmpegProcess(ILogger logger)
         {
             process.PriorityClass = priority ?? ProcessPriorityClass.BelowNormal;
         }
-        catch (Exception e)
+        catch (Exception e) when (e is InvalidOperationException or System.ComponentModel.Win32Exception or NotSupportedException)
         {
             _logger.LogWarning("ffmpeg priority could not be modified. {Message}", e.Message);
         }

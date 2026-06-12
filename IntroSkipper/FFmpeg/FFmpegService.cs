@@ -425,7 +425,7 @@ public sealed partial class FFmpegService(
             return candidate;
         }
 
-        return Path.Combine(Path.GetDirectoryName(ffmpegPath) ?? string.Empty, "ffprobe" + extension);
+        return Path.Join(Path.GetDirectoryName(ffmpegPath) ?? string.Empty, "ffprobe" + extension);
     }
 
     /// <summary>
