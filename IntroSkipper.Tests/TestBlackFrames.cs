@@ -11,7 +11,8 @@ using System.Collections.Generic;
 using System.IO;
 using IntroSkipper.Analyzers;
 using IntroSkipper.Data;
-using Microsoft.Extensions.Logging;
+using IntroSkipper.FFmpeg;
+using Microsoft.Extensions.Logging.Abstractions;
 using Xunit;
 
 public class TestBlackFrames
@@ -26,7 +27,7 @@ public class TestBlackFrames
         expected.AddRange(CreateFrameSequence(5, 6));
         expected.AddRange(CreateFrameSequence(8, 9.96));
 
-        var actual = FFmpegWrapper.DetectBlackFrames(QueueFile("rainbow.mp4"), new(0, 10), 85, 32, AnalysisMode.Introduction);
+        var actual = CreateFFmpegService().DetectBlackFrames(QueueFile("rainbow.mp4"), new(0, 10), 85, 32, AnalysisMode.Introduction);
 
         for (var i = 0; i < expected.Count; i++)
         {
@@ -532,7 +533,7 @@ public class TestBlackFrames
 
     /// <summary>
     /// Parses a raw FFmpeg blackframe filter output file into a list of <see cref="BlackFrame"/> records.
-    /// Delegates to the production <see cref="FFmpegWrapper.ParseBlackFrame"/> parser to avoid
+    /// Delegates to the production <see cref="FFmpegOutputParser.ParseBlackFrame"/> parser to avoid
     /// regex/format drift between tests and implementation.
     /// </summary>
     private static List<BlackFrame> ParseFingerprintFile(string filename)
@@ -544,7 +545,7 @@ public class TestBlackFrames
 
         var path = Path.Combine("..", "..", "..", "fingerprints", filename);
         var raw = File.ReadAllText(path);
-        return [.. FFmpegWrapper.ParseBlackFrame(raw)];
+        return [.. FFmpegOutputParser.ParseBlackFrames(raw)];
     }
 
     private static QueuedEpisode QueueFile(string path)
@@ -569,9 +570,15 @@ public class TestBlackFrames
         return [.. frames];
     }
 
+    private static FFmpegService CreateFFmpegService()
+    {
+        return new FFmpegService(
+            NullLogger<FFmpegService>.Instance,
+            new DetectionCacheService(NullLogger<DetectionCacheService>.Instance));
+    }
+
     private static BlackFrameAnalyzer CreateBlackFrameAnalyzer()
     {
-        var logger = new LoggerFactory().CreateLogger<BlackFrameAnalyzer>();
-        return new(logger);
+        return new(NullLogger<BlackFrameAnalyzer>.Instance, CreateFFmpegService());
     }
 }

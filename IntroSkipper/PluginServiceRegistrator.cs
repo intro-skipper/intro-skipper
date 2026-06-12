@@ -3,6 +3,7 @@
 // SPDX-FileCopyrightText: 2024-2026 AbandonedCart
 // SPDX-License-Identifier: GPL-3.0-only
 
+using IntroSkipper.FFmpeg;
 using IntroSkipper.Filters;
 using IntroSkipper.Manager;
 using IntroSkipper.Providers;
@@ -24,6 +25,8 @@ namespace IntroSkipper
         public void RegisterServices(IServiceCollection serviceCollection, IServerApplicationHost applicationHost)
         {
             serviceCollection.AddHostedService<Entrypoint>();
+            serviceCollection.AddSingleton<IDetectionCacheService, DetectionCacheService>();
+            serviceCollection.AddSingleton<IFFmpegService, FFmpegService>();
             serviceCollection.AddSingleton<IMediaSegmentProvider, SegmentProvider>();
             serviceCollection.AddTransient<MediaSegmentUpdateManager>();
             serviceCollection.AddSingleton<MediaSegmentsFirstEpisodeFilter>();

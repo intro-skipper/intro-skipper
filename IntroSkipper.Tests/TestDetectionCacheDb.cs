@@ -80,7 +80,7 @@ public sealed class TestDetectionCacheDbContext : IDisposable
     [Fact]
     public void Write_OverwritesExistingEntry()
     {
-        // Mirrors the upsert pattern in FFmpegWrapper.WriteJsonCache:
+        // Mirrors the upsert pattern in DetectionCacheService.Write:
         // find by composite key, update Data if found, else add new.
         var id = Guid.NewGuid();
         var mode = AnalysisMode.Introduction;
