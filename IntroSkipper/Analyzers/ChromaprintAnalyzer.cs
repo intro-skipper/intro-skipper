@@ -68,7 +68,7 @@ public partial class ChromaprintAnalyzer(ILogger<ChromaprintAnalyzer> logger, IF
             try
             {
                 cancellationToken.ThrowIfCancellationRequested();
-                fingerprintCache[episode.EpisodeId] = _ffmpegService.Fingerprint(episode, mode, cancellationToken);
+                fingerprintCache[episode.EpisodeId] = await _ffmpegService.FingerprintAsync(episode, mode, cancellationToken).ConfigureAwait(false);
             }
             catch (FingerprintException ex)
             {
@@ -111,7 +111,7 @@ public partial class ChromaprintAnalyzer(ILogger<ChromaprintAnalyzer> logger, IF
                     continue;
                 }
 
-                /* Since the Fingerprint() function returns an array of Chromaprint points without time
+                /* Since the FingerprintAsync() function returns an array of Chromaprint points without time
                  * information, the times reported from the index search function start from 0.
                  *
                  * While this is desired behavior for detecting introductions, it breaks credit
@@ -150,7 +150,7 @@ public partial class ChromaprintAnalyzer(ILogger<ChromaprintAnalyzer> logger, IF
             // If an intro is found for this episode, adjust its times and save it else add it to the list of episodes without intros.
             if (seasonIntros.TryGetValue(currentEpisode.EpisodeId, out var intro))
             {
-                var adjustedIntro = timeAdjustmentHelper.AdjustIntroTimes(currentEpisode, intro, cancellationToken: cancellationToken);
+                var adjustedIntro = await timeAdjustmentHelper.AdjustIntroTimesAsync(currentEpisode, intro, cancellationToken: cancellationToken).ConfigureAwait(false);
                 currentEpisode.SetAnalyzed(mode, EpisodeState.Analyzed);
                 await Plugin.Instance!.UpdateTimestampAsync(adjustedIntro, mode, configHash: currentEpisode.AnalysisConfigHash, cancellationToken: cancellationToken).ConfigureAwait(false);
             }

@@ -9,6 +9,7 @@ using System;
 using System.IO.Compression;
 using System.Linq;
 using System.Text.Json;
+using System.Threading.Tasks;
 using IntroSkipper.Configuration;
 using IntroSkipper.Data;
 using IntroSkipper.Db;
@@ -154,7 +155,7 @@ public sealed class TestCacheOperations
     /// Before the fix, cache reads returned false for empty arrays, causing unnecessary re-analysis.
     /// </summary>
     [Fact]
-    public void EmptyArrayCacheEntry_TreatedAsCacheHit()
+    public async Task EmptyArrayCacheEntry_TreatedAsCacheHit()
     {
         var episode = new QueuedEpisode
         {
@@ -179,14 +180,14 @@ public sealed class TestCacheOperations
                 compressedEmpty,
                 range.Start,
                 range.End));
-            db.SaveChanges();
+            await db.SaveChangesAsync();
         }
 
         TimeRange[] result;
         using (var cachingScope = new CachingPluginScope(cacheDir, scope.CacheDbPath))
         {
             // If the empty-array bug were present this would throw FingerprintException (file not found).
-            result = cachingScope.CreateFFmpegService().DetectSilence(episode, range, AnalysisMode.Introduction);
+            result = await cachingScope.CreateFFmpegService().DetectSilenceAsync(episode, range, AnalysisMode.Introduction);
         }
 
         Assert.Empty(result);
@@ -219,7 +220,7 @@ public sealed class TestCacheOperations
     }
 
     [Fact]
-    public void CachedFingerprint_StoresRealStartEnd()
+    public async Task CachedFingerprint_StoresRealStartEnd()
     {
         var episode = new QueuedEpisode
         {
@@ -245,21 +246,21 @@ public sealed class TestCacheOperations
                 compressed,
                 0,        // start
                 600));    // end = IntroFingerprintEnd
-            db.SaveChanges();
+            await db.SaveChangesAsync();
         }
 
         uint[] result;
         using (var cachingScope = new CachingPluginScope(cacheDir, cacheDbPath))
         {
             // Should hit cache because start=0, end=600 matches
-            result = cachingScope.CreateFFmpegService().Fingerprint(episode, AnalysisMode.Introduction);
+            result = await cachingScope.CreateFFmpegService().FingerprintAsync(episode, AnalysisMode.Introduction);
         }
 
         Assert.Equal(fingerprint, result);
     }
 
     [Fact]
-    public void CachedFingerprint_ThrowsWhenCanceledBeforeCacheHit()
+    public async Task CachedFingerprint_ThrowsWhenCanceledBeforeCacheHit()
     {
         var episode = new QueuedEpisode
         {
@@ -282,19 +283,19 @@ public sealed class TestCacheOperations
                 compressed,
                 0,
                 600));
-            db.SaveChanges();
+            await db.SaveChangesAsync();
         }
 
         using var cts = new System.Threading.CancellationTokenSource();
-        cts.Cancel();
+        await cts.CancelAsync();
 
         using var cachingScope = new CachingPluginScope(cacheDir, cacheDbPath);
-        Assert.Throws<OperationCanceledException>(
-            () => cachingScope.CreateFFmpegService().Fingerprint(episode, AnalysisMode.Introduction, cts.Token));
+        await Assert.ThrowsAsync<OperationCanceledException>(
+            () => cachingScope.CreateFFmpegService().FingerprintAsync(episode, AnalysisMode.Introduction, cts.Token));
     }
 
     [Fact]
-    public void CachedFingerprint_MissesOnDifferentEnd()
+    public async Task CachedFingerprint_MissesOnDifferentEnd()
     {
         var episode = new QueuedEpisode
         {
@@ -320,7 +321,7 @@ public sealed class TestCacheOperations
                 compressed,
                 0,      // start
                 600));  // old end
-            db.SaveChanges();
+            await db.SaveChangesAsync();
         }
 
         using (var cachingScope = new CachingPluginScope(cacheDir, cacheDbPath))
@@ -328,8 +329,8 @@ public sealed class TestCacheOperations
             // Should miss cache (end mismatch: 600 vs 900) and then throw
             // because the file doesn't actually exist for ffmpeg
             var svc = cachingScope.CreateFFmpegService();
-            Assert.Throws<FingerprintException>(
-                () => svc.Fingerprint(episode, AnalysisMode.Introduction));
+            await Assert.ThrowsAsync<FingerprintException>(
+                () => svc.FingerprintAsync(episode, AnalysisMode.Introduction));
         }
     }
 

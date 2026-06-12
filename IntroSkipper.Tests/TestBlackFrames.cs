@@ -9,6 +9,7 @@ namespace IntroSkipper.Tests;
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Threading.Tasks;
 using IntroSkipper.Analyzers;
 using IntroSkipper.Data;
 using IntroSkipper.FFmpeg;
@@ -18,7 +19,7 @@ using Xunit;
 public class TestBlackFrames
 {
     [FactSkipFFmpegTests]
-    public void TestBlackFrameDetection()
+    public async Task TestBlackFrameDetection()
     {
         var range = 1e-5;
 
@@ -27,7 +28,7 @@ public class TestBlackFrames
         expected.AddRange(CreateFrameSequence(5, 6));
         expected.AddRange(CreateFrameSequence(8, 9.96));
 
-        var actual = CreateFFmpegService().DetectBlackFrames(QueueFile("rainbow.mp4"), new(0, 10), 85, 32, AnalysisMode.Introduction);
+        var actual = await CreateFFmpegService().DetectBlackFramesAsync(QueueFile("rainbow.mp4"), new(0, 10), 85, 32, AnalysisMode.Introduction);
 
         for (var i = 0; i < expected.Count; i++)
         {
@@ -38,7 +39,7 @@ public class TestBlackFrames
     }
 
     [FactSkipFFmpegTests]
-    public void TestEndCreditDetection()
+    public async Task TestEndCreditDetection()
     {
         // new strategy new range
         var range = 3;
@@ -48,7 +49,7 @@ public class TestBlackFrames
         var episode = QueueFile("credits.mp4");
         episode.Duration = (int)new TimeSpan(0, 5, 30).TotalSeconds;
 
-        var result = analyzer.AnalyzeMediaFile(episode, 240, 85, 32);
+        var result = await analyzer.AnalyzeMediaFileAsync(episode, 240, 85, 32);
         Assert.NotNull(result);
         Assert.InRange(result.Start, 300 - range, 300 + range);
     }
