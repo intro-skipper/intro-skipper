@@ -23,17 +23,17 @@ namespace IntroSkipper.Controllers;
 /// <remarks>
 /// Initializes a new instance of the <see cref="SegmentEditorController"/> class.
 /// </remarks>
-/// <param name="mediaSegmentUpdateManager">MediaSegmentUpdateManager.</param>
+/// <param name="mediaSegmentEditorService">Media segment editor service.</param>
 [Authorize(Policy = Policies.RequiresElevation)]
 [ApiController]
 [Produces(MediaTypeNames.Application.Json)]
 [Route("MediaSegmentsApi")]
-public class SegmentEditorController(MediaSegmentUpdateManager mediaSegmentUpdateManager) : ControllerBase
+public class SegmentEditorController(MediaSegmentEditorService mediaSegmentEditorService) : ControllerBase
 {
     // Maximum difference in seconds between two time values to be considered equal.
     private const double TimeComparisonToleranceSeconds = 0.01;
 
-    private readonly MediaSegmentUpdateManager _mediaSegmentUpdateManager = mediaSegmentUpdateManager;
+    private readonly MediaSegmentEditorService _mediaSegmentEditorService = mediaSegmentEditorService;
 
     /// <summary>
     /// Plugin meta endpoint.
@@ -79,7 +79,7 @@ public class SegmentEditorController(MediaSegmentUpdateManager mediaSegmentUpdat
 
         await Plugin.Instance!.UpdateTimestampAsync(seg, mode, isUserProvided: true, cancellationToken: cancellationToken).ConfigureAwait(false);
 
-        await _mediaSegmentUpdateManager.CreateOrReplaceSegmentAsync(item, segment, cancellationToken).ConfigureAwait(false);
+        await _mediaSegmentEditorService.CreateOrReplaceSegmentAsync(item, segment, cancellationToken).ConfigureAwait(false);
 
         return Ok();
     }
@@ -101,7 +101,7 @@ public class SegmentEditorController(MediaSegmentUpdateManager mediaSegmentUpdat
         [FromQuery, Required] string type,
         CancellationToken cancellationToken = default)
     {
-        var existingSegment = await _mediaSegmentUpdateManager
+        var existingSegment = await _mediaSegmentEditorService
             .GetSegmentAsync(itemId, segmentId, cancellationToken)
             .ConfigureAwait(false);
 
@@ -146,7 +146,7 @@ public class SegmentEditorController(MediaSegmentUpdateManager mediaSegmentUpdat
 
         try
         {
-            await _mediaSegmentUpdateManager.DeleteSegmentAsync(segmentId).ConfigureAwait(false);
+            await _mediaSegmentEditorService.DeleteSegmentAsync(segmentId).ConfigureAwait(false);
         }
         catch
         {
