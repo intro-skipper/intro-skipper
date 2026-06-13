@@ -483,28 +483,31 @@ public partial class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
     }
 
     /// <summary>
-    /// Atomically decides whether a settled season should be re-analyzed and records the decision.
-    /// Returns <see langword="true"/> only the first time a given season is seen at a given episode
-    /// count, so a scheduled scan that runs repeatedly does not redo the work every time.
+    /// Returns whether a settled season still needs a re-analysis at its current episode count.
+    /// Read-only: the decision is committed separately via <see cref="RecordSettleReanalysis"/> once
+    /// the reset has succeeded, so a failed or cancelled pass is retried on the next scan.
     /// </summary>
     /// <param name="seasonId">Season ID.</param>
     /// <param name="episodeCount">Current number of episodes in the season.</param>
     /// <returns><see langword="true"/> when a re-analysis should be performed; otherwise <see langword="false"/>.</returns>
-    internal bool TryBeginSettleReanalysis(Guid seasonId, int episodeCount)
-    {
-        var shouldRun = !_settleReanalyzedCounts.TryGetValue(seasonId, out var last) || last != episodeCount;
-        if (shouldRun)
-        {
-            _settleReanalyzedCounts[seasonId] = episodeCount;
-        }
+    internal bool ShouldSettleReanalyze(Guid seasonId, int episodeCount)
+        => !_settleReanalyzedCounts.TryGetValue(seasonId, out var last) || last != episodeCount;
 
-        return shouldRun;
-    }
+    /// <summary>
+    /// Records that a season has been re-analyzed at the given episode count so the work is not
+    /// repeated on every subsequent scheduled scan. Call only after the reset has committed.
+    /// </summary>
+    /// <param name="seasonId">Season ID.</param>
+    /// <param name="episodeCount">Episode count that was re-analyzed.</param>
+    internal void RecordSettleReanalysis(Guid seasonId, int episodeCount)
+        => _settleReanalyzedCounts[seasonId] = episodeCount;
 
     /// <summary>
     /// Clears stored automatic analysis state for a season so it is re-analyzed from scratch on the
     /// current pass. Automatic segments for the supplied modes are deleted and the season's analyzed
     /// episode lists are cleared; user-provided segments and the fingerprint cache are preserved.
+    /// The deletes and the episode-list clear run in a single transaction so a cancelled reset cannot
+    /// leave segments deleted while their episodes are still recorded as analyzed.
     /// </summary>
     /// <param name="seasonId">Season ID whose analyzed-state lists should be cleared.</param>
     /// <param name="episodeIds">Episode IDs whose automatic segments should be removed.</param>
@@ -526,29 +529,37 @@ public partial class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
 
         using var db = CreateDbContext();
 
-        foreach (var batch in ids.Chunk(SqliteParameterBatchSize))
+        var transaction = await db.Database.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
+        try
         {
-            await db.DbSegment
-                .Where(s => batch.Contains(s.ItemId) && modeArray.Contains(s.Type) && !s.IsUserProvided)
-                .ExecuteDeleteAsync(cancellationToken)
+            foreach (var batch in ids.Chunk(SqliteParameterBatchSize))
+            {
+                await db.DbSegment
+                    .Where(s => batch.Contains(s.ItemId) && modeArray.Contains(s.Type) && !s.IsUserProvided)
+                    .ExecuteDeleteAsync(cancellationToken)
+                    .ConfigureAwait(false);
+            }
+
+            // Clear the analyzed-episode lists so VerifyQueueAsync treats every episode as NotAnalyzed.
+            // Committing this together with the deletes guarantees the episodes are re-analyzed (either
+            // on this pass or a later one) instead of being stranded as NoSegments.
+            var seasonInfos = await db.DbSeasonInfo
+                .Where(s => s.SeasonId == seasonId && modeArray.Contains(s.Type))
+                .ToListAsync(cancellationToken)
                 .ConfigureAwait(false);
+
+            foreach (var info in seasonInfos)
+            {
+                db.Entry(info).Property(s => s.EpisodeIds).CurrentValue = [];
+            }
+
+            await db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+            await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
         }
-
-        // Clear the analyzed-episode lists so VerifyQueueAsync treats every episode as NotAnalyzed.
-        // This must happen even though the in-memory states are reset on the same pass: if that pass
-        // is cancelled, a stale list would otherwise leave the episodes as NoSegments and never
-        // re-analyzed.
-        var seasonInfos = await db.DbSeasonInfo
-            .Where(s => s.SeasonId == seasonId && modeArray.Contains(s.Type))
-            .ToListAsync(cancellationToken)
-            .ConfigureAwait(false);
-
-        foreach (var info in seasonInfos)
+        finally
         {
-            db.Entry(info).Property(s => s.EpisodeIds).CurrentValue = [];
+            await transaction.DisposeAsync().ConfigureAwait(false);
         }
-
-        await db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
     }
 
     internal async Task<SeasonQueueSnapshot> GetSeasonQueueSnapshotAsync(Guid seasonId, IReadOnlyCollection<Guid> episodeIds, CancellationToken cancellationToken = default)

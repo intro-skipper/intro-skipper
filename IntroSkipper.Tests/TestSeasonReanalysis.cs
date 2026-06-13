@@ -116,7 +116,7 @@ public sealed class TestSeasonReanalysisPlanner
 public sealed class TestSeasonReanalysisReset
 {
     [Fact]
-    public void TryBeginSettleReanalysis_RunsOncePerEpisodeCount()
+    public void SettleReanalysisGuard_RunsOncePerEpisodeCount_AndOnlyAfterRecorded()
     {
         using (new EntrypointTestHelpers.PluginInstanceScope(EntrypointTestHelpers.CreateTempCacheDir()))
         {
@@ -126,10 +126,16 @@ public sealed class TestSeasonReanalysisReset
 
             var season = Guid.NewGuid();
 
-            Assert.True(plugin.TryBeginSettleReanalysis(season, 5));   // first sighting
-            Assert.False(plugin.TryBeginSettleReanalysis(season, 5));  // already done at this count
-            Assert.True(plugin.TryBeginSettleReanalysis(season, 6));   // grew → run again
-            Assert.False(plugin.TryBeginSettleReanalysis(season, 6));
+            // Stays eligible until the work is explicitly recorded, so a failed reset is retried.
+            Assert.True(plugin.ShouldSettleReanalyze(season, 5));
+            Assert.True(plugin.ShouldSettleReanalyze(season, 5));
+
+            plugin.RecordSettleReanalysis(season, 5);
+            Assert.False(plugin.ShouldSettleReanalyze(season, 5)); // already done at this count
+
+            Assert.True(plugin.ShouldSettleReanalyze(season, 6));  // grew → eligible again
+            plugin.RecordSettleReanalysis(season, 6);
+            Assert.False(plugin.ShouldSettleReanalyze(season, 6));
         }
     }
 

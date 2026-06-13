@@ -139,8 +139,8 @@ public partial class BaseItemAnalyzerTask(
             // segments first derived from a partial season are recomputed against the full season.
             // Reuses the cached fingerprints, so this only re-runs the comparison, not the decode.
             if (_config.ReanalyzeSettledSeasons &&
-                SeasonReanalysisPlanner.IsSettledForReanalysis(episodes, _config, DateTime.UtcNow) &&
-                plugin.TryBeginSettleReanalysis(first.SeasonId, episodes.Count))
+                plugin.ShouldSettleReanalyze(first.SeasonId, episodes.Count) &&
+                SeasonReanalysisPlanner.IsSettledForReanalysis(episodes, _config, DateTime.UtcNow))
             {
                 LogReanalyzingSettledSeason(_logger, first.SeasonNumber, first.SeriesName, episodes.Count);
                 await plugin.ResetSeasonForReanalysisAsync(first.SeasonId, episodes.Select(e => e.EpisodeId), modes, ct).ConfigureAwait(false);
@@ -154,6 +154,11 @@ public partial class BaseItemAnalyzerTask(
                         }
                     }
                 }
+
+                // Record completion only after the reset committed. A reset that throws/cancels leaves
+                // the guard unset so the next scan retries; the analysis below may still be interrupted,
+                // but the cleared state guarantees the normal pass finishes it.
+                plugin.RecordSettleReanalysis(first.SeasonId, episodes.Count);
 
                 // Force a media-segment sync so deletions propagate even if the recompute finds nothing.
                 updateMediaSegments = true;
