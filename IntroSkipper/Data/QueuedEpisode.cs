@@ -90,6 +90,12 @@ public class QueuedEpisode
     public double Duration { get; set; }
 
     /// <summary>
+    /// Gets or sets the UTC time the item was added to the library. Used to determine whether a
+    /// season has stopped receiving new episodes and is eligible for a full re-analysis.
+    /// </summary>
+    public DateTime DateCreated { get; set; }
+
+    /// <summary>
     /// Gets or sets the configuration hash for the current analysis pass.
     /// </summary>
     public string AnalysisConfigHash { get; set; } = string.Empty;

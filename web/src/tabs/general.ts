@@ -71,6 +71,13 @@ export const generalTab: Tab = {
                     'If enabled, new media will be automatically analyzed for skippable segments when added to the library<br/><br/>Note: To configure the scheduled task, see <a is="emby-linkbutton" class="button-link" href="#/dashboard/tasks">scheduled tasks</a>.',
             }),
             checkboxField({
+                id: "ReanalyzeSettledSeasons",
+                label: "Re-analyze a season once it is complete",
+                description:
+                    "When a season stops receiving new episodes, re-analyze the whole season once so segments first detected from only a few episodes are recomputed against the full season. Uses cached fingerprints, so it does not re-decode media.",
+                visible: () => configStore.get("AutoDetectIntros") === true,
+            }),
+            checkboxField({
                 id: "UpdateMediaSegments",
                 label: "Update Missing Segments During Scan",
                 description:

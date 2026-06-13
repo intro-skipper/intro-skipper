@@ -39,6 +39,7 @@ export interface PluginConfig {
 
     // Feature toggles persisted in the plugin configuration.
     AutoDetectIntros: boolean;
+    ReanalyzeSettledSeasons: boolean;
     AnalyzeSeasonZero: boolean;
     UpdateMediaSegments: boolean;
     UseAlternativeBlackFrameAnalyzer: boolean;

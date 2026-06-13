@@ -284,6 +284,7 @@ public partial class QueueManager(ILogger<QueueManager> logger, ILibraryManager 
             IsExcluded = IsSeriesExcluded(episode.SeriesName),
             Path = episode.Path,
             Duration = duration,
+            DateCreated = episode.DateCreated,
             IntroFingerprintEnd = fingerprintDuration,
             CreditsFingerprintStart = Math.Max(0, creditsDuration - maxCreditsDuration),
             CreditsFingerprintEnd = creditsDuration,

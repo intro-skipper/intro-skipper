@@ -135,6 +135,30 @@ public partial class BaseItemAnalyzerTask(
                 return;
             }
 
+            // If the season has stopped receiving new episodes, re-analyze it from scratch once so
+            // segments first derived from a partial season are recomputed against the full season.
+            // Reuses the cached fingerprints, so this only re-runs the comparison, not the decode.
+            if (_config.ReanalyzeSettledSeasons &&
+                SeasonReanalysisPlanner.IsSettledForReanalysis(episodes, _config, DateTime.UtcNow) &&
+                plugin.TryBeginSettleReanalysis(first.SeasonId, episodes.Count))
+            {
+                LogReanalyzingSettledSeason(_logger, first.SeasonNumber, first.SeriesName, episodes.Count);
+                await plugin.ResetSeasonForReanalysisAsync(first.SeasonId, episodes.Select(e => e.EpisodeId), modes, ct).ConfigureAwait(false);
+                foreach (var episode in episodes)
+                {
+                    foreach (var resetMode in modes)
+                    {
+                        if (episode.GetAnalyzed(resetMode) != EpisodeState.UserProvided)
+                        {
+                            episode.SetAnalyzed(resetMode, EpisodeState.NotAnalyzed);
+                        }
+                    }
+                }
+
+                // Force a media-segment sync so deletions propagate even if the recompute finds nothing.
+                updateMediaSegments = true;
+            }
+
             try
             {
                 foreach (var mode in modes)
@@ -444,6 +468,9 @@ public partial class BaseItemAnalyzerTask(
 
     [LoggerMessage(Level = LogLevel.Information, Message = "Skipping excluded season {Season} of {Series}")]
     private static partial void LogSkippingExcludedSeason(ILogger logger, int season, string series);
+
+    [LoggerMessage(Level = LogLevel.Information, Message = "Re-analyzing settled season {Season} of {Series} ({Count} episodes)")]
+    private static partial void LogReanalyzingSettledSeason(ILogger logger, int season, string series, int count);
 
     [LoggerMessage(Level = LogLevel.Information, Message = "Analysis was canceled.")]
     private static partial void LogAnalysisCanceled(ILogger logger);

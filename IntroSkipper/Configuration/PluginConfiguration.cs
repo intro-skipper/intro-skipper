@@ -68,6 +68,13 @@ public class PluginConfiguration : BasePluginConfiguration
     public bool AutoDetectIntros { get; set; } = true;
 
     /// <summary>
+    /// Gets or sets a value indicating whether a whole season should be re-analyzed once it stops
+    /// receiving new episodes. Audio fingerprint detection compares episodes against each other, so
+    /// segments first derived from a partial season improve once the rest of the season is present.
+    /// </summary>
+    public bool ReanalyzeSettledSeasons { get; set; }
+
+    /// <summary>
     /// Gets or sets a value indicating whether to analyze season 0.
     /// </summary>
     public bool AnalyzeSeasonZero { get; set; }
