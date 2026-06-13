@@ -12,7 +12,7 @@ using System.Collections.ObjectModel;
 using IntroSkipper.Analyzers;
 using IntroSkipper.Data;
 using MediaBrowser.Model.Entities;
-using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 using Xunit;
 
 public class TestChapterAnalyzer
@@ -23,9 +23,6 @@ public class TestChapterAnalyzer
     [InlineData("Intro")]
     [InlineData("Intro Start")]
     [InlineData("Introduction")]
-    [InlineData("[SponsorBlock]: Intro")]
-    [InlineData("[SponsorBlock]: intro")]
-    [InlineData("[SponsorBlock]: Intermission/Intro Animation")]
     public void TestIntroductionExpression(string chapterName)
     {
         var introChapter = FindChapter(chapterName, AnalysisMode.Introduction);
@@ -41,9 +38,6 @@ public class TestChapterAnalyzer
     [InlineData("Credit start")]
     [InlineData("Closing Credits")]
     [InlineData("Credits")]
-    [InlineData("[SponsorBlock]: Endcards/Credits")]
-    [InlineData("[SponsorBlock]: Outro")]
-    [InlineData("[SponsorBlock]: outro")]
     public void TestEndCreditsExpression(string chapterName)
     {
         var creditsChapter = FindChapter(chapterName, AnalysisMode.Credits);
@@ -54,12 +48,8 @@ public class TestChapterAnalyzer
     }
 
     [Theory]
-    [InlineData("[SponsorBlock]: Preview")]
-    [InlineData("[SponsorBlock]: preview")]
-    [InlineData("[SponsorBlock]: Preview/Recap")]
-    [InlineData("[SponsorBlock]: Preview/Recap/Hook")]
-    [InlineData("[SponsorBlock]: Hook/Greetings")]
-    [InlineData("[SponsorBlock]: hook")]
+    [InlineData("Preview")]
+    [InlineData("Trailer")]
     public void TestPreviewExpression(string chapterName)
     {
         var previewChapter = FindChapter(chapterName, AnalysisMode.Preview);
@@ -70,11 +60,8 @@ public class TestChapterAnalyzer
     }
 
     [Theory]
-    [InlineData("[SponsorBlock]: Recap")]
-    [InlineData("[SponsorBlock]: Preview/Recap")]
-    [InlineData("[SponsorBlock]: Preview/Recap/Hook")]
-    [InlineData("[SponsorBlock]: Hook/Greetings")]
-    [InlineData("[SponsorBlock]: hook")]
+    [InlineData("Recap")]
+    [InlineData("Previously")]
     public void TestRecapExpression(string chapterName)
     {
         var recapChapter = FindChapter(chapterName, AnalysisMode.Recap);
@@ -88,6 +75,7 @@ public class TestChapterAnalyzer
     [InlineData("Ad")]
     [InlineData("Advertisement")]
     [InlineData("Commercial")]
+    [InlineData("Intermission")]
     public void TestCommercialExpression(string chapterName)
     {
         var commercialChapter = FindChapter(chapterName, AnalysisMode.Commercial);
@@ -98,71 +86,60 @@ public class TestChapterAnalyzer
     }
 
     [Theory]
-    [InlineData("[SponsorBlock]: Sponsor")]
-    [InlineData("[SponsorBlock]: sponsor")]
-    [InlineData("[SponsorBlock]: Unpaid/Self Promotion")]
-    [InlineData("[SponsorBlock]: Self Promotion")]
-    [InlineData("[SponsorBlock]: selfpromo")]
-    [InlineData("[SponsorBlock]: Interaction Reminder (Subscribe)")]
-    [InlineData("[SponsorBlock]: interaction")]
-    [InlineData("[SponsorBlock]: Tangents/Jokes")]
-    [InlineData("[SponsorBlock]: Filler")]
-    [InlineData("[SponsorBlock]: filler")]
-    [InlineData("[SponsorBlock]: Music: Non-Music Section")]
-    [InlineData("[SponsorBlock]: Non-Music Section")]
-    [InlineData("[SponsorBlock]: music_offtopic")]
-    [InlineData("[SponsorBlock]: Intermission")]
-    public void TestSponsorBlockCommercialExpression(string chapterName)
+    [InlineData("[SponsorBlock]: Intro", AnalysisMode.Introduction)]
+    [InlineData("[SponsorBlock]: intro", AnalysisMode.Introduction)]
+    [InlineData("[SponsorBlock]: Endcards/Credits", AnalysisMode.Credits)]
+    [InlineData("[SponsorBlock]: Outro", AnalysisMode.Credits)]
+    [InlineData("[SponsorBlock]: outro", AnalysisMode.Credits)]
+    [InlineData("[SponsorBlock]: Preview", AnalysisMode.Preview)]
+    [InlineData("[SponsorBlock]: preview", AnalysisMode.Preview)]
+    [InlineData("[SponsorBlock]: Recap", AnalysisMode.Recap)]
+    [InlineData("[SponsorBlock]: Sponsor", AnalysisMode.Commercial)]
+    [InlineData("[SponsorBlock]: sponsor", AnalysisMode.Commercial)]
+    [InlineData("[SponsorBlock]: Unpaid/Self Promotion", AnalysisMode.Commercial)]
+    [InlineData("[SponsorBlock]: Self Promotion", AnalysisMode.Commercial)]
+    [InlineData("[SponsorBlock]: selfpromo", AnalysisMode.Commercial)]
+    [InlineData("[SponsorBlock]: Interaction Reminder (Subscribe)", AnalysisMode.Commercial)]
+    [InlineData("[SponsorBlock]: interaction", AnalysisMode.Commercial)]
+    [InlineData("[SponsorBlock]: Tangents/Jokes", AnalysisMode.Commercial)]
+    [InlineData("[SponsorBlock]: Filler", AnalysisMode.Commercial)]
+    [InlineData("[SponsorBlock]: filler", AnalysisMode.Commercial)]
+    [InlineData("[SponsorBlock]: Music: Non-Music Section", AnalysisMode.Commercial)]
+    [InlineData("[SponsorBlock]: Non-Music Section", AnalysisMode.Commercial)]
+    [InlineData("[SponsorBlock]: music_offtopic", AnalysisMode.Commercial)]
+    [InlineData("[SponsorBlock]: Intermission", AnalysisMode.Commercial)]
+    [InlineData("[SponsorBlock]: Intermission/Intro Animation", AnalysisMode.Commercial)]
+    [InlineData("[SponsorBlock]: Preview/Recap", AnalysisMode.Commercial)]
+    [InlineData("[SponsorBlock]: Preview/Recap/Hook", AnalysisMode.Commercial)]
+    [InlineData("[SponsorBlock]: Hook/Greetings", AnalysisMode.Commercial)]
+    [InlineData("[SponsorBlock]: hook", AnalysisMode.Commercial)]
+    public void TestSponsorBlockChapterLabelsMapToExpectedMode(string chapterName, AnalysisMode expectedMode)
     {
-        var commercialChapter = FindChapter(chapterName, AnalysisMode.Commercial);
+        foreach (var mode in Enum.GetValues<AnalysisMode>())
+        {
+            var chapter = FindChapter(chapterName, mode, expressionOverride: string.Empty);
 
-        Assert.NotNull(commercialChapter);
-        Assert.Equal(60, commercialChapter.Start);
-        Assert.Equal(90, commercialChapter.End);
-    }
-
-    [Theory]
-    [InlineData("[SponsorBlock]: Intermission")]
-    public void TestSponsorBlockIntermissionDoesNotTranslateToIntroduction(string chapterName)
-    {
-        var introChapter = FindChapter(chapterName, AnalysisMode.Introduction);
-
-        Assert.Null(introChapter);
-    }
-
-    [Fact]
-    public void TestSponsorBlockIntermissionIntroAnimationDoesNotTranslateToCommercial()
-    {
-        var commercialChapter = FindChapter(
-            "[SponsorBlock]: Intermission/Intro Animation",
-            AnalysisMode.Commercial);
-
-        Assert.Null(commercialChapter);
-    }
-
-    [Fact]
-    public void TestSponsorBlockDetectionWorksWithoutUserRegex()
-    {
-        var introChapter = FindChapter(
-            "[SponsorBlock]: Intermission/Intro Animation",
-            AnalysisMode.Introduction,
-            expressionOverride: string.Empty);
-
-        Assert.NotNull(introChapter);
-        Assert.Equal(60, introChapter.Start);
-        Assert.Equal(90, introChapter.End);
+            if (mode == expectedMode)
+            {
+                Assert.NotNull(chapter);
+            }
+            else
+            {
+                Assert.Null(chapter);
+            }
+        }
     }
 
     [Fact]
     public void TestSponsorBlockDetectionCanBeDisabled()
     {
-        var introChapter = FindChapter(
+        var commercialChapter = FindChapter(
             "[SponsorBlock]: Intermission/Intro Animation",
-            AnalysisMode.Introduction,
+            AnalysisMode.Commercial,
             expressionOverride: string.Empty,
             enableSponsorBlockChapterDetection: false);
 
-        Assert.Null(introChapter);
+        Assert.Null(commercialChapter);
     }
 
     [Fact]
@@ -184,8 +161,7 @@ public class TestChapterAnalyzer
         string? expressionOverride = null,
         bool enableSponsorBlockChapterDetection = true)
     {
-        var logger = new LoggerFactory().CreateLogger<ChapterAnalyzer>();
-        var analyzer = new ChapterAnalyzer(logger);
+        var analyzer = new ChapterAnalyzer(NullLogger<ChapterAnalyzer>.Instance, null!);
         var chapters = CreateChapters(chapterName, mode);
 
         var config = new Configuration.PluginConfiguration();

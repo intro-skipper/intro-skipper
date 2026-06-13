@@ -12,7 +12,7 @@ const DEFAULTS: Record<string, string> = {
         "(^|\\s)(Preview|PV|Sneak\\s?Peek|Coming\\s?(Up|Soon)|Next\\s+(time|on|episode)|Extra|Teaser|Trailer)(?!\\sEnd)(\\s|:|$)",
     ChapterAnalyzerRecapPattern:
         "(^|\\s)(Re?cap|Sum{1,2}ary|Prev(ious(ly)?)?|(Last|Earlier)(\\s\\w+)?|Catch[ -]up)(?!\\sEnd)(\\s|:|$)",
-    ChapterAnalyzerCommercialPattern: "(^|\\s)(Ad(vert(isement)?)?|Commercial)(?!\\sEnd)(\\s|:|$)",
+    ChapterAnalyzerCommercialPattern: "(^|\\s)(Ad(vert(isement)?)?|Commercial|Intermission)(?!\\sEnd)(\\s|:|$)",
 };
 
 function patternField(id: string, label: string, typeNoun: string): HTMLElement {

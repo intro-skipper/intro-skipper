@@ -313,7 +313,7 @@ public class PluginConfiguration : BasePluginConfiguration
     /// Gets or sets the regular expression used to detect Commercial chapters.
     /// </summary>
     public string ChapterAnalyzerCommercialPattern { get; set; } =
-        @"(^|\s)(Ad(vert(isement)?)?|Commercial)(?!\sEnd)(\s|:|$)";
+        @"(^|\s)(Ad(vert(isement)?)?|Commercial|Intermission)(?!\sEnd)(\s|:|$)";
 
     // ===== Playback settings =====
 

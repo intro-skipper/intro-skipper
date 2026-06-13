@@ -4,6 +4,7 @@
 // SPDX-FileCopyrightText: 2024-2026 rlauuzo
 // SPDX-License-Identifier: GPL-3.0-only
 
+using System.Collections.Immutable;
 using System.Globalization;
 using System.Text.RegularExpressions;
 using IntroSkipper.Configuration;
@@ -20,41 +21,37 @@ namespace IntroSkipper.Analyzers;
 /// Initializes a new instance of the <see cref="ChapterAnalyzer"/> class.
 /// </remarks>
 /// <param name="logger">Logger.</param>
-public partial class ChapterAnalyzer(ILogger<ChapterAnalyzer> logger) : IMediaFileAnalyzer
+public partial class ChapterAnalyzer(ILogger<ChapterAnalyzer> logger, PluginConfiguration? config = null) : IMediaFileAnalyzer
 {
     private readonly ILogger<ChapterAnalyzer> _logger = logger;
-    private readonly PluginConfiguration _config = Plugin.Instance?.Configuration ?? new PluginConfiguration();
-    private static readonly IReadOnlyDictionary<AnalysisMode, IReadOnlySet<string>> _sponsorBlockChapterLabels =
-        new Dictionary<AnalysisMode, IReadOnlySet<string>>
+    private readonly PluginConfiguration _config = config ?? Plugin.Instance?.Configuration ?? new PluginConfiguration();
+    private static readonly ImmutableHashSet<string> _ambiguousSponsorBlockChapterLabels =
+        ImmutableHashSet.Create(
+            StringComparer.OrdinalIgnoreCase,
+            "intermission/intro animation",
+            "preview/recap",
+            "preview/recap/hook",
+            "hook",
+            "hook/greetings");
+
+    private static readonly ImmutableDictionary<AnalysisMode, ImmutableHashSet<string>> _sponsorBlockChapterLabels =
+        new Dictionary<AnalysisMode, ImmutableHashSet<string>>
         {
-            [AnalysisMode.Introduction] = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
-            {
-                "intro",
-                "intermission/intro animation"
-            },
-            [AnalysisMode.Credits] = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
-            {
+            [AnalysisMode.Introduction] = ImmutableHashSet.Create(
+                StringComparer.OrdinalIgnoreCase,
+                "intro"),
+            [AnalysisMode.Credits] = ImmutableHashSet.Create(
+                StringComparer.OrdinalIgnoreCase,
                 "outro",
-                "endcards/credits"
-            },
-            [AnalysisMode.Preview] = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
-            {
-                "preview",
-                "preview/recap",
-                "preview/recap/hook",
-                "hook",
-                "hook/greetings"
-            },
-            [AnalysisMode.Recap] = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
-            {
-                "recap",
-                "preview/recap",
-                "preview/recap/hook",
-                "hook",
-                "hook/greetings"
-            },
-            [AnalysisMode.Commercial] = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
-            {
+                "endcards/credits"),
+            [AnalysisMode.Preview] = ImmutableHashSet.Create(
+                StringComparer.OrdinalIgnoreCase,
+                "preview"),
+            [AnalysisMode.Recap] = ImmutableHashSet.Create(
+                StringComparer.OrdinalIgnoreCase,
+                "recap"),
+            [AnalysisMode.Commercial] = ImmutableHashSet.Create(
+                StringComparer.OrdinalIgnoreCase,
                 "sponsor",
                 "selfpromo",
                 "self promotion",
@@ -67,9 +64,8 @@ public partial class ChapterAnalyzer(ILogger<ChapterAnalyzer> logger) : IMediaFi
                 "tangents/jokes",
                 "music_offtopic",
                 "music: non-music section",
-                "non-music section"
-            }
-        };
+                "non-music section").Union(_ambiguousSponsorBlockChapterLabels)
+        }.ToImmutableDictionary();
 
     /// <inheritdoc />
     public async Task<IReadOnlyList<QueuedEpisode>> AnalyzeMediaFiles(
