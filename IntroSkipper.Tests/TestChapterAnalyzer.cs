@@ -86,6 +86,20 @@ public class TestChapterAnalyzer
     }
 
     [Theory]
+    [InlineData("Intermission/Intro")]
+    [InlineData("Intermission/Intro Animation")]
+    [InlineData("Commercial End")]
+    [InlineData("Intermission End")]
+    [InlineData("Intermission/Intro End")]
+    [InlineData("Intermission/Intro Animation End")]
+    public void TestCommercialExpressionIgnoresSponsorBlockOnlyAndEndLabels(string chapterName)
+    {
+        var commercialChapter = FindChapter(chapterName, AnalysisMode.Commercial);
+
+        Assert.Null(commercialChapter);
+    }
+
+    [Theory]
     [InlineData("[SponsorBlock]: Intro", AnalysisMode.Introduction)]
     [InlineData("[SponsorBlock]: intro", AnalysisMode.Introduction)]
     [InlineData("[SponsorBlock]: Endcards/Credits", AnalysisMode.Credits)]
