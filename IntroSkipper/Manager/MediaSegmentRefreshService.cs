@@ -1,6 +1,6 @@
 using MediaBrowser.Controller.Entities;
+using MediaBrowser.Controller.Library;
 using MediaBrowser.Controller.MediaSegments;
-using MediaBrowser.Model.Configuration;
 using Microsoft.Extensions.Logging;
 
 namespace IntroSkipper.Manager;
@@ -12,16 +12,13 @@ namespace IntroSkipper.Manager;
 /// Initializes a new instance of the <see cref="MediaSegmentRefreshService"/> class.
 /// </remarks>
 /// <param name="mediaSegmentManager">The Jellyfin media segment manager.</param>
+/// <param name="libraryManager">The Jellyfin library manager used to resolve items by id.</param>
 /// <param name="logger">Application logger.</param>
 public sealed partial class MediaSegmentRefreshService(
     IMediaSegmentManager mediaSegmentManager,
+    ILibraryManager libraryManager,
     ILogger<MediaSegmentRefreshService> logger) : IMediaSegmentRefresher
 {
-    private static readonly LibraryOptions _externalProviders = new()
-    {
-        DisabledMediaSegmentProviders = ["Chapter Segments Provider"]
-    };
-
     /// <inheritdoc />
     public async Task RefreshAsync(BaseItem item, CancellationToken cancellationToken = default)
     {
@@ -29,7 +26,7 @@ public sealed partial class MediaSegmentRefreshService(
 
         try
         {
-            await mediaSegmentManager.RunSegmentPluginProviders(item, _externalProviders, true, cancellationToken).ConfigureAwait(false);
+            await mediaSegmentManager.RunSegmentPluginProviders(item, MediaSegmentProviderDefaults.ExternalProviders, true, cancellationToken).ConfigureAwait(false);
             LogUpdatedMediaSegments(logger, item.Id);
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
@@ -50,7 +47,7 @@ public sealed partial class MediaSegmentRefreshService(
             return;
         }
 
-        var item = Plugin.Instance!.GetItem(itemId);
+        var item = libraryManager.GetItemById(itemId);
         if (item is null)
         {
             LogItemNotFoundForMediaSegmentRefresh(logger, itemId);
@@ -65,14 +62,7 @@ public sealed partial class MediaSegmentRefreshService(
     {
         ArgumentNullException.ThrowIfNull(itemIds);
 
-        var ids = new HashSet<Guid>();
-        foreach (var itemId in itemIds)
-        {
-            if (itemId != Guid.Empty)
-            {
-                ids.Add(itemId);
-            }
-        }
+        var ids = itemIds.Where(itemId => itemId != Guid.Empty).ToHashSet();
 
         if (ids.Count == 0)
         {

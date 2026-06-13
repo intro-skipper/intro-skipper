@@ -140,7 +140,7 @@ public sealed class TestVisualizationController
         public Task RefreshAsync(IEnumerable<Guid> itemIds, CancellationToken cancellationToken = default)
         {
             CollectionCallCount++;
-            LastItemIds = itemIds.ToArray();
+            LastItemIds = [.. itemIds];
             return Completion?.Task ?? Task.CompletedTask;
         }
     }

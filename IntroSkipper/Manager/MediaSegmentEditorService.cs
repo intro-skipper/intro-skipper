@@ -1,7 +1,7 @@
 using Jellyfin.Database.Implementations.Enums;
 using MediaBrowser.Controller.Entities;
+using MediaBrowser.Controller.Library;
 using MediaBrowser.Controller.MediaSegments;
-using MediaBrowser.Model.Configuration;
 using MediaBrowser.Model.MediaSegments;
 using Microsoft.Extensions.Logging;
 
@@ -14,17 +14,16 @@ namespace IntroSkipper.Manager;
 /// Initializes a new instance of the <see cref="MediaSegmentEditorService"/> class.
 /// </remarks>
 /// <param name="mediaSegmentManager">The Jellyfin <see cref="IMediaSegmentManager"/> used to edit segments.</param>
+/// <param name="libraryManager">The Jellyfin library manager used to resolve items by id.</param>
 /// <param name="logger">Application logger.</param>
 public partial class MediaSegmentEditorService(
     IMediaSegmentManager mediaSegmentManager,
+    ILibraryManager libraryManager,
     ILogger<MediaSegmentEditorService> logger)
 {
     private readonly IMediaSegmentManager _mediaSegmentManager = mediaSegmentManager;
+    private readonly ILibraryManager _libraryManager = libraryManager;
     private readonly ILogger<MediaSegmentEditorService> _logger = logger;
-    private readonly LibraryOptions _externalProviders = new()
-    {
-        DisabledMediaSegmentProviders = ["Chapter Segments Provider"]
-    };
 
     // One semaphore per item id; serialises concurrent CreateOrReplaceSegmentAsync calls for
     // the same item so the get-then-create sequence is effectively atomic.
@@ -65,7 +64,7 @@ public partial class MediaSegmentEditorService(
             await lockEntry.Semaphore.WaitAsync(cancellationToken).ConfigureAwait(false);
             acquired = true;
             var existingSegments = await _mediaSegmentManager
-                .GetSegmentsAsync(item, [segment.Type], _externalProviders, filterByProvider: false)
+                .GetSegmentsAsync(item, [segment.Type], MediaSegmentProviderDefaults.ExternalProviders, filterByProvider: false)
                 .ConfigureAwait(false);
 
             if (segment.Type == MediaSegmentType.Commercial)
@@ -140,7 +139,7 @@ public partial class MediaSegmentEditorService(
     /// <returns>The matching segment, or <c>null</c> if not found.</returns>
     public async Task<MediaSegmentDto?> GetSegmentAsync(Guid itemId, Guid segmentId, CancellationToken cancellationToken)
     {
-        var item = Plugin.Instance?.GetItem(itemId);
+        var item = itemId != Guid.Empty ? _libraryManager.GetItemById(itemId) : null;
         if (item is null)
         {
             LogItemNotFound(_logger, itemId);
@@ -148,7 +147,7 @@ public partial class MediaSegmentEditorService(
         }
 
         var segments = await _mediaSegmentManager
-            .GetSegmentsAsync(item, null, _externalProviders, filterByProvider: false)
+            .GetSegmentsAsync(item, null, MediaSegmentProviderDefaults.ExternalProviders, filterByProvider: false)
             .ConfigureAwait(false);
 
         cancellationToken.ThrowIfCancellationRequested();

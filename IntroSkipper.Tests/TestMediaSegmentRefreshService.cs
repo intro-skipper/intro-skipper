@@ -1,11 +1,14 @@
 using System;
 using System.Collections.Generic;
+using System.Reflection;
 using System.Threading;
 using System.Threading.Tasks;
+using IntroSkipper.Configuration;
 using IntroSkipper.Manager;
 using Jellyfin.Database.Implementations.Enums;
 using MediaBrowser.Controller.Entities;
 using MediaBrowser.Controller.Entities.Movies;
+using MediaBrowser.Controller.Library;
 using MediaBrowser.Controller.MediaSegments;
 using MediaBrowser.Model.Configuration;
 using MediaBrowser.Model.MediaSegments;
@@ -69,8 +72,25 @@ public sealed class TestMediaSegmentRefreshService
         Assert.True(manager.LastForceOverwrite.GetValueOrDefault());
     }
 
-    private static MediaSegmentRefreshService CreateRefresher(FakeMediaSegmentManager manager)
-        => new(manager, NullLogger<MediaSegmentRefreshService>.Instance);
+    [Fact]
+    public async Task RefreshAsync_ByIds_ResolvesItemsViaLibraryManager_SkippingEmptyAndDuplicateIds()
+    {
+        var itemId = Guid.NewGuid();
+        var item = CreateMovie(itemId);
+        var manager = new FakeMediaSegmentManager();
+        var libraryManager = StubLibraryManager.Create(item);
+        using var scope = new EntrypointTestHelpers.PluginInstanceScope(EntrypointTestHelpers.CreateTempCacheDir());
+        EntrypointTestHelpers.SetPropertyOrField(Plugin.Instance!, "Configuration", new PluginConfiguration { MaxParallelism = 2 });
+        var refresher = CreateRefresher(manager, libraryManager);
+
+        await refresher.RefreshAsync([itemId, Guid.Empty, itemId], CancellationToken.None);
+
+        Assert.Equal(1, manager.RunCount);
+        Assert.Equal(itemId, manager.LastItemId);
+    }
+
+    private static MediaSegmentRefreshService CreateRefresher(FakeMediaSegmentManager manager, ILibraryManager? libraryManager = null)
+        => new(manager, libraryManager ?? StubLibraryManager.Create(), NullLogger<MediaSegmentRefreshService>.Instance);
 
     private static Movie CreateMovie(Guid itemId)
     {
@@ -125,5 +145,32 @@ public sealed class TestMediaSegmentRefreshService
         public bool HasSegments(Guid itemId) => false;
 
         public IEnumerable<(string Name, string Id)> GetSupportedProviders(BaseItem item) => [(Plugin.Instance!.Name, "intro-skipper")];
+    }
+
+    private class StubLibraryManager : DispatchProxy
+    {
+        private readonly Dictionary<Guid, BaseItem> _items = [];
+
+        public static ILibraryManager Create(params BaseItem[] items)
+        {
+            var proxy = Create<ILibraryManager, StubLibraryManager>();
+            var stub = (StubLibraryManager)(object)proxy;
+            foreach (var item in items)
+            {
+                stub._items[item.Id] = item;
+            }
+
+            return proxy;
+        }
+
+        protected override object? Invoke(MethodInfo? targetMethod, object?[]? args)
+        {
+            if (targetMethod?.Name == nameof(ILibraryManager.GetItemById) && args is [Guid id])
+            {
+                return _items.TryGetValue(id, out var item) ? item : null;
+            }
+
+            throw new NotImplementedException(targetMethod?.Name);
+        }
     }
 }
