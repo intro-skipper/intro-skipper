@@ -6,10 +6,14 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using System.Reflection;
 using System.Runtime.Serialization;
 using System.Text;
 using IntroSkipper.Configuration;
+using IntroSkipper.Data;
+using IntroSkipper.Db;
+using IntroSkipper.FFmpeg;
 using IntroSkipper.Services;
 using MediaBrowser.Controller.Entities.Movies;
 using MediaBrowser.Controller.Entities.TV;
@@ -18,6 +22,7 @@ using MediaBrowser.Model.Entities;
 using MediaBrowser.Model.Plugins;
 using MediaBrowser.Model.Tasks;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 using Xunit;
 
 namespace IntroSkipper.Tests;
@@ -78,11 +83,7 @@ public sealed class TestEntrypointEvents
     {
         var cacheDir = EntrypointTestHelpers.CreateTempCacheDir();
         var episodeId = Guid.NewGuid();
-
-        var file1 = Path.Combine(cacheDir, episodeId.ToString("N"));
-        var file2 = Path.Combine(cacheDir, episodeId.ToString("N") + "-credits");
-        File.WriteAllText(file1, "x");
-        File.WriteAllText(file2, "x");
+        var otherId = Guid.NewGuid();
 
         var entrypoint = EntrypointTestHelpers.CreateEntrypoint(autoDetectIntros: true);
 
@@ -93,11 +94,34 @@ public sealed class TestEntrypointEvents
         var args = EntrypointTestHelpers.CreateItemChangeEventArgs(item: episode, updateReason: 0);
         using (new EntrypointTestHelpers.PluginInstanceScope(cacheDir))
         {
-            EntrypointTestHelpers.InvokePrivate(entrypoint, "OnItemRemoved", args);
-        }
+            using (var db = Plugin.CreateCacheDbContext())
+            {
+                db.DetectionCache.Add(new DbDetectionCache(
+                    episodeId,
+                    AnalysisMode.Introduction,
+                    CacheEntryType.Chromaprint,
+                    EntrypointTestHelpers.EmptyJsonArray));
+                db.DetectionCache.Add(new DbDetectionCache(
+                    episodeId,
+                    AnalysisMode.Credits,
+                    CacheEntryType.BlackFrame,
+                    EntrypointTestHelpers.EmptyJsonArray,
+                    100.5,
+                    0));
+                db.DetectionCache.Add(new DbDetectionCache(
+                    otherId,
+                    AnalysisMode.Introduction,
+                    CacheEntryType.Chromaprint,
+                    EntrypointTestHelpers.EmptyJsonArray));
+                db.SaveChanges();
+            }
 
-        Assert.False(File.Exists(file1));
-        Assert.False(File.Exists(file2));
+            EntrypointTestHelpers.InvokePrivate(entrypoint, "OnItemRemoved", args);
+
+            using var verificationDb = Plugin.CreateCacheDbContext();
+            Assert.False(verificationDb.DetectionCache.Any(e => e.ItemId == episodeId));
+            Assert.True(verificationDb.DetectionCache.Any(e => e.ItemId == otherId));
+        }
     }
 
     [Fact]
@@ -156,19 +180,7 @@ public sealed class TestFingerprintCacheDeletionOnRemove
         var removedId = Guid.NewGuid();
         var otherId = Guid.NewGuid();
 
-        var removedBaseName = removedId.ToString("N");
-        var otherBaseName = otherId.ToString("N");
-
         var cacheDir = EntrypointTestHelpers.CreateTempCacheDir();
-        var file1 = Path.Combine(cacheDir, removedBaseName);
-        var file2 = Path.Combine(cacheDir, removedBaseName + "-credits");
-        var file3 = Path.Combine(cacheDir, removedBaseName + "-blackframes-0-10-v1");
-        var otherFile = Path.Combine(cacheDir, otherBaseName);
-
-        File.WriteAllText(file1, "x");
-        File.WriteAllText(file2, "x");
-        File.WriteAllText(file3, "x");
-        File.WriteAllText(otherFile, "x");
 
         var entrypoint = EntrypointTestHelpers.CreateEntrypoint(autoDetectIntros: true);
 
@@ -181,27 +193,41 @@ public sealed class TestFingerprintCacheDeletionOnRemove
         var args = EntrypointTestHelpers.CreateItemChangeEventArgs(item: movie, updateReason: 0);
         using (new EntrypointTestHelpers.PluginInstanceScope(cacheDir))
         {
-            EntrypointTestHelpers.InvokePrivate(entrypoint, "OnItemRemoved", args);
-        }
+            using (var db = Plugin.CreateCacheDbContext())
+            {
+                db.DetectionCache.Add(new DbDetectionCache(
+                    removedId,
+                    AnalysisMode.Introduction,
+                    CacheEntryType.Chromaprint,
+                    EntrypointTestHelpers.EmptyJsonArray));
+                db.DetectionCache.Add(new DbDetectionCache(
+                    removedId,
+                    AnalysisMode.Credits,
+                    CacheEntryType.BlackFrame,
+                    EntrypointTestHelpers.EmptyJsonArray,
+                    100.5,
+                    0));
+                db.DetectionCache.Add(new DbDetectionCache(
+                    otherId,
+                    AnalysisMode.Introduction,
+                    CacheEntryType.Chromaprint,
+                    EntrypointTestHelpers.EmptyJsonArray));
+                db.SaveChanges();
+            }
 
-        Assert.False(File.Exists(file1));
-        Assert.False(File.Exists(file2));
-        Assert.False(File.Exists(file3));
-        Assert.True(File.Exists(otherFile));
+            EntrypointTestHelpers.InvokePrivate(entrypoint, "OnItemRemoved", args);
+
+            using var verificationDb = Plugin.CreateCacheDbContext();
+            Assert.False(verificationDb.DetectionCache.Any(e => e.ItemId == removedId));
+            Assert.True(verificationDb.DetectionCache.Any(e => e.ItemId == otherId));
+        }
     }
 
     [Fact]
     public void DoesNotDeleteFingerprintCache_OnMovieRemoval_WhenAutoDetectDisabled()
     {
         var removedId = Guid.NewGuid();
-        var removedBaseName = removedId.ToString("N");
-
         var cacheDir = EntrypointTestHelpers.CreateTempCacheDir();
-        var file1 = Path.Combine(cacheDir, removedBaseName);
-        var file2 = Path.Combine(cacheDir, removedBaseName + "-credits");
-
-        File.WriteAllText(file1, "x");
-        File.WriteAllText(file2, "x");
 
         var entrypoint = EntrypointTestHelpers.CreateEntrypoint(autoDetectIntros: false);
 
@@ -214,22 +240,29 @@ public sealed class TestFingerprintCacheDeletionOnRemove
         var args = EntrypointTestHelpers.CreateItemChangeEventArgs(item: movie, updateReason: 0);
         using (new EntrypointTestHelpers.PluginInstanceScope(cacheDir))
         {
-            EntrypointTestHelpers.InvokePrivate(entrypoint, "OnItemRemoved", args);
-        }
+            using (var db = Plugin.CreateCacheDbContext())
+            {
+                db.DetectionCache.Add(new DbDetectionCache(
+                    removedId,
+                    AnalysisMode.Introduction,
+                    CacheEntryType.Chromaprint,
+                    EntrypointTestHelpers.EmptyJsonArray));
+                db.SaveChanges();
+            }
 
-        Assert.True(File.Exists(file1));
-        Assert.True(File.Exists(file2));
+            EntrypointTestHelpers.InvokePrivate(entrypoint, "OnItemRemoved", args);
+
+            using var verificationDb = Plugin.CreateCacheDbContext();
+            Assert.True(verificationDb.DetectionCache.Any(e => e.ItemId == removedId));
+        }
     }
 
     [Fact]
     public void DoesNotDeleteFingerprintCache_WhenIdIsEmpty()
     {
         var removedId = Guid.Empty;
-        var removedBaseName = removedId.ToString("N");
 
         var cacheDir = EntrypointTestHelpers.CreateTempCacheDir();
-        var file1 = Path.Combine(cacheDir, removedBaseName);
-        File.WriteAllText(file1, "x");
 
         var entrypoint = EntrypointTestHelpers.CreateEntrypoint(autoDetectIntros: true);
 
@@ -242,10 +275,21 @@ public sealed class TestFingerprintCacheDeletionOnRemove
         var args = EntrypointTestHelpers.CreateItemChangeEventArgs(item: movie, updateReason: 0);
         using (new EntrypointTestHelpers.PluginInstanceScope(cacheDir))
         {
-            EntrypointTestHelpers.InvokePrivate(entrypoint, "OnItemRemoved", args);
-        }
+            using (var db = Plugin.CreateCacheDbContext())
+            {
+                db.DetectionCache.Add(new DbDetectionCache(
+                    removedId,
+                    AnalysisMode.Introduction,
+                    CacheEntryType.Chromaprint,
+                    EntrypointTestHelpers.EmptyJsonArray));
+                db.SaveChanges();
+            }
 
-        Assert.True(File.Exists(file1));
+            EntrypointTestHelpers.InvokePrivate(entrypoint, "OnItemRemoved", args);
+
+            using var verificationDb = Plugin.CreateCacheDbContext();
+            Assert.True(verificationDb.DetectionCache.Any(e => e.ItemId == removedId));
+        }
     }
 }
 
@@ -270,6 +314,8 @@ internal static class EntrypointTestHelpers
             providerManager: null!,
             fileSystem: null!,
             taskManager: null!,
+            cacheService: new DetectionCacheService(NullLogger<DetectionCacheService>.Instance),
+            ffmpegService: null!,
             logger: logger,
             loggerFactory: loggerFactory,
             mediaSegmentUpdateManager: mediaSegmentUpdateManager);

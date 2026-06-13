@@ -7,6 +7,7 @@
 using System.Text.RegularExpressions;
 using IntroSkipper.Configuration;
 using IntroSkipper.Data;
+using IntroSkipper.FFmpeg;
 using IntroSkipper.Helper;
 using Jellyfin.Data.Enums;
 using Jellyfin.Database.Implementations.Enums;
@@ -31,12 +32,14 @@ namespace IntroSkipper.Manager;
 /// <param name="libraryManager">Library manager.</param>
 /// <param name="providerManager">Provider manager.</param>
 /// <param name="fileSystem">File system.</param>
-public partial class QueueManager(ILogger<QueueManager> logger, ILibraryManager libraryManager, IProviderManager providerManager, IFileSystem fileSystem)
+/// <param name="ffmpegService">FFmpeg service.</param>
+public partial class QueueManager(ILogger<QueueManager> logger, ILibraryManager libraryManager, IProviderManager providerManager, IFileSystem fileSystem, IFFmpegService ffmpegService)
 {
     private readonly ILibraryManager _libraryManager = libraryManager;
     private readonly IFileSystem _fileSystem = fileSystem;
     private readonly IProviderManager _providerManager = providerManager;
     private readonly ILogger<QueueManager> _logger = logger;
+    private readonly IFFmpegService _ffmpegService = ffmpegService;
     private readonly Dictionary<Guid, List<QueuedEpisode>> _queuedEpisodes = [];
     private readonly HashSet<Guid> _refreshedEpisodes = [];
     private double _analysisPercent;
@@ -160,7 +163,7 @@ public partial class QueueManager(ILogger<QueueManager> logger, ILibraryManager 
             return;
         }
 
-        // Queue all episodes on the server for fingerprinting.
+        // Queue all supported library items on the server for analysis.
         LogIteratingLibraryItems(_logger);
 
         foreach (var item in items)
@@ -180,7 +183,7 @@ public partial class QueueManager(ILogger<QueueManager> logger, ILibraryManager 
                 }
                 else if (item is Movie movie)
                 {
-                    QueueMovie(movie);
+                    await QueueMovieAsync(movie, cancellationToken).ConfigureAwait(false);
                 }
                 else
                 {
@@ -261,13 +264,13 @@ public partial class QueueManager(ILogger<QueueManager> logger, ILibraryManager 
             duration >= 5 * 60 ? duration * _analysisPercent : duration,
             60 * pluginInstance.Configuration.AnalysisLengthLimit);
 
-        var creditsDuration = ResolveCreditsFingerprintEnd(episode.Path, duration);
+        var creditsDuration = await ResolveCreditsFingerprintEndAsync(episode.Path, duration, cancellationToken).ConfigureAwait(false);
 
         var maxCreditsDuration = Math.Min(
             creditsDuration >= 5 * 60 ? creditsDuration * _analysisPercent : creditsDuration,
             60 * pluginInstance.Configuration.MaximumCreditsDuration);
 
-        // Queue the episode for analysis
+        // Queue the episode for analysis.
         seasonEpisodes.Add(new QueuedEpisode
         {
             SeriesName = episode.SeriesName,
@@ -305,7 +308,7 @@ public partial class QueueManager(ILogger<QueueManager> logger, ILibraryManager 
         return QueuedMediaCategory.Episode;
     }
 
-    private void QueueMovie(Movie movie)
+    private async Task QueueMovieAsync(Movie movie, CancellationToken cancellationToken)
     {
         var pluginInstance = Plugin.Instance ?? throw new InvalidOperationException("Plugin instance was null");
 
@@ -315,11 +318,11 @@ public partial class QueueManager(ILogger<QueueManager> logger, ILibraryManager 
             return;
         }
 
-        // Allocate a new list for each Movie
+        // Allocate a new list for each movie.
         _queuedEpisodes.TryAdd(movie.Id, []);
 
         var duration = TimeSpan.FromTicks(movie.RunTimeTicks ?? 0).TotalSeconds;
-        var creditsDuration = ResolveCreditsFingerprintEnd(movie.Path, duration);
+        var creditsDuration = await ResolveCreditsFingerprintEndAsync(movie.Path, duration, cancellationToken).ConfigureAwait(false);
 
         _queuedEpisodes[movie.Id].Add(new QueuedEpisode
         {
@@ -339,7 +342,7 @@ public partial class QueueManager(ILogger<QueueManager> logger, ILibraryManager 
         pluginInstance.TotalQueued++;
     }
 
-    private double ResolveCreditsFingerprintEnd(string path, double duration)
+    private async Task<double> ResolveCreditsFingerprintEndAsync(string path, double duration, CancellationToken cancellationToken)
     {
         var pluginInstance = Plugin.Instance ?? throw new InvalidOperationException("Plugin instance was null");
         if (!pluginInstance.Configuration.ProbeAudioDuration)
@@ -347,7 +350,7 @@ public partial class QueueManager(ILogger<QueueManager> logger, ILibraryManager 
             return duration;
         }
 
-        var audioDuration = FFmpegWrapper.ProbeAudioDuration(path);
+        var audioDuration = await _ffmpegService.ProbeAudioDurationAsync(path, cancellationToken).ConfigureAwait(false);
         return audioDuration is > 0 && audioDuration.Value < duration
             ? audioDuration.Value
             : duration;

@@ -7,6 +7,7 @@
 using System.Net.Mime;
 using System.Text;
 using IntroSkipper.Data;
+using IntroSkipper.FFmpeg;
 using IntroSkipper.Helper;
 using MediaBrowser.Common;
 using MediaBrowser.Common.Api;
@@ -28,18 +29,22 @@ public partial class TroubleshootingController : ControllerBase
 {
     private readonly IApplicationHost _applicationHost;
     private readonly ILogger<TroubleshootingController> _logger;
+    private readonly IFFmpegService _ffmpegService;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="TroubleshootingController"/> class.
     /// </summary>
     /// <param name="applicationHost">Application host.</param>
     /// <param name="logger">Logger.</param>
+    /// <param name="ffmpegService">FFmpeg service.</param>
     public TroubleshootingController(
         IApplicationHost applicationHost,
-        ILogger<TroubleshootingController> logger)
+        ILogger<TroubleshootingController> logger,
+        IFFmpegService ffmpegService)
     {
         _applicationHost = applicationHost;
         _logger = logger;
+        _ffmpegService = ffmpegService;
     }
 
     /// <summary>
@@ -108,7 +113,7 @@ public partial class TroubleshootingController : ControllerBase
         bundle.Append(WarningManager.GetWarnings());
         bundle.Append("`\n");
 
-        bundle.Append(FFmpegWrapper.GetChromaprintLogs());
+        bundle.Append(_ffmpegService.GetChromaprintLogs());
 
         return bundle.ToString();
     }

@@ -7,6 +7,7 @@
 using System.Numerics;
 using IntroSkipper.Configuration;
 using IntroSkipper.Data;
+using IntroSkipper.FFmpeg;
 using Microsoft.Extensions.Logging;
 
 namespace IntroSkipper.Analyzers;
@@ -15,10 +16,14 @@ namespace IntroSkipper.Analyzers;
 /// Initializes a new instance of the <see cref="ChromaprintAnalyzer"/> class.
 /// </summary>
 /// <param name="logger">Logger.</param>
-public partial class ChromaprintAnalyzer(ILogger<ChromaprintAnalyzer> logger) : IMediaFileAnalyzer
+/// <param name="ffmpegService">FFmpeg service.</param>
+/// <param name="cacheService">Detection cache service.</param>
+public partial class ChromaprintAnalyzer(ILogger<ChromaprintAnalyzer> logger, IFFmpegService ffmpegService, IDetectionCacheService cacheService) : IMediaFileAnalyzer
 {
     private readonly PluginConfiguration _config = Plugin.Instance?.Configuration ?? new PluginConfiguration();
     private readonly ILogger<ChromaprintAnalyzer> _logger = logger;
+    private readonly IFFmpegService _ffmpegService = ffmpegService;
+    private readonly IDetectionCacheService _cacheService = cacheService;
     private readonly Dictionary<Guid, Dictionary<uint, int>> _invertedIndexCache = [];
     private AnalysisMode _analysisMode;
 
@@ -32,7 +37,7 @@ public partial class ChromaprintAnalyzer(ILogger<ChromaprintAnalyzer> logger) : 
         // episodes that still have a fingerprint cache and can be re-analyzed.
         var episodeAnalysisQueue = analysisQueue.Where(e =>
             e.NeedsAnalysis(mode) ||
-            (e.GetAnalyzed(mode) == EpisodeState.Analyzed && FFmpegWrapper.HasCachedFingerprint(e, mode))).ToList();
+            (e.GetAnalyzed(mode) == EpisodeState.Analyzed && _cacheService.HasCachedFingerprint(e, mode))).ToList();
 
         if (analysisQueue.Count <= 1 || episodeAnalysisQueue.All(e => e.GetAnalyzed(mode) == EpisodeState.Analyzed))
         {
@@ -41,7 +46,7 @@ public partial class ChromaprintAnalyzer(ILogger<ChromaprintAnalyzer> logger) : 
 
         _analysisMode = mode;
 
-        var timeAdjustmentHelper = new TimeAdjustmentHelper(_logger, _config, mode);
+        var timeAdjustmentHelper = new TimeAdjustmentHelper(_logger, _config, mode, _ffmpegService);
 
         // All intros for this season.
         var seasonIntros = new Dictionary<Guid, Segment>();
@@ -62,12 +67,8 @@ public partial class ChromaprintAnalyzer(ILogger<ChromaprintAnalyzer> logger) : 
         {
             try
             {
-                fingerprintCache[episode.EpisodeId] = FFmpegWrapper.Fingerprint(episode, mode);
-
-                if (cancellationToken.IsCancellationRequested)
-                {
-                    return analysisQueue;
-                }
+                cancellationToken.ThrowIfCancellationRequested();
+                fingerprintCache[episode.EpisodeId] = await _ffmpegService.FingerprintAsync(episode, mode, cancellationToken).ConfigureAwait(false);
             }
             catch (FingerprintException ex)
             {
@@ -110,7 +111,7 @@ public partial class ChromaprintAnalyzer(ILogger<ChromaprintAnalyzer> logger) : 
                     continue;
                 }
 
-                /* Since the Fingerprint() function returns an array of Chromaprint points without time
+                /* Since the FingerprintAsync() function returns an array of Chromaprint points without time
                  * information, the times reported from the index search function start from 0.
                  *
                  * While this is desired behavior for detecting introductions, it breaks credit
@@ -149,7 +150,7 @@ public partial class ChromaprintAnalyzer(ILogger<ChromaprintAnalyzer> logger) : 
             // If an intro is found for this episode, adjust its times and save it else add it to the list of episodes without intros.
             if (seasonIntros.TryGetValue(currentEpisode.EpisodeId, out var intro))
             {
-                var adjustedIntro = timeAdjustmentHelper.AdjustIntroTimes(currentEpisode, intro);
+                var adjustedIntro = await timeAdjustmentHelper.AdjustIntroTimesAsync(currentEpisode, intro, cancellationToken: cancellationToken).ConfigureAwait(false);
                 currentEpisode.SetAnalyzed(mode, EpisodeState.Analyzed);
                 await Plugin.Instance!.UpdateTimestampAsync(adjustedIntro, mode, configHash: currentEpisode.AnalysisConfigHash, cancellationToken: cancellationToken).ConfigureAwait(false);
             }
