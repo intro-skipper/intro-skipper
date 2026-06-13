@@ -36,6 +36,19 @@ public sealed partial class MediaSegmentRefreshService(
         }
         catch (Exception ex)
         {
+            // Do not swallow cancellation or critical exceptions.
+            if (ex is OperationCanceledException
+                || ex is OutOfMemoryException
+                || ex is StackOverflowException
+                || ex is ThreadAbortException
+                || ex is ThreadInterruptedException
+                || ex is AccessViolationException)
+            {
+                throw;
+            }
+
+            // Log and continue so that one item's provider failure does not
+            // abort the surrounding batch refresh.
             LogErrorRefreshingMediaSegments(logger, ex, item.Id);
         }
     }
