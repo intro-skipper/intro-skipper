@@ -45,6 +45,7 @@ export interface PluginConfig {
     RefineCreditsBoundary: boolean;
     UseChapterMarkersBlackFrame: boolean;
     FullLengthChapters: boolean;
+    EnableSponsorBlockChapterDetection: boolean;
     SkipFirstEpisode: boolean;
     SkipFirstEpisodeAnime: boolean;
     AnimePreviewFromCreditsEnd: boolean;
