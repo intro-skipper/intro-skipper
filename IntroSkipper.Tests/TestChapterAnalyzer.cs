@@ -100,6 +100,20 @@ public class TestChapterAnalyzer
     }
 
     [Theory]
+    [InlineData("Intro: End", AnalysisMode.Introduction)]
+    [InlineData("Credits: End", AnalysisMode.Credits)]
+    [InlineData("Preview: End", AnalysisMode.Preview)]
+    [InlineData("Recap: End", AnalysisMode.Recap)]
+    [InlineData("Commercial: End", AnalysisMode.Commercial)]
+    [InlineData("Intermission: End", AnalysisMode.Commercial)]
+    public void TestChapterExpressionIgnoresColonDelimitedEndLabels(string chapterName, AnalysisMode mode)
+    {
+        var chapter = FindChapter(chapterName, mode);
+
+        Assert.Null(chapter);
+    }
+
+    [Theory]
     [InlineData("[SponsorBlock]: Intro", AnalysisMode.Introduction)]
     [InlineData("[SponsorBlock]: intro", AnalysisMode.Introduction)]
     [InlineData("[SponsorBlock]: Endcards/Credits", AnalysisMode.Credits)]
