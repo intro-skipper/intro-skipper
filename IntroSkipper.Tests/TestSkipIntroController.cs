@@ -1,7 +1,6 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
-using System.Reflection;
 using System.Threading;
 using System.Threading.Tasks;
 using IntroSkipper.Configuration;
@@ -86,7 +85,7 @@ public sealed class TestSkipIntroController
         EntrypointTestHelpers.SetPropertyOrField(item, "Id", itemId);
         EntrypointTestHelpers.EnsureNonVirtual(item);
 
-        var libraryManager = LibraryManagerProxy.Create(item);
+        var libraryManager = EntrypointTestHelpers.CreateLibraryManager(item);
         var plugin = Plugin.Instance!;
         EntrypointTestHelpers.SetPropertyOrField(plugin, "_dbPath", dbPath);
         EntrypointTestHelpers.SetPropertyOrField(plugin, "Configuration", new PluginConfiguration { UpdateMediaSegments = updateMediaSegments });
@@ -125,28 +124,6 @@ public sealed class TestSkipIntroController
         public Task RefreshAsync(IEnumerable<Guid> itemIds, CancellationToken cancellationToken = default)
         {
             return Completion?.Task ?? Task.CompletedTask;
-        }
-    }
-
-    private class LibraryManagerProxy : DispatchProxy
-    {
-        private BaseItem? _item;
-
-        public static ILibraryManager Create(BaseItem item)
-        {
-            var proxy = Create<ILibraryManager, LibraryManagerProxy>();
-            ((LibraryManagerProxy)(object)proxy)._item = item;
-            return proxy;
-        }
-
-        protected override object? Invoke(MethodInfo? targetMethod, object?[]? args)
-        {
-            if (targetMethod?.Name == nameof(ILibraryManager.GetItemById) && args is [{ } id] && id.Equals(_item!.Id))
-            {
-                return _item;
-            }
-
-            throw new NotImplementedException(targetMethod?.Name);
         }
     }
 }

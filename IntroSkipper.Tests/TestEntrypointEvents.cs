@@ -331,6 +331,39 @@ internal static class EntrypointTestHelpers
         public Task RefreshAsync(IEnumerable<Guid> itemIds, CancellationToken cancellationToken = default) => Task.CompletedTask;
     }
 
+    // Lightweight ILibraryManager stub that resolves the supplied items by id via GetItemById
+    // and returns null for any other id. Shared by the controller and refresh-service tests.
+    internal static ILibraryManager CreateLibraryManager(params BaseItem[] items)
+        => LibraryManagerProxy.Create(items);
+
+    private class LibraryManagerProxy : DispatchProxy
+    {
+        private Dictionary<Guid, BaseItem> _items = [];
+
+        public static ILibraryManager Create(BaseItem[] items)
+        {
+            var proxy = Create<ILibraryManager, LibraryManagerProxy>();
+            var map = new Dictionary<Guid, BaseItem>();
+            foreach (var item in items)
+            {
+                map[item.Id] = item;
+            }
+
+            ((LibraryManagerProxy)(object)proxy)._items = map;
+            return proxy;
+        }
+
+        protected override object? Invoke(MethodInfo? targetMethod, object?[]? args)
+        {
+            if (targetMethod?.Name == nameof(ILibraryManager.GetItemById) && args is [Guid id])
+            {
+                return _items.TryGetValue(id, out var item) ? item : null;
+            }
+
+            throw new NotImplementedException(targetMethod?.Name);
+        }
+    }
+
     internal static HashSet<Guid> GetSeasonsToAnalyze(Entrypoint entrypoint)
         => (HashSet<Guid>)GetPrivateField(entrypoint, "_seasonsToAnalyze");
 
