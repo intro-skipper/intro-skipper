@@ -40,7 +40,7 @@ namespace IntroSkipper.Services
         private readonly IFFmpegService _ffmpegService;
         private readonly ILogger<Entrypoint> _logger;
         private readonly ILoggerFactory _loggerFactory;
-        private readonly MediaSegmentUpdateManager _mediaSegmentUpdateManager;
+        private readonly IMediaSegmentRefresher _mediaSegmentRefresher;
         private readonly HashSet<Guid> _seasonsToAnalyze = [];
         private readonly object _seasonsLock = new();
         private readonly Timer _queueTimer;
@@ -60,7 +60,7 @@ namespace IntroSkipper.Services
         /// <param name="ffmpegService">FFmpeg service.</param>
         /// <param name="logger">Logger.</param>
         /// <param name="loggerFactory">Logger factory.</param>
-        /// <param name="mediaSegmentUpdateManager">Media segment update manager.</param>
+        /// <param name="mediaSegmentRefresher">Media segment refresher.</param>
         public Entrypoint(
             ILibraryManager libraryManager,
             IProviderManager providerManager,
@@ -70,7 +70,7 @@ namespace IntroSkipper.Services
             IFFmpegService ffmpegService,
             ILogger<Entrypoint> logger,
             ILoggerFactory loggerFactory,
-            MediaSegmentUpdateManager mediaSegmentUpdateManager)
+            IMediaSegmentRefresher mediaSegmentRefresher)
         {
             _libraryManager = libraryManager;
             _providerManager = providerManager;
@@ -80,7 +80,7 @@ namespace IntroSkipper.Services
             _ffmpegService = ffmpegService;
             _logger = logger;
             _loggerFactory = loggerFactory;
-            _mediaSegmentUpdateManager = mediaSegmentUpdateManager;
+            _mediaSegmentRefresher = mediaSegmentRefresher;
 
             _config = Plugin.Instance?.Configuration ?? new PluginConfiguration();
             _queueTimer = new Timer(
@@ -353,7 +353,7 @@ namespace IntroSkipper.Services
 
                         _analyzeAgain = false;
 
-                        var analyzer = new BaseItemAnalyzerTask(_loggerFactory.CreateLogger<Entrypoint>(), _loggerFactory, _libraryManager, _providerManager, _fileSystem, _mediaSegmentUpdateManager, _ffmpegService, _cacheService);
+                        var analyzer = new BaseItemAnalyzerTask(_loggerFactory.CreateLogger<Entrypoint>(), _loggerFactory, _libraryManager, _providerManager, _fileSystem, _mediaSegmentRefresher, _ffmpegService, _cacheService);
                         await analyzer.AnalyzeItemsAsync(new Progress<double>(), cts.Token, seasonIds).ConfigureAwait(false);
 
                         if (_analyzeAgain && !cts.IsCancellationRequested)

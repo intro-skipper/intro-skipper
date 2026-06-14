@@ -29,7 +29,7 @@ namespace IntroSkipper.Controllers;
 /// Initializes a new instance of the <see cref="VisualizationController"/> class.
 /// </remarks>
 /// <param name="logger">Logger.</param>
-/// <param name="mediaSegmentUpdateManager">Media segment update manager.</param>
+/// <param name="mediaSegmentRefresher">Media segment refresher.</param>
 /// <param name="libraryManager">libraryManager.</param>
 /// <param name="providerManager">providerManager.</param>
 /// <param name="fileSystem">fileSystem.</param>
@@ -40,10 +40,10 @@ namespace IntroSkipper.Controllers;
 [ApiController]
 [Produces(MediaTypeNames.Application.Json)]
 [Route("Intros")]
-public partial class VisualizationController(ILogger<VisualizationController> logger, MediaSegmentUpdateManager mediaSegmentUpdateManager, ILibraryManager libraryManager, IProviderManager providerManager, IFileSystem fileSystem, ILoggerFactory loggerFactory, IFFmpegService ffmpegService, IDetectionCacheService cacheService) : ControllerBase
+public partial class VisualizationController(ILogger<VisualizationController> logger, IMediaSegmentRefresher mediaSegmentRefresher, ILibraryManager libraryManager, IProviderManager providerManager, IFileSystem fileSystem, ILoggerFactory loggerFactory, IFFmpegService ffmpegService, IDetectionCacheService cacheService) : ControllerBase
 {
     private readonly ILogger<VisualizationController> _logger = logger;
-    private readonly MediaSegmentUpdateManager _mediaSegmentUpdateManager = mediaSegmentUpdateManager;
+    private readonly IMediaSegmentRefresher _mediaSegmentRefresher = mediaSegmentRefresher;
     private readonly ILibraryManager _libraryManager = libraryManager;
     private readonly IProviderManager _providerManager = providerManager;
     private readonly IFileSystem _fileSystem = fileSystem;
@@ -161,7 +161,7 @@ public partial class VisualizationController(ILogger<VisualizationController> lo
 
             if (Plugin.Instance.Configuration.UpdateMediaSegments)
             {
-                await _mediaSegmentUpdateManager.UpdateMediaSegmentsAsync(episodes, cancellationToken).ConfigureAwait(false);
+                await _mediaSegmentRefresher.RefreshAsync(episodeIds, cancellationToken).ConfigureAwait(false);
             }
 
             return NoContent();
@@ -246,7 +246,7 @@ public partial class VisualizationController(ILogger<VisualizationController> lo
                             _libraryManager,
                             _providerManager,
                             _fileSystem,
-                            _mediaSegmentUpdateManager,
+                            _mediaSegmentRefresher,
                             _ffmpegService,
                             _cacheService);
 

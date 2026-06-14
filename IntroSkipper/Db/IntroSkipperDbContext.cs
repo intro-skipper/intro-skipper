@@ -219,9 +219,26 @@ public class IntroSkipperDbContext : DbContext
         try
         {
             using var db = contextFactory();
-            segments = await db.DbSegment.AsNoTracking().ToListAsync(cancellationToken).ConfigureAwait(false);
-            segments = [.. segments.Where(s => s.ToSegment().Valid)];
-            seasonInfos = await db.DbSeasonInfo.AsNoTracking().ToListAsync(cancellationToken).ConfigureAwait(false);
+            var connection = db.Database.GetDbConnection();
+            var wasOpen = connection.State == System.Data.ConnectionState.Open;
+            if (!wasOpen)
+            {
+                await db.Database.OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
+            }
+
+            try
+            {
+                segments = await db.DbSegment.AsNoTracking().ToListAsync(cancellationToken).ConfigureAwait(false);
+                segments = [.. segments.Where(s => s.ToSegment().Valid)];
+                seasonInfos = await db.DbSeasonInfo.AsNoTracking().ToListAsync(cancellationToken).ConfigureAwait(false);
+            }
+            finally
+            {
+                if (!wasOpen)
+                {
+                    await db.Database.CloseConnectionAsync().ConfigureAwait(false);
+                }
+            }
         }
         catch (OperationCanceledException)
         {

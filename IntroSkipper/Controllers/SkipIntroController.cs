@@ -26,9 +26,9 @@ namespace IntroSkipper.Controllers;
 [Authorize]
 [ApiController]
 [Produces(MediaTypeNames.Application.Json)]
-public class SkipIntroController(MediaSegmentUpdateManager mediaSegmentUpdateManager, IDetectionCacheService cacheService) : ControllerBase
+public class SkipIntroController(IMediaSegmentRefresher mediaSegmentRefresher, IDetectionCacheService cacheService) : ControllerBase
 {
-    private readonly MediaSegmentUpdateManager _mediaSegmentUpdateManager = mediaSegmentUpdateManager;
+    private readonly IMediaSegmentRefresher _mediaSegmentRefresher = mediaSegmentRefresher;
     private readonly IDetectionCacheService _cacheService = cacheService;
 
     /// <summary>
@@ -76,13 +76,7 @@ public class SkipIntroController(MediaSegmentUpdateManager mediaSegmentUpdateMan
 
         if (Plugin.Instance.Configuration.UpdateMediaSegments)
         {
-            var episode = Plugin.Instance!.QueuedMediaItems[rawItem is Episode e ? e.SeasonId : rawItem.Id]
-                .FirstOrDefault(q => q.EpisodeId == rawItem.Id);
-
-            if (episode is not null)
-            {
-                await _mediaSegmentUpdateManager.UpdateMediaSegmentsAsync([episode], cancellationToken).ConfigureAwait(false);
-            }
+            await _mediaSegmentRefresher.RefreshAsync(rawItem, cancellationToken).ConfigureAwait(false);
         }
 
         return NoContent();
