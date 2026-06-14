@@ -76,7 +76,7 @@ public partial class ChapterAnalyzer(ILogger<ChapterAnalyzer> logger, IFFmpegSer
         AnalysisMode mode,
         CancellationToken cancellationToken)
     {
-        var enableRecapBlackFrameFallback = mode == AnalysisMode.Recap && _config.DetectRecapUsingFirstBlackFrame;
+        var enableRecapBlackFrameFallback = mode == AnalysisMode.Recap && _config.DetectRecapUsingBlackFrames;
         var expression = mode switch
         {
             AnalysisMode.Introduction => _config.ChapterAnalyzerIntroductionPattern,
@@ -110,7 +110,7 @@ public partial class ChapterAnalyzer(ILogger<ChapterAnalyzer> logger, IFFmpegSer
                 : null;
             if ((skipRange is null || !skipRange.Valid) && enableRecapBlackFrameFallback)
             {
-                skipRange = await DetectRecapUsingBlackFrameAsync(episode, cancellationToken).ConfigureAwait(false);
+                skipRange = await DetectRecapUsingBlackFramesAsync(episode, cancellationToken).ConfigureAwait(false);
             }
 
             if (skipRange is null || !skipRange.Valid)
@@ -218,15 +218,12 @@ public partial class ChapterAnalyzer(ILogger<ChapterAnalyzer> logger, IFFmpegSer
         return null;
     }
 
-    internal async Task<Segment?> DetectRecapUsingBlackFrameAsync(QueuedEpisode episode, CancellationToken cancellationToken)
+    internal async Task<Segment?> DetectRecapUsingBlackFramesAsync(QueuedEpisode episode, CancellationToken cancellationToken)
     {
-        var maxRecapBoundary = Math.Min(episode.Duration, _config.MaximumRecapDetectionDuration);
-        var timestamps = await Plugin.Instance!.GetTimestampsAsync(episode.EpisodeId, cancellationToken).ConfigureAwait(false);
-        if (timestamps.TryGetValue(AnalysisMode.Introduction, out var intro) && intro.Valid)
-        {
-            maxRecapBoundary = Math.Min(maxRecapBoundary, intro.Start);
-        }
-
+        var maxRecapBoundary = await RecapDetectionHelper.GetMaximumBoundaryAsync(
+            episode,
+            _config,
+            cancellationToken).ConfigureAwait(false);
         if (maxRecapBoundary <= 0)
         {
             return null;

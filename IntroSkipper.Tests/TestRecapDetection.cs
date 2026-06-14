@@ -48,6 +48,25 @@ public class TestRecapDetection
     }
 
     [Fact]
+    public void SelectSharedRegion_Recap_ReturnsInvalidSegments_WhenRangesAreEmpty()
+    {
+        var lhsId = Guid.NewGuid();
+        var rhsId = Guid.NewGuid();
+
+        var (lhsSegment, rhsSegment) = ChromaprintAnalyzer.SelectSharedRegion(
+            lhsId,
+            [],
+            rhsId,
+            [],
+            AnalysisMode.Recap);
+
+        Assert.Equal(lhsId, lhsSegment.EpisodeId);
+        Assert.Equal(rhsId, rhsSegment.EpisodeId);
+        Assert.False(lhsSegment.Valid);
+        Assert.False(rhsSegment.Valid);
+    }
+
+    [Fact]
     public void GetMinimumRegionDuration_Recap_AllowsShortCard()
     {
         var recapFloor = ChromaprintAnalyzer.GetMinimumRegionDuration(AnalysisMode.Recap, 15);

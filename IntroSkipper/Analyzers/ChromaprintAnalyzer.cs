@@ -262,13 +262,10 @@ public partial class ChromaprintAnalyzer(ILogger<ChromaprintAnalyzer> logger, IF
             return null;
         }
 
-        var maximumBoundary = Math.Min(episode.Duration, _config.MaximumRecapDetectionDuration);
-        var timestamps = await Plugin.Instance!.GetTimestampsAsync(episode.EpisodeId, cancellationToken).ConfigureAwait(false);
-        if (timestamps.TryGetValue(AnalysisMode.Introduction, out var intro) && intro.Valid)
-        {
-            maximumBoundary = Math.Min(maximumBoundary, intro.Start);
-        }
-
+        var maximumBoundary = await RecapDetectionHelper.GetMaximumBoundaryAsync(
+            episode,
+            _config,
+            cancellationToken).ConfigureAwait(false);
         if (maximumBoundary <= card.End)
         {
             return null;
@@ -299,8 +296,14 @@ public partial class ChromaprintAnalyzer(ILogger<ChromaprintAnalyzer> logger, IF
         Guid rhsId,
         List<TimeRange> rhsRanges)
     {
+        var pairCount = Math.Min(lhsRanges.Count, rhsRanges.Count);
+        if (pairCount == 0)
+        {
+            return (new Segment(lhsId), new Segment(rhsId));
+        }
+
         var earliestIndex = 0;
-        for (var i = 1; i < lhsRanges.Count; i++)
+        for (var i = 1; i < pairCount; i++)
         {
             if (lhsRanges[i].Start < lhsRanges[earliestIndex].Start)
             {
@@ -338,6 +341,11 @@ public partial class ChromaprintAnalyzer(ILogger<ChromaprintAnalyzer> logger, IF
         Guid rhsId,
         List<TimeRange> rhsRanges)
     {
+        if (lhsRanges.Count == 0 || rhsRanges.Count == 0)
+        {
+            return (new Segment(lhsId), new Segment(rhsId));
+        }
+
         // Store the longest time range as the introduction.
         lhsRanges.Sort();
         rhsRanges.Sort();

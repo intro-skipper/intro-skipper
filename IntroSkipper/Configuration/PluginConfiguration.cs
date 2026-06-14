@@ -226,9 +226,9 @@ public class PluginConfiguration : BasePluginConfiguration
     public int MaximumRecapDetectionDuration { get; set; } = 120;
 
     /// <summary>
-    /// Gets or sets a value indicating whether recap detection should use the first black frame as a fallback boundary.
+    /// Gets or sets a value indicating whether recap detection can use black frames as a fallback boundary signal.
     /// </summary>
-    public bool DetectRecapUsingFirstBlackFrame { get; set; } = false;
+    public bool DetectRecapUsingBlackFrames { get; set; } = false;
 
     /// <summary>
     /// Gets or sets the minimum length of similar audio that will be considered a preview.

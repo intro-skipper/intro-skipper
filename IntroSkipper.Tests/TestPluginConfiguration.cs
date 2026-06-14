@@ -19,7 +19,7 @@ public class TestPluginConfiguration
         Assert.Equal(PluginConfiguration.DefaultMinimumIntroDuration, config.MinimumIntroDuration);
         Assert.Equal(15, config.MinimumRecapDetectionDuration);
         Assert.Equal(120, config.MaximumRecapDetectionDuration);
-        Assert.False(config.DetectRecapUsingFirstBlackFrame);
+        Assert.False(config.DetectRecapUsingBlackFrames);
     }
 
     [Theory]
