@@ -25,8 +25,7 @@ public class TestChapterAnalyzer
     [InlineData("Introduction")]
     public void TestIntroductionExpression(string chapterName)
     {
-        var chapters = CreateChapters(chapterName, AnalysisMode.Introduction);
-        var introChapter = FindChapter(chapters, AnalysisMode.Introduction);
+        var introChapter = FindChapter(chapterName, AnalysisMode.Introduction);
 
         Assert.NotNull(introChapter);
         Assert.Equal(60, introChapter.Start);
@@ -41,33 +40,187 @@ public class TestChapterAnalyzer
     [InlineData("Credits")]
     public void TestEndCreditsExpression(string chapterName)
     {
-        var chapters = CreateChapters(chapterName, AnalysisMode.Credits);
-        var creditsChapter = FindChapter(chapters, AnalysisMode.Credits);
+        var creditsChapter = FindChapter(chapterName, AnalysisMode.Credits);
 
         Assert.NotNull(creditsChapter);
         Assert.Equal(1890, creditsChapter.Start);
         Assert.Equal(2000, creditsChapter.End);
     }
 
-    private Segment? FindChapter(Collection<ChapterInfo> chapters, AnalysisMode mode)
+    [Theory]
+    [InlineData("Preview")]
+    [InlineData("Trailer")]
+    public void TestPreviewExpression(string chapterName)
+    {
+        var previewChapter = FindChapter(chapterName, AnalysisMode.Preview);
+
+        Assert.NotNull(previewChapter);
+        Assert.Equal(1890, previewChapter.Start);
+        Assert.Equal(2000, previewChapter.End);
+    }
+
+    [Theory]
+    [InlineData("Recap")]
+    [InlineData("Previously")]
+    public void TestRecapExpression(string chapterName)
+    {
+        var recapChapter = FindChapter(chapterName, AnalysisMode.Recap);
+
+        Assert.NotNull(recapChapter);
+        Assert.Equal(60, recapChapter.Start);
+        Assert.Equal(90, recapChapter.End);
+    }
+
+    [Theory]
+    [InlineData("Ad")]
+    [InlineData("Advertisement")]
+    [InlineData("Commercial")]
+    [InlineData("Intermission")]
+    public void TestCommercialExpression(string chapterName)
+    {
+        var commercialChapter = FindChapter(chapterName, AnalysisMode.Commercial);
+
+        Assert.NotNull(commercialChapter);
+        Assert.Equal(60, commercialChapter.Start);
+        Assert.Equal(90, commercialChapter.End);
+    }
+
+    [Theory]
+    [InlineData("Intermission/Intro")]
+    [InlineData("Intermission/Intro Animation")]
+    [InlineData("Commercial End")]
+    [InlineData("Intermission End")]
+    [InlineData("Intermission/Intro End")]
+    [InlineData("Intermission/Intro Animation End")]
+    public void TestCommercialExpressionIgnoresSponsorBlockOnlyAndEndLabels(string chapterName)
+    {
+        var commercialChapter = FindChapter(chapterName, AnalysisMode.Commercial);
+
+        Assert.Null(commercialChapter);
+    }
+
+    [Theory]
+    [InlineData("Intro: End", AnalysisMode.Introduction)]
+    [InlineData("Credits: End", AnalysisMode.Credits)]
+    [InlineData("Preview: End", AnalysisMode.Preview)]
+    [InlineData("Recap: End", AnalysisMode.Recap)]
+    [InlineData("Commercial: End", AnalysisMode.Commercial)]
+    [InlineData("Intermission: End", AnalysisMode.Commercial)]
+    public void TestChapterExpressionIgnoresColonDelimitedEndLabels(string chapterName, AnalysisMode mode)
+    {
+        var chapter = FindChapter(chapterName, mode);
+
+        Assert.Null(chapter);
+    }
+
+    [Theory]
+    [InlineData("[SponsorBlock]: Intro", AnalysisMode.Introduction)]
+    [InlineData("[SponsorBlock]: intro", AnalysisMode.Introduction)]
+    [InlineData("[SponsorBlock]: Endcards/Credits", AnalysisMode.Credits)]
+    [InlineData("[SponsorBlock]: Outro", AnalysisMode.Credits)]
+    [InlineData("[SponsorBlock]: outro", AnalysisMode.Credits)]
+    [InlineData("[SponsorBlock]: Preview", AnalysisMode.Preview)]
+    [InlineData("[SponsorBlock]: preview", AnalysisMode.Preview)]
+    [InlineData("[SponsorBlock]: Recap", AnalysisMode.Recap)]
+    [InlineData("[SponsorBlock]: Sponsor", AnalysisMode.Commercial)]
+    [InlineData("[SponsorBlock]: sponsor", AnalysisMode.Commercial)]
+    [InlineData("[SponsorBlock]: Unpaid/Self Promotion", AnalysisMode.Commercial)]
+    [InlineData("[SponsorBlock]: Self Promotion", AnalysisMode.Commercial)]
+    [InlineData("[SponsorBlock]: selfpromo", AnalysisMode.Commercial)]
+    [InlineData("[SponsorBlock]: Interaction Reminder (Subscribe)", AnalysisMode.Commercial)]
+    [InlineData("[SponsorBlock]: interaction", AnalysisMode.Commercial)]
+    [InlineData("[SponsorBlock]: Tangents/Jokes", AnalysisMode.Commercial)]
+    [InlineData("[SponsorBlock]: Filler", AnalysisMode.Commercial)]
+    [InlineData("[SponsorBlock]: filler", AnalysisMode.Commercial)]
+    [InlineData("[SponsorBlock]: Music: Non-Music Section", AnalysisMode.Commercial)]
+    [InlineData("[SponsorBlock]: Non-Music Section", AnalysisMode.Commercial)]
+    [InlineData("[SponsorBlock]: music_offtopic", AnalysisMode.Commercial)]
+    [InlineData("[SponsorBlock]: Intermission", AnalysisMode.Commercial)]
+    [InlineData("[SponsorBlock]: Intermission/Intro Animation", AnalysisMode.Commercial)]
+    [InlineData("[SponsorBlock]: Preview/Recap", AnalysisMode.Commercial)]
+    [InlineData("[SponsorBlock]: Preview/Recap/Hook", AnalysisMode.Commercial)]
+    [InlineData("[SponsorBlock]: Hook/Greetings", AnalysisMode.Commercial)]
+    [InlineData("[SponsorBlock]: hook", AnalysisMode.Commercial)]
+    public void TestSponsorBlockChapterLabelsMapToExpectedMode(string chapterName, AnalysisMode expectedMode)
+    {
+        foreach (var mode in Enum.GetValues<AnalysisMode>())
+        {
+            var chapter = FindChapter(chapterName, mode, expressionOverride: string.Empty);
+
+            if (mode == expectedMode)
+            {
+                Assert.NotNull(chapter);
+            }
+            else
+            {
+                Assert.Null(chapter);
+            }
+        }
+    }
+
+    [Fact]
+    public void TestSponsorBlockDetectionCanBeDisabled()
+    {
+        var commercialChapter = FindChapter(
+            "[SponsorBlock]: Intermission/Intro Animation",
+            AnalysisMode.Commercial,
+            expressionOverride: string.Empty,
+            enableSponsorBlockChapterDetection: false);
+
+        Assert.Null(commercialChapter);
+    }
+
+    [Fact]
+    public void TestUnmappedSponsorBlockChapterFallsBackToUserRegex()
+    {
+        var introChapter = FindChapter(
+            "[SponsorBlock]: Custom Intro",
+            AnalysisMode.Introduction,
+            expressionOverride: "Custom Intro");
+
+        Assert.NotNull(introChapter);
+        Assert.Equal(60, introChapter.Start);
+        Assert.Equal(90, introChapter.End);
+    }
+
+    private Segment? FindChapter(
+        string chapterName,
+        AnalysisMode mode,
+        string? expressionOverride = null,
+        bool enableSponsorBlockChapterDetection = true)
     {
         var analyzer = new ChapterAnalyzer(NullLogger<ChapterAnalyzer>.Instance, null!);
+        var chapters = CreateChapters(chapterName, mode);
 
         var config = new Configuration.PluginConfiguration();
-        var expression = mode == AnalysisMode.Introduction ?
-            config.ChapterAnalyzerIntroductionPattern :
-            config.ChapterAnalyzerEndCreditsPattern;
+        var expression = mode switch
+        {
+            AnalysisMode.Introduction => config.ChapterAnalyzerIntroductionPattern,
+            AnalysisMode.Credits => config.ChapterAnalyzerEndCreditsPattern,
+            AnalysisMode.Preview => config.ChapterAnalyzerPreviewPattern,
+            AnalysisMode.Recap => config.ChapterAnalyzerRecapPattern,
+            AnalysisMode.Commercial => config.ChapterAnalyzerCommercialPattern,
+            _ => throw new ArgumentOutOfRangeException(nameof(mode), mode, null)
+        };
 
-        return analyzer.FindMatchingChapter(new() { Duration = 2000 }, chapters, expression, mode);
+        return analyzer.FindMatchingChapter(
+            new() { Duration = 2000 },
+            chapters,
+            expressionOverride ?? expression,
+            mode,
+            enableSponsorBlockChapterDetection);
     }
 
     private Collection<ChapterInfo> CreateChapters(string name, AnalysisMode mode)
     {
-        var chapters = new[]{
+        var earlyName = mode is AnalysisMode.Introduction or AnalysisMode.Recap or AnalysisMode.Commercial ? name : "Introduction";
+        var lateName = mode is AnalysisMode.Credits or AnalysisMode.Preview ? name : "Credits";
+        var chapters = new[]
+        {
             CreateChapter("Cold Open", 0),
-            CreateChapter(mode == AnalysisMode.Introduction ? name : "Introduction", 60),
+            CreateChapter(earlyName, 60),
             CreateChapter("Main Episode", 90),
-            CreateChapter(mode == AnalysisMode.Credits ? name : "Credits", 1890)
+            CreateChapter(lateName, 1890)
         };
 
         return new(new List<ChapterInfo>(chapters));
