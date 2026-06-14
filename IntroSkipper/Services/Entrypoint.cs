@@ -8,6 +8,7 @@ using System.Diagnostics.CodeAnalysis;
 using System.Reflection;
 using System.Runtime.Loader;
 using IntroSkipper.Configuration;
+using IntroSkipper.FFmpeg;
 using IntroSkipper.Helper;
 using IntroSkipper.Manager;
 using IntroSkipper.ScheduledTasks;
@@ -35,6 +36,8 @@ namespace IntroSkipper.Services
         private readonly ILibraryManager _libraryManager;
         private readonly IProviderManager _providerManager;
         private readonly IFileSystem _fileSystem;
+        private readonly IDetectionCacheService _cacheService;
+        private readonly IFFmpegService _ffmpegService;
         private readonly ILogger<Entrypoint> _logger;
         private readonly ILoggerFactory _loggerFactory;
         private readonly MediaSegmentUpdateManager _mediaSegmentUpdateManager;
@@ -53,6 +56,8 @@ namespace IntroSkipper.Services
         /// <param name="providerManager">Provider manager.</param>
         /// <param name="fileSystem">File system.</param>
         /// <param name="taskManager">Task manager.</param>
+        /// <param name="cacheService">Detection cache service.</param>
+        /// <param name="ffmpegService">FFmpeg service.</param>
         /// <param name="logger">Logger.</param>
         /// <param name="loggerFactory">Logger factory.</param>
         /// <param name="mediaSegmentUpdateManager">Media segment update manager.</param>
@@ -61,6 +66,8 @@ namespace IntroSkipper.Services
             IProviderManager providerManager,
             IFileSystem fileSystem,
             ITaskManager taskManager,
+            IDetectionCacheService cacheService,
+            IFFmpegService ffmpegService,
             ILogger<Entrypoint> logger,
             ILoggerFactory loggerFactory,
             MediaSegmentUpdateManager mediaSegmentUpdateManager)
@@ -69,6 +76,8 @@ namespace IntroSkipper.Services
             _providerManager = providerManager;
             _fileSystem = fileSystem;
             _taskManager = taskManager;
+            _cacheService = cacheService;
+            _ffmpegService = ffmpegService;
             _logger = logger;
             _loggerFactory = loggerFactory;
             _mediaSegmentUpdateManager = mediaSegmentUpdateManager;
@@ -99,7 +108,7 @@ namespace IntroSkipper.Services
         }
 
         /// <inheritdoc />
-        public Task StartAsync(CancellationToken cancellationToken)
+        public async Task StartAsync(CancellationToken cancellationToken)
         {
             _libraryManager.ItemAdded += OnItemChanged;
             _libraryManager.ItemUpdated += OnItemChanged;
@@ -107,16 +116,13 @@ namespace IntroSkipper.Services
             _taskManager.TaskCompleted += OnLibraryRefresh;
             Plugin.Instance!.ConfigurationChanged += OnSettingsChanged;
 
-            FFmpegWrapper.Logger = _logger;
-            FFmpegWrapper.CheckFFmpegVersion();
+            await _ffmpegService.CheckFFmpegVersionAsync(cancellationToken).ConfigureAwait(false);
 
             // Initialize web injector for skip button timeout modification
             if (_config.FileTransformationPluginEnabled == true)
             {
                 InitializeWebInjector();
             }
-
-            return Task.CompletedTask;
         }
 
         /// <inheritdoc />
@@ -222,7 +228,7 @@ namespace IntroSkipper.Services
                 }
 
                 LogMediaItemRemoved(id.Value);
-                FFmpegWrapper.DeleteFingerprintCache(id.Value);
+                _cacheService.DeleteForItem(id.Value);
             }
             catch (Exception ex)
             {
@@ -347,7 +353,7 @@ namespace IntroSkipper.Services
 
                         _analyzeAgain = false;
 
-                        var analyzer = new BaseItemAnalyzerTask(_loggerFactory.CreateLogger<Entrypoint>(), _loggerFactory, _libraryManager, _providerManager, _fileSystem, _mediaSegmentUpdateManager);
+                        var analyzer = new BaseItemAnalyzerTask(_loggerFactory.CreateLogger<Entrypoint>(), _loggerFactory, _libraryManager, _providerManager, _fileSystem, _mediaSegmentUpdateManager, _ffmpegService, _cacheService);
                         await analyzer.AnalyzeItemsAsync(new Progress<double>(), cts.Token, seasonIds).ConfigureAwait(false);
 
                         if (_analyzeAgain && !cts.IsCancellationRequested)

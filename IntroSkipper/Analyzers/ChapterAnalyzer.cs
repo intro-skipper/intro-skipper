@@ -4,10 +4,12 @@
 // SPDX-FileCopyrightText: 2024-2026 rlauuzo
 // SPDX-License-Identifier: GPL-3.0-only
 
+using System.Collections.Immutable;
 using System.Globalization;
 using System.Text.RegularExpressions;
 using IntroSkipper.Configuration;
 using IntroSkipper.Data;
+using IntroSkipper.FFmpeg;
 using MediaBrowser.Model.Entities;
 using Microsoft.Extensions.Logging;
 
@@ -20,10 +22,53 @@ namespace IntroSkipper.Analyzers;
 /// Initializes a new instance of the <see cref="ChapterAnalyzer"/> class.
 /// </remarks>
 /// <param name="logger">Logger.</param>
-public partial class ChapterAnalyzer(ILogger<ChapterAnalyzer> logger) : IMediaFileAnalyzer
+/// <param name="ffmpegService">FFmpeg service.</param>
+public partial class ChapterAnalyzer(ILogger<ChapterAnalyzer> logger, IFFmpegService ffmpegService) : IMediaFileAnalyzer
 {
     private readonly ILogger<ChapterAnalyzer> _logger = logger;
+    private readonly IFFmpegService _ffmpegService = ffmpegService;
     private readonly PluginConfiguration _config = Plugin.Instance?.Configuration ?? new PluginConfiguration();
+    private static readonly ImmutableHashSet<string> _ambiguousSponsorBlockChapterLabels =
+        ImmutableHashSet.Create(
+            StringComparer.OrdinalIgnoreCase,
+            "intermission/intro animation",
+            "preview/recap",
+            "preview/recap/hook",
+            "hook",
+            "hook/greetings");
+
+    private static readonly ImmutableDictionary<AnalysisMode, ImmutableHashSet<string>> _sponsorBlockChapterLabels =
+        new Dictionary<AnalysisMode, ImmutableHashSet<string>>
+        {
+            [AnalysisMode.Introduction] = ImmutableHashSet.Create(
+                StringComparer.OrdinalIgnoreCase,
+                "intro"),
+            [AnalysisMode.Credits] = ImmutableHashSet.Create(
+                StringComparer.OrdinalIgnoreCase,
+                "outro",
+                "endcards/credits"),
+            [AnalysisMode.Preview] = ImmutableHashSet.Create(
+                StringComparer.OrdinalIgnoreCase,
+                "preview"),
+            [AnalysisMode.Recap] = ImmutableHashSet.Create(
+                StringComparer.OrdinalIgnoreCase,
+                "recap"),
+            [AnalysisMode.Commercial] = ImmutableHashSet.Create(
+                StringComparer.OrdinalIgnoreCase,
+                "sponsor",
+                "selfpromo",
+                "self promotion",
+                "unpaid/self promotion",
+                "interaction",
+                "interaction reminder",
+                "interaction reminder (subscribe)",
+                "intermission",
+                "filler",
+                "tangents/jokes",
+                "music_offtopic",
+                "music: non-music section",
+                "non-music section").Union(_ambiguousSponsorBlockChapterLabels)
+        }.ToImmutableDictionary();
 
     /// <inheritdoc />
     public async Task<IReadOnlyList<QueuedEpisode>> AnalyzeMediaFiles(
@@ -42,28 +87,26 @@ public partial class ChapterAnalyzer(ILogger<ChapterAnalyzer> logger) : IMediaFi
             _ => throw new ArgumentOutOfRangeException(nameof(mode), $"Unexpected analysis mode: {mode}")
         };
 
-        if (string.IsNullOrWhiteSpace(expression) && !enableRecapBlackFrameFallback)
+        if (string.IsNullOrWhiteSpace(expression) && !_config.EnableSponsorBlockChapterDetection && !enableRecapBlackFrameFallback)
         {
             return analysisQueue;
         }
 
-        var timeAdjustmentHelper = new TimeAdjustmentHelper(_logger, _config, mode);
+        var timeAdjustmentHelper = new TimeAdjustmentHelper(_logger, _config, mode, _ffmpegService);
 
         var episodesWithoutIntros = analysisQueue.Where(e => e.NeedsAnalysis(mode)).ToList();
 
         foreach (var episode in episodesWithoutIntros)
         {
-            if (cancellationToken.IsCancellationRequested)
-            {
-                break;
-            }
+            cancellationToken.ThrowIfCancellationRequested();
 
-            var skipRange = !string.IsNullOrWhiteSpace(expression)
+            var skipRange = !string.IsNullOrWhiteSpace(expression) || _config.EnableSponsorBlockChapterDetection
                 ? FindMatchingChapter(
                     episode,
                     Plugin.Instance!.GetChapters(episode.EpisodeId),
                     expression,
-                    mode)
+                    mode,
+                    _config.EnableSponsorBlockChapterDetection)
                 : null;
             if ((skipRange is null || !skipRange.Valid) && enableRecapBlackFrameFallback)
             {
@@ -77,7 +120,7 @@ public partial class ChapterAnalyzer(ILogger<ChapterAnalyzer> logger) : IMediaFi
 
             // The helper is initialized with the current mode, so recap fallback segments
             // still receive the same mode-specific boundary adjustments as chapter matches.
-            skipRange = timeAdjustmentHelper.AdjustIntroTimes(episode, skipRange, false);
+            skipRange = await timeAdjustmentHelper.AdjustIntroTimesAsync(episode, skipRange, false, cancellationToken).ConfigureAwait(false);
 
             episode.SetAnalyzed(mode, EpisodeState.Analyzed);
             await Plugin.Instance!.UpdateTimestampAsync(skipRange, mode, configHash: episode.AnalysisConfigHash, cancellationToken: cancellationToken).ConfigureAwait(false);
@@ -94,12 +137,14 @@ public partial class ChapterAnalyzer(ILogger<ChapterAnalyzer> logger) : IMediaFi
     /// <param name="chapters">Media item chapters.</param>
     /// <param name="expression">Regular expression pattern.</param>
     /// <param name="mode">Analysis mode.</param>
+    /// <param name="enableSponsorBlockChapterDetection">Whether known SponsorBlock chapter labels should be matched in addition to the regular expression.</param>
     /// <returns>Intro object containing skippable time range, or null if no chapter matched.</returns>
     public Segment? FindMatchingChapter(
         QueuedEpisode episode,
         IReadOnlyList<ChapterInfo> chapters,
         string expression,
-        AnalysisMode mode)
+        AnalysisMode mode,
+        bool enableSponsorBlockChapterDetection = true)
     {
         var count = chapters.Count;
         if (count == 0)
@@ -140,13 +185,7 @@ public partial class ChapterAnalyzer(ILogger<ChapterAnalyzer> logger) : IMediaFi
                 continue;
             }
 
-            // Regex.IsMatch() is used here in order to allow the runtime to cache the compiled regex
-            // between function invocations.
-            var match = Regex.IsMatch(
-                chapter.Name,
-                expression,
-                RegexOptions.IgnoreCase,
-                TimeSpan.FromSeconds(1));
+            var match = ChapterMatches(chapter.Name, expression, mode, enableSponsorBlockChapterDetection);
 
             if (!match)
             {
@@ -159,11 +198,11 @@ public partial class ChapterAnalyzer(ILogger<ChapterAnalyzer> logger) : IMediaFi
             if (adjacentChapter != null && !string.IsNullOrWhiteSpace(adjacentChapter.Name))
             {
                 // Check for possibility of overlapping keywords
-                var overlap = Regex.IsMatch(
+                var overlap = ChapterMatches(
                     adjacentChapter.Name,
                     expression,
-                    RegexOptions.None,
-                    TimeSpan.FromSeconds(1));
+                    mode,
+                    enableSponsorBlockChapterDetection);
 
                 if (overlap)
                 {
@@ -193,12 +232,13 @@ public partial class ChapterAnalyzer(ILogger<ChapterAnalyzer> logger) : IMediaFi
             return null;
         }
 
-        var blackFrames = FFmpegWrapper.DetectBlackFrames(
+        var blackFrames = await _ffmpegService.DetectBlackFramesAsync(
             episode,
             new TimeRange(0, maxRecapBoundary),
             _config.BlackFrameMinimumPercentage,
             _config.BlackFrameThreshold,
-            AnalysisMode.Recap);
+            AnalysisMode.Recap,
+            cancellationToken).ConfigureAwait(false);
 
         return BuildRecapFromBlackFrames(
             episode.EpisodeId,
@@ -256,6 +296,48 @@ public partial class ChapterAnalyzer(ILogger<ChapterAnalyzer> logger) : IMediaFi
             AnalysisMode.Commercial => (_config.MinimumCommercialDuration, _config.MaximumCommercialDuration),
             _ => throw new ArgumentOutOfRangeException(nameof(mode), $"Unsupported analysis mode: {mode}")
         };
+    }
+
+    private static bool ChapterMatches(
+        string chapterName,
+        string expression,
+        AnalysisMode mode,
+        bool enableSponsorBlockChapterDetection)
+    {
+        if (enableSponsorBlockChapterDetection
+            && TryGetSponsorBlockChapterLabel(chapterName, out var sponsorBlockLabel)
+            && _sponsorBlockChapterLabels.TryGetValue(mode, out var labels)
+            && labels.Contains(sponsorBlockLabel))
+        {
+            return true;
+        }
+
+        if (string.IsNullOrWhiteSpace(expression))
+        {
+            return false;
+        }
+
+        // Regex.IsMatch() is used here in order to allow the runtime to cache the compiled regex
+        // between function invocations.
+        return Regex.IsMatch(
+            chapterName,
+            expression,
+            RegexOptions.IgnoreCase,
+            TimeSpan.FromSeconds(1));
+    }
+
+    private static bool TryGetSponsorBlockChapterLabel(string chapterName, out string label)
+    {
+        const string Prefix = "[SponsorBlock]:";
+
+        if (!chapterName.StartsWith(Prefix, StringComparison.OrdinalIgnoreCase))
+        {
+            label = string.Empty;
+            return false;
+        }
+
+        label = chapterName[Prefix.Length..].Trim();
+        return true;
     }
 
     [LoggerMessage(Level = LogLevel.Trace, Message = "{Base}: ignoring (invalid duration)")]
