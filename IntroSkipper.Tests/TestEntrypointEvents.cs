@@ -10,11 +10,15 @@ using System.Linq;
 using System.Reflection;
 using System.Runtime.Serialization;
 using System.Text;
+using System.Threading;
+using System.Threading.Tasks;
 using IntroSkipper.Configuration;
 using IntroSkipper.Data;
 using IntroSkipper.Db;
 using IntroSkipper.FFmpeg;
+using IntroSkipper.Manager;
 using IntroSkipper.Services;
+using MediaBrowser.Controller.Entities;
 using MediaBrowser.Controller.Entities.Movies;
 using MediaBrowser.Controller.Entities.TV;
 using MediaBrowser.Controller.Library;
@@ -305,10 +309,6 @@ internal static class EntrypointTestHelpers
         var loggerFactory = LoggerFactory.Create(builder => { });
         var logger = loggerFactory.CreateLogger<Entrypoint>();
 
-#pragma warning disable SYSLIB0050 // FormatterServices is obsolete; used only for test scaffolding.
-        var mediaSegmentUpdateManager = (IntroSkipper.Manager.MediaSegmentUpdateManager)FormatterServices.GetUninitializedObject(typeof(IntroSkipper.Manager.MediaSegmentUpdateManager));
-#pragma warning restore SYSLIB0050
-
         var entrypoint = new Entrypoint(
             libraryManager: null!,
             providerManager: null!,
@@ -318,10 +318,50 @@ internal static class EntrypointTestHelpers
             ffmpegService: null!,
             logger: logger,
             loggerFactory: loggerFactory,
-            mediaSegmentUpdateManager: mediaSegmentUpdateManager);
+            mediaSegmentRefresher: new FakeMediaSegmentRefresher());
 
         SetPrivateField(entrypoint, "_config", new PluginConfiguration { AutoDetectIntros = autoDetectIntros });
         return entrypoint;
+    }
+
+    private sealed class FakeMediaSegmentRefresher : IMediaSegmentRefresher
+    {
+        public Task RefreshAsync(BaseItem item, CancellationToken cancellationToken = default) => Task.CompletedTask;
+
+        public Task RefreshAsync(IEnumerable<Guid> itemIds, CancellationToken cancellationToken = default) => Task.CompletedTask;
+    }
+
+    // Lightweight ILibraryManager stub that resolves the supplied items by id via GetItemById
+    // and returns null for any other id. Shared by the controller and refresh-service tests.
+    internal static ILibraryManager CreateLibraryManager(params BaseItem[] items)
+        => LibraryManagerProxy.Create(items);
+
+    private class LibraryManagerProxy : DispatchProxy
+    {
+        private Dictionary<Guid, BaseItem> _items = [];
+
+        public static ILibraryManager Create(BaseItem[] items)
+        {
+            var proxy = Create<ILibraryManager, LibraryManagerProxy>();
+            var map = new Dictionary<Guid, BaseItem>();
+            foreach (var item in items)
+            {
+                map[item.Id] = item;
+            }
+
+            ((LibraryManagerProxy)(object)proxy)._items = map;
+            return proxy;
+        }
+
+        protected override object? Invoke(MethodInfo? targetMethod, object?[]? args)
+        {
+            if (targetMethod?.Name == nameof(ILibraryManager.GetItemById) && args is [Guid id])
+            {
+                return _items.TryGetValue(id, out var item) ? item : null;
+            }
+
+            throw new NotImplementedException(targetMethod?.Name);
+        }
     }
 
     internal static HashSet<Guid> GetSeasonsToAnalyze(Entrypoint entrypoint)

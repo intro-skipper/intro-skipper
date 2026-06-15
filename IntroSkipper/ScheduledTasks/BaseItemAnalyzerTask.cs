@@ -29,7 +29,7 @@ namespace IntroSkipper.ScheduledTasks;
 /// <param name="libraryManager">Library manager.</param>
 /// <param name="providerManager">Provider manager.</param>
 /// <param name="fileSystem">File system.</param>
-/// <param name="mediaSegmentUpdateManager">Media segment update manager.</param>
+/// <param name="mediaSegmentRefresher">Media segment refresher.</param>
 /// <param name="ffmpegService">FFmpeg service.</param>
 /// <param name="cacheService">Detection cache service.</param>
 public partial class BaseItemAnalyzerTask(
@@ -38,7 +38,7 @@ public partial class BaseItemAnalyzerTask(
     ILibraryManager libraryManager,
     IProviderManager providerManager,
     IFileSystem fileSystem,
-    MediaSegmentUpdateManager mediaSegmentUpdateManager,
+    IMediaSegmentRefresher mediaSegmentRefresher,
     IFFmpegService ffmpegService,
     IDetectionCacheService cacheService)
 {
@@ -54,7 +54,7 @@ public partial class BaseItemAnalyzerTask(
     private readonly ILibraryManager _libraryManager = libraryManager;
     private readonly IProviderManager _providerManager = providerManager;
     private readonly IFileSystem _fileSystem = fileSystem;
-    private readonly MediaSegmentUpdateManager _mediaSegmentUpdateManager = mediaSegmentUpdateManager;
+    private readonly IMediaSegmentRefresher _mediaSegmentRefresher = mediaSegmentRefresher;
     private readonly IFFmpegService _ffmpegService = ffmpegService;
     private readonly IDetectionCacheService _cacheService = cacheService;
     private readonly PluginConfiguration _config = Plugin.Instance?.Configuration ?? new PluginConfiguration();
@@ -169,7 +169,7 @@ public partial class BaseItemAnalyzerTask(
 
             if (updateMediaSegments && _config.UpdateMediaSegments)
             {
-                await _mediaSegmentUpdateManager.UpdateMediaSegmentsAsync(episodes, ct).ConfigureAwait(false);
+                await _mediaSegmentRefresher.RefreshAsync(episodes.Select(e => e.EpisodeId), ct).ConfigureAwait(false);
             }
         }).ConfigureAwait(false);
 

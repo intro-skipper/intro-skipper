@@ -26,7 +26,7 @@ namespace IntroSkipper.ScheduledTasks;
 /// <param name="providerManager">Provider manager.</param>
 /// <param name="fileSystem">File system.</param>
 /// <param name="logger">Logger.</param>
-/// <param name="mediaSegmentUpdateManager">Media segment update manager.</param>
+/// <param name="mediaSegmentRefresher">Media segment refresher.</param>
 /// <param name="ffmpegService">FFmpeg service.</param>
 /// <param name="cacheService">Detection cache service.</param>
 public partial class DetectSegmentsTask(
@@ -35,7 +35,7 @@ public partial class DetectSegmentsTask(
     ILibraryManager libraryManager,
     IProviderManager providerManager,
     IFileSystem fileSystem,
-    MediaSegmentUpdateManager mediaSegmentUpdateManager,
+    IMediaSegmentRefresher mediaSegmentRefresher,
     IFFmpegService ffmpegService,
     IDetectionCacheService cacheService) : IScheduledTask
 {
@@ -44,7 +44,7 @@ public partial class DetectSegmentsTask(
     private readonly ILibraryManager _libraryManager = libraryManager;
     private readonly IProviderManager _providerManager = providerManager;
     private readonly IFileSystem _fileSystem = fileSystem;
-    private readonly MediaSegmentUpdateManager _mediaSegmentUpdateManager = mediaSegmentUpdateManager;
+    private readonly IMediaSegmentRefresher _mediaSegmentRefresher = mediaSegmentRefresher;
     private readonly IFFmpegService _ffmpegService = ffmpegService;
     private readonly IDetectionCacheService _cacheService = cacheService;
 
@@ -98,7 +98,7 @@ public partial class DetectSegmentsTask(
                 _libraryManager,
                 _providerManager,
                 _fileSystem,
-                _mediaSegmentUpdateManager,
+                _mediaSegmentRefresher,
                 _ffmpegService,
                 _cacheService);
 
