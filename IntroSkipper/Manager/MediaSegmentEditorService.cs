@@ -1,86 +1,36 @@
-// SPDX-FileCopyrightText: 2024-2026 rlauuzo
-// SPDX-FileCopyrightText: 2024-2026 AbandonedCart
-// SPDX-FileCopyrightText: 2024-2026 Kilian von Pflugk
-// SPDX-License-Identifier: GPL-3.0-only
-
-using IntroSkipper.Data;
 using Jellyfin.Database.Implementations.Enums;
 using MediaBrowser.Controller.Entities;
+using MediaBrowser.Controller.Library;
 using MediaBrowser.Controller.MediaSegments;
-using MediaBrowser.Model.Configuration;
 using MediaBrowser.Model.MediaSegments;
 using Microsoft.Extensions.Logging;
 
 namespace IntroSkipper.Manager;
 
 /// <summary>
-/// Initializes a new instance of the <see cref="MediaSegmentUpdateManager" /> class.
+/// Performs targeted Jellyfin media-segment editor operations.
 /// </summary>
-/// <param name="mediaSegmentManager">The Jellyfin <see cref="IMediaSegmentManager"/> used to update segments.</param>
+/// <remarks>
+/// Initializes a new instance of the <see cref="MediaSegmentEditorService"/> class.
+/// </remarks>
+/// <param name="mediaSegmentManager">The Jellyfin <see cref="IMediaSegmentManager"/> used to edit segments.</param>
+/// <param name="libraryManager">The Jellyfin library manager used to resolve items by id.</param>
 /// <param name="logger">Application logger.</param>
-public partial class MediaSegmentUpdateManager(
+public partial class MediaSegmentEditorService(
     IMediaSegmentManager mediaSegmentManager,
-    ILogger<MediaSegmentUpdateManager> logger)
+    ILibraryManager libraryManager,
+    ILogger<MediaSegmentEditorService> logger)
 {
     private readonly IMediaSegmentManager _mediaSegmentManager = mediaSegmentManager;
-    private readonly ILogger<MediaSegmentUpdateManager> _logger = logger;
-    private readonly LibraryOptions _externalProviders = new()
-    {
-        DisabledMediaSegmentProviders = ["Chapter Segments Provider"]
-    };
+    private readonly ILibraryManager _libraryManager = libraryManager;
+    private readonly ILogger<MediaSegmentEditorService> _logger = logger;
 
     // One semaphore per item id; serialises concurrent CreateOrReplaceSegmentAsync calls for
     // the same item so the get-then-create sequence is effectively atomic.
     // RefCountedSemaphore tracks how many callers currently hold a reference so that entries
     // are pruned from the dictionary as soon as the last caller is done, preventing unbounded growth.
-    private static readonly Dictionary<Guid, RefCountedSemaphore> _itemLocks = new();
+    private static readonly Dictionary<Guid, RefCountedSemaphore> _itemLocks = [];
     private static readonly object _itemLocksLock = new();
-
-    /// <summary>
-    /// Updates all media items in a List.
-    /// </summary>
-    /// <param name="episodes">Queued media items.</param>
-    /// <param name="cancellationToken">CancellationToken.</param>
-    /// <returns>A <see cref="Task"/> representing the asynchronous operation.</returns>
-    public async Task UpdateMediaSegmentsAsync(
-        IReadOnlyList<QueuedEpisode> episodes,
-        CancellationToken cancellationToken)
-    {
-        var maxParallelism = Plugin.Instance!.Configuration.MaxParallelism;
-        await Parallel.ForEachAsync(
-            episodes,
-            new ParallelOptions
-            {
-                CancellationToken = cancellationToken,
-                MaxDegreeOfParallelism = maxParallelism
-            },
-            async (episode, ct) =>
-            {
-                try
-                {
-                    // Retrieve the existing segments for the episode.
-                    var item = Plugin.Instance!.GetItem(episode.EpisodeId);
-                    if (item is null)
-                    {
-                        LogItemNotFound(_logger, episode.EpisodeId);
-                        return;
-                    }
-
-                    await _mediaSegmentManager.RunSegmentPluginProviders(item, _externalProviders, true, ct).ConfigureAwait(false);
-
-                    LogUpdatedSegments(_logger, episode.EpisodeId);
-                }
-                catch (OperationCanceledException)
-                {
-                    LogProcessingCanceled(_logger, episode.EpisodeId);
-                    throw;
-                }
-                catch (Exception ex)
-                {
-                    LogErrorProcessingEpisode(_logger, ex, episode.EpisodeId);
-                }
-            }).ConfigureAwait(false);
-    }
 
     /// <summary>
     /// Creates or replaces a Jellyfin media segment for the given item.
@@ -88,7 +38,7 @@ public partial class MediaSegmentUpdateManager(
     /// </summary>
     /// <remarks>
     /// Non-commercial segments are replaced: any existing Jellyfin segment of the same type
-    /// is deleted before the new one is created.  Commercial segments are deduplicated by
+    /// is deleted before the new one is created. Commercial segments are deduplicated by
     /// start/end ticks: the new segment is only created when no identical entry already exists.
     /// </remarks>
     /// <param name="item">The media item that owns the segment.</param>
@@ -114,7 +64,7 @@ public partial class MediaSegmentUpdateManager(
             await lockEntry.Semaphore.WaitAsync(cancellationToken).ConfigureAwait(false);
             acquired = true;
             var existingSegments = await _mediaSegmentManager
-                .GetSegmentsAsync(item, [segment.Type], _externalProviders, filterByProvider: false)
+                .GetSegmentsAsync(item, [segment.Type], MediaSegmentProviderDefaults.ExternalProviders, filterByProvider: false)
                 .ConfigureAwait(false);
 
             if (segment.Type == MediaSegmentType.Commercial)
@@ -189,7 +139,7 @@ public partial class MediaSegmentUpdateManager(
     /// <returns>The matching segment, or <c>null</c> if not found.</returns>
     public async Task<MediaSegmentDto?> GetSegmentAsync(Guid itemId, Guid segmentId, CancellationToken cancellationToken)
     {
-        var item = Plugin.Instance?.GetItem(itemId);
+        var item = itemId != Guid.Empty ? _libraryManager.GetItemById(itemId) : null;
         if (item is null)
         {
             LogItemNotFound(_logger, itemId);
@@ -197,7 +147,7 @@ public partial class MediaSegmentUpdateManager(
         }
 
         var segments = await _mediaSegmentManager
-            .GetSegmentsAsync(item, null, _externalProviders, filterByProvider: false)
+            .GetSegmentsAsync(item, null, MediaSegmentProviderDefaults.ExternalProviders, filterByProvider: false)
             .ConfigureAwait(false);
 
         cancellationToken.ThrowIfCancellationRequested();
@@ -243,17 +193,8 @@ public partial class MediaSegmentUpdateManager(
     [LoggerMessage(Level = LogLevel.Warning, Message = "Intro Skipper provider entry not found for item {ItemId}; Jellyfin segment will not be created")]
     private static partial void LogProviderNotFound(ILogger logger, Guid itemId);
 
-    [LoggerMessage(Level = LogLevel.Debug, Message = "Updated segments for episode {EpisodeId}")]
-    private static partial void LogUpdatedSegments(ILogger logger, Guid episodeId);
-
-    [LoggerMessage(Level = LogLevel.Debug, Message = "Processing for episode {EpisodeId} was canceled.")]
-    private static partial void LogProcessingCanceled(ILogger logger, Guid episodeId);
-
     [LoggerMessage(Level = LogLevel.Error, Message = "Error deleting segment {SegmentId}")]
     private static partial void LogErrorDeletingSegment(ILogger logger, Exception ex, Guid segmentId);
-
-    [LoggerMessage(Level = LogLevel.Error, Message = "Error processing episode {EpisodeId}")]
-    private static partial void LogErrorProcessingEpisode(ILogger logger, Exception ex, Guid episodeId);
 
     // Pairs a SemaphoreSlim with a caller reference count so that the dictionary entry can be
     // pruned and the semaphore disposed exactly when the last caller returns its reference.

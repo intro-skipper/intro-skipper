@@ -28,7 +28,8 @@ namespace IntroSkipper
             serviceCollection.AddSingleton<IDetectionCacheService, DetectionCacheService>();
             serviceCollection.AddSingleton<IFFmpegService, FFmpegService>();
             serviceCollection.AddSingleton<IMediaSegmentProvider, SegmentProvider>();
-            serviceCollection.AddTransient<MediaSegmentUpdateManager>();
+            serviceCollection.AddSingleton<IMediaSegmentRefresher, MediaSegmentRefreshService>();
+            serviceCollection.AddTransient<MediaSegmentEditorService>();
             serviceCollection.AddSingleton<MediaSegmentsFirstEpisodeFilter>();
             serviceCollection.Configure<MvcOptions>(options =>
             {
