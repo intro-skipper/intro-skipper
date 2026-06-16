@@ -3,6 +3,7 @@ export interface PluginConfig {
     // Numeric settings persisted in the plugin configuration.
     MaxParallelism: number;
     AnalysisPercent: number;
+    SettledSeasonDelayHours: number;
     AnalysisLengthLimit: number;
     MinimumIntroDuration: number;
     MaximumIntroDuration: number;
@@ -39,6 +40,7 @@ export interface PluginConfig {
 
     // Feature toggles persisted in the plugin configuration.
     AutoDetectIntros: boolean;
+    ReanalyzeSettledSeasons: boolean;
     AnalyzeSeasonZero: boolean;
     UpdateMediaSegments: boolean;
     UseAlternativeBlackFrameAnalyzer: boolean;

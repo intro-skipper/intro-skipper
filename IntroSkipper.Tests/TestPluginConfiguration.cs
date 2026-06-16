@@ -17,6 +17,7 @@ public class TestPluginConfiguration
         Assert.Equal(PluginConfiguration.DefaultAnalysisPercent, config.AnalysisPercent);
         Assert.Equal(PluginConfiguration.DefaultAnalysisLengthLimit, config.AnalysisLengthLimit);
         Assert.Equal(PluginConfiguration.DefaultMinimumIntroDuration, config.MinimumIntroDuration);
+        Assert.Equal(PluginConfiguration.DefaultSettledSeasonDelayHours, config.SettledSeasonDelayHours);
     }
 
     [Theory]
@@ -30,5 +31,21 @@ public class TestPluginConfiguration
         var config = new PluginConfiguration { AnalysisPercent = value };
 
         Assert.Equal(expected, config.AnalysisPercent);
+    }
+
+
+    [Theory]
+    [InlineData(-1, 0)]
+    [InlineData(0, 0)]
+    [InlineData(24, 24)]
+    [InlineData(48, 48)]
+    [InlineData(PluginConfiguration.MaximumSettledSeasonDelayHours, PluginConfiguration.MaximumSettledSeasonDelayHours)]
+    [InlineData(PluginConfiguration.MaximumSettledSeasonDelayHours + 1, PluginConfiguration.MaximumSettledSeasonDelayHours)]
+    [InlineData(int.MaxValue, PluginConfiguration.MaximumSettledSeasonDelayHours)]
+    public void SettledSeasonDelayHours_Setter_ClampsValuesWithinConfiguredBounds(int value, int expected)
+    {
+        var config = new PluginConfiguration { SettledSeasonDelayHours = value };
+
+        Assert.Equal(expected, config.SettledSeasonDelayHours);
     }
 }
