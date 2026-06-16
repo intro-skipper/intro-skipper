@@ -128,8 +128,8 @@ public partial class CleanCacheTask(
             }
         }
 
-        // Clean up Season information by removing items that are no longer exist.
-        await plugin.CleanSeasonInfoAsync(queue.Keys, cancellationToken).ConfigureAwait(false);
+        // Clean up season state by removing items that no longer exist.
+        await plugin.CleanSeasonStateAsync(queue.Keys, cancellationToken).ConfigureAwait(false);
 
         plugin.AnalyzeAgain = true;
 

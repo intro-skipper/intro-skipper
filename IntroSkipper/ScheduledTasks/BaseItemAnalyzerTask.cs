@@ -119,6 +119,7 @@ public partial class BaseItemAnalyzerTask(
         await Parallel.ForEachAsync(queue, options, async (season, ct) =>
         {
             var updateMediaSegments = false;
+            IReadOnlyList<AnalysisMode> settledResetModes = [];
 
             var episodes = await queueManager.VerifyQueueAsync(season.Value, modes, ct).ConfigureAwait(false);
             if (episodes.Count == 0)
@@ -135,34 +136,38 @@ public partial class BaseItemAnalyzerTask(
                 return;
             }
 
-            // If the season has stopped receiving new episodes, re-analyze it from scratch once so
-            // segments first derived from a partial season are recomputed against the full season.
+            // Run settled-season reanalysis from scratch after no new episodes have been added
+            // for the configured delay so segments first derived from a partial season are
+            // recomputed against the full season.
             // Reuses the cached fingerprints, so this only re-runs the comparison, not the decode.
+            var utcNow = DateTime.UtcNow;
+            var episodeIds = episodes.Select(e => e.EpisodeId).ToArray();
             if (_config.ReanalyzeSettledSeasons &&
-                plugin.ShouldSettleReanalyze(first.SeasonId, episodes.Count) &&
-                SeasonReanalysisPlanner.IsSettledForReanalysis(episodes, _config, DateTime.UtcNow))
+                SeasonReanalysisPlanner.IsSettledForReanalysis(episodes, _config, utcNow))
             {
-                LogReanalyzingSettledSeason(_logger, first.SeasonNumber, first.SeriesName, episodes.Count);
-                await plugin.ResetSeasonForReanalysisAsync(first.SeasonId, episodes.Select(e => e.EpisodeId), modes, ct).ConfigureAwait(false);
-                foreach (var episode in episodes)
+                settledResetModes = await GetSettleReanalysisModesAsync(plugin, first.SeasonId, episodeIds, modes, ffmpegValid, _config.SettledSeasonRescanPeriodDays, utcNow, ct).ConfigureAwait(false);
+                if (settledResetModes.Count > 0)
                 {
-                    foreach (var resetMode in modes)
+                    var resetModes = ExpandSettledResetModesForDerivedSegments(settledResetModes, _config.AnimePreviewFromCreditsEnd);
+                    LogReanalyzingSettledSeason(_logger, first.SeasonNumber, first.SeriesName, episodes.Count);
+                    await plugin.ResetSeasonForReanalysisAsync(first.SeasonId, episodeIds, resetModes, ct).ConfigureAwait(false);
+                    foreach (var episode in episodes)
                     {
-                        if (episode.GetAnalyzed(resetMode) != EpisodeState.UserProvided)
+                        foreach (var resetMode in resetModes)
                         {
-                            episode.SetAnalyzed(resetMode, EpisodeState.NotAnalyzed);
+                            if (episode.GetAnalyzed(resetMode) != EpisodeState.UserProvided)
+                            {
+                                episode.SetAnalyzed(resetMode, EpisodeState.NotAnalyzed);
+                            }
                         }
                     }
+
+                    // Force a media-segment sync so deletions propagate even if the recompute finds nothing.
+                    updateMediaSegments = true;
                 }
-
-                // Record completion only after the reset committed. A reset that throws/cancels leaves
-                // the guard unset so the next scan retries; the analysis below may still be interrupted,
-                // but the cleared state guarantees the normal pass finishes it.
-                plugin.RecordSettleReanalysis(first.SeasonId, episodes.Count);
-
-                // Force a media-segment sync so deletions propagate even if the recompute finds nothing.
-                updateMediaSegments = true;
             }
+
+            var completedSettledModes = new List<AnalysisMode>(settledResetModes.Count);
 
             try
             {
@@ -175,6 +180,11 @@ public partial class BaseItemAnalyzerTask(
                         mode,
                         ffmpegValid,
                         ct).ConfigureAwait(false);
+                    if (settledResetModes.Contains(mode))
+                    {
+                        completedSettledModes.Add(mode);
+                    }
+
                     Interlocked.Add(ref totalProcessed, episodes.Count);
 
                     updateMediaSegments = analyzed > 0 || updateMediaSegments;
@@ -200,9 +210,69 @@ public partial class BaseItemAnalyzerTask(
             {
                 await _mediaSegmentRefresher.RefreshAsync(episodes.Select(e => e.EpisodeId), ct).ConfigureAwait(false);
             }
-        }).ConfigureAwait(false);
 
+            if (completedSettledModes.Count > 0)
+            {
+                await plugin.RecordSettleReanalysisAsync(first.SeasonId, completedSettledModes, episodeIds, ct).ConfigureAwait(false);
+            }
+        }).ConfigureAwait(false);
         plugin.AnalyzeAgain = false;
+    }
+
+    private static async Task<IReadOnlyList<AnalysisMode>> GetSettleReanalysisModesAsync(
+        Plugin plugin,
+        Guid seasonId,
+        IReadOnlyCollection<Guid> episodeIds,
+        IReadOnlyCollection<AnalysisMode> modes,
+        bool ffmpegValid,
+        int settledSeasonRescanPeriodDays,
+        DateTime utcNow,
+        CancellationToken cancellationToken)
+    {
+        var resetModes = new List<AnalysisMode>(modes.Count);
+        foreach (var mode in modes)
+        {
+            var action = await plugin.GetAnalyzerActionAsync(seasonId, mode, cancellationToken).ConfigureAwait(false);
+            if (action != AnalyzerAction.None &&
+                CanSettleReanalysisRun(mode, action, ffmpegValid) &&
+                await plugin.ShouldSettleReanalyzeAsync(seasonId, mode, episodeIds, settledSeasonRescanPeriodDays, utcNow, cancellationToken).ConfigureAwait(false))
+            {
+                resetModes.Add(mode);
+            }
+        }
+
+        return resetModes;
+    }
+
+    internal static IReadOnlyCollection<AnalysisMode> ExpandSettledResetModesForDerivedSegments(
+        IReadOnlyList<AnalysisMode> modes,
+        bool animePreviewFromCreditsEnd)
+    {
+        if (!animePreviewFromCreditsEnd ||
+            !modes.Contains(AnalysisMode.Credits) ||
+            modes.Contains(AnalysisMode.Preview))
+        {
+            return modes;
+        }
+
+        var resetModes = new AnalysisMode[modes.Count + 1];
+        for (var i = 0; i < modes.Count; i++)
+        {
+            resetModes[i] = modes[i];
+        }
+
+        resetModes[^1] = AnalysisMode.Preview;
+        return resetModes;
+    }
+
+    internal static bool CanSettleReanalysisRun(AnalysisMode mode, AnalyzerAction action, bool ffmpegValid)
+    {
+        if (mode != AnalysisMode.Introduction)
+        {
+            return true;
+        }
+
+        return ffmpegValid || action == AnalyzerAction.Chapter;
     }
 
     /// <summary>

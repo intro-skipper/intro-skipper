@@ -21,6 +21,7 @@ public class TestChapterAnalyzer
     [InlineData("Opening")]
     [InlineData("OP")]
     [InlineData("Intro")]
+    [InlineData("Intro:")]
     [InlineData("Intro Start")]
     [InlineData("Introduction")]
     public void TestIntroductionExpression(string chapterName)
@@ -38,6 +39,7 @@ public class TestChapterAnalyzer
     [InlineData("Credit start")]
     [InlineData("Closing Credits")]
     [InlineData("Credits")]
+    [InlineData("Credits:")]
     public void TestEndCreditsExpression(string chapterName)
     {
         var creditsChapter = FindChapter(chapterName, AnalysisMode.Credits);

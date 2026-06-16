@@ -284,7 +284,7 @@ public partial class QueueManager(ILogger<QueueManager> logger, ILibraryManager 
             IsExcluded = IsSeriesExcluded(episode.SeriesName),
             Path = episode.Path,
             Duration = duration,
-            DateCreated = episode.DateCreated,
+            DateAdded = EpisodeAvailabilityDate(episode),
             IntroFingerprintEnd = fingerprintDuration,
             CreditsFingerprintStart = Math.Max(0, creditsDuration - maxCreditsDuration),
             CreditsFingerprintEnd = creditsDuration,
@@ -307,6 +307,11 @@ public partial class QueueManager(ILogger<QueueManager> logger, ILibraryManager 
         }
 
         return QueuedMediaCategory.Episode;
+    }
+
+    internal static DateTime EpisodeAvailabilityDate(Episode episode)
+    {
+        return episode.DateCreated != default ? episode.DateCreated : episode.DateLastSaved;
     }
 
     private async Task QueueMovieAsync(Movie movie, CancellationToken cancellationToken)

@@ -3,6 +3,8 @@ export interface PluginConfig {
     // Numeric settings persisted in the plugin configuration.
     MaxParallelism: number;
     AnalysisPercent: number;
+    SettledSeasonRescanPeriodDays: number;
+    SettledSeasonDelayHours: number;
     AnalysisLengthLimit: number;
     MinimumIntroDuration: number;
     MaximumIntroDuration: number;

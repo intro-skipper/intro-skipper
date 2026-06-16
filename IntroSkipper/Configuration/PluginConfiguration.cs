@@ -37,6 +37,26 @@ public class PluginConfiguration : BasePluginConfiguration
     public const int DefaultMinimumIntroDuration = 15;
 
     /// <summary>
+    /// Default number of hours after the newest queued episode before a season is treated as settled.
+    /// </summary>
+    public const int DefaultSettledSeasonDelayHours = 24;
+
+    /// <summary>
+    /// Maximum number of hours after the newest queued episode before a season is treated as settled.
+    /// </summary>
+    public const int MaximumSettledSeasonDelayHours = 87600;
+
+    /// <summary>
+    /// Default number of days between successful settled-season reanalyses.
+    /// </summary>
+    public const int DefaultSettledSeasonRescanPeriodDays = 0;
+
+    /// <summary>
+    /// Maximum number of days between successful settled-season reanalyses.
+    /// </summary>
+    public const int MaximumSettledSeasonRescanPeriodDays = 3650;
+
+    /// <summary>
     /// Minimum percentage of each episode's audio track to analyze.
     /// </summary>
     public const int MinimumAnalysisPercent = 1;
@@ -47,6 +67,8 @@ public class PluginConfiguration : BasePluginConfiguration
     public const int MaximumAnalysisPercent = 50;
 
     private int _analysisPercent = DefaultAnalysisPercent;
+    private int _settledSeasonDelayHours = DefaultSettledSeasonDelayHours;
+    private int _settledSeasonRescanPeriodDays = DefaultSettledSeasonRescanPeriodDays;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="PluginConfiguration"/> class.
@@ -73,6 +95,28 @@ public class PluginConfiguration : BasePluginConfiguration
     /// segments first derived from a partial season improve once the rest of the season is present.
     /// </summary>
     public bool ReanalyzeSettledSeasons { get; set; }
+
+    /// <summary>
+    /// Gets or sets the number of hours that must pass after the newest episode was added before the season is treated as settled.
+    /// A value of 0 means no additional quiet-time wait once the season is queued.
+    /// <see cref="ReanalyzeSettledSeasons"/> remains the master switch.
+    /// </summary>
+    public int SettledSeasonDelayHours
+    {
+        get => _settledSeasonDelayHours;
+        set => _settledSeasonDelayHours = Math.Clamp(value, 0, MaximumSettledSeasonDelayHours);
+    }
+
+    /// <summary>
+    /// Gets or sets the number of days between successful settled-season reanalyses.
+    /// A value of 0 disables periodic settled-season rescans; positive values are days between
+    /// successful settled-season reanalyses. <see cref="ReanalyzeSettledSeasons"/> remains the master switch.
+    /// </summary>
+    public int SettledSeasonRescanPeriodDays
+    {
+        get => _settledSeasonRescanPeriodDays;
+        set => _settledSeasonRescanPeriodDays = Math.Clamp(value, 0, MaximumSettledSeasonRescanPeriodDays);
+    }
 
     /// <summary>
     /// Gets or sets a value indicating whether to analyze season 0.

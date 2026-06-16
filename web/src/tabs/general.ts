@@ -1,4 +1,8 @@
 import type { Tab } from "../types.ts";
+import {
+    MAXIMUM_SETTLED_SEASON_DELAY_HOURS,
+    MAXIMUM_SETTLED_SEASON_RESCAN_PERIOD_DAYS,
+} from "../config-limits.ts";
 import { configStore } from "../store/config-store.ts";
 import { injectSkipButtonCss } from "../store/api.ts";
 import { el, htmlEl } from "../components/dom.ts";
@@ -72,10 +76,29 @@ export const generalTab: Tab = {
             }),
             checkboxField({
                 id: "ReanalyzeSettledSeasons",
-                label: "Re-analyze a season once it is complete",
+                label: "Re-analyze settled seasons",
                 description:
-                    "When a season stops receiving new episodes, re-analyze the whole season once so segments first detected from only a few episodes are recomputed against the full season. Uses cached fingerprints, so it does not re-decode media.",
-                visible: () => configStore.get("AutoDetectIntros") === true,
+                    "When a season has no new episodes for the configured delay, re-analyze the whole season so segments first detected from only a few episodes are recomputed against the full season. Uses cached fingerprints, so it does not re-decode media.",
+            }),
+            numberField({
+                id: "SettledSeasonDelayHours",
+                label: "Settled season delay (hours)",
+                min: 0,
+                max: MAXIMUM_SETTLED_SEASON_DELAY_HOURS,
+                step: 1,
+                description:
+                    "Treat a season as settled after this many hours without newly added episodes. Default is 24; increase this for weekly releases.",
+                visible: () => configStore.get("ReanalyzeSettledSeasons") === true,
+            }),
+            numberField({
+                id: "SettledSeasonRescanPeriodDays",
+                label: "Periodic re-analysis interval (days)",
+                min: 0,
+                max: MAXIMUM_SETTLED_SEASON_RESCAN_PERIOD_DAYS,
+                step: 1,
+                description:
+                    "Set to 0 to keep the current one-time behavior. When greater than 0, settled seasons are re-analyzed again after this many days. Cached fingerprints are reused.",
+                visible: () => configStore.get("ReanalyzeSettledSeasons") === true,
             }),
             checkboxField({
                 id: "UpdateMediaSegments",

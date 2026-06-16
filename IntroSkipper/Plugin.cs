@@ -9,6 +9,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
 using System.Collections.Concurrent;
+using System.Text.Json;
 using IntroSkipper.Configuration;
 using IntroSkipper.Data;
 using IntroSkipper.Db;
@@ -41,13 +42,6 @@ public partial class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
     private readonly ILogger<Plugin> _logger;
     private readonly string _dbPath;
     private readonly string _cacheDbPath;
-
-    /// <summary>
-    /// Tracks the episode count present the last time each season was re-analyzed because it had
-    /// settled. Kept in memory only: a settled season is re-analyzed once per process lifetime per
-    /// episode count, which is enough to avoid repeating the work on every scheduled scan.
-    /// </summary>
-    private readonly ConcurrentDictionary<Guid, int> _settleReanalyzedCounts = new();
 
     /// <summary>
     /// Initializes a new instance of the <see cref="Plugin"/> class.
@@ -366,7 +360,7 @@ public partial class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
     internal async Task SetAnalyzerActionAsync(Guid id, IReadOnlyDictionary<AnalysisMode, AnalyzerAction> analyzerActions, CancellationToken cancellationToken = default)
     {
         using var db = CreateDbContext();
-        var existingEntries = await db.DbSeasonInfo
+        var existingEntries = await db.DbSeasonState
             .Where(s => s.SeasonId == id)
             .ToDictionaryAsync(s => s.Type, cancellationToken)
             .ConfigureAwait(false);
@@ -379,7 +373,7 @@ public partial class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
             }
             else
             {
-                db.DbSeasonInfo.Add(new DbSeasonInfo(id, mode, action));
+                db.DbSeasonState.Add(new DbSeasonState(id, mode, action));
             }
         }
 
@@ -389,19 +383,19 @@ public partial class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
     internal async Task SetEpisodeIdsAsync(Guid id, AnalysisMode mode, IEnumerable<Guid> episodeIds, string configHash = "", CancellationToken cancellationToken = default)
     {
         using var db = CreateDbContext();
-        var seasonInfo = await db.DbSeasonInfo
+        var seasonState = await db.DbSeasonState
             .FirstOrDefaultAsync(s => s.SeasonId == id && s.Type == mode, cancellationToken)
             .ConfigureAwait(false);
 
-        if (seasonInfo is null)
+        if (seasonState is null)
         {
-            seasonInfo = new DbSeasonInfo(id, mode, AnalyzerAction.Default, episodeIds, configHash);
-            db.DbSeasonInfo.Add(seasonInfo);
+            seasonState = new DbSeasonState(id, mode, AnalyzerAction.Default, episodeIds, configHash);
+            db.DbSeasonState.Add(seasonState);
         }
         else
         {
-            db.Entry(seasonInfo).Property(s => s.EpisodeIds).CurrentValue = episodeIds;
-            db.Entry(seasonInfo).Property(s => s.ConfigHash).CurrentValue = configHash;
+            db.Entry(seasonState).Property(s => s.EpisodeIds).CurrentValue = episodeIds;
+            db.Entry(seasonState).Property(s => s.ConfigHash).CurrentValue = configHash;
         }
 
         await db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
@@ -421,22 +415,22 @@ public partial class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
     internal async Task RemoveEpisodeIdAsync(Guid seasonId, AnalysisMode mode, Guid episodeId, CancellationToken cancellationToken = default)
     {
         using var db = CreateDbContext();
-        var seasonInfo = await db.DbSeasonInfo
+        var seasonState = await db.DbSeasonState
             .FirstOrDefaultAsync(s => s.SeasonId == seasonId && s.Type == mode, cancellationToken)
             .ConfigureAwait(false);
 
-        if (seasonInfo is null)
+        if (seasonState is null)
         {
             return;
         }
 
-        var currentIds = seasonInfo.EpisodeIds.ToList();
+        var currentIds = seasonState.EpisodeIds.ToList();
         if (!currentIds.Remove(episodeId))
         {
             return; // Episode was not in the list — no write needed.
         }
 
-        db.Entry(seasonInfo).Property(s => s.EpisodeIds).CurrentValue = currentIds;
+        db.Entry(seasonState).Property(s => s.EpisodeIds).CurrentValue = currentIds;
         await db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
     }
 
@@ -477,30 +471,124 @@ public partial class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
     internal async Task<IReadOnlyDictionary<AnalysisMode, IEnumerable<Guid>>> GetEpisodeIdsAsync(Guid id, CancellationToken cancellationToken = default)
     {
         using var db = CreateDbContext();
-        return await db.DbSeasonInfo.Where(s => s.SeasonId == id)
+        return await db.DbSeasonState.Where(s => s.SeasonId == id)
             .ToDictionaryAsync(s => s.Type, s => s.EpisodeIds, cancellationToken)
             .ConfigureAwait(false);
     }
 
     /// <summary>
-    /// Returns whether a settled season still needs a re-analysis at its current episode count.
-    /// Read-only: the decision is committed separately via <see cref="RecordSettleReanalysis"/> once
-    /// the reset has succeeded, so a failed or cancelled pass is retried on the next scan.
+    /// Returns whether a settled season analysis mode still needs re-analysis for its current episode set.
+    /// Read-only: the decision is committed separately via <see cref="RecordSettleReanalysisAsync(Guid, IReadOnlyCollection{AnalysisMode}, IReadOnlyCollection{Guid}, CancellationToken)"/> once
+    /// the reset has succeeded, so the completed episode set survives plugin restarts.
     /// </summary>
     /// <param name="seasonId">Season ID.</param>
-    /// <param name="episodeCount">Current number of episodes in the season.</param>
+    /// <param name="mode">Analysis mode.</param>
+    /// <param name="episodeIds">Current episode IDs in the season.</param>
+    /// <param name="settledSeasonRescanPeriodDays">Number of days between successful settled-season reanalyses; 0 disables periodic rescans.</param>
+    /// <param name="utcNow">Current UTC time. Uses <see cref="DateTime.UtcNow"/> when not supplied.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns><see langword="true"/> when a re-analysis should be performed; otherwise <see langword="false"/>.</returns>
-    internal bool ShouldSettleReanalyze(Guid seasonId, int episodeCount)
-        => !_settleReanalyzedCounts.TryGetValue(seasonId, out var last) || last != episodeCount;
+    internal async Task<bool> ShouldSettleReanalyzeAsync(
+        Guid seasonId,
+        AnalysisMode mode,
+        IReadOnlyCollection<Guid> episodeIds,
+        int settledSeasonRescanPeriodDays = PluginConfiguration.DefaultSettledSeasonRescanPeriodDays,
+        DateTime? utcNow = null,
+        CancellationToken cancellationToken = default)
+    {
+        using var db = CreateDbContext();
+        var state = await db.DbSeasonState
+            .AsNoTracking()
+            .Where(s => s.SeasonId == seasonId && s.Type == mode)
+            .Select(s => new
+            {
+                s.SettledReanalysisEpisodeIds,
+                s.LastSettledReanalysisUtc
+            })
+            .FirstOrDefaultAsync(cancellationToken)
+            .ConfigureAwait(false);
+
+        if (state is null)
+        {
+            return true;
+        }
+
+        var settledEpisodeIds = state.SettledReanalysisEpisodeIds.ToHashSet();
+        if (settledEpisodeIds.Count != episodeIds.Count || episodeIds.Any(id => !settledEpisodeIds.Contains(id)))
+        {
+            return true;
+        }
+
+        if (settledSeasonRescanPeriodDays <= 0)
+        {
+            return false;
+        }
+
+        if (state.LastSettledReanalysisUtc is null)
+        {
+            return true;
+        }
+
+        return (utcNow ?? DateTime.UtcNow) - state.LastSettledReanalysisUtc.Value >= TimeSpan.FromDays(settledSeasonRescanPeriodDays);
+    }
 
     /// <summary>
-    /// Records that a season has been re-analyzed at the given episode count so the work is not
-    /// repeated on every subsequent scheduled scan. Call only after the reset has committed.
+    /// Records that season analysis modes have been re-analyzed for the given episode set so the
+    /// exact completed set is not repeated on subsequent scans or after a plugin restart. Call only
+    /// after the reset has committed.
     /// </summary>
     /// <param name="seasonId">Season ID.</param>
-    /// <param name="episodeCount">Episode count that was re-analyzed.</param>
-    internal void RecordSettleReanalysis(Guid seasonId, int episodeCount)
-        => _settleReanalyzedCounts[seasonId] = episodeCount;
+    /// <param name="modes">Analysis modes that were re-analyzed.</param>
+    /// <param name="episodeIds">Episode IDs that were re-analyzed.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>A <see cref="Task"/> representing the asynchronous operation.</returns>
+    internal Task RecordSettleReanalysisAsync(
+        Guid seasonId,
+        IReadOnlyCollection<AnalysisMode> modes,
+        IReadOnlyCollection<Guid> episodeIds,
+        CancellationToken cancellationToken = default)
+        => RecordSettleReanalysisAsync(seasonId, modes, episodeIds, DateTime.UtcNow, cancellationToken);
+
+    /// <summary>
+    /// Records that season analysis modes have been re-analyzed for the given episode set so the
+    /// exact completed set is not repeated on subsequent scans or after a plugin restart. Call only
+    /// after the reset has committed.
+    /// </summary>
+    /// <param name="seasonId">Season ID.</param>
+    /// <param name="modes">Analysis modes that were re-analyzed.</param>
+    /// <param name="episodeIds">Episode IDs that were re-analyzed.</param>
+    /// <param name="completedUtc">UTC time when the settled-season reanalysis completed.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>A <see cref="Task"/> representing the asynchronous operation.</returns>
+    internal async Task RecordSettleReanalysisAsync(
+        Guid seasonId,
+        IReadOnlyCollection<AnalysisMode> modes,
+        IReadOnlyCollection<Guid> episodeIds,
+        DateTime completedUtc,
+        CancellationToken cancellationToken = default)
+    {
+        if (modes.Count == 0)
+        {
+            return;
+        }
+
+        var completedAtUtc = completedUtc.Kind == DateTimeKind.Utc ? completedUtc : completedUtc.ToUniversalTime();
+        var settledEpisodeIds = JsonSerializer.Serialize(episodeIds, (JsonSerializerOptions?)null);
+
+        using var db = CreateDbContext();
+        foreach (var mode in modes)
+        {
+            await db.Database.ExecuteSqlInterpolatedAsync(
+                $"""
+                INSERT INTO "DbSeasonState" ("SeasonId", "Type", "Action", "EpisodeIds", "ConfigHash", "SettledReanalysisEpisodeIds", "LastSettledReanalysisUtc")
+                VALUES ({seasonId}, {(int)mode}, {(int)AnalyzerAction.Default}, {"[]"}, {string.Empty}, {settledEpisodeIds}, {completedAtUtc})
+                ON CONFLICT("SeasonId", "Type") DO UPDATE SET
+                    "SettledReanalysisEpisodeIds" = excluded."SettledReanalysisEpisodeIds",
+                    "LastSettledReanalysisUtc" = excluded."LastSettledReanalysisUtc"
+                """,
+                cancellationToken).ConfigureAwait(false);
+        }
+    }
 
     /// <summary>
     /// Clears stored automatic analysis state for a season so it is re-analyzed from scratch on the
@@ -543,14 +631,14 @@ public partial class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
             // Clear the analyzed-episode lists so VerifyQueueAsync treats every episode as NotAnalyzed.
             // Committing this together with the deletes guarantees the episodes are re-analyzed (either
             // on this pass or a later one) instead of being stranded as NoSegments.
-            var seasonInfos = await db.DbSeasonInfo
+            var seasonStates = await db.DbSeasonState
                 .Where(s => s.SeasonId == seasonId && modeArray.Contains(s.Type))
                 .ToListAsync(cancellationToken)
                 .ConfigureAwait(false);
 
-            foreach (var info in seasonInfos)
+            foreach (var state in seasonStates)
             {
-                db.Entry(info).Property(s => s.EpisodeIds).CurrentValue = [];
+                db.Entry(state).Property(s => s.EpisodeIds).CurrentValue = [];
             }
 
             await db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
@@ -567,7 +655,7 @@ public partial class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
         using var db = CreateDbContext();
         var episodeIdArray = (Guid[])[.. episodeIds.Distinct()];
 
-        var seasonInfos = await db.DbSeasonInfo
+        var seasonStates = await db.DbSeasonState
             .AsNoTracking()
             .Where(s => s.SeasonId == seasonId)
             .ToListAsync(cancellationToken)
@@ -586,9 +674,9 @@ public partial class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
         var segments = allSegments;
 
         return new SeasonQueueSnapshot(
-            seasonInfos.ToDictionary(s => s.Type, s => (IReadOnlySet<Guid>)s.EpisodeIds.ToHashSet()),
-            seasonInfos.ToDictionary(s => s.Type, s => s.ConfigHash),
-            seasonInfos.ToDictionary(s => s.Type, s => s.Action),
+            seasonStates.ToDictionary(s => s.Type, s => (IReadOnlySet<Guid>)s.EpisodeIds.ToHashSet()),
+            seasonStates.ToDictionary(s => s.Type, s => s.ConfigHash),
+            seasonStates.ToDictionary(s => s.Type, s => s.Action),
             segments
                 .GroupBy(s => s.ItemId)
                 .ToDictionary(
@@ -609,7 +697,7 @@ public partial class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
     internal async Task<IReadOnlyDictionary<AnalysisMode, AnalyzerAction>> GetAllAnalyzerActionsAsync(Guid seasonId, CancellationToken cancellationToken = default)
     {
         using var db = CreateDbContext();
-        var infos = await db.DbSeasonInfo
+        var states = await db.DbSeasonState
             .Where(s => s.SeasonId == seasonId)
             .ToDictionaryAsync(s => s.Type, s => s.Action, cancellationToken)
             .ConfigureAwait(false);
@@ -618,7 +706,7 @@ public partial class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
         var result = new Dictionary<AnalysisMode, AnalyzerAction>();
         foreach (var mode in Enum.GetValues<AnalysisMode>())
         {
-            result[mode] = infos.TryGetValue(mode, out var action) ? action : AnalyzerAction.Default;
+            result[mode] = states.TryGetValue(mode, out var action) ? action : AnalyzerAction.Default;
         }
 
         return result;
@@ -627,16 +715,16 @@ public partial class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
     internal async Task<AnalyzerAction> GetAnalyzerActionAsync(Guid id, AnalysisMode mode, CancellationToken cancellationToken = default)
     {
         using var db = CreateDbContext();
-        var info = await db.DbSeasonInfo
+        var state = await db.DbSeasonState
             .FirstOrDefaultAsync(s => s.SeasonId == id && s.Type == mode, cancellationToken)
             .ConfigureAwait(false);
-        return info?.Action ?? AnalyzerAction.Default;
+        return state?.Action ?? AnalyzerAction.Default;
     }
 
-    internal async Task CleanSeasonInfoAsync(IEnumerable<Guid> ids, CancellationToken cancellationToken = default)
+    internal async Task CleanSeasonStateAsync(IEnumerable<Guid> ids, CancellationToken cancellationToken = default)
     {
         using var db = CreateDbContext();
-        await db.DbSeasonInfo
+        await db.DbSeasonState
             .Where(s => !ids.Contains(s.SeasonId))
             .ExecuteDeleteAsync(cancellationToken)
             .ConfigureAwait(false);

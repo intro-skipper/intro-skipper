@@ -8,16 +8,10 @@ namespace IntroSkipper.Helper;
 
 /// <summary>
 /// Decides whether a season has stopped receiving new episodes and is therefore eligible for a
-/// one-time full re-analysis. Pure logic with no I/O so it can be unit tested in isolation.
+/// settled-season reanalysis. Pure logic with no I/O so it can be unit tested in isolation.
 /// </summary>
 internal static class SeasonReanalysisPlanner
 {
-    /// <summary>
-    /// Hours that must pass since the most recently added episode before a season is treated as
-    /// "settled" (i.e. no longer actively receiving new episodes).
-    /// </summary>
-    internal const int SettleHours = 24;
-
     /// <summary>
     /// Minimum number of episodes a season must contain before a settle re-analysis is worthwhile.
     /// </summary>
@@ -57,7 +51,7 @@ internal static class SeasonReanalysisPlanner
             return false;
         }
 
-        var newest = seasonEpisodes.Max(e => e.DateCreated);
-        return utcNow - newest >= TimeSpan.FromHours(SettleHours);
+        var newest = seasonEpisodes.Max(e => e.DateAdded);
+        return utcNow - newest >= TimeSpan.FromHours(config.SettledSeasonDelayHours);
     }
 }

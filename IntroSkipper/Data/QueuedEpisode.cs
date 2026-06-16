@@ -90,10 +90,11 @@ public class QueuedEpisode
     public double Duration { get; set; }
 
     /// <summary>
-    /// Gets or sets the UTC time the item was added to the library. Used to determine whether a
-    /// season has stopped receiving new episodes and is eligible for a full re-analysis.
+    /// Gets or sets the UTC time this item became available to analysis. This intentionally tracks
+    /// Jellyfin's created timestamp; metadata refreshes update <c>DateLastSaved</c> and must not make
+    /// an already-settled season look newly updated.
     /// </summary>
-    public DateTime DateCreated { get; set; }
+    public DateTime DateAdded { get; set; }
 
     /// <summary>
     /// Gets or sets the configuration hash for the current analysis pass.
