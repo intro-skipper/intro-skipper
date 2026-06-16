@@ -181,7 +181,7 @@ public partial class QueueManager(ILogger<QueueManager> logger, ILibraryManager 
                     }
                     else if (IsPathExcluded(episode.Path))
                     {
-                        LogSkippingExcludedPath(_logger, episode.Path);
+                        LogSkippingExcludedPath(_logger, Path.GetFileName(episode.Path));
                     }
                     else
                     {
@@ -192,7 +192,7 @@ public partial class QueueManager(ILogger<QueueManager> logger, ILibraryManager 
                 {
                     if (IsPathExcluded(movie.Path))
                     {
-                        LogSkippingExcludedPath(_logger, movie.Path);
+                        LogSkippingExcludedPath(_logger, Path.GetFileName(movie.Path));
                     }
                     else
                     {
@@ -564,8 +564,9 @@ public partial class QueueManager(ILogger<QueueManager> logger, ILibraryManager 
     [LoggerMessage(Level = LogLevel.Debug, Message = "Skipping excluded series: {Series}")]
     private static partial void LogSkippingExcludedSeries(ILogger logger, string series);
 
-    [LoggerMessage(Level = LogLevel.Debug, Message = "Skipping excluded path: {Path}")]
-    private static partial void LogSkippingExcludedPath(ILogger logger, string path);
+    // Log only the file name (not the full path) to avoid exposing user-specific directory structures in shareable logs.
+    [LoggerMessage(Level = LogLevel.Debug, Message = "Skipping excluded path for file {File}")]
+    private static partial void LogSkippingExcludedPath(ILogger logger, string file);
 
     [LoggerMessage(Level = LogLevel.Debug, Message = "Item {Name} is not an episode or movie")]
     private static partial void LogItemNotEpisodeOrMovie(ILogger logger, string name);
