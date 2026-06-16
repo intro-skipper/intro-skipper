@@ -9,7 +9,6 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
 using System.Collections.Concurrent;
-using System.Text.Json;
 using IntroSkipper.Configuration;
 using IntroSkipper.Data;
 using IntroSkipper.Db;
@@ -477,6 +476,34 @@ public partial class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
     }
 
     /// <summary>
+    /// Returns the settled-season reanalysis state for all modes in a season.
+    /// </summary>
+    /// <param name="seasonId">Season ID.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>Settled reanalysis state keyed by analysis mode.</returns>
+    internal async Task<IReadOnlyDictionary<AnalysisMode, (AnalyzerAction Action, IReadOnlySet<Guid> SettledReanalysisEpisodeIds)>> GetSettleReanalysisStatesAsync(
+        Guid seasonId,
+        CancellationToken cancellationToken = default)
+    {
+        using var db = CreateDbContext();
+        var states = await db.DbSeasonState
+            .AsNoTracking()
+            .Where(s => s.SeasonId == seasonId)
+            .Select(s => new
+            {
+                s.Type,
+                s.Action,
+                s.SettledReanalysisEpisodeIds
+            })
+            .ToListAsync(cancellationToken)
+            .ConfigureAwait(false);
+
+        return states.ToDictionary(
+            s => s.Type,
+            s => (s.Action, (IReadOnlySet<Guid>)s.SettledReanalysisEpisodeIds.ToHashSet()));
+    }
+
+    /// <summary>
     /// Returns whether a settled season analysis mode still needs re-analysis for its current episode set.
     /// Read-only: the decision is committed separately via <see cref="RecordSettleReanalysisAsync(Guid, IReadOnlyCollection{AnalysisMode}, IReadOnlyCollection{Guid}, CancellationToken)"/> once
     /// the reset has succeeded, so the completed episode set survives plugin restarts.
@@ -484,70 +511,29 @@ public partial class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
     /// <param name="seasonId">Season ID.</param>
     /// <param name="mode">Analysis mode.</param>
     /// <param name="episodeIds">Current episode IDs in the season.</param>
-    /// <param name="settledSeasonRescanPeriodDays">Number of days between successful settled-season reanalyses; 0 disables periodic rescans.</param>
-    /// <param name="utcNow">Current UTC time. Uses <see cref="DateTime.UtcNow"/> when not supplied.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns><see langword="true"/> when a re-analysis should be performed; otherwise <see langword="false"/>.</returns>
     internal async Task<bool> ShouldSettleReanalyzeAsync(
         Guid seasonId,
         AnalysisMode mode,
         IReadOnlyCollection<Guid> episodeIds,
-        int settledSeasonRescanPeriodDays = PluginConfiguration.DefaultSettledSeasonRescanPeriodDays,
-        DateTime? utcNow = null,
         CancellationToken cancellationToken = default)
     {
         using var db = CreateDbContext();
-        var state = await db.DbSeasonState
+        var settledEpisodeIds = await db.DbSeasonState
             .AsNoTracking()
             .Where(s => s.SeasonId == seasonId && s.Type == mode)
-            .Select(s => new
-            {
-                s.SettledReanalysisEpisodeIds,
-                s.LastSettledReanalysisUtc
-            })
+            .Select(s => s.SettledReanalysisEpisodeIds)
             .FirstOrDefaultAsync(cancellationToken)
             .ConfigureAwait(false);
 
-        if (state is null)
-        {
-            return true;
-        }
-
-        var settledEpisodeIds = state.SettledReanalysisEpisodeIds.ToHashSet();
-        if (settledEpisodeIds.Count != episodeIds.Count || episodeIds.Any(id => !settledEpisodeIds.Contains(id)))
-        {
-            return true;
-        }
-
-        if (settledSeasonRescanPeriodDays <= 0)
-        {
-            return false;
-        }
-
-        if (state.LastSettledReanalysisUtc is null)
-        {
-            return true;
-        }
-
-        return (utcNow ?? DateTime.UtcNow) - state.LastSettledReanalysisUtc.Value >= TimeSpan.FromDays(settledSeasonRescanPeriodDays);
+        return settledEpisodeIds is null || ShouldSettleReanalyze(settledEpisodeIds.ToHashSet(), episodeIds);
     }
 
-    /// <summary>
-    /// Records that season analysis modes have been re-analyzed for the given episode set so the
-    /// exact completed set is not repeated on subsequent scans or after a plugin restart. Call only
-    /// after the reset has committed.
-    /// </summary>
-    /// <param name="seasonId">Season ID.</param>
-    /// <param name="modes">Analysis modes that were re-analyzed.</param>
-    /// <param name="episodeIds">Episode IDs that were re-analyzed.</param>
-    /// <param name="cancellationToken">Cancellation token.</param>
-    /// <returns>A <see cref="Task"/> representing the asynchronous operation.</returns>
-    internal Task RecordSettleReanalysisAsync(
-        Guid seasonId,
-        IReadOnlyCollection<AnalysisMode> modes,
-        IReadOnlyCollection<Guid> episodeIds,
-        CancellationToken cancellationToken = default)
-        => RecordSettleReanalysisAsync(seasonId, modes, episodeIds, DateTime.UtcNow, cancellationToken);
+    internal static bool ShouldSettleReanalyze(
+        IReadOnlySet<Guid> settledEpisodeIds,
+        IReadOnlyCollection<Guid> episodeIds)
+        => settledEpisodeIds.Count != episodeIds.Count || episodeIds.Any(id => !settledEpisodeIds.Contains(id));
 
     /// <summary>
     /// Records that season analysis modes have been re-analyzed for the given episode set so the
@@ -557,14 +543,12 @@ public partial class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
     /// <param name="seasonId">Season ID.</param>
     /// <param name="modes">Analysis modes that were re-analyzed.</param>
     /// <param name="episodeIds">Episode IDs that were re-analyzed.</param>
-    /// <param name="completedUtc">UTC time when the settled-season reanalysis completed.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>A <see cref="Task"/> representing the asynchronous operation.</returns>
     internal async Task RecordSettleReanalysisAsync(
         Guid seasonId,
         IReadOnlyCollection<AnalysisMode> modes,
         IReadOnlyCollection<Guid> episodeIds,
-        DateTime completedUtc,
         CancellationToken cancellationToken = default)
     {
         if (modes.Count == 0)
@@ -572,19 +556,17 @@ public partial class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
             return;
         }
 
-        var completedAtUtc = completedUtc.Kind == DateTimeKind.Utc ? completedUtc : completedUtc.ToUniversalTime();
-        var settledEpisodeIds = JsonSerializer.Serialize(episodeIds, (JsonSerializerOptions?)null);
+        var settledEpisodeIds = DbSeasonState.SerializeEpisodeIds(episodeIds);
 
         using var db = CreateDbContext();
         foreach (var mode in modes)
         {
             await db.Database.ExecuteSqlInterpolatedAsync(
                 $"""
-                INSERT INTO "DbSeasonState" ("SeasonId", "Type", "Action", "EpisodeIds", "ConfigHash", "SettledReanalysisEpisodeIds", "LastSettledReanalysisUtc")
-                VALUES ({seasonId}, {(int)mode}, {(int)AnalyzerAction.Default}, {"[]"}, {string.Empty}, {settledEpisodeIds}, {completedAtUtc})
+                INSERT INTO "DbSeasonState" ("SeasonId", "Type", "Action", "EpisodeIds", "ConfigHash", "SettledReanalysisEpisodeIds")
+                VALUES ({seasonId}, {(int)mode}, {(int)AnalyzerAction.Default}, {"[]"}, {string.Empty}, {settledEpisodeIds})
                 ON CONFLICT("SeasonId", "Type") DO UPDATE SET
-                    "SettledReanalysisEpisodeIds" = excluded."SettledReanalysisEpisodeIds",
-                    "LastSettledReanalysisUtc" = excluded."LastSettledReanalysisUtc"
+                    "SettledReanalysisEpisodeIds" = excluded."SettledReanalysisEpisodeIds"
                 """,
                 cancellationToken).ConfigureAwait(false);
         }

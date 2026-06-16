@@ -19,8 +19,7 @@ namespace IntroSkipper.Migrations
                     Action = table.Column<int>(type: "INTEGER", nullable: false, defaultValue: 0),
                     EpisodeIds = table.Column<string>(type: "TEXT", nullable: false),
                     ConfigHash = table.Column<string>(type: "TEXT", nullable: false, defaultValue: string.Empty),
-                    SettledReanalysisEpisodeIds = table.Column<string>(type: "TEXT", nullable: false, defaultValue: "[]"),
-                    LastSettledReanalysisUtc = table.Column<DateTime>(type: "TEXT", nullable: true)
+                    SettledReanalysisEpisodeIds = table.Column<string>(type: "TEXT", nullable: false, defaultValue: "[]")
                 },
                 constraints: table =>
                 {

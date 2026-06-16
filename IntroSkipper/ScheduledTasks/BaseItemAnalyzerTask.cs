@@ -145,7 +145,7 @@ public partial class BaseItemAnalyzerTask(
             if (_config.ReanalyzeSettledSeasons &&
                 SeasonReanalysisPlanner.IsSettledForReanalysis(episodes, _config, utcNow))
             {
-                settledResetModes = await GetSettleReanalysisModesAsync(plugin, first.SeasonId, episodeIds, modes, ffmpegValid, _config.SettledSeasonRescanPeriodDays, utcNow, ct).ConfigureAwait(false);
+                settledResetModes = await GetSettleReanalysisModesAsync(plugin, first.SeasonId, episodeIds, modes, ffmpegValid, ct).ConfigureAwait(false);
                 if (settledResetModes.Count > 0)
                 {
                     var resetModes = ExpandSettledResetModesForDerivedSegments(settledResetModes, _config.AnimePreviewFromCreditsEnd);
@@ -225,17 +225,17 @@ public partial class BaseItemAnalyzerTask(
         IReadOnlyCollection<Guid> episodeIds,
         IReadOnlyCollection<AnalysisMode> modes,
         bool ffmpegValid,
-        int settledSeasonRescanPeriodDays,
-        DateTime utcNow,
         CancellationToken cancellationToken)
     {
+        var settleReanalysisStates = await plugin.GetSettleReanalysisStatesAsync(seasonId, cancellationToken).ConfigureAwait(false);
         var resetModes = new List<AnalysisMode>(modes.Count);
         foreach (var mode in modes)
         {
-            var action = await plugin.GetAnalyzerActionAsync(seasonId, mode, cancellationToken).ConfigureAwait(false);
+            var stateExists = settleReanalysisStates.TryGetValue(mode, out var state);
+            var action = stateExists ? state.Action : AnalyzerAction.Default;
             if (action != AnalyzerAction.None &&
                 CanSettleReanalysisRun(mode, action, ffmpegValid) &&
-                await plugin.ShouldSettleReanalyzeAsync(seasonId, mode, episodeIds, settledSeasonRescanPeriodDays, utcNow, cancellationToken).ConfigureAwait(false))
+                (!stateExists || Plugin.ShouldSettleReanalyze(state.SettledReanalysisEpisodeIds, episodeIds)))
             {
                 resetModes.Add(mode);
             }
@@ -255,14 +255,7 @@ public partial class BaseItemAnalyzerTask(
             return modes;
         }
 
-        var resetModes = new AnalysisMode[modes.Count + 1];
-        for (var i = 0; i < modes.Count; i++)
-        {
-            resetModes[i] = modes[i];
-        }
-
-        resetModes[^1] = AnalysisMode.Preview;
-        return resetModes;
+        return [.. modes, AnalysisMode.Preview];
     }
 
     internal static bool CanSettleReanalysisRun(AnalysisMode mode, AnalyzerAction action, bool ffmpegValid)

@@ -47,16 +47,6 @@ public class PluginConfiguration : BasePluginConfiguration
     public const int MaximumSettledSeasonDelayHours = 87600;
 
     /// <summary>
-    /// Default number of days between successful settled-season reanalyses.
-    /// </summary>
-    public const int DefaultSettledSeasonRescanPeriodDays = 0;
-
-    /// <summary>
-    /// Maximum number of days between successful settled-season reanalyses.
-    /// </summary>
-    public const int MaximumSettledSeasonRescanPeriodDays = 3650;
-
-    /// <summary>
     /// Minimum percentage of each episode's audio track to analyze.
     /// </summary>
     public const int MinimumAnalysisPercent = 1;
@@ -68,7 +58,6 @@ public class PluginConfiguration : BasePluginConfiguration
 
     private int _analysisPercent = DefaultAnalysisPercent;
     private int _settledSeasonDelayHours = DefaultSettledSeasonDelayHours;
-    private int _settledSeasonRescanPeriodDays = DefaultSettledSeasonRescanPeriodDays;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="PluginConfiguration"/> class.
@@ -105,17 +94,6 @@ public class PluginConfiguration : BasePluginConfiguration
     {
         get => _settledSeasonDelayHours;
         set => _settledSeasonDelayHours = Math.Clamp(value, 0, MaximumSettledSeasonDelayHours);
-    }
-
-    /// <summary>
-    /// Gets or sets the number of days between successful settled-season reanalyses.
-    /// A value of 0 disables periodic settled-season rescans; positive values are days between
-    /// successful settled-season reanalyses. <see cref="ReanalyzeSettledSeasons"/> remains the master switch.
-    /// </summary>
-    public int SettledSeasonRescanPeriodDays
-    {
-        get => _settledSeasonRescanPeriodDays;
-        set => _settledSeasonRescanPeriodDays = Math.Clamp(value, 0, MaximumSettledSeasonRescanPeriodDays);
     }
 
     /// <summary>

@@ -1,8 +1,5 @@
 import type { Tab } from "../types.ts";
-import {
-    MAXIMUM_SETTLED_SEASON_DELAY_HOURS,
-    MAXIMUM_SETTLED_SEASON_RESCAN_PERIOD_DAYS,
-} from "../config-limits.ts";
+import { MAXIMUM_SETTLED_SEASON_DELAY_HOURS } from "../config-limits.ts";
 import { configStore } from "../store/config-store.ts";
 import { injectSkipButtonCss } from "../store/api.ts";
 import { el, htmlEl } from "../components/dom.ts";
@@ -88,16 +85,6 @@ export const generalTab: Tab = {
                 step: 1,
                 description:
                     "Treat a season as settled after this many hours without newly added episodes. Default is 24; increase this for weekly releases.",
-                visible: () => configStore.get("ReanalyzeSettledSeasons") === true,
-            }),
-            numberField({
-                id: "SettledSeasonRescanPeriodDays",
-                label: "Periodic re-analysis interval (days)",
-                min: 0,
-                max: MAXIMUM_SETTLED_SEASON_RESCAN_PERIOD_DAYS,
-                step: 1,
-                description:
-                    "Set to 0 to keep the current one-time behavior. When greater than 0, settled seasons are re-analyzed again after this many days. Cached fingerprints are reused.",
                 visible: () => configStore.get("ReanalyzeSettledSeasons") === true,
             }),
             checkboxField({

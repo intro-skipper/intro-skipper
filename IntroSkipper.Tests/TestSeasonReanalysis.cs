@@ -301,82 +301,6 @@ public sealed class TestSeasonReanalysisReset
         }
     }
 
-    [Fact]
-    public async Task SettleReanalysisGuard_AllowsPeriodicRescanAfterConfiguredPeriod()
-    {
-        var tempDir = Path.Join(Path.GetTempPath(), "IntroSkipper.Tests");
-        Directory.CreateDirectory(tempDir);
-        var dbPath = Path.Join(tempDir, Guid.NewGuid().ToString("N") + ".db");
-        var season = Guid.NewGuid();
-        var completedAt = new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc);
-        var episodeIds = Enumerable.Range(0, 5).Select(_ => Guid.NewGuid()).ToArray();
-        var grownEpisodeIds = episodeIds.Append(Guid.NewGuid()).ToArray();
-
-        try
-        {
-            using (var db = new IntroSkipperDbContext(dbPath))
-            {
-                await db.Database.EnsureCreatedAsync();
-            }
-
-            using (new EntrypointTestHelpers.PluginInstanceScope(EntrypointTestHelpers.CreateTempCacheDir()))
-            {
-                var plugin = Plugin.Instance!;
-                EntrypointTestHelpers.SetPrivateField(plugin, "_dbPath", dbPath);
-
-                await plugin.RecordSettleReanalysisAsync(season, [AnalysisMode.Introduction], episodeIds, completedAt);
-
-                Assert.False(await plugin.ShouldSettleReanalyzeAsync(season, AnalysisMode.Introduction, episodeIds, 0, completedAt.AddYears(1)));
-                Assert.False(await plugin.ShouldSettleReanalyzeAsync(season, AnalysisMode.Introduction, episodeIds, 90, completedAt.AddDays(89)));
-                Assert.True(await plugin.ShouldSettleReanalyzeAsync(season, AnalysisMode.Introduction, episodeIds, 90, completedAt.AddDays(90)));
-                Assert.True(await plugin.ShouldSettleReanalyzeAsync(season, AnalysisMode.Introduction, grownEpisodeIds, 90, completedAt.AddDays(1)));
-            }
-        }
-        finally
-        {
-            DeleteSqliteFiles(dbPath);
-        }
-    }
-
-    [Fact]
-    public async Task SettleReanalysisGuard_TreatsMissingTimestampAsDueOnlyWhenPeriodicEnabled()
-    {
-        var tempDir = Path.Join(Path.GetTempPath(), "IntroSkipper.Tests");
-        Directory.CreateDirectory(tempDir);
-        var dbPath = Path.Join(tempDir, Guid.NewGuid().ToString("N") + ".db");
-        var season = Guid.NewGuid();
-        var episodeIds = Enumerable.Range(0, 5).Select(_ => Guid.NewGuid()).ToArray();
-
-        try
-        {
-            using (var db = new IntroSkipperDbContext(dbPath))
-            {
-                await db.Database.EnsureCreatedAsync();
-                db.DbSeasonState.Add(new DbSeasonState(
-                    season,
-                    AnalysisMode.Introduction,
-                    AnalyzerAction.Default,
-                    [],
-                    string.Empty,
-                    null,
-                    episodeIds));
-                await db.SaveChangesAsync();
-            }
-
-            using (new EntrypointTestHelpers.PluginInstanceScope(EntrypointTestHelpers.CreateTempCacheDir()))
-            {
-                var plugin = Plugin.Instance!;
-                EntrypointTestHelpers.SetPrivateField(plugin, "_dbPath", dbPath);
-
-                Assert.False(await plugin.ShouldSettleReanalyzeAsync(season, AnalysisMode.Introduction, episodeIds, 0));
-                Assert.True(await plugin.ShouldSettleReanalyzeAsync(season, AnalysisMode.Introduction, episodeIds, 90));
-            }
-        }
-        finally
-        {
-            DeleteSqliteFiles(dbPath);
-        }
-    }
 
 
     [Fact]
@@ -562,7 +486,6 @@ public sealed class TestSeasonReanalysisReset
         var seasonId = Guid.NewGuid();
         var episodeA = Guid.NewGuid();
         var episodeB = Guid.NewGuid();
-        var completedAt = new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc);
         var completedEpisodeIds = new[] { episodeA, episodeB, Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid() };
         var lowerEpisodeIds = new[] { episodeA, episodeB, Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid() };
 
@@ -585,8 +508,8 @@ public sealed class TestSeasonReanalysisReset
                     {
                         [AnalysisMode.Introduction] = AnalyzerAction.Chromaprint,
                     });
-                await plugin.RecordSettleReanalysisAsync(seasonId, [AnalysisMode.Introduction], completedEpisodeIds, completedAt);
-                await plugin.RecordSettleReanalysisAsync(seasonId, [AnalysisMode.Introduction], lowerEpisodeIds, completedAt);
+                await plugin.RecordSettleReanalysisAsync(seasonId, [AnalysisMode.Introduction], completedEpisodeIds);
+                await plugin.RecordSettleReanalysisAsync(seasonId, [AnalysisMode.Introduction], lowerEpisodeIds);
                 await plugin.RemoveEpisodeIdAsync(seasonId, AnalysisMode.Introduction, episodeA);
                 await plugin.RemoveEpisodeIdAsync(seasonId, AnalysisMode.Introduction, Guid.NewGuid());
             }
@@ -600,7 +523,6 @@ public sealed class TestSeasonReanalysisReset
                 Assert.Equal(new[] { episodeB }, state.EpisodeIds);
                 Assert.Equal("hash-a", state.ConfigHash);
                 Assert.Equal(lowerEpisodeIds, state.SettledReanalysisEpisodeIds);
-                Assert.Equal(completedAt, state.LastSettledReanalysisUtc);
             }
         }
         finally

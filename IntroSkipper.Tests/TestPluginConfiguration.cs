@@ -17,7 +17,6 @@ public class TestPluginConfiguration
         Assert.Equal(PluginConfiguration.DefaultAnalysisPercent, config.AnalysisPercent);
         Assert.Equal(PluginConfiguration.DefaultAnalysisLengthLimit, config.AnalysisLengthLimit);
         Assert.Equal(PluginConfiguration.DefaultMinimumIntroDuration, config.MinimumIntroDuration);
-        Assert.Equal(PluginConfiguration.DefaultSettledSeasonRescanPeriodDays, config.SettledSeasonRescanPeriodDays);
         Assert.Equal(PluginConfiguration.DefaultSettledSeasonDelayHours, config.SettledSeasonDelayHours);
     }
 
@@ -34,19 +33,6 @@ public class TestPluginConfiguration
         Assert.Equal(expected, config.AnalysisPercent);
     }
 
-    [Theory]
-    [InlineData(-1, 0)]
-    [InlineData(0, 0)]
-    [InlineData(90, 90)]
-    [InlineData(PluginConfiguration.MaximumSettledSeasonRescanPeriodDays, PluginConfiguration.MaximumSettledSeasonRescanPeriodDays)]
-    [InlineData(PluginConfiguration.MaximumSettledSeasonRescanPeriodDays + 1, PluginConfiguration.MaximumSettledSeasonRescanPeriodDays)]
-    [InlineData(int.MaxValue, PluginConfiguration.MaximumSettledSeasonRescanPeriodDays)]
-    public void SettledSeasonRescanPeriodDays_Setter_ClampsValuesWithinConfiguredBounds(int value, int expected)
-    {
-        var config = new PluginConfiguration { SettledSeasonRescanPeriodDays = value };
-
-        Assert.Equal(expected, config.SettledSeasonRescanPeriodDays);
-    }
 
     [Theory]
     [InlineData(-1, 0)]

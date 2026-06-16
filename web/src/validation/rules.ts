@@ -2,7 +2,6 @@ import type { PluginConfig } from "../types.ts";
 import {
     MAXIMUM_ANALYSIS_PERCENT,
     MAXIMUM_SETTLED_SEASON_DELAY_HOURS,
-    MAXIMUM_SETTLED_SEASON_RESCAN_PERIOD_DAYS,
     MINIMUM_ANALYSIS_PERCENT,
 } from "../config-limits.ts";
 
@@ -34,7 +33,6 @@ export function validRegex(): ValidationRule<string> {
 export const validationRules: Partial<Record<keyof PluginConfig, ValidationRule<any>[]>> = {
     AnalysisPercent: [range(MINIMUM_ANALYSIS_PERCENT, MAXIMUM_ANALYSIS_PERCENT)],
     SettledSeasonDelayHours: [range(0, MAXIMUM_SETTLED_SEASON_DELAY_HOURS)],
-    SettledSeasonRescanPeriodDays: [range(0, MAXIMUM_SETTLED_SEASON_RESCAN_PERIOD_DAYS)],
     AnalysisLengthLimit: [minValue(1)],
     MinimumIntroDuration: [minValue(1)],
     MaximumIntroDuration: [minValue(1)],

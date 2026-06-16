@@ -43,8 +43,6 @@ namespace IntroSkipper.Migrations
                         .IsRequired()
                         .HasColumnType("TEXT");
 
-                    b.Property<DateTime?>("LastSettledReanalysisUtc")
-                        .HasColumnType("TEXT");
 
                     b.Property<string>("SettledReanalysisEpisodeIds")
                         .IsRequired()

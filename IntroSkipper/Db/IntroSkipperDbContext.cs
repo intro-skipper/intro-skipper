@@ -129,8 +129,8 @@ public class IntroSkipperDbContext : DbContext
 
             entity.Property(e => e.EpisodeIds)
                   .HasConversion(
-                      v => JsonSerializer.Serialize(v, (JsonSerializerOptions?)null),
-                      v => JsonSerializer.Deserialize<IEnumerable<Guid>>(v, (JsonSerializerOptions?)null) ?? new List<Guid>(),
+                      v => global::IntroSkipper.Db.DbSeasonState.SerializeEpisodeIds(v),
+                      v => global::IntroSkipper.Db.DbSeasonState.DeserializeEpisodeIds(v),
                       new ValueComparer<IEnumerable<Guid>>(
                           (c1, c2) => (c1 ?? new List<Guid>()).SequenceEqual(c2 ?? new List<Guid>()),
                           c => c.Aggregate(0, (a, v) => HashCode.Combine(a, v.GetHashCode())),
@@ -142,17 +142,14 @@ public class IntroSkipperDbContext : DbContext
 
             entity.Property(e => e.SettledReanalysisEpisodeIds)
                   .HasConversion(
-                      v => JsonSerializer.Serialize(v, (JsonSerializerOptions?)null),
-                      v => JsonSerializer.Deserialize<IEnumerable<Guid>>(v, (JsonSerializerOptions?)null) ?? new List<Guid>(),
+                      v => global::IntroSkipper.Db.DbSeasonState.SerializeEpisodeIds(v),
+                      v => global::IntroSkipper.Db.DbSeasonState.DeserializeEpisodeIds(v),
                       new ValueComparer<IEnumerable<Guid>>(
                           (c1, c2) => (c1 ?? new List<Guid>()).SequenceEqual(c2 ?? new List<Guid>()),
                           c => c.Aggregate(0, (a, v) => HashCode.Combine(a, v.GetHashCode())),
                           c => c.ToList()))
                   .HasDefaultValueSql("'[]'")
                   .IsRequired();
-
-            entity.Property(e => e.LastSettledReanalysisUtc)
-                  .HasColumnType("TEXT");
         });
         base.OnModelCreating(modelBuilder);
     }
@@ -397,10 +394,6 @@ public class IntroSkipperDbContext : DbContext
         if (TableExists("DbSeasonState"))
         {
             Database.ExecuteSqlRaw("CREATE INDEX IF NOT EXISTS \"IX_DbSeasonState_SeasonId\" ON \"DbSeasonState\" (\"SeasonId\")");
-            if (!ColumnExists("DbSeasonState", "LastSettledReanalysisUtc"))
-            {
-                Database.ExecuteSqlRaw("ALTER TABLE \"DbSeasonState\" ADD COLUMN \"LastSettledReanalysisUtc\" TEXT NULL");
-            }
 
             if (!ColumnExists("DbSeasonState", "SettledReanalysisEpisodeIds"))
             {
@@ -425,15 +418,14 @@ public class IntroSkipperDbContext : DbContext
                 "EpisodeIds" TEXT NOT NULL,
                 "ConfigHash" TEXT NOT NULL DEFAULT '',
                 "SettledReanalysisEpisodeIds" TEXT NOT NULL DEFAULT '[]',
-                "LastSettledReanalysisUtc" TEXT NULL,
                 CONSTRAINT "PK_DbSeasonState" PRIMARY KEY ("SeasonId", "Type")
             )
             """);
 
         Database.ExecuteSqlRaw(
             """
-            INSERT INTO "DbSeasonState" ("SeasonId", "Type", "Action", "EpisodeIds", "ConfigHash", "SettledReanalysisEpisodeIds", "LastSettledReanalysisUtc")
-            SELECT "SeasonId", "Type", "Action", "EpisodeIds", COALESCE("ConfigHash", ''), '[]', NULL
+            INSERT INTO "DbSeasonState" ("SeasonId", "Type", "Action", "EpisodeIds", "ConfigHash", "SettledReanalysisEpisodeIds")
+            SELECT "SeasonId", "Type", "Action", "EpisodeIds", COALESCE("ConfigHash", ''), '[]'
             FROM "DbSeasonInfo"
             """);
 
@@ -543,7 +535,6 @@ public class IntroSkipperDbContext : DbContext
             && ColumnExists("DbSeasonState", "EpisodeIds")
             && ColumnExists("DbSeasonState", "ConfigHash")
             && ColumnExists("DbSeasonState", "SettledReanalysisEpisodeIds")
-            && ColumnExists("DbSeasonState", "LastSettledReanalysisUtc")
             && IndexExists("DbSeasonState", "IX_DbSeasonState_SeasonId");
     }
 

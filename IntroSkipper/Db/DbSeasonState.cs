@@ -1,6 +1,7 @@
 // SPDX-FileCopyrightText: 2026 rlauuzo
 // SPDX-License-Identifier: GPL-3.0-only
 
+using System.Text.Json;
 using IntroSkipper.Data;
 
 namespace IntroSkipper.Db;
@@ -18,7 +19,7 @@ public class DbSeasonState
     /// <param name="action">Analyzer action.</param>
     /// <param name="episodeIds">Episode IDs analyzed with the current configuration.</param>
     public DbSeasonState(Guid seasonId, AnalysisMode mode, AnalyzerAction action, IEnumerable<Guid>? episodeIds = null)
-        : this(seasonId, mode, action, episodeIds, string.Empty, null, null)
+        : this(seasonId, mode, action, episodeIds, string.Empty)
     {
     }
 
@@ -30,7 +31,6 @@ public class DbSeasonState
     /// <param name="action">Analyzer action.</param>
     /// <param name="episodeIds">Episode IDs analyzed with the current configuration.</param>
     /// <param name="configHash">Configuration hash used when the episode ID set was last analyzed.</param>
-    /// <param name="lastSettledReanalysisUtc">Last UTC time a settled-season reanalysis completed.</param>
     /// <param name="settledReanalysisEpisodeIds">Episode IDs present when the settled-season reanalysis completed.</param>
     public DbSeasonState(
         Guid seasonId,
@@ -38,7 +38,6 @@ public class DbSeasonState
         AnalyzerAction action,
         IEnumerable<Guid>? episodeIds,
         string configHash,
-        DateTime? lastSettledReanalysisUtc = null,
         IEnumerable<Guid>? settledReanalysisEpisodeIds = null)
     {
         SeasonId = seasonId;
@@ -46,7 +45,6 @@ public class DbSeasonState
         Action = action;
         EpisodeIds = episodeIds ?? [];
         ConfigHash = configHash;
-        LastSettledReanalysisUtc = lastSettledReanalysisUtc;
         SettledReanalysisEpisodeIds = settledReanalysisEpisodeIds ?? [];
     }
 
@@ -87,9 +85,9 @@ public class DbSeasonState
     /// </summary>
     public IEnumerable<Guid> SettledReanalysisEpisodeIds { get; private set; } = [];
 
-    /// <summary>
-    /// Gets the last UTC time a settled-season reanalysis completed for this season/mode.
-    /// A <see langword="null"/> value means no timestamp has been recorded.
-    /// </summary>
-    public DateTime? LastSettledReanalysisUtc { get; private set; }
+    internal static string SerializeEpisodeIds(IEnumerable<Guid> episodeIds)
+        => JsonSerializer.Serialize(episodeIds, (JsonSerializerOptions?)null);
+
+    internal static IEnumerable<Guid> DeserializeEpisodeIds(string episodeIds)
+        => JsonSerializer.Deserialize<IEnumerable<Guid>>(episodeIds, (JsonSerializerOptions?)null) ?? [];
 }

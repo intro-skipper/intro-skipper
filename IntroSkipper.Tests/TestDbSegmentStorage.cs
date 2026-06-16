@@ -316,7 +316,6 @@ public sealed class TestDbSegmentStorage
 
                 Assert.Equal(string.Empty, seasonState.ConfigHash);
                 Assert.Empty(seasonState.SettledReanalysisEpisodeIds);
-                Assert.Null(seasonState.LastSettledReanalysisUtc);
                 Assert.Equal(string.Empty, segment.ConfigHash);
             }
         }
@@ -395,7 +394,6 @@ public sealed class TestDbSegmentStorage
                 Assert.Equal(new[] { episodeId }, seasonState.EpisodeIds);
                 Assert.Equal(string.Empty, seasonState.ConfigHash);
                 Assert.Empty(seasonState.SettledReanalysisEpisodeIds);
-                Assert.Null(seasonState.LastSettledReanalysisUtc);
                 Assert.Equal(string.Empty, segment.ConfigHash);
                 Assert.False(segment.IsUserProvided);
                 Assert.True(segment.Id > 0);
@@ -467,13 +465,11 @@ public sealed class TestDbSegmentStorage
                 Assert.Equal(new[] { episodeId }, introduction.EpisodeIds);
                 Assert.Equal("intro-config", introduction.ConfigHash);
                 Assert.Empty(introduction.SettledReanalysisEpisodeIds);
-                Assert.Null(introduction.LastSettledReanalysisUtc);
 
                 var noReanalysis = states.Single(s => s.SeasonId == seasonWithoutReanalysisId);
                 Assert.Equal(AnalysisMode.Introduction, noReanalysis.Type);
                 Assert.Equal(new[] { episodeWithoutReanalysisId }, noReanalysis.EpisodeIds);
                 Assert.Empty(noReanalysis.SettledReanalysisEpisodeIds);
-                Assert.Null(noReanalysis.LastSettledReanalysisUtc);
 
                 Assert.False(await TableExistsAsync(db, "DbSeasonInfo"));
             }
@@ -561,7 +557,6 @@ public sealed class TestDbSegmentStorage
                 Assert.Equal(new[] { episodeId }, seasonState.EpisodeIds);
                 Assert.Equal("intro-config", seasonState.ConfigHash);
                 Assert.Empty(seasonState.SettledReanalysisEpisodeIds);
-                Assert.Null(seasonState.LastSettledReanalysisUtc);
 
                 Assert.False(await TableExistsAsync(db, "DbSeasonInfo"));
             }
@@ -582,7 +577,6 @@ public sealed class TestDbSegmentStorage
 
         var seasonId = Guid.NewGuid();
         var episodeId = Guid.NewGuid();
-        var completedAt = new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc);
 
         try
         {
@@ -598,8 +592,7 @@ public sealed class TestDbSegmentStorage
                     AnalysisMode.Introduction,
                     AnalyzerAction.Default,
                     [episodeId],
-                    "season-config",
-                    completedAt));
+                    "season-config"));
                 db.DbSegment.Add(new DbSegment(
                     new Segment(episodeId, new TimeRange(0, 30)),
                     AnalysisMode.Introduction,
@@ -615,7 +608,6 @@ public sealed class TestDbSegmentStorage
 
                 Assert.Equal("season-config", seasonState.ConfigHash);
                 Assert.Empty(seasonState.SettledReanalysisEpisodeIds);
-                Assert.Equal(completedAt, seasonState.LastSettledReanalysisUtc);
                 Assert.Equal(new[] { episodeId }, seasonState.EpisodeIds);
                 Assert.Equal("segment-config", segment.ConfigHash);
                 Assert.False(await TableExistsAsync(db, "DbSeasonInfo"));
