@@ -180,12 +180,16 @@ public partial class BaseItemAnalyzerTask(
                         mode,
                         ffmpegValid,
                         ct).ConfigureAwait(false);
+                    Interlocked.Add(ref totalProcessed, episodes.Count);
+
+                    // Record only the modes we independently selected for reanalysis. A derived mode added
+                    // by ExpandSettledResetModesForDerivedSegments (Preview from Credits) is reset and then
+                    // regenerated as a side effect of its source mode's analysis, so its completion rides on
+                    // the source mode's record and is intentionally not tracked separately here.
                     if (settledResetModes.Contains(mode))
                     {
                         completedSettledModes.Add(mode);
                     }
-
-                    Interlocked.Add(ref totalProcessed, episodes.Count);
 
                     updateMediaSegments = analyzed > 0 || updateMediaSegments;
                     progress.Report((double)totalProcessed / totalQueued * 100);

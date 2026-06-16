@@ -249,38 +249,38 @@ public sealed class TestSeasonReanalysisReset
                 EntrypointTestHelpers.SetPrivateField(plugin, "_dbPath", dbPath);
 
                 // Stays eligible until the work is explicitly recorded, so a failed reset is retried.
-                Assert.True(await plugin.ShouldSettleReanalyzeAsync(season, AnalysisMode.Introduction, firstFive));
-                Assert.True(await plugin.ShouldSettleReanalyzeAsync(season, AnalysisMode.Credits, firstFive));
+                Assert.True(await ShouldReanalyzeAsync(plugin, season, AnalysisMode.Introduction, firstFive));
+                Assert.True(await ShouldReanalyzeAsync(plugin, season, AnalysisMode.Credits, firstFive));
 
                 await plugin.RecordSettleReanalysisAsync(season, [AnalysisMode.Introduction], firstFive);
-                Assert.False(await plugin.ShouldSettleReanalyzeAsync(season, AnalysisMode.Introduction, firstFive)); // already done for this set
-                Assert.False(await plugin.ShouldSettleReanalyzeAsync(season, AnalysisMode.Introduction, firstFive.Reverse().ToArray())); // order-insensitive set match
-                Assert.True(await plugin.ShouldSettleReanalyzeAsync(season, AnalysisMode.Introduction, firstSix)); // grew → eligible again
-                Assert.True(await plugin.ShouldSettleReanalyzeAsync(season, AnalysisMode.Introduction, replacementFive)); // same count, different membership
-                Assert.True(await plugin.ShouldSettleReanalyzeAsync(season, AnalysisMode.Credits, firstFive)); // unrecorded mode stays eligible
+                Assert.False(await ShouldReanalyzeAsync(plugin, season, AnalysisMode.Introduction, firstFive)); // already done for this set
+                Assert.False(await ShouldReanalyzeAsync(plugin, season, AnalysisMode.Introduction, firstFive.Reverse().ToArray())); // order-insensitive set match
+                Assert.True(await ShouldReanalyzeAsync(plugin, season, AnalysisMode.Introduction, firstSix)); // grew → eligible again
+                Assert.True(await ShouldReanalyzeAsync(plugin, season, AnalysisMode.Introduction, replacementFive)); // same count, different membership
+                Assert.True(await ShouldReanalyzeAsync(plugin, season, AnalysisMode.Credits, firstFive)); // unrecorded mode stays eligible
 
                 await plugin.RecordSettleReanalysisAsync(season, [AnalysisMode.Introduction], replacementFive);
-                Assert.False(await plugin.ShouldSettleReanalyzeAsync(season, AnalysisMode.Introduction, replacementFive));
-                Assert.True(await plugin.ShouldSettleReanalyzeAsync(season, AnalysisMode.Introduction, firstFive));
+                Assert.False(await ShouldReanalyzeAsync(plugin, season, AnalysisMode.Introduction, replacementFive));
+                Assert.True(await ShouldReanalyzeAsync(plugin, season, AnalysisMode.Introduction, firstFive));
 
                 await plugin.RecordSettleReanalysisAsync(season, [AnalysisMode.Introduction], firstSix);
-                Assert.True(await plugin.ShouldSettleReanalyzeAsync(season, AnalysisMode.Introduction, firstFive)); // shrank → eligible again
-                Assert.False(await plugin.ShouldSettleReanalyzeAsync(season, AnalysisMode.Introduction, firstSix));
-                Assert.True(await plugin.ShouldSettleReanalyzeAsync(season, AnalysisMode.Introduction, firstSeven));
+                Assert.True(await ShouldReanalyzeAsync(plugin, season, AnalysisMode.Introduction, firstFive)); // shrank → eligible again
+                Assert.False(await ShouldReanalyzeAsync(plugin, season, AnalysisMode.Introduction, firstSix));
+                Assert.True(await ShouldReanalyzeAsync(plugin, season, AnalysisMode.Introduction, firstSeven));
 
                 await plugin.RecordSettleReanalysisAsync(season, [AnalysisMode.Introduction], firstFive);
-                Assert.False(await plugin.ShouldSettleReanalyzeAsync(season, AnalysisMode.Introduction, firstFive)); // shrink was recorded
-                Assert.True(await plugin.ShouldSettleReanalyzeAsync(season, AnalysisMode.Introduction, firstSix));
-                Assert.True(await plugin.ShouldSettleReanalyzeAsync(season, AnalysisMode.Introduction, firstSeven));
+                Assert.False(await ShouldReanalyzeAsync(plugin, season, AnalysisMode.Introduction, firstFive)); // shrink was recorded
+                Assert.True(await ShouldReanalyzeAsync(plugin, season, AnalysisMode.Introduction, firstSix));
+                Assert.True(await ShouldReanalyzeAsync(plugin, season, AnalysisMode.Introduction, firstSeven));
 
                 await plugin.RecordSettleReanalysisAsync(season, [AnalysisMode.Credits], firstFive);
-                Assert.False(await plugin.ShouldSettleReanalyzeAsync(season, AnalysisMode.Credits, firstFive));
-                Assert.True(await plugin.ShouldSettleReanalyzeAsync(season, AnalysisMode.Credits, firstSix));
+                Assert.False(await ShouldReanalyzeAsync(plugin, season, AnalysisMode.Credits, firstFive));
+                Assert.True(await ShouldReanalyzeAsync(plugin, season, AnalysisMode.Credits, firstSix));
 
                 await plugin.RecordSettleReanalysisAsync(season, [AnalysisMode.Credits], firstSix);
-                Assert.True(await plugin.ShouldSettleReanalyzeAsync(season, AnalysisMode.Credits, firstFive));
-                Assert.False(await plugin.ShouldSettleReanalyzeAsync(season, AnalysisMode.Credits, firstSix));
-                Assert.True(await plugin.ShouldSettleReanalyzeAsync(season, AnalysisMode.Credits, firstSeven));
+                Assert.True(await ShouldReanalyzeAsync(plugin, season, AnalysisMode.Credits, firstFive));
+                Assert.False(await ShouldReanalyzeAsync(plugin, season, AnalysisMode.Credits, firstSix));
+                Assert.True(await ShouldReanalyzeAsync(plugin, season, AnalysisMode.Credits, firstSeven));
             }
 
             using (new EntrypointTestHelpers.PluginInstanceScope(EntrypointTestHelpers.CreateTempCacheDir()))
@@ -288,11 +288,11 @@ public sealed class TestSeasonReanalysisReset
                 var plugin = Plugin.Instance!;
                 EntrypointTestHelpers.SetPrivateField(plugin, "_dbPath", dbPath);
 
-                Assert.False(await plugin.ShouldSettleReanalyzeAsync(season, AnalysisMode.Introduction, firstFive));
-                Assert.True(await plugin.ShouldSettleReanalyzeAsync(season, AnalysisMode.Introduction, firstSix));
-                Assert.True(await plugin.ShouldSettleReanalyzeAsync(season, AnalysisMode.Introduction, firstSeven));
-                Assert.False(await plugin.ShouldSettleReanalyzeAsync(season, AnalysisMode.Credits, firstSix));
-                Assert.True(await plugin.ShouldSettleReanalyzeAsync(season, AnalysisMode.Credits, firstSeven));
+                Assert.False(await ShouldReanalyzeAsync(plugin, season, AnalysisMode.Introduction, firstFive));
+                Assert.True(await ShouldReanalyzeAsync(plugin, season, AnalysisMode.Introduction, firstSix));
+                Assert.True(await ShouldReanalyzeAsync(plugin, season, AnalysisMode.Introduction, firstSeven));
+                Assert.False(await ShouldReanalyzeAsync(plugin, season, AnalysisMode.Credits, firstSix));
+                Assert.True(await ShouldReanalyzeAsync(plugin, season, AnalysisMode.Credits, firstSeven));
             }
         }
         finally
@@ -529,6 +529,19 @@ public sealed class TestSeasonReanalysisReset
         {
             DeleteSqliteFiles(dbPath);
         }
+    }
+
+    // Mirrors the production eligibility decision in BaseItemAnalyzerTask.GetSettleReanalysisModesAsync,
+    // exercising the same batch read (GetSettleReanalysisStatesAsync) and set comparison the analyzer uses.
+    private static async Task<bool> ShouldReanalyzeAsync(
+        Plugin plugin,
+        Guid seasonId,
+        AnalysisMode mode,
+        IReadOnlyCollection<Guid> episodeIds)
+    {
+        var states = await plugin.GetSettleReanalysisStatesAsync(seasonId);
+        return !states.TryGetValue(mode, out var state)
+            || Plugin.ShouldSettleReanalyze(state.SettledReanalysisEpisodeIds, episodeIds);
     }
 
     private static void DeleteSqliteFiles(string dbPath)
