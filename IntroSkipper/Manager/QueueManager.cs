@@ -44,6 +44,7 @@ public partial class QueueManager(ILogger<QueueManager> logger, ILibraryManager 
     private readonly HashSet<Guid> _refreshedEpisodes = [];
     private double _analysisPercent;
     private List<string> _excludeSeries = [];
+    private List<string> _excludePaths = [];
 
     /// <summary>
     /// Gets all media items on the server.
@@ -130,6 +131,8 @@ public partial class QueueManager(ILogger<QueueManager> logger, ILibraryManager 
 
         _excludeSeries = [.. config.ExcludeSeries.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)];
 
+        _excludePaths = [.. config.ExcludePaths.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)];
+
         // If analysis settings have been changed from the default, log the modified settings.
         if (config.AnalysisLengthLimit != PluginConfiguration.DefaultAnalysisLengthLimit
             || config.AnalysisPercent != PluginConfiguration.DefaultAnalysisPercent
@@ -172,18 +175,29 @@ public partial class QueueManager(ILogger<QueueManager> logger, ILibraryManager 
             {
                 if (item is Episode episode)
                 {
-                    if (!IsSeriesExcluded(episode.SeriesName))
+                    if (IsSeriesExcluded(episode.SeriesName))
                     {
-                        await QueueEpisode(episode, cancellationToken).ConfigureAwait(false);
+                        LogSkippingExcludedSeries(_logger, episode.SeriesName);
+                    }
+                    else if (IsPathExcluded(episode.Path))
+                    {
+                        LogSkippingExcludedPath(_logger, episode.Path);
                     }
                     else
                     {
-                        LogSkippingExcludedSeries(_logger, episode.SeriesName);
+                        await QueueEpisode(episode, cancellationToken).ConfigureAwait(false);
                     }
                 }
                 else if (item is Movie movie)
                 {
-                    await QueueMovieAsync(movie, cancellationToken).ConfigureAwait(false);
+                    if (IsPathExcluded(movie.Path))
+                    {
+                        LogSkippingExcludedPath(_logger, movie.Path);
+                    }
+                    else
+                    {
+                        await QueueMovieAsync(movie, cancellationToken).ConfigureAwait(false);
+                    }
                 }
                 else
                 {
@@ -240,6 +254,38 @@ public partial class QueueManager(ILogger<QueueManager> logger, ILibraryManager 
         return _excludeSeries.Contains(normalizedName);
     }
 
+    /// <summary>
+    /// Checks if a media item's file path matches any of the configured exclusion fragments.
+    /// </summary>
+    /// <param name="path">The full media file path to check.</param>
+    /// <returns>True if the path should be excluded, false otherwise.</returns>
+    private bool IsPathExcluded(string path) => IsPathExcluded(path, _excludePaths);
+
+    /// <summary>
+    /// Checks if a media item's file path contains any of the provided exclusion fragments,
+    /// using a case-insensitive substring comparison.
+    /// </summary>
+    /// <param name="path">The full media file path to check.</param>
+    /// <param name="excludePaths">The configured path fragments to exclude.</param>
+    /// <returns>True if the path should be excluded, false otherwise.</returns>
+    internal static bool IsPathExcluded(string path, IReadOnlyCollection<string> excludePaths)
+    {
+        if (string.IsNullOrEmpty(path) || excludePaths.Count == 0)
+        {
+            return false;
+        }
+
+        foreach (var fragment in excludePaths)
+        {
+            if (!string.IsNullOrEmpty(fragment) && path.Contains(fragment, StringComparison.OrdinalIgnoreCase))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
     private async Task QueueEpisode(Episode episode, CancellationToken cancellationToken)
     {
         var pluginInstance = Plugin.Instance ?? throw new InvalidOperationException("Plugin instance was null");
@@ -281,7 +327,7 @@ public partial class QueueManager(ILogger<QueueManager> logger, ILibraryManager 
             EpisodeId = episode.Id,
             Name = episode.Name,
             Category = ResolveEpisodeCategory(episode, seasonEpisodes, pluginInstance),
-            IsExcluded = IsSeriesExcluded(episode.SeriesName),
+            IsExcluded = IsSeriesExcluded(episode.SeriesName) || IsPathExcluded(episode.Path),
             Path = episode.Path,
             Duration = duration,
             IntroFingerprintEnd = fingerprintDuration,
@@ -336,7 +382,7 @@ public partial class QueueManager(ILogger<QueueManager> logger, ILibraryManager 
             CreditsFingerprintStart = Math.Max(0, creditsDuration - pluginInstance.Configuration.MaximumMovieCreditsDuration),
             CreditsFingerprintEnd = creditsDuration,
             Category = QueuedMediaCategory.Movie,
-            IsExcluded = IsSeriesExcluded(movie.Name),
+            IsExcluded = IsSeriesExcluded(movie.Name) || IsPathExcluded(movie.Path),
         });
 
         pluginInstance.TotalQueued++;
@@ -517,6 +563,9 @@ public partial class QueueManager(ILogger<QueueManager> logger, ILibraryManager 
 
     [LoggerMessage(Level = LogLevel.Debug, Message = "Skipping excluded series: {Series}")]
     private static partial void LogSkippingExcludedSeries(ILogger logger, string series);
+
+    [LoggerMessage(Level = LogLevel.Debug, Message = "Skipping excluded path: {Path}")]
+    private static partial void LogSkippingExcludedPath(ILogger logger, string path);
 
     [LoggerMessage(Level = LogLevel.Debug, Message = "Item {Name} is not an episode or movie")]
     private static partial void LogItemNotEpisodeOrMovie(ILogger logger, string name);

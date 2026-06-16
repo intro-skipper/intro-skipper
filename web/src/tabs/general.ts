@@ -82,6 +82,12 @@ export const generalTab: Tab = {
                 description:
                     "Exclude series from analysis. Enter a comma-separated list of series names to exclude.",
             }),
+            textField({
+                id: "ExcludePaths",
+                label: "Exclude paths",
+                description:
+                    "Exclude media from analysis by file path. Enter a comma-separated list of path fragments; any file whose full path contains one of them (case-insensitive) is skipped. Useful for excluding remote or cloud-mounted directories (e.g. Real-Debrid/Zurg) from fingerprinting.",
+            }),
             inlineCheckboxGroup("Analyze for:", [
                 { id: "ScanIntroduction", label: "Introduction" },
                 { id: "ScanCredits", label: "Credits" },

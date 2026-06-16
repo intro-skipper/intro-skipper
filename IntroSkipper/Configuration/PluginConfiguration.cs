@@ -63,6 +63,13 @@ public class PluginConfiguration : BasePluginConfiguration
     public string ExcludeSeries { get; set; } = string.Empty;
 
     /// <summary>
+    /// Gets or sets the comma separated list of file path fragments to exclude from analysis.
+    /// Any media item whose full path contains one of these fragments (case-insensitive) is skipped.
+    /// Useful for excluding remote or cloud-mounted directories from fingerprinting.
+    /// </summary>
+    public string ExcludePaths { get; set; } = string.Empty;
+
+    /// <summary>
     /// Gets or sets a value indicating whether to automatically scan newly added items.
     /// </summary>
     public bool AutoDetectIntros { get; set; } = true;
