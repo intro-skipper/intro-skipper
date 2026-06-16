@@ -129,8 +129,8 @@ public class IntroSkipperDbContext : DbContext
 
             entity.Property(e => e.EpisodeIds)
                   .HasConversion(
-                      v => global::IntroSkipper.Db.DbSeasonState.SerializeEpisodeIds(v),
-                      v => global::IntroSkipper.Db.DbSeasonState.DeserializeEpisodeIds(v),
+                      v => Db.DbSeasonState.SerializeEpisodeIds(v),
+                      v => Db.DbSeasonState.DeserializeEpisodeIds(v),
                       new ValueComparer<IEnumerable<Guid>>(
                           (c1, c2) => (c1 ?? new List<Guid>()).SequenceEqual(c2 ?? new List<Guid>()),
                           c => c.Aggregate(0, (a, v) => HashCode.Combine(a, v.GetHashCode())),
@@ -142,8 +142,8 @@ public class IntroSkipperDbContext : DbContext
 
             entity.Property(e => e.SettledReanalysisEpisodeIds)
                   .HasConversion(
-                      v => global::IntroSkipper.Db.DbSeasonState.SerializeEpisodeIds(v),
-                      v => global::IntroSkipper.Db.DbSeasonState.DeserializeEpisodeIds(v),
+                      v => Db.DbSeasonState.SerializeEpisodeIds(v),
+                      v => Db.DbSeasonState.DeserializeEpisodeIds(v),
                       new ValueComparer<IEnumerable<Guid>>(
                           (c1, c2) => (c1 ?? new List<Guid>()).SequenceEqual(c2 ?? new List<Guid>()),
                           c => c.Aggregate(0, (a, v) => HashCode.Combine(a, v.GetHashCode())),

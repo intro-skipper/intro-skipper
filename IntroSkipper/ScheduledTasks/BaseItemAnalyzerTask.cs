@@ -145,12 +145,12 @@ public partial class BaseItemAnalyzerTask(
             if (_config.ReanalyzeSettledSeasons &&
                 SeasonReanalysisPlanner.IsSettledForReanalysis(episodes, _config, utcNow))
             {
-                settledResetModes = await GetSettleReanalysisModesAsync(plugin, first.SeasonId, episodeIds, modes, ffmpegValid, ct).ConfigureAwait(false);
+                settledResetModes = await GetSettleReanalysisModesAsync(first.SeasonId, episodeIds, modes, ffmpegValid, ct).ConfigureAwait(false);
                 if (settledResetModes.Count > 0)
                 {
                     var resetModes = ExpandSettledResetModesForDerivedSegments(settledResetModes, _config.AnimePreviewFromCreditsEnd);
                     LogReanalyzingSettledSeason(_logger, first.SeasonNumber, first.SeriesName, episodes.Count);
-                    await plugin.ResetSeasonForReanalysisAsync(first.SeasonId, episodeIds, resetModes, ct).ConfigureAwait(false);
+                    await Plugin.ResetSeasonForReanalysisAsync(first.SeasonId, episodeIds, resetModes, ct).ConfigureAwait(false);
                     foreach (var episode in episodes)
                     {
                         foreach (var resetMode in resetModes)
@@ -217,21 +217,20 @@ public partial class BaseItemAnalyzerTask(
 
             if (completedSettledModes.Count > 0)
             {
-                await plugin.RecordSettleReanalysisAsync(first.SeasonId, completedSettledModes, episodeIds, ct).ConfigureAwait(false);
+                await Plugin.RecordSettleReanalysisAsync(first.SeasonId, completedSettledModes, episodeIds, ct).ConfigureAwait(false);
             }
         }).ConfigureAwait(false);
         plugin.AnalyzeAgain = false;
     }
 
     private static async Task<IReadOnlyList<AnalysisMode>> GetSettleReanalysisModesAsync(
-        Plugin plugin,
         Guid seasonId,
         IReadOnlyCollection<Guid> episodeIds,
-        IReadOnlyCollection<AnalysisMode> modes,
+        HashSet<AnalysisMode> modes,
         bool ffmpegValid,
         CancellationToken cancellationToken)
     {
-        var settleReanalysisStates = await plugin.GetSettleReanalysisStatesAsync(seasonId, cancellationToken).ConfigureAwait(false);
+        var settleReanalysisStates = await Plugin.GetSettleReanalysisStatesAsync(seasonId, cancellationToken).ConfigureAwait(false);
         var resetModes = new List<AnalysisMode>(modes.Count);
         foreach (var mode in modes)
         {
@@ -304,7 +303,7 @@ public partial class BaseItemAnalyzerTask(
         }
 
         var totalItems = items.Count(e => e.GetAnalyzed(mode) != EpisodeState.Analyzed);
-        var action = await plugin.GetAnalyzerActionAsync(first.SeasonId, mode, cancellationToken).ConfigureAwait(false);
+        var action = await Plugin.GetAnalyzerActionAsync(first.SeasonId, mode, cancellationToken).ConfigureAwait(false);
         var configHash = ConfigHasher.Analysis(_config, mode, action);
 
         if (action == AnalyzerAction.None)
@@ -318,7 +317,7 @@ public partial class BaseItemAnalyzerTask(
             item.AnalysisConfigHash = configHash;
         }
 
-        await plugin.CleanStaleAutomaticSegmentsAsync(
+        await Plugin.CleanStaleAutomaticSegmentsAsync(
             items.Where(e => e.GetAnalyzed(mode) != EpisodeState.UserProvided).Select(e => e.EpisodeId),
             mode,
             configHash,
@@ -407,7 +406,7 @@ public partial class BaseItemAnalyzerTask(
         }
 
         // Set the episode IDs for the analyzed items
-        await plugin.SetEpisodeIdsAsync(first.SeasonId, mode, items.Select(i => i.EpisodeId), configHash, cancellationToken).ConfigureAwait(false);
+        await Plugin.SetEpisodeIdsAsync(first.SeasonId, mode, items.Select(i => i.EpisodeId), configHash, cancellationToken).ConfigureAwait(false);
 
         return totalItems - items.Count(e => e.GetAnalyzed(mode) != EpisodeState.Analyzed);
     }
@@ -501,7 +500,7 @@ public partial class BaseItemAnalyzerTask(
             // Use GetSegmentsAsync (not GetTimestampsAsync) so we can see IsUserProvided.
             // UpdateTimestampAsync silently no-ops when a user-provided Preview exists, which would
             // otherwise leave us emitting a misleading "Created anime preview" log + Analyzed state.
-            var dbSegments = await plugin.GetSegmentsAsync(episode.EpisodeId, cancellationToken).ConfigureAwait(false);
+            var dbSegments = await Plugin.GetSegmentsAsync(episode.EpisodeId, cancellationToken).ConfigureAwait(false);
 
             if (dbSegments.Any(s => s.Type == AnalysisMode.Preview && s.IsUserProvided))
             {

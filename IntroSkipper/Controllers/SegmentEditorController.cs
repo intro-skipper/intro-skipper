@@ -132,7 +132,7 @@ public class SegmentEditorController(MediaSegmentEditorService mediaSegmentEdito
         // Match on type AND start/end times so that when multiple segments of the same mode exist
         // (e.g. Commercial) we identify the exact one being deleted rather than an arbitrary first match.
         var wasUserProvided = false;
-        var pluginSegments = await Plugin.Instance!.GetSegmentsAsync(itemId, cancellationToken).ConfigureAwait(false);
+        var pluginSegments = await Plugin.GetSegmentsAsync(itemId, cancellationToken).ConfigureAwait(false);
         var matchingSegment = pluginSegments.FirstOrDefault(s =>
             s.Type == mode &&
             (dbSegment is null || (Math.Abs(s.Start - dbSegment.Start) < TimeComparisonToleranceSeconds && Math.Abs(s.End - dbSegment.End) < TimeComparisonToleranceSeconds)));
@@ -142,7 +142,7 @@ public class SegmentEditorController(MediaSegmentEditorService mediaSegmentEdito
         }
 
         // Delete from the plugin DB first so it is consistent even if the Jellyfin delete fails.
-        await Plugin.Instance!.DeleteTimestampAsync(itemId, mode, dbSegment, cancellationToken).ConfigureAwait(false);
+        await Plugin.DeleteTimestampAsync(itemId, mode, dbSegment, cancellationToken).ConfigureAwait(false);
 
         try
         {
@@ -165,7 +165,7 @@ public class SegmentEditorController(MediaSegmentEditorService mediaSegmentEdito
         if (deletedItem is not null)
         {
             var seasonId = deletedItem is Episode ep ? ep.SeasonId : deletedItem.Id;
-            await Plugin.Instance!.RemoveEpisodeIdAsync(seasonId, mode, itemId, cancellationToken).ConfigureAwait(false);
+            await Plugin.RemoveEpisodeIdAsync(seasonId, mode, itemId, cancellationToken).ConfigureAwait(false);
         }
 
         return Ok();

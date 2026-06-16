@@ -67,7 +67,7 @@ public partial class VisualizationController(ILogger<VisualizationController> lo
             return NotFound();
         }
 
-        var analyzerActions = await Plugin.Instance!.GetAllAnalyzerActionsAsync(seasonId, cancellationToken).ConfigureAwait(false);
+        var analyzerActions = await Plugin.GetAllAnalyzerActionsAsync(seasonId, cancellationToken).ConfigureAwait(false);
 
         return Ok(analyzerActions);
     }
@@ -187,7 +187,7 @@ public partial class VisualizationController(ILogger<VisualizationController> lo
     [ProducesResponseType(StatusCodes.Status204NoContent)]
     public async Task<ActionResult> UpdateAnalyzerActions([FromBody] UpdateAnalyzerActionsRequest request, CancellationToken cancellationToken = default)
     {
-        await Plugin.Instance!.SetAnalyzerActionAsync(request.Id, request.AnalyzerActions, cancellationToken).ConfigureAwait(false);
+        await Plugin.SetAnalyzerActionAsync(request.Id, request.AnalyzerActions, cancellationToken).ConfigureAwait(false);
 
         return NoContent();
     }

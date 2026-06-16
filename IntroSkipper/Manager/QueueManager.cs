@@ -427,7 +427,7 @@ public partial class QueueManager(ILogger<QueueManager> logger, ILibraryManager 
 
         var verified = new List<QueuedEpisode>(candidates.Count);
         var plugin = Plugin.Instance ?? throw new InvalidOperationException("Plugin instance is null");
-        var snapshot = await plugin.GetSeasonQueueSnapshotAsync(candidates[0].SeasonId, [.. candidates.Select(c => c.EpisodeId)], cancellationToken).ConfigureAwait(false);
+        var snapshot = await Plugin.GetSeasonQueueSnapshotAsync(candidates[0].SeasonId, [.. candidates.Select(c => c.EpisodeId)], cancellationToken).ConfigureAwait(false);
 
         foreach (var candidate in candidates)
         {
