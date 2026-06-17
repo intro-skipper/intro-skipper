@@ -10,6 +10,8 @@ import type {
     SeasonItem,
     EpisodeItem,
     SupportedCollectionType,
+    LibraryLocation,
+    JellyfinVirtualFolder,
 } from "../types.ts";
 import { mapWithConcurrency } from "../utils.ts";
 
@@ -77,6 +79,32 @@ export async function getExcludableMedia(): Promise<ShowItem[]> {
         getShowsInLibrary(library.Id, library.Name),
     );
     return mediaGroups.flat();
+}
+
+// Distinct library folder locations Jellyfin scans (one library may map several folders).
+export async function getLibraryLocations(): Promise<LibraryLocation[]> {
+    const result = await getJson<JellyfinVirtualFolder[]>("Library/VirtualFolders");
+    if (!result.ok) {
+        console.error("Failed to load library folders", result.error);
+        return [];
+    }
+
+    const locations: LibraryLocation[] = [];
+    const seen = new Set<string>();
+    for (const folder of result.data ?? []) {
+        const libraryName = folder.Name ?? "Unknown";
+        for (const rawPath of folder.Locations ?? []) {
+            const path = rawPath.trim();
+            if (!path) continue;
+
+            const key = path.toLowerCase();
+            if (seen.has(key)) continue;
+
+            seen.add(key);
+            locations.push({ libraryName, path });
+        }
+    }
+    return locations;
 }
 
 export async function getSeasons(seriesId: string): Promise<SeasonItem[]> {

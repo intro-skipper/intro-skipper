@@ -7,8 +7,6 @@ import type {
     PluginInfo,
     LibraryStorage,
     SystemStorageInfo,
-    FileSystemEntryInfo,
-    DefaultDirectoryBrowserInfo,
 } from "../types.ts";
 
 const PLUGIN_ID = "c83d86bb-a1e0-4c35-a113-e2101cf4ee6b";
@@ -154,41 +152,4 @@ export async function checkPlugins(): Promise<PluginInfo[]> {
         throw new Error("Failed to fetch plugins (HTTP " + response.status + ")");
     }
     return (await response.json()) as PluginInfo[];
-}
-
-// Jellyfin server path browser.
-export function getDefaultDirectoryBrowser(): Promise<ApiResult<DefaultDirectoryBrowserInfo>> {
-    return getJson<DefaultDirectoryBrowserInfo>("Environment/DefaultDirectoryBrowser");
-}
-
-export function getDirectoryContents(path: string): Promise<ApiResult<FileSystemEntryInfo[]>> {
-    const query = new URLSearchParams({
-        path,
-        includeDirectories: "true",
-    });
-    return getJson<FileSystemEntryInfo[]>(`Environment/DirectoryContents?${query.toString()}`);
-}
-
-export function getDrives(): Promise<ApiResult<FileSystemEntryInfo[]>> {
-    return getJson<FileSystemEntryInfo[]>("Environment/Drives");
-}
-
-export async function getParentPath(path: string): Promise<ApiResult<string | null>> {
-    const query = new URLSearchParams({ path });
-    const response = await fetchWithAuth(`Environment/ParentPath?${query.toString()}`, "GET");
-    if (!response.ok) {
-        return {
-            ok: false,
-            status: response.status,
-            error: "Server returned " + response.status,
-        };
-    }
-
-    const text = await response.text();
-    const isJson = response.headers.get("Content-Type")?.includes("application/json") ?? false;
-    return {
-        ok: true,
-        status: response.status,
-        data: text ? (isJson ? (JSON.parse(text) as string | null) : text) : null,
-    };
 }

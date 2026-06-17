@@ -6,12 +6,11 @@ import { el, htmlEl } from "../components/dom.ts";
 import { bindVisibility } from "../components/field-bind.ts";
 import { appendTabContent } from "../components/tab-layout.ts";
 import { checkboxField } from "../components/checkbox-field.ts";
-import { textField } from "../components/text-field.ts";
 import { numberField } from "../components/number-field.ts";
 import { inlineCheckboxGroup } from "../components/inline-checkbox-group.ts";
 import { actionButton } from "../components/action-button.ts";
 import { createStatusMessage } from "../components/async-feedback.ts";
-import { pathBrowser } from "../components/path-browser.ts";
+import { pathExclusionList } from "../components/path-exclusion-list.ts";
 import { mediaExclusionCombobox } from "../components/media-exclusion-combobox.ts";
 import { confirmDialog } from "../components/confirm-dialog.ts";
 
@@ -145,13 +144,7 @@ export const generalTab: Tab = {
             }),
             mediaExclusionCombobox(),
             clearExcludedSection,
-            textField({
-                id: "ExcludePaths",
-                label: "Exclude paths",
-                description:
-                    "Exclude media from analysis by file path. Any file whose full path contains one fragment (case-insensitive) is skipped. Useful for excluding remote or cloud-mounted directories (e.g. Real-Debrid/Zurg) from fingerprinting.",
-            }),
-            pathBrowser(),
+            pathExclusionList(),
             inlineCheckboxGroup("Analyze for:", [
                 { id: "ScanIntroduction", label: "Introduction" },
                 { id: "ScanCredits", label: "Credits" },

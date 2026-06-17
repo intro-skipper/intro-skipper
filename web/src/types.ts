@@ -102,16 +102,17 @@ export type PluginInfo = {
     Status: string;
 };
 
-export type FileSystemEntryType = "File" | "Directory" | "NetworkComputer" | "NetworkShare";
-
-export type FileSystemEntryInfo = {
-    Name: string;
-    Path: string;
-    Type: FileSystemEntryType;
+// Raw Jellyfin library folder shape (/Library/VirtualFolders).
+export type JellyfinVirtualFolder = {
+    Name?: string;
+    Locations?: string[];
+    CollectionType?: string;
 };
 
-export type DefaultDirectoryBrowserInfo = {
-    Path?: string | null;
+// A single configured library folder location, paired with its library name.
+export type LibraryLocation = {
+    libraryName: string;
+    path: string;
 };
 
 type StorageFolder = {

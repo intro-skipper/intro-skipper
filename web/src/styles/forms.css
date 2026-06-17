@@ -786,61 +786,52 @@ a {
     color: var(--is-text-muted);
 }
 
-/* Jellyfin server path browser. */
-.path-browser {
-    border: 1px solid var(--is-border);
-    border-radius: 6px;
-    padding: 12px;
+/* Library-folder path exclusions. */
+.path-exclusion-list {
     margin-bottom: 16px;
-    background: rgba(255, 255, 255, 0.02);
 }
 
-.path-browser-current {
-    padding: 8px;
-    border-radius: 4px;
-    background: var(--is-input-bg);
-    border: 1px solid var(--is-input-border);
-    color: var(--is-text-muted);
-    overflow-wrap: anywhere;
-}
-
-.path-browser-actions {
-    display: flex;
-    gap: 8px;
-    flex-wrap: wrap;
-    margin-top: 8px;
-}
-
-.path-browser-list {
+.path-exclusion-options {
     display: grid;
-    gap: 6px;
+    gap: 4px;
     margin-top: 8px;
-    max-height: 220px;
+    max-height: 260px;
     overflow: auto;
 }
 
-.path-browser-entry {
-    width: 100%;
-    padding: 8px;
+.path-exclusion-option {
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+    padding: 8px 10px;
     border: 1px solid var(--is-input-border);
     border-radius: 4px;
-    background: transparent;
-    color: var(--is-text);
-    text-align: left;
+    background: var(--is-input-bg);
     cursor: pointer;
-    overflow-wrap: anywhere;
 }
 
-.path-browser-entry:hover {
+.path-exclusion-option:hover {
     background: var(--is-hover);
 }
 
-.path-browser-entry:focus-visible {
-    outline: 2px solid var(--is-accent);
-    outline-offset: 2px;
+.path-exclusion-option input {
+    margin-top: 2px;
+    flex-shrink: 0;
 }
 
-.path-browser-empty {
+.path-exclusion-option-text {
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+    min-width: 0;
+}
+
+.path-exclusion-path {
+    color: var(--is-text);
+    overflow-wrap: anywhere;
+}
+
+.path-exclusion-meta {
+    font-size: 0.8em;
     color: var(--is-text-muted);
-    font-size: 0.9em;
 }
