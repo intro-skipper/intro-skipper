@@ -18,6 +18,7 @@ public class TestPluginConfiguration
         Assert.Equal(PluginConfiguration.DefaultAnalysisLengthLimit, config.AnalysisLengthLimit);
         Assert.Equal(PluginConfiguration.DefaultMinimumIntroDuration, config.MinimumIntroDuration);
         Assert.Equal(PluginConfiguration.DefaultSettledSeasonDelayHours, config.SettledSeasonDelayHours);
+        Assert.Equal(string.Empty, config.ExcludeMovies);
     }
 
     [Theory]

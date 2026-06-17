@@ -11,6 +11,8 @@ import { numberField } from "../components/number-field.ts";
 import { inlineCheckboxGroup } from "../components/inline-checkbox-group.ts";
 import { actionButton } from "../components/action-button.ts";
 import { createStatusMessage } from "../components/async-feedback.ts";
+import { pathBrowser } from "../components/path-browser.ts";
+import { mediaExclusionCombobox } from "../components/media-exclusion-combobox.ts";
 
 export const generalTab: Tab = {
     id: "general",
@@ -93,18 +95,14 @@ export const generalTab: Tab = {
                 description:
                     "Enable this option to update media segments for any uncached media during a library scan.<br/>This includes recently added, modified, or previously skipped (but not ignored) files.<br/><b>Warning:</b> This should be disabled if you're using media segment providers other than Intro Skipper.",
             }),
-            textField({
-                id: "ExcludeSeries",
-                label: "Exclude series",
-                description:
-                    "Exclude series from analysis. Enter a comma-separated list of series names to exclude.",
-            }),
+            mediaExclusionCombobox(),
             textField({
                 id: "ExcludePaths",
                 label: "Exclude paths",
                 description:
                     "Exclude media from analysis by file path. Enter a comma-separated list of path fragments; any file whose full path contains one of them (case-insensitive) is skipped. Useful for excluding remote or cloud-mounted directories (e.g. Real-Debrid/Zurg) from fingerprinting.",
             }),
+            pathBrowser(),
             inlineCheckboxGroup("Analyze for:", [
                 { id: "ScanIntroduction", label: "Introduction" },
                 { id: "ScanCredits", label: "Credits" },

@@ -42,7 +42,8 @@ public partial class QueueManager(ILogger<QueueManager> logger, ILibraryManager 
     private readonly Dictionary<Guid, List<QueuedEpisode>> _queuedEpisodes = [];
     private readonly HashSet<Guid> _refreshedEpisodes = [];
     private double _analysisPercent;
-    private HashSet<string> _excludeSeries = [];
+    private HashSet<string> _excludedSeriesNames = [];
+    private HashSet<string> _excludedMovieNames = [];
     private string[] _excludePaths = [];
 
     /// <summary>
@@ -128,7 +129,8 @@ public partial class QueueManager(ILogger<QueueManager> logger, ILibraryManager 
         // Store the analysis percent
         _analysisPercent = Convert.ToDouble(config.AnalysisPercent) / 100;
 
-        _excludeSeries = CreateExcludedSeriesSet(config.ExcludeSeries);
+        _excludedSeriesNames = CreateExcludedNameSet(config.ExcludeSeries);
+        _excludedMovieNames = CreateExcludedNameSet(config.ExcludeMovies);
         _excludePaths = SplitConfiguredList(config.ExcludePaths);
 
         // If analysis settings have been changed from the default, log the modified settings.
@@ -159,13 +161,19 @@ public partial class QueueManager(ILogger<QueueManager> logger, ILibraryManager 
 
     private bool ShouldSkipMovie(Movie movie)
     {
-        if (!IsPathExcluded(movie.Path))
+        if (IsMovieExcluded(movie.Name))
         {
-            return false;
+            LogSkippingExcludedMovie(_logger, movie.Name);
+            return true;
         }
 
-        LogSkippingExcludedPath(_logger, Path.GetFileName(movie.Path));
-        return true;
+        if (IsPathExcluded(movie.Path))
+        {
+            LogSkippingExcludedPath(_logger, Path.GetFileName(movie.Path));
+            return true;
+        }
+
+        return false;
     }
 
     private async Task QueueLibraryContents(Guid id, CancellationToken cancellationToken)
@@ -232,12 +240,12 @@ public partial class QueueManager(ILogger<QueueManager> logger, ILibraryManager 
     }
 
     /// <summary>
-    /// Normalizes a series name by removing punctuation and whitespace
+    /// Normalizes a media name by removing punctuation and whitespace
     /// and converting to lowercase to make comparisons more robust.
     /// </summary>
-    /// <param name="name">The series name to normalize.</param>
-    /// <returns>Normalized series name.</returns>
-    private static string NormalizeSeriesName(string name)
+    /// <param name="name">The media name to normalize.</param>
+    /// <returns>Normalized media name.</returns>
+    private static string NormalizeExcludedName(string name)
     {
         if (string.IsNullOrEmpty(name))
         {
@@ -267,26 +275,25 @@ public partial class QueueManager(ILogger<QueueManager> logger, ILibraryManager 
     }
 
     /// <summary>
-    /// Checks if a series is in the excluded list, using normalized name comparison
+    /// Checks if a media name is in the excluded list, using normalized name comparison
     /// to handle differences in punctuation and spacing.
     /// </summary>
-    /// <param name="seriesName">The series name to check.</param>
-    /// <returns>True if the series should be excluded, false otherwise.</returns>
-    private bool IsSeriesExcluded(string seriesName) => IsSeriesExcluded(seriesName, _excludeSeries);
-
-    internal static bool IsSeriesExcluded(string seriesName, IReadOnlySet<string> excludeSeries)
+    /// <param name="name">The media name to check.</param>
+    /// <param name="excludedNames">The configured normalized names to exclude.</param>
+    /// <returns>True if the media item should be excluded, false otherwise.</returns>
+    internal static bool IsNameExcluded(string name, IReadOnlySet<string> excludedNames)
     {
-        return !string.IsNullOrEmpty(seriesName) &&
-               excludeSeries.Count != 0 &&
-               excludeSeries.Contains(NormalizeSeriesName(seriesName));
+        return !string.IsNullOrEmpty(name) &&
+               excludedNames.Count != 0 &&
+               excludedNames.Contains(NormalizeExcludedName(name));
     }
 
-    internal static HashSet<string> CreateExcludedSeriesSet(string excludedSeries)
+    internal static HashSet<string> CreateExcludedNameSet(string excludedNames)
     {
         var set = new HashSet<string>(StringComparer.Ordinal);
-        foreach (var seriesName in SplitConfiguredList(excludedSeries))
+        foreach (var name in SplitConfiguredList(excludedNames))
         {
-            var normalized = NormalizeSeriesName(seriesName);
+            var normalized = NormalizeExcludedName(name);
             if (normalized.Length != 0)
             {
                 set.Add(normalized);
@@ -295,6 +302,10 @@ public partial class QueueManager(ILogger<QueueManager> logger, ILibraryManager 
 
         return set;
     }
+
+    private bool IsSeriesExcluded(string seriesName) => IsNameExcluded(seriesName, _excludedSeriesNames);
+
+    private bool IsMovieExcluded(string movieName) => IsNameExcluded(movieName, _excludedMovieNames);
 
     private static string[] SplitConfiguredList(string value)
         => value.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
@@ -600,7 +611,15 @@ public partial class QueueManager(ILogger<QueueManager> logger, ILibraryManager 
     private bool TryGetVerifiedPath(Plugin plugin, QueuedEpisode candidate, out string path)
     {
         path = string.Empty;
-        if (candidate.Category is not QueuedMediaCategory.Movie && IsSeriesExcluded(candidate.SeriesName))
+        if (candidate.Category is QueuedMediaCategory.Movie)
+        {
+            if (IsMovieExcluded(candidate.Name))
+            {
+                LogSkippingExcludedMovie(_logger, candidate.Name);
+                return false;
+            }
+        }
+        else if (IsSeriesExcluded(candidate.SeriesName))
         {
             LogSkippingExcludedSeries(_logger, candidate.SeriesName);
             return false;
@@ -706,6 +725,9 @@ public partial class QueueManager(ILogger<QueueManager> logger, ILibraryManager 
 
     [LoggerMessage(Level = LogLevel.Debug, Message = "Skipping excluded series: {Series}")]
     private static partial void LogSkippingExcludedSeries(ILogger logger, string series);
+
+    [LoggerMessage(Level = LogLevel.Debug, Message = "Skipping excluded movie: {Movie}")]
+    private static partial void LogSkippingExcludedMovie(ILogger logger, string movie);
 
     // Log only the file name (not the full path) to avoid exposing user-specific directory structures in shareable logs.
     [LoggerMessage(Level = LogLevel.Debug, Message = "Skipping excluded path for file {File}")]

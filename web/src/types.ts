@@ -37,6 +37,7 @@ export interface PluginConfig {
     ChapterAnalyzerRecapPattern: string;
     ChapterAnalyzerCommercialPattern: string;
     ExcludeSeries: string;
+    ExcludeMovies: string;
     ExcludePaths: string;
 
     // Feature toggles persisted in the plugin configuration.
@@ -99,6 +100,18 @@ export type ScanStatus = {
 export type PluginInfo = {
     Id: string;
     Status: string;
+};
+
+export type FileSystemEntryType = "File" | "Directory" | "NetworkComputer" | "NetworkShare";
+
+export type FileSystemEntryInfo = {
+    Name: string;
+    Path: string;
+    Type: FileSystemEntryType;
+};
+
+export type DefaultDirectoryBrowserInfo = {
+    Path?: string | null;
 };
 
 type StorageFolder = {

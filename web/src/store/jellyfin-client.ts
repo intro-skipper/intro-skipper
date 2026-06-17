@@ -11,6 +11,7 @@ import type {
     EpisodeItem,
     SupportedCollectionType,
 } from "../types.ts";
+import { mapWithConcurrency } from "../utils.ts";
 
 // Libraries whose collection type explicitly targets movies or TV shows, plus
 // "folders" and untyped (null/undefined) views which cover VFS-backed libraries
@@ -68,6 +69,14 @@ export async function getShowsInLibrary(
             LibraryId: libraryId,
             LibraryName: libraryName,
         }));
+}
+
+export async function getExcludableMedia(): Promise<ShowItem[]> {
+    const libraries = await getLibraries();
+    const mediaGroups = await mapWithConcurrency(libraries, 4, (library) =>
+        getShowsInLibrary(library.Id, library.Name),
+    );
+    return mediaGroups.flat();
 }
 
 export async function getSeasons(seriesId: string): Promise<SeasonItem[]> {

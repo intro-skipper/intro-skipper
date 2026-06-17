@@ -70,11 +70,11 @@ public class TestQueueManager
     [InlineData("My.Show", "my show", true)]
     [InlineData("Mob Psycho 100", "mob-psycho 100", true)]
     [InlineData("Other Show", "my show", false)]
-    public void IsSeriesExcluded_NormalizesConfiguredNames(string configuredSeries, string candidateSeries, bool expected)
+    public void IsNameExcluded_NormalizesConfiguredNames(string configuredSeries, string candidateSeries, bool expected)
     {
-        var excludeSeries = QueueManager.CreateExcludedSeriesSet(configuredSeries);
+        var excludedNames = QueueManager.CreateExcludedNameSet(configuredSeries);
 
-        Assert.Equal(expected, QueueManager.IsSeriesExcluded(candidateSeries, excludeSeries));
+        Assert.Equal(expected, QueueManager.IsNameExcluded(candidateSeries, excludedNames));
     }
 
     [Fact]
@@ -169,13 +169,64 @@ public class TestQueueManager
             EntrypointTestHelpers.SetPrivateField(plugin, "_libraryManager", libraryManager);
 
             var queueManager = new QueueManager(NullLogger<QueueManager>.Instance, libraryManager, null!, null!, null!);
-            EntrypointTestHelpers.SetPrivateField(queueManager, "_excludeSeries", QueueManager.CreateExcludedSeriesSet("The.Office"));
+            EntrypointTestHelpers.SetPrivateField(queueManager, "_excludedSeriesNames", QueueManager.CreateExcludedNameSet("The.Office"));
 
             var verification = await queueManager.VerifyQueueAsync(
                 seasonId,
                 [
                     new QueuedEpisode { SeasonId = seasonId, EpisodeId = excludedItemId, SeriesName = "The Office", Name = "Episode 1", Path = "old-1.mkv" },
                     new QueuedEpisode { SeasonId = seasonId, EpisodeId = includedItemId, SeriesName = "Other Show", Name = "Episode 2", Path = "old-2.mkv" }
+                ],
+                [AnalysisMode.Introduction]);
+
+            var candidate = Assert.Single(verification.Episodes);
+            Assert.Equal(includedItemId, candidate.EpisodeId);
+            Assert.Equal(1, verification.SkippedCount);
+        }
+        finally
+        {
+            SqliteConnection.ClearAllPools();
+            Directory.Delete(tempRoot, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task VerifyQueueAsync_SkipsExcludedMovieAndReportsSkippedCount()
+    {
+        var excludedItemId = Guid.NewGuid();
+        var includedItemId = Guid.NewGuid();
+        var seasonId = Guid.NewGuid();
+        var tempRoot = Path.Join(Path.GetTempPath(), "IntroSkipper.Tests", "exclude-movies", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(tempRoot);
+        var excludedMediaPath = Path.Join(tempRoot, "movie-1.mkv");
+        var includedMediaPath = Path.Join(tempRoot, "movie-2.mkv");
+        await File.WriteAllTextAsync(excludedMediaPath, string.Empty);
+        await File.WriteAllTextAsync(includedMediaPath, string.Empty);
+
+        try
+        {
+            using var scope = new EntrypointTestHelpers.PluginInstanceScope(EntrypointTestHelpers.CreateTempCacheDir());
+            var dbPath = Path.Join(tempRoot, "introskipper.db");
+            await using (var db = new IntroSkipperDbContext(dbPath))
+            {
+                await db.Database.EnsureCreatedAsync();
+            }
+
+            var libraryManager = EntrypointTestHelpers.CreateLibraryManager(
+                CreateMovie(excludedItemId, excludedMediaPath),
+                CreateMovie(includedItemId, includedMediaPath));
+            var plugin = Plugin.Instance!;
+            EntrypointTestHelpers.SetPrivateField(plugin, "_dbPath", dbPath);
+            EntrypointTestHelpers.SetPrivateField(plugin, "_libraryManager", libraryManager);
+
+            var queueManager = new QueueManager(NullLogger<QueueManager>.Instance, libraryManager, null!, null!, null!);
+            EntrypointTestHelpers.SetPrivateField(queueManager, "_excludedMovieNames", QueueManager.CreateExcludedNameSet("The.Matrix"));
+
+            var verification = await queueManager.VerifyQueueAsync(
+                seasonId,
+                [
+                    new QueuedEpisode { SeasonId = seasonId, EpisodeId = excludedItemId, Category = QueuedMediaCategory.Movie, Name = "The Matrix", Path = "old-1.mkv" },
+                    new QueuedEpisode { SeasonId = seasonId, EpisodeId = includedItemId, Category = QueuedMediaCategory.Movie, Name = "Other Movie", Path = "old-2.mkv" }
                 ],
                 [AnalysisMode.Introduction]);
 

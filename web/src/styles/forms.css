@@ -672,3 +672,175 @@ a {
 .is-confirm-btn.confirm:hover {
     background: rgba(244, 67, 54, 0.3);
 }
+
+/* Series and movie exclusion combobox. */
+.media-exclusion-combobox {
+    margin-bottom: 16px;
+}
+
+.media-exclusion-control {
+    position: relative;
+    margin-top: 8px;
+    padding: 6px;
+    background: var(--is-input-bg);
+    border: 1px solid var(--is-input-border);
+    border-radius: 4px;
+    box-sizing: border-box;
+}
+
+.media-exclusion-control:focus-within {
+    border-color: var(--is-input-focus);
+    box-shadow: 0 0 0 1px var(--is-input-focus);
+}
+
+.media-exclusion-chip-list {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px;
+}
+
+.media-exclusion-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 3px 6px;
+    border: 1px solid var(--is-border);
+    border-radius: 999px;
+    background: var(--is-hover);
+    color: var(--is-text);
+    font-size: 0.85em;
+}
+
+.media-exclusion-chip-remove {
+    border: 0;
+    padding: 0 2px;
+    background: transparent;
+    color: var(--is-text-muted);
+    cursor: pointer;
+    line-height: 1;
+}
+
+.media-exclusion-chip-remove:hover {
+    color: var(--is-text);
+}
+
+.media-exclusion-chip-remove:focus-visible {
+    outline: 2px solid var(--is-accent);
+    outline-offset: 2px;
+}
+
+.media-exclusion-search {
+    flex: 1 1 220px;
+    min-width: 180px;
+    padding: 4px 2px;
+    border: 0;
+    background: transparent;
+    color: var(--is-text);
+    font: inherit;
+    outline: none;
+}
+
+.media-exclusion-results {
+    position: absolute;
+    top: 100%;
+    left: 0;
+    right: 0;
+    max-height: 300px;
+    overflow-y: auto;
+    background: var(--is-surface);
+    border: 1px solid var(--is-border);
+    border-radius: 0 0 4px 4px;
+    z-index: 20;
+    display: none;
+}
+
+.media-exclusion-results.open {
+    display: block;
+}
+
+.media-exclusion-result {
+    padding: 6px 10px;
+    cursor: pointer;
+    font-size: 0.85em;
+    color: var(--is-text);
+}
+
+.media-exclusion-result:hover,
+.media-exclusion-result.active {
+    background: var(--is-hover-strong);
+}
+
+.media-exclusion-result.selected {
+    color: var(--is-accent);
+}
+
+.media-exclusion-empty,
+.media-exclusion-notice {
+    padding: 8px 10px;
+    color: var(--is-text-muted);
+    font-size: 0.85em;
+}
+
+.media-exclusion-kind {
+    color: var(--is-text-muted);
+}
+
+/* Jellyfin server path browser. */
+.path-browser {
+    border: 1px solid var(--is-border);
+    border-radius: 6px;
+    padding: 12px;
+    margin-bottom: 16px;
+    background: rgba(255, 255, 255, 0.02);
+}
+
+.path-browser-current {
+    padding: 8px;
+    border-radius: 4px;
+    background: var(--is-input-bg);
+    border: 1px solid var(--is-input-border);
+    color: var(--is-text-muted);
+    overflow-wrap: anywhere;
+}
+
+.path-browser-actions {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+    margin-top: 8px;
+}
+
+.path-browser-list {
+    display: grid;
+    gap: 6px;
+    margin-top: 8px;
+    max-height: 220px;
+    overflow: auto;
+}
+
+.path-browser-entry {
+    width: 100%;
+    padding: 8px;
+    border: 1px solid var(--is-input-border);
+    border-radius: 4px;
+    background: transparent;
+    color: var(--is-text);
+    text-align: left;
+    cursor: pointer;
+    overflow-wrap: anywhere;
+}
+
+.path-browser-entry:hover {
+    background: var(--is-hover);
+}
+
+.path-browser-entry:focus-visible {
+    outline: 2px solid var(--is-accent);
+    outline-offset: 2px;
+}
+
+.path-browser-empty {
+    color: var(--is-text-muted);
+    font-size: 0.9em;
+}
