@@ -10,7 +10,7 @@ import { numberField } from "../components/number-field.ts";
 import { inlineCheckboxGroup } from "../components/inline-checkbox-group.ts";
 import { actionButton } from "../components/action-button.ts";
 import { createStatusMessage } from "../components/async-feedback.ts";
-import { pathExclusionList } from "../components/path-exclusion-list.ts";
+import { pathExclusion } from "../components/path-exclusion.ts";
 import { mediaExclusionCombobox } from "../components/media-exclusion-combobox.ts";
 import { confirmDialog } from "../components/confirm-dialog.ts";
 
@@ -144,7 +144,7 @@ export const generalTab: Tab = {
             }),
             mediaExclusionCombobox(),
             clearExcludedSection,
-            pathExclusionList(),
+            pathExclusion(),
             inlineCheckboxGroup("Analyze for:", [
                 { id: "ScanIntroduction", label: "Introduction" },
                 { id: "ScanCredits", label: "Credits" },
