@@ -121,20 +121,20 @@ public partial class BaseItemAnalyzerTask(
             var updateMediaSegments = false;
             IReadOnlyList<AnalysisMode> settledResetModes = [];
 
-            var episodes = await queueManager.VerifyQueueAsync(season.Value, modes, ct).ConfigureAwait(false);
+            var verification = await queueManager.VerifyQueueAsync(season.Key, season.Value, modes, ct).ConfigureAwait(false);
+            if (verification.SkippedCount > 0)
+            {
+                Interlocked.Add(ref totalProcessed, verification.SkippedCount * modes.Count);
+                progress.Report((double)totalProcessed / totalQueued * 100);
+            }
+
+            var episodes = verification.Episodes;
             if (episodes.Count == 0)
             {
                 return;
             }
 
             var first = episodes[0];
-            if (first.IsExcluded)
-            {
-                Interlocked.Add(ref totalProcessed, episodes.Count * modes.Count);
-                progress.Report((double)totalProcessed / totalQueued * 100);
-                LogSkippingExcludedSeason(_logger, first.SeasonNumber, first.SeriesName);
-                return;
-            }
 
             // Run settled-season reanalysis from scratch after no new episodes have been added
             // for the configured delay so segments first derived from a partial season are

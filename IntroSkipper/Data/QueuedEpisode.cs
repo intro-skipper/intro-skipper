@@ -64,11 +64,6 @@ public class QueuedEpisode
     public QueuedMediaCategory Category { get; set; } = QueuedMediaCategory.Episode;
 
     /// <summary>
-    /// Gets or sets a value indicating whether this media item should be excluded from analysis.
-    /// </summary>
-    public bool IsExcluded { get; set; }
-
-    /// <summary>
     /// Gets or sets the timestamp (in seconds) to stop searching for an introduction at.
     /// </summary>
     public double IntroFingerprintEnd { get; set; }

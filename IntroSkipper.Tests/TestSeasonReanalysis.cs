@@ -106,15 +106,6 @@ public sealed class TestSeasonReanalysisPlanner
     }
 
     [Fact]
-    public void IsSettledForReanalysis_ReturnsFalse_WhenExcluded()
-    {
-        var config = new PluginConfiguration { ReanalyzeSettledSeasons = true };
-        var season = Season(SeasonReanalysisPlanner.MinimumEpisodes, SettledTime(), excluded: true);
-
-        Assert.False(SeasonReanalysisPlanner.IsSettledForReanalysis(season, config, Now));
-    }
-
-    [Fact]
     public void IsSettledForReanalysis_SeasonZero_RespectsAnalyzeSeasonZeroToggle()
     {
         var season = Season(SeasonReanalysisPlanner.MinimumEpisodes, SettledTime(), seasonNumber: 0);
@@ -202,8 +193,7 @@ public sealed class TestSeasonReanalysisPlanner
         int count,
         DateTime newestAdded,
         QueuedMediaCategory category = QueuedMediaCategory.Episode,
-        int seasonNumber = 1,
-        bool excluded = false)
+        int seasonNumber = 1)
     {
         var episodes = new List<QueuedEpisode>(count);
         for (var i = 0; i < count; i++)
@@ -213,7 +203,6 @@ public sealed class TestSeasonReanalysisPlanner
                 EpisodeId = Guid.NewGuid(),
                 SeasonNumber = seasonNumber,
                 Category = category,
-                IsExcluded = excluded,
                 DateAdded = newestAdded.AddHours(-i), // index 0 is the most recent → Max
             });
         }

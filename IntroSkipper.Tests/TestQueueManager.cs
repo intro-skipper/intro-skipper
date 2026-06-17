@@ -4,7 +4,18 @@
 namespace IntroSkipper.Tests;
 
 using System;
+using System.Collections.Generic;
+using System.IO;
+using System.Linq;
+using System.Threading.Tasks;
+using IntroSkipper.Data;
+using IntroSkipper.Db;
+using IntroSkipper.Helper;
 using IntroSkipper.Manager;
+using MediaBrowser.Controller.Entities.Movies;
+using Microsoft.Data.Sqlite;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging.Abstractions;
 using Xunit;
 
 public class TestQueueManager
@@ -53,5 +64,218 @@ public class TestQueueManager
     {
         // A stray empty fragment must not cause every path to be excluded.
         Assert.False(QueueManager.IsPathExcluded("/media/local/Show/S01E01.mkv", new[] { string.Empty }));
+    }
+
+    [Theory]
+    [InlineData("My.Show", "my show", true)]
+    [InlineData("Mob Psycho 100", "mob-psycho 100", true)]
+    [InlineData("Other Show", "my show", false)]
+    public void IsSeriesExcluded_NormalizesConfiguredNames(string configuredSeries, string candidateSeries, bool expected)
+    {
+        var excludeSeries = QueueManager.CreateExcludedSeriesSet(configuredSeries);
+
+        Assert.Equal(expected, QueueManager.IsSeriesExcluded(candidateSeries, excludeSeries));
+    }
+
+    [Fact]
+    public async Task VerifyQueueAsync_SkipsExcludedResolvedPathAndUpdatesVerifiedPath()
+    {
+        var itemId = Guid.NewGuid();
+        var seasonId = Guid.NewGuid();
+        var tempRoot = Path.Join(Path.GetTempPath(), "IntroSkipper.Tests", "exclude-paths", Guid.NewGuid().ToString("N"));
+        var excludedDir = Path.Join(tempRoot, "remote");
+        Directory.CreateDirectory(excludedDir);
+        var excludedMediaPath = Path.Join(excludedDir, "S01E01.mkv");
+        var includedDir = Path.Join(tempRoot, "local");
+        Directory.CreateDirectory(includedDir);
+        var includedMediaPath = Path.Join(includedDir, "S01E02.mkv");
+        await File.WriteAllTextAsync(excludedMediaPath, string.Empty);
+        await File.WriteAllTextAsync(includedMediaPath, string.Empty);
+
+        try
+        {
+            using var scope = new EntrypointTestHelpers.PluginInstanceScope(EntrypointTestHelpers.CreateTempCacheDir());
+            var dbPath = Path.Join(tempRoot, "introskipper.db");
+            await using (var db = new IntroSkipperDbContext(dbPath))
+            {
+                await db.Database.EnsureCreatedAsync();
+            }
+
+            var excludedMovie = new Movie();
+            EntrypointTestHelpers.SetPropertyOrField(excludedMovie, "Id", itemId);
+            EntrypointTestHelpers.SetPropertyOrField(excludedMovie, "Path", excludedMediaPath);
+            EntrypointTestHelpers.EnsureNonVirtual(excludedMovie);
+
+            var includedItemId = Guid.NewGuid();
+            var includedMovie = new Movie();
+            EntrypointTestHelpers.SetPropertyOrField(includedMovie, "Id", includedItemId);
+            EntrypointTestHelpers.SetPropertyOrField(includedMovie, "Path", includedMediaPath);
+            EntrypointTestHelpers.EnsureNonVirtual(includedMovie);
+
+            var libraryManager = EntrypointTestHelpers.CreateLibraryManager(excludedMovie, includedMovie);
+            var plugin = Plugin.Instance!;
+            EntrypointTestHelpers.SetPrivateField(plugin, "_dbPath", dbPath);
+            EntrypointTestHelpers.SetPrivateField(plugin, "_libraryManager", libraryManager);
+
+            var queueManager = new QueueManager(NullLogger<QueueManager>.Instance, libraryManager, null!, null!, null!);
+            EntrypointTestHelpers.SetPrivateField(queueManager, "_excludePaths", new[] { excludedDir });
+
+            var verification = await queueManager.VerifyQueueAsync(
+                seasonId,
+                [
+                    new QueuedEpisode { SeasonId = seasonId, EpisodeId = itemId, Name = "Episode 1", Path = "old-excluded-path.mkv" },
+                    new QueuedEpisode { SeasonId = seasonId, EpisodeId = includedItemId, Name = "Episode 2", Path = "old-included-path.mkv" }
+                ],
+                [AnalysisMode.Introduction]);
+
+            var candidate = Assert.Single(verification.Episodes);
+            Assert.Equal(1, verification.SkippedCount);
+            Assert.Equal(includedMediaPath, candidate.Path);
+        }
+        finally
+        {
+            SqliteConnection.ClearAllPools();
+            Directory.Delete(tempRoot, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task VerifyQueueAsync_SkipsExcludedSeriesAndReportsSkippedCount()
+    {
+        var excludedItemId = Guid.NewGuid();
+        var includedItemId = Guid.NewGuid();
+        var seasonId = Guid.NewGuid();
+        var tempRoot = Path.Join(Path.GetTempPath(), "IntroSkipper.Tests", "exclude-series", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(tempRoot);
+        var excludedMediaPath = Path.Join(tempRoot, "S01E01.mkv");
+        var includedMediaPath = Path.Join(tempRoot, "S01E02.mkv");
+        await File.WriteAllTextAsync(excludedMediaPath, string.Empty);
+        await File.WriteAllTextAsync(includedMediaPath, string.Empty);
+
+        try
+        {
+            using var scope = new EntrypointTestHelpers.PluginInstanceScope(EntrypointTestHelpers.CreateTempCacheDir());
+            var dbPath = Path.Join(tempRoot, "introskipper.db");
+            await using (var db = new IntroSkipperDbContext(dbPath))
+            {
+                await db.Database.EnsureCreatedAsync();
+            }
+
+            var libraryManager = EntrypointTestHelpers.CreateLibraryManager(
+                CreateMovie(excludedItemId, excludedMediaPath),
+                CreateMovie(includedItemId, includedMediaPath));
+            var plugin = Plugin.Instance!;
+            EntrypointTestHelpers.SetPrivateField(plugin, "_dbPath", dbPath);
+            EntrypointTestHelpers.SetPrivateField(plugin, "_libraryManager", libraryManager);
+
+            var queueManager = new QueueManager(NullLogger<QueueManager>.Instance, libraryManager, null!, null!, null!);
+            EntrypointTestHelpers.SetPrivateField(queueManager, "_excludeSeries", QueueManager.CreateExcludedSeriesSet("The.Office"));
+
+            var verification = await queueManager.VerifyQueueAsync(
+                seasonId,
+                [
+                    new QueuedEpisode { SeasonId = seasonId, EpisodeId = excludedItemId, SeriesName = "The Office", Name = "Episode 1", Path = "old-1.mkv" },
+                    new QueuedEpisode { SeasonId = seasonId, EpisodeId = includedItemId, SeriesName = "Other Show", Name = "Episode 2", Path = "old-2.mkv" }
+                ],
+                [AnalysisMode.Introduction]);
+
+            var candidate = Assert.Single(verification.Episodes);
+            Assert.Equal(includedItemId, candidate.EpisodeId);
+            Assert.Equal(1, verification.SkippedCount);
+        }
+        finally
+        {
+            SqliteConnection.ClearAllPools();
+            Directory.Delete(tempRoot, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task VerifyQueueAsync_AppliesStoredStatesAfterPathVerification()
+    {
+        var seasonId = Guid.NewGuid();
+        var analyzedItemId = Guid.NewGuid();
+        var noSegmentsItemId = Guid.NewGuid();
+        var userProvidedItemId = Guid.NewGuid();
+        var tempRoot = Path.Join(Path.GetTempPath(), "IntroSkipper.Tests", "queue-verification", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(tempRoot);
+        var analyzedPath = Path.Join(tempRoot, "S01E01.mkv");
+        var noSegmentsPath = Path.Join(tempRoot, "S01E02.mkv");
+        var userProvidedPath = Path.Join(tempRoot, "S01E03.mkv");
+        await File.WriteAllTextAsync(analyzedPath, string.Empty);
+        await File.WriteAllTextAsync(noSegmentsPath, string.Empty);
+        await File.WriteAllTextAsync(userProvidedPath, string.Empty);
+
+        try
+        {
+            using var scope = new EntrypointTestHelpers.PluginInstanceScope(EntrypointTestHelpers.CreateTempCacheDir());
+            var dbPath = Path.Join(tempRoot, "introskipper.db");
+            await using (var db = new IntroSkipperDbContext(dbPath))
+            {
+                await db.Database.EnsureCreatedAsync();
+            }
+
+            var libraryManager = EntrypointTestHelpers.CreateLibraryManager(
+                CreateMovie(analyzedItemId, analyzedPath),
+                CreateMovie(noSegmentsItemId, noSegmentsPath),
+                CreateMovie(userProvidedItemId, userProvidedPath));
+            var plugin = Plugin.Instance!;
+            EntrypointTestHelpers.SetPrivateField(plugin, "_dbPath", dbPath);
+            EntrypointTestHelpers.SetPrivateField(plugin, "_libraryManager", libraryManager);
+            EntrypointTestHelpers.SetPropertyOrField(plugin, "Configuration", new IntroSkipper.Configuration.PluginConfiguration());
+
+            var introHash = ConfigHasher.Analysis(plugin.Configuration, AnalysisMode.Introduction, AnalyzerAction.Default);
+            await using (var db = new IntroSkipperDbContext(dbPath))
+            {
+                db.DbSeasonState.Add(new DbSeasonState(
+                    seasonId,
+                    AnalysisMode.Introduction,
+                    AnalyzerAction.Default,
+                    [analyzedItemId, noSegmentsItemId],
+                    introHash));
+                db.DbSegment.Add(new DbSegment(
+                    new Segment(analyzedItemId, new TimeRange(10, 20)),
+                    AnalysisMode.Introduction,
+                    isUserProvided: false,
+                    configHash: introHash));
+                db.DbSegment.Add(new DbSegment(
+                    new Segment(userProvidedItemId, new TimeRange(30, 40)),
+                    AnalysisMode.Credits,
+                    isUserProvided: true,
+                    configHash: string.Empty));
+                await db.SaveChangesAsync();
+            }
+
+            var queueManager = new QueueManager(NullLogger<QueueManager>.Instance, libraryManager, null!, null!, null!);
+            var verification = await queueManager.VerifyQueueAsync(
+                seasonId,
+                [
+                    new QueuedEpisode { SeasonId = seasonId, EpisodeId = analyzedItemId, Name = "Episode 1", Path = "old-1.mkv" },
+                    new QueuedEpisode { SeasonId = seasonId, EpisodeId = noSegmentsItemId, Name = "Episode 2", Path = "old-2.mkv" },
+                    new QueuedEpisode { SeasonId = seasonId, EpisodeId = userProvidedItemId, Name = "Episode 3", Path = "old-3.mkv" }
+                ],
+                [AnalysisMode.Introduction, AnalysisMode.Credits]);
+
+            var verified = verification.Episodes;
+            Assert.Equal(3, verified.Count);
+            Assert.Equal(0, verification.SkippedCount);
+            Assert.Equal(EpisodeState.Analyzed, verified.Single(e => e.EpisodeId == analyzedItemId).GetAnalyzed(AnalysisMode.Introduction));
+            Assert.Equal(EpisodeState.NoSegments, verified.Single(e => e.EpisodeId == noSegmentsItemId).GetAnalyzed(AnalysisMode.Introduction));
+            Assert.Equal(EpisodeState.UserProvided, verified.Single(e => e.EpisodeId == userProvidedItemId).GetAnalyzed(AnalysisMode.Credits));
+        }
+        finally
+        {
+            SqliteConnection.ClearAllPools();
+            Directory.Delete(tempRoot, recursive: true);
+        }
+    }
+
+    private static Movie CreateMovie(Guid id, string path)
+    {
+        var movie = new Movie();
+        EntrypointTestHelpers.SetPropertyOrField(movie, "Id", id);
+        EntrypointTestHelpers.SetPropertyOrField(movie, "Path", path);
+        EntrypointTestHelpers.EnsureNonVirtual(movie);
+        return movie;
     }
 }

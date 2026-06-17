@@ -4,7 +4,6 @@
 // SPDX-FileCopyrightText: 2024-2026 Kilian von Pflugk
 // SPDX-License-Identifier: GPL-3.0-only
 
-using System.Text.RegularExpressions;
 using IntroSkipper.Configuration;
 using IntroSkipper.Data;
 using IntroSkipper.FFmpeg;
@@ -43,8 +42,8 @@ public partial class QueueManager(ILogger<QueueManager> logger, ILibraryManager 
     private readonly Dictionary<Guid, List<QueuedEpisode>> _queuedEpisodes = [];
     private readonly HashSet<Guid> _refreshedEpisodes = [];
     private double _analysisPercent;
-    private List<string> _excludeSeries = [];
-    private List<string> _excludePaths = [];
+    private HashSet<string> _excludeSeries = [];
+    private string[] _excludePaths = [];
 
     /// <summary>
     /// Gets all media items on the server.
@@ -129,9 +128,8 @@ public partial class QueueManager(ILogger<QueueManager> logger, ILibraryManager 
         // Store the analysis percent
         _analysisPercent = Convert.ToDouble(config.AnalysisPercent) / 100;
 
-        _excludeSeries = [.. config.ExcludeSeries.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)];
-
-        _excludePaths = [.. config.ExcludePaths.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)];
+        _excludeSeries = CreateExcludedSeriesSet(config.ExcludeSeries);
+        _excludePaths = SplitConfiguredList(config.ExcludePaths);
 
         // If analysis settings have been changed from the default, log the modified settings.
         if (config.AnalysisLengthLimit != PluginConfiguration.DefaultAnalysisLengthLimit
@@ -140,6 +138,34 @@ public partial class QueueManager(ILogger<QueueManager> logger, ILibraryManager 
         {
             LogAnalysisSettingsChanged(_logger, config.AnalysisPercent, config.AnalysisLengthLimit, config.MinimumIntroDuration);
         }
+    }
+
+    private bool ShouldSkipEpisode(Episode episode)
+    {
+        if (IsSeriesExcluded(episode.SeriesName))
+        {
+            LogSkippingExcludedSeries(_logger, episode.SeriesName);
+            return true;
+        }
+
+        if (IsPathExcluded(episode.Path))
+        {
+            LogSkippingExcludedPath(_logger, Path.GetFileName(episode.Path));
+            return true;
+        }
+
+        return false;
+    }
+
+    private bool ShouldSkipMovie(Movie movie)
+    {
+        if (!IsPathExcluded(movie.Path))
+        {
+            return false;
+        }
+
+        LogSkippingExcludedPath(_logger, Path.GetFileName(movie.Path));
+        return true;
     }
 
     private async Task QueueLibraryContents(Guid id, CancellationToken cancellationToken)
@@ -156,10 +182,7 @@ public partial class QueueManager(ILogger<QueueManager> logger, ILibraryManager 
             IsVirtualItem = false
         };
 
-        var items = _libraryManager.GetItemList(query, false)
-            .DistinctBy(e => e.Id)
-            .ToList();
-
+        var items = _libraryManager.GetItemList(query, false);
         if (items is null)
         {
             LogLibraryQueryNull(_logger);
@@ -169,32 +192,21 @@ public partial class QueueManager(ILogger<QueueManager> logger, ILibraryManager 
         // Queue all supported library items on the server for analysis.
         LogIteratingLibraryItems(_logger);
 
-        foreach (var item in items)
+        var queuedCount = 0;
+        foreach (var item in items.DistinctBy(e => e.Id))
         {
             try
             {
                 if (item is Episode episode)
                 {
-                    if (IsSeriesExcluded(episode.SeriesName))
-                    {
-                        LogSkippingExcludedSeries(_logger, episode.SeriesName);
-                    }
-                    else if (IsPathExcluded(episode.Path))
-                    {
-                        LogSkippingExcludedPath(_logger, Path.GetFileName(episode.Path));
-                    }
-                    else
+                    if (!ShouldSkipEpisode(episode))
                     {
                         await QueueEpisode(episode, cancellationToken).ConfigureAwait(false);
                     }
                 }
                 else if (item is Movie movie)
                 {
-                    if (IsPathExcluded(movie.Path))
-                    {
-                        LogSkippingExcludedPath(_logger, Path.GetFileName(movie.Path));
-                    }
-                    else
+                    if (!ShouldSkipMovie(movie))
                     {
                         await QueueMovieAsync(movie, cancellationToken).ConfigureAwait(false);
                     }
@@ -203,6 +215,8 @@ public partial class QueueManager(ILogger<QueueManager> logger, ILibraryManager 
                 {
                     LogItemNotEpisodeOrMovie(_logger, item.Name);
                 }
+
+                queuedCount++;
             }
             catch (OperationCanceledException)
             {
@@ -214,12 +228,12 @@ public partial class QueueManager(ILogger<QueueManager> logger, ILibraryManager 
             }
         }
 
-        LogQueuedEpisodes(_logger, items.Count);
+        LogQueuedEpisodes(_logger, queuedCount);
     }
 
     /// <summary>
-    /// Normalizes a series name by removing punctuation and converting to lowercase
-    /// to make comparisons more robust.
+    /// Normalizes a series name by removing punctuation and whitespace
+    /// and converting to lowercase to make comparisons more robust.
     /// </summary>
     /// <param name="name">The series name to normalize.</param>
     /// <returns>Normalized series name.</returns>
@@ -230,29 +244,60 @@ public partial class QueueManager(ILogger<QueueManager> logger, ILibraryManager 
             return string.Empty;
         }
 
-        // Remove all punctuation and convert to lowercase
-        return NormalizeSeriesNameRegex().Replace(name, string.Empty)
-            .ToLowerInvariant()
-            .Trim();
+        var length = 0;
+        foreach (var ch in name)
+        {
+            if (char.IsLetterOrDigit(ch))
+            {
+                length++;
+            }
+        }
+
+        return string.Create(length, name, static (destination, source) =>
+            {
+                var index = 0;
+                foreach (var ch in source)
+                {
+                    if (char.IsLetterOrDigit(ch))
+                    {
+                        destination[index++] = char.ToLowerInvariant(ch);
+                    }
+                }
+            });
     }
 
     /// <summary>
     /// Checks if a series is in the excluded list, using normalized name comparison
-    /// to handle differences in punctuation.
+    /// to handle differences in punctuation and spacing.
     /// </summary>
     /// <param name="seriesName">The series name to check.</param>
     /// <returns>True if the series should be excluded, false otherwise.</returns>
-    private bool IsSeriesExcluded(string seriesName)
+    private bool IsSeriesExcluded(string seriesName) => IsSeriesExcluded(seriesName, _excludeSeries);
+
+    internal static bool IsSeriesExcluded(string seriesName, IReadOnlySet<string> excludeSeries)
     {
-        if (string.IsNullOrEmpty(seriesName))
+        return !string.IsNullOrEmpty(seriesName) &&
+               excludeSeries.Count != 0 &&
+               excludeSeries.Contains(NormalizeSeriesName(seriesName));
+    }
+
+    internal static HashSet<string> CreateExcludedSeriesSet(string excludedSeries)
+    {
+        var set = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var seriesName in SplitConfiguredList(excludedSeries))
         {
-            return false;
+            var normalized = NormalizeSeriesName(seriesName);
+            if (normalized.Length != 0)
+            {
+                set.Add(normalized);
+            }
         }
 
-        // Then check normalized match
-        var normalizedName = NormalizeSeriesName(seriesName);
-        return _excludeSeries.Contains(normalizedName);
+        return set;
     }
+
+    private static string[] SplitConfiguredList(string value)
+        => value.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
 
     /// <summary>
     /// Checks if a media item's file path matches any of the configured exclusion fragments.
@@ -327,7 +372,6 @@ public partial class QueueManager(ILogger<QueueManager> logger, ILibraryManager 
             EpisodeId = episode.Id,
             Name = episode.Name,
             Category = ResolveEpisodeCategory(episode, seasonEpisodes, pluginInstance),
-            IsExcluded = IsSeriesExcluded(episode.SeriesName) || IsPathExcluded(episode.Path),
             Path = episode.Path,
             Duration = duration,
             DateAdded = EpisodeAvailabilityDate(episode),
@@ -388,7 +432,6 @@ public partial class QueueManager(ILogger<QueueManager> logger, ILibraryManager 
             CreditsFingerprintStart = Math.Max(0, creditsDuration - pluginInstance.Configuration.MaximumMovieCreditsDuration),
             CreditsFingerprintEnd = creditsDuration,
             Category = QueuedMediaCategory.Movie,
-            IsExcluded = IsSeriesExcluded(movie.Name) || IsPathExcluded(movie.Path),
         });
 
         pluginInstance.TotalQueued++;
@@ -460,66 +503,54 @@ public partial class QueueManager(ILogger<QueueManager> logger, ILibraryManager 
     /// Verify that a collection of queued media items still exist in Jellyfin and in storage.
     /// This is done to ensure that we don't analyze items that were deleted between the call to GetMediaItems() and popping them from the queue.
     /// </summary>
+    /// <param name="seasonId">Season ID for the candidate group.</param>
     /// <param name="candidates">Queued media items.</param>
     /// <param name="modes">Analysis modes.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>Media items that have been verified to exist in Jellyfin and in storage.</returns>
-    internal async Task<IReadOnlyList<QueuedEpisode>> VerifyQueueAsync(IReadOnlyList<QueuedEpisode> candidates, IReadOnlyCollection<AnalysisMode> modes, CancellationToken cancellationToken = default)
+    internal async Task<QueueVerificationResult> VerifyQueueAsync(Guid seasonId, IReadOnlyList<QueuedEpisode> candidates, IReadOnlyCollection<AnalysisMode> modes, CancellationToken cancellationToken = default)
     {
         if (candidates == null || candidates.Count == 0)
         {
-            return [];
+            return new QueueVerificationResult([], 0);
         }
 
-        var verified = new List<QueuedEpisode>(candidates.Count);
         var plugin = Plugin.Instance ?? throw new InvalidOperationException("Plugin instance is null");
-        var snapshot = await Plugin.GetSeasonQueueSnapshotAsync(candidates[0].SeasonId, [.. candidates.Select(c => c.EpisodeId)], cancellationToken).ConfigureAwait(false);
+        var verification = VerifyExistingMediaFiles(plugin, candidates, cancellationToken);
+        var verified = verification.Episodes;
+        if (verified.Count == 0 || modes == null || modes.Count == 0)
+        {
+            return verification;
+        }
 
-        foreach (var candidate in candidates)
+        var episodeIds = new Guid[verified.Count];
+        for (var i = 0; i < verified.Count; i++)
+        {
+            episodeIds[i] = verified[i].EpisodeId;
+        }
+
+        var snapshot = await Plugin.GetSeasonQueueSnapshotAsync(seasonId, episodeIds, cancellationToken).ConfigureAwait(false);
+        List<(AnalysisMode Mode, bool HashMatches)> modeStates;
+        try
+        {
+            modeStates = CreateQueueAnalysisModeStates(modes, plugin, snapshot);
+        }
+        catch (Exception ex)
+        {
+            foreach (var candidate in verified)
+            {
+                LogSkippingAnalysisException(_logger, candidate.Name, candidate.EpisodeId, ex);
+            }
+
+            return verification;
+        }
+
+        foreach (var candidate in verified)
         {
             try
             {
                 cancellationToken.ThrowIfCancellationRequested();
-                var path = plugin.GetItemPath(candidate.EpisodeId);
-
-                if (string.IsNullOrEmpty(path) || !File.Exists(path))
-                {
-                    LogSkippingFileNotFound(_logger, candidate.Name, candidate.EpisodeId);
-                    continue;
-                }
-
-                verified.Add(candidate);
-
-                foreach (var mode in modes)
-                {
-                    var action = snapshot.AnalyzerActionByMode.TryGetValue(mode, out var savedAction)
-                        ? savedAction
-                        : AnalyzerAction.Default;
-                    var expectedHash = ConfigHasher.Analysis(plugin.Configuration, mode, action);
-                    var hashMatches = snapshot.ConfigHashByMode.TryGetValue(mode, out var savedHash) &&
-                        string.Equals(savedHash, expectedHash, StringComparison.Ordinal);
-
-                    if (snapshot.SegmentsByEpisodeId.TryGetValue(candidate.EpisodeId, out var hasSegments) &&
-                        hasSegments.TryGetValue(mode, out _))
-                    {
-                        var isUserProvided = snapshot.UserProvidedByMode.TryGetValue(mode, out var userProvided) &&
-                                             userProvided.Contains(candidate.EpisodeId);
-
-                        // Always preserve user-provided segments. When AnalyzeAgain is true (settings
-                        // changed), leave automatically-analyzed segments as NotAnalyzed so they are
-                        // re-analyzed and their timestamps updated to reflect the new settings.
-                        if (isUserProvided || (!plugin.AnalyzeAgain && hashMatches))
-                        {
-                            candidate.SetAnalyzed(mode, isUserProvided ? EpisodeState.UserProvided : EpisodeState.Analyzed);
-                        }
-                    }
-                    else if (!plugin.AnalyzeAgain && hashMatches &&
-                             snapshot.EpisodeIdsByMode.TryGetValue(mode, out var ids) &&
-                             ids.Contains(candidate.EpisodeId))
-                    {
-                        candidate.SetAnalyzed(mode, EpisodeState.NoSegments);
-                    }
-                }
+                ApplyStoredAnalysisState(candidate, modeStates, plugin.AnalyzeAgain, snapshot);
             }
             catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
             {
@@ -531,11 +562,117 @@ public partial class QueueManager(ILogger<QueueManager> logger, ILibraryManager 
             }
         }
 
-        return verified;
+        return verification;
     }
 
-    [GeneratedRegex(@"[^\w\s]")]
-    private static partial Regex NormalizeSeriesNameRegex();
+    private QueueVerificationResult VerifyExistingMediaFiles(Plugin plugin, IReadOnlyList<QueuedEpisode> candidates, CancellationToken cancellationToken)
+    {
+        var verified = new List<QueuedEpisode>(candidates.Count);
+        var skipped = 0;
+        foreach (var candidate in candidates)
+        {
+            try
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                if (!TryGetVerifiedPath(plugin, candidate, out var path))
+                {
+                    skipped++;
+                    continue;
+                }
+
+                candidate.Path = path;
+                verified.Add(candidate);
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                skipped++;
+                LogSkippingAnalysisException(_logger, candidate.Name, candidate.EpisodeId, ex);
+            }
+        }
+
+        return new QueueVerificationResult(verified, skipped);
+    }
+
+    private bool TryGetVerifiedPath(Plugin plugin, QueuedEpisode candidate, out string path)
+    {
+        path = string.Empty;
+        if (candidate.Category is not QueuedMediaCategory.Movie && IsSeriesExcluded(candidate.SeriesName))
+        {
+            LogSkippingExcludedSeries(_logger, candidate.SeriesName);
+            return false;
+        }
+
+        path = plugin.GetItemPath(candidate.EpisodeId);
+        if (string.IsNullOrEmpty(path))
+        {
+            LogSkippingFileNotFound(_logger, candidate.Name, candidate.EpisodeId);
+            return false;
+        }
+
+        if (IsPathExcluded(path))
+        {
+            LogSkippingExcludedPath(_logger, Path.GetFileName(path));
+            return false;
+        }
+
+        if (!File.Exists(path))
+        {
+            LogSkippingFileNotFound(_logger, candidate.Name, candidate.EpisodeId);
+            return false;
+        }
+
+        return true;
+    }
+
+    private static List<(AnalysisMode Mode, bool HashMatches)> CreateQueueAnalysisModeStates(IReadOnlyCollection<AnalysisMode> modes, Plugin plugin, SeasonQueueSnapshot snapshot)
+    {
+        var modeStates = new List<(AnalysisMode Mode, bool HashMatches)>(modes.Count);
+        foreach (var mode in modes)
+        {
+            var action = snapshot.AnalyzerActionByMode.TryGetValue(mode, out var savedAction)
+                ? savedAction
+                : AnalyzerAction.Default;
+            var expectedHash = ConfigHasher.Analysis(plugin.Configuration, mode, action);
+            var hashMatches = snapshot.ConfigHashByMode.TryGetValue(mode, out var savedHash) &&
+                string.Equals(savedHash, expectedHash, StringComparison.Ordinal);
+
+            modeStates.Add((mode, hashMatches));
+        }
+
+        return modeStates;
+    }
+
+    private static void ApplyStoredAnalysisState(QueuedEpisode candidate, IReadOnlyList<(AnalysisMode Mode, bool HashMatches)> modeStates, bool analyzeAgain, SeasonQueueSnapshot snapshot)
+    {
+        snapshot.SegmentsByEpisodeId.TryGetValue(candidate.EpisodeId, out var segmentsByMode);
+
+        foreach (var state in modeStates)
+        {
+            if (segmentsByMode is not null && segmentsByMode.TryGetValue(state.Mode, out _))
+            {
+                var isUserProvided = snapshot.UserProvidedByMode.TryGetValue(state.Mode, out var userProvided) &&
+                                     userProvided.Contains(candidate.EpisodeId);
+
+                // Always preserve user-provided segments. When AnalyzeAgain is true (settings
+                // changed), leave automatically-analyzed segments as NotAnalyzed so they are
+                // re-analyzed and their timestamps updated to reflect the new settings.
+                if (isUserProvided || (!analyzeAgain && state.HashMatches))
+                {
+                    candidate.SetAnalyzed(state.Mode, isUserProvided ? EpisodeState.UserProvided : EpisodeState.Analyzed);
+                }
+            }
+            else if (!analyzeAgain && state.HashMatches &&
+                     snapshot.EpisodeIdsByMode.TryGetValue(state.Mode, out var ids) &&
+                     ids.Contains(candidate.EpisodeId))
+            {
+                candidate.SetAnalyzed(state.Mode, EpisodeState.NoSegments);
+            }
+        }
+    }
 
     [LoggerMessage(Level = LogLevel.Error, Message = "Plugin instance is null in GetMediaItems()")]
     private static partial void LogPluginInstanceNull(ILogger logger);
