@@ -92,7 +92,7 @@ public sealed class TestVisualizationController
         EntrypointTestHelpers.SetPropertyOrField(plugin, "_dbPath", dbPath);
         EntrypointTestHelpers.SetPropertyOrField(plugin, "Configuration", new PluginConfiguration
         {
-            ExcludeSeries = "The.Office",
+            ExcludeSeries = "The Office",
             ExcludeMovies = "The Matrix",
             UpdateMediaSegments = false
         });

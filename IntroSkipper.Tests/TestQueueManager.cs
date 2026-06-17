@@ -67,52 +67,38 @@ public class TestQueueManager
     }
 
     [Fact]
-    public void CreateExcludedPathList_QuotedCommaKeepsConfiguredPathWhole()
+    public void CreateExcludedPathList_SplitsOnCommasAndTrims()
     {
-        var fragments = QueueManager.CreateExcludedPathList("\"D:\\Media, Archive\", /mnt/rd");
+        var fragments = QueueManager.CreateExcludedPathList(" /mnt/rd , /media/zurg ");
 
-        Assert.Equal(["D:\\Media, Archive", "/mnt/rd"], fragments);
-        Assert.True(QueueManager.IsPathExcluded("D:\\Media, Archive\\Film.mkv", fragments));
-        Assert.False(QueueManager.IsPathExcluded("D:\\Media\\Film.mkv", fragments));
-        Assert.False(QueueManager.IsPathExcluded("D:\\Archive\\Film.mkv", fragments));
-    }
-
-    [Fact]
-    public void CreateExcludedPathList_UnquotedQuoteStaysLiteral()
-    {
-        var fragments = QueueManager.CreateExcludedPathList("D:\\Media \"Archive\", /mnt/rd");
-
-        Assert.Equal(["D:\\Media \"Archive\"", "/mnt/rd"], fragments);
-    }
-
-    [Fact]
-    public void IsNameExcluded_UnquotedQuoteStaysLiteral()
-    {
-        var excludedNames = QueueManager.CreateExcludedNameSet("The \"Office\"");
-
-        Assert.True(QueueManager.IsNameExcluded("The \"Office\"", excludedNames));
+        Assert.Equal(["/mnt/rd", "/media/zurg"], fragments);
+        Assert.True(QueueManager.IsPathExcluded("/mnt/rd/Show/S01E01.mkv", fragments));
+        Assert.True(QueueManager.IsPathExcluded("/media/zurg/Film.mkv", fragments));
+        Assert.False(QueueManager.IsPathExcluded("/media/local/Show/S01E01.mkv", fragments));
     }
 
     [Theory]
-    [InlineData("My.Show", "my show", true)]
-    [InlineData("Mob Psycho 100", "mob-psycho 100", true)]
-    [InlineData("Other Show", "my show", false)]
-    public void IsNameExcluded_NormalizesConfiguredNames(string configuredSeries, string candidateSeries, bool expected)
+    // Names come verbatim from Jellyfin via the combobox, so matching is exact but case-insensitive.
+    [InlineData("The Office", "the office", true)]
+    [InlineData("The Office", "THE OFFICE", true)]
+    [InlineData("Marvel's Agents of S.H.I.E.L.D.", "marvel's agents of s.h.i.e.l.d.", true)]
+    [InlineData("The Office", "The Office (US)", false)]
+    [InlineData("Other Show", "The Office", false)]
+    public void IsNameExcluded_MatchesCaseInsensitively(string configuredName, string candidateName, bool expected)
     {
-        var excludedNames = QueueManager.CreateExcludedNameSet(configuredSeries);
+        var excludedNames = QueueManager.CreateExcludedNameSet(configuredName);
 
-        Assert.Equal(expected, QueueManager.IsNameExcluded(candidateSeries, excludedNames));
+        Assert.Equal(expected, QueueManager.IsNameExcluded(candidateName, excludedNames));
     }
 
     [Fact]
-    public void IsNameExcluded_QuotedCommaKeepsConfiguredTitleWhole()
+    public void CreateExcludedNameSet_SplitsOnCommasAndTrims()
     {
-        var excludedNames = QueueManager.CreateExcludedNameSet("\"Food, Inc.\", The.Office");
+        var excludedNames = QueueManager.CreateExcludedNameSet(" The Office , The Matrix ");
 
-        Assert.True(QueueManager.IsNameExcluded("Food, Inc.", excludedNames));
-        Assert.False(QueueManager.IsNameExcluded("Food", excludedNames));
-        Assert.False(QueueManager.IsNameExcluded("Inc.", excludedNames));
         Assert.True(QueueManager.IsNameExcluded("The Office", excludedNames));
+        Assert.True(QueueManager.IsNameExcluded("the matrix", excludedNames));
+        Assert.False(QueueManager.IsNameExcluded("Other", excludedNames));
     }
 
     [Fact]
@@ -207,7 +193,7 @@ public class TestQueueManager
             EntrypointTestHelpers.SetPrivateField(plugin, "_libraryManager", libraryManager);
 
             var queueManager = new QueueManager(NullLogger<QueueManager>.Instance, libraryManager, null!, null!, null!);
-            EntrypointTestHelpers.SetPrivateField(queueManager, "_excludedSeriesNames", QueueManager.CreateExcludedNameSet("The.Office"));
+            EntrypointTestHelpers.SetPrivateField(queueManager, "_excludedSeriesNames", QueueManager.CreateExcludedNameSet("The Office"));
 
             var verification = await queueManager.VerifyQueueAsync(
                 seasonId,
@@ -258,7 +244,7 @@ public class TestQueueManager
             EntrypointTestHelpers.SetPrivateField(plugin, "_libraryManager", libraryManager);
 
             var queueManager = new QueueManager(NullLogger<QueueManager>.Instance, libraryManager, null!, null!, null!);
-            EntrypointTestHelpers.SetPrivateField(queueManager, "_excludedMovieNames", QueueManager.CreateExcludedNameSet("The.Matrix"));
+            EntrypointTestHelpers.SetPrivateField(queueManager, "_excludedMovieNames", QueueManager.CreateExcludedNameSet("The Matrix"));
 
             var verification = await queueManager.VerifyQueueAsync(
                 seasonId,

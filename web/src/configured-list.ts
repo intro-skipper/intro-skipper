@@ -1,51 +1,26 @@
+// Exclusion lists are stored as plain comma-separated values. Entries are trimmed and
+// de-duplicated case-insensitively; a comma is always a separator (commas inside a value
+// are not supported, matching the backend's split behavior).
 export function splitConfiguredList(value: string): string[] {
     const items: string[] = [];
     const seen = new Set<string>();
-    let current = "";
-    let inQuotes = false;
-    let onlyWhitespaceInField = true;
 
-    function appendItem(): void {
-        const item = current.trim();
-        current = "";
-        onlyWhitespaceInField = true;
-        if (!item) return;
+    for (const raw of value.split(",")) {
+        const item = raw.trim();
+        if (!item) continue;
 
         const key = item.toLowerCase();
-        if (seen.has(key)) return;
+        if (seen.has(key)) continue;
 
         seen.add(key);
         items.push(item);
     }
 
-    for (let i = 0; i < value.length; i++) {
-        const char = value[i];
-        if (char === '"' && inQuotes) {
-            if (value[i + 1] === '"') {
-                current += '"';
-                i++;
-            } else {
-                inQuotes = false;
-            }
-        } else if (char === '"' && onlyWhitespaceInField) {
-            current = "";
-            inQuotes = true;
-        } else if (char === "," && !inQuotes) {
-            appendItem();
-        } else {
-            current += char;
-            if (char.trim()) {
-                onlyWhitespaceInField = false;
-            }
-        }
-    }
-
-    appendItem();
     return items;
 }
 
 export function formatConfiguredList(items: Iterable<string>): string {
-    const formattedItems: string[] = [];
+    const formatted: string[] = [];
     const seen = new Set<string>();
 
     for (const rawItem of items) {
@@ -56,12 +31,8 @@ export function formatConfiguredList(items: Iterable<string>): string {
         if (seen.has(key)) continue;
 
         seen.add(key);
-        if (/[,"\r\n]/.test(item)) {
-            formattedItems.push('"' + item.replaceAll('"', '""') + '"');
-        } else {
-            formattedItems.push(item);
-        }
+        formatted.push(item);
     }
 
-    return formattedItems.join(", ");
+    return formatted.join(", ");
 }

@@ -4,8 +4,6 @@
 // SPDX-FileCopyrightText: 2024-2026 Kilian von Pflugk
 // SPDX-License-Identifier: GPL-3.0-only
 
-using System.Text;
-using System.Text.RegularExpressions;
 using IntroSkipper.Configuration;
 using IntroSkipper.Data;
 using IntroSkipper.FFmpeg;
@@ -242,118 +240,29 @@ public partial class QueueManager(ILogger<QueueManager> logger, ILibraryManager 
     }
 
     /// <summary>
-    /// Normalizes a media name by removing punctuation and whitespace
-    /// and converting to lowercase to make comparisons more robust.
-    /// </summary>
-    /// <param name="name">The media name to normalize.</param>
-    /// <returns>Normalized media name.</returns>
-    private static string NormalizeExcludedName(string name)
-    {
-        if (string.IsNullOrEmpty(name))
-        {
-            return string.Empty;
-        }
-
-        // Strip everything except letters and digits (removes punctuation and whitespace) and lowercase.
-        return NormalizeExcludedNameRegex().Replace(name, string.Empty).ToLowerInvariant();
-    }
-
-    [GeneratedRegex(@"[^\p{L}\p{Nd}]")]
-    private static partial Regex NormalizeExcludedNameRegex();
-
-    /// <summary>
-    /// Checks if a media name is in the excluded list, using normalized name comparison
-    /// to handle differences in punctuation and spacing.
+    /// Checks if a media name is in the excluded list, using a case-insensitive comparison.
+    /// Names are taken verbatim from Jellyfin (via the configuration combobox), so an exact
+    /// case-insensitive match is sufficient.
     /// </summary>
     /// <param name="name">The media name to check.</param>
-    /// <param name="excludedNames">The configured normalized names to exclude.</param>
+    /// <param name="excludedNames">The configured names to exclude.</param>
     /// <returns>True if the media item should be excluded, false otherwise.</returns>
     internal static bool IsNameExcluded(string name, IReadOnlySet<string> excludedNames)
     {
         return !string.IsNullOrEmpty(name) &&
                excludedNames.Count != 0 &&
-               excludedNames.Contains(NormalizeExcludedName(name));
+               excludedNames.Contains(name);
     }
 
     internal static HashSet<string> CreateExcludedNameSet(string excludedNames)
-    {
-        var set = new HashSet<string>(StringComparer.Ordinal);
-        foreach (var name in SplitConfiguredList(excludedNames))
-        {
-            var normalized = NormalizeExcludedName(name);
-            if (normalized.Length != 0)
-            {
-                set.Add(normalized);
-            }
-        }
+        => new(excludedNames.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries), StringComparer.OrdinalIgnoreCase);
 
-        return set;
-    }
-
-    internal static string[] CreateExcludedPathList(string excludedPaths) => [.. SplitConfiguredList(excludedPaths)];
+    internal static string[] CreateExcludedPathList(string excludedPaths)
+        => [.. excludedPaths.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)];
 
     private bool IsSeriesExcluded(string seriesName) => IsNameExcluded(seriesName, _excludedSeriesNames);
 
     private bool IsMovieExcluded(string movieName) => IsNameExcluded(movieName, _excludedMovieNames);
-
-    private static IEnumerable<string> SplitConfiguredList(string value)
-    {
-        var current = new StringBuilder(value.Length);
-        var inQuotes = false;
-        var onlyWhitespaceInField = true;
-
-        for (var index = 0; index < value.Length; index++)
-        {
-            var ch = value[index];
-            if (ch == '"' && inQuotes)
-            {
-                if (index + 1 < value.Length && value[index + 1] == '"')
-                {
-                    current.Append('"');
-                    index++;
-                }
-                else
-                {
-                    inQuotes = false;
-                }
-            }
-            else if (ch == '"' && onlyWhitespaceInField)
-            {
-                current.Clear();
-                inQuotes = true;
-            }
-            else if (ch == ',' && !inQuotes)
-            {
-                var item = TakeTrimmedListItem(current, ref onlyWhitespaceInField);
-                if (item is not null)
-                {
-                    yield return item;
-                }
-            }
-            else
-            {
-                current.Append(ch);
-                if (!char.IsWhiteSpace(ch))
-                {
-                    onlyWhitespaceInField = false;
-                }
-            }
-        }
-
-        var finalItem = TakeTrimmedListItem(current, ref onlyWhitespaceInField);
-        if (finalItem is not null)
-        {
-            yield return finalItem;
-        }
-    }
-
-    private static string? TakeTrimmedListItem(StringBuilder current, ref bool onlyWhitespaceInField)
-    {
-        var item = current.ToString().Trim();
-        current.Clear();
-        onlyWhitespaceInField = true;
-        return item.Length == 0 ? null : item;
-    }
 
     /// <summary>
     /// Checks if a media item's file path matches any of the configured exclusion fragments.
