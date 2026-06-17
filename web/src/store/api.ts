@@ -108,6 +108,10 @@ export function eraseItemTimestamps(urlPath: string, eraseCache: boolean): Promi
     return fetchWithAuth(`${urlPath}?eraseCache=${eraseCache}`, "DELETE");
 }
 
+export function clearExcludedTimestamps(): Promise<Response> {
+    return fetchWithAuth("Intros/ExcludedTimestamps", "DELETE");
+}
+
 // Support and storage tools.
 export async function getSupportBundle(): Promise<string> {
     const response = await fetchWithAuth("IntroSkipper/SupportBundle", "GET");

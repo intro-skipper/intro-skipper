@@ -11,6 +11,8 @@ using IntroSkipper.FFmpeg;
 using IntroSkipper.Manager;
 using IntroSkipper.ScheduledTasks;
 using MediaBrowser.Common.Api;
+using MediaBrowser.Controller.Entities.Movies;
+using MediaBrowser.Controller.Entities.TV;
 using MediaBrowser.Controller.Library;
 using MediaBrowser.Controller.Providers;
 using MediaBrowser.Model.IO;
@@ -178,6 +180,69 @@ public partial class VisualizationController(ILogger<VisualizationController> lo
     }
 
     /// <summary>
+    /// Erases timestamp data for media currently matched by configured series and movie exclusions.
+    /// </summary>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <response code="204">Excluded timestamp data erased.</response>
+    /// <returns>No content.</returns>
+    [HttpDelete("ExcludedTimestamps")]
+    [ProducesResponseType(StatusCodes.Status204NoContent)]
+    [ProducesResponseType(StatusCodes.Status500InternalServerError)]
+    public async Task<ActionResult> ClearExcludedTimestampsAsync(CancellationToken cancellationToken = default)
+    {
+        if (_libraryManager is null)
+        {
+            throw new InvalidOperationException("Library manager was null");
+        }
+
+        var plugin = Plugin.Instance ?? throw new InvalidOperationException("Plugin instance was null");
+        var excludedSeries = QueueManager.CreateExcludedNameSet(plugin.Configuration.ExcludeSeries);
+        var excludedMovies = QueueManager.CreateExcludedNameSet(plugin.Configuration.ExcludeMovies);
+        if (excludedSeries.Count == 0 && excludedMovies.Count == 0)
+        {
+            return NoContent();
+        }
+
+        try
+        {
+            var candidateIds = await Plugin.GetTimestampStateItemIdsAsync(cancellationToken).ConfigureAwait(false);
+            var affectedIds = new HashSet<Guid>();
+
+            foreach (var id in candidateIds)
+            {
+                var item = _libraryManager.GetItemById(id);
+                if (item is Episode episode && QueueManager.IsNameExcluded(episode.SeriesName, excludedSeries))
+                {
+                    affectedIds.Add(id);
+                }
+                else if (item is Movie movie && QueueManager.IsNameExcluded(movie.Name, excludedMovies))
+                {
+                    affectedIds.Add(id);
+                }
+            }
+
+            if (affectedIds.Count == 0)
+            {
+                return NoContent();
+            }
+
+            await Plugin.ClearTimestampsForItemsAsync(affectedIds, cancellationToken).ConfigureAwait(false);
+            await _mediaSegmentRefresher.RefreshAsync(affectedIds, cancellationToken).ConfigureAwait(false);
+
+            return NoContent();
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            LogFailedToClearExcludedTimestamps(_logger, ex);
+            return Problem("An unexpected error occurred while clearing excluded timestamp data.", statusCode: StatusCodes.Status500InternalServerError);
+        }
+    }
+
+    /// <summary>
     /// Updates the analyzer actions for the provided season.
     /// </summary>
     /// <param name="request">Update analyzer actions request.</param>
@@ -273,6 +338,9 @@ public partial class VisualizationController(ILogger<VisualizationController> lo
 
     [LoggerMessage(Level = LogLevel.Error, Message = "Failed to erase timestamps for series {SeriesId} season {SeasonId}")]
     private static partial void LogFailedToEraseTimestamps(ILogger logger, Exception ex, Guid seriesId, Guid seasonId);
+
+    [LoggerMessage(Level = LogLevel.Error, Message = "Failed to clear excluded timestamp data")]
+    private static partial void LogFailedToClearExcludedTimestamps(ILogger logger, Exception ex);
 
     [LoggerMessage(Level = LogLevel.Information, Message = "Start (Re-) scan of season/movie {SeasonId}")]
     private static partial void LogStartRescan(ILogger logger, Guid seasonId);

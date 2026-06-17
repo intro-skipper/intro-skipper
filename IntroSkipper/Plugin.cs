@@ -356,6 +356,84 @@ public partial class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
         }
     }
 
+    internal static async Task<IReadOnlyList<Guid>> GetTimestampStateItemIdsAsync(CancellationToken cancellationToken = default)
+    {
+        using var db = CreateDbContext();
+        var ids = await db.DbSegment
+            .AsNoTracking()
+            .Select(s => s.ItemId)
+            .Distinct()
+            .ToListAsync(cancellationToken)
+            .ConfigureAwait(false);
+
+        var seasonStates = await db.DbSeasonState
+            .AsNoTracking()
+            .Select(s => new
+            {
+                s.EpisodeIds,
+                s.SettledReanalysisEpisodeIds
+            })
+            .ToListAsync(cancellationToken)
+            .ConfigureAwait(false);
+
+        foreach (var state in seasonStates)
+        {
+            ids.AddRange(state.EpisodeIds);
+            ids.AddRange(state.SettledReanalysisEpisodeIds);
+        }
+
+        return ids.Where(id => id != Guid.Empty).Distinct().ToArray();
+    }
+
+    internal static async Task ClearTimestampsForItemsAsync(IEnumerable<Guid> itemIds, CancellationToken cancellationToken = default)
+    {
+        var ids = itemIds.Where(id => id != Guid.Empty).Distinct().ToArray();
+        if (ids.Length == 0)
+        {
+            return;
+        }
+
+        var idSet = ids.ToHashSet();
+        using var db = CreateDbContext();
+        var transaction = await db.Database.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            foreach (var batch in ids.Chunk(SqliteParameterBatchSize))
+            {
+                await db.DbSegment
+                    .Where(s => batch.Contains(s.ItemId))
+                    .ExecuteDeleteAsync(cancellationToken)
+                    .ConfigureAwait(false);
+            }
+
+            var seasonStates = await db.DbSeasonState
+                .ToListAsync(cancellationToken)
+                .ConfigureAwait(false);
+
+            foreach (var state in seasonStates)
+            {
+                var episodeIds = state.EpisodeIds.Where(id => !idSet.Contains(id)).ToArray();
+                if (episodeIds.Length != state.EpisodeIds.Count())
+                {
+                    db.Entry(state).Property(s => s.EpisodeIds).CurrentValue = episodeIds;
+                }
+
+                var settledEpisodeIds = state.SettledReanalysisEpisodeIds.Where(id => !idSet.Contains(id)).ToArray();
+                if (settledEpisodeIds.Length != state.SettledReanalysisEpisodeIds.Count())
+                {
+                    db.Entry(state).Property(s => s.SettledReanalysisEpisodeIds).CurrentValue = settledEpisodeIds;
+                }
+            }
+
+            await db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+            await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
+        }
+        finally
+        {
+            await transaction.DisposeAsync().ConfigureAwait(false);
+        }
+    }
+
     internal static async Task SetAnalyzerActionAsync(Guid id, IReadOnlyDictionary<AnalysisMode, AnalyzerAction> analyzerActions, CancellationToken cancellationToken = default)
     {
         using var db = CreateDbContext();

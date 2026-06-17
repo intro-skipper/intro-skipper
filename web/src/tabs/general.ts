@@ -1,7 +1,7 @@
 import type { Tab } from "../types.ts";
 import { MAXIMUM_SETTLED_SEASON_DELAY_HOURS } from "../config-limits.ts";
 import { configStore } from "../store/config-store.ts";
-import { injectSkipButtonCss } from "../store/api.ts";
+import { clearExcludedTimestamps, injectSkipButtonCss } from "../store/api.ts";
 import { el, htmlEl } from "../components/dom.ts";
 import { bindVisibility } from "../components/field-bind.ts";
 import { appendTabContent } from "../components/tab-layout.ts";
@@ -13,6 +13,7 @@ import { actionButton } from "../components/action-button.ts";
 import { createStatusMessage } from "../components/async-feedback.ts";
 import { pathBrowser } from "../components/path-browser.ts";
 import { mediaExclusionCombobox } from "../components/media-exclusion-combobox.ts";
+import { confirmDialog } from "../components/confirm-dialog.ts";
 
 export const generalTab: Tab = {
     id: "general",
@@ -56,6 +57,53 @@ export const generalTab: Tab = {
         );
         injectSection.append(statusMessage.element);
 
+        const clearExcludedSection = el("div", { className: "input-container" });
+        clearExcludedSection.append(
+            el("h3", { className: "checkbox-list-label" }, "Clear Excluded Timestamps"),
+        );
+        clearExcludedSection.append(
+            el(
+                "div",
+                { className: "field-description" },
+                "Remove Intro Skipper timestamps and refresh Jellyfin media segments for the currently excluded series and movies. The exclusion list is not changed.",
+            ),
+        );
+
+        const clearExcludedStatus = createStatusMessage();
+
+        clearExcludedSection.append(
+            actionButton("Clear Excluded Timestamps", async () => {
+                const result = await confirmDialog({
+                    title: "Confirm Timestamp Erasure",
+                    body: "Erase Intro Skipper timestamps and refresh Jellyfin media segments for all currently excluded series and movies? The excluded series and movie list will not change.",
+                    confirmLabel: "Erase",
+                });
+                if (result === null) {
+                    return;
+                }
+
+                clearExcludedStatus.show("Clearing excluded timestamps…", "var(--is-accent)");
+                try {
+                    const response = await clearExcludedTimestamps();
+                    if (response.ok) {
+                        clearExcludedStatus.show("Excluded timestamps cleared.", "var(--is-success)");
+                    } else {
+                        clearExcludedStatus.show(
+                            `Failed to clear excluded timestamps: Server returned ${String(response.status)}`,
+                            "var(--is-error)",
+                        );
+                    }
+                } catch (error: unknown) {
+                    const msg = error instanceof Error ? error.message : "Unknown error";
+                    clearExcludedStatus.show(
+                        `Failed to clear excluded timestamps: ${msg}`,
+                        "var(--is-error)",
+                    );
+                }
+            }),
+        );
+        clearExcludedSection.append(clearExcludedStatus.element);
+
         const ftWarning = htmlEl(
             "div",
             { className: "field-warning" },
@@ -96,6 +144,7 @@ export const generalTab: Tab = {
                     "Enable this option to update media segments for any uncached media during a library scan.<br/>This includes recently added, modified, or previously skipped (but not ignored) files.<br/><b>Warning:</b> This should be disabled if you're using media segment providers other than Intro Skipper.",
             }),
             mediaExclusionCombobox(),
+            clearExcludedSection,
             textField({
                 id: "ExcludePaths",
                 label: "Exclude paths",
