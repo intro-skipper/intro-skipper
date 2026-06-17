@@ -537,9 +537,6 @@ public partial class BaseItemAnalyzerTask(
     [LoggerMessage(Level = LogLevel.Information, Message = "Skipping Chromaprint analysis! Chromaprint is not enabled in the current ffmpeg. If Jellyfin is running natively, install jellyfin-ffmpeg7. If Jellyfin is running in a container, upgrade to version 10.10.0 or newer.")]
     private static partial void LogSkippingChromaprint(ILogger logger);
 
-    [LoggerMessage(Level = LogLevel.Information, Message = "Skipping excluded season {Season} of {Series}")]
-    private static partial void LogSkippingExcludedSeason(ILogger logger, int season, string series);
-
     [LoggerMessage(Level = LogLevel.Information, Message = "Re-analyzing settled season {Season} of {Series} ({Count} episodes)")]
     private static partial void LogReanalyzingSettledSeason(ILogger logger, int season, string series, int count);
 
