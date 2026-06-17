@@ -126,11 +126,12 @@ export function mediaExclusionCombobox(): HTMLElement {
         );
     }
 
-    function persistSelected(): void {
-        const seriesValue = Array.from(selectedSeries.values()).join(", ");
-        const moviesValue = Array.from(selectedMovies.values()).join(", ");
-        configStore.set("ExcludeSeries", seriesValue);
-        configStore.set("ExcludeMovies", moviesValue);
+    function persistField(type: MediaType): void {
+        if (type === "Series") {
+            configStore.set("ExcludeSeries", Array.from(selectedSeries.values()).join(", "));
+        } else {
+            configStore.set("ExcludeMovies", Array.from(selectedMovies.values()).join(", "));
+        }
     }
 
     function isSelected(type: MediaType, name: string): boolean {
@@ -205,7 +206,7 @@ export function mediaExclusionCombobox(): HTMLElement {
     function removeSelected(type: MediaType, name: string): void {
         const target = type === "Series" ? selectedSeries : selectedMovies;
         target.delete(name.toLowerCase());
-        persistSelected();
+        persistField(type);
         renderChips();
         renderResults(searchInput.value);
     }
@@ -217,9 +218,12 @@ export function mediaExclusionCombobox(): HTMLElement {
         }
 
         addSelected(item);
-        persistSelected();
+        persistField(item.Type);
+        // Clear the query so the next search starts fresh for rapid multi-select.
+        searchInput.value = "";
         renderChips();
         renderResults(searchInput.value);
+        searchInput.focus();
     }
 
     function appendOption(item: MediaOption): void {
@@ -356,6 +360,16 @@ export function mediaExclusionCombobox(): HTMLElement {
             if (!resultsEl.classList.contains("open") || activeIndex < 0) return;
             event.preventDefault();
             toggleSelected(renderedOptions[activeIndex].item);
+        } else if (event.key === "Backspace") {
+            if (searchInput.value.length > 0) return;
+            const removable = selectedMovies.size > 0
+                ? { type: "Movie" as MediaType, names: Array.from(selectedMovies.values()) }
+                : selectedSeries.size > 0
+                  ? { type: "Series" as MediaType, names: Array.from(selectedSeries.values()) }
+                  : null;
+            if (!removable) return;
+            event.preventDefault();
+            removeSelected(removable.type, removable.names[removable.names.length - 1]);
         } else if (event.key === "Escape") {
             closeResults();
         }

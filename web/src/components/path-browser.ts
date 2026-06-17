@@ -13,12 +13,14 @@ function splitConfiguredPaths(value: string): string[] {
         .filter(Boolean);
 }
 
-function appendConfiguredPath(path: string): void {
+function appendConfiguredPath(path: string): boolean {
     const paths = splitConfiguredPaths(configStore.get(EXCLUDE_PATHS_FIELD));
-    if (!paths.some((item) => item.toLowerCase() === path.toLowerCase())) {
-        paths.push(path);
+    if (paths.some((item) => item.toLowerCase() === path.toLowerCase())) {
+        return false;
     }
+    paths.push(path);
     configStore.set(EXCLUDE_PATHS_FIELD, paths.join(", "));
+    return true;
 }
 
 
@@ -180,8 +182,12 @@ export function pathBrowser(): HTMLElement {
         if (!activePath) {
             return;
         }
-        appendConfiguredPath(activePath);
-        status.show("Added path to Exclude paths. Save the configuration to apply it.");
+        const added = appendConfiguredPath(activePath);
+        status.show(
+            added
+                ? "Added path to Exclude paths. Save the configuration to apply it."
+                : "This path is already in Exclude paths.",
+        );
     });
 
     return container;
