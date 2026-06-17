@@ -1,4 +1,5 @@
 import type { Tab } from "../types.ts";
+import { MAXIMUM_SETTLED_SEASON_DELAY_HOURS } from "../config-limits.ts";
 import { configStore } from "../store/config-store.ts";
 import { injectSkipButtonCss } from "../store/api.ts";
 import { el, htmlEl } from "../components/dom.ts";
@@ -69,6 +70,22 @@ export const generalTab: Tab = {
                 label: "Automatically Analyze New Media",
                 description:
                     'If enabled, new media will be automatically analyzed for skippable segments when added to the library<br/><br/>Note: To configure the scheduled task, see <a is="emby-linkbutton" class="button-link" href="#/dashboard/tasks">scheduled tasks</a>.',
+            }),
+            checkboxField({
+                id: "ReanalyzeSettledSeasons",
+                label: "Re-analyze settled seasons",
+                description:
+                    "When a season has no new episodes for the configured delay, re-analyze the whole season so segments first detected from only a few episodes are recomputed against the full season. Uses cached fingerprints, so it does not re-decode media.",
+            }),
+            numberField({
+                id: "SettledSeasonDelayHours",
+                label: "Settled season delay (hours)",
+                min: 0,
+                max: MAXIMUM_SETTLED_SEASON_DELAY_HOURS,
+                step: 1,
+                description:
+                    "Treat a season as settled after this many hours without newly added episodes. Default is 24; increase this for weekly releases.",
+                visible: () => configStore.get("ReanalyzeSettledSeasons") === true,
             }),
             checkboxField({
                 id: "UpdateMediaSegments",

@@ -102,7 +102,7 @@ public class SkipIntroController(IMediaSegmentRefresher mediaSegmentRefresher, I
         }
 
         var times = new TimeStamps();
-        var segments = await Plugin.Instance!.GetTimestampsAsync(id, cancellationToken).ConfigureAwait(false);
+        var segments = await Plugin.GetTimestampsAsync(id, cancellationToken).ConfigureAwait(false);
 
         if (segments.TryGetValue(AnalysisMode.Introduction, out var introSegment))
         {
@@ -142,7 +142,7 @@ public class SkipIntroController(IMediaSegmentRefresher mediaSegmentRefresher, I
     [HttpGet("Episode/{id}/IntroSkipperSegments")]
     public async Task<ActionResult<Dictionary<AnalysisMode, Segment>>> GetSkippableSegments([FromRoute] Guid id, CancellationToken cancellationToken = default)
     {
-        var segments = await Plugin.Instance!.GetTimestampsAsync(id, cancellationToken).ConfigureAwait(false);
+        var segments = await Plugin.GetTimestampsAsync(id, cancellationToken).ConfigureAwait(false);
         var result = new Dictionary<AnalysisMode, Segment>();
 
         if (segments.TryGetValue(AnalysisMode.Introduction, out var introSegment))

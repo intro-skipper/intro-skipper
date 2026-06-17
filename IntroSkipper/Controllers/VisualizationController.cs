@@ -67,7 +67,7 @@ public partial class VisualizationController(ILogger<VisualizationController> lo
             return NotFound();
         }
 
-        var analyzerActions = await Plugin.Instance!.GetAllAnalyzerActionsAsync(seasonId, cancellationToken).ConfigureAwait(false);
+        var analyzerActions = await Plugin.GetAllAnalyzerActionsAsync(seasonId, cancellationToken).ConfigureAwait(false);
 
         return Ok(analyzerActions);
     }
@@ -129,7 +129,7 @@ public partial class VisualizationController(ILogger<VisualizationController> lo
             using var db = Plugin.CreateDbContext();
 
             // ExecuteDeleteAsync runs a single server-side DELETE and bypasses the change tracker.
-            // This is safe here because the tracked operations below target DbSeasonInfo, not DbSegment.
+            // This is safe here because the tracked operations below target DbSeasonState, not DbSegment.
             var episodeIds = episodes.Select(e => e.EpisodeId).ToHashSet();
             await db.DbSegment
                 .Where(s => episodeIds.Contains(s.ItemId))
@@ -146,15 +146,15 @@ public partial class VisualizationController(ILogger<VisualizationController> lo
                 }
             }
 
-            // Batch-load season info and clear episode IDs
-            var seasonInfos = await db.DbSeasonInfo
+            // Batch-load season state and clear episode IDs.
+            var seasonStates = await db.DbSeasonState
                 .Where(s => s.SeasonId == seasonId)
                 .ToListAsync(cancellationToken)
                 .ConfigureAwait(false);
 
-            foreach (var info in seasonInfos)
+            foreach (var state in seasonStates)
             {
-                db.Entry(info).Property(s => s.EpisodeIds).CurrentValue = [];
+                db.Entry(state).Property(s => s.EpisodeIds).CurrentValue = [];
             }
 
             await db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
@@ -187,7 +187,7 @@ public partial class VisualizationController(ILogger<VisualizationController> lo
     [ProducesResponseType(StatusCodes.Status204NoContent)]
     public async Task<ActionResult> UpdateAnalyzerActions([FromBody] UpdateAnalyzerActionsRequest request, CancellationToken cancellationToken = default)
     {
-        await Plugin.Instance!.SetAnalyzerActionAsync(request.Id, request.AnalyzerActions, cancellationToken).ConfigureAwait(false);
+        await Plugin.SetAnalyzerActionAsync(request.Id, request.AnalyzerActions, cancellationToken).ConfigureAwait(false);
 
         return NoContent();
     }

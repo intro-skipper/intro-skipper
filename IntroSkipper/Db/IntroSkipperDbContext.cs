@@ -30,6 +30,7 @@ public class IntroSkipperDbContext : DbContext
         "20260314184512_AddDbSegmentIdentity",
         "20260316060001_AddNonCommercialUniqueIndex",
         "20260519073000_AddConfigHashes",
+        "20260613185809_ReplaceSeasonInfoWithSeasonState"
     ];
 
     private readonly string? _dbPath;
@@ -42,7 +43,7 @@ public class IntroSkipperDbContext : DbContext
     {
         _dbPath = dbPath;
         DbSegment = Set<DbSegment>();
-        DbSeasonInfo = Set<DbSeasonInfo>();
+        DbSeasonState = Set<DbSeasonState>();
     }
 
     /// <summary>
@@ -53,7 +54,7 @@ public class IntroSkipperDbContext : DbContext
     {
         _dbPath = null;
         DbSegment = Set<DbSegment>();
-        DbSeasonInfo = Set<DbSeasonInfo>();
+        DbSeasonState = Set<DbSeasonState>();
     }
 
     /// <summary>
@@ -62,9 +63,9 @@ public class IntroSkipperDbContext : DbContext
     public DbSet<DbSegment> DbSegment { get; set; }
 
     /// <summary>
-    /// Gets or sets the <see cref="DbSet{TEntity}"/> containing the season information.
+    /// Gets or sets the <see cref="DbSet{TEntity}"/> containing the season state.
     /// </summary>
-    public DbSet<DbSeasonInfo> DbSeasonInfo { get; set; }
+    public DbSet<DbSeasonState> DbSeasonState { get; set; }
 
     /// <inheritdoc/>
     protected override void OnConfiguring(DbContextOptionsBuilder optionsBuilder)
@@ -115,9 +116,9 @@ public class IntroSkipperDbContext : DbContext
                   .IsRequired();
         });
 
-        modelBuilder.Entity<DbSeasonInfo>(entity =>
+        modelBuilder.Entity<DbSeasonState>(entity =>
         {
-            entity.ToTable("DbSeasonInfo");
+            entity.ToTable("DbSeasonState");
             entity.HasKey(s => new { s.SeasonId, s.Type });
 
             entity.HasIndex(e => e.SeasonId);
@@ -128,8 +129,8 @@ public class IntroSkipperDbContext : DbContext
 
             entity.Property(e => e.EpisodeIds)
                   .HasConversion(
-                      v => JsonSerializer.Serialize(v, (JsonSerializerOptions?)null),
-                      v => JsonSerializer.Deserialize<IEnumerable<Guid>>(v, (JsonSerializerOptions?)null) ?? new List<Guid>(),
+                      v => Db.DbSeasonState.SerializeEpisodeIds(v),
+                      v => Db.DbSeasonState.DeserializeEpisodeIds(v),
                       new ValueComparer<IEnumerable<Guid>>(
                           (c1, c2) => (c1 ?? new List<Guid>()).SequenceEqual(c2 ?? new List<Guid>()),
                           c => c.Aggregate(0, (a, v) => HashCode.Combine(a, v.GetHashCode())),
@@ -138,8 +139,18 @@ public class IntroSkipperDbContext : DbContext
             entity.Property(e => e.ConfigHash)
                   .HasDefaultValue(string.Empty)
                   .IsRequired();
-        });
 
+            entity.Property(e => e.SettledReanalysisEpisodeIds)
+                  .HasConversion(
+                      v => Db.DbSeasonState.SerializeEpisodeIds(v),
+                      v => Db.DbSeasonState.DeserializeEpisodeIds(v),
+                      new ValueComparer<IEnumerable<Guid>>(
+                          (c1, c2) => (c1 ?? new List<Guid>()).SequenceEqual(c2 ?? new List<Guid>()),
+                          c => c.Aggregate(0, (a, v) => HashCode.Combine(a, v.GetHashCode())),
+                          c => c.ToList()))
+                  .HasDefaultValueSql("'[]'")
+                  .IsRequired();
+        });
         base.OnModelCreating(modelBuilder);
     }
 
@@ -186,7 +197,7 @@ public class IntroSkipperDbContext : DbContext
         {
             using var transaction = Database.BeginTransaction();
             EnsureDbSegmentSchema();
-            EnsureDbSeasonInfoSchema();
+            EnsureDbSeasonStateSchema();
             EnsureMigrationHistoryForCurrentSchema();
             transaction.Commit();
         }
@@ -200,7 +211,7 @@ public class IntroSkipperDbContext : DbContext
     }
 
     /// <summary>
-    /// Asynchronously rebuilds the database while attempting to preserve valid segments and season information.
+    /// Asynchronously rebuilds the database while attempting to preserve valid segments and season state.
     /// </summary>
     /// <param name="contextFactory">Factory delegate to create sibling <see cref="IntroSkipperDbContext"/> instances.</param>
     /// <param name="forceCleanOnBackupFailure">
@@ -212,7 +223,7 @@ public class IntroSkipperDbContext : DbContext
     public async Task RebuildDatabaseAsync(Func<IntroSkipperDbContext> contextFactory, bool forceCleanOnBackupFailure = false, CancellationToken cancellationToken = default)
     {
         var segments = new List<DbSegment>();
-        var seasonInfos = new List<DbSeasonInfo>();
+        var seasonStates = new List<DbSeasonState>();
         var backupFailed = false;
 
         // Best-effort backup — a corrupted DB will fail here, and that's fine.
@@ -230,7 +241,7 @@ public class IntroSkipperDbContext : DbContext
             {
                 segments = await db.DbSegment.AsNoTracking().ToListAsync(cancellationToken).ConfigureAwait(false);
                 segments = [.. segments.Where(s => s.ToSegment().Valid)];
-                seasonInfos = await db.DbSeasonInfo.AsNoTracking().ToListAsync(cancellationToken).ConfigureAwait(false);
+                seasonStates = await db.DbSeasonState.AsNoTracking().ToListAsync(cancellationToken).ConfigureAwait(false);
             }
             finally
             {
@@ -267,7 +278,7 @@ public class IntroSkipperDbContext : DbContext
         await Database.MigrateAsync(cancellationToken).ConfigureAwait(false);
 
         // Restore whatever data was salvaged
-        if (segments.Count > 0 || seasonInfos.Count > 0)
+        if (segments.Count > 0 || seasonStates.Count > 0)
         {
             using var db = contextFactory();
             if (segments.Count > 0)
@@ -275,9 +286,9 @@ public class IntroSkipperDbContext : DbContext
                 db.DbSegment.AddRange(segments);
             }
 
-            if (seasonInfos.Count > 0)
+            if (seasonStates.Count > 0)
             {
-                db.DbSeasonInfo.AddRange(seasonInfos);
+                db.DbSeasonState.AddRange(seasonStates);
             }
 
             await db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
@@ -378,14 +389,48 @@ public class IntroSkipperDbContext : DbContext
         EnsureDbSegmentIndexes();
     }
 
-    private void EnsureDbSeasonInfoSchema()
+    private void EnsureDbSeasonStateSchema()
     {
-        EnsureConfigHashColumn("DbSeasonInfo");
-
-        if (TableExists("DbSeasonInfo"))
+        if (TableExists("DbSeasonState"))
         {
-            Database.ExecuteSqlRaw("CREATE INDEX IF NOT EXISTS \"IX_DbSeasonInfo_SeasonId\" ON \"DbSeasonInfo\" (\"SeasonId\")");
+            Database.ExecuteSqlRaw("CREATE INDEX IF NOT EXISTS \"IX_DbSeasonState_SeasonId\" ON \"DbSeasonState\" (\"SeasonId\")");
+
+            if (!ColumnExists("DbSeasonState", "SettledReanalysisEpisodeIds"))
+            {
+                Database.ExecuteSqlRaw("ALTER TABLE \"DbSeasonState\" ADD COLUMN \"SettledReanalysisEpisodeIds\" TEXT NOT NULL DEFAULT '[]'");
+            }
+
+            return;
         }
+
+        if (!TableExists("DbSeasonInfo"))
+        {
+            return;
+        }
+
+        EnsureConfigHashColumn("DbSeasonInfo");
+        Database.ExecuteSqlRaw(
+            """
+            CREATE TABLE "DbSeasonState" (
+                "SeasonId" TEXT NOT NULL,
+                "Type" INTEGER NOT NULL,
+                "Action" INTEGER NOT NULL DEFAULT 0,
+                "EpisodeIds" TEXT NOT NULL,
+                "ConfigHash" TEXT NOT NULL DEFAULT '',
+                "SettledReanalysisEpisodeIds" TEXT NOT NULL DEFAULT '[]',
+                CONSTRAINT "PK_DbSeasonState" PRIMARY KEY ("SeasonId", "Type")
+            )
+            """);
+
+        Database.ExecuteSqlRaw(
+            """
+            INSERT INTO "DbSeasonState" ("SeasonId", "Type", "Action", "EpisodeIds", "ConfigHash", "SettledReanalysisEpisodeIds")
+            SELECT "SeasonId", "Type", "Action", "EpisodeIds", COALESCE("ConfigHash", ''), '[]'
+            FROM "DbSeasonInfo"
+            """);
+
+        Database.ExecuteSqlRaw("CREATE INDEX IF NOT EXISTS \"IX_DbSeasonState_SeasonId\" ON \"DbSeasonState\" (\"SeasonId\")");
+        Database.ExecuteSqlRaw("DROP TABLE \"DbSeasonInfo\"");
     }
 
     private void RebuildDbSegmentWithIdentity()
@@ -483,13 +528,14 @@ public class IntroSkipperDbContext : DbContext
             && IndexExists("DbSegment", "IX_DbSegment_ItemId")
             && IndexExists("DbSegment", "IX_DbSegment_Commercial_Unique")
             && IndexExists("DbSegment", "IX_DbSegment_NonCommercial_Unique")
-            && TableExists("DbSeasonInfo")
-            && ColumnExists("DbSeasonInfo", "SeasonId")
-            && ColumnExists("DbSeasonInfo", "Type")
-            && ColumnExists("DbSeasonInfo", "Action")
-            && ColumnExists("DbSeasonInfo", "EpisodeIds")
-            && ColumnExists("DbSeasonInfo", "ConfigHash")
-            && IndexExists("DbSeasonInfo", "IX_DbSeasonInfo_SeasonId");
+            && TableExists("DbSeasonState")
+            && ColumnExists("DbSeasonState", "SeasonId")
+            && ColumnExists("DbSeasonState", "Type")
+            && ColumnExists("DbSeasonState", "Action")
+            && ColumnExists("DbSeasonState", "EpisodeIds")
+            && ColumnExists("DbSeasonState", "ConfigHash")
+            && ColumnExists("DbSeasonState", "SettledReanalysisEpisodeIds")
+            && IndexExists("DbSeasonState", "IX_DbSeasonState_SeasonId");
     }
 
     private void InsertMigrationHistoryRecord(string migrationId)
