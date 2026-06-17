@@ -34,12 +34,18 @@ export function pathExclusion(): HTMLElement {
     }
 
     function removePath(path: string): void {
+        if (!configStore.isLoaded()) {
+            return;
+        }
         const next = getPaths().filter((p) => p.toLowerCase() !== path.toLowerCase());
         configStore.set(FIELD, formatConfiguredList(next));
         renderSelected();
     }
 
     function addPath(path: string): boolean {
+        if (!configStore.isLoaded()) {
+            return false;
+        }
         const paths = getPaths();
         if (paths.some((p) => p.toLowerCase() === path.toLowerCase())) {
             return false;
@@ -232,6 +238,10 @@ export function pathExclusion(): HTMLElement {
 
     addButton.addEventListener("click", () => {
         if (!activePath) {
+            return;
+        }
+        if (!configStore.isLoaded()) {
+            status.show("Configuration is still loading. Try again in a moment.", "var(--is-error)");
             return;
         }
         const added = addPath(activePath);
