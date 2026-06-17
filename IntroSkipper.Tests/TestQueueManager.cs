@@ -66,6 +66,33 @@ public class TestQueueManager
         Assert.False(QueueManager.IsPathExcluded("/media/local/Show/S01E01.mkv", new[] { string.Empty }));
     }
 
+    [Fact]
+    public void CreateExcludedPathList_QuotedCommaKeepsConfiguredPathWhole()
+    {
+        var fragments = QueueManager.CreateExcludedPathList("\"D:\\Media, Archive\", /mnt/rd");
+
+        Assert.Equal(["D:\\Media, Archive", "/mnt/rd"], fragments);
+        Assert.True(QueueManager.IsPathExcluded("D:\\Media, Archive\\Film.mkv", fragments));
+        Assert.False(QueueManager.IsPathExcluded("D:\\Media\\Film.mkv", fragments));
+        Assert.False(QueueManager.IsPathExcluded("D:\\Archive\\Film.mkv", fragments));
+    }
+
+    [Fact]
+    public void CreateExcludedPathList_UnquotedQuoteStaysLiteral()
+    {
+        var fragments = QueueManager.CreateExcludedPathList("D:\\Media \"Archive\", /mnt/rd");
+
+        Assert.Equal(["D:\\Media \"Archive\"", "/mnt/rd"], fragments);
+    }
+
+    [Fact]
+    public void IsNameExcluded_UnquotedQuoteStaysLiteral()
+    {
+        var excludedNames = QueueManager.CreateExcludedNameSet("The \"Office\"");
+
+        Assert.True(QueueManager.IsNameExcluded("The \"Office\"", excludedNames));
+    }
+
     [Theory]
     [InlineData("My.Show", "my show", true)]
     [InlineData("Mob Psycho 100", "mob-psycho 100", true)]
@@ -75,6 +102,17 @@ public class TestQueueManager
         var excludedNames = QueueManager.CreateExcludedNameSet(configuredSeries);
 
         Assert.Equal(expected, QueueManager.IsNameExcluded(candidateSeries, excludedNames));
+    }
+
+    [Fact]
+    public void IsNameExcluded_QuotedCommaKeepsConfiguredTitleWhole()
+    {
+        var excludedNames = QueueManager.CreateExcludedNameSet("\"Food, Inc.\", The.Office");
+
+        Assert.True(QueueManager.IsNameExcluded("Food, Inc.", excludedNames));
+        Assert.False(QueueManager.IsNameExcluded("Food", excludedNames));
+        Assert.False(QueueManager.IsNameExcluded("Inc.", excludedNames));
+        Assert.True(QueueManager.IsNameExcluded("The Office", excludedNames));
     }
 
     [Fact]

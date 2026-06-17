@@ -1,4 +1,5 @@
 import type { PluginConfig, ShowItem } from "../types.ts";
+import { formatConfiguredList, splitConfiguredList } from "../configured-list.ts";
 import { configStore } from "../store/config-store.ts";
 import { getExcludableMedia } from "../store/jellyfin-client.ts";
 import { createStatusMessage } from "./async-feedback.ts";
@@ -22,25 +23,6 @@ type RenderedOption = {
 type ConfigChange = {
     field?: keyof PluginConfig;
 };
-
-function splitConfiguredNames(value: string): string[] {
-    const names: string[] = [];
-    const seen = new Set<string>();
-
-    for (const rawName of value.split(",")) {
-        const name = rawName.trim();
-        if (!name) continue;
-
-        const key = name.toLowerCase();
-        if (seen.has(key)) continue;
-
-        seen.add(key);
-        names.push(name);
-    }
-
-    return names;
-}
-
 
 function isSupportedMediaType(type: string): type is MediaType {
     return type === "Series" || type === "Movie";
@@ -113,13 +95,13 @@ export function mediaExclusionCombobox(): HTMLElement {
 
     function rebuildSelectedFromConfig(): void {
         selectedSeries = new Map(
-            splitConfiguredNames(configStore.get("ExcludeSeries")).map((name) => [
+            splitConfiguredList(configStore.get("ExcludeSeries")).map((name) => [
                 name.toLowerCase(),
                 name,
             ]),
         );
         selectedMovies = new Map(
-            splitConfiguredNames(configStore.get("ExcludeMovies")).map((name) => [
+            splitConfiguredList(configStore.get("ExcludeMovies")).map((name) => [
                 name.toLowerCase(),
                 name,
             ]),
@@ -128,9 +110,9 @@ export function mediaExclusionCombobox(): HTMLElement {
 
     function persistField(type: MediaType): void {
         if (type === "Series") {
-            configStore.set("ExcludeSeries", Array.from(selectedSeries.values()).join(", "));
+            configStore.set("ExcludeSeries", formatConfiguredList(selectedSeries.values()));
         } else {
-            configStore.set("ExcludeMovies", Array.from(selectedMovies.values()).join(", "));
+            configStore.set("ExcludeMovies", formatConfiguredList(selectedMovies.values()));
         }
     }
 

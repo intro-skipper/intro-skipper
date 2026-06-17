@@ -1,4 +1,5 @@
 import type { FileSystemEntryInfo } from "../types.ts";
+import { formatConfiguredList, splitConfiguredList } from "../configured-list.ts";
 import * as api from "../store/api.ts";
 import { configStore } from "../store/config-store.ts";
 import { el } from "./dom.ts";
@@ -6,20 +7,13 @@ import { createStatusMessage } from "./async-feedback.ts";
 
 const EXCLUDE_PATHS_FIELD = "ExcludePaths";
 
-function splitConfiguredPaths(value: string): string[] {
-    return value
-        .split(",")
-        .map((item) => item.trim())
-        .filter(Boolean);
-}
-
 function appendConfiguredPath(path: string): boolean {
-    const paths = splitConfiguredPaths(configStore.get(EXCLUDE_PATHS_FIELD));
+    const paths = splitConfiguredList(configStore.get(EXCLUDE_PATHS_FIELD));
     if (paths.some((item) => item.toLowerCase() === path.toLowerCase())) {
         return false;
     }
     paths.push(path);
-    configStore.set(EXCLUDE_PATHS_FIELD, paths.join(", "));
+    configStore.set(EXCLUDE_PATHS_FIELD, formatConfiguredList(paths));
     return true;
 }
 

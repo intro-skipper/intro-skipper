@@ -69,17 +69,17 @@ public class PluginConfiguration : BasePluginConfiguration
     // ===== Analysis settings =====
 
     /// <summary>
-    /// Gets or sets the comma separated list of series names to exclude from analysis.
+    /// Gets or sets the CSV list of series names to exclude from analysis.
     /// </summary>
     public string ExcludeSeries { get; set; } = string.Empty;
 
     /// <summary>
-    /// Gets or sets the comma separated list of movie titles to exclude from analysis.
+    /// Gets or sets the CSV list of movie titles to exclude from analysis.
     /// </summary>
     public string ExcludeMovies { get; set; } = string.Empty;
 
     /// <summary>
-    /// Gets or sets the comma separated list of file path fragments to exclude from analysis.
+    /// Gets or sets the CSV list of file path fragments to exclude from analysis.
     /// Any media item whose full path contains one of these fragments (case-insensitive) is skipped.
     /// Useful for excluding remote or cloud-mounted directories from fingerprinting.
     /// </summary>

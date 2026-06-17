@@ -100,7 +100,7 @@ export const generalTab: Tab = {
                 id: "ExcludePaths",
                 label: "Exclude paths",
                 description:
-                    "Exclude media from analysis by file path. Enter a comma-separated list of path fragments; any file whose full path contains one of them (case-insensitive) is skipped. Useful for excluding remote or cloud-mounted directories (e.g. Real-Debrid/Zurg) from fingerprinting.",
+                    "Exclude media from analysis by file path. Any file whose full path contains one fragment (case-insensitive) is skipped. Useful for excluding remote or cloud-mounted directories (e.g. Real-Debrid/Zurg) from fingerprinting.",
             }),
             pathBrowser(),
             inlineCheckboxGroup("Analyze for:", [

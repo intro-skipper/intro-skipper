@@ -4,6 +4,7 @@
 // SPDX-FileCopyrightText: 2024-2026 Kilian von Pflugk
 // SPDX-License-Identifier: GPL-3.0-only
 
+using System.Text;
 using IntroSkipper.Configuration;
 using IntroSkipper.Data;
 using IntroSkipper.FFmpeg;
@@ -131,7 +132,7 @@ public partial class QueueManager(ILogger<QueueManager> logger, ILibraryManager 
 
         _excludedSeriesNames = CreateExcludedNameSet(config.ExcludeSeries);
         _excludedMovieNames = CreateExcludedNameSet(config.ExcludeMovies);
-        _excludePaths = SplitConfiguredList(config.ExcludePaths);
+        _excludePaths = CreateExcludedPathList(config.ExcludePaths);
 
         // If analysis settings have been changed from the default, log the modified settings.
         if (config.AnalysisLengthLimit != PluginConfiguration.DefaultAnalysisLengthLimit
@@ -303,12 +304,70 @@ public partial class QueueManager(ILogger<QueueManager> logger, ILibraryManager 
         return set;
     }
 
+    internal static string[] CreateExcludedPathList(string excludedPaths) => [.. SplitConfiguredList(excludedPaths)];
+
     private bool IsSeriesExcluded(string seriesName) => IsNameExcluded(seriesName, _excludedSeriesNames);
 
     private bool IsMovieExcluded(string movieName) => IsNameExcluded(movieName, _excludedMovieNames);
 
-    private static string[] SplitConfiguredList(string value)
-        => value.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+    private static IEnumerable<string> SplitConfiguredList(string value)
+    {
+        var current = new StringBuilder(value.Length);
+        var inQuotes = false;
+        var onlyWhitespaceInField = true;
+
+        for (var index = 0; index < value.Length; index++)
+        {
+            var ch = value[index];
+            if (ch == '"' && inQuotes)
+            {
+                if (index + 1 < value.Length && value[index + 1] == '"')
+                {
+                    current.Append('"');
+                    index++;
+                }
+                else
+                {
+                    inQuotes = false;
+                }
+            }
+            else if (ch == '"' && onlyWhitespaceInField)
+            {
+                current.Clear();
+                inQuotes = true;
+            }
+            else if (ch == ',' && !inQuotes)
+            {
+                var item = TakeTrimmedListItem(current, ref onlyWhitespaceInField);
+                if (item is not null)
+                {
+                    yield return item;
+                }
+            }
+            else
+            {
+                current.Append(ch);
+                if (!char.IsWhiteSpace(ch))
+                {
+                    onlyWhitespaceInField = false;
+                }
+            }
+        }
+
+        var finalItem = TakeTrimmedListItem(current, ref onlyWhitespaceInField);
+        if (finalItem is not null)
+        {
+            yield return finalItem;
+        }
+    }
+
+    private static string? TakeTrimmedListItem(StringBuilder current, ref bool onlyWhitespaceInField)
+    {
+        var item = current.ToString().Trim();
+        current.Clear();
+        onlyWhitespaceInField = true;
+        return item.Length == 0 ? null : item;
+    }
 
     /// <summary>
     /// Checks if a media item's file path matches any of the configured exclusion fragments.
