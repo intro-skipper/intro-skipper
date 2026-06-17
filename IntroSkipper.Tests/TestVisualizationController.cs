@@ -192,6 +192,72 @@ public sealed class TestVisualizationController
         Assert.Equal(0, refresher.CollectionCallCount);
     }
 
+    [Fact]
+    public async Task ClearExcludedTimestampsAsync_RemovesPathExcludedStateAndRefreshesJellyfin()
+    {
+        var excludedEpisodeId = Guid.NewGuid();
+        var excludedMovieId = Guid.NewGuid();
+        var includedItemId = Guid.NewGuid();
+        var seasonId = Guid.NewGuid();
+        var dbPath = CreateTempDbPath();
+        using var pluginScope = new EntrypointTestHelpers.PluginInstanceScope(EntrypointTestHelpers.CreateTempCacheDir());
+        var plugin = Plugin.Instance!;
+        EntrypointTestHelpers.SetPropertyOrField(plugin, "_dbPath", dbPath);
+        EntrypointTestHelpers.SetPropertyOrField(plugin, "Configuration", new PluginConfiguration
+        {
+            ExcludePaths = "/mnt/remote",
+            UpdateMediaSegments = false
+        });
+        EntrypointTestHelpers.SetPropertyOrField(plugin, "QueuedMediaItems", new ConcurrentDictionary<Guid, List<QueuedEpisode>>());
+
+        await using (var db = new IntroSkipperDbContext(dbPath))
+        {
+            await db.Database.EnsureCreatedAsync();
+            db.DbSegment.AddRange(
+                new DbSegment(new Segment(excludedEpisodeId, new TimeRange(10, 20)), AnalysisMode.Introduction),
+                new DbSegment(new Segment(excludedMovieId, new TimeRange(30, 40)), AnalysisMode.Credits),
+                new DbSegment(new Segment(includedItemId, new TimeRange(50, 60)), AnalysisMode.Introduction));
+            db.DbSeasonState.Add(new DbSeasonState(
+                seasonId,
+                AnalysisMode.Introduction,
+                AnalyzerAction.Default,
+                [excludedEpisodeId, includedItemId],
+                "intro-config",
+                [excludedMovieId, includedItemId]));
+            await db.SaveChangesAsync();
+        }
+
+        var libraryManager = EntrypointTestHelpers.CreateLibraryManager(
+            CreateEpisodeWithPath(excludedEpisodeId, seasonId, "Some Show", "/mnt/remote/Some Show/S01E01.mkv"),
+            CreateMovieWithPath(excludedMovieId, "Some Movie", "/mnt/remote/Some Movie.mkv"),
+            CreateMovieWithPath(includedItemId, "Local Movie", "/media/local/Local Movie.mkv"));
+        var refresher = new RecordingMediaSegmentRefresher();
+        using var loggerFactory = LoggerFactory.Create(builder => { });
+        var controller = CreateController(refresher, loggerFactory, libraryManager);
+
+        var result = await controller.ClearExcludedTimestampsAsync(CancellationToken.None);
+
+        Assert.IsType<NoContentResult>(result);
+        var affectedIds = new[] { excludedEpisodeId, excludedMovieId };
+        await using (var db = new IntroSkipperDbContext(dbPath))
+        {
+            Assert.False(await db.DbSegment.AnyAsync(s => affectedIds.Contains(s.ItemId)));
+            Assert.True(await db.DbSegment.AnyAsync(s => s.ItemId == includedItemId));
+
+            var seasonStates = await db.DbSeasonState.Where(s => s.SeasonId == seasonId).ToListAsync();
+            Assert.All(seasonStates, state =>
+            {
+                Assert.DoesNotContain(excludedEpisodeId, state.EpisodeIds);
+                Assert.DoesNotContain(excludedMovieId, state.SettledReanalysisEpisodeIds);
+            });
+            Assert.Contains(seasonStates, state => state.EpisodeIds.Contains(includedItemId));
+            Assert.Contains(seasonStates, state => state.SettledReanalysisEpisodeIds.Contains(includedItemId));
+        }
+
+        Assert.Equal(1, refresher.CollectionCallCount);
+        Assert.Equal(affectedIds.OrderBy(id => id), refresher.LastItemIds.OrderBy(id => id));
+    }
+
     private static VisualizationController CreateController(RecordingMediaSegmentRefresher refresher, ILoggerFactory loggerFactory, ILibraryManager? libraryManager = null)
     {
         return new VisualizationController(
@@ -220,6 +286,22 @@ public sealed class TestVisualizationController
         var movie = new Movie();
         EntrypointTestHelpers.SetPropertyOrField(movie, "Id", id);
         EntrypointTestHelpers.SetPropertyOrField(movie, "Name", name);
+        EntrypointTestHelpers.EnsureNonVirtual(movie);
+        return movie;
+    }
+
+    private static Episode CreateEpisodeWithPath(Guid id, Guid seasonId, string seriesName, string path)
+    {
+        var episode = CreateEpisode(id, seasonId, seriesName);
+        EntrypointTestHelpers.SetPropertyOrField(episode, "Path", path);
+        EntrypointTestHelpers.EnsureNonVirtual(episode);
+        return episode;
+    }
+
+    private static Movie CreateMovieWithPath(Guid id, string name, string path)
+    {
+        var movie = CreateMovie(id, name);
+        EntrypointTestHelpers.SetPropertyOrField(movie, "Path", path);
         EntrypointTestHelpers.EnsureNonVirtual(movie);
         return movie;
     }

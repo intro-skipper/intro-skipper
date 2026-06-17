@@ -65,7 +65,7 @@ export const generalTab: Tab = {
             el(
                 "div",
                 { className: "field-description" },
-                "Remove Intro Skipper timestamps and refresh Jellyfin media segments for the currently excluded series and movies. The exclusion list is not changed.",
+                "Remove Intro Skipper timestamps and refresh Jellyfin media segments for the currently excluded series, movies, and paths. The exclusion list is not changed.",
             ),
         );
 
@@ -75,7 +75,7 @@ export const generalTab: Tab = {
             actionButton("Clear Excluded Timestamps", async () => {
                 const result = await confirmDialog({
                     title: "Confirm Timestamp Erasure",
-                    body: "Erase Intro Skipper timestamps and refresh Jellyfin media segments for all currently excluded series and movies? The excluded series and movie list will not change.",
+                    body: "Erase Intro Skipper timestamps and refresh Jellyfin media segments for all currently excluded series, movies, and paths? The exclusion list will not change.",
                     confirmLabel: "Erase",
                 });
                 if (result === null) {

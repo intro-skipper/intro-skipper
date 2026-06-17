@@ -5,6 +5,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
 using System.Text;
+using System.Text.RegularExpressions;
 using IntroSkipper.Configuration;
 using IntroSkipper.Data;
 using IntroSkipper.FFmpeg;
@@ -253,27 +254,12 @@ public partial class QueueManager(ILogger<QueueManager> logger, ILibraryManager 
             return string.Empty;
         }
 
-        var length = 0;
-        foreach (var ch in name)
-        {
-            if (char.IsLetterOrDigit(ch))
-            {
-                length++;
-            }
-        }
-
-        return string.Create(length, name, static (destination, source) =>
-            {
-                var index = 0;
-                foreach (var ch in source)
-                {
-                    if (char.IsLetterOrDigit(ch))
-                    {
-                        destination[index++] = char.ToLowerInvariant(ch);
-                    }
-                }
-            });
+        // Strip everything except letters and digits (removes punctuation and whitespace) and lowercase.
+        return NormalizeExcludedNameRegex().Replace(name, string.Empty).ToLowerInvariant();
     }
+
+    [GeneratedRegex(@"[^\p{L}\p{Nd}]")]
+    private static partial Regex NormalizeExcludedNameRegex();
 
     /// <summary>
     /// Checks if a media name is in the excluded list, using normalized name comparison

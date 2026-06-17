@@ -180,7 +180,7 @@ public partial class VisualizationController(ILogger<VisualizationController> lo
     }
 
     /// <summary>
-    /// Erases timestamp data for media currently matched by configured series and movie exclusions.
+    /// Erases timestamp data for media currently matched by configured series, movie, and path exclusions.
     /// </summary>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <response code="204">Excluded timestamp data erased.</response>
@@ -198,7 +198,8 @@ public partial class VisualizationController(ILogger<VisualizationController> lo
         var plugin = Plugin.Instance ?? throw new InvalidOperationException("Plugin instance was null");
         var excludedSeries = QueueManager.CreateExcludedNameSet(plugin.Configuration.ExcludeSeries);
         var excludedMovies = QueueManager.CreateExcludedNameSet(plugin.Configuration.ExcludeMovies);
-        if (excludedSeries.Count == 0 && excludedMovies.Count == 0)
+        var excludePaths = QueueManager.CreateExcludedPathList(plugin.Configuration.ExcludePaths);
+        if (excludedSeries.Count == 0 && excludedMovies.Count == 0 && excludePaths.Length == 0)
         {
             return NoContent();
         }
@@ -211,11 +212,16 @@ public partial class VisualizationController(ILogger<VisualizationController> lo
             foreach (var id in candidateIds)
             {
                 var item = _libraryManager.GetItemById(id);
-                if (item is Episode episode && QueueManager.IsNameExcluded(episode.SeriesName, excludedSeries))
+                var excluded = item switch
                 {
-                    affectedIds.Add(id);
-                }
-                else if (item is Movie movie && QueueManager.IsNameExcluded(movie.Name, excludedMovies))
+                    Episode episode => QueueManager.IsNameExcluded(episode.SeriesName, excludedSeries)
+                        || QueueManager.IsPathExcluded(episode.Path, excludePaths),
+                    Movie movie => QueueManager.IsNameExcluded(movie.Name, excludedMovies)
+                        || QueueManager.IsPathExcluded(movie.Path, excludePaths),
+                    _ => false
+                };
+
+                if (excluded)
                 {
                     affectedIds.Add(id);
                 }
