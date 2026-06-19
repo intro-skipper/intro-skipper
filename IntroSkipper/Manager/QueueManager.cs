@@ -284,6 +284,7 @@ public partial class QueueManager(ILogger<QueueManager> logger, ILibraryManager 
             IsExcluded = IsSeriesExcluded(episode.SeriesName),
             Path = episode.Path,
             Duration = duration,
+            DateAdded = EpisodeAvailabilityDate(episode),
             IntroFingerprintEnd = fingerprintDuration,
             CreditsFingerprintStart = Math.Max(0, creditsDuration - maxCreditsDuration),
             CreditsFingerprintEnd = creditsDuration,
@@ -306,6 +307,11 @@ public partial class QueueManager(ILogger<QueueManager> logger, ILibraryManager 
         }
 
         return QueuedMediaCategory.Episode;
+    }
+
+    internal static DateTime EpisodeAvailabilityDate(Episode episode)
+    {
+        return episode.DateCreated != default ? episode.DateCreated : episode.DateLastSaved;
     }
 
     private async Task QueueMovieAsync(Movie movie, CancellationToken cancellationToken)
@@ -421,7 +427,7 @@ public partial class QueueManager(ILogger<QueueManager> logger, ILibraryManager 
 
         var verified = new List<QueuedEpisode>(candidates.Count);
         var plugin = Plugin.Instance ?? throw new InvalidOperationException("Plugin instance is null");
-        var snapshot = await plugin.GetSeasonQueueSnapshotAsync(candidates[0].SeasonId, [.. candidates.Select(c => c.EpisodeId)], cancellationToken).ConfigureAwait(false);
+        var snapshot = await Plugin.GetSeasonQueueSnapshotAsync(candidates[0].SeasonId, [.. candidates.Select(c => c.EpisodeId)], cancellationToken).ConfigureAwait(false);
 
         foreach (var candidate in candidates)
         {

@@ -93,7 +93,7 @@ public partial class CleanCacheTask(
             .Select(e => e.EpisodeId)
             .ToHashSet();
 
-        await plugin.CleanTimestampsAsync(enabledLibraryEpisodeIds, cancellationToken).ConfigureAwait(false);
+        await Plugin.CleanTimestampsAsync(enabledLibraryEpisodeIds, cancellationToken).ConfigureAwait(false);
 
         // Identify episode IDs in the SQLite cache that are no longer in enabled libraries.
         HashSet<Guid> invalidEpisodeIds;
@@ -128,8 +128,8 @@ public partial class CleanCacheTask(
             }
         }
 
-        // Clean up Season information by removing items that are no longer exist.
-        await plugin.CleanSeasonInfoAsync(queue.Keys, cancellationToken).ConfigureAwait(false);
+        // Clean up season state by removing items that no longer exist.
+        await Plugin.CleanSeasonStateAsync(queue.Keys, cancellationToken).ConfigureAwait(false);
 
         plugin.AnalyzeAgain = true;
 

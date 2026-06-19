@@ -37,6 +37,16 @@ public class PluginConfiguration : BasePluginConfiguration
     public const int DefaultMinimumIntroDuration = 15;
 
     /// <summary>
+    /// Default number of hours after the newest queued episode before a season is treated as settled.
+    /// </summary>
+    public const int DefaultSettledSeasonDelayHours = 24;
+
+    /// <summary>
+    /// Maximum number of hours after the newest queued episode before a season is treated as settled.
+    /// </summary>
+    public const int MaximumSettledSeasonDelayHours = 87600;
+
+    /// <summary>
     /// Minimum percentage of each episode's audio track to analyze.
     /// </summary>
     public const int MinimumAnalysisPercent = 1;
@@ -47,6 +57,7 @@ public class PluginConfiguration : BasePluginConfiguration
     public const int MaximumAnalysisPercent = 50;
 
     private int _analysisPercent = DefaultAnalysisPercent;
+    private int _settledSeasonDelayHours = DefaultSettledSeasonDelayHours;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="PluginConfiguration"/> class.
@@ -66,6 +77,24 @@ public class PluginConfiguration : BasePluginConfiguration
     /// Gets or sets a value indicating whether to automatically scan newly added items.
     /// </summary>
     public bool AutoDetectIntros { get; set; } = true;
+
+    /// <summary>
+    /// Gets or sets a value indicating whether a whole season should be re-analyzed once it stops
+    /// receiving new episodes. Audio fingerprint detection compares episodes against each other, so
+    /// segments first derived from a partial season improve once the rest of the season is present.
+    /// </summary>
+    public bool ReanalyzeSettledSeasons { get; set; }
+
+    /// <summary>
+    /// Gets or sets the number of hours that must pass after the newest episode was added before the season is treated as settled.
+    /// A value of 0 means no additional quiet-time wait once the season is queued.
+    /// <see cref="ReanalyzeSettledSeasons"/> remains the master switch.
+    /// </summary>
+    public int SettledSeasonDelayHours
+    {
+        get => _settledSeasonDelayHours;
+        set => _settledSeasonDelayHours = Math.Clamp(value, 0, MaximumSettledSeasonDelayHours);
+    }
 
     /// <summary>
     /// Gets or sets a value indicating whether to analyze season 0.

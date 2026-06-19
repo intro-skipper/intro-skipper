@@ -49,8 +49,8 @@ public sealed class TestVisualizationController
         Assert.IsType<NoContentResult>(result);
         await using var db = new IntroSkipperDbContext(dbPath);
         Assert.False(await db.DbSegment.AnyAsync(s => episodeIds.Contains(s.ItemId)));
-        var seasonInfos = await db.DbSeasonInfo.Where(s => s.SeasonId == seasonId).ToListAsync();
-        Assert.All(seasonInfos, info => Assert.Empty(info.EpisodeIds));
+        var seasonStates = await db.DbSeasonState.Where(s => s.SeasonId == seasonId).ToListAsync();
+        Assert.All(seasonStates, state => Assert.Empty(state.EpisodeIds));
     }
 
     [Fact]
@@ -110,9 +110,9 @@ public sealed class TestVisualizationController
         db.DbSegment.AddRange(
             new DbSegment(new Segment(episodeIds[0], new TimeRange(10, 20)), AnalysisMode.Introduction),
             new DbSegment(new Segment(episodeIds[1], new TimeRange(30, 40)), AnalysisMode.Introduction));
-        db.DbSeasonInfo.AddRange(
-            new DbSeasonInfo(seasonId, AnalysisMode.Introduction, AnalyzerAction.Default, episodeIds),
-            new DbSeasonInfo(seasonId, AnalysisMode.Credits, AnalyzerAction.Default, episodeIds));
+        db.DbSeasonState.AddRange(
+            new DbSeasonState(seasonId, AnalysisMode.Introduction, AnalyzerAction.Default, episodeIds),
+            new DbSeasonState(seasonId, AnalysisMode.Credits, AnalyzerAction.Default, episodeIds));
         await db.SaveChangesAsync();
     }
 

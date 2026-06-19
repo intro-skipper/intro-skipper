@@ -90,6 +90,13 @@ public class QueuedEpisode
     public double Duration { get; set; }
 
     /// <summary>
+    /// Gets or sets the UTC time this item became available to analysis. This intentionally tracks
+    /// Jellyfin's created timestamp; metadata refreshes update <c>DateLastSaved</c> and must not make
+    /// an already-settled season look newly updated.
+    /// </summary>
+    public DateTime DateAdded { get; set; }
+
+    /// <summary>
     /// Gets or sets the configuration hash for the current analysis pass.
     /// </summary>
     public string AnalysisConfigHash { get; set; } = string.Empty;
