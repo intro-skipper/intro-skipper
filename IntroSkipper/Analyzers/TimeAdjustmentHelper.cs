@@ -112,8 +112,22 @@ public partial class TimeAdjustmentHelper(ILogger logger, PluginConfiguration co
             adjustedEnd = Math.Clamp(adjustedEnd, 0, duration);
 
             var silenceRange = GetSearchRange(adjustedEnd, duration, _config.AdjustWindowInward, _config.AdjustWindowOutward);
-            if (_config.AdjustIntroBasedOnSilence)
+            if (_config.AdjustIntroBasedOnSilence && _config.SnapToKeyframe)
             {
+                // Combined mode: score each silence candidate by duration + keyframe proximity bonus.
+                var silenceAdjusted = await AdjustIntroEndWithKeyframeWeightingAsync(episode, adjustedEnd, silenceRange, _config.SilenceDetectionMinimumDuration, cancellationToken).ConfigureAwait(false);
+                if (silenceAdjusted != adjustedEnd)
+                {
+                    adjustedEnd = silenceAdjusted;
+                }
+                else
+                {
+                    LogNoSilenceFound(_logger, episode.EpisodeId, episode.Name, silenceRange.Start, silenceRange.End);
+                }
+            }
+            else if (_config.AdjustIntroBasedOnSilence)
+            {
+                // Silence-only mode: pick the first qualifying silence period.
                 var silenceAdjusted = await AdjustIntroEndBasedOnSilenceAsync(episode, adjustedEnd, silenceRange, _config.SilenceDetectionMinimumDuration, cancellationToken).ConfigureAwait(false);
                 if (silenceAdjusted != adjustedEnd)
                 {
@@ -124,9 +138,9 @@ public partial class TimeAdjustmentHelper(ILogger logger, PluginConfiguration co
                     LogNoSilenceFound(_logger, episode.EpisodeId, episode.Name, silenceRange.Start, silenceRange.End);
                 }
             }
-
-            if (_config.SnapToKeyframe)
+            else if (_config.SnapToKeyframe)
             {
+                // Keyframe-only mode: snap to the nearest keyframe.
                 adjustedEnd = await SnapToNearestKeyframeAsync(episode, adjustedEnd, silenceRange, cancellationToken).ConfigureAwait(false);
             }
         }
@@ -168,6 +182,7 @@ public partial class TimeAdjustmentHelper(ILogger logger, PluginConfiguration co
 
     /// <summary>
     /// Adjusts the intro end based on detected silence within the search range.
+    /// Picks the first qualifying silence period (original behavior).
     /// </summary>
     private async Task<double> AdjustIntroEndBasedOnSilenceAsync(QueuedEpisode episode, double currentEnd, TimeRange searchRange, double silenceDetectionMinimumDuration, CancellationToken cancellationToken)
     {
@@ -198,6 +213,94 @@ public partial class TimeAdjustmentHelper(ILogger logger, PluginConfiguration co
 
                 return currentRange.Start;
             }
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            LogErrorDetectingSilence(_logger, episode.EpisodeId, episode.Name, ex.Message);
+        }
+
+        return currentEnd;
+    }
+
+    /// <summary>
+    /// Selects the best silence period using a composite score that rewards keyframe proximity.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// When both AdjustIntroBasedOnSilence and SnapToKeyframe are enabled, this
+    /// method fetches silence periods and keyframes in parallel and scores every qualifying
+    /// silence candidate using:
+    /// </para>
+    /// <code>
+    ///   score = silencePeriod.Duration * 0.4
+    ///         + (1.0 if any keyframe is within 0.5 s of silenceRange.Start, else 0.0) * 0.6
+    /// </code>
+    /// <para>
+    /// The candidate with the highest score is chosen, preferring cuts that coincide with both
+    /// an audio pause and a scene-change keyframe. Falls back to currentEnd when no candidates qualify.
+    /// </para>
+    /// </remarks>
+    private async Task<double> AdjustIntroEndWithKeyframeWeightingAsync(
+        QueuedEpisode episode,
+        double currentEnd,
+        TimeRange searchRange,
+        double silenceDetectionMinimumDuration,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            var silence = await _ffmpegService.DetectSilenceAsync(episode, searchRange, _mode, cancellationToken).ConfigureAwait(false);
+            var keyframes = await _ffmpegService.DetectKeyFramesAsync(episode, searchRange, _mode, cancellationToken).ConfigureAwait(false);
+
+            if (silence is not { Length: > 0 })
+            {
+                LogNoSilenceDetected(_logger, episode.EpisodeId, episode.Name);
+                return currentEnd;
+            }
+
+            double bestScore = -1;
+            double bestStart = currentEnd;
+
+            foreach (var currentRange in silence)
+            {
+                LogSilenceDetected(
+                    _logger,
+                    episode.EpisodeId,
+                    episode.Name,
+                    currentRange.Start,
+                    currentRange.End);
+
+                if (!searchRange.Intersects(currentRange) ||
+                    currentRange.Duration < silenceDetectionMinimumDuration ||
+                    currentRange.Start < searchRange.Start)
+                {
+                    continue;
+                }
+
+                const double KeyframeProximityThreshold = 0.5;
+                double bonus = 0.0;
+                foreach (var kf in keyframes)
+                {
+                    if (Math.Abs(kf - currentRange.Start) <= KeyframeProximityThreshold)
+                    {
+                        bonus = 1.0;
+                        break;
+                    }
+                }
+
+                double score = (currentRange.Duration * 0.4) + (bonus * 0.6);
+                if (score > bestScore)
+                {
+                    bestScore = score;
+                    bestStart = currentRange.Start;
+                }
+            }
+
+            return bestStart;
         }
         catch (OperationCanceledException)
         {
