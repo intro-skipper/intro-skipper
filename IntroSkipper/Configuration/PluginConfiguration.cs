@@ -280,6 +280,24 @@ public class PluginConfiguration : BasePluginConfiguration
     public bool UseChapterMarkersBlackFrame { get; set; } = true;
 
     /// <summary>
+    /// Gets or sets a value indicating whether to enable fallback detection when the primary
+    /// analyzer finds no valid segment for a given mode. When enabled, the fallback analyzer
+    /// (typically <see cref="Analyzers.ChapterAnalyzer"/>) is tried for any episode that the
+    /// primary analyzer could not classify.
+    /// </summary>
+    /// <remarks>
+    /// Fallback ordering per mode:
+    /// <list type="table">
+    ///   <item><term>Introduction</term><description>Chromaprint → Chapter</description></item>
+    ///   <item><term>Credits</term><description>BlackFrame → Chapter</description></item>
+    ///   <item><term>Recap</term><description>Chromaprint → Chapter</description></item>
+    ///   <item><term>Preview</term><description>Chapter (no fallback)</description></item>
+    ///   <item><term>Commercial</term><description>Chapter (no fallback)</description></item>
+    /// </list>
+    /// </remarks>
+    public bool EnableDetectionFallback { get; set; } = true;
+
+    /// <summary>
     /// Gets or sets a value indicating whether to adjust segment based on chapter marks.
     /// </summary>
     public bool AdjustIntroBasedOnChapters { get; set; } = true;

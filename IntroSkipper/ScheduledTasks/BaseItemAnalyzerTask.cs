@@ -325,78 +325,113 @@ public partial class BaseItemAnalyzerTask(
 
         LogAnalyzingFiles(_logger, mode, items.Count, first.SeriesName, first.SeasonNumber);
 
-        // Build the default analyzer chain for this mode and content type.
-        // All applicable analyzers are always included — the order determines priority,
-        // and each analyzer skips episodes already handled by earlier ones via NeedsAnalysis().
-        var analyzers = new List<IMediaFileAnalyzer>
-        {
-            // ChapterAnalyzer: supports all modes and content types
-            new ChapterAnalyzer(_loggerFactory.CreateLogger<ChapterAnalyzer>(), _ffmpegService)
-        };
+        // Build the primary and fallback analyzer lists for this mode and content type.
+        //
+        // Primary analyzers run first. If EnableDetectionFallback is set and any episode still
+        // needs analysis after all primaries complete, the fallback list is executed for those
+        // remaining episodes. Each analyzer skips episodes already handled by earlier ones via
+        // NeedsAnalysis(), so the fallback only ever touches episodes the primary missed.
+        //
+        // Default fallback chain per mode (subject to action/PreferChromaprint overrides):
+        //   Introduction : Chromaprint (primary) → Chapter (fallback)
+        //   Credits      : BlackFrame  (primary) → Chapter (fallback)
+        //   Recap        : Chromaprint (primary) → Chapter (fallback)
+        //   Preview      : Chapter     (primary, no fallback)
+        //   Commercial   : Chapter     (primary, no fallback)
+        var primaryAnalyzers = new List<IMediaFileAnalyzer>();
+        var fallbackAnalyzers = new List<IMediaFileAnalyzer>();
+
+        var chapterAnalyzer = new ChapterAnalyzer(_loggerFactory.CreateLogger<ChapterAnalyzer>(), _ffmpegService);
 
         if (mode is AnalysisMode.Credits)
         {
             if (isAnime)
             {
-                // Anime credits: Chromaprint before BlackFrame (fingerprint matching preferred)
+                // Anime credits: Chromaprint is the primary, BlackFrame is secondary, Chapter is fallback.
                 if (ffmpegValid)
                 {
-                    analyzers.Add(new ChromaprintAnalyzer(_loggerFactory.CreateLogger<ChromaprintAnalyzer>(), _ffmpegService, _cacheService));
+                    primaryAnalyzers.Add(new ChromaprintAnalyzer(_loggerFactory.CreateLogger<ChromaprintAnalyzer>(), _ffmpegService, _cacheService));
                 }
 
-                analyzers.Add(CreateBlackFrameAnalyzer());
+                primaryAnalyzers.Add(CreateBlackFrameAnalyzer());
             }
             else
             {
-                // Non-anime credits: BlackFrame before Chromaprint
-                analyzers.Add(CreateBlackFrameAnalyzer());
+                // Non-anime credits: BlackFrame is the primary, Chromaprint is secondary, Chapter is fallback.
+                primaryAnalyzers.Add(CreateBlackFrameAnalyzer());
 
                 if (!isMovie && ffmpegValid)
                 {
-                    analyzers.Add(new ChromaprintAnalyzer(_loggerFactory.CreateLogger<ChromaprintAnalyzer>(), _ffmpegService, _cacheService));
+                    primaryAnalyzers.Add(new ChromaprintAnalyzer(_loggerFactory.CreateLogger<ChromaprintAnalyzer>(), _ffmpegService, _cacheService));
                 }
             }
+
+            fallbackAnalyzers.Add(chapterAnalyzer);
         }
-        else if (mode is AnalysisMode.Introduction)
+        else if (mode is AnalysisMode.Introduction or AnalysisMode.Recap)
         {
-            // Introduction: Chromaprint is the only non-chapter analyzer
+            // Introduction and Recap: Chromaprint is the primary, Chapter is the fallback.
             if (!isMovie && ffmpegValid)
             {
-                analyzers.Add(new ChromaprintAnalyzer(_loggerFactory.CreateLogger<ChromaprintAnalyzer>(), _ffmpegService, _cacheService));
+                primaryAnalyzers.Add(new ChromaprintAnalyzer(_loggerFactory.CreateLogger<ChromaprintAnalyzer>(), _ffmpegService, _cacheService));
             }
+
+            // Chapter runs as fallback (or as the sole analyzer when Chromaprint is unavailable).
+            fallbackAnalyzers.Add(chapterAnalyzer);
+        }
+        else
+        {
+            // Preview and Commercial: Chapter is the only analyzer — no fallback.
+            primaryAnalyzers.Add(chapterAnalyzer);
         }
 
-        // Recap, Preview, Commercial: only ChapterAnalyzer (already added above)
-
-        // Apply priority overrides to reorder the analyzer chain.
+        // Apply priority overrides to reorder the primary analyzer chain.
         // The specified analyzer moves to the front; others keep their relative order.
         // AnalyzerAction per-season override takes precedence over PreferChromaprint config.
         switch (action)
         {
             case AnalyzerAction.Chapter:
-                PromoteAnalyzer(analyzers, static a => a is ChapterAnalyzer);
+                // When forced to Chapter-only, demote all non-chapter primaries and run only Chapter.
+                primaryAnalyzers.Clear();
+                primaryAnalyzers.Add(chapterAnalyzer);
+                fallbackAnalyzers.Clear();
                 break;
             case AnalyzerAction.Chromaprint:
-                PromoteAnalyzer(analyzers, static a => a is ChromaprintAnalyzer);
+                PromoteAnalyzer(primaryAnalyzers, static a => a is ChromaprintAnalyzer);
                 break;
             case AnalyzerAction.BlackFrame:
-                PromoteAnalyzer(analyzers, static a => a is BlackFrameAnalyzer or BlackFrameAltAnalyzer);
+                PromoteAnalyzer(primaryAnalyzers, static a => a is BlackFrameAnalyzer or BlackFrameAltAnalyzer);
                 break;
             default:
                 if (_config.PreferChromaprint && ffmpegValid)
                 {
-                    PromoteAnalyzer(analyzers, static a => a is ChromaprintAnalyzer);
+                    PromoteAnalyzer(primaryAnalyzers, static a => a is ChromaprintAnalyzer);
                 }
 
                 break;
         }
 
-        // Execute each analyzer in order. Analyzers skip episodes already
-        // marked as analyzed by earlier ones via NeedsAnalysis().
-        foreach (var analyzer in analyzers)
+        // Execute each primary analyzer in order.
+        foreach (var analyzer in primaryAnalyzers)
         {
             cancellationToken.ThrowIfCancellationRequested();
             items = await analyzer.AnalyzeMediaFiles(items, mode, cancellationToken).ConfigureAwait(false);
+        }
+
+        // If any episodes still need analysis after the primary pass and fallback is enabled,
+        // run the fallback analyzers for those remaining episodes.
+        if (_config.EnableDetectionFallback && fallbackAnalyzers.Count > 0)
+        {
+            var stillNeeded = items.Where(e => e.NeedsAnalysis(mode)).ToList();
+            if (stillNeeded.Count > 0)
+            {
+                LogFallbackTriggered(_logger, mode, first.SeriesName, first.SeasonNumber, stillNeeded.Count);
+                foreach (var fallback in fallbackAnalyzers)
+                {
+                    cancellationToken.ThrowIfCancellationRequested();
+                    items = await fallback.AnalyzeMediaFiles(items, mode, cancellationToken).ConfigureAwait(false);
+                }
+            }
         }
 
         // For anime, optionally create a Preview segment from the end of credits to the end of the episode.
@@ -557,4 +592,7 @@ public partial class BaseItemAnalyzerTask(
 
     [LoggerMessage(Level = LogLevel.Information, Message = "[Mode: {Mode}] Skipping {Name} season {Season}: analyzer action is set to None")]
     private static partial void LogSkippingNoneAction(ILogger logger, AnalysisMode mode, string name, int season);
+
+    [LoggerMessage(Level = LogLevel.Information, Message = "[Mode: {Mode}] Fallback triggered for {Name} season {Season}: {Count} episode(s) not found by primary analyzer")]
+    private static partial void LogFallbackTriggered(ILogger logger, AnalysisMode mode, string name, int season, int count);
 }
