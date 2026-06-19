@@ -87,6 +87,25 @@ public partial class ChapterAnalyzer(ILogger<ChapterAnalyzer> logger, IFFmpegSer
             _ => throw new ArgumentOutOfRangeException(nameof(mode), $"Unexpected analysis mode: {mode}")
         };
 
+        if (_config.EnableInternationalChapterPatterns)
+        {
+            var intlPattern = mode switch
+            {
+                AnalysisMode.Introduction => @"(^|\s)(オープニング)(\s|:|$)",
+                AnalysisMode.Credits => @"(^|\s)(エンディング|Générique|Abspann)(\s|:|$)",
+                AnalysisMode.Preview => @"(^|\s)(予告)(\s|:|$)",
+                AnalysisMode.Recap => @"(^|\s)(前回のあらすじ)(\s|:|$)",
+                _ => string.Empty
+            };
+
+            if (!string.IsNullOrEmpty(intlPattern))
+            {
+                expression = string.IsNullOrWhiteSpace(expression)
+                    ? intlPattern
+                    : expression + "|" + intlPattern;
+            }
+        }
+
         if (string.IsNullOrWhiteSpace(expression) && !_config.EnableSponsorBlockChapterDetection && !enableRecapBlackFrameFallback)
         {
             return analysisQueue;

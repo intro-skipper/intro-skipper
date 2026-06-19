@@ -349,31 +349,37 @@ public class PluginConfiguration : BasePluginConfiguration
     /// Gets or sets the regular expression used to detect introduction chapters.
     /// </summary>
     public string ChapterAnalyzerIntroductionPattern { get; set; } =
-        @"(^|\s)(Intro|Introduction|OP|Opening|オープニング)(?![\s:]+End)(\s|:|$)";
+        @"(^|\s)(Intro|Introduction|OP|Opening)(?![\s:]+End)(\s|:|$)";
 
     /// <summary>
     /// Gets or sets the regular expression used to detect ending credit chapters.
     /// </summary>
     public string ChapterAnalyzerEndCreditsPattern { get; set; } =
-        @"(^|\s)(Credits?|ED|Ending|Outro|エンディング|Générique|Abspann)(?![\s:]+End)(\s|:|$)";
+        @"(^|\s)(Credits?|ED|Ending|Outro)(?![\s:]+End)(\s|:|$)";
 
     /// <summary>
     /// Gets or sets the regular expression used to detect Preview chapters.
     /// </summary>
     public string ChapterAnalyzerPreviewPattern { get; set; } =
-        @"(^|\s)(Preview|PV|Sneak\s?Peek|Coming\s?(Up|Soon)|Next\s+(time|on|episode)|Extra|Teaser|Trailer|予告)(?![\s:]+End)(\s|:|$)";
+        @"(^|\s)(Preview|PV|Sneak\s?Peek|Coming\s?(Up|Soon)|Next\s+(time|on|episode)|Extra|Teaser|Trailer)(?![\s:]+End)(\s|:|$)";
 
     /// <summary>
     /// Gets or sets the regular expression used to detect Recap chapters.
     /// </summary>
     public string ChapterAnalyzerRecapPattern { get; set; } =
-        @"(^|\s)(Re?cap|Sum{1,2}ary|Prev(ious(ly)?)?|(Last|Earlier)(\s\w+)?|Catch[ -]up)(?![\s:]+End)(\s|:|$)|(^|\s)前回のあらすじ(\s|:|$)";
+        @"(^|\s)(Re?cap|Sum{1,2}ary|Prev(ious(ly)?)?|(Last|Earlier)(\s\w+)?|Catch[ -]up)(?![\s:]+End)(\s|:|$)";
 
     /// <summary>
     /// Gets or sets the regular expression used to detect Commercial chapters.
     /// </summary>
     public string ChapterAnalyzerCommercialPattern { get; set; } =
         @"(^|\s)(Ad(vert(isement)?)?|Commercial|Intermission)(?![\s:]+End)(\s|:|$)";
+
+    /// <summary>
+    /// Gets or sets a value indicating whether to include international chapter title terms
+    /// (Japanese, French, German) in the chapter analyzer patterns in addition to the default English terms.
+    /// </summary>
+    public bool EnableInternationalChapterPatterns { get; set; } = false;
 
     // ===== Playback settings =====
 
