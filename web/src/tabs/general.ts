@@ -6,6 +6,7 @@ import {
     getStorageUsage,
     injectSkipButtonCss,
 } from "../store/api.ts";
+import { getLibraries, getShowsInLibrary } from "../store/jellyfin-client.ts";
 import { el, htmlEl } from "../components/dom.ts";
 import { bindVisibility } from "../components/field-bind.ts";
 import { appendTabContent } from "../components/tab-layout.ts";
@@ -50,6 +51,19 @@ async function confirmPathExclusion(value: string): Promise<boolean> {
         "This path appears to be a filesystem root or drive root. Excluding it can skip a large part of the library.",
         "Confirm Path Exclusion",
     );
+}
+
+async function loadMediaNameSuggestions(type: "Series" | "Movie"): Promise<string[]> {
+    const libraries = await getLibraries();
+    const groups = await Promise.all(
+        libraries.map((library) => getShowsInLibrary(library.Id, library.Name)),
+    );
+
+    return groups
+        .flat()
+        .filter((item) => item.Type === type)
+        .map((item) => item.Name)
+        .sort((a, b) => a.localeCompare(b));
 }
 
 async function loadStoragePathSuggestions(): Promise<string[]> {
@@ -195,13 +209,16 @@ export const generalTab: Tab = {
                 label: "Excluded series",
                 placeholder: "Series name",
                 description:
-                    "Series names matched exactly, case-insensitively.",
+                    "Series names matched exactly, case-insensitively. Start typing to pick from your libraries.",
+                suggestions: () => loadMediaNameSuggestions("Series"),
             }),
             exclusionListField({
                 id: "MovieExclusions",
                 label: "Excluded movies",
                 placeholder: "Movie name",
-                description: "Movie names matched exactly, case-insensitively.",
+                description:
+                    "Movie names matched exactly, case-insensitively. Start typing to pick from your libraries.",
+                suggestions: () => loadMediaNameSuggestions("Movie"),
             }),
             exclusionListField({
                 id: "PathExclusions",
