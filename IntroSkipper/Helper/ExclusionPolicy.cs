@@ -38,7 +38,7 @@ internal sealed class ExclusionPolicy
             CreatePathRoots(config.PathExclusions));
     }
 
-    public ExclusionDecision EvaluateSeries(string seriesName, Guid seriesId, string? path)
+    public ExclusionDecision EvaluateSeries(string? seriesName, Guid seriesId, string? path)
     {
         _ = seriesId;
 
@@ -48,7 +48,7 @@ internal sealed class ExclusionPolicy
             return pathDecision;
         }
 
-        var name = seriesName.Trim();
+        var name = seriesName?.Trim() ?? string.Empty;
         if (name.Length == 0)
         {
             return ExclusionDecision.Included;
@@ -59,7 +59,7 @@ internal sealed class ExclusionPolicy
             : ExclusionDecision.Included;
     }
 
-    public ExclusionDecision EvaluateMovie(string movieName, Guid movieId, string? path)
+    public ExclusionDecision EvaluateMovie(string? movieName, Guid movieId, string? path)
     {
         _ = movieId;
 
@@ -69,7 +69,7 @@ internal sealed class ExclusionPolicy
             return pathDecision;
         }
 
-        var name = movieName.Trim();
+        var name = movieName?.Trim() ?? string.Empty;
         return name.Length > 0 && _movieNames.Contains(name)
             ? new ExclusionDecision(true, ExclusionReason.MovieName, name)
             : ExclusionDecision.Included;

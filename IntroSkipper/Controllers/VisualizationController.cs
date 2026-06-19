@@ -233,6 +233,9 @@ public partial class VisualizationController(ILogger<VisualizationController> lo
             int removedCacheEntries;
             using (var cacheDb = Plugin.CreateCacheDbContext())
             {
+                // Cache deletion must run to completion — the segment and season-state rows
+                // above are already deleted, so aborting here would leave orphaned cache
+                // entries out of sync with the database.
                 removedCacheEntries = await cacheDb.DetectionCache
                     .Where(e => excludedIds.Contains(e.ItemId))
                     .ExecuteDeleteAsync(CancellationToken.None)
