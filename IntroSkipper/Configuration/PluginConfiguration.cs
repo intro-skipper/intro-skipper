@@ -178,6 +178,16 @@ public class PluginConfiguration : BasePluginConfiguration
     public int AnalysisLengthLimit { get; set; } = DefaultAnalysisLengthLimit;
 
     /// <summary>
+    /// Gets or sets a value indicating whether to use duration-scaled analysis ranges instead of
+    /// the fixed <see cref="AnalysisPercent"/> percentage when computing how much of each episode
+    /// to fingerprint. When enabled, short episodes are given a higher relative share so that
+    /// intros near the 50 % mark are not missed, while long episodes are capped earlier to avoid
+    /// wasting CPU time on content that cannot possibly be an intro.
+    /// The absolute cap from <see cref="AnalysisLengthLimit"/> is still respected.
+    /// </summary>
+    public bool UseDynamicAnalysisRange { get; set; } = true;
+
+    /// <summary>
     /// Gets or sets a value indicating whether to use the minimum and maximum duration for chapters.
     /// </summary>
     public bool FullLengthChapters { get; set; } = false;

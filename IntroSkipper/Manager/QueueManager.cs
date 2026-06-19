@@ -260,9 +260,12 @@ public partial class QueueManager(ILogger<QueueManager> logger, ILibraryManager 
         }
 
         var duration = TimeSpan.FromTicks(episode.RunTimeTicks ?? 0).TotalSeconds;
-        var fingerprintDuration = Math.Min(
-            duration >= 5 * 60 ? duration * _analysisPercent : duration,
-            60 * pluginInstance.Configuration.AnalysisLengthLimit);
+        var config = pluginInstance.Configuration;
+        var fingerprintDuration = config.UseDynamicAnalysisRange
+            ? ComputeDynamicFingerprintDuration(duration, config.AnalysisLengthLimit)
+            : Math.Min(
+                duration >= 5 * 60 ? duration * _analysisPercent : duration,
+                60 * config.AnalysisLengthLimit);
 
         var creditsDuration = await ResolveCreditsFingerprintEndAsync(episode.Path, duration, cancellationToken).ConfigureAwait(false);
 
@@ -486,6 +489,44 @@ public partial class QueueManager(ILogger<QueueManager> logger, ILibraryManager 
         }
 
         return verified;
+    }
+
+    /// <summary>
+    /// Computes the intro fingerprint window (in seconds) for an episode using duration-scaled
+    /// thresholds. The resulting value is always capped by <paramref name="analysisLengthLimitMinutes"/>.
+    /// </summary>
+    /// <remarks>
+    /// <list type="bullet">
+    ///   <item>Episodes shorter than 15 minutes: up to 50 % of duration, capped at 360 s (6 min).</item>
+    ///   <item>Episodes shorter than 30 minutes: up to 35 % of duration, capped at 480 s (8 min).</item>
+    ///   <item>Episodes 30 minutes or longer: up to 15 % of duration, capped at 600 s (10 min).</item>
+    /// </list>
+    /// The absolute cap from the plugin's <c>AnalysisLengthLimit</c> setting (converted to seconds)
+    /// is applied on top of the tier cap so administrators can still reduce the limit further.
+    /// </remarks>
+    /// <param name="duration">Total episode duration in seconds.</param>
+    /// <param name="analysisLengthLimitMinutes">The configured <c>AnalysisLengthLimit</c> (in minutes).</param>
+    /// <returns>Number of seconds to fingerprint.</returns>
+    internal static double ComputeDynamicFingerprintDuration(double duration, int analysisLengthLimitMinutes)
+    {
+        double tierResult;
+        if (duration < 900)
+        {
+            // < 15 min: 50 % up to 6 min
+            tierResult = Math.Min(duration * 0.50, 360);
+        }
+        else if (duration < 1800)
+        {
+            // 15-30 min: 35 % up to 8 min
+            tierResult = Math.Min(duration * 0.35, 480);
+        }
+        else
+        {
+            // >= 30 min: 15 % up to 10 min
+            tierResult = Math.Min(duration * 0.15, 600);
+        }
+
+        return Math.Min(tierResult, 60.0 * analysisLengthLimitMinutes);
     }
 
     [GeneratedRegex(@"[^\w\s]")]
