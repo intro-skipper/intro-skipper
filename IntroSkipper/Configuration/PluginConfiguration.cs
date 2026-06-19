@@ -318,25 +318,25 @@ public class PluginConfiguration : BasePluginConfiguration
     /// Gets or sets the regular expression used to detect introduction chapters.
     /// </summary>
     public string ChapterAnalyzerIntroductionPattern { get; set; } =
-        @"(^|\s)(Intro|Introduction|OP|Opening)(?![\s:]+End)(\s|:|$)";
+        @"(^|\s)(Intro|Introduction|OP|Opening|オープニング)(?![\s:]+End)(\s|:|$)";
 
     /// <summary>
     /// Gets or sets the regular expression used to detect ending credit chapters.
     /// </summary>
     public string ChapterAnalyzerEndCreditsPattern { get; set; } =
-        @"(^|\s)(Credits?|ED|Ending|Outro)(?![\s:]+End)(\s|:|$)";
+        @"(^|\s)(Credits?|ED|Ending|Outro|エンディング|Générique|Abspann)(?![\s:]+End)(\s|:|$)";
 
     /// <summary>
     /// Gets or sets the regular expression used to detect Preview chapters.
     /// </summary>
     public string ChapterAnalyzerPreviewPattern { get; set; } =
-        @"(^|\s)(Preview|PV|Sneak\s?Peek|Coming\s?(Up|Soon)|Next\s+(time|on|episode)|Extra|Teaser|Trailer)(?![\s:]+End)(\s|:|$)";
+        @"(^|\s)(Preview|PV|Sneak\s?Peek|Coming\s?(Up|Soon)|Next\s+(time|on|episode)|Extra|Teaser|Trailer|予告)(?![\s:]+End)(\s|:|$)";
 
     /// <summary>
     /// Gets or sets the regular expression used to detect Recap chapters.
     /// </summary>
     public string ChapterAnalyzerRecapPattern { get; set; } =
-        @"(^|\s)(Re?cap|Sum{1,2}ary|Prev(ious(ly)?)?|(Last|Earlier)(\s\w+)?|Catch[ -]up)(?![\s:]+End)(\s|:|$)";
+        @"(^|\s)(Re?cap|Sum{1,2}ary|Prev(ious(ly)?)?|(Last|Earlier)(\s\w+)?|Catch[ -]up)(?![\s:]+End)(\s|:|$)|^前回のあらすじ$";
 
     /// <summary>
     /// Gets or sets the regular expression used to detect Commercial chapters.

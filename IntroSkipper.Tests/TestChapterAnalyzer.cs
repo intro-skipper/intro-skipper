@@ -24,6 +24,7 @@ public class TestChapterAnalyzer
     [InlineData("Intro:")]
     [InlineData("Intro Start")]
     [InlineData("Introduction")]
+    [InlineData("オープニング")]
     public void TestIntroductionExpression(string chapterName)
     {
         var introChapter = FindChapter(chapterName, AnalysisMode.Introduction);
@@ -40,6 +41,9 @@ public class TestChapterAnalyzer
     [InlineData("Closing Credits")]
     [InlineData("Credits")]
     [InlineData("Credits:")]
+    [InlineData("エンディング")]
+    [InlineData("Générique")]
+    [InlineData("Abspann")]
     public void TestEndCreditsExpression(string chapterName)
     {
         var creditsChapter = FindChapter(chapterName, AnalysisMode.Credits);
@@ -52,6 +56,7 @@ public class TestChapterAnalyzer
     [Theory]
     [InlineData("Preview")]
     [InlineData("Trailer")]
+    [InlineData("予告")]
     public void TestPreviewExpression(string chapterName)
     {
         var previewChapter = FindChapter(chapterName, AnalysisMode.Preview);
@@ -64,6 +69,7 @@ public class TestChapterAnalyzer
     [Theory]
     [InlineData("Recap")]
     [InlineData("Previously")]
+    [InlineData("前回のあらすじ")]
     public void TestRecapExpression(string chapterName)
     {
         var recapChapter = FindChapter(chapterName, AnalysisMode.Recap);
