@@ -86,7 +86,7 @@ public partial class CleanCacheTask(
 
         // QueueManager.GetMediaItems() already skips libraries where the plugin is disabled via
         // LibraryOptions.DisabledMediaSegmentProviders.
-        var queue = await queueManager.GetMediaItems(cancellationToken).ConfigureAwait(false);
+        var queue = await queueManager.GetMediaItems(includeExcluded: true, cancellationToken).ConfigureAwait(false);
         var enabledLibraryEpisodes = queue.Values.SelectMany(static episodes => episodes).ToList();
 
         var enabledLibraryEpisodeIds = enabledLibraryEpisodes

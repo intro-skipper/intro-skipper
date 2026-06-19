@@ -39,8 +39,7 @@ internal static class SeasonReanalysisPlanner
 
         var first = seasonEpisodes[0];
 
-        // Only multi-episode TV seasons are comparative; movies and excluded items gain nothing.
-        if (first.IsExcluded || first.Category is QueuedMediaCategory.Movie)
+        if (first.Category is QueuedMediaCategory.Movie)
         {
             return false;
         }

@@ -7,6 +7,7 @@ import type {
     PluginInfo,
     LibraryStorage,
     SystemStorageInfo,
+    ClearExcludedTimestampsResponse,
 } from "../types.ts";
 
 const PLUGIN_ID = "c83d86bb-a1e0-4c35-a113-e2101cf4ee6b";
@@ -104,6 +105,58 @@ export function eraseTimestamps(mode: string, eraseCache: boolean): Promise<Resp
 
 export function eraseItemTimestamps(urlPath: string, eraseCache: boolean): Promise<Response> {
     return fetchWithAuth(`${urlPath}?eraseCache=${eraseCache}`, "DELETE");
+}
+
+function hasNumberProperty(target: object, property: keyof ClearExcludedTimestampsResponse): boolean {
+    return typeof Reflect.get(target, property) === "number";
+}
+
+function isClearExcludedTimestampsResponse(
+    value: unknown,
+): value is ClearExcludedTimestampsResponse {
+    return (
+        typeof value === "object" &&
+        value !== null &&
+        hasNumberProperty(value, "AffectedItems") &&
+        hasNumberProperty(value, "RemovedSegments") &&
+        hasNumberProperty(value, "RemovedCacheEntries")
+    );
+}
+
+export async function clearExcludedTimestamps(): Promise<
+    ApiResult<ClearExcludedTimestampsResponse>
+> {
+    try {
+        const response = await fetchWithAuth("Intros/ExcludedTimestamps/Clear", "POST");
+        if (!response.ok) {
+            return {
+                ok: false,
+                status: response.status,
+                error: "Server returned " + response.status,
+            };
+        }
+
+        const data: unknown = await response.json();
+        if (!isClearExcludedTimestampsResponse(data)) {
+            return {
+                ok: false,
+                status: response.status,
+                error: "Unexpected clear response shape",
+            };
+        }
+
+        return {
+            ok: true,
+            status: response.status,
+            data,
+        };
+    } catch (err: unknown) {
+        return {
+            ok: false,
+            status: null,
+            error: err instanceof Error ? err.message : "Network error",
+        };
+    }
 }
 
 // Support and storage tools.

@@ -14,6 +14,17 @@ const listeners = new Map<StoreEvent, Set<(...args: unknown[]) => void>>();
 let scopedListeners: Array<{ event: StoreEvent; callback: (...args: unknown[]) => void }> = [];
 let trackingScope = false;
 
+function normalizeStringList(value: unknown): string[] {
+    return Array.isArray(value) ? value.filter((item) => typeof item === "string") : [];
+}
+
+function normalizePluginConfig(loadedConfig: PluginConfig): PluginConfig {
+    loadedConfig.SeriesExclusions = normalizeStringList(loadedConfig.SeriesExclusions);
+    loadedConfig.MovieExclusions = normalizeStringList(loadedConfig.MovieExclusions);
+    loadedConfig.PathExclusions = normalizeStringList(loadedConfig.PathExclusions);
+    return loadedConfig;
+}
+
 export const configStore = {
     subscribe(event: StoreEvent, callback: (...args: unknown[]) => void): void {
         if (!listeners.has(event)) {
@@ -55,7 +66,7 @@ export const configStore = {
 
     async load(): Promise<void> {
         try {
-            config = await loadPluginConfig();
+            config = normalizePluginConfig(await loadPluginConfig());
             snapshot = JSON.parse(JSON.stringify(config)) as PluginConfig;
             this.emit("loaded");
         } catch (err) {
@@ -126,9 +137,6 @@ export const configStore = {
 
     isDirty(): boolean {
         if (!config || !snapshot) return false;
-        for (const key of Object.keys(config) as Array<keyof PluginConfig>) {
-            if (config[key] !== snapshot[key]) return true;
-        }
-        return false;
+        return JSON.stringify(config) !== JSON.stringify(snapshot);
     },
 };
