@@ -24,7 +24,6 @@ public class TestChapterAnalyzer
     [InlineData("Intro:")]
     [InlineData("Intro Start")]
     [InlineData("Introduction")]
-    [InlineData("オープニング")]
     public void TestIntroductionExpression(string chapterName)
     {
         var introChapter = FindChapter(chapterName, AnalysisMode.Introduction);
@@ -41,9 +40,6 @@ public class TestChapterAnalyzer
     [InlineData("Closing Credits")]
     [InlineData("Credits")]
     [InlineData("Credits:")]
-    [InlineData("エンディング")]
-    [InlineData("Générique")]
-    [InlineData("Abspann")]
     public void TestEndCreditsExpression(string chapterName)
     {
         var creditsChapter = FindChapter(chapterName, AnalysisMode.Credits);
@@ -56,7 +52,6 @@ public class TestChapterAnalyzer
     [Theory]
     [InlineData("Preview")]
     [InlineData("Trailer")]
-    [InlineData("予告")]
     public void TestPreviewExpression(string chapterName)
     {
         var previewChapter = FindChapter(chapterName, AnalysisMode.Preview);
@@ -69,8 +64,6 @@ public class TestChapterAnalyzer
     [Theory]
     [InlineData("Recap")]
     [InlineData("Previously")]
-    [InlineData("前回のあらすじ")]
-    [InlineData("[1] 前回のあらすじ:")]
     public void TestRecapExpression(string chapterName)
     {
         var recapChapter = FindChapter(chapterName, AnalysisMode.Recap);
@@ -192,11 +185,41 @@ public class TestChapterAnalyzer
         Assert.Equal(90, introChapter.End);
     }
 
+    [Theory]
+    [InlineData("オープニング", AnalysisMode.Introduction)]
+    [InlineData("エンディング", AnalysisMode.Credits)]
+    [InlineData("Générique", AnalysisMode.Credits)]
+    [InlineData("Abspann", AnalysisMode.Credits)]
+    [InlineData("予告", AnalysisMode.Preview)]
+    [InlineData("前回のあらすじ", AnalysisMode.Recap)]
+    [InlineData("[1] 前回のあらすじ:", AnalysisMode.Recap)]
+    public void TestInternationalPatternsWhenEnabled(string chapterName, AnalysisMode mode)
+    {
+        var chapter = FindChapter(chapterName, mode, enableInternationalPatterns: true);
+
+        Assert.NotNull(chapter);
+    }
+
+    [Theory]
+    [InlineData("オープニング", AnalysisMode.Introduction)]
+    [InlineData("エンディング", AnalysisMode.Credits)]
+    [InlineData("Générique", AnalysisMode.Credits)]
+    [InlineData("Abspann", AnalysisMode.Credits)]
+    [InlineData("予告", AnalysisMode.Preview)]
+    [InlineData("前回のあらすじ", AnalysisMode.Recap)]
+    public void TestInternationalPatternsNotMatchedWhenDisabled(string chapterName, AnalysisMode mode)
+    {
+        var chapter = FindChapter(chapterName, mode, enableInternationalPatterns: false);
+
+        Assert.Null(chapter);
+    }
+
     private Segment? FindChapter(
         string chapterName,
         AnalysisMode mode,
         string? expressionOverride = null,
-        bool enableSponsorBlockChapterDetection = true)
+        bool enableSponsorBlockChapterDetection = true,
+        bool enableInternationalPatterns = false)
     {
         var analyzer = new ChapterAnalyzer(NullLogger<ChapterAnalyzer>.Instance, null!);
         var chapters = CreateChapters(chapterName, mode);
@@ -211,6 +234,25 @@ public class TestChapterAnalyzer
             AnalysisMode.Commercial => config.ChapterAnalyzerCommercialPattern,
             _ => throw new ArgumentOutOfRangeException(nameof(mode), mode, null)
         };
+
+        if (enableInternationalPatterns)
+        {
+            var intlPattern = mode switch
+            {
+                AnalysisMode.Introduction => @"(^|\s)(オープニング)(\s|:|$)",
+                AnalysisMode.Credits => @"(^|\s)(エンディング|Générique|Abspann)(\s|:|$)",
+                AnalysisMode.Preview => @"(^|\s)(予告)(\s|:|$)",
+                AnalysisMode.Recap => @"(^|\s)(前回のあらすじ)(\s|:|$)",
+                _ => string.Empty
+            };
+
+            if (!string.IsNullOrEmpty(intlPattern))
+            {
+                expression = string.IsNullOrWhiteSpace(expression)
+                    ? intlPattern
+                    : expression + "|" + intlPattern;
+            }
+        }
 
         return analyzer.FindMatchingChapter(
             new() { Duration = 2000 },
