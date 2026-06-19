@@ -97,6 +97,40 @@ public class TestAudioFingerprinting
         Assert.Equal(expected, actual);
     }
 
+    /// <summary>
+    /// Verify that CompareEpisodes populates a non-trivial Confidence value on the returned segments.
+    /// Two identical 200-point fingerprints share every point, so a contiguous match is guaranteed.
+    /// With the neutral bit-error proxy the confidence factor from bit-quality is 0.5, so the
+    /// resulting Confidence must be strictly between 0.0 and 1.0.
+    /// </summary>
+    [Fact]
+    public void TestCompareEpisodesPopulatesConfidence()
+    {
+        // Build two identical fingerprints with enough points to exceed MinimumIntroDuration.
+        // SampleDuration ≈ 0.1238 s, so 200 points → ~24.8 s > default MinimumIntroDuration (15 s).
+        var fingerprint = new uint[200];
+        for (var i = 0; i < fingerprint.Length; i++)
+        {
+            fingerprint[i] = (uint)(i + 1); // distinct non-zero values to populate the inverted index
+        }
+
+        var lhsId = Guid.NewGuid();
+        var rhsId = Guid.NewGuid();
+
+        var analyzer = CreateChromaprintAnalyzer();
+        var (lhs, rhs) = analyzer.CompareEpisodes(lhsId, fingerprint, rhsId, fingerprint);
+
+        // The segments must be valid (a match was found).
+        Assert.True(lhs.Valid, "Expected LHS segment to be valid");
+        Assert.True(rhs.Valid, "Expected RHS segment to be valid");
+
+        // Confidence must be strictly between 0.0 and 1.0 — not the default 1.0 and not zero.
+        Assert.True(lhs.Confidence > 0.0, $"LHS Confidence should be > 0 but was {lhs.Confidence}");
+        Assert.True(lhs.Confidence < 1.0, $"LHS Confidence should be < 1 but was {lhs.Confidence}");
+        Assert.True(rhs.Confidence > 0.0, $"RHS Confidence should be > 0 but was {rhs.Confidence}");
+        Assert.True(rhs.Confidence < 1.0, $"RHS Confidence should be < 1 but was {rhs.Confidence}");
+    }
+
     [FactSkipFFmpegTests]
     public async Task TestIntroDetection()
     {

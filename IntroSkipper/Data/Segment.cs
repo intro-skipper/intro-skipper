@@ -48,6 +48,7 @@ public class Segment
         EpisodeId = segment.EpisodeId;
         Start = segment.Start;
         End = segment.End;
+        Confidence = segment.Confidence;
     }
 
     /// <summary>
@@ -74,6 +75,14 @@ public class Segment
     /// </summary>
     [DataMember]
     public double End { get; set; }
+
+    /// <summary>
+    /// Gets or sets the fingerprint match confidence for this segment.
+    /// A value of 1.0 indicates the highest possible confidence; 0.0 the lowest.
+    /// Segments produced by non-fingerprint analyzers (chapter, black-frame) default to 1.0.
+    /// </summary>
+    [DataMember]
+    public double Confidence { get; set; } = 1.0;
 
     /// <summary>
     /// Gets a value indicating whether this segment is valid or not.

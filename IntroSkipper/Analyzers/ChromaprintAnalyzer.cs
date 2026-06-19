@@ -150,6 +150,14 @@ public partial class ChromaprintAnalyzer(ILogger<ChromaprintAnalyzer> logger, IF
             // If an intro is found for this episode, adjust its times and save it else add it to the list of episodes without intros.
             if (seasonIntros.TryGetValue(currentEpisode.EpisodeId, out var intro))
             {
+                // Skip segments whose fingerprint confidence falls below the minimum threshold.
+                const double MinimumConfidence = 0.3;
+                if (intro.Confidence < MinimumConfidence)
+                {
+                    LogLowConfidenceSegmentSkipped(intro.EpisodeId, intro.Confidence, MinimumConfidence);
+                    continue;
+                }
+
                 var adjustedIntro = await timeAdjustmentHelper.AdjustIntroTimesAsync(currentEpisode, intro, cancellationToken: cancellationToken).ConfigureAwait(false);
                 currentEpisode.SetAnalyzed(mode, EpisodeState.Analyzed);
                 await Plugin.Instance!.UpdateTimestampAsync(adjustedIntro, mode, configHash: currentEpisode.AnalysisConfigHash, cancellationToken: cancellationToken).ConfigureAwait(false);
@@ -181,7 +189,33 @@ public partial class ChromaprintAnalyzer(ILogger<ChromaprintAnalyzer> logger, IF
         {
             LogIndexSearchSuccessful();
 
-            return GetLongestTimeRange(lhsId, lhsRanges, rhsId, rhsRanges);
+            var (lhsSegment, rhsSegment) = GetLongestTimeRange(lhsId, lhsRanges, rhsId, rhsRanges);
+
+            // Compute fingerprint match confidence.
+            // We use MaximumFingerprintPointDifferences / 2.0 as a neutral average bit-error proxy
+            // because per-point Hamming distances are not surfaced through the current inverted-index
+            // path; only points that pass the threshold are recorded, so the true average is
+            // somewhere between 0 and MaximumFingerprintPointDifferences.
+            var maxDur = _analysisMode == AnalysisMode.Introduction
+                ? (double)_config.MaximumIntroDuration
+                : (double)_config.MaximumCreditsDuration;
+            var avgBitErrorProxy = _config.MaximumFingerprintPointDifferences / 2.0;
+            var maxBitErrors = (double)_config.MaximumFingerprintPointDifferences;
+
+            lhsSegment.Confidence = Math.Clamp(
+                (lhsSegment.Duration / maxDur) * (1.0 - (avgBitErrorProxy / maxBitErrors)),
+                0.0,
+                1.0);
+
+            rhsSegment.Confidence = Math.Clamp(
+                (rhsSegment.Duration / maxDur) * (1.0 - (avgBitErrorProxy / maxBitErrors)),
+                0.0,
+                1.0);
+
+            LogSegmentConfidence(lhsSegment.EpisodeId, lhsSegment.Start, lhsSegment.End, lhsSegment.Confidence);
+            LogSegmentConfidence(rhsSegment.EpisodeId, rhsSegment.Start, rhsSegment.End, rhsSegment.Confidence);
+
+            return (lhsSegment, rhsSegment);
         }
 
         LogSharedIntroNotFound(lhsId, rhsId);
@@ -393,4 +427,10 @@ public partial class ChromaprintAnalyzer(ILogger<ChromaprintAnalyzer> logger, IF
 
     [LoggerMessage(Level = LogLevel.Trace, Message = "Unable to find a shared introduction sequence between {LHS} and {RHS}")]
     private partial void LogSharedIntroNotFound(Guid lhs, Guid rhs);
+
+    [LoggerMessage(Level = LogLevel.Debug, Message = "Segment {EpisodeId} [{Start:F3}s – {End:F3}s] confidence {Confidence:F4}")]
+    private partial void LogSegmentConfidence(Guid episodeId, double start, double end, double confidence);
+
+    [LoggerMessage(Level = LogLevel.Debug, Message = "Skipping low-confidence segment for {EpisodeId}: confidence {Confidence:F4} is below threshold {Threshold:F4}")]
+    private partial void LogLowConfidenceSegmentSkipped(Guid episodeId, double confidence, double threshold);
 }
