@@ -234,6 +234,30 @@ public class TestBlackFrames
     }
 
     [Fact]
+    public void TestAdaptiveDensity_SentinelValuesExcluded_DoNotSkewMedian()
+    {
+        // ComputeSceneDensity returns -1 for scenes with no frames. If those sentinel
+        // values were included they would pull the median negative; they must be filtered out.
+        // Three valid scenes at ~0.30 density plus two empty-scene sentinels.
+        var densities = new List<double> { -1, 0.28, 0.30, 0.32, -1 };
+        var threshold = BlackFrameAltAnalyzer.ComputeAdaptiveDensityThreshold(densities);
+        // Valid densities: [0.28, 0.30, 0.32] — median = 0.30 → threshold = 0.30 * 0.6 = 0.18
+        Assert.True(threshold > 0, "Sentinel -1 values must not drive threshold negative");
+        Assert.Equal(0.30 * 0.6, threshold, precision: 10);
+    }
+
+    [Fact]
+    public void TestAdaptiveDensity_EvenCount_TrueMedianUsed()
+    {
+        // Four valid scenes: [0.20, 0.40, 0.60, 0.80]
+        // True median = (0.40 + 0.60) / 2 = 0.50; upper-middle (old bug) would give 0.60.
+        // threshold = min(0.50, 0.50 * 0.6) = 0.30
+        var densities = new List<double> { 0.20, 0.40, 0.60, 0.80 };
+        var threshold = BlackFrameAltAnalyzer.ComputeAdaptiveDensityThreshold(densities);
+        Assert.Equal(0.50 * 0.6, threshold, precision: 10);
+    }
+
+    [Fact]
     public void TestDetectCreditScenes_LowDensity_AdaptiveThresholdAllowsScenes()
     {
         // Simulate letterboxed content where credit scenes only reach ~30% density.

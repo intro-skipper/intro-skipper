@@ -414,18 +414,28 @@ public sealed partial class BlackFrameAltAnalyzer(ILogger<BlackFrameAltAnalyzer>
     ///         scene to pass while still rejecting clear noise.</item>
     /// </list>
     /// </remarks>
-    /// <param name="densities">Measured per-scene black-frame densities (in [0, 1]).</param>
+    /// <param name="densities">Measured per-scene black-frame densities.
+    /// Values less than zero are sentinel values from empty scenes (produced by
+    /// <see cref="ComputeSceneDensity"/> when no frames fall within a scene) and are
+    /// excluded before computing the distribution.</param>
     /// <returns>Effective density threshold to apply during scene filtering.</returns>
     internal static double ComputeAdaptiveDensityThreshold(IReadOnlyList<double> densities)
     {
-        if (densities.Count < 3)
+        // Exclude -1 sentinel values produced for empty scenes — including them would
+        // bias the median toward -1, potentially driving the threshold negative.
+        var valid = densities.Where(d => d >= 0).OrderBy(d => d).ToList();
+        if (valid.Count < 3)
         {
             return MinimumBlackFrameDensity;
         }
 
-        var sorted = new List<double>(densities);
-        sorted.Sort();
-        var median = sorted[sorted.Count / 2];
+        // True median: average the two middle elements for even counts rather than
+        // always taking the upper-middle element, which would bias the threshold upward.
+        var mid = valid.Count / 2;
+        var median = valid.Count % 2 == 0
+            ? (valid[mid - 1] + valid[mid]) / 2.0
+            : valid[mid];
+
         return Math.Min(MinimumBlackFrameDensity, median * 0.6);
     }
 
