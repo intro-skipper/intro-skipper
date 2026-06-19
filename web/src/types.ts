@@ -12,6 +12,8 @@ export interface PluginConfig {
     MaximumMovieCreditsDuration: number;
     MinimumRecapDuration: number;
     MaximumRecapDuration: number;
+    MinimumRecapDetectionDuration: number;
+    MaximumRecapDetectionDuration: number;
     MinimumPreviewDuration: number;
     MaximumPreviewDuration: number;
     MinimumCommercialDuration: number;
@@ -54,6 +56,7 @@ export interface PluginConfig {
     ScanIntroduction: boolean;
     ScanCredits: boolean;
     ScanRecap: boolean;
+    DetectRecapUsingBlackFrames: boolean;
     ScanPreview: boolean;
     ScanCommercial: boolean;
     EnableMainMenu: boolean;

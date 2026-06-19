@@ -71,7 +71,7 @@ public partial class BaseItemAnalyzerTask(
         CancellationToken cancellationToken,
         IReadOnlyCollection<Guid>? seasonsToAnalyze = null)
     {
-        HashSet<AnalysisMode> modes = [
+        List<AnalysisMode> modes = [
             .. _config.ScanIntroduction ? [AnalysisMode.Introduction] : Array.Empty<AnalysisMode>(),
             .. _config.ScanCredits ? [AnalysisMode.Credits] : Array.Empty<AnalysisMode>(),
             .. _config.ScanRecap ? [AnalysisMode.Recap] : Array.Empty<AnalysisMode>(),
@@ -226,7 +226,7 @@ public partial class BaseItemAnalyzerTask(
     private static async Task<IReadOnlyList<AnalysisMode>> GetSettleReanalysisModesAsync(
         Guid seasonId,
         IReadOnlyCollection<Guid> episodeIds,
-        HashSet<AnalysisMode> modes,
+        IReadOnlyCollection<AnalysisMode> modes,
         bool ffmpegValid,
         CancellationToken cancellationToken)
     {
@@ -365,8 +365,13 @@ public partial class BaseItemAnalyzerTask(
                 analyzers.Add(new ChromaprintAnalyzer(_loggerFactory.CreateLogger<ChromaprintAnalyzer>(), _ffmpegService, _cacheService));
             }
         }
+        else if (mode is AnalysisMode.Recap && !isMovie && ffmpegValid)
+        {
+            // Recap: Chromaprint can match the repeated "previously on" card/sting near the start.
+            analyzers.Add(new ChromaprintAnalyzer(_loggerFactory.CreateLogger<ChromaprintAnalyzer>(), _ffmpegService, _cacheService));
+        }
 
-        // Recap, Preview, Commercial: only ChapterAnalyzer (already added above)
+        // Preview, Commercial: only ChapterAnalyzer (already added above)
 
         // Apply priority overrides to reorder the analyzer chain.
         // The specified analyzer moves to the front; others keep their relative order.

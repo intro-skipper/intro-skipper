@@ -73,6 +73,28 @@ export const analysisTab: Tab = {
             }),
             info,
             durationPair(
+                "MinimumRecapDuration",
+                "MaximumRecapDuration",
+                "Minimum recap duration (in seconds)",
+                "Maximum recap duration (in seconds)",
+                "Recap chapters which are shorter than this duration will not be considered a recap.",
+                "Recap chapters which are longer than this duration will not be considered a recap.",
+            ),
+            durationPair(
+                "MinimumRecapDetectionDuration",
+                "MaximumRecapDetectionDuration",
+                "Minimum detected recap duration (in seconds)",
+                "Maximum detected recap duration (in seconds)",
+                "Blackframe/chromaprint recaps shorter than this duration will not be detected.",
+                "Blackframe/chromaprint recaps longer than this duration will be capped or ignored.",
+            ),
+            checkboxField({
+                id: "DetectRecapUsingBlackFrames",
+                label: "Detect recap using black frames",
+                description:
+                    "When recap chapter detection fails, mark recap from 0:00 to the latest detected black frame within the detected recap duration limits and before the intro.",
+            }),
+            durationPair(
                 "MinimumIntroDuration",
                 "MaximumIntroDuration",
                 "Minimum introduction duration (in seconds)",
@@ -95,15 +117,6 @@ export const analysisTab: Tab = {
                 description:
                     "Segments longer than this duration will not be considered movie credits.",
             }),
-            durationPair(
-                "MinimumRecapDuration",
-                "MaximumRecapDuration",
-                "Minimum recap duration (in seconds)",
-                "Maximum recap duration (in seconds)",
-                "Segments which are shorter than this duration will not be considered a recap.",
-                "Segments which are longer than this duration will not be considered a recap.",
-                chaptersOff,
-            ),
             durationPair(
                 "MinimumPreviewDuration",
                 "MaximumPreviewDuration",

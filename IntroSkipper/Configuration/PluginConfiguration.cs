@@ -245,6 +245,21 @@ public class PluginConfiguration : BasePluginConfiguration
     public int MaximumRecapDuration { get; set; } = 120;
 
     /// <summary>
+    /// Gets or sets the minimum length of a detected black-frame/chromaprint recap.
+    /// </summary>
+    public int MinimumRecapDetectionDuration { get; set; } = 15;
+
+    /// <summary>
+    /// Gets or sets the maximum length of a detected black-frame/chromaprint recap.
+    /// </summary>
+    public int MaximumRecapDetectionDuration { get; set; } = 120;
+
+    /// <summary>
+    /// Gets or sets a value indicating whether recap detection can use black frames as a fallback boundary signal.
+    /// </summary>
+    public bool DetectRecapUsingBlackFrames { get; set; } = false;
+
+    /// <summary>
     /// Gets or sets the minimum length of similar audio that will be considered a preview.
     /// </summary>
     public int MinimumPreviewDuration { get; set; } = 15;

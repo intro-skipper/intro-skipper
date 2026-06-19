@@ -39,6 +39,10 @@ export const validationRules: Partial<Record<keyof PluginConfig, ValidationRule<
     MinimumCreditsDuration: [minValue(1)],
     MaximumCreditsDuration: [minValue(1)],
     MaximumMovieCreditsDuration: [minValue(1)],
+    MinimumRecapDuration: [minValue(1)],
+    MaximumRecapDuration: [minValue(1)],
+    MinimumRecapDetectionDuration: [minValue(1)],
+    MaximumRecapDetectionDuration: [minValue(1)],
     BlackFrameMinimumPercentage: [range(0, 100)],
     BlackFrameThreshold: [range(16, 255)],
     MaxParallelism: [minValue(1)],
@@ -58,6 +62,7 @@ export const CROSS_FIELD_PAIRS: Array<[keyof PluginConfig, keyof PluginConfig]> 
     ["MinimumIntroDuration", "MaximumIntroDuration"],
     ["MinimumCreditsDuration", "MaximumCreditsDuration"],
     ["MinimumRecapDuration", "MaximumRecapDuration"],
+    ["MinimumRecapDetectionDuration", "MaximumRecapDetectionDuration"],
     ["MinimumPreviewDuration", "MaximumPreviewDuration"],
     ["MinimumCommercialDuration", "MaximumCommercialDuration"],
 ];

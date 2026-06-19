@@ -76,6 +76,7 @@ public partial class ChapterAnalyzer(ILogger<ChapterAnalyzer> logger, IFFmpegSer
         AnalysisMode mode,
         CancellationToken cancellationToken)
     {
+        var enableRecapBlackFrameFallback = mode == AnalysisMode.Recap && _config.DetectRecapUsingBlackFrames;
         var expression = mode switch
         {
             AnalysisMode.Introduction => _config.ChapterAnalyzerIntroductionPattern,
@@ -86,7 +87,7 @@ public partial class ChapterAnalyzer(ILogger<ChapterAnalyzer> logger, IFFmpegSer
             _ => throw new ArgumentOutOfRangeException(nameof(mode), $"Unexpected analysis mode: {mode}")
         };
 
-        if (string.IsNullOrWhiteSpace(expression) && !_config.EnableSponsorBlockChapterDetection)
+        if (string.IsNullOrWhiteSpace(expression) && !_config.EnableSponsorBlockChapterDetection && !enableRecapBlackFrameFallback)
         {
             return analysisQueue;
         }
@@ -99,18 +100,26 @@ public partial class ChapterAnalyzer(ILogger<ChapterAnalyzer> logger, IFFmpegSer
         {
             cancellationToken.ThrowIfCancellationRequested();
 
-            var skipRange = FindMatchingChapter(
-                episode,
-                Plugin.Instance!.GetChapters(episode.EpisodeId),
-                expression,
-                mode,
-                _config.EnableSponsorBlockChapterDetection);
+            var skipRange = !string.IsNullOrWhiteSpace(expression) || _config.EnableSponsorBlockChapterDetection
+                ? FindMatchingChapter(
+                    episode,
+                    Plugin.Instance!.GetChapters(episode.EpisodeId),
+                    expression,
+                    mode,
+                    _config.EnableSponsorBlockChapterDetection)
+                : null;
+            if ((skipRange is null || !skipRange.Valid) && enableRecapBlackFrameFallback)
+            {
+                skipRange = await DetectRecapUsingBlackFramesAsync(episode, cancellationToken).ConfigureAwait(false);
+            }
 
             if (skipRange is null || !skipRange.Valid)
             {
                 continue;
             }
 
+            // The helper is initialized with the current mode, so recap fallback segments
+            // still receive the same mode-specific boundary adjustments as chapter matches.
             skipRange = await timeAdjustmentHelper.AdjustIntroTimesAsync(episode, skipRange, false, cancellationToken).ConfigureAwait(false);
 
             episode.SetAnalyzed(mode, EpisodeState.Analyzed);
@@ -207,6 +216,60 @@ public partial class ChapterAnalyzer(ILogger<ChapterAnalyzer> logger, IFFmpegSer
         }
 
         return null;
+    }
+
+    internal async Task<Segment?> DetectRecapUsingBlackFramesAsync(QueuedEpisode episode, CancellationToken cancellationToken)
+    {
+        var maxRecapBoundary = await RecapDetectionHelper.GetMaximumBoundaryAsync(
+            episode,
+            _config,
+            cancellationToken).ConfigureAwait(false);
+        if (maxRecapBoundary <= 0)
+        {
+            return null;
+        }
+
+        var blackFrames = await _ffmpegService.DetectBlackFramesAsync(
+            episode,
+            new TimeRange(0, maxRecapBoundary),
+            _config.BlackFrameMinimumPercentage,
+            _config.BlackFrameThreshold,
+            AnalysisMode.Recap,
+            cancellationToken).ConfigureAwait(false);
+
+        return BuildRecapFromBlackFrames(
+            episode.EpisodeId,
+            blackFrames,
+            _config.MinimumRecapDetectionDuration,
+            maxRecapBoundary);
+    }
+
+    internal static Segment? BuildRecapFromBlackFrames(
+        Guid episodeId,
+        IReadOnlyList<BlackFrame> blackFrames,
+        int minimumRecapDuration,
+        double maximumRecapBoundary)
+    {
+        BlackFrame? selectedBlackFrame = null;
+        foreach (var blackFrame in blackFrames)
+        {
+            if (blackFrame.Time < minimumRecapDuration || blackFrame.Time > maximumRecapBoundary)
+            {
+                continue;
+            }
+
+            if (selectedBlackFrame is null || blackFrame.Time > selectedBlackFrame.Time)
+            {
+                selectedBlackFrame = blackFrame;
+            }
+        }
+
+        if (selectedBlackFrame is null)
+        {
+            return null;
+        }
+
+        return new Segment(episodeId, new TimeRange(0, selectedBlackFrame.Time));
     }
 
     private (double Min, double Max) GetBounds(AnalysisMode mode, QueuedEpisode episode)
