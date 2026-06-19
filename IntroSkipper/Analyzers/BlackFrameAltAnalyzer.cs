@@ -331,7 +331,8 @@ public sealed partial class BlackFrameAltAnalyzer(ILogger<BlackFrameAltAnalyzer>
     }
 
     /// <summary>
-    /// Checks whether a scene meets the minimum black-frame density threshold.
+    /// Computes the black-frame density for a scene: the fraction of frames within the scene
+    /// whose black percentage meets or exceeds <paramref name="minimum"/>.
     /// </summary>
     /// <remarks>
     /// <paramref name="searchStart"/> is an optimization index passed by reference. It tracks the
@@ -346,7 +347,12 @@ public sealed partial class BlackFrameAltAnalyzer(ILogger<BlackFrameAltAnalyzer>
     /// previous individual scene) must pass a fresh <c>searchStart = 0</c> to avoid skipping frames
     /// that fall within the merged range.</para>
     /// </remarks>
-    private static bool HasMinimumBlackFrameDensity(List<BlackFrame> frames, CreditScene scene, int minimum, ref int searchStart)
+    /// <param name="frames">All detected keyframes (time-sorted).</param>
+    /// <param name="scene">The scene to measure.</param>
+    /// <param name="minimum">Minimum black percentage for a frame to count as black.</param>
+    /// <param name="searchStart">Running scan index; advanced in-place.</param>
+    /// <returns>Black-frame density in [0, 1], or -1 if the scene contains no frames.</returns>
+    internal static double ComputeSceneDensity(List<BlackFrame> frames, CreditScene scene, int minimum, ref int searchStart)
     {
         var totalInScene = 0;
         var blackInScene = 0;
@@ -373,7 +379,54 @@ public sealed partial class BlackFrameAltAnalyzer(ILogger<BlackFrameAltAnalyzer>
             }
         }
 
-        return totalInScene > 0 && (double)blackInScene / totalInScene >= MinimumBlackFrameDensity;
+        return totalInScene > 0 ? (double)blackInScene / totalInScene : -1;
+    }
+
+    /// <summary>
+    /// Checks whether a scene meets the minimum black-frame density threshold.
+    /// </summary>
+    /// <param name="frames">All detected keyframes (time-sorted).</param>
+    /// <param name="scene">The scene to evaluate.</param>
+    /// <param name="minimum">Minimum black percentage for a frame to count as black.</param>
+    /// <param name="densityThreshold">The density ratio that the scene must meet or exceed.</param>
+    /// <param name="searchStart">Running scan index; advanced in-place.</param>
+    /// <returns><see langword="true"/> when the scene's black-frame density meets the threshold.</returns>
+    private static bool HasMinimumBlackFrameDensity(List<BlackFrame> frames, CreditScene scene, int minimum, double densityThreshold, ref int searchStart)
+    {
+        var density = ComputeSceneDensity(frames, scene, minimum, ref searchStart);
+        return density >= densityThreshold;
+    }
+
+    /// <summary>
+    /// Computes an adaptive density threshold from the measured densities of candidate scenes.
+    /// </summary>
+    /// <remarks>
+    /// When a video has letterboxing or slightly tinted frames the natural black density of
+    /// credit scenes sits below the static <see cref="MinimumBlackFrameDensity"/> floor, causing
+    /// legitimate credits to be rejected.  This method relaxes the floor when the video's own
+    /// distribution warrants it:
+    /// <list type="bullet">
+    ///   <item>With fewer than 3 scenes the distribution is too sparse to be meaningful, so
+    ///         the configured floor is returned unchanged.</item>
+    ///   <item>Otherwise the effective threshold is
+    ///         <c>min(configuredThreshold, median_density × 0.6)</c>.  Scaling the median
+    ///         downward by 40 % allows scenes that are somewhat less dense than the typical
+    ///         scene to pass while still rejecting clear noise.</item>
+    /// </list>
+    /// </remarks>
+    /// <param name="densities">Measured per-scene black-frame densities (in [0, 1]).</param>
+    /// <returns>Effective density threshold to apply during scene filtering.</returns>
+    internal static double ComputeAdaptiveDensityThreshold(IReadOnlyList<double> densities)
+    {
+        if (densities.Count < 3)
+        {
+            return MinimumBlackFrameDensity;
+        }
+
+        var sorted = new List<double>(densities);
+        sorted.Sort();
+        var median = sorted[sorted.Count / 2];
+        return Math.Min(MinimumBlackFrameDensity, median * 0.6);
     }
 
     internal static List<CreditScene> DetectCreditScenes(List<BlackFrame> frames, int minimum, int sceneChange)
@@ -423,15 +476,31 @@ public sealed partial class BlackFrameAltAnalyzer(ILogger<BlackFrameAltAnalyzer>
         // First filter individual scenes, then re-check merged spans so long non-black gaps do not
         // turn separate dense scenes into one mostly non-black segment.
         //
+        // Step 1 – measure density for every candidate scene.  The adaptive threshold is derived
+        // from these measurements, so we must compute them before filtering.
+        //
         // searchStart advances monotonically across this loop because scenes are time-sorted —
         // each scene starts at or after the previous one, so we never need to revisit earlier frames.
-        var densityFiltered = new List<CreditScene>(scenes.Count);
+        var sceneDensities = new List<double>(scenes.Count);
         var searchStart = 0;
         foreach (var scene in scenes)
         {
-            if (HasMinimumBlackFrameDensity(frames, scene, minimum, ref searchStart))
+            sceneDensities.Add(ComputeSceneDensity(frames, scene, minimum, ref searchStart));
+        }
+
+        // Step 2 – derive an adaptive density floor.
+        // On letterboxed or tinted content the credit scenes may have density well below the
+        // static 0.50 constant.  ComputeAdaptiveDensityThreshold relaxes the floor when the
+        // video's own distribution warrants it, without raising it above the static default.
+        var effectiveDensity = ComputeAdaptiveDensityThreshold(sceneDensities);
+
+        // Step 3 – filter scenes using the effective threshold.
+        var densityFiltered = new List<CreditScene>(scenes.Count);
+        for (var idx = 0; idx < scenes.Count; idx++)
+        {
+            if (sceneDensities[idx] >= effectiveDensity)
             {
-                densityFiltered.Add(scene);
+                densityFiltered.Add(scenes[idx]);
             }
         }
 
@@ -461,7 +530,7 @@ public sealed partial class BlackFrameAltAnalyzer(ILogger<BlackFrameAltAnalyzer>
                 // no frames in the merged range are skipped.
                 var mergeSearchStart = 0;
                 if (scene.StartTime - current.EndTime <= MaximumTimeSkip &&
-                    HasMinimumBlackFrameDensity(frames, mergedScene, minimum, ref mergeSearchStart))
+                    HasMinimumBlackFrameDensity(frames, mergedScene, minimum, effectiveDensity, ref mergeSearchStart))
                 {
                     current = mergedScene;
                 }

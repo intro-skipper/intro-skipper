@@ -200,6 +200,104 @@ public class TestBlackFrames
         Assert.NotEmpty(scenes);
     }
 
+    // ── Adaptive density threshold tests ────────────────────────────────
+
+    [Fact]
+    public void TestAdaptiveDensity_FewScenes_ReturnsStaticThreshold()
+    {
+        // With fewer than 3 density measurements the distribution is too sparse to
+        // be meaningful, so the static MinimumBlackFrameDensity (0.50) is returned.
+        var densities = new List<double> { 0.3, 0.4 };
+        var threshold = BlackFrameAltAnalyzer.ComputeAdaptiveDensityThreshold(densities);
+        Assert.Equal(0.50, threshold);
+    }
+
+    [Fact]
+    public void TestAdaptiveDensity_LowDensityScenes_RelaxesThreshold()
+    {
+        // When all scenes have density ~0.30 the median is 0.30; adaptive threshold
+        // = min(0.50, 0.30 * 0.6) = min(0.50, 0.18) = 0.18, which allows them through.
+        var densities = new List<double> { 0.28, 0.30, 0.32 };
+        var threshold = BlackFrameAltAnalyzer.ComputeAdaptiveDensityThreshold(densities);
+        Assert.True(threshold < 0.50, "Threshold should be relaxed below the static 0.50 floor");
+        Assert.Equal(0.30 * 0.6, threshold, precision: 10);
+    }
+
+    [Fact]
+    public void TestAdaptiveDensity_HighDensityScenes_KeepsStaticThreshold()
+    {
+        // When all scenes have density >= 0.84, median * 0.6 >= 0.50, so the cap at
+        // the static threshold keeps the effective floor at 0.50.
+        var densities = new List<double> { 0.85, 0.90, 0.95 };
+        var threshold = BlackFrameAltAnalyzer.ComputeAdaptiveDensityThreshold(densities);
+        Assert.Equal(0.50, threshold);
+    }
+
+    [Fact]
+    public void TestDetectCreditScenes_LowDensity_AdaptiveThresholdAllowsScenes()
+    {
+        // Simulate letterboxed content where credit scenes only reach ~30% density.
+        // Static threshold (0.50) would reject them; adaptive threshold should allow them.
+        // Three clusters of 15 frames each, with about 30% black frames per cluster.
+        var frames = new List<BlackFrame>();
+
+        // Cluster 1: frames 0-14 at times 0-7.0s; 5 black (33% density)
+        for (var i = 0; i < 15; i++)
+        {
+            var percentage = (i % 3 == 0) ? 90 : 10; // every 3rd frame is black
+            frames.Add(new BlackFrame(percentage, i * 0.5, i));
+        }
+
+        // Non-black gap: frames 15-24 at times 7.5-12.0s
+        for (var i = 15; i < 25; i++)
+        {
+            frames.Add(new BlackFrame(10, i * 0.5, i));
+        }
+
+        // Cluster 2: frames 25-39 at times 12.5-19.5s; 5 black (33% density)
+        for (var i = 25; i < 40; i++)
+        {
+            var percentage = (i % 3 == 0) ? 90 : 10;
+            frames.Add(new BlackFrame(percentage, (i - 25) * 0.5 + 12.5, i));
+        }
+
+        // Non-black gap: frames 40-49 at times 20.0-24.5s
+        for (var i = 40; i < 50; i++)
+        {
+            frames.Add(new BlackFrame(10, (i - 40) * 0.5 + 20.0, i));
+        }
+
+        // Cluster 3: frames 50-64 at times 25.0-32.0s; 5 black (33% density)
+        for (var i = 50; i < 65; i++)
+        {
+            var percentage = (i % 3 == 0) ? 90 : 10;
+            frames.Add(new BlackFrame(percentage, (i - 50) * 0.5 + 25.0, i));
+        }
+
+        // minimum=85 means only 90%-black frames count; sceneChange=96 is unreachable here
+        var scenes = BlackFrameAltAnalyzer.DetectCreditScenes(frames, 85, 96);
+
+        // With adaptive density the three low-density clusters should survive gating.
+        // (Static 0.50 threshold would reject all of them since density ~33% < 50%.)
+        Assert.NotEmpty(scenes);
+    }
+
+    [Fact]
+    public void TestDetectCreditScenes_HighDensity_UnchangedBehavior()
+    {
+        // Standard high-density credits (80%+) must still be accepted — the adaptive
+        // threshold must never raise the floor above the static 0.50.
+        var frames = new List<BlackFrame>();
+        for (var i = 0; i < 100; i++)
+        {
+            var percentage = (i % 5 == 0) ? 30 : 90; // 80% of frames are black
+            frames.Add(new BlackFrame(percentage, i * 0.5, i));
+        }
+
+        var scenes = BlackFrameAltAnalyzer.DetectCreditScenes(frames, 85, 96);
+        Assert.NotEmpty(scenes);
+    }
+
     [Fact]
     public void TestRefineBoundary_NoPriorKeyframe_ReturnsOriginalStart()
     {
