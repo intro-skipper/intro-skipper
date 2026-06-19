@@ -24,7 +24,7 @@ internal static class RecapDetectionHelper
         CancellationToken cancellationToken)
     {
         var maximumBoundary = Math.Min(episode.Duration, config.MaximumRecapDetectionDuration);
-        var timestamps = await Plugin.Instance!.GetTimestampsAsync(
+        var timestamps = await Plugin.GetTimestampsAsync(
             episode.EpisodeId,
             cancellationToken).ConfigureAwait(false);
         if (timestamps.TryGetValue(AnalysisMode.Introduction, out var intro) && intro.Valid)

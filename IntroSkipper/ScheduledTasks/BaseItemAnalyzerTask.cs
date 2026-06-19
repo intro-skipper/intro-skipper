@@ -226,7 +226,7 @@ public partial class BaseItemAnalyzerTask(
     private static async Task<IReadOnlyList<AnalysisMode>> GetSettleReanalysisModesAsync(
         Guid seasonId,
         IReadOnlyCollection<Guid> episodeIds,
-        HashSet<AnalysisMode> modes,
+        IReadOnlyCollection<AnalysisMode> modes,
         bool ffmpegValid,
         CancellationToken cancellationToken)
     {
