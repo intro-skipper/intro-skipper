@@ -116,6 +116,7 @@ public class TestChapterAnalyzer
     [InlineData("Recap")]
     [InlineData("Previously")]
     [InlineData("前回のあらすじ")]
+    [InlineData("[1] 前回のあらすじ:")]
     public void TestRecapExpression(string chapterName)
     {
         var recapChapter = FindChapter(chapterName, AnalysisMode.Recap);

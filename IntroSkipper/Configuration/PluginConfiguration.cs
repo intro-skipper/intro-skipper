@@ -367,7 +367,7 @@ public class PluginConfiguration : BasePluginConfiguration
     /// Gets or sets the regular expression used to detect Recap chapters.
     /// </summary>
     public string ChapterAnalyzerRecapPattern { get; set; } =
-        @"(^|\s)(Re?cap|Sum{1,2}ary|Prev(ious(ly)?)?|(Last|Earlier)(\s\w+)?|Catch[ -]up)(?![\s:]+End)(\s|:|$)|^前回のあらすじ$";
+        @"(^|\s)(Re?cap|Sum{1,2}ary|Prev(ious(ly)?)?|(Last|Earlier)(\s\w+)?|Catch[ -]up)(?![\s:]+End)(\s|:|$)|(^|\s)前回のあらすじ(\s|:|$)";
 
     /// <summary>
     /// Gets or sets the regular expression used to detect Commercial chapters.
