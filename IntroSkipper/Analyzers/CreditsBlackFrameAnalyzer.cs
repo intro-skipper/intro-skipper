@@ -91,8 +91,13 @@ public sealed partial class CreditsBlackFrameAnalyzer(ILogger<CreditsBlackFrameA
     }
 
     /// <summary>
-    /// Detects the start of blackframe credits from FFmpeg blackframe filter output.
+    /// Detects the start of credits from FFmpeg keyframe evidence.
     /// </summary>
+    /// <remarks>
+    /// Tries the black-frame scan first (frame-accurate for credits on black). When that finds
+    /// nothing and <see cref="PluginConfiguration.DetectNonBlackCredits"/> is enabled, falls back to a
+    /// low-entropy keyframe scan that recognises credits rendered on coloured or bright cards.
+    /// </remarks>
     /// <param name="episode">Media file to analyze.</param>
     /// <param name="minimumPercentage">Minimum percentage of the frame that must be black.</param>
     /// <param name="threshold">Threshold for black frame detection.</param>
@@ -103,11 +108,35 @@ public sealed partial class CreditsBlackFrameAnalyzer(ILogger<CreditsBlackFrameA
     {
         var blackFrames = (await _ffmpegService.DetectBlackFramesAsync(episode, threshold, cancellationToken).ConfigureAwait(false)).ToList();
 
-        if (blackFrames.Count == 0)
+        var segment = blackFrames.Count > 0
+            ? await DetectBlackFrameCreditsAsync(episode, blackFrames, minimumPercentage, threshold, minimumDuration, cancellationToken).ConfigureAwait(false)
+            : null;
+
+        if (segment is not null)
         {
-            return null;
+            return segment;
         }
 
+        if (_config.DetectNonBlackCredits)
+        {
+            return await DetectNonBlackCreditsAsync(episode, minimumDuration, cancellationToken).ConfigureAwait(false);
+        }
+
+        return null;
+    }
+
+    /// <summary>
+    /// Detects credits from black-frame keyframe evidence, with optional blackdetect interval recovery and boundary refinement.
+    /// </summary>
+    /// <param name="episode">Media file to analyze.</param>
+    /// <param name="blackFrames">The keyframe black-frame scan results.</param>
+    /// <param name="minimumPercentage">Minimum percentage of the frame that must be black.</param>
+    /// <param name="threshold">Threshold for black frame detection.</param>
+    /// <param name="minimumDuration">Minimum duration of the credits.</param>
+    /// <param name="cancellationToken">Token used to cancel FFmpeg probing.</param>
+    /// <returns>A task that returns the detected credits segment, or <see langword="null" /> when no valid black-frame credits exist.</returns>
+    private async Task<Segment?> DetectBlackFrameCreditsAsync(QueuedEpisode episode, List<BlackFrame> blackFrames, int minimumPercentage, int threshold, int minimumDuration, CancellationToken cancellationToken)
+    {
         var (minimum, sceneChange) = NormalizeThreshold(blackFrames, minimumPercentage);
         var scenes = CreditSceneBuilder.DetectCreditScenes(blackFrames, minimum, sceneChange, minimumDuration);
         var blackIntervals = Array.Empty<BlackInterval>();
@@ -163,6 +192,40 @@ public sealed partial class CreditsBlackFrameAnalyzer(ILogger<CreditsBlackFrameA
         }
 
         return null;
+    }
+
+    /// <summary>
+    /// Recovers non-black credits (text on coloured/bright cards) from a low-entropy keyframe scan.
+    /// </summary>
+    /// <remarks>
+    /// Only runs when the black-frame scan found no valid credits. The entropy gate is what suppresses
+    /// dark non-credit scenes: those are high entropy and never match a uniform credit card.
+    /// </remarks>
+    /// <param name="episode">Media file to analyze.</param>
+    /// <param name="minimumDuration">Minimum duration of the credits.</param>
+    /// <param name="cancellationToken">Token used to cancel FFmpeg probing.</param>
+    /// <returns>A task that returns the detected credits segment, or <see langword="null" /> when no non-black credits exist.</returns>
+    private async Task<Segment?> DetectNonBlackCreditsAsync(QueuedEpisode episode, int minimumDuration, CancellationToken cancellationToken)
+    {
+        var visuals = await _ffmpegService.DetectKeyframeVisualsAsync(episode, cancellationToken).ConfigureAwait(false);
+        var range = CreditEntropyFallback.FindCreditRange(visuals, minimumDuration);
+        if (range is null)
+        {
+            return null;
+        }
+
+        var segment = new Segment(
+            episode.EpisodeId,
+            new TimeRange(range.Start + episode.CreditsFingerprintStart, range.End + episode.CreditsFingerprintStart));
+
+        if (segment.Duration < minimumDuration)
+        {
+            return null;
+        }
+
+        LogFoundNonBlackCredits(segment.Start, segment.End, segment.Duration);
+
+        return segment;
     }
 
     /// <summary>
@@ -326,6 +389,9 @@ public sealed partial class CreditsBlackFrameAnalyzer(ILogger<CreditsBlackFrameA
 
     [LoggerMessage(Level = LogLevel.Trace, Message = "Found valid credits segment: start={Start:F2}s, end={End:F2}s, duration={Duration:F2}s")]
     private partial void LogFoundValidCreditsSegment(double start, double end, double duration);
+
+    [LoggerMessage(Level = LogLevel.Trace, Message = "Found non-black credits segment: start={Start:F2}s, end={End:F2}s, duration={Duration:F2}s")]
+    private partial void LogFoundNonBlackCredits(double start, double end, double duration);
 
     [LoggerMessage(Level = LogLevel.Trace, Message = "Refined credit boundary from {OriginalStart:F2}s to {RefinedStart:F2}s")]
     private partial void LogRefinedBoundary(double originalStart, double refinedStart);

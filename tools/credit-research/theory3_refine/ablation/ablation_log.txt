@@ -1,0 +1,48 @@
+gates injected
+building once...
+================ full ================
+-- summary --
+  hit@2s     :  41.7%  (10/24)
+  hit@5s     :  41.7%  (10/24)
+  miss-rate   :  58.3%  (14/24)
+  false-pos   :   0.0%  (0/1)
+  MAE/median  : 0.01s / 0.00s  (detected only)
+  OVERALL     :  17.4   [hit@2 x (1-miss) x (1-fp)]
+
+================ no_boundary ================
+-- summary --
+  hit@2s     :  41.7%  (10/24)
+  hit@5s     :  41.7%  (10/24)
+  miss-rate   :  58.3%  (14/24)
+  false-pos   :   0.0%  (0/1)
+  MAE/median  : 0.31s / 0.00s  (detected only)
+  OVERALL     :  17.4   [hit@2 x (1-miss) x (1-fp)]
+
+================ no_adaptive ================
+-- summary --
+  hit@2s     :  41.7%  (10/24)
+  hit@5s     :  41.7%  (10/24)
+  miss-rate   :  58.3%  (14/24)
+  false-pos   :   0.0%  (0/1)
+  MAE/median  : 0.01s / 0.00s  (detected only)
+  OVERALL     :  17.4   [hit@2 x (1-miss) x (1-fp)]
+
+================ no_interval ================
+-- summary --
+  hit@2s     :  41.7%  (10/24)
+  hit@5s     :  41.7%  (10/24)
+  miss-rate   :  58.3%  (14/24)
+  false-pos   :   0.0%  (0/1)
+  MAE/median  : 0.01s / 0.00s  (detected only)
+  OVERALL     :  17.4   [hit@2 x (1-miss) x (1-fp)]
+
+================ core_only ================
+-- summary --
+  hit@2s     :  41.7%  (10/24)
+  hit@5s     :  41.7%  (10/24)
+  miss-rate   :  58.3%  (14/24)
+  false-pos   :   0.0%  (0/1)
+  MAE/median  : 0.31s / 0.00s  (detected only)
+  OVERALL     :  17.4   [hit@2 x (1-miss) x (1-fp)]
+
+reverted; tree status:

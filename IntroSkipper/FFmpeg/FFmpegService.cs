@@ -230,6 +230,39 @@ public sealed partial class FFmpegService(
     }
 
     /// <inheritdoc/>
+    public async Task<KeyframeVisual[]> DetectKeyframeVisualsAsync(QueuedEpisode episode, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(episode);
+        cancellationToken.ThrowIfCancellationRequested();
+
+        if (_cacheService.TryRead(episode.EpisodeId, AnalysisMode.Credits, CacheEntryType.KeyframeVisual, episode.CreditsFingerprintStart, 0, out KeyframeVisual[] cached))
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            return cached;
+        }
+
+        // Decode the same keyframes as the black-frame scan, emitting luma histogram entropy and mean
+        // saturation per keyframe so credits rendered on coloured/bright cards (which the black-frame
+        // scan is blind to) can be recognised by their near-uniform, low-entropy background.
+        var args = new List<string>
+        {
+            "-skip_frame", "nokey",
+            "-ss", episode.CreditsFingerprintStart.ToString(CultureInfo.InvariantCulture),
+            "-i", episode.Path,
+            "-an", "-dn", "-sn",
+            "-vf", "entropy,signalstats,metadata=print",
+            "-f", "null", "-",
+        };
+
+        var raw = Encoding.UTF8.GetString(await GetOutputAsync(args, true, cancellationToken: cancellationToken).ConfigureAwait(false));
+        var visuals = FFmpegOutputParser.ParseKeyframeVisuals(raw);
+        cancellationToken.ThrowIfCancellationRequested();
+        _cacheService.Write(episode.EpisodeId, AnalysisMode.Credits, CacheEntryType.KeyframeVisual, episode.CreditsFingerprintStart, 0, visuals);
+
+        return visuals;
+    }
+
+    /// <inheritdoc/>
     public Task<BlackInterval[]> DetectBlackIntervalsAsync(QueuedEpisode episode, int threshold, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(episode);
@@ -451,6 +484,7 @@ public sealed partial class FFmpegService(
             argument.Contains("silencedetect", StringComparison.OrdinalIgnoreCase) ||
             argument.Contains("blackframe", StringComparison.OrdinalIgnoreCase) ||
             argument.Contains("blackdetect", StringComparison.OrdinalIgnoreCase) ||
+            argument.Contains("metadata=print", StringComparison.OrdinalIgnoreCase) ||
             argument.Contains("showinfo", StringComparison.OrdinalIgnoreCase));
     }
 

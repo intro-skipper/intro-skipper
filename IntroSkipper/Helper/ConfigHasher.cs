@@ -89,6 +89,8 @@ public static class ConfigHasher
 
             CacheEntryType.Keyframe => $"cache|v1|{type}",
 
+            CacheEntryType.KeyframeVisual => $"cache|v1|{type}|{mode}",
+
             _ => throw new ArgumentOutOfRangeException(nameof(type), type, null)
         };
 
