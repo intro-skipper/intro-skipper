@@ -65,6 +65,25 @@ public interface IFFmpegService
     Task<BlackFrame[]> DetectBlackFramesAsync(QueuedEpisode episode, int threshold, CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// Finds continuous black intervals in the episode's credits fingerprint range.
+    /// </summary>
+    /// <param name="episode">Media file to analyze.</param>
+    /// <param name="threshold">Pixel threshold for black interval detection.</param>
+    /// <param name="cancellationToken">Token used to cancel the FFmpeg process.</param>
+    /// <returns>A task that returns continuous black intervals relative to the credits fingerprint range.</returns>
+    Task<BlackInterval[]> DetectBlackIntervalsAsync(QueuedEpisode episode, int threshold, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Finds continuous black intervals in a bounded credits range.
+    /// </summary>
+    /// <param name="episode">Media file to analyze.</param>
+    /// <param name="range">Absolute media time range to search.</param>
+    /// <param name="threshold">Pixel threshold for black interval detection.</param>
+    /// <param name="cancellationToken">Token used to cancel the FFmpeg process.</param>
+    /// <returns>A task that returns continuous black intervals relative to the credits fingerprint start.</returns>
+    Task<BlackInterval[]> DetectBlackIntervalsAsync(QueuedEpisode episode, TimeRange range, int threshold, CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// Detects key frames in a media file within a time range.
     /// </summary>
     /// <param name="episode">Media file to analyze.</param>

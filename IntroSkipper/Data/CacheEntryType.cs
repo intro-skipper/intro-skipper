@@ -29,4 +29,9 @@ public enum CacheEntryType
     /// Key frame timestamp data.
     /// </summary>
     Keyframe,
+
+    /// <summary>
+    /// Black interval detection results.
+    /// </summary>
+    BlackInterval,
 }

@@ -9,11 +9,13 @@ using System;
 using System.IO.Compression;
 using System.Linq;
 using System.Text.Json;
+using System.Threading;
 using System.Threading.Tasks;
 using IntroSkipper.Configuration;
 using IntroSkipper.Data;
 using IntroSkipper.Db;
 using IntroSkipper.FFmpeg;
+using IntroSkipper.Helper;
 using Microsoft.Extensions.Logging.Abstractions;
 using Xunit;
 
@@ -200,23 +202,139 @@ public sealed class TestCacheOperations
     [Fact]
     public void BlackFrame_JsonRoundTrip_PreservesAllFields()
     {
-        var original = new BlackFrame[] {
+        BlackFrame[] original =
+        [
             new(85, 12.345, 300),
             new(100, 0.0, 1),
             new(0, 999.999, 99999),
-        };
+        ];
 
-        var json = JsonSerializer.Serialize(original);
-        var deserialized = JsonSerializer.Deserialize<BlackFrame[]>(json);
+        AssertJsonRoundTrips(original);
+    }
 
-        Assert.NotNull(deserialized);
-        Assert.Equal(original.Length, deserialized.Length);
-        for (var i = 0; i < original.Length; i++)
+    [Fact]
+    public void BlackInterval_JsonRoundTrip_PreservesAllFields()
+    {
+        BlackInterval[] original =
+        [
+            new(12.345, 67.89, 55.545),
+            new(0, 1.25, 1.25),
+        ];
+
+        AssertJsonRoundTrips(original);
+    }
+
+    [Fact]
+    public void DetectionCacheHash_BlackFrame_ChangesWithThreshold()
+    {
+        var baseline = new PluginConfiguration { BlackFrameThreshold = 32 };
+        var changed = new PluginConfiguration { BlackFrameThreshold = 64 };
+
+        Assert.NotEqual(
+            ConfigHasher.DetectionCache(baseline, CacheEntryType.BlackFrame, AnalysisMode.Credits),
+            ConfigHasher.DetectionCache(changed, CacheEntryType.BlackFrame, AnalysisMode.Credits));
+    }
+
+    [Fact]
+    public void DetectionCacheHash_BlackFrame_ChangesWithMode()
+    {
+        var config = new PluginConfiguration { BlackFrameThreshold = 32 };
+
+        Assert.NotEqual(
+            ConfigHasher.DetectionCache(config, CacheEntryType.BlackFrame, AnalysisMode.Introduction),
+            ConfigHasher.DetectionCache(config, CacheEntryType.BlackFrame, AnalysisMode.Credits));
+    }
+
+    [Fact]
+    public void DetectionCacheHash_BlackFrame_IgnoresMinimumPercentage()
+    {
+        var baseline = new PluginConfiguration { BlackFrameThreshold = 32, BlackFrameMinimumPercentage = 85 };
+        var changed = new PluginConfiguration { BlackFrameThreshold = 32, BlackFrameMinimumPercentage = 95 };
+
+        Assert.Equal(
+            ConfigHasher.DetectionCache(baseline, CacheEntryType.BlackFrame, AnalysisMode.Credits),
+            ConfigHasher.DetectionCache(changed, CacheEntryType.BlackFrame, AnalysisMode.Credits));
+    }
+
+    [Fact]
+    public void DetectionCacheHash_BlackInterval_ChangesWithThreshold()
+    {
+        var baseline = new PluginConfiguration { BlackFrameThreshold = 32 };
+        var changed = new PluginConfiguration { BlackFrameThreshold = 64 };
+
+        Assert.NotEqual(
+            ConfigHasher.DetectionCache(baseline, CacheEntryType.BlackInterval, AnalysisMode.Credits),
+            ConfigHasher.DetectionCache(changed, CacheEntryType.BlackInterval, AnalysisMode.Credits));
+    }
+
+    [Fact]
+    public void DetectionCacheHash_BlackInterval_ChangesWithMode()
+    {
+        var config = new PluginConfiguration { BlackFrameThreshold = 32 };
+
+        Assert.NotEqual(
+            ConfigHasher.DetectionCache(config, CacheEntryType.BlackInterval, AnalysisMode.Introduction),
+            ConfigHasher.DetectionCache(config, CacheEntryType.BlackInterval, AnalysisMode.Credits));
+    }
+
+    [Fact]
+    public void DetectionCacheHash_BlackInterval_DiffersFromBlackFrame()
+    {
+        var config = new PluginConfiguration { BlackFrameThreshold = 32 };
+
+        Assert.NotEqual(
+            ConfigHasher.DetectionCache(config, CacheEntryType.BlackFrame, AnalysisMode.Credits),
+            ConfigHasher.DetectionCache(config, CacheEntryType.BlackInterval, AnalysisMode.Credits));
+    }
+
+    [Fact]
+    public void DetectionCacheHash_BlackInterval_IgnoresMinimumPercentage()
+    {
+        var baseline = new PluginConfiguration { BlackFrameThreshold = 32, BlackFrameMinimumPercentage = 85 };
+        var changed = new PluginConfiguration { BlackFrameThreshold = 32, BlackFrameMinimumPercentage = 95 };
+
+        Assert.Equal(
+            ConfigHasher.DetectionCache(baseline, CacheEntryType.BlackInterval, AnalysisMode.Credits),
+            ConfigHasher.DetectionCache(changed, CacheEntryType.BlackInterval, AnalysisMode.Credits));
+    }
+
+    [Fact]
+    public async Task CachedBlackIntervals_UsesCreditsFingerprintRange()
+    {
+        var episode = new QueuedEpisode
         {
-            Assert.Equal(original[i].Percentage, deserialized[i].Percentage);
-            Assert.Equal(original[i].Time, deserialized[i].Time);
-            Assert.Equal(original[i].Frame, deserialized[i].Frame);
+            EpisodeId = Guid.NewGuid(),
+            Path = "/does/not/exist.mkv",
+            CreditsFingerprintStart = 1560,
+            CreditsFingerprintEnd = 1800,
+            Duration = 2400,
+        };
+        var cacheDir = EntrypointTestHelpers.CreateTempCacheDir();
+        var intervals = new BlackInterval[] { new(10, 20, 10), new(30.5, 35, 4.5) };
+        var compressed = DetectionCacheService.CompressBrotli(intervals);
+
+        string cacheDbPath;
+        using (var scope = new EntrypointTestHelpers.PluginInstanceScope(cacheDir))
+        {
+            cacheDbPath = scope.CacheDbPath;
+            using var db = Plugin.CreateCacheDbContext();
+            db.DetectionCache.Add(new DbDetectionCache(
+                episode.EpisodeId,
+                AnalysisMode.Credits,
+                CacheEntryType.BlackInterval,
+                compressed,
+                1560,
+                1800));
+            await db.SaveChangesAsync();
         }
+
+        BlackInterval[] result;
+        using (var cachingScope = new CachingPluginScope(cacheDir, cacheDbPath))
+        {
+            result = await cachingScope.CreateFFmpegService().DetectBlackIntervalsAsync(episode, 32);
+        }
+
+        Assert.Equal(intervals, result);
     }
 
     [Fact]
@@ -286,7 +404,7 @@ public sealed class TestCacheOperations
             await db.SaveChangesAsync();
         }
 
-        using var cts = new System.Threading.CancellationTokenSource();
+        using var cts = new CancellationTokenSource();
         await cts.CancelAsync();
 
         using var cachingScope = new CachingPluginScope(cacheDir, cacheDbPath);
@@ -436,6 +554,15 @@ public sealed class TestCacheOperations
 
         Assert.NotNull(decompressed);
         Assert.Equal(original, decompressed);
+    }
+
+    private static void AssertJsonRoundTrips<T>(T[] expected)
+    {
+        var json = JsonSerializer.Serialize(expected);
+        var actual = JsonSerializer.Deserialize<T[]>(json);
+
+        Assert.NotNull(actual);
+        Assert.Equal(expected, actual);
     }
 
     /// <summary>
