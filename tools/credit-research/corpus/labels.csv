@@ -1,0 +1,26 @@
+id,archetype,season,episode,duration_s,has_credits,credit_start_s,notes
+black_scroll,black_scroll,,,55,1,30.0,white-on-black roll
+color_card,color_card,,,55,1,30.0,white text on navy
+over_content,over_content,,,55,1,30.0,text over dim montage
+bright_card,bright_card,,,55,1,30.0,dark text on white
+fade_to_black,fade_to_black,,,55,1,30.0,3s fade then roll
+stinger,stinger,,,56,1,20.0,credits-stinger-credits
+short_outro,short_outro,,,48,1,30.0,~18s tail
+dark_noncredit_trap,dark_noncredit,,,58,1,40.0,dark scene 15-30s is NOT credits; real credits at 40s
+no_credits,no_credits,,,45,0,,ends on content
+color_card_sparse,color_card,,,55,1,30.0,"navy credits, sparse GOP"
+S1_black_E01,season_S1_black,S1_black,1,50,1,28.0,normal
+S1_black_E02,season_S1_black,S1_black,2,50,1,26.5,normal
+S1_black_E03,season_S1_black,S1_black,3,50,1,29.0,normal
+S1_black_E04,season_S1_black,S1_black,4,50,1,27.5,weak signal
+S1_black_E05,season_S1_black,S1_black,5,50,1,30.0,weak signal
+S2_color_E01,season_S2_color,S2_color,1,50,1,30.0,normal
+S2_color_E02,season_S2_color,S2_color,2,50,1,28.5,normal
+S2_color_E03,season_S2_color,S2_color,3,50,1,31.0,normal
+S2_color_E04,season_S2_color,S2_color,4,50,1,29.5,weak signal
+S2_color_E05,season_S2_color,S2_color,5,50,1,32.0,weak signal
+S3_over_E01,season_S3_over,S3_over,1,50,1,26.0,normal
+S3_over_E02,season_S3_over,S3_over,2,50,1,24.5,normal
+S3_over_E03,season_S3_over,S3_over,3,50,1,27.0,normal
+S3_over_E04,season_S3_over,S3_over,4,50,1,25.5,weak signal
+S3_over_E05,season_S3_over,S3_over,5,50,1,28.0,weak signal

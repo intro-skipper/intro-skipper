@@ -1,0 +1,8 @@
+# Generated video clips are large + reproducible from generate_corpus.py
+corpus/clips/
+# Build artifacts from the gold-baseline runner
+runner/bin/
+runner/obj/
+# Scratch
+__pycache__/
+*.pyc
