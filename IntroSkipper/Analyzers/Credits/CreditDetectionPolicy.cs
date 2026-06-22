@@ -19,6 +19,19 @@ internal static class CreditDetectionPolicy
     // Minimum keyframe gap before a scene start for boundary probing to be worthwhile.
     public const double MinimumBoundaryProbeWindow = 0.50;
 
+    /// <summary>
+    /// Maximum normalised luma entropy for a keyframe to count as a near-uniform credit "card".
+    /// Busy content and dark non-credit scenes sit well above this (~0.5+); text on a solid
+    /// black/coloured/bright card sits below it.
+    /// </summary>
+    public const double EntropyCreditMaximum = 0.35;
+
+    /// <summary>
+    /// Maximum mean saturation (<c>SATAVG</c>) for a credit-card keyframe. A generous ceiling that
+    /// admits muted cards (greyscale, navy, slate) while rejecting fully saturated content.
+    /// </summary>
+    public const double SaturationCreditMaximum = 96.0;
+
     private const double SparseAverageBlackFrameGapFactor = 0.5;
     private const double IntervalProbePaddingFactor = 1.0;
 

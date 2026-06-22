@@ -402,6 +402,24 @@ public class TestBlackFrames
     }
 
     [Fact]
+    public void TestSelectProbeMinimum_MissingStartFrame_FallsBackToSceneChange()
+    {
+        // A scene whose StartFrame is not present in the keyframe list (e.g. interval-derived)
+        // must fall back to sceneChange rather than throwing from First().
+        var frames = new List<BlackFrame>
+        {
+            new(50, 0.0, 0),
+            new(60, 0.5, 1),
+        };
+
+        var scene = new CreditScene(99, 100, 10.0, 12.0);
+
+        var probeMinimum = CreditsBoundaryHelper.SelectProbeMinimum(frames, scene, sceneChange: 95);
+
+        Assert.Equal(95, probeMinimum);
+    }
+
+    [Fact]
     public void TestShouldRefineBoundary_SkipsSmallKeyframeGap()
     {
         var scene = new CreditScene(20, 40, 10.4, 30.0);
@@ -1040,6 +1058,169 @@ public class TestBlackFrames
         Assert.Equal(1, ffmpeg.CreditsScanCalls);
     }
 
+    // ── Non-black (entropy/saturation) credit fallback ───────────────────
+
+    [Fact]
+    public void TestParseKeyframeVisuals_ParsesEntropyAndSaturation()
+    {
+        const string raw = """
+            [Parsed_metadata_2 @ 0x0] frame:0    pts:0       pts_time:0
+            [Parsed_metadata_2 @ 0x0] lavfi.entropy.normalized_entropy.normal.Y=0.531285
+            [Parsed_metadata_2 @ 0x0] lavfi.signalstats.SATAVG=108.199
+            [Parsed_metadata_2 @ 0x0] frame:1    pts:20480   pts_time:2
+            [Parsed_metadata_2 @ 0x0] lavfi.entropy.normalized_entropy.normal.Y=0.000000
+            [Parsed_metadata_2 @ 0x0] lavfi.signalstats.SATAVG=33
+            """;
+
+        var visuals = FFmpegOutputParser.ParseKeyframeVisuals(raw);
+
+        Assert.Equal(2, visuals.Length);
+        Assert.Equal(new KeyframeVisual(0.0, 0.531285, 108.199), visuals[0]);
+        Assert.Equal(new KeyframeVisual(2.0, 0.0, 33.0), visuals[1]);
+    }
+
+    [Fact]
+    public void TestParseKeyframeVisuals_UsesLumaPlaneAndSkipsBlocksWithoutEntropy()
+    {
+        // U/V entropy lines must not be mistaken for the luma plane, and a trailing block with no
+        // entropy metadata (e.g. truncated output) must be dropped rather than emitted as zeros.
+        const string raw = """
+            [Parsed_metadata_3 @ 0x0] frame:0 pts:0 pts_time:5
+            [Parsed_metadata_3 @ 0x0] lavfi.entropy.normalized_entropy.normal.Y=0.120000
+            [Parsed_metadata_3 @ 0x0] lavfi.entropy.normalized_entropy.normal.U=0.400000
+            [Parsed_metadata_3 @ 0x0] lavfi.entropy.normalized_entropy.normal.V=0.410000
+            [Parsed_metadata_3 @ 0x0] lavfi.signalstats.SATAVG=12.5
+            [Parsed_metadata_3 @ 0x0] frame:1 pts:1 pts_time:7
+            """;
+
+        var visual = Assert.Single(FFmpegOutputParser.ParseKeyframeVisuals(raw));
+
+        Assert.Equal(5.0, visual.Time);
+        Assert.Equal(0.12, visual.Entropy);
+        Assert.Equal(12.5, visual.Saturation);
+    }
+
+    [Theory]
+    [InlineData(0.10, 30.0, true)]   // low entropy, muted card -> credit
+    [InlineData(0.53, 108.0, false)] // busy testsrc2 content
+    [InlineData(0.63, 50.0, false)]  // dark but detailed non-credit scene (high entropy)
+    [InlineData(0.10, 200.0, false)] // uniform but fully saturated -> not a credit card
+    public void TestIsCreditCardKeyframe(double entropy, double saturation, bool expected)
+    {
+        Assert.Equal(expected, CreditEntropyFallback.IsCreditCardKeyframe(new KeyframeVisual(0, entropy, saturation)));
+    }
+
+    [Fact]
+    public void TestCreditEntropyFallback_DetectsLowEntropyCardRun()
+    {
+        var visuals = CreateCardCreditVisuals(cardStart: 30, cardEnd: 54);
+
+        var range = CreditEntropyFallback.FindCreditRange(visuals, minimumDuration: 15);
+
+        Assert.NotNull(range);
+        Assert.Equal(30, range.Start);
+        Assert.Equal(54, range.End);
+    }
+
+    [Fact]
+    public void TestCreditEntropyFallback_RejectsHighEntropyDarkScene()
+    {
+        var visuals = new List<KeyframeVisual>();
+        for (var time = 0.0; time < 60; time += 2)
+        {
+            // Dark (low luma) but detailed/non-uniform: high entropy, like a night scene.
+            visuals.Add(new KeyframeVisual(time, 0.63, 50));
+        }
+
+        Assert.Null(CreditEntropyFallback.FindCreditRange(visuals, minimumDuration: 15));
+    }
+
+    [Fact]
+    public void TestCreditEntropyFallback_RejectsSubMinimumDurationRun()
+    {
+        var visuals = CreateCardCreditVisuals(cardStart: 30, cardEnd: 40); // only 10s of card
+
+        Assert.Null(CreditEntropyFallback.FindCreditRange(visuals, minimumDuration: 15));
+    }
+
+    [Fact]
+    public void TestCreditEntropyFallback_SelectsLatestQualifyingRun()
+    {
+        var visuals = new List<KeyframeVisual>();
+        for (var time = 0.0; time <= 20; time += 2)
+        {
+            visuals.Add(new KeyframeVisual(time, 0.12, 30)); // early card block 0-20
+        }
+
+        for (var time = 22.0; time < 60; time += 2)
+        {
+            visuals.Add(new KeyframeVisual(time, 0.55, 108)); // long busy gap
+        }
+
+        for (var time = 60.0; time <= 80; time += 2)
+        {
+            visuals.Add(new KeyframeVisual(time, 0.12, 30)); // late card block 60-80
+        }
+
+        var range = CreditEntropyFallback.FindCreditRange(visuals, minimumDuration: 15);
+
+        Assert.NotNull(range);
+        Assert.Equal(60, range.Start);
+        Assert.Equal(80, range.End);
+    }
+
+    [Fact]
+    public async Task TestDetectCreditsAsync_NonBlackCreditsFallback_DetectsCardCredits()
+    {
+        var ffmpeg = new FakeFFmpegService(
+            CreateDenseFrames(startTime: 0, endTime: 54, percentage: 0), // no black frames anywhere
+            keyframeVisuals: CreateCardCreditVisuals(cardStart: 30, cardEnd: 54));
+        var analyzer = CreateCreditsBlackFrameAnalyzer(ffmpeg);
+        var episode = CreateQueuedCreditsEpisode(creditsFingerprintStart: 100);
+
+        var result = await analyzer.DetectCreditsAsync(episode, 85, 32, 15);
+
+        Assert.NotNull(result);
+        Assert.Equal(130, result.Start);
+        Assert.Equal(154, result.End);
+        Assert.Equal(1, ffmpeg.VisualScanCalls);
+        Assert.Equal(0, ffmpeg.IntervalScanCalls);
+    }
+
+    [Fact]
+    public async Task TestDetectCreditsAsync_BlackCreditsPresent_DoesNotRunFallback()
+    {
+        // A valid black-frame scene is found, so the frame-accurate black path must win and the
+        // (keyframe-granular) entropy fallback must never be scanned.
+        var ffmpeg = new FakeFFmpegService(
+            CreateDenseFrames(startTime: 0, endTime: 20, percentage: 95),
+            keyframeVisuals: CreateCardCreditVisuals(cardStart: 0, cardEnd: 20));
+        var analyzer = CreateCreditsBlackFrameAnalyzer(ffmpeg);
+        var episode = CreateQueuedCreditsEpisode(creditsFingerprintStart: 100);
+
+        var result = await analyzer.DetectCreditsAsync(episode, 85, 32, 15);
+
+        Assert.NotNull(result);
+        Assert.Equal(100, result.Start);
+        Assert.Equal(0, ffmpeg.VisualScanCalls);
+    }
+
+    [Fact]
+    public async Task TestDetectCreditsAsync_NonBlackCreditsDisabled_SkipsFallback()
+    {
+        var ffmpeg = new FakeFFmpegService(
+            CreateDenseFrames(startTime: 0, endTime: 54, percentage: 0),
+            keyframeVisuals: CreateCardCreditVisuals(cardStart: 30, cardEnd: 54));
+        var analyzer = CreateCreditsBlackFrameAnalyzer(ffmpeg);
+        SetDetectNonBlackCredits(analyzer, value: false);
+        var episode = CreateQueuedCreditsEpisode();
+
+        var result = await analyzer.DetectCreditsAsync(episode, 85, 32, 15);
+
+        Assert.Null(result);
+        Assert.Equal(0, ffmpeg.VisualScanCalls);
+    }
+
     // ── Fingerprint-based integration tests ──────────────────────────────
 
     [Fact]
@@ -1163,6 +1344,34 @@ public class TestBlackFrames
         config.RefineCreditsBoundary = value;
     }
 
+    private static void SetDetectNonBlackCredits(CreditsBlackFrameAnalyzer analyzer, bool value)
+    {
+        var config = (PluginConfiguration)EntrypointTestHelpers.GetPrivateField(analyzer, "_config");
+        config.DetectNonBlackCredits = value;
+    }
+
+    private static KeyframeVisual[] CreateCardCreditVisuals(
+        double cardStart,
+        double cardEnd,
+        double cardEntropy = 0.15,
+        double cardSaturation = 32,
+        double contentEntropy = 0.53,
+        double contentSaturation = 108)
+    {
+        var visuals = new List<KeyframeVisual>();
+        for (var time = 0.0; time < cardStart; time += 2)
+        {
+            visuals.Add(new KeyframeVisual(time, contentEntropy, contentSaturation));
+        }
+
+        for (var time = cardStart; time <= cardEnd; time += 2)
+        {
+            visuals.Add(new KeyframeVisual(time, cardEntropy, cardSaturation));
+        }
+
+        return [.. visuals];
+    }
+
     private static BlackFrame[] CreateStingerSplitFrames()
     {
         var frames = new List<BlackFrame>();
@@ -1234,11 +1443,13 @@ public class TestBlackFrames
     private sealed class FakeFFmpegService(
         BlackFrame[] creditsFrames,
         BlackFrame[]? probeFrames = null,
-        BlackInterval[]? intervals = null) : IFFmpegService
+        BlackInterval[]? intervals = null,
+        KeyframeVisual[]? keyframeVisuals = null) : IFFmpegService
     {
         private readonly BlackFrame[] _creditsFrames = creditsFrames;
         private readonly BlackFrame[] _probeFrames = probeFrames ?? [];
         private readonly BlackInterval[] _intervals = intervals ?? [];
+        private readonly KeyframeVisual[] _keyframeVisuals = keyframeVisuals ?? [];
 
         public Exception? CreditsScanException { get; init; }
 
@@ -1249,6 +1460,8 @@ public class TestBlackFrames
         public int IntervalScanCalls { get; private set; }
 
         public int RangeScanCalls { get; private set; }
+
+        public int VisualScanCalls { get; private set; }
 
         public TimeRange? LastProbeRange { get; private set; }
 
@@ -1299,6 +1512,14 @@ public class TestBlackFrames
 
             return Task.FromResult(_creditsFrames);
         }
+
+        public Task<KeyframeVisual[]> DetectKeyframeVisualsAsync(QueuedEpisode episode, CancellationToken cancellationToken = default)
+        {
+            VisualScanCalls++;
+            cancellationToken.ThrowIfCancellationRequested();
+            return Task.FromResult(_keyframeVisuals);
+        }
+
 
         public Task<BlackInterval[]> DetectBlackIntervalsAsync(QueuedEpisode episode, TimeRange range, int threshold, int minimum, CancellationToken cancellationToken = default)
         {

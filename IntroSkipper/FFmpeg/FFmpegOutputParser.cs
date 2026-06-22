@@ -22,6 +22,12 @@ public static partial class FFmpegOutputParser
 
     private static readonly Regex _blackIntervalLogRegex = BlackIntervalLogRegex();
 
+    private static readonly Regex _keyframeVisualTimeRegex = KeyframeVisualTimeRegex();
+
+    private static readonly Regex _keyframeEntropyRegex = KeyframeEntropyRegex();
+
+    private static readonly Regex _keyframeSaturationRegex = KeyframeSaturationRegex();
+
     internal static TimeRange[] ParseSilence(string raw, double rangeStart)
     {
         var currentRange = new TimeRange();
@@ -100,6 +106,62 @@ public static partial class FFmpegOutputParser
         return [.. blackFrames];
     }
 
+    internal static KeyframeVisual[] ParseKeyframeVisuals(string raw)
+    {
+        var visuals = new List<KeyframeVisual>();
+
+        /* Parse the per-keyframe metadata emitted by "entropy,signalstats,metadata=print".
+         *
+         * Sample output (one block per keyframe):
+         * [Parsed_metadata_2 @ 0x0] frame:1 pts:20480 pts_time:2
+         * [Parsed_metadata_2 @ 0x0] lavfi.entropy.normalized_entropy.normal.Y=0.000000
+         * [Parsed_metadata_2 @ 0x0] lavfi.signalstats.SATAVG=33
+         */
+        double? time = null;
+        var entropy = 0d;
+        var saturation = 0d;
+        var hasEntropy = false;
+
+        foreach (var line in raw.Split('\n'))
+        {
+            var timeMatch = _keyframeVisualTimeRegex.Match(line);
+            if (timeMatch.Success)
+            {
+                if (time is not null && hasEntropy)
+                {
+                    visuals.Add(new KeyframeVisual(time.Value, entropy, saturation));
+                }
+
+                time = ParseDouble(timeMatch.Groups["time"].Value);
+                entropy = 0d;
+                saturation = 0d;
+                hasEntropy = false;
+                continue;
+            }
+
+            var entropyMatch = _keyframeEntropyRegex.Match(line);
+            if (entropyMatch.Success)
+            {
+                entropy = ParseDouble(entropyMatch.Groups["value"].Value);
+                hasEntropy = true;
+                continue;
+            }
+
+            var saturationMatch = _keyframeSaturationRegex.Match(line);
+            if (saturationMatch.Success)
+            {
+                saturation = ParseDouble(saturationMatch.Groups["value"].Value);
+            }
+        }
+
+        if (time is not null && hasEntropy)
+        {
+            visuals.Add(new KeyframeVisual(time.Value, entropy, saturation));
+        }
+
+        return [.. visuals];
+    }
+
     internal static BlackInterval[] ParseBlackIntervals(string raw)
     {
         var blackIntervals = new List<BlackInterval>();
@@ -135,6 +197,15 @@ public static partial class FFmpegOutputParser
 
     [GeneratedRegex(@"black_start:(?<start>[-+]?(?:\d+(?:\.\d*)?|\.\d+))\s+black_end:(?<end>[-+]?(?:\d+(?:\.\d*)?|\.\d+))\s+black_duration:(?<duration>[-+]?(?:\d+(?:\.\d*)?|\.\d+))")]
     private static partial Regex BlackIntervalLogRegex();
+
+    [GeneratedRegex(@"pts_time:(?<time>-?[0-9]+(?:\.[0-9]+)?)")]
+    private static partial Regex KeyframeVisualTimeRegex();
+
+    [GeneratedRegex(@"lavfi\.entropy\.normalized_entropy\.normal\.Y=(?<value>-?[0-9]+(?:\.[0-9]+)?)")]
+    private static partial Regex KeyframeEntropyRegex();
+
+    [GeneratedRegex(@"lavfi\.signalstats\.SATAVG=(?<value>-?[0-9]+(?:\.[0-9]+)?)")]
+    private static partial Regex KeyframeSaturationRegex();
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "Failed to parse timestamp: {PtsTimeStr} from line: {Line}")]
     private static partial void LogFailedToParseTimestamp(ILogger logger, string ptsTimeStr, string line);

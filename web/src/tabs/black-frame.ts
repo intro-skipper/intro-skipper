@@ -24,6 +24,13 @@ export const blackFrameTab: Tab = {
                 visible: () => configStore.get("UseAlternativeBlackFrameAnalyzer") === true,
             }),
             checkboxField({
+                id: "DetectNonBlackCredits",
+                label: "Detect non-black credits",
+                description:
+                    "When the black-frame scan finds nothing, also detect credits shown on a solid coloured or bright card (text over a near-uniform background). Black-frame detection is unchanged; this only adds matches it would otherwise miss.",
+                visible: () => configStore.get("UseAlternativeBlackFrameAnalyzer") === true,
+            }),
+            checkboxField({
                 id: "UseChapterMarkersBlackFrame",
                 label: "Use chapter markers for credits detection",
                 description:
