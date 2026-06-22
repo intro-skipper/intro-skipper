@@ -95,6 +95,7 @@ public class DbDetectionCache
     /// <see cref="CacheEntryType.Chromaprint"/> stores <c>uint[]</c>,
     /// <see cref="CacheEntryType.Silence"/> stores <c>TimeRange[]</c>,
     /// <see cref="CacheEntryType.BlackFrame"/> stores <c>BlackFrame[]</c>,
+    /// <see cref="CacheEntryType.BlackInterval"/> stores <c>BlackInterval[]</c>,
     /// <see cref="CacheEntryType.Keyframe"/> stores <c>double[]</c>.
     /// </value>
     [SuppressMessage("Performance", "CA1819:Properties should not return arrays", Justification = "EF Core requires byte[] for BLOB column mapping.")]

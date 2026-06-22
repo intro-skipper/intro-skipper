@@ -108,23 +108,8 @@ public class TestFFmpegService
         // ffmpeg -hide_banner -threads 0 -loglevel warning -version
         // This should produce "Trailing option" warning
 
-        var ffmpegPath = "ffmpeg";
-        var args = "-hide_banner -threads 0 -loglevel warning -version";
+        var output = RunFFmpeg("-hide_banner -threads 0 -loglevel warning -version");
 
-        var info = new ProcessStartInfo(ffmpegPath, args)
-        {
-            WindowStyle = ProcessWindowStyle.Hidden,
-            CreateNoWindow = true,
-            UseShellExecute = false,
-            RedirectStandardOutput = true,
-            RedirectStandardError = true
-        };
-
-        using var process = Process.Start(info);
-        var output = process!.StandardOutput.ReadToEnd() + process.StandardError.ReadToEnd();
-        process.WaitForExit();
-
-        // OLD behavior produces this warning - test should FAIL with old code
         Assert.Contains("Trailing option", output, StringComparison.Ordinal);
     }
 
@@ -158,6 +143,20 @@ public class TestFFmpegService
         var blackFrames = await CreateFFmpegService().DetectBlackFramesAsync(episode, 32);
 
         Assert.NotNull(blackFrames);
+    }
+
+    [FactSkipFFmpegTests]
+    public async Task TestNoTrailingOptionsWithBlackIntervalDetection()
+    {
+        var episode = QueueFile("credits.mp4");
+        episode.Duration = 5;
+        episode.CreditsFingerprintStart = 0;
+        episode.CreditsFingerprintEnd = 5;
+
+        var blackIntervals = await CreateFFmpegService().DetectBlackIntervalsAsync(episode, 32, 85);
+
+        Assert.NotNull(blackIntervals);
+        RunFFmpegAndVerifyNoWarning("-hide_banner -threads 0 -loglevel warning -ss 0 -skip_frame noref -i ../../../video/credits.mp4 -to 5 -an -dn -sn -vf blackdetect=d=0.1:pix_th=0.0731:pic_th=0.85 -f null -");
     }
 
     [FactSkipFFmpegTests]
@@ -222,9 +221,12 @@ public class TestFFmpegService
 
     private static void RunFFmpegAndVerifyNoWarning(string args)
     {
-        var ffmpegPath = "ffmpeg";
+        Assert.DoesNotContain("Trailing option", RunFFmpeg(args), StringComparison.Ordinal);
+    }
 
-        var info = new ProcessStartInfo(ffmpegPath, args)
+    private static string RunFFmpeg(string args)
+    {
+        var info = new ProcessStartInfo("ffmpeg", args)
         {
             WindowStyle = ProcessWindowStyle.Hidden,
             CreateNoWindow = true,
@@ -236,9 +238,7 @@ public class TestFFmpegService
         using var process = Process.Start(info);
         var output = process!.StandardOutput.ReadToEnd() + process.StandardError.ReadToEnd();
         process.WaitForExit();
-
-        // Verify no "Trailing option" warning
-        Assert.DoesNotContain("Trailing option", output, StringComparison.Ordinal);
+        return output;
     }
 
     private static (string ProcessPath, string[] Args) CreateLongRunningCommand()

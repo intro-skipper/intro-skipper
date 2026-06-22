@@ -378,7 +378,7 @@ public partial class BaseItemAnalyzerTask(
                 PromoteAnalyzer(analyzers, static a => a is ChromaprintAnalyzer);
                 break;
             case AnalyzerAction.BlackFrame:
-                PromoteAnalyzer(analyzers, static a => a is BlackFrameAnalyzer or BlackFrameAltAnalyzer);
+                PromoteAnalyzer(analyzers, static a => a is BlackFrameAnalyzer or CreditsBlackFrameAnalyzer);
                 break;
             default:
                 if (_config.PreferChromaprint && ffmpegValid)
@@ -455,9 +455,9 @@ public partial class BaseItemAnalyzerTask(
     /// <summary>
     /// Creates the configured black frame analyzer variant.
     /// </summary>
-    /// <returns>A <see cref="BlackFrameAnalyzer"/> or <see cref="BlackFrameAltAnalyzer"/> based on configuration.</returns>
+    /// <returns>A <see cref="BlackFrameAnalyzer"/> or <see cref="CreditsBlackFrameAnalyzer"/> based on configuration.</returns>
     private IMediaFileAnalyzer CreateBlackFrameAnalyzer() => _config.UseAlternativeBlackFrameAnalyzer
-        ? new BlackFrameAltAnalyzer(_loggerFactory.CreateLogger<BlackFrameAltAnalyzer>(), _ffmpegService)
+        ? new CreditsBlackFrameAnalyzer(_loggerFactory.CreateLogger<CreditsBlackFrameAnalyzer>(), _ffmpegService)
         : new BlackFrameAnalyzer(_loggerFactory.CreateLogger<BlackFrameAnalyzer>(), _ffmpegService);
 
     /// <summary>

@@ -26,6 +26,9 @@ public sealed partial class FFmpegService(
     ILogger<FFmpegService> logger,
     IDetectionCacheService cacheService) : IFFmpegService
 {
+    private const double LimitedRangeLumaMinimum = 16.0;
+    private const double LimitedRangeLumaRange = 219.0;
+
     private readonly ILogger<FFmpegService> _logger = logger;
     private readonly IDetectionCacheService _cacheService = cacheService;
     private readonly FFmpegProcess _process = new(logger);
@@ -227,6 +230,73 @@ public sealed partial class FFmpegService(
     }
 
     /// <inheritdoc/>
+    public Task<BlackInterval[]> DetectBlackIntervalsAsync(QueuedEpisode episode, int threshold, int minimum, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(episode);
+        var (start, end) = episode.GetFingerprintRange(AnalysisMode.Credits);
+        return DetectBlackIntervalsAsync(episode, new TimeRange(start, end), threshold, minimum, cancellationToken);
+    }
+
+    /// <inheritdoc/>
+    public async Task<BlackInterval[]> DetectBlackIntervalsAsync(QueuedEpisode episode, TimeRange range, int threshold, int minimum, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(episode);
+        cancellationToken.ThrowIfCancellationRequested();
+
+        if (_cacheService.TryRead(episode.EpisodeId, AnalysisMode.Credits, CacheEntryType.BlackInterval, range.Start, range.End, out BlackInterval[] cached))
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            return cached;
+        }
+
+        var pixelThreshold = FormatBlackDetectPixelThreshold(threshold);
+        var pictureRatioThreshold = FormatBlackDetectPictureRatioThreshold(minimum);
+        var minimumDuration = BlackIntervalConstants.MinimumDuration.ToString(CultureInfo.InvariantCulture);
+        var args = new List<string>
+        {
+            "-ss", range.Start.ToString(CultureInfo.InvariantCulture),
+            "-skip_frame", "noref",
+            "-i", episode.Path,
+            "-to", range.Duration.ToString(CultureInfo.InvariantCulture),
+            "-an", "-dn", "-sn",
+            "-vf", $"blackdetect=d={minimumDuration}:pix_th={pixelThreshold}:pic_th={pictureRatioThreshold}",
+            "-f", "null", "-",
+        };
+
+        var raw = Encoding.UTF8.GetString(await GetOutputAsync(args, true, cancellationToken: cancellationToken).ConfigureAwait(false));
+        var rangeIntervals = FFmpegOutputParser.ParseBlackIntervals(raw);
+        var offset = range.Start - episode.CreditsFingerprintStart;
+        var intervals = offset == 0
+            ? rangeIntervals
+            : [.. rangeIntervals.Select(interval => new BlackInterval(interval.Start + offset, interval.End + offset, interval.Duration))];
+        cancellationToken.ThrowIfCancellationRequested();
+        _cacheService.Write(episode.EpisodeId, AnalysisMode.Credits, CacheEntryType.BlackInterval, range.Start, range.End, intervals);
+
+        return intervals;
+    }
+
+    // blackdetect's pix_th is a fraction of the luma range; internally it derives the absolute cutoff
+    // as (16 + pix_th * 219) for limited-range video. We invert that here so the cutoff equals the
+    // configured blackframe `threshold` (a raw 0-255 luma value), keeping both filters' pixel-level
+    // notion of "black" identical. This assumes limited range (TV swing, 16-235); on full-range
+    // sources blackdetect divides by 255 instead, making its cutoff marginally stricter.
+    private static string FormatBlackDetectPixelThreshold(int threshold)
+    {
+        var normalizedThreshold = Math.Clamp((threshold - LimitedRangeLumaMinimum) / LimitedRangeLumaRange, 0, 1);
+        return normalizedThreshold.ToString("0.####", CultureInfo.InvariantCulture);
+    }
+
+    // pic_th is the fraction of a frame that must be black for blackdetect to treat the frame as black.
+    // Tie it to the same `minimum` percentage the keyframe density pass uses so the interval confirmer
+    // and the keyframe proposer agree on what counts as a black frame; otherwise blackdetect's default
+    // 0.98 would reject text-heavy real credits that the keyframe pass (~0.85) accepts.
+    private static string FormatBlackDetectPictureRatioThreshold(int minimum)
+    {
+        var ratio = Math.Clamp(minimum / 100.0, 0, 1);
+        return ratio.ToString("0.####", CultureInfo.InvariantCulture);
+    }
+
+    /// <inheritdoc/>
     public async Task<double[]> DetectKeyFramesAsync(QueuedEpisode episode, TimeRange range, AnalysisMode mode, CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
@@ -375,23 +445,10 @@ public sealed partial class FFmpegService(
         int timeout = 60 * 1000,
         CancellationToken cancellationToken = default)
     {
-        // The silencedetect and blackframe filters output data at the info log level.
-        var useInfoLevel = args.Any(a =>
-            a.Contains("silencedetect", StringComparison.OrdinalIgnoreCase) ||
-            a.Contains("blackframe", StringComparison.OrdinalIgnoreCase) ||
-            a.Contains("showinfo", StringComparison.OrdinalIgnoreCase));
-
-        var logLevel = useInfoLevel ? "info" : "warning";
-
-        // For FFmpeg info queries (-version, -muxers, -h), don't add the thread count flag
-        // to avoid "Trailing option(s) found" warning. These are quick queries.
-        var firstArg = args.Count > 0 ? args[0] : string.Empty;
-        var isInfoQuery = firstArg.StartsWith("-version", StringComparison.Ordinal) ||
-            firstArg.StartsWith("-muxers", StringComparison.Ordinal) ||
-            firstArg.StartsWith("-h", StringComparison.Ordinal);
+        var logLevel = UsesInfoLogLevel(args) ? "info" : "warning";
 
         var processArgs = new List<string> { "-hide_banner" };
-        if (!isInfoQuery)
+        if (!IsInfoQuery(args))
         {
             processArgs.Add("-threads");
             processArgs.Add((Plugin.Instance?.Configuration.ProcessThreads ?? 0).ToString(CultureInfo.InvariantCulture));
@@ -402,6 +459,30 @@ public sealed partial class FFmpegService(
         processArgs.AddRange(args);
 
         return GetProcessOutputAsync(Plugin.Instance?.FFmpegPath ?? "ffmpeg", processArgs, stderr, timeout, cancellationToken);
+    }
+
+    private static bool UsesInfoLogLevel(IReadOnlyList<string> args)
+    {
+        // Detection filters emit their result data at info log level.
+        return args.Any(argument =>
+            argument.Contains("silencedetect", StringComparison.OrdinalIgnoreCase) ||
+            argument.Contains("blackframe", StringComparison.OrdinalIgnoreCase) ||
+            argument.Contains("blackdetect", StringComparison.OrdinalIgnoreCase) ||
+            argument.Contains("showinfo", StringComparison.OrdinalIgnoreCase));
+    }
+
+    private static bool IsInfoQuery(IReadOnlyList<string> args)
+    {
+        if (args.Count == 0)
+        {
+            return false;
+        }
+
+        // Do not add thread count to quick info queries; ffmpeg treats it as a trailing option.
+        var firstArg = args[0];
+        return firstArg.StartsWith("-version", StringComparison.Ordinal) ||
+            firstArg.StartsWith("-muxers", StringComparison.Ordinal) ||
+            firstArg.StartsWith("-h", StringComparison.Ordinal);
     }
 
     private Task<byte[]> GetProcessOutputAsync(
