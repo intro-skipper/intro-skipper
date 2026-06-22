@@ -798,17 +798,56 @@ public class TestBlackFrames
         Assert.Equal(1345, ranges[1].End);
     }
 
-    [Fact]
-    public void TestCreditCandidateScoring_PrefersIntervalSupportThenLatestScene()
+    [Theory]
+    [MemberData(nameof(CandidateRankingCases))]
+    public void TestRankCreditCandidates_SelectsExpectedScene(
+        string label,
+        CreditScene[] scenes,
+        BlackInterval[] intervals,
+        int expectedIndex)
     {
-        CreditScene[] scenes =
+        Assert.False(string.IsNullOrWhiteSpace(label));
+
+        var selected = CreditsBlackFrameAnalyzer.RankCreditCandidates(scenes, intervals)[0];
+
+        Assert.Equal(scenes[expectedIndex], selected);
+    }
+
+    public static IEnumerable<object[]> CandidateRankingCases()
+    {
+        CreditScene[] twoScenes =
         [
             new(400, 520, 200, 260),
             new(620, 700, 310, 350),
         ];
 
-        Assert.Equal(scenes[1], CreditsBlackFrameAnalyzer.RankCreditCandidates(scenes, [])[0]);
-        Assert.Equal(scenes[0], CreditsBlackFrameAnalyzer.RankCreditCandidates(scenes, [new BlackInterval(205, 246)])[0]);
+        // No interval evidence: the latest scene wins.
+        yield return ["no intervals -> latest scene", twoScenes, Array.Empty<BlackInterval>(), 1];
+
+        // An interval overlapping the earlier scene beyond the minimum promotes it over the later scene.
+        yield return ["interval promotes earlier scene", twoScenes, new[] { new BlackInterval(205, 246) }, 0];
+
+        // Overlap shorter than MinimumIntervalOverlapSeconds (0.25s) is not support: the latest scene wins.
+        yield return ["sub-threshold overlap is not support", twoScenes, new[] { new BlackInterval(259.9, 280) }, 1];
+
+        // An interval supporting the later scene keeps the latest scene selected.
+        yield return ["interval supports later scene", twoScenes, new[] { new BlackInterval(315, 360) }, 1];
+
+        CreditScene[] threeScenes =
+        [
+            new(100, 200, 50, 90),
+            new(300, 400, 150, 190),
+            new(500, 600, 250, 290),
+        ];
+
+        // Among supported scenes the latest supported one wins, ahead of an unsupported later scene.
+        yield return
+        [
+            "latest supported scene beats unsupported later scene",
+            threeScenes,
+            new[] { new BlackInterval(55, 95), new BlackInterval(155, 195) },
+            1,
+        ];
     }
 
     [Fact]
