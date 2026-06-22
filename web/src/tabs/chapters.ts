@@ -3,15 +3,16 @@ import { configStore } from "../store/config-store.ts";
 import { el } from "../components/dom.ts";
 import { appendTabContent } from "../components/tab-layout.ts";
 import { textField } from "../components/text-field.ts";
+import { checkboxField } from "../components/checkbox-field.ts";
 
 const DEFAULTS: Record<string, string> = {
-    ChapterAnalyzerIntroductionPattern: "(^|\\s)(Intro|Introduction|OP|Opening)(?!\\sEnd)(\\s|$)",
-    ChapterAnalyzerEndCreditsPattern: "(^|\\s)(Credits?|ED|Ending|Outro)(?!\\sEnd)(\\s|$)",
+    ChapterAnalyzerIntroductionPattern: "(^|\\s)(Intro|Introduction|OP|Opening)(?![\\s:]+End)(\\s|:|$)",
+    ChapterAnalyzerEndCreditsPattern: "(^|\\s)(Credits?|ED|Ending|Outro)(?![\\s:]+End)(\\s|:|$)",
     ChapterAnalyzerPreviewPattern:
-        "(^|\\s)(Preview|PV|Sneak\\s?Peek|Coming\\s?(Up|Soon)|Next\\s+(time|on|episode)|Extra|Teaser|Trailer)(?!\\sEnd)(\\s|:|$)",
+        "(^|\\s)(Preview|PV|Sneak\\s?Peek|Coming\\s?(Up|Soon)|Next\\s+(time|on|episode)|Extra|Teaser|Trailer)(?![\\s:]+End)(\\s|:|$)",
     ChapterAnalyzerRecapPattern:
-        "(^|\\s)(Re?cap|Sum{1,2}ary|Prev(ious(ly)?)?|(Last|Earlier)(\\s\\w+)?|Catch[ -]up)(?!\\sEnd)(\\s|:|$)",
-    ChapterAnalyzerCommercialPattern: "(^|\\s)(Ad(vert(isement)?)?|Commercial)(?!\\sEnd)(\\s|$)",
+        "(^|\\s)(Re?cap|Sum{1,2}ary|Prev(ious(ly)?)?|(Last|Earlier)(\\s\\w+)?|Catch[ -]up)(?![\\s:]+End)(\\s|:|$)",
+    ChapterAnalyzerCommercialPattern: "(^|\\s)(Ad(vert(isement)?)?|Commercial|Intermission)(?![\\s:]+End)(\\s|:|$)",
 };
 
 function patternField(id: string, label: string, typeNoun: string): HTMLElement {
@@ -56,6 +57,12 @@ export const chaptersTab: Tab = {
             patternField("ChapterAnalyzerPreviewPattern", "Preview", "preview"),
             patternField("ChapterAnalyzerRecapPattern", "Recaps", "recap"),
             patternField("ChapterAnalyzerCommercialPattern", "Commercials", "commercial"),
+            checkboxField({
+                id: "EnableSponsorBlockChapterDetection",
+                label: "Enable SponsorBlock chapter detection",
+                description:
+                    "Detect known SponsorBlock chapter labels in addition to the regular expressions above.",
+            }),
         );
     },
 };

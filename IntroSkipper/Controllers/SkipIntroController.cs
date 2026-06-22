@@ -9,6 +9,7 @@
 
 using System.Net.Mime;
 using IntroSkipper.Data;
+using IntroSkipper.FFmpeg;
 using IntroSkipper.Manager;
 using MediaBrowser.Common.Api;
 using MediaBrowser.Controller.Entities.Movies;
@@ -25,9 +26,10 @@ namespace IntroSkipper.Controllers;
 [Authorize]
 [ApiController]
 [Produces(MediaTypeNames.Application.Json)]
-public class SkipIntroController(MediaSegmentUpdateManager mediaSegmentUpdateManager) : ControllerBase
+public class SkipIntroController(IMediaSegmentRefresher mediaSegmentRefresher, IDetectionCacheService cacheService) : ControllerBase
 {
-    private readonly MediaSegmentUpdateManager _mediaSegmentUpdateManager = mediaSegmentUpdateManager;
+    private readonly IMediaSegmentRefresher _mediaSegmentRefresher = mediaSegmentRefresher;
+    private readonly IDetectionCacheService _cacheService = cacheService;
 
     /// <summary>
     /// Updates the timestamps for the provided episode.
@@ -74,13 +76,7 @@ public class SkipIntroController(MediaSegmentUpdateManager mediaSegmentUpdateMan
 
         if (Plugin.Instance.Configuration.UpdateMediaSegments)
         {
-            var episode = Plugin.Instance!.QueuedMediaItems[rawItem is Episode e ? e.SeasonId : rawItem.Id]
-                .FirstOrDefault(q => q.EpisodeId == rawItem.Id);
-
-            if (episode is not null)
-            {
-                await _mediaSegmentUpdateManager.UpdateMediaSegmentsAsync([episode], cancellationToken).ConfigureAwait(false);
-            }
+            await _mediaSegmentRefresher.RefreshAsync(rawItem, cancellationToken).ConfigureAwait(false);
         }
 
         return NoContent();
@@ -106,7 +102,7 @@ public class SkipIntroController(MediaSegmentUpdateManager mediaSegmentUpdateMan
         }
 
         var times = new TimeStamps();
-        var segments = await Plugin.Instance!.GetTimestampsAsync(id, cancellationToken).ConfigureAwait(false);
+        var segments = await Plugin.GetTimestampsAsync(id, cancellationToken).ConfigureAwait(false);
 
         if (segments.TryGetValue(AnalysisMode.Introduction, out var introSegment))
         {
@@ -146,7 +142,7 @@ public class SkipIntroController(MediaSegmentUpdateManager mediaSegmentUpdateMan
     [HttpGet("Episode/{id}/IntroSkipperSegments")]
     public async Task<ActionResult<Dictionary<AnalysisMode, Segment>>> GetSkippableSegments([FromRoute] Guid id, CancellationToken cancellationToken = default)
     {
-        var segments = await Plugin.Instance!.GetTimestampsAsync(id, cancellationToken).ConfigureAwait(false);
+        var segments = await Plugin.GetTimestampsAsync(id, cancellationToken).ConfigureAwait(false);
         var result = new Dictionary<AnalysisMode, Segment>();
 
         if (segments.TryGetValue(AnalysisMode.Introduction, out var introSegment))
@@ -199,7 +195,7 @@ public class SkipIntroController(MediaSegmentUpdateManager mediaSegmentUpdateMan
         {
             // Cache deletion must run to completion — the DB rows are already gone,
             // so aborting here would leave orphaned files with no way to clean them up.
-            await Task.Run(() => FFmpegWrapper.DeleteCacheFiles(mode), CancellationToken.None).ConfigureAwait(false);
+            await Task.Run(() => _cacheService.DeleteByMode(mode), CancellationToken.None).ConfigureAwait(false);
         }
 
         return NoContent();

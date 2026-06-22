@@ -4,6 +4,7 @@
 // SPDX-FileCopyrightText: 2024-2026 Kilian von Pflugk
 // SPDX-License-Identifier: GPL-3.0-only
 
+using IntroSkipper.FFmpeg;
 using IntroSkipper.Manager;
 using IntroSkipper.Services;
 using MediaBrowser.Controller.Library;
@@ -25,21 +26,27 @@ namespace IntroSkipper.ScheduledTasks;
 /// <param name="providerManager">Provider manager.</param>
 /// <param name="fileSystem">File system.</param>
 /// <param name="logger">Logger.</param>
-/// <param name="mediaSegmentUpdateManager">Media segment update manager.</param>
+/// <param name="mediaSegmentRefresher">Media segment refresher.</param>
+/// <param name="ffmpegService">FFmpeg service.</param>
+/// <param name="cacheService">Detection cache service.</param>
 public partial class DetectSegmentsTask(
     ILogger<DetectSegmentsTask> logger,
     ILoggerFactory loggerFactory,
     ILibraryManager libraryManager,
     IProviderManager providerManager,
     IFileSystem fileSystem,
-    MediaSegmentUpdateManager mediaSegmentUpdateManager) : IScheduledTask
+    IMediaSegmentRefresher mediaSegmentRefresher,
+    IFFmpegService ffmpegService,
+    IDetectionCacheService cacheService) : IScheduledTask
 {
     private readonly ILogger<DetectSegmentsTask> _logger = logger;
     private readonly ILoggerFactory _loggerFactory = loggerFactory;
     private readonly ILibraryManager _libraryManager = libraryManager;
     private readonly IProviderManager _providerManager = providerManager;
     private readonly IFileSystem _fileSystem = fileSystem;
-    private readonly MediaSegmentUpdateManager _mediaSegmentUpdateManager = mediaSegmentUpdateManager;
+    private readonly IMediaSegmentRefresher _mediaSegmentRefresher = mediaSegmentRefresher;
+    private readonly IFFmpegService _ffmpegService = ffmpegService;
+    private readonly IDetectionCacheService _cacheService = cacheService;
 
     /// <summary>
     /// Gets the task name.
@@ -91,7 +98,9 @@ public partial class DetectSegmentsTask(
                 _libraryManager,
                 _providerManager,
                 _fileSystem,
-                _mediaSegmentUpdateManager);
+                _mediaSegmentRefresher,
+                _ffmpegService,
+                _cacheService);
 
             await baseIntroAnalyzer.AnalyzeItemsAsync(progress, cancellationToken).ConfigureAwait(false);
         }

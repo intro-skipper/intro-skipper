@@ -2,9 +2,9 @@
 // SPDX-FileCopyrightText: 2019 Phallacy
 // SPDX-FileCopyrightText: 2021 Cody Robibero
 // SPDX-FileCopyrightText: 2022-2023 ConfusedPolarBear
-// SPDX-FileCopyrightText: 2024-2026 Kilian von Pflugk
-// SPDX-FileCopyrightText: 2024-2026 rlauuzo
 // SPDX-FileCopyrightText: 2024-2026 AbandonedCart
+// SPDX-FileCopyrightText: 2024-2026 rlauuzo
+// SPDX-FileCopyrightText: 2024-2026 Kilian von Pflugk
 // SPDX-FileCopyrightText: 2024 theMasterpc
 // SPDX-FileCopyrightText: 2024 CasuallyFilthy
 // SPDX-License-Identifier: GPL-3.0-only
@@ -12,6 +12,7 @@
 using System.Diagnostics;
 using System.IO.Compression;
 using System.Xml.Serialization;
+using IntroSkipper.Data;
 using MediaBrowser.Model.Plugins;
 
 namespace IntroSkipper.Configuration;
@@ -21,6 +22,44 @@ namespace IntroSkipper.Configuration;
 /// </summary>
 public class PluginConfiguration : BasePluginConfiguration
 {
+    /// <summary>
+    /// Default percentage of each episode's audio track to analyze.
+    /// </summary>
+    public const int DefaultAnalysisPercent = 25;
+
+    /// <summary>
+    /// Default upper limit (in minutes) on the length of each episode's audio track that will be analyzed.
+    /// </summary>
+    public const int DefaultAnalysisLengthLimit = 10;
+
+    /// <summary>
+    /// Default minimum length of similar audio that will be considered an introduction.
+    /// </summary>
+    public const int DefaultMinimumIntroDuration = 15;
+
+    /// <summary>
+    /// Default number of hours after the newest queued episode before a season is treated as settled.
+    /// </summary>
+    public const int DefaultSettledSeasonDelayHours = 24;
+
+    /// <summary>
+    /// Maximum number of hours after the newest queued episode before a season is treated as settled.
+    /// </summary>
+    public const int MaximumSettledSeasonDelayHours = 87600;
+
+    /// <summary>
+    /// Minimum percentage of each episode's audio track to analyze.
+    /// </summary>
+    public const int MinimumAnalysisPercent = 1;
+
+    /// <summary>
+    /// Maximum percentage of each episode's audio track to analyze.
+    /// </summary>
+    public const int MaximumAnalysisPercent = 50;
+
+    private int _analysisPercent = DefaultAnalysisPercent;
+    private int _settledSeasonDelayHours = DefaultSettledSeasonDelayHours;
+
     /// <summary>
     /// Initializes a new instance of the <see cref="PluginConfiguration"/> class.
     /// </summary>
@@ -36,9 +75,42 @@ public class PluginConfiguration : BasePluginConfiguration
     public string ExcludeSeries { get; set; } = string.Empty;
 
     /// <summary>
+    /// Gets the structured list of series names to exclude from analysis.
+    /// </summary>
+    public ExclusionList SeriesExclusions { get; init; } = [];
+
+    /// <summary>
+    /// Gets the structured list of movie names to exclude from analysis.
+    /// </summary>
+    public ExclusionList MovieExclusions { get; init; } = [];
+
+    /// <summary>
+    /// Gets the structured list of filesystem paths to exclude from analysis.
+    /// </summary>
+    public ExclusionList PathExclusions { get; init; } = [];
+
+    /// <summary>
     /// Gets or sets a value indicating whether to automatically scan newly added items.
     /// </summary>
     public bool AutoDetectIntros { get; set; } = true;
+
+    /// <summary>
+    /// Gets or sets a value indicating whether a whole season should be re-analyzed once it stops
+    /// receiving new episodes. Audio fingerprint detection compares episodes against each other, so
+    /// segments first derived from a partial season improve once the rest of the season is present.
+    /// </summary>
+    public bool ReanalyzeSettledSeasons { get; set; }
+
+    /// <summary>
+    /// Gets or sets the number of hours that must pass after the newest episode was added before the season is treated as settled.
+    /// A value of 0 means no additional quiet-time wait once the season is queued.
+    /// <see cref="ReanalyzeSettledSeasons"/> remains the master switch.
+    /// </summary>
+    public int SettledSeasonDelayHours
+    {
+        get => _settledSeasonDelayHours;
+        set => _settledSeasonDelayHours = Math.Clamp(value, 0, MaximumSettledSeasonDelayHours);
+    }
 
     /// <summary>
     /// Gets or sets a value indicating whether to analyze season 0.
@@ -110,17 +182,26 @@ public class PluginConfiguration : BasePluginConfiguration
     /// <summary>
     /// Gets or sets the percentage of each episode's audio track to analyze.
     /// </summary>
-    public int AnalysisPercent { get; set; } = 25;
+    public int AnalysisPercent
+    {
+        get => _analysisPercent;
+        set => _analysisPercent = Math.Clamp(value, MinimumAnalysisPercent, MaximumAnalysisPercent);
+    }
 
     /// <summary>
     /// Gets or sets the upper limit (in minutes) on the length of each episode's audio track that will be analyzed.
     /// </summary>
-    public int AnalysisLengthLimit { get; set; } = 10;
+    public int AnalysisLengthLimit { get; set; } = DefaultAnalysisLengthLimit;
 
     /// <summary>
     /// Gets or sets a value indicating whether to use the minimum and maximum duration for chapters.
     /// </summary>
     public bool FullLengthChapters { get; set; } = false;
+
+    /// <summary>
+    /// Gets or sets a value indicating whether known SponsorBlock chapter labels are detected in addition to chapter regular expressions.
+    /// </summary>
+    public bool EnableSponsorBlockChapterDetection { get; set; } = true;
 
     /// <summary>
     /// Gets or sets a value indicating whether the introduction in the first episode of a season should be ignored.
@@ -141,7 +222,7 @@ public class PluginConfiguration : BasePluginConfiguration
     /// <summary>
     /// Gets or sets the minimum length of similar audio that will be considered an introduction.
     /// </summary>
-    public int MinimumIntroDuration { get; set; } = 15;
+    public int MinimumIntroDuration { get; set; } = DefaultMinimumIntroDuration;
 
     /// <summary>
     /// Gets or sets the maximum length of similar audio that will be considered an introduction.
@@ -164,6 +245,12 @@ public class PluginConfiguration : BasePluginConfiguration
     public int MaximumMovieCreditsDuration { get; set; } = 900;
 
     /// <summary>
+    /// Gets or sets a value indicating whether to probe the actual audio stream duration for credits fingerprinting.
+    /// This helps with containers whose reported runtime is inflated by subtitle tracks.
+    /// </summary>
+    public bool ProbeAudioDuration { get; set; }
+
+    /// <summary>
     /// Gets or sets the minimum length of similar audio that will be considered a recap.
     /// </summary>
     public int MinimumRecapDuration { get; set; } = 15;
@@ -172,6 +259,21 @@ public class PluginConfiguration : BasePluginConfiguration
     /// Gets or sets the maximum length of similar audio that will be considered a recap.
     /// </summary>
     public int MaximumRecapDuration { get; set; } = 120;
+
+    /// <summary>
+    /// Gets or sets the minimum length of a detected black-frame/chromaprint recap.
+    /// </summary>
+    public int MinimumRecapDetectionDuration { get; set; } = 15;
+
+    /// <summary>
+    /// Gets or sets the maximum length of a detected black-frame/chromaprint recap.
+    /// </summary>
+    public int MaximumRecapDetectionDuration { get; set; } = 120;
+
+    /// <summary>
+    /// Gets or sets a value indicating whether recap detection can use black frames as a fallback boundary signal.
+    /// </summary>
+    public bool DetectRecapUsingBlackFrames { get; set; } = false;
 
     /// <summary>
     /// Gets or sets the minimum length of similar audio that will be considered a preview.
@@ -247,31 +349,31 @@ public class PluginConfiguration : BasePluginConfiguration
     /// Gets or sets the regular expression used to detect introduction chapters.
     /// </summary>
     public string ChapterAnalyzerIntroductionPattern { get; set; } =
-        @"(^|\s)(Intro|Introduction|OP|Opening)(?!\sEnd)(\s|$)";
+        @"(^|\s)(Intro|Introduction|OP|Opening)(?![\s:]+End)(\s|:|$)";
 
     /// <summary>
     /// Gets or sets the regular expression used to detect ending credit chapters.
     /// </summary>
     public string ChapterAnalyzerEndCreditsPattern { get; set; } =
-        @"(^|\s)(Credits?|ED|Ending|Outro)(?!\sEnd)(\s|$)";
+        @"(^|\s)(Credits?|ED|Ending|Outro)(?![\s:]+End)(\s|:|$)";
 
     /// <summary>
     /// Gets or sets the regular expression used to detect Preview chapters.
     /// </summary>
     public string ChapterAnalyzerPreviewPattern { get; set; } =
-        @"(^|\s)(Preview|PV|Sneak\s?Peek|Coming\s?(Up|Soon)|Next\s+(time|on|episode)|Extra|Teaser|Trailer)(?!\sEnd)(\s|:|$)";
+        @"(^|\s)(Preview|PV|Sneak\s?Peek|Coming\s?(Up|Soon)|Next\s+(time|on|episode)|Extra|Teaser|Trailer)(?![\s:]+End)(\s|:|$)";
 
     /// <summary>
     /// Gets or sets the regular expression used to detect Recap chapters.
     /// </summary>
     public string ChapterAnalyzerRecapPattern { get; set; } =
-        @"(^|\s)(Re?cap|Sum{1,2}ary|Prev(ious(ly)?)?|(Last|Earlier)(\s\w+)?|Catch[ -]up)(?!\sEnd)(\s|:|$)";
+        @"(^|\s)(Re?cap|Sum{1,2}ary|Prev(ious(ly)?)?|(Last|Earlier)(\s\w+)?|Catch[ -]up)(?![\s:]+End)(\s|:|$)";
 
     /// <summary>
     /// Gets or sets the regular expression used to detect Commercial chapters.
     /// </summary>
     public string ChapterAnalyzerCommercialPattern { get; set; } =
-        @"(^|\s)(Ad(vert(isement)?)?|Commercial)(?!\sEnd)(\s|$)";
+        @"(^|\s)(Ad(vert(isement)?)?|Commercial|Intermission)(?![\s:]+End)(\s|:|$)";
 
     // ===== Playback settings =====
 

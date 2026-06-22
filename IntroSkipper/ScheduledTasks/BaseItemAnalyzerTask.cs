@@ -1,13 +1,15 @@
 // SPDX-FileCopyrightText: 2023 ConfusedPolarBear
+// SPDX-FileCopyrightText: 2024-2026 AbandonedCart
 // SPDX-FileCopyrightText: 2024-2026 rlauuzo
 // SPDX-FileCopyrightText: 2024-2026 Kilian von Pflugk
-// SPDX-FileCopyrightText: 2024-2026 AbandonedCart
 // SPDX-FileCopyrightText: 2024 theMasterpc
 // SPDX-License-Identifier: GPL-3.0-only
 
 using IntroSkipper.Analyzers;
 using IntroSkipper.Configuration;
 using IntroSkipper.Data;
+using IntroSkipper.FFmpeg;
+using IntroSkipper.Helper;
 using IntroSkipper.Manager;
 using MediaBrowser.Controller.Library;
 using MediaBrowser.Controller.Providers;
@@ -27,14 +29,18 @@ namespace IntroSkipper.ScheduledTasks;
 /// <param name="libraryManager">Library manager.</param>
 /// <param name="providerManager">Provider manager.</param>
 /// <param name="fileSystem">File system.</param>
-/// <param name="mediaSegmentUpdateManager">Media segment update manager.</param>
+/// <param name="mediaSegmentRefresher">Media segment refresher.</param>
+/// <param name="ffmpegService">FFmpeg service.</param>
+/// <param name="cacheService">Detection cache service.</param>
 public partial class BaseItemAnalyzerTask(
     ILogger logger,
     ILoggerFactory loggerFactory,
     ILibraryManager libraryManager,
     IProviderManager providerManager,
     IFileSystem fileSystem,
-    MediaSegmentUpdateManager mediaSegmentUpdateManager)
+    IMediaSegmentRefresher mediaSegmentRefresher,
+    IFFmpegService ffmpegService,
+    IDetectionCacheService cacheService)
 {
     /// <summary>
     /// Tolerance (seconds) when comparing an existing anime Preview's start to a newly-computed
@@ -48,9 +54,10 @@ public partial class BaseItemAnalyzerTask(
     private readonly ILibraryManager _libraryManager = libraryManager;
     private readonly IProviderManager _providerManager = providerManager;
     private readonly IFileSystem _fileSystem = fileSystem;
-    private readonly MediaSegmentUpdateManager _mediaSegmentUpdateManager = mediaSegmentUpdateManager;
+    private readonly IMediaSegmentRefresher _mediaSegmentRefresher = mediaSegmentRefresher;
+    private readonly IFFmpegService _ffmpegService = ffmpegService;
+    private readonly IDetectionCacheService _cacheService = cacheService;
     private readonly PluginConfiguration _config = Plugin.Instance?.Configuration ?? new PluginConfiguration();
-    private readonly bool _ffmpegValid = FFmpegWrapper.CheckFFmpegVersion();
 
     /// <summary>
     /// Analyze all media items on the server.
@@ -64,7 +71,7 @@ public partial class BaseItemAnalyzerTask(
         CancellationToken cancellationToken,
         IReadOnlyCollection<Guid>? seasonsToAnalyze = null)
     {
-        HashSet<AnalysisMode> modes = [
+        List<AnalysisMode> modes = [
             .. _config.ScanIntroduction ? [AnalysisMode.Introduction] : Array.Empty<AnalysisMode>(),
             .. _config.ScanCredits ? [AnalysisMode.Credits] : Array.Empty<AnalysisMode>(),
             .. _config.ScanRecap ? [AnalysisMode.Recap] : Array.Empty<AnalysisMode>(),
@@ -73,12 +80,14 @@ public partial class BaseItemAnalyzerTask(
         ];
 
         var plugin = Plugin.Instance ?? throw new InvalidOperationException("Plugin instance is null");
+        var ffmpegValid = await _ffmpegService.CheckFFmpegVersionAsync(cancellationToken).ConfigureAwait(false);
 
         var queueManager = new QueueManager(
             _loggerFactory.CreateLogger<QueueManager>(),
             _libraryManager,
             _providerManager,
-            _fileSystem);
+            _fileSystem,
+            _ffmpegService);
 
         var queue = await queueManager.GetMediaItems(cancellationToken).ConfigureAwait(false);
 
@@ -88,14 +97,6 @@ public partial class BaseItemAnalyzerTask(
                          .ToDictionary(kvp => kvp.Key, kvp => kvp.Value);
         }
 
-        if (!plugin.LegacyFingerprintMigrationDone)
-        {
-            FFmpegWrapper.MigrateLegacyDetectionCache(
-                queue.Values.SelectMany(static episodes => episodes),
-                cancellationToken);
-            plugin.LegacyFingerprintMigrationDone = true;
-        }
-
         int totalQueued = queue.Sum(kvp => kvp.Value.Count) * modes.Count;
         if (totalQueued == 0)
         {
@@ -103,7 +104,7 @@ public partial class BaseItemAnalyzerTask(
             return;
         }
 
-        if (!_ffmpegValid)
+        if (!ffmpegValid)
         {
             LogSkippingChromaprint(_logger);
         }
@@ -118,6 +119,7 @@ public partial class BaseItemAnalyzerTask(
         await Parallel.ForEachAsync(queue, options, async (season, ct) =>
         {
             var updateMediaSegments = false;
+            IReadOnlyList<AnalysisMode> settledResetModes = [];
 
             var episodes = await queueManager.VerifyQueueAsync(season.Value, modes, ct).ConfigureAwait(false);
             if (episodes.Count == 0)
@@ -126,13 +128,39 @@ public partial class BaseItemAnalyzerTask(
             }
 
             var first = episodes[0];
-            if (first.IsExcluded)
+
+            // Run settled-season reanalysis from scratch after no new episodes have been added
+            // for the configured delay so segments first derived from a partial season are
+            // recomputed against the full season.
+            // Reuses the cached fingerprints, so this only re-runs the comparison, not the decode.
+            var utcNow = DateTime.UtcNow;
+            var episodeIds = episodes.Select(e => e.EpisodeId).ToArray();
+            if (_config.ReanalyzeSettledSeasons &&
+                SeasonReanalysisPlanner.IsSettledForReanalysis(episodes, _config, utcNow))
             {
-                Interlocked.Add(ref totalProcessed, episodes.Count * modes.Count);
-                progress.Report((double)totalProcessed / totalQueued * 100);
-                LogSkippingExcludedSeason(_logger, first.SeasonNumber, first.SeriesName);
-                return;
+                settledResetModes = await GetSettleReanalysisModesAsync(first.SeasonId, episodeIds, modes, ffmpegValid, ct).ConfigureAwait(false);
+                if (settledResetModes.Count > 0)
+                {
+                    var resetModes = ExpandSettledResetModesForDerivedSegments(settledResetModes, _config.AnimePreviewFromCreditsEnd);
+                    LogReanalyzingSettledSeason(_logger, first.SeasonNumber, first.SeriesName, episodes.Count);
+                    await Plugin.ResetSeasonForReanalysisAsync(first.SeasonId, episodeIds, resetModes, ct).ConfigureAwait(false);
+                    foreach (var episode in episodes)
+                    {
+                        foreach (var resetMode in resetModes)
+                        {
+                            if (episode.GetAnalyzed(resetMode) != EpisodeState.UserProvided)
+                            {
+                                episode.SetAnalyzed(resetMode, EpisodeState.NotAnalyzed);
+                            }
+                        }
+                    }
+
+                    // Force a media-segment sync so deletions propagate even if the recompute finds nothing.
+                    updateMediaSegments = true;
+                }
             }
+
+            var completedSettledModes = new List<AnalysisMode>(settledResetModes.Count);
 
             try
             {
@@ -143,8 +171,18 @@ public partial class BaseItemAnalyzerTask(
                         plugin,
                         episodes,
                         mode,
+                        ffmpegValid,
                         ct).ConfigureAwait(false);
                     Interlocked.Add(ref totalProcessed, episodes.Count);
+
+                    // Record only the modes we independently selected for reanalysis. A derived mode added
+                    // by ExpandSettledResetModesForDerivedSegments (Preview from Credits) is reset and then
+                    // regenerated as a side effect of its source mode's analysis, so its completion rides on
+                    // the source mode's record and is intentionally not tracked separately here.
+                    if (settledResetModes.Contains(mode))
+                    {
+                        completedSettledModes.Add(mode);
+                    }
 
                     updateMediaSegments = analyzed > 0 || updateMediaSegments;
                     progress.Report((double)totalProcessed / totalQueued * 100);
@@ -153,6 +191,7 @@ public partial class BaseItemAnalyzerTask(
             catch (OperationCanceledException)
             {
                 LogAnalysisCanceled(_logger);
+                throw;
             }
             catch (FingerprintException ex)
             {
@@ -166,11 +205,63 @@ public partial class BaseItemAnalyzerTask(
 
             if (updateMediaSegments && _config.UpdateMediaSegments)
             {
-                await _mediaSegmentUpdateManager.UpdateMediaSegmentsAsync(episodes, ct).ConfigureAwait(false);
+                await _mediaSegmentRefresher.RefreshAsync(episodes.Select(e => e.EpisodeId), ct).ConfigureAwait(false);
+            }
+
+            if (completedSettledModes.Count > 0)
+            {
+                await Plugin.RecordSettleReanalysisAsync(first.SeasonId, completedSettledModes, episodeIds, ct).ConfigureAwait(false);
             }
         }).ConfigureAwait(false);
-
         plugin.AnalyzeAgain = false;
+    }
+
+    private static async Task<IReadOnlyList<AnalysisMode>> GetSettleReanalysisModesAsync(
+        Guid seasonId,
+        IReadOnlyCollection<Guid> episodeIds,
+        IReadOnlyCollection<AnalysisMode> modes,
+        bool ffmpegValid,
+        CancellationToken cancellationToken)
+    {
+        var settleReanalysisStates = await Plugin.GetSettleReanalysisStatesAsync(seasonId, cancellationToken).ConfigureAwait(false);
+        var resetModes = new List<AnalysisMode>(modes.Count);
+        foreach (var mode in modes)
+        {
+            var stateExists = settleReanalysisStates.TryGetValue(mode, out var state);
+            var action = stateExists ? state.Action : AnalyzerAction.Default;
+            if (action != AnalyzerAction.None &&
+                CanSettleReanalysisRun(mode, action, ffmpegValid) &&
+                (!stateExists || Plugin.ShouldSettleReanalyze(state.SettledReanalysisEpisodeIds, episodeIds)))
+            {
+                resetModes.Add(mode);
+            }
+        }
+
+        return resetModes;
+    }
+
+    internal static IReadOnlyCollection<AnalysisMode> ExpandSettledResetModesForDerivedSegments(
+        IReadOnlyList<AnalysisMode> modes,
+        bool animePreviewFromCreditsEnd)
+    {
+        if (!animePreviewFromCreditsEnd ||
+            !modes.Contains(AnalysisMode.Credits) ||
+            modes.Contains(AnalysisMode.Preview))
+        {
+            return modes;
+        }
+
+        return [.. modes, AnalysisMode.Preview];
+    }
+
+    internal static bool CanSettleReanalysisRun(AnalysisMode mode, AnalyzerAction action, bool ffmpegValid)
+    {
+        if (mode != AnalysisMode.Introduction)
+        {
+            return true;
+        }
+
+        return ffmpegValid || action == AnalyzerAction.Chapter;
     }
 
     /// <summary>
@@ -179,12 +270,14 @@ public partial class BaseItemAnalyzerTask(
     /// <param name="plugin">Plugin instance.</param>
     /// <param name="items">Media items to analyze.</param>
     /// <param name="mode">Analysis mode.</param>
+    /// <param name="ffmpegValid">Whether FFmpeg supports the required Chromaprint features.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>Number of items successfully analyzed.</returns>
     private async Task<int> AnalyzeItemsAsync(
         Plugin plugin,
         IReadOnlyList<QueuedEpisode> items,
         AnalysisMode mode,
+        bool ffmpegValid,
         CancellationToken cancellationToken)
     {
         if (!items.Any(e => e.GetAnalyzed(mode) == EpisodeState.NotAnalyzed))
@@ -203,13 +296,25 @@ public partial class BaseItemAnalyzerTask(
         }
 
         var totalItems = items.Count(e => e.GetAnalyzed(mode) != EpisodeState.Analyzed);
-        var action = await plugin.GetAnalyzerActionAsync(first.SeasonId, mode, cancellationToken).ConfigureAwait(false);
+        var action = await Plugin.GetAnalyzerActionAsync(first.SeasonId, mode, cancellationToken).ConfigureAwait(false);
+        var configHash = ConfigHasher.Analysis(_config, mode, action);
 
         if (action == AnalyzerAction.None)
         {
             LogSkippingNoneAction(_logger, mode, first.SeriesName, first.SeasonNumber);
             return 0;
         }
+
+        foreach (var item in items)
+        {
+            item.AnalysisConfigHash = configHash;
+        }
+
+        await Plugin.CleanStaleAutomaticSegmentsAsync(
+            items.Where(e => e.GetAnalyzed(mode) != EpisodeState.UserProvided).Select(e => e.EpisodeId),
+            mode,
+            configHash,
+            cancellationToken).ConfigureAwait(false);
 
         LogAnalyzingFiles(_logger, mode, items.Count, first.SeriesName, first.SeasonNumber);
 
@@ -219,7 +324,7 @@ public partial class BaseItemAnalyzerTask(
         var analyzers = new List<IMediaFileAnalyzer>
         {
             // ChapterAnalyzer: supports all modes and content types
-            new ChapterAnalyzer(_loggerFactory.CreateLogger<ChapterAnalyzer>())
+            new ChapterAnalyzer(_loggerFactory.CreateLogger<ChapterAnalyzer>(), _ffmpegService)
         };
 
         if (mode is AnalysisMode.Credits)
@@ -227,9 +332,9 @@ public partial class BaseItemAnalyzerTask(
             if (isAnime)
             {
                 // Anime credits: Chromaprint before BlackFrame (fingerprint matching preferred)
-                if (_ffmpegValid)
+                if (ffmpegValid)
                 {
-                    analyzers.Add(new ChromaprintAnalyzer(_loggerFactory.CreateLogger<ChromaprintAnalyzer>()));
+                    analyzers.Add(new ChromaprintAnalyzer(_loggerFactory.CreateLogger<ChromaprintAnalyzer>(), _ffmpegService, _cacheService));
                 }
 
                 analyzers.Add(CreateBlackFrameAnalyzer());
@@ -239,22 +344,27 @@ public partial class BaseItemAnalyzerTask(
                 // Non-anime credits: BlackFrame before Chromaprint
                 analyzers.Add(CreateBlackFrameAnalyzer());
 
-                if (!isMovie && _ffmpegValid)
+                if (!isMovie && ffmpegValid)
                 {
-                    analyzers.Add(new ChromaprintAnalyzer(_loggerFactory.CreateLogger<ChromaprintAnalyzer>()));
+                    analyzers.Add(new ChromaprintAnalyzer(_loggerFactory.CreateLogger<ChromaprintAnalyzer>(), _ffmpegService, _cacheService));
                 }
             }
         }
         else if (mode is AnalysisMode.Introduction)
         {
             // Introduction: Chromaprint is the only non-chapter analyzer
-            if (!isMovie && _ffmpegValid)
+            if (!isMovie && ffmpegValid)
             {
-                analyzers.Add(new ChromaprintAnalyzer(_loggerFactory.CreateLogger<ChromaprintAnalyzer>()));
+                analyzers.Add(new ChromaprintAnalyzer(_loggerFactory.CreateLogger<ChromaprintAnalyzer>(), _ffmpegService, _cacheService));
             }
         }
+        else if (mode is AnalysisMode.Recap && !isMovie && ffmpegValid)
+        {
+            // Recap: Chromaprint can match the repeated "previously on" card/sting near the start.
+            analyzers.Add(new ChromaprintAnalyzer(_loggerFactory.CreateLogger<ChromaprintAnalyzer>(), _ffmpegService, _cacheService));
+        }
 
-        // Recap, Preview, Commercial: only ChapterAnalyzer (already added above)
+        // Preview, Commercial: only ChapterAnalyzer (already added above)
 
         // Apply priority overrides to reorder the analyzer chain.
         // The specified analyzer moves to the front; others keep their relative order.
@@ -271,7 +381,7 @@ public partial class BaseItemAnalyzerTask(
                 PromoteAnalyzer(analyzers, static a => a is BlackFrameAnalyzer or BlackFrameAltAnalyzer);
                 break;
             default:
-                if (_config.PreferChromaprint && _ffmpegValid)
+                if (_config.PreferChromaprint && ffmpegValid)
                 {
                     PromoteAnalyzer(analyzers, static a => a is ChromaprintAnalyzer);
                 }
@@ -294,7 +404,7 @@ public partial class BaseItemAnalyzerTask(
         }
 
         // Set the episode IDs for the analyzed items
-        await plugin.SetEpisodeIdsAsync(first.SeasonId, mode, items.Select(i => i.EpisodeId), cancellationToken).ConfigureAwait(false);
+        await Plugin.SetEpisodeIdsAsync(first.SeasonId, mode, items.Select(i => i.EpisodeId), configHash, cancellationToken).ConfigureAwait(false);
 
         return totalItems - items.Count(e => e.GetAnalyzed(mode) != EpisodeState.Analyzed);
     }
@@ -347,8 +457,8 @@ public partial class BaseItemAnalyzerTask(
     /// </summary>
     /// <returns>A <see cref="BlackFrameAnalyzer"/> or <see cref="BlackFrameAltAnalyzer"/> based on configuration.</returns>
     private IMediaFileAnalyzer CreateBlackFrameAnalyzer() => _config.UseAlternativeBlackFrameAnalyzer
-        ? new BlackFrameAltAnalyzer(_loggerFactory.CreateLogger<BlackFrameAltAnalyzer>())
-        : new BlackFrameAnalyzer(_loggerFactory.CreateLogger<BlackFrameAnalyzer>());
+        ? new BlackFrameAltAnalyzer(_loggerFactory.CreateLogger<BlackFrameAltAnalyzer>(), _ffmpegService)
+        : new BlackFrameAnalyzer(_loggerFactory.CreateLogger<BlackFrameAnalyzer>(), _ffmpegService);
 
     /// <summary>
     /// Moves the first analyzer matching <paramref name="predicate"/> to the front of the list,
@@ -388,7 +498,7 @@ public partial class BaseItemAnalyzerTask(
             // Use GetSegmentsAsync (not GetTimestampsAsync) so we can see IsUserProvided.
             // UpdateTimestampAsync silently no-ops when a user-provided Preview exists, which would
             // otherwise leave us emitting a misleading "Created anime preview" log + Analyzed state.
-            var dbSegments = await plugin.GetSegmentsAsync(episode.EpisodeId, cancellationToken).ConfigureAwait(false);
+            var dbSegments = await Plugin.GetSegmentsAsync(episode.EpisodeId, cancellationToken).ConfigureAwait(false);
 
             if (dbSegments.Any(s => s.Type == AnalysisMode.Preview && s.IsUserProvided))
             {
@@ -406,7 +516,7 @@ public partial class BaseItemAnalyzerTask(
                 continue;
             }
 
-            await plugin.UpdateTimestampAsync(preview, AnalysisMode.Preview, cancellationToken: cancellationToken).ConfigureAwait(false);
+            await plugin.UpdateTimestampAsync(preview, AnalysisMode.Preview, configHash: episode.AnalysisConfigHash, cancellationToken: cancellationToken).ConfigureAwait(false);
             episode.SetAnalyzed(AnalysisMode.Preview, EpisodeState.Analyzed);
 
             LogCreatedAnimePreview(_logger, episode.Name, preview.Start, preview.End);
@@ -425,8 +535,8 @@ public partial class BaseItemAnalyzerTask(
     [LoggerMessage(Level = LogLevel.Information, Message = "Skipping Chromaprint analysis! Chromaprint is not enabled in the current ffmpeg. If Jellyfin is running natively, install jellyfin-ffmpeg7. If Jellyfin is running in a container, upgrade to version 10.10.0 or newer.")]
     private static partial void LogSkippingChromaprint(ILogger logger);
 
-    [LoggerMessage(Level = LogLevel.Information, Message = "Skipping excluded season {Season} of {Series}")]
-    private static partial void LogSkippingExcludedSeason(ILogger logger, int season, string series);
+    [LoggerMessage(Level = LogLevel.Information, Message = "Re-analyzing settled season {Season} of {Series} ({Count} episodes)")]
+    private static partial void LogReanalyzingSettledSeason(ILogger logger, int season, string series, int count);
 
     [LoggerMessage(Level = LogLevel.Information, Message = "Analysis was canceled.")]
     private static partial void LogAnalysisCanceled(ILogger logger);

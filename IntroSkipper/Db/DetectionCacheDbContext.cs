@@ -1,6 +1,6 @@
+// SPDX-FileCopyrightText: 2026 AbandonedCart
 // SPDX-FileCopyrightText: 2026 Kilian von Pflugk
 // SPDX-FileCopyrightText: 2026 rlauuzo
-// SPDX-FileCopyrightText: 2026 AbandonedCart
 // SPDX-License-Identifier: GPL-3.0-only
 
 using System;
@@ -85,6 +85,10 @@ public class DetectionCacheDbContext : DbContext
 
             entity.Property(e => e.Data)
                   .IsRequired();
+
+            entity.Property(e => e.ConfigHash)
+                  .HasDefaultValue(string.Empty)
+                  .IsRequired();
         });
 
         base.OnModelCreating(modelBuilder);
@@ -140,6 +144,7 @@ public class DetectionCacheDbContext : DbContext
                         ["Start"] = "REAL",
                         ["End"] = "REAL",
                         ["Data"] = "BLOB",
+                        ["ConfigHash"] = "TEXT",
                     };
 
                     foreach (var (name, type) in expectedColumns)

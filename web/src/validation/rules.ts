@@ -1,4 +1,9 @@
 import type { PluginConfig } from "../types.ts";
+import {
+    MAXIMUM_ANALYSIS_PERCENT,
+    MAXIMUM_SETTLED_SEASON_DELAY_HOURS,
+    MINIMUM_ANALYSIS_PERCENT,
+} from "../config-limits.ts";
 
 // Small validation helpers shared by the config store and form fields.
 export type ValidationRule<T> = (value: T) => string | null;
@@ -26,13 +31,18 @@ export function validRegex(): ValidationRule<string> {
 
 // Per-field validation rules.
 export const validationRules: Partial<Record<keyof PluginConfig, ValidationRule<any>[]>> = {
-    AnalysisPercent: [range(1, 90)],
+    AnalysisPercent: [range(MINIMUM_ANALYSIS_PERCENT, MAXIMUM_ANALYSIS_PERCENT)],
+    SettledSeasonDelayHours: [range(0, MAXIMUM_SETTLED_SEASON_DELAY_HOURS)],
     AnalysisLengthLimit: [minValue(1)],
     MinimumIntroDuration: [minValue(1)],
     MaximumIntroDuration: [minValue(1)],
     MinimumCreditsDuration: [minValue(1)],
     MaximumCreditsDuration: [minValue(1)],
     MaximumMovieCreditsDuration: [minValue(1)],
+    MinimumRecapDuration: [minValue(1)],
+    MaximumRecapDuration: [minValue(1)],
+    MinimumRecapDetectionDuration: [minValue(1)],
+    MaximumRecapDetectionDuration: [minValue(1)],
     BlackFrameMinimumPercentage: [range(0, 100)],
     BlackFrameThreshold: [range(16, 255)],
     MaxParallelism: [minValue(1)],
@@ -52,6 +62,7 @@ export const CROSS_FIELD_PAIRS: Array<[keyof PluginConfig, keyof PluginConfig]> 
     ["MinimumIntroDuration", "MaximumIntroDuration"],
     ["MinimumCreditsDuration", "MaximumCreditsDuration"],
     ["MinimumRecapDuration", "MaximumRecapDuration"],
+    ["MinimumRecapDetectionDuration", "MaximumRecapDetectionDuration"],
     ["MinimumPreviewDuration", "MaximumPreviewDuration"],
     ["MinimumCommercialDuration", "MaximumCommercialDuration"],
 ];

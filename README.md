@@ -2,7 +2,7 @@
 
 <div align="center">
     <p>
-        <img alt="Plugin Banner" src="https://raw.githubusercontent.com/intro-skipper/intro-skipper/10.10/images/logo.png" />
+        <img alt="Plugin Banner" src="https://raw.githubusercontent.com/intro-skipper/intro-skipper/10.11/images/logo.png" />
     </p>
     <p>
         Analyzes the audio of television episodes to detect and skip over intros.
@@ -51,7 +51,7 @@ Some web UI features (for example, adjusting the skip-button timeout) require th
 
 ## System requirements
 
-* Jellyfin 10.11.8 (or newer)
+* Jellyfin 10.11.11 (or newer)
 * Jellyfin's [fork](https://github.com/jellyfin/jellyfin-ffmpeg) of `ffmpeg` must be installed, version `7.1.1-7` or newer
   * `jellyfin/jellyfin` 10.11.z container: preinstalled
   * `linuxserver/jellyfin` 10.11.z container: preinstalled

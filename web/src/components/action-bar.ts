@@ -16,6 +16,7 @@ const ANALYZER_ACTION_ORDER: ReadonlyArray<{
         options: [
             { value: "Default", label: "Default" },
             { value: "Chapter", label: "Chapter" },
+            { value: "Chromaprint", label: "Chromaprint" },
             { value: "None", label: "None" },
         ],
     },

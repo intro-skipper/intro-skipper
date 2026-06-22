@@ -1,10 +1,11 @@
-// SPDX-FileCopyrightText: 2024-2026 Kilian von Pflugk
 // SPDX-FileCopyrightText: 2024-2026 rlauuzo
+// SPDX-FileCopyrightText: 2024-2026 Kilian von Pflugk
 // SPDX-FileCopyrightText: 2024-2026 AbandonedCart
 // SPDX-FileCopyrightText: 2024 theMasterpc
 // SPDX-License-Identifier: GPL-3.0-only
 
 using System.Data.Common;
+using IntroSkipper.FFmpeg;
 using IntroSkipper.Manager;
 using MediaBrowser.Controller.Library;
 using MediaBrowser.Controller.Providers;
@@ -16,25 +17,28 @@ using Microsoft.Extensions.Logging;
 namespace IntroSkipper.ScheduledTasks;
 
 /// <summary>
-/// Clean the intro skipper cache of unused files.
+/// Clean the Intro Skipper cache of unused rows.
 /// </summary>
 /// <param name="logger">Logger.</param>
 /// <param name="loggerFactory">Logger factory.</param>
 /// <param name="libraryManager">Library manager.</param>
 /// <param name="providerManager">Provider manager.</param>
 /// <param name="fileSystem">File system.</param>
+/// <param name="ffmpegService">FFmpeg service.</param>
 public partial class CleanCacheTask(
     ILogger<CleanCacheTask> logger,
     ILoggerFactory loggerFactory,
     ILibraryManager libraryManager,
     IProviderManager providerManager,
-    IFileSystem fileSystem) : IScheduledTask
+    IFileSystem fileSystem,
+    IFFmpegService ffmpegService) : IScheduledTask
 {
     private readonly ILogger<CleanCacheTask> _logger = logger;
     private readonly ILoggerFactory _loggerFactory = loggerFactory;
     private readonly ILibraryManager _libraryManager = libraryManager;
     private readonly IProviderManager _providerManager = providerManager;
     private readonly IFileSystem _fileSystem = fileSystem;
+    private readonly IFFmpegService _ffmpegService = ffmpegService;
 
     /// <summary>
     /// Gets the task name.
@@ -49,7 +53,7 @@ public partial class CleanCacheTask(
     /// <summary>
     /// Gets the task description.
     /// </summary>
-    public string Description => "Clear Intro Skipper cache of unused files.";
+    public string Description => "Clear Intro Skipper cache of unused rows.";
 
     /// <summary>
     /// Gets the task key.
@@ -57,9 +61,9 @@ public partial class CleanCacheTask(
     public string Key => "CPBIntroSkipperCleanCache";
 
     /// <summary>
-    /// Cleans the cache of unused files.
-    /// Clears the Segment cache by removing files that are no longer associated with episodes in the library.
-    /// Clears the IgnoreList cache by removing items that are no longer associated with seasons in the library.
+    /// Cleans the cache of unused rows.
+    /// Clears segment rows that are no longer associated with episodes in the library.
+    /// Clears season rows that are no longer associated with seasons in the library.
     /// </summary>
     /// <param name="progress">Task progress.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
@@ -77,21 +81,19 @@ public partial class CleanCacheTask(
             _loggerFactory.CreateLogger<QueueManager>(),
             _libraryManager,
             _providerManager,
-            _fileSystem);
+            _fileSystem,
+            _ffmpegService);
 
         // QueueManager.GetMediaItems() already skips libraries where the plugin is disabled via
-        // LibraryOptions.DisabledMediaSegmentProviders (same mechanism LegacyMigrations writes to).
-        var queue = await queueManager.GetMediaItems(cancellationToken).ConfigureAwait(false);
+        // LibraryOptions.DisabledMediaSegmentProviders.
+        var queue = await queueManager.GetMediaItems(includeExcluded: true, cancellationToken).ConfigureAwait(false);
         var enabledLibraryEpisodes = queue.Values.SelectMany(static episodes => episodes).ToList();
-
-        FFmpegWrapper.MigrateLegacyDetectionCache(enabledLibraryEpisodes, cancellationToken);
-        plugin.LegacyFingerprintMigrationDone = true;
 
         var enabledLibraryEpisodeIds = enabledLibraryEpisodes
             .Select(e => e.EpisodeId)
             .ToHashSet();
 
-        await plugin.CleanTimestampsAsync(enabledLibraryEpisodeIds, cancellationToken).ConfigureAwait(false);
+        await Plugin.CleanTimestampsAsync(enabledLibraryEpisodeIds, cancellationToken).ConfigureAwait(false);
 
         // Identify episode IDs in the SQLite cache that are no longer in enabled libraries.
         HashSet<Guid> invalidEpisodeIds;
@@ -104,55 +106,10 @@ public partial class CleanCacheTask(
                 .ToHashSet();
         }
 
-        // Sweep the legacy on-disk cache directory (pre-migration installs).
-        var invalidLegacyFiles = new List<string>();
-        if (Directory.Exists(plugin.FingerprintCachePath))
-        {
-            List<string> legacyFiles;
-            try
-            {
-                legacyFiles = [.. Directory.EnumerateFiles(plugin.FingerprintCachePath)];
-            }
-            catch (DirectoryNotFoundException)
-            {
-                legacyFiles = [];
-            }
-
-            foreach (var filePath in legacyFiles)
-            {
-                var filename = Path.GetFileName(filePath);
-                var parts = filename.Split('-');
-                if (parts.Length == 0 || !Guid.TryParse(parts[0], out var legacyId))
-                {
-                    continue;
-                }
-
-                if (enabledLibraryEpisodeIds.Contains(legacyId))
-                {
-                    continue;
-                }
-
-                // Invalid episode — track for deletion once the DB rows are cleaned up.
-                invalidEpisodeIds.Add(legacyId);
-                invalidLegacyFiles.Add(filePath);
-            }
-
-            // Try to remove the legacy directory. Throws IOException when non-empty (for example,
-            // valid files intentionally left for on-demand migration or invalid files pending deletion).
-            try
-            {
-                Directory.Delete(plugin.FingerprintCachePath);
-            }
-            catch (IOException)
-            {
-                // Directory still contains files; will be removed on a future run.
-            }
-        }
-
         // Log and batch-delete all invalid episode DB rows in a single round-trip.
         foreach (var episodeId in invalidEpisodeIds)
         {
-            LogDeletingCacheFiles(_logger, episodeId);
+            LogDeletingDetectionCacheRows(_logger, episodeId);
         }
 
         if (invalidEpisodeIds.Count > 0)
@@ -171,21 +128,8 @@ public partial class CleanCacheTask(
             }
         }
 
-        // Delete leftover legacy files for invalid episodes.
-        foreach (var filePath in invalidLegacyFiles)
-        {
-            try
-            {
-                File.Delete(filePath);
-            }
-            catch (IOException ex)
-            {
-                LogDeletingLegacyFileFailed(_logger, ex, filePath);
-            }
-        }
-
-        // Clean up Season information by removing items that are no longer exist.
-        await plugin.CleanSeasonInfoAsync(queue.Keys, cancellationToken).ConfigureAwait(false);
+        // Clean up season state by removing items that no longer exist.
+        await Plugin.CleanSeasonStateAsync(queue.Keys, cancellationToken).ConfigureAwait(false);
 
         plugin.AnalyzeAgain = true;
 
@@ -201,11 +145,8 @@ public partial class CleanCacheTask(
         return [];
     }
 
-    [LoggerMessage(Level = LogLevel.Debug, Message = "Deleting cache files for episode ID: {EpisodeId}")]
-    private static partial void LogDeletingCacheFiles(ILogger logger, Guid episodeId);
-
-    [LoggerMessage(Level = LogLevel.Warning, Message = "Failed to delete stale legacy cache file '{FilePath}'")]
-    private static partial void LogDeletingLegacyFileFailed(ILogger logger, Exception exception, string filePath);
+    [LoggerMessage(Level = LogLevel.Debug, Message = "Deleting detection cache rows for episode ID: {EpisodeId}")]
+    private static partial void LogDeletingDetectionCacheRows(ILogger logger, Guid episodeId);
 
     [LoggerMessage(Level = LogLevel.Debug, Message = "Failed to delete stale detection cache rows")]
     private static partial void LogDeletingCacheRowsFailed(ILogger logger, Exception exception);

@@ -1,6 +1,6 @@
 // SPDX-FileCopyrightText: 2022 ConfusedPolarBear
-// SPDX-FileCopyrightText: 2024-2026 rlauuzo
 // SPDX-FileCopyrightText: 2024-2026 AbandonedCart
+// SPDX-FileCopyrightText: 2024-2026 rlauuzo
 // SPDX-FileCopyrightText: 2024-2026 Kilian von Pflugk
 // SPDX-License-Identifier: GPL-3.0-only
 
@@ -79,9 +79,27 @@ public class QueuedEpisode
     public double CreditsFingerprintStart { get; set; }
 
     /// <summary>
+    /// Gets or sets the timestamp (in seconds) to stop looking for end credits at.
+    /// This can differ from <see cref="Duration"/> when the container runtime is longer than the audio stream.
+    /// </summary>
+    public double CreditsFingerprintEnd { get; set; }
+
+    /// <summary>
     /// Gets or sets the total duration of this media file (in seconds).
     /// </summary>
     public double Duration { get; set; }
+
+    /// <summary>
+    /// Gets or sets the UTC time this item became available to analysis. This intentionally tracks
+    /// Jellyfin's created timestamp; metadata refreshes update <c>DateLastSaved</c> and must not make
+    /// an already-settled season look newly updated.
+    /// </summary>
+    public DateTime DateAdded { get; set; }
+
+    /// <summary>
+    /// Gets or sets the configuration hash for the current analysis pass.
+    /// </summary>
+    public string AnalysisConfigHash { get; set; } = string.Empty;
 
     /// <summary>
     /// Sets a value indicating whether this media has been already analyzed.
@@ -112,4 +130,23 @@ public class QueuedEpisode
     /// <returns><see langword="true"/> if the episode should be included in the analysis queue.</returns>
     public bool NeedsAnalysis(AnalysisMode mode)
         => GetAnalyzed(mode) is not (EpisodeState.Analyzed or EpisodeState.UserProvided);
+
+    /// <summary>
+    /// Gets the time range (in seconds) that is fingerprinted for the given analysis mode.
+    /// This is the single source of truth for detection cache keys: the exact values returned
+    /// here are used both when writing cache entries and when looking them up, so the cached
+    /// Start/End doubles always round-trip bit-exactly.
+    /// </summary>
+    /// <param name="mode">Analysis mode.</param>
+    /// <returns>Start and end timestamps of the fingerprint range.</returns>
+    /// <exception cref="ArgumentException">If the analysis mode has no fingerprint range.</exception>
+    public (double Start, double End) GetFingerprintRange(AnalysisMode mode)
+    {
+        return mode switch
+        {
+            AnalysisMode.Introduction => (0, IntroFingerprintEnd),
+            AnalysisMode.Credits => (CreditsFingerprintStart, CreditsFingerprintEnd > 0 ? CreditsFingerprintEnd : Duration),
+            _ => throw new ArgumentException("Unknown analysis mode " + mode),
+        };
+    }
 }

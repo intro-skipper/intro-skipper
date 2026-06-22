@@ -1,6 +1,6 @@
+// SPDX-FileCopyrightText: 2025-2026 AbandonedCart
 // SPDX-FileCopyrightText: 2025-2026 rlauuzo
 // SPDX-FileCopyrightText: 2025-2026 Kilian von Pflugk
-// SPDX-FileCopyrightText: 2025-2026 AbandonedCart
 // SPDX-License-Identifier: GPL-3.0-only
 
 using System.ComponentModel.DataAnnotations;
@@ -23,17 +23,17 @@ namespace IntroSkipper.Controllers;
 /// <remarks>
 /// Initializes a new instance of the <see cref="SegmentEditorController"/> class.
 /// </remarks>
-/// <param name="mediaSegmentUpdateManager">MediaSegmentUpdateManager.</param>
+/// <param name="mediaSegmentEditorService">Media segment editor service.</param>
 [Authorize(Policy = Policies.RequiresElevation)]
 [ApiController]
 [Produces(MediaTypeNames.Application.Json)]
 [Route("MediaSegmentsApi")]
-public class SegmentEditorController(MediaSegmentUpdateManager mediaSegmentUpdateManager) : ControllerBase
+public class SegmentEditorController(MediaSegmentEditorService mediaSegmentEditorService) : ControllerBase
 {
     // Maximum difference in seconds between two time values to be considered equal.
     private const double TimeComparisonToleranceSeconds = 0.01;
 
-    private readonly MediaSegmentUpdateManager _mediaSegmentUpdateManager = mediaSegmentUpdateManager;
+    private readonly MediaSegmentEditorService _mediaSegmentEditorService = mediaSegmentEditorService;
 
     /// <summary>
     /// Plugin meta endpoint.
@@ -77,9 +77,9 @@ public class SegmentEditorController(MediaSegmentUpdateManager mediaSegmentUpdat
         var seg = new Segment(itemId, new TimeRange(TimeSpan.FromTicks(segment.StartTicks).TotalSeconds, TimeSpan.FromTicks(segment.EndTicks).TotalSeconds));
         var mode = Plugin.MapSegmentTypeToMode(segment.Type);
 
-        await Plugin.Instance!.UpdateTimestampAsync(seg, mode, isUserProvided: true, cancellationToken).ConfigureAwait(false);
+        await Plugin.Instance!.UpdateTimestampAsync(seg, mode, isUserProvided: true, cancellationToken: cancellationToken).ConfigureAwait(false);
 
-        await _mediaSegmentUpdateManager.CreateOrReplaceSegmentAsync(item, segment, cancellationToken).ConfigureAwait(false);
+        await _mediaSegmentEditorService.CreateOrReplaceSegmentAsync(item, segment, cancellationToken).ConfigureAwait(false);
 
         return Ok();
     }
@@ -101,7 +101,7 @@ public class SegmentEditorController(MediaSegmentUpdateManager mediaSegmentUpdat
         [FromQuery, Required] string type,
         CancellationToken cancellationToken = default)
     {
-        var existingSegment = await _mediaSegmentUpdateManager
+        var existingSegment = await _mediaSegmentEditorService
             .GetSegmentAsync(itemId, segmentId, cancellationToken)
             .ConfigureAwait(false);
 
@@ -132,7 +132,7 @@ public class SegmentEditorController(MediaSegmentUpdateManager mediaSegmentUpdat
         // Match on type AND start/end times so that when multiple segments of the same mode exist
         // (e.g. Commercial) we identify the exact one being deleted rather than an arbitrary first match.
         var wasUserProvided = false;
-        var pluginSegments = await Plugin.Instance!.GetSegmentsAsync(itemId, cancellationToken).ConfigureAwait(false);
+        var pluginSegments = await Plugin.GetSegmentsAsync(itemId, cancellationToken).ConfigureAwait(false);
         var matchingSegment = pluginSegments.FirstOrDefault(s =>
             s.Type == mode &&
             (dbSegment is null || (Math.Abs(s.Start - dbSegment.Start) < TimeComparisonToleranceSeconds && Math.Abs(s.End - dbSegment.End) < TimeComparisonToleranceSeconds)));
@@ -142,18 +142,18 @@ public class SegmentEditorController(MediaSegmentUpdateManager mediaSegmentUpdat
         }
 
         // Delete from the plugin DB first so it is consistent even if the Jellyfin delete fails.
-        await Plugin.Instance!.DeleteTimestampAsync(itemId, mode, dbSegment, cancellationToken).ConfigureAwait(false);
+        await Plugin.DeleteTimestampAsync(itemId, mode, dbSegment, cancellationToken).ConfigureAwait(false);
 
         try
         {
-            await _mediaSegmentUpdateManager.DeleteSegmentAsync(segmentId).ConfigureAwait(false);
+            await _mediaSegmentEditorService.DeleteSegmentAsync(segmentId).ConfigureAwait(false);
         }
         catch
         {
             // Jellyfin delete failed — restore the plugin DB entry to avoid an orphaned Jellyfin segment.
             if (dbSegment is not null)
             {
-                await Plugin.Instance!.UpdateTimestampAsync(dbSegment, mode, isUserProvided: wasUserProvided, CancellationToken.None).ConfigureAwait(false);
+                await Plugin.Instance!.UpdateTimestampAsync(dbSegment, mode, isUserProvided: wasUserProvided, cancellationToken: CancellationToken.None).ConfigureAwait(false);
             }
 
             throw;
@@ -165,7 +165,7 @@ public class SegmentEditorController(MediaSegmentUpdateManager mediaSegmentUpdat
         if (deletedItem is not null)
         {
             var seasonId = deletedItem is Episode ep ? ep.SeasonId : deletedItem.Id;
-            await Plugin.Instance!.RemoveEpisodeIdAsync(seasonId, mode, itemId, cancellationToken).ConfigureAwait(false);
+            await Plugin.RemoveEpisodeIdAsync(seasonId, mode, itemId, cancellationToken).ConfigureAwait(false);
         }
 
         return Ok();

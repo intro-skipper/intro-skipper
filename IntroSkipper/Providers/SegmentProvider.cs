@@ -41,7 +41,7 @@ namespace IntroSkipper.Providers
             ArgumentNullException.ThrowIfNull(Plugin.Instance);
 
             var segments = new List<MediaSegmentDto>();
-            var itemSegments = await Plugin.Instance.GetSegmentsAsync(request.ItemId, cancellationToken).ConfigureAwait(false);
+            var itemSegments = await Plugin.GetSegmentsAsync(request.ItemId, cancellationToken).ConfigureAwait(false);
             var dedupedModes = new HashSet<AnalysisMode>();
 
             foreach (var segment in itemSegments.OrderBy(segment => segment.Start))
@@ -80,7 +80,7 @@ namespace IntroSkipper.Providers
         public async Task CleanupExtractedData(Guid itemId, CancellationToken cancellationToken)
         {
             ArgumentNullException.ThrowIfNull(Plugin.Instance);
-            await Plugin.Instance.DeleteItemSegmentsAsync(itemId, cancellationToken).ConfigureAwait(false);
+            await Plugin.DeleteItemSegmentsAsync(itemId, cancellationToken).ConfigureAwait(false);
         }
 
         /// <inheritdoc/>

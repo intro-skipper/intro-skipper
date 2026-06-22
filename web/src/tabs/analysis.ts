@@ -6,6 +6,7 @@ import { appendTabContent, fieldRow } from "../components/tab-layout.ts";
 import { tabWarning } from "../components/tab-warning.ts";
 import { checkboxField } from "../components/checkbox-field.ts";
 import { numberField } from "../components/number-field.ts";
+import { MAXIMUM_ANALYSIS_PERCENT, MINIMUM_ANALYSIS_PERCENT } from "../config-limits.ts";
 
 function durationPair(
     minId: string,
@@ -58,8 +59,8 @@ export const analysisTab: Tab = {
             numberField({
                 id: "AnalysisPercent",
                 label: "Percent of media to analyze",
-                min: 1,
-                max: 90,
+                min: MINIMUM_ANALYSIS_PERCENT,
+                max: MAXIMUM_ANALYSIS_PERCENT,
                 description:
                     "Analysis will be limited to this percentage of each item's runtime. For example, a value of 25 (the default) will limit analysis to the first quarter of each item.",
             }),
@@ -71,6 +72,28 @@ export const analysisTab: Tab = {
                     "Analysis will be limited to this amount of each item's runtime. For example, a value of 10 (the default) will limit analysis to the first 10 minutes of each item.",
             }),
             info,
+            durationPair(
+                "MinimumRecapDuration",
+                "MaximumRecapDuration",
+                "Minimum recap duration (in seconds)",
+                "Maximum recap duration (in seconds)",
+                "Recap chapters which are shorter than this duration will not be considered a recap.",
+                "Recap chapters which are longer than this duration will not be considered a recap.",
+            ),
+            durationPair(
+                "MinimumRecapDetectionDuration",
+                "MaximumRecapDetectionDuration",
+                "Minimum detected recap duration (in seconds)",
+                "Maximum detected recap duration (in seconds)",
+                "Blackframe/chromaprint recaps shorter than this duration will not be detected.",
+                "Blackframe/chromaprint recaps longer than this duration will be capped or ignored.",
+            ),
+            checkboxField({
+                id: "DetectRecapUsingBlackFrames",
+                label: "Detect recap using black frames",
+                description:
+                    "When recap chapter detection fails, mark recap from 0:00 to the latest detected black frame within the detected recap duration limits and before the intro.",
+            }),
             durationPair(
                 "MinimumIntroDuration",
                 "MaximumIntroDuration",
@@ -94,15 +117,6 @@ export const analysisTab: Tab = {
                 description:
                     "Segments longer than this duration will not be considered movie credits.",
             }),
-            durationPair(
-                "MinimumRecapDuration",
-                "MaximumRecapDuration",
-                "Minimum recap duration (in seconds)",
-                "Maximum recap duration (in seconds)",
-                "Segments which are shorter than this duration will not be considered a recap.",
-                "Segments which are longer than this duration will not be considered a recap.",
-                chaptersOff,
-            ),
             durationPair(
                 "MinimumPreviewDuration",
                 "MaximumPreviewDuration",

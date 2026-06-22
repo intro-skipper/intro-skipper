@@ -71,7 +71,7 @@ internal static class WindowsFfmpegTestBootstrap
             var zipFileName = string.IsNullOrWhiteSpace(originalZipFileName) ? "ffmpeg.zip" : originalZipFileName;
             var zipPath = Path.Combine(rootDir, zipFileName);
             ExecuteWithRetry(
-                () => DownloadFile(FfmpegZipUrl, zipPath),
+                () => DownloadFileSynchronously(FfmpegZipUrl, zipPath),
                 maxAttempts: 6,
                 baseDelayMs: 150);
 
@@ -180,13 +180,16 @@ internal static class WindowsFfmpegTestBootstrap
         return fileName;
     }
 
-    private static void DownloadFile(string url, string destinationFilePath)
+    private static void DownloadFileSynchronously(string url, string destinationFilePath)
     {
+        // Module initializers cannot be async. Use synchronous HTTP APIs here instead of
+        // blocking on asynchronous APIs during assembly load.
         using var httpClient = new HttpClient();
-        using var response = httpClient.GetAsync(url, HttpCompletionOption.ResponseHeadersRead).GetAwaiter().GetResult();
+        using var request = new HttpRequestMessage(HttpMethod.Get, url);
+        using var response = httpClient.Send(request, HttpCompletionOption.ResponseHeadersRead);
         response.EnsureSuccessStatusCode();
 
-        using var httpStream = response.Content.ReadAsStreamAsync().GetAwaiter().GetResult();
+        using var httpStream = response.Content.ReadAsStream();
         using var fileStream = new FileStream(destinationFilePath, FileMode.Create, FileAccess.Write, FileShare.None);
         httpStream.CopyTo(fileStream);
         fileStream.Flush(flushToDisk: true);

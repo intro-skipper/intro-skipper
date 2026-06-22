@@ -3,6 +3,7 @@ export interface PluginConfig {
     // Numeric settings persisted in the plugin configuration.
     MaxParallelism: number;
     AnalysisPercent: number;
+    SettledSeasonDelayHours: number;
     AnalysisLengthLimit: number;
     MinimumIntroDuration: number;
     MaximumIntroDuration: number;
@@ -11,6 +12,8 @@ export interface PluginConfig {
     MaximumMovieCreditsDuration: number;
     MinimumRecapDuration: number;
     MaximumRecapDuration: number;
+    MinimumRecapDetectionDuration: number;
+    MaximumRecapDetectionDuration: number;
     MinimumPreviewDuration: number;
     MaximumPreviewDuration: number;
     MinimumCommercialDuration: number;
@@ -36,25 +39,32 @@ export interface PluginConfig {
     ChapterAnalyzerRecapPattern: string;
     ChapterAnalyzerCommercialPattern: string;
     ExcludeSeries: string;
+    SeriesExclusions: string[];
+    MovieExclusions: string[];
+    PathExclusions: string[];
 
     // Feature toggles persisted in the plugin configuration.
     AutoDetectIntros: boolean;
+    ReanalyzeSettledSeasons: boolean;
     AnalyzeSeasonZero: boolean;
     UpdateMediaSegments: boolean;
     UseAlternativeBlackFrameAnalyzer: boolean;
     RefineCreditsBoundary: boolean;
     UseChapterMarkersBlackFrame: boolean;
     FullLengthChapters: boolean;
+    EnableSponsorBlockChapterDetection: boolean;
     SkipFirstEpisode: boolean;
     SkipFirstEpisodeAnime: boolean;
     AnimePreviewFromCreditsEnd: boolean;
     ScanIntroduction: boolean;
     ScanCredits: boolean;
     ScanRecap: boolean;
+    DetectRecapUsingBlackFrames: boolean;
     ScanPreview: boolean;
     ScanCommercial: boolean;
     EnableMainMenu: boolean;
     PreferChromaprint: boolean;
+    ProbeAudioDuration: boolean;
     SnapToKeyframe: boolean;
     AdjustIntroBasedOnSilence: boolean;
     AdjustIntroBasedOnChapters: boolean;
@@ -112,6 +122,12 @@ export type LibraryStorage = {
 
 export type SystemStorageInfo = {
     Libraries: LibraryStorage[];
+};
+
+export type ClearExcludedTimestampsResponse = {
+    AffectedItems: number;
+    RemovedSegments: number;
+    RemovedCacheEntries: number;
 };
 
 // Raw Jellyfin API response shapes (only the fields we actually read).
