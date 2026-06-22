@@ -302,6 +302,19 @@ public sealed class TestCacheOperations
 
 
     [Fact]
+    public void AnalysisHash_Credits_ChangesWithDetectNonBlackCredits()
+    {
+        var baseline = new PluginConfiguration { DetectNonBlackCredits = true };
+        var changed = new PluginConfiguration { DetectNonBlackCredits = false };
+
+        // Toggling the non-black fallback changes credits output, so it must invalidate
+        // stored credits analysis instead of hash-matching a stale result.
+        Assert.NotEqual(
+            ConfigHasher.Analysis(baseline, AnalysisMode.Credits, AnalyzerAction.Default),
+            ConfigHasher.Analysis(changed, AnalysisMode.Credits, AnalyzerAction.Default));
+    }
+
+    [Fact]
     public async Task CachedBlackIntervals_UsesCreditsFingerprintRange()
     {
         var episode = new QueuedEpisode
