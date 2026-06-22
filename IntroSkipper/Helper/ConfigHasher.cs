@@ -85,7 +85,7 @@ public static class ConfigHasher
                 $"cache|v1|{type}|{mode}|threshold={config.BlackFrameThreshold}"),
 
             CacheEntryType.BlackInterval => Invariant(
-                $"cache|v1|{type}|{mode}|blackdetect=v1|threshold={config.BlackFrameThreshold}|bfmin={config.BlackFrameMinimumPercentage}|duration={BlackIntervalConstants.MinimumDuration}"),
+                $"cache|v1|{type}|{mode}|blackdetect=v1|threshold={config.BlackFrameThreshold}|bfmin={config.BlackFrameMinimumPercentage}|thorough={config.ThoroughBlackIntervalScan}|duration={BlackIntervalConstants.MinimumDuration}"),
 
             CacheEntryType.Keyframe => $"cache|v1|{type}",
 

@@ -301,6 +301,19 @@ public sealed class TestCacheOperations
     }
 
     [Fact]
+    public void DetectionCacheHash_BlackInterval_VariesWithThoroughScan()
+    {
+        // ThoroughBlackIntervalScan toggles blackdetect's frame-skip mode and changes the cached
+        // intervals, so it must invalidate the BlackInterval detection cache.
+        var baseline = new PluginConfiguration { ThoroughBlackIntervalScan = false };
+        var changed = new PluginConfiguration { ThoroughBlackIntervalScan = true };
+
+        Assert.NotEqual(
+            ConfigHasher.DetectionCache(baseline, CacheEntryType.BlackInterval, AnalysisMode.Credits),
+            ConfigHasher.DetectionCache(changed, CacheEntryType.BlackInterval, AnalysisMode.Credits));
+    }
+
+    [Fact]
     public async Task CachedBlackIntervals_UsesCreditsFingerprintRange()
     {
         var episode = new QueuedEpisode

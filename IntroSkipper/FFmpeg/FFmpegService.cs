@@ -252,19 +252,25 @@ public sealed partial class FFmpegService(
         var pixelThreshold = FormatBlackDetectPixelThreshold(threshold);
         var pictureRatioThreshold = FormatBlackDetectPictureRatioThreshold(minimum);
         var minimumDuration = BlackIntervalConstants.MinimumDuration.ToString(CultureInfo.InvariantCulture);
-        // blackdetect measures continuous black duration from the decoded stream, so the decoder must
-        // see every frame. Skipping non-reference frames (e.g. -skip_frame noref) would let the filter
-        // merge through brief non-black B-frames or miss short black intervals, so it is intentionally
-        // not used here.
-        var args = new List<string>
+        // blackdetect decodes only reference frames (-skip_frame noref) by default, which is fast and
+        // dense enough to confirm multi-second credit black-outs. ThoroughBlackIntervalScan decodes every
+        // frame instead, trading speed for accuracy on very short or B-frame-only black intervals.
+        var args = new List<string> { "-ss", range.Start.ToString(CultureInfo.InvariantCulture) };
+
+        if (!(Plugin.Instance?.Configuration.ThoroughBlackIntervalScan ?? false))
         {
-            "-ss", range.Start.ToString(CultureInfo.InvariantCulture),
+            args.Add("-skip_frame");
+            args.Add("noref");
+        }
+
+        args.AddRange(new[]
+        {
             "-i", episode.Path,
             "-to", range.Duration.ToString(CultureInfo.InvariantCulture),
             "-an", "-dn", "-sn",
             "-vf", $"blackdetect=d={minimumDuration}:pix_th={pixelThreshold}:pic_th={pictureRatioThreshold}",
             "-f", "null", "-",
-        };
+        });
 
         var raw = Encoding.UTF8.GetString(await GetOutputAsync(args, true, cancellationToken: cancellationToken).ConfigureAwait(false));
         var rangeIntervals = FFmpegOutputParser.ParseBlackIntervals(raw);
