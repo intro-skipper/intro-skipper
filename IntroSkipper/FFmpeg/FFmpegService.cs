@@ -230,14 +230,6 @@ public sealed partial class FFmpegService(
     }
 
     /// <inheritdoc/>
-    public Task<BlackInterval[]> DetectBlackIntervalsAsync(QueuedEpisode episode, int threshold, int minimum, CancellationToken cancellationToken = default)
-    {
-        ArgumentNullException.ThrowIfNull(episode);
-        var (start, end) = episode.GetFingerprintRange(AnalysisMode.Credits);
-        return DetectBlackIntervalsAsync(episode, new TimeRange(start, end), threshold, minimum, cancellationToken);
-    }
-
-    /// <inheritdoc/>
     public async Task<BlackInterval[]> DetectBlackIntervalsAsync(QueuedEpisode episode, TimeRange range, int threshold, int minimum, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(episode);
@@ -251,17 +243,12 @@ public sealed partial class FFmpegService(
 
         var pixelThreshold = FormatBlackDetectPixelThreshold(threshold);
         var pictureRatioThreshold = FormatBlackDetectPictureRatioThreshold(minimum);
-        var minimumDuration = BlackIntervalConstants.MinimumDuration.ToString(CultureInfo.InvariantCulture);
-        // blackdetect decodes only reference frames (-skip_frame noref) by default, which is fast and
-        // dense enough to confirm multi-second credit black-outs. ThoroughBlackIntervalScan decodes every
-        // frame instead, trading speed for accuracy on very short or B-frame-only black intervals.
-        var args = new List<string> { "-ss", range.Start.ToString(CultureInfo.InvariantCulture) };
-
-        if (!(Plugin.Instance?.Configuration.ThoroughBlackIntervalScan ?? false))
+        var minimumDuration = "0.1";
+        var args = new List<string>
         {
-            args.Add("-skip_frame");
-            args.Add("noref");
-        }
+            "-ss", range.Start.ToString(CultureInfo.InvariantCulture),
+            "-skip_frame", "noref",
+        };
 
         args.AddRange(new[]
         {
@@ -277,7 +264,7 @@ public sealed partial class FFmpegService(
         var offset = range.Start - episode.CreditsFingerprintStart;
         var intervals = offset == 0
             ? rangeIntervals
-            : [.. rangeIntervals.Select(interval => new BlackInterval(interval.Start + offset, interval.End + offset, interval.Duration))];
+            : [.. rangeIntervals.Select(interval => new BlackInterval(interval.Start + offset, interval.End + offset))];
         cancellationToken.ThrowIfCancellationRequested();
         _cacheService.Write(episode.EpisodeId, AnalysisMode.Credits, CacheEntryType.BlackInterval, range.Start, range.End, intervals);
 

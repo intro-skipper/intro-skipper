@@ -118,7 +118,7 @@ public static partial class FFmpegOutputParser
 
             if (end > start && duration > 0)
             {
-                blackIntervals.Add(new BlackInterval(start, end, duration));
+                blackIntervals.Add(new BlackInterval(start, end));
             }
         }
 

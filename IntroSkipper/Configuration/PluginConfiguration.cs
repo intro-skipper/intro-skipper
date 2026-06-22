@@ -145,14 +145,6 @@ public class PluginConfiguration : BasePluginConfiguration
     /// </summary>
     public bool RefineCreditsBoundary { get; set; } = true;
 
-    /// <summary>
-    /// Gets or sets a value indicating whether the credits black interval scan decodes every frame.
-    /// When enabled, the alternative black frame analyzer's blackdetect scan decodes all frames instead
-    /// of reference frames only, improving accuracy for very short or B-frame-only black intervals at the
-    /// cost of slower scans.
-    /// </summary>
-    public bool ThoroughBlackIntervalScan { get; set; }
-
     // ===== Media Segment handling =====
 
     /// <summary>

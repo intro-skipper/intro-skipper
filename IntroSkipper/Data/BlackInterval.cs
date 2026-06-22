@@ -8,5 +8,4 @@ namespace IntroSkipper.Data;
 /// </summary>
 /// <param name="Start">Interval start time relative to the credits fingerprint start.</param>
 /// <param name="End">Interval end time relative to the credits fingerprint start.</param>
-/// <param name="Duration">Detected interval duration in seconds.</param>
-public record BlackInterval(double Start, double End, double Duration);
+public record BlackInterval(double Start, double End);

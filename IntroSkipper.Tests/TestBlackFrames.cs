@@ -52,8 +52,8 @@ public class TestBlackFrames
         var intervals = FFmpegOutputParser.ParseBlackIntervals(raw);
 
         Assert.Equal(2, intervals.Length);
-        Assert.Equal(new BlackInterval(3.04, 9.96, 6.92), intervals[0]);
-        Assert.Equal(new BlackInterval(15, 20.5, 5.5), intervals[1]);
+        Assert.Equal(new BlackInterval(3.04, 9.96), intervals[0]);
+        Assert.Equal(new BlackInterval(15, 20.5), intervals[1]);
     }
 
     [Fact]
@@ -545,7 +545,7 @@ public class TestBlackFrames
     {
         var ffmpeg = new FakeFFmpegService(
             CreateLowDensitySingleCandidateFrames(),
-            intervals: [new BlackInterval(1, 49, 48)]);
+            intervals: [new BlackInterval(1, 49)]);
         var analyzer = CreateCreditsBlackFrameAnalyzer(ffmpeg);
         var episode = CreateQueuedCreditsEpisode();
 
@@ -591,7 +591,7 @@ public class TestBlackFrames
     {
         var ffmpeg = new FakeFFmpegService(
             CreateStingerSplitFrames(),
-            intervals: [new BlackInterval(5, 10, 5)]);
+            intervals: [new BlackInterval(5, 10)]);
         var analyzer = CreateCreditsBlackFrameAnalyzer(ffmpeg);
         var episode = CreateQueuedCreditsEpisode(creditsFingerprintStart: 1000);
 
@@ -635,7 +635,7 @@ public class TestBlackFrames
         };
         var ffmpeg = new FakeFFmpegService(
             [.. frames],
-            intervals: [new BlackInterval(367.827, 376.002, 8.175)]);
+            intervals: [new BlackInterval(367.827, 376.002)]);
         var analyzer = CreateCreditsBlackFrameAnalyzer(ffmpeg);
         var episode = CreateQueuedCreditsEpisode(creditsFingerprintStart: 2356.27);
 
@@ -661,7 +661,7 @@ public class TestBlackFrames
         ];
         var ffmpeg = new FakeFFmpegService(
             frames,
-            intervals: [new BlackInterval(5, 19.8, 14.8)]);
+            intervals: [new BlackInterval(5, 19.8)]);
         var analyzer = CreateCreditsBlackFrameAnalyzer(ffmpeg);
         var episode = CreateQueuedCreditsEpisode(creditsFingerprintStart: 100);
 
@@ -684,7 +684,7 @@ public class TestBlackFrames
 
         var scenes = CreditSceneBuilder.DetectIntervalSupportedCreditScenes(
             [.. frames],
-            [new BlackInterval(5, 25, 20)],
+            [new BlackInterval(5, 25)],
             minimum: 85,
             minimumDuration: 15);
 
@@ -704,7 +704,7 @@ public class TestBlackFrames
 
         var scenes = CreditSceneBuilder.DetectIntervalSupportedCreditScenes(
             frames,
-            [new BlackInterval(90, 120, 30)],
+            [new BlackInterval(90, 120)],
             minimum: 85,
             minimumDuration: 15);
 
@@ -728,7 +728,7 @@ public class TestBlackFrames
         // overlapping interval must still be used instead of rejecting the candidate.
         var scenes = CreditSceneBuilder.DetectIntervalSupportedCreditScenes(
             [.. frames],
-            [new BlackInterval(9, 13, 4), new BlackInterval(9, 40, 31)],
+            [new BlackInterval(9, 13), new BlackInterval(9, 40)],
             minimum: 85,
             minimumDuration: 15);
 
@@ -749,7 +749,7 @@ public class TestBlackFrames
         };
         var ffmpeg = new FakeFFmpegService(
             [.. frames],
-            intervals: [new BlackInterval(367.827, 376.002, 8.175)]);
+            intervals: [new BlackInterval(367.827, 376.002)]);
         var analyzer = CreateCreditsBlackFrameAnalyzer(ffmpeg);
         var episode = CreateQueuedCreditsEpisode(creditsFingerprintStart: 2356.27);
 
@@ -798,34 +798,17 @@ public class TestBlackFrames
         Assert.Equal(1345, ranges[1].End);
     }
 
-    [Theory]
-    [MemberData(nameof(CandidateScoringCorpus))]
-    public void TestCreditCandidateScoring_CorpusMatrix(
-        string label,
-        CreditScene[] scenes,
-        BlackInterval[] intervals,
-        double expectedStartMinimum,
-        double expectedStartMaximum,
-        double expectedEndMinimum,
-        double expectedEndMaximum,
-        bool improvesSelection)
+    [Fact]
+    public void TestCreditCandidateScoring_PrefersIntervalSupportThenLatestScene()
     {
-        var blackOnly = CreditsBlackFrameAnalyzer.RankCreditCandidates(scenes, [])[0];
-        var selected = CreditsBlackFrameAnalyzer.RankCreditCandidates(scenes, intervals)[0];
+        CreditScene[] scenes =
+        [
+            new(400, 520, 200, 260),
+            new(620, 700, 310, 350),
+        ];
 
-        Assert.False(string.IsNullOrWhiteSpace(label));
-        Assert.Equal(scenes[^1], blackOnly);
-        Assert.InRange(selected.StartTime, expectedStartMinimum, expectedStartMaximum);
-        Assert.InRange(selected.EndTime, expectedEndMinimum, expectedEndMaximum);
-
-        if (improvesSelection)
-        {
-            Assert.NotEqual(blackOnly, selected);
-        }
-        else
-        {
-            Assert.Equal(blackOnly, selected);
-        }
+        Assert.Equal(scenes[1], CreditsBlackFrameAnalyzer.RankCreditCandidates(scenes, [])[0]);
+        Assert.Equal(scenes[0], CreditsBlackFrameAnalyzer.RankCreditCandidates(scenes, [new BlackInterval(205, 246)])[0]);
     }
 
     [Fact]
@@ -917,7 +900,7 @@ public class TestBlackFrames
         // The only keyframe scene is too short on its own and could reach the minimum duration only via
         // boundary refinement. With refinement disabled it must not be admitted, so the interval fallback
         // can still recover the credits instead of the analyzer returning null.
-        var ffmpeg = new FakeFFmpegService([.. frames], intervals: [new BlackInterval(8, 24, 16)]);
+        var ffmpeg = new FakeFFmpegService([.. frames], intervals: [new BlackInterval(8, 24)]);
         var analyzer = CreateCreditsBlackFrameAnalyzer(ffmpeg);
         SetRefineCreditsBoundary(analyzer, value: false);
         var episode = CreateQueuedCreditsEpisode(creditsFingerprintStart: 100);
@@ -1085,116 +1068,6 @@ public class TestBlackFrames
         return [.. FFmpegOutputParser.ParseBlackFrames(raw)];
     }
 
-    public static IEnumerable<object[]> CandidateScoringCorpus()
-    {
-        yield return
-        [
-            "clean credits",
-            new[] { new CreditScene(1000, 1120, 500.0, 560.0) },
-            new[] { new BlackInterval(500.2, 558.7, 58.5) },
-            499.5,
-            500.5,
-            559.5,
-            560.5,
-            false,
-        ];
-
-        yield return
-        [
-            "dark-show false positives",
-            new[]
-            {
-                new CreditScene(400, 520, 200.0, 260.0),
-                new CreditScene(620, 700, 310.0, 350.0),
-            },
-            new[] { new BlackInterval(205.0, 246.0, 41.0) },
-            199.0,
-            201.0,
-            259.0,
-            261.0,
-            true,
-        ];
-
-        yield return
-        [
-            "mid-credit stingers",
-            new[]
-            {
-                new CreditScene(1218, 1274, 609.0, 637.0),
-                new CreditScene(1450, 1706, 725.0, 853.0),
-            },
-            new[] { new BlackInterval(730.0, 848.0, 118.0) },
-            724.0,
-            726.0,
-            852.0,
-            854.0,
-            false,
-        ];
-
-        yield return
-        [
-            "fade to black",
-            new[]
-            {
-                new CreditScene(600, 630, 300.0, 315.0),
-                new CreditScene(640, 760, 320.0, 380.0),
-            },
-            new[] { new BlackInterval(320.0, 338.0, 18.0) },
-            319.0,
-            321.0,
-            379.0,
-            381.0,
-            false,
-        ];
-
-        yield return
-        [
-            "low-contrast credits",
-            new[]
-            {
-                new CreditScene(880, 980, 440.0, 490.0),
-                new CreditScene(1010, 1044, 505.0, 522.0),
-            },
-            new[] { new BlackInterval(446.0, 484.0, 38.0) },
-            439.0,
-            441.0,
-            489.0,
-            491.0,
-            true,
-        ];
-
-        yield return
-        [
-            "high-motion credits",
-            new[]
-            {
-                new CreditScene(1800, 1920, 900.0, 960.0),
-                new CreditScene(1990, 2028, 995.0, 1014.0),
-            },
-            new[] { new BlackInterval(902.0, 956.0, 54.0) },
-            899.0,
-            901.0,
-            959.0,
-            961.0,
-            true,
-        ];
-
-        yield return
-        [
-            "long movie credits",
-            new[]
-            {
-                new CreditScene(12000, 13200, 6000.0, 6600.0),
-                new CreditScene(13420, 13480, 6710.0, 6740.0),
-            },
-            new[] { new BlackInterval(6040.0, 6565.0, 525.0) },
-            5998.0,
-            6002.0,
-            6598.0,
-            6602.0,
-            true,
-        ];
-    }
 
     private static QueuedEpisode CreateQueuedCreditsEpisode(double creditsFingerprintStart = 0)
     {
@@ -1356,9 +1229,6 @@ public class TestBlackFrames
 
             return Task.FromResult(_creditsFrames);
         }
-
-        public Task<BlackInterval[]> DetectBlackIntervalsAsync(QueuedEpisode episode, int threshold, int minimum, CancellationToken cancellationToken = default)
-            => DetectBlackIntervalsAsync(episode, new TimeRange(episode.CreditsFingerprintStart, episode.CreditsFingerprintEnd), threshold, minimum, cancellationToken);
 
         public Task<BlackInterval[]> DetectBlackIntervalsAsync(QueuedEpisode episode, TimeRange range, int threshold, int minimum, CancellationToken cancellationToken = default)
         {

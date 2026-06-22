@@ -24,13 +24,6 @@ export const blackFrameTab: Tab = {
                 visible: () => configStore.get("UseAlternativeBlackFrameAnalyzer") === true,
             }),
             checkboxField({
-                id: "ThoroughBlackIntervalScan",
-                label: "Thorough black interval scan",
-                description:
-                    "Decode every frame during the credits black interval scan instead of reference frames only. Improves accuracy for very short black intervals at the cost of slower analysis.",
-                visible: () => configStore.get("UseAlternativeBlackFrameAnalyzer") === true,
-            }),
-            checkboxField({
                 id: "UseChapterMarkersBlackFrame",
                 label: "Use chapter markers for credits detection",
                 description:

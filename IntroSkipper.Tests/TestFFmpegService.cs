@@ -153,7 +153,7 @@ public class TestFFmpegService
         episode.CreditsFingerprintStart = 0;
         episode.CreditsFingerprintEnd = 5;
 
-        var blackIntervals = await CreateFFmpegService().DetectBlackIntervalsAsync(episode, 32, 85);
+        var blackIntervals = await CreateFFmpegService().DetectBlackIntervalsAsync(episode, new TimeRange(0, 5), 32, 85);
 
         Assert.NotNull(blackIntervals);
         RunFFmpegAndVerifyNoWarning("-hide_banner -threads 0 -loglevel warning -ss 0 -skip_frame noref -i ../../../video/credits.mp4 -to 5 -an -dn -sn -vf blackdetect=d=0.1:pix_th=0.0731:pic_th=0.85 -f null -");

@@ -217,8 +217,8 @@ public sealed class TestCacheOperations
     {
         BlackInterval[] original =
         [
-            new(12.345, 67.89, 55.545),
-            new(0, 1.25, 1.25),
+            new(12.345, 67.89),
+            new(0, 1.25),
         ];
 
         AssertJsonRoundTrips(original);
@@ -300,18 +300,6 @@ public sealed class TestCacheOperations
             ConfigHasher.DetectionCache(changed, CacheEntryType.BlackInterval, AnalysisMode.Credits));
     }
 
-    [Fact]
-    public void DetectionCacheHash_BlackInterval_VariesWithThoroughScan()
-    {
-        // ThoroughBlackIntervalScan toggles blackdetect's frame-skip mode and changes the cached
-        // intervals, so it must invalidate the BlackInterval detection cache.
-        var baseline = new PluginConfiguration { ThoroughBlackIntervalScan = false };
-        var changed = new PluginConfiguration { ThoroughBlackIntervalScan = true };
-
-        Assert.NotEqual(
-            ConfigHasher.DetectionCache(baseline, CacheEntryType.BlackInterval, AnalysisMode.Credits),
-            ConfigHasher.DetectionCache(changed, CacheEntryType.BlackInterval, AnalysisMode.Credits));
-    }
 
     [Fact]
     public async Task CachedBlackIntervals_UsesCreditsFingerprintRange()
@@ -325,7 +313,7 @@ public sealed class TestCacheOperations
             Duration = 2400,
         };
         var cacheDir = EntrypointTestHelpers.CreateTempCacheDir();
-        var intervals = new BlackInterval[] { new(10, 20, 10), new(30.5, 35, 4.5) };
+        var intervals = new BlackInterval[] { new(10, 20), new(30.5, 35) };
         var compressed = DetectionCacheService.CompressBrotli(intervals);
 
         string cacheDbPath;
@@ -346,7 +334,8 @@ public sealed class TestCacheOperations
         BlackInterval[] result;
         using (var cachingScope = new CachingPluginScope(cacheDir, cacheDbPath))
         {
-            result = await cachingScope.CreateFFmpegService().DetectBlackIntervalsAsync(episode, 32, 85);
+            result = await cachingScope.CreateFFmpegService()
+                .DetectBlackIntervalsAsync(episode, new TimeRange(1560, 1800), 32, 85);
         }
 
         Assert.Equal(intervals, result);

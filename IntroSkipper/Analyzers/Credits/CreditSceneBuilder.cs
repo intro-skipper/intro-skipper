@@ -21,12 +21,9 @@ internal static class CreditSceneBuilder
     /// <returns>The detected credit scenes.</returns>
     public static List<CreditScene> DetectCreditScenes(List<BlackFrame> frames, int minimum, int sceneChange, int minimumDuration, bool allowBoundaryRefinement = true)
     {
-        var rawScenes = DetectCreditSceneCandidates(frames, minimum);
-        var measurements = MeasureScenes(frames, rawScenes, minimum);
         var minimumDensity = CreditDetectionPolicy.DefaultMinimumBlackFrameDensity;
-        var scenes = measurements
-            .Where(measurement => measurement.MeetsDensity(minimumDensity))
-            .Select(measurement => measurement.Scene)
+        var scenes = DetectCreditSceneCandidates(frames, minimum)
+            .Where(scene => CreditSceneMetricsCalculator.Calculate(frames, scene, minimum).MeetsDensity(minimumDensity))
             .ToList();
         var merged = MergeNearbyScenes(frames, scenes, minimum, minimumDensity);
         var shifted = ShiftStartsToTransitionFrames(frames, merged, sceneChange);
@@ -139,17 +136,6 @@ internal static class CreditSceneBuilder
         }
 
         return scenes;
-    }
-
-    private static List<SceneMeasurement> MeasureScenes(List<BlackFrame> frames, List<CreditScene> scenes, int minimum)
-    {
-        var measurements = new List<SceneMeasurement>(scenes.Count);
-        foreach (var scene in scenes)
-        {
-            measurements.Add(new SceneMeasurement(scene, CreditSceneMetricsCalculator.Calculate(frames, scene, minimum)));
-        }
-
-        return measurements;
     }
 
     private static List<CreditScene> MergeNearbyScenes(List<BlackFrame> frames, List<CreditScene> scenes, int minimum, double minimumDensity)
@@ -333,10 +319,5 @@ internal static class CreditSceneBuilder
         }
 
         return best;
-    }
-
-    private readonly record struct SceneMeasurement(CreditScene Scene, CreditSceneMetrics Metrics)
-    {
-        public bool MeetsDensity(double minimumDensity) => Metrics.MeetsDensity(minimumDensity);
     }
 }
