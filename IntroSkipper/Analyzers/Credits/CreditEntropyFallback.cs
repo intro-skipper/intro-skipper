@@ -46,14 +46,14 @@ internal static class CreditEntropyFallback
 
             if (visual.Time - lastCard.Time > maximumInRunGap)
             {
-                best = SelectLongestQualifyingRun(best, runStart, lastCard, minimumDuration);
+                best = SelectLatestQualifyingRun(best, runStart, lastCard, minimumDuration);
                 runStart = visual;
             }
 
             lastCard = visual;
         }
 
-        return SelectLongestQualifyingRun(best, runStart, lastCard, minimumDuration);
+        return SelectLatestQualifyingRun(best, runStart, lastCard, minimumDuration);
     }
 
     /// <summary>
@@ -65,18 +65,23 @@ internal static class CreditEntropyFallback
         => visual.Entropy < CreditDetectionPolicy.EntropyCreditMaximum &&
            visual.Saturation < CreditDetectionPolicy.SaturationCreditMaximum;
 
-    private static TimeRange? SelectLongestQualifyingRun(
-        TimeRange? current,
+    /// <summary>
+    /// Returns the run ending at <paramref name="lastCard" /> when it meets the minimum duration;
+    /// otherwise keeps <paramref name="currentBest" />. Credits sit at the tail, so a qualifying
+    /// later run always supersedes an earlier one (<paramref name="currentBest" /> is the running
+    /// best carried across run boundaries, not compared by length).
+    /// </summary>
+    private static TimeRange? SelectLatestQualifyingRun(
+        TimeRange? currentBest,
         KeyframeVisual? runStart,
         KeyframeVisual? lastCard,
         int minimumDuration)
     {
         if (runStart is null || lastCard is null || lastCard.Time - runStart.Time < minimumDuration)
         {
-            return current;
+            return currentBest;
         }
 
-        // Credits sit at the tail, so a later qualifying run always supersedes an earlier one.
         return new TimeRange(runStart.Time, lastCard.Time);
     }
 
