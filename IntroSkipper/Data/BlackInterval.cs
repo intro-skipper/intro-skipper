@@ -8,4 +8,11 @@ namespace IntroSkipper.Data;
 /// </summary>
 /// <param name="Start">Interval start time relative to the credits fingerprint start.</param>
 /// <param name="End">Interval end time relative to the credits fingerprint start.</param>
-public record BlackInterval(double Start, double End);
+public record BlackInterval(double Start, double End)
+{
+    /// <summary>
+    /// The minimum continuous black duration (in seconds) blackdetect must observe to report an interval.
+    /// Shared by the blackdetect <c>d=</c> argument and the detection-cache hash so the two cannot drift.
+    /// </summary>
+    public const double MinimumDetectionDuration = 0.1;
+}
