@@ -149,6 +149,14 @@ export const generalTab: Tab = {
         const clearStatus = createStatusMessage({ display: "block" });
         clearExcludedSection.append(
             actionButton("Clear excluded timestamp data", async () => {
+                if (configStore.isDirty()) {
+                    clearStatus.show(
+                        "Save configuration changes before clearing timestamp data.",
+                        "var(--is-error)",
+                    );
+                    return;
+                }
+
                 const result = await confirmDialog({
                     title: "Clear Excluded Timestamps",
                     body: "Remove timestamp data for media currently matched by the exclusion lists. Included media in the same seasons will be kept.",

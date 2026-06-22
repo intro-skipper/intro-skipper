@@ -61,7 +61,10 @@ public partial class QueueManager(ILogger<QueueManager> logger, ILibraryManager 
             return _queuedEpisodes;
         }
 
-        plugin.TotalQueued = 0;
+        if (!includeExcluded)
+        {
+            plugin.TotalQueued = 0;
+        }
 
         LoadAnalysisSettings(plugin);
 
@@ -109,11 +112,14 @@ public partial class QueueManager(ILogger<QueueManager> logger, ILibraryManager 
             LogRefreshedMetadata(_logger, _refreshedEpisodes.Count);
         }
 
-        plugin.TotalSeasons = _queuedEpisodes.Count;
-        plugin.QueuedMediaItems.Clear();
-        foreach (var kvp in _queuedEpisodes)
+        if (!includeExcluded)
         {
-            plugin.QueuedMediaItems.TryAdd(kvp.Key, kvp.Value);
+            plugin.TotalSeasons = _queuedEpisodes.Count;
+            plugin.QueuedMediaItems.Clear();
+            foreach (var kvp in _queuedEpisodes)
+            {
+                plugin.QueuedMediaItems.TryAdd(kvp.Key, kvp.Value);
+            }
         }
 
         return _queuedEpisodes;
@@ -268,7 +274,11 @@ public partial class QueueManager(ILogger<QueueManager> logger, ILibraryManager 
             CreditsFingerprintEnd = creditsDuration,
         });
 
-        pluginInstance.TotalQueued++;
+        if (!includeExcluded)
+        {
+            pluginInstance.TotalQueued++;
+        }
+
         return true;
     }
 
@@ -333,7 +343,11 @@ public partial class QueueManager(ILogger<QueueManager> logger, ILibraryManager 
             IsExcluded = decision.IsExcluded,
         });
 
-        pluginInstance.TotalQueued++;
+        if (!includeExcluded)
+        {
+            pluginInstance.TotalQueued++;
+        }
+
         return true;
     }
 
