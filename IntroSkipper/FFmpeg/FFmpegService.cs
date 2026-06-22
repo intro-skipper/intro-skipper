@@ -252,10 +252,13 @@ public sealed partial class FFmpegService(
         var pixelThreshold = FormatBlackDetectPixelThreshold(threshold);
         var pictureRatioThreshold = FormatBlackDetectPictureRatioThreshold(minimum);
         var minimumDuration = BlackIntervalConstants.MinimumDuration.ToString(CultureInfo.InvariantCulture);
+        // blackdetect measures continuous black duration from the decoded stream, so the decoder must
+        // see every frame. Skipping non-reference frames (e.g. -skip_frame noref) would let the filter
+        // merge through brief non-black B-frames or miss short black intervals, so it is intentionally
+        // not used here.
         var args = new List<string>
         {
             "-ss", range.Start.ToString(CultureInfo.InvariantCulture),
-            "-skip_frame", "noref",
             "-i", episode.Path,
             "-to", range.Duration.ToString(CultureInfo.InvariantCulture),
             "-an", "-dn", "-sn",

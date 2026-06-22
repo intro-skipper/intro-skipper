@@ -17,8 +17,9 @@ internal static class CreditSceneBuilder
     /// <param name="minimum">The minimum black percentage that marks a frame as black.</param>
     /// <param name="sceneChange">The black percentage that marks a transition into credits.</param>
     /// <param name="minimumDuration">The minimum credit duration.</param>
+    /// <param name="allowBoundaryRefinement">Whether short scenes that can only reach the minimum duration via boundary refinement may be admitted. Set to <see langword="false" /> when refinement is disabled so an unrefinable short scene does not suppress the interval fallback.</param>
     /// <returns>The detected credit scenes.</returns>
-    public static List<CreditScene> DetectCreditScenes(List<BlackFrame> frames, int minimum, int sceneChange, int minimumDuration)
+    public static List<CreditScene> DetectCreditScenes(List<BlackFrame> frames, int minimum, int sceneChange, int minimumDuration, bool allowBoundaryRefinement = true)
     {
         var rawScenes = DetectCreditSceneCandidates(frames, minimum);
         var measurements = MeasureScenes(frames, rawScenes, minimum);
@@ -31,7 +32,7 @@ internal static class CreditSceneBuilder
         var shifted = ShiftStartsToTransitionFrames(frames, merged, sceneChange);
         return [.. shifted
             .Where(scene => HasMinimumDuration(scene, minimumDuration) ||
-                CanReachMinimumDurationAfterBoundaryRefinement(frames, scene, minimumDuration))];
+                (allowBoundaryRefinement && CanReachMinimumDurationAfterBoundaryRefinement(frames, scene, minimumDuration)))];
     }
 
     /// <summary>
@@ -343,16 +344,26 @@ internal static class CreditSceneBuilder
         double lastBlackTime,
         IReadOnlyList<BlackInterval> intervals)
     {
+        // Multiple intervals can overlap a single candidate. Pick the one that yields the longest
+        // supported scene (anchored to interval.Start, extended to max(candidate end, interval.End))
+        // so an early short interval does not mask a later interval that satisfies the minimum duration.
+        BlackInterval? best = null;
+        var bestSpan = double.NegativeInfinity;
         foreach (var interval in intervals)
         {
             if (interval.Start <= lastBlackTime &&
                 interval.End >= firstBlackTime - CreditDetectionPolicy.MaximumIntervalToKeyframeGapSeconds)
             {
-                return interval;
+                var span = Math.Max(lastBlackTime, interval.End) - interval.Start;
+                if (span > bestSpan)
+                {
+                    bestSpan = span;
+                    best = interval;
+                }
             }
         }
 
-        return null;
+        return best;
     }
 
     private readonly record struct SceneMeasurement(CreditScene Scene, CreditSceneMetrics Metrics)

@@ -156,7 +156,7 @@ public class TestFFmpegService
         var blackIntervals = await CreateFFmpegService().DetectBlackIntervalsAsync(episode, 32, 85);
 
         Assert.NotNull(blackIntervals);
-        RunFFmpegAndVerifyNoWarning("-hide_banner -threads 0 -loglevel warning -ss 0 -skip_frame noref -i ../../../video/credits.mp4 -to 5 -an -dn -sn -vf blackdetect=d=0.1:pix_th=0.0731:pic_th=0.85 -f null -");
+        RunFFmpegAndVerifyNoWarning("-hide_banner -threads 0 -loglevel warning -ss 0 -i ../../../video/credits.mp4 -to 5 -an -dn -sn -vf blackdetect=d=0.1:pix_th=0.0731:pic_th=0.85 -f null -");
     }
 
     [FactSkipFFmpegTests]

@@ -716,6 +716,28 @@ public class TestBlackFrames
     }
 
     [Fact]
+    public void TestDetectIntervalSupportedCreditScenes_PrefersLongerOverlappingInterval()
+    {
+        BlackFrame[] frames =
+        [
+            new(96, 10, 10),
+            new(96, 12, 11),
+        ];
+
+        // The first overlapping interval is too short to satisfy the minimum duration; a later, longer
+        // overlapping interval must still be used instead of rejecting the candidate.
+        var scenes = CreditSceneBuilder.DetectIntervalSupportedCreditScenes(
+            [.. frames],
+            [new BlackInterval(9, 13, 4), new BlackInterval(9, 40, 31)],
+            minimum: 85,
+            minimumDuration: 15);
+
+        var scene = Assert.Single(scenes);
+        Assert.Equal(9, scene.StartTime);
+        Assert.Equal(40, scene.EndTime);
+    }
+
+    [Fact]
     public async Task TestDetectCreditsAsync_BlackIntervalsWithoutBlackframeSupportReturnNull()
     {
         var frames = new List<BlackFrame>
@@ -837,7 +859,9 @@ public class TestBlackFrames
         Assert.Equal(109.25, result.Start);
         Assert.Equal(130, result.End);
         Assert.Equal(1, ffmpeg.RangeScanCalls);
-        Assert.Equal(new TimeRange(108, 110), ffmpeg.LastProbeRange);
+        var probeRange = Assert.IsType<TimeRange>(ffmpeg.LastProbeRange);
+        Assert.Equal(108, probeRange.Start);
+        Assert.Equal(110, probeRange.End);
         Assert.Equal(95, ffmpeg.LastProbeMinimum);
         Assert.Equal(32, ffmpeg.LastProbeThreshold);
         Assert.Equal(AnalysisMode.Credits, ffmpeg.LastProbeMode);
@@ -881,6 +905,29 @@ public class TestBlackFrames
         Assert.Equal(110, result.Start);
         Assert.Equal(130, result.End);
         Assert.Equal(0, ffmpeg.RangeScanCalls);
+    }
+
+    [Fact]
+    public async Task TestDetectCreditsAsync_DisabledRefinement_DoesNotSuppressIntervalFallback()
+    {
+        var frames = new List<BlackFrame>();
+        frames.AddRange(CreateDenseFrames(startTime: 0, endTime: 8, percentage: 30));
+        frames.AddRange(CreateDenseFrames(startTime: 14, endTime: 24, percentage: 95, startFrame: 40));
+
+        // The only keyframe scene is too short on its own and could reach the minimum duration only via
+        // boundary refinement. With refinement disabled it must not be admitted, so the interval fallback
+        // can still recover the credits instead of the analyzer returning null.
+        var ffmpeg = new FakeFFmpegService([.. frames], intervals: [new BlackInterval(8, 24, 16)]);
+        var analyzer = CreateCreditsBlackFrameAnalyzer(ffmpeg);
+        SetRefineCreditsBoundary(analyzer, value: false);
+        var episode = CreateQueuedCreditsEpisode(creditsFingerprintStart: 100);
+
+        var result = await analyzer.DetectCreditsAsync(episode, 85, 32, 15);
+
+        Assert.NotNull(result);
+        Assert.Equal(1, ffmpeg.IntervalScanCalls);
+        Assert.Equal(108, result.Start);
+        Assert.Equal(124, result.End);
     }
 
     [Fact]

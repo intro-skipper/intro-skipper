@@ -109,7 +109,7 @@ public sealed partial class CreditsBlackFrameAnalyzer(ILogger<CreditsBlackFrameA
         }
 
         var (minimum, sceneChange) = NormalizeThreshold(blackFrames, minimumPercentage);
-        var scenes = CreditSceneBuilder.DetectCreditScenes(blackFrames, minimum, sceneChange, minimumDuration);
+        var scenes = CreditSceneBuilder.DetectCreditScenes(blackFrames, minimum, sceneChange, minimumDuration, _config.RefineCreditsBoundary);
         var blackIntervals = Array.Empty<BlackInterval>();
 
         if (scenes.Count == 0)

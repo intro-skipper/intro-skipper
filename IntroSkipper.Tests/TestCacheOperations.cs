@@ -288,12 +288,14 @@ public sealed class TestCacheOperations
     }
 
     [Fact]
-    public void DetectionCacheHash_BlackInterval_IgnoresMinimumPercentage()
+    public void DetectionCacheHash_BlackInterval_VariesWithMinimumPercentage()
     {
+        // BlackFrameMinimumPercentage is passed to blackdetect as pic_th and is baked into the cached
+        // intervals, so changing it must invalidate the BlackInterval detection cache.
         var baseline = new PluginConfiguration { BlackFrameThreshold = 32, BlackFrameMinimumPercentage = 85 };
         var changed = new PluginConfiguration { BlackFrameThreshold = 32, BlackFrameMinimumPercentage = 95 };
 
-        Assert.Equal(
+        Assert.NotEqual(
             ConfigHasher.DetectionCache(baseline, CacheEntryType.BlackInterval, AnalysisMode.Credits),
             ConfigHasher.DetectionCache(changed, CacheEntryType.BlackInterval, AnalysisMode.Credits));
     }
