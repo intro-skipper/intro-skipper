@@ -111,6 +111,8 @@ public partial class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
             LogCacheDbInitializationError(_logger, ex);
         }
 
+        MigrateLegacyExcludeSeries();
+
         Configuration.FileTransformationPluginEnabled = _pluginManager
             .Plugins
             .Any(p => p.Id == Guid.Parse("5e87cc92-571a-4d8d-8d98-d2d4147f9f90")); // File Transformation plugin ID
@@ -742,6 +744,26 @@ public partial class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
             db.DbSegment.RemoveRange(entries);
             await db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
         }
+    }
+
+    private void MigrateLegacyExcludeSeries()
+    {
+        var legacy = Configuration.ExcludeSeries;
+        if (string.IsNullOrWhiteSpace(legacy))
+        {
+            return;
+        }
+
+        if (Configuration.SeriesExclusions.Count == 0)
+        {
+            foreach (var item in legacy.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+            {
+                Configuration.SeriesExclusions.Add(item);
+            }
+        }
+
+        Configuration.ExcludeSeries = string.Empty;
+        SaveConfiguration();
     }
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "Error initializing database")]

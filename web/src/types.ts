@@ -39,6 +39,9 @@ export interface PluginConfig {
     ChapterAnalyzerRecapPattern: string;
     ChapterAnalyzerCommercialPattern: string;
     ExcludeSeries: string;
+    SeriesExclusions: string[];
+    MovieExclusions: string[];
+    PathExclusions: string[];
 
     // Feature toggles persisted in the plugin configuration.
     AutoDetectIntros: boolean;
@@ -119,6 +122,12 @@ export type LibraryStorage = {
 
 export type SystemStorageInfo = {
     Libraries: LibraryStorage[];
+};
+
+export type ClearExcludedTimestampsResponse = {
+    AffectedItems: number;
+    RemovedSegments: number;
+    RemovedCacheEntries: number;
 };
 
 // Raw Jellyfin API response shapes (only the fields we actually read).

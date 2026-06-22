@@ -12,6 +12,7 @@
 using System.Diagnostics;
 using System.IO.Compression;
 using System.Xml.Serialization;
+using IntroSkipper.Data;
 using MediaBrowser.Model.Plugins;
 
 namespace IntroSkipper.Configuration;
@@ -72,6 +73,21 @@ public class PluginConfiguration : BasePluginConfiguration
     /// Gets or sets the comma separated list of series names to exclude from analysis.
     /// </summary>
     public string ExcludeSeries { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Gets the structured list of series names to exclude from analysis.
+    /// </summary>
+    public ExclusionList SeriesExclusions { get; init; } = [];
+
+    /// <summary>
+    /// Gets the structured list of movie names to exclude from analysis.
+    /// </summary>
+    public ExclusionList MovieExclusions { get; init; } = [];
+
+    /// <summary>
+    /// Gets the structured list of filesystem paths to exclude from analysis.
+    /// </summary>
+    public ExclusionList PathExclusions { get; init; } = [];
 
     /// <summary>
     /// Gets or sets a value indicating whether to automatically scan newly added items.

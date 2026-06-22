@@ -75,6 +75,51 @@ public sealed class TestVisualizationController
         Assert.Equal(0, refresher.CollectionCallCount);
     }
 
+    [Fact]
+    public async Task ClearExcludedTimestampsAsync_RemovesOnlyCurrentlyExcludedState()
+    {
+        var seriesId = Guid.NewGuid();
+        var seasonId = Guid.NewGuid();
+        var excludedId = Guid.NewGuid();
+        var includedId = Guid.NewGuid();
+        var dbPath = CreateTempDbPath();
+        var config = new PluginConfiguration
+        {
+            UpdateMediaSegments = true,
+            SeriesExclusions = { "Excluded Show" }
+        };
+        using var pluginScope = CreatePluginScope(
+            dbPath,
+            seriesId,
+            seasonId,
+            [excludedId, includedId],
+            config);
+        await SeedSeasonAsync(dbPath, seasonId, [excludedId, includedId]);
+        await SeedCacheAsync(excludedId, includedId);
+        var refresher = new RecordingMediaSegmentRefresher();
+        using var loggerFactory = LoggerFactory.Create(builder => { });
+        var controller = CreateController(refresher, loggerFactory);
+
+        var result = await controller.ClearExcludedTimestampsAsync(CancellationToken.None);
+
+        var ok = Assert.IsType<OkObjectResult>(result.Result);
+        var response = Assert.IsType<ClearExcludedTimestampsResponse>(ok.Value);
+        Assert.Equal(1, response.AffectedItems);
+        Assert.Equal(1, response.RemovedSegments);
+        Assert.Equal(1, response.RemovedCacheEntries);
+        Assert.Equal([excludedId], refresher.LastItemIds);
+
+        await using var db = new IntroSkipperDbContext(dbPath);
+        Assert.False(await db.DbSegment.AnyAsync(s => s.ItemId == excludedId));
+        Assert.True(await db.DbSegment.AnyAsync(s => s.ItemId == includedId));
+        var seasonStates = await db.DbSeasonState.Where(s => s.SeasonId == seasonId).ToListAsync();
+        Assert.All(seasonStates, state => Assert.Equal([includedId], state.EpisodeIds));
+
+        using var cacheDb = Plugin.CreateCacheDbContext();
+        Assert.False(await cacheDb.DetectionCache.AnyAsync(e => e.ItemId == excludedId));
+        Assert.True(await cacheDb.DetectionCache.AnyAsync(e => e.ItemId == includedId));
+    }
+
     private static VisualizationController CreateController(RecordingMediaSegmentRefresher refresher, ILoggerFactory loggerFactory)
     {
         return new VisualizationController(
@@ -89,16 +134,24 @@ public sealed class TestVisualizationController
     }
 
     private static EntrypointTestHelpers.PluginInstanceScope CreatePluginScope(string dbPath, Guid seriesId, Guid seasonId, IReadOnlyList<Guid> episodeIds, bool updateMediaSegments)
+        => CreatePluginScope(
+            dbPath,
+            seriesId,
+            seasonId,
+            episodeIds,
+            new PluginConfiguration { UpdateMediaSegments = updateMediaSegments });
+
+    private static EntrypointTestHelpers.PluginInstanceScope CreatePluginScope(string dbPath, Guid seriesId, Guid seasonId, IReadOnlyList<Guid> episodeIds, PluginConfiguration config)
     {
         var scope = new EntrypointTestHelpers.PluginInstanceScope(EntrypointTestHelpers.CreateTempCacheDir());
         var plugin = Plugin.Instance!;
         EntrypointTestHelpers.SetPropertyOrField(plugin, "_dbPath", dbPath);
-        EntrypointTestHelpers.SetPropertyOrField(plugin, "Configuration", new PluginConfiguration { UpdateMediaSegments = updateMediaSegments });
+        EntrypointTestHelpers.SetPropertyOrField(plugin, "Configuration", config);
         EntrypointTestHelpers.SetPropertyOrField(plugin, "QueuedMediaItems", new ConcurrentDictionary<Guid, List<QueuedEpisode>>());
         plugin.QueuedMediaItems[seasonId] =
         [
-            new QueuedEpisode { SeriesId = seriesId, SeasonId = seasonId, EpisodeId = episodeIds[0], Name = "Episode 1" },
-            new QueuedEpisode { SeriesId = seriesId, SeasonId = seasonId, EpisodeId = episodeIds[1], Name = "Episode 2" }
+            new QueuedEpisode { SeriesId = seriesId, SeasonId = seasonId, EpisodeId = episodeIds[0], SeriesName = "Excluded Show", Name = "Episode 1" },
+            new QueuedEpisode { SeriesId = seriesId, SeasonId = seasonId, EpisodeId = episodeIds[1], SeriesName = "Included Show", Name = "Episode 2" }
         ];
         return scope;
     }
@@ -114,6 +167,15 @@ public sealed class TestVisualizationController
             new DbSeasonState(seasonId, AnalysisMode.Introduction, AnalyzerAction.Default, episodeIds),
             new DbSeasonState(seasonId, AnalysisMode.Credits, AnalyzerAction.Default, episodeIds));
         await db.SaveChangesAsync();
+    }
+
+    private static async Task SeedCacheAsync(Guid excludedId, Guid includedId)
+    {
+        using var cacheDb = Plugin.CreateCacheDbContext();
+        cacheDb.DetectionCache.AddRange(
+            new DbDetectionCache(excludedId, AnalysisMode.Introduction, CacheEntryType.Chromaprint, EntrypointTestHelpers.EmptyJsonArray),
+            new DbDetectionCache(includedId, AnalysisMode.Introduction, CacheEntryType.Chromaprint, EntrypointTestHelpers.EmptyJsonArray));
+        await cacheDb.SaveChangesAsync();
     }
 
     private static string CreateTempDbPath()

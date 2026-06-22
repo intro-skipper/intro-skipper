@@ -106,12 +106,12 @@ public sealed class TestSeasonReanalysisPlanner
     }
 
     [Fact]
-    public void IsSettledForReanalysis_ReturnsFalse_WhenExcluded()
+    public void IsSettledForReanalysis_IgnoresExcludedFlag_WhenQueueAlreadyFiltered()
     {
         var config = new PluginConfiguration { ReanalyzeSettledSeasons = true };
         var season = Season(SeasonReanalysisPlanner.MinimumEpisodes, SettledTime(), excluded: true);
 
-        Assert.False(SeasonReanalysisPlanner.IsSettledForReanalysis(season, config, Now));
+        Assert.True(SeasonReanalysisPlanner.IsSettledForReanalysis(season, config, Now));
     }
 
     [Fact]

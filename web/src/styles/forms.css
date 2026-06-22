@@ -155,6 +155,84 @@ select:focus:not(:focus-visible) {
     outline: none;
 }
 
+.exclusion-input-row {
+    display: flex;
+    gap: 8px;
+    align-items: stretch;
+}
+
+.exclusion-input-row input[type="text"] {
+    flex: 1;
+    min-width: 0;
+}
+
+.exclusion-add-button,
+.exclusion-remove-button {
+    border-radius: 4px;
+    border: 1px solid var(--is-input-border);
+    background: var(--is-input-bg);
+    color: var(--is-text);
+    cursor: pointer;
+    font: inherit;
+}
+
+.exclusion-add-button {
+    padding: 8px 14px;
+}
+
+.exclusion-add-button:hover,
+.exclusion-remove-button:hover {
+    background: var(--is-hover-strong);
+}
+
+.exclusion-add-button:focus-visible,
+.exclusion-remove-button:focus-visible {
+    outline: 2px solid var(--is-accent);
+    outline-offset: 2px;
+}
+
+.exclusion-list-values {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    list-style: none;
+    margin: 8px 0 0;
+    padding: 0;
+}
+
+.exclusion-list-item {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    max-width: 100%;
+    min-width: 0;
+    padding: 4px 6px 4px 8px;
+    border: 1px solid var(--is-border);
+    border-radius: 4px;
+    background: var(--is-hover);
+}
+
+.exclusion-list-value {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.exclusion-remove-button {
+    flex: 0 0 auto;
+    width: 32px;
+    height: 32px;
+    padding: 0;
+    line-height: 1;
+}
+
+.exclusion-list-empty {
+    margin-top: 8px;
+    color: var(--is-text-muted);
+    font-size: 0.85em;
+}
+
 fieldset {
     border: 1px solid var(--is-border);
     border-radius: 4px;
