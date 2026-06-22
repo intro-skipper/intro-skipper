@@ -166,9 +166,8 @@ internal static class CreditSceneBuilder
         {
             var scene = scenes[i];
             var mergedScene = new CreditScene(current.StartFrame, scene.EndFrame, current.StartTime, scene.EndTime);
-            var mergeSearchStart = 0;
             if (scene.StartTime - current.EndTime <= CreditDetectionPolicy.MaximumSceneMergeGapSeconds &&
-                MeetsBlackFrameDensity(frames, mergedScene, minimum, minimumDensity, ref mergeSearchStart))
+                CreditSceneMetricsCalculator.Calculate(frames, mergedScene, minimum).MeetsDensity(minimumDensity))
             {
                 current = mergedScene;
             }
@@ -220,36 +219,6 @@ internal static class CreditSceneBuilder
         }
 
         return finalScenes;
-    }
-
-    private static bool MeetsBlackFrameDensity(List<BlackFrame> frames, CreditScene scene, int minimum, double minimumDensity, ref int searchStart)
-    {
-        var totalInScene = 0;
-        var blackInScene = 0;
-        for (var i = searchStart; i < frames.Count; i++)
-        {
-            var frame = frames[i];
-            if (frame.Time > scene.EndTime)
-            {
-                break;
-            }
-
-            if (frame.Time >= scene.StartTime)
-            {
-                if (totalInScene == 0)
-                {
-                    searchStart = i;
-                }
-
-                totalInScene++;
-                if (frame.Percentage >= minimum)
-                {
-                    blackInScene++;
-                }
-            }
-        }
-
-        return totalInScene > 0 && (double)blackInScene / totalInScene >= minimumDensity;
     }
 
     private static bool HasMinimumDuration(CreditScene scene, int minimumDuration)

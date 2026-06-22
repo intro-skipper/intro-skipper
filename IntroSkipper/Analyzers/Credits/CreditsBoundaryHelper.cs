@@ -10,8 +10,6 @@ namespace IntroSkipper.Analyzers.Credits;
 /// </summary>
 internal static class CreditsBoundaryHelper
 {
-    private const double MinimumBoundaryProbeWindow = 0.50;
-
     /// <summary>
     /// Finds the keyframe immediately before a scene and the first keyframe inside it.
     /// </summary>
@@ -72,7 +70,7 @@ internal static class CreditsBoundaryHelper
     public static bool ShouldRefineBoundary(CreditScene scene, double lastKeyframeTime, int minimumDuration)
     {
         var maximumRefinementWindow = scene.StartTime - lastKeyframeTime;
-        if (maximumRefinementWindow <= MinimumBoundaryProbeWindow)
+        if (maximumRefinementWindow <= CreditDetectionPolicy.MinimumBoundaryProbeWindow)
         {
             return false;
         }

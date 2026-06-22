@@ -22,7 +22,6 @@ namespace IntroSkipper.Analyzers;
 /// <param name="ffmpegService">FFmpeg service.</param>
 public sealed partial class CreditsBlackFrameAnalyzer(ILogger<CreditsBlackFrameAnalyzer> logger, IFFmpegService ffmpegService) : IMediaFileAnalyzer
 {
-    private const double MinimumIntervalOverlapSeconds = 0.25;
     private readonly PluginConfiguration _config = Plugin.Instance?.Configuration ?? new PluginConfiguration();
     private readonly ILogger<CreditsBlackFrameAnalyzer> _logger = logger ?? throw new ArgumentNullException(nameof(logger));
     private readonly IFFmpegService _ffmpegService = ffmpegService;
@@ -302,7 +301,7 @@ public sealed partial class CreditsBlackFrameAnalyzer(ILogger<CreditsBlackFrameA
         {
             var overlapStart = Math.Max(scene.StartTime, interval.Start);
             var overlapEnd = Math.Min(scene.EndTime, interval.End);
-            if (overlapEnd - overlapStart >= MinimumIntervalOverlapSeconds)
+            if (overlapEnd - overlapStart >= CreditDetectionPolicy.MinimumIntervalOverlapSeconds)
             {
                 return true;
             }
