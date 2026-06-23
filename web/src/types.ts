@@ -53,6 +53,9 @@ export interface PluginConfig {
     UseChapterMarkersBlackFrame: boolean;
     FullLengthChapters: boolean;
     EnableSponsorBlockChapterDetection: boolean;
+    EnableJapaneseChapterPatterns: boolean;
+    EnableFrenchChapterPatterns: boolean;
+    EnableGermanChapterPatterns: boolean;
     SkipFirstEpisode: boolean;
     SkipFirstEpisodeAnime: boolean;
     AnimePreviewFromCreditsEnd: boolean;

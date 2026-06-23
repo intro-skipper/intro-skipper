@@ -376,10 +376,19 @@ public class PluginConfiguration : BasePluginConfiguration
         @"(^|\s)(Ad(vert(isement)?)?|Commercial|Intermission)(?![\s:]+End)(\s|:|$)";
 
     /// <summary>
-    /// Gets or sets a value indicating whether to include international chapter title terms
-    /// (Japanese, French, German) in the chapter analyzer patterns in addition to the default English terms.
+    /// Gets or sets a value indicating whether to include Japanese chapter title terms.
     /// </summary>
-    public bool EnableInternationalChapterPatterns { get; set; } = false;
+    public bool EnableJapaneseChapterPatterns { get; set; }
+
+    /// <summary>
+    /// Gets or sets a value indicating whether to include French chapter title terms.
+    /// </summary>
+    public bool EnableFrenchChapterPatterns { get; set; }
+
+    /// <summary>
+    /// Gets or sets a value indicating whether to include German chapter title terms.
+    /// </summary>
+    public bool EnableGermanChapterPatterns { get; set; }
 
     // ===== Playback settings =====
 

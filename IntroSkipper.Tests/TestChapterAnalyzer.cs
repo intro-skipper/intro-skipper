@@ -10,7 +10,9 @@ using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using IntroSkipper.Analyzers;
+using IntroSkipper.Configuration;
 using IntroSkipper.Data;
+using IntroSkipper.Helper;
 using MediaBrowser.Model.Entities;
 using Microsoft.Extensions.Logging.Abstractions;
 using Xunit;
@@ -232,16 +234,16 @@ public class TestChapterAnalyzer
     }
 
     [Theory]
-    [InlineData("オープニング", AnalysisMode.Introduction)]
-    [InlineData("エンディング", AnalysisMode.Credits)]
-    [InlineData("Générique", AnalysisMode.Credits)]
-    [InlineData("Abspann", AnalysisMode.Credits)]
-    [InlineData("予告", AnalysisMode.Preview)]
-    [InlineData("前回のあらすじ", AnalysisMode.Recap)]
-    [InlineData("[1] 前回のあらすじ:", AnalysisMode.Recap)]
-    public void TestInternationalPatternsWhenEnabled(string chapterName, AnalysisMode mode)
+    [InlineData("オープニング", AnalysisMode.Introduction, "Japanese")]
+    [InlineData("エンディング", AnalysisMode.Credits, "Japanese")]
+    [InlineData("予告", AnalysisMode.Preview, "Japanese")]
+    [InlineData("前回のあらすじ", AnalysisMode.Recap, "Japanese")]
+    [InlineData("[1] 前回のあらすじ:", AnalysisMode.Recap, "Japanese")]
+    [InlineData("Générique", AnalysisMode.Credits, "French")]
+    [InlineData("Abspann", AnalysisMode.Credits, "German")]
+    public void TestLocalizedPatternsWhenLanguageEnabled(string chapterName, AnalysisMode mode, string language)
     {
-        var chapter = FindChapter(chapterName, mode, enableInternationalPatterns: true);
+        var chapter = FindChapter(chapterName, mode, enabledLanguage: language);
 
         Assert.NotNull(chapter);
     }
@@ -253,11 +255,60 @@ public class TestChapterAnalyzer
     [InlineData("Abspann", AnalysisMode.Credits)]
     [InlineData("予告", AnalysisMode.Preview)]
     [InlineData("前回のあらすじ", AnalysisMode.Recap)]
-    public void TestInternationalPatternsNotMatchedWhenDisabled(string chapterName, AnalysisMode mode)
+    public void TestLocalizedPatternsNotMatchedWhenDisabled(string chapterName, AnalysisMode mode)
     {
-        var chapter = FindChapter(chapterName, mode, enableInternationalPatterns: false);
+        var chapter = FindChapter(chapterName, mode);
 
         Assert.Null(chapter);
+    }
+
+    [Theory]
+    [InlineData("エンディング", "French")]
+    [InlineData("エンディング", "German")]
+    [InlineData("Générique", "Japanese")]
+    [InlineData("Générique", "German")]
+    [InlineData("Abspann", "Japanese")]
+    [InlineData("Abspann", "French")]
+    public void TestLocalizedPatternNotMatchedWhenDifferentLanguageEnabled(string chapterName, string enabledLanguage)
+    {
+        var chapter = FindChapter(chapterName, AnalysisMode.Credits, enabledLanguage: enabledLanguage);
+
+        Assert.Null(chapter);
+    }
+
+    [Theory]
+    [InlineData("Japanese", AnalysisMode.Introduction)]
+    [InlineData("Japanese", AnalysisMode.Credits)]
+    [InlineData("Japanese", AnalysisMode.Preview)]
+    [InlineData("Japanese", AnalysisMode.Recap)]
+    [InlineData("French", AnalysisMode.Credits)]
+    [InlineData("German", AnalysisMode.Credits)]
+    public void TestLocalizedPatternSettingChangesRelevantAnalysisHash(string language, AnalysisMode mode)
+    {
+        var disabled = new PluginConfiguration();
+        var enabled = new PluginConfiguration();
+        EnableLanguage(enabled, language);
+
+        var disabledHash = ConfigHasher.Analysis(disabled, mode, AnalyzerAction.Default);
+        var enabledHash = ConfigHasher.Analysis(enabled, mode, AnalyzerAction.Default);
+
+        Assert.NotEqual(disabledHash, enabledHash);
+    }
+
+    [Theory]
+    [InlineData("Japanese", AnalysisMode.Commercial)]
+    [InlineData("French", AnalysisMode.Introduction)]
+    [InlineData("German", AnalysisMode.Preview)]
+    public void TestLocalizedPatternSettingDoesNotChangeUnrelatedAnalysisHash(string language, AnalysisMode mode)
+    {
+        var disabled = new PluginConfiguration();
+        var enabled = new PluginConfiguration();
+        EnableLanguage(enabled, language);
+
+        var disabledHash = ConfigHasher.Analysis(disabled, mode, AnalyzerAction.Default);
+        var enabledHash = ConfigHasher.Analysis(enabled, mode, AnalyzerAction.Default);
+
+        Assert.Equal(disabledHash, enabledHash);
     }
 
     private Segment? FindChapter(
@@ -265,40 +316,18 @@ public class TestChapterAnalyzer
         AnalysisMode mode,
         string? expressionOverride = null,
         bool enableSponsorBlockChapterDetection = true,
-        bool enableInternationalPatterns = false)
+        string? enabledLanguage = null)
     {
         var analyzer = new ChapterAnalyzer(NullLogger<ChapterAnalyzer>.Instance, null!);
         var chapters = CreateChapters(chapterName, mode);
 
-        var config = new Configuration.PluginConfiguration();
-        var expression = mode switch
+        var config = new PluginConfiguration();
+        if (enabledLanguage is not null)
         {
-            AnalysisMode.Introduction => config.ChapterAnalyzerIntroductionPattern,
-            AnalysisMode.Credits => config.ChapterAnalyzerEndCreditsPattern,
-            AnalysisMode.Preview => config.ChapterAnalyzerPreviewPattern,
-            AnalysisMode.Recap => config.ChapterAnalyzerRecapPattern,
-            AnalysisMode.Commercial => config.ChapterAnalyzerCommercialPattern,
-            _ => throw new ArgumentOutOfRangeException(nameof(mode), mode, null)
-        };
-
-        if (enableInternationalPatterns)
-        {
-            var intlPattern = mode switch
-            {
-                AnalysisMode.Introduction => @"(^|\s)(オープニング)(\s|:|$)",
-                AnalysisMode.Credits => @"(^|\s)(エンディング|Générique|Abspann)(\s|:|$)",
-                AnalysisMode.Preview => @"(^|\s)(予告)(\s|:|$)",
-                AnalysisMode.Recap => @"(^|\s)(前回のあらすじ)(\s|:|$)",
-                _ => string.Empty
-            };
-
-            if (!string.IsNullOrEmpty(intlPattern))
-            {
-                expression = string.IsNullOrWhiteSpace(expression)
-                    ? intlPattern
-                    : expression + "|" + intlPattern;
-            }
+            EnableLanguage(config, enabledLanguage);
         }
+
+        var expression = ChapterAnalyzer.GetChapterPattern(config, mode);
 
         return analyzer.FindMatchingChapter(
             new() { Duration = 2000 },
@@ -306,6 +335,24 @@ public class TestChapterAnalyzer
             expressionOverride ?? expression,
             mode,
             enableSponsorBlockChapterDetection);
+    }
+
+    private static void EnableLanguage(PluginConfiguration config, string language)
+    {
+        switch (language)
+        {
+            case "Japanese":
+                config.EnableJapaneseChapterPatterns = true;
+                break;
+            case "French":
+                config.EnableFrenchChapterPatterns = true;
+                break;
+            case "German":
+                config.EnableGermanChapterPatterns = true;
+                break;
+            default:
+                throw new ArgumentOutOfRangeException(nameof(language), language, null);
+        }
     }
 
     private Collection<ChapterInfo> CreateChapters(string name, AnalysisMode mode)

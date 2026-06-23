@@ -77,34 +77,7 @@ public partial class ChapterAnalyzer(ILogger<ChapterAnalyzer> logger, IFFmpegSer
         CancellationToken cancellationToken)
     {
         var enableRecapBlackFrameFallback = mode == AnalysisMode.Recap && _config.DetectRecapUsingBlackFrames;
-        var expression = mode switch
-        {
-            AnalysisMode.Introduction => _config.ChapterAnalyzerIntroductionPattern,
-            AnalysisMode.Credits => _config.ChapterAnalyzerEndCreditsPattern,
-            AnalysisMode.Recap => _config.ChapterAnalyzerRecapPattern,
-            AnalysisMode.Preview => _config.ChapterAnalyzerPreviewPattern,
-            AnalysisMode.Commercial => _config.ChapterAnalyzerCommercialPattern,
-            _ => throw new ArgumentOutOfRangeException(nameof(mode), $"Unexpected analysis mode: {mode}")
-        };
-
-        if (_config.EnableInternationalChapterPatterns)
-        {
-            var intlPattern = mode switch
-            {
-                AnalysisMode.Introduction => @"(^|\s)(オープニング)(\s|:|$)",
-                AnalysisMode.Credits => @"(^|\s)(エンディング|Générique|Abspann)(\s|:|$)",
-                AnalysisMode.Preview => @"(^|\s)(予告)(\s|:|$)",
-                AnalysisMode.Recap => @"(^|\s)(前回のあらすじ)(\s|:|$)",
-                _ => string.Empty
-            };
-
-            if (!string.IsNullOrEmpty(intlPattern))
-            {
-                expression = string.IsNullOrWhiteSpace(expression)
-                    ? intlPattern
-                    : expression + "|" + intlPattern;
-            }
-        }
+        var expression = GetChapterPattern(_config, mode);
 
         if (string.IsNullOrWhiteSpace(expression) && !_config.EnableSponsorBlockChapterDetection && !enableRecapBlackFrameFallback)
         {
@@ -146,6 +119,63 @@ public partial class ChapterAnalyzer(ILogger<ChapterAnalyzer> logger, IFFmpegSer
         }
 
         return analysisQueue;
+    }
+
+    /// <summary>
+    /// Gets the configured chapter pattern with each enabled language pattern appended.
+    /// </summary>
+    /// <param name="config">Plugin configuration.</param>
+    /// <param name="mode">Analysis mode.</param>
+    /// <returns>The effective regular expression.</returns>
+    internal static string GetChapterPattern(PluginConfiguration config, AnalysisMode mode)
+    {
+        ArgumentNullException.ThrowIfNull(config);
+
+        var expression = mode switch
+        {
+            AnalysisMode.Introduction => config.ChapterAnalyzerIntroductionPattern,
+            AnalysisMode.Credits => config.ChapterAnalyzerEndCreditsPattern,
+            AnalysisMode.Recap => config.ChapterAnalyzerRecapPattern,
+            AnalysisMode.Preview => config.ChapterAnalyzerPreviewPattern,
+            AnalysisMode.Commercial => config.ChapterAnalyzerCommercialPattern,
+            _ => throw new ArgumentOutOfRangeException(nameof(mode), $"Unexpected analysis mode: {mode}")
+        };
+
+        if (config.EnableJapaneseChapterPatterns)
+        {
+            expression = AppendPattern(expression, mode switch
+            {
+                AnalysisMode.Introduction => @"(^|\s)(オープニング)(\s|:|$)",
+                AnalysisMode.Credits => @"(^|\s)(エンディング)(\s|:|$)",
+                AnalysisMode.Preview => @"(^|\s)(予告)(\s|:|$)",
+                AnalysisMode.Recap => @"(^|\s)(前回のあらすじ)(\s|:|$)",
+                _ => string.Empty
+            });
+        }
+
+        if (config.EnableFrenchChapterPatterns && mode == AnalysisMode.Credits)
+        {
+            expression = AppendPattern(expression, @"(^|\s)(Générique)(\s|:|$)");
+        }
+
+        if (config.EnableGermanChapterPatterns && mode == AnalysisMode.Credits)
+        {
+            expression = AppendPattern(expression, @"(^|\s)(Abspann)(\s|:|$)");
+        }
+
+        return expression;
+    }
+
+    private static string AppendPattern(string expression, string additionalPattern)
+    {
+        if (string.IsNullOrEmpty(additionalPattern))
+        {
+            return expression;
+        }
+
+        return string.IsNullOrWhiteSpace(expression)
+            ? additionalPattern
+            : expression + "|" + additionalPattern;
     }
 
     /// <summary>

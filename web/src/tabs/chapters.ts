@@ -4,6 +4,7 @@ import { el } from "../components/dom.ts";
 import { appendTabContent } from "../components/tab-layout.ts";
 import { textField } from "../components/text-field.ts";
 import { checkboxField } from "../components/checkbox-field.ts";
+import { fieldGroup } from "../components/field-group.ts";
 
 const DEFAULTS: Record<string, string> = {
     ChapterAnalyzerIntroductionPattern: "(^|\\s)(Intro|Introduction|OP|Opening)(?![\\s:]+End)(\\s|:|$)",
@@ -57,6 +58,27 @@ export const chaptersTab: Tab = {
             patternField("ChapterAnalyzerPreviewPattern", "Preview", "preview"),
             patternField("ChapterAnalyzerRecapPattern", "Recaps", "recap"),
             patternField("ChapterAnalyzerCommercialPattern", "Commercials", "commercial"),
+            fieldGroup(
+                "Additional chapter languages",
+                checkboxField({
+                    id: "EnableJapaneseChapterPatterns",
+                    label: "Japanese (日本語)",
+                    description:
+                        "Append built-in Japanese chapter-title patterns to the expressions above.",
+                }),
+                checkboxField({
+                    id: "EnableFrenchChapterPatterns",
+                    label: "French (français)",
+                    description:
+                        "Append built-in French chapter-title patterns to the expressions above.",
+                }),
+                checkboxField({
+                    id: "EnableGermanChapterPatterns",
+                    label: "German (Deutsch)",
+                    description:
+                        "Append built-in German chapter-title patterns to the expressions above.",
+                }),
+            ),
             checkboxField({
                 id: "EnableSponsorBlockChapterDetection",
                 label: "Enable SponsorBlock chapter detection",

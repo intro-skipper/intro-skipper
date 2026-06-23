@@ -29,6 +29,9 @@ public class TestPluginConfiguration
         Assert.Empty(config.SeriesExclusions);
         Assert.Empty(config.MovieExclusions);
         Assert.Empty(config.PathExclusions);
+        Assert.False(config.EnableJapaneseChapterPatterns);
+        Assert.False(config.EnableFrenchChapterPatterns);
+        Assert.False(config.EnableGermanChapterPatterns);
     }
 
     [Fact]
