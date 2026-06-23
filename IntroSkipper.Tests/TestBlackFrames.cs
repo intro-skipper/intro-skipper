@@ -648,6 +648,37 @@ public class TestBlackFrames
     }
 
     [Fact]
+    public async Task TestDetectCreditsAsync_SparseSingleSceneWithoutIntervalSupportIsStillReturned()
+    {
+        // A single scene that already clears the density and duration gates but is temporally sparse
+        // triggers an opportunistic blackdetect probe. When that probe finds no supporting interval the
+        // scene is kept, not rejected: sparsity drives optional refinement, it is not a trust gate. This
+        // is the deliberate counterpart to the count==0 candidate path, which does require interval support.
+        BlackFrame[] frames =
+        [
+            new(10, 0, 0),
+            new(96, 10, 1),
+            new(96, 20, 2),
+            new(96, 30, 3),
+            new(96, 40, 4),
+            new(10, 50, 5),
+        ];
+        var ffmpeg = new FakeFFmpegService(frames);
+        var analyzer = CreateCreditsBlackFrameAnalyzer(ffmpeg);
+        SetRefineCreditsBoundary(analyzer, value: false);
+        var episode = CreateQueuedCreditsEpisode();
+
+        var result = await analyzer.DetectCreditsAsync(episode, 85, 32, 15);
+
+        Assert.NotNull(result);
+        Assert.Equal(10, result.Start);
+        Assert.Equal(40, result.End);
+
+        // The opportunistic interval probe ran but returned nothing; the keyframe scene survives the miss.
+        Assert.Equal(1, ffmpeg.IntervalScanCalls);
+    }
+
+    [Fact]
     public async Task TestDetectCreditsAsync_BlackIntervalsExpandSingleShortScene()
     {
         BlackFrame[] frames =

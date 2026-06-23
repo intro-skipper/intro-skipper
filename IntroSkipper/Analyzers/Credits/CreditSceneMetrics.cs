@@ -25,7 +25,10 @@ internal readonly record struct CreditSceneMetrics(int TotalFrameCount, int Blac
     public bool MeetsDensity(double minimumDensity) => TotalFrameCount > 0 && BlackFrameDensity >= minimumDensity;
 
     /// <summary>
-    /// Determines whether the candidate is too sparse to trust without interval support.
+    /// Determines whether the scene's black-frame samples are temporally sparse relative to the
+    /// minimum duration. Sparse evidence triggers an opportunistic blackdetect interval probe to
+    /// refine or better anchor the boundaries; it does not, on its own, invalidate a scene that has
+    /// already cleared the density and duration gates.
     /// </summary>
     /// <param name="scene">The candidate scene measured by this instance.</param>
     /// <param name="minimumDuration">The minimum credit duration.</param>
