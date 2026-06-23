@@ -36,7 +36,7 @@ jobs:
 
           # Export it as an environment variable
           echo "SANITIZED_BRANCH_NAME=$SANITIZED" >> $GITHUB_ENV
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       - name: Read build configuration
         id: read-config
