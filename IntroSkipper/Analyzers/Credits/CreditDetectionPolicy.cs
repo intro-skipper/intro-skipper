@@ -10,6 +10,14 @@ internal static class CreditDetectionPolicy
 {
     public const double MaximumSceneMergeGapSeconds = 20;
     public const double MaximumKeyframeGapMultiplier = 5.0;
+
+    /// <summary>
+    /// Fraction of the in-run bridge gap within which a trailing card must sit to be kept. Credits
+    /// form a dense card cluster at the tail, so a trailing card farther than this from its
+    /// predecessor is treated as an over-extended tail (periodic near-uniform frames in non-credit
+    /// content) and trimmed from the credit run end, without touching the dense body.
+    /// </summary>
+    public const double TrailingTrimGapFactor = 0.5;
     public const double DefaultMinimumBlackFrameDensity = 0.50;
     public const double MaximumIntervalToKeyframeGapSeconds = 2.0;
 

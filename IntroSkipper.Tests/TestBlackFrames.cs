@@ -1170,6 +1170,89 @@ public class TestBlackFrames
     }
 
     [Fact]
+    public void TestCreditEntropyFallback_TrimsOverExtendedTail()
+    {
+        // Regression: real credits 0-20s, then non-credit tail with an isolated near-uniform frame
+        // every 8s. Before the trailing-density trim these periodic cards bridged the run out to 54s
+        // (an over-skip into post-credits content); the end must anchor to the dense block at 20s.
+        var visuals = new List<KeyframeVisual>();
+        for (var time = 0.0; time <= 20; time += 2)
+        {
+            visuals.Add(new KeyframeVisual(time, 0.12, 30));
+        }
+
+        for (var time = 22.0; time <= 58; time += 2)
+        {
+            var isolatedCard = time is 30 or 38 or 46 or 54;
+            visuals.Add(isolatedCard ? new KeyframeVisual(time, 0.12, 30) : new KeyframeVisual(time, 0.55, 108));
+        }
+
+        var range = CreditEntropyFallback.FindCreditRange(visuals, minimumDuration: 15);
+
+        Assert.NotNull(range);
+        Assert.Equal(0, range!.Start);
+        Assert.Equal(20, range.End);
+    }
+
+    [Fact]
+    public void TestCreditEntropyFallback_TrailingTrimBracket()
+    {
+        static List<KeyframeVisual> Seq(double end, double step, params (double From, double To)[] cards)
+        {
+            var v = new List<KeyframeVisual>();
+            for (var t = 0.0; t <= end + 1e-9; t += step)
+            {
+                var card = false;
+                foreach (var ci in cards)
+                {
+                    if (t >= ci.From - 1e-9 && t <= ci.To + 1e-9)
+                    {
+                        card = true;
+                        break;
+                    }
+                }
+
+                v.Add(new KeyframeVisual(t, card ? 0.12 : 0.55, card ? 30 : 108));
+            }
+
+            return v;
+        }
+
+        static (double Start, double End)? Run(List<KeyframeVisual> v)
+        {
+            var r = CreditEntropyFallback.FindCreditRange(v, 15);
+            return r is null ? null : (r.Start, r.End);
+        }
+
+        // Over-extension: dense credits 0-20, periodic isolated tail cards every 8s -> trim to 20.
+        Assert.Equal((0.0, 20.0), Run(Seq(58, 2, (0, 20), (30, 30), (38, 38), (46, 46), (54, 54))));
+
+        // Clean dense card run -> unchanged.
+        Assert.Equal((30.0, 54.0), Run(Seq(54, 2, (30, 54))));
+
+        // Mid-body ident interlude (6s of non-card bracketed by dense cards) -> preserved.
+        Assert.Equal((0.0, 60.0), Run(Seq(60, 2, (0, 28), (36, 60))));
+
+        // Interlude near the end (cards resume densely after) -> preserved.
+        Assert.Equal((0.0, 60.0), Run(Seq(60, 2, (0, 48), (56, 60))));
+
+        // Sparse all-card credits (8s GOP) -> kept (100% density, trailing gap within scaled trim).
+        Assert.Equal((0.0, 40.0), Run(Seq(40, 8, (0, 40))));
+
+        // Two real runs separated by a long gap -> latest selected.
+        Assert.Equal((60.0, 80.0), Run(Seq(80, 2, (0, 20), (60, 80))));
+
+        // Over-extension with a too-short dense prefix -> nothing qualifies (real credits < min).
+        Assert.Null(Run(Seq(54, 2, (0, 6), (14, 14), (22, 22), (30, 30), (38, 38), (46, 46), (54, 54))));
+
+        // Final card spaced just within cadence (4s) -> kept, not over-trimmed.
+        Assert.Equal((0.0, 44.0), Run(Seq(44, 2, (0, 40), (44, 44))));
+
+        // All busy content -> null.
+        Assert.Null(Run(Seq(60, 2)));
+    }
+
+    [Fact]
     public async Task TestDetectCreditsAsync_NonBlackCreditsFallback_DetectsCardCredits()
     {
         var ffmpeg = new FakeFFmpegService(

@@ -26,9 +26,9 @@ internal static class CreditEntropyFallback
         }
 
         var maximumInRunGap = EstimateMaximumInRunGap(visuals);
+        var trailingTrimGap = maximumInRunGap * CreditDetectionPolicy.TrailingTrimGapFactor;
         TimeRange? best = null;
-        KeyframeVisual? runStart = null;
-        KeyframeVisual? lastCard = null;
+        var runCards = new List<KeyframeVisual>();
 
         foreach (var visual in visuals)
         {
@@ -37,23 +37,16 @@ internal static class CreditEntropyFallback
                 continue;
             }
 
-            if (runStart is null || lastCard is null)
+            if (runCards.Count > 0 && visual.Time - runCards[^1].Time > maximumInRunGap)
             {
-                runStart = visual;
-                lastCard = visual;
-                continue;
+                best = SelectLatestQualifyingRun(best, runCards, minimumDuration, trailingTrimGap);
+                runCards.Clear();
             }
 
-            if (visual.Time - lastCard.Time > maximumInRunGap)
-            {
-                best = SelectLatestQualifyingRun(best, runStart, lastCard, minimumDuration);
-                runStart = visual;
-            }
-
-            lastCard = visual;
+            runCards.Add(visual);
         }
 
-        return SelectLatestQualifyingRun(best, runStart, lastCard, minimumDuration);
+        return SelectLatestQualifyingRun(best, runCards, minimumDuration, trailingTrimGap);
     }
 
     /// <summary>
@@ -66,18 +59,38 @@ internal static class CreditEntropyFallback
            visual.Saturation < CreditDetectionPolicy.SaturationCreditMaximum;
 
     /// <summary>
-    /// Returns the run ending at <paramref name="lastCard" /> when it meets the minimum duration;
-    /// otherwise keeps <paramref name="currentBest" />. Credits sit at the tail, so a qualifying
-    /// later run always supersedes an earlier one (<paramref name="currentBest" /> is the running
-    /// best carried across run boundaries, not compared by length).
+    /// Trims an over-extended tail of isolated cards from <paramref name="runCards" />, then returns
+    /// that run when it still meets the minimum duration; otherwise keeps <paramref name="currentBest" />.
     /// </summary>
+    /// <remarks>
+    /// Credits sit at the tail and form a dense card cluster, so over-extension shows up as trailing
+    /// cards attached only through an above-cadence gap (periodic near-uniform frames in non-credit
+    /// content). Walking the end back while the final card is farther than <paramref name="trailingTrimGap" />
+    /// from its predecessor drops those isolated cards without touching the dense body, so genuinely
+    /// interleaved credits (a brief ident bracketed by cards) are preserved. A qualifying later run
+    /// still supersedes an earlier one; <paramref name="currentBest" /> is the running best carried
+    /// across run boundaries, not compared by length.
+    /// </remarks>
     private static TimeRange? SelectLatestQualifyingRun(
         TimeRange? currentBest,
-        KeyframeVisual? runStart,
-        KeyframeVisual? lastCard,
-        int minimumDuration)
+        List<KeyframeVisual> runCards,
+        int minimumDuration,
+        double trailingTrimGap)
     {
-        if (runStart is null || lastCard is null || lastCard.Time - runStart.Time < minimumDuration)
+        if (runCards.Count == 0)
+        {
+            return currentBest;
+        }
+
+        var end = runCards.Count - 1;
+        while (end > 0 && runCards[end].Time - runCards[end - 1].Time > trailingTrimGap)
+        {
+            end--;
+        }
+
+        var runStart = runCards[0];
+        var lastCard = runCards[end];
+        if (lastCard.Time - runStart.Time < minimumDuration)
         {
             return currentBest;
         }
