@@ -1603,7 +1603,6 @@ public class TestBlackFrames
             return Task.FromResult(_keyframeVisuals);
         }
 
-
         public Task<BlackInterval[]> DetectBlackIntervalsAsync(QueuedEpisode episode, TimeRange range, int threshold, int minimum, CancellationToken cancellationToken = default)
         {
             IntervalScanCalls++;
