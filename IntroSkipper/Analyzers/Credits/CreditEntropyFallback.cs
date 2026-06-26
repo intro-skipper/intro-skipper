@@ -26,7 +26,6 @@ internal static class CreditEntropyFallback
         }
 
         var maximumInRunGap = EstimateMaximumInRunGap(visuals);
-        var trailingTrimGap = maximumInRunGap * CreditDetectionPolicy.TrailingTrimGapFactor;
         TimeRange? best = null;
         var runCards = new List<KeyframeVisual>();
 
@@ -39,14 +38,14 @@ internal static class CreditEntropyFallback
 
             if (runCards.Count > 0 && visual.Time - runCards[^1].Time > maximumInRunGap)
             {
-                best = SelectLatestQualifyingRun(best, runCards, minimumDuration, trailingTrimGap);
+                best = SelectLatestQualifyingRun(best, runCards, minimumDuration);
                 runCards.Clear();
             }
 
             runCards.Add(visual);
         }
 
-        return SelectLatestQualifyingRun(best, runCards, minimumDuration, trailingTrimGap);
+        return SelectLatestQualifyingRun(best, runCards, minimumDuration);
     }
 
     /// <summary>
@@ -65,29 +64,22 @@ internal static class CreditEntropyFallback
     /// <remarks>
     /// Credits sit at the tail and form a dense card cluster, so over-extension shows up as trailing
     /// cards attached only through an above-cadence gap (periodic near-uniform frames in non-credit
-    /// content). Walking the end back while the final card is farther than <paramref name="trailingTrimGap" />
-    /// from its predecessor drops those isolated cards without touching the dense body, so genuinely
-    /// interleaved credits (a brief ident bracketed by cards) are preserved. A qualifying later run
-    /// still supersedes an earlier one; <paramref name="currentBest" /> is the running best carried
-    /// across run boundaries, not compared by length.
+    /// content). Trimming those isolated cards leaves the dense body intact, so genuinely interleaved
+    /// credits (a brief ident bracketed by cards) are preserved. A qualifying later run still
+    /// supersedes an earlier one; <paramref name="currentBest" /> is the running best carried across
+    /// run boundaries, not compared by length.
     /// </remarks>
     private static TimeRange? SelectLatestQualifyingRun(
         TimeRange? currentBest,
         List<KeyframeVisual> runCards,
-        int minimumDuration,
-        double trailingTrimGap)
+        int minimumDuration)
     {
         if (runCards.Count == 0)
         {
             return currentBest;
         }
 
-        var end = runCards.Count - 1;
-        while (end > 0 && runCards[end].Time - runCards[end - 1].Time > trailingTrimGap)
-        {
-            end--;
-        }
-
+        var end = TrimOverExtendedTail(runCards);
         var runStart = runCards[0];
         var lastCard = runCards[end];
         if (lastCard.Time - runStart.Time < minimumDuration)
@@ -96,6 +88,45 @@ internal static class CreditEntropyFallback
         }
 
         return new TimeRange(runStart.Time, lastCard.Time);
+    }
+
+    /// <summary>
+    /// Returns the index of the run's last card after dropping trailing cards that are isolated
+    /// relative to the run's own card cadence.
+    /// </summary>
+    /// <remarks>
+    /// The threshold is a multiple of the run's median card-to-card gap, not the global (capped)
+    /// bridge gap: a uniformly sparse long-GOP run has every gap near its median, so nothing is
+    /// trimmed, while a sparse tail drifting off a denser body sits well above that body's median and
+    /// is removed. Only the trailing end is walked, so a dense interleaved body is never touched.
+    /// </remarks>
+    private static int TrimOverExtendedTail(List<KeyframeVisual> runCards)
+    {
+        var end = runCards.Count - 1;
+        if (end < 1)
+        {
+            return end;
+        }
+
+        var trimGap = MedianCardGap(runCards) * CreditDetectionPolicy.TrailingTrimGapMultiplier;
+        while (end > 0 && runCards[end].Time - runCards[end - 1].Time > trimGap)
+        {
+            end--;
+        }
+
+        return end;
+    }
+
+    private static double MedianCardGap(List<KeyframeVisual> runCards)
+    {
+        var gaps = new List<double>(runCards.Count - 1);
+        for (var i = 1; i < runCards.Count; i++)
+        {
+            gaps.Add(runCards[i].Time - runCards[i - 1].Time);
+        }
+
+        gaps.Sort();
+        return gaps[gaps.Count / 2];
     }
 
     private static double EstimateMaximumInRunGap(IReadOnlyList<KeyframeVisual> visuals)

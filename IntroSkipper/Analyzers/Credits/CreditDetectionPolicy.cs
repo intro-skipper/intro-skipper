@@ -12,12 +12,12 @@ internal static class CreditDetectionPolicy
     public const double MaximumKeyframeGapMultiplier = 5.0;
 
     /// <summary>
-    /// Fraction of the in-run bridge gap within which a trailing card must sit to be kept. Credits
-    /// form a dense card cluster at the tail, so a trailing card farther than this from its
-    /// predecessor is treated as an over-extended tail (periodic near-uniform frames in non-credit
-    /// content) and trimmed from the credit run end, without touching the dense body.
+    /// Multiple of a run's own median card-to-card gap beyond which a trailing card is treated as an
+    /// isolated over-extension outlier and trimmed from the credit run end. Anchoring to the run's own
+    /// cadence (rather than the capped bridge gap) keeps a uniformly sparse long-GOP credit run intact
+    /// while still trimming a sparse tail that drifts off a denser body.
     /// </summary>
-    public const double TrailingTrimGapFactor = 0.5;
+    public const double TrailingTrimGapMultiplier = 2.5;
     public const double DefaultMinimumBlackFrameDensity = 0.50;
     public const double MaximumIntervalToKeyframeGapSeconds = 2.0;
 

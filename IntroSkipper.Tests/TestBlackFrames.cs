@@ -1239,11 +1239,16 @@ public class TestBlackFrames
         // Sparse all-card credits (8s GOP) -> kept (100% density, trailing gap within scaled trim).
         Assert.Equal((0.0, 40.0), Run(Seq(40, 8, (0, 40))));
 
+        // Uniform sparse long-GOP credits (12s cadence) -> kept; the trim keys off the run's own
+        // cadence, so an all-card run is never discarded even when its gap exceeds the capped bridge.
+        Assert.Equal((0.0, 48.0), Run(Seq(48, 12, (0, 48))));
+
         // Two real runs separated by a long gap -> latest selected.
         Assert.Equal((60.0, 80.0), Run(Seq(80, 2, (0, 20), (60, 80))));
 
-        // Over-extension with a too-short dense prefix -> nothing qualifies (real credits < min).
-        Assert.Null(Run(Seq(54, 2, (0, 6), (14, 14), (22, 22), (30, 30), (38, 38), (46, 46), (54, 54))));
+        // Predominantly sparse run (brief dense head, then uniform 8s cadence) -> kept as a sparse
+        // run rather than trimmed away; the cadence never clearly steps up off a dominant dense body.
+        Assert.Equal((0.0, 54.0), Run(Seq(54, 2, (0, 6), (14, 14), (22, 22), (30, 30), (38, 38), (46, 46), (54, 54))));
 
         // Final card spaced just within cadence (4s) -> kept, not over-trimmed.
         Assert.Equal((0.0, 44.0), Run(Seq(44, 2, (0, 40), (44, 44))));
