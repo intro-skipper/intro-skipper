@@ -1195,6 +1195,25 @@ public class TestBlackFrames
     }
 
     [Fact]
+    public void TestCreditEntropyFallback_TrimsIsolatedLeadingCard()
+    {
+        // Regression: an isolated low-entropy card at 36s bridges (on a 4s-GOP source) into the real
+        // dense credits at 52-80s. The start must anchor to the dense block at 52s, not the pre-card.
+        var visuals = new List<KeyframeVisual>();
+        for (var time = 0.0; time <= 88; time += 4)
+        {
+            var card = time == 36 || (time >= 52 && time <= 80);
+            visuals.Add(new KeyframeVisual(time, card ? 0.12 : 0.55, card ? 30 : 108));
+        }
+
+        var range = CreditEntropyFallback.FindCreditRange(visuals, minimumDuration: 15);
+
+        Assert.NotNull(range);
+        Assert.Equal(52, range!.Start);
+        Assert.Equal(80, range.End);
+    }
+
+    [Fact]
     public void TestCreditEntropyFallback_TrailingTrimBracket()
     {
         static List<KeyframeVisual> Seq(double end, double step, params (double From, double To)[] cards)
@@ -1226,6 +1245,10 @@ public class TestBlackFrames
 
         // Over-extension: dense credits 0-20, periodic isolated tail cards every 8s -> trim to 20.
         Assert.Equal((0.0, 20.0), Run(Seq(58, 2, (0, 20), (30, 30), (38, 38), (46, 46), (54, 54))));
+
+        // Leading over-extension: an isolated pre-credit card bridges into a dense block (4s GOP)
+        // -> start anchored to the dense block, not the stray pre-card.
+        Assert.Equal((52.0, 80.0), Run(Seq(88, 4, (36, 36), (52, 80))));
 
         // Clean dense card run -> unchanged.
         Assert.Equal((30.0, 54.0), Run(Seq(54, 2, (30, 54))));

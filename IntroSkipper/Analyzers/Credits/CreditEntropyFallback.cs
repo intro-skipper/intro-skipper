@@ -58,16 +58,16 @@ internal static class CreditEntropyFallback
            visual.Saturation < CreditDetectionPolicy.SaturationCreditMaximum;
 
     /// <summary>
-    /// Trims an over-extended tail of isolated cards from <paramref name="runCards" />, then returns
-    /// that run when it still meets the minimum duration; otherwise keeps <paramref name="currentBest" />.
+    /// Trims isolated cards from both ends of <paramref name="runCards" />, then returns that run when
+    /// it still meets the minimum duration; otherwise keeps <paramref name="currentBest" />.
     /// </summary>
     /// <remarks>
-    /// Credits sit at the tail and form a dense card cluster, so over-extension shows up as trailing
-    /// cards attached only through an above-cadence gap (periodic near-uniform frames in non-credit
-    /// content). Trimming those isolated cards leaves the dense body intact, so genuinely interleaved
-    /// credits (a brief ident bracketed by cards) are preserved. A qualifying later run still
-    /// supersedes an earlier one; <paramref name="currentBest" /> is the running best carried across
-    /// run boundaries, not compared by length.
+    /// Credits form a dense card cluster, so over-extension shows up as a leading or trailing card
+    /// attached only through an above-cadence gap (a sparse pre-credit title card, or periodic
+    /// near-uniform frames in non-credit tail content). Trimming those isolated outliers leaves the
+    /// dense body intact, so genuinely interleaved credits (a brief ident bracketed by cards) are
+    /// preserved. A qualifying later run still supersedes an earlier one; <paramref name="currentBest" />
+    /// is the running best carried across run boundaries, not compared by length.
     /// </remarks>
     private static TimeRange? SelectLatestQualifyingRun(
         TimeRange? currentBest,
@@ -79,8 +79,8 @@ internal static class CreditEntropyFallback
             return currentBest;
         }
 
-        var end = TrimOverExtendedTail(runCards);
-        var runStart = runCards[0];
+        var (start, end) = TrimIsolatedEnds(runCards);
+        var runStart = runCards[start];
         var lastCard = runCards[end];
         if (lastCard.Time - runStart.Time < minimumDuration)
         {
@@ -91,30 +91,39 @@ internal static class CreditEntropyFallback
     }
 
     /// <summary>
-    /// Returns the index of the run's last card after dropping trailing cards that are isolated
-    /// relative to the run's own card cadence.
+    /// Returns the index range of the run's dense core after dropping leading and trailing cards that
+    /// are isolated relative to the run's own card cadence.
     /// </summary>
     /// <remarks>
     /// The threshold is a multiple of the run's median card-to-card gap, not the global (capped)
     /// bridge gap: a uniformly sparse long-GOP run has every gap near its median, so nothing is
-    /// trimmed, while a sparse tail drifting off a denser body sits well above that body's median and
-    /// is removed. Only the trailing end is walked, so a dense interleaved body is never touched.
+    /// trimmed, while a sparse card that bridged in before or after a denser body sits well above that
+    /// body's median and is removed. Each end is walked inward independently and stops at the first
+    /// in-cadence card, so a dense body — including two real credit sub-blocks separated by a gap — is
+    /// never touched.
     /// </remarks>
-    private static int TrimOverExtendedTail(List<KeyframeVisual> runCards)
+    private static (int Start, int End) TrimIsolatedEnds(List<KeyframeVisual> runCards)
     {
+        var start = 0;
         var end = runCards.Count - 1;
         if (end < 1)
         {
-            return end;
+            return (start, end);
         }
 
         var trimGap = MedianCardGap(runCards) * CreditDetectionPolicy.TrailingTrimGapMultiplier;
-        while (end > 0 && runCards[end].Time - runCards[end - 1].Time > trimGap)
+
+        while (start < end && runCards[start + 1].Time - runCards[start].Time > trimGap)
+        {
+            start++;
+        }
+
+        while (end > start && runCards[end].Time - runCards[end - 1].Time > trimGap)
         {
             end--;
         }
 
-        return end;
+        return (start, end);
     }
 
     private static double MedianCardGap(List<KeyframeVisual> runCards)
