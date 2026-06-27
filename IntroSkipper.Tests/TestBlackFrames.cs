@@ -1100,16 +1100,6 @@ public class TestBlackFrames
         Assert.Equal(12.5, visual.Saturation);
     }
 
-    [Theory]
-    [InlineData(0.10, 30.0, true)]   // low entropy, muted card -> credit
-    [InlineData(0.53, 108.0, false)] // busy testsrc2 content
-    [InlineData(0.63, 50.0, false)]  // dark but detailed non-credit scene (high entropy)
-    [InlineData(0.10, 200.0, false)] // uniform but fully saturated -> not a credit card
-    public void TestIsCreditCardKeyframe(double entropy, double saturation, bool expected)
-    {
-        Assert.Equal(expected, CreditEntropyFallback.IsCreditCardKeyframe(new KeyframeVisual(0, entropy, saturation)));
-    }
-
     [Fact]
     public void TestCreditEntropyFallback_DetectsLowEntropyCardRun()
     {
@@ -1133,6 +1123,9 @@ public class TestBlackFrames
         }
 
         Assert.Null(CreditEntropyFallback.FindCreditRange(visuals, minimumDuration: 15));
+
+        var saturatedCards = CreateCardCreditVisuals(cardStart: 0, cardEnd: 20, cardSaturation: 200);
+        Assert.Null(CreditEntropyFallback.FindCreditRange(saturatedCards, minimumDuration: 15));
     }
 
     [Fact]

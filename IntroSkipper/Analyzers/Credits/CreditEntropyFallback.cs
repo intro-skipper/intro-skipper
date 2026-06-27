@@ -12,6 +12,10 @@ namespace IntroSkipper.Analyzers.Credits;
 /// </summary>
 internal static class CreditEntropyFallback
 {
+    private const double TrailingTrimGapMultiplier = 2.5;
+    private const double EntropyCreditMaximum = 0.35;
+    private const double SaturationCreditMaximum = 96.0;
+
     /// <summary>
     /// Finds the latest sustained low-entropy credit-card run that satisfies the minimum duration.
     /// </summary>
@@ -48,27 +52,10 @@ internal static class CreditEntropyFallback
         return SelectLatestQualifyingRun(best, runCards, minimumDuration);
     }
 
-    /// <summary>
-    /// Determines whether a keyframe looks like a near-uniform credit card.
-    /// </summary>
-    /// <param name="visual">The keyframe visual statistics.</param>
-    /// <returns><see langword="true" /> when the keyframe is low entropy and not fully saturated; otherwise, <see langword="false" />.</returns>
-    public static bool IsCreditCardKeyframe(KeyframeVisual visual)
-        => visual.Entropy < CreditDetectionPolicy.EntropyCreditMaximum &&
-           visual.Saturation < CreditDetectionPolicy.SaturationCreditMaximum;
+    private static bool IsCreditCardKeyframe(KeyframeVisual visual)
+        => visual.Entropy < EntropyCreditMaximum &&
+           visual.Saturation < SaturationCreditMaximum;
 
-    /// <summary>
-    /// Trims isolated cards from both ends of <paramref name="runCards" />, then returns that run when
-    /// it still meets the minimum duration; otherwise keeps <paramref name="currentBest" />.
-    /// </summary>
-    /// <remarks>
-    /// Credits form a dense card cluster, so over-extension shows up as a leading or trailing card
-    /// attached only through an above-cadence gap (a sparse pre-credit title card, or periodic
-    /// near-uniform frames in non-credit tail content). Trimming those isolated outliers leaves the
-    /// dense body intact, so genuinely interleaved credits (a brief ident bracketed by cards) are
-    /// preserved. A qualifying later run still supersedes an earlier one; <paramref name="currentBest" />
-    /// is the running best carried across run boundaries, not compared by length.
-    /// </remarks>
     private static TimeRange? SelectLatestQualifyingRun(
         TimeRange? currentBest,
         List<KeyframeVisual> runCards,
@@ -90,18 +77,7 @@ internal static class CreditEntropyFallback
         return new TimeRange(runStart.Time, lastCard.Time);
     }
 
-    /// <summary>
-    /// Returns the index range of the run's dense core after dropping leading and trailing cards that
-    /// are isolated relative to the run's own card cadence.
-    /// </summary>
-    /// <remarks>
-    /// The threshold is a multiple of the run's median card-to-card gap, not the global (capped)
-    /// bridge gap: a uniformly sparse long-GOP run has every gap near its median, so nothing is
-    /// trimmed, while a sparse card that bridged in before or after a denser body sits well above that
-    /// body's median and is removed. Each end is walked inward independently and stops at the first
-    /// in-cadence card, so a dense body — including two real credit sub-blocks separated by a gap — is
-    /// never touched.
-    /// </remarks>
+    // Trim isolated edge cards by the run's own cadence; uniformly sparse runs stay intact.
     private static (int Start, int End) TrimIsolatedEnds(List<KeyframeVisual> runCards)
     {
         var start = 0;
@@ -111,7 +87,7 @@ internal static class CreditEntropyFallback
             return (start, end);
         }
 
-        var trimGap = MedianCardGap(runCards) * CreditDetectionPolicy.TrailingTrimGapMultiplier;
+        var trimGap = MedianCardGap(runCards) * TrailingTrimGapMultiplier;
 
         while (start < end && runCards[start + 1].Time - runCards[start].Time > trimGap)
         {
