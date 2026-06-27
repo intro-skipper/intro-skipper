@@ -262,11 +262,11 @@ public partial class ChromaprintAnalyzer(ILogger<ChromaprintAnalyzer> logger, IF
             return null;
         }
 
-        var maximumBoundary = await RecapDetectionHelper.GetMaximumBoundaryAsync(
+        var window = await RecapDetectionHelper.GetRecapScanWindowAsync(
             episode,
             _config,
             cancellationToken).ConfigureAwait(false);
-        if (maximumBoundary <= card.End)
+        if (window.MaxBoundary <= card.End)
         {
             return null;
         }
@@ -275,7 +275,7 @@ public partial class ChromaprintAnalyzer(ILogger<ChromaprintAnalyzer> logger, IF
         {
             blackFrames = await _ffmpegService.DetectBlackFramesAsync(
                 episode,
-                new TimeRange(0, maximumBoundary),
+                new TimeRange(0, window.MaxBoundary),
                 _config.BlackFrameMinimumPercentage,
                 _config.BlackFrameThreshold,
                 AnalysisMode.Recap,
@@ -283,11 +283,19 @@ public partial class ChromaprintAnalyzer(ILogger<ChromaprintAnalyzer> logger, IF
             _recapBlackFrameCache[episode.EpisodeId] = blackFrames;
         }
 
-        return ChapterAnalyzer.BuildRecapFromBlackFrames(
+        var context = new RecapDetectionHelper.RecapBuildContext(
+            window.MaxBoundary,
+            window.IntroDetected,
+            _config.RecapAllowColdOpen,
+            _config.MinimumRecapDuration,
+            _config.MaximumRecapDuration,
+            _config.MinimumRecapDetectionDuration);
+
+        return RecapDetectionHelper.BuildChromaprintRecap(
             episode.EpisodeId,
+            new TimeRange(card.Start, card.End),
             blackFrames,
-            Math.Max(_config.MinimumRecapDetectionDuration, (int)Math.Ceiling(card.End)),
-            maximumBoundary);
+            context);
     }
 
     private static (Segment Lhs, Segment Rhs) GetEarliestTimeRange(
@@ -311,18 +319,12 @@ public partial class ChromaprintAnalyzer(ILogger<ChromaprintAnalyzer> logger, IF
             }
         }
 
+        // Preserve the true sting start. Unlike introductions, the recap builder needs the real
+        // start of the shared "previously on" sting to anchor a leading cold open
+        // (see RecapDetectionHelper.ResolveRecapStart); snapping it to 0 here would erase that
+        // structure and force every recap to begin at 0:00.
         var lhsRecap = new TimeRange(lhsRanges[earliestIndex]);
         var rhsRecap = new TimeRange(rhsRanges[earliestIndex]);
-
-        if (lhsRecap.Start <= 5)
-        {
-            lhsRecap.Start = 0;
-        }
-
-        if (rhsRecap.Start <= 5)
-        {
-            rhsRecap.Start = 0;
-        }
 
         return (new Segment(lhsId, lhsRecap), new Segment(rhsId, rhsRecap));
     }

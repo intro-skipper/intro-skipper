@@ -60,6 +60,7 @@ export interface PluginConfig {
     ScanCredits: boolean;
     ScanRecap: boolean;
     DetectRecapUsingBlackFrames: boolean;
+    RecapAllowColdOpen: boolean;
     ScanPreview: boolean;
     ScanCommercial: boolean;
     EnableMainMenu: boolean;

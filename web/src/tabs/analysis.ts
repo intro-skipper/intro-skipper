@@ -94,6 +94,12 @@ export const analysisTab: Tab = {
                 description:
                     "When recap chapter detection fails, mark recap from 0:00 to the latest detected black frame within the detected recap duration limits and before the intro.",
             }),
+            checkboxField({
+                id: "RecapAllowColdOpen",
+                label: "Allow recap after a cold open",
+                description:
+                    "Anchor a detected recap to its shared 'previously on' sting (and the transition just before it) so a recap that follows a cold open is not forced to start at 0:00. Disable to keep the legacy behavior of starting every recap at 0:00.",
+            }),
             durationPair(
                 "MinimumIntroDuration",
                 "MaximumIntroDuration",
