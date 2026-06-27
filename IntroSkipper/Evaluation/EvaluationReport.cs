@@ -81,11 +81,16 @@ internal sealed class EvaluationReport
         AppendMetric(builder, "true positives", Count(Aggregate.TruePositives));
         AppendMetric(builder, "false positives", Count(Aggregate.FalsePositives));
         AppendMetric(builder, "false negatives", Count(Aggregate.FalseNegatives));
+        AppendMetric(builder, "- silent miss (safe)", Count(Aggregate.SilentMisses));
+        AppendMetric(builder, "- fired-but-wrong (harmful)", Count(Aggregate.FiredButWrong));
         AppendMetric(builder, "true negatives", Count(Aggregate.TrueNegatives));
         AppendMetric(builder, "detection rate (recall)", RateWithCounts(Aggregate.DetectionRate, Aggregate.TruePositives, Aggregate.WithRecap));
         AppendMetric(builder, "false-positive rate", RateWithCounts(Aggregate.FalsePositiveRate, Aggregate.FalsePositives, Aggregate.WithoutRecap));
         AppendMetric(builder, "precision", FormatRate(Aggregate.Precision));
         AppendMetric(builder, "F1 score", FormatRate(Aggregate.F1Score));
+        AppendMetric(builder, "content-skip s (total)", FormatSeconds(Aggregate.ContentSkipSecondsTotal));
+        AppendMetric(builder, "content-skip s (mean)", SecondsWithCount(Aggregate.ContentSkipSecondsMean, Aggregate.BoundaryCount));
+        AppendMetric(builder, "missed-recap s (total)", FormatSeconds(Aggregate.MissedRecapSecondsTotal));
         AppendMetric(builder, "start MAE (s)", SecondsWithCount(Aggregate.StartMae, Aggregate.BoundaryCount));
         AppendMetric(builder, "end MAE (s)", SecondsWithCount(Aggregate.EndMae, Aggregate.BoundaryCount));
         AppendMetric(builder, "mean IoU", FormatRate(Aggregate.MeanIoU));

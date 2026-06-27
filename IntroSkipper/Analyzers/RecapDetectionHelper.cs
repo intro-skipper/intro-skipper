@@ -160,36 +160,144 @@ internal static class RecapDetectionHelper
     {
         ArgumentNullException.ThrowIfNull(blackFrames);
 
+        var times = new double[blackFrames.Count];
+        for (var i = 0; i < blackFrames.Count; i++)
+        {
+            times[i] = blackFrames[i].Time;
+        }
+
+        return ResolveStartCore(stingStart, times, allowColdOpen);
+    }
+
+    /// <summary>
+    /// Reconciles a candidate recap interval produced by ANY detection tier (chapter, subtitle, or
+    /// sting) into a final interval using one shared start policy and one shared end-refinement
+    /// policy. This is the single boundary-resolution step required by RFC D §2.3: it never blanket-
+    /// snaps the start to 0 (it anchors a leading cold open instead) and it refines the end to the
+    /// nearest black-frame/fade within a small window. Tier-specific localization — e.g. discovering
+    /// the montage end from a short sting via <see cref="SelectMontageEnd"/> — happens before this
+    /// step; this method owns only the boundaries, so end-boundary semantics no longer differ by
+    /// signal (the inconsistency called out in RFC D finding 4).
+    /// </summary>
+    /// <param name="candidateStart">The tier's proposed recap start in seconds.</param>
+    /// <param name="candidateEnd">The tier's proposed recap end in seconds.</param>
+    /// <param name="blackFrameTimes">Black-frame timestamps (seconds) in the scan window.</param>
+    /// <param name="options">Shared reconciliation bounds and policy.</param>
+    /// <returns>The reconciled interval as (start, end), or <see langword="null"/> when no valid recap remains.</returns>
+    internal static (double Start, double End)? ReconcileBoundaries(
+        double candidateStart,
+        double candidateEnd,
+        IReadOnlyList<double> blackFrameTimes,
+        RecapBoundaryOptions options)
+    {
+        ArgumentNullException.ThrowIfNull(blackFrameTimes);
+
+        var start = ResolveStartCore(candidateStart, blackFrameTimes, options.AllowColdOpen);
+        var end = RefineEndToBlackFrame(candidateEnd, blackFrameTimes, options.EndBackwardTolerance, options.EndForwardWindow);
+
+        // Never extend past the scan ceiling (intro start / configured max / duration).
+        if (options.MaxBoundary > 0 && end > options.MaxBoundary)
+        {
+            end = options.MaxBoundary;
+        }
+
+        if (end <= start)
+        {
+            return null;
+        }
+
+        var duration = end - start;
+        if (duration > options.MaximumRecapDuration)
+        {
+            // Clamp an over-long interval to the configured maximum rather than dropping it.
+            end = start + options.MaximumRecapDuration;
+            duration = options.MaximumRecapDuration;
+        }
+
+        if (duration < options.MinimumRecapDuration)
+        {
+            return null;
+        }
+
+        return (start, end);
+    }
+
+    /// <summary>
+    /// Refines a candidate end boundary to the nearest black-frame/fade within a small window (a
+    /// short backward tolerance plus a forward snap window). Shared by every inferring tier so end
+    /// semantics no longer differ by signal (RFC D §2.3 #2). Returns the candidate unchanged when no
+    /// frame is close enough.
+    /// </summary>
+    /// <param name="candidateEnd">The proposed end in seconds.</param>
+    /// <param name="blackFrameTimes">Black-frame timestamps (seconds) in the scan window.</param>
+    /// <param name="backwardTolerance">How far before the candidate a fade may be snapped to (seconds).</param>
+    /// <param name="forwardWindow">How far after the candidate a fade may be snapped to (seconds).</param>
+    /// <returns>The refined end in seconds.</returns>
+    internal static double RefineEndToBlackFrame(
+        double candidateEnd,
+        IReadOnlyList<double> blackFrameTimes,
+        double backwardTolerance,
+        double forwardWindow)
+    {
+        ArgumentNullException.ThrowIfNull(blackFrameTimes);
+
+        var best = candidateEnd;
+        var bestDelta = double.MaxValue;
+        foreach (var time in blackFrameTimes)
+        {
+            var delta = time - candidateEnd;
+            if (delta >= -backwardTolerance && delta <= forwardWindow && Math.Abs(delta) < bestDelta)
+            {
+                bestDelta = Math.Abs(delta);
+                best = time;
+            }
+        }
+
+        return best;
+    }
+
+    /// <summary>
+    /// The single cold-open-aware start policy shared by the Chromaprint sting path
+    /// (<see cref="ResolveRecapStart"/>) and the tier-agnostic <see cref="ReconcileBoundaries"/>:
+    /// snap to 0 only when the candidate already opens the episode, otherwise anchor to the fade
+    /// just before it, and never blanket-force 0 (RFC D §2.3 #3).
+    /// </summary>
+    /// <param name="candidateStart">Candidate start in seconds.</param>
+    /// <param name="blackFrameTimes">Black-frame timestamps (seconds) in the scan window.</param>
+    /// <param name="allowColdOpen">Whether non-zero (cold-open) starts are permitted.</param>
+    /// <returns>The resolved start in seconds.</returns>
+    private static double ResolveStartCore(double candidateStart, IReadOnlyList<double> blackFrameTimes, bool allowColdOpen)
+    {
         // Legacy behavior: always begin the recap at the episode start.
         if (!allowColdOpen)
         {
             return 0;
         }
 
-        // A sting that begins at (or within a few seconds of) 0:00 indicates the recap opens the
+        // A candidate that begins at (or within a few seconds of) 0:00 indicates the recap opens the
         // episode; there is no cold open to preserve.
-        if (stingStart <= ColdOpenStartThreshold)
+        if (candidateStart <= ColdOpenStartThreshold)
         {
             return 0;
         }
 
         // A cold open precedes the recap. Anchor the start to the fade/black-frame transition just
-        // before the sting (closest qualifying frame) when one exists, otherwise to the sting.
+        // before the candidate (closest qualifying frame) when one exists, otherwise to the candidate.
         double? transition = null;
-        foreach (var blackFrame in blackFrames)
+        foreach (var time in blackFrameTimes)
         {
-            if (blackFrame.Time > stingStart || blackFrame.Time < stingStart - ColdOpenLeadInWindow)
+            if (time > candidateStart || time < candidateStart - ColdOpenLeadInWindow)
             {
                 continue;
             }
 
-            if (transition is null || blackFrame.Time > transition.Value)
+            if (transition is null || time > transition.Value)
             {
-                transition = blackFrame.Time;
+                transition = time;
             }
         }
 
-        return transition ?? stingStart;
+        return transition ?? candidateStart;
     }
 
     /// <summary>
@@ -271,4 +379,23 @@ internal static class RecapDetectionHelper
         int MinimumRecapDuration,
         int MaximumRecapDuration,
         int MinimumRecapDetectionDuration);
+
+    /// <summary>
+    /// Shared boundary-reconciliation policy consumed by <see cref="ReconcileBoundaries"/>. Carries
+    /// the cold-open toggle, the scan ceiling, the duration bounds, and the end-snap window so every
+    /// tier reconciles boundaries identically.
+    /// </summary>
+    /// <param name="AllowColdOpen">Whether non-zero (cold-open) recap starts are permitted.</param>
+    /// <param name="MaxBoundary">Latest timestamp (seconds) the recap end may reach; 0 disables the clamp.</param>
+    /// <param name="MinimumRecapDuration">Minimum acceptable recap duration in seconds.</param>
+    /// <param name="MaximumRecapDuration">Maximum acceptable recap duration in seconds.</param>
+    /// <param name="EndBackwardTolerance">How far before the candidate end a fade may be snapped to (seconds).</param>
+    /// <param name="EndForwardWindow">How far after the candidate end a fade may be snapped to (seconds).</param>
+    internal readonly record struct RecapBoundaryOptions(
+        bool AllowColdOpen,
+        double MaxBoundary,
+        double MinimumRecapDuration,
+        double MaximumRecapDuration,
+        double EndBackwardTolerance,
+        double EndForwardWindow);
 }

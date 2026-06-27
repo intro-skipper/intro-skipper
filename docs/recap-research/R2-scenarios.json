@@ -1,0 +1,1333 @@
+{
+  "version": 1,
+  "scenarios": [
+    {
+      "label": {
+        "series": "Marble Court",
+        "season": 3,
+        "episode": 1,
+        "hasRecap": false,
+        "recapStart": 0,
+        "recapEnd": 0,
+        "sourceShape": "NoRecap",
+        "notes": "Season premiere, no recap. Clean control."
+      },
+      "inputs": {
+        "duration": 2700,
+        "introDetected": true,
+        "introStart": 40,
+        "hasChapterRecap": false,
+        "chapterRecapStart": 0,
+        "chapterRecapEnd": 0,
+        "stingPresent": false,
+        "stingStart": 0,
+        "stingEnd": 0,
+        "blackFrameTimes": [],
+        "subtitleCues": []
+      }
+    },
+    {
+      "label": {
+        "series": "Marble Court",
+        "season": 3,
+        "episode": 2,
+        "hasRecap": true,
+        "recapStart": 0,
+        "recapEnd": 30,
+        "sourceShape": "RecapFirst",
+        "notes": "Recap opens the episode; shared sting \u002B montage fade at 30. Happy path."
+      },
+      "inputs": {
+        "duration": 2700,
+        "introDetected": true,
+        "introStart": 95,
+        "hasChapterRecap": false,
+        "chapterRecapStart": 0,
+        "chapterRecapEnd": 0,
+        "stingPresent": true,
+        "stingStart": 0.5,
+        "stingEnd": 4,
+        "blackFrameTimes": [
+          30
+        ],
+        "subtitleCues": [
+          {
+            "start": 1,
+            "end": 4,
+            "text": "Previously on Marble Court..."
+          },
+          {
+            "start": 6,
+            "end": 11,
+            "text": "The verdict came in against us."
+          },
+          {
+            "start": 14,
+            "end": 20,
+            "text": "We are going to appeal this decision."
+          },
+          {
+            "start": 24,
+            "end": 29,
+            "text": "She lost everything that night."
+          }
+        ]
+      }
+    },
+    {
+      "label": {
+        "series": "Marble Court",
+        "season": 3,
+        "episode": 3,
+        "hasRecap": true,
+        "recapStart": 0,
+        "recapEnd": 24,
+        "sourceShape": "RecapFirst",
+        "notes": "Short recap-first, shared sting \u002B fade at 24."
+      },
+      "inputs": {
+        "duration": 2650,
+        "introDetected": true,
+        "introStart": 80,
+        "hasChapterRecap": false,
+        "chapterRecapStart": 0,
+        "chapterRecapEnd": 0,
+        "stingPresent": true,
+        "stingStart": 1,
+        "stingEnd": 4,
+        "blackFrameTimes": [
+          24
+        ],
+        "subtitleCues": [
+          {
+            "start": 1,
+            "end": 4,
+            "text": "Previously on Marble Court..."
+          },
+          {
+            "start": 7,
+            "end": 13,
+            "text": "The witness changed her story."
+          },
+          {
+            "start": 17,
+            "end": 23,
+            "text": "That changes the whole case."
+          }
+        ]
+      }
+    },
+    {
+      "label": {
+        "series": "Marble Court",
+        "season": 3,
+        "episode": 4,
+        "hasRecap": true,
+        "recapStart": 0,
+        "recapEnd": 36,
+        "sourceShape": "RecapFirst",
+        "notes": "Recap-first WITH an explicit chapter marker [0,36]; chapter tier should win in every config."
+      },
+      "inputs": {
+        "duration": 2700,
+        "introDetected": true,
+        "introStart": 100,
+        "hasChapterRecap": true,
+        "chapterRecapStart": 0,
+        "chapterRecapEnd": 36,
+        "stingPresent": true,
+        "stingStart": 0.5,
+        "stingEnd": 4,
+        "blackFrameTimes": [
+          36
+        ],
+        "subtitleCues": [
+          {
+            "start": 1,
+            "end": 4,
+            "text": "Previously on Marble Court..."
+          },
+          {
+            "start": 8,
+            "end": 14,
+            "text": "The partners want him gone."
+          },
+          {
+            "start": 28,
+            "end": 34,
+            "text": "This is bigger than all of us."
+          }
+        ]
+      }
+    },
+    {
+      "label": {
+        "series": "Marble Court",
+        "season": 3,
+        "episode": 5,
+        "hasRecap": false,
+        "recapStart": 0,
+        "recapEnd": 0,
+        "sourceShape": "NoRecap",
+        "notes": "Bottle episode, no recap. Clean control."
+      },
+      "inputs": {
+        "duration": 2680,
+        "introDetected": true,
+        "introStart": 38,
+        "hasChapterRecap": false,
+        "chapterRecapStart": 0,
+        "chapterRecapEnd": 0,
+        "stingPresent": false,
+        "stingStart": 0,
+        "stingEnd": 0,
+        "blackFrameTimes": [],
+        "subtitleCues": []
+      }
+    },
+    {
+      "label": {
+        "series": "Marble Court",
+        "season": 3,
+        "episode": 6,
+        "hasRecap": true,
+        "recapStart": 0,
+        "recapEnd": 28,
+        "sourceShape": "RecapFirst",
+        "notes": "Recap-first but only IMAGE subtitles (no cues): subtitle tier must abstain and fall back to the sting."
+      },
+      "inputs": {
+        "duration": 2700,
+        "introDetected": true,
+        "introStart": 70,
+        "hasChapterRecap": false,
+        "chapterRecapStart": 0,
+        "chapterRecapEnd": 0,
+        "stingPresent": true,
+        "stingStart": 0.5,
+        "stingEnd": 4,
+        "blackFrameTimes": [
+          28
+        ],
+        "subtitleCues": []
+      }
+    },
+    {
+      "label": {
+        "series": "Marble Court",
+        "season": 3,
+        "episode": 7,
+        "hasRecap": true,
+        "recapStart": 58,
+        "recapEnd": 92,
+        "sourceShape": "ColdOpenThenRecap",
+        "notes": "Cold open to 58, then recap to 92; shared sting \u002B fades. Defeats start-forced-to-0."
+      },
+      "inputs": {
+        "duration": 2700,
+        "introDetected": true,
+        "introStart": 96,
+        "hasChapterRecap": false,
+        "chapterRecapStart": 0,
+        "chapterRecapEnd": 0,
+        "stingPresent": true,
+        "stingStart": 58,
+        "stingEnd": 62,
+        "blackFrameTimes": [
+          58,
+          92
+        ],
+        "subtitleCues": [
+          {
+            "start": 59,
+            "end": 62,
+            "text": "Previously on Marble Court..."
+          },
+          {
+            "start": 65,
+            "end": 71,
+            "text": "The settlement fell apart."
+          },
+          {
+            "start": 74,
+            "end": 80,
+            "text": "Both sides are out for blood."
+          },
+          {
+            "start": 84,
+            "end": 90,
+            "text": "Nobody walks away clean."
+          }
+        ]
+      }
+    },
+    {
+      "label": {
+        "series": "Marble Court",
+        "season": 3,
+        "episode": 8,
+        "hasRecap": true,
+        "recapStart": 0,
+        "recapEnd": 33,
+        "sourceShape": "RecapFirst",
+        "notes": "Recap-first, shared sting \u002B fade at 33."
+      },
+      "inputs": {
+        "duration": 2700,
+        "introDetected": true,
+        "introStart": 88,
+        "hasChapterRecap": false,
+        "chapterRecapStart": 0,
+        "chapterRecapEnd": 0,
+        "stingPresent": true,
+        "stingStart": 0.5,
+        "stingEnd": 4,
+        "blackFrameTimes": [
+          33
+        ],
+        "subtitleCues": [
+          {
+            "start": 1,
+            "end": 4,
+            "text": "Previously on Marble Court..."
+          },
+          {
+            "start": 8,
+            "end": 14,
+            "text": "The judge recused herself."
+          },
+          {
+            "start": 26,
+            "end": 32,
+            "text": "We start over from nothing."
+          }
+        ]
+      }
+    },
+    {
+      "label": {
+        "series": "Marble Court",
+        "season": 3,
+        "episode": 9,
+        "hasRecap": false,
+        "recapStart": 0,
+        "recapEnd": 0,
+        "sourceShape": "NoRecap",
+        "notes": "No recap this week. Clean control."
+      },
+      "inputs": {
+        "duration": 2700,
+        "introDetected": true,
+        "introStart": 41,
+        "hasChapterRecap": false,
+        "chapterRecapStart": 0,
+        "chapterRecapEnd": 0,
+        "stingPresent": false,
+        "stingStart": 0,
+        "stingEnd": 0,
+        "blackFrameTimes": [],
+        "subtitleCues": []
+      }
+    },
+    {
+      "label": {
+        "series": "Marble Court",
+        "season": 3,
+        "episode": 10,
+        "hasRecap": true,
+        "recapStart": 53,
+        "recapEnd": 89,
+        "sourceShape": "ColdOpenThenRecap",
+        "notes": "Cold open to 53, recap to 89; shared sting \u002B fades; no chapter."
+      },
+      "inputs": {
+        "duration": 2700,
+        "introDetected": true,
+        "introStart": 94,
+        "hasChapterRecap": false,
+        "chapterRecapStart": 0,
+        "chapterRecapEnd": 0,
+        "stingPresent": true,
+        "stingStart": 53,
+        "stingEnd": 57,
+        "blackFrameTimes": [
+          53,
+          89
+        ],
+        "subtitleCues": [
+          {
+            "start": 54,
+            "end": 57,
+            "text": "Previously on Marble Court..."
+          },
+          {
+            "start": 60,
+            "end": 66,
+            "text": "The firm is under investigation."
+          },
+          {
+            "start": 70,
+            "end": 76,
+            "text": "Someone has been leaking files."
+          },
+          {
+            "start": 81,
+            "end": 87,
+            "text": "Trust no one in that building."
+          }
+        ]
+      }
+    },
+    {
+      "label": {
+        "series": "Tidewater",
+        "season": 2,
+        "episode": 1,
+        "hasRecap": false,
+        "recapStart": 0,
+        "recapEnd": 0,
+        "sourceShape": "NoRecap",
+        "notes": "Premiere, cold open only, no recap. Clean control."
+      },
+      "inputs": {
+        "duration": 2600,
+        "introDetected": true,
+        "introStart": 55,
+        "hasChapterRecap": false,
+        "chapterRecapStart": 0,
+        "chapterRecapEnd": 0,
+        "stingPresent": false,
+        "stingStart": 0,
+        "stingEnd": 0,
+        "blackFrameTimes": [],
+        "subtitleCues": []
+      }
+    },
+    {
+      "label": {
+        "series": "Tidewater",
+        "season": 2,
+        "episode": 2,
+        "hasRecap": true,
+        "recapStart": 52,
+        "recapEnd": 88,
+        "sourceShape": "ColdOpenThenRecap",
+        "notes": "Cold open to 52, recap to 88; shared sting; fades at 52 and 88."
+      },
+      "inputs": {
+        "duration": 2600,
+        "introDetected": true,
+        "introStart": 92,
+        "hasChapterRecap": false,
+        "chapterRecapStart": 0,
+        "chapterRecapEnd": 0,
+        "stingPresent": true,
+        "stingStart": 52,
+        "stingEnd": 56,
+        "blackFrameTimes": [
+          52,
+          88
+        ],
+        "subtitleCues": [
+          {
+            "start": 53,
+            "end": 56,
+            "text": "Previously on Tidewater..."
+          },
+          {
+            "start": 58,
+            "end": 63,
+            "text": "The body washed up at dawn."
+          },
+          {
+            "start": 66,
+            "end": 72,
+            "text": "The detective knew the victim."
+          },
+          {
+            "start": 75,
+            "end": 81,
+            "text": "This case is personal now."
+          },
+          {
+            "start": 83,
+            "end": 87,
+            "text": "Everyone is a suspect."
+          }
+        ]
+      }
+    },
+    {
+      "label": {
+        "series": "Tidewater",
+        "season": 2,
+        "episode": 3,
+        "hasRecap": true,
+        "recapStart": 47,
+        "recapEnd": 79,
+        "sourceShape": "ColdOpenThenRecap",
+        "notes": "Cold open to 47, recap to 79; shared sting; fades on both sides."
+      },
+      "inputs": {
+        "duration": 2600,
+        "introDetected": true,
+        "introStart": 84,
+        "hasChapterRecap": false,
+        "chapterRecapStart": 0,
+        "chapterRecapEnd": 0,
+        "stingPresent": true,
+        "stingStart": 47,
+        "stingEnd": 51,
+        "blackFrameTimes": [
+          47,
+          79
+        ],
+        "subtitleCues": [
+          {
+            "start": 48,
+            "end": 51,
+            "text": "Previously on Tidewater..."
+          },
+          {
+            "start": 54,
+            "end": 60,
+            "text": "The lab results came back."
+          },
+          {
+            "start": 63,
+            "end": 69,
+            "text": "It was never an accident."
+          },
+          {
+            "start": 73,
+            "end": 78,
+            "text": "We have been chasing a ghost."
+          }
+        ]
+      }
+    },
+    {
+      "label": {
+        "series": "Tidewater",
+        "season": 2,
+        "episode": 4,
+        "hasRecap": true,
+        "recapStart": 60,
+        "recapEnd": 96,
+        "sourceShape": "ColdOpenThenRecap",
+        "notes": "Long cold open to 60, recap to 96; shared sting; fades."
+      },
+      "inputs": {
+        "duration": 2600,
+        "introDetected": true,
+        "introStart": 100,
+        "hasChapterRecap": false,
+        "chapterRecapStart": 0,
+        "chapterRecapEnd": 0,
+        "stingPresent": true,
+        "stingStart": 60,
+        "stingEnd": 64,
+        "blackFrameTimes": [
+          60,
+          96
+        ],
+        "subtitleCues": [
+          {
+            "start": 61,
+            "end": 64,
+            "text": "Previously on Tidewater..."
+          },
+          {
+            "start": 67,
+            "end": 73,
+            "text": "The mayor made a deal."
+          },
+          {
+            "start": 77,
+            "end": 83,
+            "text": "Internal affairs is watching."
+          },
+          {
+            "start": 88,
+            "end": 94,
+            "text": "Hand over the badge."
+          }
+        ]
+      }
+    },
+    {
+      "label": {
+        "series": "Tidewater",
+        "season": 2,
+        "episode": 5,
+        "hasRecap": true,
+        "recapStart": 44,
+        "recapEnd": 82,
+        "sourceShape": "ColdOpenThenRecap",
+        "notes": "Cold open to 44, recap to 82, WITH explicit chapter [44,82]; chapter should win in every config."
+      },
+      "inputs": {
+        "duration": 2600,
+        "introDetected": true,
+        "introStart": 88,
+        "hasChapterRecap": true,
+        "chapterRecapStart": 44,
+        "chapterRecapEnd": 82,
+        "stingPresent": true,
+        "stingStart": 44,
+        "stingEnd": 48,
+        "blackFrameTimes": [
+          44,
+          82
+        ],
+        "subtitleCues": [
+          {
+            "start": 45,
+            "end": 48,
+            "text": "Previously on Tidewater..."
+          },
+          {
+            "start": 52,
+            "end": 58,
+            "text": "The harbor master vanished."
+          },
+          {
+            "start": 74,
+            "end": 80,
+            "text": "Follow the money."
+          }
+        ]
+      }
+    },
+    {
+      "label": {
+        "series": "Tidewater",
+        "season": 2,
+        "episode": 6,
+        "hasRecap": true,
+        "recapStart": 55,
+        "recapEnd": 90,
+        "sourceShape": "ColdOpenThenRecap",
+        "notes": "Cold open to 55, recap to 90; shared sting but NO subtitles and NO chapter: only the hardened sting can fix the start."
+      },
+      "inputs": {
+        "duration": 2600,
+        "introDetected": true,
+        "introStart": 95,
+        "hasChapterRecap": false,
+        "chapterRecapStart": 0,
+        "chapterRecapEnd": 0,
+        "stingPresent": true,
+        "stingStart": 55,
+        "stingEnd": 59,
+        "blackFrameTimes": [
+          55,
+          90
+        ],
+        "subtitleCues": []
+      }
+    },
+    {
+      "label": {
+        "series": "Tidewater",
+        "season": 2,
+        "episode": 7,
+        "hasRecap": true,
+        "recapStart": 50,
+        "recapEnd": 86,
+        "sourceShape": "ColdOpenThenRecap",
+        "notes": "Cold open to 50, recap to 86; UNIQUE recap (no shared sting) but text subs: only the subtitle tier can see it."
+      },
+      "inputs": {
+        "duration": 2600,
+        "introDetected": true,
+        "introStart": 90,
+        "hasChapterRecap": false,
+        "chapterRecapStart": 0,
+        "chapterRecapEnd": 0,
+        "stingPresent": false,
+        "stingStart": 0,
+        "stingEnd": 0,
+        "blackFrameTimes": [
+          50,
+          86
+        ],
+        "subtitleCues": [
+          {
+            "start": 51,
+            "end": 54,
+            "text": "Previously on Tidewater..."
+          },
+          {
+            "start": 57,
+            "end": 63,
+            "text": "The witness recanted everything."
+          },
+          {
+            "start": 67,
+            "end": 73,
+            "text": "We are back to square one."
+          },
+          {
+            "start": 78,
+            "end": 84,
+            "text": "Someone wanted him silenced."
+          }
+        ]
+      }
+    },
+    {
+      "label": {
+        "series": "Tidewater",
+        "season": 2,
+        "episode": 8,
+        "hasRecap": false,
+        "recapStart": 0,
+        "recapEnd": 0,
+        "sourceShape": "NoRecap",
+        "notes": "No recap; a recurring 24 s theme sting \u002B a fade, NO intro detected: stresses the false-positive guard."
+      },
+      "inputs": {
+        "duration": 2600,
+        "introDetected": false,
+        "introStart": 0,
+        "hasChapterRecap": false,
+        "chapterRecapStart": 0,
+        "chapterRecapEnd": 0,
+        "stingPresent": true,
+        "stingStart": 30,
+        "stingEnd": 54,
+        "blackFrameTimes": [
+          54
+        ],
+        "subtitleCues": []
+      }
+    },
+    {
+      "label": {
+        "series": "Tidewater",
+        "season": 2,
+        "episode": 9,
+        "hasRecap": true,
+        "recapStart": 49,
+        "recapEnd": 85,
+        "sourceShape": "ColdOpenThenRecap",
+        "notes": "Cold open to 49, recap to 85; NO sting, NO subtitles, NO chapter: no signal reaches it (honest miss for all)."
+      },
+      "inputs": {
+        "duration": 2600,
+        "introDetected": true,
+        "introStart": 90,
+        "hasChapterRecap": false,
+        "chapterRecapStart": 0,
+        "chapterRecapEnd": 0,
+        "stingPresent": false,
+        "stingStart": 0,
+        "stingEnd": 0,
+        "blackFrameTimes": [
+          49,
+          85
+        ],
+        "subtitleCues": []
+      }
+    },
+    {
+      "label": {
+        "series": "Tidewater",
+        "season": 2,
+        "episode": 10,
+        "hasRecap": true,
+        "recapStart": 0,
+        "recapEnd": 22,
+        "sourceShape": "RecapFirst",
+        "notes": "Occasional recap-first; shared sting \u002B fade at 22."
+      },
+      "inputs": {
+        "duration": 2600,
+        "introDetected": true,
+        "introStart": 60,
+        "hasChapterRecap": false,
+        "chapterRecapStart": 0,
+        "chapterRecapEnd": 0,
+        "stingPresent": true,
+        "stingStart": 0.5,
+        "stingEnd": 3.5,
+        "blackFrameTimes": [
+          22
+        ],
+        "subtitleCues": [
+          {
+            "start": 1,
+            "end": 4,
+            "text": "Previously on Tidewater..."
+          },
+          {
+            "start": 8,
+            "end": 14,
+            "text": "The chief pulled the plug."
+          },
+          {
+            "start": 16,
+            "end": 21,
+            "text": "We are on our own now."
+          }
+        ]
+      }
+    },
+    {
+      "label": {
+        "series": "Starfall Saga",
+        "season": 1,
+        "episode": 2,
+        "hasRecap": true,
+        "recapStart": 128,
+        "recapEnd": 160,
+        "sourceShape": "AfterIntro",
+        "notes": "Recap AFTER the OP (intro at 5). The intro-clamped window cannot reach it; only subtitles/chapters can."
+      },
+      "inputs": {
+        "duration": 1500,
+        "introDetected": true,
+        "introStart": 5,
+        "hasChapterRecap": false,
+        "chapterRecapStart": 0,
+        "chapterRecapEnd": 0,
+        "stingPresent": true,
+        "stingStart": 128,
+        "stingEnd": 132,
+        "blackFrameTimes": [
+          128,
+          160
+        ],
+        "subtitleCues": [
+          {
+            "start": 129,
+            "end": 132,
+            "text": "Previously on Starfall Saga..."
+          },
+          {
+            "start": 135,
+            "end": 141,
+            "text": "The sky split open above the city."
+          },
+          {
+            "start": 145,
+            "end": 151,
+            "text": "Only she can close the rift."
+          },
+          {
+            "start": 154,
+            "end": 159,
+            "text": "Time is running out."
+          }
+        ]
+      }
+    },
+    {
+      "label": {
+        "series": "Starfall Saga",
+        "season": 1,
+        "episode": 3,
+        "hasRecap": true,
+        "recapStart": 102,
+        "recapEnd": 140,
+        "sourceShape": "AfterIntro",
+        "notes": "Recap after a 90 s OP (intro at 8). Subtitle/chapter only."
+      },
+      "inputs": {
+        "duration": 1500,
+        "introDetected": true,
+        "introStart": 8,
+        "hasChapterRecap": false,
+        "chapterRecapStart": 0,
+        "chapterRecapEnd": 0,
+        "stingPresent": true,
+        "stingStart": 102,
+        "stingEnd": 106,
+        "blackFrameTimes": [
+          102,
+          140
+        ],
+        "subtitleCues": [
+          {
+            "start": 103,
+            "end": 106,
+            "text": "Previously on Starfall Saga..."
+          },
+          {
+            "start": 109,
+            "end": 115,
+            "text": "The guardians fell one by one."
+          },
+          {
+            "start": 120,
+            "end": 126,
+            "text": "He carries the last ember."
+          },
+          {
+            "start": 132,
+            "end": 138,
+            "text": "The throne must not fall."
+          }
+        ]
+      }
+    },
+    {
+      "label": {
+        "series": "Starfall Saga",
+        "season": 1,
+        "episode": 4,
+        "hasRecap": true,
+        "recapStart": 95,
+        "recapEnd": 128,
+        "sourceShape": "AfterIntro",
+        "notes": "Recap after the OP (intro at 6) but NO subtitles: structurally unreachable by every signal here (honest miss for all)."
+      },
+      "inputs": {
+        "duration": 1500,
+        "introDetected": true,
+        "introStart": 6,
+        "hasChapterRecap": false,
+        "chapterRecapStart": 0,
+        "chapterRecapEnd": 0,
+        "stingPresent": true,
+        "stingStart": 95,
+        "stingEnd": 99,
+        "blackFrameTimes": [
+          95,
+          128
+        ],
+        "subtitleCues": []
+      }
+    },
+    {
+      "label": {
+        "series": "Starfall Saga",
+        "season": 1,
+        "episode": 5,
+        "hasRecap": true,
+        "recapStart": 0,
+        "recapEnd": 30,
+        "sourceShape": "RecapFirst",
+        "notes": "This week the recap opens the episode; shared sting \u002B fade at 30."
+      },
+      "inputs": {
+        "duration": 1500,
+        "introDetected": true,
+        "introStart": 92,
+        "hasChapterRecap": false,
+        "chapterRecapStart": 0,
+        "chapterRecapEnd": 0,
+        "stingPresent": true,
+        "stingStart": 0.5,
+        "stingEnd": 4,
+        "blackFrameTimes": [
+          30
+        ],
+        "subtitleCues": [
+          {
+            "start": 1,
+            "end": 4,
+            "text": "Previously on Starfall Saga..."
+          },
+          {
+            "start": 8,
+            "end": 14,
+            "text": "The eclipse marked the beginning."
+          },
+          {
+            "start": 24,
+            "end": 29,
+            "text": "Nothing would be the same."
+          }
+        ]
+      }
+    },
+    {
+      "label": {
+        "series": "Starfall Saga",
+        "season": 1,
+        "episode": 6,
+        "hasRecap": false,
+        "recapStart": 0,
+        "recapEnd": 0,
+        "sourceShape": "NoRecap",
+        "notes": "Straight into the OP, no recap. Clean control."
+      },
+      "inputs": {
+        "duration": 1500,
+        "introDetected": true,
+        "introStart": 12,
+        "hasChapterRecap": false,
+        "chapterRecapStart": 0,
+        "chapterRecapEnd": 0,
+        "stingPresent": false,
+        "stingStart": 0,
+        "stingEnd": 0,
+        "blackFrameTimes": [],
+        "subtitleCues": []
+      }
+    },
+    {
+      "label": {
+        "series": "Starfall Saga",
+        "season": 1,
+        "episode": 7,
+        "hasRecap": true,
+        "recapStart": 110,
+        "recapEnd": 146,
+        "sourceShape": "AfterIntro",
+        "notes": "Recap after the OP WITH an explicit chapter [110,146]; chapter reaches it in every config."
+      },
+      "inputs": {
+        "duration": 1600,
+        "introDetected": true,
+        "introStart": 7,
+        "hasChapterRecap": true,
+        "chapterRecapStart": 110,
+        "chapterRecapEnd": 146,
+        "stingPresent": true,
+        "stingStart": 110,
+        "stingEnd": 114,
+        "blackFrameTimes": [
+          110,
+          146
+        ],
+        "subtitleCues": [
+          {
+            "start": 111,
+            "end": 114,
+            "text": "Previously on Starfall Saga..."
+          },
+          {
+            "start": 120,
+            "end": 126,
+            "text": "The seal was broken."
+          },
+          {
+            "start": 138,
+            "end": 144,
+            "text": "Run while you still can."
+          }
+        ]
+      }
+    },
+    {
+      "label": {
+        "series": "Starfall Saga",
+        "season": 1,
+        "episode": 8,
+        "hasRecap": true,
+        "recapStart": 0,
+        "recapEnd": 27,
+        "sourceShape": "RecapFirst",
+        "notes": "Recap-first, UNIQUE recap (no shared sting) but text subs: subtitle tier carries recall the sting cannot."
+      },
+      "inputs": {
+        "duration": 1500,
+        "introDetected": true,
+        "introStart": 80,
+        "hasChapterRecap": false,
+        "chapterRecapStart": 0,
+        "chapterRecapEnd": 0,
+        "stingPresent": false,
+        "stingStart": 0,
+        "stingEnd": 0,
+        "blackFrameTimes": [
+          27
+        ],
+        "subtitleCues": [
+          {
+            "start": 1,
+            "end": 4,
+            "text": "Previously on Starfall Saga..."
+          },
+          {
+            "start": 8,
+            "end": 14,
+            "text": "The comet returned after a thousand years."
+          },
+          {
+            "start": 20,
+            "end": 25,
+            "text": "And it brought something with it."
+          }
+        ]
+      }
+    },
+    {
+      "label": {
+        "series": "Starfall Saga",
+        "season": 1,
+        "episode": 9,
+        "hasRecap": true,
+        "recapStart": 120,
+        "recapEnd": 150,
+        "sourceShape": "AfterIntro",
+        "notes": "Recap after the OP (intro at 7); shared sting (unreachable) \u002B text subs."
+      },
+      "inputs": {
+        "duration": 1500,
+        "introDetected": true,
+        "introStart": 7,
+        "hasChapterRecap": false,
+        "chapterRecapStart": 0,
+        "chapterRecapEnd": 0,
+        "stingPresent": true,
+        "stingStart": 120,
+        "stingEnd": 124,
+        "blackFrameTimes": [
+          120,
+          150
+        ],
+        "subtitleCues": [
+          {
+            "start": 121,
+            "end": 124,
+            "text": "Previously on Starfall Saga..."
+          },
+          {
+            "start": 128,
+            "end": 134,
+            "text": "The council voted to retreat."
+          },
+          {
+            "start": 140,
+            "end": 148,
+            "text": "She refused to abandon them."
+          }
+        ]
+      }
+    },
+    {
+      "label": {
+        "series": "Quiet Lane",
+        "season": 1,
+        "episode": 1,
+        "hasRecap": false,
+        "recapStart": 0,
+        "recapEnd": 0,
+        "sourceShape": "NoRecap",
+        "notes": "No recap. Clean control."
+      },
+      "inputs": {
+        "duration": 1450,
+        "introDetected": true,
+        "introStart": 18,
+        "hasChapterRecap": false,
+        "chapterRecapStart": 0,
+        "chapterRecapEnd": 0,
+        "stingPresent": false,
+        "stingStart": 0,
+        "stingEnd": 0,
+        "blackFrameTimes": [],
+        "subtitleCues": []
+      }
+    },
+    {
+      "label": {
+        "series": "Quiet Lane",
+        "season": 1,
+        "episode": 2,
+        "hasRecap": false,
+        "recapStart": 0,
+        "recapEnd": 0,
+        "sourceShape": "NoRecap",
+        "notes": "No recap. Clean control."
+      },
+      "inputs": {
+        "duration": 1450,
+        "introDetected": true,
+        "introStart": 20,
+        "hasChapterRecap": false,
+        "chapterRecapStart": 0,
+        "chapterRecapEnd": 0,
+        "stingPresent": false,
+        "stingStart": 0,
+        "stingEnd": 0,
+        "blackFrameTimes": [],
+        "subtitleCues": []
+      }
+    },
+    {
+      "label": {
+        "series": "Quiet Lane",
+        "season": 1,
+        "episode": 3,
+        "hasRecap": false,
+        "recapStart": 0,
+        "recapEnd": 0,
+        "sourceShape": "NoRecap",
+        "notes": "No recap; a recurring 23 s theme sting \u002B a fade, NO intro detected: baseline emits a false positive, the guard rejects it."
+      },
+      "inputs": {
+        "duration": 1450,
+        "introDetected": false,
+        "introStart": 0,
+        "hasChapterRecap": false,
+        "chapterRecapStart": 0,
+        "chapterRecapEnd": 0,
+        "stingPresent": true,
+        "stingStart": 25,
+        "stingEnd": 48,
+        "blackFrameTimes": [
+          48
+        ],
+        "subtitleCues": []
+      }
+    },
+    {
+      "label": {
+        "series": "Quiet Lane",
+        "season": 1,
+        "episode": 4,
+        "hasRecap": false,
+        "recapStart": 0,
+        "recapEnd": 0,
+        "sourceShape": "NoRecap",
+        "notes": "No recap; a SHORT 4 s studio ident \u002B a later fade, NO intro: slips through even the hardened guard (documented ceiling)."
+      },
+      "inputs": {
+        "duration": 1450,
+        "introDetected": false,
+        "introStart": 0,
+        "hasChapterRecap": false,
+        "chapterRecapStart": 0,
+        "chapterRecapEnd": 0,
+        "stingPresent": true,
+        "stingStart": 2,
+        "stingEnd": 6,
+        "blackFrameTimes": [
+          20
+        ],
+        "subtitleCues": []
+      }
+    },
+    {
+      "label": {
+        "series": "Quiet Lane",
+        "season": 1,
+        "episode": 5,
+        "hasRecap": false,
+        "recapStart": 0,
+        "recapEnd": 0,
+        "sourceShape": "NoRecap",
+        "notes": "No recap; an incidental mid-dialogue \u0027previously\u0027 that the anchored matcher must NOT treat as a recap opener."
+      },
+      "inputs": {
+        "duration": 1450,
+        "introDetected": true,
+        "introStart": 22,
+        "hasChapterRecap": false,
+        "chapterRecapStart": 0,
+        "chapterRecapEnd": 0,
+        "stingPresent": false,
+        "stingStart": 0,
+        "stingEnd": 0,
+        "blackFrameTimes": [],
+        "subtitleCues": [
+          {
+            "start": 12,
+            "end": 18,
+            "text": "As I mentioned previously on the phone, dinner is at eight."
+          },
+          {
+            "start": 30,
+            "end": 36,
+            "text": "Did you remember to water the plants?"
+          }
+        ]
+      }
+    },
+    {
+      "label": {
+        "series": "Quiet Lane",
+        "season": 1,
+        "episode": 6,
+        "hasRecap": false,
+        "recapStart": 0,
+        "recapEnd": 0,
+        "sourceShape": "NoRecap",
+        "notes": "No recap. Clean control with text subtitles but no opener phrase."
+      },
+      "inputs": {
+        "duration": 1450,
+        "introDetected": true,
+        "introStart": 19,
+        "hasChapterRecap": false,
+        "chapterRecapStart": 0,
+        "chapterRecapEnd": 0,
+        "stingPresent": false,
+        "stingStart": 0,
+        "stingEnd": 0,
+        "blackFrameTimes": [],
+        "subtitleCues": [
+          {
+            "start": 8,
+            "end": 14,
+            "text": "Good morning. Sleep well?"
+          },
+          {
+            "start": 20,
+            "end": 26,
+            "text": "I made too much coffee again."
+          }
+        ]
+      }
+    },
+    {
+      "label": {
+        "series": "Quiet Lane",
+        "season": 1,
+        "episode": 7,
+        "hasRecap": false,
+        "recapStart": 0,
+        "recapEnd": 0,
+        "sourceShape": "NoRecap",
+        "notes": "No recap; a recurring 22 s theme sting \u002B a fade, NO intro: another guard test."
+      },
+      "inputs": {
+        "duration": 1450,
+        "introDetected": false,
+        "introStart": 0,
+        "hasChapterRecap": false,
+        "chapterRecapStart": 0,
+        "chapterRecapEnd": 0,
+        "stingPresent": true,
+        "stingStart": 28,
+        "stingEnd": 50,
+        "blackFrameTimes": [
+          50
+        ],
+        "subtitleCues": []
+      }
+    },
+    {
+      "label": {
+        "series": "Quiet Lane",
+        "season": 1,
+        "episode": 8,
+        "hasRecap": true,
+        "recapStart": 0,
+        "recapEnd": 30,
+        "sourceShape": "RecapFirst",
+        "notes": "Recap-first WITH an explicit chapter [0,30] and no other signal: chapter carries it in every config."
+      },
+      "inputs": {
+        "duration": 1450,
+        "introDetected": true,
+        "introStart": 60,
+        "hasChapterRecap": true,
+        "chapterRecapStart": 0,
+        "chapterRecapEnd": 30,
+        "stingPresent": false,
+        "stingStart": 0,
+        "stingEnd": 0,
+        "blackFrameTimes": [
+          30
+        ],
+        "subtitleCues": []
+      }
+    }
+  ]
+}

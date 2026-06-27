@@ -31,6 +31,12 @@ internal sealed class RecapItemResult
         {
             StartError = RecapMetrics.AbsoluteStartError(detected, label.Truth);
             EndError = RecapMetrics.AbsoluteEndError(detected, label.Truth);
+
+            // Harm-aware boundary decomposition: content-skip seconds (non-recap content wrongly
+            // inside the detection — the user loses story) vs missed-recap seconds (true recap left
+            // uncovered — the user merely re-watches a few seconds). These are asymmetric on purpose.
+            ContentSkipSeconds = RecapMetrics.ContentOutsideTruth(detected, label.Truth);
+            MissedRecapSeconds = RecapMetrics.TruthNotCovered(detected, label.Truth);
         }
     }
 
@@ -68,6 +74,32 @@ internal sealed class RecapItemResult
     /// Gets the absolute end-boundary error, in seconds, or <see langword="null"/> when not applicable.
     /// </summary>
     public double? EndError { get; }
+
+    /// <summary>
+    /// Gets the seconds of non-recap content (cold open / episode body) wrongly inside the detection,
+    /// or <see langword="null"/> when not a fired has-recap item. This is the harmful over-reach the
+    /// "start forced to 0" behavior produces.
+    /// </summary>
+    public double? ContentSkipSeconds { get; }
+
+    /// <summary>
+    /// Gets the seconds of the true recap left uncovered by the detection, or <see langword="null"/>
+    /// when not a fired has-recap item. This is the milder under-reach direction.
+    /// </summary>
+    public double? MissedRecapSeconds { get; }
+
+    /// <summary>
+    /// Gets a value indicating whether this is a SILENT miss: a has-recap episode where the detector
+    /// stayed silent. Safe — the user simply gets no skip button. A subset of the false-negative bucket.
+    /// </summary>
+    public bool IsSilentMiss => Label.HasRecap && !Fired;
+
+    /// <summary>
+    /// Gets a value indicating whether this is a FIRED-BUT-WRONG miss: a has-recap episode where the
+    /// detector fired but localized it below the IoU threshold. Harmful — the user is offered a skip
+    /// over the wrong span. The other subset of the false-negative bucket.
+    /// </summary>
+    public bool IsFiredButWrong => Label.HasRecap && Fired && Classification == RecapClassification.FalseNegative;
 
     private static RecapClassification Classify(bool hasRecap, bool fired, bool matched)
     {

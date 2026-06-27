@@ -79,6 +79,43 @@ internal static class RecapMetrics
         => Math.Abs(detected.End - truth.End);
 
     /// <summary>
+    /// Returns the seconds of the detected interval that fall OUTSIDE the truth interval — i.e.
+    /// non-recap content (cold open / episode body) the user would wrongly skip. This is the
+    /// HARMFUL over-reach direction: e.g. a recap whose start is forced to 0 swallows the cold open.
+    /// Returns 0 when nothing was detected. On a no-recap truth this equals the whole detection.
+    /// </summary>
+    /// <param name="detected">Detected interval.</param>
+    /// <param name="truth">Ground-truth interval.</param>
+    /// <returns>Seconds of non-recap content inside the detection.</returns>
+    public static double ContentOutsideTruth(RecapInterval detected, RecapInterval truth)
+    {
+        if (!detected.HasValue)
+        {
+            return 0.0;
+        }
+
+        return Math.Max(0.0, detected.Duration - Intersection(detected, truth));
+    }
+
+    /// <summary>
+    /// Returns the seconds of the truth interval NOT covered by the detection — recap the user still
+    /// sees. This is the MILDER under-reach direction (annoyance, not lost story). Returns 0 when
+    /// there is no truth interval.
+    /// </summary>
+    /// <param name="detected">Detected interval.</param>
+    /// <param name="truth">Ground-truth interval.</param>
+    /// <returns>Seconds of the true recap left uncovered.</returns>
+    public static double TruthNotCovered(RecapInterval detected, RecapInterval truth)
+    {
+        if (!truth.HasValue)
+        {
+            return 0.0;
+        }
+
+        return Math.Max(0.0, truth.Duration - Intersection(detected, truth));
+    }
+
+    /// <summary>
     /// Returns whether the detected interval is considered a correct localization of the truth
     /// interval, i.e. their IoU meets or exceeds <paramref name="iouMatchThreshold"/>.
     /// </summary>
