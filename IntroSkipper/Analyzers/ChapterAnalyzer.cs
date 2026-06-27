@@ -220,10 +220,13 @@ public partial class ChapterAnalyzer(ILogger<ChapterAnalyzer> logger, IFFmpegSer
 
     internal async Task<Segment?> DetectRecapUsingBlackFramesAsync(QueuedEpisode episode, CancellationToken cancellationToken)
     {
-        var maxRecapBoundary = await RecapDetectionHelper.GetMaximumBoundaryAsync(
+        // Black-frame-only fallback (no Chromaprint sting available): there is no shared-audio
+        // anchor, so this path keeps the legacy behavior of a 0:00 start bounded by a black frame.
+        var window = await RecapDetectionHelper.GetRecapScanWindowAsync(
             episode,
             _config,
             cancellationToken).ConfigureAwait(false);
+        var maxRecapBoundary = window.MaxBoundary;
         if (maxRecapBoundary <= 0)
         {
             return null;

@@ -150,4 +150,16 @@ public class QueuedEpisode
             _ => throw new ArgumentException("Unknown analysis mode " + mode),
         };
     }
+
+    /// <summary>
+    /// Maps an analysis mode to the mode whose Chromaprint fingerprint cache entry it shares.
+    /// Recap fingerprints the identical opening-audio window as Introduction
+    /// (see <see cref="GetFingerprintRange"/> — both are <c>(0, IntroFingerprintEnd)</c>), so the
+    /// two reuse a single cached fingerprint instead of decoding the same PCM twice. Used for the
+    /// Chromaprint fingerprint cache key only; analysis still runs in the caller's real mode.
+    /// </summary>
+    /// <param name="mode">Analysis mode.</param>
+    /// <returns>The mode under which the Chromaprint fingerprint is cached.</returns>
+    public static AnalysisMode GetFingerprintCacheMode(AnalysisMode mode)
+        => mode == AnalysisMode.Recap ? AnalysisMode.Introduction : mode;
 }

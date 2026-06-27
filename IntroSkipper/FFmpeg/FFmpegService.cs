@@ -120,7 +120,13 @@ public sealed partial class FFmpegService(
         cancellationToken.ThrowIfCancellationRequested();
 
         var (start, end) = episode.GetFingerprintRange(mode);
-        return FingerprintAsync(episode, mode, start, end, cancellationToken);
+
+        // Recap fingerprints the identical opening-audio window as Introduction, so cache it under
+        // the shared Introduction key to avoid decoding the same PCM twice (keeps recap analysis
+        // off the CPU/GPU hot path). The analyzer still runs in its real mode; only the cache key is
+        // normalized.
+        var cacheMode = QueuedEpisode.GetFingerprintCacheMode(mode);
+        return FingerprintAsync(episode, cacheMode, start, end, cancellationToken);
     }
 
     /// <inheritdoc/>

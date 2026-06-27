@@ -139,15 +139,18 @@ public sealed partial class DetectionCacheService(ILogger<DetectionCacheService>
             return false;
         }
 
-        var (start, end) = episode.GetFingerprintRange(mode);
+        // Recap shares the Introduction fingerprint cache entry (identical opening-audio window),
+        // so normalize the lookup key/hash to the shared mode.
+        var cacheMode = QueuedEpisode.GetFingerprintCacheMode(mode);
+        var (start, end) = episode.GetFingerprintRange(cacheMode);
 
         try
         {
             using var db = Plugin.CreateCacheDbContext();
-            var expectedHash = ConfigHasher.DetectionCache(Plugin.Instance?.Configuration ?? new(), CacheEntryType.Chromaprint, mode);
+            var expectedHash = ConfigHasher.DetectionCache(Plugin.Instance?.Configuration ?? new(), CacheEntryType.Chromaprint, cacheMode);
             if (db.DetectionCache.Any(e =>
                 e.ItemId == episode.EpisodeId &&
-                e.Mode == mode &&
+                e.Mode == cacheMode &&
                 e.Type == CacheEntryType.Chromaprint &&
                 e.Start == start &&
                 e.End == end &&
@@ -158,7 +161,7 @@ public sealed partial class DetectionCacheService(ILogger<DetectionCacheService>
         }
         catch (DbException ex)
         {
-            LogDetectionCacheReadError(_logger, ex, $"{episode.EpisodeId:N}-{mode}-{CacheEntryType.Chromaprint}");
+            LogDetectionCacheReadError(_logger, ex, $"{episode.EpisodeId:N}-{cacheMode}-{CacheEntryType.Chromaprint}");
         }
 
         return false;
