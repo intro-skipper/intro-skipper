@@ -1,0 +1,145 @@
+{
+  "version": 1,
+  "labels": [
+    {
+      "series": "Aurora Heights",
+      "season": 1,
+      "episode": 1,
+      "hasRecap": false,
+      "recapStart": 0,
+      "recapEnd": 0,
+      "sourceShape": "NoRecap",
+      "notes": "Season premiere; no 'previously on' montage. Synthetic seed entry."
+    },
+    {
+      "series": "Aurora Heights",
+      "season": 1,
+      "episode": 2,
+      "hasRecap": true,
+      "recapStart": 0,
+      "recapEnd": 28.5,
+      "sourceShape": "RecapFirst",
+      "notes": "Recap is the first thing on screen, then a fade to the cold open. Synthetic."
+    },
+    {
+      "series": "Aurora Heights",
+      "season": 1,
+      "episode": 3,
+      "hasRecap": true,
+      "recapStart": 0,
+      "recapEnd": 34,
+      "sourceShape": "RecapFirst",
+      "notes": "Longer recap bounded by a black frame at ~34s. Synthetic."
+    },
+    {
+      "series": "Aurora Heights",
+      "season": 1,
+      "episode": 4,
+      "hasRecap": false,
+      "recapStart": 0,
+      "recapEnd": 0,
+      "sourceShape": "NoRecap",
+      "notes": "Bottle episode, no recap. Synthetic."
+    },
+    {
+      "series": "Aurora Heights",
+      "season": 1,
+      "episode": 5,
+      "hasRecap": true,
+      "recapStart": 0,
+      "recapEnd": 21.75,
+      "sourceShape": "RecapFirst",
+      "notes": "Short recap, shared 'previously on' sting present. Synthetic."
+    },
+    {
+      "series": "Cold Harbor",
+      "season": 2,
+      "episode": 1,
+      "hasRecap": false,
+      "recapStart": 0,
+      "recapEnd": 0,
+      "sourceShape": "NoRecap",
+      "notes": "Premiere; cold open only, no recap. Synthetic."
+    },
+    {
+      "series": "Cold Harbor",
+      "season": 2,
+      "episode": 2,
+      "hasRecap": true,
+      "recapStart": 52,
+      "recapEnd": 88,
+      "sourceShape": "ColdOpenThenRecap",
+      "notes": "Cold open runs to ~52s, then the recap, then the title card. Recap does NOT start at 0. Synthetic."
+    },
+    {
+      "series": "Cold Harbor",
+      "season": 2,
+      "episode": 3,
+      "hasRecap": true,
+      "recapStart": 47.5,
+      "recapEnd": 79,
+      "sourceShape": "ColdOpenThenRecap",
+      "notes": "Cold open then recap; bounded by fades on both sides. Synthetic."
+    },
+    {
+      "series": "Cold Harbor",
+      "season": 2,
+      "episode": 4,
+      "hasRecap": false,
+      "recapStart": 0,
+      "recapEnd": 0,
+      "sourceShape": "NoRecap",
+      "notes": "No recap this week. Synthetic."
+    },
+    {
+      "series": "Cold Harbor",
+      "season": 2,
+      "episode": 5,
+      "hasRecap": true,
+      "recapStart": 60,
+      "recapEnd": 95.5,
+      "sourceShape": "ColdOpenThenRecap",
+      "notes": "Long cold open before the recap. Synthetic."
+    },
+    {
+      "series": "Neon Divide",
+      "season": 1,
+      "episode": 2,
+      "hasRecap": true,
+      "recapStart": 95,
+      "recapEnd": 128,
+      "sourceShape": "AfterIntro",
+      "notes": "Recap plays AFTER the OP/intro. Current search window caps at intro start, so this is structurally hard. Synthetic."
+    },
+    {
+      "series": "Neon Divide",
+      "season": 1,
+      "episode": 3,
+      "hasRecap": true,
+      "recapStart": 102.5,
+      "recapEnd": 140,
+      "sourceShape": "AfterIntro",
+      "notes": "Recap after a 90s OP. Synthetic."
+    },
+    {
+      "series": "Neon Divide",
+      "season": 1,
+      "episode": 4,
+      "hasRecap": false,
+      "recapStart": 0,
+      "recapEnd": 0,
+      "sourceShape": "NoRecap",
+      "notes": "No recap; goes straight into the OP. Synthetic."
+    },
+    {
+      "series": "Neon Divide",
+      "season": 1,
+      "episode": 5,
+      "hasRecap": true,
+      "recapStart": 0,
+      "recapEnd": 30,
+      "sourceShape": "RecapFirst",
+      "notes": "Recap-first this week instead of after the OP. Synthetic."
+    }
+  ]
+}

@@ -24,4 +24,12 @@
     <ProjectReference Include="..\IntroSkipper\IntroSkipper.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <!-- The committed seed dataset is the single source of truth; copy it next to the test
+         assembly so TestRecapEvaluation can load and score the real artifact. -->
+    <None Include="..\docs\recap-research\seed-dataset.json" Link="recap-research\seed-dataset.json">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+  </ItemGroup>
+
 </Project>
