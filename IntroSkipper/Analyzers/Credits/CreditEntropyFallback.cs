@@ -12,7 +12,7 @@ namespace IntroSkipper.Analyzers.Credits;
 /// </summary>
 internal static class CreditEntropyFallback
 {
-    private const double TrailingTrimGapMultiplier = 2.5;
+    private const double IsolatedCardTrimGapMultiplier = 2.5;
     private const double EntropyCreditMaximum = 0.35;
     private const double SaturationCreditMaximum = 96.0;
 
@@ -87,7 +87,7 @@ internal static class CreditEntropyFallback
             return (start, end);
         }
 
-        var trimGap = MedianCardGap(runCards) * TrailingTrimGapMultiplier;
+        var trimGap = MedianCardGap(runCards) * IsolatedCardTrimGapMultiplier;
 
         while (start < end && runCards[start + 1].Time - runCards[start].Time > trimGap)
         {
