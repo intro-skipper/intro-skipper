@@ -121,13 +121,14 @@ public static partial class FFmpegOutputParser
         var entropy = 0d;
         var saturation = 0d;
         var hasEntropy = false;
+        var hasSaturation = false;
 
         foreach (var line in raw.Split('\n'))
         {
             var timeMatch = _keyframeVisualTimeRegex.Match(line);
             if (timeMatch.Success)
             {
-                if (time is not null && hasEntropy)
+                if (time is not null && hasEntropy && hasSaturation)
                 {
                     visuals.Add(new KeyframeVisual(time.Value, entropy, saturation));
                 }
@@ -136,6 +137,7 @@ public static partial class FFmpegOutputParser
                 entropy = 0d;
                 saturation = 0d;
                 hasEntropy = false;
+                hasSaturation = false;
                 continue;
             }
 
@@ -151,10 +153,11 @@ public static partial class FFmpegOutputParser
             if (saturationMatch.Success)
             {
                 saturation = ParseDouble(saturationMatch.Groups["value"].Value);
+                hasSaturation = true;
             }
         }
 
-        if (time is not null && hasEntropy)
+        if (time is not null && hasEntropy && hasSaturation)
         {
             visuals.Add(new KeyframeVisual(time.Value, entropy, saturation));
         }

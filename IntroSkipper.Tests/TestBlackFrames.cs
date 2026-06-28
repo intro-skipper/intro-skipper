@@ -1100,6 +1100,27 @@ public class TestBlackFrames
         Assert.Equal(12.5, visual.Saturation);
     }
 
+    [Fact]
+    public void TestParseKeyframeVisuals_SkipsBlocksWithoutSaturation()
+    {
+        // A trailing block truncated before lavfi.signalstats.SATAVG must be dropped rather than
+        // emitted with the default saturation 0, which would otherwise pass the low-saturation
+        // credit-card gate (0 < SaturationCreditMaximum) and fabricate a false card.
+        const string raw = """
+            [Parsed_metadata_2 @ 0x0] frame:0 pts:0 pts_time:5
+            [Parsed_metadata_2 @ 0x0] lavfi.entropy.normalized_entropy.normal.Y=0.120000
+            [Parsed_metadata_2 @ 0x0] lavfi.signalstats.SATAVG=12.5
+            [Parsed_metadata_2 @ 0x0] frame:1 pts:1 pts_time:7
+            [Parsed_metadata_2 @ 0x0] lavfi.entropy.normalized_entropy.normal.Y=0.050000
+            """;
+
+        var visual = Assert.Single(FFmpegOutputParser.ParseKeyframeVisuals(raw));
+
+        Assert.Equal(5.0, visual.Time);
+        Assert.Equal(0.12, visual.Entropy);
+        Assert.Equal(12.5, visual.Saturation);
+    }
+
     [Theory]
     [InlineData(0.12, 30.0, true)] // uniform, muted background -> credit card
     [InlineData(0.349, 95.0, true)] // just inside both exclusive maxima -> credit card
