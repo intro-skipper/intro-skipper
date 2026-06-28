@@ -264,6 +264,13 @@ public partial class BaseItemAnalyzerTask(
         return ffmpegValid || action == AnalyzerAction.Chapter;
     }
 
+    /// <summary>
+    /// Returns <see langword="true"/> when at least one episode should still be offered to analyzers
+    /// for the given mode, including episodes in <see cref="EpisodeState.NoSegments"/>.
+    /// </summary>
+    /// <param name="items">Episodes in the current season pass.</param>
+    /// <param name="mode">Analysis mode being processed.</param>
+    /// <returns><see langword="true"/> when analyzer execution should continue.</returns>
     internal static bool ShouldAnalyzeItems(IReadOnlyList<QueuedEpisode> items, AnalysisMode mode)
     {
         return items.Any(e => e.NeedsAnalysis(mode));
