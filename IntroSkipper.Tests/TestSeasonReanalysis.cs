@@ -196,6 +196,26 @@ public sealed class TestSeasonReanalysisPlanner
         Assert.Equal([AnalysisMode.Credits, AnalysisMode.Preview], alreadyPresent);
     }
 
+    [Fact]
+    public void ShouldAnalyzeItems_ReturnsTrue_ForNoSegmentsEpisodes()
+    {
+        var episode = new QueuedEpisode();
+        episode.SetAnalyzed(AnalysisMode.Introduction, EpisodeState.NoSegments);
+
+        Assert.True(BaseItemAnalyzerTask.ShouldAnalyzeItems([episode], AnalysisMode.Introduction));
+    }
+
+    [Fact]
+    public void ShouldAnalyzeItems_ReturnsFalse_WhenAllEpisodesAreHandled()
+    {
+        var analyzed = new QueuedEpisode();
+        analyzed.SetAnalyzed(AnalysisMode.Introduction, EpisodeState.Analyzed);
+        var userProvided = new QueuedEpisode();
+        userProvided.SetAnalyzed(AnalysisMode.Introduction, EpisodeState.UserProvided);
+
+        Assert.False(BaseItemAnalyzerTask.ShouldAnalyzeItems([analyzed, userProvided], AnalysisMode.Introduction));
+    }
+
     private static DateTime SettledTime() => Now.AddHours(-(PluginConfiguration.DefaultSettledSeasonDelayHours + 1));
 
     private static List<QueuedEpisode> Season(

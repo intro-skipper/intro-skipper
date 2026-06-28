@@ -264,6 +264,11 @@ public partial class BaseItemAnalyzerTask(
         return ffmpegValid || action == AnalyzerAction.Chapter;
     }
 
+    internal static bool ShouldAnalyzeItems(IReadOnlyList<QueuedEpisode> items, AnalysisMode mode)
+    {
+        return items.Any(e => e.NeedsAnalysis(mode));
+    }
+
     /// <summary>
     /// Analyze a group of media items for skippable segments.
     /// </summary>
@@ -280,7 +285,7 @@ public partial class BaseItemAnalyzerTask(
         bool ffmpegValid,
         CancellationToken cancellationToken)
     {
-        if (!items.Any(e => e.GetAnalyzed(mode) == EpisodeState.NotAnalyzed))
+        if (!ShouldAnalyzeItems(items, mode))
         {
             return 0;
         }
