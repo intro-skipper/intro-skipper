@@ -75,7 +75,7 @@ internal static class CreditEntropyFallback
             return currentBest;
         }
 
-        var (start, end) = TrimIsolatedEnds(runCards);
+        var (start, end) = TrimIsolatedEnds(runCards, minimumDuration);
         var runStart = runCards[start];
         var lastCard = runCards[end];
         if (lastCard.Time - runStart.Time < minimumDuration)
@@ -86,8 +86,12 @@ internal static class CreditEntropyFallback
         return new TimeRange(runStart.Time, lastCard.Time);
     }
 
-    // Trim isolated edge cards by the run's own cadence; uniformly sparse runs stay intact.
-    private static (int Start, int End) TrimIsolatedEnds(List<KeyframeVisual> runCards)
+    // Trim sparse isolated cards from each edge of the run, anchored to the dense-body cadence rather
+    // than the run's overall median (which a long sparse tail can dominate and thereby block the trim).
+    // When trimming leaves less than the minimum duration there is no dominant dense body, so the run
+    // only qualifies (if at all) as a uniformly sparse credit run: keep its full span rather than
+    // collapsing it to the brief dense edge.
+    private static (int Start, int End) TrimIsolatedEnds(List<KeyframeVisual> runCards, int minimumDuration)
     {
         var start = 0;
         var end = runCards.Count - 1;
@@ -96,7 +100,7 @@ internal static class CreditEntropyFallback
             return (start, end);
         }
 
-        var trimGap = MedianCardGap(runCards) * IsolatedCardTrimGapMultiplier;
+        var trimGap = DenseCadenceGap(runCards) * IsolatedCardTrimGapMultiplier;
 
         while (start < end && runCards[start + 1].Time - runCards[start].Time > trimGap)
         {
@@ -108,10 +112,17 @@ internal static class CreditEntropyFallback
             end--;
         }
 
+        if (runCards[end].Time - runCards[start].Time < minimumDuration)
+        {
+            return (0, runCards.Count - 1);
+        }
+
         return (start, end);
     }
 
-    private static double MedianCardGap(List<KeyframeVisual> runCards)
+    // Lower-quartile card-to-card gap: the cadence of the dense body, robust to a sparse tail or head
+    // that would pull the median up and stop the trim from removing isolated edge cards.
+    private static double DenseCadenceGap(List<KeyframeVisual> runCards)
     {
         var gaps = new List<double>(runCards.Count - 1);
         for (var i = 1; i < runCards.Count; i++)
@@ -120,26 +131,15 @@ internal static class CreditEntropyFallback
         }
 
         gaps.Sort();
-        return gaps[gaps.Count / 2];
+        return gaps[gaps.Count / 4];
     }
 
+    // Estimate the credit-card cadence from card keyframes only. Including every keyframe lets dense
+    // non-card content before the credits drive the median down, which tightens the grouping gap below
+    // the actual card spacing and splits sparse static-card credits into discarded sub-minimum runs.
     private static double EstimateMaximumInRunGap(IReadOnlyList<KeyframeVisual> visuals)
     {
-        if (visuals.Count < 2)
-        {
-            return CreditDetectionPolicy.MaximumSceneMergeGapSeconds;
-        }
-
-        var gaps = new List<double>(visuals.Count - 1);
-        for (var i = 1; i < visuals.Count; i++)
-        {
-            var gap = visuals[i].Time - visuals[i - 1].Time;
-            if (gap > 0)
-            {
-                gaps.Add(gap);
-            }
-        }
-
+        var gaps = CardGaps(visuals);
         if (gaps.Count == 0)
         {
             return CreditDetectionPolicy.MaximumSceneMergeGapSeconds;
@@ -149,5 +149,31 @@ internal static class CreditEntropyFallback
         return Math.Min(
             CreditDetectionPolicy.MaximumSceneMergeGapSeconds,
             gaps[gaps.Count / 2] * CreditDetectionPolicy.MaximumKeyframeGapMultiplier);
+    }
+
+    private static List<double> CardGaps(IReadOnlyList<KeyframeVisual> visuals)
+    {
+        var gaps = new List<double>();
+        KeyframeVisual? previousCard = null;
+        foreach (var visual in visuals)
+        {
+            if (!IsCreditCardKeyframe(visual))
+            {
+                continue;
+            }
+
+            if (previousCard is not null)
+            {
+                var gap = visual.Time - previousCard.Time;
+                if (gap > 0)
+                {
+                    gaps.Add(gap);
+                }
+            }
+
+            previousCard = visual;
+        }
+
+        return gaps;
     }
 }

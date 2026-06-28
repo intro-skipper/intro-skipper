@@ -1134,6 +1134,54 @@ public class TestBlackFrames
     }
 
     [Fact]
+    public void TestCreditEntropyFallback_GroupsSparseCardsAfterDenseContent()
+    {
+        // Regression (Finding 1): dense 2s non-card content then static credit cards on a long-GOP
+        // (12s keyframe) source. Grouping must key off the card cadence, not the dense content cadence,
+        // or every 12s card gap splits the run and the 36s credit sequence is missed entirely.
+        var visuals = new List<KeyframeVisual>();
+        for (var time = 0.0; time <= 58; time += 2)
+        {
+            visuals.Add(new KeyframeVisual(time, 0.55, 108));
+        }
+
+        foreach (var time in new[] { 60.0, 72.0, 84.0, 96.0 })
+        {
+            visuals.Add(new KeyframeVisual(time, 0.12, 30));
+        }
+
+        var range = CreditEntropyFallback.FindCreditRange(visuals, minimumDuration: 15);
+
+        Assert.NotNull(range);
+        Assert.Equal(60, range!.Start);
+        Assert.Equal(96, range.End);
+    }
+
+    [Fact]
+    public void TestCreditEntropyFallback_TrimsSparseTailPastSubstantialDenseBody()
+    {
+        // Regression (Finding 2): a substantial dense credit block followed by isolated near-uniform
+        // frames every 8s out to the window edge. The trim must anchor to the dense-body cadence so the
+        // sparse tail is cut back to the real credit block instead of over-extending to the last stray.
+        var visuals = new List<KeyframeVisual>();
+        for (var time = 0.0; time <= 20; time += 2)
+        {
+            visuals.Add(new KeyframeVisual(time, 0.12, 30));
+        }
+
+        for (var time = 28.0; time <= 196; time += 8)
+        {
+            visuals.Add(new KeyframeVisual(time, 0.12, 30));
+        }
+
+        var range = CreditEntropyFallback.FindCreditRange(visuals, minimumDuration: 15);
+
+        Assert.NotNull(range);
+        Assert.Equal(0, range!.Start);
+        Assert.Equal(20, range.End);
+    }
+
+    [Fact]
     public void TestCreditEntropyFallback_DetectsLowEntropyCardRun()
     {
         var visuals = CreateCardCreditVisuals(cardStart: 30, cardEnd: 54);
@@ -1322,6 +1370,25 @@ public class TestBlackFrames
         Assert.Equal(154, result.End);
         Assert.Equal(1, ffmpeg.VisualScanCalls);
         Assert.Equal(0, ffmpeg.IntervalScanCalls);
+    }
+
+    [Fact]
+    public async Task TestDetectCreditsAsync_NoBlackFramesAtAll_RunsFallback()
+    {
+        // Pins the literal blackFrames.Count == 0 branch (the black scan emits nothing), distinct from
+        // the "frames present but no valid black-credit scene" path the other fallback test exercises.
+        var ffmpeg = new FakeFFmpegService(
+            [],
+            keyframeVisuals: CreateCardCreditVisuals(cardStart: 30, cardEnd: 54));
+        var analyzer = CreateCreditsBlackFrameAnalyzer(ffmpeg);
+        var episode = CreateQueuedCreditsEpisode(creditsFingerprintStart: 100);
+
+        var result = await analyzer.DetectCreditsAsync(episode, 85, 32, 15);
+
+        Assert.NotNull(result);
+        Assert.Equal(130, result.Start);
+        Assert.Equal(154, result.End);
+        Assert.Equal(1, ffmpeg.VisualScanCalls);
     }
 
     [Fact]
