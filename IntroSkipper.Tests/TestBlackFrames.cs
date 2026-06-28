@@ -1100,6 +1100,18 @@ public class TestBlackFrames
         Assert.Equal(12.5, visual.Saturation);
     }
 
+    [Theory]
+    [InlineData(0.12, 30.0, true)] // uniform, muted background -> credit card
+    [InlineData(0.349, 95.0, true)] // just inside both exclusive maxima -> credit card
+    [InlineData(0.35, 30.0, false)] // entropy at the exclusive max -> not a card
+    [InlineData(0.55, 30.0, false)] // busy/high-entropy content -> not a card
+    [InlineData(0.12, 96.0, false)] // saturation at the exclusive max -> not a card
+    [InlineData(0.12, 200.0, false)] // vivid saturated colour -> not a card
+    public void TestIsCreditCardKeyframe(double entropy, double saturation, bool expected)
+    {
+        Assert.Equal(expected, CreditEntropyFallback.IsCreditCardKeyframe(new KeyframeVisual(0, entropy, saturation)));
+    }
+
     [Fact]
     public void TestCreditEntropyFallback_DetectsLowEntropyCardRun()
     {

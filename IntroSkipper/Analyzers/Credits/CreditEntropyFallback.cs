@@ -24,6 +24,8 @@ internal static class CreditEntropyFallback
     /// <returns>The credit time range relative to the credits fingerprint start, or <see langword="null" /> when no run qualifies.</returns>
     public static TimeRange? FindCreditRange(IReadOnlyList<KeyframeVisual> visuals, int minimumDuration)
     {
+        ArgumentNullException.ThrowIfNull(visuals);
+
         if (visuals.Count == 0)
         {
             return null;
@@ -52,7 +54,14 @@ internal static class CreditEntropyFallback
         return SelectLatestQualifyingRun(best, runCards, minimumDuration);
     }
 
-    private static bool IsCreditCardKeyframe(KeyframeVisual visual)
+    /// <summary>
+    /// Classifies a keyframe as a near-uniform credit card: low luma entropy (uniform background)
+    /// and low saturation (not a vivid colour scene). Exposed as <see langword="internal" /> so the
+    /// entropy/saturation classification boundary can be unit-tested directly.
+    /// </summary>
+    /// <param name="visual">The per-keyframe visual statistics.</param>
+    /// <returns><see langword="true" /> when the keyframe looks like a uniform credit card.</returns>
+    internal static bool IsCreditCardKeyframe(KeyframeVisual visual)
         => visual.Entropy < EntropyCreditMaximum &&
            visual.Saturation < SaturationCreditMaximum;
 
