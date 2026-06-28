@@ -235,7 +235,13 @@ public sealed partial class FFmpegService(
         ArgumentNullException.ThrowIfNull(episode);
         cancellationToken.ThrowIfCancellationRequested();
 
-        if (_cacheService.TryRead(episode.EpisodeId, AnalysisMode.Credits, CacheEntryType.KeyframeVisual, episode.CreditsFingerprintStart, 0, out KeyframeVisual[] cached))
+        // Bound the scan to the configured credits window; FindCreditRange selects the latest
+        // qualifying low-entropy run, so scanning past CreditsFingerprintEnd to EOF could otherwise
+        // pick up a muted tail (e.g. trailing video after the probed audio duration) as credits.
+        var (start, end) = episode.GetFingerprintRange(AnalysisMode.Credits);
+        var range = new TimeRange(start, end);
+
+        if (_cacheService.TryRead(episode.EpisodeId, AnalysisMode.Credits, CacheEntryType.KeyframeVisual, range.Start, range.End, out KeyframeVisual[] cached))
         {
             cancellationToken.ThrowIfCancellationRequested();
             return cached;
@@ -244,20 +250,24 @@ public sealed partial class FFmpegService(
         // Decode the same keyframes as the black-frame scan, emitting luma histogram entropy and mean
         // saturation per keyframe so credits rendered on coloured/bright cards (which the black-frame
         // scan is blind to) can be recognised by their near-uniform, low-entropy background.
+        // format=yuv420p pins both signals to the 8-bit scale the entropy/saturation thresholds are
+        // tuned for, so 10-bit/HDR sources (where signalstats SATAVG is reported ~4x higher) classify
+        // consistently rather than missing muted cards.
         var args = new List<string>
         {
             "-skip_frame", "nokey",
-            "-ss", episode.CreditsFingerprintStart.ToString(CultureInfo.InvariantCulture),
+            "-ss", range.Start.ToString(CultureInfo.InvariantCulture),
             "-i", episode.Path,
+            "-to", range.Duration.ToString(CultureInfo.InvariantCulture),
             "-an", "-dn", "-sn",
-            "-vf", "entropy,signalstats,metadata=print",
+            "-vf", "format=yuv420p,entropy,signalstats,metadata=print",
             "-f", "null", "-",
         };
 
         var raw = Encoding.UTF8.GetString(await GetOutputAsync(args, true, cancellationToken: cancellationToken).ConfigureAwait(false));
         var visuals = FFmpegOutputParser.ParseKeyframeVisuals(raw);
         cancellationToken.ThrowIfCancellationRequested();
-        _cacheService.Write(episode.EpisodeId, AnalysisMode.Credits, CacheEntryType.KeyframeVisual, episode.CreditsFingerprintStart, 0, visuals);
+        _cacheService.Write(episode.EpisodeId, AnalysisMode.Credits, CacheEntryType.KeyframeVisual, range.Start, range.End, visuals);
 
         return visuals;
     }
