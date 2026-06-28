@@ -201,13 +201,13 @@ public static partial class FFmpegOutputParser
     [GeneratedRegex(@"black_start:(?<start>[-+]?(?:\d+(?:\.\d*)?|\.\d+))\s+black_end:(?<end>[-+]?(?:\d+(?:\.\d*)?|\.\d+))\s+black_duration:(?<duration>[-+]?(?:\d+(?:\.\d*)?|\.\d+))")]
     private static partial Regex BlackIntervalLogRegex();
 
-    [GeneratedRegex(@"pts_time:(?<time>-?[0-9]+(?:\.[0-9]+)?)")]
+    [GeneratedRegex(@"pts_time:(?<time>-?[0-9]+(?:\.[0-9]+)?(?:[eE][-+]?[0-9]+)?)")]
     private static partial Regex KeyframeVisualTimeRegex();
 
-    [GeneratedRegex(@"lavfi\.entropy\.normalized_entropy\.normal\.Y=(?<value>-?[0-9]+(?:\.[0-9]+)?)")]
+    [GeneratedRegex(@"lavfi\.entropy\.normalized_entropy\.normal\.Y=(?<value>-?[0-9]+(?:\.[0-9]+)?(?:[eE][-+]?[0-9]+)?)")]
     private static partial Regex KeyframeEntropyRegex();
 
-    [GeneratedRegex(@"lavfi\.signalstats\.SATAVG=(?<value>-?[0-9]+(?:\.[0-9]+)?)")]
+    [GeneratedRegex(@"lavfi\.signalstats\.SATAVG=(?<value>-?[0-9]+(?:\.[0-9]+)?(?:[eE][-+]?[0-9]+)?)")]
     private static partial Regex KeyframeSaturationRegex();
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "Failed to parse timestamp: {PtsTimeStr} from line: {Line}")]

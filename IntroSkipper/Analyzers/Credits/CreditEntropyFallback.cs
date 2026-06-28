@@ -31,7 +31,10 @@ internal static class CreditEntropyFallback
             return null;
         }
 
-        var maximumInRunGap = EstimateMaximumInRunGap(visuals);
+        // Cards belonging to one credit sequence sit within MaximumSceneMergeGapSeconds of each other.
+        // A fixed bridge keeps every run independent, so an earlier dense run's cadence can never tighten
+        // the gap and split a later, sparser credit run (which a global cadence estimate would do).
+        const double maximumInRunGap = CreditDetectionPolicy.MaximumSceneMergeGapSeconds;
         TimeRange? best = null;
         var runCards = new List<KeyframeVisual>();
 
@@ -132,48 +135,5 @@ internal static class CreditEntropyFallback
 
         gaps.Sort();
         return gaps[gaps.Count / 4];
-    }
-
-    // Estimate the credit-card cadence from card keyframes only. Including every keyframe lets dense
-    // non-card content before the credits drive the median down, which tightens the grouping gap below
-    // the actual card spacing and splits sparse static-card credits into discarded sub-minimum runs.
-    private static double EstimateMaximumInRunGap(IReadOnlyList<KeyframeVisual> visuals)
-    {
-        var gaps = CardGaps(visuals);
-        if (gaps.Count == 0)
-        {
-            return CreditDetectionPolicy.MaximumSceneMergeGapSeconds;
-        }
-
-        gaps.Sort();
-        return Math.Min(
-            CreditDetectionPolicy.MaximumSceneMergeGapSeconds,
-            gaps[gaps.Count / 2] * CreditDetectionPolicy.MaximumKeyframeGapMultiplier);
-    }
-
-    private static List<double> CardGaps(IReadOnlyList<KeyframeVisual> visuals)
-    {
-        var gaps = new List<double>();
-        KeyframeVisual? previousCard = null;
-        foreach (var visual in visuals)
-        {
-            if (!IsCreditCardKeyframe(visual))
-            {
-                continue;
-            }
-
-            if (previousCard is not null)
-            {
-                var gap = visual.Time - previousCard.Time;
-                if (gap > 0)
-                {
-                    gaps.Add(gap);
-                }
-            }
-
-            previousCard = visual;
-        }
-
-        return gaps;
     }
 }

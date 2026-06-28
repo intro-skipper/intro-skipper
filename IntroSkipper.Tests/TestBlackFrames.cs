@@ -1121,6 +1121,26 @@ public class TestBlackFrames
         Assert.Equal(12.5, visual.Saturation);
     }
 
+    [Fact]
+    public void TestParseKeyframeVisuals_ParsesExponentNotation()
+    {
+        // Defensive: stock FFmpeg emits decimal here, but if a build ever emits exponent form the whole
+        // numeric token must be parsed, not truncated at the mantissa (which would record 1s instead of
+        // ~0s and feed corrupt values into detection and the cache).
+        const string raw = """
+            [Parsed_metadata_2 @ 0x0] frame:0 pts:0 pts_time:1e-05
+            [Parsed_metadata_2 @ 0x0] lavfi.entropy.normalized_entropy.normal.Y=1.5e-06
+            [Parsed_metadata_2 @ 0x0] lavfi.signalstats.SATAVG=3.2e+01
+            [Parsed_metadata_2 @ 0x0] frame:1 pts:1 pts_time:2
+            """;
+
+        var visual = Assert.Single(FFmpegOutputParser.ParseKeyframeVisuals(raw));
+
+        Assert.Equal(1e-05, visual.Time);
+        Assert.Equal(1.5e-06, visual.Entropy);
+        Assert.Equal(32.0, visual.Saturation);
+    }
+
     [Theory]
     [InlineData(0.12, 30.0, true)] // uniform, muted background -> credit card
     [InlineData(0.349, 95.0, true)] // just inside both exclusive maxima -> credit card
@@ -1131,6 +1151,30 @@ public class TestBlackFrames
     public void TestIsCreditCardKeyframe(double entropy, double saturation, bool expected)
     {
         Assert.Equal(expected, CreditEntropyFallback.IsCreditCardKeyframe(new KeyframeVisual(0, entropy, saturation)));
+    }
+
+    [Fact]
+    public void TestCreditEntropyFallback_LaterSparseCreditsNotConstrainedByEarlierDenseRun()
+    {
+        // Regression (Finding 1): an earlier dense card-like run (0-20s, 2s cadence) must not tighten
+        // the bridge gap for a later long-GOP credit run (60-96s, 12s cadence). The latest sustained
+        // run is the real credits and must be returned, not the earlier run.
+        var visuals = new List<KeyframeVisual>();
+        for (var time = 0.0; time <= 20; time += 2)
+        {
+            visuals.Add(new KeyframeVisual(time, 0.12, 30));
+        }
+
+        foreach (var time in new[] { 60.0, 72.0, 84.0, 96.0 })
+        {
+            visuals.Add(new KeyframeVisual(time, 0.12, 30));
+        }
+
+        var range = CreditEntropyFallback.FindCreditRange(visuals, minimumDuration: 15);
+
+        Assert.NotNull(range);
+        Assert.Equal(60, range!.Start);
+        Assert.Equal(96, range.End);
     }
 
     [Fact]
@@ -1388,6 +1432,27 @@ public class TestBlackFrames
         Assert.NotNull(result);
         Assert.Equal(130, result.Start);
         Assert.Equal(154, result.End);
+        Assert.Equal(1, ffmpeg.VisualScanCalls);
+    }
+
+    [Fact]
+    public async Task TestDetectCreditsAsync_IntervalMissThenFallback_RecoversNonBlackCredits()
+    {
+        // Low-density black candidates trigger interval confirmation; with no supporting intervals the
+        // black path still finds no scene, so the analyzer must fall through to the non-black fallback.
+        var ffmpeg = new FakeFFmpegService(
+            CreateLowDensitySingleCandidateFrames(),
+            intervals: [],
+            keyframeVisuals: CreateCardCreditVisuals(cardStart: 30, cardEnd: 54));
+        var analyzer = CreateCreditsBlackFrameAnalyzer(ffmpeg);
+        var episode = CreateQueuedCreditsEpisode(creditsFingerprintStart: 100);
+
+        var result = await analyzer.DetectCreditsAsync(episode, 85, 32, 15);
+
+        Assert.NotNull(result);
+        Assert.Equal(130, result.Start);
+        Assert.Equal(154, result.End);
+        Assert.Equal(1, ffmpeg.IntervalScanCalls);
         Assert.Equal(1, ffmpeg.VisualScanCalls);
     }
 

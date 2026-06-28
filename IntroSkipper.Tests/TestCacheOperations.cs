@@ -304,12 +304,25 @@ public sealed class TestCacheOperations
     [Fact]
     public void AnalysisHash_Credits_ChangesWithDetectNonBlackCredits()
     {
-        var baseline = new PluginConfiguration { DetectNonBlackCredits = true };
-        var changed = new PluginConfiguration { DetectNonBlackCredits = false };
+        var baseline = new PluginConfiguration { UseAlternativeBlackFrameAnalyzer = true, DetectNonBlackCredits = true };
+        var changed = new PluginConfiguration { UseAlternativeBlackFrameAnalyzer = true, DetectNonBlackCredits = false };
 
-        // Toggling the non-black fallback changes credits output, so it must invalidate
-        // stored credits analysis instead of hash-matching a stale result.
+        // Toggling the non-black fallback changes credits output (when its analyzer is active), so it
+        // must invalidate stored credits analysis instead of hash-matching a stale result.
         Assert.NotEqual(
+            ConfigHasher.Analysis(baseline, AnalysisMode.Credits, AnalyzerAction.Default),
+            ConfigHasher.Analysis(changed, AnalysisMode.Credits, AnalyzerAction.Default));
+    }
+
+    [Fact]
+    public void AnalysisHash_Credits_IgnoresDetectNonBlackCredits_WhenAlternativeAnalyzerOff()
+    {
+        var baseline = new PluginConfiguration { UseAlternativeBlackFrameAnalyzer = false, DetectNonBlackCredits = true };
+        var changed = new PluginConfiguration { UseAlternativeBlackFrameAnalyzer = false, DetectNonBlackCredits = false };
+
+        // The default BlackFrameAnalyzer cannot observe DetectNonBlackCredits, so toggling it must not
+        // invalidate stored credits analysis on that path.
+        Assert.Equal(
             ConfigHasher.Analysis(baseline, AnalysisMode.Credits, AnalyzerAction.Default),
             ConfigHasher.Analysis(changed, AnalysisMode.Credits, AnalyzerAction.Default));
     }

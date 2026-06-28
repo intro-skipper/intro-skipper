@@ -36,7 +36,7 @@ public static class ConfigHasher
                 $"analysis|v1|mode={mode}|action={action}|prefer={config.PreferChromaprint}|chap={config.ChapterAnalyzerEndCreditsPattern}|fullchap={config.FullLengthChapters}|sbchap={config.EnableSponsorBlockChapterDetection}",
                 $"|pct={config.AnalysisPercent}|maxCredits={config.MaximumCreditsDuration}|maxMovie={config.MaximumMovieCreditsDuration}|probe={config.ProbeAudioDuration}",
                 $"|min={config.MinimumCreditsDuration}|bfmin={config.BlackFrameMinimumPercentage}|bfthr={config.BlackFrameThreshold}|bfchap={config.UseChapterMarkersBlackFrame}",
-                $"|bfalt={config.UseAlternativeBlackFrameAnalyzer}|bfrefine={config.RefineCreditsBoundary}|bfaltVersion=2|nonblack={config.DetectNonBlackCredits}",
+                $"|bfalt={config.UseAlternativeBlackFrameAnalyzer}|bfrefine={config.RefineCreditsBoundary}|bfaltVersion=2{CreditsNonBlackToken(config)}",
                 $"|fpbits={config.MaximumFingerprintPointDifferences}|skip={config.MaximumTimeSkip}|shift={config.InvertedIndexShift}",
                 $"|animePreview={config.AnimePreviewFromCreditsEnd}",
                 $"{AdjustmentHash(config)}"),
@@ -96,6 +96,14 @@ public static class ConfigHasher
 
         return ComputeHash(input);
     }
+
+    // DetectNonBlackCredits only affects output when the alternative analyzer is active; including it
+    // unconditionally would invalidate cached credits on the default BlackFrameAnalyzer path, which
+    // cannot observe the setting (the UI also hides it there).
+    private static string CreditsNonBlackToken(PluginConfiguration config)
+        => config.UseAlternativeBlackFrameAnalyzer
+            ? FormattableString.Invariant($"|nonblack={config.DetectNonBlackCredits}")
+            : string.Empty;
 
     private static string AdjustmentHash(PluginConfiguration config)
         => Invariant(
