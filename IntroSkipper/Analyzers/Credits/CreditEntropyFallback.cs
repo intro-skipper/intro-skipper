@@ -15,6 +15,7 @@ internal static class CreditEntropyFallback
     private const double IsolatedCardTrimGapMultiplier = 2.5;
     private const double EntropyCreditMaximum = 0.35;
     private const double SaturationCreditMaximum = 96.0;
+    private const double MinimumCardFraction = 0.5;
 
     /// <summary>
     /// Finds the latest sustained low-entropy credit-card run that satisfies the minimum duration.
@@ -47,14 +48,14 @@ internal static class CreditEntropyFallback
 
             if (runCards.Count > 0 && visual.Time - runCards[^1].Time > maximumInRunGap)
             {
-                best = SelectLatestQualifyingRun(best, runCards, minimumDuration);
+                best = SelectLatestQualifyingRun(best, runCards, visuals, minimumDuration);
                 runCards.Clear();
             }
 
             runCards.Add(visual);
         }
 
-        return SelectLatestQualifyingRun(best, runCards, minimumDuration);
+        return SelectLatestQualifyingRun(best, runCards, visuals, minimumDuration);
     }
 
     /// <summary>
@@ -71,6 +72,7 @@ internal static class CreditEntropyFallback
     private static TimeRange? SelectLatestQualifyingRun(
         TimeRange? currentBest,
         List<KeyframeVisual> runCards,
+        IReadOnlyList<KeyframeVisual> visuals,
         int minimumDuration)
     {
         if (runCards.Count == 0)
@@ -86,7 +88,40 @@ internal static class CreditEntropyFallback
             return currentBest;
         }
 
+        // Cards must dominate the keyframes within the span. The grouping step skips non-card
+        // keyframes, so two isolated cards bridged across busy content (non-card keyframes between
+        // them) would otherwise masquerade as a sustained card sequence. A genuinely sparse credit
+        // run from a long-GOP source has no non-card keyframes between its cards, so its density
+        // stays high and it is kept; only sparse cards interspersed with busy content are rejected.
+        if (!HasSufficientCardDensity(visuals, runStart.Time, lastCard.Time))
+        {
+            return currentBest;
+        }
+
         return new TimeRange(runStart.Time, lastCard.Time);
+    }
+
+    // Fraction of keyframes inside the run's span that look like credit cards. This is the only place
+    // intervening busy content (skipped during grouping) re-enters the qualification decision.
+    private static bool HasSufficientCardDensity(IReadOnlyList<KeyframeVisual> visuals, double startTime, double endTime)
+    {
+        var total = 0;
+        var cards = 0;
+        foreach (var visual in visuals)
+        {
+            if (visual.Time < startTime || visual.Time > endTime)
+            {
+                continue;
+            }
+
+            total++;
+            if (IsCreditCardKeyframe(visual))
+            {
+                cards++;
+            }
+        }
+
+        return total > 0 && (double)cards / total >= MinimumCardFraction;
     }
 
     // Trim sparse isolated cards from each edge of the run, anchored to the dense-body cadence rather

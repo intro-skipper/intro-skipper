@@ -1226,6 +1226,22 @@ public class TestBlackFrames
     }
 
     [Fact]
+    public void TestCreditEntropyFallback_RejectsIsolatedCardsBridgingBusyContent()
+    {
+        // Regression: two card-like keyframes 18s apart with busy/high-entropy keyframes every 2s
+        // between them must NOT form credits — that is normal content with occasional static shots,
+        // not a sustained low-entropy card sequence.
+        var visuals = new List<KeyframeVisual>();
+        for (var time = 0.0; time <= 18; time += 2)
+        {
+            var card = time is 0 or 18;
+            visuals.Add(new KeyframeVisual(time, card ? 0.12 : 0.55, card ? 30 : 108));
+        }
+
+        Assert.Null(CreditEntropyFallback.FindCreditRange(visuals, minimumDuration: 15));
+    }
+
+    [Fact]
     public void TestCreditEntropyFallback_DetectsLowEntropyCardRun()
     {
         var visuals = CreateCardCreditVisuals(cardStart: 30, cardEnd: 54);
@@ -1387,9 +1403,10 @@ public class TestBlackFrames
         // Two real runs separated by a long gap -> latest selected.
         Assert.Equal((60.0, 80.0), Run(Seq(80, 2, (0, 20), (60, 80))));
 
-        // Predominantly sparse run (brief dense head, then uniform 8s cadence) -> kept as a sparse
-        // run rather than trimmed away; the cadence never clearly steps up off a dominant dense body.
-        Assert.Equal((0.0, 54.0), Run(Seq(54, 2, (0, 6), (14, 14), (22, 22), (30, 30), (38, 38), (46, 46), (54, 54))));
+        // Sparse isolated cards bridged across busy 2s content (brief dense head, then a lone card
+        // every 8s) -> rejected by the card-density floor: most keyframes in the span are busy
+        // content, so this reads as normal content with occasional static shots, not a card sequence.
+        Assert.Null(Run(Seq(54, 2, (0, 6), (14, 14), (22, 22), (30, 30), (38, 38), (46, 46), (54, 54))));
 
         // Final card spaced just within cadence (4s) -> kept, not over-trimmed.
         Assert.Equal((0.0, 44.0), Run(Seq(44, 2, (0, 40), (44, 44))));
