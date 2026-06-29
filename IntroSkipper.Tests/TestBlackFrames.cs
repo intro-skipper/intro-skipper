@@ -52,6 +52,33 @@ public class TestBlackFrames
         Assert.Equal([0, 1, 2, 3, 4, 5, 6, 7], actual);
     }
 
+    [FactSkipFFmpegTests]
+    public async Task TestDetectKeyframeVisuals_ClipsScanToCreditsWindow()
+    {
+        // Real FFmpeg: -skip_frame nokey + -to does NOT reliably bound the scan (it emits keyframes
+        // past the requested duration), so DetectKeyframeVisualsAsync must clip parsed visuals to the
+        // window. credits.mp4 has keyframes every 10s; for window [5,35] (Start=5, Duration=30) the scan
+        // must return only the in-window keyframes (seek-relative 5/15/25 = source 10/20/30), never the
+        // leaked frames past 30s that would otherwise let credits be detected past CreditsFingerprintEnd.
+        var episode = new QueuedEpisode
+        {
+            EpisodeId = Guid.NewGuid(),
+            Name = "credits.mp4",
+            Path = "../../../video/credits.mp4",
+            Duration = 330,
+            CreditsFingerprintStart = 5,
+            CreditsFingerprintEnd = 35,
+        };
+
+        var visuals = await CreateFFmpegService().DetectKeyframeVisualsAsync(episode);
+
+        Assert.NotEmpty(visuals);
+        Assert.All(visuals, v => Assert.InRange(v.Time, 0, 30)); // clipped to range.Duration, no leak
+        Assert.Equal(new[] { 5.0, 15.0, 25.0 }, Array.ConvertAll(visuals, v => v.Time));
+        Assert.All(visuals, v => Assert.InRange(v.Entropy, 0, 1)); // real normalized entropy parsed
+        Assert.All(visuals, v => Assert.True(v.Saturation >= 0)); // real SATAVG parsed
+    }
+
     [Fact]
     public void TestParseBlackIntervals_LogOutput()
     {

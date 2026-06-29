@@ -265,7 +265,15 @@ public sealed partial class FFmpegService(
         };
 
         var raw = Encoding.UTF8.GetString(await GetOutputAsync(args, true, cancellationToken: cancellationToken).ConfigureAwait(false));
-        var visuals = FFmpegOutputParser.ParseKeyframeVisuals(raw);
+
+        // -to does not reliably bound a -skip_frame nokey scan: FFmpeg still emits keyframes past the
+        // requested duration. Clip parsed visuals to the window before caching (times are relative to
+        // the -ss seek, so an in-window frame falls within [0, range.Duration]); otherwise
+        // FindCreditRange could select a low-entropy run past CreditsFingerprintEnd and persist credits
+        // outside the configured scan window.
+        var visuals = FFmpegOutputParser.ParseKeyframeVisuals(raw)
+            .Where(v => v.Time >= 0 && v.Time <= range.Duration)
+            .ToArray();
         cancellationToken.ThrowIfCancellationRequested();
         _cacheService.Write(episode.EpisodeId, AnalysisMode.Credits, CacheEntryType.KeyframeVisual, range.Start, range.End, visuals);
 
