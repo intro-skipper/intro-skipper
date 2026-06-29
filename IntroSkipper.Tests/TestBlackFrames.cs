@@ -1167,13 +1167,18 @@ public class TestBlackFrames
     [Fact]
     public void TestCreditEntropyFallback_LaterSparseCreditsNotConstrainedByEarlierDenseRun()
     {
-        // Regression (Finding 1): an earlier dense card-like run (0-20s, 2s cadence) must not tighten
-        // the bridge gap for a later long-GOP credit run (60-96s, 12s cadence). The latest sustained
-        // run is the real credits and must be returned, not the earlier run.
+        // Regression (Finding 1): an earlier dense card-like run (0-20s) must not capture or extend into
+        // a later long-GOP credit run (60-96s, 12s cadence). Real content separates the two groups, so
+        // the run splits there and the latest sustained run is returned, not the earlier one.
         var visuals = new List<KeyframeVisual>();
         for (var time = 0.0; time <= 20; time += 2)
         {
             visuals.Add(new KeyframeVisual(time, 0.12, 30));
+        }
+
+        for (var time = 22.0; time < 60; time += 2)
+        {
+            visuals.Add(new KeyframeVisual(time, 0.55, 108)); // real content between the two card groups
         }
 
         foreach (var time in new[] { 60.0, 72.0, 84.0, 96.0 })
@@ -1186,6 +1191,26 @@ public class TestBlackFrames
         Assert.NotNull(range);
         Assert.Equal(60, range!.Start);
         Assert.Equal(96, range.End);
+    }
+
+    [Fact]
+    public void TestCreditEntropyFallback_KeepsAllCardRunWhenGopExceedsBridge()
+    {
+        // Regression: a real all-card credit run whose keyframe cadence is just above the fixed
+        // MaximumSceneMergeGapSeconds bridge (cards every 21s, no non-card frames between). With no
+        // intervening non-card evidence the run must stay whole, not split into one-frame runs that
+        // each fail the minimum duration and yield null.
+        var visuals = new List<KeyframeVisual>();
+        foreach (var time in new[] { 0.0, 21.0, 42.0, 63.0 })
+        {
+            visuals.Add(new KeyframeVisual(time, 0.12, 30));
+        }
+
+        var range = CreditEntropyFallback.FindCreditRange(visuals, minimumDuration: 60);
+
+        Assert.NotNull(range);
+        Assert.Equal(0, range!.Start);
+        Assert.Equal(63, range.End);
     }
 
     [Fact]

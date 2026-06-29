@@ -37,27 +37,34 @@ internal static class CreditEntropyFallback
             return null;
         }
 
-        // Cards belonging to one credit sequence sit within MaximumSceneMergeGapSeconds of each other.
-        // A fixed bridge keeps every run independent, so an earlier dense run's cadence can never tighten
-        // the gap and split a later, sparser credit run (which a global cadence estimate would do).
+        // A run breaks only when real content separates two cards: a time gap beyond the fixed bridge
+        // AND at least one non-card keyframe between them. The fixed bridge (not a cadence estimate)
+        // keeps runs independent of an earlier dense run, while the non-card-evidence requirement keeps
+        // a sparse all-card source (keyframes farther apart than the bridge but with nothing non-card
+        // between) as a single run regardless of GOP length.
         const double maximumInRunGap = CreditDetectionPolicy.MaximumSceneMergeGapSeconds;
         TimeRange? best = null;
         var runCards = new List<KeyframeVisual>();
+        var nonCardSinceLastCard = false;
 
         foreach (var visual in visuals)
         {
             if (!IsCreditCardKeyframe(visual))
             {
+                nonCardSinceLastCard = true;
                 continue;
             }
 
-            if (runCards.Count > 0 && visual.Time - runCards[^1].Time > maximumInRunGap)
+            if (runCards.Count > 0 &&
+                visual.Time - runCards[^1].Time > maximumInRunGap &&
+                nonCardSinceLastCard)
             {
                 best = SelectLatestQualifyingRun(best, runCards, visuals, minimumDuration);
                 runCards.Clear();
             }
 
             runCards.Add(visual);
+            nonCardSinceLastCard = false;
         }
 
         return SelectLatestQualifyingRun(best, runCards, visuals, minimumDuration);
