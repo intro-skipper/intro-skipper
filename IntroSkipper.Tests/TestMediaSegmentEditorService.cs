@@ -120,7 +120,8 @@ public sealed class TestMediaSegmentEditorService
         var manager = new FakeMediaSegmentManager
         {
             Providers = [(Plugin.Instance!.Name, "intro-skipper")],
-            FirstGetGate = gate
+            FirstGetGate = gate,
+            BlockedItemId = item.Id,
         };
         var service = CreateService(manager);
 
@@ -138,6 +139,34 @@ public sealed class TestMediaSegmentEditorService
         gate.SetResult([]);
         await first;
         await second;
+
+        Assert.Equal(2, manager.GetSegmentsCallCount);
+        Assert.Equal(2, manager.CreateCount);
+    }
+
+    [Fact]
+    public async Task CreateOrReplaceSegmentAsync_AllowsConcurrentCallsForDifferentItems()
+    {
+        using var scope = new EntrypointTestHelpers.PluginInstanceScope(EntrypointTestHelpers.CreateTempCacheDir());
+        var firstItem = CreateMovie(Guid.NewGuid());
+        var secondItem = CreateMovie(Guid.NewGuid());
+        var gate = new TaskCompletionSource<IEnumerable<MediaSegmentDto>>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var manager = new FakeMediaSegmentManager
+        {
+            Providers = [(Plugin.Instance!.Name, "intro-skipper")],
+            FirstGetGate = gate,
+            BlockedItemId = firstItem.Id,
+        };
+        var service = CreateService(manager);
+
+        var first = service.CreateOrReplaceSegmentAsync(firstItem, CreateSegment(MediaSegmentType.Intro, 10, 20), CancellationToken.None);
+        var second = service.CreateOrReplaceSegmentAsync(secondItem, CreateSegment(MediaSegmentType.Intro, 30, 40), CancellationToken.None);
+
+        Assert.Same(second, await Task.WhenAny(second, Task.Delay(TimeSpan.FromSeconds(1))));
+        Assert.False(first.IsCompleted);
+
+        gate.SetResult([]);
+        await first;
 
         Assert.Equal(2, manager.GetSegmentsCallCount);
         Assert.Equal(2, manager.CreateCount);
@@ -265,6 +294,7 @@ public sealed class TestMediaSegmentEditorService
         public Exception? DeleteException { get; init; }
 
         public TaskCompletionSource<IEnumerable<MediaSegmentDto>>? FirstGetGate { get; init; }
+        public Guid? BlockedItemId { get; init; }
 
         public int GetSegmentsCallCount => _getCount;
 
@@ -285,7 +315,7 @@ public sealed class TestMediaSegmentEditorService
             var n = Interlocked.Increment(ref _getCount);
             LastTypeFilter = typeFilter?.ToArray();
 
-            if (FirstGetGate is not null && n == 1)
+            if (FirstGetGate is not null && item.Id == BlockedItemId)
             {
                 return FirstGetGate.Task;
             }
