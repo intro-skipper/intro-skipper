@@ -197,12 +197,37 @@ public sealed class TestSeasonReanalysisPlanner
     }
 
     [Fact]
-    public void ShouldAnalyzeItems_ReturnsTrue_ForNoSegmentsEpisodes()
+    public void ShouldAnalyzeItems_ReturnsTrue_ForNotAnalyzedEpisodes()
     {
+        var episode = new QueuedEpisode();
+        episode.SetAnalyzed(AnalysisMode.Introduction, EpisodeState.NotAnalyzed);
+
+        Assert.True(BaseItemAnalyzerTask.ShouldAnalyzeItems([episode], AnalysisMode.Introduction));
+    }
+
+    [Fact]
+    public void ShouldAnalyzeItems_ReturnsFalse_ForSettledNoSegmentsEpisodes()
+    {
+        // NoSegments is a negative-cache result for the current configuration. The season pass is
+        // skipped here and only reopened once an episode is reset to NotAnalyzed (new episode,
+        // config/Chromaprint-availability change, or settled-season reanalysis).
         var episode = new QueuedEpisode();
         episode.SetAnalyzed(AnalysisMode.Introduction, EpisodeState.NoSegments);
 
-        Assert.True(BaseItemAnalyzerTask.ShouldAnalyzeItems([episode], AnalysisMode.Introduction));
+        Assert.False(BaseItemAnalyzerTask.ShouldAnalyzeItems([episode], AnalysisMode.Introduction));
+    }
+
+    [Fact]
+    public void ShouldAnalyzeItems_ReturnsTrue_WhenAnyEpisodeNotAnalyzed()
+    {
+        // A freshly added (NotAnalyzed) episode reopens the whole season pass; the analyzers then
+        // give the settled NoSegments episodes another chance via NeedsAnalysis().
+        var settled = new QueuedEpisode();
+        settled.SetAnalyzed(AnalysisMode.Introduction, EpisodeState.NoSegments);
+        var fresh = new QueuedEpisode();
+        fresh.SetAnalyzed(AnalysisMode.Introduction, EpisodeState.NotAnalyzed);
+
+        Assert.True(BaseItemAnalyzerTask.ShouldAnalyzeItems([settled, fresh], AnalysisMode.Introduction));
     }
 
     [Fact]
@@ -214,6 +239,33 @@ public sealed class TestSeasonReanalysisPlanner
         userProvided.SetAnalyzed(AnalysisMode.Introduction, EpisodeState.UserProvided);
 
         Assert.False(BaseItemAnalyzerTask.ShouldAnalyzeItems([analyzed, userProvided], AnalysisMode.Introduction));
+    }
+
+    [Theory]
+    [InlineData(AnalysisMode.Introduction)]
+    [InlineData(AnalysisMode.Credits)]
+    [InlineData(AnalysisMode.Recap)]
+    public void AnalysisHash_ChangesWithChromaprintAvailability_ForChromaprintModes(AnalysisMode mode)
+    {
+        var config = new PluginConfiguration();
+
+        var withChromaprint = ConfigHasher.Analysis(config, mode, AnalyzerAction.Default, ffmpegValid: true);
+        var withoutChromaprint = ConfigHasher.Analysis(config, mode, AnalyzerAction.Default, ffmpegValid: false);
+
+        Assert.NotEqual(withChromaprint, withoutChromaprint);
+    }
+
+    [Theory]
+    [InlineData(AnalysisMode.Preview)]
+    [InlineData(AnalysisMode.Commercial)]
+    public void AnalysisHash_IgnoresChromaprintAvailability_ForChapterOnlyModes(AnalysisMode mode)
+    {
+        var config = new PluginConfiguration();
+
+        var withChromaprint = ConfigHasher.Analysis(config, mode, AnalyzerAction.Default, ffmpegValid: true);
+        var withoutChromaprint = ConfigHasher.Analysis(config, mode, AnalyzerAction.Default, ffmpegValid: false);
+
+        Assert.Equal(withChromaprint, withoutChromaprint);
     }
 
     private static DateTime SettledTime() => Now.AddHours(-(PluginConfiguration.DefaultSettledSeasonDelayHours + 1));
