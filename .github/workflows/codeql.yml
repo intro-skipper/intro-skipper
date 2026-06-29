@@ -31,40 +31,10 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      - name: Read build configuration
-        id: read-config
-        run: |
-          CONFIG=$(cat build.json)
-          echo "IS_BETA=$(echo "$CONFIG" | jq -r '.beta')" >> $GITHUB_ENV
-          echo "DOTNET_VERSION=$(echo "$CONFIG" | jq -r '."dotnet-version"')" >> $GITHUB_ENV
-
-      - name: Setup .NET
-        uses: actions/setup-dotnet@v5
+      - name: Setup build environment
+        uses: ./.github/actions/setup-build-env
         with:
-          dotnet-version: ${{ env.DOTNET_VERSION }}
-
-      - name: Setup pnpm
-        uses: pnpm/action-setup@v6
-        with:
-          version: 10
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v6
-        with:
-          node-version: 'lts/*'
-          cache: 'pnpm'
-          cache-dependency-path: web/pnpm-lock.yaml
-
-      - name: Configure NuGet for beta
-        if: ${{ env.IS_BETA == 'true' }}
-        run: |
-          cp nuget/NuGet.Beta.Config IntroSkipper/NuGet.Config
-          dotnet nuget add source --username ${{ github.repository_owner }} --password ${{ secrets.GITHUB_TOKEN }} --store-password-in-clear-text --name github-jellyfin "https://nuget.pkg.github.com/jellyfin/index.json"
-          dotnet tool install --global dotnet-outdated-tool
-          dotnet outdated -pre Always -u -inc Jellyfin
-
-      - name: Restore dependencies
-        run: dotnet restore
+          github-token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Initialize CodeQL
         uses: github/codeql-action/init@8aad20d150bbac5944a9f9d289da16a4b0d87c1e # v4.36.2
