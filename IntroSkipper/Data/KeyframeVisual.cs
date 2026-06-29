@@ -5,7 +5,7 @@ namespace IntroSkipper.Data;
 
 /// <summary>
 /// Per-keyframe visual statistics used to detect non-black credits that the
-/// black-frame scan is blind to (text on coloured/bright cards).
+/// black-frame scan is blind to (text on a near-uniform low-saturation card).
 /// </summary>
 /// <remarks>
 /// Both signals are emitted by stock FFmpeg in the same keyframe decode as the

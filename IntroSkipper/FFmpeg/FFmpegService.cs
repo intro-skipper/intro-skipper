@@ -248,7 +248,7 @@ public sealed partial class FFmpegService(
         }
 
         // Decode the same keyframes as the black-frame scan, emitting luma histogram entropy and mean
-        // saturation per keyframe so credits rendered on coloured/bright cards (which the black-frame
+        // saturation per keyframe so credits rendered on a near-uniform low-saturation card (which the black-frame
         // scan is blind to) can be recognised by their near-uniform, low-entropy background.
         // format=yuv420p pins both signals to the 8-bit scale the entropy/saturation thresholds are
         // tuned for, so 10-bit/HDR sources (where signalstats SATAVG is reported ~4x higher) classify

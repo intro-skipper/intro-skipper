@@ -95,7 +95,7 @@ public sealed partial class CreditsBlackFrameAnalyzer(ILogger<CreditsBlackFrameA
     /// <remarks>
     /// Tries the black-frame scan first (frame-accurate for credits on black). When that finds
     /// nothing and <see cref="PluginConfiguration.DetectNonBlackCredits"/> is enabled, falls back to a
-    /// low-entropy keyframe scan that recognises credits rendered on coloured or bright cards.
+    /// low-entropy keyframe scan that recognises credits on a near-uniform low-saturation card.
     /// </remarks>
     /// <param name="episode">Media file to analyze.</param>
     /// <param name="minimumPercentage">Minimum percentage of the frame that must be black.</param>
@@ -194,7 +194,7 @@ public sealed partial class CreditsBlackFrameAnalyzer(ILogger<CreditsBlackFrameA
     }
 
     /// <summary>
-    /// Recovers non-black credits (text on coloured/bright cards) from a low-entropy keyframe scan.
+    /// Recovers non-black credits (text on a near-uniform low-saturation card) from a low-entropy keyframe scan.
     /// </summary>
     /// <remarks>
     /// Only runs when the black-frame scan found no valid credits. The entropy gate is what suppresses

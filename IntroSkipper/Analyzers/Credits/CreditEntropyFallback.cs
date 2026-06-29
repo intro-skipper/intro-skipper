@@ -14,6 +14,11 @@ internal static class CreditEntropyFallback
 {
     private const double IsolatedCardTrimGapMultiplier = 2.5;
     private const double EntropyCreditMaximum = 0.35;
+
+    // Vivid/saturated uniform frames are excluded on purpose: a solid-colour content frame (a fade,
+    // stylised transition, or saturated sky) is indistinguishable from a saturated colour card by
+    // entropy + saturation alone, so admitting them would cost the fallback's zero-false-positive
+    // discipline. Cards are therefore muted/neutral (low saturation), not vivid colour.
     private const double SaturationCreditMaximum = 96.0;
     private const double MinimumCardFraction = 0.5;
 
