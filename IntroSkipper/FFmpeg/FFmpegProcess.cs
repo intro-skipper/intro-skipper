@@ -19,7 +19,7 @@ public sealed class FFmpegProcess(ILogger logger)
 
     /// <summary>
     /// Starts the process at <paramref name="processPath"/> with the given <paramref name="args"/>,
-    /// drains its output stream asynchronously, and returns the raw bytes.
+    /// drains both output streams asynchronously, and returns the raw bytes from the selected stream.
     /// </summary>
     /// <param name="processPath">Full path to the executable.</param>
     /// <param name="args">Argument list passed verbatim to the process.</param>
@@ -55,8 +55,8 @@ public sealed class FFmpegProcess(ILogger logger)
             CreateNoWindow = true,
             UseShellExecute = false,
             ErrorDialog = false,
-            RedirectStandardOutput = !captureStderr,
-            RedirectStandardError = captureStderr
+            RedirectStandardOutput = true,
+            RedirectStandardError = true
         };
 
         foreach (var arg in args)
@@ -86,15 +86,12 @@ public sealed class FFmpegProcess(ILogger logger)
         using var cancellationRegistration = cancellationToken.Register(() => KillProcessTree(process));
 
         using var ms = new MemoryStream();
-        var buffer = new byte[4096];
 
-        // IMPORTANT: drain the stream FIRST, then call WaitForExit — do not invert this order.
-        var stream = captureStderr ? process.StandardError.BaseStream : process.StandardOutput.BaseStream;
-        int bytesRead;
-        while ((bytesRead = await stream.ReadAsync(buffer, cancellationToken).ConfigureAwait(false)) > 0)
-        {
-            await ms.WriteAsync(buffer.AsMemory(0, bytesRead), cancellationToken).ConfigureAwait(false);
-        }
+        // IMPORTANT: drain streams FIRST, then call WaitForExit — do not invert this order.
+        // Drain the unselected stream too so expected ffmpeg failures do not leak to test stderr.
+        var stdoutTask = DrainAsync(process.StandardOutput.BaseStream, captureStderr ? null : ms, cancellationToken);
+        var stderrTask = DrainAsync(process.StandardError.BaseStream, captureStderr ? ms : null, cancellationToken);
+        await Task.WhenAll(stdoutTask, stderrTask).ConfigureAwait(false);
 
         using var timeoutCts = new CancellationTokenSource(timeoutMs);
         using var waitCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, timeoutCts.Token);
@@ -115,6 +112,19 @@ public sealed class FFmpegProcess(ILogger logger)
 
         cancellationToken.ThrowIfCancellationRequested();
         return ms.ToArray();
+    }
+
+    private static async Task DrainAsync(Stream stream, Stream? destination, CancellationToken cancellationToken)
+    {
+        var buffer = new byte[4096];
+        int bytesRead;
+        while ((bytesRead = await stream.ReadAsync(buffer, cancellationToken).ConfigureAwait(false)) > 0)
+        {
+            if (destination is not null)
+            {
+                await destination.WriteAsync(buffer.AsMemory(0, bytesRead), cancellationToken).ConfigureAwait(false);
+            }
+        }
     }
 
     private void KillProcessTree(Process process)

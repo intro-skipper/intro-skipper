@@ -41,6 +41,17 @@ public class TestBlackFrames
         }
     }
 
+    [FactSkipFFmpegTests]
+    public async Task TestSeekSampleKeyFrames()
+    {
+        var actual = await CreateFFmpegService().DetectKeyFramesAsync(
+            QueueFile("seek-sample.mp4"),
+            new(0, 8),
+            AnalysisMode.Introduction);
+
+        Assert.Equal([0, 1, 2, 3, 4, 5, 6, 7], actual);
+    }
+
     [Fact]
     public void TestParseBlackIntervals_LogOutput()
     {

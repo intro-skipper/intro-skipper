@@ -448,7 +448,7 @@ public sealed class TestCacheOperations
         var episode = new QueuedEpisode
         {
             EpisodeId = Guid.NewGuid(),
-            Path = "/does/not/exist.mkv",
+            Path = "../../../audio/big_buck_bunny_intro.mp3",
             IntroFingerprintEnd = 900, // current setting wants 900s
         };
         var cacheDir = EntrypointTestHelpers.CreateTempCacheDir();
@@ -474,11 +474,10 @@ public sealed class TestCacheOperations
 
         using (var cachingScope = new CachingPluginScope(cacheDir, cacheDbPath))
         {
-            // Should miss cache (end mismatch: 600 vs 900) and then throw
-            // because the file doesn't actually exist for ffmpeg
-            var svc = cachingScope.CreateFFmpegService();
-            await Assert.ThrowsAsync<FingerprintException>(
-                () => svc.FingerprintAsync(episode, AnalysisMode.Introduction));
+            var result = await cachingScope.CreateFFmpegService().FingerprintAsync(episode, AnalysisMode.Introduction);
+
+            Assert.NotEqual(fingerprint, result);
+            Assert.NotEmpty(result);
         }
     }
 
