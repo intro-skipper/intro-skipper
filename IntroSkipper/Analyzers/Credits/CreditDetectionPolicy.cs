@@ -10,6 +10,7 @@ internal static class CreditDetectionPolicy
 {
     public const double MaximumSceneMergeGapSeconds = 20;
     public const double MaximumKeyframeGapMultiplier = 5.0;
+
     public const double DefaultMinimumBlackFrameDensity = 0.50;
     public const double MaximumIntervalToKeyframeGapSeconds = 2.0;
 

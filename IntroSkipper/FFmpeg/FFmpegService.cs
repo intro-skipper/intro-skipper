@@ -230,6 +230,57 @@ public sealed partial class FFmpegService(
     }
 
     /// <inheritdoc/>
+    public async Task<KeyframeVisual[]> DetectKeyframeVisualsAsync(QueuedEpisode episode, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(episode);
+        cancellationToken.ThrowIfCancellationRequested();
+
+        // Bound the scan to the configured credits window; FindCreditRange selects the latest
+        // qualifying low-entropy run, so scanning past CreditsFingerprintEnd to EOF could otherwise
+        // pick up a muted tail (e.g. trailing video after the probed audio duration) as credits.
+        var (start, end) = episode.GetFingerprintRange(AnalysisMode.Credits);
+        var range = new TimeRange(start, end);
+
+        if (_cacheService.TryRead(episode.EpisodeId, AnalysisMode.Credits, CacheEntryType.KeyframeVisual, range.Start, range.End, out KeyframeVisual[] cached))
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            return cached;
+        }
+
+        // Decode the same keyframes as the black-frame scan, emitting luma histogram entropy and mean
+        // saturation per keyframe so credits rendered on a near-uniform low-saturation card (which the black-frame
+        // scan is blind to) can be recognised by their near-uniform, low-entropy background.
+        // format=yuv420p pins both signals to the 8-bit scale the entropy/saturation thresholds are
+        // tuned for, so 10-bit/HDR sources (where signalstats SATAVG is reported ~4x higher) classify
+        // consistently rather than missing muted cards.
+        var args = new List<string>
+        {
+            "-skip_frame", "nokey",
+            "-ss", range.Start.ToString(CultureInfo.InvariantCulture),
+            "-i", episode.Path,
+            "-to", range.Duration.ToString(CultureInfo.InvariantCulture),
+            "-an", "-dn", "-sn",
+            "-vf", "format=yuv420p,entropy,signalstats,metadata=print",
+            "-f", "null", "-",
+        };
+
+        var raw = Encoding.UTF8.GetString(await GetOutputAsync(args, true, cancellationToken: cancellationToken).ConfigureAwait(false));
+
+        // -to does not reliably bound a -skip_frame nokey scan: FFmpeg still emits keyframes past the
+        // requested duration. Clip parsed visuals to the window before caching (times are relative to
+        // the -ss seek, so an in-window frame falls within [0, range.Duration]); otherwise
+        // FindCreditRange could select a low-entropy run past CreditsFingerprintEnd and persist credits
+        // outside the configured scan window.
+        var visuals = FFmpegOutputParser.ParseKeyframeVisuals(raw)
+            .Where(v => v.Time >= 0 && v.Time <= range.Duration)
+            .ToArray();
+        cancellationToken.ThrowIfCancellationRequested();
+        _cacheService.Write(episode.EpisodeId, AnalysisMode.Credits, CacheEntryType.KeyframeVisual, range.Start, range.End, visuals);
+
+        return visuals;
+    }
+
+    /// <inheritdoc/>
     public async Task<BlackInterval[]> DetectBlackIntervalsAsync(QueuedEpisode episode, TimeRange range, int threshold, int minimum, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(episode);
@@ -460,6 +511,7 @@ public sealed partial class FFmpegService(
             argument.Contains("silencedetect", StringComparison.OrdinalIgnoreCase) ||
             argument.Contains("blackframe", StringComparison.OrdinalIgnoreCase) ||
             argument.Contains("blackdetect", StringComparison.OrdinalIgnoreCase) ||
+            argument.Contains("metadata=print", StringComparison.OrdinalIgnoreCase) ||
             argument.Contains("showinfo", StringComparison.OrdinalIgnoreCase));
     }
 

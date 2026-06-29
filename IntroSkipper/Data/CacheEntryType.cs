@@ -34,4 +34,9 @@ public enum CacheEntryType
     /// Black interval detection results.
     /// </summary>
     BlackInterval,
+
+    /// <summary>
+    /// Per-keyframe visual statistics (entropy and saturation) for non-black credit detection.
+    /// </summary>
+    KeyframeVisual,
 }

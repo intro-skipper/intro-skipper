@@ -145,6 +145,14 @@ public class PluginConfiguration : BasePluginConfiguration
     /// </summary>
     public bool RefineCreditsBoundary { get; set; } = true;
 
+    /// <summary>
+    /// Gets or sets a value indicating whether to detect non-black end credits (text on a near-uniform
+    /// low-saturation card: black, white, grey, or muted colour) when the black-frame scan finds nothing.
+    /// Uses a cheap entropy/saturation gate on the same keyframes, so dark non-credit scenes (high
+    /// entropy) and vivid saturated frames are never mistaken for credits.
+    /// </summary>
+    public bool DetectNonBlackCredits { get; set; } = true;
+
     // ===== Media Segment handling =====
 
     /// <summary>

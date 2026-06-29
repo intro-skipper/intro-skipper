@@ -56,8 +56,10 @@ internal static class CreditsBoundaryHelper
     /// <returns>The lower of the scene start frame percentage and the scene-change threshold.</returns>
     public static int SelectProbeMinimum(List<BlackFrame> frames, CreditScene scene, int sceneChange)
     {
-        var startFrame = frames.First(frame => frame.Frame == scene.StartFrame);
-        return Math.Min(startFrame.Percentage, sceneChange);
+        // The scene start frame normally traces back to a real keyframe, but guard against a missing
+        // match (e.g. interval-derived scenes) rather than throwing from First().
+        var startFrame = frames.FirstOrDefault(frame => frame.Frame == scene.StartFrame);
+        return startFrame is null ? sceneChange : Math.Min(startFrame.Percentage, sceneChange);
     }
 
     /// <summary>

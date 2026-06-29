@@ -50,6 +50,7 @@ export interface PluginConfig {
     UpdateMediaSegments: boolean;
     UseAlternativeBlackFrameAnalyzer: boolean;
     RefineCreditsBoundary: boolean;
+    DetectNonBlackCredits: boolean;
     UseChapterMarkersBlackFrame: boolean;
     FullLengthChapters: boolean;
     EnableSponsorBlockChapterDetection: boolean;
