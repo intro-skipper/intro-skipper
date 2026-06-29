@@ -442,7 +442,7 @@ public sealed class TestCacheOperations
             () => cachingScope.CreateFFmpegService().FingerprintAsync(episode, AnalysisMode.Introduction, cts.Token));
     }
 
-    [Fact]
+    [FactSkipFFmpegTests]
     public async Task CachedFingerprint_MissesOnDifferentEnd()
     {
         var episode = new QueuedEpisode
