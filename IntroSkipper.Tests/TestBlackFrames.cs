@@ -1507,6 +1507,26 @@ public class TestBlackFrames
         Assert.Equal(0, ffmpeg.VisualScanCalls);
     }
 
+    [Fact]
+    public async Task TestDetectCreditsAsync_NoBlackFramesAtAll_DisabledSkipsFallback()
+    {
+        // Disabled-setting companion for the empty-scan branch (blackFrames.Count == 0): with the
+        // option off, an empty black scan must still honor _config.DetectNonBlackCredits and never
+        // start the keyframe-visual fallback. The other disabled test seeds non-empty pblack=0 frames,
+        // so only the Count > 0 path is otherwise covered; this pins the empty-scan branch split.
+        var ffmpeg = new FakeFFmpegService(
+            [],
+            keyframeVisuals: CreateCardCreditVisuals(cardStart: 30, cardEnd: 54));
+        var analyzer = CreateCreditsBlackFrameAnalyzer(ffmpeg);
+        SetDetectNonBlackCredits(analyzer, value: false);
+        var episode = CreateQueuedCreditsEpisode();
+
+        var result = await analyzer.DetectCreditsAsync(episode, 85, 32, 15);
+
+        Assert.Null(result);
+        Assert.Equal(0, ffmpeg.VisualScanCalls);
+    }
+
     // ── Fingerprint-based integration tests ──────────────────────────────
 
     [Fact]
