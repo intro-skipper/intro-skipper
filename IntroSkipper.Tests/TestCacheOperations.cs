@@ -302,6 +302,32 @@ public sealed class TestCacheOperations
 
 
     [Fact]
+    public void AnalysisHash_Credits_ChangesWithDetectNonBlackCredits()
+    {
+        var baseline = new PluginConfiguration { UseAlternativeBlackFrameAnalyzer = true, DetectNonBlackCredits = true };
+        var changed = new PluginConfiguration { UseAlternativeBlackFrameAnalyzer = true, DetectNonBlackCredits = false };
+
+        // Toggling the non-black fallback changes credits output (when its analyzer is active), so it
+        // must invalidate stored credits analysis instead of hash-matching a stale result.
+        Assert.NotEqual(
+            ConfigHasher.Analysis(baseline, AnalysisMode.Credits, AnalyzerAction.Default, ffmpegValid: true),
+            ConfigHasher.Analysis(changed, AnalysisMode.Credits, AnalyzerAction.Default, ffmpegValid: true));
+    }
+
+    [Fact]
+    public void AnalysisHash_Credits_IgnoresDetectNonBlackCredits_WhenAlternativeAnalyzerOff()
+    {
+        var baseline = new PluginConfiguration { UseAlternativeBlackFrameAnalyzer = false, DetectNonBlackCredits = true };
+        var changed = new PluginConfiguration { UseAlternativeBlackFrameAnalyzer = false, DetectNonBlackCredits = false };
+
+        // The default BlackFrameAnalyzer cannot observe DetectNonBlackCredits, so toggling it must not
+        // invalidate stored credits analysis on that path.
+        Assert.Equal(
+            ConfigHasher.Analysis(baseline, AnalysisMode.Credits, AnalyzerAction.Default, ffmpegValid: true),
+            ConfigHasher.Analysis(changed, AnalysisMode.Credits, AnalyzerAction.Default, ffmpegValid: true));
+    }
+
+    [Fact]
     public async Task CachedBlackIntervals_UsesCreditsFingerprintRange()
     {
         var episode = new QueuedEpisode
@@ -416,13 +442,13 @@ public sealed class TestCacheOperations
             () => cachingScope.CreateFFmpegService().FingerprintAsync(episode, AnalysisMode.Introduction, cts.Token));
     }
 
-    [Fact]
+    [FactSkipFFmpegTests]
     public async Task CachedFingerprint_MissesOnDifferentEnd()
     {
         var episode = new QueuedEpisode
         {
             EpisodeId = Guid.NewGuid(),
-            Path = "/does/not/exist.mkv",
+            Path = "../../../audio/big_buck_bunny_intro.mp3",
             IntroFingerprintEnd = 900, // current setting wants 900s
         };
         var cacheDir = EntrypointTestHelpers.CreateTempCacheDir();
@@ -448,11 +474,10 @@ public sealed class TestCacheOperations
 
         using (var cachingScope = new CachingPluginScope(cacheDir, cacheDbPath))
         {
-            // Should miss cache (end mismatch: 600 vs 900) and then throw
-            // because the file doesn't actually exist for ffmpeg
-            var svc = cachingScope.CreateFFmpegService();
-            await Assert.ThrowsAsync<FingerprintException>(
-                () => svc.FingerprintAsync(episode, AnalysisMode.Introduction));
+            var result = await cachingScope.CreateFFmpegService().FingerprintAsync(episode, AnalysisMode.Introduction);
+
+            Assert.NotEqual(fingerprint, result);
+            Assert.NotEmpty(result);
         }
     }
 
