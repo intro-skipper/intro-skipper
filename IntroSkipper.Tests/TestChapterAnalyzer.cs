@@ -9,8 +9,10 @@ namespace IntroSkipper.Tests;
 using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
+using System.Reflection;
 using IntroSkipper.Analyzers;
 using IntroSkipper.Data;
+using MediaBrowser.Controller.Chapters;
 using MediaBrowser.Model.Entities;
 using Microsoft.Extensions.Logging.Abstractions;
 using Xunit;
@@ -231,6 +233,20 @@ public class TestChapterAnalyzer
         Assert.Equal(90, introChapter.End);
     }
 
+    [Fact]
+    public void PluginGetChapters_ReturnsEmptyList_WhenChapterManagerReturnsNull()
+    {
+        using (new EntrypointTestHelpers.PluginInstanceScope(EntrypointTestHelpers.CreateTempCacheDir()))
+        {
+            var plugin = Plugin.Instance!;
+            EntrypointTestHelpers.SetPrivateField(plugin, "_chapterRepository", NullChapterManager.Create());
+
+            var chapters = plugin.GetChapters(Guid.NewGuid());
+
+            Assert.Empty(chapters);
+        }
+    }
+
     private Segment? FindChapter(
         string chapterName,
         AnalysisMode mode,
@@ -287,5 +303,21 @@ public class TestChapterAnalyzer
             Name = name,
             StartPositionTicks = TimeSpan.FromSeconds(position).Ticks
         };
+    }
+
+    private sealed class NullChapterManager : DispatchProxy
+    {
+        public static IChapterManager Create()
+            => DispatchProxy.Create<IChapterManager, NullChapterManager>();
+
+        protected override object? Invoke(MethodInfo? targetMethod, object?[]? args)
+        {
+            if (targetMethod?.Name == nameof(IChapterManager.GetChapters))
+            {
+                return null;
+            }
+
+            throw new NotImplementedException(targetMethod?.Name);
+        }
     }
 }
