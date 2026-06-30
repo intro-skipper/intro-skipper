@@ -41,6 +41,7 @@ public partial class QueueManager(ILogger<QueueManager> logger, ILibraryManager 
     private readonly IFFmpegService _ffmpegService = ffmpegService;
     private readonly Dictionary<Guid, List<QueuedEpisode>> _queuedEpisodes = [];
     private readonly HashSet<Guid> _refreshedEpisodes = [];
+    private bool? _ffmpegValid;
     private double _analysisPercent;
     private ExclusionPolicy _exclusionPolicy = ExclusionPolicy.Empty;
 
@@ -51,6 +52,18 @@ public partial class QueueManager(ILogger<QueueManager> logger, ILibraryManager 
     /// <returns>Queued media items.</returns>
     public Task<IReadOnlyDictionary<Guid, List<QueuedEpisode>>> GetMediaItems(CancellationToken cancellationToken = default)
         => GetMediaItems(includeExcluded: false, cancellationToken);
+
+    internal async Task<bool> GetFfmpegValidAsync(CancellationToken cancellationToken = default)
+    {
+        if (_ffmpegValid is { } cached)
+        {
+            return cached;
+        }
+
+        var ffmpegValid = await _ffmpegService.CheckFFmpegVersionAsync(cancellationToken).ConfigureAwait(false);
+        _ffmpegValid = ffmpegValid;
+        return ffmpegValid;
+    }
 
     internal async Task<IReadOnlyDictionary<Guid, List<QueuedEpisode>>> GetMediaItems(bool includeExcluded, CancellationToken cancellationToken = default)
     {
@@ -419,10 +432,9 @@ public partial class QueueManager(ILogger<QueueManager> logger, ILibraryManager 
     /// </summary>
     /// <param name="candidates">Queued media items.</param>
     /// <param name="modes">Analysis modes.</param>
-    /// <param name="ffmpegValid">Whether the current FFmpeg build supports Chromaprint; folded into the expected config hash so settled NoSegments seasons are re-checked when Chromaprint availability changes.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>Media items that have been verified to exist in Jellyfin and in storage.</returns>
-    internal async Task<IReadOnlyList<QueuedEpisode>> VerifyQueueAsync(IReadOnlyList<QueuedEpisode> candidates, IReadOnlyCollection<AnalysisMode> modes, bool ffmpegValid, CancellationToken cancellationToken = default)
+    internal async Task<IReadOnlyList<QueuedEpisode>> VerifyQueueAsync(IReadOnlyList<QueuedEpisode> candidates, IReadOnlyCollection<AnalysisMode> modes, CancellationToken cancellationToken = default)
     {
         if (candidates == null || candidates.Count == 0)
         {
@@ -432,6 +444,7 @@ public partial class QueueManager(ILogger<QueueManager> logger, ILibraryManager 
         var verified = new List<QueuedEpisode>(candidates.Count);
         var plugin = Plugin.Instance ?? throw new InvalidOperationException("Plugin instance is null");
         var policy = ExclusionPolicy.FromConfiguration(plugin.Configuration);
+        var ffmpegValid = await GetFfmpegValidAsync(cancellationToken).ConfigureAwait(false);
         var snapshot = await Plugin.GetSeasonQueueSnapshotAsync(candidates[0].SeasonId, [.. candidates.Select(c => c.EpisodeId)], cancellationToken).ConfigureAwait(false);
 
         foreach (var candidate in candidates)

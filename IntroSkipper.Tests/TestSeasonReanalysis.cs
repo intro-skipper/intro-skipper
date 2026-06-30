@@ -5,10 +5,12 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Threading;
 using System.Threading.Tasks;
 using IntroSkipper.Configuration;
 using IntroSkipper.Data;
 using IntroSkipper.Db;
+using IntroSkipper.FFmpeg;
 using IntroSkipper.Helper;
 using IntroSkipper.Manager;
 using IntroSkipper.ScheduledTasks;
@@ -198,16 +200,16 @@ public sealed class TestSeasonReanalysisPlanner
     }
 
     [Fact]
-    public void ShouldAnalyzeItems_ReturnsTrue_ForNotAnalyzedEpisodes()
+    public void HasUncachedAnalysisWork_ReturnsTrue_ForNotAnalyzedEpisodes()
     {
         var episode = new QueuedEpisode();
         episode.SetAnalyzed(AnalysisMode.Introduction, EpisodeState.NotAnalyzed);
 
-        Assert.True(BaseItemAnalyzerTask.ShouldAnalyzeItems([episode], AnalysisMode.Introduction));
+        Assert.True(BaseItemAnalyzerTask.HasUncachedAnalysisWork([episode], AnalysisMode.Introduction));
     }
 
     [Fact]
-    public void ShouldAnalyzeItems_ReturnsFalse_ForSettledNoSegmentsEpisodes()
+    public void HasUncachedAnalysisWork_ReturnsFalse_ForSettledNoSegmentsEpisodes()
     {
         // NoSegments is a negative-cache result for the current configuration. The season pass is
         // skipped here and only reopened once an episode is reset to NotAnalyzed (new episode,
@@ -215,11 +217,11 @@ public sealed class TestSeasonReanalysisPlanner
         var episode = new QueuedEpisode();
         episode.SetAnalyzed(AnalysisMode.Introduction, EpisodeState.NoSegments);
 
-        Assert.False(BaseItemAnalyzerTask.ShouldAnalyzeItems([episode], AnalysisMode.Introduction));
+        Assert.False(BaseItemAnalyzerTask.HasUncachedAnalysisWork([episode], AnalysisMode.Introduction));
     }
 
     [Fact]
-    public void ShouldAnalyzeItems_ReturnsTrue_WhenAnyEpisodeNotAnalyzed()
+    public void HasUncachedAnalysisWork_ReturnsTrue_WhenAnyEpisodeNotAnalyzed()
     {
         // A freshly added (NotAnalyzed) episode reopens the whole season pass; the analyzers then
         // give the settled NoSegments episodes another chance via NeedsAnalysis().
@@ -228,18 +230,18 @@ public sealed class TestSeasonReanalysisPlanner
         var fresh = new QueuedEpisode();
         fresh.SetAnalyzed(AnalysisMode.Introduction, EpisodeState.NotAnalyzed);
 
-        Assert.True(BaseItemAnalyzerTask.ShouldAnalyzeItems([settled, fresh], AnalysisMode.Introduction));
+        Assert.True(BaseItemAnalyzerTask.HasUncachedAnalysisWork([settled, fresh], AnalysisMode.Introduction));
     }
 
     [Fact]
-    public void ShouldAnalyzeItems_ReturnsFalse_WhenAllEpisodesAreHandled()
+    public void HasUncachedAnalysisWork_ReturnsFalse_WhenAllEpisodesAreHandled()
     {
         var analyzed = new QueuedEpisode();
         analyzed.SetAnalyzed(AnalysisMode.Introduction, EpisodeState.Analyzed);
         var userProvided = new QueuedEpisode();
         userProvided.SetAnalyzed(AnalysisMode.Introduction, EpisodeState.UserProvided);
 
-        Assert.False(BaseItemAnalyzerTask.ShouldAnalyzeItems([analyzed, userProvided], AnalysisMode.Introduction));
+        Assert.False(BaseItemAnalyzerTask.HasUncachedAnalysisWork([analyzed, userProvided], AnalysisMode.Introduction));
     }
 
     [Theory]
@@ -649,22 +651,26 @@ public sealed class TestSeasonReanalysisReset
                 var libraryManager = EntrypointTestHelpers.CreateLibraryManager(episode);
                 EntrypointTestHelpers.SetPrivateField(plugin, "_libraryManager", libraryManager);
 
-                var queueManager = new QueueManager(
+                var unavailableQueueManager = new QueueManager(
                     NullLogger<QueueManager>.Instance,
                     libraryManager,
                     providerManager: null!,
                     fileSystem: null!,
-                    ffmpegService: null!);
-                var stillUnavailable = await queueManager.VerifyQueueAsync(
+                    ffmpegService: new FakeFfmpegService(ffmpegValid: false));
+                var stillUnavailable = await unavailableQueueManager.VerifyQueueAsync(
                     [CreateQueuedEpisode(episodeId, seasonId)],
-                    [AnalysisMode.Introduction],
-                    ffmpegValid: false);
+                    [AnalysisMode.Introduction]);
                 Assert.Equal(EpisodeState.NoSegments, stillUnavailable.Single().GetAnalyzed(AnalysisMode.Introduction));
 
-                var reopened = await queueManager.VerifyQueueAsync(
+                var availableQueueManager = new QueueManager(
+                    NullLogger<QueueManager>.Instance,
+                    libraryManager,
+                    providerManager: null!,
+                    fileSystem: null!,
+                    ffmpegService: new FakeFfmpegService(ffmpegValid: true));
+                var reopened = await availableQueueManager.VerifyQueueAsync(
                     [CreateQueuedEpisode(episodeId, seasonId)],
-                    [AnalysisMode.Introduction],
-                    ffmpegValid: true);
+                    [AnalysisMode.Introduction]);
                 Assert.Equal(EpisodeState.NotAnalyzed, reopened.Single().GetAnalyzed(AnalysisMode.Introduction));
             }
         }
@@ -687,6 +693,43 @@ public sealed class TestSeasonReanalysisReset
             Name = "S01E01",
             SeriesName = "Rick and Morty",
         };
+
+    private sealed class FakeFfmpegService(bool ffmpegValid) : IFFmpegService
+    {
+        public Task<bool> CheckFFmpegVersionAsync(CancellationToken cancellationToken = default) => Task.FromResult(ffmpegValid);
+
+        public Task<uint[]> FingerprintAsync(QueuedEpisode episode, AnalysisMode mode, CancellationToken cancellationToken = default)
+            => throw new NotImplementedException();
+
+        public Task<TimeRange[]> DetectSilenceAsync(QueuedEpisode episode, TimeRange range, AnalysisMode mode, CancellationToken cancellationToken = default)
+            => throw new NotImplementedException();
+
+        public Task<BlackFrame[]> DetectBlackFramesAsync(
+            QueuedEpisode episode,
+            TimeRange range,
+            int minimum,
+            int threshold,
+            AnalysisMode mode,
+            CancellationToken cancellationToken = default)
+            => throw new NotImplementedException();
+
+        public Task<BlackFrame[]> DetectBlackFramesAsync(QueuedEpisode episode, int threshold, CancellationToken cancellationToken = default)
+            => throw new NotImplementedException();
+
+        public Task<KeyframeVisual[]> DetectKeyframeVisualsAsync(QueuedEpisode episode, CancellationToken cancellationToken = default)
+            => throw new NotImplementedException();
+
+        public Task<BlackInterval[]> DetectBlackIntervalsAsync(QueuedEpisode episode, TimeRange range, int threshold, int minimum, CancellationToken cancellationToken = default)
+            => throw new NotImplementedException();
+
+        public Task<double[]> DetectKeyFramesAsync(QueuedEpisode episode, TimeRange range, AnalysisMode mode, CancellationToken cancellationToken = default)
+            => throw new NotImplementedException();
+
+        public Task<double?> ProbeAudioDurationAsync(string filePath, CancellationToken cancellationToken = default)
+            => throw new NotImplementedException();
+
+        public string GetChromaprintLogs() => string.Empty;
+    }
 
     // Mirrors the production eligibility decision in BaseItemAnalyzerTask.GetSettleReanalysisModesAsync,
     // exercising the same batch read (GetSettleReanalysisStatesAsync) and set comparison the analyzer uses.
