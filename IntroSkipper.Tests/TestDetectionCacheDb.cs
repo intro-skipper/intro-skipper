@@ -11,6 +11,7 @@ using System.Linq;
 using System.Text;
 using IntroSkipper.Data;
 using IntroSkipper.Db;
+using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 using Xunit;
 
@@ -31,21 +32,7 @@ public sealed class TestDetectionCacheDbContext : IDisposable
 
     public void Dispose()
     {
-        foreach (var f in new[] { _dbPath, _dbPath + "-wal", _dbPath + "-shm" }.Where(File.Exists))
-        {
-            try
-            {
-                File.Delete(f);
-            }
-            catch (IOException)
-            {
-                // Best-effort cleanup for test database files; ignore I/O errors on delete.
-            }
-            catch (UnauthorizedAccessException)
-            {
-                // Best-effort cleanup for test database files; ignore permission issues on delete.
-            }
-        }
+        DeleteDatabaseFiles();
     }
 
     [Fact]
@@ -298,6 +285,64 @@ public sealed class TestDetectionCacheDbContext : IDisposable
         using (var db = CreateContext())
         {
             Assert.Equal(2, db.DetectionCache.Count(e => e.ItemId == id && e.Type == CacheEntryType.Silence));
+        }
+    }
+
+    [Fact]
+    public void EnsureSchema_RecreatesIncompatibleCacheSchema()
+    {
+        var dbPath = Path.Combine(Path.GetDirectoryName(_dbPath)!, $"bad-cache-{Guid.NewGuid():N}.db");
+        try
+        {
+            using (var connection = new SqliteConnection($"Data Source={dbPath}"))
+            {
+                connection.Open();
+                using var command = connection.CreateCommand();
+                command.CommandText = """
+                    CREATE TABLE DetectionCache (
+                        Id INTEGER NOT NULL CONSTRAINT PK_DetectionCache PRIMARY KEY AUTOINCREMENT
+                    );
+                    """;
+                command.ExecuteNonQuery();
+            }
+
+            var id = Guid.NewGuid();
+            using (var db = new DetectionCacheDbContext(dbPath))
+            {
+                db.EnsureSchema();
+                db.DetectionCache.Add(new DbDetectionCache(id, AnalysisMode.Introduction, CacheEntryType.Chromaprint, EntrypointTestHelpers.EmptyJsonArray));
+                db.SaveChanges();
+            }
+
+            using (var db = new DetectionCacheDbContext(dbPath))
+            {
+                Assert.True(db.DetectionCache.Any(e => e.ItemId == id));
+            }
+        }
+        finally
+        {
+            DeleteDatabaseFiles(dbPath);
+        }
+    }
+
+    private void DeleteDatabaseFiles() => DeleteDatabaseFiles(_dbPath);
+
+    private static void DeleteDatabaseFiles(string dbPath)
+    {
+        foreach (var f in new[] { dbPath, dbPath + "-wal", dbPath + "-shm" }.Where(File.Exists))
+        {
+            try
+            {
+                File.Delete(f);
+            }
+            catch (IOException)
+            {
+                // Best-effort cleanup for test database files; ignore I/O errors on delete.
+            }
+            catch (UnauthorizedAccessException)
+            {
+                // Best-effort cleanup for test database files; ignore permission issues on delete.
+            }
         }
     }
 

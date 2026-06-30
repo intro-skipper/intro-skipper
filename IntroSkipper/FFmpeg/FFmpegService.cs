@@ -6,6 +6,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
 using System.Collections.Concurrent;
+using System.Diagnostics;
 using System.Globalization;
 using System.Text;
 using IntroSkipper.Data;
@@ -31,7 +32,6 @@ public sealed partial class FFmpegService(
 
     private readonly ILogger<FFmpegService> _logger = logger;
     private readonly IDetectionCacheService _cacheService = cacheService;
-    private readonly FFmpegProcess _process = new(logger);
 
     // Written by CheckFFmpegVersionAsync (serialized via ScheduledTaskSemaphore) but read concurrently
     // by the support bundle endpoint, so a concurrent dictionary is required.
@@ -529,14 +529,109 @@ public sealed partial class FFmpegService(
             firstArg.StartsWith("-h", StringComparison.Ordinal);
     }
 
-    private Task<byte[]> GetProcessOutputAsync(
+    private async Task<byte[]> GetProcessOutputAsync(
         string processPath,
         IReadOnlyList<string> args,
         bool stderr = false,
         int timeout = 60 * 1000,
         CancellationToken cancellationToken = default)
     {
-        return _process.RunAsync(processPath, args, stderr, timeout, Plugin.Instance?.Configuration.ProcessPriority, cancellationToken);
+        cancellationToken.ThrowIfCancellationRequested();
+
+        var info = new ProcessStartInfo(processPath)
+        {
+            WindowStyle = ProcessWindowStyle.Hidden,
+            CreateNoWindow = true,
+            UseShellExecute = false,
+            ErrorDialog = false,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true
+        };
+
+        foreach (var arg in args)
+        {
+            info.ArgumentList.Add(arg);
+        }
+
+        if (_logger.IsEnabled(LogLevel.Debug))
+        {
+            _logger.LogDebug("Starting ffmpeg with the following arguments: {Arguments}", string.Join(" ", info.ArgumentList));
+        }
+
+        using var process = new Process { StartInfo = info };
+        process.Start();
+
+        try
+        {
+            process.PriorityClass = Plugin.Instance?.Configuration.ProcessPriority ?? ProcessPriorityClass.BelowNormal;
+        }
+        catch (Exception e) when (e is InvalidOperationException or System.ComponentModel.Win32Exception or NotSupportedException)
+        {
+            _logger.LogWarning("ffmpeg priority could not be modified. {Message}", e.Message);
+        }
+
+        using var cancellationRegistration = cancellationToken.Register(() => KillProcessTree(process));
+        using var ms = new MemoryStream();
+
+        var stdoutTask = DrainAsync(process.StandardOutput.BaseStream, stderr ? null : ms, cancellationToken);
+        var stderrTask = DrainAsync(process.StandardError.BaseStream, stderr ? ms : null, cancellationToken);
+        await Task.WhenAll(stdoutTask, stderrTask).ConfigureAwait(false);
+
+        using var timeoutCts = new CancellationTokenSource(timeout);
+        using var waitCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, timeoutCts.Token);
+        try
+        {
+            await process.WaitForExitAsync(waitCts.Token).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            throw;
+        }
+        catch (OperationCanceledException) when (timeoutCts.IsCancellationRequested)
+        {
+            _logger.LogWarning("ffmpeg did not exit within {TimeoutMs}ms; killing process", timeout);
+            KillProcessTree(process);
+        }
+
+        cancellationToken.ThrowIfCancellationRequested();
+        return ms.ToArray();
+    }
+
+    private static async Task DrainAsync(Stream stream, Stream? destination, CancellationToken cancellationToken)
+    {
+        var buffer = new byte[4096];
+        int bytesRead;
+        while ((bytesRead = await stream.ReadAsync(buffer, cancellationToken).ConfigureAwait(false)) > 0)
+        {
+            if (destination is not null)
+            {
+                await destination.WriteAsync(buffer.AsMemory(0, bytesRead), cancellationToken).ConfigureAwait(false);
+            }
+        }
+    }
+
+    private void KillProcessTree(Process process)
+    {
+        try
+        {
+            if (!process.HasExited)
+            {
+                process.Kill(entireProcessTree: true);
+            }
+        }
+        catch (InvalidOperationException ex)
+        {
+            _logger.LogDebug("ffmpeg process already gone while killing process tree: {Message}", ex.Message);
+        }
+        catch (System.ComponentModel.Win32Exception ex)
+        {
+            _logger.LogWarning("Failed to kill ffmpeg process tree: {Message}", ex.Message);
+        }
+        catch (NotSupportedException ex)
+        {
+            _logger.LogWarning("Killing the ffmpeg process tree is not supported on this platform: {Message}", ex.Message);
+        }
     }
 
     private static string GetFFprobePath()
