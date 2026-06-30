@@ -221,7 +221,7 @@ public partial class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
 
     internal string GetItemPath(Guid id) => GetItem(id) is var item && item is not null ? item.Path : string.Empty;
 
-    internal IReadOnlyList<ChapterInfo> GetChapters(Guid id) => _chapterRepository.GetChapters(id);
+    internal IReadOnlyList<ChapterInfo> GetChapters(Guid id) => _chapterRepository.GetChapters(id) ?? [];
 
     internal async Task UpdateTimestampAsync(
         Segment segment,

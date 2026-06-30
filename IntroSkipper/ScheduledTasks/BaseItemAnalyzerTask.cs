@@ -121,7 +121,7 @@ public partial class BaseItemAnalyzerTask(
             var updateMediaSegments = false;
             IReadOnlyList<AnalysisMode> settledResetModes = [];
 
-            var episodes = await queueManager.VerifyQueueAsync(season.Value, modes, ct).ConfigureAwait(false);
+            var episodes = await queueManager.VerifyQueueAsync(season.Value, modes, ffmpegValid, ct).ConfigureAwait(false);
             if (episodes.Count == 0)
             {
                 return;
@@ -265,6 +265,22 @@ public partial class BaseItemAnalyzerTask(
     }
 
     /// <summary>
+    /// Returns <see langword="true"/> when at least one episode still needs a fresh analysis pass for
+    /// the given mode (state <see cref="EpisodeState.NotAnalyzed"/>). Episodes already settled as
+    /// <see cref="EpisodeState.NoSegments"/> are a negative-cache result for the current configuration
+    /// and are intentionally not re-analyzed here; they are reconsidered only when the season is reset
+    /// to <see cref="EpisodeState.NotAnalyzed"/> — e.g. a new episode is added, the analysis
+    /// configuration (including Chromaprint availability) changes, or settled-season reanalysis runs.
+    /// </summary>
+    /// <param name="items">Episodes in the current season pass.</param>
+    /// <param name="mode">Analysis mode being processed.</param>
+    /// <returns><see langword="true"/> when analyzer execution should continue.</returns>
+    internal static bool ShouldAnalyzeItems(IReadOnlyList<QueuedEpisode> items, AnalysisMode mode)
+    {
+        return items.Any(e => e.GetAnalyzed(mode) == EpisodeState.NotAnalyzed);
+    }
+
+    /// <summary>
     /// Analyze a group of media items for skippable segments.
     /// </summary>
     /// <param name="plugin">Plugin instance.</param>
@@ -280,7 +296,7 @@ public partial class BaseItemAnalyzerTask(
         bool ffmpegValid,
         CancellationToken cancellationToken)
     {
-        if (!items.Any(e => e.GetAnalyzed(mode) == EpisodeState.NotAnalyzed))
+        if (!ShouldAnalyzeItems(items, mode))
         {
             return 0;
         }
@@ -297,7 +313,7 @@ public partial class BaseItemAnalyzerTask(
 
         var totalItems = items.Count(e => e.GetAnalyzed(mode) != EpisodeState.Analyzed);
         var action = await Plugin.GetAnalyzerActionAsync(first.SeasonId, mode, cancellationToken).ConfigureAwait(false);
-        var configHash = ConfigHasher.Analysis(_config, mode, action);
+        var configHash = ConfigHasher.Analysis(_config, mode, action, ffmpegValid);
 
         if (action == AnalyzerAction.None)
         {

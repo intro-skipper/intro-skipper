@@ -15,6 +15,7 @@ using IntroSkipper.ScheduledTasks;
 using MediaBrowser.Controller.Entities.TV;
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging.Abstractions;
 using Xunit;
 
 namespace IntroSkipper.Tests;
@@ -194,6 +195,78 @@ public sealed class TestSeasonReanalysisPlanner
 
         Assert.Equal([AnalysisMode.Credits], disabled);
         Assert.Equal([AnalysisMode.Credits, AnalysisMode.Preview], alreadyPresent);
+    }
+
+    [Fact]
+    public void ShouldAnalyzeItems_ReturnsTrue_ForNotAnalyzedEpisodes()
+    {
+        var episode = new QueuedEpisode();
+        episode.SetAnalyzed(AnalysisMode.Introduction, EpisodeState.NotAnalyzed);
+
+        Assert.True(BaseItemAnalyzerTask.ShouldAnalyzeItems([episode], AnalysisMode.Introduction));
+    }
+
+    [Fact]
+    public void ShouldAnalyzeItems_ReturnsFalse_ForSettledNoSegmentsEpisodes()
+    {
+        // NoSegments is a negative-cache result for the current configuration. The season pass is
+        // skipped here and only reopened once an episode is reset to NotAnalyzed (new episode,
+        // config/Chromaprint-availability change, or settled-season reanalysis).
+        var episode = new QueuedEpisode();
+        episode.SetAnalyzed(AnalysisMode.Introduction, EpisodeState.NoSegments);
+
+        Assert.False(BaseItemAnalyzerTask.ShouldAnalyzeItems([episode], AnalysisMode.Introduction));
+    }
+
+    [Fact]
+    public void ShouldAnalyzeItems_ReturnsTrue_WhenAnyEpisodeNotAnalyzed()
+    {
+        // A freshly added (NotAnalyzed) episode reopens the whole season pass; the analyzers then
+        // give the settled NoSegments episodes another chance via NeedsAnalysis().
+        var settled = new QueuedEpisode();
+        settled.SetAnalyzed(AnalysisMode.Introduction, EpisodeState.NoSegments);
+        var fresh = new QueuedEpisode();
+        fresh.SetAnalyzed(AnalysisMode.Introduction, EpisodeState.NotAnalyzed);
+
+        Assert.True(BaseItemAnalyzerTask.ShouldAnalyzeItems([settled, fresh], AnalysisMode.Introduction));
+    }
+
+    [Fact]
+    public void ShouldAnalyzeItems_ReturnsFalse_WhenAllEpisodesAreHandled()
+    {
+        var analyzed = new QueuedEpisode();
+        analyzed.SetAnalyzed(AnalysisMode.Introduction, EpisodeState.Analyzed);
+        var userProvided = new QueuedEpisode();
+        userProvided.SetAnalyzed(AnalysisMode.Introduction, EpisodeState.UserProvided);
+
+        Assert.False(BaseItemAnalyzerTask.ShouldAnalyzeItems([analyzed, userProvided], AnalysisMode.Introduction));
+    }
+
+    [Theory]
+    [InlineData(AnalysisMode.Introduction)]
+    [InlineData(AnalysisMode.Credits)]
+    [InlineData(AnalysisMode.Recap)]
+    public void AnalysisHash_ChangesWithChromaprintAvailability_ForChromaprintModes(AnalysisMode mode)
+    {
+        var config = new PluginConfiguration();
+
+        var withChromaprint = ConfigHasher.Analysis(config, mode, AnalyzerAction.Default, ffmpegValid: true);
+        var withoutChromaprint = ConfigHasher.Analysis(config, mode, AnalyzerAction.Default, ffmpegValid: false);
+
+        Assert.NotEqual(withChromaprint, withoutChromaprint);
+    }
+
+    [Theory]
+    [InlineData(AnalysisMode.Preview)]
+    [InlineData(AnalysisMode.Commercial)]
+    public void AnalysisHash_IgnoresChromaprintAvailability_ForChapterOnlyModes(AnalysisMode mode)
+    {
+        var config = new PluginConfiguration();
+
+        var withChromaprint = ConfigHasher.Analysis(config, mode, AnalyzerAction.Default, ffmpegValid: true);
+        var withoutChromaprint = ConfigHasher.Analysis(config, mode, AnalyzerAction.Default, ffmpegValid: false);
+
+        Assert.Equal(withChromaprint, withoutChromaprint);
     }
 
     private static DateTime SettledTime() => Now.AddHours(-(PluginConfiguration.DefaultSettledSeasonDelayHours + 1));
@@ -530,6 +603,90 @@ public sealed class TestSeasonReanalysisReset
             DeleteSqliteFiles(dbPath);
         }
     }
+
+    [Fact]
+    public async Task VerifyQueueAsync_ReopensNoSegments_WhenChromaprintBecomesAvailable()
+    {
+        var tempDir = Path.Join(Path.GetTempPath(), "IntroSkipper.Tests");
+        Directory.CreateDirectory(tempDir);
+        var dbPath = Path.Join(tempDir, Guid.NewGuid().ToString("N") + ".db");
+        var mediaPath = Path.Join(tempDir, Guid.NewGuid().ToString("N") + ".mkv");
+
+        var seasonId = Guid.NewGuid();
+        var episodeId = Guid.NewGuid();
+        var config = new PluginConfiguration();
+        var withoutChromaprintHash = ConfigHasher.Analysis(
+            config,
+            AnalysisMode.Introduction,
+            AnalyzerAction.Default,
+            ffmpegValid: false);
+
+        try
+        {
+            await File.WriteAllTextAsync(mediaPath, string.Empty);
+
+            using (var db = new IntroSkipperDbContext(dbPath))
+            {
+                await db.Database.EnsureCreatedAsync();
+                db.DbSeasonState.Add(new DbSeasonState(
+                    seasonId,
+                    AnalysisMode.Introduction,
+                    AnalyzerAction.Default,
+                    [episodeId],
+                    withoutChromaprintHash));
+                await db.SaveChangesAsync();
+            }
+
+            using (new EntrypointTestHelpers.PluginInstanceScope(EntrypointTestHelpers.CreateTempCacheDir()))
+            {
+                var plugin = Plugin.Instance!;
+                EntrypointTestHelpers.SetPrivateField(plugin, "_dbPath", dbPath);
+                EntrypointTestHelpers.SetPropertyOrField(plugin, "Configuration", config);
+
+                var episode = new Episode();
+                EntrypointTestHelpers.SetPropertyOrField(episode, "Id", episodeId);
+                EntrypointTestHelpers.SetPropertyOrField(episode, "Path", mediaPath);
+                var libraryManager = EntrypointTestHelpers.CreateLibraryManager(episode);
+                EntrypointTestHelpers.SetPrivateField(plugin, "_libraryManager", libraryManager);
+
+                var queueManager = new QueueManager(
+                    NullLogger<QueueManager>.Instance,
+                    libraryManager,
+                    providerManager: null!,
+                    fileSystem: null!,
+                    ffmpegService: null!);
+                var stillUnavailable = await queueManager.VerifyQueueAsync(
+                    [CreateQueuedEpisode(episodeId, seasonId)],
+                    [AnalysisMode.Introduction],
+                    ffmpegValid: false);
+                Assert.Equal(EpisodeState.NoSegments, stillUnavailable.Single().GetAnalyzed(AnalysisMode.Introduction));
+
+                var reopened = await queueManager.VerifyQueueAsync(
+                    [CreateQueuedEpisode(episodeId, seasonId)],
+                    [AnalysisMode.Introduction],
+                    ffmpegValid: true);
+                Assert.Equal(EpisodeState.NotAnalyzed, reopened.Single().GetAnalyzed(AnalysisMode.Introduction));
+            }
+        }
+        finally
+        {
+            if (File.Exists(mediaPath))
+            {
+                File.Delete(mediaPath);
+            }
+
+            DeleteSqliteFiles(dbPath);
+        }
+    }
+
+    private static QueuedEpisode CreateQueuedEpisode(Guid episodeId, Guid seasonId)
+        => new()
+        {
+            EpisodeId = episodeId,
+            SeasonId = seasonId,
+            Name = "S01E01",
+            SeriesName = "Rick and Morty",
+        };
 
     // Mirrors the production eligibility decision in BaseItemAnalyzerTask.GetSettleReanalysisModesAsync,
     // exercising the same batch read (GetSettleReanalysisStatesAsync) and set comparison the analyzer uses.
