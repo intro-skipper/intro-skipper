@@ -310,8 +310,8 @@ public sealed class TestCacheOperations
         // Toggling the non-black fallback changes credits output (when its analyzer is active), so it
         // must invalidate stored credits analysis instead of hash-matching a stale result.
         Assert.NotEqual(
-            ConfigHasher.Analysis(baseline, AnalysisMode.Credits, AnalyzerAction.Default, ffmpegValid: true),
-            ConfigHasher.Analysis(changed, AnalysisMode.Credits, AnalyzerAction.Default, ffmpegValid: true));
+            ConfigHasher.Analysis(baseline, AnalysisMode.Credits, AnalyzerAction.Default),
+            ConfigHasher.Analysis(changed, AnalysisMode.Credits, AnalyzerAction.Default));
     }
 
     [Fact]
@@ -323,8 +323,8 @@ public sealed class TestCacheOperations
         // The default BlackFrameAnalyzer cannot observe DetectNonBlackCredits, so toggling it must not
         // invalidate stored credits analysis on that path.
         Assert.Equal(
-            ConfigHasher.Analysis(baseline, AnalysisMode.Credits, AnalyzerAction.Default, ffmpegValid: true),
-            ConfigHasher.Analysis(changed, AnalysisMode.Credits, AnalyzerAction.Default, ffmpegValid: true));
+            ConfigHasher.Analysis(baseline, AnalysisMode.Credits, AnalyzerAction.Default),
+            ConfigHasher.Analysis(changed, AnalysisMode.Credits, AnalyzerAction.Default));
     }
 
     [Fact]

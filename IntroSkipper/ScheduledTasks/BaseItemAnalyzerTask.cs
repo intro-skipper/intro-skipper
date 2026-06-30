@@ -79,15 +79,15 @@ public partial class BaseItemAnalyzerTask(
             .. _config.ScanCommercial ? [AnalysisMode.Commercial] : Array.Empty<AnalysisMode>()
         ];
 
-        var plugin = Plugin.Instance ?? throw new InvalidOperationException("Plugin instance is null");
-        var ffmpegValid = await _ffmpegService.CheckFFmpegVersionAsync(cancellationToken).ConfigureAwait(false);
-
         var queueManager = new QueueManager(
             _loggerFactory.CreateLogger<QueueManager>(),
             _libraryManager,
             _providerManager,
             _fileSystem,
             _ffmpegService);
+
+        var plugin = Plugin.Instance ?? throw new InvalidOperationException("Plugin instance is null");
+        var ffmpegValid = await queueManager.GetFfmpegValidAsync(cancellationToken).ConfigureAwait(false);
 
         var queue = await queueManager.GetMediaItems(cancellationToken).ConfigureAwait(false);
 
@@ -121,7 +121,7 @@ public partial class BaseItemAnalyzerTask(
             var updateMediaSegments = false;
             IReadOnlyList<AnalysisMode> settledResetModes = [];
 
-            var episodes = await queueManager.VerifyQueueAsync(season.Value, modes, ffmpegValid, ct).ConfigureAwait(false);
+            var episodes = await queueManager.VerifyQueueAsync(season.Value, modes, ct).ConfigureAwait(false);
             if (episodes.Count == 0)
             {
                 return;
@@ -265,7 +265,7 @@ public partial class BaseItemAnalyzerTask(
     }
 
     /// <summary>
-    /// Returns <see langword="true"/> when at least one episode still needs a fresh analysis pass for
+    /// Returns <see langword="true"/> when at least one episode has no cached analysis result for
     /// the given mode (state <see cref="EpisodeState.NotAnalyzed"/>). Episodes already settled as
     /// <see cref="EpisodeState.NoSegments"/> are a negative-cache result for the current configuration
     /// and are intentionally not re-analyzed here; they are reconsidered only when the season is reset
@@ -275,7 +275,7 @@ public partial class BaseItemAnalyzerTask(
     /// <param name="items">Episodes in the current season pass.</param>
     /// <param name="mode">Analysis mode being processed.</param>
     /// <returns><see langword="true"/> when analyzer execution should continue.</returns>
-    internal static bool ShouldAnalyzeItems(IReadOnlyList<QueuedEpisode> items, AnalysisMode mode)
+    internal static bool HasUncachedAnalysisWork(IReadOnlyList<QueuedEpisode> items, AnalysisMode mode)
     {
         return items.Any(e => e.GetAnalyzed(mode) == EpisodeState.NotAnalyzed);
     }
@@ -296,7 +296,7 @@ public partial class BaseItemAnalyzerTask(
         bool ffmpegValid,
         CancellationToken cancellationToken)
     {
-        if (!ShouldAnalyzeItems(items, mode))
+        if (!HasUncachedAnalysisWork(items, mode))
         {
             return 0;
         }

@@ -84,8 +84,8 @@ public class TestRecapDetection
             MaximumFingerprintPointDifferences = baseline.MaximumFingerprintPointDifferences + 1,
         };
 
-        var hashBaseline = ConfigHasher.Analysis(baseline, AnalysisMode.Recap, AnalyzerAction.Default, ffmpegValid: true);
-        var hashTuned = ConfigHasher.Analysis(tuned, AnalysisMode.Recap, AnalyzerAction.Default, ffmpegValid: true);
+        var hashBaseline = ConfigHasher.Analysis(baseline, AnalysisMode.Recap, AnalyzerAction.Default);
+        var hashTuned = ConfigHasher.Analysis(tuned, AnalysisMode.Recap, AnalyzerAction.Default);
 
         Assert.NotEqual(hashBaseline, hashTuned);
     }
