@@ -6,6 +6,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
 using System.Collections.Concurrent;
+using System.Diagnostics;
 using System.Globalization;
 using System.Text;
 using IntroSkipper.Data;
@@ -26,9 +27,11 @@ public sealed partial class FFmpegService(
     ILogger<FFmpegService> logger,
     IDetectionCacheService cacheService) : IFFmpegService
 {
+    private const double LimitedRangeLumaMinimum = 16.0;
+    private const double LimitedRangeLumaRange = 219.0;
+
     private readonly ILogger<FFmpegService> _logger = logger;
     private readonly IDetectionCacheService _cacheService = cacheService;
-    private readonly FFmpegProcess _process = new(logger);
 
     // Written by CheckFFmpegVersionAsync (serialized via ScheduledTaskSemaphore) but read concurrently
     // by the support bundle endpoint, so a concurrent dictionary is required.
@@ -227,6 +230,116 @@ public sealed partial class FFmpegService(
     }
 
     /// <inheritdoc/>
+    public async Task<KeyframeVisual[]> DetectKeyframeVisualsAsync(QueuedEpisode episode, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(episode);
+        cancellationToken.ThrowIfCancellationRequested();
+
+        // Bound the scan to the configured credits window; FindCreditRange selects the latest
+        // qualifying low-entropy run, so scanning past CreditsFingerprintEnd to EOF could otherwise
+        // pick up a muted tail (e.g. trailing video after the probed audio duration) as credits.
+        var (start, end) = episode.GetFingerprintRange(AnalysisMode.Credits);
+        var range = new TimeRange(start, end);
+
+        if (_cacheService.TryRead(episode.EpisodeId, AnalysisMode.Credits, CacheEntryType.KeyframeVisual, range.Start, range.End, out KeyframeVisual[] cached))
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            return cached;
+        }
+
+        // Decode the same keyframes as the black-frame scan, emitting luma histogram entropy and mean
+        // saturation per keyframe so credits rendered on a near-uniform low-saturation card (which the black-frame
+        // scan is blind to) can be recognised by their near-uniform, low-entropy background.
+        // format=yuv420p pins both signals to the 8-bit scale the entropy/saturation thresholds are
+        // tuned for, so 10-bit/HDR sources (where signalstats SATAVG is reported ~4x higher) classify
+        // consistently rather than missing muted cards.
+        var args = new List<string>
+        {
+            "-skip_frame", "nokey",
+            "-ss", range.Start.ToString(CultureInfo.InvariantCulture),
+            "-i", episode.Path,
+            "-to", range.Duration.ToString(CultureInfo.InvariantCulture),
+            "-an", "-dn", "-sn",
+            "-vf", "format=yuv420p,entropy,signalstats,metadata=print",
+            "-f", "null", "-",
+        };
+
+        var raw = Encoding.UTF8.GetString(await GetOutputAsync(args, true, cancellationToken: cancellationToken).ConfigureAwait(false));
+
+        // -to does not reliably bound a -skip_frame nokey scan: FFmpeg still emits keyframes past the
+        // requested duration. Clip parsed visuals to the window before caching (times are relative to
+        // the -ss seek, so an in-window frame falls within [0, range.Duration]); otherwise
+        // FindCreditRange could select a low-entropy run past CreditsFingerprintEnd and persist credits
+        // outside the configured scan window.
+        var visuals = FFmpegOutputParser.ParseKeyframeVisuals(raw)
+            .Where(v => v.Time >= 0 && v.Time <= range.Duration)
+            .ToArray();
+        cancellationToken.ThrowIfCancellationRequested();
+        _cacheService.Write(episode.EpisodeId, AnalysisMode.Credits, CacheEntryType.KeyframeVisual, range.Start, range.End, visuals);
+
+        return visuals;
+    }
+
+    /// <inheritdoc/>
+    public async Task<BlackInterval[]> DetectBlackIntervalsAsync(QueuedEpisode episode, TimeRange range, int threshold, int minimum, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(episode);
+        cancellationToken.ThrowIfCancellationRequested();
+
+        if (_cacheService.TryRead(episode.EpisodeId, AnalysisMode.Credits, CacheEntryType.BlackInterval, range.Start, range.End, out BlackInterval[] cached))
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            return cached;
+        }
+
+        var pixelThreshold = FormatBlackDetectPixelThreshold(threshold);
+        var pictureRatioThreshold = FormatBlackDetectPictureRatioThreshold(minimum);
+        var minimumDuration = BlackInterval.MinimumDetectionDuration.ToString(CultureInfo.InvariantCulture);
+        var args = new List<string>
+        {
+            "-ss", range.Start.ToString(CultureInfo.InvariantCulture),
+            "-skip_frame", "noref",
+            "-i", episode.Path,
+            "-to", range.Duration.ToString(CultureInfo.InvariantCulture),
+            "-an", "-dn", "-sn",
+            "-vf", $"blackdetect=d={minimumDuration}:pix_th={pixelThreshold}:pic_th={pictureRatioThreshold}",
+            "-f", "null", "-",
+        };
+
+        var raw = Encoding.UTF8.GetString(await GetOutputAsync(args, true, cancellationToken: cancellationToken).ConfigureAwait(false));
+        var rangeIntervals = FFmpegOutputParser.ParseBlackIntervals(raw);
+        var offset = range.Start - episode.CreditsFingerprintStart;
+        var intervals = offset == 0
+            ? rangeIntervals
+            : [.. rangeIntervals.Select(interval => new BlackInterval(interval.Start + offset, interval.End + offset))];
+        cancellationToken.ThrowIfCancellationRequested();
+        _cacheService.Write(episode.EpisodeId, AnalysisMode.Credits, CacheEntryType.BlackInterval, range.Start, range.End, intervals);
+
+        return intervals;
+    }
+
+    // blackdetect's pix_th is a fraction of the luma range; internally it derives the absolute cutoff
+    // as (16 + pix_th * 219) for limited-range video. We invert that here so the cutoff equals the
+    // configured blackframe `threshold` (a raw 0-255 luma value), keeping both filters' pixel-level
+    // notion of "black" identical. This assumes limited range (TV swing, 16-235); on full-range
+    // sources blackdetect divides by 255 instead, making its cutoff marginally stricter.
+    private static string FormatBlackDetectPixelThreshold(int threshold)
+    {
+        var normalizedThreshold = Math.Clamp((threshold - LimitedRangeLumaMinimum) / LimitedRangeLumaRange, 0, 1);
+        return normalizedThreshold.ToString("0.####", CultureInfo.InvariantCulture);
+    }
+
+    // pic_th is the fraction of a frame that must be black for blackdetect to treat the frame as black.
+    // Tie it to the same `minimum` percentage the keyframe density pass uses so the interval confirmer
+    // and the keyframe proposer agree on what counts as a black frame; otherwise blackdetect's default
+    // 0.98 would reject text-heavy real credits that the keyframe pass (~0.85) accepts.
+    private static string FormatBlackDetectPictureRatioThreshold(int minimum)
+    {
+        var ratio = Math.Clamp(minimum / 100.0, 0, 1);
+        return ratio.ToString("0.####", CultureInfo.InvariantCulture);
+    }
+
+    /// <inheritdoc/>
     public async Task<double[]> DetectKeyFramesAsync(QueuedEpisode episode, TimeRange range, AnalysisMode mode, CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
@@ -375,23 +488,10 @@ public sealed partial class FFmpegService(
         int timeout = 60 * 1000,
         CancellationToken cancellationToken = default)
     {
-        // The silencedetect and blackframe filters output data at the info log level.
-        var useInfoLevel = args.Any(a =>
-            a.Contains("silencedetect", StringComparison.OrdinalIgnoreCase) ||
-            a.Contains("blackframe", StringComparison.OrdinalIgnoreCase) ||
-            a.Contains("showinfo", StringComparison.OrdinalIgnoreCase));
-
-        var logLevel = useInfoLevel ? "info" : "warning";
-
-        // For FFmpeg info queries (-version, -muxers, -h), don't add the thread count flag
-        // to avoid "Trailing option(s) found" warning. These are quick queries.
-        var firstArg = args.Count > 0 ? args[0] : string.Empty;
-        var isInfoQuery = firstArg.StartsWith("-version", StringComparison.Ordinal) ||
-            firstArg.StartsWith("-muxers", StringComparison.Ordinal) ||
-            firstArg.StartsWith("-h", StringComparison.Ordinal);
+        var logLevel = UsesInfoLogLevel(args) ? "info" : "warning";
 
         var processArgs = new List<string> { "-hide_banner" };
-        if (!isInfoQuery)
+        if (!IsInfoQuery(args))
         {
             processArgs.Add("-threads");
             processArgs.Add((Plugin.Instance?.Configuration.ProcessThreads ?? 0).ToString(CultureInfo.InvariantCulture));
@@ -404,14 +504,134 @@ public sealed partial class FFmpegService(
         return GetProcessOutputAsync(Plugin.Instance?.FFmpegPath ?? "ffmpeg", processArgs, stderr, timeout, cancellationToken);
     }
 
-    private Task<byte[]> GetProcessOutputAsync(
+    private static bool UsesInfoLogLevel(IReadOnlyList<string> args)
+    {
+        // Detection filters emit their result data at info log level.
+        return args.Any(argument =>
+            argument.Contains("silencedetect", StringComparison.OrdinalIgnoreCase) ||
+            argument.Contains("blackframe", StringComparison.OrdinalIgnoreCase) ||
+            argument.Contains("blackdetect", StringComparison.OrdinalIgnoreCase) ||
+            argument.Contains("metadata=print", StringComparison.OrdinalIgnoreCase) ||
+            argument.Contains("showinfo", StringComparison.OrdinalIgnoreCase));
+    }
+
+    private static bool IsInfoQuery(IReadOnlyList<string> args)
+    {
+        if (args.Count == 0)
+        {
+            return false;
+        }
+
+        // Do not add thread count to quick info queries; ffmpeg treats it as a trailing option.
+        var firstArg = args[0];
+        return firstArg.StartsWith("-version", StringComparison.Ordinal) ||
+            firstArg.StartsWith("-muxers", StringComparison.Ordinal) ||
+            firstArg.StartsWith("-h", StringComparison.Ordinal);
+    }
+
+    private async Task<byte[]> GetProcessOutputAsync(
         string processPath,
         IReadOnlyList<string> args,
         bool stderr = false,
         int timeout = 60 * 1000,
         CancellationToken cancellationToken = default)
     {
-        return _process.RunAsync(processPath, args, stderr, timeout, Plugin.Instance?.Configuration.ProcessPriority, cancellationToken);
+        cancellationToken.ThrowIfCancellationRequested();
+
+        var info = new ProcessStartInfo(processPath)
+        {
+            WindowStyle = ProcessWindowStyle.Hidden,
+            CreateNoWindow = true,
+            UseShellExecute = false,
+            ErrorDialog = false,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true
+        };
+
+        foreach (var arg in args)
+        {
+            info.ArgumentList.Add(arg);
+        }
+
+        if (_logger.IsEnabled(LogLevel.Debug))
+        {
+            _logger.LogDebug("Starting ffmpeg with the following arguments: {Arguments}", string.Join(" ", info.ArgumentList));
+        }
+
+        using var process = new Process { StartInfo = info };
+        process.Start();
+
+        try
+        {
+            process.PriorityClass = Plugin.Instance?.Configuration.ProcessPriority ?? ProcessPriorityClass.BelowNormal;
+        }
+        catch (Exception e) when (e is InvalidOperationException or System.ComponentModel.Win32Exception or NotSupportedException)
+        {
+            _logger.LogWarning("ffmpeg priority could not be modified. {Message}", e.Message);
+        }
+
+        using var cancellationRegistration = cancellationToken.Register(() => KillProcessTree(process));
+        using var ms = new MemoryStream();
+
+        var stdoutTask = DrainAsync(process.StandardOutput.BaseStream, stderr ? null : ms, cancellationToken);
+        var stderrTask = DrainAsync(process.StandardError.BaseStream, stderr ? ms : null, cancellationToken);
+        await Task.WhenAll(stdoutTask, stderrTask).ConfigureAwait(false);
+
+        using var timeoutCts = new CancellationTokenSource(timeout);
+        using var waitCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, timeoutCts.Token);
+        try
+        {
+            await process.WaitForExitAsync(waitCts.Token).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            throw;
+        }
+        catch (OperationCanceledException) when (timeoutCts.IsCancellationRequested)
+        {
+            _logger.LogWarning("ffmpeg did not exit within {TimeoutMs}ms; killing process", timeout);
+            KillProcessTree(process);
+        }
+
+        cancellationToken.ThrowIfCancellationRequested();
+        return ms.ToArray();
+    }
+
+    private static async Task DrainAsync(Stream stream, Stream? destination, CancellationToken cancellationToken)
+    {
+        var buffer = new byte[4096];
+        int bytesRead;
+        while ((bytesRead = await stream.ReadAsync(buffer, cancellationToken).ConfigureAwait(false)) > 0)
+        {
+            if (destination is not null)
+            {
+                await destination.WriteAsync(buffer.AsMemory(0, bytesRead), cancellationToken).ConfigureAwait(false);
+            }
+        }
+    }
+
+    private void KillProcessTree(Process process)
+    {
+        try
+        {
+            if (!process.HasExited)
+            {
+                process.Kill(entireProcessTree: true);
+            }
+        }
+        catch (InvalidOperationException ex)
+        {
+            _logger.LogDebug("ffmpeg process already gone while killing process tree: {Message}", ex.Message);
+        }
+        catch (System.ComponentModel.Win32Exception ex)
+        {
+            _logger.LogWarning("Failed to kill ffmpeg process tree: {Message}", ex.Message);
+        }
+        catch (NotSupportedException ex)
+        {
+            _logger.LogWarning("Killing the ffmpeg process tree is not supported on this platform: {Message}", ex.Message);
+        }
     }
 
     private static string GetFFprobePath()

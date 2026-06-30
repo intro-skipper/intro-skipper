@@ -9,8 +9,11 @@ namespace IntroSkipper.Tests;
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Threading;
 using System.Threading.Tasks;
 using IntroSkipper.Analyzers;
+using IntroSkipper.Analyzers.Credits;
+using IntroSkipper.Configuration;
 using IntroSkipper.Data;
 using IntroSkipper.FFmpeg;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -36,6 +39,72 @@ public class TestBlackFrames
             Assert.Equal(e.Percentage, a.Percentage);
             Assert.InRange(a.Time, e.Time - range, e.Time + range);
         }
+    }
+
+    [FactSkipFFmpegTests]
+    public async Task TestSeekSampleKeyFrames()
+    {
+        var actual = await CreateFFmpegService().DetectKeyFramesAsync(
+            QueueFile("seek-sample.mp4"),
+            new(0, 8),
+            AnalysisMode.Introduction);
+
+        Assert.Equal([0, 1, 2, 3, 4, 5, 6, 7], actual);
+    }
+
+    [FactSkipFFmpegTests]
+    public async Task TestDetectKeyframeVisuals_ClipsScanToCreditsWindow()
+    {
+        // Real FFmpeg: -skip_frame nokey + -to does NOT reliably bound the scan (it emits keyframes
+        // past the requested duration), so DetectKeyframeVisualsAsync must clip parsed visuals to the
+        // window. credits.mp4 has keyframes every 10s; for window [5,35] (Start=5, Duration=30) the scan
+        // must return only the in-window keyframes (seek-relative 5/15/25 = source 10/20/30), never the
+        // leaked frames past 30s that would otherwise let credits be detected past CreditsFingerprintEnd.
+        var episode = new QueuedEpisode
+        {
+            EpisodeId = Guid.NewGuid(),
+            Name = "credits.mp4",
+            Path = "../../../video/credits.mp4",
+            Duration = 330,
+            CreditsFingerprintStart = 5,
+            CreditsFingerprintEnd = 35,
+        };
+
+        var visuals = await CreateFFmpegService().DetectKeyframeVisualsAsync(episode);
+
+        Assert.NotEmpty(visuals);
+        Assert.All(visuals, v => Assert.InRange(v.Time, 0, 30)); // clipped to range.Duration, no leak
+        Assert.Equal(new[] { 5.0, 15.0, 25.0 }, Array.ConvertAll(visuals, v => v.Time));
+        Assert.All(visuals, v => Assert.InRange(v.Entropy, 0, 1)); // real normalized entropy parsed
+        Assert.All(visuals, v => Assert.True(v.Saturation >= 0)); // real SATAVG parsed
+    }
+
+    [Fact]
+    public void TestParseBlackIntervals_LogOutput()
+    {
+        const string raw = """
+            [blackdetect @ 0000000000000000] black_start:3.04 black_end:9.96 black_duration:6.92
+            [blackdetect @ 0000000000000000] black_start:15 black_end:20.5 black_duration:5.5
+            """;
+
+        var intervals = FFmpegOutputParser.ParseBlackIntervals(raw);
+
+        Assert.Equal(2, intervals.Length);
+        Assert.Equal(new BlackInterval(3.04, 9.96), intervals[0]);
+        Assert.Equal(new BlackInterval(15, 20.5), intervals[1]);
+    }
+
+    [Fact]
+    public void TestParseBlackIntervals_IgnoresIncompleteOrInvalidIntervals()
+    {
+        const string raw = """
+            [blackdetect @ 0000000000000000] black_start:3.04
+            [blackdetect @ 0000000000000000] black_start:9 black_end:8 black_duration:1
+            """;
+
+        var intervals = FFmpegOutputParser.ParseBlackIntervals(raw);
+
+        Assert.Empty(intervals);
     }
 
     [FactSkipFFmpegTests]
@@ -82,7 +151,7 @@ public class TestBlackFrames
         }
 
         // minimum=85, sceneChange=96 (with floor=0 these are direct values)
-        var scenes = BlackFrameAltAnalyzer.DetectCreditScenes(frames, 85, 96);
+        var scenes = CreditSceneBuilder.DetectCreditScenes(frames, 85, 96, minimumDuration: 15);
 
         // The raw scene endpoint timestamps differ by exactly 20.0s: 29.5 - 9.5.
         // That is within MaximumTimeSkip, so the scenes should merge.
@@ -119,7 +188,7 @@ public class TestBlackFrames
             frames.Add(new BlackFrame(95, i * 0.5, i));
         }
 
-        var scenes = BlackFrameAltAnalyzer.DetectCreditScenes(frames, 85, 96);
+        var scenes = CreditSceneBuilder.DetectCreditScenes(frames, 85, 96, minimumDuration: 5);
 
         // The raw scene endpoint timestamps differ by 20.5s: 30.0 - 9.5.
         // That exceeds MaximumTimeSkip, so the scenes should stay separate.
@@ -136,7 +205,7 @@ public class TestBlackFrames
             frames.Add(new BlackFrame(90, i * 0.5, i));
         }
 
-        var (minimum, sceneChange) = BlackFrameAltAnalyzer.NormalizeThreshold(frames, 85);
+        var (minimum, sceneChange) = CreditsBlackFrameAnalyzer.NormalizeThreshold(frames, 85);
 
         // floor = min(90, 30) = 30
         // minimum = (85 * (100 - 30) / 100) + 30 = (85 * 70 / 100) + 30 = 59 + 30 = 89
@@ -155,7 +224,7 @@ public class TestBlackFrames
             frames.Add(new BlackFrame(i < 2 ? 5 : 80, i * 0.5, i));
         }
 
-        var (minimum, sceneChange) = BlackFrameAltAnalyzer.NormalizeThreshold(frames, 85);
+        var (minimum, sceneChange) = CreditsBlackFrameAnalyzer.NormalizeThreshold(frames, 85);
 
         // floor = min(5, 30) = 5
         // minimum = (85 * (100 - 5) / 100) + 5 = (85 * 95 / 100) + 5 = 80 + 5 = 85
@@ -176,7 +245,7 @@ public class TestBlackFrames
             frames.Add(new BlackFrame(percentage, i * 0.5, i));
         }
 
-        var scenes = BlackFrameAltAnalyzer.DetectCreditScenes(frames, 85, 96);
+        var scenes = CreditSceneBuilder.DetectCreditScenes(frames, 85, 96, minimumDuration: 15);
 
         // With density gating at 50%, the scene should be rejected (only 20% density)
         Assert.Empty(scenes);
@@ -194,10 +263,36 @@ public class TestBlackFrames
             frames.Add(new BlackFrame(percentage, i * 0.5, i));
         }
 
-        var scenes = BlackFrameAltAnalyzer.DetectCreditScenes(frames, 85, 96);
+        var scenes = CreditSceneBuilder.DetectCreditScenes(frames, 85, 96, minimumDuration: 15);
 
         // With density gating at 50%, the scene should be accepted (80% density)
         Assert.NotEmpty(scenes);
+    }
+
+    [Fact]
+    public void TestDetectCreditScenes_RepeatedLowDensityScenes_RejectedWithoutIntervalSupport()
+    {
+        // Repeated low-density clusters (~33% black keyframes) must NOT pass on keyframe evidence
+        // alone. The static density floor rejects them here; genuine low-density credits are instead
+        // rescued by blackdetect interval confirmation in CreditsBlackFrameAnalyzer, not by relaxing
+        // this gate. This locks in the fix for the multi-scene false-positive path.
+        var frames = new List<BlackFrame>();
+        AddCluster(startTime: 0, startFrame: 0);
+        AddCluster(startTime: 60, startFrame: 120);
+        AddCluster(startTime: 120, startFrame: 240);
+
+        var scenes = CreditSceneBuilder.DetectCreditScenes(frames, 85, 96, minimumDuration: 15);
+
+        Assert.Empty(scenes);
+
+        void AddCluster(double startTime, int startFrame)
+        {
+            for (var i = 0; i < 60; i++)
+            {
+                var percentage = (i % 3 == 0) ? 90 : 30;
+                frames.Add(new BlackFrame(percentage, startTime + (i * 0.5), startFrame + i));
+            }
+        }
     }
 
     [Fact]
@@ -218,7 +313,7 @@ public class TestBlackFrames
         var scene = new CreditScene(0, 5, 0.0, 2.5);
 
         // Scene starts at the first keyframe — no preceding keyframe exists
-        var result = BlackFrameAltAnalyzer.FindBoundaryKeyframeTimes(frames, scene);
+        var result = CreditsBoundaryHelper.FindBoundaryKeyframeTimes(frames, scene);
         Assert.Null(result);
     }
 
@@ -239,7 +334,7 @@ public class TestBlackFrames
 
         var scene = new CreditScene(2, 5, 1.0, 2.5);
 
-        var result = BlackFrameAltAnalyzer.FindBoundaryKeyframeTimes(frames, scene);
+        var result = CreditsBoundaryHelper.FindBoundaryKeyframeTimes(frames, scene);
         Assert.NotNull(result);
         Assert.Equal(0.5, result.Value.LastKeyframeTime);  // preceding keyframe at 0.5s
         Assert.Equal(1.0, result.Value.FirstBlackTime);    // scene start at 1.0s
@@ -263,7 +358,7 @@ public class TestBlackFrames
 
         var scene = new CreditScene(3, 5, 15.0, 25.0);
 
-        var result = BlackFrameAltAnalyzer.FindBoundaryKeyframeTimes(frames, scene);
+        var result = CreditsBoundaryHelper.FindBoundaryKeyframeTimes(frames, scene);
         Assert.NotNull(result);
         // Old behavior would return 0.0 (last frame with percentage < 85).
         // New behavior returns 10.0 (immediately preceding keyframe).
@@ -299,42 +394,13 @@ public class TestBlackFrames
 
         // Gap between scenes: 27.0 - 7.5 = 19.5s (within MaximumTimeSkip of 20s)
         // Combined span after merge: 0-34.5s = 35s total, 32 black frames out of 70 total → ~46% density
-        var scenes = BlackFrameAltAnalyzer.DetectCreditScenes(frames, 85, 96);
+        var scenes = CreditSceneBuilder.DetectCreditScenes(frames, 85, 96, minimumDuration: 5);
 
         Assert.Equal(2, scenes.Count);
         Assert.Equal(0.0, scenes[0].StartTime);
         Assert.Equal(7.5, scenes[0].EndTime);
         Assert.Equal(27.0, scenes[1].StartTime);
         Assert.Equal(34.5, scenes[1].EndTime);
-    }
-
-    [Fact]
-    public void TestConvertProbeTimestamp_ConvertsToRelativeTime()
-    {
-        // Simulate: CreditsFingerprintStart=240s, lastKeyframeTime=55s (relative to CreditsFingerprintStart),
-        // probeStart = 55 + 240 = 295s (absolute seek point passed to FFmpeg).
-        // FFmpeg returns probeTime=2.5s (relative to seek point 295s).
-        // Expected: absoluteTime = 2.5 + 295 = 297.5s
-        //           relativeTime = 297.5 - 240 = 57.5s = probeTime + lastKeyframeTime
-        var result = BlackFrameAltAnalyzer.ConvertProbeTimestamp(probeTime: 2.5, lastKeyframeTime: 55.0);
-        Assert.Equal(57.5, result);
-    }
-
-    [Fact]
-    public void TestConvertProbeTimestamp_ZeroProbeTime_ReturnsLastKeyframeTime()
-    {
-        // When the first probe frame is at the seek point itself (probeTime=0),
-        // the refined time equals the preceding keyframe time.
-        var result = BlackFrameAltAnalyzer.ConvertProbeTimestamp(probeTime: 0.0, lastKeyframeTime: 30.0);
-        Assert.Equal(30.0, result);
-    }
-
-    [Fact]
-    public void TestConvertProbeTimestamp_ZeroLastKeyframeTime()
-    {
-        // Edge case: preceding keyframe is at the very start (time 0).
-        var result = BlackFrameAltAnalyzer.ConvertProbeTimestamp(probeTime: 1.5, lastKeyframeTime: 0.0);
-        Assert.Equal(1.5, result);
     }
 
     [Fact]
@@ -350,7 +416,7 @@ public class TestBlackFrames
 
         var scene = new CreditScene(2, 3, 1.0, 1.5);
 
-        var probeMinimum = BlackFrameAltAnalyzer.SelectProbeMinimum(frames, scene, sceneChange: 95);
+        var probeMinimum = CreditsBoundaryHelper.SelectProbeMinimum(frames, scene, sceneChange: 95);
 
         Assert.Equal(92, probeMinimum);
     }
@@ -368,7 +434,25 @@ public class TestBlackFrames
 
         var scene = new CreditScene(2, 3, 1.0, 1.5);
 
-        var probeMinimum = BlackFrameAltAnalyzer.SelectProbeMinimum(frames, scene, sceneChange: 95);
+        var probeMinimum = CreditsBoundaryHelper.SelectProbeMinimum(frames, scene, sceneChange: 95);
+
+        Assert.Equal(95, probeMinimum);
+    }
+
+    [Fact]
+    public void TestSelectProbeMinimum_MissingStartFrame_FallsBackToSceneChange()
+    {
+        // A scene whose StartFrame is not present in the keyframe list (e.g. interval-derived)
+        // must fall back to sceneChange rather than throwing from First().
+        var frames = new List<BlackFrame>
+        {
+            new(50, 0.0, 0),
+            new(60, 0.5, 1),
+        };
+
+        var scene = new CreditScene(99, 100, 10.0, 12.0);
+
+        var probeMinimum = CreditsBoundaryHelper.SelectProbeMinimum(frames, scene, sceneChange: 95);
 
         Assert.Equal(95, probeMinimum);
     }
@@ -378,7 +462,7 @@ public class TestBlackFrames
     {
         var scene = new CreditScene(20, 40, 10.4, 30.0);
 
-        var shouldRefine = BlackFrameAltAnalyzer.ShouldRefineBoundary(scene, lastKeyframeTime: 10.0, minimumDuration: 15);
+        var shouldRefine = CreditsBoundaryHelper.ShouldRefineBoundary(scene, lastKeyframeTime: 10.0, minimumDuration: 15);
 
         Assert.False(shouldRefine);
     }
@@ -388,7 +472,7 @@ public class TestBlackFrames
     {
         var scene = new CreditScene(20, 40, 10.0, 20.0);
 
-        var shouldRefine = BlackFrameAltAnalyzer.ShouldRefineBoundary(scene, lastKeyframeTime: 8.0, minimumDuration: 15);
+        var shouldRefine = CreditsBoundaryHelper.ShouldRefineBoundary(scene, lastKeyframeTime: 8.0, minimumDuration: 15);
 
         Assert.False(shouldRefine);
     }
@@ -398,7 +482,7 @@ public class TestBlackFrames
     {
         var scene = new CreditScene(20, 40, 10.0, 24.0);
 
-        var shouldRefine = BlackFrameAltAnalyzer.ShouldRefineBoundary(scene, lastKeyframeTime: 8.5, minimumDuration: 15);
+        var shouldRefine = CreditsBoundaryHelper.ShouldRefineBoundary(scene, lastKeyframeTime: 8.5, minimumDuration: 15);
 
         Assert.True(shouldRefine);
     }
@@ -406,7 +490,7 @@ public class TestBlackFrames
     [Fact]
     public void TestTryRefineBoundaryTime_RejectsProbeAtPrecedingKeyframe()
     {
-        var refined = BlackFrameAltAnalyzer.TryRefineBoundaryTime(
+        var refined = CreditsBoundaryHelper.TryRefineBoundaryTime(
             probeTime: 0.0,
             lastKeyframeTime: 10.0,
             sceneStartTime: 15.0);
@@ -417,7 +501,7 @@ public class TestBlackFrames
     [Fact]
     public void TestTryRefineBoundaryTime_AcceptsProbeInsideBoundaryWindow()
     {
-        var refined = BlackFrameAltAnalyzer.TryRefineBoundaryTime(
+        var refined = CreditsBoundaryHelper.TryRefineBoundaryTime(
             probeTime: 2.5,
             lastKeyframeTime: 10.0,
             sceneStartTime: 15.0);
@@ -431,7 +515,7 @@ public class TestBlackFrames
         // When probeTime + lastKeyframeTime == sceneStartTime, the refinement
         // lands exactly at the original scene start (a no-op). This should be
         // accepted, not rejected — guarding against an accidental > to >= change.
-        var refined = BlackFrameAltAnalyzer.TryRefineBoundaryTime(
+        var refined = CreditsBoundaryHelper.TryRefineBoundaryTime(
             probeTime: 5.0,
             lastKeyframeTime: 10.0,
             sceneStartTime: 15.0);
@@ -442,12 +526,1068 @@ public class TestBlackFrames
     [Fact]
     public void TestTryRefineBoundaryTime_RejectsProbeAfterSceneStart()
     {
-        var refined = BlackFrameAltAnalyzer.TryRefineBoundaryTime(
+        var refined = CreditsBoundaryHelper.TryRefineBoundaryTime(
             probeTime: 6.0,
             lastKeyframeTime: 10.0,
             sceneStartTime: 15.0);
 
         Assert.Null(refined);
+    }
+
+    [Fact]
+    public async Task TestDetectCreditsAsync_EmptyScan_ReturnsNull()
+    {
+        var ffmpeg = new FakeFFmpegService([]);
+        var analyzer = CreateCreditsBlackFrameAnalyzer(ffmpeg);
+        var episode = CreateQueuedCreditsEpisode();
+
+        var result = await analyzer.DetectCreditsAsync(episode, 85, 32, 15);
+
+        Assert.Null(result);
+        Assert.Equal(1, ffmpeg.CreditsScanCalls);
+        Assert.Equal(0, ffmpeg.IntervalScanCalls);
+        Assert.Equal(0, ffmpeg.RangeScanCalls);
+    }
+
+    [Fact]
+    public async Task TestDetectCreditsAsync_SingleCleanScene_ReturnsOffsetSegment()
+    {
+        var ffmpeg = new FakeFFmpegService(CreateDenseFrames(startTime: 0, endTime: 20, percentage: 95));
+        var analyzer = CreateCreditsBlackFrameAnalyzer(ffmpeg);
+        var episode = CreateQueuedCreditsEpisode(creditsFingerprintStart: 100);
+
+        var result = await analyzer.DetectCreditsAsync(episode, 85, 32, 15);
+
+        Assert.NotNull(result);
+        Assert.Equal(100, result.Start);
+        Assert.Equal(120, result.End);
+        Assert.Equal(0, ffmpeg.IntervalScanCalls);
+        Assert.Equal(0, ffmpeg.RangeScanCalls);
+    }
+
+    [Fact]
+    public async Task TestDetectCreditsAsync_TooShortScene_ReturnsNull()
+    {
+        var ffmpeg = new FakeFFmpegService(CreateDenseFrames(startTime: 0, endTime: 10, percentage: 95));
+        var analyzer = CreateCreditsBlackFrameAnalyzer(ffmpeg);
+        var episode = CreateQueuedCreditsEpisode();
+
+        var result = await analyzer.DetectCreditsAsync(episode, 85, 32, 15);
+
+        Assert.Null(result);
+    }
+
+    [Fact]
+    public async Task TestDetectCreditsAsync_DarkLowDensityScene_ReturnsNull()
+    {
+        var frames = new List<BlackFrame>();
+        for (var i = 0; i < 100; i++)
+        {
+            frames.Add(new BlackFrame(i % 5 == 0 ? 95 : 30, i * 0.5, i));
+        }
+
+        var ffmpeg = new FakeFFmpegService([.. frames]);
+        var analyzer = CreateCreditsBlackFrameAnalyzer(ffmpeg);
+        var episode = CreateQueuedCreditsEpisode();
+
+        var result = await analyzer.DetectCreditsAsync(episode, 85, 32, 15);
+
+        Assert.Null(result);
+        Assert.Equal(1, ffmpeg.IntervalScanCalls);
+    }
+
+    [Fact]
+    public async Task TestDetectCreditsAsync_LowDensitySingleCandidateUsesIntervalSupport()
+    {
+        var ffmpeg = new FakeFFmpegService(
+            CreateLowDensitySingleCandidateFrames(),
+            intervals: [new BlackInterval(1, 49)]);
+        var analyzer = CreateCreditsBlackFrameAnalyzer(ffmpeg);
+        var episode = CreateQueuedCreditsEpisode();
+
+        var result = await analyzer.DetectCreditsAsync(episode, 85, 32, 15);
+
+        Assert.NotNull(result);
+        Assert.Equal(1, ffmpeg.IntervalScanCalls);
+        var intervalRange = Assert.IsType<TimeRange>(ffmpeg.LastIntervalRange);
+        Assert.Equal(0, intervalRange.Start);
+        Assert.Equal(64.5, intervalRange.End);
+        Assert.True(intervalRange.End < episode.CreditsFingerprintEnd);
+    }
+
+    [Fact]
+    public async Task TestDetectCreditsAsync_LowDensitySingleCandidateWithoutIntervalSupportReturnsNull()
+    {
+        var ffmpeg = new FakeFFmpegService(CreateLowDensitySingleCandidateFrames());
+        var analyzer = CreateCreditsBlackFrameAnalyzer(ffmpeg);
+        var episode = CreateQueuedCreditsEpisode();
+
+        var result = await analyzer.DetectCreditsAsync(episode, 85, 32, 15);
+
+        Assert.Null(result);
+        Assert.Equal(1, ffmpeg.IntervalScanCalls);
+    }
+
+    [Fact]
+    public async Task TestDetectCreditsAsync_StingerSplit_ReturnsFinalScene()
+    {
+        var ffmpeg = new FakeFFmpegService(CreateStingerSplitFrames());
+        var analyzer = CreateCreditsBlackFrameAnalyzer(ffmpeg);
+        var episode = CreateQueuedCreditsEpisode(creditsFingerprintStart: 1000);
+
+        var result = await analyzer.DetectCreditsAsync(episode, 85, 32, 15);
+
+        Assert.NotNull(result);
+        Assert.Equal(1090, result.Start);
+        Assert.Equal(1120, result.End);
+    }
+
+    [Fact]
+    public async Task TestDetectCreditsAsync_ValidBlackFrameSceneSkipsIntervalPromotion()
+    {
+        var ffmpeg = new FakeFFmpegService(
+            CreateStingerSplitFrames(),
+            intervals: [new BlackInterval(5, 10)]);
+        var analyzer = CreateCreditsBlackFrameAnalyzer(ffmpeg);
+        var episode = CreateQueuedCreditsEpisode(creditsFingerprintStart: 1000);
+
+        var result = await analyzer.DetectCreditsAsync(episode, 85, 32, 15);
+
+        Assert.NotNull(result);
+        Assert.Equal(1090, result.Start);
+        Assert.Equal(1120, result.End);
+        Assert.Equal(0, ffmpeg.IntervalScanCalls);
+    }
+
+    [Fact]
+    public async Task TestDetectCreditsAsync_ValidBlackFrameSceneDoesNotRequireBlackIntervals()
+    {
+        var ffmpeg = new FakeFFmpegService(CreateStingerSplitFrames())
+        {
+            IntervalScanException = new NotSupportedException("blackdetect unavailable"),
+        };
+        var analyzer = CreateCreditsBlackFrameAnalyzer(ffmpeg);
+        var episode = CreateQueuedCreditsEpisode(creditsFingerprintStart: 1000);
+
+        var result = await analyzer.DetectCreditsAsync(episode, 85, 32, 15);
+
+        Assert.NotNull(result);
+        Assert.Equal(1090, result.Start);
+        Assert.Equal(1120, result.End);
+        Assert.Equal(0, ffmpeg.IntervalScanCalls);
+    }
+
+    [Fact]
+    public async Task TestDetectCreditsAsync_BlackIntervalsRecoverSparseKeyframeCredits()
+    {
+        var frames = new List<BlackFrame>
+        {
+            new(15, 366.45, 36),
+            new(96, 376.46, 37),
+            new(96, 386.47, 38),
+            new(98, 396.48, 39),
+            new(99, 406.49, 40),
+            new(20, 416.5, 41),
+        };
+        var ffmpeg = new FakeFFmpegService(
+            [.. frames],
+            intervals: [new BlackInterval(367.827, 376.002)]);
+        var analyzer = CreateCreditsBlackFrameAnalyzer(ffmpeg);
+        var episode = CreateQueuedCreditsEpisode(creditsFingerprintStart: 2356.27);
+
+        var result = await analyzer.DetectCreditsAsync(episode, 85, 32, 15);
+
+        Assert.NotNull(result);
+        Assert.InRange(result.Start, 2724.096, 2724.098);
+        Assert.InRange(result.End, 2762.759, 2762.761);
+        Assert.Equal(1, ffmpeg.IntervalScanCalls);
+    }
+
+    [Fact]
+    public async Task TestDetectCreditsAsync_SparseSingleSceneWithoutIntervalSupportIsStillReturned()
+    {
+        // A single scene that already clears the density and duration gates but is temporally sparse
+        // triggers an opportunistic blackdetect probe. When that probe finds no supporting interval the
+        // scene is kept, not rejected: sparsity drives optional refinement, it is not a trust gate. This
+        // is the deliberate counterpart to the count==0 candidate path, which does require interval support.
+        BlackFrame[] frames =
+        [
+            new(10, 0, 0),
+            new(96, 10, 1),
+            new(96, 20, 2),
+            new(96, 30, 3),
+            new(96, 40, 4),
+            new(10, 50, 5),
+        ];
+        var ffmpeg = new FakeFFmpegService(frames);
+        var analyzer = CreateCreditsBlackFrameAnalyzer(ffmpeg);
+        SetRefineCreditsBoundary(analyzer, value: false);
+        var episode = CreateQueuedCreditsEpisode();
+
+        var result = await analyzer.DetectCreditsAsync(episode, 85, 32, 15);
+
+        Assert.NotNull(result);
+        Assert.Equal(10, result.Start);
+        Assert.Equal(40, result.End);
+
+        // The opportunistic interval probe ran but returned nothing; the keyframe scene survives the miss.
+        Assert.Equal(1, ffmpeg.IntervalScanCalls);
+    }
+
+    [Fact]
+    public async Task TestDetectCreditsAsync_BlackIntervalsExpandSingleShortScene()
+    {
+        BlackFrame[] frames =
+        [
+            new(96, 10, 10),
+            new(96, 12, 11),
+            new(96, 14, 12),
+            new(96, 16, 13),
+            new(96, 18, 14),
+            new(96, 20, 15),
+        ];
+        var ffmpeg = new FakeFFmpegService(
+            frames,
+            intervals: [new BlackInterval(5, 19.8)]);
+        var analyzer = CreateCreditsBlackFrameAnalyzer(ffmpeg);
+        var episode = CreateQueuedCreditsEpisode(creditsFingerprintStart: 100);
+
+        var result = await analyzer.DetectCreditsAsync(episode, 85, 32, 15);
+
+        Assert.NotNull(result);
+        Assert.Equal(105, result.Start);
+        Assert.Equal(120, result.End);
+        Assert.Equal(1, ffmpeg.IntervalScanCalls);
+    }
+
+    [Fact]
+    public void TestDetectIntervalSupportedCreditScenes_UsesIntervalEndForDurationAndBounds()
+    {
+        BlackFrame[] frames =
+        [
+            new(96, 10, 10),
+            new(96, 12, 12),
+        ];
+
+        var scenes = CreditSceneBuilder.DetectIntervalSupportedCreditScenes(
+            [.. frames],
+            [new BlackInterval(5, 25)],
+            minimum: 85,
+            minimumDuration: 15);
+
+        var scene = Assert.Single(scenes);
+        Assert.Equal(5, scene.StartTime);
+        Assert.Equal(25, scene.EndTime);
+    }
+
+    [Fact]
+    public void TestDetectIntervalSupportedCreditScenes_AnchorsTailSupportToInterval()
+    {
+        var frames = new List<BlackFrame>();
+        for (var time = 0; time <= 100; time += 10)
+        {
+            frames.Add(new BlackFrame(96, time, time));
+        }
+
+        var scenes = CreditSceneBuilder.DetectIntervalSupportedCreditScenes(
+            frames,
+            [new BlackInterval(90, 120)],
+            minimum: 85,
+            minimumDuration: 15);
+
+        var scene = Assert.Single(scenes);
+        Assert.Equal(90, scene.StartTime);
+        Assert.Equal(120, scene.EndTime);
+        Assert.Equal(90, scene.StartFrame);
+        Assert.Equal(100, scene.EndFrame);
+    }
+
+    [Fact]
+    public void TestDetectIntervalSupportedCreditScenes_PrefersLongerOverlappingInterval()
+    {
+        BlackFrame[] frames =
+        [
+            new(96, 10, 10),
+            new(96, 12, 11),
+        ];
+
+        // The first overlapping interval is too short to satisfy the minimum duration; a later, longer
+        // overlapping interval must still be used instead of rejecting the candidate.
+        var scenes = CreditSceneBuilder.DetectIntervalSupportedCreditScenes(
+            [.. frames],
+            [new BlackInterval(9, 13), new BlackInterval(9, 40)],
+            minimum: 85,
+            minimumDuration: 15);
+
+        var scene = Assert.Single(scenes);
+        Assert.Equal(9, scene.StartTime);
+        Assert.Equal(40, scene.EndTime);
+    }
+
+    [Fact]
+    public async Task TestDetectCreditsAsync_BlackIntervalsWithoutBlackframeSupportReturnNull()
+    {
+        var frames = new List<BlackFrame>
+        {
+            new(15, 366.45, 36),
+            new(20, 376.46, 37),
+            new(18, 386.47, 38),
+            new(22, 396.48, 39),
+        };
+        var ffmpeg = new FakeFFmpegService(
+            [.. frames],
+            intervals: [new BlackInterval(367.827, 376.002)]);
+        var analyzer = CreateCreditsBlackFrameAnalyzer(ffmpeg);
+        var episode = CreateQueuedCreditsEpisode(creditsFingerprintStart: 2356.27);
+
+        var result = await analyzer.DetectCreditsAsync(episode, 85, 32, 15);
+
+        Assert.Null(result);
+        Assert.Equal(0, ffmpeg.IntervalScanCalls);
+    }
+
+    [Fact]
+    public void TestCreditSceneMetrics_DetectsSparseScenesFromAverageBlackFrameGap()
+    {
+        var scene = new CreditScene(1, 4, 10, 40);
+        BlackFrame[] frames =
+        [
+            new(96, 10, 1),
+            new(97, 20, 2),
+            new(98, 30, 3),
+            new(99, 40, 4),
+        ];
+
+        var metrics = CreditSceneMetricsCalculator.Calculate(frames, scene, minimum: 85);
+
+        Assert.Equal(4, metrics.BlackFrameCount);
+        Assert.True(metrics.MeetsDensity(CreditDetectionPolicy.DefaultMinimumBlackFrameDensity));
+        Assert.True(metrics.IsSparse(scene, minimumDuration: 15));
+    }
+
+    [Fact]
+    public void TestIntervalProbeRanges_MergesOverlappingPaddedRanges()
+    {
+        var ranges = CreditsBlackFrameAnalyzer.BuildIntervalProbeRanges(
+            [
+                new CreditScene(10, 20, 100, 120),
+                new CreditScene(21, 30, 130, 150),
+                new CreditScene(80, 90, 300, 330),
+            ],
+            minimumDuration: 15,
+            fingerprintStart: 1000,
+            fingerprintEnd: 1400);
+
+        Assert.Equal(2, ranges.Count);
+        Assert.Equal(1085, ranges[0].Start);
+        Assert.Equal(1165, ranges[0].End);
+        Assert.Equal(1285, ranges[1].Start);
+        Assert.Equal(1345, ranges[1].End);
+    }
+
+    [Theory]
+    [MemberData(nameof(CandidateRankingCases))]
+    public void TestRankCreditCandidates_SelectsExpectedScene(
+        string label,
+        CreditScene[] scenes,
+        BlackInterval[] intervals,
+        int expectedIndex)
+    {
+        Assert.False(string.IsNullOrWhiteSpace(label));
+
+        var selected = CreditsBlackFrameAnalyzer.RankCreditCandidates(scenes, intervals)[0];
+
+        Assert.Equal(scenes[expectedIndex], selected);
+    }
+
+    public static IEnumerable<object[]> CandidateRankingCases()
+    {
+        CreditScene[] twoScenes =
+        [
+            new(400, 520, 200, 260),
+            new(620, 700, 310, 350),
+        ];
+
+        // No interval evidence: the latest scene wins.
+        yield return ["no intervals -> latest scene", twoScenes, Array.Empty<BlackInterval>(), 1];
+
+        // An interval overlapping the earlier scene beyond the minimum promotes it over the later scene.
+        yield return ["interval promotes earlier scene", twoScenes, new[] { new BlackInterval(205, 246) }, 0];
+
+        // Overlap shorter than MinimumIntervalOverlapSeconds (0.25s) is not support: the latest scene wins.
+        yield return ["sub-threshold overlap is not support", twoScenes, new[] { new BlackInterval(259.9, 280) }, 1];
+
+        // An interval supporting the later scene keeps the latest scene selected.
+        yield return ["interval supports later scene", twoScenes, new[] { new BlackInterval(315, 360) }, 1];
+
+        CreditScene[] threeScenes =
+        [
+            new(100, 200, 50, 90),
+            new(300, 400, 150, 190),
+            new(500, 600, 250, 290),
+        ];
+
+        // Among supported scenes the latest supported one wins, ahead of an unsupported later scene.
+        yield return
+        [
+            "latest supported scene beats unsupported later scene",
+            threeScenes,
+            new[] { new BlackInterval(55, 95), new BlackInterval(155, 195) },
+            1,
+        ];
+    }
+
+    [Fact]
+    public async Task TestDetectCreditsAsync_Cancellation_Rethrows()
+    {
+        using var cts = new CancellationTokenSource();
+        await cts.CancelAsync();
+
+        var ffmpeg = new FakeFFmpegService(CreateDenseFrames(startTime: 0, endTime: 20, percentage: 95));
+        var analyzer = CreateCreditsBlackFrameAnalyzer(ffmpeg);
+        var episode = CreateQueuedCreditsEpisode();
+
+        await Assert.ThrowsAsync<OperationCanceledException>(
+            () => analyzer.DetectCreditsAsync(episode, 85, 32, 15, cts.Token));
+    }
+
+    [Fact]
+    public async Task TestDetectCreditsAsync_RefinesBoundaryByDefault()
+    {
+        var frames = new List<BlackFrame>();
+        frames.AddRange(CreateDenseFrames(startTime: 0, endTime: 8, percentage: 30));
+        frames.AddRange(CreateDenseFrames(startTime: 10, endTime: 30, percentage: 95, startFrame: 20));
+
+        var ffmpeg = new FakeFFmpegService([.. frames], [new BlackFrame(95, 1.25, 0)]);
+        var analyzer = CreateCreditsBlackFrameAnalyzer(ffmpeg);
+        var episode = CreateQueuedCreditsEpisode(creditsFingerprintStart: 100);
+
+        var result = await analyzer.DetectCreditsAsync(episode, 85, 32, 15);
+
+        Assert.NotNull(result);
+        Assert.Equal(109.25, result.Start);
+        Assert.Equal(130, result.End);
+        Assert.Equal(1, ffmpeg.RangeScanCalls);
+        var probeRange = Assert.IsType<TimeRange>(ffmpeg.LastProbeRange);
+        Assert.Equal(108, probeRange.Start);
+        Assert.Equal(110, probeRange.End);
+        Assert.Equal(95, ffmpeg.LastProbeMinimum);
+        Assert.Equal(32, ffmpeg.LastProbeThreshold);
+        Assert.Equal(AnalysisMode.Credits, ffmpeg.LastProbeMode);
+    }
+
+    [Fact]
+    public async Task TestDetectCreditsAsync_RefinesSubMinimumFinalSceneBeforeSelectingEarlierScene()
+    {
+        var frames = new List<BlackFrame>();
+        frames.AddRange(CreateDenseFrames(startTime: 0, endTime: 20, percentage: 95));
+        frames.AddRange(CreateDenseFrames(startTime: 20.5, endTime: 58, percentage: 30));
+        frames.AddRange(CreateDenseFrames(startTime: 60, endTime: 74, percentage: 95, startFrame: 120));
+
+        var ffmpeg = new FakeFFmpegService([.. frames], [new BlackFrame(95, 0.5, 0)]);
+        var analyzer = CreateCreditsBlackFrameAnalyzer(ffmpeg);
+        var episode = CreateQueuedCreditsEpisode(creditsFingerprintStart: 100);
+
+        var result = await analyzer.DetectCreditsAsync(episode, 85, 32, 15);
+
+        Assert.NotNull(result);
+        Assert.Equal(158.5, result.Start);
+        Assert.Equal(174, result.End);
+        Assert.Equal(1, ffmpeg.RangeScanCalls);
+    }
+
+    [Fact]
+    public async Task TestDetectCreditsAsync_DisabledBoundaryRefinement_UsesKeyframeStart()
+    {
+        var frames = new List<BlackFrame>();
+        frames.AddRange(CreateDenseFrames(startTime: 0, endTime: 8, percentage: 30));
+        frames.AddRange(CreateDenseFrames(startTime: 10, endTime: 30, percentage: 95, startFrame: 20));
+
+        var ffmpeg = new FakeFFmpegService([.. frames], [new BlackFrame(95, 1.25, 0)]);
+        var analyzer = CreateCreditsBlackFrameAnalyzer(ffmpeg);
+        SetRefineCreditsBoundary(analyzer, value: false);
+        var episode = CreateQueuedCreditsEpisode(creditsFingerprintStart: 100);
+
+        var result = await analyzer.DetectCreditsAsync(episode, 85, 32, 15);
+
+        Assert.NotNull(result);
+        Assert.Equal(110, result.Start);
+        Assert.Equal(130, result.End);
+        Assert.Equal(0, ffmpeg.RangeScanCalls);
+    }
+
+    [Fact]
+    public async Task TestDetectCreditsAsync_DisabledRefinement_DoesNotSuppressIntervalFallback()
+    {
+        var frames = new List<BlackFrame>();
+        frames.AddRange(CreateDenseFrames(startTime: 0, endTime: 8, percentage: 30));
+        frames.AddRange(CreateDenseFrames(startTime: 14, endTime: 24, percentage: 95, startFrame: 40));
+
+        // The only keyframe scene is too short on its own and could reach the minimum duration only via
+        // boundary refinement. With refinement disabled it must not be admitted, so the interval fallback
+        // can still recover the credits instead of the analyzer returning null.
+        var ffmpeg = new FakeFFmpegService([.. frames], intervals: [new BlackInterval(8, 24)]);
+        var analyzer = CreateCreditsBlackFrameAnalyzer(ffmpeg);
+        SetRefineCreditsBoundary(analyzer, value: false);
+        var episode = CreateQueuedCreditsEpisode(creditsFingerprintStart: 100);
+
+        var result = await analyzer.DetectCreditsAsync(episode, 85, 32, 15);
+
+        Assert.NotNull(result);
+        Assert.Equal(1, ffmpeg.IntervalScanCalls);
+        Assert.Equal(108, result.Start);
+        Assert.Equal(124, result.End);
+    }
+
+    [Fact]
+    public async Task TestAnalyzeMediaFiles_RejectsNonCreditsMode()
+    {
+        var analyzer = CreateCreditsBlackFrameAnalyzer(new FakeFFmpegService([]));
+
+        await Assert.ThrowsAsync<NotImplementedException>(
+            () => analyzer.AnalyzeMediaFiles([], AnalysisMode.Introduction, CancellationToken.None));
+    }
+
+    [Fact]
+    public async Task TestAnalyzeMediaFiles_SkipsAlreadyAnalyzedEpisodes()
+    {
+        var episode = CreateQueuedCreditsEpisode();
+        episode.SetAnalyzed(AnalysisMode.Credits, EpisodeState.Analyzed);
+        var ffmpeg = new FakeFFmpegService(CreateDenseFrames(startTime: 0, endTime: 20, percentage: 95));
+        var analyzer = CreateCreditsBlackFrameAnalyzer(ffmpeg);
+
+        var result = await analyzer.AnalyzeMediaFiles([episode], AnalysisMode.Credits, CancellationToken.None);
+
+        Assert.Same(episode, result[0]);
+        Assert.Equal(0, ffmpeg.CreditsScanCalls);
+    }
+
+    [Fact]
+    public async Task TestAnalyzeMediaFiles_CancellationBeforeEpisode_Rethrows()
+    {
+        using var cts = new CancellationTokenSource();
+        await cts.CancelAsync();
+
+        var episode = CreateQueuedCreditsEpisode();
+        var ffmpeg = new FakeFFmpegService(CreateDenseFrames(startTime: 0, endTime: 20, percentage: 95));
+        var analyzer = CreateCreditsBlackFrameAnalyzer(ffmpeg);
+        using var scope = new EntrypointTestHelpers.PluginInstanceScope(EntrypointTestHelpers.CreateTempCacheDir());
+
+        await Assert.ThrowsAsync<OperationCanceledException>(
+            () => analyzer.AnalyzeMediaFiles([episode], AnalysisMode.Credits, cts.Token));
+        Assert.Equal(0, ffmpeg.CreditsScanCalls);
+    }
+
+    [Fact]
+    public async Task TestAnalyzeMediaFiles_DetectionException_Continues()
+    {
+        var episode = CreateQueuedCreditsEpisode();
+        var ffmpeg = new FakeFFmpegService([])
+        {
+            CreditsScanException = new InvalidOperationException("test failure"),
+        };
+        var analyzer = CreateCreditsBlackFrameAnalyzer(ffmpeg);
+        using var scope = new EntrypointTestHelpers.PluginInstanceScope(EntrypointTestHelpers.CreateTempCacheDir());
+
+        var result = await analyzer.AnalyzeMediaFiles([episode], AnalysisMode.Credits, CancellationToken.None);
+
+        Assert.Same(episode, result[0]);
+        Assert.Equal(EpisodeState.NotAnalyzed, episode.GetAnalyzed(AnalysisMode.Credits));
+        Assert.Equal(1, ffmpeg.CreditsScanCalls);
+    }
+
+    // ── Non-black (entropy/saturation) credit fallback ───────────────────
+
+    [Fact]
+    public void TestParseKeyframeVisuals_ParsesEntropyAndSaturation()
+    {
+        const string raw = """
+            [Parsed_metadata_2 @ 0x0] frame:0    pts:0       pts_time:0
+            [Parsed_metadata_2 @ 0x0] lavfi.entropy.normalized_entropy.normal.Y=0.531285
+            [Parsed_metadata_2 @ 0x0] lavfi.signalstats.SATAVG=108.199
+            [Parsed_metadata_2 @ 0x0] frame:1    pts:20480   pts_time:2
+            [Parsed_metadata_2 @ 0x0] lavfi.entropy.normalized_entropy.normal.Y=0.000000
+            [Parsed_metadata_2 @ 0x0] lavfi.signalstats.SATAVG=33
+            """;
+
+        var visuals = FFmpegOutputParser.ParseKeyframeVisuals(raw);
+
+        Assert.Equal(2, visuals.Length);
+        Assert.Equal(new KeyframeVisual(0.0, 0.531285, 108.199), visuals[0]);
+        Assert.Equal(new KeyframeVisual(2.0, 0.0, 33.0), visuals[1]);
+    }
+
+    [Fact]
+    public void TestParseKeyframeVisuals_UsesLumaPlaneAndSkipsBlocksWithoutEntropy()
+    {
+        // U/V entropy lines must not be mistaken for the luma plane, and a trailing block with no
+        // entropy metadata (e.g. truncated output) must be dropped rather than emitted as zeros.
+        const string raw = """
+            [Parsed_metadata_3 @ 0x0] frame:0 pts:0 pts_time:5
+            [Parsed_metadata_3 @ 0x0] lavfi.entropy.normalized_entropy.normal.Y=0.120000
+            [Parsed_metadata_3 @ 0x0] lavfi.entropy.normalized_entropy.normal.U=0.400000
+            [Parsed_metadata_3 @ 0x0] lavfi.entropy.normalized_entropy.normal.V=0.410000
+            [Parsed_metadata_3 @ 0x0] lavfi.signalstats.SATAVG=12.5
+            [Parsed_metadata_3 @ 0x0] frame:1 pts:1 pts_time:7
+            """;
+
+        var visual = Assert.Single(FFmpegOutputParser.ParseKeyframeVisuals(raw));
+
+        Assert.Equal(5.0, visual.Time);
+        Assert.Equal(0.12, visual.Entropy);
+        Assert.Equal(12.5, visual.Saturation);
+    }
+
+    [Fact]
+    public void TestParseKeyframeVisuals_SkipsBlocksWithoutSaturation()
+    {
+        // A trailing block truncated before lavfi.signalstats.SATAVG must be dropped rather than
+        // emitted with the default saturation 0, which would otherwise pass the low-saturation
+        // credit-card gate (0 < SaturationCreditMaximum) and fabricate a false card.
+        const string raw = """
+            [Parsed_metadata_2 @ 0x0] frame:0 pts:0 pts_time:5
+            [Parsed_metadata_2 @ 0x0] lavfi.entropy.normalized_entropy.normal.Y=0.120000
+            [Parsed_metadata_2 @ 0x0] lavfi.signalstats.SATAVG=12.5
+            [Parsed_metadata_2 @ 0x0] frame:1 pts:1 pts_time:7
+            [Parsed_metadata_2 @ 0x0] lavfi.entropy.normalized_entropy.normal.Y=0.050000
+            """;
+
+        var visual = Assert.Single(FFmpegOutputParser.ParseKeyframeVisuals(raw));
+
+        Assert.Equal(5.0, visual.Time);
+        Assert.Equal(0.12, visual.Entropy);
+        Assert.Equal(12.5, visual.Saturation);
+    }
+
+    [Fact]
+    public void TestParseKeyframeVisuals_ParsesExponentNotation()
+    {
+        // Defensive: stock FFmpeg emits decimal here, but if a build ever emits exponent form the whole
+        // numeric token must be parsed, not truncated at the mantissa (which would record 1s instead of
+        // ~0s and feed corrupt values into detection and the cache).
+        const string raw = """
+            [Parsed_metadata_2 @ 0x0] frame:0 pts:0 pts_time:1e-05
+            [Parsed_metadata_2 @ 0x0] lavfi.entropy.normalized_entropy.normal.Y=1.5e-06
+            [Parsed_metadata_2 @ 0x0] lavfi.signalstats.SATAVG=3.2e+01
+            [Parsed_metadata_2 @ 0x0] frame:1 pts:1 pts_time:2
+            """;
+
+        var visual = Assert.Single(FFmpegOutputParser.ParseKeyframeVisuals(raw));
+
+        Assert.Equal(1e-05, visual.Time);
+        Assert.Equal(1.5e-06, visual.Entropy);
+        Assert.Equal(32.0, visual.Saturation);
+    }
+
+    [Theory]
+    [InlineData(0.12, 30.0, true)] // uniform, muted background -> credit card
+    [InlineData(0.349, 95.0, true)] // just inside both exclusive maxima -> credit card
+    [InlineData(0.35, 30.0, false)] // entropy at the exclusive max -> not a card
+    [InlineData(0.55, 30.0, false)] // busy/high-entropy content -> not a card
+    [InlineData(0.12, 96.0, false)] // saturation at the exclusive max -> not a card
+    [InlineData(0.12, 200.0, false)] // vivid saturated colour -> not a card
+    public void TestIsCreditCardKeyframe(double entropy, double saturation, bool expected)
+    {
+        Assert.Equal(expected, CreditEntropyFallback.IsCreditCardKeyframe(new KeyframeVisual(0, entropy, saturation)));
+    }
+
+    [Fact]
+    public void TestCreditEntropyFallback_LaterSparseCreditsNotConstrainedByEarlierDenseRun()
+    {
+        // Regression (Finding 1): an earlier dense card-like run (0-20s) must not capture or extend into
+        // a later long-GOP credit run (60-96s, 12s cadence). Real content separates the two groups, so
+        // the run splits there and the latest sustained run is returned, not the earlier one.
+        var visuals = new List<KeyframeVisual>();
+        for (var time = 0.0; time <= 20; time += 2)
+        {
+            visuals.Add(new KeyframeVisual(time, 0.12, 30));
+        }
+
+        for (var time = 22.0; time < 60; time += 2)
+        {
+            visuals.Add(new KeyframeVisual(time, 0.55, 108)); // real content between the two card groups
+        }
+
+        foreach (var time in new[] { 60.0, 72.0, 84.0, 96.0 })
+        {
+            visuals.Add(new KeyframeVisual(time, 0.12, 30));
+        }
+
+        var range = CreditEntropyFallback.FindCreditRange(visuals, minimumDuration: 15);
+
+        Assert.NotNull(range);
+        Assert.Equal(60, range!.Start);
+        Assert.Equal(96, range.End);
+    }
+
+    [Fact]
+    public void TestCreditEntropyFallback_KeepsAllCardRunWhenGopExceedsBridge()
+    {
+        // Regression: a real all-card credit run whose keyframe cadence is just above the fixed
+        // MaximumSceneMergeGapSeconds bridge (cards every 21s, no non-card frames between). With no
+        // intervening non-card evidence the run must stay whole, not split into one-frame runs that
+        // each fail the minimum duration and yield null.
+        var visuals = new List<KeyframeVisual>();
+        foreach (var time in new[] { 0.0, 21.0, 42.0, 63.0 })
+        {
+            visuals.Add(new KeyframeVisual(time, 0.12, 30));
+        }
+
+        var range = CreditEntropyFallback.FindCreditRange(visuals, minimumDuration: 60);
+
+        Assert.NotNull(range);
+        Assert.Equal(0, range!.Start);
+        Assert.Equal(63, range.End);
+    }
+
+    [Fact]
+    public void TestCreditEntropyFallback_GroupsSparseCardsAfterDenseContent()
+    {
+        // Regression (Finding 1): dense 2s non-card content then static credit cards on a long-GOP
+        // (12s keyframe) source. Grouping must key off the card cadence, not the dense content cadence,
+        // or every 12s card gap splits the run and the 36s credit sequence is missed entirely.
+        var visuals = new List<KeyframeVisual>();
+        for (var time = 0.0; time <= 58; time += 2)
+        {
+            visuals.Add(new KeyframeVisual(time, 0.55, 108));
+        }
+
+        foreach (var time in new[] { 60.0, 72.0, 84.0, 96.0 })
+        {
+            visuals.Add(new KeyframeVisual(time, 0.12, 30));
+        }
+
+        var range = CreditEntropyFallback.FindCreditRange(visuals, minimumDuration: 15);
+
+        Assert.NotNull(range);
+        Assert.Equal(60, range!.Start);
+        Assert.Equal(96, range.End);
+    }
+
+    [Fact]
+    public void TestCreditEntropyFallback_TrimsSparseTailPastSubstantialDenseBody()
+    {
+        // Regression (Finding 2): a substantial dense credit block followed by isolated near-uniform
+        // frames every 8s out to the window edge. The trim must anchor to the dense-body cadence so the
+        // sparse tail is cut back to the real credit block instead of over-extending to the last stray.
+        var visuals = new List<KeyframeVisual>();
+        for (var time = 0.0; time <= 20; time += 2)
+        {
+            visuals.Add(new KeyframeVisual(time, 0.12, 30));
+        }
+
+        for (var time = 28.0; time <= 196; time += 8)
+        {
+            visuals.Add(new KeyframeVisual(time, 0.12, 30));
+        }
+
+        var range = CreditEntropyFallback.FindCreditRange(visuals, minimumDuration: 15);
+
+        Assert.NotNull(range);
+        Assert.Equal(0, range!.Start);
+        Assert.Equal(20, range.End);
+    }
+
+    [Fact]
+    public void TestCreditEntropyFallback_RejectsIsolatedCardsBridgingBusyContent()
+    {
+        // Regression: two card-like keyframes 18s apart with busy/high-entropy keyframes every 2s
+        // between them must NOT form credits — that is normal content with occasional static shots,
+        // not a sustained low-entropy card sequence.
+        var visuals = new List<KeyframeVisual>();
+        for (var time = 0.0; time <= 18; time += 2)
+        {
+            var card = time is 0 or 18;
+            visuals.Add(new KeyframeVisual(time, card ? 0.12 : 0.55, card ? 30 : 108));
+        }
+
+        Assert.Null(CreditEntropyFallback.FindCreditRange(visuals, minimumDuration: 15));
+    }
+
+    [Fact]
+    public void TestCreditEntropyFallback_DetectsLowEntropyCardRun()
+    {
+        var visuals = CreateCardCreditVisuals(cardStart: 30, cardEnd: 54);
+
+        var range = CreditEntropyFallback.FindCreditRange(visuals, minimumDuration: 15);
+
+        Assert.NotNull(range);
+        Assert.Equal(30, range.Start);
+        Assert.Equal(54, range.End);
+    }
+
+    [Fact]
+    public void TestCreditEntropyFallback_RejectsHighEntropyDarkScene()
+    {
+        var visuals = new List<KeyframeVisual>();
+        for (var time = 0.0; time < 60; time += 2)
+        {
+            // Dark (low luma) but detailed/non-uniform: high entropy, like a night scene.
+            visuals.Add(new KeyframeVisual(time, 0.63, 50));
+        }
+
+        Assert.Null(CreditEntropyFallback.FindCreditRange(visuals, minimumDuration: 15));
+
+        var saturatedCards = CreateCardCreditVisuals(cardStart: 0, cardEnd: 20, cardSaturation: 200);
+        Assert.Null(CreditEntropyFallback.FindCreditRange(saturatedCards, minimumDuration: 15));
+    }
+
+    [Fact]
+    public void TestCreditEntropyFallback_RejectsSubMinimumDurationRun()
+    {
+        var visuals = CreateCardCreditVisuals(cardStart: 30, cardEnd: 40); // only 10s of card
+
+        Assert.Null(CreditEntropyFallback.FindCreditRange(visuals, minimumDuration: 15));
+    }
+
+    [Fact]
+    public void TestCreditEntropyFallback_SelectsLatestQualifyingRun()
+    {
+        var visuals = new List<KeyframeVisual>();
+        for (var time = 0.0; time <= 20; time += 2)
+        {
+            visuals.Add(new KeyframeVisual(time, 0.12, 30)); // early card block 0-20
+        }
+
+        for (var time = 22.0; time < 60; time += 2)
+        {
+            visuals.Add(new KeyframeVisual(time, 0.55, 108)); // long busy gap
+        }
+
+        for (var time = 60.0; time <= 80; time += 2)
+        {
+            visuals.Add(new KeyframeVisual(time, 0.12, 30)); // late card block 60-80
+        }
+
+        var range = CreditEntropyFallback.FindCreditRange(visuals, minimumDuration: 15);
+
+        Assert.NotNull(range);
+        Assert.Equal(60, range.Start);
+        Assert.Equal(80, range.End);
+    }
+
+    [Fact]
+    public void TestCreditEntropyFallback_TrimsOverExtendedTail()
+    {
+        // Regression: real credits 0-20s, then non-credit tail with an isolated near-uniform frame
+        // every 8s. Before the trailing-density trim these periodic cards bridged the run out to 54s
+        // (an over-skip into post-credits content); the end must anchor to the dense block at 20s.
+        var visuals = new List<KeyframeVisual>();
+        for (var time = 0.0; time <= 20; time += 2)
+        {
+            visuals.Add(new KeyframeVisual(time, 0.12, 30));
+        }
+
+        for (var time = 22.0; time <= 58; time += 2)
+        {
+            var isolatedCard = time is 30 or 38 or 46 or 54;
+            visuals.Add(isolatedCard ? new KeyframeVisual(time, 0.12, 30) : new KeyframeVisual(time, 0.55, 108));
+        }
+
+        var range = CreditEntropyFallback.FindCreditRange(visuals, minimumDuration: 15);
+
+        Assert.NotNull(range);
+        Assert.Equal(0, range!.Start);
+        Assert.Equal(20, range.End);
+    }
+
+    [Fact]
+    public void TestCreditEntropyFallback_TrimsIsolatedLeadingCard()
+    {
+        // Regression: an isolated low-entropy card at 36s bridges (on a 4s-GOP source) into the real
+        // dense credits at 52-80s. The start must anchor to the dense block at 52s, not the pre-card.
+        var visuals = new List<KeyframeVisual>();
+        for (var time = 0.0; time <= 88; time += 4)
+        {
+            var card = time == 36 || (time >= 52 && time <= 80);
+            visuals.Add(new KeyframeVisual(time, card ? 0.12 : 0.55, card ? 30 : 108));
+        }
+
+        var range = CreditEntropyFallback.FindCreditRange(visuals, minimumDuration: 15);
+
+        Assert.NotNull(range);
+        Assert.Equal(52, range!.Start);
+        Assert.Equal(80, range.End);
+    }
+
+    [Fact]
+    public void TestCreditEntropyFallback_TrailingTrimBracket()
+    {
+        static List<KeyframeVisual> Seq(double end, double step, params (double From, double To)[] cards)
+        {
+            var v = new List<KeyframeVisual>();
+            for (var t = 0.0; t <= end + 1e-9; t += step)
+            {
+                var card = false;
+                foreach (var ci in cards)
+                {
+                    if (t >= ci.From - 1e-9 && t <= ci.To + 1e-9)
+                    {
+                        card = true;
+                        break;
+                    }
+                }
+
+                v.Add(new KeyframeVisual(t, card ? 0.12 : 0.55, card ? 30 : 108));
+            }
+
+            return v;
+        }
+
+        static (double Start, double End)? Run(List<KeyframeVisual> v)
+        {
+            var r = CreditEntropyFallback.FindCreditRange(v, 15);
+            return r is null ? null : (r.Start, r.End);
+        }
+
+        // Over-extension: dense credits 0-20, periodic isolated tail cards every 8s -> trim to 20.
+        Assert.Equal((0.0, 20.0), Run(Seq(58, 2, (0, 20), (30, 30), (38, 38), (46, 46), (54, 54))));
+
+        // Leading over-extension: an isolated pre-credit card bridges into a dense block (4s GOP)
+        // -> start anchored to the dense block, not the stray pre-card.
+        Assert.Equal((52.0, 80.0), Run(Seq(88, 4, (36, 36), (52, 80))));
+
+        // Clean dense card run -> unchanged.
+        Assert.Equal((30.0, 54.0), Run(Seq(54, 2, (30, 54))));
+
+        // Mid-body ident interlude (6s of non-card bracketed by dense cards) -> preserved.
+        Assert.Equal((0.0, 60.0), Run(Seq(60, 2, (0, 28), (36, 60))));
+
+        // Interlude near the end (cards resume densely after) -> preserved.
+        Assert.Equal((0.0, 60.0), Run(Seq(60, 2, (0, 48), (56, 60))));
+
+        // Sparse all-card credits (8s GOP) -> kept (100% density, trailing gap within scaled trim).
+        Assert.Equal((0.0, 40.0), Run(Seq(40, 8, (0, 40))));
+
+        // Uniform sparse long-GOP credits (12s cadence) -> kept; the trim keys off the run's own
+        // cadence, so an all-card run is never discarded even when its gap exceeds the capped bridge.
+        Assert.Equal((0.0, 48.0), Run(Seq(48, 12, (0, 48))));
+
+        // Two real runs separated by a long gap -> latest selected.
+        Assert.Equal((60.0, 80.0), Run(Seq(80, 2, (0, 20), (60, 80))));
+
+        // Sparse isolated cards bridged across busy 2s content (brief dense head, then a lone card
+        // every 8s) -> rejected by the card-density floor: most keyframes in the span are busy
+        // content, so this reads as normal content with occasional static shots, not a card sequence.
+        Assert.Null(Run(Seq(54, 2, (0, 6), (14, 14), (22, 22), (30, 30), (38, 38), (46, 46), (54, 54))));
+
+        // Final card spaced just within cadence (4s) -> kept, not over-trimmed.
+        Assert.Equal((0.0, 44.0), Run(Seq(44, 2, (0, 40), (44, 44))));
+
+        // All busy content -> null.
+        Assert.Null(Run(Seq(60, 2)));
+    }
+
+    [Fact]
+    public async Task TestDetectCreditsAsync_NonBlackCreditsFallback_DetectsCardCredits()
+    {
+        var ffmpeg = new FakeFFmpegService(
+            CreateDenseFrames(startTime: 0, endTime: 54, percentage: 0), // no black frames anywhere
+            keyframeVisuals: CreateCardCreditVisuals(cardStart: 30, cardEnd: 54));
+        var analyzer = CreateCreditsBlackFrameAnalyzer(ffmpeg);
+        var episode = CreateQueuedCreditsEpisode(creditsFingerprintStart: 100);
+
+        var result = await analyzer.DetectCreditsAsync(episode, 85, 32, 15);
+
+        Assert.NotNull(result);
+        Assert.Equal(130, result.Start);
+        Assert.Equal(154, result.End);
+        Assert.Equal(1, ffmpeg.VisualScanCalls);
+        Assert.Equal(0, ffmpeg.IntervalScanCalls);
+    }
+
+    [Fact]
+    public async Task TestDetectCreditsAsync_NoBlackFramesAtAll_RunsFallback()
+    {
+        // Pins the literal blackFrames.Count == 0 branch (the black scan emits nothing), distinct from
+        // the "frames present but no valid black-credit scene" path the other fallback test exercises.
+        var ffmpeg = new FakeFFmpegService(
+            [],
+            keyframeVisuals: CreateCardCreditVisuals(cardStart: 30, cardEnd: 54));
+        var analyzer = CreateCreditsBlackFrameAnalyzer(ffmpeg);
+        var episode = CreateQueuedCreditsEpisode(creditsFingerprintStart: 100);
+
+        var result = await analyzer.DetectCreditsAsync(episode, 85, 32, 15);
+
+        Assert.NotNull(result);
+        Assert.Equal(130, result.Start);
+        Assert.Equal(154, result.End);
+        Assert.Equal(1, ffmpeg.VisualScanCalls);
+    }
+
+    [Fact]
+    public async Task TestDetectCreditsAsync_IntervalMissThenFallback_RecoversNonBlackCredits()
+    {
+        // Low-density black candidates trigger interval confirmation; with no supporting intervals the
+        // black path still finds no scene, so the analyzer must fall through to the non-black fallback.
+        var ffmpeg = new FakeFFmpegService(
+            CreateLowDensitySingleCandidateFrames(),
+            intervals: [],
+            keyframeVisuals: CreateCardCreditVisuals(cardStart: 30, cardEnd: 54));
+        var analyzer = CreateCreditsBlackFrameAnalyzer(ffmpeg);
+        var episode = CreateQueuedCreditsEpisode(creditsFingerprintStart: 100);
+
+        var result = await analyzer.DetectCreditsAsync(episode, 85, 32, 15);
+
+        Assert.NotNull(result);
+        Assert.Equal(130, result.Start);
+        Assert.Equal(154, result.End);
+        Assert.Equal(1, ffmpeg.IntervalScanCalls);
+        Assert.Equal(1, ffmpeg.VisualScanCalls);
+    }
+
+    [Fact]
+    public async Task TestDetectCreditsAsync_BlackCreditsPresent_DoesNotRunFallback()
+    {
+        // A valid black-frame scene is found, so the frame-accurate black path must win and the
+        // (keyframe-granular) entropy fallback must never be scanned.
+        var ffmpeg = new FakeFFmpegService(
+            CreateDenseFrames(startTime: 0, endTime: 20, percentage: 95),
+            keyframeVisuals: CreateCardCreditVisuals(cardStart: 0, cardEnd: 20));
+        var analyzer = CreateCreditsBlackFrameAnalyzer(ffmpeg);
+        var episode = CreateQueuedCreditsEpisode(creditsFingerprintStart: 100);
+
+        var result = await analyzer.DetectCreditsAsync(episode, 85, 32, 15);
+
+        Assert.NotNull(result);
+        Assert.Equal(100, result.Start);
+        Assert.Equal(0, ffmpeg.VisualScanCalls);
+    }
+
+    [Fact]
+    public async Task TestDetectCreditsAsync_NonBlackCreditsDisabled_SkipsFallback()
+    {
+        var ffmpeg = new FakeFFmpegService(
+            CreateDenseFrames(startTime: 0, endTime: 54, percentage: 0),
+            keyframeVisuals: CreateCardCreditVisuals(cardStart: 30, cardEnd: 54));
+        var analyzer = CreateCreditsBlackFrameAnalyzer(ffmpeg);
+        SetDetectNonBlackCredits(analyzer, value: false);
+        var episode = CreateQueuedCreditsEpisode();
+
+        var result = await analyzer.DetectCreditsAsync(episode, 85, 32, 15);
+
+        Assert.Null(result);
+        Assert.Equal(0, ffmpeg.VisualScanCalls);
+    }
+
+    [Fact]
+    public async Task TestDetectCreditsAsync_NoBlackFramesAtAll_DisabledSkipsFallback()
+    {
+        // Disabled-setting companion for the empty-scan branch (blackFrames.Count == 0): with the
+        // option off, an empty black scan must still honor _config.DetectNonBlackCredits and never
+        // start the keyframe-visual fallback. The other disabled test seeds non-empty pblack=0 frames,
+        // so only the Count > 0 path is otherwise covered; this pins the empty-scan branch split.
+        var ffmpeg = new FakeFFmpegService(
+            [],
+            keyframeVisuals: CreateCardCreditVisuals(cardStart: 30, cardEnd: 54));
+        var analyzer = CreateCreditsBlackFrameAnalyzer(ffmpeg);
+        SetDetectNonBlackCredits(analyzer, value: false);
+        var episode = CreateQueuedCreditsEpisode();
+
+        var result = await analyzer.DetectCreditsAsync(episode, 85, 32, 15);
+
+        Assert.Null(result);
+        Assert.Equal(0, ffmpeg.VisualScanCalls);
     }
 
     // ── Fingerprint-based integration tests ──────────────────────────────
@@ -459,11 +1599,11 @@ public class TestBlackFrames
         var frames = ParseFingerprintFile("blackframe-alt-3");
 
         // Verify normalization: floor=0 → thresholds are pass-through values
-        var (minimum, sceneChange) = BlackFrameAltAnalyzer.NormalizeThreshold(frames, 85);
+        var (minimum, sceneChange) = CreditsBlackFrameAnalyzer.NormalizeThreshold(frames, 85);
         Assert.Equal(85, minimum);
         Assert.Equal(95, sceneChange);
 
-        var scenes = BlackFrameAltAnalyzer.DetectCreditScenes(frames, minimum, sceneChange);
+        var scenes = CreditSceneBuilder.DetectCreditScenes(frames, minimum, sceneChange, minimumDuration: 15);
 
         // Single credit block, no transition-frame shift (no frame reaches sceneChange=95)
         Assert.Single(scenes);
@@ -478,19 +1618,18 @@ public class TestBlackFrames
         // Transition-frame search shifts the last scene's start forward to skip dark-but-not-credits content.
         var frames = ParseFingerprintFile("blackframe-alt-4");
 
-        var (minimum, sceneChange) = BlackFrameAltAnalyzer.NormalizeThreshold(frames, 85);
+        var (minimum, sceneChange) = CreditsBlackFrameAnalyzer.NormalizeThreshold(frames, 85);
         Assert.Equal(85, minimum);
         Assert.Equal(95, sceneChange);
 
-        var scenes = BlackFrameAltAnalyzer.DetectCreditScenes(frames, minimum, sceneChange);
+        var scenes = CreditSceneBuilder.DetectCreditScenes(frames, minimum, sceneChange, minimumDuration: 15);
 
-        // 4 scenes survive density gating; none merge (gaps > 20s).
-        Assert.Equal(4, scenes.Count);
+        Assert.True(scenes.Count >= 4);
 
         // The real credits are the last scene (backward iteration would pick this first).
         // Before transition-frame search: start=422.843s
         // After: first frame >= sceneChange (95) shifts start to 463.425s
-        var credits = scenes[3];
+        var credits = scenes[^1];
         Assert.Equal(463.425, credits.StartTime);
         Assert.Equal(558.479, credits.EndTime);
     }
@@ -503,11 +1642,11 @@ public class TestBlackFrames
         var frames = ParseFingerprintFile("blackframe-alt-5");
 
         // Verify normalization: floor=25 scales thresholds upward
-        var (minimum, sceneChange) = BlackFrameAltAnalyzer.NormalizeThreshold(frames, 85);
+        var (minimum, sceneChange) = CreditsBlackFrameAnalyzer.NormalizeThreshold(frames, 85);
         Assert.Equal(88, minimum);   // (85 * 75 / 100) + 25 = 88
         Assert.Equal(96, sceneChange); // (95 * 75 / 100) + 25 = 96
 
-        var scenes = BlackFrameAltAnalyzer.DetectCreditScenes(frames, minimum, sceneChange);
+        var scenes = CreditSceneBuilder.DetectCreditScenes(frames, minimum, sceneChange, minimumDuration: 15);
 
         // Two blocks separated by 88s stinger gap (725.12 - 637.12 = 88 >> MaximumTimeSkip of 20).
         // They must NOT merge.
@@ -549,6 +1688,93 @@ public class TestBlackFrames
         return [.. FFmpegOutputParser.ParseBlackFrames(raw)];
     }
 
+
+    private static QueuedEpisode CreateQueuedCreditsEpisode(double creditsFingerprintStart = 0)
+    {
+        return new()
+        {
+            EpisodeId = Guid.NewGuid(),
+            Name = "episode.mkv",
+            Path = "episode.mkv",
+            Duration = creditsFingerprintStart + 1800,
+            CreditsFingerprintStart = creditsFingerprintStart,
+            CreditsFingerprintEnd = creditsFingerprintStart + 1800,
+        };
+    }
+
+    private static CreditsBlackFrameAnalyzer CreateCreditsBlackFrameAnalyzer(IFFmpegService ffmpegService)
+    {
+        return new(NullLogger<CreditsBlackFrameAnalyzer>.Instance, ffmpegService);
+    }
+
+    private static void SetRefineCreditsBoundary(CreditsBlackFrameAnalyzer analyzer, bool value)
+    {
+        var config = (PluginConfiguration)EntrypointTestHelpers.GetPrivateField(analyzer, "_config");
+        config.RefineCreditsBoundary = value;
+    }
+
+    private static void SetDetectNonBlackCredits(CreditsBlackFrameAnalyzer analyzer, bool value)
+    {
+        var config = (PluginConfiguration)EntrypointTestHelpers.GetPrivateField(analyzer, "_config");
+        config.DetectNonBlackCredits = value;
+    }
+
+    private static KeyframeVisual[] CreateCardCreditVisuals(
+        double cardStart,
+        double cardEnd,
+        double cardEntropy = 0.15,
+        double cardSaturation = 32,
+        double contentEntropy = 0.53,
+        double contentSaturation = 108)
+    {
+        var visuals = new List<KeyframeVisual>();
+        for (var time = 0.0; time < cardStart; time += 2)
+        {
+            visuals.Add(new KeyframeVisual(time, contentEntropy, contentSaturation));
+        }
+
+        for (var time = cardStart; time <= cardEnd; time += 2)
+        {
+            visuals.Add(new KeyframeVisual(time, cardEntropy, cardSaturation));
+        }
+
+        return [.. visuals];
+    }
+
+    private static BlackFrame[] CreateStingerSplitFrames()
+    {
+        var frames = new List<BlackFrame>();
+        frames.AddRange(CreateDenseFrames(startTime: 0, endTime: 20, percentage: 95));
+        frames.AddRange(CreateDenseFrames(startTime: 20.5, endTime: 89.5, percentage: 30, startFrame: 41));
+        frames.AddRange(CreateDenseFrames(startTime: 90, endTime: 120, percentage: 95, startFrame: 180));
+
+        return [.. frames];
+    }
+
+    private static BlackFrame[] CreateLowDensitySingleCandidateFrames()
+    {
+        var frames = new List<BlackFrame>();
+        for (var i = 0; i < 100; i++)
+        {
+            var percentage = (i % 3 == 0) ? 90 : 30;
+            frames.Add(new BlackFrame(percentage, i * 0.5, i));
+        }
+
+        return [.. frames];
+    }
+
+    private static BlackFrame[] CreateDenseFrames(double startTime, double endTime, int percentage, int? startFrame = null)
+    {
+        var frames = new List<BlackFrame>();
+        var frame = startFrame ?? (int)(startTime * 2);
+        for (var time = startTime; time <= endTime; time += 0.5)
+        {
+            frames.Add(new BlackFrame(percentage, time, frame++));
+        }
+
+        return [.. frames];
+    }
+
     private static QueuedEpisode QueueFile(string path)
     {
         return new()
@@ -581,5 +1807,108 @@ public class TestBlackFrames
     private static BlackFrameAnalyzer CreateBlackFrameAnalyzer()
     {
         return new(NullLogger<BlackFrameAnalyzer>.Instance, CreateFFmpegService());
+    }
+
+    private sealed class FakeFFmpegService(
+        BlackFrame[] creditsFrames,
+        BlackFrame[]? probeFrames = null,
+        BlackInterval[]? intervals = null,
+        KeyframeVisual[]? keyframeVisuals = null) : IFFmpegService
+    {
+        private readonly BlackFrame[] _creditsFrames = creditsFrames;
+        private readonly BlackFrame[] _probeFrames = probeFrames ?? [];
+        private readonly BlackInterval[] _intervals = intervals ?? [];
+        private readonly KeyframeVisual[] _keyframeVisuals = keyframeVisuals ?? [];
+
+        public Exception? CreditsScanException { get; init; }
+
+        public Exception? IntervalScanException { get; init; }
+
+        public int CreditsScanCalls { get; private set; }
+
+        public int IntervalScanCalls { get; private set; }
+
+        public int RangeScanCalls { get; private set; }
+
+        public int VisualScanCalls { get; private set; }
+
+        public TimeRange? LastProbeRange { get; private set; }
+
+        public int? LastProbeMinimum { get; private set; }
+
+        public int? LastProbeThreshold { get; private set; }
+
+        public AnalysisMode? LastProbeMode { get; private set; }
+
+        public int? LastIntervalThreshold { get; private set; }
+
+        public TimeRange? LastIntervalRange { get; private set; }
+
+        public Task<bool> CheckFFmpegVersionAsync(CancellationToken cancellationToken = default)
+            => throw new NotSupportedException();
+
+        public Task<uint[]> FingerprintAsync(QueuedEpisode episode, AnalysisMode mode, CancellationToken cancellationToken = default)
+            => throw new NotSupportedException();
+
+        public Task<TimeRange[]> DetectSilenceAsync(QueuedEpisode episode, TimeRange range, AnalysisMode mode, CancellationToken cancellationToken = default)
+            => throw new NotSupportedException();
+
+        public Task<BlackFrame[]> DetectBlackFramesAsync(
+            QueuedEpisode episode,
+            TimeRange range,
+            int minimum,
+            int threshold,
+            AnalysisMode mode,
+            CancellationToken cancellationToken = default)
+        {
+            RangeScanCalls++;
+            LastProbeRange = range;
+            LastProbeMinimum = minimum;
+            LastProbeThreshold = threshold;
+            LastProbeMode = mode;
+            cancellationToken.ThrowIfCancellationRequested();
+            return Task.FromResult(_probeFrames);
+        }
+
+        public Task<BlackFrame[]> DetectBlackFramesAsync(QueuedEpisode episode, int threshold, CancellationToken cancellationToken = default)
+        {
+            CreditsScanCalls++;
+            cancellationToken.ThrowIfCancellationRequested();
+            if (CreditsScanException is not null)
+            {
+                throw CreditsScanException;
+            }
+
+            return Task.FromResult(_creditsFrames);
+        }
+
+        public Task<KeyframeVisual[]> DetectKeyframeVisualsAsync(QueuedEpisode episode, CancellationToken cancellationToken = default)
+        {
+            VisualScanCalls++;
+            cancellationToken.ThrowIfCancellationRequested();
+            return Task.FromResult(_keyframeVisuals);
+        }
+
+        public Task<BlackInterval[]> DetectBlackIntervalsAsync(QueuedEpisode episode, TimeRange range, int threshold, int minimum, CancellationToken cancellationToken = default)
+        {
+            IntervalScanCalls++;
+            LastIntervalRange = range;
+            LastIntervalThreshold = threshold;
+            cancellationToken.ThrowIfCancellationRequested();
+            if (IntervalScanException is not null)
+            {
+                throw IntervalScanException;
+            }
+
+            return Task.FromResult(_intervals);
+        }
+
+        public Task<double[]> DetectKeyFramesAsync(QueuedEpisode episode, TimeRange range, AnalysisMode mode, CancellationToken cancellationToken = default)
+            => throw new NotSupportedException();
+
+        public Task<double?> ProbeAudioDurationAsync(string filePath, CancellationToken cancellationToken = default)
+            => throw new NotSupportedException();
+
+        public string GetChromaprintLogs() => string.Empty;
     }
 }

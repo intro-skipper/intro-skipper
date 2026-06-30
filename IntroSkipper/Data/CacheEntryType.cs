@@ -29,4 +29,14 @@ public enum CacheEntryType
     /// Key frame timestamp data.
     /// </summary>
     Keyframe,
+
+    /// <summary>
+    /// Black interval detection results.
+    /// </summary>
+    BlackInterval,
+
+    /// <summary>
+    /// Per-keyframe visual statistics (entropy and saturation) for non-black credit detection.
+    /// </summary>
+    KeyframeVisual,
 }

@@ -3,8 +3,6 @@
 // SPDX-FileCopyrightText: 2026 rlauuzo
 // SPDX-License-Identifier: GPL-3.0-only
 
-using System;
-using System.Collections.Generic;
 using System.Data.Common;
 using Microsoft.EntityFrameworkCore;
 
@@ -98,86 +96,18 @@ public class DetectionCacheDbContext : DbContext
     /// Ensures the database and schema are created.
     /// Uses <c>EnsureCreated</c> rather than migrations because this is a cache database
     /// with no schema evolution requirements — it can safely be deleted and recreated.
-    /// If the database file already exists but the schema does not match the current model
-    /// (e.g., left over from a previous format), the database is dropped and recreated.
     /// </summary>
     public void EnsureSchema()
     {
-        Database.EnsureCreated();
-
-        if (!HasExpectedSchema())
+        try
+        {
+            Database.EnsureCreated();
+            DetectionCache.AsNoTracking().Take(1).Load();
+        }
+        catch (Exception ex) when (ex is DbException or InvalidOperationException)
         {
             Database.EnsureDeleted();
             Database.EnsureCreated();
-        }
-    }
-
-    /// <summary>
-    /// Checks whether the DetectionCache table has the columns and types expected by the current model.
-    /// Returns <c>false</c> when the database was created by an older schema version (e.g., binary BLOB format)
-    /// or when column types or indexes do not match the current model.
-    /// </summary>
-    private bool HasExpectedSchema()
-    {
-        try
-        {
-            using var cmd = Database.GetDbConnection().CreateCommand();
-            Database.OpenConnection();
-            try
-            {
-                // Validate column names and types.
-                cmd.CommandText = "PRAGMA table_info('DetectionCache')";
-                using (var reader = cmd.ExecuteReader())
-                {
-                    var columns = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-                    while (reader.Read())
-                    {
-                        columns[reader.GetString(1)] = reader.GetString(2); // name -> type
-                    }
-
-                    var expectedColumns = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
-                    {
-                        ["Id"] = "INTEGER",
-                        ["ItemId"] = "TEXT",
-                        ["Mode"] = "INTEGER",
-                        ["Type"] = "INTEGER",
-                        ["Start"] = "REAL",
-                        ["End"] = "REAL",
-                        ["Data"] = "BLOB",
-                        ["ConfigHash"] = "TEXT",
-                    };
-
-                    foreach (var (name, type) in expectedColumns)
-                    {
-                        if (!columns.TryGetValue(name, out var actualType)
-                            || !string.Equals(actualType, type, StringComparison.OrdinalIgnoreCase))
-                        {
-                            return false;
-                        }
-                    }
-                }
-
-                // Validate the composite unique index exists.
-                cmd.CommandText = "PRAGMA index_info('IX_DetectionCache_Unique')";
-                using (var reader = cmd.ExecuteReader())
-                {
-                    if (!reader.HasRows)
-                    {
-                        return false;
-                    }
-                }
-
-                return true;
-            }
-            finally
-            {
-                Database.CloseConnection();
-            }
-        }
-        catch (Exception)
-        {
-            // If we can't read the schema, assume it's invalid and let the caller recreate.
-            return false;
         }
     }
 }

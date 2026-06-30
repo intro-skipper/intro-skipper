@@ -36,44 +36,12 @@ jobs:
 
           # Export it as an environment variable
           echo "SANITIZED_BRANCH_NAME=$SANITIZED" >> $GITHUB_ENV
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
-      - name: Read build configuration
-        id: read-config
-        run: |
-          CONFIG=$(cat build.json)
-          echo "MAIN_VERSION=$(echo "$CONFIG" | jq -r '.version')" >> $GITHUB_ENV
-          echo "IS_BETA=$(echo "$CONFIG" | jq -r '.beta')" >> $GITHUB_ENV
-          echo "DOTNET_VERSION=$(echo "$CONFIG" | jq -r '."dotnet-version"')" >> $GITHUB_ENV
-          DOTNET_MAJOR=$(echo "$CONFIG" | jq -r '."dotnet-version"' | cut -d'.' -f1)
-          echo "DOTNET_TFM=net${DOTNET_MAJOR}.0" >> $GITHUB_ENV
-
-      - name: Setup .NET
-        uses: actions/setup-dotnet@v5
+      - name: Setup build environment
+        uses: ./.github/actions/setup-build-env
         with:
-          dotnet-version: ${{ env.DOTNET_VERSION }}
-
-      - name: Setup pnpm
-        uses: pnpm/action-setup@v6
-        with:
-          version: 10
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v6
-        with:
-          node-version: 'lts/*'
-          cache: 'pnpm'
-          cache-dependency-path: web/pnpm-lock.yaml
-
-      - name: Configure NuGet for beta
-        if: ${{ env.IS_BETA == 'true' }}
-        run: |
-          cp nuget/NuGet.Beta.Config NuGet.Config
-          dotnet tool install --global dotnet-outdated-tool
-          dotnet outdated -pre Always -u -inc Jellyfin
-
-      - name: Restore dependencies
-        run: dotnet restore
+          github-token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Embed version info
         run: |

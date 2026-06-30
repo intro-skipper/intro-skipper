@@ -90,6 +90,22 @@ public class TestRecapDetection
         Assert.NotEqual(hashBaseline, hashTuned);
     }
 
+    [Fact]
+    public void RecapFingerprintRange_UsesIntroFingerprintWindow()
+    {
+        var episode = new QueuedEpisode
+        {
+            Duration = 1800,
+            IntroFingerprintEnd = 240,
+            CreditsFingerprintStart = 1500,
+            CreditsFingerprintEnd = 1800,
+        };
+
+        var range = episode.GetFingerprintRange(AnalysisMode.Recap);
+
+        Assert.Equal((0d, 240d), range);
+    }
+
     private static (List<TimeRange> Lhs, List<TimeRange> Rhs) TwoSharedRegions()
     {
         return (

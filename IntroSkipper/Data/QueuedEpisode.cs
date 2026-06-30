@@ -145,6 +145,7 @@ public class QueuedEpisode
         return mode switch
         {
             AnalysisMode.Introduction => (0, IntroFingerprintEnd),
+            AnalysisMode.Recap => (0, IntroFingerprintEnd),
             AnalysisMode.Credits => (CreditsFingerprintStart, CreditsFingerprintEnd > 0 ? CreditsFingerprintEnd : Duration),
             _ => throw new ArgumentException("Unknown analysis mode " + mode),
         };

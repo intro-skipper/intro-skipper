@@ -5,24 +5,17 @@
 
 namespace IntroSkipper.ScheduledTasks;
 
-internal sealed class ScheduledTaskSemaphore : IDisposable
+internal static class ScheduledTaskSemaphore
 {
     // Application-lifetime singleton; intentionally never disposed.
     private static readonly SemaphoreSlim _semaphore = new(1, 1);
-    private static int _activeHolders;
-    private int _disposed;
 
-    private ScheduledTaskSemaphore()
-    {
-    }
-
-    public static bool IsBusy => Volatile.Read(ref _activeHolders) > 0;
+    public static bool IsBusy => _semaphore.CurrentCount == 0;
 
     public static async Task<IDisposable> AcquireAsync(CancellationToken cancellationToken)
     {
         await _semaphore.WaitAsync(cancellationToken).ConfigureAwait(false);
-        Interlocked.Increment(ref _activeHolders);
-        return new ScheduledTaskSemaphore();
+        return new Lease();
     }
 
     public static async Task<IDisposable?> TryAcquireAsync()
@@ -32,23 +25,26 @@ internal sealed class ScheduledTaskSemaphore : IDisposable
             return null;
         }
 
-        Interlocked.Increment(ref _activeHolders);
-        return new ScheduledTaskSemaphore();
-    }
-
-    public void Dispose()
-    {
-        if (Interlocked.CompareExchange(ref _disposed, 1, 0) != 0)
-        {
-            return;
-        }
-
-        ReleaseSemaphore();
+        return new Lease();
     }
 
     private static void ReleaseSemaphore()
     {
-        Interlocked.Decrement(ref _activeHolders);
         _semaphore.Release();
+    }
+
+    private sealed class Lease : IDisposable
+    {
+        private int _disposed;
+
+        public void Dispose()
+        {
+            if (Interlocked.CompareExchange(ref _disposed, 1, 0) != 0)
+            {
+                return;
+            }
+
+            ReleaseSemaphore();
+        }
     }
 }

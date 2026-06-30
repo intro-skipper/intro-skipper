@@ -26,6 +26,28 @@ public class TestTimeRanges
     }
 
     [Fact]
+    public void TestSingleContiguousRange()
+    {
+        var times = new[] { 1.0, 2.0, 3.0, 4.0 };
+
+        var expected = new TimeRange(1, 4);
+        var actual = TimeRangeHelpers.FindContiguous(times, 2);
+
+        Assert.Equal(expected, actual);
+    }
+
+    [Fact]
+    public void TestLastContiguousRangeIsLongest()
+    {
+        var times = new[] { 1.0, 2.0, 10.0, 11.0, 12.0, 13.0 };
+
+        var expected = new TimeRange(10, 13);
+        var actual = TimeRangeHelpers.FindContiguous(times, 2);
+
+        Assert.Equal(expected, actual);
+    }
+
+    [Fact]
     public void TestLargeRange()
     {
         var times = new double[]{
@@ -89,6 +111,11 @@ public class TestTimeRanges
     [InlineData(7, 8, true)]    // in the middle
     [InlineData(9, 12, true)]   // intersects on the right
     [InlineData(13, 15, false)] // too late
+    [InlineData(6, 8, true)]    // fully inside
+    [InlineData(3, 12, true)]   // fully contains the range
+    [InlineData(5, 10, true)]   // identical range
+    [InlineData(0, 5, false)]   // touches the start boundary only
+    [InlineData(10, 15, false)] // touches the end boundary only
     public void TestTimeRangeIntersection(int start, int end, bool expected)
     {
         var large = new TimeRange(5, 10);
