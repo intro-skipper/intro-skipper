@@ -305,7 +305,7 @@ public class TestChapterAnalyzer
         };
     }
 
-    private sealed class NullChapterManager : DispatchProxy
+    private class NullChapterManager : DispatchProxy
     {
         public static IChapterManager Create()
             => DispatchProxy.Create<IChapterManager, NullChapterManager>();
