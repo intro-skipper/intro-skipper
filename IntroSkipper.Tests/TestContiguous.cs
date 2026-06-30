@@ -26,6 +26,28 @@ public class TestTimeRanges
     }
 
     [Fact]
+    public void TestSingleContiguousRange()
+    {
+        var times = new[] { 1.0, 2.0, 3.0, 4.0 };
+
+        var expected = new TimeRange(1, 4);
+        var actual = TimeRangeHelpers.FindContiguous(times, 2);
+
+        Assert.Equal(expected, actual);
+    }
+
+    [Fact]
+    public void TestLastContiguousRangeIsLongest()
+    {
+        var times = new[] { 1.0, 2.0, 10.0, 11.0, 12.0, 13.0 };
+
+        var expected = new TimeRange(10, 13);
+        var actual = TimeRangeHelpers.FindContiguous(times, 2);
+
+        Assert.Equal(expected, actual);
+    }
+
+    [Fact]
     public void TestLargeRange()
     {
         var times = new double[]{

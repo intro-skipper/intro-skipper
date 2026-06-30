@@ -25,8 +25,8 @@ public static class TimeRangeHelpers
 
         Array.Sort(times);
 
-        var ranges = new List<TimeRange>();
         var currentRange = new TimeRange(times[0], times[0]);
+        var bestRange = currentRange;
 
         // For all provided timestamps, check if it is contiguous with its neighbor.
         for (var i = 0; i < times.Length - 1; i++)
@@ -40,13 +40,14 @@ public static class TimeRangeHelpers
                 continue;
             }
 
-            ranges.Add(new TimeRange(currentRange));
+            if (currentRange.Duration > bestRange.Duration)
+            {
+                bestRange = currentRange;
+            }
+
             currentRange = new TimeRange(next, next);
         }
 
-        // Find and return the longest contiguous range.
-        ranges.Sort();
-
-        return (ranges.Count > 0) ? ranges[0] : null;
+        return (currentRange.Duration > bestRange.Duration) ? currentRange : bestRange;
     }
 }
