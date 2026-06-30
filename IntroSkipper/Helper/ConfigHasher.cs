@@ -19,8 +19,11 @@ public static class ConfigHasher
     /// <param name="config">Plugin configuration.</param>
     /// <param name="mode">Analysis mode.</param>
     /// <param name="action">Analyzer priority/action used for the season.</param>
+    /// <param name="ffmpegValid">Whether the current FFmpeg build supports Chromaprint. Folded into the
+    /// hash for Chromaprint-capable modes so a settled <see cref="EpisodeState.NoSegments"/> season is
+    /// re-analyzed once when Chromaprint becomes available instead of being skipped forever.</param>
     /// <returns>A compact hex hash.</returns>
-    public static string Analysis(PluginConfiguration config, AnalysisMode mode, AnalyzerAction action)
+    public static string Analysis(PluginConfiguration config, AnalysisMode mode, AnalyzerAction action, bool ffmpegValid)
     {
         ArgumentNullException.ThrowIfNull(config);
 
@@ -29,7 +32,7 @@ public static class ConfigHasher
             AnalysisMode.Introduction => Invariant(
                 $"analysis|v1|mode={mode}|action={action}|prefer={config.PreferChromaprint}|chap={config.ChapterAnalyzerIntroductionPattern}|fullchap={config.FullLengthChapters}|sbchap={config.EnableSponsorBlockChapterDetection}",
                 $"|pct={config.AnalysisPercent}|limit={config.AnalysisLengthLimit}|min={config.MinimumIntroDuration}|max={config.MaximumIntroDuration}",
-                $"|fpbits={config.MaximumFingerprintPointDifferences}|skip={config.MaximumTimeSkip}|shift={config.InvertedIndexShift}",
+                $"|fpbits={config.MaximumFingerprintPointDifferences}|skip={config.MaximumTimeSkip}|shift={config.InvertedIndexShift}|chromaprint={ffmpegValid}",
                 $"{AdjustmentHash(config)}"),
 
             AnalysisMode.Credits => Invariant(
@@ -37,7 +40,7 @@ public static class ConfigHasher
                 $"|pct={config.AnalysisPercent}|maxCredits={config.MaximumCreditsDuration}|maxMovie={config.MaximumMovieCreditsDuration}|probe={config.ProbeAudioDuration}",
                 $"|min={config.MinimumCreditsDuration}|bfmin={config.BlackFrameMinimumPercentage}|bfthr={config.BlackFrameThreshold}|bfchap={config.UseChapterMarkersBlackFrame}",
                 $"|bfalt={config.UseAlternativeBlackFrameAnalyzer}|bfrefine={config.RefineCreditsBoundary}|bfaltVersion=2{CreditsNonBlackToken(config)}",
-                $"|fpbits={config.MaximumFingerprintPointDifferences}|skip={config.MaximumTimeSkip}|shift={config.InvertedIndexShift}",
+                $"|fpbits={config.MaximumFingerprintPointDifferences}|skip={config.MaximumTimeSkip}|shift={config.InvertedIndexShift}|chromaprint={ffmpegValid}",
                 $"|animePreview={config.AnimePreviewFromCreditsEnd}",
                 $"{AdjustmentHash(config)}"),
 
@@ -45,7 +48,7 @@ public static class ConfigHasher
                 $"analysis|v1|mode={mode}|action={action}|prefer={config.PreferChromaprint}|chap={config.ChapterAnalyzerRecapPattern}|fullchap={config.FullLengthChapters}|sbchap={config.EnableSponsorBlockChapterDetection}|min={config.MinimumRecapDuration}|max={config.MaximumRecapDuration}",
                 $"|detMin={config.MinimumRecapDetectionDuration}|detMax={config.MaximumRecapDetectionDuration}",
                 $"|recapBlackFrames={config.DetectRecapUsingBlackFrames}|bfmin={config.BlackFrameMinimumPercentage}|bfthr={config.BlackFrameThreshold}",
-                $"|pct={config.AnalysisPercent}|limit={config.AnalysisLengthLimit}|fpbits={config.MaximumFingerprintPointDifferences}|skip={config.MaximumTimeSkip}|shift={config.InvertedIndexShift}",
+                $"|pct={config.AnalysisPercent}|limit={config.AnalysisLengthLimit}|fpbits={config.MaximumFingerprintPointDifferences}|skip={config.MaximumTimeSkip}|shift={config.InvertedIndexShift}|chromaprint={ffmpegValid}",
                 $"{AdjustmentHash(config)}"),
 
             AnalysisMode.Preview => Invariant(

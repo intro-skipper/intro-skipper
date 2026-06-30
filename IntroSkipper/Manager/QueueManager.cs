@@ -419,9 +419,10 @@ public partial class QueueManager(ILogger<QueueManager> logger, ILibraryManager 
     /// </summary>
     /// <param name="candidates">Queued media items.</param>
     /// <param name="modes">Analysis modes.</param>
+    /// <param name="ffmpegValid">Whether the current FFmpeg build supports Chromaprint; folded into the expected config hash so settled NoSegments seasons are re-checked when Chromaprint availability changes.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>Media items that have been verified to exist in Jellyfin and in storage.</returns>
-    internal async Task<IReadOnlyList<QueuedEpisode>> VerifyQueueAsync(IReadOnlyList<QueuedEpisode> candidates, IReadOnlyCollection<AnalysisMode> modes, CancellationToken cancellationToken = default)
+    internal async Task<IReadOnlyList<QueuedEpisode>> VerifyQueueAsync(IReadOnlyList<QueuedEpisode> candidates, IReadOnlyCollection<AnalysisMode> modes, bool ffmpegValid, CancellationToken cancellationToken = default)
     {
         if (candidates == null || candidates.Count == 0)
         {
@@ -463,7 +464,7 @@ public partial class QueueManager(ILogger<QueueManager> logger, ILibraryManager 
                     var action = snapshot.AnalyzerActionByMode.TryGetValue(mode, out var savedAction)
                         ? savedAction
                         : AnalyzerAction.Default;
-                    var expectedHash = ConfigHasher.Analysis(plugin.Configuration, mode, action);
+                    var expectedHash = ConfigHasher.Analysis(plugin.Configuration, mode, action, ffmpegValid);
                     var hashMatches = snapshot.ConfigHashByMode.TryGetValue(mode, out var savedHash) &&
                         string.Equals(savedHash, expectedHash, StringComparison.Ordinal);
 
