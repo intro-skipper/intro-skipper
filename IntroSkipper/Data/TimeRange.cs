@@ -80,8 +80,9 @@ public class TimeRange : IComparable
     /// <returns>true if time range intersects the current TimeRange, false otherwise.</returns>
     public bool Intersects(TimeRange tr)
     {
-        return
-            (Start < tr.Start && tr.Start < End) ||
-            (Start < tr.End && tr.End < End);
+        // Two ranges overlap when each one starts before the other ends. Testing only whether one
+        // range's endpoints fall strictly inside the other misses the cases where a range fully
+        // contains the other (or the two are identical), so compare the spans directly instead.
+        return Start < tr.End && tr.Start < End;
     }
 }
