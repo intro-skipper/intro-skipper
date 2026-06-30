@@ -75,13 +75,16 @@ public class TimeRange : IComparable
 
     /// <summary>
     /// Tests if this TimeRange object intersects the provided TimeRange.
+    /// The comparison is strictly non-touching: ranges that only meet at a shared endpoint
+    /// (for example <c>[0, 5]</c> and <c>[5, 10]</c>) are not treated as intersecting.
     /// </summary>
-    /// <param name="tr">Second TimeRange object to test.</param>
-    /// <returns>true if time range intersects the current TimeRange, false otherwise.</returns>
-    public bool Intersects(TimeRange tr)
+    /// <param name="other">TimeRange to test against the current range.</param>
+    /// <returns>true if the ranges overlap, excluding ranges that merely touch at an endpoint; otherwise false.</returns>
+    public bool Intersects(TimeRange other)
     {
-        return
-            (Start < tr.Start && tr.Start < End) ||
-            (Start < tr.End && tr.End < End);
+        // Two ranges overlap when each one starts before the other ends. Testing only whether one
+        // range's endpoints fall strictly inside the other misses the cases where a range fully
+        // contains the other (or the two are identical), so compare the spans directly instead.
+        return Start < other.End && other.Start < End;
     }
 }
