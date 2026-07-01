@@ -40,8 +40,6 @@ jobs:
 
       - name: Setup build environment
         uses: ./.github/actions/setup-build-env
-        with:
-          github-token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Embed version info
         run: |

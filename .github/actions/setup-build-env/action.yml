@@ -1,9 +1,5 @@
 name: "Setup build environment"
-description: "Reads build.json, installs .NET/Node/pnpm, configures beta NuGet, and restores dependencies."
-inputs:
-  github-token:
-    description: "GitHub token used for beta Jellyfin package feed access."
-    required: true
+description: "Reads build.json, installs .NET/Node/pnpm, configures NuGet, and restores dependencies."
 runs:
   using: "composite"
   steps:
@@ -49,13 +45,7 @@ runs:
     - name: Configure NuGet for beta
       if: ${{ steps.build-config.outputs.is-beta == 'true' }}
       shell: bash
-      env:
-        GH_TOKEN: ${{ inputs.github-token }}
-      run: |
-        cp nuget/NuGet.Beta.Config NuGet.Config
-        dotnet nuget add source --configfile NuGet.Config --username ${{ github.repository_owner }} --password "$GH_TOKEN" --store-password-in-clear-text --name github-jellyfin "https://nuget.pkg.github.com/jellyfin/index.json"
-        dotnet tool install --global dotnet-outdated-tool
-        dotnet outdated -pre Always -u -inc Jellyfin
+      run: cp nuget/NuGet.Beta.Config NuGet.Config
 
     - name: Restore dependencies
       shell: bash
