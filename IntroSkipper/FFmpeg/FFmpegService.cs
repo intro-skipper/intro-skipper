@@ -622,7 +622,7 @@ public sealed partial class FFmpegService(
         }
         catch (InvalidOperationException ex)
         {
-            _logger.LogDebug("ffmpeg process already gone while killing process tree: {Message}", ex.Message);
+            LogFfmpegProcessAlreadyGone(_logger, ex);
         }
         catch (System.ComponentModel.Win32Exception ex)
         {
@@ -779,4 +779,7 @@ public sealed partial class FFmpegService(
 
     [LoggerMessage(Level = LogLevel.Debug, Message = "Failed to probe audio duration for {File}")]
     private static partial void LogAudioDurationProbeFailed(ILogger logger, Exception ex, string file);
+
+    [LoggerMessage(Level = LogLevel.Debug, Message = "ffmpeg process already gone while killing process tree")]
+    private static partial void LogFfmpegProcessAlreadyGone(ILogger logger, Exception ex);
 }
