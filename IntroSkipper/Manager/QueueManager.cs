@@ -447,6 +447,19 @@ public partial class QueueManager(ILogger<QueueManager> logger, ILibraryManager 
         var ffmpegValid = await GetFfmpegValidAsync(cancellationToken).ConfigureAwait(false);
         var snapshot = await Plugin.GetSeasonQueueSnapshotAsync(candidates[0].SeasonId, [.. candidates.Select(c => c.EpisodeId)], cancellationToken).ConfigureAwait(false);
 
+        // The expected config hash depends on the season-level analyzer action and mode, not on the
+        // individual episode, so compute it once per mode instead of once per episode and mode.
+        var hashMatchesByMode = new Dictionary<AnalysisMode, bool>(modes.Count);
+        foreach (var mode in modes)
+        {
+            var action = snapshot.AnalyzerActionByMode.TryGetValue(mode, out var savedAction)
+                ? savedAction
+                : AnalyzerAction.Default;
+            var expectedHash = ConfigHasher.Analysis(plugin.Configuration, mode, action, ffmpegValid);
+            hashMatchesByMode[mode] = snapshot.ConfigHashByMode.TryGetValue(mode, out var savedHash) &&
+                string.Equals(savedHash, expectedHash, StringComparison.Ordinal);
+        }
+
         foreach (var candidate in candidates)
         {
             try
@@ -474,12 +487,7 @@ public partial class QueueManager(ILogger<QueueManager> logger, ILibraryManager 
 
                 foreach (var mode in modes)
                 {
-                    var action = snapshot.AnalyzerActionByMode.TryGetValue(mode, out var savedAction)
-                        ? savedAction
-                        : AnalyzerAction.Default;
-                    var expectedHash = ConfigHasher.Analysis(plugin.Configuration, mode, action, ffmpegValid);
-                    var hashMatches = snapshot.ConfigHashByMode.TryGetValue(mode, out var savedHash) &&
-                        string.Equals(savedHash, expectedHash, StringComparison.Ordinal);
+                    var hashMatches = hashMatchesByMode[mode];
 
                     if (snapshot.SegmentsByEpisodeId.TryGetValue(candidate.EpisodeId, out var hasSegments) &&
                         hasSegments.TryGetValue(mode, out _))
