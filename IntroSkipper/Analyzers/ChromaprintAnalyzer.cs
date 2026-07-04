@@ -473,10 +473,6 @@ public partial class ChromaprintAnalyzer(ILogger<ChromaprintAnalyzer> logger, IF
             rhsTimes.Add(rhsTime);
         }
 
-        // Ensure the last timestamp is checked
-        lhsTimes.Add(double.MaxValue);
-        rhsTimes.Add(double.MaxValue);
-
         // Now that both fingerprints have been compared at this shift, see if there's a contiguous time range.
         var lContiguous = TimeRangeHelpers.FindContiguous([.. lhsTimes], _config.MaximumTimeSkip);
         if (lContiguous is null || lContiguous.Duration < GetMinimumRegionDuration(_analysisMode, _config.MinimumIntroDuration))

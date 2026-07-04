@@ -19,16 +19,6 @@ public static class ConfigHasher
     /// <param name="config">Plugin configuration.</param>
     /// <param name="mode">Analysis mode.</param>
     /// <param name="action">Analyzer priority/action used for the season.</param>
-    /// <returns>A compact hex hash assuming Chromaprint is available.</returns>
-    public static string Analysis(PluginConfiguration config, AnalysisMode mode, AnalyzerAction action)
-        => Analysis(config, mode, action, ffmpegValid: true);
-
-    /// <summary>
-    /// Computes a hash for a stored analysis result.
-    /// </summary>
-    /// <param name="config">Plugin configuration.</param>
-    /// <param name="mode">Analysis mode.</param>
-    /// <param name="action">Analyzer priority/action used for the season.</param>
     /// <param name="ffmpegValid">Whether the current FFmpeg build supports Chromaprint. Folded into the
     /// hash for Chromaprint-capable modes so a settled <see cref="EpisodeState.NoSegments"/> season is
     /// re-analyzed once when Chromaprint becomes available instead of being skipped forever.</param>
