@@ -11,6 +11,12 @@ export const blackFrameTab: Tab = {
         appendTabContent(
             container,
             checkboxField({
+                id: "DetectRecapUsingBlackFrames",
+                label: "Detect recap using black frames",
+                description:
+                    "When recap chapter detection fails, mark recap from 0:00 to the latest detected black frame within the detected recap duration limits and before the intro.",
+            }),
+            checkboxField({
                 id: "UseAlternativeBlackFrameAnalyzer",
                 label: "Use alternative black frame analyzer (experimental)",
                 description:
