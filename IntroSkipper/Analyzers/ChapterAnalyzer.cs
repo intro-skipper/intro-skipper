@@ -229,19 +229,35 @@ public partial class ChapterAnalyzer(ILogger<ChapterAnalyzer> logger, IFFmpegSer
             return null;
         }
 
-        var blackFrames = await _ffmpegService.DetectBlackFramesAsync(
-            episode,
-            new TimeRange(0, maxRecapBoundary),
-            _config.BlackFrameMinimumPercentage,
-            _config.BlackFrameThreshold,
-            AnalysisMode.Recap,
-            cancellationToken).ConfigureAwait(false);
+        var blackFrames = await DetectAdaptiveRecapBlackFramesAsync(episode, maxRecapBoundary, cancellationToken).ConfigureAwait(false);
 
         return BuildRecapFromBlackFrames(
             episode.EpisodeId,
             blackFrames,
             _config.MinimumRecapDetectionDuration,
             maxRecapBoundary);
+    }
+
+    private async Task<BlackFrame[]> DetectAdaptiveRecapBlackFramesAsync(
+        QueuedEpisode episode,
+        double maxRecapBoundary,
+        CancellationToken cancellationToken)
+    {
+        const int adaptiveScanFloor = 50;
+        var blackFrames = (await _ffmpegService.DetectBlackFramesAsync(
+            episode,
+            new TimeRange(0, maxRecapBoundary),
+            Math.Min(_config.BlackFrameMinimumPercentage, adaptiveScanFloor),
+            _config.BlackFrameThreshold,
+            AnalysisMode.Recap,
+            cancellationToken).ConfigureAwait(false)).ToList();
+        if (blackFrames.Count == 0)
+        {
+            return [];
+        }
+
+        var (minimum, _) = CreditsBlackFrameAnalyzer.NormalizeThreshold(blackFrames, _config.BlackFrameMinimumPercentage);
+        return [.. blackFrames.Where(frame => frame.Percentage >= minimum)];
     }
 
     internal static Segment? BuildRecapFromBlackFrames(
