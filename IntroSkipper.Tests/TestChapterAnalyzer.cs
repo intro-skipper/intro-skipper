@@ -108,42 +108,51 @@ public class TestChapterAnalyzer
     public async Task DetectRecapUsingBlackFrames_UsesAdaptiveThresholdWithCurrentBlackFrameScan()
     {
         using var scope = new EntrypointTestHelpers.PluginInstanceScope(EntrypointTestHelpers.CreateTempCacheDir());
-        var dbPath = Path.Combine(Path.GetTempPath(), "IntroSkipper.Tests", Guid.NewGuid().ToString("N") + "-segments.db");
-        EntrypointTestHelpers.SetPrivateField(Plugin.Instance!, "_dbPath", dbPath);
-        EntrypointTestHelpers.SetPropertyOrField(
-            Plugin.Instance!,
-            "Configuration",
-            new PluginConfiguration
-            {
-                BlackFrameMinimumPercentage = 85,
-                BlackFrameThreshold = 32,
-                MinimumRecapDetectionDuration = 5,
-                MaximumRecapDetectionDuration = 120,
-            });
-        await using (var db = new IntroSkipperDbContext(dbPath))
+        var dbDirectory = Path.Combine(Path.GetTempPath(), "IntroSkipper.Tests", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(dbDirectory);
+        try
         {
-            await db.Database.EnsureCreatedAsync();
+            var dbPath = Path.Combine(dbDirectory, "segments.db");
+            EntrypointTestHelpers.SetPrivateField(Plugin.Instance!, "_dbPath", dbPath);
+            EntrypointTestHelpers.SetPropertyOrField(
+                Plugin.Instance!,
+                "Configuration",
+                new PluginConfiguration
+                {
+                    BlackFrameMinimumPercentage = 85,
+                    BlackFrameThreshold = 32,
+                    MinimumRecapDetectionDuration = 5,
+                    MaximumRecapDetectionDuration = 120,
+                });
+            await using (var db = new IntroSkipperDbContext(dbPath))
+            {
+                await db.Database.EnsureCreatedAsync();
+            }
+
+            var ffmpeg = new RecapBlackFrameFfmpeg(
+            [
+                new(50, 20, 10),
+                new(95, 40, 20),
+                new(88, 80, 30),
+            ]);
+            var analyzer = new ChapterAnalyzer(NullLogger<ChapterAnalyzer>.Instance, ffmpeg);
+
+            var recap = await analyzer.DetectRecapUsingBlackFramesAsync(
+                new QueuedEpisode { EpisodeId = Guid.NewGuid(), Duration = 200, Path = "episode.mkv" },
+                CancellationToken.None);
+
+            Assert.NotNull(recap);
+            Assert.Equal(40, recap.End);
+            Assert.Equal(50, ffmpeg.LastMinimum);
+            Assert.Equal(32, ffmpeg.LastThreshold);
+            Assert.Equal(AnalysisMode.Recap, ffmpeg.LastMode);
+            Assert.Equal(0, ffmpeg.LastRange?.Start);
+            Assert.Equal(120, ffmpeg.LastRange?.End);
         }
-
-        var ffmpeg = new RecapBlackFrameFfmpeg(
-        [
-            new(50, 20, 10),
-            new(95, 40, 20),
-            new(88, 80, 30),
-        ]);
-        var analyzer = new ChapterAnalyzer(NullLogger<ChapterAnalyzer>.Instance, ffmpeg);
-
-        var recap = await analyzer.DetectRecapUsingBlackFramesAsync(
-            new QueuedEpisode { EpisodeId = Guid.NewGuid(), Duration = 200, Path = "episode.mkv" },
-            CancellationToken.None);
-
-        Assert.NotNull(recap);
-        Assert.Equal(40, recap.End);
-        Assert.Equal(50, ffmpeg.LastMinimum);
-        Assert.Equal(32, ffmpeg.LastThreshold);
-        Assert.Equal(AnalysisMode.Recap, ffmpeg.LastMode);
-        Assert.Equal(0, ffmpeg.LastRange?.Start);
-        Assert.Equal(120, ffmpeg.LastRange?.End);
+        finally
+        {
+            Directory.Delete(dbDirectory, recursive: true);
+        }
     }
 
     [Theory]

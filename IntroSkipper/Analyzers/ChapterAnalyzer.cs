@@ -25,6 +25,8 @@ namespace IntroSkipper.Analyzers;
 /// <param name="ffmpegService">FFmpeg service.</param>
 public partial class ChapterAnalyzer(ILogger<ChapterAnalyzer> logger, IFFmpegService ffmpegService) : IMediaFileAnalyzer
 {
+    private const int RecapAdaptiveBlackFrameScanFloor = 50;
+
     private readonly ILogger<ChapterAnalyzer> _logger = logger;
     private readonly IFFmpegService _ffmpegService = ffmpegService;
     private readonly PluginConfiguration _config = Plugin.Instance?.Configuration ?? new PluginConfiguration();
@@ -243,11 +245,10 @@ public partial class ChapterAnalyzer(ILogger<ChapterAnalyzer> logger, IFFmpegSer
         double maxRecapBoundary,
         CancellationToken cancellationToken)
     {
-        const int adaptiveScanFloor = 50;
         var blackFrames = (await _ffmpegService.DetectBlackFramesAsync(
             episode,
             new TimeRange(0, maxRecapBoundary),
-            Math.Min(_config.BlackFrameMinimumPercentage, adaptiveScanFloor),
+            Math.Min(_config.BlackFrameMinimumPercentage, RecapAdaptiveBlackFrameScanFloor),
             _config.BlackFrameThreshold,
             AnalysisMode.Recap,
             cancellationToken).ConfigureAwait(false)).ToList();
@@ -256,7 +257,7 @@ public partial class ChapterAnalyzer(ILogger<ChapterAnalyzer> logger, IFFmpegSer
             return [];
         }
 
-        var (minimum, _) = CreditsBlackFrameAnalyzer.NormalizeThreshold(blackFrames, _config.BlackFrameMinimumPercentage);
+        var (minimum, _) = BlackFrameThresholdHelper.NormalizeThreshold(blackFrames, _config.BlackFrameMinimumPercentage);
         return [.. blackFrames.Where(frame => frame.Percentage >= minimum)];
     }
 
