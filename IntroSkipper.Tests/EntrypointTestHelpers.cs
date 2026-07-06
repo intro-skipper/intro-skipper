@@ -14,6 +14,7 @@ using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using IntroSkipper.Configuration;
+using IntroSkipper.Db;
 using IntroSkipper.FFmpeg;
 using IntroSkipper.Manager;
 using IntroSkipper.Services;
@@ -22,6 +23,7 @@ using MediaBrowser.Controller.Library;
 using MediaBrowser.Model.Entities;
 using MediaBrowser.Model.Plugins;
 using MediaBrowser.Model.Tasks;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using Xunit;
@@ -29,6 +31,25 @@ using Xunit;
 internal static class EntrypointTestHelpers
 {
     internal static readonly byte[] EmptyJsonArray = Encoding.UTF8.GetBytes("[]");
+
+    /// <summary>
+    /// Creates a <see cref="DetectionCacheService"/> backed by a factory that resolves the cache
+    /// database path from <see cref="Plugin.Instance"/> at context-creation time, matching the
+    /// pre-DI behavior of <c>Plugin.CreateCacheDbContext()</c>.
+    /// </summary>
+    internal static DetectionCacheService CreateDetectionCacheService()
+        => new(NullLogger<DetectionCacheService>.Instance, new PluginCacheDbContextFactory());
+
+    internal static DatabaseInitializer CreateDatabaseInitializer(string dbPath, string cacheDbPath)
+    {
+        var segmentOptions = new DbContextOptionsBuilder<IntroSkipperDbContext>()
+            .UseSqlite($"Data Source={dbPath}")
+            .Options;
+        var cacheOptions = new DbContextOptionsBuilder<DetectionCacheDbContext>()
+            .UseSqlite($"Data Source={cacheDbPath}")
+            .Options;
+        return new DatabaseInitializer(NullLogger<DatabaseInitializer>.Instance, segmentOptions, cacheOptions);
+    }
 
     internal static Entrypoint CreateEntrypoint(bool autoDetectIntros)
     {
@@ -43,7 +64,7 @@ internal static class EntrypointTestHelpers
             providerManager: null!,
             fileSystem: null!,
             taskManager: null!,
-            cacheService: new DetectionCacheService(NullLogger<DetectionCacheService>.Instance),
+            cacheService: CreateDetectionCacheService(),
             ffmpegService: null!,
             logger: logger,
             loggerFactory: loggerFactory,
@@ -210,6 +231,23 @@ internal static class EntrypointTestHelpers
         var dir = Path.Combine(Path.GetTempPath(), "IntroSkipper.Tests", "chromaprints", Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(dir);
         return dir;
+    }
+
+    /// <summary>
+    /// Test <see cref="IDbContextFactory{TContext}"/> for the segment database bound to a fixed file path.
+    /// </summary>
+    internal sealed class FixedPathIntroSkipperDbContextFactory(string dbPath) : IDbContextFactory<IntroSkipperDbContext>
+    {
+        public IntroSkipperDbContext CreateDbContext() => new(dbPath);
+    }
+
+    /// <summary>
+    /// Test <see cref="IDbContextFactory{TContext}"/> that resolves the cache database path from
+    /// <see cref="Plugin.Instance"/> at context-creation time.
+    /// </summary>
+    internal sealed class PluginCacheDbContextFactory : IDbContextFactory<DetectionCacheDbContext>
+    {
+        public DetectionCacheDbContext CreateDbContext() => new(Plugin.Instance!.CacheDbPath);
     }
 
     internal sealed class PluginInstanceScope : IDisposable

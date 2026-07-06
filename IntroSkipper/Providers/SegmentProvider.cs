@@ -4,6 +4,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
 using IntroSkipper.Data;
+using IntroSkipper.Db;
 using Jellyfin.Database.Implementations.Enums;
 using MediaBrowser.Controller.Entities;
 using MediaBrowser.Controller.Entities.Movies;
@@ -11,13 +12,18 @@ using MediaBrowser.Controller.Entities.TV;
 using MediaBrowser.Controller.MediaSegments;
 using MediaBrowser.Model;
 using MediaBrowser.Model.MediaSegments;
+using Microsoft.EntityFrameworkCore;
 
 namespace IntroSkipper.Providers
 {
     /// <summary>
     /// Introskipper media segment provider.
     /// </summary>
-    public class SegmentProvider : IMediaSegmentProvider
+    /// <remarks>
+    /// Initializes a new instance of the <see cref="SegmentProvider"/> class.
+    /// </remarks>
+    /// <param name="dbContextFactory">Factory for the segment database context.</param>
+    public class SegmentProvider(IDbContextFactory<IntroSkipperDbContext> dbContextFactory) : IMediaSegmentProvider
     {
         /// <summary>
         /// Mappings between AnalysisMode and MediaSegmentType.
@@ -31,6 +37,8 @@ namespace IntroSkipper.Providers
             [AnalysisMode.Commercial] = MediaSegmentType.Commercial
         };
 
+        private readonly IDbContextFactory<IntroSkipperDbContext> _dbContextFactory = dbContextFactory;
+
         /// <inheritdoc/>
         public string Name => Plugin.Instance!.Name;
 
@@ -38,10 +46,15 @@ namespace IntroSkipper.Providers
         public async Task<IReadOnlyList<MediaSegmentDto>> GetMediaSegments(MediaSegmentGenerationRequest request, CancellationToken cancellationToken)
         {
             ArgumentNullException.ThrowIfNull(request);
-            ArgumentNullException.ThrowIfNull(Plugin.Instance);
 
             var segments = new List<MediaSegmentDto>();
-            var itemSegments = await Plugin.GetSegmentsAsync(request.ItemId, cancellationToken).ConfigureAwait(false);
+            IReadOnlyList<DbSegment> itemSegments;
+            var db = await _dbContextFactory.CreateDbContextAsync(cancellationToken).ConfigureAwait(false);
+            await using (db.ConfigureAwait(false))
+            {
+                itemSegments = await db.GetSegmentsAsync(request.ItemId, cancellationToken).ConfigureAwait(false);
+            }
+
             var dedupedModes = new HashSet<AnalysisMode>();
 
             foreach (var segment in itemSegments.OrderBy(segment => segment.Start))
@@ -79,8 +92,11 @@ namespace IntroSkipper.Providers
         /// <inheritdoc/>
         public async Task CleanupExtractedData(Guid itemId, CancellationToken cancellationToken)
         {
-            ArgumentNullException.ThrowIfNull(Plugin.Instance);
-            await Plugin.DeleteItemSegmentsAsync(itemId, cancellationToken).ConfigureAwait(false);
+            var db = await _dbContextFactory.CreateDbContextAsync(cancellationToken).ConfigureAwait(false);
+            await using (db.ConfigureAwait(false))
+            {
+                await db.DeleteItemSegmentsAsync(itemId, cancellationToken).ConfigureAwait(false);
+            }
         }
 
         /// <inheritdoc/>

@@ -19,9 +19,13 @@ namespace IntroSkipper.FFmpeg;
 /// Initializes a new instance of the <see cref="DetectionCacheService"/> class.
 /// </remarks>
 /// <param name="logger">The logger instance.</param>
-public sealed partial class DetectionCacheService(ILogger<DetectionCacheService> logger) : IDetectionCacheService
+/// <param name="dbContextFactory">Factory for the detection cache database context.</param>
+public sealed partial class DetectionCacheService(
+    ILogger<DetectionCacheService> logger,
+    IDbContextFactory<DetectionCacheDbContext> dbContextFactory) : IDetectionCacheService
 {
     private readonly ILogger<DetectionCacheService> _logger = logger;
+    private readonly IDbContextFactory<DetectionCacheDbContext> _dbContextFactory = dbContextFactory;
 
     /// <inheritdoc/>
     public bool IsEnabled => Plugin.Instance?.Configuration.CacheFingerprints ?? false;
@@ -38,7 +42,7 @@ public sealed partial class DetectionCacheService(ILogger<DetectionCacheService>
 
         try
         {
-            using var db = Plugin.CreateCacheDbContext();
+            using var db = _dbContextFactory.CreateDbContext();
 
             // NOTE: Start/End are compared with == which is safe only because the exact same
             // double values that were written are used for lookup (no intermediate arithmetic).
@@ -89,7 +93,7 @@ public sealed partial class DetectionCacheService(ILogger<DetectionCacheService>
 
         try
         {
-            using var db = Plugin.CreateCacheDbContext();
+            using var db = _dbContextFactory.CreateDbContext();
 
             UpsertEntry(db, itemId, mode, type, start, end, data, configHash);
             db.SaveChanges();
@@ -115,7 +119,7 @@ public sealed partial class DetectionCacheService(ILogger<DetectionCacheService>
         try
         {
             // Delete from the SQLite cache database.
-            using var db = Plugin.CreateCacheDbContext();
+            using var db = _dbContextFactory.CreateDbContext();
             db.DetectionCache.Where(e => e.ItemId == itemId).ExecuteDelete();
         }
         catch (Exception ex) when (ex is DbUpdateException or DbException)
@@ -134,7 +138,7 @@ public sealed partial class DetectionCacheService(ILogger<DetectionCacheService>
         try
         {
             // Delete from the SQLite cache database.
-            using var db = Plugin.CreateCacheDbContext();
+            using var db = _dbContextFactory.CreateDbContext();
             db.DetectionCache.Where(e => e.Mode == mode).ExecuteDelete();
         }
         catch (Exception ex) when (ex is DbUpdateException or DbException)
@@ -159,7 +163,7 @@ public sealed partial class DetectionCacheService(ILogger<DetectionCacheService>
 
         try
         {
-            using var db = Plugin.CreateCacheDbContext();
+            using var db = _dbContextFactory.CreateDbContext();
             var expectedHash = ConfigHasher.DetectionCache(Plugin.Instance?.Configuration ?? new(), CacheEntryType.Chromaprint, mode);
             if (db.DetectionCache.Any(e =>
                 e.ItemId == episode.EpisodeId &&

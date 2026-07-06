@@ -613,8 +613,7 @@ public sealed class TestCacheOperations
                     new PluginConfiguration { CacheFingerprints = true });
             }
 
-            CacheService = new DetectionCacheService(
-                NullLogger<DetectionCacheService>.Instance);
+            CacheService = EntrypointTestHelpers.CreateDetectionCacheService();
         }
 
         public DetectionCacheService CacheService { get; }

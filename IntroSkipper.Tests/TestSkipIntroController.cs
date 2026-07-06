@@ -32,7 +32,7 @@ public sealed class TestSkipIntroController
         {
             Completion = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously)
         };
-        var controller = new SkipIntroController(refresher, new DetectionCacheService(NullLogger<DetectionCacheService>.Instance));
+        var controller = CreateController(refresher, dbPath, pluginScope.CacheDbPath);
         var timestamps = new TimeStamps
         {
             Introduction = new Segment(itemId, new TimeRange(10, 20))
@@ -66,7 +66,7 @@ public sealed class TestSkipIntroController
         {
             Completion = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously)
         };
-        var controller = new SkipIntroController(refresher, new DetectionCacheService(NullLogger<DetectionCacheService>.Instance));
+        var controller = CreateController(refresher, dbPath, pluginScope.CacheDbPath);
         var timestamps = new TimeStamps
         {
             Introduction = new Segment(itemId, new TimeRange(10, 20))
@@ -76,6 +76,16 @@ public sealed class TestSkipIntroController
 
         Assert.IsType<NoContentResult>(result);
         Assert.Equal(0, refresher.ItemCallCount);
+    }
+
+    private static SkipIntroController CreateController(IMediaSegmentRefresher refresher, string dbPath, string cacheDbPath)
+    {
+        return new SkipIntroController(
+            refresher,
+            EntrypointTestHelpers.CreateDetectionCacheService(),
+            new EntrypointTestHelpers.FixedPathIntroSkipperDbContextFactory(dbPath),
+            EntrypointTestHelpers.CreateDatabaseInitializer(dbPath, cacheDbPath),
+            NullLogger<SkipIntroController>.Instance);
     }
 
     private static EntrypointTestHelpers.PluginInstanceScope CreatePluginScope(string dbPath, Guid itemId, bool updateMediaSegments, out Movie item)

@@ -9,6 +9,7 @@
 
 using System.Net.Mime;
 using IntroSkipper.Data;
+using IntroSkipper.Db;
 using IntroSkipper.FFmpeg;
 using IntroSkipper.Manager;
 using MediaBrowser.Common.Api;
@@ -17,19 +18,33 @@ using MediaBrowser.Controller.Entities.TV;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging;
 
 namespace IntroSkipper.Controllers;
 
 /// <summary>
 /// Skip intro controller.
 /// </summary>
+/// <param name="mediaSegmentRefresher">Media segment refresher.</param>
+/// <param name="cacheService">Detection cache service.</param>
+/// <param name="dbContextFactory">Factory for the segment database context.</param>
+/// <param name="databaseInitializer">Database lifecycle owner (used for rebuild).</param>
+/// <param name="logger">Logger.</param>
 [Authorize]
 [ApiController]
 [Produces(MediaTypeNames.Application.Json)]
-public class SkipIntroController(IMediaSegmentRefresher mediaSegmentRefresher, IDetectionCacheService cacheService) : ControllerBase
+public class SkipIntroController(
+    IMediaSegmentRefresher mediaSegmentRefresher,
+    IDetectionCacheService cacheService,
+    IDbContextFactory<IntroSkipperDbContext> dbContextFactory,
+    DatabaseInitializer databaseInitializer,
+    ILogger<SkipIntroController> logger) : ControllerBase
 {
     private readonly IMediaSegmentRefresher _mediaSegmentRefresher = mediaSegmentRefresher;
     private readonly IDetectionCacheService _cacheService = cacheService;
+    private readonly IDbContextFactory<IntroSkipperDbContext> _dbContextFactory = dbContextFactory;
+    private readonly DatabaseInitializer _databaseInitializer = databaseInitializer;
+    private readonly ILogger<SkipIntroController> _logger = logger;
 
     /// <summary>
     /// Updates the timestamps for the provided episode.
@@ -65,12 +80,16 @@ public class SkipIntroController(IMediaSegmentRefresher mediaSegmentRefresher, I
             (AnalysisMode.Commercial, timestamps.Commercial)
         };
 
-        foreach (var (mode, segment) in segmentTypes)
+        var db = await _dbContextFactory.CreateDbContextAsync(cancellationToken).ConfigureAwait(false);
+        await using (db.ConfigureAwait(false))
         {
-            if (segment.Valid)
+            foreach (var (mode, segment) in segmentTypes)
             {
-                segment.EpisodeId = id;
-                await Plugin.Instance!.UpdateTimestampAsync(segment, mode, isUserProvided: true, cancellationToken: cancellationToken).ConfigureAwait(false);
+                if (segment.Valid)
+                {
+                    segment.EpisodeId = id;
+                    await db.UpdateTimestampAsync(segment, mode, isUserProvided: true, logger: _logger, cancellationToken: cancellationToken).ConfigureAwait(false);
+                }
             }
         }
 
@@ -102,7 +121,7 @@ public class SkipIntroController(IMediaSegmentRefresher mediaSegmentRefresher, I
         }
 
         var times = new TimeStamps();
-        var segments = await Plugin.GetTimestampsAsync(id, cancellationToken).ConfigureAwait(false);
+        var segments = await GetTimestampsFromDbAsync(id, cancellationToken).ConfigureAwait(false);
 
         if (segments.TryGetValue(AnalysisMode.Introduction, out var introSegment))
         {
@@ -142,7 +161,7 @@ public class SkipIntroController(IMediaSegmentRefresher mediaSegmentRefresher, I
     [HttpGet("Episode/{id}/IntroSkipperSegments")]
     public async Task<ActionResult<Dictionary<AnalysisMode, Segment>>> GetSkippableSegments([FromRoute] Guid id, CancellationToken cancellationToken = default)
     {
-        var segments = await Plugin.GetTimestampsAsync(id, cancellationToken).ConfigureAwait(false);
+        var segments = await GetTimestampsFromDbAsync(id, cancellationToken).ConfigureAwait(false);
         var result = new Dictionary<AnalysisMode, Segment>();
 
         if (segments.TryGetValue(AnalysisMode.Introduction, out var introSegment))
@@ -185,11 +204,16 @@ public class SkipIntroController(IMediaSegmentRefresher mediaSegmentRefresher, I
     [HttpPost("Intros/EraseTimestamps")]
     public async Task<ActionResult> ResetIntroTimestamps([FromQuery] AnalysisMode mode, [FromQuery] bool eraseCache = false, CancellationToken cancellationToken = default)
     {
-        using var db = Plugin.CreateDbContext();
-        await db.DbSegment
-            .Where(s => s.Type == mode)
-            .ExecuteDeleteAsync(cancellationToken)
-            .ConfigureAwait(false);
+        // Single-query call site: inline LINQ against the factory-created context is the
+        // convention here; only segment writes must go through SegmentOperations.
+        var db = await _dbContextFactory.CreateDbContextAsync(cancellationToken).ConfigureAwait(false);
+        await using (db.ConfigureAwait(false))
+        {
+            await db.DbSegment
+                .Where(s => s.Type == mode)
+                .ExecuteDeleteAsync(cancellationToken)
+                .ConfigureAwait(false);
+        }
 
         if (eraseCache && mode is AnalysisMode.Introduction or AnalysisMode.Credits)
         {
@@ -211,8 +235,16 @@ public class SkipIntroController(IMediaSegmentRefresher mediaSegmentRefresher, I
     public async Task<ActionResult> RebuildDatabase()
     {
         // Database rebuild is destructive and must run to completion — do not bind to HttpContext.RequestAborted.
-        using var db = Plugin.CreateDbContext();
-        await db.RebuildDatabaseAsync(Plugin.CreateDbContext).ConfigureAwait(false);
+        await _databaseInitializer.RebuildDatabaseAsync().ConfigureAwait(false);
         return NoContent();
+    }
+
+    private async Task<IReadOnlyDictionary<AnalysisMode, Segment>> GetTimestampsFromDbAsync(Guid id, CancellationToken cancellationToken)
+    {
+        var db = await _dbContextFactory.CreateDbContextAsync(cancellationToken).ConfigureAwait(false);
+        await using (db.ConfigureAwait(false))
+        {
+            return await db.GetTimestampsAsync(id, cancellationToken).ConfigureAwait(false);
+        }
     }
 }
