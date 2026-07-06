@@ -1,7 +1,7 @@
 using IntroSkipper.Data;
+using Jellyfin.Database.Implementations.Enums;
 using MediaBrowser.Controller.Entities;
 using MediaBrowser.Controller.Entities.Movies;
-using MediaBrowser.Model.MediaSegments;
 
 namespace IntroSkipper.Manager;
 
