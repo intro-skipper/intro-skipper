@@ -14,6 +14,7 @@ using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using IntroSkipper.Configuration;
+using IntroSkipper.Db;
 using IntroSkipper.FFmpeg;
 using IntroSkipper.Manager;
 using IntroSkipper.Services;
@@ -22,6 +23,7 @@ using MediaBrowser.Controller.Library;
 using MediaBrowser.Model.Entities;
 using MediaBrowser.Model.Plugins;
 using MediaBrowser.Model.Tasks;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using Xunit;
@@ -29,6 +31,29 @@ using Xunit;
 internal static class EntrypointTestHelpers
 {
     internal static readonly byte[] EmptyJsonArray = Encoding.UTF8.GetBytes("[]");
+
+    /// <summary>
+    /// Creates a <see cref="DetectionCacheService"/> whose store resolves the cache database path
+    /// from <see cref="Plugin.Instance"/> at call time, mirroring the legacy
+    /// <c>Plugin.CreateCacheDbContext()</c> behavior that tests relied on.
+    /// </summary>
+    internal static DetectionCacheService CreateDetectionCacheService()
+        => new(NullLogger<DetectionCacheService>.Instance, CreatePluginBoundCacheStore());
+
+    internal static IDetectionCacheStore CreatePluginBoundCacheStore()
+        => new DetectionCacheStore(new PluginBoundCacheDbContextFactory());
+
+    internal static SegmentStore CreateSegmentStore(string dbPath)
+        => new(new SegmentDbContextFactory(dbPath));
+
+    internal static SegmentUpdateService CreateSegmentUpdateService(string dbPath)
+        => new(CreateSegmentStore(dbPath), NullLogger<SegmentUpdateService>.Instance);
+
+    internal static DatabaseInitializer CreateDatabaseInitializer(string dbPath, string cacheDbPath)
+        => new(
+            new SegmentDbContextFactory(dbPath),
+            new DetectionCacheDbContextFactory(cacheDbPath),
+            NullLogger<DatabaseInitializer>.Instance);
 
     internal static Entrypoint CreateEntrypoint(bool autoDetectIntros)
     {
@@ -43,7 +68,7 @@ internal static class EntrypointTestHelpers
             providerManager: null!,
             fileSystem: null!,
             taskManager: null!,
-            cacheService: new DetectionCacheService(NullLogger<DetectionCacheService>.Instance),
+            cacheService: CreateDetectionCacheService(),
             ffmpegService: null!,
             logger: logger,
             loggerFactory: loggerFactory,
@@ -51,6 +76,15 @@ internal static class EntrypointTestHelpers
 
         SetPrivateField(entrypoint, "_config", new PluginConfiguration { AutoDetectIntros = autoDetectIntros });
         return entrypoint;
+    }
+
+    private sealed class PluginBoundCacheDbContextFactory : IDbContextFactory<DetectionCacheDbContext>
+    {
+        public DetectionCacheDbContext CreateDbContext()
+        {
+            var plugin = Plugin.Instance ?? throw new InvalidOperationException("Plugin instance is required for cache database access.");
+            return new DetectionCacheDbContext(plugin.CacheDbPath);
+        }
     }
 
     private sealed class FakeMediaSegmentRefresher : IMediaSegmentRefresher

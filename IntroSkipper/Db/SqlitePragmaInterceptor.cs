@@ -17,6 +17,12 @@ namespace IntroSkipper.Db;
 /// </summary>
 internal sealed class SqlitePragmaInterceptor : DbConnectionInterceptor
 {
+    /// <summary>
+    /// Gets a shared interceptor instance. The interceptor is stateless; sharing one instance keeps
+    /// the EF options cache key stable so all contexts reuse a single internal service provider.
+    /// </summary>
+    public static SqlitePragmaInterceptor Instance { get; } = new();
+
     public override void ConnectionOpened(DbConnection connection, ConnectionEndEventData eventData)
     {
         using var cmd = connection.CreateCommand();

@@ -1801,7 +1801,7 @@ public class TestBlackFrames
     {
         return new FFmpegService(
             NullLogger<FFmpegService>.Instance,
-            new DetectionCacheService(NullLogger<DetectionCacheService>.Instance));
+            EntrypointTestHelpers.CreateDetectionCacheService());
     }
 
     private static BlackFrameAnalyzer CreateBlackFrameAnalyzer()

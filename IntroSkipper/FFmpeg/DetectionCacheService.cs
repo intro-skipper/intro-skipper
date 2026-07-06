@@ -19,9 +19,11 @@ namespace IntroSkipper.FFmpeg;
 /// Initializes a new instance of the <see cref="DetectionCacheService"/> class.
 /// </remarks>
 /// <param name="logger">The logger instance.</param>
-public sealed partial class DetectionCacheService(ILogger<DetectionCacheService> logger) : IDetectionCacheService
+/// <param name="cacheStore">The detection cache store.</param>
+public sealed partial class DetectionCacheService(ILogger<DetectionCacheService> logger, IDetectionCacheStore cacheStore) : IDetectionCacheService
 {
     private readonly ILogger<DetectionCacheService> _logger = logger;
+    private readonly IDetectionCacheStore _cacheStore = cacheStore;
 
     /// <inheritdoc/>
     public bool IsEnabled => Plugin.Instance?.Configuration.CacheFingerprints ?? false;
@@ -38,13 +40,10 @@ public sealed partial class DetectionCacheService(ILogger<DetectionCacheService>
 
         try
         {
-            using var db = Plugin.CreateCacheDbContext();
-
             // NOTE: Start/End are compared with == which is safe only because the exact same
             // double values that were written are used for lookup (no intermediate arithmetic).
             // If a future caller computes start/end differently, the lookup will silently miss.
-            var entry = db.DetectionCache
-                .FirstOrDefault(e => e.ItemId == itemId && e.Mode == mode && e.Type == type && e.Start == start && e.End == end);
+            var entry = _cacheStore.Find(itemId, mode, type, start, end);
 
             if (entry is null)
             {
@@ -89,10 +88,7 @@ public sealed partial class DetectionCacheService(ILogger<DetectionCacheService>
 
         try
         {
-            using var db = Plugin.CreateCacheDbContext();
-
-            UpsertEntry(db, itemId, mode, type, start, end, data, configHash);
-            db.SaveChanges();
+            _cacheStore.Upsert(itemId, mode, type, start, end, data, configHash);
             return true;
         }
         catch (Exception ex) when (ex is DbUpdateException or DbException)
@@ -115,8 +111,7 @@ public sealed partial class DetectionCacheService(ILogger<DetectionCacheService>
         try
         {
             // Delete from the SQLite cache database.
-            using var db = Plugin.CreateCacheDbContext();
-            db.DetectionCache.Where(e => e.ItemId == itemId).ExecuteDelete();
+            _cacheStore.DeleteForItem(itemId);
         }
         catch (Exception ex) when (ex is DbUpdateException or DbException)
         {
@@ -134,8 +129,7 @@ public sealed partial class DetectionCacheService(ILogger<DetectionCacheService>
         try
         {
             // Delete from the SQLite cache database.
-            using var db = Plugin.CreateCacheDbContext();
-            db.DetectionCache.Where(e => e.Mode == mode).ExecuteDelete();
+            _cacheStore.DeleteByMode(mode);
         }
         catch (Exception ex) when (ex is DbUpdateException or DbException)
         {
@@ -159,15 +153,8 @@ public sealed partial class DetectionCacheService(ILogger<DetectionCacheService>
 
         try
         {
-            using var db = Plugin.CreateCacheDbContext();
             var expectedHash = ConfigHasher.DetectionCache(Plugin.Instance?.Configuration ?? new(), CacheEntryType.Chromaprint, mode);
-            if (db.DetectionCache.Any(e =>
-                e.ItemId == episode.EpisodeId &&
-                e.Mode == mode &&
-                e.Type == CacheEntryType.Chromaprint &&
-                e.Start == start &&
-                e.End == end &&
-                (e.ConfigHash == string.Empty || e.ConfigHash == expectedHash)))
+            if (_cacheStore.Exists(episode.EpisodeId, mode, CacheEntryType.Chromaprint, start, end, expectedHash))
             {
                 return true;
             }
@@ -209,32 +196,6 @@ public sealed partial class DetectionCacheService(ILogger<DetectionCacheService>
         using var input = new MemoryStream(compressed);
         using var brotli = new BrotliStream(input, CompressionMode.Decompress);
         return JsonSerializer.Deserialize<T>(brotli);
-    }
-
-    private static void UpsertEntry(
-        DetectionCacheDbContext db,
-        Guid itemId,
-        AnalysisMode mode,
-        CacheEntryType type,
-        double start,
-        double end,
-        byte[] data,
-        string configHash)
-    {
-        // NOTE: Start/End are compared with == which is safe only because the exact same
-        // double values that were written are used for lookup (no intermediate arithmetic).
-        var existing = db.DetectionCache
-            .FirstOrDefault(e => e.ItemId == itemId && e.Mode == mode && e.Type == type && e.Start == start && e.End == end);
-
-        if (existing is not null)
-        {
-            existing.Data = data;
-            existing.ConfigHash = configHash;
-        }
-        else
-        {
-            db.DetectionCache.Add(new DbDetectionCache(itemId, mode, type, data, start, end, configHash));
-        }
     }
 
     [LoggerMessage(Level = LogLevel.Trace, Message = "Detection cache hit for {CacheKey}")]

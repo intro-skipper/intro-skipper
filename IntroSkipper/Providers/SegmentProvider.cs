@@ -4,6 +4,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
 using IntroSkipper.Data;
+using IntroSkipper.Db;
 using Jellyfin.Database.Implementations.Enums;
 using MediaBrowser.Controller.Entities;
 using MediaBrowser.Controller.Entities.Movies;
@@ -17,8 +18,14 @@ namespace IntroSkipper.Providers
     /// <summary>
     /// Introskipper media segment provider.
     /// </summary>
-    public class SegmentProvider : IMediaSegmentProvider
+    /// <remarks>
+    /// Initializes a new instance of the <see cref="SegmentProvider"/> class.
+    /// </remarks>
+    /// <param name="segmentStore">Segment store.</param>
+    public class SegmentProvider(ISegmentStore segmentStore) : IMediaSegmentProvider
     {
+        private readonly ISegmentStore _segmentStore = segmentStore;
+
         /// <summary>
         /// Mappings between AnalysisMode and MediaSegmentType.
         /// </summary>
@@ -38,10 +45,9 @@ namespace IntroSkipper.Providers
         public async Task<IReadOnlyList<MediaSegmentDto>> GetMediaSegments(MediaSegmentGenerationRequest request, CancellationToken cancellationToken)
         {
             ArgumentNullException.ThrowIfNull(request);
-            ArgumentNullException.ThrowIfNull(Plugin.Instance);
 
             var segments = new List<MediaSegmentDto>();
-            var itemSegments = await Plugin.GetSegmentsAsync(request.ItemId, cancellationToken).ConfigureAwait(false);
+            var itemSegments = await _segmentStore.GetSegmentsAsync(request.ItemId, cancellationToken).ConfigureAwait(false);
             var dedupedModes = new HashSet<AnalysisMode>();
 
             foreach (var segment in itemSegments.OrderBy(segment => segment.Start))
@@ -79,8 +85,7 @@ namespace IntroSkipper.Providers
         /// <inheritdoc/>
         public async Task CleanupExtractedData(Guid itemId, CancellationToken cancellationToken)
         {
-            ArgumentNullException.ThrowIfNull(Plugin.Instance);
-            await Plugin.DeleteItemSegmentsAsync(itemId, cancellationToken).ConfigureAwait(false);
+            await _segmentStore.DeleteSegmentsAsync(itemId, cancellationToken).ConfigureAwait(false);
         }
 
         /// <inheritdoc/>

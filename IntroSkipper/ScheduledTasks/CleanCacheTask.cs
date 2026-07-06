@@ -5,6 +5,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
 using System.Data.Common;
+using IntroSkipper.Db;
 using IntroSkipper.FFmpeg;
 using IntroSkipper.Manager;
 using MediaBrowser.Controller.Library;
@@ -25,13 +26,19 @@ namespace IntroSkipper.ScheduledTasks;
 /// <param name="providerManager">Provider manager.</param>
 /// <param name="fileSystem">File system.</param>
 /// <param name="ffmpegService">FFmpeg service.</param>
+/// <param name="segmentStore">Segment store.</param>
+/// <param name="seasonStateStore">Season state store.</param>
+/// <param name="detectionCacheStore">Detection cache store.</param>
 public partial class CleanCacheTask(
     ILogger<CleanCacheTask> logger,
     ILoggerFactory loggerFactory,
     ILibraryManager libraryManager,
     IProviderManager providerManager,
     IFileSystem fileSystem,
-    IFFmpegService ffmpegService) : IScheduledTask
+    IFFmpegService ffmpegService,
+    ISegmentStore segmentStore,
+    ISeasonStateStore seasonStateStore,
+    IDetectionCacheStore detectionCacheStore) : IScheduledTask
 {
     private readonly ILogger<CleanCacheTask> _logger = logger;
     private readonly ILoggerFactory _loggerFactory = loggerFactory;
@@ -39,6 +46,9 @@ public partial class CleanCacheTask(
     private readonly IProviderManager _providerManager = providerManager;
     private readonly IFileSystem _fileSystem = fileSystem;
     private readonly IFFmpegService _ffmpegService = ffmpegService;
+    private readonly ISegmentStore _segmentStore = segmentStore;
+    private readonly ISeasonStateStore _seasonStateStore = seasonStateStore;
+    private readonly IDetectionCacheStore _detectionCacheStore = detectionCacheStore;
 
     /// <summary>
     /// Gets the task name.
@@ -93,18 +103,13 @@ public partial class CleanCacheTask(
             .Select(e => e.EpisodeId)
             .ToHashSet();
 
-        await Plugin.CleanTimestampsAsync(enabledLibraryEpisodeIds, cancellationToken).ConfigureAwait(false);
+        await _segmentStore.CleanTimestampsAsync(enabledLibraryEpisodeIds, cancellationToken).ConfigureAwait(false);
 
         // Identify episode IDs in the SQLite cache that are no longer in enabled libraries.
-        HashSet<Guid> invalidEpisodeIds;
-        using (var cacheDb = Plugin.CreateCacheDbContext())
-        {
-            invalidEpisodeIds = cacheDb.DetectionCache
-                .Select(e => e.ItemId)
-                .Distinct()
-                .Where(id => !enabledLibraryEpisodeIds.Contains(id))
-                .ToHashSet();
-        }
+        var cachedItemIds = await _detectionCacheStore.GetItemIdsAsync(cancellationToken).ConfigureAwait(false);
+        var invalidEpisodeIds = cachedItemIds
+            .Where(id => !enabledLibraryEpisodeIds.Contains(id))
+            .ToHashSet();
 
         // Log and batch-delete all invalid episode DB rows in a single round-trip.
         foreach (var episodeId in invalidEpisodeIds)
@@ -116,10 +121,8 @@ public partial class CleanCacheTask(
         {
             try
             {
-                using var deleteDb = Plugin.CreateCacheDbContext();
-                await deleteDb.DetectionCache
-                    .Where(e => invalidEpisodeIds.Contains(e.ItemId))
-                    .ExecuteDeleteAsync(cancellationToken)
+                await _detectionCacheStore
+                    .DeleteForItemsAsync(invalidEpisodeIds, cancellationToken)
                     .ConfigureAwait(false);
             }
             catch (Exception ex) when (ex is DbUpdateException or DbException)
@@ -129,7 +132,7 @@ public partial class CleanCacheTask(
         }
 
         // Clean up season state by removing items that no longer exist.
-        await Plugin.CleanSeasonStateAsync(queue.Keys, cancellationToken).ConfigureAwait(false);
+        await _seasonStateStore.CleanSeasonStatesAsync([.. queue.Keys], cancellationToken).ConfigureAwait(false);
 
         plugin.AnalyzeAgain = true;
 
