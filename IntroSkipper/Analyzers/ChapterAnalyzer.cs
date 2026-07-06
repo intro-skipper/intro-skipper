@@ -25,7 +25,7 @@ namespace IntroSkipper.Analyzers;
 /// <param name="ffmpegService">FFmpeg service.</param>
 public partial class ChapterAnalyzer(ILogger<ChapterAnalyzer> logger, IFFmpegService ffmpegService) : IMediaFileAnalyzer
 {
-    private const int RecapAdaptiveBlackFrameScanFloor = 50;
+    private const int RecapAdaptiveBlackFrameScanMinimumPercentageCap = 50;
 
     private readonly ILogger<ChapterAnalyzer> _logger = logger;
     private readonly IFFmpegService _ffmpegService = ffmpegService;
@@ -248,7 +248,7 @@ public partial class ChapterAnalyzer(ILogger<ChapterAnalyzer> logger, IFFmpegSer
         var blackFrames = (await _ffmpegService.DetectBlackFramesAsync(
             episode,
             new TimeRange(0, maxRecapBoundary),
-            Math.Min(_config.BlackFrameMinimumPercentage, RecapAdaptiveBlackFrameScanFloor),
+            Math.Min(_config.BlackFrameMinimumPercentage, RecapAdaptiveBlackFrameScanMinimumPercentageCap),
             _config.BlackFrameThreshold,
             AnalysisMode.Recap,
             cancellationToken).ConfigureAwait(false)).ToList();
