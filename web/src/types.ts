@@ -22,6 +22,7 @@ export interface PluginConfig {
     IntroEndOffset: number;
     IntroStartOffset: number;
     SkipbuttonHideDelay: number;
+    SkipButtonVisibleSeconds: number;
     SilenceDetectionMaximumNoise: number;
     SilenceDetectionMinimumDuration: number;
     BlackFrameMinimumPercentage: number;
@@ -70,6 +71,8 @@ export interface PluginConfig {
     AdjustIntroBasedOnSilence: boolean;
     AdjustIntroBasedOnChapters: boolean;
     UseFileTransformationPlugin: boolean;
+    AutoSkipIntro: boolean;
+    AutoSkipCredits: boolean;
 
     // Server-managed flag exposed to the dashboard.
     readonly FileTransformationPluginEnabled: boolean;

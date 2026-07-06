@@ -137,7 +137,7 @@ namespace IntroSkipper.Helper
             if (config.SkipButtonVisibleSeconds > 0)
             {
                 var thresholdTicks = ((long)config.SkipButtonVisibleSeconds * TicksPerSecond).ToString(CultureInfo.InvariantCulture);
-                var floorTicks = ((long)config.SkipbuttonHideDelay * TicksPerSecond).ToString(CultureInfo.InvariantCulture);
+                var floorTicks = ((long)hideDelayMs * TicksPerSecond / MillisecondsPerSecond).ToString(CultureInfo.InvariantCulture);
                 updated = ReplaceSegmentBoundsCheck(updated, thresholdTicks, floorTicks);
                 updated = InjectShowSkipButtonGuard(updated, thresholdTicks, floorTicks);
             }
