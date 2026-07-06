@@ -69,12 +69,14 @@ public sealed partial class CreditsBlackFrameAnalyzer(ILogger<CreditsBlackFrameA
                     continue;
                 }
 
-                var segmentsToStore = episode.Category == QueuedMediaCategory.Movie
-                    ? credits.OrderBy(segment => segment.Start)
-                    : credits.Take(1);
+                var appendMovieCredits = episode.Category == QueuedMediaCategory.Movie;
+                List<Segment> segmentsToStore = appendMovieCredits
+                    ? credits.OrderBy(segment => segment.Start).ToList()
+                    : [credits[0]];
 
-                foreach (var credit in segmentsToStore)
+                for (var i = 0; i < segmentsToStore.Count; i++)
                 {
+                    var credit = segmentsToStore[i];
                     var adjustedCredit = await timeAdjustmentHelper.AdjustIntroTimesAsync(episode, credit, cancellationToken: cancellationToken).ConfigureAwait(false);
                     LogFoundCredits(episode.Name, adjustedCredit.Start);
 
@@ -82,7 +84,7 @@ public sealed partial class CreditsBlackFrameAnalyzer(ILogger<CreditsBlackFrameA
                         adjustedCredit,
                         mode,
                         configHash: episode.AnalysisConfigHash,
-                        append: episode.Category == QueuedMediaCategory.Movie,
+                        append: appendMovieCredits && i > 0,
                         mediaCategory: episode.Category,
                         cancellationToken: cancellationToken).ConfigureAwait(false);
                 }

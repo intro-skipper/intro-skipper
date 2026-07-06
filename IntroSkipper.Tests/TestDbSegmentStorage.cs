@@ -794,6 +794,116 @@ public sealed class TestDbSegmentStorage
         }
     }
 
+    [Fact]
+    public async Task UpdateTimestampAsync_RollbackRestoreForMovieCreditsPreservesOtherCreditSegments()
+    {
+        var tempDir = Path.Join(Path.GetTempPath(), "IntroSkipper.Tests");
+        var dbFileName = Guid.NewGuid().ToString("N") + ".db";
+        if (Path.IsPathRooted(dbFileName))
+        {
+            throw new ArgumentException("dbFileName must be a relative file name.", nameof(dbFileName));
+        }
+
+        var dbPath = Path.Join(tempDir, dbFileName);
+        Directory.CreateDirectory(Path.GetDirectoryName(dbPath)!);
+
+        var itemId = Guid.NewGuid();
+        var first = new Segment(itemId, new TimeRange(100, 120));
+        var second = new Segment(itemId, new TimeRange(200, 220));
+
+        try
+        {
+            using (var db = new IntroSkipperDbContext(dbPath))
+            {
+                await db.Database.EnsureCreatedAsync();
+            }
+
+            using (new EntrypointTestHelpers.PluginInstanceScope(EntrypointTestHelpers.CreateTempCacheDir()))
+            {
+                var plugin = Plugin.Instance!;
+                EntrypointTestHelpers.SetPrivateField(plugin, "_dbPath", dbPath);
+
+                await plugin.UpdateTimestampAsync(first, AnalysisMode.Credits, append: true, mediaCategory: QueuedMediaCategory.Movie);
+                await plugin.UpdateTimestampAsync(second, AnalysisMode.Credits, append: true, mediaCategory: QueuedMediaCategory.Movie);
+
+                await Plugin.DeleteTimestampAsync(itemId, AnalysisMode.Credits, first);
+
+                await plugin.UpdateTimestampAsync(first, AnalysisMode.Credits, append: true, mediaCategory: QueuedMediaCategory.Movie);
+            }
+
+            using (var db = new IntroSkipperDbContext(dbPath))
+            {
+                var segments = db.DbSegment
+                    .Where(s => s.ItemId == itemId && s.Type == AnalysisMode.Credits)
+                    .OrderBy(s => s.Start)
+                    .ToList();
+
+                Assert.Equal(2, segments.Count);
+                Assert.Equal(100, segments[0].Start);
+                Assert.Equal(200, segments[1].Start);
+            }
+        }
+        finally
+        {
+            DeleteSqliteFiles(dbPath);
+        }
+    }
+
+    [Fact]
+    public async Task UpdateTimestampAsync_FirstMovieCreditWriteReplacesStaleCreditsThenAppends()
+    {
+        var tempDir = Path.Join(Path.GetTempPath(), "IntroSkipper.Tests");
+        var dbFileName = Guid.NewGuid().ToString("N") + ".db";
+        if (Path.IsPathRooted(dbFileName))
+        {
+            throw new ArgumentException("dbFileName must be a relative file name.", nameof(dbFileName));
+        }
+
+        var dbPath = Path.Join(tempDir, dbFileName);
+        Directory.CreateDirectory(Path.GetDirectoryName(dbPath)!);
+
+        var itemId = Guid.NewGuid();
+        var stale = new Segment(itemId, new TimeRange(50, 70));
+        var first = new Segment(itemId, new TimeRange(100, 120));
+        var second = new Segment(itemId, new TimeRange(200, 220));
+
+        try
+        {
+            using (var db = new IntroSkipperDbContext(dbPath))
+            {
+                await db.Database.EnsureCreatedAsync();
+            }
+
+            using (new EntrypointTestHelpers.PluginInstanceScope(EntrypointTestHelpers.CreateTempCacheDir()))
+            {
+                var plugin = Plugin.Instance!;
+                EntrypointTestHelpers.SetPrivateField(plugin, "_dbPath", dbPath);
+
+                await plugin.UpdateTimestampAsync(stale, AnalysisMode.Credits, append: true, mediaCategory: QueuedMediaCategory.Movie);
+
+                await plugin.UpdateTimestampAsync(first, AnalysisMode.Credits, append: false, mediaCategory: QueuedMediaCategory.Movie);
+                await plugin.UpdateTimestampAsync(second, AnalysisMode.Credits, append: true, mediaCategory: QueuedMediaCategory.Movie);
+            }
+
+            using (var db = new IntroSkipperDbContext(dbPath))
+            {
+                var segments = db.DbSegment
+                    .Where(s => s.ItemId == itemId && s.Type == AnalysisMode.Credits)
+                    .OrderBy(s => s.Start)
+                    .ToList();
+
+                Assert.Equal(2, segments.Count);
+                Assert.DoesNotContain(segments, s => s.Start == stale.Start);
+                Assert.Equal(100, segments[0].Start);
+                Assert.Equal(200, segments[1].Start);
+            }
+        }
+        finally
+        {
+            DeleteSqliteFiles(dbPath);
+        }
+    }
+
     private static async Task<bool> TableExistsAsync(IntroSkipperDbContext db, string tableName)
     {
         var connection = db.Database.GetDbConnection();

@@ -143,6 +143,9 @@ public class SegmentEditorController(MediaSegmentEditorService mediaSegmentEdito
             wasUserProvided = matchingSegment.IsUserProvided;
         }
 
+        var deletedItem = Plugin.Instance!.GetItem(itemId);
+        var mediaCategory = deletedItem is Movie ? QueuedMediaCategory.Movie : QueuedMediaCategory.Episode;
+
         // Delete from the plugin DB first so it is consistent even if the Jellyfin delete fails.
         await Plugin.DeleteTimestampAsync(itemId, mode, dbSegment, cancellationToken).ConfigureAwait(false);
 
@@ -155,7 +158,13 @@ public class SegmentEditorController(MediaSegmentEditorService mediaSegmentEdito
             // Jellyfin delete failed — restore the plugin DB entry to avoid an orphaned Jellyfin segment.
             if (dbSegment is not null)
             {
-                await Plugin.Instance!.UpdateTimestampAsync(dbSegment, mode, isUserProvided: wasUserProvided, cancellationToken: CancellationToken.None).ConfigureAwait(false);
+                await Plugin.Instance!.UpdateTimestampAsync(
+                    dbSegment,
+                    mode,
+                    isUserProvided: wasUserProvided,
+                    append: true,
+                    mediaCategory: mediaCategory,
+                    cancellationToken: CancellationToken.None).ConfigureAwait(false);
             }
 
             throw;
@@ -163,7 +172,6 @@ public class SegmentEditorController(MediaSegmentEditorService mediaSegmentEdito
 
         // Jellyfin delete succeeded — remove the episode from the season's analyzed-state list so
         // that the episode returns to NotAnalyzed and can be re-processed by the next analysis run.
-        var deletedItem = Plugin.Instance!.GetItem(itemId);
         if (deletedItem is not null)
         {
             var seasonId = deletedItem is Episode ep ? ep.SeasonId : deletedItem.Id;
