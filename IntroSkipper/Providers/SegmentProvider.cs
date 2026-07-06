@@ -4,6 +4,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
 using IntroSkipper.Data;
+using IntroSkipper.Manager;
 using Jellyfin.Database.Implementations.Enums;
 using MediaBrowser.Controller.Entities;
 using MediaBrowser.Controller.Entities.Movies;
@@ -57,7 +58,7 @@ namespace IntroSkipper.Providers
                     continue;
                 }
 
-                if (!AllowsMultipleSegments(item, segment.Type) && !dedupedModes.Add(segment.Type))
+                if (!MediaSegmentRules.AllowsMultipleSegments(segment.Type, item) && !dedupedModes.Add(segment.Type))
                 {
                     continue;
                 }
@@ -79,8 +80,5 @@ namespace IntroSkipper.Providers
 
         /// <inheritdoc/>
         public ValueTask<bool> Supports(BaseItem item) => ValueTask.FromResult(item is Episode or Movie);
-
-        private static bool AllowsMultipleSegments(BaseItem? item, AnalysisMode mode)
-            => mode == AnalysisMode.Commercial || (mode == AnalysisMode.Credits && item is Movie);
     }
 }

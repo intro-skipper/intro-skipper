@@ -1,7 +1,6 @@
 using System.Collections.Concurrent;
 using Jellyfin.Database.Implementations.Enums;
 using MediaBrowser.Controller.Entities;
-using MediaBrowser.Controller.Entities.Movies;
 using MediaBrowser.Controller.Library;
 using MediaBrowser.Controller.MediaSegments;
 using MediaBrowser.Model.MediaSegments;
@@ -64,7 +63,7 @@ public partial class MediaSegmentEditorService(
                 .GetSegmentsAsync(item, [segment.Type], MediaSegmentProviderDefaults.ExternalProviders, filterByProvider: false)
                 .ConfigureAwait(false);
 
-            if (AllowsMultipleSegments(item, segment.Type))
+            if (MediaSegmentRules.AllowsMultipleSegments(segment.Type, item))
             {
                 // Multiple matching segments per item are valid for commercials and movie credits;
                 // skip creation only when an identical entry (same start and end) is already present.
@@ -111,9 +110,6 @@ public partial class MediaSegmentEditorService(
             itemLock.Release();
         }
     }
-
-    private static bool AllowsMultipleSegments(BaseItem item, MediaSegmentType type)
-        => type == MediaSegmentType.Commercial || (type == MediaSegmentType.Outro && item is Movie);
 
     /// <summary>
     /// Deletes a segment.

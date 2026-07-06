@@ -8,9 +8,6 @@ using System.Linq;
 using System.Threading.Tasks;
 using IntroSkipper.Data;
 using IntroSkipper.Db;
-using MediaBrowser.Controller.Entities;
-using MediaBrowser.Controller.Entities.Movies;
-using MediaBrowser.Controller.Entities.TV;
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
@@ -762,19 +759,19 @@ public sealed class TestDbSegmentStorage
 
             using (new EntrypointTestHelpers.PluginInstanceScope(EntrypointTestHelpers.CreateTempCacheDir()))
             {
-                BaseItem item = movie ? CreateMovie(itemId) : CreateEpisode(itemId);
                 var plugin = Plugin.Instance!;
                 EntrypointTestHelpers.SetPrivateField(plugin, "_dbPath", dbPath);
-                EntrypointTestHelpers.SetPrivateField(plugin, "_libraryManager", EntrypointTestHelpers.CreateLibraryManager(item));
 
                 await plugin.UpdateTimestampAsync(
                     new Segment(itemId, new TimeRange(100, 120)),
                     AnalysisMode.Credits,
-                    append: true);
+                    append: true,
+                    mediaCategory: movie ? QueuedMediaCategory.Movie : QueuedMediaCategory.Episode);
                 await plugin.UpdateTimestampAsync(
                     new Segment(itemId, new TimeRange(200, 220)),
                     AnalysisMode.Credits,
-                    append: true);
+                    append: true,
+                    mediaCategory: movie ? QueuedMediaCategory.Movie : QueuedMediaCategory.Episode);
             }
 
             using (var db = new IntroSkipperDbContext(dbPath))
@@ -795,22 +792,6 @@ public sealed class TestDbSegmentStorage
         {
             DeleteSqliteFiles(dbPath);
         }
-    }
-
-    private static Movie CreateMovie(Guid id)
-    {
-        var item = new Movie();
-        EntrypointTestHelpers.SetPropertyOrField(item, "Id", id);
-        EntrypointTestHelpers.EnsureNonVirtual(item);
-        return item;
-    }
-
-    private static Episode CreateEpisode(Guid id)
-    {
-        var item = new Episode();
-        EntrypointTestHelpers.SetPropertyOrField(item, "Id", id);
-        EntrypointTestHelpers.EnsureNonVirtual(item);
-        return item;
     }
 
     private static async Task<bool> TableExistsAsync(IntroSkipperDbContext db, string tableName)

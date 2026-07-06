@@ -8,6 +8,7 @@ using System.Net.Mime;
 using IntroSkipper.Data;
 using IntroSkipper.Manager;
 using MediaBrowser.Common.Api;
+using MediaBrowser.Controller.Entities.Movies;
 using MediaBrowser.Controller.Entities.TV;
 using MediaBrowser.Model.MediaSegments;
 using MediaBrowser.Model.Querying;
@@ -77,7 +78,8 @@ public class SegmentEditorController(MediaSegmentEditorService mediaSegmentEdito
         var seg = new Segment(itemId, new TimeRange(TimeSpan.FromTicks(segment.StartTicks).TotalSeconds, TimeSpan.FromTicks(segment.EndTicks).TotalSeconds));
         var mode = Plugin.MapSegmentTypeToMode(segment.Type);
 
-        await Plugin.Instance!.UpdateTimestampAsync(seg, mode, isUserProvided: true, append: true, cancellationToken: cancellationToken).ConfigureAwait(false);
+        var mediaCategory = item is Movie ? QueuedMediaCategory.Movie : QueuedMediaCategory.Episode;
+        await Plugin.Instance!.UpdateTimestampAsync(seg, mode, isUserProvided: true, append: true, mediaCategory: mediaCategory, cancellationToken: cancellationToken).ConfigureAwait(false);
 
         await _mediaSegmentEditorService.CreateOrReplaceSegmentAsync(item, segment, cancellationToken).ConfigureAwait(false);
 

@@ -12,13 +12,13 @@ using System.Collections.Concurrent;
 using IntroSkipper.Configuration;
 using IntroSkipper.Data;
 using IntroSkipper.Db;
+using IntroSkipper.Manager;
 using Jellyfin.Database.Implementations.Enums;
 using MediaBrowser.Common.Configuration;
 using MediaBrowser.Common.Plugins;
 using MediaBrowser.Controller.Chapters;
 using MediaBrowser.Controller.Configuration;
 using MediaBrowser.Controller.Entities;
-using MediaBrowser.Controller.Entities.Movies;
 using MediaBrowser.Controller.Library;
 using MediaBrowser.Model.Entities;
 using MediaBrowser.Model.Plugins;
@@ -230,6 +230,7 @@ public partial class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
         bool isUserProvided = false,
         string configHash = "",
         bool append = false,
+        QueuedMediaCategory? mediaCategory = null,
         CancellationToken cancellationToken = default)
     {
         using var db = CreateDbContext();
@@ -238,7 +239,7 @@ public partial class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
         {
             var dbSegment = new DbSegment(segment, mode, isUserProvided, configHash);
             var appendSegment = mode == AnalysisMode.Commercial ||
-                (append && mode == AnalysisMode.Credits && IsMovie(segment.EpisodeId));
+                (append && AllowsMultipleSegments(mode, segment.EpisodeId, mediaCategory));
 
             if (mode != AnalysisMode.Commercial)
             {
@@ -320,10 +321,14 @@ public partial class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
         }
     }
 
-    private bool IsMovie(Guid itemId)
+    private bool AllowsMultipleSegments(AnalysisMode mode, Guid itemId, QueuedMediaCategory? mediaCategory)
     {
-        var item = itemId != Guid.Empty ? _libraryManager.GetItemById(itemId) : null;
-        return item is Movie;
+        if (mediaCategory.HasValue)
+        {
+            return MediaSegmentRules.AllowsMultipleSegments(mode, mediaCategory.Value);
+        }
+
+        return MediaSegmentRules.AllowsMultipleSegments(mode, GetItem(itemId));
     }
 
     internal static async Task<IReadOnlyDictionary<AnalysisMode, Segment>> GetTimestampsAsync(Guid id, CancellationToken cancellationToken = default)

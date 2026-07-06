@@ -20,9 +20,6 @@ namespace IntroSkipper.Db;
 /// </remarks>
 public class IntroSkipperDbContext : DbContext
 {
-    private const int CreditsType = (int)AnalysisMode.Credits;
-    private const int CommercialType = (int)AnalysisMode.Commercial;
-
     private static readonly SqlitePragmaInterceptor _pragmaInterceptor = new();
     private static readonly string[] _currentMigrationIds =
     [
@@ -93,16 +90,16 @@ public class IntroSkipperDbContext : DbContext
 
             entity.HasIndex(e => e.ItemId);
             entity.HasIndex(e => new { e.ItemId, e.Type, e.Start, e.End })
-                .HasDatabaseName("IX_DbSegment_Commercial_Unique")
-                .HasFilter($"Type = {CommercialType}")
+                .HasDatabaseName(DbSegmentIndexSql.CommercialUniqueIndexName)
+                .HasFilter(DbSegmentIndexSql.CommercialFilter)
                 .IsUnique();
             entity.HasIndex(e => new { e.ItemId, e.Type, e.Start, e.End })
-                .HasDatabaseName("IX_DbSegment_Credits_Unique")
-                .HasFilter($"Type = {CreditsType}")
+                .HasDatabaseName(DbSegmentIndexSql.CreditsUniqueIndexName)
+                .HasFilter(DbSegmentIndexSql.CreditsFilter)
                 .IsUnique();
             entity.HasIndex(e => new { e.ItemId, e.Type })
-                .HasDatabaseName("IX_DbSegment_NonCommercial_Unique")
-                .HasFilter($"Type != {CommercialType} AND Type != {CreditsType}")
+                .HasDatabaseName(DbSegmentIndexSql.NonCommercialUniqueIndexName)
+                .HasFilter(DbSegmentIndexSql.SingleSegmentFilter)
                 .IsUnique();
 
             entity.Property(e => e.Start)
@@ -462,61 +459,14 @@ public class IntroSkipperDbContext : DbContext
 
     private void EnsureDbSegmentIndexes()
     {
-        Database.ExecuteSqlRaw("CREATE INDEX IF NOT EXISTS \"IX_DbSegment_ItemId\" ON \"DbSegment\" (\"ItemId\")");
-        Database.ExecuteSqlRaw(
-            $$"""
-            DELETE FROM "DbSegment"
-            WHERE "Type" = {{CommercialType}}
-            AND "Id" NOT IN (
-                SELECT MAX("Id")
-                FROM "DbSegment"
-                WHERE "Type" = {{CommercialType}}
-                GROUP BY "ItemId", "Type", "Start", "End"
-            )
-            """);
-
-        Database.ExecuteSqlRaw(
-            $$"""
-            CREATE UNIQUE INDEX IF NOT EXISTS "IX_DbSegment_Commercial_Unique" ON "DbSegment" ("ItemId", "Type", "Start", "End")
-                WHERE "Type" = {{CommercialType}}
-            """);
-
-        Database.ExecuteSqlRaw(
-            $$"""
-            DELETE FROM "DbSegment"
-            WHERE "Type" = {{CreditsType}}
-            AND "Id" NOT IN (
-                SELECT MAX("Id")
-                FROM "DbSegment"
-                WHERE "Type" = {{CreditsType}}
-                GROUP BY "ItemId", "Type", "Start", "End"
-            )
-            """);
-
-        Database.ExecuteSqlRaw(
-            $$"""
-            CREATE UNIQUE INDEX IF NOT EXISTS "IX_DbSegment_Credits_Unique" ON "DbSegment" ("ItemId", "Type", "Start", "End")
-                WHERE "Type" = {{CreditsType}}
-            """);
-
-        Database.ExecuteSqlRaw("DROP INDEX IF EXISTS \"IX_DbSegment_NonCommercial_Unique\"");
-        Database.ExecuteSqlRaw(
-            $$"""
-            DELETE FROM "DbSegment"
-            WHERE "Type" != {{CommercialType}} AND "Type" != {{CreditsType}}
-            AND "Id" NOT IN (
-                SELECT MAX("Id")
-                FROM "DbSegment"
-                WHERE "Type" != {{CommercialType}} AND "Type" != {{CreditsType}}
-                GROUP BY "ItemId", "Type"
-            )
-            """);
-
-        Database.ExecuteSqlRaw(
-            $$"""
-            CREATE UNIQUE INDEX IF NOT EXISTS "IX_DbSegment_NonCommercial_Unique" ON "DbSegment" ("ItemId", "Type")
-                WHERE "Type" != {{CommercialType}} AND "Type" != {{CreditsType}}
-            """);
+        Database.ExecuteSqlRaw(DbSegmentIndexSql.CreateItemIndexSql);
+        Database.ExecuteSqlRaw(DbSegmentIndexSql.DeleteDuplicateCommercialSegmentsSql);
+        Database.ExecuteSqlRaw(DbSegmentIndexSql.CreateCommercialUniqueIndexSql);
+        Database.ExecuteSqlRaw(DbSegmentIndexSql.DeleteDuplicateCreditSegmentsSql);
+        Database.ExecuteSqlRaw(DbSegmentIndexSql.CreateCreditsUniqueIndexSql);
+        Database.ExecuteSqlRaw(DbSegmentIndexSql.DropNonCommercialUniqueIndexSql);
+        Database.ExecuteSqlRaw(DbSegmentIndexSql.DeleteDuplicateSingleSegmentsSql);
+        Database.ExecuteSqlRaw(DbSegmentIndexSql.CreateNonCommercialUniqueIndexSql);
     }
 
     private void EnsureMigrationHistoryForCurrentSchema()
@@ -550,10 +500,10 @@ public class IntroSkipperDbContext : DbContext
             && ColumnExists("DbSegment", "End")
             && ColumnExists("DbSegment", "IsUserProvided")
             && ColumnExists("DbSegment", "ConfigHash")
-            && IndexExists("DbSegment", "IX_DbSegment_ItemId")
-            && IndexExists("DbSegment", "IX_DbSegment_Commercial_Unique")
-            && IndexExists("DbSegment", "IX_DbSegment_Credits_Unique")
-            && IndexExists("DbSegment", "IX_DbSegment_NonCommercial_Unique")
+            && IndexExists("DbSegment", DbSegmentIndexSql.ItemIndexName)
+            && IndexExists("DbSegment", DbSegmentIndexSql.CommercialUniqueIndexName)
+            && IndexExists("DbSegment", DbSegmentIndexSql.CreditsUniqueIndexName)
+            && IndexExists("DbSegment", DbSegmentIndexSql.NonCommercialUniqueIndexName)
             && TableExists("DbSeasonState")
             && ColumnExists("DbSeasonState", "SeasonId")
             && ColumnExists("DbSeasonState", "Type")

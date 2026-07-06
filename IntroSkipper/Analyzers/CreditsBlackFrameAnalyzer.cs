@@ -83,6 +83,7 @@ public sealed partial class CreditsBlackFrameAnalyzer(ILogger<CreditsBlackFrameA
                         mode,
                         configHash: episode.AnalysisConfigHash,
                         append: episode.Category == QueuedMediaCategory.Movie,
+                        mediaCategory: episode.Category,
                         cancellationToken: cancellationToken).ConfigureAwait(false);
                 }
 
@@ -119,7 +120,7 @@ public sealed partial class CreditsBlackFrameAnalyzer(ILogger<CreditsBlackFrameA
     public async Task<Segment?> DetectCreditsAsync(QueuedEpisode episode, int minimumPercentage, int threshold, int minimumDuration, CancellationToken cancellationToken = default)
     {
         var segments = await DetectCreditSegmentsAsync(episode, minimumPercentage, threshold, minimumDuration, cancellationToken).ConfigureAwait(false);
-        return segments.FirstOrDefault();
+        return segments.Count > 0 ? segments[0] : null;
     }
 
     /// <summary>
