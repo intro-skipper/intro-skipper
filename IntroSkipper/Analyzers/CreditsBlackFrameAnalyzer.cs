@@ -61,19 +61,32 @@ public sealed partial class CreditsBlackFrameAnalyzer(ILogger<CreditsBlackFrameA
 
             try
             {
-                var credit = await DetectCreditsAsync(episode, minimumPercentage, threshold, minimumDuration, cancellationToken).ConfigureAwait(false);
+                var credits = await DetectCreditSegmentsAsync(episode, minimumPercentage, threshold, minimumDuration, cancellationToken).ConfigureAwait(false);
 
-                if (credit is null || !credit.Valid)
+                if (credits.Count == 0)
                 {
                     LogNoValidCreditsFound(episode.Name);
                     continue;
                 }
 
-                credit = await timeAdjustmentHelper.AdjustIntroTimesAsync(episode, credit, cancellationToken: cancellationToken).ConfigureAwait(false);
-                LogFoundCredits(episode.Name, credit.Start);
+                var segmentsToStore = episode.Category == QueuedMediaCategory.Movie
+                    ? credits.OrderBy(segment => segment.Start)
+                    : credits.Take(1);
+
+                foreach (var credit in segmentsToStore)
+                {
+                    var adjustedCredit = await timeAdjustmentHelper.AdjustIntroTimesAsync(episode, credit, cancellationToken: cancellationToken).ConfigureAwait(false);
+                    LogFoundCredits(episode.Name, adjustedCredit.Start);
+
+                    await plugin.UpdateTimestampAsync(
+                        adjustedCredit,
+                        mode,
+                        configHash: episode.AnalysisConfigHash,
+                        append: episode.Category == QueuedMediaCategory.Movie,
+                        cancellationToken: cancellationToken).ConfigureAwait(false);
+                }
 
                 episode.SetAnalyzed(mode, EpisodeState.Analyzed);
-                await plugin.UpdateTimestampAsync(credit, mode, configHash: episode.AnalysisConfigHash, cancellationToken: cancellationToken).ConfigureAwait(false);
             }
             catch (OperationCanceledException)
             {
@@ -105,23 +118,43 @@ public sealed partial class CreditsBlackFrameAnalyzer(ILogger<CreditsBlackFrameA
     /// <returns>A task that returns the time range of the detected credits.</returns>
     public async Task<Segment?> DetectCreditsAsync(QueuedEpisode episode, int minimumPercentage, int threshold, int minimumDuration, CancellationToken cancellationToken = default)
     {
+        var segments = await DetectCreditSegmentsAsync(episode, minimumPercentage, threshold, minimumDuration, cancellationToken).ConfigureAwait(false);
+        return segments.FirstOrDefault();
+    }
+
+    /// <summary>
+    /// Detects credit segments from FFmpeg keyframe evidence.
+    /// </summary>
+    /// <remarks>
+    /// Multiple segments are returned for movie recording. Television callers should keep using
+    /// <see cref="DetectCreditsAsync"/> or otherwise select a single segment.
+    /// </remarks>
+    /// <param name="episode">Media file to analyze.</param>
+    /// <param name="minimumPercentage">Minimum percentage of the frame that must be black.</param>
+    /// <param name="threshold">Threshold for black frame detection.</param>
+    /// <param name="minimumDuration">Minimum duration of the credits.</param>
+    /// <param name="cancellationToken">Token used to cancel FFmpeg probing.</param>
+    /// <returns>A task that returns the detected credits segments.</returns>
+    public async Task<IReadOnlyList<Segment>> DetectCreditSegmentsAsync(QueuedEpisode episode, int minimumPercentage, int threshold, int minimumDuration, CancellationToken cancellationToken = default)
+    {
         var blackFrames = (await _ffmpegService.DetectBlackFramesAsync(episode, threshold, cancellationToken).ConfigureAwait(false)).ToList();
 
-        var segment = blackFrames.Count > 0
+        IReadOnlyList<Segment> segments = blackFrames.Count > 0
             ? await DetectBlackFrameCreditsAsync(episode, blackFrames, minimumPercentage, threshold, minimumDuration, cancellationToken).ConfigureAwait(false)
-            : null;
+            : [];
 
-        if (segment is not null)
+        if (segments.Count > 0)
         {
-            return segment;
+            return segments;
         }
 
         if (_config.DetectNonBlackCredits)
         {
-            return await DetectNonBlackCreditsAsync(episode, minimumDuration, cancellationToken).ConfigureAwait(false);
+            var segment = await DetectNonBlackCreditsAsync(episode, minimumDuration, cancellationToken).ConfigureAwait(false);
+            return segment is null ? [] : [segment];
         }
 
-        return null;
+        return [];
     }
 
     /// <summary>
@@ -133,8 +166,8 @@ public sealed partial class CreditsBlackFrameAnalyzer(ILogger<CreditsBlackFrameA
     /// <param name="threshold">Threshold for black frame detection.</param>
     /// <param name="minimumDuration">Minimum duration of the credits.</param>
     /// <param name="cancellationToken">Token used to cancel FFmpeg probing.</param>
-    /// <returns>A task that returns the detected credits segment, or <see langword="null" /> when no valid black-frame credits exist.</returns>
-    private async Task<Segment?> DetectBlackFrameCreditsAsync(QueuedEpisode episode, List<BlackFrame> blackFrames, int minimumPercentage, int threshold, int minimumDuration, CancellationToken cancellationToken)
+    /// <returns>A task that returns the detected credits segments, or an empty list when no valid black-frame credits exist.</returns>
+    private async Task<IReadOnlyList<Segment>> DetectBlackFrameCreditsAsync(QueuedEpisode episode, List<BlackFrame> blackFrames, int minimumPercentage, int threshold, int minimumDuration, CancellationToken cancellationToken)
     {
         var (minimum, sceneChange) = NormalizeThreshold(blackFrames, minimumPercentage);
         var scenes = CreditSceneBuilder.DetectCreditScenes(blackFrames, minimum, sceneChange, minimumDuration, _config.RefineCreditsBoundary);
@@ -145,14 +178,14 @@ public sealed partial class CreditsBlackFrameAnalyzer(ILogger<CreditsBlackFrameA
             var candidates = CreditSceneBuilder.DetectCreditSceneCandidates(blackFrames, minimum);
             if (candidates.Count == 0)
             {
-                return null;
+                return [];
             }
 
             blackIntervals = await DetectBlackIntervalsForCandidatesOrEmptyAsync(episode, candidates, threshold, minimum, minimumDuration, cancellationToken).ConfigureAwait(false);
             scenes = CreditSceneBuilder.DetectIntervalSupportedCreditScenes(blackFrames, blackIntervals, minimum, minimumDuration);
             if (scenes.Count == 0)
             {
-                return null;
+                return [];
             }
         }
         else if (scenes.Count == 1 && CreditSceneMetricsCalculator.Calculate(blackFrames, scenes[0], minimum).IsSparse(scenes[0], minimumDuration))
@@ -167,6 +200,7 @@ public sealed partial class CreditsBlackFrameAnalyzer(ILogger<CreditsBlackFrameA
 
         var ranked = RankCreditCandidates(scenes, blackIntervals);
         var boundaryRefiner = _config.RefineCreditsBoundary ? new CreditsBoundaryRefiner(_ffmpegService) : null;
+        var segments = new List<Segment>(ranked.Count);
 
         foreach (var scene in ranked)
         {
@@ -186,11 +220,11 @@ public sealed partial class CreditsBlackFrameAnalyzer(ILogger<CreditsBlackFrameA
             {
                 LogFoundValidCreditsSegment(segment.Start, segment.End, segment.Duration);
 
-                return segment;
+                segments.Add(segment);
             }
         }
 
-        return null;
+        return segments;
     }
 
     /// <summary>

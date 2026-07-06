@@ -41,6 +41,7 @@ namespace IntroSkipper.Providers
             ArgumentNullException.ThrowIfNull(Plugin.Instance);
 
             var segments = new List<MediaSegmentDto>();
+            var item = Plugin.Instance.GetItem(request.ItemId);
             var itemSegments = await Plugin.GetSegmentsAsync(request.ItemId, cancellationToken).ConfigureAwait(false);
             var dedupedModes = new HashSet<AnalysisMode>();
 
@@ -56,7 +57,7 @@ namespace IntroSkipper.Providers
                     continue;
                 }
 
-                if (segment.Type != AnalysisMode.Commercial && !dedupedModes.Add(segment.Type))
+                if (!AllowsMultipleSegments(item, segment.Type) && !dedupedModes.Add(segment.Type))
                 {
                     continue;
                 }
@@ -78,5 +79,8 @@ namespace IntroSkipper.Providers
 
         /// <inheritdoc/>
         public ValueTask<bool> Supports(BaseItem item) => ValueTask.FromResult(item is Episode or Movie);
+
+        private static bool AllowsMultipleSegments(BaseItem? item, AnalysisMode mode)
+            => mode == AnalysisMode.Commercial || (mode == AnalysisMode.Credits && item is Movie);
     }
 }

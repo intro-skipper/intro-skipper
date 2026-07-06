@@ -18,6 +18,7 @@ using MediaBrowser.Common.Plugins;
 using MediaBrowser.Controller.Chapters;
 using MediaBrowser.Controller.Configuration;
 using MediaBrowser.Controller.Entities;
+using MediaBrowser.Controller.Entities.Movies;
 using MediaBrowser.Controller.Library;
 using MediaBrowser.Model.Entities;
 using MediaBrowser.Model.Plugins;
@@ -228,6 +229,7 @@ public partial class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
         AnalysisMode mode,
         bool isUserProvided = false,
         string configHash = "",
+        bool append = false,
         CancellationToken cancellationToken = default)
     {
         using var db = CreateDbContext();
@@ -235,8 +237,41 @@ public partial class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
         try
         {
             var dbSegment = new DbSegment(segment, mode, isUserProvided, configHash);
+            var appendSegment = mode == AnalysisMode.Commercial ||
+                (append && mode == AnalysisMode.Credits && IsMovie(segment.EpisodeId));
 
-            if (mode == AnalysisMode.Commercial)
+            if (mode != AnalysisMode.Commercial)
+            {
+                var existingSegments = await db.DbSegment
+                    .AsNoTracking()
+                    .Where(s => s.ItemId == segment.EpisodeId && s.Type == mode)
+                    .ToListAsync(cancellationToken)
+                    .ConfigureAwait(false);
+
+                // Do not overwrite a user-provided segment with an analysis result.
+                if (!isUserProvided && existingSegments.Any(s => s.IsUserProvided))
+                {
+                    return;
+                }
+
+                // Guard: prevent auto-detected credits from overlapping with the introduction.
+                if (mode == AnalysisMode.Credits && !isUserProvided)
+                {
+                    var intro = await db.DbSegment
+                        .AsNoTracking()
+                        .Where(s => s.ItemId == segment.EpisodeId && s.Type == AnalysisMode.Introduction)
+                        .FirstOrDefaultAsync(cancellationToken)
+                        .ConfigureAwait(false);
+
+                    if (intro is not null && segment.Start < intro.End && intro.Start < segment.End)
+                    {
+                        LogCreditsOverlapWithIntro(_logger, segment.EpisodeId);
+                        return;
+                    }
+                }
+            }
+
+            if (appendSegment)
             {
                 var exists = await db.DbSegment
                     .AnyAsync(
@@ -263,28 +298,6 @@ public partial class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
                         .ToListAsync(cancellationToken)
                         .ConfigureAwait(false);
 
-                    // Do not overwrite a user-provided segment with an analysis result.
-                    if (!isUserProvided && existingSegments.Any(s => s.IsUserProvided))
-                    {
-                        return;
-                    }
-
-                    // Guard: prevent auto-detected credits from overlapping with the introduction.
-                    if (mode == AnalysisMode.Credits && !isUserProvided)
-                    {
-                        var intro = await db.DbSegment
-                            .AsNoTracking()
-                            .Where(s => s.ItemId == segment.EpisodeId && s.Type == AnalysisMode.Introduction)
-                            .FirstOrDefaultAsync(cancellationToken)
-                            .ConfigureAwait(false);
-
-                        if (intro is not null && segment.Start < intro.End && intro.Start < segment.End)
-                        {
-                            LogCreditsOverlapWithIntro(_logger, segment.EpisodeId);
-                            return;
-                        }
-                    }
-
                     if (existingSegments.Count > 0)
                     {
                         db.DbSegment.RemoveRange(existingSegments);
@@ -305,6 +318,12 @@ public partial class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
             LogFailedToUpdateTimestamp(_logger, ex, segment.EpisodeId);
             throw;
         }
+    }
+
+    private bool IsMovie(Guid itemId)
+    {
+        var item = itemId != Guid.Empty ? _libraryManager.GetItemById(itemId) : null;
+        return item is Movie;
     }
 
     internal static async Task<IReadOnlyDictionary<AnalysisMode, Segment>> GetTimestampsAsync(Guid id, CancellationToken cancellationToken = default)

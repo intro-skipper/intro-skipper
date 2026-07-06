@@ -1,6 +1,7 @@
 using System.Collections.Concurrent;
 using Jellyfin.Database.Implementations.Enums;
 using MediaBrowser.Controller.Entities;
+using MediaBrowser.Controller.Entities.Movies;
 using MediaBrowser.Controller.Library;
 using MediaBrowser.Controller.MediaSegments;
 using MediaBrowser.Model.MediaSegments;
@@ -34,9 +35,10 @@ public partial class MediaSegmentEditorService(
     /// Operates only on segments of the supplied type, leaving all other types untouched.
     /// </summary>
     /// <remarks>
-    /// Non-commercial segments are replaced: any existing Jellyfin segment of the same type
-    /// is deleted before the new one is created. Commercial segments are deduplicated by
-    /// start/end ticks: the new segment is only created when no identical entry already exists.
+    /// Single-entry segments are replaced: any existing Jellyfin segment of the same type
+    /// is deleted before the new one is created. Commercial segments and movie credits are
+    /// deduplicated by start/end ticks: the new segment is only created when no identical entry
+    /// already exists.
     /// </remarks>
     /// <param name="item">The media item that owns the segment.</param>
     /// <param name="segment">The segment DTO to persist in Jellyfin's database.</param>
@@ -62,10 +64,10 @@ public partial class MediaSegmentEditorService(
                 .GetSegmentsAsync(item, [segment.Type], MediaSegmentProviderDefaults.ExternalProviders, filterByProvider: false)
                 .ConfigureAwait(false);
 
-            if (segment.Type == MediaSegmentType.Commercial)
+            if (AllowsMultipleSegments(item, segment.Type))
             {
-                // Multiple commercial segments per item are valid; skip creation only when an
-                // identical entry (same start and end) is already present.
+                // Multiple matching segments per item are valid for commercials and movie credits;
+                // skip creation only when an identical entry (same start and end) is already present.
                 if (existingSegments.Any(e => e.StartTicks == segment.StartTicks && e.EndTicks == segment.EndTicks))
                 {
                     return;
@@ -73,7 +75,7 @@ public partial class MediaSegmentEditorService(
             }
             else
             {
-                // Only one segment of each non-commercial type is kept per item.
+                // Only one segment of each single-entry type is kept per item.
                 // Deletes run in parallel; individual failures are logged but do not abort the others.
                 await Task.WhenAll(existingSegments.Select(async e =>
                 {
@@ -109,6 +111,9 @@ public partial class MediaSegmentEditorService(
             itemLock.Release();
         }
     }
+
+    private static bool AllowsMultipleSegments(BaseItem item, MediaSegmentType type)
+        => type == MediaSegmentType.Commercial || (type == MediaSegmentType.Outro && item is Movie);
 
     /// <summary>
     /// Deletes a segment.

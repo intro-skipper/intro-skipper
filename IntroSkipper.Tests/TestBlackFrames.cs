@@ -997,6 +997,22 @@ public class TestBlackFrames
     }
 
     [Fact]
+    public async Task TestDetectCreditSegmentsAsync_ReturnsMultipleCreditBlocks()
+    {
+        var ffmpeg = new FakeFFmpegService(CreateStingerSplitFrames());
+        var analyzer = CreateCreditsBlackFrameAnalyzer(ffmpeg);
+        var episode = CreateQueuedCreditsEpisode(creditsFingerprintStart: 100);
+
+        var results = await analyzer.DetectCreditSegmentsAsync(episode, 85, 32, 15);
+
+        Assert.Equal(2, results.Count);
+        Assert.Equal(190, results[0].Start);
+        Assert.Equal(220, results[0].End);
+        Assert.Equal(100, results[1].Start);
+        Assert.Equal(120, results[1].End);
+    }
+
+    [Fact]
     public async Task TestDetectCreditsAsync_DisabledBoundaryRefinement_UsesKeyframeStart()
     {
         var frames = new List<BlackFrame>();

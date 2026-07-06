@@ -8,6 +8,9 @@ using System.Linq;
 using System.Threading.Tasks;
 using IntroSkipper.Data;
 using IntroSkipper.Db;
+using MediaBrowser.Controller.Entities;
+using MediaBrowser.Controller.Entities.Movies;
+using MediaBrowser.Controller.Entities.TV;
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
@@ -48,6 +51,67 @@ public sealed class TestDbSegmentStorage
         {
             var count = db.DbSegment.Count(segment => segment.ItemId == itemId && segment.Type == AnalysisMode.Commercial);
             Assert.Equal(2, count);
+        }
+    }
+
+    [Fact]
+    public void AllowsMultipleCreditSegments()
+    {
+        using var connection = new SqliteConnection("Data Source=:memory:");
+        connection.Open();
+
+        var options = new DbContextOptionsBuilder<IntroSkipperDbContext>()
+            .UseSqlite(connection)
+            .Options;
+
+        var itemId = Guid.NewGuid();
+
+        using (var db = new IntroSkipperDbContext(options))
+        {
+            db.Database.EnsureCreated();
+
+            db.DbSegment.AddRange(
+                new DbSegment(new Segment(itemId, new TimeRange(0, 10)), AnalysisMode.Credits),
+                new DbSegment(new Segment(itemId, new TimeRange(20, 30)), AnalysisMode.Credits));
+            db.SaveChanges();
+        }
+
+        using (var db = new IntroSkipperDbContext(options))
+        {
+            var count = db.DbSegment.Count(segment => segment.ItemId == itemId && segment.Type == AnalysisMode.Credits);
+            Assert.Equal(2, count);
+        }
+    }
+
+    [Fact]
+    public void CreditUniqueIndexPreventsInsertingDuplicateRangeForSameItemAndType()
+    {
+        using var connection = new SqliteConnection("Data Source=:memory:");
+        connection.Open();
+
+        var options = new DbContextOptionsBuilder<IntroSkipperDbContext>()
+            .UseSqlite(connection)
+            .Options;
+
+        var itemId = Guid.NewGuid();
+
+        using (var db = new IntroSkipperDbContext(options))
+        {
+            db.Database.EnsureCreated();
+
+            db.DbSegment.Add(new DbSegment(
+                new Segment(itemId, new TimeRange(0, 10)),
+                AnalysisMode.Credits));
+            db.SaveChanges();
+        }
+
+        using (var db = new IntroSkipperDbContext(options))
+        {
+            db.DbSegment.Add(new DbSegment(
+                new Segment(itemId, new TimeRange(0, 10)),
+                AnalysisMode.Credits));
+
+            Assert.Throws<DbUpdateException>(() => db.SaveChanges());
         }
     }
 
@@ -670,6 +734,83 @@ public sealed class TestDbSegmentStorage
         {
             DeleteSqliteFiles(dbPath);
         }
+    }
+
+    [Theory]
+    [InlineData(true, 2)]
+    [InlineData(false, 1)]
+    public async Task UpdateTimestampAsync_AppendsMultipleCreditsOnlyForMovies(bool movie, int expectedCount)
+    {
+        var tempDir = Path.Join(Path.GetTempPath(), "IntroSkipper.Tests");
+        var dbFileName = Guid.NewGuid().ToString("N") + ".db";
+        if (Path.IsPathRooted(dbFileName))
+        {
+            throw new ArgumentException("dbFileName must be a relative file name.", nameof(dbFileName));
+        }
+
+        var dbPath = Path.Join(tempDir, dbFileName);
+        Directory.CreateDirectory(Path.GetDirectoryName(dbPath)!);
+
+        var itemId = Guid.NewGuid();
+
+        try
+        {
+            using (var db = new IntroSkipperDbContext(dbPath))
+            {
+                await db.Database.EnsureCreatedAsync();
+            }
+
+            using (new EntrypointTestHelpers.PluginInstanceScope(EntrypointTestHelpers.CreateTempCacheDir()))
+            {
+                BaseItem item = movie ? CreateMovie(itemId) : CreateEpisode(itemId);
+                var plugin = Plugin.Instance!;
+                EntrypointTestHelpers.SetPrivateField(plugin, "_dbPath", dbPath);
+                EntrypointTestHelpers.SetPrivateField(plugin, "_libraryManager", EntrypointTestHelpers.CreateLibraryManager(item));
+
+                await plugin.UpdateTimestampAsync(
+                    new Segment(itemId, new TimeRange(100, 120)),
+                    AnalysisMode.Credits,
+                    append: true);
+                await plugin.UpdateTimestampAsync(
+                    new Segment(itemId, new TimeRange(200, 220)),
+                    AnalysisMode.Credits,
+                    append: true);
+            }
+
+            using (var db = new IntroSkipperDbContext(dbPath))
+            {
+                var segments = db.DbSegment
+                    .Where(s => s.ItemId == itemId && s.Type == AnalysisMode.Credits)
+                    .OrderBy(s => s.Start)
+                    .ToList();
+
+                Assert.Equal(expectedCount, segments.Count);
+                if (!movie)
+                {
+                    Assert.Equal(200, segments[0].Start);
+                }
+            }
+        }
+        finally
+        {
+            DeleteSqliteFiles(dbPath);
+        }
+    }
+
+    private static Movie CreateMovie(Guid id)
+    {
+        var item = new Movie();
+        EntrypointTestHelpers.SetPropertyOrField(item, "Id", id);
+        EntrypointTestHelpers.EnsureNonVirtual(item);
+        return item;
+    }
+
+    private static Episode CreateEpisode(Guid id)
+    {
+        var item = new Episode();
+        EntrypointTestHelpers.SetPropertyOrField(item, "Id", id);
+        EntrypointTestHelpers.EnsureNonVirtual(item);
+        return item;
     }
 
     private static async Task<bool> TableExistsAsync(IntroSkipperDbContext db, string tableName)

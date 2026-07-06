@@ -77,7 +77,7 @@ public class SegmentEditorController(MediaSegmentEditorService mediaSegmentEdito
         var seg = new Segment(itemId, new TimeRange(TimeSpan.FromTicks(segment.StartTicks).TotalSeconds, TimeSpan.FromTicks(segment.EndTicks).TotalSeconds));
         var mode = Plugin.MapSegmentTypeToMode(segment.Type);
 
-        await Plugin.Instance!.UpdateTimestampAsync(seg, mode, isUserProvided: true, cancellationToken: cancellationToken).ConfigureAwait(false);
+        await Plugin.Instance!.UpdateTimestampAsync(seg, mode, isUserProvided: true, append: true, cancellationToken: cancellationToken).ConfigureAwait(false);
 
         await _mediaSegmentEditorService.CreateOrReplaceSegmentAsync(item, segment, cancellationToken).ConfigureAwait(false);
 

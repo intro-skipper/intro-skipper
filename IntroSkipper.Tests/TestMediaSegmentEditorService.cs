@@ -7,6 +7,7 @@ using IntroSkipper.Manager;
 using Jellyfin.Database.Implementations.Enums;
 using MediaBrowser.Controller.Entities;
 using MediaBrowser.Controller.Entities.Movies;
+using MediaBrowser.Controller.Entities.TV;
 using MediaBrowser.Controller.Library;
 using MediaBrowser.Controller.MediaSegments;
 using MediaBrowser.Model.Configuration;
@@ -90,6 +91,42 @@ public sealed class TestMediaSegmentEditorService
 
         // Commercial segments are never deleted; only the non-duplicate is added.
         Assert.Empty(manager.DeletedSegmentIds);
+        Assert.Equal(1, manager.CreateCount);
+    }
+
+    [Fact]
+    public async Task CreateOrReplaceSegmentAsync_AllowsMultipleMovieCredits()
+    {
+        using var scope = new EntrypointTestHelpers.PluginInstanceScope(EntrypointTestHelpers.CreateTempCacheDir());
+        var existing = CreateSegment(MediaSegmentType.Outro, 10, 20, Guid.NewGuid());
+        var manager = new FakeMediaSegmentManager
+        {
+            Providers = [(Plugin.Instance!.Name, "intro-skipper")],
+            ExistingSegments = [existing]
+        };
+        var service = CreateService(manager);
+
+        await service.CreateOrReplaceSegmentAsync(CreateMovie(Guid.NewGuid()), CreateSegment(MediaSegmentType.Outro, 30, 40), CancellationToken.None);
+
+        Assert.Empty(manager.DeletedSegmentIds);
+        Assert.Equal(1, manager.CreateCount);
+    }
+
+    [Fact]
+    public async Task CreateOrReplaceSegmentAsync_ReplacesExistingTelevisionCredits()
+    {
+        using var scope = new EntrypointTestHelpers.PluginInstanceScope(EntrypointTestHelpers.CreateTempCacheDir());
+        var existing = CreateSegment(MediaSegmentType.Outro, 10, 20, Guid.NewGuid());
+        var manager = new FakeMediaSegmentManager
+        {
+            Providers = [(Plugin.Instance!.Name, "intro-skipper")],
+            ExistingSegments = [existing]
+        };
+        var service = CreateService(manager);
+
+        await service.CreateOrReplaceSegmentAsync(CreateEpisode(Guid.NewGuid()), CreateSegment(MediaSegmentType.Outro, 30, 40), CancellationToken.None);
+
+        Assert.Equal([existing.Id], manager.DeletedSegmentIds);
         Assert.Equal(1, manager.CreateCount);
     }
 
@@ -269,6 +306,14 @@ public sealed class TestMediaSegmentEditorService
     private static Movie CreateMovie(Guid id)
     {
         var item = new Movie();
+        EntrypointTestHelpers.SetPropertyOrField(item, "Id", id);
+        EntrypointTestHelpers.EnsureNonVirtual(item);
+        return item;
+    }
+
+    private static Episode CreateEpisode(Guid id)
+    {
+        var item = new Episode();
         EntrypointTestHelpers.SetPropertyOrField(item, "Id", id);
         EntrypointTestHelpers.EnsureNonVirtual(item);
         return item;

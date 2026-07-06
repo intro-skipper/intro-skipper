@@ -20,6 +20,7 @@ namespace IntroSkipper.Db;
 /// </remarks>
 public class IntroSkipperDbContext : DbContext
 {
+    private const int CreditsType = (int)AnalysisMode.Credits;
     private const int CommercialType = (int)AnalysisMode.Commercial;
 
     private static readonly SqlitePragmaInterceptor _pragmaInterceptor = new();
@@ -30,7 +31,8 @@ public class IntroSkipperDbContext : DbContext
         "20260314184512_AddDbSegmentIdentity",
         "20260316060001_AddNonCommercialUniqueIndex",
         "20260519073000_AddConfigHashes",
-        "20260613185809_ReplaceSeasonInfoWithSeasonState"
+        "20260613185809_ReplaceSeasonInfoWithSeasonState",
+        "20260706000000_AddCreditsMultiSegmentIndex"
     ];
 
     private readonly string? _dbPath;
@@ -94,9 +96,13 @@ public class IntroSkipperDbContext : DbContext
                 .HasDatabaseName("IX_DbSegment_Commercial_Unique")
                 .HasFilter($"Type = {CommercialType}")
                 .IsUnique();
+            entity.HasIndex(e => new { e.ItemId, e.Type, e.Start, e.End })
+                .HasDatabaseName("IX_DbSegment_Credits_Unique")
+                .HasFilter($"Type = {CreditsType}")
+                .IsUnique();
             entity.HasIndex(e => new { e.ItemId, e.Type })
                 .HasDatabaseName("IX_DbSegment_NonCommercial_Unique")
-                .HasFilter($"Type != {CommercialType}")
+                .HasFilter($"Type != {CommercialType} AND Type != {CreditsType}")
                 .IsUnique();
 
             entity.Property(e => e.Start)
@@ -478,11 +484,30 @@ public class IntroSkipperDbContext : DbContext
         Database.ExecuteSqlRaw(
             $$"""
             DELETE FROM "DbSegment"
-            WHERE "Type" != {{CommercialType}}
+            WHERE "Type" = {{CreditsType}}
             AND "Id" NOT IN (
                 SELECT MAX("Id")
                 FROM "DbSegment"
-                WHERE "Type" != {{CommercialType}}
+                WHERE "Type" = {{CreditsType}}
+                GROUP BY "ItemId", "Type", "Start", "End"
+            )
+            """);
+
+        Database.ExecuteSqlRaw(
+            $$"""
+            CREATE UNIQUE INDEX IF NOT EXISTS "IX_DbSegment_Credits_Unique" ON "DbSegment" ("ItemId", "Type", "Start", "End")
+                WHERE "Type" = {{CreditsType}}
+            """);
+
+        Database.ExecuteSqlRaw("DROP INDEX IF EXISTS \"IX_DbSegment_NonCommercial_Unique\"");
+        Database.ExecuteSqlRaw(
+            $$"""
+            DELETE FROM "DbSegment"
+            WHERE "Type" != {{CommercialType}} AND "Type" != {{CreditsType}}
+            AND "Id" NOT IN (
+                SELECT MAX("Id")
+                FROM "DbSegment"
+                WHERE "Type" != {{CommercialType}} AND "Type" != {{CreditsType}}
                 GROUP BY "ItemId", "Type"
             )
             """);
@@ -490,7 +515,7 @@ public class IntroSkipperDbContext : DbContext
         Database.ExecuteSqlRaw(
             $$"""
             CREATE UNIQUE INDEX IF NOT EXISTS "IX_DbSegment_NonCommercial_Unique" ON "DbSegment" ("ItemId", "Type")
-                WHERE "Type" != {{CommercialType}}
+                WHERE "Type" != {{CommercialType}} AND "Type" != {{CreditsType}}
             """);
     }
 
@@ -527,6 +552,7 @@ public class IntroSkipperDbContext : DbContext
             && ColumnExists("DbSegment", "ConfigHash")
             && IndexExists("DbSegment", "IX_DbSegment_ItemId")
             && IndexExists("DbSegment", "IX_DbSegment_Commercial_Unique")
+            && IndexExists("DbSegment", "IX_DbSegment_Credits_Unique")
             && IndexExists("DbSegment", "IX_DbSegment_NonCommercial_Unique")
             && TableExists("DbSeasonState")
             && ColumnExists("DbSeasonState", "SeasonId")
