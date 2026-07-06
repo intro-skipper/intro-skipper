@@ -1,0 +1,292 @@
+// SPDX-FileCopyrightText: 2026 Intro-Skipper contributors <intro-skipper.org>
+// SPDX-License-Identifier: GPL-3.0-only
+
+using IntroSkipper.Data;
+using Microsoft.EntityFrameworkCore;
+
+namespace IntroSkipper.Db;
+
+/// <summary>
+/// Season-state (<see cref="DbSeasonState"/>) operations of <see cref="IntroSkipperDatabase"/>.
+/// </summary>
+public sealed partial class IntroSkipperDatabase
+{
+    /// <inheritdoc/>
+    public async Task SetAnalyzerActionAsync(Guid seasonId, IReadOnlyDictionary<AnalysisMode, AnalyzerAction> analyzerActions, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(analyzerActions);
+
+        await EnsureInitializedAsync().ConfigureAwait(false);
+        using var db = _contextFactory.CreateDbContext();
+        var existingEntries = await db.DbSeasonState
+            .Where(s => s.SeasonId == seasonId)
+            .ToDictionaryAsync(s => s.Type, cancellationToken)
+            .ConfigureAwait(false);
+
+        foreach (var (mode, action) in analyzerActions)
+        {
+            if (existingEntries.TryGetValue(mode, out var existing))
+            {
+                db.Entry(existing).Property(s => s.Action).CurrentValue = action;
+            }
+            else
+            {
+                db.DbSeasonState.Add(new DbSeasonState(seasonId, mode, action));
+            }
+        }
+
+        await db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <inheritdoc/>
+    public async Task SetEpisodeIdsAsync(Guid seasonId, AnalysisMode mode, IEnumerable<Guid> episodeIds, string configHash = "", CancellationToken cancellationToken = default)
+    {
+        await EnsureInitializedAsync().ConfigureAwait(false);
+        using var db = _contextFactory.CreateDbContext();
+        var seasonState = await db.DbSeasonState
+            .FirstOrDefaultAsync(s => s.SeasonId == seasonId && s.Type == mode, cancellationToken)
+            .ConfigureAwait(false);
+
+        if (seasonState is null)
+        {
+            seasonState = new DbSeasonState(seasonId, mode, AnalyzerAction.Default, episodeIds, configHash);
+            db.DbSeasonState.Add(seasonState);
+        }
+        else
+        {
+            db.Entry(seasonState).Property(s => s.EpisodeIds).CurrentValue = episodeIds;
+            db.Entry(seasonState).Property(s => s.ConfigHash).CurrentValue = configHash;
+        }
+
+        await db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <inheritdoc/>
+    /// <remarks>
+    /// The read and write share one <see cref="IntroSkipperDbContext"/> to keep the window for
+    /// concurrent overwrites as small as possible, and the write is skipped entirely when the
+    /// ID is not present in the stored list.
+    /// </remarks>
+    public async Task RemoveEpisodeIdAsync(Guid seasonId, AnalysisMode mode, Guid episodeId, CancellationToken cancellationToken = default)
+    {
+        await EnsureInitializedAsync().ConfigureAwait(false);
+        using var db = _contextFactory.CreateDbContext();
+        var seasonState = await db.DbSeasonState
+            .FirstOrDefaultAsync(s => s.SeasonId == seasonId && s.Type == mode, cancellationToken)
+            .ConfigureAwait(false);
+
+        if (seasonState is null)
+        {
+            return;
+        }
+
+        var currentIds = seasonState.EpisodeIds.ToList();
+        if (!currentIds.Remove(episodeId))
+        {
+            return; // Episode was not in the list — no write needed.
+        }
+
+        db.Entry(seasonState).Property(s => s.EpisodeIds).CurrentValue = currentIds;
+        await db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <inheritdoc/>
+    public async Task<IReadOnlyDictionary<AnalysisMode, IEnumerable<Guid>>> GetEpisodeIdsAsync(Guid seasonId, CancellationToken cancellationToken = default)
+    {
+        await EnsureInitializedAsync().ConfigureAwait(false);
+        using var db = _contextFactory.CreateDbContext();
+        return await db.DbSeasonState.Where(s => s.SeasonId == seasonId)
+            .ToDictionaryAsync(s => s.Type, s => s.EpisodeIds, cancellationToken)
+            .ConfigureAwait(false);
+    }
+
+    /// <inheritdoc/>
+    public async Task<IReadOnlyDictionary<AnalysisMode, (AnalyzerAction Action, IReadOnlySet<Guid> SettledReanalysisEpisodeIds)>> GetSettleReanalysisStatesAsync(
+        Guid seasonId,
+        CancellationToken cancellationToken = default)
+    {
+        await EnsureInitializedAsync().ConfigureAwait(false);
+        using var db = _contextFactory.CreateDbContext();
+        var states = await db.DbSeasonState
+            .AsNoTracking()
+            .Where(s => s.SeasonId == seasonId)
+            .Select(s => new
+            {
+                s.Type,
+                s.Action,
+                s.SettledReanalysisEpisodeIds
+            })
+            .ToListAsync(cancellationToken)
+            .ConfigureAwait(false);
+
+        return states.ToDictionary(
+            s => s.Type,
+            s => (s.Action, (IReadOnlySet<Guid>)s.SettledReanalysisEpisodeIds.ToHashSet()));
+    }
+
+    /// <inheritdoc/>
+    public async Task RecordSettleReanalysisAsync(
+        Guid seasonId,
+        IReadOnlyCollection<AnalysisMode> modes,
+        IReadOnlyCollection<Guid> episodeIds,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(modes);
+        ArgumentNullException.ThrowIfNull(episodeIds);
+
+        if (modes.Count == 0)
+        {
+            return;
+        }
+
+        var settledEpisodeIds = DbSeasonState.SerializeEpisodeIds(episodeIds);
+
+        await EnsureInitializedAsync().ConfigureAwait(false);
+        using var db = _contextFactory.CreateDbContext();
+        foreach (var mode in modes)
+        {
+            await db.Database.ExecuteSqlInterpolatedAsync(
+                $"""
+                INSERT INTO "DbSeasonState" ("SeasonId", "Type", "Action", "EpisodeIds", "ConfigHash", "SettledReanalysisEpisodeIds")
+                VALUES ({seasonId}, {(int)mode}, {(int)AnalyzerAction.Default}, {"[]"}, {string.Empty}, {settledEpisodeIds})
+                ON CONFLICT("SeasonId", "Type") DO UPDATE SET
+                    "SettledReanalysisEpisodeIds" = excluded."SettledReanalysisEpisodeIds"
+                """,
+                cancellationToken).ConfigureAwait(false);
+        }
+    }
+
+    /// <inheritdoc/>
+    public async Task<IReadOnlyDictionary<AnalysisMode, AnalyzerAction>> GetAllAnalyzerActionsAsync(Guid seasonId, CancellationToken cancellationToken = default)
+    {
+        await EnsureInitializedAsync().ConfigureAwait(false);
+        using var db = _contextFactory.CreateDbContext();
+        var states = await db.DbSeasonState
+            .Where(s => s.SeasonId == seasonId)
+            .ToDictionaryAsync(s => s.Type, s => s.Action, cancellationToken)
+            .ConfigureAwait(false);
+
+        // Fill in defaults for any missing modes
+        var result = new Dictionary<AnalysisMode, AnalyzerAction>();
+        foreach (var mode in Enum.GetValues<AnalysisMode>())
+        {
+            result[mode] = states.TryGetValue(mode, out var action) ? action : AnalyzerAction.Default;
+        }
+
+        return result;
+    }
+
+    /// <inheritdoc/>
+    public async Task<AnalyzerAction> GetAnalyzerActionAsync(Guid seasonId, AnalysisMode mode, CancellationToken cancellationToken = default)
+    {
+        await EnsureInitializedAsync().ConfigureAwait(false);
+        using var db = _contextFactory.CreateDbContext();
+        var state = await db.DbSeasonState
+            .FirstOrDefaultAsync(s => s.SeasonId == seasonId && s.Type == mode, cancellationToken)
+            .ConfigureAwait(false);
+        return state?.Action ?? AnalyzerAction.Default;
+    }
+
+    /// <inheritdoc/>
+    public async Task ClearSeasonEpisodeIdsAsync(Guid seasonId, CancellationToken cancellationToken = default)
+    {
+        await EnsureInitializedAsync().ConfigureAwait(false);
+        using var db = _contextFactory.CreateDbContext();
+        var seasonStates = await db.DbSeasonState
+            .Where(s => s.SeasonId == seasonId)
+            .ToListAsync(cancellationToken)
+            .ConfigureAwait(false);
+
+        foreach (var state in seasonStates)
+        {
+            db.Entry(state).Property(s => s.EpisodeIds).CurrentValue = [];
+        }
+
+        await db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <inheritdoc/>
+    public async Task RemoveEpisodeIdsFromSeasonsAsync(IReadOnlyDictionary<Guid, IReadOnlySet<Guid>> episodeIdsBySeason, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(episodeIdsBySeason);
+
+        if (episodeIdsBySeason.Count == 0)
+        {
+            return;
+        }
+
+        await EnsureInitializedAsync().ConfigureAwait(false);
+        using var db = _contextFactory.CreateDbContext();
+
+        foreach (var seasonIdBatch in episodeIdsBySeason.Keys.Chunk(SqliteParameterBatchSize))
+        {
+            var seasonStates = await db.DbSeasonState
+                .Where(s => seasonIdBatch.Contains(s.SeasonId))
+                .ToListAsync(cancellationToken)
+                .ConfigureAwait(false);
+
+            foreach (var state in seasonStates)
+            {
+                var currentIds = state.EpisodeIds.ToList();
+                if (currentIds.RemoveAll(episodeIdsBySeason[state.SeasonId].Contains) > 0)
+                {
+                    db.Entry(state).Property(s => s.EpisodeIds).CurrentValue = currentIds;
+                }
+            }
+        }
+
+        await db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Returns a consistent snapshot of the season state and stored segments used by
+    /// queue verification. Internal because <see cref="Data.SeasonQueueSnapshot"/> is an
+    /// internal type; end-state consumers receive this facade via constructor injection.
+    /// </summary>
+    /// <param name="seasonId">Season ID.</param>
+    /// <param name="episodeIds">Episode IDs in the season.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>The season queue snapshot.</returns>
+    internal async Task<Data.SeasonQueueSnapshot> GetSeasonQueueSnapshotAsync(Guid seasonId, IReadOnlyCollection<Guid> episodeIds, CancellationToken cancellationToken = default)
+    {
+        await EnsureInitializedAsync().ConfigureAwait(false);
+        using var db = _contextFactory.CreateDbContext();
+        var episodeIdArray = (Guid[])[.. episodeIds.Distinct()];
+
+        var seasonStates = await db.DbSeasonState
+            .AsNoTracking()
+            .Where(s => s.SeasonId == seasonId)
+            .ToListAsync(cancellationToken)
+            .ConfigureAwait(false);
+
+        var segments = new List<DbSegment>();
+        foreach (var batch in episodeIdArray.Chunk(SqliteParameterBatchSize))
+        {
+            segments.AddRange(await db.DbSegment
+                .AsNoTracking()
+                .Where(s => batch.Contains(s.ItemId))
+                .ToListAsync(cancellationToken)
+                .ConfigureAwait(false));
+        }
+
+        return new Data.SeasonQueueSnapshot(
+            seasonStates.ToDictionary(s => s.Type, s => (IReadOnlySet<Guid>)s.EpisodeIds.ToHashSet()),
+            seasonStates.ToDictionary(s => s.Type, s => s.ConfigHash),
+            seasonStates.ToDictionary(s => s.Type, s => s.Action),
+            segments
+                .GroupBy(s => s.ItemId)
+                .ToDictionary(
+                    group => group.Key,
+                    group => (IReadOnlyDictionary<AnalysisMode, Segment>)group
+                        .GroupBy(segment => segment.Type)
+                        .ToDictionary(
+                            segmentGroup => segmentGroup.Key,
+                            segmentGroup => segmentGroup.OrderBy(segment => segment.Start).First().ToSegment())),
+            segments
+                .Where(s => s.IsUserProvided)
+                .GroupBy(s => s.Type)
+                .ToDictionary(
+                    group => group.Key,
+                    group => (IReadOnlySet<Guid>)group.Select(s => s.ItemId).ToHashSet()));
+    }
+}

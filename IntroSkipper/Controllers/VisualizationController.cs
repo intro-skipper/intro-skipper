@@ -8,6 +8,7 @@
 using System.Net.Mime;
 using IntroSkipper.Configuration;
 using IntroSkipper.Data;
+using IntroSkipper.Db;
 using IntroSkipper.FFmpeg;
 using IntroSkipper.Helper;
 using IntroSkipper.Manager;
@@ -19,7 +20,6 @@ using MediaBrowser.Model.IO;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
-using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 
 namespace IntroSkipper.Controllers;
@@ -38,11 +38,13 @@ namespace IntroSkipper.Controllers;
 /// <param name="loggerFactory">loggerFactory.</param>
 /// <param name="ffmpegService">FFmpeg service.</param>
 /// <param name="cacheService">Detection cache service.</param>
+/// <param name="database">Segment database facade.</param>
+/// <param name="cacheDatabase">Detection cache database facade.</param>
 [Authorize(Policy = Policies.RequiresElevation)]
 [ApiController]
 [Produces(MediaTypeNames.Application.Json)]
 [Route("Intros")]
-public partial class VisualizationController(ILogger<VisualizationController> logger, IMediaSegmentRefresher mediaSegmentRefresher, ILibraryManager libraryManager, IProviderManager providerManager, IFileSystem fileSystem, ILoggerFactory loggerFactory, IFFmpegService ffmpegService, IDetectionCacheService cacheService) : ControllerBase
+public partial class VisualizationController(ILogger<VisualizationController> logger, IMediaSegmentRefresher mediaSegmentRefresher, ILibraryManager libraryManager, IProviderManager providerManager, IFileSystem fileSystem, ILoggerFactory loggerFactory, IFFmpegService ffmpegService, IDetectionCacheService cacheService, IIntroSkipperDatabase database, IDetectionCacheDatabase cacheDatabase) : ControllerBase
 {
     private readonly ILogger<VisualizationController> _logger = logger;
     private readonly IMediaSegmentRefresher _mediaSegmentRefresher = mediaSegmentRefresher;
@@ -52,6 +54,8 @@ public partial class VisualizationController(ILogger<VisualizationController> lo
     private readonly ILoggerFactory _loggerFactory = loggerFactory;
     private readonly IFFmpegService _ffmpegService = ffmpegService;
     private readonly IDetectionCacheService _cacheService = cacheService;
+    private readonly IIntroSkipperDatabase _database = database;
+    private readonly IDetectionCacheDatabase _cacheDatabase = cacheDatabase;
 
     /// <summary>
     /// Returns the analyzer actions for the provided season.
@@ -69,7 +73,7 @@ public partial class VisualizationController(ILogger<VisualizationController> lo
             return NotFound();
         }
 
-        var analyzerActions = await Plugin.GetAllAnalyzerActionsAsync(seasonId, cancellationToken).ConfigureAwait(false);
+        var analyzerActions = await _database.GetAllAnalyzerActionsAsync(seasonId, cancellationToken).ConfigureAwait(false);
 
         return Ok(analyzerActions);
     }
@@ -128,15 +132,11 @@ public partial class VisualizationController(ILogger<VisualizationController> lo
 
         try
         {
-            using var db = Plugin.CreateDbContext();
-
-            // ExecuteDeleteAsync runs a single server-side DELETE and bypasses the change tracker.
-            // This is safe here because the tracked operations below target DbSeasonState, not DbSegment.
+            // A single facade call runs a server-side DELETE per ID batch and bypasses the
+            // change tracker. This is safe here because the tracked operations below target
+            // DbSeasonState, not DbSegment.
             var episodeIds = episodes.Select(e => e.EpisodeId).ToHashSet();
-            await db.DbSegment
-                .Where(s => episodeIds.Contains(s.ItemId))
-                .ExecuteDeleteAsync(cancellationToken)
-                .ConfigureAwait(false);
+            await _database.DeleteSegmentsForItemsAsync(episodeIds, cancellationToken).ConfigureAwait(false);
 
             if (eraseCache)
             {
@@ -148,18 +148,8 @@ public partial class VisualizationController(ILogger<VisualizationController> lo
                 }
             }
 
-            // Batch-load season state and clear episode IDs.
-            var seasonStates = await db.DbSeasonState
-                .Where(s => s.SeasonId == seasonId)
-                .ToListAsync(cancellationToken)
-                .ConfigureAwait(false);
-
-            foreach (var state in seasonStates)
-            {
-                db.Entry(state).Property(s => s.EpisodeIds).CurrentValue = [];
-            }
-
-            await db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+            // Clear the analyzed-episode lists for the season.
+            await _database.ClearSeasonEpisodeIdsAsync(seasonId, cancellationToken).ConfigureAwait(false);
 
             if (Plugin.Instance.Configuration.UpdateMediaSegments)
             {
@@ -202,45 +192,15 @@ public partial class VisualizationController(ILogger<VisualizationController> lo
 
             var excludedIdsBySeason = excludedItems
                 .GroupBy(e => e.SeasonId)
-                .ToDictionary(g => g.Key, g => g.Select(e => e.EpisodeId).ToHashSet());
+                .ToDictionary(g => g.Key, g => (IReadOnlySet<Guid>)g.Select(e => e.EpisodeId).ToHashSet());
 
-            int removedSegments;
-            using (var db = Plugin.CreateDbContext())
-            {
-                removedSegments = await db.DbSegment
-                    .Where(s => excludedIds.Contains(s.ItemId))
-                    .ExecuteDeleteAsync(cancellationToken)
-                    .ConfigureAwait(false);
+            var removedSegments = await _database.DeleteSegmentsForItemsAsync(excludedIds, cancellationToken).ConfigureAwait(false);
+            await _database.RemoveEpisodeIdsFromSeasonsAsync(excludedIdsBySeason, cancellationToken).ConfigureAwait(false);
 
-                var seasonIds = excludedIdsBySeason.Keys.ToHashSet();
-                var seasonStates = await db.DbSeasonState
-                    .Where(s => seasonIds.Contains(s.SeasonId))
-                    .ToListAsync(cancellationToken)
-                    .ConfigureAwait(false);
-
-                foreach (var state in seasonStates)
-                {
-                    var currentIds = state.EpisodeIds.ToList();
-                    if (currentIds.RemoveAll(excludedIdsBySeason[state.SeasonId].Contains) > 0)
-                    {
-                        db.Entry(state).Property(s => s.EpisodeIds).CurrentValue = currentIds;
-                    }
-                }
-
-                await db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
-            }
-
-            int removedCacheEntries;
-            using (var cacheDb = Plugin.CreateCacheDbContext())
-            {
-                // Cache deletion must run to completion — the segment and season-state rows
-                // above are already deleted, so aborting here would leave orphaned cache
-                // entries out of sync with the database.
-                removedCacheEntries = await cacheDb.DetectionCache
-                    .Where(e => excludedIds.Contains(e.ItemId))
-                    .ExecuteDeleteAsync(CancellationToken.None)
-                    .ConfigureAwait(false);
-            }
+            // Cache deletion must run to completion — the segment and season-state rows
+            // above are already deleted, so aborting here would leave orphaned cache
+            // entries out of sync with the database.
+            var removedCacheEntries = await _cacheDatabase.DeleteForItemsAsync(excludedIds, CancellationToken.None).ConfigureAwait(false);
 
             if (plugin.Configuration.UpdateMediaSegments)
             {
@@ -270,7 +230,7 @@ public partial class VisualizationController(ILogger<VisualizationController> lo
     [ProducesResponseType(StatusCodes.Status204NoContent)]
     public async Task<ActionResult> UpdateAnalyzerActions([FromBody] UpdateAnalyzerActionsRequest request, CancellationToken cancellationToken = default)
     {
-        await Plugin.SetAnalyzerActionAsync(request.Id, request.AnalyzerActions, cancellationToken).ConfigureAwait(false);
+        await _database.SetAnalyzerActionAsync(request.Id, request.AnalyzerActions, cancellationToken).ConfigureAwait(false);
 
         return NoContent();
     }

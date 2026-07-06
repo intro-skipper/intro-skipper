@@ -162,7 +162,7 @@ public class TestAudioFingerprinting
     {
         return new FFmpegService(
             NullLogger<FFmpegService>.Instance,
-            new DetectionCacheService(NullLogger<DetectionCacheService>.Instance));
+            DatabaseTestHelpers.CreatePluginBoundCacheService());
     }
 
     private static ChromaprintAnalyzer CreateChromaprintAnalyzer()

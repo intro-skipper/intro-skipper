@@ -9,6 +9,7 @@
 
 using System.Net.Mime;
 using IntroSkipper.Data;
+using IntroSkipper.Db;
 using IntroSkipper.FFmpeg;
 using IntroSkipper.Manager;
 using MediaBrowser.Common.Api;
@@ -16,7 +17,6 @@ using MediaBrowser.Controller.Entities.Movies;
 using MediaBrowser.Controller.Entities.TV;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
-using Microsoft.EntityFrameworkCore;
 
 namespace IntroSkipper.Controllers;
 
@@ -26,10 +26,11 @@ namespace IntroSkipper.Controllers;
 [Authorize]
 [ApiController]
 [Produces(MediaTypeNames.Application.Json)]
-public class SkipIntroController(IMediaSegmentRefresher mediaSegmentRefresher, IDetectionCacheService cacheService) : ControllerBase
+public class SkipIntroController(IMediaSegmentRefresher mediaSegmentRefresher, IDetectionCacheService cacheService, IIntroSkipperDatabase database) : ControllerBase
 {
     private readonly IMediaSegmentRefresher _mediaSegmentRefresher = mediaSegmentRefresher;
     private readonly IDetectionCacheService _cacheService = cacheService;
+    private readonly IIntroSkipperDatabase _database = database;
 
     /// <summary>
     /// Updates the timestamps for the provided episode.
@@ -70,7 +71,7 @@ public class SkipIntroController(IMediaSegmentRefresher mediaSegmentRefresher, I
             if (segment.Valid)
             {
                 segment.EpisodeId = id;
-                await Plugin.Instance!.UpdateTimestampAsync(segment, mode, isUserProvided: true, cancellationToken: cancellationToken).ConfigureAwait(false);
+                await _database.UpdateTimestampAsync(segment, mode, isUserProvided: true, cancellationToken: cancellationToken).ConfigureAwait(false);
             }
         }
 
@@ -102,7 +103,7 @@ public class SkipIntroController(IMediaSegmentRefresher mediaSegmentRefresher, I
         }
 
         var times = new TimeStamps();
-        var segments = await Plugin.GetTimestampsAsync(id, cancellationToken).ConfigureAwait(false);
+        var segments = await _database.GetTimestampsAsync(id, cancellationToken).ConfigureAwait(false);
 
         if (segments.TryGetValue(AnalysisMode.Introduction, out var introSegment))
         {
@@ -142,7 +143,7 @@ public class SkipIntroController(IMediaSegmentRefresher mediaSegmentRefresher, I
     [HttpGet("Episode/{id}/IntroSkipperSegments")]
     public async Task<ActionResult<Dictionary<AnalysisMode, Segment>>> GetSkippableSegments([FromRoute] Guid id, CancellationToken cancellationToken = default)
     {
-        var segments = await Plugin.GetTimestampsAsync(id, cancellationToken).ConfigureAwait(false);
+        var segments = await _database.GetTimestampsAsync(id, cancellationToken).ConfigureAwait(false);
         var result = new Dictionary<AnalysisMode, Segment>();
 
         if (segments.TryGetValue(AnalysisMode.Introduction, out var introSegment))
@@ -185,11 +186,7 @@ public class SkipIntroController(IMediaSegmentRefresher mediaSegmentRefresher, I
     [HttpPost("Intros/EraseTimestamps")]
     public async Task<ActionResult> ResetIntroTimestamps([FromQuery] AnalysisMode mode, [FromQuery] bool eraseCache = false, CancellationToken cancellationToken = default)
     {
-        using var db = Plugin.CreateDbContext();
-        await db.DbSegment
-            .Where(s => s.Type == mode)
-            .ExecuteDeleteAsync(cancellationToken)
-            .ConfigureAwait(false);
+        await _database.DeleteSegmentsByModeAsync(mode, cancellationToken).ConfigureAwait(false);
 
         if (eraseCache && mode is AnalysisMode.Introduction or AnalysisMode.Credits)
         {
@@ -211,8 +208,7 @@ public class SkipIntroController(IMediaSegmentRefresher mediaSegmentRefresher, I
     public async Task<ActionResult> RebuildDatabase()
     {
         // Database rebuild is destructive and must run to completion — do not bind to HttpContext.RequestAborted.
-        using var db = Plugin.CreateDbContext();
-        await db.RebuildDatabaseAsync(Plugin.CreateDbContext).ConfigureAwait(false);
+        await _database.RebuildDatabaseAsync().ConfigureAwait(false);
         return NoContent();
     }
 }

@@ -130,7 +130,9 @@ public sealed class TestVisualizationController
             fileSystem: null!,
             loggerFactory,
             ffmpegService: null!,
-            new DetectionCacheService(NullLogger<DetectionCacheService>.Instance));
+            DatabaseTestHelpers.CreatePluginBoundCacheService(),
+            DatabaseTestHelpers.CreatePluginBoundSegmentDatabase(),
+            DatabaseTestHelpers.CreatePluginBoundCacheDatabase());
     }
 
     private static EntrypointTestHelpers.PluginInstanceScope CreatePluginScope(string dbPath, Guid seriesId, Guid seasonId, IReadOnlyList<Guid> episodeIds, bool updateMediaSegments)

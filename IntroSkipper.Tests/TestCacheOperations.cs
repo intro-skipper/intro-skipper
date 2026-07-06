@@ -614,7 +614,8 @@ public sealed class TestCacheOperations
             }
 
             CacheService = new DetectionCacheService(
-                NullLogger<DetectionCacheService>.Instance);
+                NullLogger<DetectionCacheService>.Instance,
+                DatabaseTestHelpers.CreatePluginBoundCacheDatabase());
         }
 
         public DetectionCacheService CacheService { get; }

@@ -4,6 +4,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
 using IntroSkipper.Data;
+using IntroSkipper.Db;
 using Jellyfin.Database.Implementations.Enums;
 using MediaBrowser.Controller.Entities;
 using MediaBrowser.Controller.Entities.Movies;
@@ -17,8 +18,14 @@ namespace IntroSkipper.Providers
     /// <summary>
     /// Introskipper media segment provider.
     /// </summary>
-    public class SegmentProvider : IMediaSegmentProvider
+    /// <remarks>
+    /// Initializes a new instance of the <see cref="SegmentProvider"/> class.
+    /// </remarks>
+    /// <param name="database">Segment database facade.</param>
+    public class SegmentProvider(IIntroSkipperDatabase database) : IMediaSegmentProvider
     {
+        private readonly IIntroSkipperDatabase _database = database;
+
         /// <summary>
         /// Mappings between AnalysisMode and MediaSegmentType.
         /// </summary>
@@ -41,7 +48,7 @@ namespace IntroSkipper.Providers
             ArgumentNullException.ThrowIfNull(Plugin.Instance);
 
             var segments = new List<MediaSegmentDto>();
-            var itemSegments = await Plugin.GetSegmentsAsync(request.ItemId, cancellationToken).ConfigureAwait(false);
+            var itemSegments = await _database.GetSegmentsAsync(request.ItemId, cancellationToken).ConfigureAwait(false);
             var dedupedModes = new HashSet<AnalysisMode>();
 
             foreach (var segment in itemSegments.OrderBy(segment => segment.Start))
@@ -79,8 +86,7 @@ namespace IntroSkipper.Providers
         /// <inheritdoc/>
         public async Task CleanupExtractedData(Guid itemId, CancellationToken cancellationToken)
         {
-            ArgumentNullException.ThrowIfNull(Plugin.Instance);
-            await Plugin.DeleteItemSegmentsAsync(itemId, cancellationToken).ConfigureAwait(false);
+            await _database.DeleteItemSegmentsAsync(itemId, cancellationToken).ConfigureAwait(false);
         }
 
         /// <inheritdoc/>

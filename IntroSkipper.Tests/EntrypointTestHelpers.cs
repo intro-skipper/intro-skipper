@@ -43,7 +43,7 @@ internal static class EntrypointTestHelpers
             providerManager: null!,
             fileSystem: null!,
             taskManager: null!,
-            cacheService: new DetectionCacheService(NullLogger<DetectionCacheService>.Instance),
+            cacheService: DatabaseTestHelpers.CreatePluginBoundCacheService(),
             ffmpegService: null!,
             logger: logger,
             loggerFactory: loggerFactory,

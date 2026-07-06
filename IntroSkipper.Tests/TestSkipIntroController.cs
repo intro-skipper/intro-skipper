@@ -32,7 +32,7 @@ public sealed class TestSkipIntroController
         {
             Completion = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously)
         };
-        var controller = new SkipIntroController(refresher, new DetectionCacheService(NullLogger<DetectionCacheService>.Instance));
+        var controller = new SkipIntroController(refresher, DatabaseTestHelpers.CreatePluginBoundCacheService(), DatabaseTestHelpers.CreatePluginBoundSegmentDatabase());
         var timestamps = new TimeStamps
         {
             Introduction = new Segment(itemId, new TimeRange(10, 20))
@@ -66,7 +66,7 @@ public sealed class TestSkipIntroController
         {
             Completion = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously)
         };
-        var controller = new SkipIntroController(refresher, new DetectionCacheService(NullLogger<DetectionCacheService>.Instance));
+        var controller = new SkipIntroController(refresher, DatabaseTestHelpers.CreatePluginBoundCacheService(), DatabaseTestHelpers.CreatePluginBoundSegmentDatabase());
         var timestamps = new TimeStamps
         {
             Introduction = new Segment(itemId, new TimeRange(10, 20))
