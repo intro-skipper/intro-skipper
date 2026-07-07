@@ -21,15 +21,6 @@ namespace IntroSkipper.Db;
 /// </summary>
 public static partial class SegmentOperations
 {
-    /// <summary>
-    /// Maximum number of SQL parameters used per batch when translating ID collections.
-    /// EF Core 10 translates parameterized collections to one scalar parameter per element
-    /// (padded), and SQLite rejects statements above SQLITE_MAX_VARIABLE_NUMBER (32766 for
-    /// SQLite ≥ 3.32). 500 keeps individual statements small and plans cacheable while
-    /// staying far below the hard limit.
-    /// </summary>
-    internal const int SqliteParameterBatchSize = 500;
-
     private const double SegmentComparisonEpsilon = 0.001;
 
     private static readonly Func<IntroSkipperDbContext, Guid, IAsyncEnumerable<DbSegment>> _segmentsForItemQuery =
@@ -246,7 +237,9 @@ public static partial class SegmentOperations
 
     /// <summary>
     /// Deletes segments belonging to items that are no longer in any enabled library.
-    /// Deletes are batched to stay below the SQLite parameter limit.
+    /// The ID collection is passed as a single JSON parameter (<see cref="EF.Parameter{T}(T)"/>
+    /// → <c>json_each</c> on SQLite), so it is not subject to the SQLite host-parameter limit
+    /// regardless of collection size.
     /// </summary>
     /// <param name="db">Database context.</param>
     /// <param name="enabledEpisodeIds">Episode IDs that remain enabled.</param>
@@ -260,32 +253,19 @@ public static partial class SegmentOperations
         ArgumentNullException.ThrowIfNull(db);
         ArgumentNullException.ThrowIfNull(enabledEpisodeIds);
 
-        var enabledIds = enabledEpisodeIds.ToHashSet();
+        var enabledIds = enabledEpisodeIds.Distinct().ToArray();
 
-        var segmentEpisodeIds = await db.DbSegment
-            .AsNoTracking()
-            .Select(s => s.ItemId)
-            .Distinct()
-            .ToListAsync(cancellationToken)
+        await db.DbSegment
+            .Where(s => !EF.Parameter(enabledIds).Contains(s.ItemId))
+            .ExecuteDeleteAsync(cancellationToken)
             .ConfigureAwait(false);
-
-        var staleEpisodeIds = segmentEpisodeIds
-            .Where(id => !enabledIds.Contains(id))
-            .ToArray();
-
-        foreach (var staleEpisodeIdBatch in staleEpisodeIds.Chunk(SqliteParameterBatchSize))
-        {
-            await db.DbSegment
-                .Where(s => staleEpisodeIdBatch.Contains(s.ItemId))
-                .ExecuteDeleteAsync(cancellationToken)
-                .ConfigureAwait(false);
-        }
     }
 
     /// <summary>
     /// Removes stale automatic segments for the supplied items and mode.
     /// User-provided segments are intentionally preserved.
-    /// Deletes are batched to stay below the SQLite parameter limit.
+    /// The ID collection is passed as a single JSON parameter (<see cref="EF.Parameter{T}(T)"/>
+    /// → <c>json_each</c> on SQLite), so it is not subject to the SQLite host-parameter limit.
     /// </summary>
     /// <param name="db">Database context.</param>
     /// <param name="itemIds">Item IDs to inspect.</param>
@@ -309,16 +289,13 @@ public static partial class SegmentOperations
             return;
         }
 
-        foreach (var batch in ids.Chunk(SqliteParameterBatchSize))
-        {
-            await db.DbSegment
-                .Where(s => batch.Contains(s.ItemId)
-                    && s.Type == mode
-                    && !s.IsUserProvided
-                    && s.ConfigHash != configHash)
-                .ExecuteDeleteAsync(cancellationToken)
-                .ConfigureAwait(false);
-        }
+        await db.DbSegment
+            .Where(s => EF.Parameter(ids).Contains(s.ItemId)
+                && s.Type == mode
+                && !s.IsUserProvided
+                && s.ConfigHash != configHash)
+            .ExecuteDeleteAsync(cancellationToken)
+            .ConfigureAwait(false);
     }
 
     /// <summary>

@@ -8,6 +8,7 @@
 using System.Net.Mime;
 using IntroSkipper.Configuration;
 using IntroSkipper.Data;
+using IntroSkipper.Db;
 using IntroSkipper.FFmpeg;
 using IntroSkipper.Helper;
 using IntroSkipper.Manager;
@@ -38,11 +39,23 @@ namespace IntroSkipper.Controllers;
 /// <param name="loggerFactory">loggerFactory.</param>
 /// <param name="ffmpegService">FFmpeg service.</param>
 /// <param name="cacheService">Detection cache service.</param>
+/// <param name="dbContextFactory">Factory for the segment database context.</param>
+/// <param name="cacheDbContextFactory">Factory for the detection cache database context.</param>
 [Authorize(Policy = Policies.RequiresElevation)]
 [ApiController]
 [Produces(MediaTypeNames.Application.Json)]
 [Route("Intros")]
-public partial class VisualizationController(ILogger<VisualizationController> logger, IMediaSegmentRefresher mediaSegmentRefresher, ILibraryManager libraryManager, IProviderManager providerManager, IFileSystem fileSystem, ILoggerFactory loggerFactory, IFFmpegService ffmpegService, IDetectionCacheService cacheService) : ControllerBase
+public partial class VisualizationController(
+    ILogger<VisualizationController> logger,
+    IMediaSegmentRefresher mediaSegmentRefresher,
+    ILibraryManager libraryManager,
+    IProviderManager providerManager,
+    IFileSystem fileSystem,
+    ILoggerFactory loggerFactory,
+    IFFmpegService ffmpegService,
+    IDetectionCacheService cacheService,
+    IDbContextFactory<IntroSkipperDbContext> dbContextFactory,
+    IDbContextFactory<DetectionCacheDbContext> cacheDbContextFactory) : ControllerBase
 {
     private readonly ILogger<VisualizationController> _logger = logger;
     private readonly IMediaSegmentRefresher _mediaSegmentRefresher = mediaSegmentRefresher;
@@ -52,6 +65,8 @@ public partial class VisualizationController(ILogger<VisualizationController> lo
     private readonly ILoggerFactory _loggerFactory = loggerFactory;
     private readonly IFFmpegService _ffmpegService = ffmpegService;
     private readonly IDetectionCacheService _cacheService = cacheService;
+    private readonly IDbContextFactory<IntroSkipperDbContext> _dbContextFactory = dbContextFactory;
+    private readonly IDbContextFactory<DetectionCacheDbContext> _cacheDbContextFactory = cacheDbContextFactory;
 
     /// <summary>
     /// Returns the analyzer actions for the provided season.
@@ -128,42 +143,44 @@ public partial class VisualizationController(ILogger<VisualizationController> lo
 
         try
         {
-            using var db = Plugin.CreateDbContext();
-
-            // ExecuteDeleteAsync runs a single server-side DELETE and bypasses the change tracker.
-            // This is safe here because the tracked operations below target DbSeasonState, not DbSegment.
-            var episodeIds = episodes.Select(e => e.EpisodeId).ToHashSet();
-            await db.DbSegment
-                .Where(s => episodeIds.Contains(s.ItemId))
-                .ExecuteDeleteAsync(cancellationToken)
-                .ConfigureAwait(false);
-
-            if (eraseCache)
+            var db = await _dbContextFactory.CreateDbContextAsync(cancellationToken).ConfigureAwait(false);
+            await using (db.ConfigureAwait(false))
             {
-                // Cache deletion must run to completion — the DB rows are already gone,
-                // so aborting here would leave orphaned files with no way to clean them up.
-                foreach (var episode in episodes)
+                // ExecuteDeleteAsync runs a single server-side DELETE and bypasses the change tracker.
+                // This is safe here because the tracked operations below target DbSeasonState, not DbSegment.
+                var episodeIds = episodes.Select(e => e.EpisodeId).ToHashSet();
+                await db.DbSegment
+                    .Where(s => episodeIds.Contains(s.ItemId))
+                    .ExecuteDeleteAsync(cancellationToken)
+                    .ConfigureAwait(false);
+
+                if (eraseCache)
                 {
-                    await Task.Run(() => _cacheService.DeleteForItem(episode.EpisodeId), CancellationToken.None).ConfigureAwait(false);
+                    // Cache deletion must run to completion — the DB rows are already gone,
+                    // so aborting here would leave orphaned files with no way to clean them up.
+                    foreach (var episode in episodes)
+                    {
+                        await Task.Run(() => _cacheService.DeleteForItem(episode.EpisodeId), CancellationToken.None).ConfigureAwait(false);
+                    }
                 }
-            }
 
-            // Batch-load season state and clear episode IDs.
-            var seasonStates = await db.DbSeasonState
-                .Where(s => s.SeasonId == seasonId)
-                .ToListAsync(cancellationToken)
-                .ConfigureAwait(false);
+                // Batch-load season state and clear episode IDs.
+                var seasonStates = await db.DbSeasonState
+                    .Where(s => s.SeasonId == seasonId)
+                    .ToListAsync(cancellationToken)
+                    .ConfigureAwait(false);
 
-            foreach (var state in seasonStates)
-            {
-                db.Entry(state).Property(s => s.EpisodeIds).CurrentValue = [];
-            }
+                foreach (var state in seasonStates)
+                {
+                    db.Entry(state).Property(s => s.EpisodeIds).CurrentValue = [];
+                }
 
-            await db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+                await db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
 
-            if (Plugin.Instance.Configuration.UpdateMediaSegments)
-            {
-                await _mediaSegmentRefresher.RefreshAsync(episodeIds, cancellationToken).ConfigureAwait(false);
+                if (Plugin.Instance!.Configuration.UpdateMediaSegments)
+                {
+                    await _mediaSegmentRefresher.RefreshAsync(episodeIds, cancellationToken).ConfigureAwait(false);
+                }
             }
 
             return NoContent();
@@ -205,7 +222,8 @@ public partial class VisualizationController(ILogger<VisualizationController> lo
                 .ToDictionary(g => g.Key, g => g.Select(e => e.EpisodeId).ToHashSet());
 
             int removedSegments;
-            using (var db = Plugin.CreateDbContext())
+            var db = await _dbContextFactory.CreateDbContextAsync(cancellationToken).ConfigureAwait(false);
+            await using (db.ConfigureAwait(false))
             {
                 removedSegments = await db.DbSegment
                     .Where(s => excludedIds.Contains(s.ItemId))
@@ -231,11 +249,13 @@ public partial class VisualizationController(ILogger<VisualizationController> lo
             }
 
             int removedCacheEntries;
-            using (var cacheDb = Plugin.CreateCacheDbContext())
+
+            // Cache deletion must run to completion — the segment and season-state rows
+            // above are already deleted, so aborting here would leave orphaned cache
+            // entries out of sync with the database.
+            var cacheDb = await _cacheDbContextFactory.CreateDbContextAsync(CancellationToken.None).ConfigureAwait(false);
+            await using (cacheDb.ConfigureAwait(false))
             {
-                // Cache deletion must run to completion — the segment and season-state rows
-                // above are already deleted, so aborting here would leave orphaned cache
-                // entries out of sync with the database.
                 removedCacheEntries = await cacheDb.DetectionCache
                     .Where(e => excludedIds.Contains(e.ItemId))
                     .ExecuteDeleteAsync(CancellationToken.None)

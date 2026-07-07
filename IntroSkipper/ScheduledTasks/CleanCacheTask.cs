@@ -5,6 +5,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
 using System.Data.Common;
+using IntroSkipper.Db;
 using IntroSkipper.FFmpeg;
 using IntroSkipper.Manager;
 using MediaBrowser.Controller.Library;
@@ -25,13 +26,15 @@ namespace IntroSkipper.ScheduledTasks;
 /// <param name="providerManager">Provider manager.</param>
 /// <param name="fileSystem">File system.</param>
 /// <param name="ffmpegService">FFmpeg service.</param>
+/// <param name="cacheDbContextFactory">Factory for the detection cache database context.</param>
 public partial class CleanCacheTask(
     ILogger<CleanCacheTask> logger,
     ILoggerFactory loggerFactory,
     ILibraryManager libraryManager,
     IProviderManager providerManager,
     IFileSystem fileSystem,
-    IFFmpegService ffmpegService) : IScheduledTask
+    IFFmpegService ffmpegService,
+    IDbContextFactory<DetectionCacheDbContext> cacheDbContextFactory) : IScheduledTask
 {
     private readonly ILogger<CleanCacheTask> _logger = logger;
     private readonly ILoggerFactory _loggerFactory = loggerFactory;
@@ -39,6 +42,7 @@ public partial class CleanCacheTask(
     private readonly IProviderManager _providerManager = providerManager;
     private readonly IFileSystem _fileSystem = fileSystem;
     private readonly IFFmpegService _ffmpegService = ffmpegService;
+    private readonly IDbContextFactory<DetectionCacheDbContext> _cacheDbContextFactory = cacheDbContextFactory;
 
     /// <summary>
     /// Gets the task name.
@@ -97,13 +101,14 @@ public partial class CleanCacheTask(
 
         // Identify episode IDs in the SQLite cache that are no longer in enabled libraries.
         HashSet<Guid> invalidEpisodeIds;
-        using (var cacheDb = Plugin.CreateCacheDbContext())
+        var cacheDb = await _cacheDbContextFactory.CreateDbContextAsync(cancellationToken).ConfigureAwait(false);
+        await using (cacheDb.ConfigureAwait(false))
         {
             invalidEpisodeIds = cacheDb.DetectionCache
                 .Select(e => e.ItemId)
                 .Distinct()
-                .Where(id => !enabledLibraryEpisodeIds.Contains(id))
                 .ToHashSet();
+            invalidEpisodeIds.ExceptWith(enabledLibraryEpisodeIds);
         }
 
         // Log and batch-delete all invalid episode DB rows in a single round-trip.
@@ -116,11 +121,15 @@ public partial class CleanCacheTask(
         {
             try
             {
-                using var deleteDb = Plugin.CreateCacheDbContext();
-                await deleteDb.DetectionCache
-                    .Where(e => invalidEpisodeIds.Contains(e.ItemId))
-                    .ExecuteDeleteAsync(cancellationToken)
-                    .ConfigureAwait(false);
+                var invalidIds = invalidEpisodeIds.ToArray();
+                var deleteDb = await _cacheDbContextFactory.CreateDbContextAsync(cancellationToken).ConfigureAwait(false);
+                await using (deleteDb.ConfigureAwait(false))
+                {
+                    await deleteDb.DetectionCache
+                        .Where(e => EF.Parameter(invalidIds).Contains(e.ItemId))
+                        .ExecuteDeleteAsync(cancellationToken)
+                        .ConfigureAwait(false);
+                }
             }
             catch (Exception ex) when (ex is DbUpdateException or DbException)
             {

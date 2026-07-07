@@ -30,14 +30,14 @@ internal sealed class GatedIntroSkipperDbContextFactory : IDbContextFactory<Intr
     /// <inheritdoc/>
     public IntroSkipperDbContext CreateDbContext()
     {
-        _initializer.EnsureInitialized();
+        _initializer.EnsureSegmentDatabaseInitialized();
         return new IntroSkipperDbContext(_options);
     }
 
     /// <inheritdoc/>
     public async Task<IntroSkipperDbContext> CreateDbContextAsync(CancellationToken cancellationToken = default)
     {
-        await _initializer.EnsureInitializedAsync(cancellationToken).ConfigureAwait(false);
+        await _initializer.EnsureSegmentDatabaseInitializedAsync(cancellationToken).ConfigureAwait(false);
         return new IntroSkipperDbContext(_options);
     }
 }

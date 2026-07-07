@@ -28,14 +28,14 @@ internal sealed class GatedDetectionCacheDbContextFactory : IDbContextFactory<De
     /// <inheritdoc/>
     public DetectionCacheDbContext CreateDbContext()
     {
-        _initializer.EnsureInitialized();
+        _initializer.EnsureCacheDatabaseInitialized();
         return new DetectionCacheDbContext(_options);
     }
 
     /// <inheritdoc/>
     public async Task<DetectionCacheDbContext> CreateDbContextAsync(CancellationToken cancellationToken = default)
     {
-        await _initializer.EnsureInitializedAsync(cancellationToken).ConfigureAwait(false);
+        await _initializer.EnsureCacheDatabaseInitializedAsync(cancellationToken).ConfigureAwait(false);
         return new DetectionCacheDbContext(_options);
     }
 }

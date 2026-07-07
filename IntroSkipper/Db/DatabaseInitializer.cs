@@ -1,7 +1,6 @@
 // SPDX-FileCopyrightText: 2026 intro-skipper contributors
 // SPDX-License-Identifier: GPL-3.0-only
 
-using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 
@@ -10,10 +9,15 @@ namespace IntroSkipper.Db;
 /// <summary>
 /// Owns the lifecycle of both plugin databases: migrations and legacy schema repair
 /// for <c>introskipper.db</c>, create-or-recover for <c>introskipper-cache.db</c>, and
-/// the destructive rebuild flow. Initialization runs exactly once per process and is
-/// awaited by the gated <see cref="Microsoft.EntityFrameworkCore.IDbContextFactory{TContext}"/>
-/// implementations before any context is handed out, so no query can observe an
-/// unmigrated database.
+/// the destructive rebuild flow.
+///
+/// <para>Each database has its own independent one-time initialization gate, awaited by the
+/// matching gated <see cref="IDbContextFactory{TContext}"/> before any context is handed out,
+/// so no query can observe an unmigrated database. The gates are isolated on purpose: the two
+/// databases live in separate files precisely so cache corruption cannot affect segment data,
+/// and a cache initialization failure must therefore never block segment-database access.
+/// Initialization never throws — failures are logged and surface later as per-query errors,
+/// matching the previous Plugin-constructor behavior.</para>
 /// </summary>
 public sealed partial class DatabaseInitializer
 {
@@ -21,7 +25,8 @@ public sealed partial class DatabaseInitializer
     private readonly DbContextOptions<IntroSkipperDbContext> _segmentOptions;
     private readonly DbContextOptions<DetectionCacheDbContext> _cacheOptions;
     private readonly object _initLock = new();
-    private Task? _initTask;
+    private Task? _segmentInitTask;
+    private Task? _cacheInitTask;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="DatabaseInitializer"/> class.
@@ -40,19 +45,43 @@ public sealed partial class DatabaseInitializer
     }
 
     /// <summary>
-    /// Ensures one-time database initialization has completed, starting it if necessary.
-    /// Safe to call concurrently from any thread; only the first caller triggers the work.
+    /// Ensures one-time initialization of both databases has completed, starting it if necessary.
+    /// Safe to call concurrently from any thread; never throws initialization errors.
     /// </summary>
     /// <param name="cancellationToken">Cancellation token (abandons the wait, not the initialization).</param>
-    /// <returns>A task that completes when initialization has finished.</returns>
+    /// <returns>A task that completes when initialization of both databases has finished.</returns>
     public Task EnsureInitializedAsync(CancellationToken cancellationToken = default)
-        => GetOrStartInitTask().WaitAsync(cancellationToken);
+        => Task.WhenAll(GetOrStartSegmentInitTask(), GetOrStartCacheInitTask()).WaitAsync(cancellationToken);
 
     /// <summary>
-    /// Synchronously ensures one-time database initialization has completed.
-    /// Used by the synchronous <c>CreateDbContext</c> factory path.
+    /// Ensures one-time initialization of the segment database has completed.
     /// </summary>
-    public void EnsureInitialized() => GetOrStartInitTask().GetAwaiter().GetResult();
+    /// <param name="cancellationToken">Cancellation token (abandons the wait, not the initialization).</param>
+    /// <returns>A task that completes when segment database initialization has finished.</returns>
+    public Task EnsureSegmentDatabaseInitializedAsync(CancellationToken cancellationToken = default)
+        => GetOrStartSegmentInitTask().WaitAsync(cancellationToken);
+
+    /// <summary>
+    /// Ensures one-time initialization of the detection cache database has completed.
+    /// </summary>
+    /// <param name="cancellationToken">Cancellation token (abandons the wait, not the initialization).</param>
+    /// <returns>A task that completes when cache database initialization has finished.</returns>
+    public Task EnsureCacheDatabaseInitializedAsync(CancellationToken cancellationToken = default)
+        => GetOrStartCacheInitTask().WaitAsync(cancellationToken);
+
+    /// <summary>
+    /// Synchronously ensures one-time initialization of the segment database has completed.
+    /// Used only by the synchronous <c>CreateDbContext</c> factory path; async call sites must
+    /// use <c>CreateDbContextAsync</c> so a slow first migration does not pin thread-pool threads.
+    /// </summary>
+    public void EnsureSegmentDatabaseInitialized() => GetOrStartSegmentInitTask().GetAwaiter().GetResult();
+
+    /// <summary>
+    /// Synchronously ensures one-time initialization of the detection cache database has completed.
+    /// Used only by the synchronous <c>CreateDbContext</c> factory path (e.g. the synchronous
+    /// <c>IDetectionCacheService</c> surface).
+    /// </summary>
+    public void EnsureCacheDatabaseInitialized() => GetOrStartCacheInitTask().GetAwaiter().GetResult();
 
     /// <summary>
     /// Rebuilds the segment database, salvaging valid rows where possible.
@@ -67,7 +96,7 @@ public sealed partial class DatabaseInitializer
     public async Task RebuildDatabaseAsync(bool forceCleanOnBackupFailure = false, CancellationToken cancellationToken = default)
     {
         // Never rebuild concurrently with (or before) first-time initialization.
-        await EnsureInitializedAsync(cancellationToken).ConfigureAwait(false);
+        await EnsureSegmentDatabaseInitializedAsync(cancellationToken).ConfigureAwait(false);
 
         using var db = new IntroSkipperDbContext(_segmentOptions);
         await db.RebuildDatabaseAsync(
@@ -85,18 +114,26 @@ public sealed partial class DatabaseInitializer
         }
     }
 
-    private Task GetOrStartInitTask()
+    private Task GetOrStartSegmentInitTask()
     {
         lock (_initLock)
         {
-            return _initTask ??= Task.Run(InitializeCore);
+            return _segmentInitTask ??= Task.Run(InitializeSegmentDatabaseCore);
         }
     }
 
-    private void InitializeCore()
+    private Task GetOrStartCacheInitTask()
     {
-        // Initialize the segment database. Failures are logged but never thrown so a broken
-        // database does not take the whole plugin down — matches the previous Plugin-ctor behavior.
+        lock (_initLock)
+        {
+            return _cacheInitTask ??= Task.Run(InitializeCacheDatabaseCore);
+        }
+    }
+
+    private void InitializeSegmentDatabaseCore()
+    {
+        // Failures are logged but never thrown so a broken database cannot fault the shared
+        // init task (which would poison every later context creation) or abort host startup.
         try
         {
             EnsureDatabaseDirectoryExists(_segmentOptions);
@@ -111,15 +148,20 @@ public sealed partial class DatabaseInitializer
         {
             LogDatabaseInitializationError(_logger, ex);
         }
+    }
 
-        // Initialize the detection cache database (delete-and-recreate on corruption).
+    private void InitializeCacheDatabaseCore()
+    {
+        // Catch-all on purpose: any escaped exception type (UnauthorizedAccessException,
+        // InvalidOperationException, ...) would otherwise fault the cache gate permanently.
+        // The cache is reconstructable; per-query failures are handled by DetectionCacheService.
         try
         {
             EnsureDatabaseDirectoryExists(_cacheOptions);
             using var cacheDb = new DetectionCacheDbContext(_cacheOptions);
             cacheDb.EnsureSchema();
         }
-        catch (Exception ex) when (ex is IOException or SqliteException)
+        catch (Exception ex)
         {
             LogCacheDbInitializationError(_logger, ex);
         }

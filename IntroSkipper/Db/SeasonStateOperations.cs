@@ -254,13 +254,12 @@ public static class SeasonStateOperations
         var transaction = await db.Database.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
         try
         {
-            foreach (var batch in ids.Chunk(SegmentOperations.SqliteParameterBatchSize))
-            {
-                await db.DbSegment
-                    .Where(s => batch.Contains(s.ItemId) && modeArray.Contains(s.Type) && !s.IsUserProvided)
-                    .ExecuteDeleteAsync(cancellationToken)
-                    .ConfigureAwait(false);
-            }
+            // Single set-based delete; the ID collection travels as one JSON parameter
+            // (EF.Parameter → json_each on SQLite), immune to the host-parameter limit.
+            await db.DbSegment
+                .Where(s => EF.Parameter(ids).Contains(s.ItemId) && modeArray.Contains(s.Type) && !s.IsUserProvided)
+                .ExecuteDeleteAsync(cancellationToken)
+                .ConfigureAwait(false);
 
             // Clear the analyzed-episode lists so VerifyQueueAsync treats every episode as NotAnalyzed.
             // Committing this together with the deletes guarantees the episodes are re-analyzed (either
@@ -285,8 +284,9 @@ public static class SeasonStateOperations
     }
 
     /// <summary>
-    /// Loads a combined snapshot of season state and segments for a season in a bounded number
-    /// of round-trips. Segment loads are batched to stay below the SQLite parameter limit.
+    /// Loads a combined snapshot of season state and segments for a season in two round-trips.
+    /// The episode ID collection travels as a single JSON parameter (<see cref="EF.Parameter{T}(T)"/>
+    /// → <c>json_each</c> on SQLite), so it is not subject to the SQLite host-parameter limit.
     /// </summary>
     /// <param name="db">Database context.</param>
     /// <param name="seasonId">Season ID.</param>
@@ -310,15 +310,11 @@ public static class SeasonStateOperations
             .ToListAsync(cancellationToken)
             .ConfigureAwait(false);
 
-        var segments = new List<DbSegment>();
-        foreach (var batch in episodeIdArray.Chunk(SegmentOperations.SqliteParameterBatchSize))
-        {
-            segments.AddRange(await db.DbSegment
-                .AsNoTracking()
-                .Where(s => batch.Contains(s.ItemId))
-                .ToListAsync(cancellationToken)
-                .ConfigureAwait(false));
-        }
+        var segments = await db.DbSegment
+            .AsNoTracking()
+            .Where(s => EF.Parameter(episodeIdArray).Contains(s.ItemId))
+            .ToListAsync(cancellationToken)
+            .ConfigureAwait(false);
 
         return new SeasonQueueSnapshot(
             seasonStates.ToDictionary(s => s.Type, s => (IReadOnlySet<Guid>)s.EpisodeIds.ToHashSet()),
@@ -390,6 +386,8 @@ public static class SeasonStateOperations
 
     /// <summary>
     /// Deletes season state for seasons that are no longer present in the library.
+    /// The ID collection travels as a single JSON parameter (<see cref="EF.Parameter{T}(T)"/>
+    /// → <c>json_each</c> on SQLite), so it is not subject to the SQLite host-parameter limit.
     /// </summary>
     /// <param name="db">Database context.</param>
     /// <param name="validSeasonIds">Season IDs that still exist.</param>
@@ -403,8 +401,10 @@ public static class SeasonStateOperations
         ArgumentNullException.ThrowIfNull(db);
         ArgumentNullException.ThrowIfNull(validSeasonIds);
 
+        var seasonIds = validSeasonIds.Distinct().ToArray();
+
         await db.DbSeasonState
-            .Where(s => !validSeasonIds.Contains(s.SeasonId))
+            .Where(s => !EF.Parameter(seasonIds).Contains(s.SeasonId))
             .ExecuteDeleteAsync(cancellationToken)
             .ConfigureAwait(false);
     }

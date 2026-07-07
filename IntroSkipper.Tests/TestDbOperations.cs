@@ -11,6 +11,7 @@ using IntroSkipper.Data;
 using IntroSkipper.Db;
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging.Abstractions;
 using Xunit;
 
 /// <summary>
@@ -138,32 +139,35 @@ public sealed class TestDbOperations
     }
 
     [Fact]
-    public async Task CleanTimestampsAsync_ChunksDeletes_WhenStaleIdCountExceedsLegacyParameterLimit()
+    public async Task CleanTimestampsAsync_HandlesEnabledIdSetAboveSqliteParameterLimit()
     {
-        // 1500 stale items forces multiple 500-ID batches and would exceed the classic
-        // 999-parameter SQLite limit if the IDs were sent as one unchunked parameter list.
-        const int StaleItemCount = 1_500;
+        // 33,000 IDs > SQLITE_MAX_VARIABLE_NUMBER (32,766). The EF.Parameter (json_each)
+        // translation must send the whole set as a single JSON parameter; the default
+        // one-scalar-parameter-per-element translation would throw 'too many SQL variables'.
+        const int EnabledIdCount = 33_000;
 
         var dbPath = CreateTempDbPath();
         var retainedItemId = Guid.NewGuid();
+        var staleItemId = Guid.NewGuid();
+        var enabledEpisodeIds = Enumerable.Range(0, EnabledIdCount - 1)
+            .Select(_ => Guid.NewGuid())
+            .Append(retainedItemId)
+            .ToArray();
 
         try
         {
             using (var db = new IntroSkipperDbContext(dbPath))
             {
                 await db.Database.EnsureCreatedAsync();
-                db.DbSegment.Add(new DbSegment(new Segment(retainedItemId, new TimeRange(0, 10)), AnalysisMode.Introduction));
-                for (var i = 0; i < StaleItemCount; i++)
-                {
-                    db.DbSegment.Add(new DbSegment(new Segment(Guid.NewGuid(), new TimeRange(0, 10)), AnalysisMode.Introduction));
-                }
-
+                db.DbSegment.AddRange(
+                    new DbSegment(new Segment(retainedItemId, new TimeRange(0, 10)), AnalysisMode.Introduction),
+                    new DbSegment(new Segment(staleItemId, new TimeRange(20, 30)), AnalysisMode.Introduction));
                 await db.SaveChangesAsync();
             }
 
             using (var db = new IntroSkipperDbContext(dbPath))
             {
-                await db.CleanTimestampsAsync([retainedItemId]);
+                await db.CleanTimestampsAsync(enabledEpisodeIds);
             }
 
             using (var db = new IntroSkipperDbContext(dbPath))
@@ -179,33 +183,32 @@ public sealed class TestDbOperations
     }
 
     [Fact]
-    public async Task CleanStaleAutomaticSegmentsAsync_PreservesUserProvidedSegments_AcrossChunks()
+    public async Task CleanStaleAutomaticSegmentsAsync_PreservesUserProvidedSegments_AboveSqliteParameterLimit()
     {
-        // More than one 500-ID chunk, with a user-provided segment and a hash-matching
-        // segment sprinkled in; only stale automatic segments may be deleted.
-        const int ItemCount = 700;
+        // 33,000 item IDs (> 32,766) in one call; a user-provided segment and a hash-matching
+        // segment must survive, only the stale automatic segment may be deleted.
+        const int ItemIdCount = 33_000;
 
         var dbPath = CreateTempDbPath();
-        var itemIds = Enumerable.Range(0, ItemCount).Select(_ => Guid.NewGuid()).ToArray();
-        var userProvidedItemId = itemIds[0];
-        var currentHashItemId = itemIds[1];
+        var userProvidedItemId = Guid.NewGuid();
+        var currentHashItemId = Guid.NewGuid();
+        var staleItemId = Guid.NewGuid();
+        var itemIds = Enumerable.Range(0, ItemIdCount - 3)
+            .Select(_ => Guid.NewGuid())
+            .Append(userProvidedItemId)
+            .Append(currentHashItemId)
+            .Append(staleItemId)
+            .ToArray();
 
         try
         {
             using (var db = new IntroSkipperDbContext(dbPath))
             {
                 await db.Database.EnsureCreatedAsync();
-                foreach (var itemId in itemIds)
-                {
-                    var isUserProvided = itemId == userProvidedItemId;
-                    var configHash = itemId == currentHashItemId ? "current" : "stale";
-                    db.DbSegment.Add(new DbSegment(
-                        new Segment(itemId, new TimeRange(0, 10)),
-                        AnalysisMode.Introduction,
-                        isUserProvided,
-                        configHash));
-                }
-
+                db.DbSegment.AddRange(
+                    new DbSegment(new Segment(userProvidedItemId, new TimeRange(0, 10)), AnalysisMode.Introduction, isUserProvided: true, configHash: "stale"),
+                    new DbSegment(new Segment(currentHashItemId, new TimeRange(0, 10)), AnalysisMode.Introduction, isUserProvided: false, configHash: "current"),
+                    new DbSegment(new Segment(staleItemId, new TimeRange(0, 10)), AnalysisMode.Introduction, isUserProvided: false, configHash: "stale"));
                 await db.SaveChangesAsync();
             }
 
@@ -220,6 +223,93 @@ public sealed class TestDbOperations
                 Assert.Equal(2, remaining.Count);
                 Assert.Contains(userProvidedItemId, remaining);
                 Assert.Contains(currentHashItemId, remaining);
+            }
+        }
+        finally
+        {
+            DeleteSqliteFiles(dbPath);
+        }
+    }
+
+    [Fact]
+    public async Task ResetSeasonForReanalysisAsync_HandlesEpisodeIdSetAboveSqliteParameterLimit()
+    {
+        const int EpisodeIdCount = 33_000;
+
+        var dbPath = CreateTempDbPath();
+        var seasonId = Guid.NewGuid();
+        var autoItemId = Guid.NewGuid();
+        var userItemId = Guid.NewGuid();
+        var episodeIds = Enumerable.Range(0, EpisodeIdCount - 2)
+            .Select(_ => Guid.NewGuid())
+            .Append(autoItemId)
+            .Append(userItemId)
+            .ToArray();
+
+        try
+        {
+            using (var db = new IntroSkipperDbContext(dbPath))
+            {
+                await db.Database.EnsureCreatedAsync();
+                db.DbSegment.AddRange(
+                    new DbSegment(new Segment(autoItemId, new TimeRange(0, 10)), AnalysisMode.Introduction),
+                    new DbSegment(new Segment(userItemId, new TimeRange(0, 10)), AnalysisMode.Credits, isUserProvided: true));
+                db.DbSeasonState.Add(new DbSeasonState(seasonId, AnalysisMode.Introduction, AnalyzerAction.Default, episodeIds));
+                await db.SaveChangesAsync();
+            }
+
+            using (var db = new IntroSkipperDbContext(dbPath))
+            {
+                await db.ResetSeasonForReanalysisAsync(seasonId, episodeIds, [AnalysisMode.Introduction, AnalysisMode.Credits]);
+            }
+
+            using (var db = new IntroSkipperDbContext(dbPath))
+            {
+                var remaining = await db.DbSegment.ToListAsync();
+                var survivor = Assert.Single(remaining);
+                Assert.Equal(userItemId, survivor.ItemId);
+                Assert.True(survivor.IsUserProvided);
+
+                var state = await db.DbSeasonState.SingleAsync(s => s.SeasonId == seasonId);
+                Assert.Empty(state.EpisodeIds);
+            }
+        }
+        finally
+        {
+            DeleteSqliteFiles(dbPath);
+        }
+    }
+
+    [Fact]
+    public async Task GetSeasonQueueSnapshotAsync_HandlesEpisodeIdSetAboveSqliteParameterLimit()
+    {
+        const int EpisodeIdCount = 33_000;
+
+        var dbPath = CreateTempDbPath();
+        var seasonId = Guid.NewGuid();
+        var episodeWithSegmentId = Guid.NewGuid();
+        var episodeIds = Enumerable.Range(0, EpisodeIdCount - 1)
+            .Select(_ => Guid.NewGuid())
+            .Append(episodeWithSegmentId)
+            .ToArray();
+
+        try
+        {
+            using (var db = new IntroSkipperDbContext(dbPath))
+            {
+                await db.Database.EnsureCreatedAsync();
+                db.DbSegment.Add(new DbSegment(new Segment(episodeWithSegmentId, new TimeRange(0, 30)), AnalysisMode.Introduction));
+                db.DbSeasonState.Add(new DbSeasonState(seasonId, AnalysisMode.Introduction, AnalyzerAction.Default, [episodeWithSegmentId], "snapshot-config"));
+                await db.SaveChangesAsync();
+            }
+
+            using (var db = new IntroSkipperDbContext(dbPath))
+            {
+                var snapshot = await db.GetSeasonQueueSnapshotAsync(seasonId, episodeIds);
+                Assert.True(snapshot.SegmentsByEpisodeId.TryGetValue(episodeWithSegmentId, out var segmentsByMode));
+                Assert.True(segmentsByMode!.ContainsKey(AnalysisMode.Introduction));
+                Assert.True(snapshot.ConfigHashByMode.TryGetValue(AnalysisMode.Introduction, out var configHash));
+                Assert.Equal("snapshot-config", configHash);
             }
         }
         finally
@@ -294,8 +384,13 @@ public sealed class TestDbOperations
                 Assert.Equal(1, await db2.DbSegment.CountAsync());
             }
 
-            // The cache database was initialized by the same gate.
-            using (var cacheDb = new DetectionCacheDbContext(cacheDbPath))
+            // The cache database has its own independent gate behind its own factory.
+            var cacheOptions = new DbContextOptionsBuilder<DetectionCacheDbContext>()
+                .UseSqlite($"Data Source={cacheDbPath}")
+                .Options;
+            var cacheFactory = new GatedDetectionCacheDbContextFactory(initializer, cacheOptions);
+            var cacheDb = await cacheFactory.CreateDbContextAsync();
+            await using (cacheDb.ConfigureAwait(false))
             {
                 Assert.False(await cacheDb.DetectionCache.AnyAsync());
             }
@@ -304,6 +399,45 @@ public sealed class TestDbOperations
         {
             DeleteSqliteFiles(dbPath);
             DeleteSqliteFiles(cacheDbPath);
+        }
+    }
+
+    [Fact]
+    public async Task CacheInitializationFailure_DoesNotBlockSegmentDatabaseAccess()
+    {
+        // Fault-containment: the cache gate failing (here with an InvalidOperationException,
+        // an exception type outside the old IOException/SqliteException filter) must neither
+        // fault the segment gate nor propagate from EnsureInitializedAsync (which would abort
+        // host startup via the hosted initialization service).
+        var dbPath = CreateTempDbPath();
+
+        try
+        {
+            var segmentOptions = new DbContextOptionsBuilder<IntroSkipperDbContext>()
+                .UseSqlite($"Data Source={dbPath}")
+                .Options;
+
+            // No provider configured: any use throws InvalidOperationException during init.
+            var brokenCacheOptions = new DbContextOptionsBuilder<DetectionCacheDbContext>().Options;
+
+            var initializer = new DatabaseInitializer(NullLogger<DatabaseInitializer>.Instance, segmentOptions, brokenCacheOptions);
+
+            // The combined gate (used by the hosted service) must complete without throwing.
+            await initializer.EnsureInitializedAsync();
+
+            // The segment factory must still hand out fully migrated contexts.
+            var factory = new GatedIntroSkipperDbContextFactory(initializer, segmentOptions);
+            var db = await factory.CreateDbContextAsync();
+            await using (db.ConfigureAwait(false))
+            {
+                Assert.Empty(await db.Database.GetPendingMigrationsAsync());
+                await db.UpdateTimestampAsync(new Segment(Guid.NewGuid(), new TimeRange(1, 2)), AnalysisMode.Introduction);
+                Assert.Equal(1, await db.DbSegment.CountAsync());
+            }
+        }
+        finally
+        {
+            DeleteSqliteFiles(dbPath);
         }
     }
 

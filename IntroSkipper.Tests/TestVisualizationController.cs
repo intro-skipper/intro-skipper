@@ -36,7 +36,7 @@ public sealed class TestVisualizationController
             Completion = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously)
         };
         using var loggerFactory = LoggerFactory.Create(builder => { });
-        var controller = CreateController(refresher, loggerFactory);
+        var controller = CreateController(refresher, loggerFactory, dbPath);
 
         var actionTask = controller.EraseSeasonAsync(seriesId, seasonId, eraseCache: false, CancellationToken.None);
 
@@ -67,7 +67,7 @@ public sealed class TestVisualizationController
             Completion = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously)
         };
         using var loggerFactory = LoggerFactory.Create(builder => { });
-        var controller = CreateController(refresher, loggerFactory);
+        var controller = CreateController(refresher, loggerFactory, dbPath);
 
         var result = await controller.EraseSeasonAsync(seriesId, seasonId, eraseCache: false, CancellationToken.None);
 
@@ -98,7 +98,7 @@ public sealed class TestVisualizationController
         await SeedCacheAsync(excludedId, includedId);
         var refresher = new RecordingMediaSegmentRefresher();
         using var loggerFactory = LoggerFactory.Create(builder => { });
-        var controller = CreateController(refresher, loggerFactory);
+        var controller = CreateController(refresher, loggerFactory, dbPath);
 
         var result = await controller.ClearExcludedTimestampsAsync(CancellationToken.None);
 
@@ -120,7 +120,7 @@ public sealed class TestVisualizationController
         Assert.True(await cacheDb.DetectionCache.AnyAsync(e => e.ItemId == includedId));
     }
 
-    private static VisualizationController CreateController(RecordingMediaSegmentRefresher refresher, ILoggerFactory loggerFactory)
+    private static VisualizationController CreateController(RecordingMediaSegmentRefresher refresher, ILoggerFactory loggerFactory, string dbPath)
     {
         return new VisualizationController(
             NullLogger<VisualizationController>.Instance,
@@ -130,7 +130,9 @@ public sealed class TestVisualizationController
             fileSystem: null!,
             loggerFactory,
             ffmpegService: null!,
-            EntrypointTestHelpers.CreateDetectionCacheService());
+            EntrypointTestHelpers.CreateDetectionCacheService(),
+            new EntrypointTestHelpers.FixedPathIntroSkipperDbContextFactory(dbPath),
+            new EntrypointTestHelpers.PluginCacheDbContextFactory());
     }
 
     private static EntrypointTestHelpers.PluginInstanceScope CreatePluginScope(string dbPath, Guid seriesId, Guid seasonId, IReadOnlyList<Guid> episodeIds, bool updateMediaSegments)
