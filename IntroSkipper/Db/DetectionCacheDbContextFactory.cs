@@ -25,7 +25,16 @@ internal sealed class DetectionCacheDbContextFactory : IDbContextFactory<Detecti
         var directory = Path.GetDirectoryName(dbPath);
         if (!string.IsNullOrEmpty(directory))
         {
-            Directory.CreateDirectory(directory);
+            try
+            {
+                Directory.CreateDirectory(directory);
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                // Must not throw: factories are constructed during DI resolution at host startup.
+                // If the directory is truly unavailable, connection opens fail per operation and
+                // are logged by the initializer gate or the calling store.
+            }
         }
 
         _options = new DbContextOptionsBuilder<DetectionCacheDbContext>()

@@ -5,7 +5,8 @@ This document describes the architecture, proves the prototype's key claims empi
 this is a comparison spike — documents the weaknesses honestly instead of hiding them.
 
 **Prototype status:** compiling, StyleCop/analyzer-clean (`TreatWarningsAsErrors`), full test suite green
-(375 passed / 1 known environmental failure `TestAudioFingerprinting.TestSilenceDetection`).
+(377 passed / 1 known environmental failure `TestAudioFingerprinting.TestSilenceDetection`). Round-2
+coordinator feedback addressed in §14.
 
 ---
 
@@ -308,6 +309,10 @@ Policy adopted:
   multi-parameter translation — it gives the planner real cardinality and pads to stable bucket sizes.
 - Locked in by tests at 33 000 IDs (> 32 766) against both databases, plus the pre-existing 33k
   `Plugin.CleanTimestampsAsync` test which now routes through the store.
+- Independently cross-checked by the round-2 coordinator benchmark (EF 10.0.7 + `Microsoft.Data.Sqlite`,
+  40k-row table, 33k-ID set): default translation throws `too many SQL variables`; `EF.Parameter`
+  json_each `Contains` ×5 = 235 ms vs `Chunk(500)` = 1552 ms (~6.6× faster); `ExecuteDelete` `NOT IN`
+  at 33k = 218 ms. The chunk removal is therefore a performance win as well as a simplification.
 - Residual risk & mitigation in §10 (R1).
 
 ### 6.3 `ExecuteUpdate` / `ExecuteDelete` (incl. EF 10 non-expression overload)
@@ -347,8 +352,12 @@ startup and happens once. Compiled models would add a generation step to the bui
 
 - **Connections:** every store operation is a short-lived context → one pooled `Microsoft.Data.Sqlite`
   connection per operation, `busy_timeout=5000` applied on every open by the shared
-  `SqlitePragmaInterceptor` (unchanged). WAL is EF's SQLite default (unchanged). Both stores over
-  `introskipper.db` share the same factory, hence the same connection pool and pragmas.
+  `SqlitePragmaInterceptor` (unchanged). **WAL journaling is enforced by the initializer**: EF's SQLite
+  provider persists `journal_mode=wal` when *it* creates the database, but a file created or vacuumed by
+  external tooling may have reverted — so `DatabaseInitializer` issues an idempotent
+  `PRAGMA journal_mode=WAL` once per startup on both databases (regression-tested:
+  `DatabaseInitializer_EnforcesWalJournalMode_OnBothDatabases`). Both stores over `introskipper.db`
+  share the same factory, hence the same connection pool and pragmas.
 - **Explicit transactions only where multi-statement atomicity is required**, exactly mirroring today:
   `ReplaceNonCommercialAsync` (read snapshot → domain decision → delete+insert) and
   `ResetSeasonForReanalysisAsync` (segment delete + episode-list clear). Everything else is a single
@@ -408,7 +417,7 @@ point in the facade's favor (§9).
 | R2 | DI-computed DB path diverges from the `Plugin` ctor path during the transition (two data directories) | very low | high | Single source of truth `PluginDatabasePaths` used by both; no string literals remain at either site. |
 | R3 | EF internal service-provider cache bloat (`ManyServiceProvidersCreated`) from transitional per-call factories in `Plugin` delegates | low | medium | Shared static interceptor + identical options per path ⇒ one cached provider; removed entirely with the delegates in the end state. |
 | R4 | Hosted-service start order changes in a future Jellyfin release (warm-up runs late) | low | none (perf only) | Correctness never depends on the warm-up — every store call awaits the gate itself (§5 proof). |
-| R5 | Init failure semantics: gate swallows the error (parity with today), so a broken DB surfaces as per-query failures rather than one startup error | medium (unchanged from today) | medium | Same warning logs as today; `RebuildDatabase` endpoint remains the documented recovery path and now flows through the initializer, which serializes it against first-time init. |
+| R5 | Init failure semantics: gate swallows the error (parity with today), so a broken DB surfaces as per-query failures rather than one startup error | medium (unchanged from today) | medium | Same warning logs as today; `RebuildDatabase` endpoint remains the documented recovery path and now flows through the initializer, which serializes it against first-time init. Round 2 hardened both gates to full catch-all so no init failure can escape `IHostedService.StartAsync` (see §14). |
 | R6 | Copy-paste drift while porting 18 method bodies into stores | medium | high | Bodies ported verbatim (diff-reviewable); the untouched pre-existing test suite (367 tests incl. legacy-schema, salvage, 33k-parameter and overlap-guard tests) passed unmodified against the delegating layer before any new tests were added. |
 | R7 | `shouldPersist` callback misuse (I/O inside the write transaction) | medium | medium | Contract documented on the interface; callback receives an immutable `NonCommercialSegmentContext`; only one implementer (`SegmentUpdateService`). If misuse recurs, replace with a closed enum-decision API at the cost of rule locality. |
 | R8 | Public store interfaces become de-facto API for other plugins | low | low | Implementations stay `internal sealed`; interfaces documented as unstable spike surface. |
@@ -432,7 +441,8 @@ point in the facade's favor (§9).
 - **Test seams gained:** `SkipIntroController` and `DetectionCacheService` are now constructed in tests
   from explicit stores/factories; the reflection-based `PluginInstanceScope` remains only for the
   transitional `Plugin` delegates and configuration access.
-- Result: 375 passed / 1 failed — the known environmental `TestAudioFingerprinting.TestSilenceDetection`.
+- Result: 377 passed / 1 failed — the known environmental `TestAudioFingerprinting.TestSilenceDetection`.
+  (Round 2 added the gate fault-containment and WAL-enforcement tests; see §14.)
 
 ## 12. Invariant checklist (a–g)
 
@@ -457,3 +467,49 @@ initialization/ordering problem became a provable, testable gate instead of cons
 near the over-engineering line — purity bent on day one (cross-aggregate season ops, callback primitive),
 and a single facade would have bought ~80 % of the benefit (DI, gate, testability, EF10 wins) for ~35 % of
 the surface area and none of the interface-evolution tax.
+
+## 14. Round 2 revisions
+
+Changes made in response to round-2 coordinator feedback (automated review + cross-theory arbitration).
+Suite after revisions: **377 passed / 1 failed** (the known environmental `TestSilenceDetection`).
+
+1. **Cache-init fault containment (high, fixed).** `DatabaseInitializer.InitializeCacheDb` previously
+   caught only `IOException or SqliteException` (blind parity with the old `Plugin` ctor filter). That
+   was strictly worse than today in the new architecture: the gate runs inside
+   `DatabaseStartupService.StartAsync`, so an escaped `UnauthorizedAccessException` (e.g. from
+   `EnsureDeleted` during corruption recovery) or `InvalidOperationException` would abort Jellyfin host
+   startup — and the `Lazy` gate would cache the fault, rethrowing it on every subsequent cache operation
+   forever. Fixed: the cache gate is now catch-all log-and-continue, matching the segment-DB gate;
+   `IDatabaseInitializer.EnsureCacheDbReady` is documented as never-throwing. Regression test
+   `DatabaseInitializer_GatesNeverThrow_WhenInitializationFails` uses a factory that throws
+   `InvalidOperationException` (deliberately outside the old filter) and asserts: the gate does not
+   throw, repeated calls do not rethrow a cached fault, and `DatabaseStartupService.StartAsync`
+   completes.
+2. **WAL claim hardened (verified → enforced).** Chose the *enforce* option over the doc-note option:
+   `DatabaseInitializer` now issues an idempotent `PRAGMA journal_mode=WAL` after segment-DB migration
+   and after cache `EnsureSchema`. Rationale: EF persists WAL only for databases *it* creates; a user
+   database vacuumed/recreated by external SQLite tooling could silently revert to rollback journaling
+   and regress write concurrency. One pragma per startup is free; the property is persistent in the
+   file. Regression test asserts `PRAGMA journal_mode == 'wal'` on both freshly initialized databases.
+3. **Independent benchmark cross-check** of the `EF.Parameter` verdict incorporated into §6.2
+   (json_each ≈ 6.6× faster than `Chunk(500)` at 33k IDs, in addition to being correct where the EF 10
+   default translation throws).
+4. **Startup throw-path audit** (per item 4). Paths that execute during Jellyfin host startup or DI
+   resolution were re-checked:
+   - *Factory constructors* (`SegmentDbContextFactory`, `DetectionCacheDbContextFactory`) ran
+     `Directory.CreateDirectory` unguarded; they are constructed during DI resolution of
+     `DatabaseStartupService`, so an `IO/UnauthorizedAccessException` there could fault host startup
+     (today the equivalent failure is contained to plugin creation). Fixed: directory creation is now
+     guarded; a truly unavailable directory surfaces later as per-operation connection failures, which
+     the gates log and the stores' callers already handle. `ArgumentException.ThrowIfNullOrEmpty(dbPath)`
+     is retained — it can only fire on a programming error (`IApplicationPaths.DataPath` is always
+     non-empty and Jellyfin always registers `IApplicationPaths`).
+   - *`DatabaseStartupService.StartAsync`*: `EnsureSegmentDbReadyAsync` wraps a catch-all async gate
+     (async method semantics capture even synchronous throws into the task, and the entire body is
+     inside `try`); `EnsureCacheDbReady` is catch-all after fix 1. The only exception `StartAsync` can
+     surface is cooperative cancellation of the startup token via `Task.WaitAsync(ct)` — standard hosted
+     service semantics during host shutdown, and it cancels only the wait, never the shared init.
+   - *DI registration lambdas* resolve only `IApplicationPaths` and `ILogger<>`, both unconditionally
+     provided by Jellyfin.
+   - *`SqlitePragmaInterceptor`* still catches only `SqliteException` — unchanged and out of scope: it
+     runs per connection-open (never during startup DI), and its failure mode today is identical.

@@ -4,6 +4,7 @@
 using System;
 using System.IO;
 using System.Linq;
+using System.Threading;
 using System.Threading.Tasks;
 using IntroSkipper.Data;
 using IntroSkipper.Db;
@@ -251,6 +252,74 @@ public sealed class TestSegmentStores
         {
             DeleteSqliteFiles(cacheDbPath);
         }
+    }
+
+    [Fact]
+    public async Task DatabaseInitializer_GatesNeverThrow_WhenInitializationFails()
+    {
+        // The cache gate runs inside IHostedService.StartAsync; an escaped exception would abort
+        // Jellyfin host startup, and the Lazy gate would cache the fault forever. Use a factory that
+        // throws a type outside the old (IOException or SqliteException) filter to prove the
+        // catch-all containment.
+        var dbPath = CreateTempDbPath();
+
+        try
+        {
+            var initializer = new DatabaseInitializer(
+                new SegmentDbContextFactory(dbPath),
+                new ThrowingCacheDbContextFactory(),
+                Microsoft.Extensions.Logging.Abstractions.NullLogger<DatabaseInitializer>.Instance);
+
+            // Must not throw, and repeated calls must not rethrow a cached fault.
+            initializer.EnsureCacheDbReady();
+            initializer.EnsureCacheDbReady();
+
+            // The hosted warm-up must complete without faulting host startup.
+            var startupService = new IntroSkipper.Services.DatabaseStartupService(initializer);
+            await startupService.StartAsync(CancellationToken.None);
+            await startupService.StopAsync(CancellationToken.None);
+        }
+        finally
+        {
+            DeleteSqliteFiles(dbPath);
+        }
+    }
+
+    [Fact]
+    public async Task DatabaseInitializer_EnforcesWalJournalMode_OnBothDatabases()
+    {
+        var dbPath = CreateTempDbPath();
+        var cacheDbPath = dbPath + "-cache.db";
+
+        try
+        {
+            var initializer = EntrypointTestHelpers.CreateDatabaseInitializer(dbPath, cacheDbPath);
+            await initializer.EnsureSegmentDbReadyAsync();
+            initializer.EnsureCacheDbReady();
+
+            Assert.Equal("wal", await ReadJournalModeAsync(dbPath));
+            Assert.Equal("wal", await ReadJournalModeAsync(cacheDbPath));
+        }
+        finally
+        {
+            DeleteSqliteFiles(dbPath);
+            DeleteSqliteFiles(cacheDbPath);
+        }
+    }
+
+    private static async Task<string?> ReadJournalModeAsync(string dbPath)
+    {
+        await using var connection = new SqliteConnection($"Data Source={dbPath}");
+        await connection.OpenAsync();
+        await using var command = connection.CreateCommand();
+        command.CommandText = "PRAGMA journal_mode;";
+        return (await command.ExecuteScalarAsync())?.ToString();
+    }
+
+    private sealed class ThrowingCacheDbContextFactory : IDbContextFactory<DetectionCacheDbContext>
+    {
+        public DetectionCacheDbContext CreateDbContext()
+            => throw new InvalidOperationException("Simulated cache database initialization failure.");
     }
 
     private static async Task EnsureSchemaAsync(string dbPath)

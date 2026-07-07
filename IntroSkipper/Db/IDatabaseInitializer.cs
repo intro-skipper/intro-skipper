@@ -27,6 +27,9 @@ public interface IDatabaseInitializer
     /// <summary>
     /// Ensures the detection cache database schema exists, recreating the database when it is
     /// corrupted. Synchronous because all detection cache store operations are synchronous.
+    /// Never throws: failures are logged and swallowed so a broken cache database can neither
+    /// abort host startup (this gate runs inside <c>IHostedService.StartAsync</c>) nor poison
+    /// subsequent cache operations with a cached fault.
     /// </summary>
     void EnsureCacheDbReady();
 

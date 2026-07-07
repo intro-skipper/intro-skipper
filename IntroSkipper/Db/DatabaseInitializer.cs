@@ -1,7 +1,6 @@
 // SPDX-FileCopyrightText: 2026 Intro-Skipper contributors <intro-skipper.org>
 // SPDX-License-Identifier: GPL-3.0-only
 
-using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 
@@ -65,6 +64,11 @@ internal sealed partial class DatabaseInitializer : IDatabaseInitializer
             // Normalize those schemas first so recovery does not log a false initialization failure.
             db.EnsureLegacySchemaCompatibility();
             await db.ApplyMigrationsAsync().ConfigureAwait(false);
+
+            // EF's SQLite provider persists journal_mode=wal when *it* creates the database, but a
+            // database file created or vacuumed by external tooling may have reverted to rollback
+            // journaling. Enforce WAL once per startup; the pragma is idempotent and persistent.
+            await db.Database.ExecuteSqlRawAsync("PRAGMA journal_mode=WAL;").ConfigureAwait(false);
         }
         catch (Exception ex)
         {
@@ -80,9 +84,15 @@ internal sealed partial class DatabaseInitializer : IDatabaseInitializer
         {
             using var cacheDb = _cacheContextFactory.CreateDbContext();
             cacheDb.EnsureSchema();
+            cacheDb.Database.ExecuteSqlRaw("PRAGMA journal_mode=WAL;");
         }
-        catch (Exception ex) when (ex is IOException or SqliteException)
+        catch (Exception ex)
         {
+            // Catch-all on purpose: this gate is invoked from IHostedService.StartAsync (host
+            // startup would abort on an escaped exception) and the Lazy gate would cache a fault
+            // forever, turning one transient failure into a permanently dead cache. Log and
+            // continue; individual cache operations then fail per-call and are handled by
+            // DetectionCacheService's existing exception policy.
             LogCacheDbInitializationError(_logger, ex);
         }
 

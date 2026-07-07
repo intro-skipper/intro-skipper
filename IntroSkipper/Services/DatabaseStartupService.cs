@@ -11,6 +11,9 @@ namespace IntroSkipper.Services;
 /// serves any request. This is an optimization, not the correctness guarantee: every store
 /// operation independently awaits the <see cref="IDatabaseInitializer"/> gate, so even a request
 /// that races server startup cannot query an unmigrated database.
+/// Both gates swallow initialization failures (log-and-continue), so <see cref="StartAsync"/>
+/// cannot fault host startup; the only exception it may surface is cooperative cancellation of
+/// the startup token itself.
 /// Registered before <see cref="Entrypoint"/> so it starts first.
 /// </summary>
 internal sealed class DatabaseStartupService : IHostedService
