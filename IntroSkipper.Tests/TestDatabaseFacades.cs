@@ -245,6 +245,201 @@ public sealed class TestDatabaseFacades
         }
     }
 
+    [Fact]
+    public async Task CleanSeasonStateAsync_DoesNotExceedSqliteVariableLimit_WhenSeasonListIsLarge()
+    {
+        const int LargeSeasonCount = 33_000;
+
+        var dbPath = CreateTempDbPath();
+        var retainedSeasonId = Guid.NewGuid();
+        var staleSeasonId = Guid.NewGuid();
+        var retainedSeasonIds = Enumerable.Range(0, LargeSeasonCount - 1)
+            .Select(_ => Guid.NewGuid())
+            .Append(retainedSeasonId)
+            .ToArray();
+
+        try
+        {
+            var database = DatabaseTestHelpers.CreateSegmentDatabase(dbPath);
+            await database.SetEpisodeIdsAsync(retainedSeasonId, AnalysisMode.Introduction, [Guid.NewGuid()]);
+            await database.SetEpisodeIdsAsync(staleSeasonId, AnalysisMode.Introduction, [Guid.NewGuid()]);
+
+            await database.CleanSeasonStateAsync(retainedSeasonIds);
+
+            Assert.NotEmpty(await database.GetEpisodeIdsAsync(retainedSeasonId));
+            Assert.Empty(await database.GetEpisodeIdsAsync(staleSeasonId));
+        }
+        finally
+        {
+            DeleteSqliteFiles(dbPath);
+        }
+    }
+
+    [Fact]
+    public async Task GetSeasonQueueSnapshotAsync_DoesNotExceedSqliteVariableLimit_WhenEpisodeListIsLarge()
+    {
+        const int LargeEpisodeCount = 33_000;
+
+        var dbPath = CreateTempDbPath();
+        var seasonId = Guid.NewGuid();
+        var episodeWithSegmentId = Guid.NewGuid();
+        var episodeIds = Enumerable.Range(0, LargeEpisodeCount - 1)
+            .Select(_ => Guid.NewGuid())
+            .Append(episodeWithSegmentId)
+            .ToList();
+
+        try
+        {
+            var database = DatabaseTestHelpers.CreateSegmentDatabase(dbPath);
+            await database.UpdateTimestampAsync(new Segment(episodeWithSegmentId, new TimeRange(0, 30)), AnalysisMode.Introduction);
+            await database.SetEpisodeIdsAsync(seasonId, AnalysisMode.Introduction, [episodeWithSegmentId], "snapshot-config");
+
+            var snapshot = await database.GetSeasonQueueSnapshotAsync(seasonId, episodeIds);
+
+            Assert.True(snapshot.EpisodeIdsByMode.TryGetValue(AnalysisMode.Introduction, out var analyzedIds));
+            Assert.Contains(episodeWithSegmentId, analyzedIds!);
+            Assert.True(snapshot.SegmentsByEpisodeId.TryGetValue(episodeWithSegmentId, out var segmentsByAnalysisMode));
+            Assert.True(segmentsByAnalysisMode!.TryGetValue(AnalysisMode.Introduction, out _));
+        }
+        finally
+        {
+            DeleteSqliteFiles(dbPath);
+        }
+    }
+
+    [Fact]
+    public async Task ResetSeasonForReanalysisAsync_DoesNotExceedSqliteVariableLimit_WhenEpisodeListIsLarge()
+    {
+        const int LargeEpisodeCount = 33_000;
+
+        var dbPath = CreateTempDbPath();
+        var seasonId = Guid.NewGuid();
+        var automaticEpisodeId = Guid.NewGuid();
+        var userProvidedEpisodeId = Guid.NewGuid();
+        var episodeIds = Enumerable.Range(0, LargeEpisodeCount - 2)
+            .Select(_ => Guid.NewGuid())
+            .Append(automaticEpisodeId)
+            .Append(userProvidedEpisodeId)
+            .ToArray();
+
+        try
+        {
+            var database = DatabaseTestHelpers.CreateSegmentDatabase(dbPath);
+            await database.UpdateTimestampAsync(new Segment(automaticEpisodeId, new TimeRange(0, 30)), AnalysisMode.Introduction);
+            await database.UpdateTimestampAsync(new Segment(userProvidedEpisodeId, new TimeRange(0, 30)), AnalysisMode.Introduction, isUserProvided: true);
+            await database.SetEpisodeIdsAsync(seasonId, AnalysisMode.Introduction, episodeIds);
+
+            await database.ResetSeasonForReanalysisAsync(seasonId, episodeIds, [AnalysisMode.Introduction]);
+
+            Assert.Empty(await database.GetSegmentsAsync(automaticEpisodeId));
+            Assert.Single(await database.GetSegmentsAsync(userProvidedEpisodeId));
+            var episodeIdsByMode = await database.GetEpisodeIdsAsync(seasonId);
+            Assert.Empty(episodeIdsByMode[AnalysisMode.Introduction]);
+        }
+        finally
+        {
+            DeleteSqliteFiles(dbPath);
+        }
+    }
+
+    [Fact]
+    public async Task CleanStaleAutomaticSegmentsAsync_DoesNotExceedSqliteVariableLimit_WhenItemListIsLarge()
+    {
+        const int LargeItemCount = 33_000;
+
+        var dbPath = CreateTempDbPath();
+        var staleItemId = Guid.NewGuid();
+        var itemIds = Enumerable.Range(0, LargeItemCount - 1)
+            .Select(_ => Guid.NewGuid())
+            .Append(staleItemId)
+            .ToArray();
+
+        try
+        {
+            var database = DatabaseTestHelpers.CreateSegmentDatabase(dbPath);
+            await database.UpdateTimestampAsync(new Segment(staleItemId, new TimeRange(0, 30)), AnalysisMode.Introduction, configHash: "old-config");
+
+            await database.CleanStaleAutomaticSegmentsAsync(itemIds, AnalysisMode.Introduction, "new-config");
+
+            Assert.Empty(await database.GetSegmentsAsync(staleItemId));
+        }
+        finally
+        {
+            DeleteSqliteFiles(dbPath);
+        }
+    }
+
+    [Fact]
+    public async Task ConcurrentFacadeInstances_InitializeLegacyDatabaseWithoutErrors()
+    {
+        // Transitional reality: the DI singleton and the Plugin bridge are two facade
+        // instances with independent one-shot gates over the same file. Both may run
+        // legacy repair + migrations concurrently on first use. The process-wide
+        // per-path initialization lock serializes them; this pins that both succeed
+        // and the repaired schema is correct.
+        var dbPath = CreateTempDbPath();
+        var seasonId = Guid.NewGuid();
+        var episodeId = Guid.NewGuid();
+
+        try
+        {
+            await using (var connection = new SqliteConnection($"Data Source={dbPath}"))
+            {
+                await connection.OpenAsync();
+                await using var command = connection.CreateCommand();
+                command.CommandText =
+                    """
+                    CREATE TABLE "DbSeasonInfo" (
+                        "SeasonId" TEXT NOT NULL,
+                        "Type" INTEGER NOT NULL,
+                        "Action" INTEGER NOT NULL DEFAULT 0,
+                        "EpisodeIds" TEXT NOT NULL,
+                        CONSTRAINT "PK_DbSeasonInfo" PRIMARY KEY ("SeasonId", "Type")
+                    );
+                    CREATE TABLE "DbSegment" (
+                        "ItemId" TEXT NOT NULL,
+                        "Type" INTEGER NOT NULL,
+                        "Start" REAL NOT NULL DEFAULT 0.0,
+                        "End" REAL NOT NULL DEFAULT 0.0,
+                        CONSTRAINT "PK_DbSegment" PRIMARY KEY ("ItemId", "Type")
+                    );
+                    INSERT INTO "DbSeasonInfo" ("SeasonId", "Type", "Action", "EpisodeIds")
+                    VALUES ($seasonId, $type, $action, $episodeIds);
+                    INSERT INTO "DbSegment" ("ItemId", "Type", "Start", "End")
+                    VALUES ($itemId, $segmentType, $start, $end);
+                    """;
+                command.Parameters.AddWithValue("$seasonId", seasonId.ToString().ToUpperInvariant());
+                command.Parameters.AddWithValue("$type", (int)AnalysisMode.Introduction);
+                command.Parameters.AddWithValue("$action", (int)AnalyzerAction.Default);
+                command.Parameters.AddWithValue("$episodeIds", $"[\"{episodeId}\"]");
+                command.Parameters.AddWithValue("$itemId", episodeId.ToString().ToUpperInvariant());
+                command.Parameters.AddWithValue("$segmentType", (int)AnalysisMode.Introduction);
+                command.Parameters.AddWithValue("$start", 0.0);
+                command.Parameters.AddWithValue("$end", 30.0);
+                await command.ExecuteNonQueryAsync();
+            }
+
+            var facadeA = DatabaseTestHelpers.CreateSegmentDatabase(dbPath);
+            var facadeB = DatabaseTestHelpers.CreateSegmentDatabase(dbPath);
+
+            // Trigger both initialization gates concurrently via first operations.
+            var results = await Task.WhenAll(
+                Task.Run(() => facadeA.GetSegmentsAsync(episodeId)),
+                Task.Run(() => facadeB.GetSegmentsAsync(episodeId)));
+
+            Assert.All(results, segments => Assert.Single(segments));
+
+            await using var db = new IntroSkipperDbContext(dbPath);
+            Assert.Empty(await db.Database.GetPendingMigrationsAsync());
+            var seasonState = await db.DbSeasonState.SingleAsync();
+            Assert.Equal(seasonId, seasonState.SeasonId);
+        }
+        finally
+        {
+            DeleteSqliteFiles(dbPath);
+        }
+    }
+
     private static string CreateTempDbPath()
     {
         var tempDir = Path.Join(Path.GetTempPath(), "IntroSkipper.Tests", "database-facades");

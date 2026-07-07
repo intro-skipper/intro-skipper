@@ -218,20 +218,18 @@ public sealed partial class IntroSkipperDatabase
         await EnsureInitializedAsync().ConfigureAwait(false);
         using var db = _contextFactory.CreateDbContext();
 
-        foreach (var seasonIdBatch in episodeIdsBySeason.Keys.Chunk(SqliteParameterBatchSize))
-        {
-            var seasonStates = await db.DbSeasonState
-                .Where(s => seasonIdBatch.Contains(s.SeasonId))
-                .ToListAsync(cancellationToken)
-                .ConfigureAwait(false);
+        var seasonIds = episodeIdsBySeason.Keys.ToArray();
+        var seasonStates = await db.DbSeasonState
+            .Where(s => EF.Parameter(seasonIds).Contains(s.SeasonId))
+            .ToListAsync(cancellationToken)
+            .ConfigureAwait(false);
 
-            foreach (var state in seasonStates)
+        foreach (var state in seasonStates)
+        {
+            var currentIds = state.EpisodeIds.ToList();
+            if (currentIds.RemoveAll(episodeIdsBySeason[state.SeasonId].Contains) > 0)
             {
-                var currentIds = state.EpisodeIds.ToList();
-                if (currentIds.RemoveAll(episodeIdsBySeason[state.SeasonId].Contains) > 0)
-                {
-                    db.Entry(state).Property(s => s.EpisodeIds).CurrentValue = currentIds;
-                }
+                db.Entry(state).Property(s => s.EpisodeIds).CurrentValue = currentIds;
             }
         }
 
@@ -259,15 +257,11 @@ public sealed partial class IntroSkipperDatabase
             .ToListAsync(cancellationToken)
             .ConfigureAwait(false);
 
-        var segments = new List<DbSegment>();
-        foreach (var batch in episodeIdArray.Chunk(SqliteParameterBatchSize))
-        {
-            segments.AddRange(await db.DbSegment
-                .AsNoTracking()
-                .Where(s => batch.Contains(s.ItemId))
-                .ToListAsync(cancellationToken)
-                .ConfigureAwait(false));
-        }
+        var segments = await db.DbSegment
+            .AsNoTracking()
+            .Where(s => EF.Parameter(episodeIdArray).Contains(s.ItemId))
+            .ToListAsync(cancellationToken)
+            .ConfigureAwait(false);
 
         return new Data.SeasonQueueSnapshot(
             seasonStates.ToDictionary(s => s.Type, s => (IReadOnlySet<Guid>)s.EpisodeIds.ToHashSet()),

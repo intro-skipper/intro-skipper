@@ -19,8 +19,8 @@ Two sealed singleton services, one per SQLite database, each closed over an
 Principles:
 
 1. **Mechanical first, modern second.** Every method body is a 1:1 move of the
-   existing `Plugin` / call-site code. EF10 modernization (compiled queries, chunking
-   consolidation) is applied *inside* the facade afterwards, one operation at a time,
+   existing `Plugin` / call-site code. EF10 modernization (compiled queries,
+   `EF.Parameter` collection translation) is applied *inside* the facade afterwards, one operation at a time,
    where a diff reviewer can see it against the verbatim-moved baseline.
 2. **The facade is the domain boundary.** The two invariants that guard writes —
    user-provided segments are never overwritten by analysis results, and auto-detected
@@ -283,11 +283,14 @@ Unchanged by design — the facade preserves the current model verbatim:
   (multiple concurrent operations = multiple connections, exactly as today).
 - **Explicit transactions only where invariants need atomicity:** the non-commercial
   `UpdateTimestampAsync` path (read-check-replace) and `ResetSeasonForReanalysisAsync`
-  (chunked deletes + episode-list clear must commit together). Everything else relies on
+  (segment delete + episode-list clear must commit together). Everything else relies on
   per-`SaveChanges`/per-`ExecuteDelete` implicit transactions, as before.
-- **Writer contention:** WAL journal mode (set by EF on database creation) + the shared
-  `busy_timeout=5000` pragma interceptor on every connection open. Chunked deletes keep
-  individual write transactions short, bounding writer-lock hold times.
+- **Writer contention:** WAL journal mode + the shared `busy_timeout=5000` pragma
+  interceptor on every connection open. Verified: EF's SQLite provider sets
+  `journal_mode=wal` when it *creates* a database (via `Migrate`/`EnsureCreated`), and
+  WAL is a persistent database property — both plugin databases are always created by
+  EF, so no per-connection enforcement is needed. Single-statement `EF.Parameter`
+  deletes keep individual write transactions short, bounding writer-lock hold times.
 - **Cross-database consistency** stays best-effort and call-site-ordered (segments
   first, cache second, with `CancellationToken.None` on the cache leg) — the facade
   deliberately does not pretend to offer cross-DB transactions.
@@ -300,7 +303,7 @@ Unchanged by design — the facade preserves the current model verbatim:
 |---|---|---|
 | `AddPooledDbContextFactory` | **Don't use** | Pooling requires a single public options-ctor and skips `OnConfiguring`, which would force removing the string-path ctor that the design-time factory, `RebuildDatabaseAsync`'s file-delete fallback, the transitional bridge, and ~30 existing tests construct directly. The payoff is µs-scale context reuse on a plugin whose query rate is a handful per playback/scan — unmeasurable here. Interceptor note: our interceptor is stateless so pooling *would* be compatible, but that only removes one of the blockers. |
 | `AddDbContextFactory` (non-pooled) | **Use** (implemented) | Gives the facades a DI-native, test-replaceable context source; options built once; keeps both ctors legal. |
-| EF10 parameterized-collection translation (with padding) vs manual `Chunk(500)` | **Keep chunking** (implemented, consolidated in the facades) | Measured on this exact stack (EF 10.0.7 + Microsoft.Data.Sqlite + e_sqlite3 3.50.3, `sqlite_version()`=3.50.3): a 40,001-element `Contains` fails with `SQLite Error 1: 'too many SQL variables'` — EF10's default SQLite translation is **discrete parameters with padding** (observed: 501 elements → 550 parameters), not `json_each`, and the compiled-in limit is `SQLITE_MAX_VARIABLE_NUMBER` = 32,766. A 32,000-parameter statement works but takes ~3.3 s to prepare/execute; `EF.Constant` inlining works at 40k but generates >100 KB SQL per call and defeats the prepared-statement cache. Chunk(500) stays: proven, fast, and padding makes each full chunk a stable 500-parameter statement, maximizing statement-cache reuse. Verified by tests at 33,000 IDs (`CleanTimestampsAsync`, `DeleteSegmentsForItemsAsync`, cache `DeleteForItemsAsync`). Bonus: moving the ops into the facade fixed three **latent unchunked sites** that could throw on >32k-item libraries (`VisualizationController.ClearExcludedTimestamps` segment+cache deletes, `CleanCacheTask` stale-ID scan, `CleanSeasonStateAsync`'s NOT-IN). |
+| EF10 parameterized-collection translation (with padding) vs manual `Chunk(500)` | **Superseded in round 2: use `EF.Parameter` (json_each), chunking removed** | Round-1 measurement of the *default* translation stands (EF 10.0.7 + Microsoft.Data.Sqlite + e_sqlite3 3.50.3: discrete padded parameters, 501 elements → 550 params, hard failure above `SQLITE_MAX_VARIABLE_NUMBER` = 32,766), but it missed `EF.Parameter(collection)`, which forces the single-JSON-parameter `json_each` translation on SQLite. Re-measured on the same stack (40k-row table): `EF.Parameter` Contains at 33k IDs = one bound parameter, 5 runs in 245 ms vs 5,184 ms for Chunk(500) (~21x); 33k NOT-IN `ExecuteDelete` = 90 ms, correct row counts. All large-set ops now use `EF.Parameter` and the chunk helper is deleted (details in Round 2 revisions). `json_each` availability is guaranteed because the plugin bundles `SQLitePCLRaw.lib.e_sqlite3` — the system SQLite is never used. Verified by 33,000-ID pin tests on every converted operation. |
 | `ExecuteUpdate`/`ExecuteDelete` | **Keep/expand `ExecuteDelete`; no `ExecuteUpdate` yet** | All bulk deletes already use `ExecuteDeleteAsync` and moved verbatim. The natural `ExecuteUpdate` candidates (`ClearSeasonEpisodeIdsAsync`, `RemoveEpisodeIdsFromSeasonsAsync`) write the value-converted `EpisodeIds` column; setting converted JSON columns via `ExecuteUpdate` works for constants but the `RemoveEpisodeIds` case needs per-row list surgery, which SQL can't express without JSON functions. Kept load-modify-save for parity; noted as a follow-up micro-optimization for the clear-only path. The EF10 non-expression setter overload would only help if we built setters conditionally — we don't. |
 | Compiled queries (`EF.CompileAsyncQuery`) | **Use for the playback hot path only** (implemented) | `GetSegmentsAsync` runs on every `SegmentProvider.GetMediaSegments` call (every playback) and `GetTimestampsAsync` reuses it. One static compiled delegate eliminates repeated LINQ translation. Not applied elsewhere: scan-time queries run a few times per season; the readability tax isn't paid back. |
 | Named query filters | **Don't use** | No global filters exist; the only recurring predicate (`IsUserProvided`) is a *write-path rule*, not a read filter — hiding it in a query filter would obscure the invariant and require `IgnoreQueryFilters` on most reads. |
@@ -315,15 +318,19 @@ Unchanged by design — the facade preserves the current model verbatim:
   `IDbContextFactory<T>` works. Tests use `IntroSkipperDbContextPathFactory` over a
   temp file (`DatabaseTestHelpers.CreateSegmentDatabase(path)`), matching the repo's
   existing temp-file SQLite pattern.
-- **New tests (`TestDatabaseFacades`, 10 tests):**
+- **New tests (`TestDatabaseFacades`, 15 tests):**
   - `InitializationGate_CreatesSchemaBeforeFirstQuery` — ordering proof in executable
     form: virgin file, no explicit init, first query succeeds and migrations are applied.
   - Domain invariant 1: analysis result does not overwrite a user-provided segment
     (+ inverse: user write replaces analysis result).
   - Domain invariant 2: credits/intro overlap guard (3-case theory, mirrors the
     existing `Plugin`-level theory).
-  - Chunked deletes at 33,000 IDs (> 32,766) for `CleanTimestampsAsync`,
-    `DeleteSegmentsForItemsAsync`, and the cache facade's stale-scan + batch delete.
+  - Chunk-free large-set pins at 33,000 IDs (> 32,766) for `CleanTimestampsAsync`,
+    `DeleteSegmentsForItemsAsync`, `CleanSeasonStateAsync`, `CleanStaleAutomaticSegmentsAsync`,
+    `ResetSeasonForReanalysisAsync`, `GetSeasonQueueSnapshotAsync`, and the cache
+    facade's stale-scan + batch delete.
+  - Concurrent-initialization pin: two facade instances over one legacy-shaped file
+    initialize concurrently without errors or data loss.
   - Commercial multi-segment insert + dedup (filtered-unique-index invariant at the
     facade level).
 - **Existing tests kept green (377/378)** — including every legacy-schema,
@@ -350,7 +357,7 @@ Unchanged by design — the facade preserves the current model verbatim:
 | R5 | **Early caller pays migration latency** on first playback if it beats the hosted warm-up | Warm-up hosted service is registered first; worst case equals today's plugin-ctor cost, just relocated; measured migration no-op check is ~ms. |
 | R6 | **Two hosted services ordering** (initializer vs `Entrypoint`) | `Entrypoint` performs no DB work in `StartAsync`; even if started concurrently, any DB call it triggers goes through the gate. |
 | R7 | **`AddDbContextFactory` in Jellyfin's shared container** could surprise (e.g., another plugin registering the same context type — impossible; or scoped-lifetime interactions) | Factory + options registered singleton against plugin-owned context types; no scoped `DbContext` registration is added, so nothing changes for Jellyfin's own EF usage. |
-| R8 | **Behavioral deltas introduced knowingly**: (a) `CleanSeasonStateAsync` now computes stale keys client-side + chunked deletes instead of a single NOT-IN; (b) `CleanCacheTask` stale scan filters client-side; (c) `VisualizationController` deletes now chunk and its season-state clear commits separately from the segment delete (it already did — two implicit transactions — the facade preserves that) | (a)/(b) fix latent >32k-parameter crashes; row sets affected are identical modulo rows inserted mid-sweep (which then survive one extra cycle — acceptable for retention sweeps). Covered by large-set tests. |
+| R8 | **Behavioral deltas introduced knowingly**: large-set ops now translate through `EF.Parameter`/`json_each` (single statement) instead of the original loops; `VisualizationController`'s season-state clear commits separately from the segment delete (it already did — two implicit transactions — the facade preserves that) | Row sets affected are provably identical (same predicates); crash behavior only improves (three latent >32k-parameter sites fixed). Pinned by 33,000-ID tests on every converted op. |
 | R9 | **`SeasonQueueSnapshot` internal type** blocks interface completeness | Documented promotion path (§2c); concrete-class internal method keeps compile-time safety meanwhile. |
 
 ---
@@ -372,9 +379,9 @@ Argued for comparison against the rival spikes:
    context access at three call sites had to go *somewhere*. A no-repository design
    (inject `IDbContextFactory` everywhere) would not need these names — at the price of
    re-scattering the invariants.
-4. **The facade hides query cost.** A caller can't see that
-   `GetSeasonQueueSnapshotAsync` is N/500 queries while `GetAnalyzerActionAsync` is one;
-   with raw context access the cost is visible at the call site.
+4. **The facade hides query cost.** A caller can't see that one method is a
+   read-modify-write loop while another is a single `ExecuteDelete`; with raw context
+   access the cost is visible at the call site.
 5. **Cross-DB orchestration still lives in callers.** The facade-per-database boundary
    means "erase season + cache" ordering rules remain duplicated at call sites
    (`SkipIntroController`, `VisualizationController`). A single higher-level service
@@ -392,7 +399,7 @@ Argued for comparison against the rival spikes:
 `Db/IntroSkipperDatabase.Maintenance.cs`, `Db/IDetectionCacheDatabase.cs`,
 `Db/DetectionCacheDatabase.cs`, `Db/IntroSkipperDatabasePaths.cs`,
 `Db/IntroSkipperDbContextPathFactory.cs`, `Db/DetectionCacheDbContextPathFactory.cs`,
-`Services/IntroSkipperDatabaseInitializer.cs`,
+`Db/DatabaseInitializationLocks.cs`, `Services/IntroSkipperDatabaseInitializer.cs`,
 tests `TestDatabaseFacades.cs`, `DatabaseTestHelpers.cs`.
 
 **Modified:** `Plugin.cs` (bodies → delegating wrappers + bridge),
@@ -405,3 +412,120 @@ test constructors in `EntrypointTestHelpers.cs`, `TestSkipIntroController.cs`,
 
 **Untouched (by design):** both `DbContext`s, entities, migrations,
 `IntroSkipperDbContextFactory` (design-time), `SqlitePragmaInterceptor`/`SqlitePragmas`.
+
+---
+
+## 11. Round 2 revisions (coordinator feedback)
+
+### 11.1 Hosted warm-up can no longer abort Jellyfin host startup (item 1, fixed)
+
+Confirmed finding. Two-layer fix:
+
+1. **`IntroSkipperDatabaseInitializer.StartAsync` is independently exception-proof:**
+   each facade warm-up call is wrapped in its own catch-all with a `LoggerMessage`
+   warning. Blast-radius reasoning (also in the code): this method runs inside
+   Jellyfin's host startup, so an unhandled exception aborts the *entire server* —
+   every plugin plus Jellyfin itself — over what is, at worst, a plugin cache file.
+   The facades log-and-swallow their own init failures, but that is their contract,
+   not a guarantee the warm-up may rely on; the warm-up must be safe against facade
+   bugs and exotic escapes on its own.
+2. **`DetectionCacheDatabase.InitializeCore` catch filter broadened** from
+   `IOException or SqliteException` to catch-all log-and-continue. The old filter let
+   `UnauthorizedAccessException` (from `EnsureDeleted`'s file delete during corruption
+   recovery), `InvalidOperationException`, etc. escape — and because the gate is
+   `Lazy<bool>` with `ExecutionAndPublication`, an escaping exception would be
+   **cached and rethrown on every subsequent cache operation**, permanently poisoning
+   the cache for the process lifetime. With catch-all, neither gate
+   (`Lazy<Task>` for segments already had catch-all; `Lazy<bool>` for cache now too)
+   can cache a fault. Degradation path on failure: identical to the pre-refactor
+   plugin-constructor behavior — operations run against whatever schema exists and
+   surface their own errors.
+
+### 11.2 Chunking verdict superseded: `EF.Parameter` adopted (item 2)
+
+The round-1 verdict measured the default translation and `EF.Constant` but not
+`EF.Parameter(collection)`, which forces the single-JSON-parameter `json_each`
+translation on SQLite. Re-measured on the exact stack (EF 10.0.7,
+Microsoft.Data.Sqlite, bundled e_sqlite3 3.50.3; 40,000-row table):
+
+| Operation (33k-ID set) | Result |
+|---|---|
+| `EF.Parameter` `Contains` (SELECT) | one bound parameter, translation contains `json_each`, correct count, 5 runs = **245 ms** |
+| Chunk(500) `Contains` (SELECT), 5 runs | **5,184 ms** (~21x slower) |
+| `ExecuteDelete` with `!EF.Parameter(ids).Contains(...)` | **90 ms**, correct rows deleted |
+| Default translation at 33k | `SQLite Error 1: 'too many SQL variables'` (unchanged from round 1) |
+
+The round-1 statement-cache argument applied to padding of the *default* discrete-
+parameter translation and is moot under `json_each` (one statement shape, one
+parameter). Conceded and adopted — the numbers match the coordinator's benchmark
+within noise. Converted operations (all single-statement now, chunk helper deleted):
+
+- `IntroSkipperDatabase`: `CleanTimestampsAsync` (restored to a single NOT-IN delete —
+  simpler than the original read-filter-delete loop), `DeleteSegmentsForItemsAsync`,
+  `CleanStaleAutomaticSegmentsAsync`, `ResetSeasonForReanalysisAsync`,
+  `GetSeasonQueueSnapshotAsync` (single read), `RemoveEpisodeIdsFromSeasonsAsync`
+  (single read), `CleanSeasonStateAsync` (restored to the original single NOT-IN shape,
+  now safe at any size).
+- `DetectionCacheDatabase`: `DeleteForItemsAsync`, `GetStaleItemIdsAsync` (restored to
+  the original server-side NOT-IN shape).
+
+Small captured collections (the ≤5-element `modeArray.Contains`) intentionally keep the
+default translation — discrete parameters with padding are ideal at that size.
+`json_each` availability is not a portability risk: the plugin bundles
+`SQLitePCLRaw.lib.e_sqlite3`, so the system SQLite build is never used.
+
+Pin tests at 33,000 IDs (> 32,766) now cover **every** converted operation:
+`CleanTimestampsAsync`, `DeleteSegmentsForItemsAsync`, `CleanSeasonStateAsync`,
+`CleanStaleAutomaticSegmentsAsync`, `ResetSeasonForReanalysisAsync`,
+`GetSeasonQueueSnapshotAsync`, cache stale-scan + `DeleteForItemsAsync`
+(plus the pre-existing `Plugin`-level 33k test, which now exercises the same path
+through the bridge).
+
+### 11.3 Concurrent legacy-repair race: empirically characterized, gated anyway (item 3)
+
+Probe: two concurrent connections against one legacy-shaped WAL database, each running
+`BEGIN; <column-existence check>; ALTER TABLE ADD COLUMN; COMMIT;` with a barrier
+forcing maximal overlap, 10 iterations.
+
+**Result: the hypothesized race does not manifest — 10/10 runs, zero errors, exactly
+one column added.** Root cause: the hypothesis assumed *deferred* transactions (both
+racers pass the check before either writes). Microsoft.Data.Sqlite's
+`BeginTransaction()` issues **`BEGIN IMMEDIATE`** — the write lock is acquired at
+`BEGIN`, *before* the existence checks run, so check-then-ALTER is atomic per
+transaction and strictly serialized between connections. The instrumented probe shows
+the loser's check observing `exists=True` after the winner's commit (Microsoft.Data.Sqlite
+additionally retries `SQLITE_BUSY` on `BEGIN` up to `CommandTimeout`, on top of
+`busy_timeout`). `EnsureLegacySchemaCompatibility` runs its checks inside exactly such
+a transaction, so it inherits this serialization. Concurrent `MigrateAsync` is
+separately protected by EF Core 9+'s migration database lock.
+
+**Defense-in-depth added regardless:** `DatabaseInitializationLocks` — a process-wide
+`ConcurrentDictionary<string, SemaphoreSlim>` keyed by normalized database file path
+(derived from the context's connection string) — serializes the *entire* initialization
+sequence (repair + migrate, or cache `EnsureSchema` incl. delete-and-recreate recovery)
+across the DI singleton and the transitional `Plugin` bridge. Rationale: the safety
+argument becomes local instead of resting on two external behaviors (MDS's
+`BEGIN IMMEDIATE` default and EF's migration lock), it prevents interleaved warning
+logs from the two initializers, and it protects the cache's non-transactional
+delete-and-recreate recovery path, which the `BEGIN IMMEDIATE` argument does not cover.
+Cross-*process* races (two Jellyfin instances sharing one DB file) are out of scope —
+unchanged from the status quo, and partially covered by the same `BEGIN IMMEDIATE`
+serialization. Pinned by `ConcurrentFacadeInstances_InitializeLegacyDatabaseWithoutErrors`
+(two facades, one legacy-shaped file, concurrent first operations).
+
+### 11.4 WAL journal mode (item 4)
+
+Doc note added in §5: EF's SQLite provider sets `journal_mode=wal` when it creates a
+database (`Migrate`/`EnsureCreated`), and WAL is a persistent database property. Both
+plugin databases are always EF-created (including the rebuild and cache-recreate
+paths), so no per-connection or init-time enforcement is added.
+
+### 11.5 Delta summary
+
+Code: `Services/IntroSkipperDatabaseInitializer.cs` (exception-proof warm-up + logger),
+`Db/DetectionCacheDatabase.cs` (catch-all init, `EF.Parameter`, init lock),
+`Db/IntroSkipperDatabase.cs` (init lock, `SqliteParameterBatchSize` removed),
+`Db/IntroSkipperDatabase.{Segments,SeasonStates,Maintenance}.cs` (`EF.Parameter`),
+`Db/DatabaseInitializationLocks.cs` (new), interface doc updates, 5 new tests
+(15 total in `TestDatabaseFacades`). Verification: full suite 382/383 — sole failure
+remains the known environmental `TestSilenceDetection`.

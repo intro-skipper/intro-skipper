@@ -75,8 +75,8 @@ public interface IDetectionCacheDatabase
 
     /// <summary>
     /// Returns the distinct item IDs present in the cache that are not part of
-    /// <paramref name="validItemIds"/>. The comparison happens client-side to stay below
-    /// the SQLite parameter limit for large libraries.
+    /// <paramref name="validItemIds"/>. The valid set is bound as a single JSON
+    /// parameter (<c>json_each</c>), so the query is safe for arbitrarily large libraries.
     /// </summary>
     /// <param name="validItemIds">Item IDs that are still valid.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
@@ -84,8 +84,8 @@ public interface IDetectionCacheDatabase
     Task<IReadOnlyCollection<Guid>> GetStaleItemIdsAsync(IReadOnlySet<Guid> validItemIds, CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// Deletes all cache entries for the given items. Batches the delete to stay below
-    /// the SQLite parameter limit regardless of the item count.
+    /// Deletes all cache entries for the given items in a single statement; the ID set
+    /// is bound as one JSON parameter, so the item count is unbounded.
     /// </summary>
     /// <param name="itemIds">Item IDs whose cache entries should be removed.</param>
     /// <param name="cancellationToken">Cancellation token.</param>

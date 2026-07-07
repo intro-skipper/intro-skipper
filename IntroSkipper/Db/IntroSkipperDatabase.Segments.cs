@@ -202,15 +202,11 @@ public sealed partial class IntroSkipperDatabase
         await EnsureInitializedAsync().ConfigureAwait(false);
         using var db = _contextFactory.CreateDbContext();
 
-        var deleted = 0;
-        foreach (var batch in ids.Chunk(SqliteParameterBatchSize))
-        {
-            deleted += await db.DbSegment
-                .Where(s => batch.Contains(s.ItemId))
-                .ExecuteDeleteAsync(cancellationToken)
-                .ConfigureAwait(false);
-        }
-
-        return deleted;
+        // EF.Parameter binds the ID set as a single JSON parameter (json_each), so the
+        // delete is one statement regardless of the item count.
+        return await db.DbSegment
+            .Where(s => EF.Parameter(ids).Contains(s.ItemId))
+            .ExecuteDeleteAsync(cancellationToken)
+            .ConfigureAwait(false);
     }
 }

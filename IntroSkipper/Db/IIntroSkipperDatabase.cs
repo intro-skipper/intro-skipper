@@ -81,8 +81,8 @@ public interface IIntroSkipperDatabase
     Task DeleteSegmentsByModeAsync(AnalysisMode mode, CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// Deletes all segments stored for the given items. Batches the delete to stay
-    /// below the SQLite parameter limit regardless of the item count.
+    /// Deletes all segments stored for the given items in a single statement; the ID set
+    /// is bound as one JSON parameter, so the item count is unbounded.
     /// </summary>
     /// <param name="itemIds">Item IDs whose segments should be removed.</param>
     /// <param name="cancellationToken">Cancellation token.</param>

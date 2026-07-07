@@ -23,15 +23,6 @@ public sealed partial class IntroSkipperDatabase : IIntroSkipperDatabase
 {
     private const double SegmentComparisonEpsilon = 0.001;
 
-    /// <summary>
-    /// Maximum number of values bound per SQL statement when expanding ID collections.
-    /// EF Core 10 translates parameterized collections on SQLite to discrete padded
-    /// parameters, and SQLite rejects statements with more than 32,766 variables, so
-    /// large ID sets must still be chunked. 500 keeps statements small and gives the
-    /// padded parameter count a stable size for statement-cache reuse.
-    /// </summary>
-    private const int SqliteParameterBatchSize = 500;
-
     private readonly IDbContextFactory<IntroSkipperDbContext> _contextFactory;
     private readonly ILogger _logger;
     private readonly Lazy<Task> _initialization;
@@ -77,17 +68,33 @@ public sealed partial class IntroSkipperDatabase : IIntroSkipperDatabase
         {
             using var db = _contextFactory.CreateDbContext();
 
-            // Legacy databases may be missing migration history or columns that EF migrations
-            // expect. Normalize those schemas first so recovery does not log a false
-            // initialization failure.
-            db.EnsureLegacySchemaCompatibility();
-            await db.ApplyMigrationsAsync().ConfigureAwait(false);
+            // Serialize initialization process-wide per database file: during the
+            // transitional period the DI singleton and the Plugin bridge each own a
+            // one-shot gate, and this keeps their repair/migration work strictly
+            // sequential (see DatabaseInitializationLocks for why the underlying
+            // operations are empirically race-free even without it).
+            var initializationLock = DatabaseInitializationLocks.For(db);
+            await initializationLock.WaitAsync().ConfigureAwait(false);
+            try
+            {
+                // Legacy databases may be missing migration history or columns that EF migrations
+                // expect. Normalize those schemas first so recovery does not log a false
+                // initialization failure.
+                db.EnsureLegacySchemaCompatibility();
+                await db.ApplyMigrationsAsync().ConfigureAwait(false);
+            }
+            finally
+            {
+                initializationLock.Release();
+            }
         }
         catch (Exception ex)
         {
             // Initialization failures are logged but not rethrown, matching the plugin's
             // historical constructor behavior: subsequent operations run against whatever
-            // schema exists and surface their own errors.
+            // schema exists and surface their own errors. Swallowing here also guarantees
+            // the Lazy<Task> gate can never cache a fault that would poison every
+            // subsequent operation.
             LogDatabaseInitializationError(_logger, ex);
         }
     }

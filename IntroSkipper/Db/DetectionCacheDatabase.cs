@@ -2,7 +2,6 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
 using IntroSkipper.Data;
-using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 
@@ -15,8 +14,6 @@ namespace IntroSkipper.Db;
 /// </summary>
 public sealed partial class DetectionCacheDatabase : IDetectionCacheDatabase
 {
-    private const int SqliteParameterBatchSize = 500;
-
     private readonly IDbContextFactory<DetectionCacheDbContext> _contextFactory;
     private readonly ILogger _logger;
     private readonly Lazy<bool> _initialization;
@@ -108,16 +105,20 @@ public sealed partial class DetectionCacheDatabase : IDetectionCacheDatabase
     {
         ArgumentNullException.ThrowIfNull(validItemIds);
 
+        var validIds = validItemIds.ToArray();
+
         Initialize();
         using var db = _contextFactory.CreateDbContext();
-        var cachedItemIds = await db.DetectionCache
+
+        // EF.Parameter binds the valid set as a single JSON parameter (json_each), so
+        // the NOT-IN is safe for arbitrarily large libraries.
+        return await db.DetectionCache
             .AsNoTracking()
             .Select(e => e.ItemId)
             .Distinct()
+            .Where(id => !EF.Parameter(validIds).Contains(id))
             .ToListAsync(cancellationToken)
             .ConfigureAwait(false);
-
-        return cachedItemIds.Where(id => !validItemIds.Contains(id)).ToHashSet();
     }
 
     /// <inheritdoc/>
@@ -134,16 +135,12 @@ public sealed partial class DetectionCacheDatabase : IDetectionCacheDatabase
         Initialize();
         using var db = _contextFactory.CreateDbContext();
 
-        var deleted = 0;
-        foreach (var batch in ids.Chunk(SqliteParameterBatchSize))
-        {
-            deleted += await db.DetectionCache
-                .Where(e => batch.Contains(e.ItemId))
-                .ExecuteDeleteAsync(cancellationToken)
-                .ConfigureAwait(false);
-        }
-
-        return deleted;
+        // EF.Parameter binds the ID set as a single JSON parameter (json_each), so the
+        // delete is one statement regardless of the item count.
+        return await db.DetectionCache
+            .Where(e => EF.Parameter(ids).Contains(e.ItemId))
+            .ExecuteDeleteAsync(cancellationToken)
+            .ConfigureAwait(false);
     }
 
     private bool InitializeCore()
@@ -151,12 +148,29 @@ public sealed partial class DetectionCacheDatabase : IDetectionCacheDatabase
         try
         {
             using var db = _contextFactory.CreateDbContext();
-            db.EnsureSchema();
+
+            // Serialize with any sibling facade instance targeting the same file (DI
+            // singleton + transitional Plugin bridge) so EnsureSchema's delete-and-recreate
+            // recovery cannot interleave with a concurrent EnsureCreated.
+            var initializationLock = DatabaseInitializationLocks.For(db);
+            initializationLock.Wait();
+            try
+            {
+                db.EnsureSchema();
+            }
+            finally
+            {
+                initializationLock.Release();
+            }
         }
-        catch (Exception ex) when (ex is IOException or SqliteException)
+        catch (Exception ex)
         {
-            // Matches the plugin's historical constructor behavior: the cache is a
-            // performance optimization, so schema failures are logged and swallowed.
+            // Catch-all on purpose: the cache is a performance optimization and its
+            // initialization is reached from the hosted warm-up during Jellyfin host
+            // startup — no cache failure (UnauthorizedAccessException from EnsureDeleted,
+            // InvalidOperationException from a broken model, DbException, ...) may
+            // escape and abort server startup, and the Lazy gate must never cache a
+            // fault that would poison every subsequent cache operation.
             LogCacheDbInitializationError(_logger, ex);
         }
 

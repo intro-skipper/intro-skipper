@@ -17,28 +17,18 @@ public sealed partial class IntroSkipperDatabase
     {
         ArgumentNullException.ThrowIfNull(enabledEpisodeIds);
 
-        var enabledIds = enabledEpisodeIds.ToHashSet();
+        var enabledIds = enabledEpisodeIds.Distinct().ToArray();
 
         await EnsureInitializedAsync().ConfigureAwait(false);
         using var db = _contextFactory.CreateDbContext();
-        var segmentEpisodeIds = await db.DbSegment
-            .AsNoTracking()
-            .Select(s => s.ItemId)
-            .Distinct()
-            .ToListAsync(cancellationToken)
+
+        // EF.Parameter forces the single-JSON-parameter json_each translation on SQLite,
+        // so the retained set is one bound parameter regardless of its size — no
+        // 32,766-variable limit and no chunking (verified by a 33,000-ID test).
+        await db.DbSegment
+            .Where(s => !EF.Parameter(enabledIds).Contains(s.ItemId))
+            .ExecuteDeleteAsync(cancellationToken)
             .ConfigureAwait(false);
-
-        var staleEpisodeIds = segmentEpisodeIds
-            .Where(id => !enabledIds.Contains(id))
-            .ToArray();
-
-        foreach (var staleEpisodeIdBatch in staleEpisodeIds.Chunk(SqliteParameterBatchSize))
-        {
-            await db.DbSegment
-                .Where(s => staleEpisodeIdBatch.Contains(s.ItemId))
-                .ExecuteDeleteAsync(cancellationToken)
-                .ConfigureAwait(false);
-        }
     }
 
     /// <inheritdoc/>
@@ -58,16 +48,13 @@ public sealed partial class IntroSkipperDatabase
 
         await EnsureInitializedAsync().ConfigureAwait(false);
         using var db = _contextFactory.CreateDbContext();
-        foreach (var batch in ids.Chunk(SqliteParameterBatchSize))
-        {
-            await db.DbSegment
-                .Where(s => batch.Contains(s.ItemId)
-                    && s.Type == mode
-                    && !s.IsUserProvided
-                    && s.ConfigHash != configHash)
-                .ExecuteDeleteAsync(cancellationToken)
-                .ConfigureAwait(false);
-        }
+        await db.DbSegment
+            .Where(s => EF.Parameter(ids).Contains(s.ItemId)
+                && s.Type == mode
+                && !s.IsUserProvided
+                && s.ConfigHash != configHash)
+            .ExecuteDeleteAsync(cancellationToken)
+            .ConfigureAwait(false);
     }
 
     /// <inheritdoc/>
@@ -98,13 +85,10 @@ public sealed partial class IntroSkipperDatabase
         var transaction = await db.Database.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
         try
         {
-            foreach (var batch in ids.Chunk(SqliteParameterBatchSize))
-            {
-                await db.DbSegment
-                    .Where(s => batch.Contains(s.ItemId) && modeArray.Contains(s.Type) && !s.IsUserProvided)
-                    .ExecuteDeleteAsync(cancellationToken)
-                    .ConfigureAwait(false);
-            }
+            await db.DbSegment
+                .Where(s => EF.Parameter(ids).Contains(s.ItemId) && modeArray.Contains(s.Type) && !s.IsUserProvided)
+                .ExecuteDeleteAsync(cancellationToken)
+                .ConfigureAwait(false);
 
             // Clear the analyzed-episode lists so VerifyQueueAsync treats every episode as NotAnalyzed.
             // Committing this together with the deletes guarantees the episodes are re-analyzed (either
@@ -133,31 +117,16 @@ public sealed partial class IntroSkipperDatabase
     {
         ArgumentNullException.ThrowIfNull(seasonIds);
 
-        var retainedIds = seasonIds.ToHashSet();
+        var retainedIds = seasonIds.Distinct().ToArray();
 
         await EnsureInitializedAsync().ConfigureAwait(false);
         using var db = _contextFactory.CreateDbContext();
 
-        // Compute the stale key set client-side and delete in chunks. Translating the
-        // NOT-IN directly would bind one SQLite parameter per retained season and
-        // overflow the 32,766-variable limit for very large libraries.
-        var storedSeasonIds = await db.DbSeasonState
-            .AsNoTracking()
-            .Select(s => s.SeasonId)
-            .Distinct()
-            .ToListAsync(cancellationToken)
+        // Single NOT-IN delete; EF.Parameter binds the retained set as one JSON
+        // parameter, so this is safe for arbitrarily large libraries.
+        await db.DbSeasonState
+            .Where(s => !EF.Parameter(retainedIds).Contains(s.SeasonId))
+            .ExecuteDeleteAsync(cancellationToken)
             .ConfigureAwait(false);
-
-        var staleSeasonIds = storedSeasonIds
-            .Where(id => !retainedIds.Contains(id))
-            .ToArray();
-
-        foreach (var staleSeasonIdBatch in staleSeasonIds.Chunk(SqliteParameterBatchSize))
-        {
-            await db.DbSeasonState
-                .Where(s => staleSeasonIdBatch.Contains(s.SeasonId))
-                .ExecuteDeleteAsync(cancellationToken)
-                .ConfigureAwait(false);
-        }
     }
 }
