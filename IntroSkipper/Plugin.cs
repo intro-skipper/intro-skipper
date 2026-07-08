@@ -48,7 +48,6 @@ public partial class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
     private readonly string _dbPath;
     private readonly string _cacheDbPath;
     private IntroSkipperDatabase? _segmentDatabase;
-    private DetectionCacheDatabase? _cacheDatabase;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="Plugin"/> class.
@@ -182,14 +181,6 @@ public partial class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
         LazyInitializer.EnsureInitialized(ref _segmentDatabase, CreateSegmentDatabaseBridge);
 
     /// <summary>
-    /// Gets the transitional detection cache database bridge used by call sites that are
-    /// not yet constructor-injected. Resolves <see cref="CacheDbPath"/> lazily on every
-    /// operation, so it always follows the current plugin instance.
-    /// </summary>
-    internal DetectionCacheDatabase CacheDatabase =>
-        LazyInitializer.EnsureInitialized(ref _cacheDatabase, CreateCacheDatabaseBridge);
-
-    /// <summary>
     /// Creates a new <see cref="IntroSkipperDbContext"/> instance configured for the plugin database.
     /// </summary>
     /// <returns>A new <see cref="IntroSkipperDbContext"/>.</returns>
@@ -257,40 +248,13 @@ public partial class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
     internal static Task<IReadOnlyList<DbSegment>> GetSegmentsAsync(Guid id, CancellationToken cancellationToken = default)
         => RequireSegmentDatabase().GetSegmentsAsync(id, cancellationToken);
 
-    internal static Task DeleteItemSegmentsAsync(Guid itemId, CancellationToken cancellationToken = default)
-        => RequireSegmentDatabase().DeleteItemSegmentsAsync(itemId, cancellationToken);
-
-    internal static Task CleanTimestampsAsync(IEnumerable<Guid> episodeIds, CancellationToken cancellationToken = default)
-        => RequireSegmentDatabase().CleanTimestampsAsync(episodeIds, cancellationToken);
-
-    internal static Task SetAnalyzerActionAsync(Guid id, IReadOnlyDictionary<AnalysisMode, AnalyzerAction> analyzerActions, CancellationToken cancellationToken = default)
-        => RequireSegmentDatabase().SetAnalyzerActionAsync(id, analyzerActions, cancellationToken);
-
-    internal static Task SetEpisodeIdsAsync(Guid id, AnalysisMode mode, IEnumerable<Guid> episodeIds, string configHash = "", CancellationToken cancellationToken = default)
-        => RequireSegmentDatabase().SetEpisodeIdsAsync(id, mode, episodeIds, configHash, cancellationToken);
-
     internal static Task RemoveEpisodeIdAsync(Guid seasonId, AnalysisMode mode, Guid episodeId, CancellationToken cancellationToken = default)
         => RequireSegmentDatabase().RemoveEpisodeIdAsync(seasonId, mode, episodeId, cancellationToken);
-
-    internal static Task CleanStaleAutomaticSegmentsAsync(
-        IEnumerable<Guid> itemIds,
-        AnalysisMode mode,
-        string configHash,
-        CancellationToken cancellationToken = default)
-        => RequireSegmentDatabase().CleanStaleAutomaticSegmentsAsync(itemIds, mode, configHash, cancellationToken);
-
-    internal static Task<IReadOnlyDictionary<AnalysisMode, IEnumerable<Guid>>> GetEpisodeIdsAsync(Guid id, CancellationToken cancellationToken = default)
-        => RequireSegmentDatabase().GetEpisodeIdsAsync(id, cancellationToken);
-
-    internal static Task<IReadOnlyDictionary<AnalysisMode, (AnalyzerAction Action, IReadOnlySet<Guid> SettledReanalysisEpisodeIds)>> GetSettleReanalysisStatesAsync(
-        Guid seasonId,
-        CancellationToken cancellationToken = default)
-        => RequireSegmentDatabase().GetSettleReanalysisStatesAsync(seasonId, cancellationToken);
 
     /// <summary>
     /// Returns whether a settled-season analysis mode still needs re-analysis for its current episode
     /// set. Pure set comparison: the decision is committed separately via
-    /// <see cref="RecordSettleReanalysisAsync(Guid, IReadOnlyCollection{AnalysisMode}, IReadOnlyCollection{Guid}, CancellationToken)"/>
+    /// <see cref="IIntroSkipperDatabase.RecordSettleReanalysisAsync(Guid, IReadOnlyCollection{AnalysisMode}, IReadOnlyCollection{Guid}, CancellationToken)"/>
     /// once the reset has succeeded, so the completed episode set survives plugin restarts.
     /// </summary>
     /// <param name="settledEpisodeIds">Episode IDs recorded when the season was last settle-reanalyzed for this mode.</param>
@@ -301,31 +265,8 @@ public partial class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
         IReadOnlyCollection<Guid> episodeIds)
         => settledEpisodeIds.Count != episodeIds.Count || episodeIds.Any(id => !settledEpisodeIds.Contains(id));
 
-    internal static Task RecordSettleReanalysisAsync(
-        Guid seasonId,
-        IReadOnlyCollection<AnalysisMode> modes,
-        IReadOnlyCollection<Guid> episodeIds,
-        CancellationToken cancellationToken = default)
-        => RequireSegmentDatabase().RecordSettleReanalysisAsync(seasonId, modes, episodeIds, cancellationToken);
-
-    internal static Task ResetSeasonForReanalysisAsync(
-        Guid seasonId,
-        IEnumerable<Guid> episodeIds,
-        IReadOnlyCollection<AnalysisMode> modes,
-        CancellationToken cancellationToken = default)
-        => RequireSegmentDatabase().ResetSeasonForReanalysisAsync(seasonId, episodeIds, modes, cancellationToken);
-
     internal static Task<SeasonQueueSnapshot> GetSeasonQueueSnapshotAsync(Guid seasonId, IReadOnlyCollection<Guid> episodeIds, CancellationToken cancellationToken = default)
         => RequireSegmentDatabase().GetSeasonQueueSnapshotAsync(seasonId, episodeIds, cancellationToken);
-
-    internal static Task<IReadOnlyDictionary<AnalysisMode, AnalyzerAction>> GetAllAnalyzerActionsAsync(Guid seasonId, CancellationToken cancellationToken = default)
-        => RequireSegmentDatabase().GetAllAnalyzerActionsAsync(seasonId, cancellationToken);
-
-    internal static Task<AnalyzerAction> GetAnalyzerActionAsync(Guid id, AnalysisMode mode, CancellationToken cancellationToken = default)
-        => RequireSegmentDatabase().GetAnalyzerActionAsync(id, mode, cancellationToken);
-
-    internal static Task CleanSeasonStateAsync(IEnumerable<Guid> ids, CancellationToken cancellationToken = default)
-        => RequireSegmentDatabase().CleanSeasonStateAsync(ids, cancellationToken);
 
     internal static AnalysisMode MapSegmentTypeToMode(MediaSegmentType type)
     {
@@ -355,9 +296,6 @@ public partial class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
 
     private IntroSkipperDatabase CreateSegmentDatabaseBridge()
         => new(new IntroSkipperDbContextPathFactory(() => DbPath), (ILogger?)_logger ?? NullLogger.Instance);
-
-    private DetectionCacheDatabase CreateCacheDatabaseBridge()
-        => new(new DetectionCacheDbContextPathFactory(() => CacheDbPath), (ILogger?)_logger ?? NullLogger.Instance);
 
     private void MigrateLegacyExcludeSeries()
     {

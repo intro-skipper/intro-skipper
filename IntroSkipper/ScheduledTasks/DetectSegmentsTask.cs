@@ -4,6 +4,7 @@
 // SPDX-FileCopyrightText: 2024-2026 Kilian von Pflugk
 // SPDX-License-Identifier: GPL-3.0-only
 
+using IntroSkipper.Db;
 using IntroSkipper.FFmpeg;
 using IntroSkipper.Manager;
 using IntroSkipper.Services;
@@ -29,6 +30,7 @@ namespace IntroSkipper.ScheduledTasks;
 /// <param name="mediaSegmentRefresher">Media segment refresher.</param>
 /// <param name="ffmpegService">FFmpeg service.</param>
 /// <param name="cacheService">Detection cache service.</param>
+/// <param name="database">Segment database facade.</param>
 public partial class DetectSegmentsTask(
     ILogger<DetectSegmentsTask> logger,
     ILoggerFactory loggerFactory,
@@ -37,7 +39,8 @@ public partial class DetectSegmentsTask(
     IFileSystem fileSystem,
     IMediaSegmentRefresher mediaSegmentRefresher,
     IFFmpegService ffmpegService,
-    IDetectionCacheService cacheService) : IScheduledTask
+    IDetectionCacheService cacheService,
+    IIntroSkipperDatabase database) : IScheduledTask
 {
     private readonly ILogger<DetectSegmentsTask> _logger = logger;
     private readonly ILoggerFactory _loggerFactory = loggerFactory;
@@ -47,6 +50,7 @@ public partial class DetectSegmentsTask(
     private readonly IMediaSegmentRefresher _mediaSegmentRefresher = mediaSegmentRefresher;
     private readonly IFFmpegService _ffmpegService = ffmpegService;
     private readonly IDetectionCacheService _cacheService = cacheService;
+    private readonly IIntroSkipperDatabase _database = database;
 
     /// <summary>
     /// Gets the task name.
@@ -100,7 +104,8 @@ public partial class DetectSegmentsTask(
                 _fileSystem,
                 _mediaSegmentRefresher,
                 _ffmpegService,
-                _cacheService);
+                _cacheService,
+                _database);
 
             await baseIntroAnalyzer.AnalyzeItemsAsync(progress, cancellationToken).ConfigureAwait(false);
         }

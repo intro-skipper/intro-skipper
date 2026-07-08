@@ -47,7 +47,8 @@ internal static class EntrypointTestHelpers
             ffmpegService: null!,
             logger: logger,
             loggerFactory: loggerFactory,
-            mediaSegmentRefresher: new FakeMediaSegmentRefresher());
+            mediaSegmentRefresher: new FakeMediaSegmentRefresher(),
+            database: DatabaseTestHelpers.CreatePluginBoundSegmentDatabase());
 
         SetPrivateField(entrypoint, "_config", new PluginConfiguration { AutoDetectIntros = autoDetectIntros });
         return entrypoint;

@@ -181,7 +181,7 @@ public sealed class TestDbSegmentStorage
                 var plugin = Plugin.Instance!;
                 EntrypointTestHelpers.SetPrivateField(plugin, "_dbPath", dbPath);
 
-                await Plugin.CleanTimestampsAsync(enabledEpisodeIds);
+                await DatabaseTestHelpers.CreateSegmentDatabase(dbPath).CleanTimestampsAsync(enabledEpisodeIds);
             }
 
             using (var db = new IntroSkipperDbContext(dbPath))

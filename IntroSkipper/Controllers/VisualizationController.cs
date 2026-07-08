@@ -319,7 +319,8 @@ public partial class VisualizationController(ILogger<VisualizationController> lo
                             _fileSystem,
                             _mediaSegmentRefresher,
                             _ffmpegService,
-                            _cacheService);
+                            _cacheService,
+                            _database);
 
                         await baseIntroAnalyzer.AnalyzeItemsAsync(new Progress<double>(), CancellationToken.None, [seasonId]).ConfigureAwait(false);
                     }
