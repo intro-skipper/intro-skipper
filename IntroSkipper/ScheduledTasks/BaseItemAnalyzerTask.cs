@@ -342,7 +342,7 @@ public partial class BaseItemAnalyzerTask(
         var analyzers = new List<IMediaFileAnalyzer>
         {
             // ChapterAnalyzer: supports all modes and content types
-            new ChapterAnalyzer(_loggerFactory.CreateLogger<ChapterAnalyzer>(), _ffmpegService)
+            new ChapterAnalyzer(_loggerFactory.CreateLogger<ChapterAnalyzer>(), _ffmpegService, _database)
         };
 
         if (mode is AnalysisMode.Credits)
@@ -352,7 +352,7 @@ public partial class BaseItemAnalyzerTask(
                 // Anime credits: Chromaprint before BlackFrame (fingerprint matching preferred)
                 if (ffmpegValid)
                 {
-                    analyzers.Add(new ChromaprintAnalyzer(_loggerFactory.CreateLogger<ChromaprintAnalyzer>(), _ffmpegService, _cacheService));
+                    analyzers.Add(new ChromaprintAnalyzer(_loggerFactory.CreateLogger<ChromaprintAnalyzer>(), _ffmpegService, _cacheService, _database));
                 }
 
                 analyzers.Add(CreateBlackFrameAnalyzer());
@@ -364,7 +364,7 @@ public partial class BaseItemAnalyzerTask(
 
                 if (!isMovie && ffmpegValid)
                 {
-                    analyzers.Add(new ChromaprintAnalyzer(_loggerFactory.CreateLogger<ChromaprintAnalyzer>(), _ffmpegService, _cacheService));
+                    analyzers.Add(new ChromaprintAnalyzer(_loggerFactory.CreateLogger<ChromaprintAnalyzer>(), _ffmpegService, _cacheService, _database));
                 }
             }
         }
@@ -373,13 +373,13 @@ public partial class BaseItemAnalyzerTask(
             // Introduction: Chromaprint is the only non-chapter analyzer
             if (!isMovie && ffmpegValid)
             {
-                analyzers.Add(new ChromaprintAnalyzer(_loggerFactory.CreateLogger<ChromaprintAnalyzer>(), _ffmpegService, _cacheService));
+                analyzers.Add(new ChromaprintAnalyzer(_loggerFactory.CreateLogger<ChromaprintAnalyzer>(), _ffmpegService, _cacheService, _database));
             }
         }
         else if (mode is AnalysisMode.Recap && !isMovie && ffmpegValid)
         {
             // Recap: Chromaprint can match the repeated "previously on" card/sting near the start.
-            analyzers.Add(new ChromaprintAnalyzer(_loggerFactory.CreateLogger<ChromaprintAnalyzer>(), _ffmpegService, _cacheService));
+            analyzers.Add(new ChromaprintAnalyzer(_loggerFactory.CreateLogger<ChromaprintAnalyzer>(), _ffmpegService, _cacheService, _database));
         }
 
         // Preview, Commercial: only ChapterAnalyzer (already added above)
@@ -475,8 +475,8 @@ public partial class BaseItemAnalyzerTask(
     /// </summary>
     /// <returns>A <see cref="BlackFrameAnalyzer"/> or <see cref="CreditsBlackFrameAnalyzer"/> based on configuration.</returns>
     private IMediaFileAnalyzer CreateBlackFrameAnalyzer() => _config.UseAlternativeBlackFrameAnalyzer
-        ? new CreditsBlackFrameAnalyzer(_loggerFactory.CreateLogger<CreditsBlackFrameAnalyzer>(), _ffmpegService)
-        : new BlackFrameAnalyzer(_loggerFactory.CreateLogger<BlackFrameAnalyzer>(), _ffmpegService);
+        ? new CreditsBlackFrameAnalyzer(_loggerFactory.CreateLogger<CreditsBlackFrameAnalyzer>(), _ffmpegService, _database)
+        : new BlackFrameAnalyzer(_loggerFactory.CreateLogger<BlackFrameAnalyzer>(), _ffmpegService, _database);
 
     /// <summary>
     /// Moves the first analyzer matching <paramref name="predicate"/> to the front of the list,

@@ -1704,7 +1704,7 @@ public class TestBlackFrames
 
     private static CreditsBlackFrameAnalyzer CreateCreditsBlackFrameAnalyzer(IFFmpegService ffmpegService)
     {
-        return new(NullLogger<CreditsBlackFrameAnalyzer>.Instance, ffmpegService);
+        return new(NullLogger<CreditsBlackFrameAnalyzer>.Instance, ffmpegService, DatabaseTestHelpers.CreateTempSegmentDatabase());
     }
 
     private static void SetRefineCreditsBoundary(CreditsBlackFrameAnalyzer analyzer, bool value)
@@ -1806,7 +1806,7 @@ public class TestBlackFrames
 
     private static BlackFrameAnalyzer CreateBlackFrameAnalyzer()
     {
-        return new(NullLogger<BlackFrameAnalyzer>.Instance, CreateFFmpegService());
+        return new(NullLogger<BlackFrameAnalyzer>.Instance, CreateFFmpegService(), DatabaseTestHelpers.CreateTempSegmentDatabase());
     }
 
     private sealed class FakeFFmpegService(

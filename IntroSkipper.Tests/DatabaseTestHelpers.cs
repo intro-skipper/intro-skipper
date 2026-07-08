@@ -4,6 +4,7 @@
 namespace IntroSkipper.Tests;
 
 using System;
+using System.IO;
 using IntroSkipper.Db;
 using IntroSkipper.FFmpeg;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -18,6 +19,15 @@ internal static class DatabaseTestHelpers
 {
     internal static IntroSkipperDatabase CreateSegmentDatabase(string dbPath)
         => new(new IntroSkipperDbContextPathFactory(() => dbPath), NullLogger.Instance);
+
+    /// <summary>
+    /// Creates a segment database facade over a fresh temp-file path, for consumers
+    /// (e.g. analyzers) whose tests never reach the database. The file is only created
+    /// if an operation is actually performed.
+    /// </summary>
+    /// <returns>The segment database facade.</returns>
+    internal static IntroSkipperDatabase CreateTempSegmentDatabase()
+        => CreateSegmentDatabase(Path.Combine(Path.GetTempPath(), "IntroSkipper.Tests", Guid.NewGuid().ToString("N") + ".db"));
 
     internal static DetectionCacheDatabase CreateCacheDatabase(string dbPath)
         => new(new DetectionCacheDbContextPathFactory(() => dbPath), NullLogger.Instance);

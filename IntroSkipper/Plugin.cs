@@ -24,7 +24,6 @@ using MediaBrowser.Model.Plugins;
 using MediaBrowser.Model.Serialization;
 using Microsoft.Data.Sqlite;
 using Microsoft.Extensions.Logging;
-using Microsoft.Extensions.Logging.Abstractions;
 
 namespace IntroSkipper;
 
@@ -33,11 +32,11 @@ namespace IntroSkipper;
 /// </summary>
 /// <remarks>
 /// All database access lives in <see cref="IIntroSkipperDatabase"/> and
-/// <see cref="IDetectionCacheDatabase"/>. The members below that touch the database are
-/// transitional delegating wrappers kept only for call sites that are still constructed
-/// manually (analyzers, <c>QueueManager</c>, <c>BaseItemAnalyzerTask</c>); they forward to
-/// a bridge facade instance and will be removed once those constructors take the facade
-/// directly.
+/// <see cref="IDetectionCacheDatabase"/>; every consumer receives the facades by
+/// constructor injection. The only database-related members left here are the
+/// transitional constructor bootstrap and the <see cref="CreateDbContext"/>/
+/// <see cref="CreateCacheDbContext"/> statics still used by tests; both are removed in
+/// the final transition phase.
 /// </remarks>
 public partial class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
 {
@@ -47,7 +46,6 @@ public partial class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
     private readonly ILogger<Plugin> _logger;
     private readonly string _dbPath;
     private readonly string _cacheDbPath;
-    private IntroSkipperDatabase? _segmentDatabase;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="Plugin"/> class.
@@ -173,14 +171,6 @@ public partial class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
     public static Plugin? Instance { get; private set; }
 
     /// <summary>
-    /// Gets the transitional segment database bridge used by call sites that are not yet
-    /// constructor-injected. Resolves <see cref="DbPath"/> lazily on every operation, so
-    /// it always follows the current plugin instance.
-    /// </summary>
-    internal IntroSkipperDatabase SegmentDatabase =>
-        LazyInitializer.EnsureInitialized(ref _segmentDatabase, CreateSegmentDatabaseBridge);
-
-    /// <summary>
     /// Creates a new <see cref="IntroSkipperDbContext"/> instance configured for the plugin database.
     /// </summary>
     /// <returns>A new <see cref="IntroSkipperDbContext"/>.</returns>
@@ -234,20 +224,6 @@ public partial class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
 
     internal IReadOnlyList<ChapterInfo> GetChapters(Guid id) => _chapterRepository.GetChapters(id) ?? Array.Empty<ChapterInfo>();
 
-    internal Task UpdateTimestampAsync(
-        Segment segment,
-        AnalysisMode mode,
-        bool isUserProvided = false,
-        string configHash = "",
-        CancellationToken cancellationToken = default)
-        => SegmentDatabase.UpdateTimestampAsync(segment, mode, isUserProvided, configHash, cancellationToken);
-
-    internal static Task<IReadOnlyList<DbSegment>> GetSegmentsAsync(Guid id, CancellationToken cancellationToken = default)
-        => RequireSegmentDatabase().GetSegmentsAsync(id, cancellationToken);
-
-    internal static Task RemoveEpisodeIdAsync(Guid seasonId, AnalysisMode mode, Guid episodeId, CancellationToken cancellationToken = default)
-        => RequireSegmentDatabase().RemoveEpisodeIdAsync(seasonId, mode, episodeId, cancellationToken);
-
     /// <summary>
     /// Returns whether a settled-season analysis mode still needs re-analysis for its current episode
     /// set. Pure set comparison: the decision is committed separately via
@@ -274,22 +250,6 @@ public partial class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
             _ => throw new NotImplementedException(),
         };
     }
-
-    internal static Task DeleteTimestampAsync(
-        Guid itemId,
-        AnalysisMode mode,
-        Segment? segment = null,
-        CancellationToken cancellationToken = default)
-        => RequireSegmentDatabase().DeleteTimestampAsync(itemId, mode, segment, cancellationToken);
-
-    private static IntroSkipperDatabase RequireSegmentDatabase()
-    {
-        ArgumentNullException.ThrowIfNull(Instance);
-        return Instance.SegmentDatabase;
-    }
-
-    private IntroSkipperDatabase CreateSegmentDatabaseBridge()
-        => new(new IntroSkipperDbContextPathFactory(() => DbPath), (ILogger?)_logger ?? NullLogger.Instance);
 
     private void MigrateLegacyExcludeSeries()
     {

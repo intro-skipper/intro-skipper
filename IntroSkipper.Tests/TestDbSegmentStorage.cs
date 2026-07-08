@@ -657,7 +657,7 @@ public sealed class TestDbSegmentStorage
                 ConfigurePluginLogger(plugin);
 
                 var credits = new Segment(itemId, new TimeRange(creditsStart, creditsEnd));
-                await plugin.UpdateTimestampAsync(credits, AnalysisMode.Credits, isUserProvided);
+                await DatabaseTestHelpers.CreateSegmentDatabase(dbPath).UpdateTimestampAsync(credits, AnalysisMode.Credits, isUserProvided);
             }
 
             using (var db = new IntroSkipperDbContext(dbPath))

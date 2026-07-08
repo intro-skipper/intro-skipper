@@ -7,6 +7,7 @@
 using System.Numerics;
 using IntroSkipper.Configuration;
 using IntroSkipper.Data;
+using IntroSkipper.Db;
 using IntroSkipper.FFmpeg;
 using Microsoft.Extensions.Logging;
 
@@ -18,7 +19,8 @@ namespace IntroSkipper.Analyzers;
 /// <param name="logger">Logger.</param>
 /// <param name="ffmpegService">FFmpeg service.</param>
 /// <param name="cacheService">Detection cache service.</param>
-public partial class ChromaprintAnalyzer(ILogger<ChromaprintAnalyzer> logger, IFFmpegService ffmpegService, IDetectionCacheService cacheService) : IMediaFileAnalyzer
+/// <param name="database">Segment database facade.</param>
+public partial class ChromaprintAnalyzer(ILogger<ChromaprintAnalyzer> logger, IFFmpegService ffmpegService, IDetectionCacheService cacheService, IIntroSkipperDatabase database) : IMediaFileAnalyzer
 {
     /// <summary>
     /// Minimum duration (seconds) for a shared recap card/sting to count as a candidate.
@@ -29,6 +31,7 @@ public partial class ChromaprintAnalyzer(ILogger<ChromaprintAnalyzer> logger, IF
     private readonly ILogger<ChromaprintAnalyzer> _logger = logger;
     private readonly IFFmpegService _ffmpegService = ffmpegService;
     private readonly IDetectionCacheService _cacheService = cacheService;
+    private readonly IIntroSkipperDatabase _database = database;
     private readonly Dictionary<Guid, Dictionary<uint, int>> _invertedIndexCache = [];
     private readonly Dictionary<Guid, IReadOnlyList<BlackFrame>> _recapBlackFrameCache = [];
     private AnalysisMode _analysisMode;
@@ -175,7 +178,7 @@ public partial class ChromaprintAnalyzer(ILogger<ChromaprintAnalyzer> logger, IF
             {
                 var adjustedIntro = await timeAdjustmentHelper.AdjustIntroTimesAsync(currentEpisode, intro, cancellationToken: cancellationToken).ConfigureAwait(false);
                 currentEpisode.SetAnalyzed(mode, EpisodeState.Analyzed);
-                await Plugin.Instance!.UpdateTimestampAsync(adjustedIntro, mode, configHash: currentEpisode.AnalysisConfigHash, cancellationToken: cancellationToken).ConfigureAwait(false);
+                await _database.UpdateTimestampAsync(adjustedIntro, mode, configHash: currentEpisode.AnalysisConfigHash, cancellationToken: cancellationToken).ConfigureAwait(false);
             }
         }
 
@@ -263,7 +266,7 @@ public partial class ChromaprintAnalyzer(ILogger<ChromaprintAnalyzer> logger, IF
         }
 
         var maximumBoundary = await RecapDetectionHelper.GetMaximumBoundaryAsync(
-            Plugin.Instance!.SegmentDatabase,
+            _database,
             episode,
             _config,
             cancellationToken).ConfigureAwait(false);

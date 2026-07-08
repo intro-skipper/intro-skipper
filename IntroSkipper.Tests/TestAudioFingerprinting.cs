@@ -167,7 +167,7 @@ public class TestAudioFingerprinting
 
     private static ChromaprintAnalyzer CreateChromaprintAnalyzer()
     {
-        return new(NullLogger<ChromaprintAnalyzer>.Instance, null!, null!);
+        return new(NullLogger<ChromaprintAnalyzer>.Instance, null!, null!, DatabaseTestHelpers.CreateTempSegmentDatabase());
     }
 }
 

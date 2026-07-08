@@ -655,3 +655,50 @@ made per-instance, see §12.3), `Db/IntroSkipperDatabase.cs` +
 no existing test modified).
 Verification: `dotnet build IntroSkipper.sln` 0 warnings/errors; full suite 411/412 —
 sole failure remains the known environmental `TestSilenceDetection`.
+
+---
+
+## 13. Phase 3 — constructor threading (final-plan Plan 1, Phase 3)
+
+Purely mechanical: every manually-constructed consumer now receives
+`IIntroSkipperDatabase` by constructor threading from DI-resolved roots, and the
+transitional `Plugin` delegators are gone. Landed as three commits, each deleting the
+delegators it made call-less (grep-verified per commit).
+
+**Threaded constructors** (parameter `IIntroSkipperDatabase database` appended):
+
+- `BaseItemAnalyzerTask` — forwarded by its three DI-resolved creators
+  (`DetectSegmentsTask`, `Entrypoint`, `VisualizationController.ScanSeason`).
+- `QueueManager` — forwarded by `BaseItemAnalyzerTask`, `CleanCacheTask`,
+  `VisualizationController`. `SeasonQueueSnapshot` promoted to `public` and
+  `GetSeasonQueueSnapshotAsync` lifted onto `IIntroSkipperDatabase` (resolves R9;
+  the §2a inventory is now fully represented on the interface).
+- Analyzers `ChromaprintAnalyzer`, `ChapterAnalyzer`, `BlackFrameAnalyzer`,
+  `CreditsBlackFrameAnalyzer` — created by `BaseItemAnalyzerTask`, facade parameter
+  alongside the existing `IFFmpegService`/`IDetectionCacheService` parameters.
+- `SegmentEditorController` — DI-resolved, injected directly.
+- `RecapDetectionHelper` (static) — receives the facade as a method argument from its
+  analyzer callers.
+
+**Deleted from `Plugin`**: all remaining DB delegators — `UpdateTimestampAsync`,
+`GetTimestampsAsync`, `GetSegmentsAsync`, `DeleteItemSegmentsAsync`,
+`CleanTimestampsAsync`, `SetAnalyzerActionAsync`, `SetEpisodeIdsAsync`,
+`RemoveEpisodeIdAsync`, `CleanStaleAutomaticSegmentsAsync`, `GetEpisodeIdsAsync`,
+`GetSettleReanalysisStatesAsync`, `RecordSettleReanalysisAsync`,
+`ResetSeasonForReanalysisAsync`, `GetSeasonQueueSnapshotAsync`,
+`GetAllAnalyzerActionsAsync`, `GetAnalyzerActionAsync`, `CleanSeasonStateAsync`,
+`DeleteTimestampAsync` — plus the now-unreferenced bridge surface
+(`SegmentDatabase`/`CacheDatabase` properties, `RequireSegmentDatabase`, the bridge
+factory methods and their lazy fields). Still present for Phase 4: the ctor bootstrap
+and the `CreateDbContext`/`CreateCacheDbContext` statics (referenced by the bootstrap
+and by tests), and the pure functions `ShouldSettleReanalyze`/`MapSegmentTypeToMode`.
+
+Tests that previously exercised the delegators now construct facades over the same
+temp-file SQLite databases (`DatabaseTestHelpers.CreateSegmentDatabase`, new
+`CreateTempSegmentDatabase` for analyzer constructions that never reach the DB); no
+test was weakened.
+
+Verification per commit and at the end: `dotnet build IntroSkipper.sln` 0
+warnings/errors; full suite 411/412 — sole failure remains the known environmental
+`TestSilenceDetection`; `git grep "Plugin\.\(Get\|Set\|Update\|Delete\|Clean\|Record\|Reset\|Remove\)" IntroSkipper/`
+returns no DB-delegator call sites.
