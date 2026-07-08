@@ -235,7 +235,7 @@ public sealed class TestDbSegmentStorage
                 EntrypointTestHelpers.SetPrivateField(plugin, "_dbPath", dbPath);
 
                 // Should not throw even with 1001 episode IDs (above the SQLite 999-parameter limit).
-                var snapshot = await Plugin.GetSeasonQueueSnapshotAsync(seasonId, episodeIds);
+                var snapshot = await DatabaseTestHelpers.CreateSegmentDatabase(dbPath).GetSeasonQueueSnapshotAsync(seasonId, episodeIds);
                 Assert.True(snapshot.EpisodeIdsByMode.TryGetValue(AnalysisMode.Introduction, out var analyzedIds));
                 Assert.Contains(episodeWithSegmentId, analyzedIds!);
                 Assert.True(snapshot.ConfigHashByMode.TryGetValue(AnalysisMode.Introduction, out var configHash));

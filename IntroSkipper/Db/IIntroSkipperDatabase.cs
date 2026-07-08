@@ -196,6 +196,17 @@ public interface IIntroSkipperDatabase
     Task<AnalyzerAction> GetAnalyzerActionAsync(Guid seasonId, AnalysisMode mode, CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// Returns a consistent snapshot of the season state and stored segments used by
+    /// queue verification, avoiding per-episode database lookups. The episode ID set is
+    /// bound as one JSON parameter, so the episode count is unbounded.
+    /// </summary>
+    /// <param name="seasonId">Season ID.</param>
+    /// <param name="episodeIds">Episode IDs in the season.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>The season queue snapshot.</returns>
+    Task<SeasonQueueSnapshot> GetSeasonQueueSnapshotAsync(Guid seasonId, IReadOnlyCollection<Guid> episodeIds, CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// Clears the analyzed-episode lists of every mode for a season.
     /// </summary>
     /// <param name="seasonId">Season ID.</param>

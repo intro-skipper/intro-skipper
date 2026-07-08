@@ -6,6 +6,7 @@
 
 using IntroSkipper.Configuration;
 using IntroSkipper.Data;
+using IntroSkipper.Db;
 using IntroSkipper.FFmpeg;
 using IntroSkipper.Helper;
 using Jellyfin.Data.Enums;
@@ -32,13 +33,15 @@ namespace IntroSkipper.Manager;
 /// <param name="providerManager">Provider manager.</param>
 /// <param name="fileSystem">File system.</param>
 /// <param name="ffmpegService">FFmpeg service.</param>
-public partial class QueueManager(ILogger<QueueManager> logger, ILibraryManager libraryManager, IProviderManager providerManager, IFileSystem fileSystem, IFFmpegService ffmpegService)
+/// <param name="database">Segment database facade.</param>
+public partial class QueueManager(ILogger<QueueManager> logger, ILibraryManager libraryManager, IProviderManager providerManager, IFileSystem fileSystem, IFFmpegService ffmpegService, IIntroSkipperDatabase database)
 {
     private readonly ILibraryManager _libraryManager = libraryManager;
     private readonly IFileSystem _fileSystem = fileSystem;
     private readonly IProviderManager _providerManager = providerManager;
     private readonly ILogger<QueueManager> _logger = logger;
     private readonly IFFmpegService _ffmpegService = ffmpegService;
+    private readonly IIntroSkipperDatabase _database = database;
     private readonly Dictionary<Guid, List<QueuedEpisode>> _queuedEpisodes = [];
     private readonly HashSet<Guid> _refreshedEpisodes = [];
     private bool? _ffmpegValid;
@@ -445,7 +448,7 @@ public partial class QueueManager(ILogger<QueueManager> logger, ILibraryManager 
         var plugin = Plugin.Instance ?? throw new InvalidOperationException("Plugin instance is null");
         var policy = ExclusionPolicy.FromConfiguration(plugin.Configuration);
         var ffmpegValid = await GetFfmpegValidAsync(cancellationToken).ConfigureAwait(false);
-        var snapshot = await Plugin.GetSeasonQueueSnapshotAsync(candidates[0].SeasonId, [.. candidates.Select(c => c.EpisodeId)], cancellationToken).ConfigureAwait(false);
+        var snapshot = await _database.GetSeasonQueueSnapshotAsync(candidates[0].SeasonId, [.. candidates.Select(c => c.EpisodeId)], cancellationToken).ConfigureAwait(false);
 
         // The expected config hash depends on the season-level analyzer action and mode, not on the
         // individual episode, so compute it once per mode instead of once per episode and mode.

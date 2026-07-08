@@ -659,7 +659,8 @@ public sealed class TestSeasonReanalysisReset
                     libraryManager,
                     providerManager: null!,
                     fileSystem: null!,
-                    ffmpegService: new FakeFfmpegService(ffmpegValid: false));
+                    ffmpegService: new FakeFfmpegService(ffmpegValid: false),
+                    database: DatabaseTestHelpers.CreateSegmentDatabase(dbPath));
                 var stillUnavailable = await unavailableQueueManager.VerifyQueueAsync(
                     [CreateQueuedEpisode(episodeId, seasonId)],
                     [AnalysisMode.Introduction]);
@@ -670,7 +671,8 @@ public sealed class TestSeasonReanalysisReset
                     libraryManager,
                     providerManager: null!,
                     fileSystem: null!,
-                    ffmpegService: new FakeFfmpegService(ffmpegValid: true));
+                    ffmpegService: new FakeFfmpegService(ffmpegValid: true),
+                    database: DatabaseTestHelpers.CreateSegmentDatabase(dbPath));
                 var reopened = await availableQueueManager.VerifyQueueAsync(
                     [CreateQueuedEpisode(episodeId, seasonId)],
                     [AnalysisMode.Introduction]);

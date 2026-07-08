@@ -244,7 +244,8 @@ public partial class VisualizationController(ILogger<VisualizationController> lo
                 _libraryManager,
                 _providerManager,
                 _fileSystem,
-                _ffmpegService);
+                _ffmpegService,
+                _database);
             var queue = await queueManager.GetMediaItems(includeExcluded: true, cancellationToken).ConfigureAwait(false);
             return [.. queue.Values.SelectMany(static episodes => episodes).Where(static episode => episode.IsExcluded)];
         }

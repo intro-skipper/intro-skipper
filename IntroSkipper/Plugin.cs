@@ -242,9 +242,6 @@ public partial class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
         CancellationToken cancellationToken = default)
         => SegmentDatabase.UpdateTimestampAsync(segment, mode, isUserProvided, configHash, cancellationToken);
 
-    internal static Task<IReadOnlyDictionary<AnalysisMode, Segment>> GetTimestampsAsync(Guid id, CancellationToken cancellationToken = default)
-        => RequireSegmentDatabase().GetTimestampsAsync(id, cancellationToken);
-
     internal static Task<IReadOnlyList<DbSegment>> GetSegmentsAsync(Guid id, CancellationToken cancellationToken = default)
         => RequireSegmentDatabase().GetSegmentsAsync(id, cancellationToken);
 
@@ -264,9 +261,6 @@ public partial class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
         IReadOnlySet<Guid> settledEpisodeIds,
         IReadOnlyCollection<Guid> episodeIds)
         => settledEpisodeIds.Count != episodeIds.Count || episodeIds.Any(id => !settledEpisodeIds.Contains(id));
-
-    internal static Task<SeasonQueueSnapshot> GetSeasonQueueSnapshotAsync(Guid seasonId, IReadOnlyCollection<Guid> episodeIds, CancellationToken cancellationToken = default)
-        => RequireSegmentDatabase().GetSeasonQueueSnapshotAsync(seasonId, episodeIds, cancellationToken);
 
     internal static AnalysisMode MapSegmentTypeToMode(MediaSegmentType type)
     {

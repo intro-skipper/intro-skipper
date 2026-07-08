@@ -221,6 +221,7 @@ public partial class ChapterAnalyzer(ILogger<ChapterAnalyzer> logger, IFFmpegSer
     internal async Task<Segment?> DetectRecapUsingBlackFramesAsync(QueuedEpisode episode, CancellationToken cancellationToken)
     {
         var maxRecapBoundary = await RecapDetectionHelper.GetMaximumBoundaryAsync(
+            Plugin.Instance!.SegmentDatabase,
             episode,
             _config,
             cancellationToken).ConfigureAwait(false);

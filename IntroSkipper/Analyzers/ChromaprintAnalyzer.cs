@@ -263,6 +263,7 @@ public partial class ChromaprintAnalyzer(ILogger<ChromaprintAnalyzer> logger, IF
         }
 
         var maximumBoundary = await RecapDetectionHelper.GetMaximumBoundaryAsync(
+            Plugin.Instance!.SegmentDatabase,
             episode,
             _config,
             cancellationToken).ConfigureAwait(false);
