@@ -176,13 +176,7 @@ public sealed class TestDbSegmentStorage
                 await db.SaveChangesAsync();
             }
 
-            using (new EntrypointTestHelpers.PluginInstanceScope(EntrypointTestHelpers.CreateTempCacheDir()))
-            {
-                var plugin = Plugin.Instance!;
-                EntrypointTestHelpers.SetPrivateField(plugin, "_dbPath", dbPath);
-
-                await DatabaseTestHelpers.CreateSegmentDatabase(dbPath).CleanTimestampsAsync(enabledEpisodeIds);
-            }
+            await DatabaseTestHelpers.CreateSegmentDatabase(dbPath).CleanTimestampsAsync(enabledEpisodeIds);
 
             using (var db = new IntroSkipperDbContext(dbPath))
             {
@@ -229,24 +223,17 @@ public sealed class TestDbSegmentStorage
                 await db.SaveChangesAsync();
             }
 
-            using (new EntrypointTestHelpers.PluginInstanceScope(EntrypointTestHelpers.CreateTempCacheDir()))
-            {
-                var plugin = Plugin.Instance!;
-                EntrypointTestHelpers.SetPrivateField(plugin, "_dbPath", dbPath);
+            // Should not throw even with 1001 episode IDs (above the SQLite 999-parameter limit).
+            var snapshot = await DatabaseTestHelpers.CreateSegmentDatabase(dbPath).GetSeasonQueueSnapshotAsync(seasonId, episodeIds);
+            Assert.True(snapshot.EpisodeIdsByMode.TryGetValue(AnalysisMode.Introduction, out var analyzedIds));
+            Assert.Contains(episodeWithSegmentId, analyzedIds!);
+            Assert.True(snapshot.ConfigHashByMode.TryGetValue(AnalysisMode.Introduction, out var configHash));
+            Assert.Equal("snapshot-config", configHash);
+            Assert.True(snapshot.AnalyzerActionByMode.TryGetValue(AnalysisMode.Introduction, out var analyzerAction));
+            Assert.Equal(AnalyzerAction.Chromaprint, analyzerAction);
 
-                // Should not throw even with 1001 episode IDs (above the SQLite 999-parameter limit).
-                var snapshot = await DatabaseTestHelpers.CreateSegmentDatabase(dbPath).GetSeasonQueueSnapshotAsync(seasonId, episodeIds);
-                Assert.True(snapshot.EpisodeIdsByMode.TryGetValue(AnalysisMode.Introduction, out var analyzedIds));
-                Assert.Contains(episodeWithSegmentId, analyzedIds!);
-                Assert.True(snapshot.ConfigHashByMode.TryGetValue(AnalysisMode.Introduction, out var configHash));
-                Assert.Equal("snapshot-config", configHash);
-                Assert.True(snapshot.AnalyzerActionByMode.TryGetValue(AnalysisMode.Introduction, out var analyzerAction));
-                Assert.Equal(AnalyzerAction.Chromaprint, analyzerAction);
-
-
-                Assert.True(snapshot.SegmentsByEpisodeId.TryGetValue(episodeWithSegmentId, out var segmentsByAnalysisMode));
-                Assert.True(segmentsByAnalysisMode!.TryGetValue(AnalysisMode.Introduction, out _));
-            }
+            Assert.True(snapshot.SegmentsByEpisodeId.TryGetValue(episodeWithSegmentId, out var segmentsByAnalysisMode));
+            Assert.True(segmentsByAnalysisMode!.TryGetValue(AnalysisMode.Introduction, out _));
         }
         finally
         {
@@ -650,15 +637,8 @@ public sealed class TestDbSegmentStorage
                 await db.SaveChangesAsync();
             }
 
-            using (new EntrypointTestHelpers.PluginInstanceScope(EntrypointTestHelpers.CreateTempCacheDir()))
-            {
-                var plugin = Plugin.Instance!;
-                EntrypointTestHelpers.SetPrivateField(plugin, "_dbPath", dbPath);
-                ConfigurePluginLogger(plugin);
-
-                var credits = new Segment(itemId, new TimeRange(creditsStart, creditsEnd));
-                await DatabaseTestHelpers.CreateSegmentDatabase(dbPath).UpdateTimestampAsync(credits, AnalysisMode.Credits, isUserProvided);
-            }
+            var credits = new Segment(itemId, new TimeRange(creditsStart, creditsEnd));
+            await DatabaseTestHelpers.CreateSegmentDatabase(dbPath).UpdateTimestampAsync(credits, AnalysisMode.Credits, isUserProvided);
 
             using (var db = new IntroSkipperDbContext(dbPath))
             {
@@ -698,12 +678,6 @@ public sealed class TestDbSegmentStorage
                 await db.Database.CloseConnectionAsync();
             }
         }
-    }
-
-    private static void ConfigurePluginLogger(Plugin plugin)
-    {
-        using var loggerFactory = LoggerFactory.Create(_ => { });
-        EntrypointTestHelpers.SetPrivateField(plugin, "_logger", loggerFactory.CreateLogger<Plugin>());
     }
 
     private static void DeleteSqliteFiles(string dbPath)

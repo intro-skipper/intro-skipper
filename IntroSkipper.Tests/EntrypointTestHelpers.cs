@@ -30,7 +30,7 @@ internal static class EntrypointTestHelpers
 {
     internal static readonly byte[] EmptyJsonArray = Encoding.UTF8.GetBytes("[]");
 
-    internal static Entrypoint CreateEntrypoint(bool autoDetectIntros)
+    internal static Entrypoint CreateEntrypoint(bool autoDetectIntros, string? cacheDbPath = null)
     {
         // Entrypoint's ctor reads Plugin.Instance?.Configuration. Ensure Plugin.Instance is null during construction.
         using var _ = new PluginInstanceNullScope();
@@ -43,12 +43,14 @@ internal static class EntrypointTestHelpers
             providerManager: null!,
             fileSystem: null!,
             taskManager: null!,
-            cacheService: DatabaseTestHelpers.CreatePluginBoundCacheService(),
+            cacheService: cacheDbPath is null
+                ? DatabaseTestHelpers.CreateTempCacheService()
+                : DatabaseTestHelpers.CreateCacheService(cacheDbPath),
             ffmpegService: null!,
             logger: logger,
             loggerFactory: loggerFactory,
             mediaSegmentRefresher: new FakeMediaSegmentRefresher(),
-            database: DatabaseTestHelpers.CreatePluginBoundSegmentDatabase());
+            database: DatabaseTestHelpers.CreateTempSegmentDatabase());
 
         SetPrivateField(entrypoint, "_config", new PluginConfiguration { AutoDetectIntros = autoDetectIntros });
         return entrypoint;
@@ -237,7 +239,6 @@ internal static class EntrypointTestHelpers
 #pragma warning restore SYSLIB0050
 
             SetPropertyOrField(plugin, "FingerprintCachePath", CacheDir);
-            SetPropertyOrField(plugin, "_cacheDbPath", CacheDbPath);
 
             // Plugin.Instance has a private setter; invoke it via reflection.
             var setter = instanceProp.SetMethod ?? instanceProp.GetSetMethod(nonPublic: true);
