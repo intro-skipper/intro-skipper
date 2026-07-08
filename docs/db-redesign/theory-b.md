@@ -520,6 +520,9 @@ database (`Migrate`/`EnsureCreated`), and WAL is a persistent database property.
 plugin databases are always EF-created (including the rebuild and cache-recreate
 paths), so no per-connection or init-time enforcement is added.
 
+**Superseded by Phase 2 (§12.2):** init-time enforcement was adopted from Theory A to
+also cover databases vacuumed or recreated by external tooling.
+
 ### 11.5 Delta summary
 
 Code: `Services/IntroSkipperDatabaseInitializer.cs` (exception-proof warm-up + logger),
@@ -529,3 +532,126 @@ Code: `Services/IntroSkipperDatabaseInitializer.cs` (exception-proof warm-up + l
 `Db/DatabaseInitializationLocks.cs` (new), interface doc updates, 5 new tests
 (15 total in `TestDatabaseFacades`). Verification: full suite 382/383 — sole failure
 remains the known environmental `TestSilenceDetection`.
+
+---
+
+## 12. Phase 2 — hybrid hardening (final-plan Plan 1, Phase 2)
+
+Implements the three hardening items adopted from the rival spikes on top of the
+Phase 1 foundation. All three are behavior-preserving: item 1 is a pure refactor,
+items 2 and 3 are additive.
+
+### 12.1 Non-commercial write decision extracted (adopted from Theory A)
+
+The two write-guarding invariants inside `UpdateTimestampAsync` — user-provided
+segments are never overwritten by analysis results, and auto-detected credits must not
+overlap the stored introduction — now live in `Db/SegmentWriteDecision.cs`, an
+`internal static` pure function with two entry points:
+
+- `RequiresStoredIntroduction(mode, isUserProvided)` — tells the caller whether the
+  overlap guard can apply, so the intro row is still fetched **only** when
+  `mode == Credits && !isUserProvided` (no regression to always-fetching).
+- `ShouldPersist(existingSegments, storedIntroduction, newSegment, mode, isUserProvided)`
+  → `Verdict { Persist, SkipUserProvidedPrecedence, SkipCreditsOverlapIntro }`. The two
+  skip reasons are distinct so the caller keeps today's logging exactly: the user-
+  precedence skip stays silent, the overlap skip logs `LogCreditsOverlapWithIntro`.
+
+`UpdateTimestampAsync` remains the only production caller; the transactional shape is
+unchanged (both reads and the decision happen between `BeginTransaction` and the write,
+inside the same transaction). The overlap comparisons keep the original strict `<` on
+both sides — segments that merely touch at a boundary do not overlap. One deliberate
+micro-difference: when an auto credits write is rejected by user precedence, the intro
+row is now fetched before the (unchanged) skip — a read-only query inside the same
+transaction, with identical writes and logs.
+
+`TestSegmentWriteDecision.cs` adds the direct decision table with no database:
+user-vs-auto × existing-user/existing-auto/none matrix (plus a mixed auto+user
+existing list), overlap guard (overlap, credits-inside-intro, touch-at-both-boundaries
+pinning strict `<`, no-overlap, user-provided bypass, no-stored-intro), non-credits
+modes unaffected, and the `RequiresStoredIntroduction` table including `Commercial`.
+The pre-existing DB-level invariant tests in `TestDatabaseFacades` are untouched and
+now double as integration coverage of the same rules through the facade.
+
+### 12.2 WAL enforced at initialization (adopted from Theory A; supersedes §11.4)
+
+Both initialization cores now run an idempotent `PRAGMA journal_mode=WAL;` — the
+segment database after legacy repair + `MigrateAsync`, the cache database after
+`EnsureSchema` (including its delete-and-recreate recovery). Rationale: WAL is a
+persistent database property, but EF only sets it when *it* creates the database file;
+a database vacuumed into rollback-journal mode or recreated by external tooling would
+otherwise stay non-WAL forever. The pragma runs inside the per-path init lock and
+inside the existing catch-all, so the never-faulting gate contract is untouched.
+
+Tests (one per database) initialize over a **pre-existing** non-WAL file — a raw
+rollback-journal SQLite file for the segment DB, an empty pre-created file for the
+cache DB (`EnsureCreated` sees an existing database and never applies EF's create-time
+WAL default) — and assert `PRAGMA journal_mode` returns `wal` afterwards. Both tests
+were negative-verified: they fail when the enforcement lines are removed.
+
+### 12.3 Gated-factory hardening (adopted from Theory C): **implemented**
+
+Decision: implement. The clean solution turned out small — two thin decorators, one
+delegate factory, and DI wiring — and it converts the ordering guarantee from a
+per-call-site discipline ("every facade method awaits the gate first") into structure:
+the `IDbContextFactory<T>` services *registered in DI* are now
+`GatedIntroSkipperDbContextFactory` / `GatedDetectionCacheDbContextFactory`, which run
+the corresponding facade's one-shot init gate before handing out a context. Even a
+future consumer that resolves the raw factory instead of a facade cannot query an
+unmigrated (or uncreated) database.
+
+Design points, mapping to the constraints:
+
+- **No self-deadlock:** the facades own initialization and create contexts *during*
+  it, so they are constructed over ungated inner factories
+  (`DelegateDbContextFactory<TContext>` closing over the same DI-registered
+  `DbContextOptions<TContext>` — path and pragma interceptor cannot diverge from the
+  gated path). Gating the facade's own context creation would deadlock the gate
+  against itself; this is called out in the registrator and on the decorator types.
+- **Sync path:** `GatedIntroSkipperDbContextFactory.CreateDbContext()` blocks via
+  `GetAwaiter().GetResult()` on the gate. Safe because Jellyfin hosts plugins on the
+  generic host with **no `SynchronizationContext`** (continuations resume on the
+  thread pool), the gate never faults (catch-all init), and it is one-shot — at worst
+  one caller blocks once for the duration of initialization. The cache gate is
+  `Lazy<bool>` (synchronous), so the cache decorator involves no sync-over-async at
+  all.
+- **Registration shape:** `AddDbContextFactory` stays (it also provides
+  `DbContextOptions<T>` and the design-time surface); the `IDbContextFactory<T>`
+  descriptors are then `Replace`d with the gated decorators. No production consumer
+  resolves the raw factories today — the facades use the ungated inners — so the gate
+  is pure defense in depth.
+- **Transitional `Plugin` bridge unaffected:** it builds its facades over the
+  path-based factories and never touches the DI registrations.
+
+Tests in `TestGatedContextFactories.cs`: concurrent first use against a virgin
+database file through the raw gated factory (mixed sync/async creation paths — also
+pins that the sync path cannot deadlock) resolves migrated/created contexts for both
+databases; plus a DI wiring test that runs the real `PluginServiceRegistrator` against
+a stub `IApplicationPaths`, asserts the resolved factories are the gated types, and
+exercises a facade operation end-to-end (proving the facade is wired to the ungated
+inner factory).
+
+**Latent bug found by the DI wiring test:** the compiled query behind
+`GetSegmentsAsync` was a `static` field, but an EF compiled query is bound to the
+model of the first context it executes against — and contexts created from the
+DI-registered options (which carry the application service provider) hold a different
+`IModel` instance than the path-constructed contexts used by the transitional
+`Plugin` bridge and the tests. In the transitional period, where the DI facade and the
+bridge facade coexist in one process, the second one to call `GetSegmentsAsync` would
+have thrown `InvalidOperationException: "executed with a different model than it was
+compiled against"`. Fixed by making the compiled query a per-facade-instance field:
+each facade creates every context from a single factory, so per instance the model is
+stable, and the hot-path compile-once property is preserved (once per facade instance
+instead of once per process).
+
+### 12.4 Delta summary
+
+New: `Db/SegmentWriteDecision.cs`, `Db/DelegateDbContextFactory.cs`,
+`Db/GatedIntroSkipperDbContextFactory.cs`, `Db/GatedDetectionCacheDbContextFactory.cs`,
+tests `TestSegmentWriteDecision.cs`, `TestGatedContextFactories.cs`.
+Modified: `Db/IntroSkipperDatabase.Segments.cs` (decision extraction; compiled query
+made per-instance, see §12.3), `Db/IntroSkipperDatabase.cs` +
+`Db/DetectionCacheDatabase.cs` (WAL enforcement), `Db/SqlitePragmas.cs` (doc),
+`PluginServiceRegistrator.cs` (gated wiring), `TestDatabaseFacades.cs` (two WAL tests;
+no existing test modified).
+Verification: `dotnet build IntroSkipper.sln` 0 warnings/errors; full suite 411/412 —
+sole failure remains the known environmental `TestSilenceDetection`.

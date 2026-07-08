@@ -13,9 +13,16 @@ public sealed partial class IntroSkipperDatabase
 {
     /// <summary>
     /// Compiled query for the playback hot path: <see cref="GetSegmentsAsync"/> runs on
-    /// every media-segment request, so the LINQ-to-SQL translation is compiled once.
+    /// every media-segment request, so the LINQ-to-SQL translation is compiled once per
+    /// facade instance. Deliberately an instance field, not static: a compiled query is
+    /// bound to the model of the first context it executes against, and facade instances
+    /// can be constructed over factories with distinct model instances (the DI-registered
+    /// options carry the application service provider, the transitional <c>Plugin</c>
+    /// bridge and tests use path-based contexts). A process-wide static delegate would
+    /// throw "executed with a different model than it was compiled against" for every
+    /// facade after the first.
     /// </summary>
-    private static readonly Func<IntroSkipperDbContext, Guid, IAsyncEnumerable<DbSegment>> _segmentsForItemQuery =
+    private readonly Func<IntroSkipperDbContext, Guid, IAsyncEnumerable<DbSegment>> _segmentsForItemQuery =
         EF.CompileAsyncQuery((IntroSkipperDbContext context, Guid itemId) =>
             context.DbSegment.AsNoTracking().Where(s => s.ItemId == itemId));
 
@@ -63,26 +70,29 @@ public sealed partial class IntroSkipperDatabase
                         .ToListAsync(cancellationToken)
                         .ConfigureAwait(false);
 
-                    // Do not overwrite a user-provided segment with an analysis result.
-                    if (!isUserProvided && existingSegments.Any(s => s.IsUserProvided))
+                    // The intro row is only needed for the credits/intro overlap guard, so it
+                    // is fetched only for auto-detected credits writes. Both reads and the
+                    // decision below happen inside the same transaction as the write.
+                    DbSegment? storedIntroduction = null;
+                    if (SegmentWriteDecision.RequiresStoredIntroduction(mode, isUserProvided))
                     {
-                        return;
-                    }
-
-                    // Guard: prevent auto-detected credits from overlapping with the introduction.
-                    if (mode == AnalysisMode.Credits && !isUserProvided)
-                    {
-                        var intro = await db.DbSegment
+                        storedIntroduction = await db.DbSegment
                             .AsNoTracking()
                             .Where(s => s.ItemId == segment.EpisodeId && s.Type == AnalysisMode.Introduction)
                             .FirstOrDefaultAsync(cancellationToken)
                             .ConfigureAwait(false);
+                    }
 
-                        if (intro is not null && segment.Start < intro.End && intro.Start < segment.End)
-                        {
-                            LogCreditsOverlapWithIntro(_logger, segment.EpisodeId);
-                            return;
-                        }
+                    var verdict = SegmentWriteDecision.ShouldPersist(existingSegments, storedIntroduction, segment, mode, isUserProvided);
+                    if (verdict == SegmentWriteDecision.Verdict.SkipUserProvidedPrecedence)
+                    {
+                        return;
+                    }
+
+                    if (verdict == SegmentWriteDecision.Verdict.SkipCreditsOverlapIntro)
+                    {
+                        LogCreditsOverlapWithIntro(_logger, segment.EpisodeId);
+                        return;
                     }
 
                     if (existingSegments.Count > 0)

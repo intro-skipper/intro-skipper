@@ -12,7 +12,9 @@ namespace IntroSkipper.Db;
 /// <summary>
 /// Shared PRAGMA configuration applied to every SQLite connection on open.
 /// Used by <see cref="IntroSkipperDbContext"/> and <see cref="DetectionCacheDbContext"/>.
-/// WAL journal mode is not set here because EF Core enables it by default.
+/// WAL journal mode is not set here because it is a persistent database property:
+/// EF Core enables it when it creates a database, and the facade initialization cores
+/// re-enforce it idempotently for databases created or rewritten by external tooling.
 /// </summary>
 internal static class SqlitePragmas
 {
