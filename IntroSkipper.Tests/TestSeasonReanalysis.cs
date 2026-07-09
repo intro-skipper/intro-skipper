@@ -326,7 +326,7 @@ public sealed class TestSeasonReanalysisReset
 
             await database.RecordSettleReanalysisAsync(season, [AnalysisMode.Introduction], firstFive);
             Assert.False(await ShouldReanalyzeAsync(database, season, AnalysisMode.Introduction, firstFive)); // already done for this set
-            Assert.False(await ShouldReanalyzeAsync(database, season, AnalysisMode.Introduction, firstFive.Reverse().ToArray())); // order-insensitive set match
+            Assert.False(await ShouldReanalyzeAsync(database, season, AnalysisMode.Introduction, [.. firstFive.Reverse()])); // order-insensitive set match
             Assert.True(await ShouldReanalyzeAsync(database, season, AnalysisMode.Introduction, firstSix)); // grew → eligible again
             Assert.True(await ShouldReanalyzeAsync(database, season, AnalysisMode.Introduction, replacementFive)); // same count, different membership
             Assert.True(await ShouldReanalyzeAsync(database, season, AnalysisMode.Credits, firstFive)); // unrecorded mode stays eligible

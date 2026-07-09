@@ -245,7 +245,9 @@ internal static class EntrypointTestHelpers
             Assert.NotNull(setter);
             setter!.Invoke(null, [plugin]);
 
-            // Ensure the schema exists so tests can write to the cache DB.
+            // Ensure the schema exists so tests can write to the cache DB. Create the
+            // containing directory first so this scope works regardless of test order.
+            Directory.CreateDirectory(Path.GetDirectoryName(CacheDbPath)!);
             using var cacheDb = new IntroSkipper.Db.DetectionCacheDbContext(CacheDbPath);
             cacheDb.EnsureSchema();
         }

@@ -27,7 +27,7 @@ internal static class DatabaseTestHelpers
     /// </summary>
     /// <returns>The segment database facade.</returns>
     internal static IntroSkipperDatabase CreateTempSegmentDatabase()
-        => CreateSegmentDatabase(Path.Combine(Path.GetTempPath(), "IntroSkipper.Tests", Guid.NewGuid().ToString("N") + ".db"));
+        => CreateSegmentDatabase(CreateTempDbPath(Guid.NewGuid().ToString("N") + ".db"));
 
     internal static DetectionCacheDatabase CreateCacheDatabase(string dbPath)
         => new(new DetectionCacheDbContextPathFactory(() => dbPath), NullLogger.Instance);
@@ -41,7 +41,7 @@ internal static class DatabaseTestHelpers
     /// </summary>
     /// <returns>The cache database path.</returns>
     internal static string CreateTempCacheDbPath()
-        => Path.Combine(Path.GetTempPath(), "IntroSkipper.Tests", Guid.NewGuid().ToString("N") + "-cache.db");
+        => CreateTempDbPath(Guid.NewGuid().ToString("N") + "-cache.db");
 
     /// <summary>
     /// Creates a detection cache service over a fresh temp-file path, for consumers
@@ -51,4 +51,17 @@ internal static class DatabaseTestHelpers
     /// <returns>The detection cache service.</returns>
     internal static DetectionCacheService CreateTempCacheService()
         => CreateCacheService(CreateTempCacheDbPath());
+
+    /// <summary>
+    /// Returns a database path under the shared test temp directory, creating the
+    /// directory so SQLite can open the file regardless of which test runs first.
+    /// </summary>
+    /// <param name="fileName">Database file name.</param>
+    /// <returns>The database path.</returns>
+    private static string CreateTempDbPath(string fileName)
+    {
+        var directory = Path.Combine(Path.GetTempPath(), "IntroSkipper.Tests");
+        Directory.CreateDirectory(directory);
+        return Path.Combine(directory, fileName);
+    }
 }
