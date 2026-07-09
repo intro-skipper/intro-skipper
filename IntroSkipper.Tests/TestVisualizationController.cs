@@ -29,14 +29,14 @@ public sealed class TestVisualizationController
         var seasonId = Guid.NewGuid();
         var episodeIds = new[] { Guid.NewGuid(), Guid.NewGuid() };
         var dbPath = CreateTempDbPath();
-        using var pluginScope = CreatePluginScope(dbPath, seriesId, seasonId, episodeIds, updateMediaSegments: true);
+        using var pluginScope = CreatePluginScope(seriesId, seasonId, episodeIds, updateMediaSegments: true);
         await SeedSeasonAsync(dbPath, seasonId, episodeIds);
         var refresher = new RecordingMediaSegmentRefresher
         {
             Completion = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously)
         };
         using var loggerFactory = LoggerFactory.Create(builder => { });
-        var controller = CreateController(refresher, loggerFactory);
+        var controller = CreateController(refresher, loggerFactory, dbPath, pluginScope.CacheDbPath);
 
         var actionTask = controller.EraseSeasonAsync(seriesId, seasonId, eraseCache: false, CancellationToken.None);
 
@@ -60,14 +60,14 @@ public sealed class TestVisualizationController
         var seasonId = Guid.NewGuid();
         var episodeIds = new[] { Guid.NewGuid(), Guid.NewGuid() };
         var dbPath = CreateTempDbPath();
-        using var pluginScope = CreatePluginScope(dbPath, seriesId, seasonId, episodeIds, updateMediaSegments: false);
+        using var pluginScope = CreatePluginScope(seriesId, seasonId, episodeIds, updateMediaSegments: false);
         await SeedSeasonAsync(dbPath, seasonId, episodeIds);
         var refresher = new RecordingMediaSegmentRefresher
         {
             Completion = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously)
         };
         using var loggerFactory = LoggerFactory.Create(builder => { });
-        var controller = CreateController(refresher, loggerFactory);
+        var controller = CreateController(refresher, loggerFactory, dbPath, pluginScope.CacheDbPath);
 
         var result = await controller.EraseSeasonAsync(seriesId, seasonId, eraseCache: false, CancellationToken.None);
 
@@ -89,16 +89,15 @@ public sealed class TestVisualizationController
             SeriesExclusions = { "Excluded Show" }
         };
         using var pluginScope = CreatePluginScope(
-            dbPath,
             seriesId,
             seasonId,
             [excludedId, includedId],
             config);
         await SeedSeasonAsync(dbPath, seasonId, [excludedId, includedId]);
-        await SeedCacheAsync(excludedId, includedId);
+        await SeedCacheAsync(pluginScope.CacheDbPath, excludedId, includedId);
         var refresher = new RecordingMediaSegmentRefresher();
         using var loggerFactory = LoggerFactory.Create(builder => { });
-        var controller = CreateController(refresher, loggerFactory);
+        var controller = CreateController(refresher, loggerFactory, dbPath, pluginScope.CacheDbPath);
 
         var result = await controller.ClearExcludedTimestampsAsync(CancellationToken.None);
 
@@ -115,12 +114,12 @@ public sealed class TestVisualizationController
         var seasonStates = await db.DbSeasonState.Where(s => s.SeasonId == seasonId).ToListAsync();
         Assert.All(seasonStates, state => Assert.Equal([includedId], state.EpisodeIds));
 
-        using var cacheDb = Plugin.CreateCacheDbContext();
+        using var cacheDb = new DetectionCacheDbContext(pluginScope.CacheDbPath);
         Assert.False(await cacheDb.DetectionCache.AnyAsync(e => e.ItemId == excludedId));
         Assert.True(await cacheDb.DetectionCache.AnyAsync(e => e.ItemId == includedId));
     }
 
-    private static VisualizationController CreateController(RecordingMediaSegmentRefresher refresher, ILoggerFactory loggerFactory)
+    private static VisualizationController CreateController(RecordingMediaSegmentRefresher refresher, ILoggerFactory loggerFactory, string dbPath, string cacheDbPath)
     {
         return new VisualizationController(
             NullLogger<VisualizationController>.Instance,
@@ -130,24 +129,22 @@ public sealed class TestVisualizationController
             fileSystem: null!,
             loggerFactory,
             ffmpegService: null!,
-            DatabaseTestHelpers.CreatePluginBoundCacheService(),
-            DatabaseTestHelpers.CreatePluginBoundSegmentDatabase(),
-            DatabaseTestHelpers.CreatePluginBoundCacheDatabase());
+            DatabaseTestHelpers.CreateCacheService(cacheDbPath),
+            DatabaseTestHelpers.CreateSegmentDatabase(dbPath),
+            DatabaseTestHelpers.CreateCacheDatabase(cacheDbPath));
     }
 
-    private static EntrypointTestHelpers.PluginInstanceScope CreatePluginScope(string dbPath, Guid seriesId, Guid seasonId, IReadOnlyList<Guid> episodeIds, bool updateMediaSegments)
+    private static EntrypointTestHelpers.PluginInstanceScope CreatePluginScope(Guid seriesId, Guid seasonId, IReadOnlyList<Guid> episodeIds, bool updateMediaSegments)
         => CreatePluginScope(
-            dbPath,
             seriesId,
             seasonId,
             episodeIds,
             new PluginConfiguration { UpdateMediaSegments = updateMediaSegments });
 
-    private static EntrypointTestHelpers.PluginInstanceScope CreatePluginScope(string dbPath, Guid seriesId, Guid seasonId, IReadOnlyList<Guid> episodeIds, PluginConfiguration config)
+    private static EntrypointTestHelpers.PluginInstanceScope CreatePluginScope(Guid seriesId, Guid seasonId, IReadOnlyList<Guid> episodeIds, PluginConfiguration config)
     {
         var scope = new EntrypointTestHelpers.PluginInstanceScope(EntrypointTestHelpers.CreateTempCacheDir());
         var plugin = Plugin.Instance!;
-        EntrypointTestHelpers.SetPropertyOrField(plugin, "_dbPath", dbPath);
         EntrypointTestHelpers.SetPropertyOrField(plugin, "Configuration", config);
         EntrypointTestHelpers.SetPropertyOrField(plugin, "QueuedMediaItems", new ConcurrentDictionary<Guid, List<QueuedEpisode>>());
         plugin.QueuedMediaItems[seasonId] =
@@ -171,9 +168,9 @@ public sealed class TestVisualizationController
         await db.SaveChangesAsync();
     }
 
-    private static async Task SeedCacheAsync(Guid excludedId, Guid includedId)
+    private static async Task SeedCacheAsync(string cacheDbPath, Guid excludedId, Guid includedId)
     {
-        using var cacheDb = Plugin.CreateCacheDbContext();
+        using var cacheDb = new DetectionCacheDbContext(cacheDbPath);
         cacheDb.DetectionCache.AddRange(
             new DbDetectionCache(excludedId, AnalysisMode.Introduction, CacheEntryType.Chromaprint, EntrypointTestHelpers.EmptyJsonArray),
             new DbDetectionCache(includedId, AnalysisMode.Introduction, CacheEntryType.Chromaprint, EntrypointTestHelpers.EmptyJsonArray));

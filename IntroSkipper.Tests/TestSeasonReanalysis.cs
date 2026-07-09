@@ -318,59 +318,51 @@ public sealed class TestSeasonReanalysisReset
                 await db.Database.EnsureCreatedAsync();
             }
 
-            using (new EntrypointTestHelpers.PluginInstanceScope(EntrypointTestHelpers.CreateTempCacheDir()))
-            {
-                var plugin = Plugin.Instance!;
-                EntrypointTestHelpers.SetPrivateField(plugin, "_dbPath", dbPath);
-                var database = DatabaseTestHelpers.CreateSegmentDatabase(dbPath);
+            var database = DatabaseTestHelpers.CreateSegmentDatabase(dbPath);
 
-                // Stays eligible until the work is explicitly recorded, so a failed reset is retried.
-                Assert.True(await ShouldReanalyzeAsync(database, season, AnalysisMode.Introduction, firstFive));
-                Assert.True(await ShouldReanalyzeAsync(database, season, AnalysisMode.Credits, firstFive));
+            // Stays eligible until the work is explicitly recorded, so a failed reset is retried.
+            Assert.True(await ShouldReanalyzeAsync(database, season, AnalysisMode.Introduction, firstFive));
+            Assert.True(await ShouldReanalyzeAsync(database, season, AnalysisMode.Credits, firstFive));
 
-                await database.RecordSettleReanalysisAsync(season, [AnalysisMode.Introduction], firstFive);
-                Assert.False(await ShouldReanalyzeAsync(database, season, AnalysisMode.Introduction, firstFive)); // already done for this set
-                Assert.False(await ShouldReanalyzeAsync(database, season, AnalysisMode.Introduction, firstFive.Reverse().ToArray())); // order-insensitive set match
-                Assert.True(await ShouldReanalyzeAsync(database, season, AnalysisMode.Introduction, firstSix)); // grew → eligible again
-                Assert.True(await ShouldReanalyzeAsync(database, season, AnalysisMode.Introduction, replacementFive)); // same count, different membership
-                Assert.True(await ShouldReanalyzeAsync(database, season, AnalysisMode.Credits, firstFive)); // unrecorded mode stays eligible
+            await database.RecordSettleReanalysisAsync(season, [AnalysisMode.Introduction], firstFive);
+            Assert.False(await ShouldReanalyzeAsync(database, season, AnalysisMode.Introduction, firstFive)); // already done for this set
+            Assert.False(await ShouldReanalyzeAsync(database, season, AnalysisMode.Introduction, [.. firstFive.Reverse()])); // order-insensitive set match
+            Assert.True(await ShouldReanalyzeAsync(database, season, AnalysisMode.Introduction, firstSix)); // grew → eligible again
+            Assert.True(await ShouldReanalyzeAsync(database, season, AnalysisMode.Introduction, replacementFive)); // same count, different membership
+            Assert.True(await ShouldReanalyzeAsync(database, season, AnalysisMode.Credits, firstFive)); // unrecorded mode stays eligible
 
-                await database.RecordSettleReanalysisAsync(season, [AnalysisMode.Introduction], replacementFive);
-                Assert.False(await ShouldReanalyzeAsync(database, season, AnalysisMode.Introduction, replacementFive));
-                Assert.True(await ShouldReanalyzeAsync(database, season, AnalysisMode.Introduction, firstFive));
+            await database.RecordSettleReanalysisAsync(season, [AnalysisMode.Introduction], replacementFive);
+            Assert.False(await ShouldReanalyzeAsync(database, season, AnalysisMode.Introduction, replacementFive));
+            Assert.True(await ShouldReanalyzeAsync(database, season, AnalysisMode.Introduction, firstFive));
 
-                await database.RecordSettleReanalysisAsync(season, [AnalysisMode.Introduction], firstSix);
-                Assert.True(await ShouldReanalyzeAsync(database, season, AnalysisMode.Introduction, firstFive)); // shrank → eligible again
-                Assert.False(await ShouldReanalyzeAsync(database, season, AnalysisMode.Introduction, firstSix));
-                Assert.True(await ShouldReanalyzeAsync(database, season, AnalysisMode.Introduction, firstSeven));
+            await database.RecordSettleReanalysisAsync(season, [AnalysisMode.Introduction], firstSix);
+            Assert.True(await ShouldReanalyzeAsync(database, season, AnalysisMode.Introduction, firstFive)); // shrank → eligible again
+            Assert.False(await ShouldReanalyzeAsync(database, season, AnalysisMode.Introduction, firstSix));
+            Assert.True(await ShouldReanalyzeAsync(database, season, AnalysisMode.Introduction, firstSeven));
 
-                await database.RecordSettleReanalysisAsync(season, [AnalysisMode.Introduction], firstFive);
-                Assert.False(await ShouldReanalyzeAsync(database, season, AnalysisMode.Introduction, firstFive)); // shrink was recorded
-                Assert.True(await ShouldReanalyzeAsync(database, season, AnalysisMode.Introduction, firstSix));
-                Assert.True(await ShouldReanalyzeAsync(database, season, AnalysisMode.Introduction, firstSeven));
+            await database.RecordSettleReanalysisAsync(season, [AnalysisMode.Introduction], firstFive);
+            Assert.False(await ShouldReanalyzeAsync(database, season, AnalysisMode.Introduction, firstFive)); // shrink was recorded
+            Assert.True(await ShouldReanalyzeAsync(database, season, AnalysisMode.Introduction, firstSix));
+            Assert.True(await ShouldReanalyzeAsync(database, season, AnalysisMode.Introduction, firstSeven));
 
-                await database.RecordSettleReanalysisAsync(season, [AnalysisMode.Credits], firstFive);
-                Assert.False(await ShouldReanalyzeAsync(database, season, AnalysisMode.Credits, firstFive));
-                Assert.True(await ShouldReanalyzeAsync(database, season, AnalysisMode.Credits, firstSix));
+            await database.RecordSettleReanalysisAsync(season, [AnalysisMode.Credits], firstFive);
+            Assert.False(await ShouldReanalyzeAsync(database, season, AnalysisMode.Credits, firstFive));
+            Assert.True(await ShouldReanalyzeAsync(database, season, AnalysisMode.Credits, firstSix));
 
-                await database.RecordSettleReanalysisAsync(season, [AnalysisMode.Credits], firstSix);
-                Assert.True(await ShouldReanalyzeAsync(database, season, AnalysisMode.Credits, firstFive));
-                Assert.False(await ShouldReanalyzeAsync(database, season, AnalysisMode.Credits, firstSix));
-                Assert.True(await ShouldReanalyzeAsync(database, season, AnalysisMode.Credits, firstSeven));
-            }
+            await database.RecordSettleReanalysisAsync(season, [AnalysisMode.Credits], firstSix);
+            Assert.True(await ShouldReanalyzeAsync(database, season, AnalysisMode.Credits, firstFive));
+            Assert.False(await ShouldReanalyzeAsync(database, season, AnalysisMode.Credits, firstSix));
+            Assert.True(await ShouldReanalyzeAsync(database, season, AnalysisMode.Credits, firstSeven));
 
-            using (new EntrypointTestHelpers.PluginInstanceScope(EntrypointTestHelpers.CreateTempCacheDir()))
-            {
-                var plugin = Plugin.Instance!;
-                EntrypointTestHelpers.SetPrivateField(plugin, "_dbPath", dbPath);
-                var database = DatabaseTestHelpers.CreateSegmentDatabase(dbPath);
+            // A fresh facade over the same file simulates a plugin restart: the recorded
+            // episode sets must be read back from the database.
+            var reopenedDatabase = DatabaseTestHelpers.CreateSegmentDatabase(dbPath);
 
-                Assert.False(await ShouldReanalyzeAsync(database, season, AnalysisMode.Introduction, firstFive));
-                Assert.True(await ShouldReanalyzeAsync(database, season, AnalysisMode.Introduction, firstSix));
-                Assert.True(await ShouldReanalyzeAsync(database, season, AnalysisMode.Introduction, firstSeven));
-                Assert.False(await ShouldReanalyzeAsync(database, season, AnalysisMode.Credits, firstSix));
-                Assert.True(await ShouldReanalyzeAsync(database, season, AnalysisMode.Credits, firstSeven));
-            }
+            Assert.False(await ShouldReanalyzeAsync(reopenedDatabase, season, AnalysisMode.Introduction, firstFive));
+            Assert.True(await ShouldReanalyzeAsync(reopenedDatabase, season, AnalysisMode.Introduction, firstSix));
+            Assert.True(await ShouldReanalyzeAsync(reopenedDatabase, season, AnalysisMode.Introduction, firstSeven));
+            Assert.False(await ShouldReanalyzeAsync(reopenedDatabase, season, AnalysisMode.Credits, firstSix));
+            Assert.True(await ShouldReanalyzeAsync(reopenedDatabase, season, AnalysisMode.Credits, firstSeven));
         }
         finally
         {
@@ -430,30 +422,26 @@ public sealed class TestSeasonReanalysisReset
                 await db.SaveChangesAsync();
             }
 
-            using (new EntrypointTestHelpers.PluginInstanceScope(EntrypointTestHelpers.CreateTempCacheDir()))
+            var cacheDbPath = DatabaseTestHelpers.CreateTempCacheDbPath();
+            using (var cacheDb = new DetectionCacheDbContext(cacheDbPath))
             {
-                var plugin = Plugin.Instance!;
-                EntrypointTestHelpers.SetPrivateField(plugin, "_dbPath", dbPath);
+                cacheDb.EnsureSchema();
+                cacheDb.DetectionCache.Add(new DbDetectionCache(
+                    autoEpisode,
+                    AnalysisMode.Introduction,
+                    CacheEntryType.Chromaprint,
+                    EntrypointTestHelpers.EmptyJsonArray));
+                await cacheDb.SaveChangesAsync();
+            }
 
-                using (var cacheDb = Plugin.CreateCacheDbContext())
-                {
-                    cacheDb.DetectionCache.Add(new DbDetectionCache(
-                        autoEpisode,
-                        AnalysisMode.Introduction,
-                        CacheEntryType.Chromaprint,
-                        EntrypointTestHelpers.EmptyJsonArray));
-                    await cacheDb.SaveChangesAsync();
-                }
+            await DatabaseTestHelpers.CreateSegmentDatabase(dbPath).ResetSeasonForReanalysisAsync(
+                seasonId,
+                new[] { autoEpisode, userEpisode },
+                new[] { AnalysisMode.Introduction });
 
-                await DatabaseTestHelpers.CreateSegmentDatabase(dbPath).ResetSeasonForReanalysisAsync(
-                    seasonId,
-                    new[] { autoEpisode, userEpisode },
-                    new[] { AnalysisMode.Introduction });
-
-                using (var cacheDb = Plugin.CreateCacheDbContext())
-                {
-                    Assert.True(cacheDb.DetectionCache.Any(e => e.ItemId == autoEpisode && e.Mode == AnalysisMode.Introduction));
-                }
+            using (var cacheDb = new DetectionCacheDbContext(cacheDbPath))
+            {
+                Assert.True(cacheDb.DetectionCache.Any(e => e.ItemId == autoEpisode && e.Mode == AnalysisMode.Introduction));
             }
 
             using (var db = new IntroSkipperDbContext(dbPath))
@@ -523,17 +511,12 @@ public sealed class TestSeasonReanalysisReset
                 await db.SaveChangesAsync();
             }
 
-            using (new EntrypointTestHelpers.PluginInstanceScope(EntrypointTestHelpers.CreateTempCacheDir()))
-            {
-                var plugin = Plugin.Instance!;
-                EntrypointTestHelpers.SetPrivateField(plugin, "_dbPath", dbPath);
-                var resetModes = BaseItemAnalyzerTask.ExpandSettledResetModesForDerivedSegments([AnalysisMode.Credits], true);
+            var resetModes = BaseItemAnalyzerTask.ExpandSettledResetModesForDerivedSegments([AnalysisMode.Credits], true);
 
-                await DatabaseTestHelpers.CreateSegmentDatabase(dbPath).ResetSeasonForReanalysisAsync(
-                    seasonId,
-                    new[] { autoEpisode, userPreviewEpisode },
-                    resetModes);
-            }
+            await DatabaseTestHelpers.CreateSegmentDatabase(dbPath).ResetSeasonForReanalysisAsync(
+                seasonId,
+                new[] { autoEpisode, userPreviewEpisode },
+                resetModes);
 
             using (var db = new IntroSkipperDbContext(dbPath))
             {
@@ -573,24 +556,18 @@ public sealed class TestSeasonReanalysisReset
                 await db.Database.EnsureCreatedAsync();
             }
 
-            using (new EntrypointTestHelpers.PluginInstanceScope(EntrypointTestHelpers.CreateTempCacheDir()))
-            {
-                var plugin = Plugin.Instance!;
-                EntrypointTestHelpers.SetPrivateField(plugin, "_dbPath", dbPath);
-
-                var database = DatabaseTestHelpers.CreateSegmentDatabase(dbPath);
-                await database.SetEpisodeIdsAsync(seasonId, AnalysisMode.Introduction, [episodeA, episodeB], "hash-a");
-                await database.SetAnalyzerActionAsync(
-                    seasonId,
-                    new Dictionary<AnalysisMode, AnalyzerAction>
-                    {
-                        [AnalysisMode.Introduction] = AnalyzerAction.Chromaprint,
-                    });
-                await database.RecordSettleReanalysisAsync(seasonId, [AnalysisMode.Introduction], completedEpisodeIds);
-                await database.RecordSettleReanalysisAsync(seasonId, [AnalysisMode.Introduction], lowerEpisodeIds);
-                await database.RemoveEpisodeIdAsync(seasonId, AnalysisMode.Introduction, episodeA);
-                await database.RemoveEpisodeIdAsync(seasonId, AnalysisMode.Introduction, Guid.NewGuid());
-            }
+            var database = DatabaseTestHelpers.CreateSegmentDatabase(dbPath);
+            await database.SetEpisodeIdsAsync(seasonId, AnalysisMode.Introduction, [episodeA, episodeB], "hash-a");
+            await database.SetAnalyzerActionAsync(
+                seasonId,
+                new Dictionary<AnalysisMode, AnalyzerAction>
+                {
+                    [AnalysisMode.Introduction] = AnalyzerAction.Chromaprint,
+                });
+            await database.RecordSettleReanalysisAsync(seasonId, [AnalysisMode.Introduction], completedEpisodeIds);
+            await database.RecordSettleReanalysisAsync(seasonId, [AnalysisMode.Introduction], lowerEpisodeIds);
+            await database.RemoveEpisodeIdAsync(seasonId, AnalysisMode.Introduction, episodeA);
+            await database.RemoveEpisodeIdAsync(seasonId, AnalysisMode.Introduction, Guid.NewGuid());
 
             using (var db = new IntroSkipperDbContext(dbPath))
             {
@@ -645,7 +622,6 @@ public sealed class TestSeasonReanalysisReset
             using (new EntrypointTestHelpers.PluginInstanceScope(EntrypointTestHelpers.CreateTempCacheDir()))
             {
                 var plugin = Plugin.Instance!;
-                EntrypointTestHelpers.SetPrivateField(plugin, "_dbPath", dbPath);
                 EntrypointTestHelpers.SetPropertyOrField(plugin, "Configuration", config);
 
                 var episode = new Episode();
@@ -746,7 +722,7 @@ public sealed class TestSeasonReanalysisReset
     {
         var states = await database.GetSettleReanalysisStatesAsync(seasonId);
         return !states.TryGetValue(mode, out var state)
-            || Plugin.ShouldSettleReanalyze(state.SettledReanalysisEpisodeIds, episodeIds);
+            || AnalysisHelpers.ShouldSettleReanalyze(state.SettledReanalysisEpisodeIds, episodeIds);
     }
 
     private static void DeleteSqliteFiles(string dbPath)

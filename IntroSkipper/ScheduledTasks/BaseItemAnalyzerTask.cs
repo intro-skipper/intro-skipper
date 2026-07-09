@@ -235,7 +235,7 @@ public partial class BaseItemAnalyzerTask(
             var action = stateExists ? state.Action : AnalyzerAction.Default;
             if (action != AnalyzerAction.None &&
                 CanSettleReanalysisRun(mode, action, ffmpegValid) &&
-                (!stateExists || Plugin.ShouldSettleReanalyze(state.SettledReanalysisEpisodeIds, episodeIds)))
+                (!stateExists || AnalysisHelpers.ShouldSettleReanalyze(state.SettledReanalysisEpisodeIds, episodeIds)))
             {
                 resetModes.Add(mode);
             }

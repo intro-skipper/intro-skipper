@@ -26,13 +26,13 @@ public sealed class TestSkipIntroController
     {
         var itemId = Guid.NewGuid();
         var dbPath = CreateTempDbPath();
-        using var pluginScope = CreatePluginScope(dbPath, itemId, updateMediaSegments: true, out var item);
+        using var pluginScope = CreatePluginScope(itemId, updateMediaSegments: true, out var item);
         await EnsureDatabaseAsync(dbPath);
         var refresher = new RecordingMediaSegmentRefresher
         {
             Completion = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously)
         };
-        var controller = new SkipIntroController(refresher, DatabaseTestHelpers.CreatePluginBoundCacheService(), DatabaseTestHelpers.CreatePluginBoundSegmentDatabase());
+        var controller = new SkipIntroController(refresher, DatabaseTestHelpers.CreateCacheService(pluginScope.CacheDbPath), DatabaseTestHelpers.CreateSegmentDatabase(dbPath));
         var timestamps = new TimeStamps
         {
             Introduction = new Segment(itemId, new TimeRange(10, 20))
@@ -60,13 +60,13 @@ public sealed class TestSkipIntroController
     {
         var itemId = Guid.NewGuid();
         var dbPath = CreateTempDbPath();
-        using var pluginScope = CreatePluginScope(dbPath, itemId, updateMediaSegments: false, out _);
+        using var pluginScope = CreatePluginScope(itemId, updateMediaSegments: false, out _);
         await EnsureDatabaseAsync(dbPath);
         var refresher = new RecordingMediaSegmentRefresher
         {
             Completion = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously)
         };
-        var controller = new SkipIntroController(refresher, DatabaseTestHelpers.CreatePluginBoundCacheService(), DatabaseTestHelpers.CreatePluginBoundSegmentDatabase());
+        var controller = new SkipIntroController(refresher, DatabaseTestHelpers.CreateCacheService(pluginScope.CacheDbPath), DatabaseTestHelpers.CreateSegmentDatabase(dbPath));
         var timestamps = new TimeStamps
         {
             Introduction = new Segment(itemId, new TimeRange(10, 20))
@@ -78,7 +78,7 @@ public sealed class TestSkipIntroController
         Assert.Equal(0, refresher.ItemCallCount);
     }
 
-    private static EntrypointTestHelpers.PluginInstanceScope CreatePluginScope(string dbPath, Guid itemId, bool updateMediaSegments, out Movie item)
+    private static EntrypointTestHelpers.PluginInstanceScope CreatePluginScope(Guid itemId, bool updateMediaSegments, out Movie item)
     {
         var scope = new EntrypointTestHelpers.PluginInstanceScope(EntrypointTestHelpers.CreateTempCacheDir());
         item = new Movie();
@@ -87,7 +87,6 @@ public sealed class TestSkipIntroController
 
         var libraryManager = EntrypointTestHelpers.CreateLibraryManager(item);
         var plugin = Plugin.Instance!;
-        EntrypointTestHelpers.SetPropertyOrField(plugin, "_dbPath", dbPath);
         EntrypointTestHelpers.SetPropertyOrField(plugin, "Configuration", new PluginConfiguration { UpdateMediaSegments = updateMediaSegments });
         EntrypointTestHelpers.SetPrivateField(plugin, "_libraryManager", libraryManager);
         return scope;
