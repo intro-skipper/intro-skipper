@@ -26,9 +26,10 @@ Principles:
    user-provided segments are never overwritten by analysis results, and auto-detected
    credits must not overlap the stored intro — live inside
    `IntroSkipperDatabase.UpdateTimestampAsync`, exactly where they lived in `Plugin`.
-   No caller can reach a `DbContext` and bypass them (in the end state; see §3).
+   No caller can reach a `DbContext` and bypass them (end state reached in Phase 4;
+   see §14).
 3. **Stateless services.** Each operation creates a fresh short-lived context from the
-   injected factory — identical to the current `using var db = Plugin.CreateDbContext()`
+   injected factory — identical to the pre-redesign `using var db = Plugin.CreateDbContext()`
    discipline, so the concurrency model is unchanged. The only state is a one-shot
    initialization gate (§5).
 4. **Lifecycle is part of the facade.** Migrations, legacy schema repair,
@@ -55,8 +56,8 @@ Db/
   IDetectionCacheDatabase.cs
   DetectionCacheDatabase.cs               single file; the cache is 8 methods
   IntroSkipperDatabasePaths.cs            single source of truth for DB file paths
-  IntroSkipperDbContextPathFactory.cs     transitional/test factory (path resolved lazily)
-  DetectionCacheDbContextPathFactory.cs   transitional/test factory
+  IntroSkipperDbContextPathFactory.cs     test factory (path resolved lazily; test-only since Phase 4)
+  DetectionCacheDbContextPathFactory.cs   test factory (test-only since Phase 4)
 ```
 
 Conventions that keep a ~23-method interface maintainable:
@@ -124,7 +125,7 @@ through the constructor chain (§3).
 | `GetAnalyzerActionAsync` | `IIntroSkipperDatabase.GetAnalyzerActionAsync` | bridge (`BaseItemAnalyzerTask`) |
 | `CleanSeasonStateAsync` | `IIntroSkipperDatabase.CleanSeasonStateAsync` | `CleanCacheTask` injected |
 | `DeleteTimestampAsync` | `IIntroSkipperDatabase.DeleteTimestampAsync` | bridge (`SegmentEditorController`) |
-| `ShouldSettleReanalyze`, `MapSegmentTypeToMode` | stay on `Plugin` — pure functions, no DB access | n/a |
+| `ShouldSettleReanalyze`, `MapSegmentTypeToMode` | pure functions, no DB access — stayed on `Plugin` through Phase 3, moved to `IntroSkipper.Data.AnalysisHelpers` in Phase 4 | done (§14) |
 
 ### 2b. Direct `CreateDbContext()` / `CreateCacheDbContext()` call sites
 
@@ -148,7 +149,7 @@ through the constructor chain (§3).
 `Plugin.CreateCacheDbContext()` references remain in it. Serialization/compression and
 config-hash policy stay in the service; the facade is purely the DB boundary.
 
-### 2c. End state (zero DB code in `Plugin`)
+### 2c. End state (zero DB code in `Plugin`) — **reached in Phase 4 (§14)**
 
 Delete from `Plugin`: all wrappers in §2a, `SegmentDatabase`/`CacheDatabase` bridge
 properties, `CreateDbContext`/`CreateCacheDbContext`, the ctor DB bootstrap, and the
@@ -216,11 +217,12 @@ Notes:
   `IDbContextFactory<TContext>`) are keyed by our context types, so registering them in
   Jellyfin's host container cannot collide with Jellyfin's own EF registrations.
 
-Transitional bridge: `Plugin.SegmentDatabase` / `Plugin.CacheDatabase` are lazily
+Transitional bridge (**deleted**: bridge in Phase 3, remaining `Plugin` DB surface in
+Phase 4, §14): `Plugin.SegmentDatabase` / `Plugin.CacheDatabase` were lazily
 created facade instances over `IntroSkipperDbContextPathFactory(() => DbPath)`. The
-facades are stateless, so the DI instance and the bridge instance coexist safely (same
-file, same pragmas, same short-lived contexts as today). The bridge disappears in the
-end state.
+facades are stateless, so the DI instance and the bridge instance coexisted safely
+(same file, same pragmas, same short-lived contexts). The DI-registered facades are now
+the only production instances.
 
 ---
 
@@ -262,7 +264,9 @@ deliberate parity decision, recorded as risk R4.
 `Database.Migrate()` which is idempotent, and `EnsureLegacySchemaCompatibility` is
 written to be re-runnable). Tests prove the gate alone is sufficient
 (`InitializationGate_CreatesSchemaBeforeFirstQuery` runs the facade against a virgin
-file with no ctor bootstrap at all). The end state deletes the ctor bootstrap.
+file with no ctor bootstrap at all). The end state deletes the ctor bootstrap —
+**done in Phase 4 (§14)**; the facade gates (plus the gated factories of §12.3) are now
+the sole initialization path.
 
 **Rebuild and legacy repair** keep working unchanged: `RebuildDatabaseAsync(bool, ct)`
 wraps the existing context-level salvage flow, passing `_contextFactory.CreateDbContext`
@@ -520,6 +524,9 @@ database (`Migrate`/`EnsureCreated`), and WAL is a persistent database property.
 plugin databases are always EF-created (including the rebuild and cache-recreate
 paths), so no per-connection or init-time enforcement is added.
 
+**Superseded by Phase 2 (§12.2):** init-time enforcement was adopted from Theory A to
+also cover databases vacuumed or recreated by external tooling.
+
 ### 11.5 Delta summary
 
 Code: `Services/IntroSkipperDatabaseInitializer.cs` (exception-proof warm-up + logger),
@@ -529,3 +536,245 @@ Code: `Services/IntroSkipperDatabaseInitializer.cs` (exception-proof warm-up + l
 `Db/DatabaseInitializationLocks.cs` (new), interface doc updates, 5 new tests
 (15 total in `TestDatabaseFacades`). Verification: full suite 382/383 — sole failure
 remains the known environmental `TestSilenceDetection`.
+
+---
+
+## 12. Phase 2 — hybrid hardening (final-plan Plan 1, Phase 2)
+
+Implements the three hardening items adopted from the rival spikes on top of the
+Phase 1 foundation. All three are behavior-preserving: item 1 is a pure refactor,
+items 2 and 3 are additive.
+
+### 12.1 Non-commercial write decision extracted (adopted from Theory A)
+
+The two write-guarding invariants inside `UpdateTimestampAsync` — user-provided
+segments are never overwritten by analysis results, and auto-detected credits must not
+overlap the stored introduction — now live in `Db/SegmentWriteDecision.cs`, an
+`internal static` pure function with two entry points:
+
+- `RequiresStoredIntroduction(mode, isUserProvided)` — tells the caller whether the
+  overlap guard can apply, so the intro row is still fetched **only** when
+  `mode == Credits && !isUserProvided` (no regression to always-fetching).
+- `ShouldPersist(existingSegments, storedIntroduction, newSegment, mode, isUserProvided)`
+  → `Verdict { Persist, SkipUserProvidedPrecedence, SkipCreditsOverlapIntro }`. The two
+  skip reasons are distinct so the caller keeps today's logging exactly: the user-
+  precedence skip stays silent, the overlap skip logs `LogCreditsOverlapWithIntro`.
+
+`UpdateTimestampAsync` remains the only production caller; the transactional shape is
+unchanged (both reads and the decision happen between `BeginTransaction` and the write,
+inside the same transaction). The overlap comparisons keep the original strict `<` on
+both sides — segments that merely touch at a boundary do not overlap. One deliberate
+micro-difference: when an auto credits write is rejected by user precedence, the intro
+row is now fetched before the (unchanged) skip — a read-only query inside the same
+transaction, with identical writes and logs.
+
+`TestSegmentWriteDecision.cs` adds the direct decision table with no database:
+user-vs-auto × existing-user/existing-auto/none matrix (plus a mixed auto+user
+existing list), overlap guard (overlap, credits-inside-intro, touch-at-both-boundaries
+pinning strict `<`, no-overlap, user-provided bypass, no-stored-intro), non-credits
+modes unaffected, and the `RequiresStoredIntroduction` table including `Commercial`.
+The pre-existing DB-level invariant tests in `TestDatabaseFacades` are untouched and
+now double as integration coverage of the same rules through the facade.
+
+### 12.2 WAL enforced at initialization (adopted from Theory A; supersedes §11.4)
+
+Both initialization cores now run an idempotent `PRAGMA journal_mode=WAL;` — the
+segment database after legacy repair + `MigrateAsync`, the cache database after
+`EnsureSchema` (including its delete-and-recreate recovery). Rationale: WAL is a
+persistent database property, but EF only sets it when *it* creates the database file;
+a database vacuumed into rollback-journal mode or recreated by external tooling would
+otherwise stay non-WAL forever. The pragma runs inside the per-path init lock and
+inside the existing catch-all, so the never-faulting gate contract is untouched.
+
+Tests (one per database) initialize over a **pre-existing** non-WAL file — a raw
+rollback-journal SQLite file for the segment DB, an empty pre-created file for the
+cache DB (`EnsureCreated` sees an existing database and never applies EF's create-time
+WAL default) — and assert `PRAGMA journal_mode` returns `wal` afterwards. Both tests
+were negative-verified: they fail when the enforcement lines are removed.
+
+### 12.3 Gated-factory hardening (adopted from Theory C): **implemented**
+
+Decision: implement. The clean solution turned out small — two thin decorators, one
+delegate factory, and DI wiring — and it converts the ordering guarantee from a
+per-call-site discipline ("every facade method awaits the gate first") into structure:
+the `IDbContextFactory<T>` services *registered in DI* are now
+`GatedIntroSkipperDbContextFactory` / `GatedDetectionCacheDbContextFactory`, which run
+the corresponding facade's one-shot init gate before handing out a context. Even a
+future consumer that resolves the raw factory instead of a facade cannot query an
+unmigrated (or uncreated) database.
+
+Design points, mapping to the constraints:
+
+- **No self-deadlock:** the facades own initialization and create contexts *during*
+  it, so they are constructed over ungated inner factories
+  (`DelegateDbContextFactory<TContext>` closing over the same DI-registered
+  `DbContextOptions<TContext>` — path and pragma interceptor cannot diverge from the
+  gated path). Gating the facade's own context creation would deadlock the gate
+  against itself; this is called out in the registrator and on the decorator types.
+- **Sync path:** `GatedIntroSkipperDbContextFactory.CreateDbContext()` blocks via
+  `GetAwaiter().GetResult()` on the gate. Safe because Jellyfin hosts plugins on the
+  generic host with **no `SynchronizationContext`** (continuations resume on the
+  thread pool), the gate never faults (catch-all init), and it is one-shot — at worst
+  one caller blocks once for the duration of initialization. The cache gate is
+  `Lazy<bool>` (synchronous), so the cache decorator involves no sync-over-async at
+  all.
+- **Registration shape:** `AddDbContextFactory` stays (it also provides
+  `DbContextOptions<T>` and the design-time surface); the `IDbContextFactory<T>`
+  descriptors are then `Replace`d with the gated decorators. No production consumer
+  resolves the raw factories today — the facades use the ungated inners — so the gate
+  is pure defense in depth.
+- **Transitional `Plugin` bridge unaffected:** it builds its facades over the
+  path-based factories and never touches the DI registrations.
+
+Tests in `TestGatedContextFactories.cs`: concurrent first use against a virgin
+database file through the raw gated factory (mixed sync/async creation paths — also
+pins that the sync path cannot deadlock) resolves migrated/created contexts for both
+databases; plus a DI wiring test that runs the real `PluginServiceRegistrator` against
+a stub `IApplicationPaths`, asserts the resolved factories are the gated types, and
+exercises a facade operation end-to-end (proving the facade is wired to the ungated
+inner factory).
+
+**Latent bug found by the DI wiring test:** the compiled query behind
+`GetSegmentsAsync` was a `static` field, but an EF compiled query is bound to the
+model of the first context it executes against — and contexts created from the
+DI-registered options (which carry the application service provider) hold a different
+`IModel` instance than the path-constructed contexts used by the transitional
+`Plugin` bridge and the tests. In the transitional period, where the DI facade and the
+bridge facade coexist in one process, the second one to call `GetSegmentsAsync` would
+have thrown `InvalidOperationException: "executed with a different model than it was
+compiled against"`. Fixed by making the compiled query a per-facade-instance field:
+each facade creates every context from a single factory, so per instance the model is
+stable, and the hot-path compile-once property is preserved (once per facade instance
+instead of once per process).
+
+### 12.4 Delta summary
+
+New: `Db/SegmentWriteDecision.cs`, `Db/DelegateDbContextFactory.cs`,
+`Db/GatedIntroSkipperDbContextFactory.cs`, `Db/GatedDetectionCacheDbContextFactory.cs`,
+tests `TestSegmentWriteDecision.cs`, `TestGatedContextFactories.cs`.
+Modified: `Db/IntroSkipperDatabase.Segments.cs` (decision extraction; compiled query
+made per-instance, see §12.3), `Db/IntroSkipperDatabase.cs` +
+`Db/DetectionCacheDatabase.cs` (WAL enforcement), `Db/SqlitePragmas.cs` (doc),
+`PluginServiceRegistrator.cs` (gated wiring), `TestDatabaseFacades.cs` (two WAL tests;
+no existing test modified).
+Verification: `dotnet build IntroSkipper.sln` 0 warnings/errors; full suite 411/412 —
+sole failure remains the known environmental `TestSilenceDetection`.
+
+---
+
+## 13. Phase 3 — constructor threading (final-plan Plan 1, Phase 3)
+
+Purely mechanical: every manually-constructed consumer now receives
+`IIntroSkipperDatabase` by constructor threading from DI-resolved roots, and the
+transitional `Plugin` delegators are gone. Landed as three commits, each deleting the
+delegators it made call-less (grep-verified per commit).
+
+**Threaded constructors** (parameter `IIntroSkipperDatabase database` appended):
+
+- `BaseItemAnalyzerTask` — forwarded by its three DI-resolved creators
+  (`DetectSegmentsTask`, `Entrypoint`, `VisualizationController.ScanSeason`).
+- `QueueManager` — forwarded by `BaseItemAnalyzerTask`, `CleanCacheTask`,
+  `VisualizationController`. `SeasonQueueSnapshot` promoted to `public` and
+  `GetSeasonQueueSnapshotAsync` lifted onto `IIntroSkipperDatabase` (resolves R9;
+  the §2a inventory is now fully represented on the interface).
+- Analyzers `ChromaprintAnalyzer`, `ChapterAnalyzer`, `BlackFrameAnalyzer`,
+  `CreditsBlackFrameAnalyzer` — created by `BaseItemAnalyzerTask`, facade parameter
+  alongside the existing `IFFmpegService`/`IDetectionCacheService` parameters.
+- `SegmentEditorController` — DI-resolved, injected directly.
+- `RecapDetectionHelper` (static) — receives the facade as a method argument from its
+  analyzer callers.
+
+**Deleted from `Plugin`**: all remaining DB delegators — `UpdateTimestampAsync`,
+`GetTimestampsAsync`, `GetSegmentsAsync`, `DeleteItemSegmentsAsync`,
+`CleanTimestampsAsync`, `SetAnalyzerActionAsync`, `SetEpisodeIdsAsync`,
+`RemoveEpisodeIdAsync`, `CleanStaleAutomaticSegmentsAsync`, `GetEpisodeIdsAsync`,
+`GetSettleReanalysisStatesAsync`, `RecordSettleReanalysisAsync`,
+`ResetSeasonForReanalysisAsync`, `GetSeasonQueueSnapshotAsync`,
+`GetAllAnalyzerActionsAsync`, `GetAnalyzerActionAsync`, `CleanSeasonStateAsync`,
+`DeleteTimestampAsync` — plus the now-unreferenced bridge surface
+(`SegmentDatabase`/`CacheDatabase` properties, `RequireSegmentDatabase`, the bridge
+factory methods and their lazy fields). Still present for Phase 4: the ctor bootstrap
+and the `CreateDbContext`/`CreateCacheDbContext` statics (referenced by the bootstrap
+and by tests), and the pure functions `ShouldSettleReanalyze`/`MapSegmentTypeToMode`.
+
+Tests that previously exercised the delegators now construct facades over the same
+temp-file SQLite databases (`DatabaseTestHelpers.CreateSegmentDatabase`, new
+`CreateTempSegmentDatabase` for analyzer constructions that never reach the DB); no
+test was weakened.
+
+Verification per commit and at the end: `dotnet build IntroSkipper.sln` 0
+warnings/errors; full suite 411/412 — sole failure remains the known environmental
+`TestSilenceDetection`; `git grep "Plugin\.\(Get\|Set\|Update\|Delete\|Clean\|Record\|Reset\|Remove\)" IntroSkipper/`
+returns no DB-delegator call sites.
+
+---
+
+## 14. Phase 4 — kill the transitional surface (final-plan Plan 1, Phase 4)
+
+The end state of §2c is reached: `Plugin.cs` contains **zero database code** — no
+contexts, no statics, no bootstrap, no paths. Verified by
+`grep -nE "DbContext|DbSegment|DbSeasonState|CreateCacheDb" IntroSkipper/Plugin.cs`
+(zero matches) and `git grep "Plugin\.CreateDbContext\|Plugin\.CreateCacheDbContext"`
+(zero code matches, tests included).
+
+**Deleted from `Plugin`:**
+
+- The constructor DB bootstrap (both try/catch init blocks) and its two
+  `LoggerMessage` definitions (`LogDatabaseInitializationError`,
+  `LogCacheDbInitializationError`). With them gone, the `ILogger<Plugin>` constructor
+  parameter and `_logger` field had no remaining readers and were removed too; the
+  class is no longer `partial` (the partial existed only for the LoggerMessage source
+  generator). The facade init gates — eagerly driven by
+  `IntroSkipperDatabaseInitializer` and structurally enforced by the gated factories
+  (§12.3) — are the sole initialization path; `InitializationGate_CreatesSchemaBeforeFirstQuery`
+  and `TestGatedContextFactories` already pin that the gates alone are sufficient, so
+  no bootstrap-equivalent test was needed.
+- `CreateDbContext()` / `CreateCacheDbContext()` statics, and the `_dbPath` /
+  `_cacheDbPath` fields with their `DbPath` / `CacheDbPath` properties. No production
+  code read the paths (DI resolves them via `IntroSkipperDatabasePaths` +
+  `IApplicationPaths`); the only consumers were tests (below). The
+  `IntroSkipperDatabasePaths.GetPluginDirectory` call stays in the ctor because
+  `FingerprintCachePath` (a non-DB concern) still lives under the plugin data
+  directory; the facades' initialization independently ensures the directory for the
+  database files.
+
+**Helper move (zero behavior change):** the pure functions `MapSegmentTypeToMode` and
+`ShouldSettleReanalyze` moved verbatim to the new internal static class
+`IntroSkipper.Data.AnalysisHelpers` (naming per `TimeRangeHelpers`). Callers updated:
+`SegmentEditorController`, `BaseItemAnalyzerTask`, and the season-reanalysis tests.
+
+**Test migration** (no assertion weakened; test count unchanged at 412):
+
+- `DatabaseTestHelpers` lost the `CreatePluginBound*` lazy-`Plugin.Instance`-path
+  variants and gained explicit-path equivalents: `CreateCacheService(dbPath)`,
+  `CreateTempCacheService()`, `CreateTempCacheDbPath()`. Facades/services in tests are
+  now always bound to explicit temp-file paths — the same pattern the facade tests
+  used since Phase 1.
+- `EntrypointTestHelpers.PluginInstanceScope` no longer reflects `_cacheDbPath` onto
+  the uninitialized `Plugin`; it still owns/creates the cache DB file and exposes
+  `CacheDbPath`, and still sets `FingerprintCachePath`/configuration (the
+  configuration-scoped reflection use, which stays by design). `CreateEntrypoint`
+  takes an optional `cacheDbPath` so entrypoint tests bind the cache service to the
+  scope's database explicitly.
+- Every test-side `Plugin.CreateCacheDbContext()` became
+  `new DetectionCacheDbContext(<explicit path>)`
+  (`TestCacheOperations`, `TestEntrypointEvents`, `TestVisualizationController`,
+  `TestSeasonReanalysis`), and controller tests
+  (`TestSkipIntroController`, `TestVisualizationController`) construct their facades
+  over the test's `dbPath`/`scope.CacheDbPath` directly instead of routing through
+  `Plugin.Instance`.
+- Reflection writes of `_dbPath`/`_logger` onto `Plugin` (vestigial from the
+  delegator era — the facades under test already receive their paths explicitly) were
+  removed, along with `PluginInstanceScope` wrappers that existed *only* to carry
+  `_dbPath`. Scopes that provide configuration/`FingerprintCachePath`/library-manager
+  state (e.g. the `QueueManager` and controller tests) remain.
+
+**End-state confirmation:** the §2c checklist is complete — facades own all DB access
+and lifecycle; manually-constructed consumers receive `IIntroSkipperDatabase` by
+constructor threading (§13); `Plugin.Instance` survives only for configuration/paths
+(separate follow-up per the final plan). The transition-state notes in §2c, §3, and §4
+are updated above.
+
+Verification: `dotnet build IntroSkipper.sln` 0 warnings/errors; full suite 411/412 —
+sole failure remains the known environmental `TestSilenceDetection`; acceptance greps
+above return zero matches.

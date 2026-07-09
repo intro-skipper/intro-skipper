@@ -440,6 +440,72 @@ public sealed class TestDatabaseFacades
         }
     }
 
+    [Fact]
+    public async Task Initialization_EnforcesWalJournalMode_OnSegmentDatabase()
+    {
+        var dbPath = CreateTempDbPath();
+        try
+        {
+            // Simulate a database created or rewritten by external tooling: a valid
+            // SQLite file in the default rollback-journal mode. EF only switches to WAL
+            // when *it* creates the database file, so initialization must enforce it.
+            await using (var connection = new SqliteConnection($"Data Source={dbPath}"))
+            {
+                await connection.OpenAsync();
+                await using var command = connection.CreateCommand();
+                command.CommandText = "CREATE TABLE \"ExternalToolMarker\" (\"Id\" INTEGER PRIMARY KEY)";
+                await command.ExecuteNonQueryAsync();
+            }
+
+            Assert.Equal("delete", GetJournalMode(dbPath));
+
+            var database = DatabaseTestHelpers.CreateSegmentDatabase(dbPath);
+            await database.InitializeAsync();
+
+            Assert.Equal("wal", GetJournalMode(dbPath));
+        }
+        finally
+        {
+            DeleteSqliteFiles(dbPath);
+        }
+    }
+
+    [Fact]
+    public void Initialization_EnforcesWalJournalMode_OnCacheDatabase()
+    {
+        var dbPath = CreateTempDbPath();
+        try
+        {
+            // A pre-existing empty database file: EnsureCreated sees an existing
+            // database, creates only the tables, and never applies EF's create-time
+            // WAL default — initialization must enforce it.
+            using (var connection = new SqliteConnection($"Data Source={dbPath}"))
+            {
+                connection.Open();
+            }
+
+            Assert.Equal("delete", GetJournalMode(dbPath));
+
+            var cacheDatabase = DatabaseTestHelpers.CreateCacheDatabase(dbPath);
+            cacheDatabase.Initialize();
+
+            Assert.Equal("wal", GetJournalMode(dbPath));
+        }
+        finally
+        {
+            DeleteSqliteFiles(dbPath);
+        }
+    }
+
+    private static string GetJournalMode(string dbPath)
+    {
+        using var connection = new SqliteConnection($"Data Source={dbPath}");
+        connection.Open();
+        using var command = connection.CreateCommand();
+        command.CommandText = "PRAGMA journal_mode;";
+        return (string)command.ExecuteScalar()!;
+    }
+
     private static string CreateTempDbPath()
     {
         var tempDir = Path.Join(Path.GetTempPath(), "IntroSkipper.Tests", "database-facades");

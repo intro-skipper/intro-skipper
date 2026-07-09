@@ -9,6 +9,7 @@ using System.Globalization;
 using System.Text.RegularExpressions;
 using IntroSkipper.Configuration;
 using IntroSkipper.Data;
+using IntroSkipper.Db;
 using IntroSkipper.FFmpeg;
 using MediaBrowser.Model.Entities;
 using Microsoft.Extensions.Logging;
@@ -23,10 +24,12 @@ namespace IntroSkipper.Analyzers;
 /// </remarks>
 /// <param name="logger">Logger.</param>
 /// <param name="ffmpegService">FFmpeg service.</param>
-public partial class ChapterAnalyzer(ILogger<ChapterAnalyzer> logger, IFFmpegService ffmpegService) : IMediaFileAnalyzer
+/// <param name="database">Segment database facade.</param>
+public partial class ChapterAnalyzer(ILogger<ChapterAnalyzer> logger, IFFmpegService ffmpegService, IIntroSkipperDatabase database) : IMediaFileAnalyzer
 {
     private readonly ILogger<ChapterAnalyzer> _logger = logger;
     private readonly IFFmpegService _ffmpegService = ffmpegService;
+    private readonly IIntroSkipperDatabase _database = database;
     private readonly PluginConfiguration _config = Plugin.Instance?.Configuration ?? new PluginConfiguration();
     private static readonly ImmutableHashSet<string> _ambiguousSponsorBlockChapterLabels =
         ImmutableHashSet.Create(
@@ -123,7 +126,7 @@ public partial class ChapterAnalyzer(ILogger<ChapterAnalyzer> logger, IFFmpegSer
             skipRange = await timeAdjustmentHelper.AdjustIntroTimesAsync(episode, skipRange, false, cancellationToken).ConfigureAwait(false);
 
             episode.SetAnalyzed(mode, EpisodeState.Analyzed);
-            await Plugin.Instance!.UpdateTimestampAsync(skipRange, mode, configHash: episode.AnalysisConfigHash, cancellationToken: cancellationToken).ConfigureAwait(false);
+            await _database.UpdateTimestampAsync(skipRange, mode, configHash: episode.AnalysisConfigHash, cancellationToken: cancellationToken).ConfigureAwait(false);
         }
 
         return analysisQueue;
@@ -221,6 +224,7 @@ public partial class ChapterAnalyzer(ILogger<ChapterAnalyzer> logger, IFFmpegSer
     internal async Task<Segment?> DetectRecapUsingBlackFramesAsync(QueuedEpisode episode, CancellationToken cancellationToken)
     {
         var maxRecapBoundary = await RecapDetectionHelper.GetMaximumBoundaryAsync(
+            _database,
             episode,
             _config,
             cancellationToken).ConfigureAwait(false);

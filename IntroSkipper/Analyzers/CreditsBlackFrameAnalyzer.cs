@@ -6,6 +6,7 @@
 using IntroSkipper.Analyzers.Credits;
 using IntroSkipper.Configuration;
 using IntroSkipper.Data;
+using IntroSkipper.Db;
 using IntroSkipper.FFmpeg;
 using Microsoft.Extensions.Logging;
 
@@ -20,11 +21,13 @@ namespace IntroSkipper.Analyzers;
 /// </remarks>
 /// <param name="logger">Logger for the analyzer.</param>
 /// <param name="ffmpegService">FFmpeg service.</param>
-public sealed partial class CreditsBlackFrameAnalyzer(ILogger<CreditsBlackFrameAnalyzer> logger, IFFmpegService ffmpegService) : IMediaFileAnalyzer
+/// <param name="database">Segment database facade.</param>
+public sealed partial class CreditsBlackFrameAnalyzer(ILogger<CreditsBlackFrameAnalyzer> logger, IFFmpegService ffmpegService, IIntroSkipperDatabase database) : IMediaFileAnalyzer
 {
     private readonly PluginConfiguration _config = Plugin.Instance?.Configuration ?? new PluginConfiguration();
     private readonly ILogger<CreditsBlackFrameAnalyzer> _logger = logger ?? throw new ArgumentNullException(nameof(logger));
     private readonly IFFmpegService _ffmpegService = ffmpegService;
+    private readonly IIntroSkipperDatabase _database = database;
 
     /// <inheritdoc />
     public async Task<IReadOnlyList<QueuedEpisode>> AnalyzeMediaFiles(
@@ -53,7 +56,6 @@ public sealed partial class CreditsBlackFrameAnalyzer(ILogger<CreditsBlackFrameA
         var minimumPercentage = _config.BlackFrameMinimumPercentage;
         var threshold = _config.BlackFrameThreshold;
         var minimumDuration = _config.MinimumCreditsDuration;
-        var plugin = Plugin.Instance ?? throw new InvalidOperationException("Plugin instance is null");
 
         foreach (var episode in unanalyzedEpisodes)
         {
@@ -73,7 +75,7 @@ public sealed partial class CreditsBlackFrameAnalyzer(ILogger<CreditsBlackFrameA
                 LogFoundCredits(episode.Name, credit.Start);
 
                 episode.SetAnalyzed(mode, EpisodeState.Analyzed);
-                await plugin.UpdateTimestampAsync(credit, mode, configHash: episode.AnalysisConfigHash, cancellationToken: cancellationToken).ConfigureAwait(false);
+                await _database.UpdateTimestampAsync(credit, mode, configHash: episode.AnalysisConfigHash, cancellationToken: cancellationToken).ConfigureAwait(false);
             }
             catch (OperationCanceledException)
             {

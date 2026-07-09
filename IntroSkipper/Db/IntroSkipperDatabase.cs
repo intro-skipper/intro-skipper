@@ -82,6 +82,11 @@ public sealed partial class IntroSkipperDatabase : IIntroSkipperDatabase
                 // initialization failure.
                 db.EnsureLegacySchemaCompatibility();
                 await db.ApplyMigrationsAsync().ConfigureAwait(false);
+
+                // WAL is a persistent database property, but EF only sets it when *it*
+                // creates the database file. Enforce it idempotently so databases
+                // vacuumed or recreated by external tooling are covered as well.
+                await db.Database.ExecuteSqlRawAsync("PRAGMA journal_mode=WAL;").ConfigureAwait(false);
             }
             finally
             {
