@@ -149,24 +149,12 @@ public sealed partial class DetectionCacheDatabase : IDetectionCacheDatabase
         {
             using var db = _contextFactory.CreateDbContext();
 
-            // Serialize with any sibling facade instance targeting the same file (DI
-            // singleton + transitional Plugin bridge) so EnsureSchema's delete-and-recreate
-            // recovery cannot interleave with a concurrent EnsureCreated.
-            var initializationLock = DatabaseInitializationLocks.For(db);
-            initializationLock.Wait();
-            try
-            {
-                db.EnsureSchema();
+            db.EnsureSchema();
 
-                // WAL is a persistent database property, but EF only sets it when *it*
-                // creates the database file. Enforce it idempotently so databases
-                // vacuumed or recreated by external tooling are covered as well.
-                db.Database.ExecuteSqlRaw("PRAGMA journal_mode=WAL;");
-            }
-            finally
-            {
-                initializationLock.Release();
-            }
+            // WAL is a persistent database property, but EF only sets it when *it*
+            // creates the database file. Enforce it idempotently so databases
+            // vacuumed or recreated by external tooling are covered as well.
+            db.Database.ExecuteSqlRaw("PRAGMA journal_mode=WAL;");
         }
         catch (Exception ex)
         {

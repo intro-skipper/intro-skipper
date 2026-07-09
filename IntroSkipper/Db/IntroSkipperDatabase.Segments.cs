@@ -17,10 +17,10 @@ public sealed partial class IntroSkipperDatabase
     /// facade instance. Deliberately an instance field, not static: a compiled query is
     /// bound to the model of the first context it executes against, and facade instances
     /// can be constructed over factories with distinct model instances (the DI-registered
-    /// options carry the application service provider, the transitional <c>Plugin</c>
-    /// bridge and tests use path-based contexts). A process-wide static delegate would
-    /// throw "executed with a different model than it was compiled against" for every
-    /// facade after the first.
+    /// options carry the application service provider, while tests construct several
+    /// facades over path-based contexts). A process-wide static delegate would throw
+    /// "executed with a different model than it was compiled against" for every facade
+    /// after the first.
     /// </summary>
     private readonly Func<IntroSkipperDbContext, Guid, IAsyncEnumerable<DbSegment>> _segmentsForItemQuery =
         EF.CompileAsyncQuery((IntroSkipperDbContext context, Guid itemId) =>

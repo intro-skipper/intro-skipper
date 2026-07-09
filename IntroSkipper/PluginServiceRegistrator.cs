@@ -16,7 +16,6 @@ using MediaBrowser.Controller.Plugins;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Logging;
 
 namespace IntroSkipper
@@ -40,31 +39,14 @@ namespace IntroSkipper
             serviceCollection.AddDbContextFactory<DetectionCacheDbContext>((serviceProvider, options) =>
                 options.UseSqlite($"Data Source={IntroSkipperDatabasePaths.GetDetectionCacheDatabasePath(serviceProvider.GetRequiredService<IApplicationPaths>())}")
                     .AddInterceptors(_pragmaInterceptor));
-            // The facades own database initialization, so they are constructed over
-            // ungated inner factories: their initialization cores create contexts, and
-            // handing them the gated factories below would deadlock the init gate
-            // against itself.
+            // The facades own database initialization via their internal one-shot
+            // gates; every consumer goes through a facade.
             serviceCollection.AddSingleton<IIntroSkipperDatabase>(serviceProvider => new IntroSkipperDatabase(
-                CreateUngatedSegmentContextFactory(serviceProvider),
+                serviceProvider.GetRequiredService<IDbContextFactory<IntroSkipperDbContext>>(),
                 serviceProvider.GetRequiredService<ILogger<IntroSkipperDatabase>>()));
             serviceCollection.AddSingleton<IDetectionCacheDatabase>(serviceProvider => new DetectionCacheDatabase(
-                CreateUngatedCacheContextFactory(serviceProvider),
+                serviceProvider.GetRequiredService<IDbContextFactory<DetectionCacheDbContext>>(),
                 serviceProvider.GetRequiredService<ILogger<DetectionCacheDatabase>>()));
-
-            // Structural ordering gate (defense in depth): the *registered* factories are
-            // decorators that run the corresponding facade's one-shot initialization gate
-            // before handing out a context, so even a future consumer that resolves the
-            // raw factory instead of a facade cannot query an unmigrated database. No
-            // production code resolves these today — every consumer goes through the
-            // facades, which use the ungated inner factories above.
-            serviceCollection.Replace(ServiceDescriptor.Singleton<IDbContextFactory<IntroSkipperDbContext>>(serviceProvider =>
-                new GatedIntroSkipperDbContextFactory(
-                    serviceProvider.GetRequiredService<IIntroSkipperDatabase>(),
-                    CreateUngatedSegmentContextFactory(serviceProvider))));
-            serviceCollection.Replace(ServiceDescriptor.Singleton<IDbContextFactory<DetectionCacheDbContext>>(serviceProvider =>
-                new GatedDetectionCacheDbContextFactory(
-                    serviceProvider.GetRequiredService<IDetectionCacheDatabase>(),
-                    CreateUngatedCacheContextFactory(serviceProvider))));
 
             // Registered before Entrypoint so migrations are warmed as the first hosted
             // service; the facades' internal gate still guarantees ordering for any
@@ -82,18 +64,6 @@ namespace IntroSkipper
             {
                 options.Conventions.Add(new MediaSegmentsFilterConvention());
             });
-        }
-
-        private static DelegateDbContextFactory<IntroSkipperDbContext> CreateUngatedSegmentContextFactory(IServiceProvider serviceProvider)
-        {
-            var options = serviceProvider.GetRequiredService<DbContextOptions<IntroSkipperDbContext>>();
-            return new DelegateDbContextFactory<IntroSkipperDbContext>(() => new IntroSkipperDbContext(options));
-        }
-
-        private static DelegateDbContextFactory<DetectionCacheDbContext> CreateUngatedCacheContextFactory(IServiceProvider serviceProvider)
-        {
-            var options = serviceProvider.GetRequiredService<DbContextOptions<DetectionCacheDbContext>>();
-            return new DelegateDbContextFactory<DetectionCacheDbContext>(() => new DetectionCacheDbContext(options));
         }
     }
 }

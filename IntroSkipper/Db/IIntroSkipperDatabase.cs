@@ -139,14 +139,6 @@ public interface IIntroSkipperDatabase
     Task RemoveEpisodeIdAsync(Guid seasonId, AnalysisMode mode, Guid episodeId, CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// Returns the analyzed episode IDs for a season, keyed by analysis mode.
-    /// </summary>
-    /// <param name="seasonId">Season ID.</param>
-    /// <param name="cancellationToken">Cancellation token.</param>
-    /// <returns>Analyzed episode IDs keyed by analysis mode.</returns>
-    Task<IReadOnlyDictionary<AnalysisMode, IEnumerable<Guid>>> GetEpisodeIdsAsync(Guid seasonId, CancellationToken cancellationToken = default);
-
-    /// <summary>
     /// Returns the settled-season reanalysis state for all modes in a season.
     /// </summary>
     /// <param name="seasonId">Season ID.</param>

@@ -9,6 +9,7 @@ using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.ChangeTracking;
 using Microsoft.EntityFrameworkCore.Storage;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace IntroSkipper.Db;
 
@@ -50,6 +51,13 @@ public class IntroSkipperDbContext : DbContext
     /// Initializes a new instance of the <see cref="IntroSkipperDbContext"/> class.
     /// </summary>
     /// <param name="options">The options.</param>
+    /// <remarks>
+    /// <see cref="ActivatorUtilitiesConstructorAttribute"/> disambiguates for the DI
+    /// factory registered by <c>AddDbContextFactory</c>: with two public constructors,
+    /// EF's factory source falls back to <c>ActivatorUtilities</c>, which requires a
+    /// single unambiguous constructor.
+    /// </remarks>
+    [ActivatorUtilitiesConstructor]
     public IntroSkipperDbContext(DbContextOptions<IntroSkipperDbContext> options) : base(options)
     {
         _dbPath = null;

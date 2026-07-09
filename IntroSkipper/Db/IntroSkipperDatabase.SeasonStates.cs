@@ -91,16 +91,6 @@ public sealed partial class IntroSkipperDatabase
     }
 
     /// <inheritdoc/>
-    public async Task<IReadOnlyDictionary<AnalysisMode, IEnumerable<Guid>>> GetEpisodeIdsAsync(Guid seasonId, CancellationToken cancellationToken = default)
-    {
-        await EnsureInitializedAsync().ConfigureAwait(false);
-        using var db = _contextFactory.CreateDbContext();
-        return await db.DbSeasonState.Where(s => s.SeasonId == seasonId)
-            .ToDictionaryAsync(s => s.Type, s => s.EpisodeIds, cancellationToken)
-            .ConfigureAwait(false);
-    }
-
-    /// <inheritdoc/>
     public async Task<IReadOnlyDictionary<AnalysisMode, (AnalyzerAction Action, IReadOnlySet<Guid> SettledReanalysisEpisodeIds)>> GetSettleReanalysisStatesAsync(
         Guid seasonId,
         CancellationToken cancellationToken = default)

@@ -145,7 +145,14 @@ public class TestAudioFingerprinting
         var range = new TimeRange(0, 60);
         var actual = await CreateFFmpegService().DetectSilenceAsync(clip, range, AnalysisMode.Introduction);
 
-        Assert.Equal(expected, actual);
+        // ffmpeg's silencedetect timestamps vary slightly between versions (e.g. 6.1.1
+        // reports 44.631 where 7.x reports 44.631042), so compare with a tolerance.
+        Assert.Equal(expected.Length, actual.Length);
+        for (var i = 0; i < expected.Length; i++)
+        {
+            Assert.Equal(expected[i].Start, actual[i].Start, 0.01);
+            Assert.Equal(expected[i].End, actual[i].End, 0.01);
+        }
     }
 
     private static QueuedEpisode QueueEpisode(string path)

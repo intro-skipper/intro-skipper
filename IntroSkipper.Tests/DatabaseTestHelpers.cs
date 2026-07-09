@@ -18,7 +18,7 @@ using Microsoft.Extensions.Logging.Abstractions;
 internal static class DatabaseTestHelpers
 {
     internal static IntroSkipperDatabase CreateSegmentDatabase(string dbPath)
-        => new(new IntroSkipperDbContextPathFactory(() => dbPath), NullLogger.Instance);
+        => new(new TestDbContextFactory<IntroSkipperDbContext>(() => new IntroSkipperDbContext(dbPath)), NullLogger.Instance);
 
     /// <summary>
     /// Creates a segment database facade over a fresh temp-file path, for consumers
@@ -30,7 +30,7 @@ internal static class DatabaseTestHelpers
         => CreateSegmentDatabase(CreateTempDbPath(Guid.NewGuid().ToString("N") + ".db"));
 
     internal static DetectionCacheDatabase CreateCacheDatabase(string dbPath)
-        => new(new DetectionCacheDbContextPathFactory(() => dbPath), NullLogger.Instance);
+        => new(new TestDbContextFactory<DetectionCacheDbContext>(() => new DetectionCacheDbContext(dbPath)), NullLogger.Instance);
 
     internal static DetectionCacheService CreateCacheService(string dbPath)
         => new(NullLogger<DetectionCacheService>.Instance, CreateCacheDatabase(dbPath));

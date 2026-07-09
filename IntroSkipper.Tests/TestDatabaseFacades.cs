@@ -123,7 +123,8 @@ public sealed class TestDatabaseFacades
     {
         // EF Core 10 translates parameterized collections on SQLite to discrete padded
         // parameters, and SQLite rejects statements above 32,766 variables, so this
-        // verifies the facade's chunked delete path above that limit.
+        // verifies the facade binds the retained ID set as a single EF.Parameter JSON
+        // parameter (json_each) above that limit.
         const int LargeEpisodeCount = 33_000;
 
         var dbPath = CreateTempDbPath();
@@ -253,6 +254,7 @@ public sealed class TestDatabaseFacades
         var dbPath = CreateTempDbPath();
         var retainedSeasonId = Guid.NewGuid();
         var staleSeasonId = Guid.NewGuid();
+        var retainedEpisodeId = Guid.NewGuid();
         var retainedSeasonIds = Enumerable.Range(0, LargeSeasonCount - 1)
             .Select(_ => Guid.NewGuid())
             .Append(retainedSeasonId)
@@ -261,13 +263,17 @@ public sealed class TestDatabaseFacades
         try
         {
             var database = DatabaseTestHelpers.CreateSegmentDatabase(dbPath);
-            await database.SetEpisodeIdsAsync(retainedSeasonId, AnalysisMode.Introduction, [Guid.NewGuid()]);
+            await database.SetEpisodeIdsAsync(retainedSeasonId, AnalysisMode.Introduction, [retainedEpisodeId]);
             await database.SetEpisodeIdsAsync(staleSeasonId, AnalysisMode.Introduction, [Guid.NewGuid()]);
 
             await database.CleanSeasonStateAsync(retainedSeasonIds);
 
-            Assert.NotEmpty(await database.GetEpisodeIdsAsync(retainedSeasonId));
-            Assert.Empty(await database.GetEpisodeIdsAsync(staleSeasonId));
+            await using var db = new IntroSkipperDbContext(dbPath);
+            var retainedState = await db.DbSeasonState
+                .AsNoTracking()
+                .SingleAsync(s => s.SeasonId == retainedSeasonId);
+            Assert.Equal([retainedEpisodeId], retainedState.EpisodeIds);
+            Assert.False(await db.DbSeasonState.AnyAsync(s => s.SeasonId == staleSeasonId));
         }
         finally
         {
@@ -333,8 +339,11 @@ public sealed class TestDatabaseFacades
 
             Assert.Empty(await database.GetSegmentsAsync(automaticEpisodeId));
             Assert.Single(await database.GetSegmentsAsync(userProvidedEpisodeId));
-            var episodeIdsByMode = await database.GetEpisodeIdsAsync(seasonId);
-            Assert.Empty(episodeIdsByMode[AnalysisMode.Introduction]);
+            await using var db = new IntroSkipperDbContext(dbPath);
+            var seasonState = await db.DbSeasonState
+                .AsNoTracking()
+                .SingleAsync(s => s.SeasonId == seasonId && s.Type == AnalysisMode.Introduction);
+            Assert.Empty(seasonState.EpisodeIds);
         }
         finally
         {
@@ -372,11 +381,11 @@ public sealed class TestDatabaseFacades
     [Fact]
     public async Task ConcurrentFacadeInstances_InitializeLegacyDatabaseWithoutErrors()
     {
-        // Transitional reality: the DI singleton and the Plugin bridge are two facade
-        // instances with independent one-shot gates over the same file. Both may run
-        // legacy repair + migrations concurrently on first use. The process-wide
-        // per-path initialization lock serializes them; this pins that both succeed
-        // and the repaired schema is correct.
+        // Tests construct sibling facade instances with independent one-shot gates over
+        // the same file, so both may run legacy repair + migrations concurrently on
+        // first use. EnsureLegacySchemaCompatibility is existence-check-guarded and
+        // transactional (BEGIN IMMEDIATE) and MigrateAsync takes EF's migration lock;
+        // this pins that both succeed and the repaired schema is correct.
         var dbPath = CreateTempDbPath();
         var seasonId = Guid.NewGuid();
         var episodeId = Guid.NewGuid();

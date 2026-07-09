@@ -68,30 +68,16 @@ public sealed partial class IntroSkipperDatabase : IIntroSkipperDatabase
         {
             using var db = _contextFactory.CreateDbContext();
 
-            // Serialize initialization process-wide per database file: during the
-            // transitional period the DI singleton and the Plugin bridge each own a
-            // one-shot gate, and this keeps their repair/migration work strictly
-            // sequential (see DatabaseInitializationLocks for why the underlying
-            // operations are empirically race-free even without it).
-            var initializationLock = DatabaseInitializationLocks.For(db);
-            await initializationLock.WaitAsync().ConfigureAwait(false);
-            try
-            {
-                // Legacy databases may be missing migration history or columns that EF migrations
-                // expect. Normalize those schemas first so recovery does not log a false
-                // initialization failure.
-                db.EnsureLegacySchemaCompatibility();
-                await db.ApplyMigrationsAsync().ConfigureAwait(false);
+            // Legacy databases may be missing migration history or columns that EF migrations
+            // expect. Normalize those schemas first so recovery does not log a false
+            // initialization failure.
+            db.EnsureLegacySchemaCompatibility();
+            await db.ApplyMigrationsAsync().ConfigureAwait(false);
 
-                // WAL is a persistent database property, but EF only sets it when *it*
-                // creates the database file. Enforce it idempotently so databases
-                // vacuumed or recreated by external tooling are covered as well.
-                await db.Database.ExecuteSqlRawAsync("PRAGMA journal_mode=WAL;").ConfigureAwait(false);
-            }
-            finally
-            {
-                initializationLock.Release();
-            }
+            // WAL is a persistent database property, but EF only sets it when *it*
+            // creates the database file. Enforce it idempotently so databases
+            // vacuumed or recreated by external tooling are covered as well.
+            await db.Database.ExecuteSqlRawAsync("PRAGMA journal_mode=WAL;").ConfigureAwait(false);
         }
         catch (Exception ex)
         {
