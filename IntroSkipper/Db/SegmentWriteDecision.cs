@@ -1,6 +1,7 @@
 // SPDX-FileCopyrightText: 2026 Intro-Skipper contributors <intro-skipper.org>
 // SPDX-License-Identifier: GPL-3.0-only
 
+using System.Diagnostics;
 using IntroSkipper.Data;
 
 namespace IntroSkipper.Db;
@@ -68,6 +69,10 @@ internal static class SegmentWriteDecision
         AnalysisMode mode,
         bool isUserProvided)
     {
+        Debug.Assert(
+            mode != AnalysisMode.Commercial,
+            "ShouldPersist must not be called for AnalysisMode.Commercial; commercial writes append and never take this path.");
+
         // Do not overwrite a user-provided segment with an analysis result.
         if (!isUserProvided && existingSegments.Any(s => s.IsUserProvided))
         {

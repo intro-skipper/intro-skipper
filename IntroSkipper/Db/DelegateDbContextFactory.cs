@@ -30,4 +30,12 @@ internal sealed class DelegateDbContextFactory<TContext> : IDbContextFactory<TCo
 
     /// <inheritdoc/>
     public TContext CreateDbContext() => _createContext();
+
+    /// <inheritdoc/>
+    /// <remarks>
+    /// Explicit override of the default interface method for clarity: context creation
+    /// is purely synchronous here, so the async surface completes synchronously.
+    /// </remarks>
+    public Task<TContext> CreateDbContextAsync(CancellationToken cancellationToken = default)
+        => Task.FromResult(_createContext());
 }
