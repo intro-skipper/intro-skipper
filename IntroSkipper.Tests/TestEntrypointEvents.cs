@@ -74,19 +74,20 @@ public sealed class TestEntrypointEvents
     public void OnItemRemoved_DeletesCache_ForEpisode()
     {
         var cacheDir = EntrypointTestHelpers.CreateTempCacheDir();
+        var cacheDbPath = DatabaseTestHelpers.CreateTempCacheDbPath();
         var episodeId = Guid.NewGuid();
         var otherId = Guid.NewGuid();
 
-        var entrypoint = EntrypointTestHelpers.CreateEntrypoint(autoDetectIntros: true);
+        var entrypoint = EntrypointTestHelpers.CreateEntrypoint(autoDetectIntros: true, cacheDbPath);
 
         var episode = new Episode();
         EntrypointTestHelpers.SetPropertyOrField(episode, "Id", episodeId);
         EntrypointTestHelpers.EnsureNonVirtual(episode);
 
         var args = EntrypointTestHelpers.CreateItemChangeEventArgs(item: episode, updateReason: 0);
-        using (new EntrypointTestHelpers.PluginInstanceScope(cacheDir))
+        using (new EntrypointTestHelpers.PluginInstanceScope(cacheDir, cacheDbPath))
         {
-            using (var db = Plugin.CreateCacheDbContext())
+            using (var db = new DetectionCacheDbContext(cacheDbPath))
             {
                 db.DetectionCache.Add(new DbDetectionCache(
                     episodeId,
@@ -110,7 +111,7 @@ public sealed class TestEntrypointEvents
 
             EntrypointTestHelpers.InvokePrivate(entrypoint, "OnItemRemoved", args);
 
-            using var verificationDb = Plugin.CreateCacheDbContext();
+            using var verificationDb = new DetectionCacheDbContext(cacheDbPath);
             Assert.False(verificationDb.DetectionCache.Any(e => e.ItemId == episodeId));
             Assert.True(verificationDb.DetectionCache.Any(e => e.ItemId == otherId));
         }
@@ -172,8 +173,9 @@ public sealed class TestFingerprintCacheDeletionOnRemove
         var otherId = Guid.NewGuid();
 
         var cacheDir = EntrypointTestHelpers.CreateTempCacheDir();
+        var cacheDbPath = DatabaseTestHelpers.CreateTempCacheDbPath();
 
-        var entrypoint = EntrypointTestHelpers.CreateEntrypoint(autoDetectIntros: true);
+        var entrypoint = EntrypointTestHelpers.CreateEntrypoint(autoDetectIntros: true, cacheDbPath);
 
         var movie = new Movie();
         EntrypointTestHelpers.SetPropertyOrField(movie, "Id", removedId);
@@ -182,9 +184,9 @@ public sealed class TestFingerprintCacheDeletionOnRemove
         Assert.Equal(removedId, movie.Id);
 
         var args = EntrypointTestHelpers.CreateItemChangeEventArgs(item: movie, updateReason: 0);
-        using (new EntrypointTestHelpers.PluginInstanceScope(cacheDir))
+        using (new EntrypointTestHelpers.PluginInstanceScope(cacheDir, cacheDbPath))
         {
-            using (var db = Plugin.CreateCacheDbContext())
+            using (var db = new DetectionCacheDbContext(cacheDbPath))
             {
                 db.DetectionCache.Add(new DbDetectionCache(
                     removedId,
@@ -208,7 +210,7 @@ public sealed class TestFingerprintCacheDeletionOnRemove
 
             EntrypointTestHelpers.InvokePrivate(entrypoint, "OnItemRemoved", args);
 
-            using var verificationDb = Plugin.CreateCacheDbContext();
+            using var verificationDb = new DetectionCacheDbContext(cacheDbPath);
             Assert.False(verificationDb.DetectionCache.Any(e => e.ItemId == removedId));
             Assert.True(verificationDb.DetectionCache.Any(e => e.ItemId == otherId));
         }
@@ -219,8 +221,9 @@ public sealed class TestFingerprintCacheDeletionOnRemove
     {
         var removedId = Guid.NewGuid();
         var cacheDir = EntrypointTestHelpers.CreateTempCacheDir();
+        var cacheDbPath = DatabaseTestHelpers.CreateTempCacheDbPath();
 
-        var entrypoint = EntrypointTestHelpers.CreateEntrypoint(autoDetectIntros: false);
+        var entrypoint = EntrypointTestHelpers.CreateEntrypoint(autoDetectIntros: false, cacheDbPath);
 
         var movie = new Movie();
         EntrypointTestHelpers.SetPropertyOrField(movie, "Id", removedId);
@@ -229,9 +232,9 @@ public sealed class TestFingerprintCacheDeletionOnRemove
         Assert.Equal(removedId, movie.Id);
 
         var args = EntrypointTestHelpers.CreateItemChangeEventArgs(item: movie, updateReason: 0);
-        using (new EntrypointTestHelpers.PluginInstanceScope(cacheDir))
+        using (new EntrypointTestHelpers.PluginInstanceScope(cacheDir, cacheDbPath))
         {
-            using (var db = Plugin.CreateCacheDbContext())
+            using (var db = new DetectionCacheDbContext(cacheDbPath))
             {
                 db.DetectionCache.Add(new DbDetectionCache(
                     removedId,
@@ -243,7 +246,7 @@ public sealed class TestFingerprintCacheDeletionOnRemove
 
             EntrypointTestHelpers.InvokePrivate(entrypoint, "OnItemRemoved", args);
 
-            using var verificationDb = Plugin.CreateCacheDbContext();
+            using var verificationDb = new DetectionCacheDbContext(cacheDbPath);
             Assert.True(verificationDb.DetectionCache.Any(e => e.ItemId == removedId));
         }
     }
@@ -254,8 +257,9 @@ public sealed class TestFingerprintCacheDeletionOnRemove
         var removedId = Guid.Empty;
 
         var cacheDir = EntrypointTestHelpers.CreateTempCacheDir();
+        var cacheDbPath = DatabaseTestHelpers.CreateTempCacheDbPath();
 
-        var entrypoint = EntrypointTestHelpers.CreateEntrypoint(autoDetectIntros: true);
+        var entrypoint = EntrypointTestHelpers.CreateEntrypoint(autoDetectIntros: true, cacheDbPath);
 
         var movie = new Movie();
         EntrypointTestHelpers.SetPropertyOrField(movie, "Id", removedId);
@@ -264,9 +268,9 @@ public sealed class TestFingerprintCacheDeletionOnRemove
         Assert.Equal(removedId, movie.Id);
 
         var args = EntrypointTestHelpers.CreateItemChangeEventArgs(item: movie, updateReason: 0);
-        using (new EntrypointTestHelpers.PluginInstanceScope(cacheDir))
+        using (new EntrypointTestHelpers.PluginInstanceScope(cacheDir, cacheDbPath))
         {
-            using (var db = Plugin.CreateCacheDbContext())
+            using (var db = new DetectionCacheDbContext(cacheDbPath))
             {
                 db.DetectionCache.Add(new DbDetectionCache(
                     removedId,
@@ -278,7 +282,7 @@ public sealed class TestFingerprintCacheDeletionOnRemove
 
             EntrypointTestHelpers.InvokePrivate(entrypoint, "OnItemRemoved", args);
 
-            using var verificationDb = Plugin.CreateCacheDbContext();
+            using var verificationDb = new DetectionCacheDbContext(cacheDbPath);
             Assert.True(verificationDb.DetectionCache.Any(e => e.ItemId == removedId));
         }
     }

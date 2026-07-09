@@ -253,7 +253,7 @@ public class TestChapterAnalyzer
         string? expressionOverride = null,
         bool enableSponsorBlockChapterDetection = true)
     {
-        var analyzer = new ChapterAnalyzer(NullLogger<ChapterAnalyzer>.Instance, null!);
+        var analyzer = new ChapterAnalyzer(NullLogger<ChapterAnalyzer>.Instance, null!, DatabaseTestHelpers.CreateTempSegmentDatabase());
         var chapters = CreateChapters(chapterName, mode);
 
         var config = new Configuration.PluginConfiguration();

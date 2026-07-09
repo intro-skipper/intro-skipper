@@ -236,16 +236,8 @@ public sealed partial class IntroSkipperDatabase
         await db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
     }
 
-    /// <summary>
-    /// Returns a consistent snapshot of the season state and stored segments used by
-    /// queue verification. Internal because <see cref="Data.SeasonQueueSnapshot"/> is an
-    /// internal type; end-state consumers receive this facade via constructor injection.
-    /// </summary>
-    /// <param name="seasonId">Season ID.</param>
-    /// <param name="episodeIds">Episode IDs in the season.</param>
-    /// <param name="cancellationToken">Cancellation token.</param>
-    /// <returns>The season queue snapshot.</returns>
-    internal async Task<Data.SeasonQueueSnapshot> GetSeasonQueueSnapshotAsync(Guid seasonId, IReadOnlyCollection<Guid> episodeIds, CancellationToken cancellationToken = default)
+    /// <inheritdoc/>
+    public async Task<SeasonQueueSnapshot> GetSeasonQueueSnapshotAsync(Guid seasonId, IReadOnlyCollection<Guid> episodeIds, CancellationToken cancellationToken = default)
     {
         await EnsureInitializedAsync().ConfigureAwait(false);
         using var db = _contextFactory.CreateDbContext();
@@ -263,7 +255,7 @@ public sealed partial class IntroSkipperDatabase
             .ToListAsync(cancellationToken)
             .ConfigureAwait(false);
 
-        return new Data.SeasonQueueSnapshot(
+        return new SeasonQueueSnapshot(
             seasonStates.ToDictionary(s => s.Type, s => (IReadOnlySet<Guid>)s.EpisodeIds.ToHashSet()),
             seasonStates.ToDictionary(s => s.Type, s => s.ConfigHash),
             seasonStates.ToDictionary(s => s.Type, s => s.Action),

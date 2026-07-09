@@ -89,7 +89,8 @@ public partial class CleanCacheTask(
             _libraryManager,
             _providerManager,
             _fileSystem,
-            _ffmpegService);
+            _ffmpegService,
+            _database);
 
         // QueueManager.GetMediaItems() already skips libraries where the plugin is disabled via
         // LibraryOptions.DisabledMediaSegmentProviders.
