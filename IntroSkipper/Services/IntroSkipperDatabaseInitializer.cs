@@ -47,9 +47,24 @@ public sealed partial class IntroSkipperDatabaseInitializer : IHostedService
         // the warm-up is independently exception-proof. A failed warm-up degrades to the
         // lazy gate: the first real operation retriggers nothing (one-shot) but surfaces
         // its own errors in the normal request/scan paths, matching pre-refactor behavior.
+        //
+        // Cancellation only abandons the *wait*: the initialization work itself is
+        // intentionally non-cancellable (a half-applied legacy repair would be worse than
+        // a slow shutdown) and keeps running inside the facade's one-shot gate.
+        if (cancellationToken.IsCancellationRequested)
+        {
+            return;
+        }
+
         try
         {
-            await _segmentDatabase.InitializeAsync().ConfigureAwait(false);
+            await _segmentDatabase.InitializeAsync().WaitAsync(cancellationToken).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            // Host startup is being aborted; stop waiting and skip the remaining warm-up
+            // (including the cache init) — the host is shutting down anyway.
+            return;
         }
         catch (Exception ex)
         {

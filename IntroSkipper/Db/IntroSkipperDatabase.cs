@@ -39,7 +39,14 @@ public sealed partial class IntroSkipperDatabase : IIntroSkipperDatabase
 
         _contextFactory = contextFactory;
         _logger = logger;
-        _initialization = new Lazy<Task>(InitializeCoreAsync, LazyThreadSafetyMode.ExecutionAndPublication);
+        // Task.Run is load-bearing, not redundant: InitializeCoreAsync begins with fully
+        // synchronous work (EnsureLegacySchemaCompatibility can rebuild whole tables on
+        // large legacy databases), so invoking the factory inline would make every
+        // concurrent first-touch caller — including purely async ones on the playback
+        // hot path — block its thread on the Lazy monitor until the factory's first
+        // incomplete await. Dispatching to the thread pool makes the factory return a
+        // Task immediately, so waiters genuinely await instead of blocking.
+        _initialization = new Lazy<Task>(() => Task.Run(InitializeCoreAsync), LazyThreadSafetyMode.ExecutionAndPublication);
     }
 
     /// <inheritdoc/>

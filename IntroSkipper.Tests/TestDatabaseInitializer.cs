@@ -55,6 +55,29 @@ public sealed class TestDatabaseInitializer
         Assert.Equal(1, cacheCalls);
     }
 
+    [Fact]
+    public async Task StartAsync_CancellationDuringSegmentWarmup_ReturnsWithoutThrowingAndSkipsCache()
+    {
+        var cacheCalls = 0;
+        using var cts = new CancellationTokenSource();
+        // Cancel from inside the fake so the token is untouched at method entry (exercising
+        // the WaitAsync path, not the early-return check) and the returned task never completes.
+        var segmentDatabase = FacadeProxy.CreateSegmentDatabase(async () =>
+        {
+            await cts.CancelAsync();
+            await new TaskCompletionSource().Task;
+        });
+        var cacheDatabase = FacadeProxy.CreateCacheDatabase(() => cacheCalls++);
+        var initializer = new IntroSkipperDatabaseInitializer(
+            segmentDatabase, cacheDatabase, NullLogger<IntroSkipperDatabaseInitializer>.Instance);
+
+        // Bound the wait: without cancellation support StartAsync would hang forever on the
+        // never-completing warm-up; the timeout turns that regression into a test failure.
+        Assert.Null(await Record.ExceptionAsync(
+            () => initializer.StartAsync(cts.Token).WaitAsync(TimeSpan.FromSeconds(30))));
+        Assert.Equal(0, cacheCalls);
+    }
+
     // Strict facade fakes: only the initialization member is stubbed; any other member
     // access throws, proving the warm-up touches nothing else.
     private class FacadeProxy : DispatchProxy

@@ -31,7 +31,13 @@ public sealed class TestSkipIntroController
         {
             Completion = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously)
         };
-        var controller = new SkipIntroController(refresher, DatabaseTestHelpers.CreateCacheDatabase(pluginScope.CacheDbPath), DatabaseTestHelpers.CreateSegmentDatabase(dbPath));
+        // Pre-warm the facade's init gate so the action below runs synchronously up to the
+        // refresher await (its single pending point). With a cold gate, initialization
+        // completes on the thread pool and the pre-completion assertions race it. This
+        // mirrors production, where the hosted initializer warms the gate before traffic.
+        var database = DatabaseTestHelpers.CreateSegmentDatabase(dbPath);
+        await database.InitializeAsync();
+        var controller = new SkipIntroController(refresher, DatabaseTestHelpers.CreateCacheDatabase(pluginScope.CacheDbPath), database);
         var timestamps = new TimeStamps
         {
             Introduction = new Segment(itemId, new TimeRange(10, 20))

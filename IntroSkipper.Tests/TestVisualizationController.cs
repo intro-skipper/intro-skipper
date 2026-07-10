@@ -36,7 +36,13 @@ public sealed class TestVisualizationController
             Completion = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously)
         };
         using var loggerFactory = LoggerFactory.Create(builder => { });
-        var controller = CreateController(refresher, loggerFactory, dbPath, pluginScope.CacheDbPath);
+        // Pre-warm the facade's init gate so the action below runs synchronously up to the
+        // refresher await (its single pending point). With a cold gate, initialization
+        // completes on the thread pool and the pre-completion assertions race it. This
+        // mirrors production, where the hosted initializer warms the gate before traffic.
+        var database = DatabaseTestHelpers.CreateSegmentDatabase(dbPath);
+        await database.InitializeAsync();
+        var controller = CreateController(refresher, loggerFactory, database, pluginScope.CacheDbPath);
 
         var actionTask = controller.EraseSeasonAsync(seriesId, seasonId, eraseCache: false, CancellationToken.None);
 
@@ -120,6 +126,9 @@ public sealed class TestVisualizationController
     }
 
     private static VisualizationController CreateController(RecordingMediaSegmentRefresher refresher, ILoggerFactory loggerFactory, string dbPath, string cacheDbPath)
+        => CreateController(refresher, loggerFactory, DatabaseTestHelpers.CreateSegmentDatabase(dbPath), cacheDbPath);
+
+    private static VisualizationController CreateController(RecordingMediaSegmentRefresher refresher, ILoggerFactory loggerFactory, IntroSkipperDatabase database, string cacheDbPath)
     {
         return new VisualizationController(
             NullLogger<VisualizationController>.Instance,
@@ -130,7 +139,7 @@ public sealed class TestVisualizationController
             loggerFactory,
             ffmpegService: null!,
             DatabaseTestHelpers.CreateCacheService(cacheDbPath),
-            DatabaseTestHelpers.CreateSegmentDatabase(dbPath),
+            database,
             DatabaseTestHelpers.CreateCacheDatabase(cacheDbPath));
     }
 
