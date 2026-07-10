@@ -38,6 +38,7 @@ namespace IntroSkipper.Services
         private readonly IProviderManager _providerManager;
         private readonly IFileSystem _fileSystem;
         private readonly IDetectionCacheService _cacheService;
+        private readonly IDetectionCacheDatabase _cacheDatabase;
         private readonly IFFmpegService _ffmpegService;
         private readonly ILogger<Entrypoint> _logger;
         private readonly ILoggerFactory _loggerFactory;
@@ -59,6 +60,7 @@ namespace IntroSkipper.Services
         /// <param name="fileSystem">File system.</param>
         /// <param name="taskManager">Task manager.</param>
         /// <param name="cacheService">Detection cache service.</param>
+        /// <param name="cacheDatabase">Detection cache database facade.</param>
         /// <param name="ffmpegService">FFmpeg service.</param>
         /// <param name="logger">Logger.</param>
         /// <param name="loggerFactory">Logger factory.</param>
@@ -70,6 +72,7 @@ namespace IntroSkipper.Services
             IFileSystem fileSystem,
             ITaskManager taskManager,
             IDetectionCacheService cacheService,
+            IDetectionCacheDatabase cacheDatabase,
             IFFmpegService ffmpegService,
             ILogger<Entrypoint> logger,
             ILoggerFactory loggerFactory,
@@ -81,6 +84,7 @@ namespace IntroSkipper.Services
             _fileSystem = fileSystem;
             _taskManager = taskManager;
             _cacheService = cacheService;
+            _cacheDatabase = cacheDatabase;
             _ffmpegService = ffmpegService;
             _logger = logger;
             _loggerFactory = loggerFactory;
@@ -233,7 +237,7 @@ namespace IntroSkipper.Services
                 }
 
                 LogMediaItemRemoved(id.Value);
-                _cacheService.DeleteForItem(id.Value);
+                _cacheDatabase.DeleteForItem(id.Value);
             }
             catch (Exception ex)
             {

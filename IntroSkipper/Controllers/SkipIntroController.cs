@@ -10,7 +10,6 @@
 using System.Net.Mime;
 using IntroSkipper.Data;
 using IntroSkipper.Db;
-using IntroSkipper.FFmpeg;
 using IntroSkipper.Manager;
 using MediaBrowser.Common.Api;
 using MediaBrowser.Controller.Entities.Movies;
@@ -26,10 +25,10 @@ namespace IntroSkipper.Controllers;
 [Authorize]
 [ApiController]
 [Produces(MediaTypeNames.Application.Json)]
-public class SkipIntroController(IMediaSegmentRefresher mediaSegmentRefresher, IDetectionCacheService cacheService, IIntroSkipperDatabase database) : ControllerBase
+public class SkipIntroController(IMediaSegmentRefresher mediaSegmentRefresher, IDetectionCacheDatabase cacheDatabase, IIntroSkipperDatabase database) : ControllerBase
 {
     private readonly IMediaSegmentRefresher _mediaSegmentRefresher = mediaSegmentRefresher;
-    private readonly IDetectionCacheService _cacheService = cacheService;
+    private readonly IDetectionCacheDatabase _cacheDatabase = cacheDatabase;
     private readonly IIntroSkipperDatabase _database = database;
 
     /// <summary>
@@ -192,7 +191,7 @@ public class SkipIntroController(IMediaSegmentRefresher mediaSegmentRefresher, I
         {
             // Cache deletion must run to completion — the DB rows are already gone,
             // so aborting here would leave orphaned files with no way to clean them up.
-            await Task.Run(() => _cacheService.DeleteByMode(mode), CancellationToken.None).ConfigureAwait(false);
+            await Task.Run(() => _cacheDatabase.DeleteByMode(mode), CancellationToken.None).ConfigureAwait(false);
         }
 
         return NoContent();

@@ -52,10 +52,7 @@ public sealed class TestCacheOperations
             db.SaveChanges();
         }
 
-        using (var cachingScope = new CachingPluginScope(cacheDir, scope.CacheDbPath))
-        {
-            cachingScope.CacheService.DeleteByMode(AnalysisMode.Introduction);
-        }
+        DatabaseTestHelpers.CreateCacheDatabase(scope.CacheDbPath).DeleteByMode(AnalysisMode.Introduction);
 
         using (var db = new DetectionCacheDbContext(scope.CacheDbPath))
         {
@@ -102,10 +99,7 @@ public sealed class TestCacheOperations
             db.SaveChanges();
         }
 
-        using (var cachingScope = new CachingPluginScope(cacheDir, scope.CacheDbPath))
-        {
-            cachingScope.CacheService.DeleteByMode(AnalysisMode.Credits);
-        }
+        DatabaseTestHelpers.CreateCacheDatabase(scope.CacheDbPath).DeleteByMode(AnalysisMode.Credits);
 
         using (var db = new DetectionCacheDbContext(scope.CacheDbPath))
         {

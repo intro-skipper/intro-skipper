@@ -108,42 +108,6 @@ public sealed partial class DetectionCacheService(ILogger<DetectionCacheService>
     }
 
     /// <inheritdoc/>
-    public void DeleteForItem(Guid itemId)
-    {
-        try
-        {
-            // Delete from the SQLite cache database.
-            _cacheDatabase.DeleteForItem(itemId);
-        }
-        catch (Exception ex) when (ex is DbUpdateException or DbException)
-        {
-            if (_logger.IsEnabled(LogLevel.Debug))
-            {
-                var cacheKey = itemId.ToString("N");
-                LogDetectionCacheDeleteError(_logger, ex, cacheKey);
-            }
-        }
-    }
-
-    /// <inheritdoc/>
-    public void DeleteByMode(AnalysisMode mode)
-    {
-        try
-        {
-            // Delete from the SQLite cache database.
-            _cacheDatabase.DeleteByMode(mode);
-        }
-        catch (Exception ex) when (ex is DbUpdateException or DbException)
-        {
-            if (_logger.IsEnabled(LogLevel.Debug))
-            {
-                var cacheKey = mode.ToString();
-                LogDetectionCacheDeleteError(_logger, ex, cacheKey);
-            }
-        }
-    }
-
-    /// <inheritdoc/>
     public bool HasCachedFingerprint(QueuedEpisode episode, AnalysisMode mode)
     {
         if (!IsEnabled)
@@ -208,7 +172,4 @@ public sealed partial class DetectionCacheService(ILogger<DetectionCacheService>
 
     [LoggerMessage(Level = LogLevel.Debug, Message = "Error writing detection cache for {CacheKey}")]
     private static partial void LogDetectionCacheWriteError(ILogger logger, Exception ex, string cacheKey);
-
-    [LoggerMessage(Level = LogLevel.Debug, Message = "Error deleting detection cache for {CacheKey}")]
-    private static partial void LogDetectionCacheDeleteError(ILogger logger, Exception ex, string cacheKey);
 }

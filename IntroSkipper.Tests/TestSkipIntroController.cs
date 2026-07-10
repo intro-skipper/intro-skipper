@@ -6,7 +6,6 @@ using System.Threading.Tasks;
 using IntroSkipper.Configuration;
 using IntroSkipper.Controllers;
 using IntroSkipper.Data;
-using IntroSkipper.FFmpeg;
 using IntroSkipper.Db;
 using IntroSkipper.Manager;
 using MediaBrowser.Controller.Entities;
@@ -32,7 +31,7 @@ public sealed class TestSkipIntroController
         {
             Completion = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously)
         };
-        var controller = new SkipIntroController(refresher, DatabaseTestHelpers.CreateCacheService(pluginScope.CacheDbPath), DatabaseTestHelpers.CreateSegmentDatabase(dbPath));
+        var controller = new SkipIntroController(refresher, DatabaseTestHelpers.CreateCacheDatabase(pluginScope.CacheDbPath), DatabaseTestHelpers.CreateSegmentDatabase(dbPath));
         var timestamps = new TimeStamps
         {
             Introduction = new Segment(itemId, new TimeRange(10, 20))
@@ -66,7 +65,7 @@ public sealed class TestSkipIntroController
         {
             Completion = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously)
         };
-        var controller = new SkipIntroController(refresher, DatabaseTestHelpers.CreateCacheService(pluginScope.CacheDbPath), DatabaseTestHelpers.CreateSegmentDatabase(dbPath));
+        var controller = new SkipIntroController(refresher, DatabaseTestHelpers.CreateCacheDatabase(pluginScope.CacheDbPath), DatabaseTestHelpers.CreateSegmentDatabase(dbPath));
         var timestamps = new TimeStamps
         {
             Introduction = new Segment(itemId, new TimeRange(10, 20))

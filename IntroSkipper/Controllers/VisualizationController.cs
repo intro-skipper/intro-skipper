@@ -142,10 +142,7 @@ public partial class VisualizationController(ILogger<VisualizationController> lo
             {
                 // Cache deletion must run to completion — the DB rows are already gone,
                 // so aborting here would leave orphaned files with no way to clean them up.
-                foreach (var episode in episodes)
-                {
-                    await Task.Run(() => _cacheService.DeleteForItem(episode.EpisodeId), CancellationToken.None).ConfigureAwait(false);
-                }
+                await _cacheDatabase.DeleteForItemsAsync(episodeIds, CancellationToken.None).ConfigureAwait(false);
             }
 
             // Clear the analyzed-episode lists for the season.

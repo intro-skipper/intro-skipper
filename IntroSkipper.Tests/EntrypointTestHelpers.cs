@@ -37,15 +37,15 @@ internal static class EntrypointTestHelpers
 
         var loggerFactory = LoggerFactory.Create(builder => { });
         var logger = loggerFactory.CreateLogger<Entrypoint>();
+        var resolvedCacheDbPath = cacheDbPath ?? DatabaseTestHelpers.CreateTempCacheDbPath();
 
         var entrypoint = new Entrypoint(
             libraryManager: null!,
             providerManager: null!,
             fileSystem: null!,
             taskManager: null!,
-            cacheService: cacheDbPath is null
-                ? DatabaseTestHelpers.CreateTempCacheService()
-                : DatabaseTestHelpers.CreateCacheService(cacheDbPath),
+            cacheService: DatabaseTestHelpers.CreateCacheService(resolvedCacheDbPath),
+            cacheDatabase: DatabaseTestHelpers.CreateCacheDatabase(resolvedCacheDbPath),
             ffmpegService: null!,
             logger: logger,
             loggerFactory: loggerFactory,
