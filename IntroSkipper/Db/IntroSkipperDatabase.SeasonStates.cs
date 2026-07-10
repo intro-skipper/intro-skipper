@@ -178,55 +178,6 @@ public sealed partial class IntroSkipperDatabase
     }
 
     /// <inheritdoc/>
-    public async Task ClearSeasonEpisodeIdsAsync(Guid seasonId, CancellationToken cancellationToken = default)
-    {
-        await EnsureInitializedAsync().ConfigureAwait(false);
-        using var db = _contextFactory.CreateDbContext();
-        var seasonStates = await db.DbSeasonState
-            .Where(s => s.SeasonId == seasonId)
-            .ToListAsync(cancellationToken)
-            .ConfigureAwait(false);
-
-        foreach (var state in seasonStates)
-        {
-            db.Entry(state).Property(s => s.EpisodeIds).CurrentValue = [];
-        }
-
-        await db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
-    }
-
-    /// <inheritdoc/>
-    public async Task RemoveEpisodeIdsFromSeasonsAsync(IReadOnlyDictionary<Guid, IReadOnlySet<Guid>> episodeIdsBySeason, CancellationToken cancellationToken = default)
-    {
-        ArgumentNullException.ThrowIfNull(episodeIdsBySeason);
-
-        if (episodeIdsBySeason.Count == 0)
-        {
-            return;
-        }
-
-        await EnsureInitializedAsync().ConfigureAwait(false);
-        using var db = _contextFactory.CreateDbContext();
-
-        var seasonIds = episodeIdsBySeason.Keys.ToArray();
-        var seasonStates = await db.DbSeasonState
-            .Where(s => EF.Parameter(seasonIds).Contains(s.SeasonId))
-            .ToListAsync(cancellationToken)
-            .ConfigureAwait(false);
-
-        foreach (var state in seasonStates)
-        {
-            var currentIds = state.EpisodeIds.ToList();
-            if (currentIds.RemoveAll(episodeIdsBySeason[state.SeasonId].Contains) > 0)
-            {
-                db.Entry(state).Property(s => s.EpisodeIds).CurrentValue = currentIds;
-            }
-        }
-
-        await db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
-    }
-
-    /// <inheritdoc/>
     public async Task<SeasonQueueSnapshot> GetSeasonQueueSnapshotAsync(Guid seasonId, IReadOnlyCollection<Guid> episodeIds, CancellationToken cancellationToken = default)
     {
         await EnsureInitializedAsync().ConfigureAwait(false);

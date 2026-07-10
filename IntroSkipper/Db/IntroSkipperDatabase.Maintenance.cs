@@ -58,6 +58,104 @@ public sealed partial class IntroSkipperDatabase
     }
 
     /// <inheritdoc/>
+    public async Task ClearSeasonAnalysisAsync(
+        Guid seasonId,
+        IReadOnlyCollection<Guid> itemIds,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(itemIds);
+
+        var ids = itemIds.Distinct().ToArray();
+
+        await EnsureInitializedAsync().ConfigureAwait(false);
+        using var db = _contextFactory.CreateDbContext();
+
+        var transaction = await db.Database.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            if (ids.Length > 0)
+            {
+                await db.DbSegment
+                    .Where(s => EF.Parameter(ids).Contains(s.ItemId))
+                    .ExecuteDeleteAsync(cancellationToken)
+                    .ConfigureAwait(false);
+            }
+
+            var seasonStates = await db.DbSeasonState
+                .Where(s => s.SeasonId == seasonId)
+                .ToListAsync(cancellationToken)
+                .ConfigureAwait(false);
+
+            foreach (var state in seasonStates)
+            {
+                db.Entry(state).Property(s => s.EpisodeIds).CurrentValue = [];
+            }
+
+            await db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+            await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
+        }
+        finally
+        {
+            await transaction.DisposeAsync().ConfigureAwait(false);
+        }
+    }
+
+    /// <inheritdoc/>
+    public async Task<int> RemoveItemsFromAnalysisAsync(
+        IReadOnlyDictionary<Guid, IReadOnlySet<Guid>> itemIdsBySeason,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(itemIdsBySeason);
+
+        if (itemIdsBySeason.Count == 0)
+        {
+            return 0;
+        }
+
+        var itemIds = itemIdsBySeason.Values
+            .SelectMany(static ids => ids)
+            .Distinct()
+            .ToArray();
+        var seasonIds = itemIdsBySeason.Keys.ToArray();
+
+        await EnsureInitializedAsync().ConfigureAwait(false);
+        using var db = _contextFactory.CreateDbContext();
+
+        var transaction = await db.Database.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            var removedSegments = itemIds.Length == 0
+                ? 0
+                : await db.DbSegment
+                    .Where(s => EF.Parameter(itemIds).Contains(s.ItemId))
+                    .ExecuteDeleteAsync(cancellationToken)
+                    .ConfigureAwait(false);
+
+            var seasonStates = await db.DbSeasonState
+                .Where(s => EF.Parameter(seasonIds).Contains(s.SeasonId))
+                .ToListAsync(cancellationToken)
+                .ConfigureAwait(false);
+
+            foreach (var state in seasonStates)
+            {
+                var currentIds = state.EpisodeIds.ToList();
+                if (currentIds.RemoveAll(itemIdsBySeason[state.SeasonId].Contains) > 0)
+                {
+                    db.Entry(state).Property(s => s.EpisodeIds).CurrentValue = currentIds;
+                }
+            }
+
+            await db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+            await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
+            return removedSegments;
+        }
+        finally
+        {
+            await transaction.DisposeAsync().ConfigureAwait(false);
+        }
+    }
+
+    /// <inheritdoc/>
     /// <remarks>
     /// The segment deletes and the episode-list clear run in a single transaction so a
     /// cancelled reset cannot leave segments deleted while their episodes are still

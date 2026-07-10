@@ -71,6 +71,11 @@ public sealed partial class IntroSkipperDatabaseInitializer : IHostedService
             LogWarmupFailed(_logger, ex, "segment");
         }
 
+        if (cancellationToken.IsCancellationRequested)
+        {
+            return;
+        }
+
         try
         {
             _cacheDatabase.Initialize();

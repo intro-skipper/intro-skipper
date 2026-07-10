@@ -22,6 +22,11 @@ pre-redesign `using var db = ...` discipline. `IntroSkipperDatabase` is split ac
 partial files by aggregate (`.Segments`, `.SeasonStates`, `.Maintenance`); the cache
 facade is a single file.
 
+Maintenance operations that mutate both segments and season state are exposed as
+domain-level facade methods and commit both changes in one transaction. Detection-cache
+cleanup runs afterward on a best-effort basis: cache failures are logged but cannot leave
+the authoritative segment database half-updated.
+
 ## 2. Initialization: one-shot gates inside the facades
 
 Each facade owns a one-shot gate — `Lazy<Task>` (segment DB) / `Lazy<bool>` (cache DB,

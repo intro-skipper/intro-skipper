@@ -283,6 +283,38 @@ public sealed class TestDatabaseFacades
     }
 
     [Fact]
+    public async Task ClearSeasonAnalysisAsync_DeletesSegmentsAndClearsSeasonState()
+    {
+        var dbPath = CreateTempDbPath();
+        var seasonId = Guid.NewGuid();
+        var otherSeasonId = Guid.NewGuid();
+        var targetItemId = Guid.NewGuid();
+        var otherItemId = Guid.NewGuid();
+        try
+        {
+            var database = DatabaseTestHelpers.CreateSegmentDatabase(dbPath);
+            await database.UpdateTimestampAsync(new Segment(targetItemId, new TimeRange(0, 30)), AnalysisMode.Introduction);
+            await database.UpdateTimestampAsync(new Segment(otherItemId, new TimeRange(0, 20)), AnalysisMode.Introduction);
+            await database.SetEpisodeIdsAsync(seasonId, AnalysisMode.Introduction, [targetItemId]);
+            await database.SetEpisodeIdsAsync(otherSeasonId, AnalysisMode.Introduction, [otherItemId]);
+
+            await database.ClearSeasonAnalysisAsync(seasonId, [targetItemId]);
+
+            await using var db = new IntroSkipperDbContext(dbPath);
+            Assert.False(await db.DbSegment.AnyAsync(s => s.ItemId == targetItemId));
+            Assert.True(await db.DbSegment.AnyAsync(s => s.ItemId == otherItemId));
+            var targetState = await db.DbSeasonState.SingleAsync(s => s.SeasonId == seasonId);
+            Assert.Empty(targetState.EpisodeIds);
+            var otherState = await db.DbSeasonState.SingleAsync(s => s.SeasonId == otherSeasonId);
+            Assert.Equal([otherItemId], otherState.EpisodeIds);
+        }
+        finally
+        {
+            DeleteSqliteFiles(dbPath);
+        }
+    }
+
+    [Fact]
     public async Task AnalyzerActions_ReturnStoredRow_AndFillMissingModesWithDefault()
     {
         var dbPath = CreateTempDbPath();
@@ -380,7 +412,7 @@ public sealed class TestDatabaseFacades
     }
 
     [Fact]
-    public async Task DetectionCacheDatabase_StaleIdComputationAndChunkedDelete_HandleLargeLibraries()
+    public async Task DetectionCacheDatabase_StaleIdComputationAndParameterizedDelete_HandleLargeLibraries()
     {
         const int LargeEpisodeCount = 33_000;
 
@@ -402,7 +434,8 @@ public sealed class TestDatabaseFacades
             var staleIds = await cacheDatabase.GetStaleItemIdsAsync(validItemIds);
             Assert.Equal([staleItemId], staleIds);
 
-            // Delete with a large ID set (stale ID plus filler) to exercise the chunked path.
+            // Delete with a large ID set (stale ID plus filler) to exercise the
+            // single-JSON-parameter path.
             var deleteIds = Enumerable.Range(0, LargeEpisodeCount - 1)
                 .Select(_ => Guid.NewGuid())
                 .Append(staleItemId)

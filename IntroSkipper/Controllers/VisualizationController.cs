@@ -5,6 +5,7 @@
 // SPDX-FileCopyrightText: 2024 theMasterpc
 // SPDX-License-Identifier: GPL-3.0-only
 
+using System.Data.Common;
 using System.Net.Mime;
 using IntroSkipper.Configuration;
 using IntroSkipper.Data;
@@ -20,6 +21,7 @@ using MediaBrowser.Model.IO;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 
 namespace IntroSkipper.Controllers;
@@ -132,21 +134,22 @@ public partial class VisualizationController(ILogger<VisualizationController> lo
 
         try
         {
-            // A single facade call runs a server-side DELETE per ID batch and bypasses the
-            // change tracker. This is safe here because the tracked operations below target
-            // DbSeasonState, not DbSegment.
             var episodeIds = episodes.Select(e => e.EpisodeId).ToHashSet();
-            await _database.DeleteSegmentsForItemsAsync(episodeIds, cancellationToken).ConfigureAwait(false);
+            await _database.ClearSeasonAnalysisAsync(seasonId, episodeIds, cancellationToken).ConfigureAwait(false);
 
             if (eraseCache)
             {
-                // Cache deletion must run to completion — the DB rows are already gone,
-                // so aborting here would leave orphaned files with no way to clean them up.
-                await _cacheDatabase.DeleteForItemsAsync(episodeIds, CancellationToken.None).ConfigureAwait(false);
+                try
+                {
+                    // The main database is already transactionally consistent, and cache
+                    // cleanup is best-effort because the cache is only an optimization.
+                    await _cacheDatabase.DeleteForItemsAsync(episodeIds, CancellationToken.None).ConfigureAwait(false);
+                }
+                catch (Exception ex) when (ex is DbUpdateException or DbException)
+                {
+                    LogCacheDeleteFailed(_logger, ex, seasonId);
+                }
             }
-
-            // Clear the analyzed-episode lists for the season.
-            await _database.ClearSeasonEpisodeIdsAsync(seasonId, cancellationToken).ConfigureAwait(false);
 
             if (Plugin.Instance.Configuration.UpdateMediaSegments)
             {
@@ -191,13 +194,23 @@ public partial class VisualizationController(ILogger<VisualizationController> lo
                 .GroupBy(e => e.SeasonId)
                 .ToDictionary(g => g.Key, g => (IReadOnlySet<Guid>)g.Select(e => e.EpisodeId).ToHashSet());
 
-            var removedSegments = await _database.DeleteSegmentsForItemsAsync(excludedIds, cancellationToken).ConfigureAwait(false);
-            await _database.RemoveEpisodeIdsFromSeasonsAsync(excludedIdsBySeason, cancellationToken).ConfigureAwait(false);
+            var removedSegments = await _database
+                .RemoveItemsFromAnalysisAsync(excludedIdsBySeason, cancellationToken)
+                .ConfigureAwait(false);
 
-            // Cache deletion must run to completion — the segment and season-state rows
-            // above are already deleted, so aborting here would leave orphaned cache
-            // entries out of sync with the database.
-            var removedCacheEntries = await _cacheDatabase.DeleteForItemsAsync(excludedIds, CancellationToken.None).ConfigureAwait(false);
+            var removedCacheEntries = 0;
+            try
+            {
+                // Do not bind the best-effort cache cleanup to request cancellation: the
+                // main database transaction has committed, so make one complete attempt.
+                removedCacheEntries = await _cacheDatabase
+                    .DeleteForItemsAsync(excludedIds, CancellationToken.None)
+                    .ConfigureAwait(false);
+            }
+            catch (Exception ex) when (ex is DbUpdateException or DbException)
+            {
+                LogExcludedCacheDeleteFailed(_logger, ex);
+            }
 
             if (plugin.Configuration.UpdateMediaSegments)
             {
@@ -343,6 +356,12 @@ public partial class VisualizationController(ILogger<VisualizationController> lo
 
     [LoggerMessage(Level = LogLevel.Error, Message = "Failed to erase timestamps for series {SeriesId} season {SeasonId}")]
     private static partial void LogFailedToEraseTimestamps(ILogger logger, Exception ex, Guid seriesId, Guid seasonId);
+
+    [LoggerMessage(Level = LogLevel.Debug, Message = "Failed to delete detection cache rows for season {SeasonId}")]
+    private static partial void LogCacheDeleteFailed(ILogger logger, Exception exception, Guid seasonId);
+
+    [LoggerMessage(Level = LogLevel.Debug, Message = "Failed to delete detection cache rows for excluded items")]
+    private static partial void LogExcludedCacheDeleteFailed(ILogger logger, Exception exception);
 
     [LoggerMessage(Level = LogLevel.Error, Message = "Failed to clear excluded timestamp data")]
     private static partial void LogFailedToClearExcludedTimestamps(ILogger logger, Exception ex);

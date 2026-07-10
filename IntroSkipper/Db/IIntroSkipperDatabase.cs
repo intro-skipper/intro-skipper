@@ -90,6 +90,25 @@ public interface IIntroSkipperDatabase
     Task<int> DeleteSegmentsForItemsAsync(IReadOnlyCollection<Guid> itemIds, CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// Deletes all segments for the supplied items and clears every analyzed-episode
+    /// list for the season in one transaction.
+    /// </summary>
+    /// <param name="seasonId">Season whose analyzed-episode lists should be cleared.</param>
+    /// <param name="itemIds">Item IDs whose segments should be removed.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>A <see cref="Task"/> representing the asynchronous operation.</returns>
+    Task ClearSeasonAnalysisAsync(Guid seasonId, IReadOnlyCollection<Guid> itemIds, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Deletes every segment for the supplied items and removes those item IDs from
+    /// their seasons' analyzed-episode lists in one transaction.
+    /// </summary>
+    /// <param name="itemIdsBySeason">Item IDs to remove, keyed by season ID.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>The number of deleted segment rows.</returns>
+    Task<int> RemoveItemsFromAnalysisAsync(IReadOnlyDictionary<Guid, IReadOnlySet<Guid>> itemIdsBySeason, CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// Deletes segments belonging to items that are no longer part of any enabled library.
     /// </summary>
     /// <param name="enabledEpisodeIds">Episode IDs that are still part of enabled libraries.</param>
@@ -197,22 +216,6 @@ public interface IIntroSkipperDatabase
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>The season queue snapshot.</returns>
     Task<SeasonQueueSnapshot> GetSeasonQueueSnapshotAsync(Guid seasonId, IReadOnlyCollection<Guid> episodeIds, CancellationToken cancellationToken = default);
-
-    /// <summary>
-    /// Clears the analyzed-episode lists of every mode for a season.
-    /// </summary>
-    /// <param name="seasonId">Season ID.</param>
-    /// <param name="cancellationToken">Cancellation token.</param>
-    /// <returns>A <see cref="Task"/> representing the asynchronous operation.</returns>
-    Task ClearSeasonEpisodeIdsAsync(Guid seasonId, CancellationToken cancellationToken = default);
-
-    /// <summary>
-    /// Removes the given episode IDs from the analyzed-episode lists of the given seasons.
-    /// </summary>
-    /// <param name="episodeIdsBySeason">Episode IDs to remove, keyed by season ID.</param>
-    /// <param name="cancellationToken">Cancellation token.</param>
-    /// <returns>A <see cref="Task"/> representing the asynchronous operation.</returns>
-    Task RemoveEpisodeIdsFromSeasonsAsync(IReadOnlyDictionary<Guid, IReadOnlySet<Guid>> episodeIdsBySeason, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Removes season-state rows whose seasons no longer exist.

@@ -82,6 +82,41 @@ public sealed class TestVisualizationController
     }
 
     [Fact]
+    public async Task EraseSeasonAsync_CacheFailureStillClearsMainDatabaseState()
+    {
+        var seriesId = Guid.NewGuid();
+        var seasonId = Guid.NewGuid();
+        var episodeIds = new[] { Guid.NewGuid(), Guid.NewGuid() };
+        var dbPath = CreateTempDbPath();
+        using var pluginScope = CreatePluginScope(seriesId, seasonId, episodeIds, updateMediaSegments: false);
+        await SeedSeasonAsync(dbPath, seasonId, episodeIds);
+        using var loggerFactory = LoggerFactory.Create(builder => { });
+        var missingCachePath = Path.Join(
+            Path.GetTempPath(),
+            "IntroSkipper.Tests",
+            "visualization-controller",
+            Guid.NewGuid().ToString("N"),
+            "cache.db");
+        var controller = CreateController(
+            new RecordingMediaSegmentRefresher(),
+            loggerFactory,
+            DatabaseTestHelpers.CreateSegmentDatabase(dbPath),
+            missingCachePath);
+
+        var result = await controller.EraseSeasonAsync(
+            seriesId,
+            seasonId,
+            eraseCache: true,
+            CancellationToken.None);
+
+        Assert.IsType<NoContentResult>(result);
+        await using var db = new IntroSkipperDbContext(dbPath);
+        Assert.False(await db.DbSegment.AnyAsync(s => episodeIds.Contains(s.ItemId)));
+        var seasonStates = await db.DbSeasonState.Where(s => s.SeasonId == seasonId).ToListAsync();
+        Assert.All(seasonStates, state => Assert.Empty(state.EpisodeIds));
+    }
+
+    [Fact]
     public async Task ClearExcludedTimestampsAsync_RemovesOnlyCurrentlyExcludedState()
     {
         var seriesId = Guid.NewGuid();
@@ -123,6 +158,53 @@ public sealed class TestVisualizationController
         using var cacheDb = new DetectionCacheDbContext(pluginScope.CacheDbPath);
         Assert.False(await cacheDb.DetectionCache.AnyAsync(e => e.ItemId == excludedId));
         Assert.True(await cacheDb.DetectionCache.AnyAsync(e => e.ItemId == includedId));
+    }
+
+    [Fact]
+    public async Task ClearExcludedTimestampsAsync_CacheFailureStillCommitsMainDatabaseChanges()
+    {
+        var seriesId = Guid.NewGuid();
+        var seasonId = Guid.NewGuid();
+        var excludedId = Guid.NewGuid();
+        var includedId = Guid.NewGuid();
+        var dbPath = CreateTempDbPath();
+        var config = new PluginConfiguration
+        {
+            UpdateMediaSegments = false,
+            SeriesExclusions = { "Excluded Show" }
+        };
+        using var pluginScope = CreatePluginScope(
+            seriesId,
+            seasonId,
+            [excludedId, includedId],
+            config);
+        await SeedSeasonAsync(dbPath, seasonId, [excludedId, includedId]);
+        var missingCachePath = Path.Join(
+            Path.GetTempPath(),
+            "IntroSkipper.Tests",
+            "visualization-controller",
+            Guid.NewGuid().ToString("N"),
+            "cache.db");
+        using var loggerFactory = LoggerFactory.Create(builder => { });
+        var controller = CreateController(
+            new RecordingMediaSegmentRefresher(),
+            loggerFactory,
+            DatabaseTestHelpers.CreateSegmentDatabase(dbPath),
+            missingCachePath);
+
+        var result = await controller.ClearExcludedTimestampsAsync(CancellationToken.None);
+
+        var ok = Assert.IsType<OkObjectResult>(result.Result);
+        var response = Assert.IsType<ClearExcludedTimestampsResponse>(ok.Value);
+        Assert.Equal(1, response.AffectedItems);
+        Assert.Equal(1, response.RemovedSegments);
+        Assert.Equal(0, response.RemovedCacheEntries);
+
+        await using var db = new IntroSkipperDbContext(dbPath);
+        Assert.False(await db.DbSegment.AnyAsync(s => s.ItemId == excludedId));
+        Assert.True(await db.DbSegment.AnyAsync(s => s.ItemId == includedId));
+        var seasonStates = await db.DbSeasonState.Where(s => s.SeasonId == seasonId).ToListAsync();
+        Assert.All(seasonStates, state => Assert.Equal([includedId], state.EpisodeIds));
     }
 
     private static VisualizationController CreateController(RecordingMediaSegmentRefresher refresher, ILoggerFactory loggerFactory, string dbPath, string cacheDbPath)

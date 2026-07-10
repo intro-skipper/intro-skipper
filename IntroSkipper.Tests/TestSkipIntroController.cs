@@ -37,7 +37,11 @@ public sealed class TestSkipIntroController
         // mirrors production, where the hosted initializer warms the gate before traffic.
         var database = DatabaseTestHelpers.CreateSegmentDatabase(dbPath);
         await database.InitializeAsync();
-        var controller = new SkipIntroController(refresher, DatabaseTestHelpers.CreateCacheDatabase(pluginScope.CacheDbPath), database);
+        var controller = new SkipIntroController(
+            refresher,
+            DatabaseTestHelpers.CreateCacheDatabase(pluginScope.CacheDbPath),
+            database,
+            NullLogger<SkipIntroController>.Instance);
         var timestamps = new TimeStamps
         {
             Introduction = new Segment(itemId, new TimeRange(10, 20))
@@ -71,7 +75,11 @@ public sealed class TestSkipIntroController
         {
             Completion = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously)
         };
-        var controller = new SkipIntroController(refresher, DatabaseTestHelpers.CreateCacheDatabase(pluginScope.CacheDbPath), DatabaseTestHelpers.CreateSegmentDatabase(dbPath));
+        var controller = new SkipIntroController(
+            refresher,
+            DatabaseTestHelpers.CreateCacheDatabase(pluginScope.CacheDbPath),
+            DatabaseTestHelpers.CreateSegmentDatabase(dbPath),
+            NullLogger<SkipIntroController>.Instance);
         var timestamps = new TimeStamps
         {
             Introduction = new Segment(itemId, new TimeRange(10, 20))
@@ -81,6 +89,36 @@ public sealed class TestSkipIntroController
 
         Assert.IsType<NoContentResult>(result);
         Assert.Equal(0, refresher.ItemCallCount);
+    }
+
+    [Fact]
+    public async Task ResetIntroTimestamps_CacheFailureDoesNotFailMainDatabaseDelete()
+    {
+        var itemId = Guid.NewGuid();
+        var dbPath = CreateTempDbPath();
+        var database = DatabaseTestHelpers.CreateSegmentDatabase(dbPath);
+        await database.UpdateTimestampAsync(
+            new Segment(itemId, new TimeRange(10, 20)),
+            AnalysisMode.Introduction);
+        var missingCachePath = Path.Join(
+            Path.GetTempPath(),
+            "IntroSkipper.Tests",
+            "skip-controller",
+            Guid.NewGuid().ToString("N"),
+            "cache.db");
+        var controller = new SkipIntroController(
+            new RecordingMediaSegmentRefresher(),
+            DatabaseTestHelpers.CreateCacheDatabase(missingCachePath),
+            database,
+            NullLogger<SkipIntroController>.Instance);
+
+        var result = await controller.ResetIntroTimestamps(
+            AnalysisMode.Introduction,
+            eraseCache: true,
+            CancellationToken.None);
+
+        Assert.IsType<NoContentResult>(result);
+        Assert.Empty(await database.GetSegmentsAsync(itemId));
     }
 
     private static EntrypointTestHelpers.PluginInstanceScope CreatePluginScope(Guid itemId, bool updateMediaSegments, out Movie item)

@@ -78,6 +78,26 @@ public sealed class TestDatabaseInitializer
         Assert.Equal(0, cacheCalls);
     }
 
+    [Fact]
+    public async Task StartAsync_CancellationAfterCompletedSegmentWarmup_SkipsCache()
+    {
+        var cacheCalls = 0;
+        using var cts = new CancellationTokenSource();
+        var segmentDatabase = FacadeProxy.CreateSegmentDatabase(() =>
+        {
+            _ = cts.CancelAsync();
+            return Task.CompletedTask;
+        });
+        var cacheDatabase = FacadeProxy.CreateCacheDatabase(() => cacheCalls++);
+        var initializer = new IntroSkipperDatabaseInitializer(
+            segmentDatabase, cacheDatabase, NullLogger<IntroSkipperDatabaseInitializer>.Instance);
+
+        await initializer.StartAsync(cts.Token);
+
+        Assert.True(cts.IsCancellationRequested);
+        Assert.Equal(0, cacheCalls);
+    }
+
     // Strict facade fakes: only the initialization member is stubbed; any other member
     // access throws, proving the warm-up touches nothing else.
     private class FacadeProxy : DispatchProxy
