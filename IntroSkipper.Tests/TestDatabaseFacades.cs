@@ -4,6 +4,7 @@
 namespace IntroSkipper.Tests;
 
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Threading.Tasks;
@@ -111,6 +112,200 @@ public sealed class TestDatabaseFacades
 
             var stored = await database.GetSegmentsAsync(itemId);
             Assert.Equal(expectedCount, stored.Count(s => s.Type == AnalysisMode.Credits));
+        }
+        finally
+        {
+            DeleteSqliteFiles(dbPath);
+        }
+    }
+
+    [Fact]
+    public async Task GetTimestampsAsync_SelectsEarliestStartPerMode()
+    {
+        var dbPath = CreateTempDbPath();
+        var itemId = Guid.NewGuid();
+        try
+        {
+            var database = DatabaseTestHelpers.CreateSegmentDatabase(dbPath);
+
+            // Multiple commercial segments, deliberately inserted out of Start order,
+            // plus an intro for the same episode.
+            await database.UpdateTimestampAsync(new Segment(itemId, new TimeRange(50, 60)), AnalysisMode.Commercial);
+            await database.UpdateTimestampAsync(new Segment(itemId, new TimeRange(20, 30)), AnalysisMode.Commercial);
+            await database.UpdateTimestampAsync(new Segment(itemId, new TimeRange(100, 110)), AnalysisMode.Commercial);
+            await database.UpdateTimestampAsync(new Segment(itemId, new TimeRange(5, 40)), AnalysisMode.Introduction);
+
+            var timestamps = await database.GetTimestampsAsync(itemId);
+
+            // One representative per mode; for modes with several rows the
+            // earliest-start segment wins (GroupBy-Type → min-Start-first).
+            Assert.Equal(2, timestamps.Count);
+            Assert.Equal(20, timestamps[AnalysisMode.Commercial].Start);
+            Assert.Equal(30, timestamps[AnalysisMode.Commercial].End);
+            Assert.Equal(5, timestamps[AnalysisMode.Introduction].Start);
+            Assert.Equal(40, timestamps[AnalysisMode.Introduction].End);
+        }
+        finally
+        {
+            DeleteSqliteFiles(dbPath);
+        }
+    }
+
+    [Fact]
+    public async Task DeleteTimestampAsync_WithSegment_RemovesOnlyEpsilonMatchingEntryOfThatMode()
+    {
+        var dbPath = CreateTempDbPath();
+        var itemId = Guid.NewGuid();
+        try
+        {
+            var database = DatabaseTestHelpers.CreateSegmentDatabase(dbPath);
+            await database.UpdateTimestampAsync(new Segment(itemId, new TimeRange(10, 20)), AnalysisMode.Commercial);
+            await database.UpdateTimestampAsync(new Segment(itemId, new TimeRange(30, 40)), AnalysisMode.Commercial);
+            await database.UpdateTimestampAsync(new Segment(itemId, new TimeRange(0, 5)), AnalysisMode.Introduction);
+
+            // Outside the 0.001 epsilon: nothing matches, nothing is removed.
+            await database.DeleteTimestampAsync(itemId, AnalysisMode.Commercial, new Segment(itemId, new TimeRange(10.01, 20)));
+
+            await using (var db = new IntroSkipperDbContext(dbPath))
+            {
+                Assert.Equal(3, await db.DbSegment.AsNoTracking().CountAsync(s => s.ItemId == itemId));
+            }
+
+            // Within epsilon on both bounds: removes exactly the matching commercial,
+            // leaving the other commercial and the intro untouched.
+            await database.DeleteTimestampAsync(itemId, AnalysisMode.Commercial, new Segment(itemId, new TimeRange(10.0005, 20.0005)));
+
+            await using (var db = new IntroSkipperDbContext(dbPath))
+            {
+                var remaining = await db.DbSegment.AsNoTracking().Where(s => s.ItemId == itemId).ToListAsync();
+                Assert.Equal(2, remaining.Count);
+                var commercial = Assert.Single(remaining, s => s.Type == AnalysisMode.Commercial);
+                Assert.Equal(30, commercial.Start);
+                Assert.Equal(40, commercial.End);
+                Assert.Single(remaining, s => s.Type == AnalysisMode.Introduction);
+            }
+        }
+        finally
+        {
+            DeleteSqliteFiles(dbPath);
+        }
+    }
+
+    [Fact]
+    public async Task DeleteTimestampAsync_WithoutSegment_CommercialIsNoOpButNonCommercialDeletesMode()
+    {
+        var dbPath = CreateTempDbPath();
+        var itemId = Guid.NewGuid();
+        try
+        {
+            var database = DatabaseTestHelpers.CreateSegmentDatabase(dbPath);
+            await database.UpdateTimestampAsync(new Segment(itemId, new TimeRange(10, 20)), AnalysisMode.Commercial);
+            await database.UpdateTimestampAsync(new Segment(itemId, new TimeRange(0, 5)), AnalysisMode.Introduction);
+
+            // Commercial without a segment argument takes the early-return branch:
+            // deleting "the" commercial is ambiguous, so nothing may be removed.
+            await database.DeleteTimestampAsync(itemId, AnalysisMode.Commercial);
+
+            await using (var db = new IntroSkipperDbContext(dbPath))
+            {
+                Assert.Equal(2, await db.DbSegment.AsNoTracking().CountAsync(s => s.ItemId == itemId));
+            }
+
+            // Non-commercial without a segment argument deletes the whole mode.
+            await database.DeleteTimestampAsync(itemId, AnalysisMode.Introduction);
+
+            await using (var db = new IntroSkipperDbContext(dbPath))
+            {
+                var remaining = Assert.Single(await db.DbSegment.AsNoTracking().Where(s => s.ItemId == itemId).ToListAsync());
+                Assert.Equal(AnalysisMode.Commercial, remaining.Type);
+            }
+        }
+        finally
+        {
+            DeleteSqliteFiles(dbPath);
+        }
+    }
+
+    [Fact]
+    public async Task DeleteSegmentsByModeAsync_RemovesOnlyTheGivenMode()
+    {
+        var dbPath = CreateTempDbPath();
+        var itemA = Guid.NewGuid();
+        var itemB = Guid.NewGuid();
+        try
+        {
+            var database = DatabaseTestHelpers.CreateSegmentDatabase(dbPath);
+            await database.UpdateTimestampAsync(new Segment(itemA, new TimeRange(0, 30)), AnalysisMode.Introduction);
+            await database.UpdateTimestampAsync(new Segment(itemA, new TimeRange(1200, 1260)), AnalysisMode.Credits);
+            await database.UpdateTimestampAsync(new Segment(itemB, new TimeRange(0, 20)), AnalysisMode.Introduction);
+            await database.UpdateTimestampAsync(new Segment(itemB, new TimeRange(100, 110)), AnalysisMode.Commercial);
+
+            await database.DeleteSegmentsByModeAsync(AnalysisMode.Introduction);
+
+            await using var db = new IntroSkipperDbContext(dbPath);
+            var remaining = await db.DbSegment.AsNoTracking().ToListAsync();
+            Assert.Equal(2, remaining.Count);
+            Assert.DoesNotContain(remaining, s => s.Type == AnalysisMode.Introduction);
+            Assert.Single(remaining, s => s.ItemId == itemA && s.Type == AnalysisMode.Credits);
+            Assert.Single(remaining, s => s.ItemId == itemB && s.Type == AnalysisMode.Commercial);
+        }
+        finally
+        {
+            DeleteSqliteFiles(dbPath);
+        }
+    }
+
+    [Fact]
+    public async Task DeleteItemSegmentsAsync_RemovesAllSegmentsForTheItemOnly()
+    {
+        var dbPath = CreateTempDbPath();
+        var targetItemId = Guid.NewGuid();
+        var otherItemId = Guid.NewGuid();
+        try
+        {
+            var database = DatabaseTestHelpers.CreateSegmentDatabase(dbPath);
+            await database.UpdateTimestampAsync(new Segment(targetItemId, new TimeRange(0, 30)), AnalysisMode.Introduction);
+            await database.UpdateTimestampAsync(new Segment(targetItemId, new TimeRange(1200, 1260)), AnalysisMode.Credits);
+            await database.UpdateTimestampAsync(new Segment(targetItemId, new TimeRange(100, 110)), AnalysisMode.Commercial);
+            await database.UpdateTimestampAsync(new Segment(otherItemId, new TimeRange(0, 20)), AnalysisMode.Introduction);
+
+            await database.DeleteItemSegmentsAsync(targetItemId);
+
+            await using var db = new IntroSkipperDbContext(dbPath);
+            var remaining = Assert.Single(await db.DbSegment.AsNoTracking().ToListAsync());
+            Assert.Equal(otherItemId, remaining.ItemId);
+            Assert.Equal(AnalysisMode.Introduction, remaining.Type);
+        }
+        finally
+        {
+            DeleteSqliteFiles(dbPath);
+        }
+    }
+
+    [Fact]
+    public async Task AnalyzerActions_ReturnStoredRow_AndFillMissingModesWithDefault()
+    {
+        var dbPath = CreateTempDbPath();
+        var seasonId = Guid.NewGuid();
+        try
+        {
+            var database = DatabaseTestHelpers.CreateSegmentDatabase(dbPath);
+            await database.SetAnalyzerActionAsync(
+                seasonId,
+                new Dictionary<AnalysisMode, AnalyzerAction> { [AnalysisMode.Introduction] = AnalyzerAction.Chromaprint });
+
+            Assert.Equal(AnalyzerAction.Chromaprint, await database.GetAnalyzerActionAsync(seasonId, AnalysisMode.Introduction));
+            Assert.Equal(AnalyzerAction.Default, await database.GetAnalyzerActionAsync(seasonId, AnalysisMode.Credits));
+            Assert.Equal(AnalyzerAction.Default, await database.GetAnalyzerActionAsync(Guid.NewGuid(), AnalysisMode.Introduction));
+
+            var allActions = await database.GetAllAnalyzerActionsAsync(seasonId);
+            Assert.Equal(Enum.GetValues<AnalysisMode>().Length, allActions.Count);
+            foreach (var mode in Enum.GetValues<AnalysisMode>())
+            {
+                Assert.Equal(
+                    mode == AnalysisMode.Introduction ? AnalyzerAction.Chromaprint : AnalyzerAction.Default,
+                    allActions[mode]);
+            }
         }
         finally
         {
@@ -352,30 +547,212 @@ public sealed class TestDatabaseFacades
     }
 
     [Fact]
-    public async Task CleanStaleAutomaticSegmentsAsync_DoesNotExceedSqliteVariableLimit_WhenItemListIsLarge()
+    public async Task CleanStaleAutomaticSegmentsAsync_DeletesOnlyStaleAutomaticSegments_WhenItemListIsLarge()
     {
         const int LargeItemCount = 33_000;
 
         var dbPath = CreateTempDbPath();
         var staleItemId = Guid.NewGuid();
-        var itemIds = Enumerable.Range(0, LargeItemCount - 1)
+        var userProvidedItemId = Guid.NewGuid();
+        var matchingHashItemId = Guid.NewGuid();
+        var otherModeItemId = Guid.NewGuid();
+        var itemIds = Enumerable.Range(0, LargeItemCount - 4)
             .Select(_ => Guid.NewGuid())
             .Append(staleItemId)
+            .Append(userProvidedItemId)
+            .Append(matchingHashItemId)
+            .Append(otherModeItemId)
             .ToArray();
 
         try
         {
             var database = DatabaseTestHelpers.CreateSegmentDatabase(dbPath);
+
+            // All four retention classes: only the stale-hash automatic segment of the
+            // cleaned mode may be deleted.
             await database.UpdateTimestampAsync(new Segment(staleItemId, new TimeRange(0, 30)), AnalysisMode.Introduction, configHash: "old-config");
+            await database.UpdateTimestampAsync(new Segment(userProvidedItemId, new TimeRange(0, 30)), AnalysisMode.Introduction, isUserProvided: true, configHash: "old-config");
+            await database.UpdateTimestampAsync(new Segment(matchingHashItemId, new TimeRange(0, 30)), AnalysisMode.Introduction, configHash: "new-config");
+            await database.UpdateTimestampAsync(new Segment(otherModeItemId, new TimeRange(1200, 1260)), AnalysisMode.Credits, configHash: "old-config");
 
             await database.CleanStaleAutomaticSegmentsAsync(itemIds, AnalysisMode.Introduction, "new-config");
 
             Assert.Empty(await database.GetSegmentsAsync(staleItemId));
+
+            await using var db = new IntroSkipperDbContext(dbPath);
+            var remaining = await db.DbSegment.AsNoTracking().ToListAsync();
+            Assert.Equal(3, remaining.Count);
+            Assert.Single(remaining, s => s.ItemId == userProvidedItemId && s.Type == AnalysisMode.Introduction && s.IsUserProvided);
+            Assert.Single(remaining, s => s.ItemId == matchingHashItemId && s.Type == AnalysisMode.Introduction && s.ConfigHash == "new-config");
+            Assert.Single(remaining, s => s.ItemId == otherModeItemId && s.Type == AnalysisMode.Credits);
         }
         finally
         {
             DeleteSqliteFiles(dbPath);
         }
+    }
+
+    [Fact]
+    public async Task RebuildDatabaseAsync_PreservesValidSegmentsAndSeasonStates()
+    {
+        var dbPath = CreateTempDbPath();
+        var automaticItemId = Guid.NewGuid();
+        var userProvidedItemId = Guid.NewGuid();
+        var invalidItemId = Guid.NewGuid();
+        var seasonId = Guid.NewGuid();
+        var episodeIds = new[] { Guid.NewGuid(), Guid.NewGuid() };
+        try
+        {
+            var database = DatabaseTestHelpers.CreateSegmentDatabase(dbPath);
+            await database.UpdateTimestampAsync(new Segment(automaticItemId, new TimeRange(5, 30)), AnalysisMode.Introduction, configHash: "cfg-auto");
+            await database.UpdateTimestampAsync(new Segment(automaticItemId, new TimeRange(100, 110)), AnalysisMode.Commercial);
+            await database.UpdateTimestampAsync(new Segment(userProvidedItemId, new TimeRange(1200, 1260)), AnalysisMode.Credits, isUserProvided: true);
+            await database.SetEpisodeIdsAsync(seasonId, AnalysisMode.Introduction, episodeIds, "cfg-season");
+            await database.SetAnalyzerActionAsync(
+                seasonId,
+                new Dictionary<AnalysisMode, AnalyzerAction> { [AnalysisMode.Credits] = AnalyzerAction.None });
+
+            // An invalid segment (End <= 0, Segment.Valid == false) is seeded raw — the
+            // facade write paths never produce one — and must be dropped by the rebuild's
+            // backup filter.
+            await using (var connection = new SqliteConnection($"Data Source={dbPath}"))
+            {
+                await connection.OpenAsync();
+                await using var command = connection.CreateCommand();
+                command.CommandText =
+                    """
+                    INSERT INTO "DbSegment" ("ItemId", "Type", "Start", "End", "IsUserProvided", "ConfigHash")
+                    VALUES ($itemId, $type, $start, $end, 0, '')
+                    """;
+                command.Parameters.AddWithValue("$itemId", invalidItemId.ToString().ToUpperInvariant());
+                command.Parameters.AddWithValue("$type", (int)AnalysisMode.Introduction);
+                command.Parameters.AddWithValue("$start", 10.0);
+                command.Parameters.AddWithValue("$end", 0.0);
+                await command.ExecuteNonQueryAsync();
+            }
+
+            await database.RebuildDatabaseAsync();
+
+            await using var db = new IntroSkipperDbContext(dbPath);
+            Assert.Empty(await db.Database.GetPendingMigrationsAsync());
+
+            var segments = await db.DbSegment.AsNoTracking().ToListAsync();
+            Assert.Equal(3, segments.Count);
+            Assert.DoesNotContain(segments, s => s.ItemId == invalidItemId);
+            var automatic = Assert.Single(segments, s => s.Type == AnalysisMode.Introduction);
+            Assert.Equal(automaticItemId, automatic.ItemId);
+            Assert.Equal("cfg-auto", automatic.ConfigHash);
+            Assert.False(automatic.IsUserProvided);
+            var userProvided = Assert.Single(segments, s => s.Type == AnalysisMode.Credits);
+            Assert.Equal(userProvidedItemId, userProvided.ItemId);
+            Assert.True(userProvided.IsUserProvided);
+            Assert.Single(segments, s => s.Type == AnalysisMode.Commercial);
+
+            var seasonStates = await db.DbSeasonState.AsNoTracking().Where(s => s.SeasonId == seasonId).ToListAsync();
+            Assert.Equal(2, seasonStates.Count);
+            var introState = Assert.Single(seasonStates, s => s.Type == AnalysisMode.Introduction);
+            Assert.Equal(episodeIds, introState.EpisodeIds);
+            Assert.Equal("cfg-season", introState.ConfigHash);
+            var creditsState = Assert.Single(seasonStates, s => s.Type == AnalysisMode.Credits);
+            Assert.Equal(AnalyzerAction.None, creditsState.Action);
+        }
+        finally
+        {
+            DeleteSqliteFiles(dbPath);
+        }
+    }
+
+    [Fact]
+    public async Task RebuildDatabaseAsync_BackupFailure_AbortsAndPreservesFile_WithoutForceClean()
+    {
+        var dbPath = CreateTempDbPath();
+        var itemId = Guid.NewGuid();
+        try
+        {
+            var database = DatabaseTestHelpers.CreateSegmentDatabase(dbPath);
+            await database.UpdateTimestampAsync(new Segment(itemId, new TimeRange(5, 30)), AnalysisMode.Introduction);
+
+            // Deterministic backup failure: dropping a column the model SELECT expects
+            // makes the backup read throw SqliteException ("no such column"). The drop
+            // happens after this facade's one-shot init gate has completed, so the
+            // legacy-schema repair cannot undo it before the rebuild runs.
+            await DropDbSegmentConfigHashColumnAsync(dbPath);
+
+            var exception = await Assert.ThrowsAsync<InvalidOperationException>(() => database.RebuildDatabaseAsync());
+            Assert.IsType<SqliteException>(exception.InnerException);
+
+            // The aborted rebuild must not have touched the database file: the seeded
+            // row is still there. (Raw connection — the EF model no longer matches.)
+            await using var connection = new SqliteConnection($"Data Source={dbPath}");
+            await connection.OpenAsync();
+            await using var command = connection.CreateCommand();
+            command.CommandText = "SELECT COUNT(*) FROM \"DbSegment\"";
+            Assert.Equal(1L, (long)(await command.ExecuteScalarAsync())!);
+        }
+        finally
+        {
+            DeleteSqliteFiles(dbPath);
+        }
+    }
+
+    [Fact]
+    public async Task RebuildDatabaseAsync_BackupFailure_RebuildsClean_WhenForceCleanRequested()
+    {
+        var dbPath = CreateTempDbPath();
+        var itemId = Guid.NewGuid();
+        try
+        {
+            var database = DatabaseTestHelpers.CreateSegmentDatabase(dbPath);
+            await database.UpdateTimestampAsync(new Segment(itemId, new TimeRange(5, 30)), AnalysisMode.Introduction);
+
+            await DropDbSegmentConfigHashColumnAsync(dbPath);
+
+            await database.RebuildDatabaseAsync(forceCleanOnBackupFailure: true);
+
+            // Explicitly requested clean rebuild: the unreadable data is gone and the
+            // schema is recreated at the current migration level.
+            await using (var db = new IntroSkipperDbContext(dbPath))
+            {
+                Assert.Empty(await db.Database.GetPendingMigrationsAsync());
+                Assert.Empty(await db.DbSegment.AsNoTracking().ToListAsync());
+                Assert.Empty(await db.DbSeasonState.AsNoTracking().ToListAsync());
+            }
+
+            // The facade stays operational over the recreated database.
+            await database.UpdateTimestampAsync(new Segment(itemId, new TimeRange(0, 10)), AnalysisMode.Introduction);
+            Assert.Single(await database.GetSegmentsAsync(itemId));
+        }
+        finally
+        {
+            DeleteSqliteFiles(dbPath);
+        }
+    }
+
+    [Fact]
+    public async Task InitializeAsync_UnopenableDataSource_SwallowsFailureAndNeverRetries()
+    {
+        // A data source whose parent directory does not exist cannot be opened or
+        // created by SQLite, so the initialization core fails internally.
+        var dbPath = Path.Join(
+            Path.GetTempPath(),
+            "IntroSkipper.Tests",
+            "database-facades",
+            Guid.NewGuid().ToString("N") + "-missing-dir",
+            "segments.db");
+        var database = DatabaseTestHelpers.CreateSegmentDatabase(dbPath);
+
+        // The catch-all initialization core swallows the failure: awaiting the gate
+        // must not throw, matching the plugin's historical constructor behavior.
+        var firstGate = database.InitializeAsync();
+        await firstGate;
+        Assert.True(firstGate.IsCompletedSuccessfully);
+
+        // One-shot Lazy gate: a second call returns the same completed task — the
+        // failed initialization is deliberately never retried.
+        Assert.Same(firstGate, database.InitializeAsync());
+
+        // Operations run against whatever state exists and surface their own errors.
+        await Assert.ThrowsAsync<SqliteException>(() => database.GetSegmentsAsync(Guid.NewGuid()));
     }
 
     [Fact]
@@ -431,10 +808,32 @@ public sealed class TestDatabaseFacades
             var facadeA = DatabaseTestHelpers.CreateSegmentDatabase(dbPath);
             var facadeB = DatabaseTestHelpers.CreateSegmentDatabase(dbPath);
 
-            // Trigger both initialization gates concurrently via first operations.
-            var results = await Task.WhenAll(
-                Task.Run(() => facadeA.GetSegmentsAsync(episodeId)),
-                Task.Run(() => facadeB.GetSegmentsAsync(episodeId)));
+            // Trigger both initialization gates concurrently via first operations. A
+            // start barrier ensures both workers are running and parked before either
+            // touches its facade, so the two gates genuinely overlap instead of racing
+            // opportunistically. The barrier only ever releases work — it cannot
+            // deadlock or fail spuriously.
+            var startBarrier = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            var readyA = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            var readyB = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+
+            var taskA = Task.Run(async () =>
+            {
+                readyA.SetResult();
+                await startBarrier.Task;
+                return await facadeA.GetSegmentsAsync(episodeId);
+            });
+            var taskB = Task.Run(async () =>
+            {
+                readyB.SetResult();
+                await startBarrier.Task;
+                return await facadeB.GetSegmentsAsync(episodeId);
+            });
+
+            await Task.WhenAll(readyA.Task, readyB.Task);
+            startBarrier.SetResult();
+
+            var results = await Task.WhenAll(taskA, taskB);
 
             Assert.All(results, segments => Assert.Single(segments));
 
@@ -504,6 +903,18 @@ public sealed class TestDatabaseFacades
         {
             DeleteSqliteFiles(dbPath);
         }
+    }
+
+    private static async Task DropDbSegmentConfigHashColumnAsync(string dbPath)
+    {
+        // Clear pooled handles first so the schema change cannot hit a stale lock.
+        SqliteConnection.ClearAllPools();
+
+        await using var connection = new SqliteConnection($"Data Source={dbPath}");
+        await connection.OpenAsync();
+        await using var command = connection.CreateCommand();
+        command.CommandText = "ALTER TABLE \"DbSegment\" DROP COLUMN \"ConfigHash\"";
+        await command.ExecuteNonQueryAsync();
     }
 
     private static string GetJournalMode(string dbPath)

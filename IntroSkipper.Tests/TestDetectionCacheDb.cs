@@ -289,6 +289,42 @@ public sealed class TestDetectionCacheDbContext : IDisposable
     }
 
     [Fact]
+    public void Initialize_RecoversFromCorruptCacheFile_ByDeleteAndRecreate()
+    {
+        var dbPath = Path.Combine(Path.GetDirectoryName(_dbPath)!, $"corrupt-cache-{Guid.NewGuid():N}.db");
+        try
+        {
+            // Garbage bytes with no SQLite header: opening the file succeeds, but the
+            // first statement fails with SQLITE_NOTADB. EnsureSchema must take the
+            // delete-and-recreate recovery path, and no exception may escape the
+            // facade's Initialize().
+            var garbage = new byte[4096];
+            Array.Fill(garbage, (byte)0xDE);
+            File.WriteAllBytes(dbPath, garbage);
+
+            var cacheDatabase = DatabaseTestHelpers.CreateCacheDatabase(dbPath);
+            cacheDatabase.Initialize();
+
+            // The recreated database must be fully operational: Upsert/FindEntry
+            // round-trips. (These would throw SQLITE_NOTADB if the garbage file
+            // had survived.)
+            var itemId = Guid.NewGuid();
+            var payload = Encoding.UTF8.GetBytes("[1,2,3]");
+            cacheDatabase.Upsert(itemId, AnalysisMode.Introduction, CacheEntryType.Chromaprint, 0, 10, payload, "config-hash");
+
+            var entry = cacheDatabase.FindEntry(itemId, AnalysisMode.Introduction, CacheEntryType.Chromaprint, 0, 10);
+            Assert.NotNull(entry);
+            Assert.Equal(payload, entry.Data);
+            Assert.True(cacheDatabase.HasEntry(itemId, AnalysisMode.Introduction, CacheEntryType.Chromaprint, 0, 10, "config-hash"));
+        }
+        finally
+        {
+            SqliteConnection.ClearAllPools();
+            DeleteDatabaseFiles(dbPath);
+        }
+    }
+
+    [Fact]
     public void EnsureSchema_RecreatesIncompatibleCacheSchema()
     {
         var dbPath = Path.Combine(Path.GetDirectoryName(_dbPath)!, $"bad-cache-{Guid.NewGuid():N}.db");
