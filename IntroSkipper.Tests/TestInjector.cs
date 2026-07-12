@@ -8,9 +8,8 @@ namespace IntroSkipper.Tests;
 public sealed class TestInjector
 {
     private const string CurrentJellyfinBundleSnippet =
-        "t.prototype.showSkipButton=function(e){var t=this;e.keep||(t.hideTimeout=setTimeout(t.hideSkipButton.bind(t),8e3))}" +
+        "t.prototype.showSkipButton=function(e){var t=this,n=this.skipElement;if(n){var r=document.activeElement&&ye.A.isCurrentlyFocusable(document.activeElement);e.keep||(t.hideTimeout=setTimeout(t.hideSkipButton.bind(t),8e3))}}" +
         "function onOsdClose(){return this.visible?this.show():this.hideTimeout||this.hideSkipButton()}" +
-        "function focusCheck(t){var r=document.activeElement&&ye.A.isCurrentlyFocusable(document.activeElement);return r}" +
         "var a=((r={})[i.w.Intro]=o.M.AskToSkip,r[i.w.Outro]=o.M.AskToSkip,r)" +
         "function timeUpdate(){if(this.currentSegment){var e=100;H(this.currentSegment,e)||(this.currentSegment=null,this.hideSkipButton())}}";
 
@@ -28,13 +27,25 @@ public sealed class TestInjector
     }
 
     [Fact]
+    public void FileTransformer_UsesMatchedPlaybackReceiver_ForFocusabilityCheck()
+    {
+        using var scope = CreatePluginScope(skipbuttonHideDelay: 5);
+        const string bundle = "x.prototype.showSkipButton=function(o){var s=this,n=this.skipElement;if(n){var a=document.activeElement&&fm.A.isCurrentlyFocusable(document.activeElement);return a}}";
+
+        var transformed = Transform(bundle);
+
+        Assert.Contains("var a=document.activeElement&&fm.A.isCurrentlyFocusable(document.activeElement)&&s.playbackManager.currentTime()>1000", transformed, StringComparison.Ordinal);
+        Assert.DoesNotContain("t.playbackManager", transformed, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void FileTransformer_MakesCurrentJellyfinBundleShapePersistent_ForZeroHideDelay()
     {
         using var scope = CreatePluginScope(skipbuttonHideDelay: 0);
 
         var transformed = Transform(CurrentJellyfinBundleSnippet);
 
-        Assert.Contains("showSkipButton=function(e){var t=this;true}", transformed, StringComparison.Ordinal);
+        Assert.Contains("var r=document.activeElement&&ye.A.isCurrentlyFocusable(document.activeElement)&&t.playbackManager.currentTime()>1000;true", transformed, StringComparison.Ordinal);
         Assert.DoesNotContain("setTimeout(", transformed, StringComparison.Ordinal);
         Assert.DoesNotContain("hideTimeout||this.hideSkipButton()", transformed, StringComparison.Ordinal);
         Assert.Contains("return this.visible?this.show():true}", transformed, StringComparison.Ordinal);

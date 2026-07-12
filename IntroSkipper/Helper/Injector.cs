@@ -26,7 +26,7 @@ namespace IntroSkipper.Helper
         /// Pattern to match the focusability check in the showSkipButton method.
         /// </summary>
         private const string FocusabilityAssignmentPattern =
-            @"(?:(?:var)\s+)?[A-Za-z_$][\w$]*\s*=\s*document\.activeElement\s*&&\s*[A-Za-z_$][\w$]*\.A\.isCurrentlyFocusable\(document\.activeElement\)";
+            @"showSkipButton=function\([A-Za-z_$][\w$]*\)\{var\s+(?<receiver>[A-Za-z_$][\w$]*)\s*=\s*this[\s\S]*?(?:(?:var)\s+)?[A-Za-z_$][\w$]*\s*=\s*document\.activeElement\s*&&\s*[A-Za-z_$][\w$]*\.A\.isCurrentlyFocusable\(document\.activeElement\)";
 
         /// <summary>
         /// Pattern to match the default Intro segment action (AskToSkip) in the action map.
@@ -168,7 +168,7 @@ namespace IntroSkipper.Helper
         /// </summary>
         /// <param name="contents">The JavaScript content to modify.</param>
         /// <returns>The modified content.</returns>
-        private static string ReplaceFocusabilityCheck(string contents) => FocusabilityAssignmentRegex().Replace(contents, m => m.Value + $"&&t.playbackManager.currentTime()>{MillisecondsPerSecond}");
+        private static string ReplaceFocusabilityCheck(string contents) => FocusabilityAssignmentRegex().Replace(contents, m => m.Value + $"&&{m.Groups["receiver"].Value}.playbackManager.currentTime()>{MillisecondsPerSecond}");
 
         /// <summary>
         /// Changes the default Intro segment action from AskToSkip to Skip (auto-skip).
