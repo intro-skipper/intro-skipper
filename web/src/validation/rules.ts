@@ -48,6 +48,7 @@ export const validationRules: Partial<Record<keyof PluginConfig, ValidationRule<
     MaxParallelism: [minValue(1)],
     ProcessThreads: [range(0, 16)],
     SkipbuttonHideDelay: [range(0, 1000)],
+    SkipButtonVisibleSeconds: [range(0, 600)],
     SilenceDetectionMaximumNoise: [range(-90, 0)],
     SilenceDetectionMinimumDuration: [minValue(0)],
     ChapterAnalyzerIntroductionPattern: [validRegex()],

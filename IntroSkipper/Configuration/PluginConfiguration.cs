@@ -452,6 +452,22 @@ public class PluginConfiguration : BasePluginConfiguration
     public int SkipbuttonHideDelay { get; set; } = 8;
 
     /// <summary>
+    /// Gets or sets a value indicating whether intros are auto-skipped without prompting.
+    /// </summary>
+    public bool AutoSkipIntro { get; set; }
+
+    /// <summary>
+    /// Gets or sets a value indicating whether credits/outros are auto-skipped without prompting.
+    /// </summary>
+    public bool AutoSkipCredits { get; set; }
+
+    /// <summary>
+    /// Gets or sets the number of seconds before the segment ends at which the skip button hides.
+    /// 0 means the button stays visible for the entire segment (default).
+    /// </summary>
+    public int SkipButtonVisibleSeconds { get; set; }
+
+    /// <summary>
     /// Gets or sets a value indicating whether to enable the main menu entry for the plugin.
     /// </summary>
     public bool EnableMainMenu { get; set; } = true;

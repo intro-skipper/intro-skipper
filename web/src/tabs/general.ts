@@ -268,6 +268,30 @@ export const generalTab: Tab = {
                 warning:
                     "Note: This setting only applies to the web client (browsers, LG webOS, Android with web player enabled, etc). May require a refresh or clearing cache to see changes.",
             }),
+            checkboxField({
+                id: "AutoSkipIntro",
+                label: "Auto-skip intros",
+                description:
+                    "Automatically skip intro segments without showing the skip button. Users who have explicitly set a preference in their Jellyfin settings will keep it.",
+                visible: () => configStore.get("UseFileTransformationPlugin") === true,
+            }),
+            checkboxField({
+                id: "AutoSkipCredits",
+                label: "Auto-skip credits/outros",
+                description:
+                    "Automatically skip credits/outro segments without showing the skip button. Users who have explicitly set a preference in their Jellyfin settings will keep it.",
+                visible: () => configStore.get("UseFileTransformationPlugin") === true,
+            }),
+            numberField({
+                id: "SkipButtonVisibleSeconds",
+                label: "Hide skip button before segment end (seconds)",
+                min: 0,
+                max: 600,
+                step: 1,
+                description:
+                    "Hide the skip button this many seconds before the segment ends. Set to 0 to disable this end-relative limit. The normal skip button hide delay still applies.",
+                visible: () => configStore.get("UseFileTransformationPlugin") === true,
+            }),
             injectSection,
             checkboxField({
                 id: "EnableMainMenu",
