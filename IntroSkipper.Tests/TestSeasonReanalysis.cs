@@ -31,6 +31,7 @@ public sealed class TestSeasonReanalysisPlanner
     {
         // The test proxy throws on enumeration calls such as GetVirtualFolders.
         var libraryManager = EntrypointTestHelpers.CreateLibraryManager();
+        double? reportedProgress = null;
         var analyzer = new BaseItemAnalyzerTask(
             NullLogger.Instance,
             NullLoggerFactory.Instance,
@@ -41,7 +42,12 @@ public sealed class TestSeasonReanalysisPlanner
             ffmpegService: null!,
             cacheService: new DetectionCacheService(NullLogger<DetectionCacheService>.Instance));
 
-        await analyzer.AnalyzeItemsAsync(new Progress<double>(), CancellationToken.None, []);
+        await analyzer.AnalyzeItemsAsync(
+            new Progress<double>(value => reportedProgress = value),
+            CancellationToken.None,
+            []);
+
+        Assert.Equal(100, reportedProgress);
     }
 
     [Fact]

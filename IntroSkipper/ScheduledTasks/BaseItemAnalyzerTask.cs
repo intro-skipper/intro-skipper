@@ -79,8 +79,10 @@ public partial class BaseItemAnalyzerTask(
             .. _config.ScanCommercial ? [AnalysisMode.Commercial] : Array.Empty<AnalysisMode>()
         ];
 
-        if (seasonsToAnalyze is { Count: 0 })
+        var seasonFilter = seasonsToAnalyze?.ToHashSet();
+        if (seasonFilter is { Count: 0 })
         {
+            progress.Report(100);
             return;
         }
 
@@ -96,9 +98,9 @@ public partial class BaseItemAnalyzerTask(
 
         var queue = await queueManager.GetMediaItems(cancellationToken).ConfigureAwait(false);
 
-        if (seasonsToAnalyze is { Count: > 0 })
+        if (seasonFilter is not null)
         {
-            queue = queue.Where(kvp => seasonsToAnalyze.Contains(kvp.Key))
+            queue = queue.Where(kvp => seasonFilter.Contains(kvp.Key))
                          .ToDictionary(kvp => kvp.Key, kvp => kvp.Value);
         }
 
