@@ -29,16 +29,10 @@ namespace IntroSkipper.Helper
             @"showSkipButton=function\([A-Za-z_$][\w$]*\)\{var\s+(?<receiver>[A-Za-z_$][\w$]*)\s*=\s*this(?<depth>)(?:(?(depth)(?:[^{}]|\{(?<depth>)|\}(?<-depth>))|(?!)))*?(?:(?:var)\s+)?[A-Za-z_$][\w$]*\s*=\s*document\.activeElement\s*&&\s*[A-Za-z_$][\w$]*\.A\.isCurrentlyFocusable\(document\.activeElement\)";
 
         /// <summary>
-        /// Pattern to match the default Intro segment action (AskToSkip) in the action map.
+        /// Pattern to match default Intro and Outro segment actions in the action map.
         /// </summary>
-        private const string IntroActionDefaultPattern =
-            @"\[(?<mod>[A-Za-z_$][\w$]*)\.w\.Intro\]=(?<act>[A-Za-z_$][\w$]*)\.M\.AskToSkip";
-
-        /// <summary>
-        /// Pattern to match the default Outro/Credits segment action (AskToSkip) in the action map.
-        /// </summary>
-        private const string OutroActionDefaultPattern =
-            @"\[(?<mod>[A-Za-z_$][\w$]*)\.w\.Outro\]=(?<act>[A-Za-z_$][\w$]*)\.M\.AskToSkip";
+        private const string SegmentActionDefaultPattern =
+            @"\[(?<mod>[A-Za-z_$][\w$]*)\.w\.(?<segment>Intro|Outro)\]=(?<act>[A-Za-z_$][\w$]*)\.M\.AskToSkip";
 
         /// <summary>
         /// Pattern to match the segment bounds check in onPlayerTimeUpdate that controls skip button visibility.
@@ -50,7 +44,7 @@ namespace IntroSkipper.Helper
         /// Pattern to match the showSkipButton function opening to inject an early-return guard.
         /// </summary>
         private const string ShowSkipButtonPattern =
-            @"showSkipButton=function\((?<arg>[A-Za-z_$][\w$]*)\)\{";
+            @"showSkipButton=function\([A-Za-z_$][\w$]*\)\{";
 
         /// <summary>
         /// Number of milliseconds per second.
@@ -76,11 +70,8 @@ namespace IntroSkipper.Helper
         [GeneratedRegex(FocusabilityAssignmentPattern, RegexOptions.CultureInvariant)]
         private static partial Regex FocusabilityAssignmentRegex();
 
-        [GeneratedRegex(IntroActionDefaultPattern)]
-        private static partial Regex IntroActionDefaultRegex();
-
-        [GeneratedRegex(OutroActionDefaultPattern)]
-        private static partial Regex OutroActionDefaultRegex();
+        [GeneratedRegex(SegmentActionDefaultPattern)]
+        private static partial Regex SegmentActionDefaultRegex();
 
         [GeneratedRegex(SegmentBoundsCheckPattern)]
         private static partial Regex SegmentBoundsCheckRegex();
@@ -123,14 +114,9 @@ namespace IntroSkipper.Helper
             updated = ReplaceFocusabilityCheck(updated);
 
             // Override default segment actions from AskToSkip to Skip when configured
-            if (config.AutoSkipIntro)
+            if (config.AutoSkipIntro || config.AutoSkipCredits)
             {
-                updated = ReplaceIntroActionDefault(updated);
-            }
-
-            if (config.AutoSkipCredits)
-            {
-                updated = ReplaceOutroActionDefault(updated);
+                updated = ReplaceActionDefaults(updated, config.AutoSkipIntro, config.AutoSkipCredits);
             }
 
             // Hide skip button N seconds before segment end and block all re-show paths
@@ -138,8 +124,9 @@ namespace IntroSkipper.Helper
             {
                 var thresholdTicks = ((long)config.SkipButtonVisibleSeconds * TicksPerSecond).ToString(CultureInfo.InvariantCulture);
                 var floorTicks = ((long)hideDelayMs * TicksPerSecond / MillisecondsPerSecond).ToString(CultureInfo.InvariantCulture);
-                updated = ReplaceSegmentBoundsCheck(updated, thresholdTicks, floorTicks);
-                updated = InjectShowSkipButtonGuard(updated, thresholdTicks, floorTicks);
+                var cutoff = $"Math.max(this.currentSegment.StartTicks+{floorTicks},this.currentSegment.EndTicks-{thresholdTicks})";
+                updated = ReplaceSegmentBoundsCheck(updated, cutoff);
+                updated = InjectShowSkipButtonGuard(updated, cutoff);
             }
 
             return updated;
@@ -171,32 +158,32 @@ namespace IntroSkipper.Helper
         private static string ReplaceFocusabilityCheck(string contents) => FocusabilityAssignmentRegex().Replace(contents, m => m.Value + $"&&{m.Groups["receiver"].Value}.playbackManager.currentTime()>{MillisecondsPerSecond}");
 
         /// <summary>
-        /// Changes the default Intro segment action from AskToSkip to Skip (auto-skip).
+        /// Changes configured segment actions from AskToSkip to Skip (auto-skip).
         /// </summary>
         /// <param name="contents">The JavaScript content to modify.</param>
+        /// <param name="autoSkipIntro">Whether to auto-skip Intro segments.</param>
+        /// <param name="autoSkipCredits">Whether to auto-skip Outro segments.</param>
         /// <returns>The modified content.</returns>
-        private static string ReplaceIntroActionDefault(string contents) =>
-            IntroActionDefaultRegex().Replace(contents, m => $"[{m.Groups["mod"].Value}.w.Intro]={m.Groups["act"].Value}.M.Skip");
-
-        /// <summary>
-        /// Changes the default Outro/Credits segment action from AskToSkip to Skip (auto-skip).
-        /// </summary>
-        /// <param name="contents">The JavaScript content to modify.</param>
-        /// <returns>The modified content.</returns>
-        private static string ReplaceOutroActionDefault(string contents) =>
-            OutroActionDefaultRegex().Replace(contents, m => $"[{m.Groups["mod"].Value}.w.Outro]={m.Groups["act"].Value}.M.Skip");
+        private static string ReplaceActionDefaults(string contents, bool autoSkipIntro, bool autoSkipCredits) =>
+            SegmentActionDefaultRegex().Replace(contents, m =>
+            {
+                var segment = m.Groups["segment"].Value;
+                var autoSkip = segment == "Intro" ? autoSkipIntro : autoSkipCredits;
+                return autoSkip
+                    ? $"[{m.Groups["mod"].Value}.w.{segment}]={m.Groups["act"].Value}.M.Skip"
+                    : m.Value;
+            });
 
         /// <summary>
         /// Modifies onPlayerTimeUpdate to actively hide the skip button N seconds before segment end.
         /// Uses Math.max(StartTicks+floor, EndTicks-threshold) so the button always shows for at least the hide delay duration.
         /// Keeps currentSegment set to prevent onPromptSkip from re-triggering.
         /// </summary>
-        private static string ReplaceSegmentBoundsCheck(string contents, string thresholdTicks, string floorTicks) =>
+        private static string ReplaceSegmentBoundsCheck(string contents, string cutoff) =>
             SegmentBoundsCheckRegex().Replace(contents, m =>
             {
                 var chk = m.Groups["check"].Value;
                 var pos = m.Groups["pos"].Value;
-                var cutoff = $"Math.max(this.currentSegment.StartTicks+{floorTicks},this.currentSegment.EndTicks-{thresholdTicks})";
                 return $"{chk}(this.currentSegment,{pos})" +
                     $"?({pos}>={cutoff}&&this.hideSkipButton())" +
                     $":(this.currentSegment=null,this.hideSkipButton())";
@@ -206,15 +193,10 @@ namespace IntroSkipper.Helper
         /// Injects an early-return guard into showSkipButton so the button cannot be re-shown
         /// (by OSD changes or any other caller) once the visibility threshold has been reached.
         /// </summary>
-        private static string InjectShowSkipButtonGuard(string contents, string thresholdTicks, string floorTicks) =>
-            ShowSkipButtonRegex().Replace(contents, m =>
-            {
-                var arg = m.Groups["arg"].Value;
-                var pos = "this.playbackManager.currentTime(this.player)*1e4";
-                var cutoff = $"Math.max(this.currentSegment.StartTicks+{floorTicks},this.currentSegment.EndTicks-{thresholdTicks})";
-                return $"showSkipButton=function({arg}){{" +
-                    $"if(this.currentSegment&&{pos}>={cutoff})return;";
-            });
+        private static string InjectShowSkipButtonGuard(string contents, string cutoff) =>
+            ShowSkipButtonRegex().Replace(
+                contents,
+                m => m.Value + $"if(this.currentSegment&&this.playbackManager.currentTime(this.player)*1e4>={cutoff})return;");
 
         /// <summary>
         /// Attempts to convert seconds to milliseconds with validation and overflow protection.

@@ -289,7 +289,7 @@ export const generalTab: Tab = {
                 max: 600,
                 step: 1,
                 description:
-                    "Hide the skip button this many seconds before the segment ends. 0 keeps it visible for the entire segment. Example: 10 on a 90-second intro hides the button at 80 seconds.",
+                    "Hide the skip button this many seconds before the segment ends. Set to 0 to disable this end-relative limit. The normal skip button hide delay still applies.",
                 visible: () => configStore.get("UseFileTransformationPlugin") === true,
             }),
             injectSection,
