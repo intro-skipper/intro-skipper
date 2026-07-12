@@ -27,6 +27,22 @@ public sealed class TestSeasonReanalysisPlanner
     private static readonly DateTime Now = new(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc);
 
     [Fact]
+    public async Task AnalyzeItemsAsync_EmptySeasonSet_DoesNotEnumerateLibrary()
+    {
+        var analyzer = new BaseItemAnalyzerTask(
+            NullLogger.Instance,
+            NullLoggerFactory.Instance,
+            libraryManager: null!,
+            providerManager: null!,
+            fileSystem: null!,
+            mediaSegmentRefresher: null!,
+            ffmpegService: null!,
+            cacheService: new DetectionCacheService(NullLogger<DetectionCacheService>.Instance));
+
+        await analyzer.AnalyzeItemsAsync(new Progress<double>(), CancellationToken.None, []);
+    }
+
+    [Fact]
     public void IsSettledForReanalysis_ReturnsFalse_WhenDisabled()
     {
         var config = new PluginConfiguration { ReanalyzeSettledSeasons = false };

@@ -79,6 +79,11 @@ public partial class BaseItemAnalyzerTask(
             .. _config.ScanCommercial ? [AnalysisMode.Commercial] : Array.Empty<AnalysisMode>()
         ];
 
+        if (seasonsToAnalyze is { Count: 0 })
+        {
+            return;
+        }
+
         var queueManager = new QueueManager(
             _loggerFactory.CreateLogger<QueueManager>(),
             _libraryManager,
@@ -91,7 +96,7 @@ public partial class BaseItemAnalyzerTask(
 
         var queue = await queueManager.GetMediaItems(cancellationToken).ConfigureAwait(false);
 
-        if (seasonsToAnalyze?.Count > 0)
+        if (seasonsToAnalyze is not null)
         {
             queue = queue.Where(kvp => seasonsToAnalyze.Contains(kvp.Key))
                          .ToDictionary(kvp => kvp.Key, kvp => kvp.Value);

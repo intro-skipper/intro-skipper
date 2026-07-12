@@ -75,7 +75,7 @@ public partial class CleanCacheTask(
             throw new InvalidOperationException("Library manager was null");
         }
 
-        var plugin = Plugin.Instance ?? throw new InvalidOperationException("Plugin instance was null");
+        _ = Plugin.Instance ?? throw new InvalidOperationException("Plugin instance was null");
 
         var queueManager = new QueueManager(
             _loggerFactory.CreateLogger<QueueManager>(),
@@ -130,8 +130,6 @@ public partial class CleanCacheTask(
 
         // Clean up season state by removing items that no longer exist.
         await Plugin.CleanSeasonStateAsync(queue.Keys, cancellationToken).ConfigureAwait(false);
-
-        plugin.AnalyzeAgain = true;
 
         progress.Report(100);
     }
