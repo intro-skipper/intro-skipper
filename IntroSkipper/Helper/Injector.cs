@@ -177,7 +177,8 @@ namespace IntroSkipper.Helper
         /// <summary>
         /// Modifies onPlayerTimeUpdate to actively hide the skip button N seconds before segment end.
         /// Uses Math.max(StartTicks+floor, EndTicks-threshold) so the button always shows for at least the hide delay duration.
-        /// Keeps currentSegment set to prevent onPromptSkip from re-triggering.
+        /// Keeps currentSegment set to prevent onPromptSkip from re-triggering, while the hidden-class
+        /// check prevents later time updates from restarting the hide transition.
         /// </summary>
         private static string ReplaceSegmentBoundsCheck(string contents, string cutoff) =>
             SegmentBoundsCheckRegex().Replace(contents, m =>
@@ -185,7 +186,7 @@ namespace IntroSkipper.Helper
                 var chk = m.Groups["check"].Value;
                 var pos = m.Groups["pos"].Value;
                 return $"{chk}(this.currentSegment,{pos})" +
-                    $"?({pos}>={cutoff}&&this.hideSkipButton())" +
+                    $"?({pos}>={cutoff}&&this.skipElement&&!this.skipElement.classList.contains(\"skip-button-hidden\")&&this.hideSkipButton())" +
                     $":(this.currentSegment=null,this.hideSkipButton())";
             });
 

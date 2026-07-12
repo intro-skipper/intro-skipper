@@ -99,7 +99,7 @@ public sealed class TestInjector
 
         // threshold=10s=100000000 ticks, floor=hideDelay 8s=80000000 ticks
         var cutoff = "Math.max(this.currentSegment.StartTicks+80000000,this.currentSegment.EndTicks-100000000)";
-        Assert.Contains($"H(this.currentSegment,e)?(e>={cutoff}&&this.hideSkipButton()):(this.currentSegment=null,this.hideSkipButton())", transformed, StringComparison.Ordinal);
+        Assert.Contains($"H(this.currentSegment,e)?(e>={cutoff}&&this.skipElement&&!this.skipElement.classList.contains(\"skip-button-hidden\")&&this.hideSkipButton()):(this.currentSegment=null,this.hideSkipButton())", transformed, StringComparison.Ordinal);
         Assert.Contains($"showSkipButton=function(e){{if(this.currentSegment&&this.playbackManager.currentTime(this.player)*1e4>={cutoff})return;", transformed, StringComparison.Ordinal);
         Assert.DoesNotContain("H(this.currentSegment,e)||(this.currentSegment=null", transformed, StringComparison.Ordinal);
     }
