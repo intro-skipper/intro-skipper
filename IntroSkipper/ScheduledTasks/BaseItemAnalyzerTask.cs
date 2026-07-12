@@ -96,7 +96,7 @@ public partial class BaseItemAnalyzerTask(
 
         var queue = await queueManager.GetMediaItems(cancellationToken).ConfigureAwait(false);
 
-        if (seasonsToAnalyze is not null)
+        if (seasonsToAnalyze is { Count: > 0 })
         {
             queue = queue.Where(kvp => seasonsToAnalyze.Contains(kvp.Key))
                          .ToDictionary(kvp => kvp.Key, kvp => kvp.Value);

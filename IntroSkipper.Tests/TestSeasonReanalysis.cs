@@ -29,10 +29,12 @@ public sealed class TestSeasonReanalysisPlanner
     [Fact]
     public async Task AnalyzeItemsAsync_EmptySeasonSet_DoesNotEnumerateLibrary()
     {
+        // The test proxy throws on enumeration calls such as GetVirtualFolders.
+        var libraryManager = EntrypointTestHelpers.CreateLibraryManager();
         var analyzer = new BaseItemAnalyzerTask(
             NullLogger.Instance,
             NullLoggerFactory.Instance,
-            libraryManager: null!,
+            libraryManager,
             providerManager: null!,
             fileSystem: null!,
             mediaSegmentRefresher: null!,
