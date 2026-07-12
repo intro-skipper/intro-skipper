@@ -79,12 +79,13 @@ public partial class BaseItemAnalyzerTask(
             .. _config.ScanCommercial ? [AnalysisMode.Commercial] : Array.Empty<AnalysisMode>()
         ];
 
-        var seasonFilter = seasonsToAnalyze?.ToHashSet();
-        if (seasonFilter is { Count: 0 })
+        if (seasonsToAnalyze?.Count == 0)
         {
             progress.Report(100);
             return;
         }
+
+        var seasonFilter = seasonsToAnalyze?.ToHashSet();
 
         var queueManager = new QueueManager(
             _loggerFactory.CreateLogger<QueueManager>(),

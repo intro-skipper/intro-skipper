@@ -75,8 +75,6 @@ public partial class CleanCacheTask(
             throw new InvalidOperationException("Library manager was null");
         }
 
-        _ = Plugin.Instance ?? throw new InvalidOperationException("Plugin instance was null");
-
         var queueManager = new QueueManager(
             _loggerFactory.CreateLogger<QueueManager>(),
             _libraryManager,
