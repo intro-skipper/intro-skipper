@@ -39,6 +39,19 @@ public sealed class TestInjector
     }
 
     [Fact]
+    public void FileTransformer_DoesNotCrossShowSkipButtonBoundary_ForFocusabilityCheck()
+    {
+        using var scope = CreatePluginScope(skipbuttonHideDelay: 5);
+        const string bundle = "x.prototype.showSkipButton=function(o){var s=this;return o}" +
+            "function later(){var a=document.activeElement&&fm.A.isCurrentlyFocusable(document.activeElement);return a}";
+
+        var transformed = Transform(bundle);
+
+        Assert.Contains("var a=document.activeElement&&fm.A.isCurrentlyFocusable(document.activeElement);return a", transformed, StringComparison.Ordinal);
+        Assert.DoesNotContain("playbackManager.currentTime()", transformed, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void FileTransformer_MakesCurrentJellyfinBundleShapePersistent_ForZeroHideDelay()
     {
         using var scope = CreatePluginScope(skipbuttonHideDelay: 0);
