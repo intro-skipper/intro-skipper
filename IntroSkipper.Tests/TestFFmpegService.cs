@@ -218,7 +218,7 @@ public class TestFFmpegService
     {
         return new FFmpegService(
             NullLogger<FFmpegService>.Instance,
-            new DetectionCacheService(NullLogger<DetectionCacheService>.Instance));
+            DatabaseTestHelpers.CreateTempCacheService());
     }
 
     private static QueuedEpisode QueueFile(string path)

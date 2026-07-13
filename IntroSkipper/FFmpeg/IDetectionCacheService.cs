@@ -53,18 +53,6 @@ public interface IDetectionCacheService
         T[] items);
 
     /// <summary>
-    /// Deletes all cache entries for a media item.
-    /// </summary>
-    /// <param name="itemId">The media item ID whose cache entries should be deleted.</param>
-    void DeleteForItem(Guid itemId);
-
-    /// <summary>
-    /// Deletes cache entries by analysis mode.
-    /// </summary>
-    /// <param name="mode">One of the enumeration values that specifies the analysis mode to delete.</param>
-    void DeleteByMode(AnalysisMode mode);
-
-    /// <summary>
     /// Checks if a fingerprint cache entry exists for the episode.
     /// </summary>
     /// <param name="episode">The queued episode to check.</param>

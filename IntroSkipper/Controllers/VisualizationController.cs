@@ -5,9 +5,11 @@
 // SPDX-FileCopyrightText: 2024 theMasterpc
 // SPDX-License-Identifier: GPL-3.0-only
 
+using System.Data.Common;
 using System.Net.Mime;
 using IntroSkipper.Configuration;
 using IntroSkipper.Data;
+using IntroSkipper.Db;
 using IntroSkipper.FFmpeg;
 using IntroSkipper.Helper;
 using IntroSkipper.Manager;
@@ -38,11 +40,13 @@ namespace IntroSkipper.Controllers;
 /// <param name="loggerFactory">loggerFactory.</param>
 /// <param name="ffmpegService">FFmpeg service.</param>
 /// <param name="cacheService">Detection cache service.</param>
+/// <param name="database">Segment database facade.</param>
+/// <param name="cacheDatabase">Detection cache database facade.</param>
 [Authorize(Policy = Policies.RequiresElevation)]
 [ApiController]
 [Produces(MediaTypeNames.Application.Json)]
 [Route("Intros")]
-public partial class VisualizationController(ILogger<VisualizationController> logger, IMediaSegmentRefresher mediaSegmentRefresher, ILibraryManager libraryManager, IProviderManager providerManager, IFileSystem fileSystem, ILoggerFactory loggerFactory, IFFmpegService ffmpegService, IDetectionCacheService cacheService) : ControllerBase
+public partial class VisualizationController(ILogger<VisualizationController> logger, IMediaSegmentRefresher mediaSegmentRefresher, ILibraryManager libraryManager, IProviderManager providerManager, IFileSystem fileSystem, ILoggerFactory loggerFactory, IFFmpegService ffmpegService, IDetectionCacheService cacheService, IIntroSkipperDatabase database, IDetectionCacheDatabase cacheDatabase) : ControllerBase
 {
     private readonly ILogger<VisualizationController> _logger = logger;
     private readonly IMediaSegmentRefresher _mediaSegmentRefresher = mediaSegmentRefresher;
@@ -52,6 +56,8 @@ public partial class VisualizationController(ILogger<VisualizationController> lo
     private readonly ILoggerFactory _loggerFactory = loggerFactory;
     private readonly IFFmpegService _ffmpegService = ffmpegService;
     private readonly IDetectionCacheService _cacheService = cacheService;
+    private readonly IIntroSkipperDatabase _database = database;
+    private readonly IDetectionCacheDatabase _cacheDatabase = cacheDatabase;
 
     /// <summary>
     /// Returns the analyzer actions for the provided season.
@@ -69,7 +75,7 @@ public partial class VisualizationController(ILogger<VisualizationController> lo
             return NotFound();
         }
 
-        var analyzerActions = await Plugin.GetAllAnalyzerActionsAsync(seasonId, cancellationToken).ConfigureAwait(false);
+        var analyzerActions = await _database.GetAllAnalyzerActionsAsync(seasonId, cancellationToken).ConfigureAwait(false);
 
         return Ok(analyzerActions);
     }
@@ -128,38 +134,22 @@ public partial class VisualizationController(ILogger<VisualizationController> lo
 
         try
         {
-            using var db = Plugin.CreateDbContext();
-
-            // ExecuteDeleteAsync runs a single server-side DELETE and bypasses the change tracker.
-            // This is safe here because the tracked operations below target DbSeasonState, not DbSegment.
             var episodeIds = episodes.Select(e => e.EpisodeId).ToHashSet();
-            await db.DbSegment
-                .Where(s => episodeIds.Contains(s.ItemId))
-                .ExecuteDeleteAsync(cancellationToken)
-                .ConfigureAwait(false);
+            await _database.ClearSeasonAnalysisAsync(seasonId, episodeIds, cancellationToken).ConfigureAwait(false);
 
             if (eraseCache)
             {
-                // Cache deletion must run to completion — the DB rows are already gone,
-                // so aborting here would leave orphaned files with no way to clean them up.
-                foreach (var episode in episodes)
+                try
                 {
-                    await Task.Run(() => _cacheService.DeleteForItem(episode.EpisodeId), CancellationToken.None).ConfigureAwait(false);
+                    // The main database is already transactionally consistent, and cache
+                    // cleanup is best-effort because the cache is only an optimization.
+                    await _cacheDatabase.DeleteForItemsAsync(episodeIds, CancellationToken.None).ConfigureAwait(false);
+                }
+                catch (Exception ex) when (ex is DbUpdateException or DbException)
+                {
+                    LogCacheDeleteFailed(_logger, ex, seasonId);
                 }
             }
-
-            // Batch-load season state and clear episode IDs.
-            var seasonStates = await db.DbSeasonState
-                .Where(s => s.SeasonId == seasonId)
-                .ToListAsync(cancellationToken)
-                .ConfigureAwait(false);
-
-            foreach (var state in seasonStates)
-            {
-                db.Entry(state).Property(s => s.EpisodeIds).CurrentValue = [];
-            }
-
-            await db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
 
             if (Plugin.Instance.Configuration.UpdateMediaSegments)
             {
@@ -202,44 +192,24 @@ public partial class VisualizationController(ILogger<VisualizationController> lo
 
             var excludedIdsBySeason = excludedItems
                 .GroupBy(e => e.SeasonId)
-                .ToDictionary(g => g.Key, g => g.Select(e => e.EpisodeId).ToHashSet());
+                .ToDictionary(g => g.Key, g => (IReadOnlySet<Guid>)g.Select(e => e.EpisodeId).ToHashSet());
 
-            int removedSegments;
-            using (var db = Plugin.CreateDbContext())
+            var removedSegments = await _database
+                .RemoveItemsFromAnalysisAsync(excludedIdsBySeason, cancellationToken)
+                .ConfigureAwait(false);
+
+            var removedCacheEntries = 0;
+            try
             {
-                removedSegments = await db.DbSegment
-                    .Where(s => excludedIds.Contains(s.ItemId))
-                    .ExecuteDeleteAsync(cancellationToken)
+                // Do not bind the best-effort cache cleanup to request cancellation: the
+                // main database transaction has committed, so make one complete attempt.
+                removedCacheEntries = await _cacheDatabase
+                    .DeleteForItemsAsync(excludedIds, CancellationToken.None)
                     .ConfigureAwait(false);
-
-                var seasonIds = excludedIdsBySeason.Keys.ToHashSet();
-                var seasonStates = await db.DbSeasonState
-                    .Where(s => seasonIds.Contains(s.SeasonId))
-                    .ToListAsync(cancellationToken)
-                    .ConfigureAwait(false);
-
-                foreach (var state in seasonStates)
-                {
-                    var currentIds = state.EpisodeIds.ToList();
-                    if (currentIds.RemoveAll(excludedIdsBySeason[state.SeasonId].Contains) > 0)
-                    {
-                        db.Entry(state).Property(s => s.EpisodeIds).CurrentValue = currentIds;
-                    }
-                }
-
-                await db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
             }
-
-            int removedCacheEntries;
-            using (var cacheDb = Plugin.CreateCacheDbContext())
+            catch (Exception ex) when (ex is DbUpdateException or DbException)
             {
-                // Cache deletion must run to completion — the segment and season-state rows
-                // above are already deleted, so aborting here would leave orphaned cache
-                // entries out of sync with the database.
-                removedCacheEntries = await cacheDb.DetectionCache
-                    .Where(e => excludedIds.Contains(e.ItemId))
-                    .ExecuteDeleteAsync(CancellationToken.None)
-                    .ConfigureAwait(false);
+                LogExcludedCacheDeleteFailed(_logger, ex);
             }
 
             if (plugin.Configuration.UpdateMediaSegments)
@@ -270,7 +240,7 @@ public partial class VisualizationController(ILogger<VisualizationController> lo
     [ProducesResponseType(StatusCodes.Status204NoContent)]
     public async Task<ActionResult> UpdateAnalyzerActions([FromBody] UpdateAnalyzerActionsRequest request, CancellationToken cancellationToken = default)
     {
-        await Plugin.SetAnalyzerActionAsync(request.Id, request.AnalyzerActions, cancellationToken).ConfigureAwait(false);
+        await _database.SetAnalyzerActionAsync(request.Id, request.AnalyzerActions, cancellationToken).ConfigureAwait(false);
 
         return NoContent();
     }
@@ -284,7 +254,8 @@ public partial class VisualizationController(ILogger<VisualizationController> lo
                 _libraryManager,
                 _providerManager,
                 _fileSystem,
-                _ffmpegService);
+                _ffmpegService,
+                _database);
             var queue = await queueManager.GetMediaItems(includeExcluded: true, cancellationToken).ConfigureAwait(false);
             return [.. queue.Values.SelectMany(static episodes => episodes).Where(static episode => episode.IsExcluded)];
         }
@@ -359,7 +330,8 @@ public partial class VisualizationController(ILogger<VisualizationController> lo
                             _fileSystem,
                             _mediaSegmentRefresher,
                             _ffmpegService,
-                            _cacheService);
+                            _cacheService,
+                            _database);
 
                         await baseIntroAnalyzer.AnalyzeItemsAsync(new Progress<double>(), CancellationToken.None, [seasonId]).ConfigureAwait(false);
                     }
@@ -384,6 +356,12 @@ public partial class VisualizationController(ILogger<VisualizationController> lo
 
     [LoggerMessage(Level = LogLevel.Error, Message = "Failed to erase timestamps for series {SeriesId} season {SeasonId}")]
     private static partial void LogFailedToEraseTimestamps(ILogger logger, Exception ex, Guid seriesId, Guid seasonId);
+
+    [LoggerMessage(Level = LogLevel.Debug, Message = "Failed to delete detection cache rows for season {SeasonId}")]
+    private static partial void LogCacheDeleteFailed(ILogger logger, Exception exception, Guid seasonId);
+
+    [LoggerMessage(Level = LogLevel.Debug, Message = "Failed to delete detection cache rows for excluded items")]
+    private static partial void LogExcludedCacheDeleteFailed(ILogger logger, Exception exception);
 
     [LoggerMessage(Level = LogLevel.Error, Message = "Failed to clear excluded timestamp data")]
     private static partial void LogFailedToClearExcludedTimestamps(ILogger logger, Exception ex);

@@ -30,24 +30,27 @@ internal static class EntrypointTestHelpers
 {
     internal static readonly byte[] EmptyJsonArray = Encoding.UTF8.GetBytes("[]");
 
-    internal static Entrypoint CreateEntrypoint(bool autoDetectIntros)
+    internal static Entrypoint CreateEntrypoint(bool autoDetectIntros, string? cacheDbPath = null)
     {
         // Entrypoint's ctor reads Plugin.Instance?.Configuration. Ensure Plugin.Instance is null during construction.
         using var _ = new PluginInstanceNullScope();
 
         var loggerFactory = LoggerFactory.Create(builder => { });
         var logger = loggerFactory.CreateLogger<Entrypoint>();
+        var resolvedCacheDbPath = cacheDbPath ?? DatabaseTestHelpers.CreateTempCacheDbPath();
 
         var entrypoint = new Entrypoint(
             libraryManager: null!,
             providerManager: null!,
             fileSystem: null!,
             taskManager: null!,
-            cacheService: new DetectionCacheService(NullLogger<DetectionCacheService>.Instance),
+            cacheService: DatabaseTestHelpers.CreateCacheService(resolvedCacheDbPath),
+            cacheDatabase: DatabaseTestHelpers.CreateCacheDatabase(resolvedCacheDbPath),
             ffmpegService: null!,
             logger: logger,
             loggerFactory: loggerFactory,
-            mediaSegmentRefresher: new FakeMediaSegmentRefresher());
+            mediaSegmentRefresher: new FakeMediaSegmentRefresher(),
+            database: DatabaseTestHelpers.CreateTempSegmentDatabase());
 
         SetPrivateField(entrypoint, "_config", new PluginConfiguration { AutoDetectIntros = autoDetectIntros });
         return entrypoint;
@@ -236,14 +239,15 @@ internal static class EntrypointTestHelpers
 #pragma warning restore SYSLIB0050
 
             SetPropertyOrField(plugin, "FingerprintCachePath", CacheDir);
-            SetPropertyOrField(plugin, "_cacheDbPath", CacheDbPath);
 
             // Plugin.Instance has a private setter; invoke it via reflection.
             var setter = instanceProp.SetMethod ?? instanceProp.GetSetMethod(nonPublic: true);
             Assert.NotNull(setter);
             setter!.Invoke(null, [plugin]);
 
-            // Ensure the schema exists so tests can write to the cache DB.
+            // Ensure the schema exists so tests can write to the cache DB. Create the
+            // containing directory first so this scope works regardless of test order.
+            Directory.CreateDirectory(Path.GetDirectoryName(CacheDbPath)!);
             using var cacheDb = new IntroSkipper.Db.DetectionCacheDbContext(CacheDbPath);
             cacheDb.EnsureSchema();
         }

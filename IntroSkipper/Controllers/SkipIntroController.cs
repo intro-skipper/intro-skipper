@@ -7,9 +7,10 @@
 // SPDX-FileCopyrightText: 2024 Xameon42
 // SPDX-License-Identifier: GPL-3.0-only
 
+using System.Data.Common;
 using System.Net.Mime;
 using IntroSkipper.Data;
-using IntroSkipper.FFmpeg;
+using IntroSkipper.Db;
 using IntroSkipper.Manager;
 using MediaBrowser.Common.Api;
 using MediaBrowser.Controller.Entities.Movies;
@@ -17,6 +18,7 @@ using MediaBrowser.Controller.Entities.TV;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging;
 
 namespace IntroSkipper.Controllers;
 
@@ -26,10 +28,16 @@ namespace IntroSkipper.Controllers;
 [Authorize]
 [ApiController]
 [Produces(MediaTypeNames.Application.Json)]
-public class SkipIntroController(IMediaSegmentRefresher mediaSegmentRefresher, IDetectionCacheService cacheService) : ControllerBase
+public partial class SkipIntroController(
+    IMediaSegmentRefresher mediaSegmentRefresher,
+    IDetectionCacheDatabase cacheDatabase,
+    IIntroSkipperDatabase database,
+    ILogger<SkipIntroController> logger) : ControllerBase
 {
     private readonly IMediaSegmentRefresher _mediaSegmentRefresher = mediaSegmentRefresher;
-    private readonly IDetectionCacheService _cacheService = cacheService;
+    private readonly IDetectionCacheDatabase _cacheDatabase = cacheDatabase;
+    private readonly IIntroSkipperDatabase _database = database;
+    private readonly ILogger<SkipIntroController> _logger = logger;
 
     /// <summary>
     /// Updates the timestamps for the provided episode.
@@ -70,7 +78,7 @@ public class SkipIntroController(IMediaSegmentRefresher mediaSegmentRefresher, I
             if (segment.Valid)
             {
                 segment.EpisodeId = id;
-                await Plugin.Instance!.UpdateTimestampAsync(segment, mode, isUserProvided: true, cancellationToken: cancellationToken).ConfigureAwait(false);
+                await _database.UpdateTimestampAsync(segment, mode, isUserProvided: true, cancellationToken: cancellationToken).ConfigureAwait(false);
             }
         }
 
@@ -102,7 +110,7 @@ public class SkipIntroController(IMediaSegmentRefresher mediaSegmentRefresher, I
         }
 
         var times = new TimeStamps();
-        var segments = await Plugin.GetTimestampsAsync(id, cancellationToken).ConfigureAwait(false);
+        var segments = await _database.GetTimestampsAsync(id, cancellationToken).ConfigureAwait(false);
 
         if (segments.TryGetValue(AnalysisMode.Introduction, out var introSegment))
         {
@@ -142,7 +150,7 @@ public class SkipIntroController(IMediaSegmentRefresher mediaSegmentRefresher, I
     [HttpGet("Episode/{id}/IntroSkipperSegments")]
     public async Task<ActionResult<Dictionary<AnalysisMode, Segment>>> GetSkippableSegments([FromRoute] Guid id, CancellationToken cancellationToken = default)
     {
-        var segments = await Plugin.GetTimestampsAsync(id, cancellationToken).ConfigureAwait(false);
+        var segments = await _database.GetTimestampsAsync(id, cancellationToken).ConfigureAwait(false);
         var result = new Dictionary<AnalysisMode, Segment>();
 
         if (segments.TryGetValue(AnalysisMode.Introduction, out var introSegment))
@@ -185,17 +193,20 @@ public class SkipIntroController(IMediaSegmentRefresher mediaSegmentRefresher, I
     [HttpPost("Intros/EraseTimestamps")]
     public async Task<ActionResult> ResetIntroTimestamps([FromQuery] AnalysisMode mode, [FromQuery] bool eraseCache = false, CancellationToken cancellationToken = default)
     {
-        using var db = Plugin.CreateDbContext();
-        await db.DbSegment
-            .Where(s => s.Type == mode)
-            .ExecuteDeleteAsync(cancellationToken)
-            .ConfigureAwait(false);
+        await _database.DeleteSegmentsByModeAsync(mode, cancellationToken).ConfigureAwait(false);
 
         if (eraseCache && mode is AnalysisMode.Introduction or AnalysisMode.Credits)
         {
-            // Cache deletion must run to completion — the DB rows are already gone,
-            // so aborting here would leave orphaned files with no way to clean them up.
-            await Task.Run(() => _cacheService.DeleteByMode(mode), CancellationToken.None).ConfigureAwait(false);
+            // Do not bind the best-effort cache cleanup to request cancellation: the
+            // main database rows are already gone, so make one complete cleanup attempt.
+            try
+            {
+                await Task.Run(() => _cacheDatabase.DeleteByMode(mode), CancellationToken.None).ConfigureAwait(false);
+            }
+            catch (Exception ex) when (ex is DbUpdateException or DbException)
+            {
+                LogCacheDeleteFailed(_logger, ex, mode);
+            }
         }
 
         return NoContent();
@@ -211,8 +222,10 @@ public class SkipIntroController(IMediaSegmentRefresher mediaSegmentRefresher, I
     public async Task<ActionResult> RebuildDatabase()
     {
         // Database rebuild is destructive and must run to completion — do not bind to HttpContext.RequestAborted.
-        using var db = Plugin.CreateDbContext();
-        await db.RebuildDatabaseAsync(Plugin.CreateDbContext).ConfigureAwait(false);
+        await _database.RebuildDatabaseAsync().ConfigureAwait(false);
         return NoContent();
     }
+
+    [LoggerMessage(Level = LogLevel.Debug, Message = "Failed to delete detection cache rows for analysis mode {Mode}")]
+    private static partial void LogCacheDeleteFailed(ILogger logger, Exception exception, AnalysisMode mode);
 }

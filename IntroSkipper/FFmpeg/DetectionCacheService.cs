@@ -14,14 +14,18 @@ namespace IntroSkipper.FFmpeg;
 
 /// <summary>
 /// Manages reading and writing detection results to/from the SQLite cache.
+/// Serialization, compression and configuration-hash policy live here; all database
+/// access is delegated to <see cref="IDetectionCacheDatabase"/>.
 /// </summary>
 /// <remarks>
 /// Initializes a new instance of the <see cref="DetectionCacheService"/> class.
 /// </remarks>
 /// <param name="logger">The logger instance.</param>
-public sealed partial class DetectionCacheService(ILogger<DetectionCacheService> logger) : IDetectionCacheService
+/// <param name="cacheDatabase">The detection cache database facade.</param>
+public sealed partial class DetectionCacheService(ILogger<DetectionCacheService> logger, IDetectionCacheDatabase cacheDatabase) : IDetectionCacheService
 {
     private readonly ILogger<DetectionCacheService> _logger = logger;
+    private readonly IDetectionCacheDatabase _cacheDatabase = cacheDatabase;
 
     /// <inheritdoc/>
     public bool IsEnabled => Plugin.Instance?.Configuration.CacheFingerprints ?? false;
@@ -38,13 +42,10 @@ public sealed partial class DetectionCacheService(ILogger<DetectionCacheService>
 
         try
         {
-            using var db = Plugin.CreateCacheDbContext();
-
             // NOTE: Start/End are compared with == which is safe only because the exact same
             // double values that were written are used for lookup (no intermediate arithmetic).
             // If a future caller computes start/end differently, the lookup will silently miss.
-            var entry = db.DetectionCache
-                .FirstOrDefault(e => e.ItemId == itemId && e.Mode == mode && e.Type == type && e.Start == start && e.End == end);
+            var entry = _cacheDatabase.FindEntry(itemId, mode, type, start, end);
 
             if (entry is null)
             {
@@ -89,10 +90,7 @@ public sealed partial class DetectionCacheService(ILogger<DetectionCacheService>
 
         try
         {
-            using var db = Plugin.CreateCacheDbContext();
-
-            UpsertEntry(db, itemId, mode, type, start, end, data, configHash);
-            db.SaveChanges();
+            _cacheDatabase.Upsert(itemId, mode, type, start, end, data, configHash);
             return true;
         }
         catch (Exception ex) when (ex is DbUpdateException or DbException)
@@ -110,44 +108,6 @@ public sealed partial class DetectionCacheService(ILogger<DetectionCacheService>
     }
 
     /// <inheritdoc/>
-    public void DeleteForItem(Guid itemId)
-    {
-        try
-        {
-            // Delete from the SQLite cache database.
-            using var db = Plugin.CreateCacheDbContext();
-            db.DetectionCache.Where(e => e.ItemId == itemId).ExecuteDelete();
-        }
-        catch (Exception ex) when (ex is DbUpdateException or DbException)
-        {
-            if (_logger.IsEnabled(LogLevel.Debug))
-            {
-                var cacheKey = itemId.ToString("N");
-                LogDetectionCacheDeleteError(_logger, ex, cacheKey);
-            }
-        }
-    }
-
-    /// <inheritdoc/>
-    public void DeleteByMode(AnalysisMode mode)
-    {
-        try
-        {
-            // Delete from the SQLite cache database.
-            using var db = Plugin.CreateCacheDbContext();
-            db.DetectionCache.Where(e => e.Mode == mode).ExecuteDelete();
-        }
-        catch (Exception ex) when (ex is DbUpdateException or DbException)
-        {
-            if (_logger.IsEnabled(LogLevel.Debug))
-            {
-                var cacheKey = mode.ToString();
-                LogDetectionCacheDeleteError(_logger, ex, cacheKey);
-            }
-        }
-    }
-
-    /// <inheritdoc/>
     public bool HasCachedFingerprint(QueuedEpisode episode, AnalysisMode mode)
     {
         if (!IsEnabled)
@@ -159,15 +119,8 @@ public sealed partial class DetectionCacheService(ILogger<DetectionCacheService>
 
         try
         {
-            using var db = Plugin.CreateCacheDbContext();
             var expectedHash = ConfigHasher.DetectionCache(Plugin.Instance?.Configuration ?? new(), CacheEntryType.Chromaprint, mode);
-            if (db.DetectionCache.Any(e =>
-                e.ItemId == episode.EpisodeId &&
-                e.Mode == mode &&
-                e.Type == CacheEntryType.Chromaprint &&
-                e.Start == start &&
-                e.End == end &&
-                (e.ConfigHash == string.Empty || e.ConfigHash == expectedHash)))
+            if (_cacheDatabase.HasEntry(episode.EpisodeId, mode, CacheEntryType.Chromaprint, start, end, expectedHash))
             {
                 return true;
             }
@@ -211,32 +164,6 @@ public sealed partial class DetectionCacheService(ILogger<DetectionCacheService>
         return JsonSerializer.Deserialize<T>(brotli);
     }
 
-    private static void UpsertEntry(
-        DetectionCacheDbContext db,
-        Guid itemId,
-        AnalysisMode mode,
-        CacheEntryType type,
-        double start,
-        double end,
-        byte[] data,
-        string configHash)
-    {
-        // NOTE: Start/End are compared with == which is safe only because the exact same
-        // double values that were written are used for lookup (no intermediate arithmetic).
-        var existing = db.DetectionCache
-            .FirstOrDefault(e => e.ItemId == itemId && e.Mode == mode && e.Type == type && e.Start == start && e.End == end);
-
-        if (existing is not null)
-        {
-            existing.Data = data;
-            existing.ConfigHash = configHash;
-        }
-        else
-        {
-            db.DetectionCache.Add(new DbDetectionCache(itemId, mode, type, data, start, end, configHash));
-        }
-    }
-
     [LoggerMessage(Level = LogLevel.Trace, Message = "Detection cache hit for {CacheKey}")]
     private static partial void LogDetectionCacheHit(ILogger logger, string cacheKey);
 
@@ -245,7 +172,4 @@ public sealed partial class DetectionCacheService(ILogger<DetectionCacheService>
 
     [LoggerMessage(Level = LogLevel.Debug, Message = "Error writing detection cache for {CacheKey}")]
     private static partial void LogDetectionCacheWriteError(ILogger logger, Exception ex, string cacheKey);
-
-    [LoggerMessage(Level = LogLevel.Debug, Message = "Error deleting detection cache for {CacheKey}")]
-    private static partial void LogDetectionCacheDeleteError(ILogger logger, Exception ex, string cacheKey);
 }

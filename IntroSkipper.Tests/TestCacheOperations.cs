@@ -45,19 +45,16 @@ public sealed class TestCacheOperations
 
         using var scope = new EntrypointTestHelpers.PluginInstanceScope(cacheDir);
 
-        using (var db = Plugin.CreateCacheDbContext())
+        using (var db = new DetectionCacheDbContext(scope.CacheDbPath))
         {
             db.DetectionCache.AddRange(shouldKeep);
             db.DetectionCache.AddRange(shouldDelete);
             db.SaveChanges();
         }
 
-        using (var cachingScope = new CachingPluginScope(cacheDir, scope.CacheDbPath))
-        {
-            cachingScope.CacheService.DeleteByMode(AnalysisMode.Introduction);
-        }
+        DatabaseTestHelpers.CreateCacheDatabase(scope.CacheDbPath).DeleteByMode(AnalysisMode.Introduction);
 
-        using (var db = Plugin.CreateCacheDbContext())
+        using (var db = new DetectionCacheDbContext(scope.CacheDbPath))
         {
             // Introduction entries should be gone
             Assert.False(
@@ -95,19 +92,16 @@ public sealed class TestCacheOperations
 
         using var scope = new EntrypointTestHelpers.PluginInstanceScope(cacheDir);
 
-        using (var db = Plugin.CreateCacheDbContext())
+        using (var db = new DetectionCacheDbContext(scope.CacheDbPath))
         {
             db.DetectionCache.AddRange(shouldKeep);
             db.DetectionCache.AddRange(shouldDelete);
             db.SaveChanges();
         }
 
-        using (var cachingScope = new CachingPluginScope(cacheDir, scope.CacheDbPath))
-        {
-            cachingScope.CacheService.DeleteByMode(AnalysisMode.Credits);
-        }
+        DatabaseTestHelpers.CreateCacheDatabase(scope.CacheDbPath).DeleteByMode(AnalysisMode.Credits);
 
-        using (var db = Plugin.CreateCacheDbContext())
+        using (var db = new DetectionCacheDbContext(scope.CacheDbPath))
         {
             // Credits entries should be gone
             Assert.False(
@@ -129,7 +123,7 @@ public sealed class TestCacheOperations
 
         using var scope = new EntrypointTestHelpers.PluginInstanceScope(cacheDir);
 
-        using (var db = Plugin.CreateCacheDbContext())
+        using (var db = new DetectionCacheDbContext(scope.CacheDbPath))
         {
             db.DetectionCache.Add(new DbDetectionCache(
                 episode.EpisodeId, AnalysisMode.Introduction, CacheEntryType.Chromaprint, EntrypointTestHelpers.EmptyJsonArray));
@@ -173,7 +167,7 @@ public sealed class TestCacheOperations
 
         using var scope = new EntrypointTestHelpers.PluginInstanceScope(cacheDir);
 
-        using (var db = Plugin.CreateCacheDbContext())
+        using (var db = new DetectionCacheDbContext(scope.CacheDbPath))
         {
             db.DetectionCache.Add(new DbDetectionCache(
                 episode.EpisodeId,
@@ -346,7 +340,7 @@ public sealed class TestCacheOperations
         using (var scope = new EntrypointTestHelpers.PluginInstanceScope(cacheDir))
         {
             cacheDbPath = scope.CacheDbPath;
-            using var db = Plugin.CreateCacheDbContext();
+            using var db = new DetectionCacheDbContext(scope.CacheDbPath);
             db.DetectionCache.Add(new DbDetectionCache(
                 episode.EpisodeId,
                 AnalysisMode.Credits,
@@ -386,7 +380,7 @@ public sealed class TestCacheOperations
         using (var scope = new EntrypointTestHelpers.PluginInstanceScope(cacheDir))
         {
             cacheDbPath = scope.CacheDbPath;
-            using var db = Plugin.CreateCacheDbContext();
+            using var db = new DetectionCacheDbContext(scope.CacheDbPath);
             db.DetectionCache.Add(new DbDetectionCache(
                 episode.EpisodeId,
                 AnalysisMode.Introduction,
@@ -423,7 +417,7 @@ public sealed class TestCacheOperations
         using (var scope = new EntrypointTestHelpers.PluginInstanceScope(cacheDir))
         {
             cacheDbPath = scope.CacheDbPath;
-            using var db = Plugin.CreateCacheDbContext();
+            using var db = new DetectionCacheDbContext(scope.CacheDbPath);
             db.DetectionCache.Add(new DbDetectionCache(
                 episode.EpisodeId,
                 AnalysisMode.Introduction,
@@ -461,7 +455,7 @@ public sealed class TestCacheOperations
         using (var scope = new EntrypointTestHelpers.PluginInstanceScope(cacheDir))
         {
             cacheDbPath = scope.CacheDbPath;
-            using var db = Plugin.CreateCacheDbContext();
+            using var db = new DetectionCacheDbContext(scope.CacheDbPath);
             db.DetectionCache.Add(new DbDetectionCache(
                 episode.EpisodeId,
                 AnalysisMode.Introduction,
@@ -493,7 +487,7 @@ public sealed class TestCacheOperations
 
         using var scope = new EntrypointTestHelpers.PluginInstanceScope(cacheDir);
 
-        using (var db = Plugin.CreateCacheDbContext())
+        using (var db = new DetectionCacheDbContext(scope.CacheDbPath))
         {
             // Stale entry: cached with old end=600
             db.DetectionCache.Add(new DbDetectionCache(
@@ -520,7 +514,7 @@ public sealed class TestCacheOperations
 
         using var scope = new EntrypointTestHelpers.PluginInstanceScope(cacheDir);
 
-        using (var db = Plugin.CreateCacheDbContext())
+        using (var db = new DetectionCacheDbContext(scope.CacheDbPath))
         {
             db.DetectionCache.Add(new DbDetectionCache(
                 episode.EpisodeId, AnalysisMode.Introduction, CacheEntryType.Chromaprint, EntrypointTestHelpers.EmptyJsonArray, 0, 600));
@@ -546,7 +540,7 @@ public sealed class TestCacheOperations
 
         using var scope = new EntrypointTestHelpers.PluginInstanceScope(cacheDir);
 
-        using (var db = Plugin.CreateCacheDbContext())
+        using (var db = new DetectionCacheDbContext(scope.CacheDbPath))
         {
             db.DetectionCache.Add(new DbDetectionCache(
                 episode.EpisodeId, AnalysisMode.Credits, CacheEntryType.Chromaprint, EntrypointTestHelpers.EmptyJsonArray, 1560, 1800));
@@ -613,8 +607,7 @@ public sealed class TestCacheOperations
                     new PluginConfiguration { CacheFingerprints = true });
             }
 
-            CacheService = new DetectionCacheService(
-                NullLogger<DetectionCacheService>.Instance);
+            CacheService = DatabaseTestHelpers.CreateCacheService(_inner.CacheDbPath);
         }
 
         public DetectionCacheService CacheService { get; }
