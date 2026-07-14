@@ -13,7 +13,9 @@ namespace IntroSkipper.Db;
 public sealed partial class IntroSkipperDatabase
 {
     /// <inheritdoc/>
-    public async Task CleanTimestampsAsync(IEnumerable<Guid> enabledEpisodeIds, CancellationToken cancellationToken = default)
+    public async Task<IReadOnlyCollection<Guid>> GetStaleTimestampEpisodeIdsAsync(
+        IEnumerable<Guid> enabledEpisodeIds,
+        CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(enabledEpisodeIds);
 
@@ -25,9 +27,11 @@ public sealed partial class IntroSkipperDatabase
         // EF.Parameter forces the single-JSON-parameter json_each translation on SQLite,
         // so the retained set is one bound parameter regardless of its size — no
         // 32,766-variable limit and no chunking (verified by a 33,000-ID test).
-        await db.DbSegment
+        return await db.DbSegment
             .Where(s => !EF.Parameter(enabledIds).Contains(s.ItemId))
-            .ExecuteDeleteAsync(cancellationToken)
+            .Select(s => s.ItemId)
+            .Distinct()
+            .ToArrayAsync(cancellationToken)
             .ConfigureAwait(false);
     }
 

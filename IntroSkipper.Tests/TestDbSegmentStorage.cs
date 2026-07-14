@@ -150,7 +150,7 @@ public sealed class TestDbSegmentStorage
     }
 
     [Fact]
-    public async Task CleanTimestampsAsync_DoesNotExceedSqliteVariableLimit_WhenEpisodeListIsLarge()
+    public async Task GetStaleTimestampEpisodeIdsAsync_DoesNotExceedSqliteVariableLimit_WhenEpisodeListIsLarge()
     {
         const int LargeEpisodeCount = 33_000;
 
@@ -176,13 +176,21 @@ public sealed class TestDbSegmentStorage
                 await db.SaveChangesAsync();
             }
 
-            await DatabaseTestHelpers.CreateSegmentDatabase(dbPath).CleanTimestampsAsync(enabledEpisodeIds);
+            var database = DatabaseTestHelpers.CreateSegmentDatabase(dbPath);
+            var staleEpisodeIds = await database.GetStaleTimestampEpisodeIdsAsync(enabledEpisodeIds);
+
+            Assert.Equal([staleItemId], staleEpisodeIds);
 
             using (var db = new IntroSkipperDbContext(dbPath))
             {
-                var itemId = Assert.Single(db.DbSegment.Select(segment => segment.ItemId));
-                Assert.Equal(retainedItemId, itemId);
+                Assert.Equal(2, db.DbSegment.Count());
             }
+
+            await database.DeleteSegmentsForItemsAsync(staleEpisodeIds);
+
+            using var cleanedDb = new IntroSkipperDbContext(dbPath);
+            var itemId = Assert.Single(cleanedDb.DbSegment.Select(segment => segment.ItemId));
+            Assert.Equal(retainedItemId, itemId);
         }
         finally
         {

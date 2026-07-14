@@ -356,7 +356,7 @@ public sealed class TestDatabaseFacades
     }
 
     [Fact]
-    public async Task CleanTimestampsAsync_DoesNotExceedSqliteVariableLimit_WhenEpisodeListIsLarge()
+    public async Task GetStaleTimestampEpisodeIdsAsync_DoesNotExceedSqliteVariableLimit_WhenEpisodeListIsLarge()
     {
         // EF Core 10 translates parameterized collections on SQLite to discrete padded
         // parameters, and SQLite rejects statements above 32,766 variables, so this
@@ -378,11 +378,12 @@ public sealed class TestDatabaseFacades
             await database.UpdateTimestampAsync(new Segment(retainedItemId, new TimeRange(0, 10)), AnalysisMode.Introduction);
             await database.UpdateTimestampAsync(new Segment(staleItemId, new TimeRange(20, 30)), AnalysisMode.Introduction);
 
-            await database.CleanTimestampsAsync(enabledEpisodeIds);
+            var staleEpisodeIds = await database.GetStaleTimestampEpisodeIdsAsync(enabledEpisodeIds);
 
+            Assert.Equal([staleItemId], staleEpisodeIds);
             var retained = Assert.Single(await database.GetSegmentsAsync(retainedItemId));
             Assert.Equal(retainedItemId, retained.ItemId);
-            Assert.Empty(await database.GetSegmentsAsync(staleItemId));
+            Assert.Single(await database.GetSegmentsAsync(staleItemId));
         }
         finally
         {

@@ -109,12 +109,14 @@ public interface IIntroSkipperDatabase
     Task<int> RemoveItemsFromAnalysisAsync(IReadOnlyDictionary<Guid, IReadOnlySet<Guid>> itemIdsBySeason, CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// Deletes segments belonging to items that are no longer part of any enabled library.
+    /// Gets the IDs of items with segments that are no longer part of any enabled library.
     /// </summary>
     /// <param name="enabledEpisodeIds">Episode IDs that are still part of enabled libraries.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
-    /// <returns>A <see cref="Task"/> representing the asynchronous operation.</returns>
-    Task CleanTimestampsAsync(IEnumerable<Guid> enabledEpisodeIds, CancellationToken cancellationToken = default);
+    /// <returns>The stale episode IDs.</returns>
+    Task<IReadOnlyCollection<Guid>> GetStaleTimestampEpisodeIdsAsync(
+        IEnumerable<Guid> enabledEpisodeIds,
+        CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Removes stale automatic segments for the supplied items and mode.

@@ -47,7 +47,8 @@ public sealed class TestSeasonReanalysisPlanner
             fileSystem: null!,
             mediaSegmentRefresher: null!,
             ffmpegService: null!,
-            cacheService: new DetectionCacheService(NullLogger<DetectionCacheService>.Instance));
+            cacheService: DatabaseTestHelpers.CreateTempCacheService(),
+            database: DatabaseTestHelpers.CreateTempSegmentDatabase());
 
         await analyzer.AnalyzeItemsAsync(
             progress,

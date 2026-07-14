@@ -35,6 +35,7 @@ namespace IntroSkipper;
 /// </remarks>
 public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
 {
+    internal const string ProviderName = "Intro Skipper";
     private readonly ILibraryManager _libraryManager;
     private readonly IChapterManager _chapterRepository;
     private readonly IPluginManager _pluginManager;
@@ -111,7 +112,7 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
     public string FFmpegPath { get; private set; }
 
     /// <inheritdoc />
-    public override string Name => "Intro Skipper";
+    public override string Name => ProviderName;
 
     /// <inheritdoc />
     public override Guid Id => Guid.Parse("c83d86bb-a1e0-4c35-a113-e2101cf4ee6b");
