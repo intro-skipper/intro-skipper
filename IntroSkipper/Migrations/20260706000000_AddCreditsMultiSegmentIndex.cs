@@ -24,7 +24,7 @@ namespace IntroSkipper.Migrations
         /// <inheritdoc />
         protected override void Down(MigrationBuilder migrationBuilder)
         {
-            const int commercialType = 4;
+            const int commercialType = DbSegmentIndexSql.CommercialType;
 
             migrationBuilder.DropIndex(
                 name: "IX_DbSegment_Credits_Unique",
