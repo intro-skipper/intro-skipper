@@ -26,6 +26,37 @@ public sealed class TestSeasonReanalysisPlanner
 {
     private static readonly DateTime Now = new(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc);
 
+    private sealed class RecordingProgress : IProgress<double>
+    {
+        public double? Value { get; private set; }
+
+        public void Report(double value) => Value = value;
+    }
+
+    [Fact]
+    public async Task AnalyzeItemsAsync_EmptySeasonSet_DoesNotEnumerateLibrary()
+    {
+        // The test proxy throws on enumeration calls such as GetVirtualFolders.
+        var libraryManager = EntrypointTestHelpers.CreateLibraryManager();
+        var progress = new RecordingProgress();
+        var analyzer = new BaseItemAnalyzerTask(
+            NullLogger.Instance,
+            NullLoggerFactory.Instance,
+            libraryManager,
+            providerManager: null!,
+            fileSystem: null!,
+            mediaSegmentRefresher: null!,
+            ffmpegService: null!,
+            cacheService: new DetectionCacheService(NullLogger<DetectionCacheService>.Instance));
+
+        await analyzer.AnalyzeItemsAsync(
+            progress,
+            CancellationToken.None,
+            []);
+
+        Assert.Equal(100, progress.Value);
+    }
+
     [Fact]
     public void IsSettledForReanalysis_ReturnsFalse_WhenDisabled()
     {
