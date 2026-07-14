@@ -26,6 +26,7 @@ namespace IntroSkipper.ScheduledTasks;
 /// <param name="fileSystem">File system.</param>
 /// <param name="ffmpegService">FFmpeg service.</param>
 /// <param name="mediaSegmentRefresher">Media segment refresher.</param>
+/// <param name="plugin">Intro Skipper plugin.</param>
 public partial class CleanCacheTask(
     ILogger<CleanCacheTask> logger,
     ILoggerFactory loggerFactory,
@@ -33,7 +34,8 @@ public partial class CleanCacheTask(
     IProviderManager providerManager,
     IFileSystem fileSystem,
     IFFmpegService ffmpegService,
-    IMediaSegmentRefresher mediaSegmentRefresher) : IScheduledTask
+    IMediaSegmentRefresher mediaSegmentRefresher,
+    Plugin plugin) : IScheduledTask
 {
     private readonly ILogger<CleanCacheTask> _logger = logger;
     private readonly ILoggerFactory _loggerFactory = loggerFactory;
@@ -42,6 +44,7 @@ public partial class CleanCacheTask(
     private readonly IFileSystem _fileSystem = fileSystem;
     private readonly IFFmpegService _ffmpegService = ffmpegService;
     private readonly IMediaSegmentRefresher _mediaSegmentRefresher = mediaSegmentRefresher;
+    private readonly Plugin _plugin = plugin;
 
     /// <summary>
     /// Gets the task name.
@@ -78,8 +81,6 @@ public partial class CleanCacheTask(
             throw new InvalidOperationException("Library manager was null");
         }
 
-        var plugin = Plugin.Instance ?? throw new InvalidOperationException("Plugin instance was null");
-
         var queueManager = new QueueManager(
             _loggerFactory.CreateLogger<QueueManager>(),
             _libraryManager,
@@ -96,12 +97,13 @@ public partial class CleanCacheTask(
             .Select(e => e.EpisodeId)
             .ToHashSet();
 
-        var staleTimestampEpisodeIds = await plugin.CleanTimestampsAsync(enabledLibraryEpisodeIds, cancellationToken).ConfigureAwait(false);
+        // Remove stale plugin timestamps and return the affected episode IDs for segment refresh.
+        var staleTimestampEpisodeIds = await _plugin.CleanTimestampsAsync(enabledLibraryEpisodeIds, cancellationToken).ConfigureAwait(false);
 
         // The provider was disabled for these libraries, so the analyzer no longer refreshes
         // their Jellyfin segments. Refresh after deleting the plugin rows to remove any segments
         // that were previously synchronized by Intro Skipper.
-        if (staleTimestampEpisodeIds.Count > 0 && plugin.Configuration.UpdateMediaSegments)
+        if (staleTimestampEpisodeIds.Count > 0 && _plugin.Configuration.UpdateMediaSegments)
         {
             await _mediaSegmentRefresher.RefreshAsync(staleTimestampEpisodeIds, cancellationToken).ConfigureAwait(false);
         }
