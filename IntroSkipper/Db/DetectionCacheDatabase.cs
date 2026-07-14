@@ -56,7 +56,11 @@ public sealed partial class DetectionCacheDatabase : IDetectionCacheDatabase
     /// <inheritdoc/>
     public DbDetectionCache? FindEntry(Guid itemId, AnalysisMode mode, CacheEntryType type, double start, double end)
     {
-        Initialize();
+        if (!TryInitialize())
+        {
+            return null;
+        }
+
         using var db = _contextFactory.CreateDbContext();
         return db.DetectionCache
             .AsNoTracking()
@@ -66,7 +70,11 @@ public sealed partial class DetectionCacheDatabase : IDetectionCacheDatabase
     /// <inheritdoc/>
     public void Upsert(Guid itemId, AnalysisMode mode, CacheEntryType type, double start, double end, byte[] data, string configHash)
     {
-        Initialize();
+        if (!TryInitialize())
+        {
+            return;
+        }
+
         using var db = _contextFactory.CreateDbContext();
 
         // NOTE: Start/End are compared with == which is safe only because the exact same
@@ -90,7 +98,11 @@ public sealed partial class DetectionCacheDatabase : IDetectionCacheDatabase
     /// <inheritdoc/>
     public bool HasEntry(Guid itemId, AnalysisMode mode, CacheEntryType type, double start, double end, string expectedConfigHash)
     {
-        Initialize();
+        if (!TryInitialize())
+        {
+            return false;
+        }
+
         using var db = _contextFactory.CreateDbContext();
         return db.DetectionCache.Any(e =>
             e.ItemId == itemId &&
@@ -104,7 +116,11 @@ public sealed partial class DetectionCacheDatabase : IDetectionCacheDatabase
     /// <inheritdoc/>
     public int DeleteForItem(Guid itemId)
     {
-        Initialize();
+        if (!TryInitialize())
+        {
+            return 0;
+        }
+
         using var db = _contextFactory.CreateDbContext();
         return db.DetectionCache.Where(e => e.ItemId == itemId).ExecuteDelete();
     }
@@ -112,7 +128,11 @@ public sealed partial class DetectionCacheDatabase : IDetectionCacheDatabase
     /// <inheritdoc/>
     public int DeleteByMode(AnalysisMode mode)
     {
-        Initialize();
+        if (!TryInitialize())
+        {
+            return 0;
+        }
+
         using var db = _contextFactory.CreateDbContext();
         return db.DetectionCache.Where(e => e.Mode == mode).ExecuteDelete();
     }
@@ -124,7 +144,11 @@ public sealed partial class DetectionCacheDatabase : IDetectionCacheDatabase
 
         var validIds = validItemIds.ToArray();
 
-        Initialize();
+        if (!TryInitialize())
+        {
+            return [];
+        }
+
         using var db = _contextFactory.CreateDbContext();
 
         // EF.Parameter binds the valid set as a single JSON parameter (json_each), so
@@ -149,7 +173,11 @@ public sealed partial class DetectionCacheDatabase : IDetectionCacheDatabase
             return 0;
         }
 
-        Initialize();
+        if (!TryInitialize())
+        {
+            return 0;
+        }
+
         using var db = _contextFactory.CreateDbContext();
 
         // EF.Parameter binds the ID set as a single JSON parameter (json_each), so the
@@ -158,6 +186,21 @@ public sealed partial class DetectionCacheDatabase : IDetectionCacheDatabase
             .Where(e => EF.Parameter(ids).Contains(e.ItemId))
             .ExecuteDeleteAsync(cancellationToken)
             .ConfigureAwait(false);
+    }
+
+    private bool TryInitialize()
+    {
+        try
+        {
+            Initialize();
+            return true;
+        }
+        catch (Exception)
+        {
+            // Initialization already logged and reset the failed gate. Cache operations
+            // degrade to neutral results so cache availability cannot abort primary work.
+            return false;
+        }
     }
 
     private bool InitializeCore()

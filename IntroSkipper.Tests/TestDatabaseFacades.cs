@@ -811,7 +811,7 @@ public sealed class TestDatabaseFacades
     }
 
     [Fact]
-    public void CacheOperation_InitializationFailure_DoesNotQueryAndNextOperationRetries()
+    public void CacheOperation_InitializationFailure_ReturnsNeutralAndNextOperationRetries()
     {
         var dbPath = Path.Join(
             Path.GetTempPath(),
@@ -831,7 +831,7 @@ public sealed class TestDatabaseFacades
 
         try
         {
-            Assert.Throws<SqliteException>(() => database.FindEntry(
+            Assert.Null(database.FindEntry(
                 Guid.NewGuid(), AnalysisMode.Introduction, CacheEntryType.Chromaprint, 0, 30));
 
             Assert.Equal(1, Volatile.Read(ref contextCreations));
@@ -853,6 +853,42 @@ public sealed class TestDatabaseFacades
                 Directory.Delete(directory, recursive: true);
             }
         }
+    }
+
+    [Fact]
+    public async Task CacheOperations_InitializationFailure_ReturnNeutralResults()
+    {
+        var contextCreations = 0;
+        var database = new DetectionCacheDatabase(
+            new TestDbContextFactory<DetectionCacheDbContext>(() =>
+            {
+                Interlocked.Increment(ref contextCreations);
+                throw new IOException("Simulated unavailable cache database.");
+            }),
+            NullLogger.Instance);
+        var itemId = Guid.NewGuid();
+
+        Assert.Null(database.FindEntry(
+            itemId, AnalysisMode.Introduction, CacheEntryType.Chromaprint, 0, 30));
+
+        database.Upsert(
+            itemId,
+            AnalysisMode.Introduction,
+            CacheEntryType.Chromaprint,
+            0,
+            30,
+            [],
+            string.Empty);
+
+        Assert.False(database.HasEntry(
+            itemId, AnalysisMode.Introduction, CacheEntryType.Chromaprint, 0, 30, string.Empty));
+        Assert.Equal(0, database.DeleteForItem(itemId));
+        Assert.Equal(0, database.DeleteByMode(AnalysisMode.Introduction));
+        Assert.Empty(await database.GetStaleItemIdsAsync(new HashSet<Guid>()));
+        Assert.Equal(0, await database.DeleteForItemsAsync([itemId]));
+
+        // Each operation retried initialization, and none created a query context.
+        Assert.Equal(7, Volatile.Read(ref contextCreations));
     }
 
     [Fact]
