@@ -25,6 +25,8 @@ namespace IntroSkipper.Analyzers;
 /// <param name="ffmpegService">FFmpeg service.</param>
 public partial class ChapterAnalyzer(ILogger<ChapterAnalyzer> logger, IFFmpegService ffmpegService) : IMediaFileAnalyzer
 {
+    // Keep the adaptive discovery scan broad enough to find darker recap boundaries; the
+    // configured percentage is applied afterward when the scan results are normalized.
     private const int RecapAdaptiveBlackFrameScanMinimumPercentageCap = 50;
 
     private readonly ILogger<ChapterAnalyzer> _logger = logger;
@@ -258,7 +260,8 @@ public partial class ChapterAnalyzer(ILogger<ChapterAnalyzer> logger, IFFmpegSer
         }
 
         var (minimum, _) = BlackFrameThresholdHelper.NormalizeThreshold(blackFrames, _config.BlackFrameMinimumPercentage);
-        return [.. blackFrames.Where(frame => frame.Percentage >= minimum)];
+        blackFrames.RemoveAll(frame => frame.Percentage < minimum);
+        return [.. blackFrames];
     }
 
     internal static Segment? BuildRecapFromBlackFrames(
