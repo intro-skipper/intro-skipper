@@ -26,7 +26,6 @@ namespace IntroSkipper.ScheduledTasks;
 /// <param name="fileSystem">File system.</param>
 /// <param name="ffmpegService">FFmpeg service.</param>
 /// <param name="mediaSegmentRefresher">Media segment refresher.</param>
-/// <param name="plugin">Intro Skipper plugin.</param>
 public partial class CleanCacheTask(
     ILogger<CleanCacheTask> logger,
     ILoggerFactory loggerFactory,
@@ -34,8 +33,7 @@ public partial class CleanCacheTask(
     IProviderManager providerManager,
     IFileSystem fileSystem,
     IFFmpegService ffmpegService,
-    IMediaSegmentRefresher mediaSegmentRefresher,
-    Plugin plugin) : IScheduledTask
+    IMediaSegmentRefresher mediaSegmentRefresher) : IScheduledTask
 {
     private readonly ILogger<CleanCacheTask> _logger = logger;
     private readonly ILoggerFactory _loggerFactory = loggerFactory;
@@ -44,7 +42,6 @@ public partial class CleanCacheTask(
     private readonly IFileSystem _fileSystem = fileSystem;
     private readonly IFFmpegService _ffmpegService = ffmpegService;
     private readonly IMediaSegmentRefresher _mediaSegmentRefresher = mediaSegmentRefresher;
-    private readonly Plugin _plugin = plugin;
 
     /// <summary>
     /// Gets the task name.
@@ -81,6 +78,8 @@ public partial class CleanCacheTask(
             throw new InvalidOperationException("Library manager was null");
         }
 
+        var plugin = Plugin.Instance ?? throw new InvalidOperationException("Plugin instance is null");
+
         var queueManager = new QueueManager(
             _loggerFactory.CreateLogger<QueueManager>(),
             _libraryManager,
@@ -91,21 +90,27 @@ public partial class CleanCacheTask(
         // QueueManager.GetMediaItems() already skips libraries where the plugin is disabled via
         // LibraryOptions.DisabledMediaSegmentProviders.
         var queue = await queueManager.GetMediaItems(includeExcluded: true, cancellationToken).ConfigureAwait(false);
-        var enabledLibraryEpisodes = queue.Values.SelectMany(static episodes => episodes).ToList();
-
-        var enabledLibraryEpisodeIds = enabledLibraryEpisodes
-            .Select(e => e.EpisodeId)
+        var enabledLibraryEpisodeIds = queue.Values
+            .SelectMany(static episodes => episodes)
+            .Select(static episode => episode.EpisodeId)
             .ToHashSet();
 
-        // Remove stale plugin timestamps and return the affected episode IDs for segment refresh.
-        var staleTimestampEpisodeIds = await _plugin.CleanTimestampsAsync(enabledLibraryEpisodeIds, cancellationToken).ConfigureAwait(false);
+        var staleTimestampEpisodeIds = await Plugin
+            .GetStaleTimestampEpisodeIdsAsync(enabledLibraryEpisodeIds, cancellationToken)
+            .ConfigureAwait(false);
 
-        // The provider was disabled for these libraries, so the analyzer no longer refreshes
-        // their Jellyfin segments. Refresh after deleting the plugin rows to remove any segments
-        // that were previously synchronized by Intro Skipper.
-        if (staleTimestampEpisodeIds.Count > 0 && _plugin.Configuration.UpdateMediaSegments)
+        if (staleTimestampEpisodeIds.Count > 0)
         {
-            await _mediaSegmentRefresher.RefreshAsync(staleTimestampEpisodeIds, cancellationToken).ConfigureAwait(false);
+            // Refresh first with Intro Skipper excluded. If refresh fails or is canceled, the
+            // timestamps remain available so a later cleanup run can retry the handoff.
+            if (plugin.Configuration.UpdateMediaSegments)
+            {
+                await _mediaSegmentRefresher
+                    .RemoveIntroSkipperSegmentsAsync(staleTimestampEpisodeIds, cancellationToken)
+                    .ConfigureAwait(false);
+            }
+
+            await Plugin.DeleteTimestampsAsync(staleTimestampEpisodeIds, cancellationToken).ConfigureAwait(false);
         }
 
         // Identify episode IDs in the SQLite cache that are no longer in enabled libraries.

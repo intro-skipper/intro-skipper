@@ -35,6 +35,7 @@ public partial class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
 {
     private const double SegmentComparisonEpsilon = 0.001;
     private const int SqliteParameterBatchSize = 500;
+    internal const string ProviderName = "Intro Skipper";
     private readonly ILibraryManager _libraryManager;
     private readonly IChapterManager _chapterRepository;
     private readonly IPluginManager _pluginManager;
@@ -159,7 +160,7 @@ public partial class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
     public string FFmpegPath { get; private set; }
 
     /// <inheritdoc />
-    public override string Name => "Intro Skipper";
+    public override string Name => ProviderName;
 
     /// <inheritdoc />
     public override Guid Id => Guid.Parse("c83d86bb-a1e0-4c35-a113-e2101cf4ee6b");
@@ -333,7 +334,9 @@ public partial class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
             .ConfigureAwait(false);
     }
 
-    internal async Task<IReadOnlyCollection<Guid>> CleanTimestampsAsync(IEnumerable<Guid> episodeIds, CancellationToken cancellationToken = default)
+    internal static async Task<IReadOnlyCollection<Guid>> GetStaleTimestampEpisodeIdsAsync(
+        IEnumerable<Guid> episodeIds,
+        CancellationToken cancellationToken = default)
     {
         var enabledEpisodeIds = episodeIds.ToHashSet();
 
@@ -345,19 +348,29 @@ public partial class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
             .ToListAsync(cancellationToken)
             .ConfigureAwait(false);
 
-        var staleEpisodeIds = segmentEpisodeIds
+        return segmentEpisodeIds
             .Where(id => !enabledEpisodeIds.Contains(id))
             .ToArray();
+    }
 
-        foreach (var staleEpisodeIdBatch in staleEpisodeIds.Chunk(SqliteParameterBatchSize))
+    internal static async Task DeleteTimestampsAsync(
+        IEnumerable<Guid> episodeIds,
+        CancellationToken cancellationToken = default)
+    {
+        var episodeIdArray = episodeIds.Distinct().ToArray();
+        if (episodeIdArray.Length == 0)
+        {
+            return;
+        }
+
+        using var db = CreateDbContext();
+        foreach (var episodeIdBatch in episodeIdArray.Chunk(SqliteParameterBatchSize))
         {
             await db.DbSegment
-                .Where(s => staleEpisodeIdBatch.Contains(s.ItemId))
+                .Where(s => episodeIdBatch.Contains(s.ItemId))
                 .ExecuteDeleteAsync(cancellationToken)
                 .ConfigureAwait(false);
         }
-
-        return staleEpisodeIds;
     }
 
     internal static async Task SetAnalyzerActionAsync(Guid id, IReadOnlyDictionary<AnalysisMode, AnalyzerAction> analyzerActions, CancellationToken cancellationToken = default)

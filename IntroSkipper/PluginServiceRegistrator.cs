@@ -25,7 +25,6 @@ namespace IntroSkipper
         public void RegisterServices(IServiceCollection serviceCollection, IServerApplicationHost applicationHost)
         {
             serviceCollection.AddHostedService<Entrypoint>();
-            serviceCollection.AddSingleton<Plugin>(_ => Plugin.Instance ?? throw new InvalidOperationException("Plugin instance was null"));
             serviceCollection.AddSingleton<IDetectionCacheService, DetectionCacheService>();
             serviceCollection.AddSingleton<IFFmpegService, FFmpegService>();
             serviceCollection.AddSingleton<IMediaSegmentProvider, SegmentProvider>();

@@ -103,6 +103,44 @@ public sealed class TestMediaSegmentRefreshService
         Assert.Equal(itemId, manager.LastItemId);
     }
 
+    [Fact]
+    public async Task RemoveIntroSkipperSegmentsAsync_ExcludesIntroSkipperProvider()
+    {
+        var itemId = Guid.NewGuid();
+        var manager = new FakeMediaSegmentManager();
+        var libraryManager = EntrypointTestHelpers.CreateLibraryManager(CreateMovie(itemId));
+        using var scope = new EntrypointTestHelpers.PluginInstanceScope(EntrypointTestHelpers.CreateTempCacheDir());
+        EntrypointTestHelpers.SetPropertyOrField(Plugin.Instance!, "Configuration", new PluginConfiguration { MaxParallelism = 2 });
+        var refresher = CreateRefresher(manager, libraryManager);
+
+        await refresher.RemoveIntroSkipperSegmentsAsync([itemId], CancellationToken.None);
+
+        Assert.NotNull(manager.LastLibraryOptions);
+        Assert.Contains(Plugin.ProviderName, manager.LastLibraryOptions!.DisabledMediaSegmentProviders);
+        Assert.Contains("Chapter Segments Provider", manager.LastLibraryOptions.DisabledMediaSegmentProviders);
+        Assert.True(manager.LastForceOverwrite.GetValueOrDefault());
+    }
+
+    [Fact]
+    public async Task RemoveIntroSkipperSegmentsAsync_PropagatesRefreshFailure()
+    {
+        var itemId = Guid.NewGuid();
+        var expectedException = new InvalidOperationException("boom");
+        var manager = new FakeMediaSegmentManager
+        {
+            RunException = expectedException
+        };
+        var libraryManager = EntrypointTestHelpers.CreateLibraryManager(CreateMovie(itemId));
+        using var scope = new EntrypointTestHelpers.PluginInstanceScope(EntrypointTestHelpers.CreateTempCacheDir());
+        EntrypointTestHelpers.SetPropertyOrField(Plugin.Instance!, "Configuration", new PluginConfiguration { MaxParallelism = 2 });
+        var refresher = CreateRefresher(manager, libraryManager);
+
+        var exception = await Assert.ThrowsAsync<InvalidOperationException>(
+            () => refresher.RemoveIntroSkipperSegmentsAsync([itemId], CancellationToken.None));
+
+        Assert.Same(expectedException, exception);
+    }
+
     private static MediaSegmentRefreshService CreateRefresher(FakeMediaSegmentManager manager, ILibraryManager? libraryManager = null)
         => new(manager, libraryManager ?? EntrypointTestHelpers.CreateLibraryManager(), NullLogger<MediaSegmentRefreshService>.Instance);
 

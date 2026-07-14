@@ -125,5 +125,8 @@ public sealed class TestSkipIntroController
         {
             return Completion?.Task ?? Task.CompletedTask;
         }
+
+        public Task RemoveIntroSkipperSegmentsAsync(IEnumerable<Guid> itemIds, CancellationToken cancellationToken = default)
+            => RefreshAsync(itemIds, cancellationToken);
     }
 }
