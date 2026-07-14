@@ -264,7 +264,7 @@ public partial class ChapterAnalyzer(
         }
 
         var (minimum, _) = BlackFrameThresholdHelper.NormalizeThreshold(blackFrames, _config.BlackFrameMinimumPercentage);
-        return blackFrames.Where(frame => frame.Percentage >= minimum).ToArray();
+        return [.. blackFrames.Where(frame => frame.Percentage >= minimum)];
     }
 
     internal static Segment? BuildRecapFromBlackFrames(
