@@ -333,7 +333,7 @@ public partial class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
             .ConfigureAwait(false);
     }
 
-    internal static async Task CleanTimestampsAsync(IEnumerable<Guid> episodeIds, CancellationToken cancellationToken = default)
+    internal static async Task<IReadOnlyList<Guid>> CleanTimestampsAsync(IEnumerable<Guid> episodeIds, CancellationToken cancellationToken = default)
     {
         var enabledEpisodeIds = episodeIds.ToHashSet();
 
@@ -356,6 +356,8 @@ public partial class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
                 .ExecuteDeleteAsync(cancellationToken)
                 .ConfigureAwait(false);
         }
+
+        return staleEpisodeIds;
     }
 
     internal static async Task SetAnalyzerActionAsync(Guid id, IReadOnlyDictionary<AnalysisMode, AnalyzerAction> analyzerActions, CancellationToken cancellationToken = default)

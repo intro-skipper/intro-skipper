@@ -25,13 +25,15 @@ namespace IntroSkipper.ScheduledTasks;
 /// <param name="providerManager">Provider manager.</param>
 /// <param name="fileSystem">File system.</param>
 /// <param name="ffmpegService">FFmpeg service.</param>
+/// <param name="mediaSegmentRefresher">Media segment refresher.</param>
 public partial class CleanCacheTask(
     ILogger<CleanCacheTask> logger,
     ILoggerFactory loggerFactory,
     ILibraryManager libraryManager,
     IProviderManager providerManager,
     IFileSystem fileSystem,
-    IFFmpegService ffmpegService) : IScheduledTask
+    IFFmpegService ffmpegService,
+    IMediaSegmentRefresher mediaSegmentRefresher) : IScheduledTask
 {
     private readonly ILogger<CleanCacheTask> _logger = logger;
     private readonly ILoggerFactory _loggerFactory = loggerFactory;
@@ -39,6 +41,7 @@ public partial class CleanCacheTask(
     private readonly IProviderManager _providerManager = providerManager;
     private readonly IFileSystem _fileSystem = fileSystem;
     private readonly IFFmpegService _ffmpegService = ffmpegService;
+    private readonly IMediaSegmentRefresher _mediaSegmentRefresher = mediaSegmentRefresher;
 
     /// <summary>
     /// Gets the task name.
@@ -75,6 +78,8 @@ public partial class CleanCacheTask(
             throw new InvalidOperationException("Library manager was null");
         }
 
+        var plugin = Plugin.Instance ?? throw new InvalidOperationException("Plugin instance was null");
+
         var queueManager = new QueueManager(
             _loggerFactory.CreateLogger<QueueManager>(),
             _libraryManager,
@@ -91,7 +96,15 @@ public partial class CleanCacheTask(
             .Select(e => e.EpisodeId)
             .ToHashSet();
 
-        await Plugin.CleanTimestampsAsync(enabledLibraryEpisodeIds, cancellationToken).ConfigureAwait(false);
+        var staleTimestampEpisodeIds = await Plugin.CleanTimestampsAsync(enabledLibraryEpisodeIds, cancellationToken).ConfigureAwait(false);
+
+        // The provider was disabled for these libraries, so the analyzer no longer refreshes
+        // their Jellyfin segments. Refresh after deleting the plugin rows to remove any segments
+        // that were previously synchronized by Intro Skipper.
+        if (staleTimestampEpisodeIds.Count > 0 && plugin.Configuration.UpdateMediaSegments)
+        {
+            await _mediaSegmentRefresher.RefreshAsync(staleTimestampEpisodeIds, cancellationToken).ConfigureAwait(false);
+        }
 
         // Identify episode IDs in the SQLite cache that are no longer in enabled libraries.
         HashSet<Guid> invalidEpisodeIds;
