@@ -59,8 +59,8 @@ internal static class DbSegmentIndexSql
     /// Gets the SQL that creates the item lookup index.
     /// </summary>
     internal static string CreateItemIndexSql =>
-        """
-        CREATE INDEX IF NOT EXISTS "IX_DbSegment_ItemId" ON "DbSegment" ("ItemId")
+        $$"""
+        CREATE INDEX IF NOT EXISTS "{{ItemIndexName}}" ON "DbSegment" ("ItemId")
         """;
 
     /// <summary>
@@ -83,7 +83,7 @@ internal static class DbSegmentIndexSql
     /// </summary>
     internal static string CreateCommercialUniqueIndexSql =>
         $$"""
-        CREATE UNIQUE INDEX IF NOT EXISTS "IX_DbSegment_Commercial_Unique" ON "DbSegment" ("ItemId", "Type", "Start", "End")
+        CREATE UNIQUE INDEX IF NOT EXISTS "{{CommercialUniqueIndexName}}" ON "DbSegment" ("ItemId", "Type", "Start", "End")
             WHERE "Type" = {{CommercialType}}
         """;
 
@@ -139,7 +139,7 @@ internal static class DbSegmentIndexSql
     /// </summary>
     internal static string CreateNonCommercialUniqueIndexSql =>
         $$"""
-        CREATE UNIQUE INDEX IF NOT EXISTS "IX_DbSegment_NonCommercial_Unique" ON "DbSegment" ("ItemId", "Type")
+        CREATE UNIQUE INDEX IF NOT EXISTS "{{NonCommercialUniqueIndexName}}" ON "DbSegment" ("ItemId", "Type")
             WHERE "Type" != {{CommercialType}} AND "Type" != {{CreditsType}}
         """;
 }
