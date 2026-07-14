@@ -71,7 +71,7 @@ public sealed partial class IntroSkipperDatabase
         using var db = _contextFactory.CreateDbContext();
 
         var transaction = await db.Database.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
-        try
+        await using (transaction.ConfigureAwait(false))
         {
             if (ids.Length > 0)
             {
@@ -81,22 +81,13 @@ public sealed partial class IntroSkipperDatabase
                     .ConfigureAwait(false);
             }
 
-            var seasonStates = await db.DbSeasonState
+            await db.DbSeasonState
                 .Where(s => s.SeasonId == seasonId)
-                .ToListAsync(cancellationToken)
+                .ExecuteUpdateAsync(
+                    setters => setters.SetProperty(s => s.EpisodeIds, Array.Empty<Guid>()),
+                    cancellationToken)
                 .ConfigureAwait(false);
-
-            foreach (var state in seasonStates)
-            {
-                db.Entry(state).Property(s => s.EpisodeIds).CurrentValue = [];
-            }
-
-            await db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
             await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
-        }
-        finally
-        {
-            await transaction.DisposeAsync().ConfigureAwait(false);
         }
     }
 
@@ -122,7 +113,7 @@ public sealed partial class IntroSkipperDatabase
         using var db = _contextFactory.CreateDbContext();
 
         var transaction = await db.Database.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
-        try
+        await using (transaction.ConfigureAwait(false))
         {
             var removedSegments = itemIds.Length == 0
                 ? 0
@@ -148,10 +139,6 @@ public sealed partial class IntroSkipperDatabase
             await db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
             await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
             return removedSegments;
-        }
-        finally
-        {
-            await transaction.DisposeAsync().ConfigureAwait(false);
         }
     }
 
@@ -181,7 +168,7 @@ public sealed partial class IntroSkipperDatabase
         using var db = _contextFactory.CreateDbContext();
 
         var transaction = await db.Database.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
-        try
+        await using (transaction.ConfigureAwait(false))
         {
             await db.DbSegment
                 .Where(s => EF.Parameter(ids).Contains(s.ItemId) && modeArray.Contains(s.Type) && !s.IsUserProvided)
@@ -191,22 +178,13 @@ public sealed partial class IntroSkipperDatabase
             // Clear the analyzed-episode lists so VerifyQueueAsync treats every episode as NotAnalyzed.
             // Committing this together with the deletes guarantees the episodes are re-analyzed (either
             // on this pass or a later one) instead of being stranded as NoSegments.
-            var seasonStates = await db.DbSeasonState
+            await db.DbSeasonState
                 .Where(s => s.SeasonId == seasonId && modeArray.Contains(s.Type))
-                .ToListAsync(cancellationToken)
+                .ExecuteUpdateAsync(
+                    setters => setters.SetProperty(s => s.EpisodeIds, Array.Empty<Guid>()),
+                    cancellationToken)
                 .ConfigureAwait(false);
-
-            foreach (var state in seasonStates)
-            {
-                db.Entry(state).Property(s => s.EpisodeIds).CurrentValue = [];
-            }
-
-            await db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
             await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
-        }
-        finally
-        {
-            await transaction.DisposeAsync().ConfigureAwait(false);
         }
     }
 

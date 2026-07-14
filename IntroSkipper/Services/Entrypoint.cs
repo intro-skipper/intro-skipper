@@ -45,7 +45,7 @@ namespace IntroSkipper.Services
         private readonly IMediaSegmentRefresher _mediaSegmentRefresher;
         private readonly IIntroSkipperDatabase _database;
         private readonly HashSet<Guid> _seasonsToAnalyze = [];
-        private readonly object _seasonsLock = new();
+        private readonly Lock _seasonsLock = new();
         private readonly Timer _queueTimer;
         private static readonly SemaphoreSlim _analysisSemaphore = new(1, 1);
         private PluginConfiguration _config;

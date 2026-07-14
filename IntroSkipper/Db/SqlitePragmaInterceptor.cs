@@ -12,8 +12,8 @@ using Microsoft.EntityFrameworkCore.Diagnostics;
 namespace IntroSkipper.Db;
 
 /// <summary>
-/// EF Core connection interceptor that applies SQLite PRAGMAs on every connection open.
-/// Shared between <see cref="IntroSkipperDbContext"/> and <see cref="DetectionCacheDbContext"/>.
+/// Applies the per-connection SQLite busy timeout. WAL is enforced during database
+/// initialization because journal mode is a persistent database property.
 /// </summary>
 internal sealed class SqlitePragmaInterceptor : DbConnectionInterceptor
 {
@@ -22,7 +22,8 @@ internal sealed class SqlitePragmaInterceptor : DbConnectionInterceptor
         using var cmd = connection.CreateCommand();
         try
         {
-            SqlitePragmas.Apply(cmd);
+            cmd.CommandText = "PRAGMA busy_timeout=5000;";
+            cmd.ExecuteNonQuery();
         }
         catch (SqliteException)
         {
@@ -35,7 +36,8 @@ internal sealed class SqlitePragmaInterceptor : DbConnectionInterceptor
         using var cmd = connection.CreateCommand();
         try
         {
-            await SqlitePragmas.ApplyAsync(cmd, cancellationToken).ConfigureAwait(false);
+            cmd.CommandText = "PRAGMA busy_timeout=5000;";
+            await cmd.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
         }
         catch (SqliteException)
         {

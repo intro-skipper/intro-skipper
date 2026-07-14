@@ -10,20 +10,19 @@ namespace IntroSkipper.Db;
 /// Owns every read and write against <see cref="DetectionCacheDbContext"/> as well as the
 /// schema lifecycle (<c>EnsureCreated</c> with delete-and-recreate corruption recovery).
 /// The synchronous members mirror the synchronous call patterns of the analysis pipeline.
-/// Explicit initialization failures propagate to the hosted warm-up, while regular cache
-/// operations treat failed initialization as cache unavailability and return neutral results.
-/// After successful initialization, operation-time database exceptions propagate so callers
-/// retain their existing best-effort handling.
+/// Initialization failures make the cache temporarily unavailable; operations return neutral
+/// results and retry initialization on the next call. Database errors after initialization
+/// continue to propagate to the existing best-effort callers.
 /// </summary>
 public interface IDetectionCacheDatabase
 {
     /// <summary>
-    /// Ensures the cache database schema exists, recreating the database when it is
-    /// corrupted. Concurrent callers share one attempt and successful initialization is
-    /// cached. A failed attempt propagates from this method and resets the gate so the
-    /// next initialization attempt retries.
+    /// Ensures the cache schema exists, recreating corrupt cache files when possible.
+    /// Concurrent callers share one attempt; a failed attempt is logged and reset so the
+    /// next call retries.
     /// </summary>
-    void Initialize();
+    /// <returns><see langword="true"/> when the cache is ready.</returns>
+    bool TryInitialize();
 
     /// <summary>
     /// Returns the cache entry matching the exact key, or <see langword="null"/>.

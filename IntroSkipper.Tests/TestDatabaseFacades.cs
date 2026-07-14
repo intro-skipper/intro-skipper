@@ -94,11 +94,18 @@ public sealed class TestDatabaseFacades
     }
 
     [Theory]
-    [InlineData(60.0, 1440.0, false, 0)]   // overlapping, auto-detected → rejected
-    [InlineData(1200.0, 1440.0, false, 1)] // non-overlapping, auto-detected → accepted
-    [InlineData(60.0, 1440.0, true, 1)]    // overlapping, user-provided → accepted
+    [InlineData(0.0, 90.0, 60.0, 1440.0, false, 0)]   // overlapping, auto-detected → rejected
+    [InlineData(0.0, 90.0, 1200.0, 1440.0, false, 1)] // non-overlapping, auto-detected → accepted
+    [InlineData(0.0, 90.0, 60.0, 1440.0, true, 1)]    // overlapping, user-provided → accepted
+    [InlineData(0.0, 90.0, 90.0, 200.0, false, 1)]    // touches intro end → accepted
+    [InlineData(100.0, 200.0, 0.0, 100.0, false, 1)]  // touches intro start → accepted
     public async Task UpdateTimestampAsync_CreditsOverlapGuard(
-        double creditsStart, double creditsEnd, bool isUserProvided, int expectedCount)
+        double introStart,
+        double introEnd,
+        double creditsStart,
+        double creditsEnd,
+        bool isUserProvided,
+        int expectedCount)
     {
         var dbPath = CreateTempDbPath();
         var itemId = Guid.NewGuid();
@@ -106,8 +113,9 @@ public sealed class TestDatabaseFacades
         {
             var database = DatabaseTestHelpers.CreateSegmentDatabase(dbPath);
 
-            // Store an intro: 0–90 s.
-            await database.UpdateTimestampAsync(new Segment(itemId, new TimeRange(0, 90)), AnalysisMode.Introduction);
+            await database.UpdateTimestampAsync(
+                new Segment(itemId, new TimeRange(introStart, introEnd)),
+                AnalysisMode.Introduction);
 
             var credits = new Segment(itemId, new TimeRange(creditsStart, creditsEnd));
             await database.UpdateTimestampAsync(credits, AnalysisMode.Credits, isUserProvided);
@@ -842,7 +850,7 @@ public sealed class TestDatabaseFacades
                 Guid.NewGuid(), AnalysisMode.Introduction, CacheEntryType.Chromaprint, 0, 30));
             Assert.Equal(3, Volatile.Read(ref contextCreations)); // Retry context + query context.
 
-            database.Initialize();
+            Assert.True(database.TryInitialize());
             Assert.Equal(3, Volatile.Read(ref contextCreations)); // Successful gate stays cached.
         }
         finally
@@ -1058,7 +1066,7 @@ public sealed class TestDatabaseFacades
             Assert.Equal("delete", GetJournalMode(dbPath));
 
             var cacheDatabase = DatabaseTestHelpers.CreateCacheDatabase(dbPath);
-            cacheDatabase.Initialize();
+            Assert.True(cacheDatabase.TryInitialize());
 
             Assert.Equal("wal", GetJournalMode(dbPath));
         }

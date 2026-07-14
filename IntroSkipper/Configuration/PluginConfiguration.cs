@@ -57,14 +57,13 @@ public class PluginConfiguration : BasePluginConfiguration
     /// </summary>
     public const int MaximumAnalysisPercent = 50;
 
-    private int _analysisPercent = DefaultAnalysisPercent;
-    private int _settledSeasonDelayHours = DefaultSettledSeasonDelayHours;
-
     /// <summary>
     /// Initializes a new instance of the <see cref="PluginConfiguration"/> class.
     /// </summary>
     public PluginConfiguration()
     {
+        SettledSeasonDelayHours = DefaultSettledSeasonDelayHours;
+        AnalysisPercent = DefaultAnalysisPercent;
     }
 
     // ===== Analysis settings =====
@@ -108,8 +107,8 @@ public class PluginConfiguration : BasePluginConfiguration
     /// </summary>
     public int SettledSeasonDelayHours
     {
-        get => _settledSeasonDelayHours;
-        set => _settledSeasonDelayHours = Math.Clamp(value, 0, MaximumSettledSeasonDelayHours);
+        get;
+        set => field = Math.Clamp(value, 0, MaximumSettledSeasonDelayHours);
     }
 
     /// <summary>
@@ -192,8 +191,8 @@ public class PluginConfiguration : BasePluginConfiguration
     /// </summary>
     public int AnalysisPercent
     {
-        get => _analysisPercent;
-        set => _analysisPercent = Math.Clamp(value, MinimumAnalysisPercent, MaximumAnalysisPercent);
+        get;
+        set => field = Math.Clamp(value, MinimumAnalysisPercent, MaximumAnalysisPercent);
     }
 
     /// <summary>

@@ -87,7 +87,4 @@ public class DbSeasonState
 
     internal static string SerializeEpisodeIds(IEnumerable<Guid> episodeIds)
         => JsonSerializer.Serialize(episodeIds, (JsonSerializerOptions?)null);
-
-    internal static IEnumerable<Guid> DeserializeEpisodeIds(string episodeIds)
-        => JsonSerializer.Deserialize<IEnumerable<Guid>>(episodeIds, (JsonSerializerOptions?)null) ?? [];
 }

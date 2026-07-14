@@ -11,21 +11,6 @@ namespace IntroSkipper.Db;
 /// </summary>
 public sealed partial class IntroSkipperDatabase
 {
-    /// <summary>
-    /// Compiled query for the playback hot path: <see cref="GetSegmentsAsync"/> runs on
-    /// every media-segment request, so the LINQ-to-SQL translation is compiled once per
-    /// facade instance. Deliberately an instance field, not static: a compiled query is
-    /// bound to the model of the first context it executes against, and facade instances
-    /// can be constructed over factories with distinct model instances (the DI-registered
-    /// options carry the application service provider, while tests construct several
-    /// facades over path-based contexts). A process-wide static delegate would throw
-    /// "executed with a different model than it was compiled against" for every facade
-    /// after the first.
-    /// </summary>
-    private readonly Func<IntroSkipperDbContext, Guid, IAsyncEnumerable<DbSegment>> _segmentsForItemQuery =
-        EF.CompileAsyncQuery((IntroSkipperDbContext context, Guid itemId) =>
-            context.DbSegment.AsNoTracking().Where(s => s.ItemId == itemId));
-
     /// <inheritdoc/>
     public async Task UpdateTimestampAsync(
         Segment segment,
@@ -63,36 +48,35 @@ public sealed partial class IntroSkipperDatabase
             else
             {
                 var transaction = await db.Database.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
-                try
+                await using (transaction.ConfigureAwait(false))
                 {
                     var existingSegments = await db.DbSegment
                         .Where(s => s.ItemId == segment.EpisodeId && s.Type == mode)
                         .ToListAsync(cancellationToken)
                         .ConfigureAwait(false);
 
-                    // The intro row is only needed for the credits/intro overlap guard, so it
-                    // is fetched only for auto-detected credits writes. Both reads and the
-                    // decision below happen inside the same transaction as the write.
-                    DbSegment? storedIntroduction = null;
-                    if (SegmentWriteDecision.RequiresStoredIntroduction(mode, isUserProvided))
+                    if (!isUserProvided && existingSegments.Any(s => s.IsUserProvided))
                     {
-                        storedIntroduction = await db.DbSegment
+                        return;
+                    }
+
+                    if (mode == AnalysisMode.Credits && !isUserProvided)
+                    {
+                        var storedIntroduction = await db.DbSegment
                             .AsNoTracking()
-                            .Where(s => s.ItemId == segment.EpisodeId && s.Type == AnalysisMode.Introduction)
-                            .FirstOrDefaultAsync(cancellationToken)
+                            .FirstOrDefaultAsync(
+                                s => s.ItemId == segment.EpisodeId && s.Type == AnalysisMode.Introduction,
+                                cancellationToken)
                             .ConfigureAwait(false);
-                    }
 
-                    var verdict = SegmentWriteDecision.ShouldPersist(existingSegments, storedIntroduction, segment, mode, isUserProvided);
-                    if (verdict == SegmentWriteDecision.Verdict.SkipUserProvidedPrecedence)
-                    {
-                        return;
-                    }
-
-                    if (verdict == SegmentWriteDecision.Verdict.SkipCreditsOverlapIntro)
-                    {
-                        LogCreditsOverlapWithIntro(_logger, segment.EpisodeId);
-                        return;
+                        // Touching segment boundaries do not overlap.
+                        if (storedIntroduction is not null
+                            && segment.Start < storedIntroduction.End
+                            && storedIntroduction.Start < segment.End)
+                        {
+                            LogCreditsOverlapWithIntro(_logger, segment.EpisodeId);
+                            return;
+                        }
                     }
 
                     if (existingSegments.Count > 0)
@@ -103,10 +87,6 @@ public sealed partial class IntroSkipperDatabase
                     db.DbSegment.Add(dbSegment);
                     await db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
                     await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
-                }
-                finally
-                {
-                    await transaction.DisposeAsync().ConfigureAwait(false);
                 }
             }
         }
@@ -135,13 +115,11 @@ public sealed partial class IntroSkipperDatabase
         await EnsureInitializedAsync().ConfigureAwait(false);
         using var db = _contextFactory.CreateDbContext();
 
-        var segments = new List<DbSegment>();
-        await foreach (var segment in _segmentsForItemQuery(db, id).WithCancellation(cancellationToken).ConfigureAwait(false))
-        {
-            segments.Add(segment);
-        }
-
-        return segments;
+        return await db.DbSegment
+            .AsNoTracking()
+            .Where(s => s.ItemId == id)
+            .ToListAsync(cancellationToken)
+            .ConfigureAwait(false);
     }
 
     /// <inheritdoc/>
