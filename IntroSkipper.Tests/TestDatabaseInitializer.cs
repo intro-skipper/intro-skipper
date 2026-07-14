@@ -14,24 +14,22 @@ using Microsoft.Extensions.Logging.Abstractions;
 using Xunit;
 
 /// <summary>
-/// Pins the hosted warm-up's blast-radius contract: <see cref="IntroSkipperDatabaseInitializer.StartAsync"/>
-/// runs inside Jellyfin's host startup, where an escaping exception would abort the entire
-/// server, so propagated facade initialization failures of any shape must be contained
-/// here, independent of the facades' retry policies.
+/// Pins the hosted warm-up's startup isolation and cancellation behavior.
 /// </summary>
 public sealed class TestDatabaseInitializer
 {
     [Fact]
-    public async Task StartAsync_FacadeInitializationFailures_NeverEscape()
+    public async Task StartAsync_SegmentInitializationFailure_NeverEscapesAndStillWarmsCache()
     {
+        var cacheCalls = 0;
         var segmentDatabase = FacadeProxy.CreateSegmentDatabase(
             () => Task.FromException(new IOException("simulated async segment init failure")));
-        var cacheDatabase = FacadeProxy.CreateCacheDatabase(
-            () => throw new InvalidOperationException("simulated sync cache init failure"));
+        var cacheDatabase = FacadeProxy.CreateCacheDatabase(() => cacheCalls++);
         var initializer = new IntroSkipperDatabaseInitializer(
             segmentDatabase, cacheDatabase, NullLogger<IntroSkipperDatabaseInitializer>.Instance);
 
         Assert.Null(await Record.ExceptionAsync(() => initializer.StartAsync(CancellationToken.None)));
+        Assert.Equal(1, cacheCalls);
         Assert.Null(await Record.ExceptionAsync(() => initializer.StopAsync(CancellationToken.None)));
     }
 
@@ -114,15 +112,15 @@ public sealed class TestDatabaseInitializer
             return proxy;
         }
 
-        public static IDetectionCacheDatabase CreateCacheDatabase(Action initialize)
+        public static IDetectionCacheDatabase CreateCacheDatabase(Action tryInitialize)
         {
             var proxy = Create<IDetectionCacheDatabase, FacadeProxy>();
             var typed = (FacadeProxy)(object)proxy;
-            typed._memberName = nameof(IDetectionCacheDatabase.Initialize);
+            typed._memberName = nameof(IDetectionCacheDatabase.TryInitialize);
             typed._handler = () =>
             {
-                initialize();
-                return null;
+                tryInitialize();
+                return true;
             };
             return proxy;
         }

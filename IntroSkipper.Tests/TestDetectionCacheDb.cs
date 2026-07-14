@@ -289,21 +289,20 @@ public sealed class TestDetectionCacheDbContext : IDisposable
     }
 
     [Fact]
-    public void Initialize_RecoversFromCorruptCacheFile_ByDeleteAndRecreate()
+    public void TryInitialize_RecoversFromCorruptCacheFile_ByDeleteAndRecreate()
     {
         var dbPath = Path.Combine(Path.GetDirectoryName(_dbPath)!, $"corrupt-cache-{Guid.NewGuid():N}.db");
         try
         {
             // Garbage bytes with no SQLite header: opening the file succeeds, but the
             // first statement fails with SQLITE_NOTADB. EnsureSchema must take the
-            // delete-and-recreate recovery path, and no exception may escape the
-            // facade's Initialize().
+            // delete-and-recreate recovery path.
             var garbage = new byte[4096];
             Array.Fill(garbage, (byte)0xDE);
             File.WriteAllBytes(dbPath, garbage);
 
             var cacheDatabase = DatabaseTestHelpers.CreateCacheDatabase(dbPath);
-            cacheDatabase.Initialize();
+            Assert.True(cacheDatabase.TryInitialize());
 
             // The recreated database must be fully operational: Upsert/FindEntry
             // round-trips. (These would throw SQLITE_NOTADB if the garbage file

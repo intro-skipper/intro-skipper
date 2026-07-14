@@ -38,16 +38,9 @@ public sealed partial class IntroSkipperDatabaseInitializer : IHostedService
     /// <inheritdoc/>
     public async Task StartAsync(CancellationToken cancellationToken)
     {
-        // Blast radius: this runs inside Jellyfin's host startup, so nothing thrown here
-        // may propagate — an unhandled exception would abort the entire server, taking
-        // every plugin and Jellyfin itself down over a plugin cache file. The facades
-        // log and propagate initialization failures, so the warm-up must remain
-        // independently exception-proof. A failed warm-up resets the facade gate; the
-        // next real operation retries initialization before touching the database.
-        //
-        // Cancellation only abandons the *wait*: the initialization work itself is
-        // intentionally non-cancellable (a half-applied legacy repair would be worse than
-        // a slow shutdown) and keeps running inside the facade's shared gate.
+        // Segment initialization can fail and must not abort Jellyfin startup. Cancellation
+        // only abandons this wait; the shared initialization task keeps running so legacy
+        // repair or migration work is never interrupted halfway through.
         if (cancellationToken.IsCancellationRequested)
         {
             return;
@@ -65,7 +58,7 @@ public sealed partial class IntroSkipperDatabaseInitializer : IHostedService
         }
         catch (Exception ex)
         {
-            LogWarmupDeferred(_logger, ex, "segment");
+            LogSegmentWarmupDeferred(_logger, ex);
         }
 
         if (cancellationToken.IsCancellationRequested)
@@ -73,19 +66,12 @@ public sealed partial class IntroSkipperDatabaseInitializer : IHostedService
             return;
         }
 
-        try
-        {
-            _cacheDatabase.Initialize();
-        }
-        catch (Exception ex)
-        {
-            LogWarmupDeferred(_logger, ex, "detection cache");
-        }
+        _ = _cacheDatabase.TryInitialize();
     }
 
     /// <inheritdoc/>
     public Task StopAsync(CancellationToken cancellationToken) => Task.CompletedTask;
 
-    [LoggerMessage(Level = LogLevel.Debug, Message = "Eager {Database} database initialization was deferred; the next database operation will retry")]
-    private static partial void LogWarmupDeferred(ILogger logger, Exception exception, string database);
+    [LoggerMessage(Level = LogLevel.Debug, Message = "Eager segment database initialization was deferred; the next database operation will retry")]
+    private static partial void LogSegmentWarmupDeferred(ILogger logger, Exception exception);
 }

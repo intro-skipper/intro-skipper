@@ -7,7 +7,6 @@ using System.Text.Json;
 using IntroSkipper.Data;
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
-using Microsoft.EntityFrameworkCore.ChangeTracking;
 using Microsoft.EntityFrameworkCore.Storage;
 using Microsoft.Extensions.DependencyInjection;
 
@@ -135,27 +134,11 @@ public class IntroSkipperDbContext : DbContext
                   .HasDefaultValue(AnalyzerAction.Default)
                   .IsRequired();
 
-            entity.Property(e => e.EpisodeIds)
-                  .HasConversion(
-                      v => Db.DbSeasonState.SerializeEpisodeIds(v),
-                      v => Db.DbSeasonState.DeserializeEpisodeIds(v),
-                      new ValueComparer<IEnumerable<Guid>>(
-                          (c1, c2) => (c1 ?? new List<Guid>()).SequenceEqual(c2 ?? new List<Guid>()),
-                          c => c.Aggregate(0, (a, v) => HashCode.Combine(a, v.GetHashCode())),
-                          c => c.ToList()));
-
             entity.Property(e => e.ConfigHash)
                   .HasDefaultValue(string.Empty)
                   .IsRequired();
 
             entity.Property(e => e.SettledReanalysisEpisodeIds)
-                  .HasConversion(
-                      v => Db.DbSeasonState.SerializeEpisodeIds(v),
-                      v => Db.DbSeasonState.DeserializeEpisodeIds(v),
-                      new ValueComparer<IEnumerable<Guid>>(
-                          (c1, c2) => (c1 ?? new List<Guid>()).SequenceEqual(c2 ?? new List<Guid>()),
-                          c => c.Aggregate(0, (a, v) => HashCode.Combine(a, v.GetHashCode())),
-                          c => c.ToList()))
                   .HasDefaultValueSql("'[]'")
                   .IsRequired();
         });

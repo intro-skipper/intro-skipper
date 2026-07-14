@@ -34,13 +34,14 @@ public sealed partial class DetectionCacheDatabase : IDetectionCacheDatabase
     }
 
     /// <inheritdoc/>
-    public void Initialize()
+    public bool TryInitialize()
     {
         var initialization = _initialization.GetAttempt();
 
         try
         {
             _ = initialization.Value;
+            return true;
         }
         catch (Exception ex)
         {
@@ -49,7 +50,7 @@ public sealed partial class DetectionCacheDatabase : IDetectionCacheDatabase
                 LogCacheDbInitializationError(_logger, ex);
             }
 
-            throw;
+            return false;
         }
     }
 
@@ -186,21 +187,6 @@ public sealed partial class DetectionCacheDatabase : IDetectionCacheDatabase
             .Where(e => EF.Parameter(ids).Contains(e.ItemId))
             .ExecuteDeleteAsync(cancellationToken)
             .ConfigureAwait(false);
-    }
-
-    private bool TryInitialize()
-    {
-        try
-        {
-            Initialize();
-            return true;
-        }
-        catch (Exception)
-        {
-            // Initialization already logged and reset the failed gate. Cache operations
-            // degrade to neutral results so cache availability cannot abort primary work.
-            return false;
-        }
     }
 
     private bool InitializeCore()
