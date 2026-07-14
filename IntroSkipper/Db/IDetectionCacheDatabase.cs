@@ -9,15 +9,19 @@ namespace IntroSkipper.Db;
 /// Cohesive facade over the detection cache database (<c>introskipper-cache.db</c>).
 /// Owns every read and write against <see cref="DetectionCacheDbContext"/> as well as the
 /// schema lifecycle (<c>EnsureCreated</c> with delete-and-recreate corruption recovery).
-/// The synchronous members mirror the synchronous call patterns of the analysis pipeline;
-/// database exceptions propagate so callers keep their existing best-effort handling.
+/// The synchronous members mirror the synchronous call patterns of the analysis pipeline.
+/// Explicit initialization failures propagate to the hosted warm-up, while regular cache
+/// operations treat failed initialization as cache unavailability and return neutral results.
+/// After successful initialization, operation-time database exceptions propagate so callers
+/// retain their existing best-effort handling.
 /// </summary>
 public interface IDetectionCacheDatabase
 {
     /// <summary>
     /// Ensures the cache database schema exists, recreating the database when it is
-    /// corrupted. Runs exactly once per process; every other member calls the same gate
-    /// first, so eager invocation is an optimization, not a requirement.
+    /// corrupted. Concurrent callers share one attempt and successful initialization is
+    /// cached. A failed attempt propagates from this method and resets the gate so the
+    /// next initialization attempt retries.
     /// </summary>
     void Initialize();
 

@@ -7,11 +7,13 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Threading;
 using System.Threading.Tasks;
 using IntroSkipper.Data;
 using IntroSkipper.Db;
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging.Abstractions;
 using Xunit;
 
 /// <summary>
@@ -707,7 +709,7 @@ public sealed class TestDatabaseFacades
 
             // Deterministic backup failure: dropping a column the model SELECT expects
             // makes the backup read throw SqliteException ("no such column"). The drop
-            // happens after this facade's one-shot init gate has completed, so the
+            // happens after this facade's successful init gate has completed, so the
             // legacy-schema repair cannot undo it before the rebuild runs.
             await DropDbSegmentConfigHashColumnAsync(dbPath);
 
@@ -762,36 +764,164 @@ public sealed class TestDatabaseFacades
     }
 
     [Fact]
-    public async Task InitializeAsync_UnopenableDataSource_SwallowsFailureAndNeverRetries()
+    public async Task DatabaseOperation_InitializationFailure_DoesNotQueryAndNextOperationRetries()
     {
         // A data source whose parent directory does not exist cannot be opened or
-        // created by SQLite, so the initialization core fails internally.
+        // created by SQLite, so the first initialization attempt fails.
         var dbPath = Path.Join(
             Path.GetTempPath(),
             "IntroSkipper.Tests",
             "database-facades",
             Guid.NewGuid().ToString("N") + "-missing-dir",
             "segments.db");
-        var database = DatabaseTestHelpers.CreateSegmentDatabase(dbPath);
+        var directory = Path.GetDirectoryName(dbPath)!;
+        var contextCreations = 0;
+        var database = new IntroSkipperDatabase(
+            new TestDbContextFactory<IntroSkipperDbContext>(() =>
+            {
+                Interlocked.Increment(ref contextCreations);
+                return new IntroSkipperDbContext(dbPath);
+            }),
+            NullLogger.Instance);
 
-        // The catch-all initialization core swallows the failure: awaiting the gate
-        // must not throw, matching the plugin's historical constructor behavior.
-        var firstGate = database.InitializeAsync();
-        await firstGate;
-        Assert.True(firstGate.IsCompletedSuccessfully);
+        try
+        {
+            await Assert.ThrowsAsync<SqliteException>(() => database.GetSegmentsAsync(Guid.NewGuid()));
 
-        // One-shot Lazy gate: a second call returns the same completed task — the
-        // failed initialization is deliberately never retried.
-        Assert.Same(firstGate, database.InitializeAsync());
+            // Only the initialization context was created; the operation did not run a
+            // query against an unverified schema.
+            Assert.Equal(1, Volatile.Read(ref contextCreations));
 
-        // Operations run against whatever state exists and surface their own errors.
-        await Assert.ThrowsAsync<SqliteException>(() => database.GetSegmentsAsync(Guid.NewGuid()));
+            Directory.CreateDirectory(directory);
+
+            Assert.Empty(await database.GetSegmentsAsync(Guid.NewGuid()));
+            Assert.Equal(3, Volatile.Read(ref contextCreations)); // Retry context + query context.
+
+            await database.InitializeAsync();
+            Assert.Equal(3, Volatile.Read(ref contextCreations)); // Successful gate stays cached.
+        }
+        finally
+        {
+            DeleteSqliteFiles(dbPath);
+            if (Directory.Exists(directory))
+            {
+                Directory.Delete(directory, recursive: true);
+            }
+        }
+    }
+
+    [Fact]
+    public void CacheOperation_InitializationFailure_ReturnsNeutralAndNextOperationRetries()
+    {
+        var dbPath = Path.Join(
+            Path.GetTempPath(),
+            "IntroSkipper.Tests",
+            "database-facades",
+            Guid.NewGuid().ToString("N") + "-missing-dir",
+            "cache.db");
+        var directory = Path.GetDirectoryName(dbPath)!;
+        var contextCreations = 0;
+        var database = new DetectionCacheDatabase(
+            new TestDbContextFactory<DetectionCacheDbContext>(() =>
+            {
+                Interlocked.Increment(ref contextCreations);
+                return new DetectionCacheDbContext(dbPath);
+            }),
+            NullLogger.Instance);
+
+        try
+        {
+            Assert.Null(database.FindEntry(
+                Guid.NewGuid(), AnalysisMode.Introduction, CacheEntryType.Chromaprint, 0, 30));
+
+            Assert.Equal(1, Volatile.Read(ref contextCreations));
+
+            Directory.CreateDirectory(directory);
+
+            Assert.Null(database.FindEntry(
+                Guid.NewGuid(), AnalysisMode.Introduction, CacheEntryType.Chromaprint, 0, 30));
+            Assert.Equal(3, Volatile.Read(ref contextCreations)); // Retry context + query context.
+
+            database.Initialize();
+            Assert.Equal(3, Volatile.Read(ref contextCreations)); // Successful gate stays cached.
+        }
+        finally
+        {
+            DeleteSqliteFiles(dbPath);
+            if (Directory.Exists(directory))
+            {
+                Directory.Delete(directory, recursive: true);
+            }
+        }
+    }
+
+    [Fact]
+    public async Task CacheOperations_InitializationFailure_ReturnNeutralResults()
+    {
+        var contextCreations = 0;
+        var database = new DetectionCacheDatabase(
+            new TestDbContextFactory<DetectionCacheDbContext>(() =>
+            {
+                contextCreations++;
+                throw new IOException("Simulated unavailable cache database.");
+            }),
+            NullLogger.Instance);
+        var itemId = Guid.NewGuid();
+
+        Assert.Null(database.FindEntry(
+            itemId, AnalysisMode.Introduction, CacheEntryType.Chromaprint, 0, 30));
+
+        database.Upsert(
+            itemId,
+            AnalysisMode.Introduction,
+            CacheEntryType.Chromaprint,
+            0,
+            30,
+            [],
+            string.Empty);
+
+        Assert.False(database.HasEntry(
+            itemId, AnalysisMode.Introduction, CacheEntryType.Chromaprint, 0, 30, string.Empty));
+        Assert.Equal(0, database.DeleteForItem(itemId));
+        Assert.Equal(0, database.DeleteByMode(AnalysisMode.Introduction));
+        Assert.Empty(await database.GetStaleItemIdsAsync(new HashSet<Guid>()));
+        Assert.Equal(0, await database.DeleteForItemsAsync([itemId]));
+
+        // Each operation retried initialization, and none created a query context.
+        Assert.Equal(7, contextCreations);
+    }
+
+    [Fact]
+    public async Task RetryableInitializationGate_FailedAttemptIsSharedAndNextAttemptRetries()
+    {
+        var attempts = 0;
+        var gate = new RetryableInitializationGate<Task>(() =>
+            ++attempts == 1
+                ? Task.FromException(new IOException("Simulated transient database failure."))
+                : Task.CompletedTask);
+
+        var failedAttempt = gate.GetAttempt();
+        Assert.Same(failedAttempt, gate.GetAttempt());
+
+        var failedTask = failedAttempt.Value;
+        Assert.Same(failedTask, gate.GetAttempt().Value);
+        await Assert.ThrowsAsync<IOException>(() => failedTask);
+        Assert.Equal(1, attempts);
+
+        Assert.True(gate.ResetIfCurrent(failedAttempt));
+        Assert.False(gate.ResetIfCurrent(failedAttempt));
+
+        var retryAttempt = gate.GetAttempt();
+        Assert.NotSame(failedAttempt, retryAttempt);
+        await retryAttempt.Value;
+        Assert.Equal(2, attempts);
+        Assert.Same(retryAttempt, gate.GetAttempt());
     }
 
     [Fact]
     public async Task ConcurrentFacadeInstances_InitializeLegacyDatabaseWithoutErrors()
     {
-        // Tests construct sibling facade instances with independent one-shot gates over
+        // Tests construct sibling facade instances with independent retryable gates over
         // the same file, so both may run legacy repair + migrations concurrently on
         // first use. EnsureLegacySchemaCompatibility is existence-check-guarded and
         // transactional (BEGIN IMMEDIATE) and MigrateAsync takes EF's migration lock;

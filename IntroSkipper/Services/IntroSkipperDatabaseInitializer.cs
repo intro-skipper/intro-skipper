@@ -41,16 +41,13 @@ public sealed partial class IntroSkipperDatabaseInitializer : IHostedService
         // Blast radius: this runs inside Jellyfin's host startup, so nothing thrown here
         // may propagate — an unhandled exception would abort the entire server, taking
         // every plugin and Jellyfin itself down over a plugin cache file. The facades
-        // already log-and-swallow their own initialization failures, but that is their
-        // contract, not a guarantee this warm-up can rely on (a facade bug, an exception
-        // from Lazy publication races, or an OutOfMemoryException would still escape), so
-        // the warm-up is independently exception-proof. A failed warm-up degrades to the
-        // lazy gate: the first real operation retriggers nothing (one-shot) but surfaces
-        // its own errors in the normal request/scan paths, matching pre-refactor behavior.
+        // log and propagate initialization failures, so the warm-up must remain
+        // independently exception-proof. A failed warm-up resets the facade gate; the
+        // next real operation retries initialization before touching the database.
         //
         // Cancellation only abandons the *wait*: the initialization work itself is
         // intentionally non-cancellable (a half-applied legacy repair would be worse than
-        // a slow shutdown) and keeps running inside the facade's one-shot gate.
+        // a slow shutdown) and keeps running inside the facade's shared gate.
         if (cancellationToken.IsCancellationRequested)
         {
             return;
@@ -68,7 +65,7 @@ public sealed partial class IntroSkipperDatabaseInitializer : IHostedService
         }
         catch (Exception ex)
         {
-            LogWarmupFailed(_logger, ex, "segment");
+            LogWarmupDeferred(_logger, ex, "segment");
         }
 
         if (cancellationToken.IsCancellationRequested)
@@ -82,13 +79,13 @@ public sealed partial class IntroSkipperDatabaseInitializer : IHostedService
         }
         catch (Exception ex)
         {
-            LogWarmupFailed(_logger, ex, "detection cache");
+            LogWarmupDeferred(_logger, ex, "detection cache");
         }
     }
 
     /// <inheritdoc/>
     public Task StopAsync(CancellationToken cancellationToken) => Task.CompletedTask;
 
-    [LoggerMessage(Level = LogLevel.Warning, Message = "Eager {Database} database initialization failed; the plugin will run against the existing schema and subsequent database operations will surface their own errors")]
-    private static partial void LogWarmupFailed(ILogger logger, Exception exception, string database);
+    [LoggerMessage(Level = LogLevel.Debug, Message = "Eager {Database} database initialization was deferred; the next database operation will retry")]
+    private static partial void LogWarmupDeferred(ILogger logger, Exception exception, string database);
 }

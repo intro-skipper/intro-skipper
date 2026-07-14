@@ -9,14 +9,14 @@ namespace IntroSkipper.Db;
 
 /// <summary>
 /// Default implementation of <see cref="IDetectionCacheDatabase"/>. Stateless apart from
-/// the one-shot schema gate: every operation creates a fresh
+/// the retryable schema gate: every operation creates a fresh
 /// <see cref="DetectionCacheDbContext"/> from the injected factory.
 /// </summary>
 public sealed partial class DetectionCacheDatabase : IDetectionCacheDatabase
 {
     private readonly IDbContextFactory<DetectionCacheDbContext> _contextFactory;
     private readonly ILogger _logger;
-    private readonly Lazy<bool> _initialization;
+    private readonly RetryableInitializationGate<bool> _initialization;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="DetectionCacheDatabase"/> class.
@@ -30,16 +30,37 @@ public sealed partial class DetectionCacheDatabase : IDetectionCacheDatabase
 
         _contextFactory = contextFactory;
         _logger = logger;
-        _initialization = new Lazy<bool>(InitializeCore, LazyThreadSafetyMode.ExecutionAndPublication);
+        _initialization = new RetryableInitializationGate<bool>(InitializeCore);
     }
 
     /// <inheritdoc/>
-    public void Initialize() => _ = _initialization.Value;
+    public void Initialize()
+    {
+        var initialization = _initialization.GetAttempt();
+
+        try
+        {
+            _ = initialization.Value;
+        }
+        catch (Exception ex)
+        {
+            if (_initialization.ResetIfCurrent(initialization))
+            {
+                LogCacheDbInitializationError(_logger, ex);
+            }
+
+            throw;
+        }
+    }
 
     /// <inheritdoc/>
     public DbDetectionCache? FindEntry(Guid itemId, AnalysisMode mode, CacheEntryType type, double start, double end)
     {
-        Initialize();
+        if (!TryInitialize())
+        {
+            return null;
+        }
+
         using var db = _contextFactory.CreateDbContext();
         return db.DetectionCache
             .AsNoTracking()
@@ -49,7 +70,11 @@ public sealed partial class DetectionCacheDatabase : IDetectionCacheDatabase
     /// <inheritdoc/>
     public void Upsert(Guid itemId, AnalysisMode mode, CacheEntryType type, double start, double end, byte[] data, string configHash)
     {
-        Initialize();
+        if (!TryInitialize())
+        {
+            return;
+        }
+
         using var db = _contextFactory.CreateDbContext();
 
         // NOTE: Start/End are compared with == which is safe only because the exact same
@@ -73,7 +98,11 @@ public sealed partial class DetectionCacheDatabase : IDetectionCacheDatabase
     /// <inheritdoc/>
     public bool HasEntry(Guid itemId, AnalysisMode mode, CacheEntryType type, double start, double end, string expectedConfigHash)
     {
-        Initialize();
+        if (!TryInitialize())
+        {
+            return false;
+        }
+
         using var db = _contextFactory.CreateDbContext();
         return db.DetectionCache.Any(e =>
             e.ItemId == itemId &&
@@ -87,7 +116,11 @@ public sealed partial class DetectionCacheDatabase : IDetectionCacheDatabase
     /// <inheritdoc/>
     public int DeleteForItem(Guid itemId)
     {
-        Initialize();
+        if (!TryInitialize())
+        {
+            return 0;
+        }
+
         using var db = _contextFactory.CreateDbContext();
         return db.DetectionCache.Where(e => e.ItemId == itemId).ExecuteDelete();
     }
@@ -95,7 +128,11 @@ public sealed partial class DetectionCacheDatabase : IDetectionCacheDatabase
     /// <inheritdoc/>
     public int DeleteByMode(AnalysisMode mode)
     {
-        Initialize();
+        if (!TryInitialize())
+        {
+            return 0;
+        }
+
         using var db = _contextFactory.CreateDbContext();
         return db.DetectionCache.Where(e => e.Mode == mode).ExecuteDelete();
     }
@@ -107,7 +144,11 @@ public sealed partial class DetectionCacheDatabase : IDetectionCacheDatabase
 
         var validIds = validItemIds.ToArray();
 
-        Initialize();
+        if (!TryInitialize())
+        {
+            return [];
+        }
+
         using var db = _contextFactory.CreateDbContext();
 
         // EF.Parameter binds the valid set as a single JSON parameter (json_each), so
@@ -132,7 +173,11 @@ public sealed partial class DetectionCacheDatabase : IDetectionCacheDatabase
             return 0;
         }
 
-        Initialize();
+        if (!TryInitialize())
+        {
+            return 0;
+        }
+
         using var db = _contextFactory.CreateDbContext();
 
         // EF.Parameter binds the ID set as a single JSON parameter (json_each), so the
@@ -143,33 +188,35 @@ public sealed partial class DetectionCacheDatabase : IDetectionCacheDatabase
             .ConfigureAwait(false);
     }
 
-    private bool InitializeCore()
+    private bool TryInitialize()
     {
         try
         {
-            using var db = _contextFactory.CreateDbContext();
-
-            db.EnsureSchema();
-
-            // WAL is a persistent database property, but EF only sets it when *it*
-            // creates the database file. Enforce it idempotently so databases
-            // vacuumed or recreated by external tooling are covered as well.
-            db.Database.ExecuteSqlRaw("PRAGMA journal_mode=WAL;");
+            Initialize();
+            return true;
         }
-        catch (Exception ex)
+        catch (Exception)
         {
-            // Catch-all on purpose: the cache is a performance optimization and its
-            // initialization is reached from the hosted warm-up during Jellyfin host
-            // startup — no cache failure (UnauthorizedAccessException from EnsureDeleted,
-            // InvalidOperationException from a broken model, DbException, ...) may
-            // escape and abort server startup, and the Lazy gate must never cache a
-            // fault that would poison every subsequent cache operation.
-            LogCacheDbInitializationError(_logger, ex);
+            // Initialization already logged and reset the failed gate. Cache operations
+            // degrade to neutral results so cache availability cannot abort primary work.
+            return false;
         }
+    }
+
+    private bool InitializeCore()
+    {
+        using var db = _contextFactory.CreateDbContext();
+
+        db.EnsureSchema();
+
+        // WAL is a persistent database property, but EF only sets it when *it*
+        // creates the database file. Enforce it idempotently so databases
+        // vacuumed or recreated by external tooling are covered as well.
+        db.Database.ExecuteSqlRaw("PRAGMA journal_mode=WAL;");
 
         return true;
     }
 
-    [LoggerMessage(Level = LogLevel.Warning, Message = "Error initializing detection cache database")]
+    [LoggerMessage(Level = LogLevel.Warning, Message = "Detection cache database initialization failed; the next database operation will retry")]
     private static partial void LogCacheDbInitializationError(ILogger logger, Exception exception);
 }

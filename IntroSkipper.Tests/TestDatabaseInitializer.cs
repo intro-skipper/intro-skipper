@@ -16,8 +16,8 @@ using Xunit;
 /// <summary>
 /// Pins the hosted warm-up's blast-radius contract: <see cref="IntroSkipperDatabaseInitializer.StartAsync"/>
 /// runs inside Jellyfin's host startup, where an escaping exception would abort the entire
-/// server, so facade initialization failures of any shape must be swallowed (and merely
-/// logged) here, independent of the facades' own catch policies.
+/// server, so propagated facade initialization failures of any shape must be contained
+/// here, independent of the facades' retry policies.
 /// </summary>
 public sealed class TestDatabaseInitializer
 {

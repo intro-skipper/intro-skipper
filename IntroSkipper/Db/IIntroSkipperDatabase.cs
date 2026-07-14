@@ -17,9 +17,9 @@ public interface IIntroSkipperDatabase
 {
     /// <summary>
     /// Ensures the database is initialized (legacy schema repair + EF migrations).
-    /// Initialization runs exactly once per process; every other member of this
-    /// interface awaits the same gate before touching the database, so calling
-    /// this method eagerly is an optimization, not a requirement.
+    /// Concurrent callers share one attempt and successful initialization is cached.
+    /// A failed attempt propagates to its callers and the next operation retries before
+    /// touching the database, so calling this method eagerly is an optimization, not a requirement.
     /// </summary>
     /// <returns>A <see cref="Task"/> that completes when initialization has finished.</returns>
     Task InitializeAsync();

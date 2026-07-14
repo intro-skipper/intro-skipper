@@ -39,7 +39,7 @@ namespace IntroSkipper
             serviceCollection.AddDbContextFactory<DetectionCacheDbContext>((serviceProvider, options) =>
                 options.UseSqlite($"Data Source={IntroSkipperDatabasePaths.GetDetectionCacheDatabasePath(serviceProvider.GetRequiredService<IApplicationPaths>())}")
                     .AddInterceptors(_pragmaInterceptor));
-            // The facades own database initialization via their internal one-shot
+            // The facades own database initialization via their internal retryable
             // gates; every consumer goes through a facade.
             serviceCollection.AddSingleton<IIntroSkipperDatabase>(serviceProvider => new IntroSkipperDatabase(
                 serviceProvider.GetRequiredService<IDbContextFactory<IntroSkipperDbContext>>(),
