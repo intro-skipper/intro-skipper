@@ -856,128 +856,49 @@ public sealed class TestDatabaseFacades
     }
 
     [Fact]
-    public async Task InitializeAsync_ConcurrentCallersShareFailedAttemptAndNextCallRetries()
+    public async Task RetryableInitializationGate_ConcurrentCallersShareFailedAttemptAndNextAttemptRetries()
     {
-        var dbPath = CreateTempDbPath();
-        var contextCreations = 0;
-        using var initializationEntered = new ManualResetEventSlim();
-        using var releaseInitialization = new ManualResetEventSlim();
-        var database = new IntroSkipperDatabase(
-            new TestDbContextFactory<IntroSkipperDbContext>(() =>
-            {
-                if (Interlocked.Increment(ref contextCreations) == 1)
-                {
-                    initializationEntered.Set();
-                    if (!releaseInitialization.Wait(TimeSpan.FromSeconds(30)))
-                    {
-                        throw new TimeoutException("Timed out waiting to release the initialization attempt.");
-                    }
+        var attempts = 0;
+        var initializationEntered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var releaseInitialization = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var gate = new RetryableInitializationGate<Task>(InitializeAttemptAsync);
 
-                    throw new IOException("Simulated transient segment database failure.");
-                }
+        var firstAttempt = gate.GetAttempt();
+        var secondAttempt = gate.GetAttempt();
+        Assert.Same(firstAttempt, secondAttempt);
 
-                return new IntroSkipperDbContext(dbPath);
-            }),
-            NullLogger.Instance);
+        var first = firstAttempt.Value;
+        var second = secondAttempt.Value;
+        Assert.Same(first, second);
 
-        try
-        {
-            var first = database.InitializeAsync();
-            Assert.True(initializationEntered.Wait(TimeSpan.FromSeconds(30)));
-            var second = database.InitializeAsync();
+        await initializationEntered.Task.WaitAsync(TimeSpan.FromSeconds(30));
+        releaseInitialization.SetResult();
 
-            releaseInitialization.Set();
-
-            var exceptions = await Task.WhenAll(
+        var exceptions = await Task.WhenAll(
                 Record.ExceptionAsync(() => first),
-                Record.ExceptionAsync(() => second));
+                Record.ExceptionAsync(() => second))
+            .WaitAsync(TimeSpan.FromSeconds(30));
 
-            Assert.All(exceptions, exception => Assert.IsType<IOException>(exception));
-            Assert.Equal(1, Volatile.Read(ref contextCreations));
+        Assert.All(exceptions, exception => Assert.IsType<IOException>(exception));
+        Assert.Equal(1, Volatile.Read(ref attempts));
 
-            await database.InitializeAsync();
-            Assert.Equal(2, Volatile.Read(ref contextCreations));
+        Assert.True(gate.ResetIfCurrent(firstAttempt));
+        Assert.False(gate.ResetIfCurrent(secondAttempt));
 
-            await database.InitializeAsync();
-            Assert.Equal(2, Volatile.Read(ref contextCreations));
-        }
-        finally
+        var retryAttempt = gate.GetAttempt();
+        Assert.NotSame(firstAttempt, retryAttempt);
+        await retryAttempt.Value;
+        Assert.Equal(2, Volatile.Read(ref attempts));
+        Assert.Same(retryAttempt, gate.GetAttempt());
+
+        async Task InitializeAttemptAsync()
         {
-            releaseInitialization.Set();
-            DeleteSqliteFiles(dbPath);
-        }
-    }
-
-    [Fact]
-    public async Task CacheInitialize_ConcurrentCallersShareFailedAttemptAndNextCallRetries()
-    {
-        var dbPath = CreateTempDbPath();
-        var contextCreations = 0;
-        using var initializationEntered = new ManualResetEventSlim();
-        using var releaseInitialization = new ManualResetEventSlim();
-        using var secondCallerStarted = new ManualResetEventSlim();
-        var database = new DetectionCacheDatabase(
-            new TestDbContextFactory<DetectionCacheDbContext>(() =>
+            if (Interlocked.Increment(ref attempts) == 1)
             {
-                if (Interlocked.Increment(ref contextCreations) == 1)
-                {
-                    initializationEntered.Set();
-                    if (!releaseInitialization.Wait(TimeSpan.FromSeconds(30)))
-                    {
-                        throw new TimeoutException("Timed out waiting to release the initialization attempt.");
-                    }
-
-                    throw new IOException("Simulated transient cache database failure.");
-                }
-
-                return new DetectionCacheDbContext(dbPath);
-            }),
-            NullLogger.Instance);
-
-        Exception? secondException = null;
-        Thread? secondThread = null;
-
-        try
-        {
-            var first = Task.Run(() => Record.Exception(database.Initialize));
-            Assert.True(initializationEntered.Wait(TimeSpan.FromSeconds(30)));
-
-            secondThread = new Thread(() =>
-            {
-                secondCallerStarted.Set();
-                secondException = Record.Exception(database.Initialize);
-            });
-            secondThread.Start();
-
-            Assert.True(secondCallerStarted.Wait(TimeSpan.FromSeconds(30)));
-            Assert.True(SpinWait.SpinUntil(
-                () => (secondThread.ThreadState & ThreadState.WaitSleepJoin) != 0,
-                TimeSpan.FromSeconds(30)));
-
-            releaseInitialization.Set();
-
-            var firstException = await first;
-            Assert.True(secondThread.Join(TimeSpan.FromSeconds(30)));
-
-            Assert.IsType<IOException>(firstException);
-            Assert.IsType<IOException>(secondException);
-            Assert.Equal(1, Volatile.Read(ref contextCreations));
-
-            database.Initialize();
-            Assert.Equal(2, Volatile.Read(ref contextCreations));
-
-            database.Initialize();
-            Assert.Equal(2, Volatile.Read(ref contextCreations));
-        }
-        finally
-        {
-            releaseInitialization.Set();
-            if (secondThread is not null && secondThread.IsAlive)
-            {
-                secondThread.Join(TimeSpan.FromSeconds(30));
+                initializationEntered.SetResult();
+                await releaseInitialization.Task.ConfigureAwait(false);
+                throw new IOException("Simulated transient database failure.");
             }
-
-            DeleteSqliteFiles(dbPath);
         }
     }
 

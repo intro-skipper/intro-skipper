@@ -25,8 +25,7 @@ public sealed partial class IntroSkipperDatabase : IIntroSkipperDatabase
 
     private readonly IDbContextFactory<IntroSkipperDbContext> _contextFactory;
     private readonly ILogger _logger;
-    private readonly object _initializationLock = new();
-    private Lazy<Task> _initialization;
+    private readonly RetryableInitializationGate<Task> _initialization;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="IntroSkipperDatabase"/> class.
@@ -47,13 +46,13 @@ public sealed partial class IntroSkipperDatabase : IIntroSkipperDatabase
         // hot path — block its thread on the Lazy monitor until the factory's first
         // incomplete await. Dispatching to the thread pool makes the factory return a
         // Task immediately, so waiters genuinely await instead of blocking.
-        _initialization = CreateInitialization();
+        _initialization = new RetryableInitializationGate<Task>(() => Task.Run(InitializeCoreAsync));
     }
 
     /// <inheritdoc/>
     public async Task InitializeAsync()
     {
-        var initialization = GetInitialization();
+        var initialization = _initialization.GetAttempt();
 
         try
         {
@@ -61,7 +60,7 @@ public sealed partial class IntroSkipperDatabase : IIntroSkipperDatabase
         }
         catch (Exception ex)
         {
-            if (TryResetInitialization(initialization))
+            if (_initialization.ResetIfCurrent(initialization))
             {
                 LogDatabaseInitializationError(_logger, ex);
             }
@@ -101,31 +100,6 @@ public sealed partial class IntroSkipperDatabase : IIntroSkipperDatabase
         // creates the database file. Enforce it idempotently so databases
         // vacuumed or recreated by external tooling are covered as well.
         await db.Database.ExecuteSqlRawAsync("PRAGMA journal_mode=WAL;").ConfigureAwait(false);
-    }
-
-    private Lazy<Task> CreateInitialization()
-        => new(() => Task.Run(InitializeCoreAsync), LazyThreadSafetyMode.ExecutionAndPublication);
-
-    private Lazy<Task> GetInitialization()
-    {
-        lock (_initializationLock)
-        {
-            return _initialization;
-        }
-    }
-
-    private bool TryResetInitialization(Lazy<Task> failedInitialization)
-    {
-        lock (_initializationLock)
-        {
-            if (!ReferenceEquals(_initialization, failedInitialization))
-            {
-                return false;
-            }
-
-            _initialization = CreateInitialization();
-            return true;
-        }
     }
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "Database initialization failed; the next database operation will retry")]

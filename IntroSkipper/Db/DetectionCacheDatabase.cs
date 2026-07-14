@@ -16,8 +16,7 @@ public sealed partial class DetectionCacheDatabase : IDetectionCacheDatabase
 {
     private readonly IDbContextFactory<DetectionCacheDbContext> _contextFactory;
     private readonly ILogger _logger;
-    private readonly object _initializationLock = new();
-    private Lazy<bool> _initialization;
+    private readonly RetryableInitializationGate<bool> _initialization;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="DetectionCacheDatabase"/> class.
@@ -31,13 +30,13 @@ public sealed partial class DetectionCacheDatabase : IDetectionCacheDatabase
 
         _contextFactory = contextFactory;
         _logger = logger;
-        _initialization = CreateInitialization();
+        _initialization = new RetryableInitializationGate<bool>(InitializeCore);
     }
 
     /// <inheritdoc/>
     public void Initialize()
     {
-        var initialization = GetInitialization();
+        var initialization = _initialization.GetAttempt();
 
         try
         {
@@ -45,7 +44,7 @@ public sealed partial class DetectionCacheDatabase : IDetectionCacheDatabase
         }
         catch (Exception ex)
         {
-            if (TryResetInitialization(initialization))
+            if (_initialization.ResetIfCurrent(initialization))
             {
                 LogCacheDbInitializationError(_logger, ex);
             }
@@ -173,31 +172,6 @@ public sealed partial class DetectionCacheDatabase : IDetectionCacheDatabase
         db.Database.ExecuteSqlRaw("PRAGMA journal_mode=WAL;");
 
         return true;
-    }
-
-    private Lazy<bool> CreateInitialization()
-        => new(InitializeCore, LazyThreadSafetyMode.ExecutionAndPublication);
-
-    private Lazy<bool> GetInitialization()
-    {
-        lock (_initializationLock)
-        {
-            return _initialization;
-        }
-    }
-
-    private bool TryResetInitialization(Lazy<bool> failedInitialization)
-    {
-        lock (_initializationLock)
-        {
-            if (!ReferenceEquals(_initialization, failedInitialization))
-            {
-                return false;
-            }
-
-            _initialization = CreateInitialization();
-            return true;
-        }
     }
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "Detection cache database initialization failed; the next database operation will retry")]
