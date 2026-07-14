@@ -96,7 +96,7 @@ public partial class CleanCacheTask(
             .Select(e => e.EpisodeId)
             .ToHashSet();
 
-        var staleTimestampEpisodeIds = await Plugin.CleanTimestampsAsync(enabledLibraryEpisodeIds, cancellationToken).ConfigureAwait(false);
+        var staleTimestampEpisodeIds = await plugin.CleanTimestampsAsync(enabledLibraryEpisodeIds, cancellationToken).ConfigureAwait(false);
 
         // The provider was disabled for these libraries, so the analyzer no longer refreshes
         // their Jellyfin segments. Refresh after deleting the plugin rows to remove any segments
