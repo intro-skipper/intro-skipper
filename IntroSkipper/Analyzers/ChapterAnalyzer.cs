@@ -23,7 +23,11 @@ namespace IntroSkipper.Analyzers;
 /// </remarks>
 /// <param name="logger">Logger.</param>
 /// <param name="ffmpegService">FFmpeg service.</param>
-public partial class ChapterAnalyzer(ILogger<ChapterAnalyzer> logger, IFFmpegService ffmpegService) : IMediaFileAnalyzer
+/// <param name="configuration">Plugin configuration, or <see langword="null"/> to use the active plugin configuration.</param>
+public partial class ChapterAnalyzer(
+    ILogger<ChapterAnalyzer> logger,
+    IFFmpegService ffmpegService,
+    PluginConfiguration? configuration = null) : IMediaFileAnalyzer
 {
     // Keep the adaptive discovery scan broad enough to find darker recap boundaries; the
     // configured percentage is applied afterward when the scan results are normalized.
@@ -31,7 +35,7 @@ public partial class ChapterAnalyzer(ILogger<ChapterAnalyzer> logger, IFFmpegSer
 
     private readonly ILogger<ChapterAnalyzer> _logger = logger;
     private readonly IFFmpegService _ffmpegService = ffmpegService;
-    private readonly PluginConfiguration _config = Plugin.Instance?.Configuration ?? new PluginConfiguration();
+    private readonly PluginConfiguration _config = configuration ?? Plugin.Instance?.Configuration ?? new PluginConfiguration();
     private static readonly ImmutableHashSet<string> _ambiguousSponsorBlockChapterLabels =
         ImmutableHashSet.Create(
             StringComparer.OrdinalIgnoreCase,
@@ -242,26 +246,25 @@ public partial class ChapterAnalyzer(ILogger<ChapterAnalyzer> logger, IFFmpegSer
             maxRecapBoundary);
     }
 
-    private async Task<BlackFrame[]> DetectAdaptiveRecapBlackFramesAsync(
+    internal async Task<BlackFrame[]> DetectAdaptiveRecapBlackFramesAsync(
         QueuedEpisode episode,
         double maxRecapBoundary,
         CancellationToken cancellationToken)
     {
-        var blackFrames = (await _ffmpegService.DetectBlackFramesAsync(
+        var blackFrames = await _ffmpegService.DetectBlackFramesAsync(
             episode,
             new TimeRange(0, maxRecapBoundary),
             Math.Min(_config.BlackFrameMinimumPercentage, RecapAdaptiveBlackFrameScanMinimumPercentageCap),
             _config.BlackFrameThreshold,
             AnalysisMode.Recap,
-            cancellationToken).ConfigureAwait(false)).ToList();
-        if (blackFrames.Count == 0)
+            cancellationToken).ConfigureAwait(false);
+        if (blackFrames.Length == 0)
         {
             return [];
         }
 
         var (minimum, _) = BlackFrameThresholdHelper.NormalizeThreshold(blackFrames, _config.BlackFrameMinimumPercentage);
-        blackFrames.RemoveAll(frame => frame.Percentage < minimum);
-        return [.. blackFrames];
+        return blackFrames.Where(frame => frame.Percentage >= minimum).ToArray();
     }
 
     internal static Segment? BuildRecapFromBlackFrames(

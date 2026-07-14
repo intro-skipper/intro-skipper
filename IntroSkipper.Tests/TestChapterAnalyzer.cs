@@ -9,18 +9,15 @@ namespace IntroSkipper.Tests;
 using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
-using System.IO;
 using System.Reflection;
 using System.Threading;
 using System.Threading.Tasks;
 using IntroSkipper.Analyzers;
 using IntroSkipper.Configuration;
 using IntroSkipper.Data;
-using IntroSkipper.Db;
 using IntroSkipper.FFmpeg;
 using MediaBrowser.Controller.Chapters;
 using MediaBrowser.Model.Entities;
-using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging.Abstractions;
 using Xunit;
 
@@ -105,54 +102,36 @@ public class TestChapterAnalyzer
     }
 
     [Fact]
-    public async Task DetectRecapUsingBlackFrames_UsesAdaptiveThresholdWithCurrentBlackFrameScan()
+    public async Task DetectAdaptiveRecapBlackFrames_UsesAdaptiveThresholdWithCurrentBlackFrameScan()
     {
-        using var scope = new EntrypointTestHelpers.PluginInstanceScope(EntrypointTestHelpers.CreateTempCacheDir());
-        var dbDirectory = Path.Combine(Path.GetTempPath(), "IntroSkipper.Tests", Guid.NewGuid().ToString("N"));
-        Directory.CreateDirectory(dbDirectory);
-        try
+        var config = new PluginConfiguration
         {
-            var dbPath = Path.Combine(dbDirectory, "segments.db");
-            EntrypointTestHelpers.SetPrivateField(Plugin.Instance!, "_dbPath", dbPath);
-            EntrypointTestHelpers.SetPropertyOrField(
-                Plugin.Instance!,
-                "Configuration",
-                new PluginConfiguration
-                {
-                    BlackFrameMinimumPercentage = 85,
-                    BlackFrameThreshold = 32,
-                    MinimumRecapDetectionDuration = 5,
-                    MaximumRecapDetectionDuration = 120,
-                });
-            await using (var db = new IntroSkipperDbContext(dbPath))
-            {
-                await db.Database.EnsureCreatedAsync();
-            }
+            BlackFrameMinimumPercentage = 85,
+            BlackFrameThreshold = 32,
+            MinimumRecapDetectionDuration = 5,
+            MaximumRecapDetectionDuration = 120,
+        };
+        var ffmpeg = new RecapBlackFrameFfmpeg(
+        [
+            new(50, 20, 10),
+            new(95, 40, 20),
+            new(88, 80, 30),
+        ]);
+        var analyzer = new ChapterAnalyzer(NullLogger<ChapterAnalyzer>.Instance, ffmpeg, config);
+        var episode = new QueuedEpisode { EpisodeId = Guid.NewGuid(), Duration = 200, Path = "episode.mkv" };
 
-            var ffmpeg = new RecapBlackFrameFfmpeg(
-            [
-                new(50, 20, 10),
-                new(95, 40, 20),
-                new(88, 80, 30),
-            ]);
-            var analyzer = new ChapterAnalyzer(NullLogger<ChapterAnalyzer>.Instance, ffmpeg);
+        var blackFrames = await analyzer.DetectAdaptiveRecapBlackFramesAsync(episode, 120, CancellationToken.None);
+        var recap = ChapterAnalyzer.BuildRecapFromBlackFrames(episode.EpisodeId, blackFrames, config.MinimumRecapDetectionDuration, 120);
 
-            var recap = await analyzer.DetectRecapUsingBlackFramesAsync(
-                new QueuedEpisode { EpisodeId = Guid.NewGuid(), Duration = 200, Path = "episode.mkv" },
-                CancellationToken.None);
-
-            Assert.NotNull(recap);
-            Assert.Equal(40, recap.End);
-            Assert.Equal(50, ffmpeg.LastMinimum);
-            Assert.Equal(32, ffmpeg.LastThreshold);
-            Assert.Equal(AnalysisMode.Recap, ffmpeg.LastMode);
-            Assert.Equal(0, ffmpeg.LastRange?.Start);
-            Assert.Equal(120, ffmpeg.LastRange?.End);
-        }
-        finally
-        {
-            Directory.Delete(dbDirectory, recursive: true);
-        }
+        Assert.Single(blackFrames);
+        Assert.Equal(95, blackFrames[0].Percentage);
+        Assert.NotNull(recap);
+        Assert.Equal(40, recap.End);
+        Assert.Equal(50, ffmpeg.LastMinimum);
+        Assert.Equal(32, ffmpeg.LastThreshold);
+        Assert.Equal(AnalysisMode.Recap, ffmpeg.LastMode);
+        Assert.Equal(0, ffmpeg.LastRange?.Start);
+        Assert.Equal(120, ffmpeg.LastRange?.End);
     }
 
     [Theory]
