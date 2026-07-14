@@ -150,7 +150,7 @@ public sealed class TestDbSegmentStorage
     }
 
     [Fact]
-    public async Task CleanTimestampsAsync_DoesNotExceedSqliteVariableLimit_WhenEpisodeListIsLarge()
+    public async Task TimestampCleanup_DoesNotExceedSqliteVariableLimit_WhenEpisodeListIsLarge()
     {
         const int LargeEpisodeCount = 33_000;
 
@@ -181,7 +181,15 @@ public sealed class TestDbSegmentStorage
                 var plugin = Plugin.Instance!;
                 EntrypointTestHelpers.SetPrivateField(plugin, "_dbPath", dbPath);
 
-                await Plugin.CleanTimestampsAsync(enabledEpisodeIds);
+                var staleEpisodeIds = await Plugin.GetStaleTimestampEpisodeIdsAsync(enabledEpisodeIds);
+                Assert.Equal([staleItemId], staleEpisodeIds);
+
+                using (var db = new IntroSkipperDbContext(dbPath))
+                {
+                    Assert.Equal(2, db.DbSegment.Count());
+                }
+
+                await Plugin.DeleteTimestampsAsync(staleEpisodeIds);
             }
 
             using (var db = new IntroSkipperDbContext(dbPath))

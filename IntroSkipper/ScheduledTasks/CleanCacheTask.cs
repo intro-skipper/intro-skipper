@@ -25,13 +25,15 @@ namespace IntroSkipper.ScheduledTasks;
 /// <param name="providerManager">Provider manager.</param>
 /// <param name="fileSystem">File system.</param>
 /// <param name="ffmpegService">FFmpeg service.</param>
+/// <param name="mediaSegmentRefresher">Media segment refresher.</param>
 public partial class CleanCacheTask(
     ILogger<CleanCacheTask> logger,
     ILoggerFactory loggerFactory,
     ILibraryManager libraryManager,
     IProviderManager providerManager,
     IFileSystem fileSystem,
-    IFFmpegService ffmpegService) : IScheduledTask
+    IFFmpegService ffmpegService,
+    IMediaSegmentRefresher mediaSegmentRefresher) : IScheduledTask
 {
     private readonly ILogger<CleanCacheTask> _logger = logger;
     private readonly ILoggerFactory _loggerFactory = loggerFactory;
@@ -39,6 +41,7 @@ public partial class CleanCacheTask(
     private readonly IProviderManager _providerManager = providerManager;
     private readonly IFileSystem _fileSystem = fileSystem;
     private readonly IFFmpegService _ffmpegService = ffmpegService;
+    private readonly IMediaSegmentRefresher _mediaSegmentRefresher = mediaSegmentRefresher;
 
     /// <summary>
     /// Gets the task name.
@@ -75,6 +78,8 @@ public partial class CleanCacheTask(
             throw new InvalidOperationException("Library manager was null");
         }
 
+        var plugin = Plugin.Instance ?? throw new InvalidOperationException("Plugin instance is null");
+
         var queueManager = new QueueManager(
             _loggerFactory.CreateLogger<QueueManager>(),
             _libraryManager,
@@ -85,13 +90,28 @@ public partial class CleanCacheTask(
         // QueueManager.GetMediaItems() already skips libraries where the plugin is disabled via
         // LibraryOptions.DisabledMediaSegmentProviders.
         var queue = await queueManager.GetMediaItems(includeExcluded: true, cancellationToken).ConfigureAwait(false);
-        var enabledLibraryEpisodes = queue.Values.SelectMany(static episodes => episodes).ToList();
-
-        var enabledLibraryEpisodeIds = enabledLibraryEpisodes
-            .Select(e => e.EpisodeId)
+        var enabledLibraryEpisodeIds = queue.Values
+            .SelectMany(static episodes => episodes)
+            .Select(static episode => episode.EpisodeId)
             .ToHashSet();
 
-        await Plugin.CleanTimestampsAsync(enabledLibraryEpisodeIds, cancellationToken).ConfigureAwait(false);
+        var staleTimestampEpisodeIds = await Plugin
+            .GetStaleTimestampEpisodeIdsAsync(enabledLibraryEpisodeIds, cancellationToken)
+            .ConfigureAwait(false);
+
+        if (staleTimestampEpisodeIds.Count > 0)
+        {
+            // Refresh first with Intro Skipper excluded. If refresh fails or is canceled, the
+            // timestamps remain available so a later cleanup run can retry the handoff.
+            if (plugin.Configuration.UpdateMediaSegments)
+            {
+                await _mediaSegmentRefresher
+                    .RemoveIntroSkipperSegmentsAsync(staleTimestampEpisodeIds, cancellationToken)
+                    .ConfigureAwait(false);
+            }
+
+            await Plugin.DeleteTimestampsAsync(staleTimestampEpisodeIds, cancellationToken).ConfigureAwait(false);
+        }
 
         // Identify episode IDs in the SQLite cache that are no longer in enabled libraries.
         HashSet<Guid> invalidEpisodeIds;
