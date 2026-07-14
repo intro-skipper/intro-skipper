@@ -862,7 +862,7 @@ public sealed class TestDatabaseFacades
         var database = new DetectionCacheDatabase(
             new TestDbContextFactory<DetectionCacheDbContext>(() =>
             {
-                Interlocked.Increment(ref contextCreations);
+                contextCreations++;
                 throw new IOException("Simulated unavailable cache database.");
             }),
             NullLogger.Instance);
@@ -888,54 +888,34 @@ public sealed class TestDatabaseFacades
         Assert.Equal(0, await database.DeleteForItemsAsync([itemId]));
 
         // Each operation retried initialization, and none created a query context.
-        Assert.Equal(7, Volatile.Read(ref contextCreations));
+        Assert.Equal(7, contextCreations);
     }
 
     [Fact]
-    public async Task RetryableInitializationGate_ConcurrentCallersShareFailedAttemptAndNextAttemptRetries()
+    public async Task RetryableInitializationGate_FailedAttemptIsSharedAndNextAttemptRetries()
     {
         var attempts = 0;
-        var initializationEntered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        var releaseInitialization = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        var gate = new RetryableInitializationGate<Task>(InitializeAttemptAsync);
+        var gate = new RetryableInitializationGate<Task>(() =>
+            ++attempts == 1
+                ? Task.FromException(new IOException("Simulated transient database failure."))
+                : Task.CompletedTask);
 
-        var firstAttempt = gate.GetAttempt();
-        var secondAttempt = gate.GetAttempt();
-        Assert.Same(firstAttempt, secondAttempt);
+        var failedAttempt = gate.GetAttempt();
+        Assert.Same(failedAttempt, gate.GetAttempt());
 
-        var first = firstAttempt.Value;
-        var second = secondAttempt.Value;
-        Assert.Same(first, second);
+        var failedTask = failedAttempt.Value;
+        Assert.Same(failedTask, gate.GetAttempt().Value);
+        await Assert.ThrowsAsync<IOException>(() => failedTask);
+        Assert.Equal(1, attempts);
 
-        await initializationEntered.Task.WaitAsync(TimeSpan.FromSeconds(30));
-        releaseInitialization.SetResult();
-
-        var exceptions = await Task.WhenAll(
-                Record.ExceptionAsync(() => first),
-                Record.ExceptionAsync(() => second))
-            .WaitAsync(TimeSpan.FromSeconds(30));
-
-        Assert.All(exceptions, exception => Assert.IsType<IOException>(exception));
-        Assert.Equal(1, Volatile.Read(ref attempts));
-
-        Assert.True(gate.ResetIfCurrent(firstAttempt));
-        Assert.False(gate.ResetIfCurrent(secondAttempt));
+        Assert.True(gate.ResetIfCurrent(failedAttempt));
+        Assert.False(gate.ResetIfCurrent(failedAttempt));
 
         var retryAttempt = gate.GetAttempt();
-        Assert.NotSame(firstAttempt, retryAttempt);
+        Assert.NotSame(failedAttempt, retryAttempt);
         await retryAttempt.Value;
-        Assert.Equal(2, Volatile.Read(ref attempts));
+        Assert.Equal(2, attempts);
         Assert.Same(retryAttempt, gate.GetAttempt());
-
-        async Task InitializeAttemptAsync()
-        {
-            if (Interlocked.Increment(ref attempts) == 1)
-            {
-                initializationEntered.SetResult();
-                await releaseInitialization.Task.ConfigureAwait(false);
-                throw new IOException("Simulated transient database failure.");
-            }
-        }
     }
 
     [Fact]

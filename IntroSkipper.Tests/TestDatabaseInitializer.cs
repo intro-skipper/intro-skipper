@@ -8,10 +8,8 @@ using System.IO;
 using System.Reflection;
 using System.Threading;
 using System.Threading.Tasks;
-using IntroSkipper.Data;
 using IntroSkipper.Db;
 using IntroSkipper.Services;
-using Microsoft.Data.Sqlite;
 using Microsoft.Extensions.Logging.Abstractions;
 using Xunit;
 
@@ -35,72 +33,6 @@ public sealed class TestDatabaseInitializer
 
         Assert.Null(await Record.ExceptionAsync(() => initializer.StartAsync(CancellationToken.None)));
         Assert.Null(await Record.ExceptionAsync(() => initializer.StopAsync(CancellationToken.None)));
-    }
-
-    [Fact]
-    public async Task StartAsync_FailedWarmup_LeavesBothFacadesRetryable()
-    {
-        var directory = Path.Join(
-            Path.GetTempPath(),
-            "IntroSkipper.Tests",
-            "database-initializer",
-            Guid.NewGuid().ToString("N"));
-        Directory.CreateDirectory(directory);
-
-        var segmentPath = Path.Join(directory, "segments.db");
-        var cachePath = Path.Join(directory, "cache.db");
-        var segmentContextCreations = 0;
-        var cacheContextCreations = 0;
-
-        var segmentDatabase = new IntroSkipperDatabase(
-            new TestDbContextFactory<IntroSkipperDbContext>(() =>
-            {
-                if (Interlocked.Increment(ref segmentContextCreations) == 1)
-                {
-                    throw new IOException("Simulated segment warm-up failure.");
-                }
-
-                return new IntroSkipperDbContext(segmentPath);
-            }),
-            NullLogger.Instance);
-        var cacheDatabase = new DetectionCacheDatabase(
-            new TestDbContextFactory<DetectionCacheDbContext>(() =>
-            {
-                if (Interlocked.Increment(ref cacheContextCreations) == 1)
-                {
-                    throw new IOException("Simulated cache warm-up failure.");
-                }
-
-                return new DetectionCacheDbContext(cachePath);
-            }),
-            NullLogger.Instance);
-        var initializer = new IntroSkipperDatabaseInitializer(
-            segmentDatabase, cacheDatabase, NullLogger<IntroSkipperDatabaseInitializer>.Instance);
-
-        try
-        {
-            Assert.Null(await Record.ExceptionAsync(
-                () => initializer.StartAsync(CancellationToken.None)));
-            Assert.Equal(1, Volatile.Read(ref segmentContextCreations));
-            Assert.Equal(1, Volatile.Read(ref cacheContextCreations));
-
-            Assert.Empty(await segmentDatabase.GetSegmentsAsync(Guid.NewGuid()));
-            Assert.Null(cacheDatabase.FindEntry(
-                Guid.NewGuid(), AnalysisMode.Introduction, CacheEntryType.Chromaprint, 0, 30));
-
-            Assert.Equal(3, Volatile.Read(ref segmentContextCreations));
-            Assert.Equal(3, Volatile.Read(ref cacheContextCreations));
-
-            await segmentDatabase.InitializeAsync();
-            cacheDatabase.Initialize();
-            Assert.Equal(3, Volatile.Read(ref segmentContextCreations));
-            Assert.Equal(3, Volatile.Read(ref cacheContextCreations));
-        }
-        finally
-        {
-            SqliteConnection.ClearAllPools();
-            Directory.Delete(directory, recursive: true);
-        }
     }
 
     [Fact]

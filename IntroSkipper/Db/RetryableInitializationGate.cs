@@ -11,7 +11,7 @@ namespace IntroSkipper.Db;
 internal sealed class RetryableInitializationGate<T>
 {
     private readonly Func<T> _valueFactory;
-    private readonly object _syncRoot = new();
+    private readonly Lock _syncRoot = new();
     private Lazy<T> _current;
 
     /// <summary>
