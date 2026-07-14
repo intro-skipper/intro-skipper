@@ -9,14 +9,15 @@ namespace IntroSkipper.Db;
 
 /// <summary>
 /// Default implementation of <see cref="IDetectionCacheDatabase"/>. Stateless apart from
-/// the one-shot schema gate: every operation creates a fresh
+/// the retryable schema gate: every operation creates a fresh
 /// <see cref="DetectionCacheDbContext"/> from the injected factory.
 /// </summary>
 public sealed partial class DetectionCacheDatabase : IDetectionCacheDatabase
 {
     private readonly IDbContextFactory<DetectionCacheDbContext> _contextFactory;
     private readonly ILogger _logger;
-    private readonly Lazy<bool> _initialization;
+    private readonly object _initializationLock = new();
+    private Lazy<bool> _initialization;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="DetectionCacheDatabase"/> class.
@@ -30,11 +31,28 @@ public sealed partial class DetectionCacheDatabase : IDetectionCacheDatabase
 
         _contextFactory = contextFactory;
         _logger = logger;
-        _initialization = new Lazy<bool>(InitializeCore, LazyThreadSafetyMode.ExecutionAndPublication);
+        _initialization = CreateInitialization();
     }
 
     /// <inheritdoc/>
-    public void Initialize() => _ = _initialization.Value;
+    public void Initialize()
+    {
+        var initialization = GetInitialization();
+
+        try
+        {
+            _ = initialization.Value;
+        }
+        catch (Exception ex)
+        {
+            if (TryResetInitialization(initialization))
+            {
+                LogCacheDbInitializationError(_logger, ex);
+            }
+
+            throw;
+        }
+    }
 
     /// <inheritdoc/>
     public DbDetectionCache? FindEntry(Guid itemId, AnalysisMode mode, CacheEntryType type, double start, double end)
@@ -145,31 +163,43 @@ public sealed partial class DetectionCacheDatabase : IDetectionCacheDatabase
 
     private bool InitializeCore()
     {
-        try
-        {
-            using var db = _contextFactory.CreateDbContext();
+        using var db = _contextFactory.CreateDbContext();
 
-            db.EnsureSchema();
+        db.EnsureSchema();
 
-            // WAL is a persistent database property, but EF only sets it when *it*
-            // creates the database file. Enforce it idempotently so databases
-            // vacuumed or recreated by external tooling are covered as well.
-            db.Database.ExecuteSqlRaw("PRAGMA journal_mode=WAL;");
-        }
-        catch (Exception ex)
-        {
-            // Catch-all on purpose: the cache is a performance optimization and its
-            // initialization is reached from the hosted warm-up during Jellyfin host
-            // startup — no cache failure (UnauthorizedAccessException from EnsureDeleted,
-            // InvalidOperationException from a broken model, DbException, ...) may
-            // escape and abort server startup, and the Lazy gate must never cache a
-            // fault that would poison every subsequent cache operation.
-            LogCacheDbInitializationError(_logger, ex);
-        }
+        // WAL is a persistent database property, but EF only sets it when *it*
+        // creates the database file. Enforce it idempotently so databases
+        // vacuumed or recreated by external tooling are covered as well.
+        db.Database.ExecuteSqlRaw("PRAGMA journal_mode=WAL;");
 
         return true;
     }
 
-    [LoggerMessage(Level = LogLevel.Warning, Message = "Error initializing detection cache database")]
+    private Lazy<bool> CreateInitialization()
+        => new(InitializeCore, LazyThreadSafetyMode.ExecutionAndPublication);
+
+    private Lazy<bool> GetInitialization()
+    {
+        lock (_initializationLock)
+        {
+            return _initialization;
+        }
+    }
+
+    private bool TryResetInitialization(Lazy<bool> failedInitialization)
+    {
+        lock (_initializationLock)
+        {
+            if (!ReferenceEquals(_initialization, failedInitialization))
+            {
+                return false;
+            }
+
+            _initialization = CreateInitialization();
+            return true;
+        }
+    }
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "Detection cache database initialization failed; the next database operation will retry")]
     private static partial void LogCacheDbInitializationError(ILogger logger, Exception exception);
 }

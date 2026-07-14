@@ -16,8 +16,9 @@ public interface IDetectionCacheDatabase
 {
     /// <summary>
     /// Ensures the cache database schema exists, recreating the database when it is
-    /// corrupted. Runs exactly once per process; every other member calls the same gate
-    /// first, so eager invocation is an optimization, not a requirement.
+    /// corrupted. Concurrent callers share one attempt and successful initialization is
+    /// cached. A failed attempt propagates to its callers and the next operation retries
+    /// before touching the database, so eager invocation is an optimization, not a requirement.
     /// </summary>
     void Initialize();
 
