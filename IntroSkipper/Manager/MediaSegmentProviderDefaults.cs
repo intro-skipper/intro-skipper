@@ -17,13 +17,4 @@ internal static class MediaSegmentProviderDefaults
     {
         DisabledMediaSegmentProviders = ["Chapter Segments Provider"]
     };
-
-    /// <summary>
-    /// Gets the <see cref="LibraryOptions"/> used to remove Intro Skipper-owned segments while
-    /// preserving segments produced by other external providers.
-    /// </summary>
-    internal static LibraryOptions ExternalProvidersWithoutIntroSkipper { get; } = new()
-    {
-        DisabledMediaSegmentProviders = ["Chapter Segments Provider", Plugin.ProviderName]
-    };
 }
