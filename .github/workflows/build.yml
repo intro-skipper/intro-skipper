@@ -22,7 +22,7 @@ permissions:
 
 jobs:
   build:
-    if: ${{ ! startsWith(github.event.head_commit.message, 'v0.') }}
+    if: ${{ ! startsWith(github.event.head_commit.message, 'release v') }}
 
     runs-on: ubuntu-latest
 
@@ -37,14 +37,33 @@ jobs:
           # Export it as an environment variable
           echo "SANITIZED_BRANCH_NAME=$SANITIZED" >> $GITHUB_ENV
       - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
 
       - name: Setup build environment
         uses: ./.github/actions/setup-build-env
+
+      - name: Compute prerelease version
+        run: |
+          BASE_VERSION=$(sed -n 's|.*<FileVersion>\(.*\)</FileVersion>.*|\1|p' IntroSkipper/IntroSkipper.csproj)
+          BASE_PREFIX=${BASE_VERSION%.*}
+          LAST_RELEASE_TAG=$(git describe --tags --match "${MAIN_VERSION}/v*" --abbrev=0 2>/dev/null || true)
+          if [ -n "$LAST_RELEASE_TAG" ]; then
+            COMMITS_SINCE_RELEASE=$(git rev-list --count "${LAST_RELEASE_TAG}..HEAD")
+          else
+            COMMITS_SINCE_RELEASE=$(git rev-list --count HEAD)
+          fi
+          PRERELEASE_VERSION="${BASE_PREFIX}.${COMMITS_SINCE_RELEASE}"
+          echo "Last release tag: ${LAST_RELEASE_TAG:-<none>} (${COMMITS_SINCE_RELEASE} commit(s) since)"
+          echo "Prerelease version: ${PRERELEASE_VERSION}"
+          echo "PRERELEASE_VERSION=${PRERELEASE_VERSION}" >> $GITHUB_ENV
 
       - name: Embed version info
         run: |
           GITHUB_SHA=${{ github.sha }}
           sed -i "s/string\.Empty/\"$GITHUB_SHA\"/g" IntroSkipper/Helper/Commit.cs
+          sed -i "s|<AssemblyVersion>.*</AssemblyVersion>|<AssemblyVersion>${PRERELEASE_VERSION}</AssemblyVersion>|" IntroSkipper/IntroSkipper.csproj
+          sed -i "s|<FileVersion>.*</FileVersion>|<FileVersion>${PRERELEASE_VERSION}</FileVersion>|" IntroSkipper/IntroSkipper.csproj
 
       - name: Retrieve commit identification
         run: |
@@ -63,12 +82,52 @@ jobs:
 
       - name: Create archive
         if: startsWith(github.ref_name, '10.') || startsWith(github.ref_name, '12.') # only do a preview release on 10.x/12.x branches
-        run: zip -j "intro-skipper-${{ env.GIT_HASH }}.zip" IntroSkipper/bin/Debug/${{ env.DOTNET_TFM }}/IntroSkipper.dll
+        run: zip -j "intro-skipper-v${{ env.PRERELEASE_VERSION }}.zip" IntroSkipper/bin/Debug/${{ env.DOTNET_TFM }}/IntroSkipper.dll
 
       - name: Create/replace the prerelease and upload artifacts
         if: startsWith(github.ref_name, '10.') || startsWith(github.ref_name, '12.') # only do a preview release on 10.x/12.x branches
         run: |
           gh release delete "${{ env.MAIN_VERSION }}/prerelease" --cleanup-tag --yes || true
-          gh release create "${{ env.MAIN_VERSION }}/prerelease" "intro-skipper-${{ env.GIT_HASH }}.zip" --prerelease --title "intro-skipper-${{ env.GIT_HASH }}" --notes "This is a prerelease version."  --target ${{ env.MAIN_VERSION }}
+          gh release create "${{ env.MAIN_VERSION }}/prerelease" "intro-skipper-v${{ env.PRERELEASE_VERSION }}.zip" --prerelease --title "v${{ env.PRERELEASE_VERSION }} (${{ env.GIT_HASH }})" --notes "Automated prerelease build of commit ${{ github.sha }}." --target ${{ env.MAIN_VERSION }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Update prerelease manifest
+        if: startsWith(github.ref_name, '10.') || startsWith(github.ref_name, '12.') # only do a preview release on 10.x/12.x branches
+        run: |
+          if [ "$IS_BETA" = "true" ]; then
+            JELLYFIN_VERSION="${MAIN_VERSION}.0"
+          else
+            JELLYFIN_VERSION=$(curl -fsSL https://api.nuget.org/v3-flatcontainer/jellyfin.model/index.json | jq -r --arg prefix "${MAIN_VERSION}." '[.versions[] | select(startswith($prefix)) | select(contains("-") | not)] | last')
+          fi
+          if [ -z "$JELLYFIN_VERSION" ] || [ "$JELLYFIN_VERSION" = "null" ]; then
+            echo "Failed to determine the current Jellyfin version"
+            exit 1
+          fi
+          TARGET_ABI="${JELLYFIN_VERSION}.0"
+          SOURCE_URL="https://github.com/${GITHUB_REPOSITORY}/releases/download/${MAIN_VERSION}/prerelease/intro-skipper-v${PRERELEASE_VERSION}.zip"
+          CHECKSUM=$(md5sum "intro-skipper-v${PRERELEASE_VERSION}.zip" | awk '{print $1}')
+          TIMESTAMP=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+          CHANGELOG="- Prerelease build of commit [\`${GIT_HASH}\`](https://github.com/${GITHUB_REPOSITORY}/commit/${{ github.sha }})"
+          if [[ "$GITHUB_REPOSITORY" == *test* ]]; then
+            MANIFEST_REPO="intro-skipper/manifest_test"
+          else
+            MANIFEST_REPO="intro-skipper/manifest"
+          fi
+          jq -n \
+            --arg version "$PRERELEASE_VERSION" \
+            --arg changelog "$CHANGELOG" \
+            --arg targetAbi "$TARGET_ABI" \
+            --arg sourceUrl "$SOURCE_URL" \
+            --arg checksum "$CHECKSUM" \
+            --arg timestamp "$TIMESTAMP" \
+            '{event_type: "update-prerelease-manifest", client_payload: {pluginName: "Intro Skipper", version: $version, changelog: $changelog, targetAbi: $targetAbi, sourceUrl: $sourceUrl, checksum: $checksum, timestamp: $timestamp}}' \
+            > dispatch-payload.json
+          curl -fsS -X POST \
+            -H "Accept: application/vnd.github+json" \
+            -H "Authorization: Bearer ${GITHUB_PAT}" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            -d @dispatch-payload.json \
+            "https://api.github.com/repos/${MANIFEST_REPO}/dispatches"
+        env:
+          GITHUB_PAT: ${{ secrets.PAT }}
