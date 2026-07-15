@@ -11,21 +11,29 @@
     font-size: 1.4em;
 }
 
+/* Visually hidden until focused; clipping does not depend on viewport geometry. */
 .skip-link {
     position: absolute;
     top: 8px;
     left: 16px;
     z-index: 20;
-    padding: 8px 12px;
-    border-radius: 4px;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
     background: var(--is-accent);
     color: var(--is-on-accent);
     text-decoration: none;
-    transform: translateY(-160%);
 }
 
-.skip-link:focus-visible {
-    transform: translateY(0);
+.skip-link:focus {
+    width: auto;
+    height: auto;
+    padding: 8px 12px;
+    border-radius: 4px;
+    clip-path: none;
     outline: 2px solid var(--is-on-accent);
     outline-offset: 2px;
 }
