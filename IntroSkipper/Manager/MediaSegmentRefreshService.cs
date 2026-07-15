@@ -166,6 +166,6 @@ public sealed partial class MediaSegmentRefreshService(
     [LoggerMessage(Level = LogLevel.Error, Message = "Error refreshing media segments for item {ItemId}")]
     private static partial void LogErrorRefreshingMediaSegments(ILogger logger, Exception ex, Guid itemId);
 
-    [LoggerMessage(Level = LogLevel.Error, Message = "Item not found for media segment operation {ItemId}")]
+    [LoggerMessage(Level = LogLevel.Debug, Message = "Item not found for media segment operation {ItemId}")]
     private static partial void LogItemNotFoundForMediaSegmentOperation(ILogger logger, Guid itemId);
 }
