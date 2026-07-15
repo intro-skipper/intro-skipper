@@ -46,7 +46,7 @@ public sealed partial class IntroSkipperDatabase
         // EF Core maps IEnumerable<Guid> as a primitive collection and its change tracking
         // only accepts arrays or IList<Guid>; a lazy enumerable (e.g. the Select projection
         // passed by BaseItemAnalyzerTask) makes it throw InvalidOperationException.
-        var ids = episodeIds as Guid[] ?? episodeIds.ToArray();
+        var ids = episodeIds as Guid[] ?? [.. episodeIds];
 
         await EnsureInitializedAsync().ConfigureAwait(false);
         using var db = _contextFactory.CreateDbContext();

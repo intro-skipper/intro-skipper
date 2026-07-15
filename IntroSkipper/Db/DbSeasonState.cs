@@ -44,11 +44,11 @@ public class DbSeasonState
         Type = mode;
         Action = action;
 
-        // Materialize to arrays: EF Core tracks these IEnumerable<Guid> properties as
+        // Materialize eagerly: EF Core tracks these IEnumerable<Guid> properties as
         // primitive collections, which only accept arrays or IList<Guid> instances.
-        EpisodeIds = episodeIds?.ToArray() ?? [];
+        EpisodeIds = episodeIds is null ? [] : [.. episodeIds];
         ConfigHash = configHash;
-        SettledReanalysisEpisodeIds = settledReanalysisEpisodeIds?.ToArray() ?? [];
+        SettledReanalysisEpisodeIds = settledReanalysisEpisodeIds is null ? [] : [.. settledReanalysisEpisodeIds];
     }
 
     /// <summary>
