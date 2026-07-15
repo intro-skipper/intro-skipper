@@ -7,7 +7,7 @@ using Microsoft.Extensions.Logging;
 namespace IntroSkipper.Manager;
 
 /// <summary>
-/// Refreshes Jellyfin media segments by running media-segment providers directly.
+/// Manages Jellyfin media segments by running providers and removing Intro Skipper-owned entries.
 /// </summary>
 /// <remarks>
 /// Initializes a new instance of the <see cref="MediaSegmentRefreshService"/> class.
@@ -20,28 +20,31 @@ public sealed partial class MediaSegmentRefreshService(
     ILibraryManager libraryManager,
     ILogger<MediaSegmentRefreshService> logger) : IMediaSegmentRefresher
 {
+    private enum MediaSegmentBatchOperation
+    {
+        Refresh,
+        RemoveIntroSkipperSegments
+    }
+
     /// <inheritdoc />
     public async Task RefreshAsync(BaseItem item, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(item);
 
-        await RefreshCoreAsync(
-                item,
-                MediaSegmentProviderDefaults.ExternalProviders,
-                suppressErrors: true,
-                cancellationToken)
-            .ConfigureAwait(false);
+        await RefreshCoreAsync(item, cancellationToken).ConfigureAwait(false);
     }
 
-    private async Task RefreshCoreAsync(
-        BaseItem item,
-        LibraryOptions libraryOptions,
-        bool suppressErrors,
-        CancellationToken cancellationToken)
+    private async Task RefreshCoreAsync(BaseItem item, CancellationToken cancellationToken)
     {
         try
         {
-            await mediaSegmentManager.RunSegmentPluginProviders(item, libraryOptions, true, cancellationToken).ConfigureAwait(false);
+            await mediaSegmentManager
+                .RunSegmentPluginProviders(
+                    item,
+                    MediaSegmentProviderDefaults.ExternalProviders,
+                    true,
+                    cancellationToken)
+                .ConfigureAwait(false);
             LogUpdatedMediaSegments(logger, item.Id);
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
@@ -63,54 +66,74 @@ public sealed partial class MediaSegmentRefreshService(
             }
 
             LogErrorRefreshingMediaSegments(logger, ex, item.Id);
-            if (!suppressErrors)
-            {
-                throw;
-            }
         }
     }
 
-    private async Task RefreshByIdAsync(
+    private async Task ProcessByIdAsync(
         Guid itemId,
-        LibraryOptions libraryOptions,
-        bool suppressErrors,
+        MediaSegmentBatchOperation operation,
         CancellationToken cancellationToken)
     {
-        if (itemId == Guid.Empty)
-        {
-            return;
-        }
-
         var item = libraryManager.GetItemById(itemId);
         if (item is null)
         {
-            LogItemNotFoundForMediaSegmentRefresh(logger, itemId);
+            LogItemNotFoundForMediaSegmentOperation(logger, itemId);
             return;
         }
 
-        await RefreshCoreAsync(item, libraryOptions, suppressErrors, cancellationToken).ConfigureAwait(false);
+        switch (operation)
+        {
+            case MediaSegmentBatchOperation.Refresh:
+                await RefreshCoreAsync(item, cancellationToken).ConfigureAwait(false);
+                break;
+            case MediaSegmentBatchOperation.RemoveIntroSkipperSegments:
+                await RemoveIntroSkipperSegmentsCoreAsync(item, cancellationToken).ConfigureAwait(false);
+                break;
+            default:
+                throw new ArgumentOutOfRangeException(nameof(operation), operation, null);
+        }
+    }
+
+    private async Task RemoveIntroSkipperSegmentsCoreAsync(BaseItem item, CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+
+        var introSkipperOnlyOptions = new LibraryOptions
+        {
+            DisabledMediaSegmentProviders =
+            [
+                .. mediaSegmentManager
+                    .GetSupportedProviders(item)
+                    .Select(static provider => provider.Name)
+                    .Where(static providerName => !string.Equals(
+                        providerName,
+                        Plugin.ProviderName,
+                        StringComparison.OrdinalIgnoreCase))
+            ]
+        };
+
+        var segments = await mediaSegmentManager
+            .GetSegmentsAsync(item, null, introSkipperOnlyOptions, filterByProvider: true)
+            .ConfigureAwait(false);
+
+        foreach (var segment in segments)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            await mediaSegmentManager.DeleteSegmentAsync(segment.Id).ConfigureAwait(false);
+        }
     }
 
     /// <inheritdoc />
     public Task RefreshAsync(IEnumerable<Guid> itemIds, CancellationToken cancellationToken = default)
-        => RefreshByIdsAsync(
-            itemIds,
-            MediaSegmentProviderDefaults.ExternalProviders,
-            suppressErrors: true,
-            cancellationToken);
+        => ProcessByIdsAsync(itemIds, MediaSegmentBatchOperation.Refresh, cancellationToken);
 
     /// <inheritdoc />
     public Task RemoveIntroSkipperSegmentsAsync(IEnumerable<Guid> itemIds, CancellationToken cancellationToken = default)
-        => RefreshByIdsAsync(
-            itemIds,
-            MediaSegmentProviderDefaults.ExternalProvidersWithoutIntroSkipper,
-            suppressErrors: false,
-            cancellationToken);
+        => ProcessByIdsAsync(itemIds, MediaSegmentBatchOperation.RemoveIntroSkipperSegments, cancellationToken);
 
-    private async Task RefreshByIdsAsync(
+    private async Task ProcessByIdsAsync(
         IEnumerable<Guid> itemIds,
-        LibraryOptions libraryOptions,
-        bool suppressErrors,
+        MediaSegmentBatchOperation operation,
         CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(itemIds);
@@ -130,7 +153,7 @@ public sealed partial class MediaSegmentRefreshService(
 
         await Parallel.ForEachAsync(ids, options, async (itemId, ct) =>
         {
-            await RefreshByIdAsync(itemId, libraryOptions, suppressErrors, ct).ConfigureAwait(false);
+            await ProcessByIdAsync(itemId, operation, ct).ConfigureAwait(false);
         }).ConfigureAwait(false);
     }
 
@@ -143,6 +166,6 @@ public sealed partial class MediaSegmentRefreshService(
     [LoggerMessage(Level = LogLevel.Error, Message = "Error refreshing media segments for item {ItemId}")]
     private static partial void LogErrorRefreshingMediaSegments(ILogger logger, Exception ex, Guid itemId);
 
-    [LoggerMessage(Level = LogLevel.Error, Message = "Item not found for media segment refresh {ItemId}")]
-    private static partial void LogItemNotFoundForMediaSegmentRefresh(ILogger logger, Guid itemId);
+    [LoggerMessage(Level = LogLevel.Error, Message = "Item not found for media segment operation {ItemId}")]
+    private static partial void LogItemNotFoundForMediaSegmentOperation(ILogger logger, Guid itemId);
 }

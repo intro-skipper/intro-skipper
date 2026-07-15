@@ -104,10 +104,14 @@ public sealed class TestMediaSegmentRefreshService
     }
 
     [Fact]
-    public async Task RemoveIntroSkipperSegmentsAsync_ExcludesIntroSkipperProvider()
+    public async Task RemoveIntroSkipperSegmentsAsync_DeletesOnlyIntroSkipperSegments()
     {
         var itemId = Guid.NewGuid();
-        var manager = new FakeMediaSegmentManager();
+        var segmentId = Guid.NewGuid();
+        var manager = new FakeMediaSegmentManager
+        {
+            SegmentsToReturn = [new MediaSegmentDto { Id = segmentId, ItemId = itemId }]
+        };
         var libraryManager = EntrypointTestHelpers.CreateLibraryManager(CreateMovie(itemId));
         using var scope = new EntrypointTestHelpers.PluginInstanceScope(EntrypointTestHelpers.CreateTempCacheDir());
         EntrypointTestHelpers.SetPropertyOrField(Plugin.Instance!, "Configuration", new PluginConfiguration { MaxParallelism = 2 });
@@ -115,20 +119,23 @@ public sealed class TestMediaSegmentRefreshService
 
         await refresher.RemoveIntroSkipperSegmentsAsync([itemId], CancellationToken.None);
 
+        Assert.Equal([segmentId], manager.DeletedSegmentIds);
         Assert.NotNull(manager.LastLibraryOptions);
-        Assert.Contains(Plugin.ProviderName, manager.LastLibraryOptions!.DisabledMediaSegmentProviders);
+        Assert.DoesNotContain(Plugin.ProviderName, manager.LastLibraryOptions!.DisabledMediaSegmentProviders);
         Assert.Contains("Chapter Segments Provider", manager.LastLibraryOptions.DisabledMediaSegmentProviders);
-        Assert.True(manager.LastForceOverwrite.GetValueOrDefault());
+        Assert.True(manager.LastFilterByProvider);
+        Assert.Equal(0, manager.RunCount);
     }
 
     [Fact]
-    public async Task RemoveIntroSkipperSegmentsAsync_PropagatesRefreshFailure()
+    public async Task RemoveIntroSkipperSegmentsAsync_PropagatesDeleteFailure()
     {
         var itemId = Guid.NewGuid();
         var expectedException = new InvalidOperationException("boom");
         var manager = new FakeMediaSegmentManager
         {
-            RunException = expectedException
+            SegmentsToReturn = [new MediaSegmentDto { Id = Guid.NewGuid(), ItemId = itemId }],
+            DeleteSegmentException = expectedException
         };
         var libraryManager = EntrypointTestHelpers.CreateLibraryManager(CreateMovie(itemId));
         using var scope = new EntrypointTestHelpers.PluginInstanceScope(EntrypointTestHelpers.CreateTempCacheDir());
@@ -162,7 +169,15 @@ public sealed class TestMediaSegmentRefreshService
 
         public LibraryOptions? LastLibraryOptions { get; private set; }
 
+        public bool LastFilterByProvider { get; private set; }
+
+        public List<Guid> DeletedSegmentIds { get; } = [];
+
         public Exception? RunException { get; init; }
+
+        public Exception? DeleteSegmentException { get; init; }
+
+        public IReadOnlyList<MediaSegmentDto> SegmentsToReturn { get; init; } = [];
 
         public TaskCompletionSource? RunCompletion { get; init; }
 
@@ -185,17 +200,33 @@ public sealed class TestMediaSegmentRefreshService
 
         public Task<MediaSegmentDto> CreateSegmentAsync(MediaSegmentDto mediaSegment, string segmentProviderId) => Task.FromResult(mediaSegment);
 
-        public Task DeleteSegmentAsync(Guid segmentId) => Task.CompletedTask;
+        public Task DeleteSegmentAsync(Guid segmentId)
+        {
+            if (DeleteSegmentException is not null)
+            {
+                throw DeleteSegmentException;
+            }
+
+            DeletedSegmentIds.Add(segmentId);
+            return Task.CompletedTask;
+        }
 
         public Task DeleteSegmentsAsync(Guid itemId, CancellationToken cancellationToken) => Task.CompletedTask;
 
         public Task<IEnumerable<MediaSegmentDto>> GetSegmentsAsync(BaseItem item, IEnumerable<MediaSegmentType>? typeFilter, LibraryOptions libraryOptions, bool filterByProvider = true)
         {
-            return Task.FromResult<IEnumerable<MediaSegmentDto>>(Array.Empty<MediaSegmentDto>());
+            LastLibraryOptions = libraryOptions;
+            LastFilterByProvider = filterByProvider;
+            return Task.FromResult<IEnumerable<MediaSegmentDto>>(SegmentsToReturn);
         }
 
         public bool HasSegments(Guid itemId) => false;
 
-        public IEnumerable<(string Name, string Id)> GetSupportedProviders(BaseItem item) => [(Plugin.Instance!.Name, "intro-skipper")];
+        public IEnumerable<(string Name, string Id)> GetSupportedProviders(BaseItem item)
+            =>
+            [
+                (Plugin.ProviderName, "intro-skipper"),
+                ("Chapter Segments Provider", "chapter")
+            ];
     }
 }
