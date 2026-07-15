@@ -325,6 +325,46 @@ public sealed class TestDatabaseFacades
     }
 
     [Fact]
+    public async Task SetEpisodeIdsAsync_AcceptsLazyEnumerable_OnInsertAndUpdate()
+    {
+        // Regression: EF Core maps the IEnumerable<Guid> EpisodeIds property as a primitive
+        // collection whose change tracking only accepts arrays or IList<Guid>. The analyzer
+        // task passes items.Select(i => i.EpisodeId) — a lazy iterator — which made both the
+        // insert and the update path throw InvalidOperationException until the facade
+        // materialized the sequence.
+        var dbPath = CreateTempDbPath();
+        var seasonId = Guid.NewGuid();
+        var retainedEpisodeId = Guid.NewGuid();
+        var removedEpisodeId = Guid.NewGuid();
+        var episodeIds = new List<Guid> { retainedEpisodeId, removedEpisodeId };
+        try
+        {
+            var database = DatabaseTestHelpers.CreateSegmentDatabase(dbPath);
+
+            // Insert path with a lazy projection, mirroring BaseItemAnalyzerTask.
+            await database.SetEpisodeIdsAsync(seasonId, AnalysisMode.Introduction, episodeIds.Select(id => id), "hash-1");
+
+            // Update path with a lazy projection over the existing row.
+            await database.SetEpisodeIdsAsync(
+                seasonId,
+                AnalysisMode.Introduction,
+                episodeIds.Where(id => id != removedEpisodeId),
+                "hash-2");
+
+            await using var db = new IntroSkipperDbContext(dbPath);
+            var state = await db.DbSeasonState
+                .AsNoTracking()
+                .SingleAsync(s => s.SeasonId == seasonId && s.Type == AnalysisMode.Introduction);
+            Assert.Equal([retainedEpisodeId], state.EpisodeIds);
+            Assert.Equal("hash-2", state.ConfigHash);
+        }
+        finally
+        {
+            DeleteSqliteFiles(dbPath);
+        }
+    }
+
+    [Fact]
     public async Task AnalyzerActions_ReturnStoredRow_AndFillMissingModesWithDefault()
     {
         var dbPath = CreateTempDbPath();

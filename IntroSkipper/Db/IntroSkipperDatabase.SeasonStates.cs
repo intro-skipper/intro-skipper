@@ -41,6 +41,13 @@ public sealed partial class IntroSkipperDatabase
     /// <inheritdoc/>
     public async Task SetEpisodeIdsAsync(Guid seasonId, AnalysisMode mode, IEnumerable<Guid> episodeIds, string configHash = "", CancellationToken cancellationToken = default)
     {
+        ArgumentNullException.ThrowIfNull(episodeIds);
+
+        // EF Core maps IEnumerable<Guid> as a primitive collection and its change tracking
+        // only accepts arrays or IList<Guid>; a lazy enumerable (e.g. the Select projection
+        // passed by BaseItemAnalyzerTask) makes it throw InvalidOperationException.
+        var ids = episodeIds as Guid[] ?? episodeIds.ToArray();
+
         await EnsureInitializedAsync().ConfigureAwait(false);
         using var db = _contextFactory.CreateDbContext();
         var seasonState = await db.DbSeasonState
@@ -49,12 +56,12 @@ public sealed partial class IntroSkipperDatabase
 
         if (seasonState is null)
         {
-            seasonState = new DbSeasonState(seasonId, mode, AnalyzerAction.Default, episodeIds, configHash);
+            seasonState = new DbSeasonState(seasonId, mode, AnalyzerAction.Default, ids, configHash);
             db.DbSeasonState.Add(seasonState);
         }
         else
         {
-            db.Entry(seasonState).Property(s => s.EpisodeIds).CurrentValue = episodeIds;
+            db.Entry(seasonState).Property(s => s.EpisodeIds).CurrentValue = ids;
             db.Entry(seasonState).Property(s => s.ConfigHash).CurrentValue = configHash;
         }
 
