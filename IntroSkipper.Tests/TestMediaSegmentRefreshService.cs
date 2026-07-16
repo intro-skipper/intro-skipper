@@ -51,6 +51,7 @@ public sealed class TestMediaSegmentRefreshService
 
         Assert.NotNull(manager.LastLibraryOptions);
         Assert.Contains("Chapter Segments Provider", manager.LastLibraryOptions!.DisabledMediaSegmentProviders);
+        Assert.Contains(MediaSegmentProviderDefaults.GetProviderId("Chapter Segments Provider"), manager.LastLibraryOptions.DisabledMediaSegmentProviders);
         Assert.True(manager.LastForceOverwrite.GetValueOrDefault());
     }
 
@@ -118,6 +119,8 @@ public sealed class TestMediaSegmentRefreshService
         Assert.NotNull(manager.LastLibraryOptions);
         Assert.Contains(Plugin.ProviderName, manager.LastLibraryOptions!.DisabledMediaSegmentProviders);
         Assert.Contains("Chapter Segments Provider", manager.LastLibraryOptions.DisabledMediaSegmentProviders);
+        Assert.Contains(MediaSegmentProviderDefaults.GetProviderId(Plugin.ProviderName), manager.LastLibraryOptions.DisabledMediaSegmentProviders);
+        Assert.Contains(MediaSegmentProviderDefaults.GetProviderId("Chapter Segments Provider"), manager.LastLibraryOptions.DisabledMediaSegmentProviders);
         Assert.True(manager.LastForceOverwrite.GetValueOrDefault());
     }
 
@@ -139,6 +142,17 @@ public sealed class TestMediaSegmentRefreshService
             () => refresher.RemoveIntroSkipperSegmentsAsync([itemId], CancellationToken.None));
 
         Assert.Same(expectedException, exception);
+    }
+
+    [Theory]
+    [InlineData("Intro Skipper", "b0338b450421c081992860f1d02f261f")]
+    [InlineData("Chapter Segments Provider", "882d20e0326c962caf419ae2019c042d")]
+    public void GetProviderId_MatchesJellyfinProviderIdHash(string providerName, string expectedProviderId)
+    {
+        // Known values mirroring Jellyfin's MediaSegmentManager.GetProviderId (MD5 of the
+        // lowercased UTF-16 name, Guid "N" format), which 10.11 servers use to match
+        // LibraryOptions.DisabledMediaSegmentProviders entries.
+        Assert.Equal(expectedProviderId, MediaSegmentProviderDefaults.GetProviderId(providerName));
     }
 
     private static MediaSegmentRefreshService CreateRefresher(FakeMediaSegmentManager manager, ILibraryManager? libraryManager = null)
