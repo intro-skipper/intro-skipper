@@ -131,10 +131,12 @@ public class SegmentEditorController(MediaSegmentEditorService mediaSegmentEdito
             return NotFound();
         }
 
-        // Read IsUserProvided before deleting so we can restore it accurately on rollback.
-        // Match on type AND start/end times so that when multiple segments of the same mode exist
-        // (e.g. Commercial) we identify the exact one being deleted rather than an arbitrary first match.
+        // Read IsUserProvided and ConfigHash before deleting so a rollback can restore the row
+        // faithfully. Match on type AND start/end times so that when multiple segments of the
+        // same mode exist (e.g. Commercial) we identify the exact one being deleted rather than
+        // an arbitrary first match.
         var wasUserProvided = false;
+        var configHash = string.Empty;
         var pluginSegments = await _database.GetSegmentsAsync(itemId, cancellationToken).ConfigureAwait(false);
         var matchingSegment = pluginSegments.FirstOrDefault(s =>
             s.Type == mode &&
@@ -142,6 +144,7 @@ public class SegmentEditorController(MediaSegmentEditorService mediaSegmentEdito
         if (matchingSegment is not null)
         {
             wasUserProvided = matchingSegment.IsUserProvided;
+            configHash = matchingSegment.ConfigHash;
         }
 
         // Prefer the Jellyfin-reported range for the rollback; fall back to the plugin DB row so
@@ -158,10 +161,12 @@ public class SegmentEditorController(MediaSegmentEditorService mediaSegmentEdito
         }
         catch
         {
-            // Jellyfin delete failed — restore the plugin DB entry to avoid an orphaned Jellyfin segment.
+            // Jellyfin delete failed — restore the plugin DB entry (including its user-provided
+            // flag and config hash, so the restored row is not treated as stale) to avoid an
+            // orphaned Jellyfin segment.
             if (restoreSegment is not null)
             {
-                await _database.UpdateTimestampAsync(restoreSegment, mode, isUserProvided: wasUserProvided, cancellationToken: CancellationToken.None).ConfigureAwait(false);
+                await _database.UpdateTimestampAsync(restoreSegment, mode, isUserProvided: wasUserProvided, configHash: configHash, cancellationToken: CancellationToken.None).ConfigureAwait(false);
             }
 
             throw;

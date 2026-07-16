@@ -33,7 +33,7 @@ public sealed class TestSegmentEditorController
         using var scope = new EntrypointTestHelpers.PluginInstanceScope(EntrypointTestHelpers.CreateTempCacheDir());
         var itemId = Guid.NewGuid();
         var database = DatabaseTestHelpers.CreateTempSegmentDatabase();
-        await database.UpdateTimestampAsync(new Segment(itemId, new TimeRange(100, 160)), AnalysisMode.Introduction, isUserProvided: true);
+        await database.UpdateTimestampAsync(new Segment(itemId, new TimeRange(100, 160)), AnalysisMode.Introduction, isUserProvided: true, configHash: "cfg-1");
 
         // Jellyfin has no segment with this id (lookup returns null) and its delete throws.
         var manager = new FakeMediaSegmentManager { DeleteException = new InvalidOperationException("jellyfin down") };
@@ -48,6 +48,7 @@ public sealed class TestSegmentEditorController
         Assert.Equal(100, restored.Start);
         Assert.Equal(160, restored.End);
         Assert.True(restored.IsUserProvided);
+        Assert.Equal("cfg-1", restored.ConfigHash);
     }
 
     [Fact]
@@ -57,7 +58,7 @@ public sealed class TestSegmentEditorController
         var itemId = Guid.NewGuid();
         var segmentId = Guid.NewGuid();
         var database = DatabaseTestHelpers.CreateTempSegmentDatabase();
-        await database.UpdateTimestampAsync(new Segment(itemId, new TimeRange(100, 160)), AnalysisMode.Introduction, isUserProvided: true);
+        await database.UpdateTimestampAsync(new Segment(itemId, new TimeRange(100, 160)), AnalysisMode.Introduction, isUserProvided: true, configHash: "cfg-2");
 
         var movie = CreateMovie(itemId);
         var manager = new FakeMediaSegmentManager
@@ -85,6 +86,7 @@ public sealed class TestSegmentEditorController
         Assert.Equal(100, restored.Start);
         Assert.Equal(160, restored.End);
         Assert.True(restored.IsUserProvided);
+        Assert.Equal("cfg-2", restored.ConfigHash);
     }
 
     [Fact]
@@ -100,10 +102,12 @@ public sealed class TestSegmentEditorController
         // so the orphaned plugin row is cleaned up.
         var manager = new FakeMediaSegmentManager();
         var controller = CreateController(manager, database);
+        var segmentId = Guid.NewGuid();
 
-        await controller.DeleteSegmentAsync(Guid.NewGuid(), itemId, "intro", CancellationToken.None);
+        await controller.DeleteSegmentAsync(segmentId, itemId, "intro", CancellationToken.None);
 
         Assert.Empty(await database.GetSegmentsAsync(itemId));
+        Assert.Equal([segmentId], manager.DeletedSegmentIds);
     }
 
     private static SegmentEditorController CreateController(
