@@ -43,9 +43,12 @@ public class DbSeasonState
         SeasonId = seasonId;
         Type = mode;
         Action = action;
-        EpisodeIds = episodeIds ?? [];
+
+        // Materialize eagerly: EF Core tracks these IEnumerable<Guid> properties as
+        // primitive collections, which only accept arrays or IList<Guid> instances.
+        EpisodeIds = episodeIds is null ? [] : [.. episodeIds];
         ConfigHash = configHash;
-        SettledReanalysisEpisodeIds = settledReanalysisEpisodeIds ?? [];
+        SettledReanalysisEpisodeIds = settledReanalysisEpisodeIds is null ? [] : [.. settledReanalysisEpisodeIds];
     }
 
     /// <summary>
