@@ -46,7 +46,16 @@ public partial class QueueManager(ILogger<QueueManager> logger, ILibraryManager 
     private readonly HashSet<Guid> _refreshedEpisodes = [];
     private bool? _ffmpegValid;
     private double _analysisPercent;
+    private int _libraryEnumerationFailures;
     private ExclusionPolicy _exclusionPolicy = ExclusionPolicy.Empty;
+
+    /// <summary>
+    /// Gets the number of libraries that failed to enumerate during the most recent
+    /// <see cref="GetMediaItems(bool, CancellationToken)"/> call. A non-zero value means the
+    /// queue is incomplete; callers that delete data missing from the queue must not treat
+    /// the affected libraries' items as stale.
+    /// </summary>
+    internal int LibraryEnumerationFailureCount => _libraryEnumerationFailures;
 
     /// <summary>
     /// Gets all media items on the server.
@@ -70,6 +79,8 @@ public partial class QueueManager(ILogger<QueueManager> logger, ILibraryManager 
 
     internal async Task<IReadOnlyDictionary<Guid, List<QueuedEpisode>>> GetMediaItems(bool includeExcluded, CancellationToken cancellationToken = default)
     {
+        _libraryEnumerationFailures = 0;
+
         var plugin = Plugin.Instance;
         if (plugin is null)
         {
@@ -119,6 +130,7 @@ public partial class QueueManager(ILogger<QueueManager> logger, ILibraryManager 
             }
             catch (Exception ex)
             {
+                _libraryEnumerationFailures++;
                 LogFailedEnqueueLibrary(_logger, folder.Name, ex);
             }
         }
