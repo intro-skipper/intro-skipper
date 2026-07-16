@@ -144,6 +144,11 @@ public class SegmentEditorController(MediaSegmentEditorService mediaSegmentEdito
             wasUserProvided = matchingSegment.IsUserProvided;
         }
 
+        // Prefer the Jellyfin-reported range for the rollback; fall back to the plugin DB row so
+        // a failed Jellyfin delete can still restore the row when the Jellyfin segment was
+        // already gone (dbSegment is null deletes the mode's row below, so it must be restorable).
+        var restoreSegment = dbSegment ?? matchingSegment?.ToSegment();
+
         // Delete from the plugin DB first so it is consistent even if the Jellyfin delete fails.
         await _database.DeleteTimestampAsync(itemId, mode, dbSegment, cancellationToken).ConfigureAwait(false);
 
@@ -154,9 +159,9 @@ public class SegmentEditorController(MediaSegmentEditorService mediaSegmentEdito
         catch
         {
             // Jellyfin delete failed — restore the plugin DB entry to avoid an orphaned Jellyfin segment.
-            if (dbSegment is not null)
+            if (restoreSegment is not null)
             {
-                await _database.UpdateTimestampAsync(dbSegment, mode, isUserProvided: wasUserProvided, cancellationToken: CancellationToken.None).ConfigureAwait(false);
+                await _database.UpdateTimestampAsync(restoreSegment, mode, isUserProvided: wasUserProvided, cancellationToken: CancellationToken.None).ConfigureAwait(false);
             }
 
             throw;
