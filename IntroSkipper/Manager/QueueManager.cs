@@ -291,7 +291,10 @@ public partial class QueueManager(ILogger<QueueManager> logger, ILibraryManager 
             SeriesName = episode.SeriesName,
             SeasonNumber = episode.AiredSeasonNumber ?? 0,
             SeriesId = episode.SeriesId,
-            SeasonId = episode.SeasonId,
+            // Use the resolved queue key, not the raw Jellyfin SeasonId: for in-season specials
+            // (and unresolved SeasonIds) they differ, and season-state rows are keyed by the
+            // resolved value everywhere downstream.
+            SeasonId = seasonId,
             EpisodeNumber = episode.IndexNumber ?? 0,
             EpisodeId = episode.Id,
             Name = episode.Name,

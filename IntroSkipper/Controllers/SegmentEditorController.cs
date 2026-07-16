@@ -9,6 +9,7 @@ using IntroSkipper.Data;
 using IntroSkipper.Db;
 using IntroSkipper.Manager;
 using MediaBrowser.Common.Api;
+using MediaBrowser.Controller.Entities;
 using MediaBrowser.Controller.Entities.TV;
 using MediaBrowser.Model.MediaSegments;
 using MediaBrowser.Model.Querying;
@@ -177,10 +178,31 @@ public class SegmentEditorController(MediaSegmentEditorService mediaSegmentEdito
         var deletedItem = Plugin.Instance!.GetItem(itemId);
         if (deletedItem is not null)
         {
-            var seasonId = deletedItem is Episode ep ? ep.SeasonId : deletedItem.Id;
-            await _database.RemoveEpisodeIdAsync(seasonId, mode, itemId, cancellationToken).ConfigureAwait(false);
+            await _database.RemoveEpisodeIdAsync(ResolveSeasonStateKey(deletedItem, itemId), mode, itemId, cancellationToken).ConfigureAwait(false);
         }
 
         return Ok();
+    }
+
+    /// <summary>
+    /// Resolves the season-state key for an item. Season states are keyed by the analysis
+    /// queue's season key, which differs from the item's own SeasonId for in-season specials
+    /// (grouped with the season they air within) and for episodes whose SeasonId could not be
+    /// resolved. Prefer the queue key when the item is present in the cached queue.
+    /// </summary>
+    /// <param name="item">The item whose season-state key to resolve.</param>
+    /// <param name="itemId">The item id.</param>
+    /// <returns>The season-state key.</returns>
+    private static Guid ResolveSeasonStateKey(BaseItem item, Guid itemId)
+    {
+        foreach (var (seasonId, episodes) in Plugin.Instance!.QueuedMediaItems)
+        {
+            if (episodes.Any(e => e.EpisodeId == itemId))
+            {
+                return seasonId;
+            }
+        }
+
+        return item is Episode episode ? episode.SeasonId : item.Id;
     }
 }
