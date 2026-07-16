@@ -106,9 +106,9 @@ public partial class CleanCacheTask(
         // Every cleanup below deletes rows that are NOT in the enumerated queue, so an
         // incomplete queue would classify healthy data as stale and mass-delete it (including
         // the Jellyfin-side media segments). Bail out instead of guessing.
-        if (queueManager.LibraryEnumerationFailureCount > 0)
+        if (queueManager.EnumerationFailureCount > 0)
         {
-            LogSkippingCleanupEnumerationFailures(_logger, queueManager.LibraryEnumerationFailureCount);
+            LogSkippingCleanupEnumerationFailures(_logger, queueManager.EnumerationFailureCount);
             progress.Report(100);
             return;
         }
@@ -186,7 +186,7 @@ public partial class CleanCacheTask(
     [LoggerMessage(Level = LogLevel.Debug, Message = "Failed to delete stale detection cache rows")]
     private static partial void LogDeletingCacheRowsFailed(ILogger logger, Exception exception);
 
-    [LoggerMessage(Level = LogLevel.Warning, Message = "Skipping cache cleanup: {Count} library(ies) failed to enumerate, so stale-data detection would over-delete. Check the enumeration errors logged above and re-run the task")]
+    [LoggerMessage(Level = LogLevel.Warning, Message = "Skipping cache cleanup: {Count} library(ies) or item(s) failed to enumerate, so stale-data detection would over-delete. Check the enumeration errors logged above and re-run the task")]
     private static partial void LogSkippingCleanupEnumerationFailures(ILogger logger, int count);
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "Skipping cache cleanup: no episodes or movies were found in enabled libraries. To erase Intro Skipper data intentionally, use the erase actions on the plugin configuration page")]
