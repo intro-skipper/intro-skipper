@@ -46,7 +46,16 @@ public partial class QueueManager(ILogger<QueueManager> logger, ILibraryManager 
     private readonly HashSet<Guid> _refreshedEpisodes = [];
     private bool? _ffmpegValid;
     private double _analysisPercent;
+    private int _enumerationFailures;
     private ExclusionPolicy _exclusionPolicy = ExclusionPolicy.Empty;
+
+    /// <summary>
+    /// Gets the number of libraries or individual items that failed to enumerate or queue
+    /// during the most recent <see cref="GetMediaItems(bool, CancellationToken)"/> call.
+    /// A non-zero value means the queue is incomplete; callers that delete data missing from
+    /// the queue must not treat the affected items as stale.
+    /// </summary>
+    internal int EnumerationFailureCount => _enumerationFailures;
 
     /// <summary>
     /// Gets all media items on the server.
@@ -70,6 +79,8 @@ public partial class QueueManager(ILogger<QueueManager> logger, ILibraryManager 
 
     internal async Task<IReadOnlyDictionary<Guid, List<QueuedEpisode>>> GetMediaItems(bool includeExcluded, CancellationToken cancellationToken = default)
     {
+        _enumerationFailures = 0;
+
         var plugin = Plugin.Instance;
         if (plugin is null)
         {
@@ -119,6 +130,7 @@ public partial class QueueManager(ILogger<QueueManager> logger, ILibraryManager 
             }
             catch (Exception ex)
             {
+                _enumerationFailures++;
                 LogFailedEnqueueLibrary(_logger, folder.Name, ex);
             }
         }
@@ -224,6 +236,9 @@ public partial class QueueManager(ILogger<QueueManager> logger, ILibraryManager 
             }
             catch (Exception ex)
             {
+                // Count item-level failures too: a live item that failed to queue must not be
+                // classified as stale by cleanup just because its siblings enumerated fine.
+                _enumerationFailures++;
                 LogErrorProcessingItem(_logger, ex, item.Name, item.Id);
             }
         }
