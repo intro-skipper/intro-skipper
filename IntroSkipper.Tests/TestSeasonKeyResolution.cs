@@ -118,6 +118,49 @@ public sealed class TestSeasonKeyResolution
         }
     }
 
+    [Fact]
+    public async Task DeleteSegment_FallsBackToItemSeasonId_WhenQueueIsNotBuilt()
+    {
+        var dbPath = CreateTempDbPath();
+        try
+        {
+            using var scope = new EntrypointTestHelpers.PluginInstanceScope(EntrypointTestHelpers.CreateTempCacheDir());
+            var seasonId = Guid.NewGuid();
+            var episodeId = Guid.NewGuid();
+
+            // No analysis has run yet: the cached queue is empty, so the editor must fall back
+            // to the item's own SeasonId — which is the correct key for regular episodes.
+            var episode = CreateEpisode(episodeId, Guid.NewGuid(), seasonId, parentIndexNumber: 1, "/media/show/s01e01.mkv");
+            EntrypointTestHelpers.SetPrivateField(Plugin.Instance!, "_libraryManager", EntrypointTestHelpers.CreateLibraryManager(episode));
+            EntrypointTestHelpers.SetPropertyOrField(
+                Plugin.Instance!,
+                "QueuedMediaItems",
+                new ConcurrentDictionary<Guid, List<QueuedEpisode>>());
+
+            var database = DatabaseTestHelpers.CreateSegmentDatabase(dbPath);
+            await database.UpdateTimestampAsync(new Segment(episodeId, new TimeRange(100, 160)), AnalysisMode.Introduction);
+            await database.SetEpisodeIdsAsync(seasonId, AnalysisMode.Introduction, [episodeId], "hash");
+
+            var service = new MediaSegmentEditorService(
+                new FakeMediaSegmentManager(),
+                EntrypointTestHelpers.CreateLibraryManager(),
+                NullLogger<MediaSegmentEditorService>.Instance);
+            var controller = new SegmentEditorController(service, database);
+
+            await controller.DeleteSegmentAsync(Guid.NewGuid(), episodeId, "intro", CancellationToken.None);
+
+            await using var db = new IntroSkipperDbContext(dbPath);
+            var state = await db.DbSeasonState
+                .AsNoTracking()
+                .SingleAsync(s => s.SeasonId == seasonId && s.Type == AnalysisMode.Introduction);
+            Assert.Empty(state.EpisodeIds);
+        }
+        finally
+        {
+            DeleteSqliteFiles(dbPath);
+        }
+    }
+
     private static Episode CreateEpisode(Guid id, Guid seriesId, Guid seasonId, int parentIndexNumber, string path)
     {
         var episode = new Episode
