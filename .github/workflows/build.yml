@@ -20,6 +20,14 @@ permissions:
   contents: write
   packages: write
 
+# Serialize runs per ref so rapid successive pushes cannot publish the rolling
+# prerelease (and its manifest dispatch) out of commit order. A newer pending
+# run supersedes an older pending one; the in-flight run is never cancelled
+# mid-publish.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
 jobs:
   build:
     if: ${{ ! startsWith(github.event.head_commit.message, 'release v') }}
