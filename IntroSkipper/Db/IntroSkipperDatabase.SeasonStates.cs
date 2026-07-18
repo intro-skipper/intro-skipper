@@ -16,7 +16,7 @@ public sealed partial class IntroSkipperDatabase
     {
         ArgumentNullException.ThrowIfNull(analyzerActions);
 
-        await EnsureInitializedAsync().ConfigureAwait(false);
+        await InitializeAsync().ConfigureAwait(false);
         using var db = _contextFactory.CreateDbContext();
         var existingEntries = await db.DbSeasonState
             .Where(s => s.SeasonId == seasonId)
@@ -48,7 +48,7 @@ public sealed partial class IntroSkipperDatabase
         // passed by BaseItemAnalyzerTask) makes it throw InvalidOperationException.
         var ids = episodeIds as Guid[] ?? [.. episodeIds];
 
-        await EnsureInitializedAsync().ConfigureAwait(false);
+        await InitializeAsync().ConfigureAwait(false);
         using var db = _contextFactory.CreateDbContext();
         var seasonState = await db.DbSeasonState
             .FirstOrDefaultAsync(s => s.SeasonId == seasonId && s.Type == mode, cancellationToken)
@@ -76,7 +76,7 @@ public sealed partial class IntroSkipperDatabase
     /// </remarks>
     public async Task RemoveEpisodeIdAsync(Guid seasonId, AnalysisMode mode, Guid episodeId, CancellationToken cancellationToken = default)
     {
-        await EnsureInitializedAsync().ConfigureAwait(false);
+        await InitializeAsync().ConfigureAwait(false);
         using var db = _contextFactory.CreateDbContext();
         var seasonState = await db.DbSeasonState
             .FirstOrDefaultAsync(s => s.SeasonId == seasonId && s.Type == mode, cancellationToken)
@@ -102,7 +102,7 @@ public sealed partial class IntroSkipperDatabase
         Guid seasonId,
         CancellationToken cancellationToken = default)
     {
-        await EnsureInitializedAsync().ConfigureAwait(false);
+        await InitializeAsync().ConfigureAwait(false);
         using var db = _contextFactory.CreateDbContext();
         var states = await db.DbSeasonState
             .AsNoTracking()
@@ -138,7 +138,7 @@ public sealed partial class IntroSkipperDatabase
 
         var settledEpisodeIds = DbSeasonState.SerializeEpisodeIds(episodeIds);
 
-        await EnsureInitializedAsync().ConfigureAwait(false);
+        await InitializeAsync().ConfigureAwait(false);
         using var db = _contextFactory.CreateDbContext();
         foreach (var mode in modes)
         {
@@ -156,7 +156,7 @@ public sealed partial class IntroSkipperDatabase
     /// <inheritdoc/>
     public async Task<IReadOnlyDictionary<AnalysisMode, AnalyzerAction>> GetAllAnalyzerActionsAsync(Guid seasonId, CancellationToken cancellationToken = default)
     {
-        await EnsureInitializedAsync().ConfigureAwait(false);
+        await InitializeAsync().ConfigureAwait(false);
         using var db = _contextFactory.CreateDbContext();
         var states = await db.DbSeasonState
             .Where(s => s.SeasonId == seasonId)
@@ -176,7 +176,7 @@ public sealed partial class IntroSkipperDatabase
     /// <inheritdoc/>
     public async Task<AnalyzerAction> GetAnalyzerActionAsync(Guid seasonId, AnalysisMode mode, CancellationToken cancellationToken = default)
     {
-        await EnsureInitializedAsync().ConfigureAwait(false);
+        await InitializeAsync().ConfigureAwait(false);
         using var db = _contextFactory.CreateDbContext();
         var state = await db.DbSeasonState
             .FirstOrDefaultAsync(s => s.SeasonId == seasonId && s.Type == mode, cancellationToken)
@@ -187,7 +187,7 @@ public sealed partial class IntroSkipperDatabase
     /// <inheritdoc/>
     public async Task<SeasonQueueSnapshot> GetSeasonQueueSnapshotAsync(Guid seasonId, IReadOnlyCollection<Guid> episodeIds, CancellationToken cancellationToken = default)
     {
-        await EnsureInitializedAsync().ConfigureAwait(false);
+        await InitializeAsync().ConfigureAwait(false);
         using var db = _contextFactory.CreateDbContext();
         var episodeIdArray = (Guid[])[.. episodeIds.Distinct()];
 
@@ -211,11 +211,7 @@ public sealed partial class IntroSkipperDatabase
                 .GroupBy(s => s.ItemId)
                 .ToDictionary(
                     group => group.Key,
-                    group => (IReadOnlyDictionary<AnalysisMode, Segment>)group
-                        .GroupBy(segment => segment.Type)
-                        .ToDictionary(
-                            segmentGroup => segmentGroup.Key,
-                            segmentGroup => segmentGroup.OrderBy(segment => segment.Start).First().ToSegment())),
+                    group => (IReadOnlyDictionary<AnalysisMode, Segment>)ToCanonicalTimestamps(group)),
             segments
                 .Where(s => s.IsUserProvided)
                 .GroupBy(s => s.Type)

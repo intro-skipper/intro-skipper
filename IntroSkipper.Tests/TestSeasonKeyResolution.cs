@@ -186,23 +186,10 @@ public sealed class TestSeasonKeyResolution
         };
 
     private static string CreateTempDbPath()
-    {
-        var directory = Path.Combine(Path.GetTempPath(), "IntroSkipper.Tests");
-        Directory.CreateDirectory(directory);
-        return Path.Combine(directory, Guid.NewGuid().ToString("N") + "-seasonkey.db");
-    }
+        => DatabaseTestHelpers.CreateTempDbPath(Guid.NewGuid().ToString("N") + "-seasonkey.db");
 
     private static void DeleteSqliteFiles(string dbPath)
-    {
-        foreach (var suffix in new[] { string.Empty, "-wal", "-shm" })
-        {
-            var path = dbPath + suffix;
-            if (File.Exists(path))
-            {
-                File.Delete(path);
-            }
-        }
-    }
+        => DatabaseTestHelpers.DeleteSqliteFiles(dbPath);
 
     // ILibraryManager stub for the queue-building path.
     private class FakeLibraryManager : DispatchProxy

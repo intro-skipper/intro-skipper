@@ -7,6 +7,7 @@ using System;
 using System.IO;
 using IntroSkipper.Db;
 using IntroSkipper.FFmpeg;
+using Microsoft.Data.Sqlite;
 using Microsoft.Extensions.Logging.Abstractions;
 
 /// <summary>
@@ -18,7 +19,7 @@ using Microsoft.Extensions.Logging.Abstractions;
 internal static class DatabaseTestHelpers
 {
     internal static IntroSkipperDatabase CreateSegmentDatabase(string dbPath)
-        => new(new TestDbContextFactory<IntroSkipperDbContext>(() => new IntroSkipperDbContext(dbPath)), NullLogger.Instance);
+        => new(new TestDbContextFactory<IntroSkipperDbContext>(() => new IntroSkipperDbContext(dbPath)), NullLogger<IntroSkipperDatabase>.Instance);
 
     /// <summary>
     /// Creates a segment database facade over a fresh temp-file path, for consumers
@@ -30,7 +31,7 @@ internal static class DatabaseTestHelpers
         => CreateSegmentDatabase(CreateTempDbPath(Guid.NewGuid().ToString("N") + ".db"));
 
     internal static DetectionCacheDatabase CreateCacheDatabase(string dbPath)
-        => new(new TestDbContextFactory<DetectionCacheDbContext>(() => new DetectionCacheDbContext(dbPath)), NullLogger.Instance);
+        => new(new TestDbContextFactory<DetectionCacheDbContext>(() => new DetectionCacheDbContext(dbPath)), NullLogger<DetectionCacheDatabase>.Instance);
 
     internal static DetectionCacheService CreateCacheService(string dbPath)
         => new(NullLogger<DetectionCacheService>.Instance, CreateCacheDatabase(dbPath));
@@ -58,10 +59,30 @@ internal static class DatabaseTestHelpers
     /// </summary>
     /// <param name="fileName">Database file name.</param>
     /// <returns>The database path.</returns>
-    private static string CreateTempDbPath(string fileName)
+    internal static string CreateTempDbPath(string fileName)
     {
         var directory = Path.Combine(Path.GetTempPath(), "IntroSkipper.Tests");
         Directory.CreateDirectory(directory);
         return Path.Combine(directory, fileName);
+    }
+
+    /// <summary>
+    /// Deletes a SQLite database and its WAL/SHM sidecar files. Clears pooled
+    /// connections first so Windows file locks from earlier contexts cannot make the
+    /// delete flaky.
+    /// </summary>
+    /// <param name="dbPath">Database path.</param>
+    internal static void DeleteSqliteFiles(string dbPath)
+    {
+        SqliteConnection.ClearAllPools();
+
+        foreach (var suffix in new[] { string.Empty, "-wal", "-shm" })
+        {
+            var path = dbPath + suffix;
+            if (File.Exists(path))
+            {
+                File.Delete(path);
+            }
+        }
     }
 }

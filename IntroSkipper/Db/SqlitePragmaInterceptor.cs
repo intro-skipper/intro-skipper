@@ -22,7 +22,7 @@ internal sealed class SqlitePragmaInterceptor : DbConnectionInterceptor
         using var cmd = connection.CreateCommand();
         try
         {
-            cmd.CommandText = "PRAGMA busy_timeout=5000;";
+            cmd.CommandText = SqlitePragmas.BusyTimeoutCommand;
             cmd.ExecuteNonQuery();
         }
         catch (SqliteException)
@@ -36,7 +36,7 @@ internal sealed class SqlitePragmaInterceptor : DbConnectionInterceptor
         using var cmd = connection.CreateCommand();
         try
         {
-            cmd.CommandText = "PRAGMA busy_timeout=5000;";
+            cmd.CommandText = SqlitePragmas.BusyTimeoutCommand;
             await cmd.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
         }
         catch (SqliteException)

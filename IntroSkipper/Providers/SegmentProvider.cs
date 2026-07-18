@@ -26,18 +26,6 @@ namespace IntroSkipper.Providers
     {
         private readonly IIntroSkipperDatabase _database = database;
 
-        /// <summary>
-        /// Mappings between AnalysisMode and MediaSegmentType.
-        /// </summary>
-        private static readonly Dictionary<AnalysisMode, MediaSegmentType> _segmentMappings = new()
-        {
-            [AnalysisMode.Introduction] = MediaSegmentType.Intro,
-            [AnalysisMode.Recap] = MediaSegmentType.Recap,
-            [AnalysisMode.Preview] = MediaSegmentType.Preview,
-            [AnalysisMode.Credits] = MediaSegmentType.Outro,
-            [AnalysisMode.Commercial] = MediaSegmentType.Commercial
-        };
-
         /// <inheritdoc/>
         public string Name => Plugin.Instance!.Name;
 
@@ -53,7 +41,7 @@ namespace IntroSkipper.Providers
 
             foreach (var segment in itemSegments.OrderBy(segment => segment.Start))
             {
-                if (!_segmentMappings.TryGetValue(segment.Type, out var type))
+                if (!AnalysisHelpers.ModeToSegmentType.TryGetValue(segment.Type, out var type))
                 {
                     continue;
                 }

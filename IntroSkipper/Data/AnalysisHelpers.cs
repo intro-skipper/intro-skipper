@@ -11,6 +11,23 @@ namespace IntroSkipper.Data;
 internal static class AnalysisHelpers
 {
     /// <summary>
+    /// Gets the single source of truth for the correspondence between analysis modes and
+    /// Jellyfin media segment types; <see cref="MapSegmentTypeToMode"/> is derived from it.
+    /// </summary>
+    internal static IReadOnlyDictionary<AnalysisMode, MediaSegmentType> ModeToSegmentType { get; } = new Dictionary<AnalysisMode, MediaSegmentType>
+    {
+        [AnalysisMode.Introduction] = MediaSegmentType.Intro,
+        [AnalysisMode.Recap] = MediaSegmentType.Recap,
+        [AnalysisMode.Preview] = MediaSegmentType.Preview,
+        [AnalysisMode.Credits] = MediaSegmentType.Outro,
+        [AnalysisMode.Commercial] = MediaSegmentType.Commercial
+    };
+
+    // Must be declared after ModeToSegmentType: property initializers run in textual order.
+    private static IReadOnlyDictionary<MediaSegmentType, AnalysisMode> SegmentTypeToMode { get; } =
+        ModeToSegmentType.ToDictionary(pair => pair.Value, pair => pair.Key);
+
+    /// <summary>
     /// Returns whether a settled-season analysis mode still needs re-analysis for its current episode
     /// set. Pure set comparison: the decision is committed separately via
     /// <see cref="Db.IIntroSkipperDatabase.RecordSettleReanalysisAsync(Guid, IReadOnlyCollection{AnalysisMode}, IReadOnlyCollection{Guid}, CancellationToken)"/>
@@ -30,15 +47,5 @@ internal static class AnalysisHelpers
     /// <param name="type">Media segment type.</param>
     /// <returns>The corresponding <see cref="AnalysisMode"/>.</returns>
     internal static AnalysisMode MapSegmentTypeToMode(MediaSegmentType type)
-    {
-        return type switch
-        {
-            MediaSegmentType.Intro => AnalysisMode.Introduction,
-            MediaSegmentType.Recap => AnalysisMode.Recap,
-            MediaSegmentType.Preview => AnalysisMode.Preview,
-            MediaSegmentType.Outro => AnalysisMode.Credits,
-            MediaSegmentType.Commercial => AnalysisMode.Commercial,
-            _ => throw new NotImplementedException(),
-        };
-    }
+        => SegmentTypeToMode.TryGetValue(type, out var mode) ? mode : throw new NotImplementedException();
 }

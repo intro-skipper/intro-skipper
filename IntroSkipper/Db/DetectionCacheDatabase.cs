@@ -23,7 +23,7 @@ public sealed partial class DetectionCacheDatabase : IDetectionCacheDatabase
     /// </summary>
     /// <param name="contextFactory">Factory used to create cache database contexts.</param>
     /// <param name="logger">Logger.</param>
-    public DetectionCacheDatabase(IDbContextFactory<DetectionCacheDbContext> contextFactory, ILogger logger)
+    public DetectionCacheDatabase(IDbContextFactory<DetectionCacheDbContext> contextFactory, ILogger<DetectionCacheDatabase> logger)
     {
         ArgumentNullException.ThrowIfNull(contextFactory);
         ArgumentNullException.ThrowIfNull(logger);
@@ -36,20 +36,12 @@ public sealed partial class DetectionCacheDatabase : IDetectionCacheDatabase
     /// <inheritdoc/>
     public bool TryInitialize()
     {
-        var initialization = _initialization.GetAttempt();
-
         try
         {
-            _ = initialization.Value;
-            return true;
+            return _initialization.GetValue(ex => LogCacheDbInitializationError(_logger, ex));
         }
-        catch (Exception ex)
+        catch (Exception)
         {
-            if (_initialization.ResetIfCurrent(initialization))
-            {
-                LogCacheDbInitializationError(_logger, ex);
-            }
-
             return false;
         }
     }
@@ -63,9 +55,9 @@ public sealed partial class DetectionCacheDatabase : IDetectionCacheDatabase
         }
 
         using var db = _contextFactory.CreateDbContext();
-        return db.DetectionCache
+        return QueryByKey(db, itemId, mode, type, start, end)
             .AsNoTracking()
-            .FirstOrDefault(e => e.ItemId == itemId && e.Mode == mode && e.Type == type && e.Start == start && e.End == end);
+            .FirstOrDefault();
     }
 
     /// <inheritdoc/>
@@ -78,10 +70,7 @@ public sealed partial class DetectionCacheDatabase : IDetectionCacheDatabase
 
         using var db = _contextFactory.CreateDbContext();
 
-        // NOTE: Start/End are compared with == which is safe only because the exact same
-        // double values that were written are used for lookup (no intermediate arithmetic).
-        var existing = db.DetectionCache
-            .FirstOrDefault(e => e.ItemId == itemId && e.Mode == mode && e.Type == type && e.Start == start && e.End == end);
+        var existing = QueryByKey(db, itemId, mode, type, start, end).FirstOrDefault();
 
         if (existing is not null)
         {
@@ -105,13 +94,8 @@ public sealed partial class DetectionCacheDatabase : IDetectionCacheDatabase
         }
 
         using var db = _contextFactory.CreateDbContext();
-        return db.DetectionCache.Any(e =>
-            e.ItemId == itemId &&
-            e.Mode == mode &&
-            e.Type == type &&
-            e.Start == start &&
-            e.End == end &&
-            (e.ConfigHash == string.Empty || e.ConfigHash == expectedConfigHash));
+        return QueryByKey(db, itemId, mode, type, start, end)
+            .Any(e => e.ConfigHash == string.Empty || e.ConfigHash == expectedConfigHash);
     }
 
     /// <inheritdoc/>
@@ -189,16 +173,28 @@ public sealed partial class DetectionCacheDatabase : IDetectionCacheDatabase
             .ConfigureAwait(false);
     }
 
+    /// <summary>
+    /// Filters the cache table by the full cache key. Start/End are compared with ==
+    /// which is safe only because the exact same double values that were written are
+    /// used for lookup (no intermediate arithmetic).
+    /// </summary>
+    /// <param name="db">The cache database context.</param>
+    /// <param name="itemId">Item id.</param>
+    /// <param name="mode">Analysis mode.</param>
+    /// <param name="type">Cache entry type.</param>
+    /// <param name="start">Segment start.</param>
+    /// <param name="end">Segment end.</param>
+    /// <returns>The entries matching the cache key.</returns>
+    private static IQueryable<DbDetectionCache> QueryByKey(DetectionCacheDbContext db, Guid itemId, AnalysisMode mode, CacheEntryType type, double start, double end)
+        => db.DetectionCache
+            .Where(e => e.ItemId == itemId && e.Mode == mode && e.Type == type && e.Start == start && e.End == end);
+
     private bool InitializeCore()
     {
         using var db = _contextFactory.CreateDbContext();
 
         db.EnsureSchema();
-
-        // WAL is a persistent database property, but EF only sets it when *it*
-        // creates the database file. Enforce it idempotently so databases
-        // vacuumed or recreated by external tooling are covered as well.
-        db.Database.ExecuteSqlRaw("PRAGMA journal_mode=WAL;");
+        SqlitePragmas.EnforceWal(db.Database);
 
         return true;
     }
