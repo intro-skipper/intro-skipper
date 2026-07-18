@@ -37,11 +37,34 @@ public sealed partial class FFmpegService(
     // by the support bundle endpoint, so a concurrent dictionary is required.
     private readonly ConcurrentDictionary<string, string> _chromaprintLogs = new();
 
+    // Memoizes a successful probe for the service lifetime: a valid ffmpeg does not
+    // spontaneously become invalid, so re-running the multi-process probe every analysis
+    // run is wasted work. A failed probe is deliberately NOT memoized — the user can fix
+    // or replace the ffmpeg binary while the server runs, and the next call must observe
+    // the recovery.
+    private volatile bool _versionProbeSucceeded;
+
     /// <inheritdoc/>
     public async Task<bool> CheckFFmpegVersionAsync(CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
 
+        if (_versionProbeSucceeded)
+        {
+            return true;
+        }
+
+        var valid = await ProbeFFmpegVersionAsync(cancellationToken).ConfigureAwait(false);
+        if (valid)
+        {
+            _versionProbeSucceeded = true;
+        }
+
+        return valid;
+    }
+
+    private async Task<bool> ProbeFFmpegVersionAsync(CancellationToken cancellationToken)
+    {
         try
         {
             // Always log ffmpeg's version information.

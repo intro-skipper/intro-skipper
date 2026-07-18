@@ -65,7 +65,10 @@ public partial class QueueManager(ILogger<QueueManager> logger, ILibraryManager 
     public Task<IReadOnlyDictionary<Guid, List<QueuedEpisode>>> GetMediaItems(CancellationToken cancellationToken = default)
         => GetMediaItems(includeExcluded: false, cancellationToken);
 
-    internal async Task<bool> GetFfmpegValidAsync(CancellationToken cancellationToken = default)
+    // Per-run memo on top of the service's success-only memoization: while ffmpeg is
+    // invalid the service re-probes every call, so cache the verdict here to keep an
+    // analysis run at one probe instead of one per season.
+    private async Task<bool> GetFfmpegValidAsync(CancellationToken cancellationToken = default)
     {
         if (_ffmpegValid is { } cached)
         {
