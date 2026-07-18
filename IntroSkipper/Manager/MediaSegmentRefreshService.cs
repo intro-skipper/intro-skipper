@@ -28,6 +28,7 @@ public sealed partial class MediaSegmentRefreshService(
         await RefreshCoreAsync(
                 item,
                 MediaSegmentProviderDefaults.ExternalProviders,
+                deleteSegmentsBeforeRefresh: false,
                 suppressErrors: true,
                 cancellationToken)
             .ConfigureAwait(false);
@@ -36,12 +37,20 @@ public sealed partial class MediaSegmentRefreshService(
     private async Task RefreshCoreAsync(
         BaseItem item,
         LibraryOptions libraryOptions,
+        bool deleteSegmentsBeforeRefresh,
         bool suppressErrors,
         CancellationToken cancellationToken)
     {
         try
         {
-            await mediaSegmentManager.RunSegmentPluginProviders(item, libraryOptions, true, cancellationToken).ConfigureAwait(false);
+            if (deleteSegmentsBeforeRefresh)
+            {
+                await mediaSegmentManager.DeleteSegmentsAsync(item.Id, cancellationToken).ConfigureAwait(false);
+            }
+
+            await mediaSegmentManager
+                .RunSegmentPluginProviders(item, libraryOptions, !deleteSegmentsBeforeRefresh, cancellationToken)
+                .ConfigureAwait(false);
             LogUpdatedMediaSegments(logger, item.Id);
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
@@ -73,6 +82,7 @@ public sealed partial class MediaSegmentRefreshService(
     private async Task RefreshByIdAsync(
         Guid itemId,
         LibraryOptions libraryOptions,
+        bool deleteSegmentsBeforeRefresh,
         bool suppressErrors,
         CancellationToken cancellationToken)
     {
@@ -88,7 +98,13 @@ public sealed partial class MediaSegmentRefreshService(
             return;
         }
 
-        await RefreshCoreAsync(item, libraryOptions, suppressErrors, cancellationToken).ConfigureAwait(false);
+        await RefreshCoreAsync(
+                item,
+                libraryOptions,
+                deleteSegmentsBeforeRefresh,
+                suppressErrors,
+                cancellationToken)
+            .ConfigureAwait(false);
     }
 
     /// <inheritdoc />
@@ -96,6 +112,7 @@ public sealed partial class MediaSegmentRefreshService(
         => RefreshByIdsAsync(
             itemIds,
             MediaSegmentProviderDefaults.ExternalProviders,
+            deleteSegmentsBeforeRefresh: false,
             suppressErrors: true,
             cancellationToken);
 
@@ -104,12 +121,14 @@ public sealed partial class MediaSegmentRefreshService(
         => RefreshByIdsAsync(
             itemIds,
             MediaSegmentProviderDefaults.ExternalProvidersWithoutIntroSkipper,
+            deleteSegmentsBeforeRefresh: true,
             suppressErrors: false,
             cancellationToken);
 
     private async Task RefreshByIdsAsync(
         IEnumerable<Guid> itemIds,
         LibraryOptions libraryOptions,
+        bool deleteSegmentsBeforeRefresh,
         bool suppressErrors,
         CancellationToken cancellationToken)
     {
@@ -130,7 +149,13 @@ public sealed partial class MediaSegmentRefreshService(
 
         await Parallel.ForEachAsync(ids, options, async (itemId, ct) =>
         {
-            await RefreshByIdAsync(itemId, libraryOptions, suppressErrors, ct).ConfigureAwait(false);
+            await RefreshByIdAsync(
+                    itemId,
+                    libraryOptions,
+                    deleteSegmentsBeforeRefresh,
+                    suppressErrors,
+                    ct)
+                .ConfigureAwait(false);
         }).ConfigureAwait(false);
     }
 
