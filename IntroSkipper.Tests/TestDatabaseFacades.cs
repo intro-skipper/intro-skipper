@@ -1143,6 +1143,38 @@ public sealed class TestDatabaseFacades
         return (string)command.ExecuteScalar()!;
     }
 
+    [Fact]
+    public async Task CacheDeletes_DatabaseErrorAfterInitialization_IsSwallowedAndReturnsZero()
+    {
+        // First context (initialization) uses a working path; every later context points
+        // into a nonexistent directory, so the delete statements themselves fail with a
+        // SqliteException. The facade's deletes are best-effort and must swallow it.
+        var goodPath = CreateTempDbPath();
+        var badPath = Path.Join(
+            Path.GetTempPath(),
+            "IntroSkipper.Tests",
+            Guid.NewGuid().ToString("N") + "-missing-dir",
+            "cache.db");
+        var contextCreations = 0;
+        var database = new DetectionCacheDatabase(
+            new TestDbContextFactory<DetectionCacheDbContext>(() =>
+                new DetectionCacheDbContext(Interlocked.Increment(ref contextCreations) == 1 ? goodPath : badPath)),
+            NullLogger<DetectionCacheDatabase>.Instance);
+
+        try
+        {
+            Assert.True(database.TryInitialize());
+
+            Assert.Equal(0, database.DeleteForItem(Guid.NewGuid()));
+            Assert.Equal(0, database.DeleteByMode(AnalysisMode.Introduction));
+            Assert.Equal(0, await database.DeleteForItemsAsync([Guid.NewGuid()]));
+        }
+        finally
+        {
+            DeleteSqliteFiles(goodPath);
+        }
+    }
+
     private static string CreateTempDbPath()
         => DatabaseTestHelpers.CreateTempDbPath(Guid.NewGuid().ToString("N") + "-facades.db");
 

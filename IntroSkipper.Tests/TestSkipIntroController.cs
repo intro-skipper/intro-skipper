@@ -40,8 +40,7 @@ public sealed class TestSkipIntroController
         var controller = new SkipIntroController(
             refresher,
             DatabaseTestHelpers.CreateCacheDatabase(pluginScope.CacheDbPath),
-            database,
-            NullLogger<SkipIntroController>.Instance);
+            database);
         var timestamps = new TimeStamps
         {
             Introduction = new Segment(itemId, new TimeRange(10, 20))
@@ -78,8 +77,7 @@ public sealed class TestSkipIntroController
         var controller = new SkipIntroController(
             refresher,
             DatabaseTestHelpers.CreateCacheDatabase(pluginScope.CacheDbPath),
-            DatabaseTestHelpers.CreateSegmentDatabase(dbPath),
-            NullLogger<SkipIntroController>.Instance);
+            DatabaseTestHelpers.CreateSegmentDatabase(dbPath));
         var timestamps = new TimeStamps
         {
             Introduction = new Segment(itemId, new TimeRange(10, 20))
@@ -109,8 +107,7 @@ public sealed class TestSkipIntroController
         var controller = new SkipIntroController(
             new RecordingMediaSegmentRefresher(),
             DatabaseTestHelpers.CreateCacheDatabase(missingCachePath),
-            database,
-            NullLogger<SkipIntroController>.Instance);
+            database);
 
         var result = await controller.ResetIntroTimestamps(
             AnalysisMode.Introduction,

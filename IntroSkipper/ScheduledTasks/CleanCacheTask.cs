@@ -4,7 +4,6 @@
 // SPDX-FileCopyrightText: 2024 theMasterpc
 // SPDX-License-Identifier: GPL-3.0-only
 
-using System.Data.Common;
 using IntroSkipper.Db;
 using IntroSkipper.FFmpeg;
 using IntroSkipper.Manager;
@@ -153,16 +152,10 @@ public partial class CleanCacheTask(
 
         if (invalidEpisodeIds.Count > 0)
         {
-            try
-            {
-                await _cacheDatabase
-                    .DeleteForItemsAsync(invalidEpisodeIds, cancellationToken)
-                    .ConfigureAwait(false);
-            }
-            catch (Exception ex) when (ex is DbUpdateException or DbException)
-            {
-                LogDeletingCacheRowsFailed(_logger, ex);
-            }
+            // Best-effort: the facade logs and swallows database errors.
+            await _cacheDatabase
+                .DeleteForItemsAsync(invalidEpisodeIds, cancellationToken)
+                .ConfigureAwait(false);
         }
 
         // Clean up season state by removing items that no longer exist.
@@ -182,9 +175,6 @@ public partial class CleanCacheTask(
 
     [LoggerMessage(Level = LogLevel.Debug, Message = "Deleting detection cache rows for episode ID: {EpisodeId}")]
     private static partial void LogDeletingDetectionCacheRows(ILogger logger, Guid episodeId);
-
-    [LoggerMessage(Level = LogLevel.Debug, Message = "Failed to delete stale detection cache rows")]
-    private static partial void LogDeletingCacheRowsFailed(ILogger logger, Exception exception);
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "Skipping cache cleanup: {Count} library(ies) or item(s) failed to enumerate, so stale-data detection would over-delete. Check the enumeration errors logged above and re-run the task")]
     private static partial void LogSkippingCleanupEnumerationFailures(ILogger logger, int count);

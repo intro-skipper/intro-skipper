@@ -7,7 +7,6 @@
 // SPDX-FileCopyrightText: 2024 Xameon42
 // SPDX-License-Identifier: GPL-3.0-only
 
-using System.Data.Common;
 using System.Net.Mime;
 using IntroSkipper.Data;
 using IntroSkipper.Db;
@@ -17,8 +16,6 @@ using MediaBrowser.Controller.Entities.Movies;
 using MediaBrowser.Controller.Entities.TV;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
-using Microsoft.EntityFrameworkCore;
-using Microsoft.Extensions.Logging;
 
 namespace IntroSkipper.Controllers;
 
@@ -31,13 +28,11 @@ namespace IntroSkipper.Controllers;
 public partial class SkipIntroController(
     IMediaSegmentRefresher mediaSegmentRefresher,
     IDetectionCacheDatabase cacheDatabase,
-    IIntroSkipperDatabase database,
-    ILogger<SkipIntroController> logger) : ControllerBase
+    IIntroSkipperDatabase database) : ControllerBase
 {
     private readonly IMediaSegmentRefresher _mediaSegmentRefresher = mediaSegmentRefresher;
     private readonly IDetectionCacheDatabase _cacheDatabase = cacheDatabase;
     private readonly IIntroSkipperDatabase _database = database;
-    private readonly ILogger<SkipIntroController> _logger = logger;
 
     /// <summary>
     /// Updates the timestamps for the provided episode.
@@ -197,16 +192,10 @@ public partial class SkipIntroController(
 
         if (eraseCache && mode is AnalysisMode.Introduction or AnalysisMode.Credits)
         {
-            // Do not bind the best-effort cache cleanup to request cancellation: the
-            // main database rows are already gone, so make one complete cleanup attempt.
-            try
-            {
-                await Task.Run(() => _cacheDatabase.DeleteByMode(mode), CancellationToken.None).ConfigureAwait(false);
-            }
-            catch (Exception ex) when (ex is DbUpdateException or DbException)
-            {
-                LogCacheDeleteFailed(_logger, ex, mode);
-            }
+            // Best-effort cache cleanup (the facade logs and swallows database errors),
+            // run off the request thread and not bound to request cancellation: the main
+            // database rows are already gone, so make one complete cleanup attempt.
+            await Task.Run(() => _cacheDatabase.DeleteByMode(mode), CancellationToken.None).ConfigureAwait(false);
         }
 
         return NoContent();
@@ -225,7 +214,4 @@ public partial class SkipIntroController(
         await _database.RebuildDatabaseAsync().ConfigureAwait(false);
         return NoContent();
     }
-
-    [LoggerMessage(Level = LogLevel.Debug, Message = "Failed to delete detection cache rows for analysis mode {Mode}")]
-    private static partial void LogCacheDeleteFailed(ILogger logger, Exception exception, AnalysisMode mode);
 }
