@@ -129,10 +129,11 @@ public class SegmentEditorController(MediaSegmentEditorService mediaSegmentEdito
             return NotFound();
         }
 
-        // Delete from the plugin DB first so it is consistent even if the Jellyfin delete fails.
-        // The facade returns the rows it deleted (matched with its own epsilon), so a rollback
-        // restores exactly those rows instead of re-implementing the matching here.
-        var deletedRows = await _database.DeleteTimestampAsync(itemId, mode, dbSegment, cancellationToken).ConfigureAwait(false);
+        // Non-commercial modes have exactly one row per item and mode, so delete that
+        // unambiguous counterpart even if Jellyfin's reported range has drifted. Commercial
+        // rows still require the facade's exact epsilon match.
+        var deleteSegment = mode == AnalysisMode.Commercial ? dbSegment : null;
+        var deletedRows = await _database.DeleteTimestampAsync(itemId, mode, deleteSegment, cancellationToken).ConfigureAwait(false);
 
         try
         {
@@ -144,7 +145,8 @@ public class SegmentEditorController(MediaSegmentEditorService mediaSegmentEdito
             // user-provided flag and config hash, so the restored rows are not treated as
             // stale) to avoid an orphaned Jellyfin segment. When the plugin DB had no matching
             // row, fall back to the Jellyfin-reported range so the still-existing Jellyfin
-            // segment keeps a plugin-side counterpart.
+            // segment keeps a plugin-side counterpart. Rollback is deliberately uncancelable
+            // once the plugin delete has completed.
             if (deletedRows.Count > 0)
             {
                 foreach (var row in deletedRows)

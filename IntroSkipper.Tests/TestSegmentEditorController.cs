@@ -90,6 +90,43 @@ public sealed class TestSegmentEditorController
     }
 
     [Fact]
+    public async Task DeleteSegment_RestoresNonCommercialMetadata_WhenJellyfinRangeDriftedOutsideEpsilon()
+    {
+        using var scope = new EntrypointTestHelpers.PluginInstanceScope(EntrypointTestHelpers.CreateTempCacheDir());
+        var itemId = Guid.NewGuid();
+        var segmentId = Guid.NewGuid();
+        var database = DatabaseTestHelpers.CreateTempSegmentDatabase();
+        await database.UpdateTimestampAsync(new Segment(itemId, new TimeRange(100, 160)), AnalysisMode.Introduction, configHash: "cfg-original");
+
+        var movie = CreateMovie(itemId);
+        var manager = new FakeMediaSegmentManager
+        {
+            ExistingSegments =
+            [
+                new MediaSegmentDto
+                {
+                    Id = segmentId,
+                    ItemId = itemId,
+                    Type = Jellyfin.Database.Implementations.Enums.MediaSegmentType.Intro,
+                    StartTicks = TimeSpan.FromSeconds(100.005).Ticks,
+                    EndTicks = TimeSpan.FromSeconds(160.005).Ticks,
+                }
+            ],
+            DeleteException = new InvalidOperationException("jellyfin down"),
+        };
+        var controller = CreateController(manager, database, movie);
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            controller.DeleteSegmentAsync(segmentId, itemId, "intro", CancellationToken.None));
+
+        var restored = Assert.Single(await database.GetSegmentsAsync(itemId));
+        Assert.Equal(100, restored.Start);
+        Assert.Equal(160, restored.End);
+        Assert.False(restored.IsUserProvided);
+        Assert.Equal("cfg-original", restored.ConfigHash);
+    }
+
+    [Fact]
     public async Task DeleteSegment_RollbackRestoresExactRow_WhenMultipleCloseCommercialsExist()
     {
         using var scope = new EntrypointTestHelpers.PluginInstanceScope(EntrypointTestHelpers.CreateTempCacheDir());
