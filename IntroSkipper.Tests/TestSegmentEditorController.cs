@@ -16,16 +16,17 @@ using MediaBrowser.Controller.Entities.Movies;
 using MediaBrowser.Controller.MediaSegments;
 using MediaBrowser.Model.Configuration;
 using MediaBrowser.Model.MediaSegments;
+using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Logging.Abstractions;
 using Xunit;
 
 /// <summary>
-/// Tests for <see cref="SegmentEditorController.DeleteSegmentAsync"/> rollback behavior:
+/// Tests for <see cref="SegmentEditorController.DeleteSegmentAsync"/> validation and rollback behavior:
 /// the plugin DB row is deleted before the Jellyfin-side delete, so a Jellyfin failure must
 /// restore the row — including when the Jellyfin segment was already gone and the row was
 /// identified from the plugin database alone.
 /// </summary>
-public sealed class TestSegmentEditorController
+public sealed class SegmentEditorControllerTests
 {
     [Fact]
     public async Task DeleteSegment_RestoresPluginRow_WhenJellyfinDeleteFails_AndJellyfinSegmentAlreadyGone()
@@ -87,6 +88,56 @@ public sealed class TestSegmentEditorController
         Assert.Equal(160, restored.End);
         Assert.True(restored.IsUserProvided);
         Assert.Equal("cfg-2", restored.ConfigHash);
+    }
+
+    [Fact]
+    public async Task DeleteSegment_RejectsMismatchedExistingSegmentType_WithoutMutatingEitherStore()
+    {
+        using var scope = new EntrypointTestHelpers.PluginInstanceScope(EntrypointTestHelpers.CreateTempCacheDir());
+        var itemId = Guid.NewGuid();
+        var segmentId = Guid.NewGuid();
+        var database = DatabaseTestHelpers.CreateTempSegmentDatabase();
+        await database.UpdateTimestampAsync(new Segment(itemId, new TimeRange(100, 160)), AnalysisMode.Introduction, configHash: "cfg-intro");
+        await database.UpdateTimestampAsync(new Segment(itemId, new TimeRange(1200, 1260)), AnalysisMode.Credits, configHash: "cfg-credits");
+        await database.SetEpisodeIdsAsync(itemId, AnalysisMode.Introduction, [itemId], "cfg-intro");
+        await database.SetEpisodeIdsAsync(itemId, AnalysisMode.Credits, [itemId], "cfg-credits");
+
+        var movie = CreateMovie(itemId);
+        var manager = new FakeMediaSegmentManager
+        {
+            ExistingSegments =
+            [
+                new MediaSegmentDto
+                {
+                    Id = segmentId,
+                    ItemId = itemId,
+                    Type = Jellyfin.Database.Implementations.Enums.MediaSegmentType.Outro,
+                    StartTicks = TimeSpan.FromSeconds(1200).Ticks,
+                    EndTicks = TimeSpan.FromSeconds(1260).Ticks,
+                }
+            ],
+        };
+        var controller = CreateController(manager, database, movie);
+
+        var response = await controller.DeleteSegmentAsync(segmentId, itemId, "intro", CancellationToken.None);
+
+        Assert.IsType<BadRequestObjectResult>(response);
+        Assert.Empty(manager.DeletedSegmentIds);
+
+        var rows = await database.GetSegmentsAsync(itemId);
+        Assert.Equal(2, rows.Count);
+        var intro = Assert.Single(rows, row => row.Type == AnalysisMode.Introduction);
+        Assert.Equal(100, intro.Start);
+        Assert.Equal(160, intro.End);
+        Assert.Equal("cfg-intro", intro.ConfigHash);
+        var credits = Assert.Single(rows, row => row.Type == AnalysisMode.Credits);
+        Assert.Equal(1200, credits.Start);
+        Assert.Equal(1260, credits.End);
+        Assert.Equal("cfg-credits", credits.ConfigHash);
+
+        var snapshot = await database.GetSeasonQueueSnapshotAsync(itemId, [itemId]);
+        Assert.Contains(itemId, snapshot.EpisodeIdsByMode[AnalysisMode.Introduction]);
+        Assert.Contains(itemId, snapshot.EpisodeIdsByMode[AnalysisMode.Credits]);
     }
 
     [Fact]

@@ -92,9 +92,13 @@ public class SegmentEditorController(MediaSegmentEditorService mediaSegmentEdito
     /// <param name="itemId">The item id the segment belongs to (used to remove plugin DB entry).</param>
     /// <param name="type">The media segment type name (Intro/Recap/Preview/Outro).</param>
     /// <param name="cancellationToken">Cancellation token.</param>
-    /// <returns>HTTP 200 on success, 404 when the commercial segment is not found.</returns>
+    /// <returns>
+    /// HTTP 200 on success, 400 when the requested type does not match the Jellyfin segment,
+    /// or 404 when the commercial segment is not found.
+    /// </returns>
     [HttpDelete("{segmentId}")]
     [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     public async Task<ActionResult> DeleteSegmentAsync(
         [FromRoute, Required] Guid segmentId,
@@ -102,11 +106,7 @@ public class SegmentEditorController(MediaSegmentEditorService mediaSegmentEdito
         [FromQuery, Required] string type,
         CancellationToken cancellationToken = default)
     {
-        var existingSegment = await _mediaSegmentEditorService
-            .GetSegmentAsync(itemId, segmentId, cancellationToken)
-            .ConfigureAwait(false);
-
-        AnalysisMode mode = type.ToLowerInvariant() switch
+        AnalysisMode requestedMode = type.ToLowerInvariant() switch
         {
             "intro" => AnalysisMode.Introduction,
             "recap" => AnalysisMode.Recap,
@@ -115,6 +115,20 @@ public class SegmentEditorController(MediaSegmentEditorService mediaSegmentEdito
             "commercial" => AnalysisMode.Commercial,
             _ => throw new ArgumentOutOfRangeException(nameof(type), $"Unknown segment type '{type}'")
         };
+
+        var existingSegment = await _mediaSegmentEditorService
+            .GetSegmentAsync(itemId, segmentId, cancellationToken)
+            .ConfigureAwait(false);
+
+        var mode = requestedMode;
+        if (existingSegment is not null)
+        {
+            mode = AnalysisHelpers.MapSegmentTypeToMode(existingSegment.Type);
+            if (mode != requestedMode)
+            {
+                return BadRequest($"Segment '{segmentId}' is {existingSegment.Type}, not requested type '{type}'.");
+            }
+        }
 
         Segment? dbSegment = null;
         if (existingSegment is not null)
