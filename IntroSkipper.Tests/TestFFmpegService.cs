@@ -9,6 +9,7 @@
 
 using System;
 using System.Diagnostics;
+using System.Threading;
 using System.Threading.Tasks;
 using IntroSkipper.Data;
 using IntroSkipper.FFmpeg;
@@ -19,6 +20,121 @@ namespace IntroSkipper.Tests;
 
 public class TestFFmpegService
 {
+    [Fact]
+    public async Task CheckFFmpegVersionAsync_MemoizesSuccess()
+    {
+        var probeCount = 0;
+        var ffmpegService = CreateFFmpegService(_ =>
+        {
+            Interlocked.Increment(ref probeCount);
+            return Task.FromResult(true);
+        });
+
+        Assert.True(await ffmpegService.CheckFFmpegVersionAsync());
+        Assert.True(await ffmpegService.CheckFFmpegVersionAsync());
+        Assert.Equal(1, probeCount);
+    }
+
+    [Fact]
+    public async Task CheckFFmpegVersionAsync_RetriesFailure()
+    {
+        var probeCount = 0;
+        var ffmpegService = CreateFFmpegService(_ =>
+        {
+            Interlocked.Increment(ref probeCount);
+            return Task.FromResult(false);
+        });
+
+        Assert.False(await ffmpegService.CheckFFmpegVersionAsync());
+        Assert.False(await ffmpegService.CheckFFmpegVersionAsync());
+        Assert.Equal(2, probeCount);
+    }
+
+    [Fact]
+    public async Task CheckFFmpegVersionAsync_SharesConcurrentProbe()
+    {
+        var probeCount = 0;
+        var probeStarted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var releaseProbe = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var ffmpegService = CreateFFmpegService(_ =>
+        {
+            Interlocked.Increment(ref probeCount);
+            probeStarted.SetResult();
+            return releaseProbe.Task;
+        });
+
+        var first = ffmpegService.CheckFFmpegVersionAsync();
+        await probeStarted.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        var second = ffmpegService.CheckFFmpegVersionAsync();
+
+        Assert.Equal(1, probeCount);
+        releaseProbe.SetResult(true);
+        Assert.True(await first);
+        Assert.True(await second);
+        Assert.Equal(1, probeCount);
+    }
+
+    [Fact]
+    public async Task CheckFFmpegVersionAsync_SharesConcurrentFailedProbeThenRetries()
+    {
+        var probeCount = 0;
+        var probeStarted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var releaseProbe = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var ffmpegService = CreateFFmpegService(_ =>
+        {
+            if (Interlocked.Increment(ref probeCount) == 1)
+            {
+                probeStarted.SetResult();
+                return releaseProbe.Task;
+            }
+
+            return Task.FromResult(true);
+        });
+
+        var first = ffmpegService.CheckFFmpegVersionAsync();
+        await probeStarted.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        var second = ffmpegService.CheckFFmpegVersionAsync();
+
+        Assert.Equal(1, probeCount);
+        releaseProbe.SetResult(false);
+        Assert.False(await first);
+        Assert.False(await second);
+
+        Assert.True(await ffmpegService.CheckFFmpegVersionAsync());
+        Assert.True(await ffmpegService.CheckFFmpegVersionAsync());
+        Assert.Equal(2, probeCount);
+    }
+
+    [Fact]
+    public async Task CheckFFmpegVersionAsync_CancelsCallerWithoutCancelingSharedProbe()
+    {
+        var probeCount = 0;
+        var probeStarted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var releaseProbe = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var ffmpegService = CreateFFmpegService(cancellationToken =>
+        {
+            Assert.False(cancellationToken.CanBeCanceled);
+            Interlocked.Increment(ref probeCount);
+            probeStarted.SetResult();
+            return releaseProbe.Task;
+        });
+        using var cancellation = new CancellationTokenSource();
+
+        var canceledCaller = ffmpegService.CheckFFmpegVersionAsync(cancellation.Token);
+        await probeStarted.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        var remainingCaller = ffmpegService.CheckFFmpegVersionAsync();
+        await cancellation.CancelAsync();
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => canceledCaller);
+        Assert.False(remainingCaller.IsCompleted);
+        Assert.Equal(1, probeCount);
+
+        releaseProbe.SetResult(true);
+        Assert.True(await remainingCaller);
+        Assert.True(await ffmpegService.CheckFFmpegVersionAsync());
+        Assert.Equal(1, probeCount);
+    }
+
     #region Info Query Tests
 
     [FactSkipFFmpegTests]
@@ -219,6 +335,14 @@ public class TestFFmpegService
         return new FFmpegService(
             NullLogger<FFmpegService>.Instance,
             DatabaseTestHelpers.CreateTempCacheService());
+    }
+
+    private static FFmpegService CreateFFmpegService(Func<CancellationToken, Task<bool>> versionProbe)
+    {
+        return new FFmpegService(
+            NullLogger<FFmpegService>.Instance,
+            DatabaseTestHelpers.CreateTempCacheService(),
+            versionProbe);
     }
 
     private static QueuedEpisode QueueFile(string path)

@@ -32,17 +32,24 @@ public sealed partial class FFmpegService(
 
     private readonly ILogger<FFmpegService> _logger = logger;
     private readonly IDetectionCacheService _cacheService = cacheService;
+    private readonly Func<CancellationToken, Task<bool>>? _versionProbe;
 
-    // Written by CheckFFmpegVersionAsync (serialized via ScheduledTaskSemaphore) but read concurrently
-    // by the support bundle endpoint, so a concurrent dictionary is required.
+    // Version checks share one in-flight probe, but the support bundle endpoint can read
+    // these logs while that probe writes them, so a concurrent dictionary is required.
     private readonly ConcurrentDictionary<string, string> _chromaprintLogs = new();
 
-    // Memoizes a successful probe for the service lifetime: a valid ffmpeg does not
-    // spontaneously become invalid, so re-running the multi-process probe every analysis
-    // run is wasted work. A failed probe is deliberately NOT memoized — the user can fix
-    // or replace the ffmpeg binary while the server runs, and the next call must observe
-    // the recovery.
+    private readonly Lock _versionProbeLock = new();
+    private Task<bool>? _versionProbeTask;
     private volatile bool _versionProbeSucceeded;
+
+    internal FFmpegService(
+        ILogger<FFmpegService> logger,
+        IDetectionCacheService cacheService,
+        Func<CancellationToken, Task<bool>> versionProbe)
+        : this(logger, cacheService)
+    {
+        _versionProbe = versionProbe;
+    }
 
     /// <inheritdoc/>
     public async Task<bool> CheckFFmpegVersionAsync(CancellationToken cancellationToken = default)
@@ -54,13 +61,59 @@ public sealed partial class FFmpegService(
             return true;
         }
 
-        var valid = await ProbeFFmpegVersionAsync(cancellationToken).ConfigureAwait(false);
-        if (valid)
+        TaskCompletionSource<bool>? probeCompletion = null;
+        Task<bool> probeTask;
+        lock (_versionProbeLock)
         {
-            _versionProbeSucceeded = true;
+            if (_versionProbeSucceeded)
+            {
+                return true;
+            }
+
+            if (_versionProbeTask is null)
+            {
+                probeCompletion = new(TaskCreationOptions.RunContinuationsAsynchronously);
+                _versionProbeTask = probeCompletion.Task;
+            }
+
+            probeTask = _versionProbeTask;
         }
 
-        return valid;
+        if (probeCompletion is not null)
+        {
+            _ = RunVersionProbeAsync(probeCompletion);
+        }
+
+        return await probeTask.WaitAsync(cancellationToken).ConfigureAwait(false);
+    }
+
+    private async Task RunVersionProbeAsync(TaskCompletionSource<bool> completion)
+    {
+        try
+        {
+            var valid = await (_versionProbe ?? ProbeFFmpegVersionAsync)(CancellationToken.None).ConfigureAwait(false);
+            lock (_versionProbeLock)
+            {
+                if (valid)
+                {
+                    _versionProbeSucceeded = true;
+                }
+
+                completion.SetResult(valid);
+                if (!valid)
+                {
+                    _versionProbeTask = null;
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            lock (_versionProbeLock)
+            {
+                completion.SetException(ex);
+                _versionProbeTask = null;
+            }
+        }
     }
 
     private async Task<bool> ProbeFFmpegVersionAsync(CancellationToken cancellationToken)
