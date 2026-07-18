@@ -41,16 +41,19 @@ internal static class EntrypointTestHelpers
 
         var entrypoint = new Entrypoint(
             libraryManager: null!,
-            providerManager: null!,
-            fileSystem: null!,
             taskManager: null!,
-            cacheService: DatabaseTestHelpers.CreateCacheService(resolvedCacheDbPath),
             cacheDatabase: DatabaseTestHelpers.CreateCacheDatabase(resolvedCacheDbPath),
             ffmpegService: null!,
             logger: logger,
-            loggerFactory: loggerFactory,
-            mediaSegmentRefresher: new FakeMediaSegmentRefresher(),
-            database: DatabaseTestHelpers.CreateTempSegmentDatabase());
+            analyzerFactory: new AnalyzerTaskFactory(
+                loggerFactory,
+                libraryManager: null!,
+                providerManager: null!,
+                fileSystem: null!,
+                mediaSegmentRefresher: new FakeMediaSegmentRefresher(),
+                ffmpegService: null!,
+                cacheService: DatabaseTestHelpers.CreateCacheService(resolvedCacheDbPath),
+                database: DatabaseTestHelpers.CreateTempSegmentDatabase()));
 
         SetPrivateField(entrypoint, "_config", new PluginConfiguration { AutoDetectIntros = autoDetectIntros });
         return entrypoint;

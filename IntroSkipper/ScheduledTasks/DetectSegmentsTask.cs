@@ -22,35 +22,14 @@ namespace IntroSkipper.ScheduledTasks;
 /// <remarks>
 /// Initializes a new instance of the <see cref="DetectSegmentsTask"/> class.
 /// </remarks>
-/// <param name="loggerFactory">Logger factory.</param>
-/// <param name="libraryManager">Library manager.</param>
-/// <param name="providerManager">Provider manager.</param>
-/// <param name="fileSystem">File system.</param>
 /// <param name="logger">Logger.</param>
-/// <param name="mediaSegmentRefresher">Media segment refresher.</param>
-/// <param name="ffmpegService">FFmpeg service.</param>
-/// <param name="cacheService">Detection cache service.</param>
-/// <param name="database">Segment database facade.</param>
+/// <param name="analyzerFactory">Factory for per-run analyzer tasks.</param>
 public partial class DetectSegmentsTask(
     ILogger<DetectSegmentsTask> logger,
-    ILoggerFactory loggerFactory,
-    ILibraryManager libraryManager,
-    IProviderManager providerManager,
-    IFileSystem fileSystem,
-    IMediaSegmentRefresher mediaSegmentRefresher,
-    IFFmpegService ffmpegService,
-    IDetectionCacheService cacheService,
-    IIntroSkipperDatabase database) : IScheduledTask
+    AnalyzerTaskFactory analyzerFactory) : IScheduledTask
 {
     private readonly ILogger<DetectSegmentsTask> _logger = logger;
-    private readonly ILoggerFactory _loggerFactory = loggerFactory;
-    private readonly ILibraryManager _libraryManager = libraryManager;
-    private readonly IProviderManager _providerManager = providerManager;
-    private readonly IFileSystem _fileSystem = fileSystem;
-    private readonly IMediaSegmentRefresher _mediaSegmentRefresher = mediaSegmentRefresher;
-    private readonly IFFmpegService _ffmpegService = ffmpegService;
-    private readonly IDetectionCacheService _cacheService = cacheService;
-    private readonly IIntroSkipperDatabase _database = database;
+    private readonly AnalyzerTaskFactory _analyzerFactory = analyzerFactory;
 
     /// <summary>
     /// Gets the task name.
@@ -80,11 +59,6 @@ public partial class DetectSegmentsTask(
     /// <returns>Task.</returns>
     public async Task ExecuteAsync(IProgress<double> progress, CancellationToken cancellationToken)
     {
-        if (_libraryManager is null)
-        {
-            throw new InvalidOperationException("Library manager was null");
-        }
-
         // abort automatic analyzer if running
         if (Entrypoint.AutomaticTaskState == TaskState.Running || Entrypoint.AutomaticTaskState == TaskState.Cancelling)
         {
@@ -96,16 +70,7 @@ public partial class DetectSegmentsTask(
         {
             LogScheduledTaskStarting(_logger);
 
-            var baseIntroAnalyzer = new BaseItemAnalyzerTask(
-                _loggerFactory.CreateLogger<DetectSegmentsTask>(),
-                _loggerFactory,
-                _libraryManager,
-                _providerManager,
-                _fileSystem,
-                _mediaSegmentRefresher,
-                _ffmpegService,
-                _cacheService,
-                _database);
+            var baseIntroAnalyzer = _analyzerFactory.CreateAnalyzerTask();
 
             await baseIntroAnalyzer.AnalyzeItemsAsync(progress, cancellationToken).ConfigureAwait(false);
         }

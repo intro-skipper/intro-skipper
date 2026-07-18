@@ -20,31 +20,19 @@ namespace IntroSkipper.ScheduledTasks;
 /// Clean the Intro Skipper cache of unused rows.
 /// </summary>
 /// <param name="logger">Logger.</param>
-/// <param name="loggerFactory">Logger factory.</param>
-/// <param name="libraryManager">Library manager.</param>
-/// <param name="providerManager">Provider manager.</param>
-/// <param name="fileSystem">File system.</param>
-/// <param name="ffmpegService">FFmpeg service.</param>
+/// <param name="analyzerFactory">Factory for per-run queue managers.</param>
 /// <param name="database">Segment database facade.</param>
 /// <param name="cacheDatabase">Detection cache database facade.</param>
 /// <param name="mediaSegmentRefresher">Media segment refresher.</param>
 public partial class CleanCacheTask(
     ILogger<CleanCacheTask> logger,
-    ILoggerFactory loggerFactory,
-    ILibraryManager libraryManager,
-    IProviderManager providerManager,
-    IFileSystem fileSystem,
-    IFFmpegService ffmpegService,
+    AnalyzerTaskFactory analyzerFactory,
     IIntroSkipperDatabase database,
     IDetectionCacheDatabase cacheDatabase,
     IMediaSegmentRefresher mediaSegmentRefresher) : IScheduledTask
 {
     private readonly ILogger<CleanCacheTask> _logger = logger;
-    private readonly ILoggerFactory _loggerFactory = loggerFactory;
-    private readonly ILibraryManager _libraryManager = libraryManager;
-    private readonly IProviderManager _providerManager = providerManager;
-    private readonly IFileSystem _fileSystem = fileSystem;
-    private readonly IFFmpegService _ffmpegService = ffmpegService;
+    private readonly AnalyzerTaskFactory _analyzerFactory = analyzerFactory;
     private readonly IIntroSkipperDatabase _database = database;
     private readonly IDetectionCacheDatabase _cacheDatabase = cacheDatabase;
     private readonly IMediaSegmentRefresher _mediaSegmentRefresher = mediaSegmentRefresher;
@@ -79,20 +67,9 @@ public partial class CleanCacheTask(
     /// <returns>Task.</returns>
     public async Task ExecuteAsync(IProgress<double> progress, CancellationToken cancellationToken)
     {
-        if (_libraryManager is null)
-        {
-            throw new InvalidOperationException("Library manager was null");
-        }
-
         var plugin = Plugin.Instance ?? throw new InvalidOperationException("Plugin instance is null");
 
-        var queueManager = new QueueManager(
-            _loggerFactory.CreateLogger<QueueManager>(),
-            _libraryManager,
-            _providerManager,
-            _fileSystem,
-            _ffmpegService,
-            _database);
+        var queueManager = _analyzerFactory.CreateQueueManager();
 
         // QueueManager.GetMediaItems() already skips libraries where the plugin is disabled via
         // LibraryOptions.DisabledMediaSegmentProviders.

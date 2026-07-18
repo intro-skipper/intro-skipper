@@ -171,11 +171,15 @@ public sealed class TestVisualizationControllerSeams
             NullLogger<VisualizationController>.Instance,
             new NoOpMediaSegmentRefresher(),
             libraryManager!,
-            providerManager: null!,
-            fileSystem: null!,
-            NullLoggerFactory.Instance,
-            ffmpegService: null!,
-            DatabaseTestHelpers.CreateCacheService(cacheDbPath),
+            new AnalyzerTaskFactory(
+                NullLoggerFactory.Instance,
+                libraryManager!,
+                providerManager: null!,
+                fileSystem: null!,
+                new NoOpMediaSegmentRefresher(),
+                ffmpegService: null!,
+                DatabaseTestHelpers.CreateCacheService(cacheDbPath),
+                database),
             database,
             DatabaseTestHelpers.CreateCacheDatabase(cacheDbPath));
 

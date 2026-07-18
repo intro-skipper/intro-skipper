@@ -27,9 +27,7 @@ namespace IntroSkipper.ScheduledTasks;
 /// </remarks>
 /// <param name="logger">Task logger.</param>
 /// <param name="loggerFactory">Logger factory.</param>
-/// <param name="libraryManager">Library manager.</param>
-/// <param name="providerManager">Provider manager.</param>
-/// <param name="fileSystem">File system.</param>
+/// <param name="analyzerFactory">Factory used to create fresh queue managers per run.</param>
 /// <param name="mediaSegmentRefresher">Media segment refresher.</param>
 /// <param name="ffmpegService">FFmpeg service.</param>
 /// <param name="cacheService">Detection cache service.</param>
@@ -37,9 +35,7 @@ namespace IntroSkipper.ScheduledTasks;
 public partial class BaseItemAnalyzerTask(
     ILogger logger,
     ILoggerFactory loggerFactory,
-    ILibraryManager libraryManager,
-    IProviderManager providerManager,
-    IFileSystem fileSystem,
+    AnalyzerTaskFactory analyzerFactory,
     IMediaSegmentRefresher mediaSegmentRefresher,
     IFFmpegService ffmpegService,
     IDetectionCacheService cacheService,
@@ -54,9 +50,7 @@ public partial class BaseItemAnalyzerTask(
 
     private readonly ILogger _logger = logger;
     private readonly ILoggerFactory _loggerFactory = loggerFactory;
-    private readonly ILibraryManager _libraryManager = libraryManager;
-    private readonly IProviderManager _providerManager = providerManager;
-    private readonly IFileSystem _fileSystem = fileSystem;
+    private readonly AnalyzerTaskFactory _analyzerFactory = analyzerFactory;
     private readonly IMediaSegmentRefresher _mediaSegmentRefresher = mediaSegmentRefresher;
     private readonly IFFmpegService _ffmpegService = ffmpegService;
     private readonly IDetectionCacheService _cacheService = cacheService;
@@ -91,13 +85,7 @@ public partial class BaseItemAnalyzerTask(
 
         var seasonFilter = seasonsToAnalyze?.ToHashSet();
 
-        var queueManager = new QueueManager(
-            _loggerFactory.CreateLogger<QueueManager>(),
-            _libraryManager,
-            _providerManager,
-            _fileSystem,
-            _ffmpegService,
-            _database);
+        var queueManager = _analyzerFactory.CreateQueueManager();
 
         var plugin = Plugin.Instance ?? throw new InvalidOperationException("Plugin instance is null");
         var ffmpegValid = await queueManager.GetFfmpegValidAsync(cancellationToken).ConfigureAwait(false);
