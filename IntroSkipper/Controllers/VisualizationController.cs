@@ -5,7 +5,6 @@
 // SPDX-FileCopyrightText: 2024 theMasterpc
 // SPDX-License-Identifier: GPL-3.0-only
 
-using System.Data.Common;
 using System.Net.Mime;
 using IntroSkipper.Configuration;
 using IntroSkipper.Data;
@@ -139,16 +138,9 @@ public partial class VisualizationController(ILogger<VisualizationController> lo
 
             if (eraseCache)
             {
-                try
-                {
-                    // The main database is already transactionally consistent, and cache
-                    // cleanup is best-effort because the cache is only an optimization.
-                    await _cacheDatabase.DeleteForItemsAsync(episodeIds, CancellationToken.None).ConfigureAwait(false);
-                }
-                catch (Exception ex) when (ex is DbUpdateException or DbException)
-                {
-                    LogCacheDeleteFailed(_logger, ex, seasonId);
-                }
+                // Best-effort cache cleanup (the facade logs and swallows database errors),
+                // not bound to request cancellation: the main database is already consistent.
+                await _cacheDatabase.DeleteForItemsAsync(episodeIds, CancellationToken.None).ConfigureAwait(false);
             }
 
             if (Plugin.Instance.Configuration.UpdateMediaSegments)
@@ -198,19 +190,12 @@ public partial class VisualizationController(ILogger<VisualizationController> lo
                 .RemoveItemsFromAnalysisAsync(excludedIdsBySeason, cancellationToken)
                 .ConfigureAwait(false);
 
-            var removedCacheEntries = 0;
-            try
-            {
-                // Do not bind the best-effort cache cleanup to request cancellation: the
-                // main database transaction has committed, so make one complete attempt.
-                removedCacheEntries = await _cacheDatabase
-                    .DeleteForItemsAsync(excludedIds, CancellationToken.None)
-                    .ConfigureAwait(false);
-            }
-            catch (Exception ex) when (ex is DbUpdateException or DbException)
-            {
-                LogExcludedCacheDeleteFailed(_logger, ex);
-            }
+            // Best-effort cache cleanup (the facade logs and swallows database errors),
+            // not bound to request cancellation: the main database transaction has
+            // committed, so make one complete attempt.
+            var removedCacheEntries = await _cacheDatabase
+                .DeleteForItemsAsync(excludedIds, CancellationToken.None)
+                .ConfigureAwait(false);
 
             if (plugin.Configuration.UpdateMediaSegments)
             {
@@ -356,12 +341,6 @@ public partial class VisualizationController(ILogger<VisualizationController> lo
 
     [LoggerMessage(Level = LogLevel.Error, Message = "Failed to erase timestamps for series {SeriesId} season {SeasonId}")]
     private static partial void LogFailedToEraseTimestamps(ILogger logger, Exception ex, Guid seriesId, Guid seasonId);
-
-    [LoggerMessage(Level = LogLevel.Debug, Message = "Failed to delete detection cache rows for season {SeasonId}")]
-    private static partial void LogCacheDeleteFailed(ILogger logger, Exception exception, Guid seasonId);
-
-    [LoggerMessage(Level = LogLevel.Debug, Message = "Failed to delete detection cache rows for excluded items")]
-    private static partial void LogExcludedCacheDeleteFailed(ILogger logger, Exception exception);
 
     [LoggerMessage(Level = LogLevel.Error, Message = "Failed to clear excluded timestamp data")]
     private static partial void LogFailedToClearExcludedTimestamps(ILogger logger, Exception ex);

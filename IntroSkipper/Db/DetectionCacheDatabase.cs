@@ -1,6 +1,7 @@
 // SPDX-FileCopyrightText: 2026 Intro-Skipper contributors <intro-skipper.org>
 // SPDX-License-Identifier: GPL-3.0-only
 
+using System.Data.Common;
 using IntroSkipper.Data;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
@@ -106,8 +107,16 @@ public sealed partial class DetectionCacheDatabase : IDetectionCacheDatabase
             return 0;
         }
 
-        using var db = _contextFactory.CreateDbContext();
-        return db.DetectionCache.Where(e => e.ItemId == itemId).ExecuteDelete();
+        try
+        {
+            using var db = _contextFactory.CreateDbContext();
+            return db.DetectionCache.Where(e => e.ItemId == itemId).ExecuteDelete();
+        }
+        catch (Exception ex) when (ex is DbUpdateException or DbException)
+        {
+            LogCacheDeleteFailed(_logger, ex);
+            return 0;
+        }
     }
 
     /// <inheritdoc/>
@@ -118,8 +127,16 @@ public sealed partial class DetectionCacheDatabase : IDetectionCacheDatabase
             return 0;
         }
 
-        using var db = _contextFactory.CreateDbContext();
-        return db.DetectionCache.Where(e => e.Mode == mode).ExecuteDelete();
+        try
+        {
+            using var db = _contextFactory.CreateDbContext();
+            return db.DetectionCache.Where(e => e.Mode == mode).ExecuteDelete();
+        }
+        catch (Exception ex) when (ex is DbUpdateException or DbException)
+        {
+            LogCacheDeleteFailed(_logger, ex);
+            return 0;
+        }
     }
 
     /// <inheritdoc/>
@@ -163,14 +180,22 @@ public sealed partial class DetectionCacheDatabase : IDetectionCacheDatabase
             return 0;
         }
 
-        using var db = _contextFactory.CreateDbContext();
+        try
+        {
+            using var db = _contextFactory.CreateDbContext();
 
-        // EF.Parameter binds the ID set as a single JSON parameter (json_each), so the
-        // delete is one statement regardless of the item count.
-        return await db.DetectionCache
-            .Where(e => EF.Parameter(ids).Contains(e.ItemId))
-            .ExecuteDeleteAsync(cancellationToken)
-            .ConfigureAwait(false);
+            // EF.Parameter binds the ID set as a single JSON parameter (json_each), so the
+            // delete is one statement regardless of the item count.
+            return await db.DetectionCache
+                .Where(e => EF.Parameter(ids).Contains(e.ItemId))
+                .ExecuteDeleteAsync(cancellationToken)
+                .ConfigureAwait(false);
+        }
+        catch (Exception ex) when (ex is DbUpdateException or DbException)
+        {
+            LogCacheDeleteFailed(_logger, ex);
+            return 0;
+        }
     }
 
     /// <summary>
@@ -201,4 +226,7 @@ public sealed partial class DetectionCacheDatabase : IDetectionCacheDatabase
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "Detection cache database initialization failed; the next database operation will retry")]
     private static partial void LogCacheDbInitializationError(ILogger logger, Exception exception);
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "Failed to delete detection cache rows; the cache is an optimization, continuing")]
+    private static partial void LogCacheDeleteFailed(ILogger logger, Exception exception);
 }

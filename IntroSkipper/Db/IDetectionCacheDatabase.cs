@@ -11,8 +11,9 @@ namespace IntroSkipper.Db;
 /// schema lifecycle (<c>EnsureCreated</c> with delete-and-recreate corruption recovery).
 /// The synchronous members mirror the synchronous call patterns of the analysis pipeline.
 /// Initialization failures make the cache temporarily unavailable; operations return neutral
-/// results and retry initialization on the next call. Database errors after initialization
-/// continue to propagate to the existing best-effort callers.
+/// results and retry initialization on the next call. Delete operations are best-effort —
+/// the cache is an optimization, so database errors are logged and swallowed (returning 0)
+/// instead of propagating to callers.
 /// </summary>
 public interface IDetectionCacheDatabase
 {
@@ -63,17 +64,19 @@ public interface IDetectionCacheDatabase
     bool HasEntry(Guid itemId, AnalysisMode mode, CacheEntryType type, double start, double end, string expectedConfigHash);
 
     /// <summary>
-    /// Deletes all cache entries for an item.
+    /// Deletes all cache entries for an item. Best-effort: database errors are logged
+    /// and swallowed.
     /// </summary>
     /// <param name="itemId">Item ID.</param>
-    /// <returns>The number of deleted rows.</returns>
+    /// <returns>The number of deleted rows; 0 when the delete failed.</returns>
     int DeleteForItem(Guid itemId);
 
     /// <summary>
-    /// Deletes all cache entries for an analysis mode.
+    /// Deletes all cache entries for an analysis mode. Best-effort: database errors are
+    /// logged and swallowed.
     /// </summary>
     /// <param name="mode">Analysis mode.</param>
-    /// <returns>The number of deleted rows.</returns>
+    /// <returns>The number of deleted rows; 0 when the delete failed.</returns>
     int DeleteByMode(AnalysisMode mode);
 
     /// <summary>
@@ -88,10 +91,11 @@ public interface IDetectionCacheDatabase
 
     /// <summary>
     /// Deletes all cache entries for the given items in a single statement; the ID set
-    /// is bound as one JSON parameter, so the item count is unbounded.
+    /// is bound as one JSON parameter, so the item count is unbounded. Best-effort:
+    /// database errors are logged and swallowed (cancellation still propagates).
     /// </summary>
     /// <param name="itemIds">Item IDs whose cache entries should be removed.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
-    /// <returns>The number of deleted rows.</returns>
+    /// <returns>The number of deleted rows; 0 when the delete failed.</returns>
     Task<int> DeleteForItemsAsync(IReadOnlyCollection<Guid> itemIds, CancellationToken cancellationToken = default);
 }
