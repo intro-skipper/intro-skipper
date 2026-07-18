@@ -21,7 +21,7 @@ public sealed partial class IntroSkipperDatabase
 
         var enabledIds = enabledEpisodeIds.Distinct().ToArray();
 
-        await EnsureInitializedAsync().ConfigureAwait(false);
+        await InitializeAsync().ConfigureAwait(false);
         using var db = _contextFactory.CreateDbContext();
 
         // EF.Parameter forces the single-JSON-parameter json_each translation on SQLite,
@@ -50,7 +50,7 @@ public sealed partial class IntroSkipperDatabase
             return;
         }
 
-        await EnsureInitializedAsync().ConfigureAwait(false);
+        await InitializeAsync().ConfigureAwait(false);
         using var db = _contextFactory.CreateDbContext();
         await db.DbSegment
             .Where(s => EF.Parameter(ids).Contains(s.ItemId)
@@ -71,7 +71,7 @@ public sealed partial class IntroSkipperDatabase
 
         var ids = itemIds.Distinct().ToArray();
 
-        await EnsureInitializedAsync().ConfigureAwait(false);
+        await InitializeAsync().ConfigureAwait(false);
         using var db = _contextFactory.CreateDbContext();
 
         var transaction = await db.Database.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
@@ -113,7 +113,7 @@ public sealed partial class IntroSkipperDatabase
             .ToArray();
         var seasonIds = itemIdsBySeason.Keys.ToArray();
 
-        await EnsureInitializedAsync().ConfigureAwait(false);
+        await InitializeAsync().ConfigureAwait(false);
         using var db = _contextFactory.CreateDbContext();
 
         var transaction = await db.Database.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
@@ -168,7 +168,7 @@ public sealed partial class IntroSkipperDatabase
             return;
         }
 
-        await EnsureInitializedAsync().ConfigureAwait(false);
+        await InitializeAsync().ConfigureAwait(false);
         using var db = _contextFactory.CreateDbContext();
 
         var transaction = await db.Database.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
@@ -199,7 +199,7 @@ public sealed partial class IntroSkipperDatabase
 
         var retainedIds = seasonIds.Distinct().ToArray();
 
-        await EnsureInitializedAsync().ConfigureAwait(false);
+        await InitializeAsync().ConfigureAwait(false);
         using var db = _contextFactory.CreateDbContext();
 
         // Single NOT-IN delete; EF.Parameter binds the retained set as one JSON

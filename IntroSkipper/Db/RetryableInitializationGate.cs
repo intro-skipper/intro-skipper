@@ -27,6 +27,34 @@ internal sealed class RetryableInitializationGate<T>
     }
 
     /// <summary>
+    /// Returns the current attempt's value, resetting the gate on failure so the next
+    /// caller retries. <paramref name="onFirstFailure"/> runs only for the caller that
+    /// installed the replacement, so a shared failure is reported exactly once.
+    /// </summary>
+    /// <param name="onFirstFailure">Invoked once per failed attempt with its exception.</param>
+    /// <returns>The initialization result.</returns>
+    public T GetValue(Action<Exception> onFirstFailure)
+    {
+        ArgumentNullException.ThrowIfNull(onFirstFailure);
+
+        var attempt = GetAttempt();
+
+        try
+        {
+            return attempt.Value;
+        }
+        catch (Exception ex)
+        {
+            if (ResetIfCurrent(attempt))
+            {
+                onFirstFailure(ex);
+            }
+
+            throw;
+        }
+    }
+
+    /// <summary>
     /// Returns the current shared initialization attempt.
     /// </summary>
     /// <returns>The current lazy attempt.</returns>

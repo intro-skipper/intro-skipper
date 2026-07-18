@@ -178,7 +178,7 @@ public class SegmentEditorController(MediaSegmentEditorService mediaSegmentEdito
         var deletedItem = Plugin.Instance!.GetItem(itemId);
         if (deletedItem is not null)
         {
-            await _database.RemoveEpisodeIdAsync(ResolveSeasonStateKey(deletedItem, itemId), mode, itemId, cancellationToken).ConfigureAwait(false);
+            await _database.RemoveEpisodeIdAsync(ResolveSeasonStateKey(deletedItem), mode, itemId, cancellationToken).ConfigureAwait(false);
         }
 
         return Ok();
@@ -191,18 +191,29 @@ public class SegmentEditorController(MediaSegmentEditorService mediaSegmentEdito
     /// resolved. Prefer the queue key when the item is present in the cached queue.
     /// </summary>
     /// <param name="item">The item whose season-state key to resolve.</param>
-    /// <param name="itemId">The item id.</param>
     /// <returns>The season-state key.</returns>
-    private static Guid ResolveSeasonStateKey(BaseItem item, Guid itemId)
+    private static Guid ResolveSeasonStateKey(BaseItem item)
     {
-        foreach (var (seasonId, episodes) in Plugin.Instance!.QueuedMediaItems)
+        var queue = Plugin.Instance!.QueuedMediaItems;
+
+        // Nearly every episode is queued under its own season, so check that bucket
+        // before falling back to a scan of the whole queue for in-season specials
+        // grouped under another season's key.
+        if (item is Episode episode
+            && queue.TryGetValue(episode.SeasonId, out var seasonEpisodes)
+            && seasonEpisodes.Any(e => e.EpisodeId == item.Id))
         {
-            if (episodes.Any(e => e.EpisodeId == itemId))
+            return episode.SeasonId;
+        }
+
+        foreach (var (seasonId, episodes) in queue)
+        {
+            if (episodes.Any(e => e.EpisodeId == item.Id))
             {
                 return seasonId;
             }
         }
 
-        return item is Episode episode ? episode.SeasonId : item.Id;
+        return item is Episode fallbackEpisode ? fallbackEpisode.SeasonId : item.Id;
     }
 }

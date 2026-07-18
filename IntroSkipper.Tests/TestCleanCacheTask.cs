@@ -265,25 +265,11 @@ public sealed class TestCleanCacheTask
         };
 
     private static (string DbPath, string CacheDbPath) CreateTempDbPaths()
-    {
-        var directory = Path.Combine(Path.GetTempPath(), "IntroSkipper.Tests");
-        Directory.CreateDirectory(directory);
-        return (
-            Path.Combine(directory, Guid.NewGuid().ToString("N") + "-cleantask.db"),
-            Path.Combine(directory, Guid.NewGuid().ToString("N") + "-cleantask-cache.db"));
-    }
+        => (DatabaseTestHelpers.CreateTempDbPath(Guid.NewGuid().ToString("N") + "-cleantask.db"),
+            DatabaseTestHelpers.CreateTempDbPath(Guid.NewGuid().ToString("N") + "-cleantask-cache.db"));
 
     private static void DeleteSqliteFiles(string dbPath)
-    {
-        foreach (var suffix in new[] { string.Empty, "-wal", "-shm" })
-        {
-            var path = dbPath + suffix;
-            if (File.Exists(path))
-            {
-                File.Delete(path);
-            }
-        }
-    }
+        => DatabaseTestHelpers.DeleteSqliteFiles(dbPath);
 
     private sealed class RecordingProgress : IProgress<double>
     {

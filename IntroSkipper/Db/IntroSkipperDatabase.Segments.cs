@@ -21,7 +21,7 @@ public sealed partial class IntroSkipperDatabase
     {
         ArgumentNullException.ThrowIfNull(segment);
 
-        await EnsureInitializedAsync().ConfigureAwait(false);
+        await InitializeAsync().ConfigureAwait(false);
         using var db = _contextFactory.CreateDbContext();
 
         try
@@ -102,17 +102,27 @@ public sealed partial class IntroSkipperDatabase
     {
         var segments = await GetSegmentsAsync(id, cancellationToken).ConfigureAwait(false);
 
-        return segments
+        return ToCanonicalTimestamps(segments);
+    }
+
+    /// <summary>
+    /// Reduces stored segments to one canonical timestamp per mode: the segment with the
+    /// earliest start wins. Shared by the per-episode timestamp API and the season queue
+    /// snapshot so both surfaces always report the same segment.
+    /// </summary>
+    /// <param name="segments">Stored segments of a single episode.</param>
+    /// <returns>The canonical timestamp per analysis mode.</returns>
+    private static Dictionary<AnalysisMode, Segment> ToCanonicalTimestamps(IEnumerable<DbSegment> segments)
+        => segments
             .GroupBy(segment => segment.Type)
             .ToDictionary(
                 group => group.Key,
                 group => group.OrderBy(segment => segment.Start).First().ToSegment());
-    }
 
     /// <inheritdoc/>
     public async Task<IReadOnlyList<DbSegment>> GetSegmentsAsync(Guid id, CancellationToken cancellationToken = default)
     {
-        await EnsureInitializedAsync().ConfigureAwait(false);
+        await InitializeAsync().ConfigureAwait(false);
         using var db = _contextFactory.CreateDbContext();
 
         return await db.DbSegment
@@ -125,7 +135,7 @@ public sealed partial class IntroSkipperDatabase
     /// <inheritdoc/>
     public async Task DeleteItemSegmentsAsync(Guid itemId, CancellationToken cancellationToken = default)
     {
-        await EnsureInitializedAsync().ConfigureAwait(false);
+        await InitializeAsync().ConfigureAwait(false);
         using var db = _contextFactory.CreateDbContext();
         await db.DbSegment
             .Where(s => s.ItemId == itemId)
@@ -145,7 +155,7 @@ public sealed partial class IntroSkipperDatabase
             return;
         }
 
-        await EnsureInitializedAsync().ConfigureAwait(false);
+        await InitializeAsync().ConfigureAwait(false);
         using var db = _contextFactory.CreateDbContext();
 
         var query = db.DbSegment.Where(s => s.ItemId == itemId && s.Type == mode);
@@ -168,7 +178,7 @@ public sealed partial class IntroSkipperDatabase
     /// <inheritdoc/>
     public async Task DeleteSegmentsByModeAsync(AnalysisMode mode, CancellationToken cancellationToken = default)
     {
-        await EnsureInitializedAsync().ConfigureAwait(false);
+        await InitializeAsync().ConfigureAwait(false);
         using var db = _contextFactory.CreateDbContext();
         await db.DbSegment
             .Where(s => s.Type == mode)
@@ -187,7 +197,7 @@ public sealed partial class IntroSkipperDatabase
             return 0;
         }
 
-        await EnsureInitializedAsync().ConfigureAwait(false);
+        await InitializeAsync().ConfigureAwait(false);
         using var db = _contextFactory.CreateDbContext();
 
         // EF.Parameter binds the ID set as a single JSON parameter (json_each), so the

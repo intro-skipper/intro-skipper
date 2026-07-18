@@ -148,8 +148,6 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
 
     internal BaseItem? GetItem(Guid id) => id != Guid.Empty ? _libraryManager.GetItemById(id) : null;
 
-    internal ICollection<Folder> GetCollectionFolders(Guid id) => GetItem(id) is var item && item is not null ? _libraryManager.GetCollectionFolders(item) : [];
-
     internal string GetItemPath(Guid id) => GetItem(id) is var item && item is not null ? item.Path : string.Empty;
 
     internal IReadOnlyList<ChapterInfo> GetChapters(Guid id) => _chapterRepository.GetChapters(id) ?? Array.Empty<ChapterInfo>();

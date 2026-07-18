@@ -831,7 +831,7 @@ public sealed class TestDatabaseFacades
                 Interlocked.Increment(ref contextCreations);
                 return new IntroSkipperDbContext(dbPath);
             }),
-            NullLogger.Instance);
+            NullLogger<IntroSkipperDatabase>.Instance);
 
         try
         {
@@ -876,7 +876,7 @@ public sealed class TestDatabaseFacades
                 Interlocked.Increment(ref contextCreations);
                 return new DetectionCacheDbContext(dbPath);
             }),
-            NullLogger.Instance);
+            NullLogger<DetectionCacheDatabase>.Instance);
 
         try
         {
@@ -914,7 +914,7 @@ public sealed class TestDatabaseFacades
                 contextCreations++;
                 throw new IOException("Simulated unavailable cache database.");
             }),
-            NullLogger.Instance);
+            NullLogger<DetectionCacheDatabase>.Instance);
         var itemId = Guid.NewGuid();
 
         Assert.Null(database.FindEntry(
@@ -1139,22 +1139,8 @@ public sealed class TestDatabaseFacades
     }
 
     private static string CreateTempDbPath()
-    {
-        var tempDir = Path.Join(Path.GetTempPath(), "IntroSkipper.Tests", "database-facades");
-        Directory.CreateDirectory(tempDir);
-        return Path.Join(tempDir, Guid.NewGuid().ToString("N") + ".db");
-    }
+        => DatabaseTestHelpers.CreateTempDbPath(Guid.NewGuid().ToString("N") + "-facades.db");
 
     private static void DeleteSqliteFiles(string dbPath)
-    {
-        SqliteConnection.ClearAllPools();
-
-        foreach (var path in new[] { dbPath, dbPath + "-wal", dbPath + "-shm" })
-        {
-            if (File.Exists(path))
-            {
-                File.Delete(path);
-            }
-        }
-    }
+        => DatabaseTestHelpers.DeleteSqliteFiles(dbPath);
 }

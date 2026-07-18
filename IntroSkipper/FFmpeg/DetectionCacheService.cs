@@ -59,8 +59,7 @@ public sealed partial class DetectionCacheService(ILogger<DetectionCacheService>
                 return false;
             }
 
-            var json = DecompressBrotli<T[]>(entry.Data);
-            result = json ?? [];
+            result = DecompressBrotli<T[]>(entry.Data) ?? [];
 
             if (_logger.IsEnabled(LogLevel.Trace))
             {
@@ -120,10 +119,7 @@ public sealed partial class DetectionCacheService(ILogger<DetectionCacheService>
         try
         {
             var expectedHash = ConfigHasher.DetectionCache(Plugin.Instance?.Configuration ?? new(), CacheEntryType.Chromaprint, mode);
-            if (_cacheDatabase.HasEntry(episode.EpisodeId, mode, CacheEntryType.Chromaprint, start, end, expectedHash))
-            {
-                return true;
-            }
+            return _cacheDatabase.HasEntry(episode.EpisodeId, mode, CacheEntryType.Chromaprint, start, end, expectedHash);
         }
         catch (DbException ex)
         {

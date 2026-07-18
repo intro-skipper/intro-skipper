@@ -16,7 +16,6 @@ using MediaBrowser.Controller.Plugins;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.Logging;
 
 namespace IntroSkipper
 {
@@ -41,12 +40,8 @@ namespace IntroSkipper
                     .AddInterceptors(_pragmaInterceptor));
             // The facades own database initialization via their internal retryable
             // gates; every consumer goes through a facade.
-            serviceCollection.AddSingleton<IIntroSkipperDatabase>(serviceProvider => new IntroSkipperDatabase(
-                serviceProvider.GetRequiredService<IDbContextFactory<IntroSkipperDbContext>>(),
-                serviceProvider.GetRequiredService<ILogger<IntroSkipperDatabase>>()));
-            serviceCollection.AddSingleton<IDetectionCacheDatabase>(serviceProvider => new DetectionCacheDatabase(
-                serviceProvider.GetRequiredService<IDbContextFactory<DetectionCacheDbContext>>(),
-                serviceProvider.GetRequiredService<ILogger<DetectionCacheDatabase>>()));
+            serviceCollection.AddSingleton<IIntroSkipperDatabase, IntroSkipperDatabase>();
+            serviceCollection.AddSingleton<IDetectionCacheDatabase, DetectionCacheDatabase>();
 
             // Registered before Entrypoint so migrations are warmed as the first hosted
             // service; the facades' internal gate still guarantees ordering for any

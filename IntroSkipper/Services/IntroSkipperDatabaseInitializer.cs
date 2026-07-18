@@ -38,14 +38,14 @@ public sealed partial class IntroSkipperDatabaseInitializer : IHostedService
     /// <inheritdoc/>
     public async Task StartAsync(CancellationToken cancellationToken)
     {
-        // Segment initialization can fail and must not abort Jellyfin startup. Cancellation
-        // only abandons this wait; the shared initialization task keeps running so legacy
-        // repair or migration work is never interrupted halfway through.
         if (cancellationToken.IsCancellationRequested)
         {
             return;
         }
 
+        // Segment initialization can fail and must not abort Jellyfin startup. Cancellation
+        // only abandons this wait; the shared initialization task keeps running so legacy
+        // repair or migration work is never interrupted halfway through.
         try
         {
             await _segmentDatabase.InitializeAsync().WaitAsync(cancellationToken).ConfigureAwait(false);
@@ -66,7 +66,20 @@ public sealed partial class IntroSkipperDatabaseInitializer : IHostedService
             return;
         }
 
-        _ = _cacheDatabase.TryInitialize();
+        // The cache init is synchronous SQLite I/O (schema creation, possibly a
+        // corrupt-file rebuild); run it on the thread pool so the startup thread
+        // never blocks on it. Cancellation only abandons the wait so recovery is
+        // never interrupted halfway through.
+        try
+        {
+            await Task.Run(_cacheDatabase.TryInitialize, CancellationToken.None)
+                .WaitAsync(cancellationToken)
+                .ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            return;
+        }
     }
 
     /// <inheritdoc/>

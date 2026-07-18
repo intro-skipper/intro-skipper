@@ -20,12 +20,6 @@ public sealed partial class MediaSegmentRefreshService(
     ILibraryManager libraryManager,
     ILogger<MediaSegmentRefreshService> logger) : IMediaSegmentRefresher
 {
-    private enum MediaSegmentBatchOperation
-    {
-        Refresh,
-        RemoveIntroSkipperSegments
-    }
-
     /// <inheritdoc />
     public async Task RefreshAsync(BaseItem item, CancellationToken cancellationToken = default)
     {
@@ -71,7 +65,7 @@ public sealed partial class MediaSegmentRefreshService(
 
     private async Task ProcessByIdAsync(
         Guid itemId,
-        MediaSegmentBatchOperation operation,
+        Func<BaseItem, CancellationToken, Task> operation,
         CancellationToken cancellationToken)
     {
         var item = libraryManager.GetItemById(itemId);
@@ -81,17 +75,7 @@ public sealed partial class MediaSegmentRefreshService(
             return;
         }
 
-        switch (operation)
-        {
-            case MediaSegmentBatchOperation.Refresh:
-                await RefreshCoreAsync(item, cancellationToken).ConfigureAwait(false);
-                break;
-            case MediaSegmentBatchOperation.RemoveIntroSkipperSegments:
-                await RemoveIntroSkipperSegmentsCoreAsync(item, cancellationToken).ConfigureAwait(false);
-                break;
-            default:
-                throw new ArgumentOutOfRangeException(nameof(operation), operation, null);
-        }
+        await operation(item, cancellationToken).ConfigureAwait(false);
     }
 
     private async Task RemoveIntroSkipperSegmentsCoreAsync(BaseItem item, CancellationToken cancellationToken)
@@ -125,15 +109,15 @@ public sealed partial class MediaSegmentRefreshService(
 
     /// <inheritdoc />
     public Task RefreshAsync(IEnumerable<Guid> itemIds, CancellationToken cancellationToken = default)
-        => ProcessByIdsAsync(itemIds, MediaSegmentBatchOperation.Refresh, cancellationToken);
+        => ProcessByIdsAsync(itemIds, RefreshCoreAsync, cancellationToken);
 
     /// <inheritdoc />
     public Task RemoveIntroSkipperSegmentsAsync(IEnumerable<Guid> itemIds, CancellationToken cancellationToken = default)
-        => ProcessByIdsAsync(itemIds, MediaSegmentBatchOperation.RemoveIntroSkipperSegments, cancellationToken);
+        => ProcessByIdsAsync(itemIds, RemoveIntroSkipperSegmentsCoreAsync, cancellationToken);
 
     private async Task ProcessByIdsAsync(
         IEnumerable<Guid> itemIds,
-        MediaSegmentBatchOperation operation,
+        Func<BaseItem, CancellationToken, Task> operation,
         CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(itemIds);

@@ -32,7 +32,7 @@ public sealed partial class IntroSkipperDatabase : IIntroSkipperDatabase
     /// </summary>
     /// <param name="contextFactory">Factory used to create database contexts.</param>
     /// <param name="logger">Logger.</param>
-    public IntroSkipperDatabase(IDbContextFactory<IntroSkipperDbContext> contextFactory, ILogger logger)
+    public IntroSkipperDatabase(IDbContextFactory<IntroSkipperDbContext> contextFactory, ILogger<IntroSkipperDatabase> logger)
     {
         ArgumentNullException.ThrowIfNull(contextFactory);
         ArgumentNullException.ThrowIfNull(logger);
@@ -42,49 +42,29 @@ public sealed partial class IntroSkipperDatabase : IIntroSkipperDatabase
         // Task.Run is load-bearing, not redundant: InitializeCoreAsync begins with fully
         // synchronous work (EnsureLegacySchemaCompatibility can rebuild whole tables on
         // large legacy databases), so invoking the factory inline would make every
-        // concurrent first-touch caller — including purely async ones on the playback
-        // hot path — block its thread on the Lazy monitor until the factory's first
+        // concurrent first-touch caller - including purely async ones on the playback
+        // hot path - block its thread on the Lazy monitor until the factory's first
         // incomplete await. Dispatching to the thread pool makes the factory return a
         // Task immediately, so waiters genuinely await instead of blocking.
         _initialization = new RetryableInitializationGate<Task>(() => Task.Run(InitializeCoreAsync));
     }
 
     /// <inheritdoc/>
-    public async Task InitializeAsync()
-    {
-        var initialization = _initialization.GetAttempt();
-
-        try
-        {
-            await initialization.Value.ConfigureAwait(false);
-        }
-        catch (Exception ex)
-        {
-            if (_initialization.ResetIfCurrent(initialization))
-            {
-                LogDatabaseInitializationError(_logger, ex);
-            }
-
-            throw;
-        }
-    }
+    /// <remarks>
+    /// Every public data operation awaits this first, which guarantees that no query can
+    /// observe the database before legacy schema repair and EF migrations have completed
+    /// regardless of whether the eager initializer (hosted service) has already run.
+    /// </remarks>
+    public Task InitializeAsync()
+        => _initialization.AwaitValueAsync(ex => LogDatabaseInitializationError(_logger, ex));
 
     /// <inheritdoc/>
     public async Task RebuildDatabaseAsync(bool forceCleanOnBackupFailure = false, CancellationToken cancellationToken = default)
     {
-        await EnsureInitializedAsync().ConfigureAwait(false);
+        await InitializeAsync().ConfigureAwait(false);
         using var db = _contextFactory.CreateDbContext();
         await db.RebuildDatabaseAsync(_contextFactory.CreateDbContext, forceCleanOnBackupFailure, cancellationToken).ConfigureAwait(false);
     }
-
-    /// <summary>
-    /// Awaits the retryable initialization gate. Every public data operation calls this
-    /// first, which guarantees that no query can observe the database before legacy
-    /// schema repair and EF migrations have completed — regardless of whether the
-    /// eager initializer (hosted service) has already run.
-    /// </summary>
-    /// <returns>The shared initialization task.</returns>
-    private Task EnsureInitializedAsync() => InitializeAsync();
 
     private async Task InitializeCoreAsync()
     {
@@ -96,10 +76,7 @@ public sealed partial class IntroSkipperDatabase : IIntroSkipperDatabase
         db.EnsureLegacySchemaCompatibility();
         await db.ApplyMigrationsAsync().ConfigureAwait(false);
 
-        // WAL is a persistent database property, but EF only sets it when *it*
-        // creates the database file. Enforce it idempotently so databases
-        // vacuumed or recreated by external tooling are covered as well.
-        await db.Database.ExecuteSqlRawAsync("PRAGMA journal_mode=WAL;").ConfigureAwait(false);
+        await SqlitePragmas.EnforceWalAsync(db.Database).ConfigureAwait(false);
     }
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "Database initialization failed; the next database operation will retry")]
