@@ -12,7 +12,9 @@ namespace IntroSkipper.FFmpeg;
 public interface IFFmpegService
 {
     /// <summary>
-    /// Check that the installed version of ffmpeg supports chromaprint.
+    /// Check that the installed version of ffmpeg supports chromaprint. A successful
+    /// probe is memoized for the service lifetime; a failed probe is retried on the
+    /// next call so a repaired ffmpeg installation is observed without a restart.
     /// </summary>
     /// <param name="cancellationToken">Token used to cancel FFmpeg requirement checks.</param>
     /// <returns>A task that returns <see langword="true"/> if a compatible version of ffmpeg is installed, <see langword="false"/> on any error.</returns>
