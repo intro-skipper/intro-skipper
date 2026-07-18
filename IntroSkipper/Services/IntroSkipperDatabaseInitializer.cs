@@ -68,8 +68,18 @@ public sealed partial class IntroSkipperDatabaseInitializer : IHostedService
 
         // The cache init is synchronous SQLite I/O (schema creation, possibly a
         // corrupt-file rebuild); run it on the thread pool so the startup thread
-        // never blocks on it.
-        await Task.Run(_cacheDatabase.TryInitialize, CancellationToken.None).ConfigureAwait(false);
+        // never blocks on it. Cancellation only abandons the wait so recovery is
+        // never interrupted halfway through.
+        try
+        {
+            await Task.Run(_cacheDatabase.TryInitialize, CancellationToken.None)
+                .WaitAsync(cancellationToken)
+                .ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            return;
+        }
     }
 
     /// <inheritdoc/>
