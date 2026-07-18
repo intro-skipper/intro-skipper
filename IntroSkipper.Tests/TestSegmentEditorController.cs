@@ -90,6 +90,53 @@ public sealed class TestSegmentEditorController
     }
 
     [Fact]
+    public async Task DeleteSegment_RollbackRestoresExactRow_WhenMultipleCloseCommercialsExist()
+    {
+        using var scope = new EntrypointTestHelpers.PluginInstanceScope(EntrypointTestHelpers.CreateTempCacheDir());
+        var itemId = Guid.NewGuid();
+        var segmentId = Guid.NewGuid();
+        var database = DatabaseTestHelpers.CreateTempSegmentDatabase();
+
+        // Two commercials 0.005s apart: farther than the facade's delete epsilon (0.001)
+        // but closer than the 0.01 tolerance the controller used to re-match with. A
+        // rollback must restore the actually-deleted row and its metadata, not the
+        // neighbor's.
+        await database.UpdateTimestampAsync(new Segment(itemId, new TimeRange(10, 20)), AnalysisMode.Commercial, isUserProvided: false, configHash: "cfg-a");
+        await database.UpdateTimestampAsync(new Segment(itemId, new TimeRange(10.005, 20.005)), AnalysisMode.Commercial, isUserProvided: true, configHash: "cfg-b");
+
+        var movie = CreateMovie(itemId);
+        var manager = new FakeMediaSegmentManager
+        {
+            ExistingSegments =
+            [
+                new MediaSegmentDto
+                {
+                    Id = segmentId,
+                    ItemId = itemId,
+                    Type = Jellyfin.Database.Implementations.Enums.MediaSegmentType.Commercial,
+                    StartTicks = TimeSpan.FromSeconds(10.005).Ticks,
+                    EndTicks = TimeSpan.FromSeconds(20.005).Ticks,
+                }
+            ],
+            DeleteException = new InvalidOperationException("jellyfin down"),
+        };
+        var controller = CreateController(manager, database, movie);
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            controller.DeleteSegmentAsync(segmentId, itemId, "commercial", CancellationToken.None));
+
+        var rows = (await database.GetSegmentsAsync(itemId)).OrderBy(s => s.Start).ToList();
+        Assert.Equal(2, rows.Count);
+        Assert.False(rows[0].IsUserProvided);
+        Assert.Equal("cfg-a", rows[0].ConfigHash);
+        var restored = rows[1];
+        Assert.Equal(10.005, restored.Start);
+        Assert.Equal(20.005, restored.End);
+        Assert.True(restored.IsUserProvided);
+        Assert.Equal("cfg-b", restored.ConfigHash);
+    }
+
+    [Fact]
     public async Task DeleteSegment_RemovesPluginRow_WhenJellyfinDeleteSucceeds_AndJellyfinSegmentAlreadyGone()
     {
         using var scope = new EntrypointTestHelpers.PluginInstanceScope(EntrypointTestHelpers.CreateTempCacheDir());

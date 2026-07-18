@@ -33,9 +33,6 @@ namespace IntroSkipper.Controllers;
 [Route("MediaSegmentsApi")]
 public class SegmentEditorController(MediaSegmentEditorService mediaSegmentEditorService, IIntroSkipperDatabase database) : ControllerBase
 {
-    // Maximum difference in seconds between two time values to be considered equal.
-    private const double TimeComparisonToleranceSeconds = 0.01;
-
     private readonly MediaSegmentEditorService _mediaSegmentEditorService = mediaSegmentEditorService;
     private readonly IIntroSkipperDatabase _database = database;
 
@@ -132,29 +129,10 @@ public class SegmentEditorController(MediaSegmentEditorService mediaSegmentEdito
             return NotFound();
         }
 
-        // Read IsUserProvided and ConfigHash before deleting so a rollback can restore the row
-        // faithfully. Match on type AND start/end times so that when multiple segments of the
-        // same mode exist (e.g. Commercial) we identify the exact one being deleted rather than
-        // an arbitrary first match.
-        var wasUserProvided = false;
-        var configHash = string.Empty;
-        var pluginSegments = await _database.GetSegmentsAsync(itemId, cancellationToken).ConfigureAwait(false);
-        var matchingSegment = pluginSegments.FirstOrDefault(s =>
-            s.Type == mode &&
-            (dbSegment is null || (Math.Abs(s.Start - dbSegment.Start) < TimeComparisonToleranceSeconds && Math.Abs(s.End - dbSegment.End) < TimeComparisonToleranceSeconds)));
-        if (matchingSegment is not null)
-        {
-            wasUserProvided = matchingSegment.IsUserProvided;
-            configHash = matchingSegment.ConfigHash;
-        }
-
-        // Prefer the Jellyfin-reported range for the rollback; fall back to the plugin DB row so
-        // a failed Jellyfin delete can still restore the row when the Jellyfin segment was
-        // already gone (dbSegment is null deletes the mode's row below, so it must be restorable).
-        var restoreSegment = dbSegment ?? matchingSegment?.ToSegment();
-
         // Delete from the plugin DB first so it is consistent even if the Jellyfin delete fails.
-        await _database.DeleteTimestampAsync(itemId, mode, dbSegment, cancellationToken).ConfigureAwait(false);
+        // The facade returns the rows it deleted (matched with its own epsilon), so a rollback
+        // restores exactly those rows instead of re-implementing the matching here.
+        var deletedRows = await _database.DeleteTimestampAsync(itemId, mode, dbSegment, cancellationToken).ConfigureAwait(false);
 
         try
         {
@@ -162,12 +140,21 @@ public class SegmentEditorController(MediaSegmentEditorService mediaSegmentEdito
         }
         catch
         {
-            // Jellyfin delete failed — restore the plugin DB entry (including its user-provided
-            // flag and config hash, so the restored row is not treated as stale) to avoid an
-            // orphaned Jellyfin segment.
-            if (restoreSegment is not null)
+            // Jellyfin delete failed — restore the deleted plugin DB rows (including their
+            // user-provided flag and config hash, so the restored rows are not treated as
+            // stale) to avoid an orphaned Jellyfin segment. When the plugin DB had no matching
+            // row, fall back to the Jellyfin-reported range so the still-existing Jellyfin
+            // segment keeps a plugin-side counterpart.
+            if (deletedRows.Count > 0)
             {
-                await _database.UpdateTimestampAsync(restoreSegment, mode, isUserProvided: wasUserProvided, configHash: configHash, cancellationToken: CancellationToken.None).ConfigureAwait(false);
+                foreach (var row in deletedRows)
+                {
+                    await _database.UpdateTimestampAsync(row.ToSegment(), mode, isUserProvided: row.IsUserProvided, configHash: row.ConfigHash, cancellationToken: CancellationToken.None).ConfigureAwait(false);
+                }
+            }
+            else if (dbSegment is not null)
+            {
+                await _database.UpdateTimestampAsync(dbSegment, mode, cancellationToken: CancellationToken.None).ConfigureAwait(false);
             }
 
             throw;
