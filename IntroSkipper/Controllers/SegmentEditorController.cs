@@ -121,13 +121,10 @@ public class SegmentEditorController(MediaSegmentEditorService mediaSegmentEdito
             .ConfigureAwait(false);
 
         var mode = requestedMode;
-        if (existingSegment is not null)
+        if (existingSegment is not null
+            && existingSegment.Type != AnalysisHelpers.ModeToSegmentType[requestedMode])
         {
-            mode = AnalysisHelpers.MapSegmentTypeToMode(existingSegment.Type);
-            if (mode != requestedMode)
-            {
-                return BadRequest($"Segment '{segmentId}' is {existingSegment.Type}, not requested type '{type}'.");
-            }
+            return BadRequest($"Segment '{segmentId}' is {existingSegment.Type}, not requested type '{type}'.");
         }
 
         Segment? dbSegment = null;

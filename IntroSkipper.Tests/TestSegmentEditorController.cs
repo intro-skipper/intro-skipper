@@ -90,8 +90,11 @@ public sealed class SegmentEditorControllerTests
         Assert.Equal("cfg-2", restored.ConfigHash);
     }
 
-    [Fact]
-    public async Task DeleteSegment_RejectsMismatchedExistingSegmentType_WithoutMutatingEitherStore()
+    [Theory]
+    [InlineData(Jellyfin.Database.Implementations.Enums.MediaSegmentType.Outro)]
+    [InlineData((Jellyfin.Database.Implementations.Enums.MediaSegmentType)int.MaxValue)]
+    public async Task DeleteSegment_RejectsMismatchedOrUnsupportedExistingSegmentType_WithoutMutatingEitherStore(
+        Jellyfin.Database.Implementations.Enums.MediaSegmentType existingType)
     {
         using var scope = new EntrypointTestHelpers.PluginInstanceScope(EntrypointTestHelpers.CreateTempCacheDir());
         var itemId = Guid.NewGuid();
@@ -111,7 +114,7 @@ public sealed class SegmentEditorControllerTests
                 {
                     Id = segmentId,
                     ItemId = itemId,
-                    Type = Jellyfin.Database.Implementations.Enums.MediaSegmentType.Outro,
+                    Type = existingType,
                     StartTicks = TimeSpan.FromSeconds(1200).Ticks,
                     EndTicks = TimeSpan.FromSeconds(1260).Ticks,
                 }
