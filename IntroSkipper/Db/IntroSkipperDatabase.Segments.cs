@@ -144,7 +144,7 @@ public sealed partial class IntroSkipperDatabase
     }
 
     /// <inheritdoc/>
-    public async Task DeleteTimestampAsync(
+    public async Task<IReadOnlyList<DbSegment>> DeleteTimestampAsync(
         Guid itemId,
         AnalysisMode mode,
         Segment? segment = null,
@@ -152,7 +152,7 @@ public sealed partial class IntroSkipperDatabase
     {
         if (segment is null && mode == AnalysisMode.Commercial)
         {
-            return;
+            return [];
         }
 
         await InitializeAsync().ConfigureAwait(false);
@@ -173,6 +173,8 @@ public sealed partial class IntroSkipperDatabase
             db.DbSegment.RemoveRange(entries);
             await db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
         }
+
+        return entries;
     }
 
     /// <inheritdoc/>

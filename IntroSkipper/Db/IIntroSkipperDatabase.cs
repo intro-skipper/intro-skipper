@@ -63,14 +63,18 @@ public interface IIntroSkipperDatabase
     Task DeleteItemSegmentsAsync(Guid itemId, CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// Deletes a stored timestamp for the specified item and analysis mode.
+    /// Deletes a stored timestamp for the specified item and analysis mode. The delete is
+    /// authoritative: the rows it matched (using the facade's own comparison epsilon) are
+    /// returned, so callers can restore exactly what was deleted — including
+    /// <see cref="DbSegment.IsUserProvided"/> and <see cref="DbSegment.ConfigHash"/> —
+    /// without re-implementing the matching.
     /// </summary>
     /// <param name="itemId">The item ID whose timestamp should be removed.</param>
     /// <param name="mode">The analysis mode representing the segment type.</param>
     /// <param name="segment">Optional segment details used to remove a specific entry.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
-    /// <returns>A <see cref="Task"/> representing the asynchronous operation.</returns>
-    Task DeleteTimestampAsync(Guid itemId, AnalysisMode mode, Segment? segment = null, CancellationToken cancellationToken = default);
+    /// <returns>The deleted segment rows; empty when nothing matched.</returns>
+    Task<IReadOnlyList<DbSegment>> DeleteTimestampAsync(Guid itemId, AnalysisMode mode, Segment? segment = null, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Deletes every stored segment of the given analysis mode.

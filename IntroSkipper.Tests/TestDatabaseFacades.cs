@@ -174,7 +174,8 @@ public sealed class TestDatabaseFacades
             await database.UpdateTimestampAsync(new Segment(itemId, new TimeRange(0, 5)), AnalysisMode.Introduction);
 
             // Outside the 0.001 epsilon: nothing matches, nothing is removed.
-            await database.DeleteTimestampAsync(itemId, AnalysisMode.Commercial, new Segment(itemId, new TimeRange(10.01, 20)));
+            var noMatch = await database.DeleteTimestampAsync(itemId, AnalysisMode.Commercial, new Segment(itemId, new TimeRange(10.01, 20)));
+            Assert.Empty(noMatch);
 
             await using (var db = new IntroSkipperDbContext(dbPath))
             {
@@ -182,8 +183,12 @@ public sealed class TestDatabaseFacades
             }
 
             // Within epsilon on both bounds: removes exactly the matching commercial,
-            // leaving the other commercial and the intro untouched.
-            await database.DeleteTimestampAsync(itemId, AnalysisMode.Commercial, new Segment(itemId, new TimeRange(10.0005, 20.0005)));
+            // leaving the other commercial and the intro untouched — and returns the
+            // deleted row so callers can restore it faithfully.
+            var deleted = await database.DeleteTimestampAsync(itemId, AnalysisMode.Commercial, new Segment(itemId, new TimeRange(10.0005, 20.0005)));
+            var deletedRow = Assert.Single(deleted);
+            Assert.Equal(10, deletedRow.Start);
+            Assert.Equal(20, deletedRow.End);
 
             await using (var db = new IntroSkipperDbContext(dbPath))
             {
@@ -214,7 +219,7 @@ public sealed class TestDatabaseFacades
 
             // Commercial without a segment argument takes the early-return branch:
             // deleting "the" commercial is ambiguous, so nothing may be removed.
-            await database.DeleteTimestampAsync(itemId, AnalysisMode.Commercial);
+            Assert.Empty(await database.DeleteTimestampAsync(itemId, AnalysisMode.Commercial));
 
             await using (var db = new IntroSkipperDbContext(dbPath))
             {
@@ -222,7 +227,7 @@ public sealed class TestDatabaseFacades
             }
 
             // Non-commercial without a segment argument deletes the whole mode.
-            await database.DeleteTimestampAsync(itemId, AnalysisMode.Introduction);
+            Assert.Single(await database.DeleteTimestampAsync(itemId, AnalysisMode.Introduction));
 
             await using (var db = new IntroSkipperDbContext(dbPath))
             {
