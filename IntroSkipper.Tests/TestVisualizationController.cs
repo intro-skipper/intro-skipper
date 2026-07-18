@@ -216,11 +216,15 @@ public sealed class TestVisualizationController
             NullLogger<VisualizationController>.Instance,
             refresher,
             libraryManager: null!,
-            providerManager: null!,
-            fileSystem: null!,
-            loggerFactory,
-            ffmpegService: null!,
-            DatabaseTestHelpers.CreateCacheService(cacheDbPath),
+            new AnalyzerTaskFactory(
+                loggerFactory,
+                libraryManager: null!,
+                providerManager: null!,
+                fileSystem: null!,
+                mediaSegmentRefresher: null!,
+                ffmpegService: null!,
+                DatabaseTestHelpers.CreateCacheService(cacheDbPath),
+                database),
             database,
             DatabaseTestHelpers.CreateCacheDatabase(cacheDbPath));
     }

@@ -223,11 +223,15 @@ public sealed class TestCleanCacheTask
         IMediaSegmentRefresher? mediaSegmentRefresher = null)
         => new(
             NullLogger<CleanCacheTask>.Instance,
-            NullLoggerFactory.Instance,
-            libraryManager,
-            providerManager: null!,
-            fileSystem: null!,
-            ffmpegService: null!,
+            new AnalyzerTaskFactory(
+                NullLoggerFactory.Instance,
+                libraryManager,
+                providerManager: null!,
+                fileSystem: null!,
+                mediaSegmentRefresher: null!,
+                ffmpegService: null!,
+                cacheService: null!,
+                database),
             database,
             cacheDatabase,
             mediaSegmentRefresher: mediaSegmentRefresher ?? null!);

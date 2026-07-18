@@ -49,6 +49,10 @@ namespace IntroSkipper
             serviceCollection.AddHostedService<IntroSkipperDatabaseInitializer>();
 
             serviceCollection.AddHostedService<Entrypoint>();
+            // Owns the shared dependency set of the per-run analysis objects
+            // (QueueManager, BaseItemAnalyzerTask), which are stateful per run and
+            // therefore created fresh by this factory instead of being singletons.
+            serviceCollection.AddSingleton<AnalyzerTaskFactory>();
             serviceCollection.AddSingleton<IDetectionCacheService, DetectionCacheService>();
             serviceCollection.AddSingleton<IFFmpegService, FFmpegService>();
             serviceCollection.AddSingleton<IMediaSegmentProvider, SegmentProvider>();

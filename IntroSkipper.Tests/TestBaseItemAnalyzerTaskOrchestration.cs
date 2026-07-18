@@ -5,7 +5,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using IntroSkipper.Configuration;
 using IntroSkipper.FFmpeg;
-using IntroSkipper.ScheduledTasks;
+using IntroSkipper.Manager;
 using Microsoft.Extensions.Logging.Abstractions;
 using Xunit;
 
@@ -19,8 +19,7 @@ public sealed class TestBaseItemAnalyzerTaskOrchestration
         using var cancellation = new CancellationTokenSource();
         await cancellation.CancelAsync();
 
-        var analyzer = new BaseItemAnalyzerTask(
-            NullLogger.Instance,
+        var analyzer = new AnalyzerTaskFactory(
             NullLoggerFactory.Instance,
             EntrypointTestHelpers.CreateLibraryManager(),
             providerManager: null!,
@@ -30,7 +29,7 @@ public sealed class TestBaseItemAnalyzerTaskOrchestration
                 NullLogger<FFmpegService>.Instance,
                 DatabaseTestHelpers.CreateTempCacheService()),
             cacheService: null!,
-            database: null!);
+            database: null!).CreateAnalyzerTask();
 
         await Assert.ThrowsAnyAsync<OperationCanceledException>(
             () => analyzer.AnalyzeItemsAsync(new Progress<double>(), cancellation.Token));

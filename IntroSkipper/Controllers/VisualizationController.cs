@@ -34,27 +34,19 @@ namespace IntroSkipper.Controllers;
 /// <param name="logger">Logger.</param>
 /// <param name="mediaSegmentRefresher">Media segment refresher.</param>
 /// <param name="libraryManager">libraryManager.</param>
-/// <param name="providerManager">providerManager.</param>
-/// <param name="fileSystem">fileSystem.</param>
-/// <param name="loggerFactory">loggerFactory.</param>
-/// <param name="ffmpegService">FFmpeg service.</param>
-/// <param name="cacheService">Detection cache service.</param>
+/// <param name="analyzerFactory">Factory for per-run queue managers and analyzer tasks.</param>
 /// <param name="database">Segment database facade.</param>
 /// <param name="cacheDatabase">Detection cache database facade.</param>
 [Authorize(Policy = Policies.RequiresElevation)]
 [ApiController]
 [Produces(MediaTypeNames.Application.Json)]
 [Route("Intros")]
-public partial class VisualizationController(ILogger<VisualizationController> logger, IMediaSegmentRefresher mediaSegmentRefresher, ILibraryManager libraryManager, IProviderManager providerManager, IFileSystem fileSystem, ILoggerFactory loggerFactory, IFFmpegService ffmpegService, IDetectionCacheService cacheService, IIntroSkipperDatabase database, IDetectionCacheDatabase cacheDatabase) : ControllerBase
+public partial class VisualizationController(ILogger<VisualizationController> logger, IMediaSegmentRefresher mediaSegmentRefresher, ILibraryManager libraryManager, AnalyzerTaskFactory analyzerFactory, IIntroSkipperDatabase database, IDetectionCacheDatabase cacheDatabase) : ControllerBase
 {
     private readonly ILogger<VisualizationController> _logger = logger;
     private readonly IMediaSegmentRefresher _mediaSegmentRefresher = mediaSegmentRefresher;
     private readonly ILibraryManager _libraryManager = libraryManager;
-    private readonly IProviderManager _providerManager = providerManager;
-    private readonly IFileSystem _fileSystem = fileSystem;
-    private readonly ILoggerFactory _loggerFactory = loggerFactory;
-    private readonly IFFmpegService _ffmpegService = ffmpegService;
-    private readonly IDetectionCacheService _cacheService = cacheService;
+    private readonly AnalyzerTaskFactory _analyzerFactory = analyzerFactory;
     private readonly IIntroSkipperDatabase _database = database;
     private readonly IDetectionCacheDatabase _cacheDatabase = cacheDatabase;
 
@@ -234,13 +226,7 @@ public partial class VisualizationController(ILogger<VisualizationController> lo
     {
         if (_libraryManager is not null)
         {
-            var queueManager = new QueueManager(
-                _loggerFactory.CreateLogger<QueueManager>(),
-                _libraryManager,
-                _providerManager,
-                _fileSystem,
-                _ffmpegService,
-                _database);
+            var queueManager = _analyzerFactory.CreateQueueManager();
             var queue = await queueManager.GetMediaItems(includeExcluded: true, cancellationToken).ConfigureAwait(false);
             return [.. queue.Values.SelectMany(static episodes => episodes).Where(static episode => episode.IsExcluded)];
         }
@@ -307,16 +293,7 @@ public partial class VisualizationController(ILogger<VisualizationController> lo
                         // Erase season timestamps and cache first
                         await EraseSeasonAsync(seriesId, seasonId, true, CancellationToken.None).ConfigureAwait(false);
 
-                        var baseIntroAnalyzer = new BaseItemAnalyzerTask(
-                            _loggerFactory.CreateLogger<DetectSegmentsTask>(),
-                            _loggerFactory,
-                            _libraryManager,
-                            _providerManager,
-                            _fileSystem,
-                            _mediaSegmentRefresher,
-                            _ffmpegService,
-                            _cacheService,
-                            _database);
+                        var baseIntroAnalyzer = _analyzerFactory.CreateAnalyzerTask();
 
                         await baseIntroAnalyzer.AnalyzeItemsAsync(new Progress<double>(), CancellationToken.None, [seasonId]).ConfigureAwait(false);
                     }

@@ -35,15 +35,10 @@ namespace IntroSkipper.Services
     {
         private readonly ITaskManager _taskManager;
         private readonly ILibraryManager _libraryManager;
-        private readonly IProviderManager _providerManager;
-        private readonly IFileSystem _fileSystem;
-        private readonly IDetectionCacheService _cacheService;
         private readonly IDetectionCacheDatabase _cacheDatabase;
         private readonly IFFmpegService _ffmpegService;
         private readonly ILogger<Entrypoint> _logger;
-        private readonly ILoggerFactory _loggerFactory;
-        private readonly IMediaSegmentRefresher _mediaSegmentRefresher;
-        private readonly IIntroSkipperDatabase _database;
+        private readonly AnalyzerTaskFactory _analyzerFactory;
         private readonly HashSet<Guid> _seasonsToAnalyze = [];
         private readonly Lock _seasonsLock = new();
         private readonly Timer _queueTimer;
@@ -56,40 +51,25 @@ namespace IntroSkipper.Services
         /// Initializes a new instance of the <see cref="Entrypoint"/> class.
         /// </summary>
         /// <param name="libraryManager">Library manager.</param>
-        /// <param name="providerManager">Provider manager.</param>
-        /// <param name="fileSystem">File system.</param>
         /// <param name="taskManager">Task manager.</param>
-        /// <param name="cacheService">Detection cache service.</param>
         /// <param name="cacheDatabase">Detection cache database facade.</param>
         /// <param name="ffmpegService">FFmpeg service.</param>
         /// <param name="logger">Logger.</param>
-        /// <param name="loggerFactory">Logger factory.</param>
-        /// <param name="mediaSegmentRefresher">Media segment refresher.</param>
-        /// <param name="database">Segment database facade.</param>
+        /// <param name="analyzerFactory">Factory for per-run analyzer tasks.</param>
         public Entrypoint(
             ILibraryManager libraryManager,
-            IProviderManager providerManager,
-            IFileSystem fileSystem,
             ITaskManager taskManager,
-            IDetectionCacheService cacheService,
             IDetectionCacheDatabase cacheDatabase,
             IFFmpegService ffmpegService,
             ILogger<Entrypoint> logger,
-            ILoggerFactory loggerFactory,
-            IMediaSegmentRefresher mediaSegmentRefresher,
-            IIntroSkipperDatabase database)
+            AnalyzerTaskFactory analyzerFactory)
         {
             _libraryManager = libraryManager;
-            _providerManager = providerManager;
-            _fileSystem = fileSystem;
             _taskManager = taskManager;
-            _cacheService = cacheService;
             _cacheDatabase = cacheDatabase;
             _ffmpegService = ffmpegService;
             _logger = logger;
-            _loggerFactory = loggerFactory;
-            _mediaSegmentRefresher = mediaSegmentRefresher;
-            _database = database;
+            _analyzerFactory = analyzerFactory;
 
             _config = Plugin.Instance?.Configuration ?? new PluginConfiguration();
             _queueTimer = new Timer(
@@ -362,7 +342,7 @@ namespace IntroSkipper.Services
 
                         _analyzeAgain = false;
 
-                        var analyzer = new BaseItemAnalyzerTask(_loggerFactory.CreateLogger<Entrypoint>(), _loggerFactory, _libraryManager, _providerManager, _fileSystem, _mediaSegmentRefresher, _ffmpegService, _cacheService, _database);
+                        var analyzer = _analyzerFactory.CreateAnalyzerTask();
                         await analyzer.AnalyzeItemsAsync(new Progress<double>(), cts.Token, seasonIds).ConfigureAwait(false);
 
                         if (_analyzeAgain && !cts.IsCancellationRequested)
