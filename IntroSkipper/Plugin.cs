@@ -397,12 +397,12 @@ public partial class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
     }
 
     /// <summary>
-    /// Gets the episodes explicitly disabled for analysis in a season.
+    /// Gets the episodes excluded from media-segment output in a season.
     /// </summary>
     /// <param name="seasonId">Season identifier.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>Disabled episode identifiers.</returns>
-    internal static async Task<IReadOnlySet<Guid>> GetDisabledEpisodeIdsAsync(Guid seasonId, CancellationToken cancellationToken = default)
+    internal static async Task<IReadOnlySet<Guid>> GetMediaSegmentExcludedEpisodeIdsAsync(Guid seasonId, CancellationToken cancellationToken = default)
     {
         using var db = CreateDbContext();
         var ids = await db.DbDisabledEpisode
@@ -415,18 +415,18 @@ public partial class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
     }
 
     /// <summary>
-    /// Sets whether an episode is disabled for analysis and media-segment output.
+    /// Sets whether an episode is excluded from media-segment output.
     /// </summary>
     /// <param name="seasonId">Season identifier.</param>
     /// <param name="episodeId">Episode identifier.</param>
     /// <param name="disabled">Whether the episode is disabled.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
-    internal static async Task SetEpisodeAnalysisDisabledAsync(Guid seasonId, Guid episodeId, bool disabled, CancellationToken cancellationToken = default)
+    internal static async Task SetMediaSegmentExcludedAsync(Guid seasonId, Guid episodeId, bool excluded, CancellationToken cancellationToken = default)
     {
         using var db = CreateDbContext();
         var existing = await db.DbDisabledEpisode.FindAsync([episodeId], cancellationToken).ConfigureAwait(false);
 
-        if (disabled)
+        if (excluded)
         {
             if (existing is null)
             {
@@ -446,12 +446,12 @@ public partial class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
     }
 
     /// <summary>
-    /// Returns whether an episode is explicitly disabled for analysis and media-segment output.
+    /// Returns whether an episode is excluded from media-segment output.
     /// </summary>
     /// <param name="episodeId">Episode identifier.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns><see langword="true"/> when the episode is disabled.</returns>
-    internal static async Task<bool> IsEpisodeAnalysisDisabledAsync(Guid episodeId, CancellationToken cancellationToken = default)
+    internal static async Task<bool> IsEpisodeMediaSegmentExcludedAsync(Guid episodeId, CancellationToken cancellationToken = default)
     {
         using var db = CreateDbContext();
         return await db.DbDisabledEpisode.AsNoTracking().AnyAsync(e => e.EpisodeId == episodeId, cancellationToken).ConfigureAwait(false);
@@ -719,12 +719,6 @@ public partial class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
             seasonStates.ToDictionary(s => s.Type, s => (IReadOnlySet<Guid>)s.EpisodeIds.ToHashSet()),
             seasonStates.ToDictionary(s => s.Type, s => s.ConfigHash),
             seasonStates.ToDictionary(s => s.Type, s => s.Action),
-            (await db.DbDisabledEpisode
-                .AsNoTracking()
-                .Where(e => e.SeasonId == seasonId)
-                .Select(e => e.EpisodeId)
-                .ToListAsync(cancellationToken)
-                .ConfigureAwait(false)).ToHashSet(),
             segments
                 .GroupBy(s => s.ItemId)
                 .ToDictionary(

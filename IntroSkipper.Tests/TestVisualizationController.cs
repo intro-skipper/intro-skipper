@@ -134,23 +134,23 @@ public sealed class TestVisualizationController
         var controller = CreateController(refresher, loggerFactory);
 
         var disableResult = await controller.UpdateDisabledEpisode(
-            new UpdateEpisodeAnalysisRequest { SeasonId = seasonId, EpisodeId = episodeIds[0], Disabled = true },
+            new UpdateEpisodeMediaSegmentRequest { SeasonId = seasonId, EpisodeId = episodeIds[0], Disabled = true },
             CancellationToken.None);
 
         Assert.IsType<NoContentResult>(disableResult);
         Assert.Equal([episodeIds[0]], refresher.LastItemIds);
-        Assert.True(await Plugin.IsEpisodeAnalysisDisabledAsync(episodeIds[0]));
+        Assert.True(await Plugin.IsEpisodeMediaSegmentExcludedAsync(episodeIds[0]));
 
         var disabled = await controller.GetDisabledEpisodes(seasonId, CancellationToken.None);
         var disabledIds = Assert.IsAssignableFrom<IReadOnlySet<Guid>>(Assert.IsType<OkObjectResult>(disabled.Result).Value);
         Assert.Equal([episodeIds[0]], disabledIds);
 
         var enableResult = await controller.UpdateDisabledEpisode(
-            new UpdateEpisodeAnalysisRequest { SeasonId = seasonId, EpisodeId = episodeIds[0], Disabled = false },
+            new UpdateEpisodeMediaSegmentRequest { SeasonId = seasonId, EpisodeId = episodeIds[0], Disabled = false },
             CancellationToken.None);
 
         Assert.IsType<NoContentResult>(enableResult);
-        Assert.False(await Plugin.IsEpisodeAnalysisDisabledAsync(episodeIds[0]));
+        Assert.False(await Plugin.IsEpisodeMediaSegmentExcludedAsync(episodeIds[0]));
     }
 
     private static VisualizationController CreateController(RecordingMediaSegmentRefresher refresher, ILoggerFactory loggerFactory)

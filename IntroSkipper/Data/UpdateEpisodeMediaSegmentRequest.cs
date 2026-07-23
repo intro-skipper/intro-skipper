@@ -4,9 +4,9 @@
 namespace IntroSkipper.Data;
 
 /// <summary>
-/// Request to enable or disable analysis for one episode.
+/// Request to include or exclude one episode from media-segment output.
 /// </summary>
-public sealed class UpdateEpisodeAnalysisRequest
+public sealed class UpdateEpisodeMediaSegmentRequest
 {
     /// <summary>
     /// Gets or sets the season identifier.
@@ -19,7 +19,7 @@ public sealed class UpdateEpisodeAnalysisRequest
     public Guid EpisodeId { get; set; }
 
     /// <summary>
-    /// Gets or sets a value indicating whether the episode is disabled.
+    /// Gets or sets a value indicating whether media-segment output is disabled for the episode.
     /// </summary>
     public bool Disabled { get; set; }
 }

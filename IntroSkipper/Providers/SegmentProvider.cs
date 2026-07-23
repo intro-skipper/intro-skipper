@@ -40,7 +40,7 @@ namespace IntroSkipper.Providers
             ArgumentNullException.ThrowIfNull(request);
             ArgumentNullException.ThrowIfNull(Plugin.Instance);
 
-            if (await Plugin.IsEpisodeAnalysisDisabledAsync(request.ItemId, cancellationToken).ConfigureAwait(false))
+            if (await Plugin.IsEpisodeMediaSegmentExcludedAsync(request.ItemId, cancellationToken).ConfigureAwait(false))
             {
                 return [];
             }
