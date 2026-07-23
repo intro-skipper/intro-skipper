@@ -419,8 +419,9 @@ public partial class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
     /// </summary>
     /// <param name="seasonId">Season identifier.</param>
     /// <param name="episodeId">Episode identifier.</param>
-    /// <param name="disabled">Whether the episode is disabled.</param>
+    /// <param name="excluded">Whether the episode is excluded from media-segment output.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>A task representing the asynchronous update operation.</returns>
     internal static async Task SetMediaSegmentExcludedAsync(Guid seasonId, Guid episodeId, bool excluded, CancellationToken cancellationToken = default)
     {
         using var db = CreateDbContext();
@@ -450,7 +451,7 @@ public partial class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
     /// </summary>
     /// <param name="episodeId">Episode identifier.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
-    /// <returns><see langword="true"/> when the episode is disabled.</returns>
+    /// <returns><see langword="true"/> when the episode is excluded.</returns>
     internal static async Task<bool> IsEpisodeMediaSegmentExcludedAsync(Guid episodeId, CancellationToken cancellationToken = default)
     {
         using var db = CreateDbContext();
