@@ -297,13 +297,13 @@ export function createTimestampsBrowser(container: HTMLElement): { destroy: () =
             }
 
             epList.render(episodes, timestamps, false, disabledEpisodeIds, async (episodeId, disabled) => {
-                const response = await api.updateDisabledEpisode(
+                const response = await api.updateMediaSegmentExcludedEpisode(
                     season.Id,
                     episodeId,
                     disabled,
                 );
                 if (!response.ok) {
-                    throw new Error("Failed to update episode analysis setting");
+                    throw new Error("Failed to update media-segment setting");
                 }
             });
             await actions.loadForSeason(show.Id, season.Id, false);

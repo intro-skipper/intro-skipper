@@ -106,8 +106,8 @@ export function episodeList(): {
                 type: "checkbox",
             });
             toggle.checked = disabled;
-            toggle.setAttribute("aria-label", "Disable analysis for " + ep.Name);
-            toggle.title = "Disable analysis for this episode";
+            toggle.setAttribute("aria-label", "Exclude " + ep.Name + " from media segments");
+            toggle.title = "Exclude this episode from media segments";
             toggle.addEventListener("change", async () => {
                 toggle.disabled = true;
                 try {
@@ -120,7 +120,7 @@ export function episodeList(): {
                     card.classList.toggle("ts-episode-disabled", toggle.checked);
                 } catch {
                     toggle.checked = !toggle.checked;
-                    window.Dashboard.alert("Failed to update episode analysis setting");
+                    window.Dashboard.alert("Failed to update media-segment setting");
                 } finally {
                     toggle.disabled = false;
                 }

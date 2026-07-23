@@ -35,7 +35,7 @@ export async function getEpisodesWithTimestamps(
 
     const [timestamps, disabledResult] = await Promise.all([
         mapWithConcurrency(episodes, TIMESTAMP_FETCH_CONCURRENCY, (ep) => api.getEpisodeTimestamps(ep.Id)),
-        api.getDisabledEpisodes(seasonId),
+        api.getMediaSegmentExcludedEpisodes(seasonId),
     ]);
 
     return {

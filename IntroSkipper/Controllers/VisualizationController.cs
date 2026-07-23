@@ -72,7 +72,7 @@ public partial class VisualizationController(ILogger<VisualizationController> lo
     }
 
     /// <summary>
-    /// Returns the episodes explicitly disabled for analysis in the provided season.
+    /// Returns the episodes excluded from media-segment output in the provided season.
     /// </summary>
     /// <param name="seasonId">Season ID.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
@@ -91,7 +91,7 @@ public partial class VisualizationController(ILogger<VisualizationController> lo
     }
 
     /// <summary>
-    /// Enables or disables analysis and media-segment output for one episode.
+    /// Enables or disables media-segment output for one episode.
     /// </summary>
     /// <param name="request">Episode analysis update.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
@@ -99,7 +99,7 @@ public partial class VisualizationController(ILogger<VisualizationController> lo
     [HttpPost("DisabledEpisodes/Update")]
     [ProducesResponseType(StatusCodes.Status204NoContent)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
-    public async Task<ActionResult> UpdateDisabledEpisode([FromBody] UpdateEpisodeAnalysisRequest request, CancellationToken cancellationToken = default)
+    public async Task<ActionResult> UpdateDisabledEpisode([FromBody] UpdateEpisodeMediaSegmentRequest request, CancellationToken cancellationToken = default)
     {
         if (!TryGetSeasonEpisodes(request.SeasonId, out var episodes) ||
             episodes.FirstOrDefault(e => e.EpisodeId == request.EpisodeId) is not { Category: not QueuedMediaCategory.Movie })

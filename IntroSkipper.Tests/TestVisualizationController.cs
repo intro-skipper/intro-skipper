@@ -222,7 +222,7 @@ public sealed class TestVisualizationController
         var controller = CreateController(refresher, loggerFactory, database, pluginScope.CacheDbPath);
 
         var disableResult = await controller.UpdateDisabledEpisode(
-            new UpdateEpisodeAnalysisRequest { SeasonId = seasonId, EpisodeId = episodeIds[0], Disabled = true },
+            new UpdateEpisodeMediaSegmentRequest { SeasonId = seasonId, EpisodeId = episodeIds[0], Disabled = true },
             CancellationToken.None);
 
         Assert.IsType<NoContentResult>(disableResult);
@@ -234,7 +234,7 @@ public sealed class TestVisualizationController
         Assert.Equal([episodeIds[0]], disabledIds);
 
         var enableResult = await controller.UpdateDisabledEpisode(
-            new UpdateEpisodeAnalysisRequest { SeasonId = seasonId, EpisodeId = episodeIds[0], Disabled = false },
+            new UpdateEpisodeMediaSegmentRequest { SeasonId = seasonId, EpisodeId = episodeIds[0], Disabled = false },
             CancellationToken.None);
 
         Assert.IsType<NoContentResult>(enableResult);

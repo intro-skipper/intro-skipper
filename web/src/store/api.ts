@@ -83,11 +83,11 @@ export function updateAnalyzerActions(id: string, actions: AnalyzerActions): Pro
     );
 }
 
-export function getDisabledEpisodes(seasonId: string): Promise<ApiResult<string[]>> {
+export function getMediaSegmentExcludedEpisodes(seasonId: string): Promise<ApiResult<string[]>> {
     return getJson<string[]>(`Intros/DisabledEpisodes/${encodeURIComponent(seasonId)}`);
 }
 
-export function updateDisabledEpisode(
+export function updateMediaSegmentExcludedEpisode(
     seasonId: string,
     episodeId: string,
     disabled: boolean,

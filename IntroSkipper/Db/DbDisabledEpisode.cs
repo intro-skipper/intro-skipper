@@ -4,7 +4,7 @@
 namespace IntroSkipper.Db;
 
 /// <summary>
-/// Stores an episode that is explicitly disabled for analysis and media-segment output.
+/// Stores an episode that is excluded from media-segment output.
 /// </summary>
 public sealed class DbDisabledEpisode
 {
