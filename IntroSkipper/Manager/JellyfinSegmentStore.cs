@@ -61,7 +61,7 @@ public sealed partial class JellyfinSegmentStore(
                 {
                     await OwnSegments(db, itemId).ExecuteDeleteAsync(cancellationToken).ConfigureAwait(false);
                     db.MediaSegments.AddRange(entities);
-                    await SaveExactlyAsync(db, entities.Count, cancellationToken).ConfigureAwait(false);
+                    await SaveExactlyAsync(db, itemId, nameof(ReplaceSegmentsAsync), entities.Count, cancellationToken).ConfigureAwait(false);
                 },
                 cancellationToken).ConfigureAwait(false);
         }
@@ -113,7 +113,7 @@ public sealed partial class JellyfinSegmentStore(
                         .ExecuteDeleteAsync(cancellationToken)
                         .ConfigureAwait(false);
                     db.MediaSegments.Add(entity);
-                    await SaveExactlyAsync(db, 1, cancellationToken).ConfigureAwait(false);
+                    await SaveExactlyAsync(db, itemId, nameof(ReplaceTypeAsync), 1, cancellationToken).ConfigureAwait(false);
                 },
                 cancellationToken).ConfigureAwait(false);
         }
@@ -152,7 +152,7 @@ public sealed partial class JellyfinSegmentStore(
             }
 
             db.MediaSegments.Add(entity);
-            await SaveExactlyAsync(db, 1, cancellationToken).ConfigureAwait(false);
+            await SaveExactlyAsync(db, itemId, nameof(CreateCommercialIfAbsentAsync), 1, cancellationToken).ConfigureAwait(false);
         }
     }
 
@@ -174,16 +174,16 @@ public sealed partial class JellyfinSegmentStore(
     }
 
     /// <inheritdoc />
-    public async Task DeleteSegmentAsync(Guid segmentId)
+    public async Task DeleteSegmentAsync(Guid segmentId, CancellationToken cancellationToken)
     {
-        var db = await contextFactory.CreateDbContextAsync().ConfigureAwait(false);
+        var db = await contextFactory.CreateDbContextAsync(cancellationToken).ConfigureAwait(false);
         await using (db.ConfigureAwait(false))
         {
             // Deliberately not scoped to Intro Skipper's provider id: the editor lets
             // users remove any segment by id, matching IMediaSegmentManager semantics.
             await db.MediaSegments
                 .Where(segment => segment.Id == segmentId)
-                .ExecuteDeleteAsync()
+                .ExecuteDeleteAsync(cancellationToken)
                 .ConfigureAwait(false);
         }
     }
@@ -191,7 +191,7 @@ public sealed partial class JellyfinSegmentStore(
     private static IQueryable<MediaSegment> OwnSegments(JellyfinDbContext db, Guid itemId)
         => db.MediaSegments.Where(segment => segment.ItemId == itemId && segment.SegmentProviderId == ProviderId);
 
-    private static async Task SaveExactlyAsync(JellyfinDbContext db, int expectedWrites, CancellationToken cancellationToken)
+    private async Task SaveExactlyAsync(JellyfinDbContext db, Guid itemId, string operation, int expectedWrites, CancellationToken cancellationToken)
     {
         var written = await db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
         if (written != expectedWrites)
@@ -200,6 +200,7 @@ public sealed partial class JellyfinSegmentStore(
             // captured by its retry policy instead of thrown and the context reports -1;
             // treat any mismatch as a failure so callers never commit or report a write
             // that did not happen.
+            LogUnexpectedWriteCount(logger, operation, itemId, expectedWrites, written);
             throw new InvalidOperationException(FormattableString.Invariant(
                 $"Expected to write {expectedWrites} media segment(s) but SaveChanges reported {written}."));
         }
@@ -262,4 +263,7 @@ public sealed partial class JellyfinSegmentStore(
 
     [LoggerMessage(Level = LogLevel.Error, Message = "Failed to roll back a Jellyfin media segment transaction.")]
     private static partial void LogRollbackFailed(ILogger logger, Exception ex);
+
+    [LoggerMessage(Level = LogLevel.Error, Message = "{Operation} for item {ItemId} expected to write {ExpectedWrites} media segment(s) but SaveChanges reported {Written}.")]
+    private static partial void LogUnexpectedWriteCount(ILogger logger, string operation, Guid itemId, int expectedWrites, int written);
 }

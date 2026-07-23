@@ -63,6 +63,7 @@ public interface IJellyfinSegmentStore
     /// Deletes a segment by id, regardless of provider.
     /// </summary>
     /// <param name="segmentId">The segment id.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>A <see cref="Task"/> representing the asynchronous operation.</returns>
-    Task DeleteSegmentAsync(Guid segmentId);
+    Task DeleteSegmentAsync(Guid segmentId, CancellationToken cancellationToken);
 }

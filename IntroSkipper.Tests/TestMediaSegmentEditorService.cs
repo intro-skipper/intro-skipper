@@ -157,7 +157,7 @@ public sealed class TestMediaSegmentEditorService
         var service = CreateService(store);
         var segmentId = Guid.NewGuid();
 
-        await service.DeleteSegmentAsync(segmentId);
+        await service.DeleteSegmentAsync(segmentId, CancellationToken.None);
 
         Assert.Equal([segmentId], store.DeletedSegmentIds);
     }

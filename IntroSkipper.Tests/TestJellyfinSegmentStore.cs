@@ -244,7 +244,7 @@ public sealed class TestJellyfinSegmentStore
         var own = CreateEntity(itemId, MediaSegmentType.Outro, 30, 40, JellyfinSegmentStore.ProviderId);
         await SeedAsync(db, foreign, own);
 
-        await store.DeleteSegmentAsync(foreign.Id);
+        await store.DeleteSegmentAsync(foreign.Id, CancellationToken.None);
 
         var row = Assert.Single(await GetAllAsync(db));
         Assert.Equal(own.Id, row.Id);
