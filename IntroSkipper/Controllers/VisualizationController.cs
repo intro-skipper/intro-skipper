@@ -102,7 +102,7 @@ public partial class VisualizationController(ILogger<VisualizationController> lo
     public async Task<ActionResult> UpdateDisabledEpisode([FromBody] UpdateEpisodeMediaSegmentRequest request, CancellationToken cancellationToken = default)
     {
         if (!TryGetSeasonEpisodes(request.SeasonId, out var episodes) ||
-            episodes.FirstOrDefault(e => e.EpisodeId == request.EpisodeId) is not { Category: not QueuedMediaCategory.Movie })
+            !episodes.Any(e => e.EpisodeId == request.EpisodeId && e.Category != QueuedMediaCategory.Movie))
         {
             return NotFound();
         }
