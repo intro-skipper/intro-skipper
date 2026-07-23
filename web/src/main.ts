@@ -128,8 +128,13 @@ findAndBind();
 // the lifetime of the document so a freshly injected, unbound root is picked
 // up and bound again.
 const observer = new MutationObserver(() => {
-    if (boundRoot?.isConnected) {
-        return;
+    if (boundRoot) {
+        if (boundRoot.isConnected) {
+            return;
+        }
+
+        // Release the evicted view subtree so it can be garbage collected.
+        boundRoot = null;
     }
 
     findAndBind();
