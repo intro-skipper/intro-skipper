@@ -3,9 +3,7 @@
 // SPDX-FileCopyrightText: 2024-2026 Kilian von Pflugk
 // SPDX-License-Identifier: GPL-3.0-only
 
-using IntroSkipper.Data;
 using IntroSkipper.Db;
-using Jellyfin.Database.Implementations.Enums;
 using MediaBrowser.Controller.Entities;
 using MediaBrowser.Controller.Entities.Movies;
 using MediaBrowser.Controller.Entities.TV;
@@ -22,9 +20,11 @@ namespace IntroSkipper.Providers
     /// Initializes a new instance of the <see cref="SegmentProvider"/> class.
     /// </remarks>
     /// <param name="database">Segment database facade.</param>
-    public class SegmentProvider(IIntroSkipperDatabase database) : IMediaSegmentProvider
+    /// <param name="segmentDtoFactory">Converts plugin segments to Jellyfin DTOs.</param>
+    public class SegmentProvider(IIntroSkipperDatabase database, SegmentDtoFactory segmentDtoFactory) : IMediaSegmentProvider
     {
         private readonly IIntroSkipperDatabase _database = database;
+        private readonly SegmentDtoFactory _segmentDtoFactory = segmentDtoFactory;
 
         /// <inheritdoc/>
         public string Name => Plugin.Instance!.Name;
@@ -33,42 +33,8 @@ namespace IntroSkipper.Providers
         public async Task<IReadOnlyList<MediaSegmentDto>> GetMediaSegments(MediaSegmentGenerationRequest request, CancellationToken cancellationToken)
         {
             ArgumentNullException.ThrowIfNull(request);
-            ArgumentNullException.ThrowIfNull(Plugin.Instance);
 
-            var segments = new List<MediaSegmentDto>();
-            var itemSegments = await _database.GetSegmentsAsync(request.ItemId, cancellationToken).ConfigureAwait(false);
-            var dedupedModes = new HashSet<AnalysisMode>();
-
-            foreach (var segment in itemSegments.OrderBy(segment => segment.Start))
-            {
-                if (!AnalysisHelpers.ModeToSegmentType.TryGetValue(segment.Type, out var type))
-                {
-                    continue;
-                }
-
-                if (segment.End <= 0.0)
-                {
-                    continue;
-                }
-
-                if (segment.Type != AnalysisMode.Commercial && !dedupedModes.Add(segment.Type))
-                {
-                    continue;
-                }
-
-                long startTicks = (long)(segment.Start * TimeSpan.TicksPerSecond);
-                long endTicks = (long)(segment.End * TimeSpan.TicksPerSecond);
-
-                segments.Add(new MediaSegmentDto
-                {
-                    StartTicks = startTicks,
-                    EndTicks = endTicks,
-                    ItemId = request.ItemId,
-                    Type = type
-                });
-            }
-
-            return segments;
+            return await _segmentDtoFactory.CreateAsync(request.ItemId, cancellationToken).ConfigureAwait(false);
         }
 
         /// <inheritdoc/>

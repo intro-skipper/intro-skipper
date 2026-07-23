@@ -55,6 +55,11 @@ namespace IntroSkipper
             serviceCollection.AddSingleton<AnalyzerTaskFactory>();
             serviceCollection.AddSingleton<IDetectionCacheService, DetectionCacheService>();
             serviceCollection.AddSingleton<IFFmpegService, FFmpegService>();
+            // Shared plugin-to-Jellyfin segment conversion plus the direct writer into
+            // Jellyfin's MediaSegments table; the provider stays registered so
+            // Jellyfin-initiated runs converge to the same data.
+            serviceCollection.AddSingleton<SegmentDtoFactory>();
+            serviceCollection.AddSingleton<IJellyfinSegmentStore, JellyfinSegmentStore>();
             serviceCollection.AddSingleton<IMediaSegmentProvider, SegmentProvider>();
             serviceCollection.AddSingleton<IMediaSegmentRefresher, MediaSegmentRefreshService>();
             serviceCollection.AddTransient<MediaSegmentEditorService>();

@@ -1,22 +1,24 @@
+using IntroSkipper.Providers;
 using MediaBrowser.Controller.Entities;
 using MediaBrowser.Controller.Library;
-using MediaBrowser.Controller.MediaSegments;
-using MediaBrowser.Model.Configuration;
 using Microsoft.Extensions.Logging;
 
 namespace IntroSkipper.Manager;
 
 /// <summary>
-/// Manages Jellyfin media segments by running providers and removing Intro Skipper-owned entries.
+/// Syncs Intro Skipper's segments for library items into Jellyfin's database by
+/// replacing Intro Skipper-owned entries directly; other providers are never touched.
 /// </summary>
 /// <remarks>
 /// Initializes a new instance of the <see cref="MediaSegmentRefreshService"/> class.
 /// </remarks>
-/// <param name="mediaSegmentManager">The Jellyfin media segment manager.</param>
+/// <param name="segmentStore">Direct store for Jellyfin's media segments.</param>
+/// <param name="segmentDtoFactory">Converts plugin segments to Jellyfin DTOs.</param>
 /// <param name="libraryManager">The Jellyfin library manager used to resolve items by id.</param>
 /// <param name="logger">Application logger.</param>
 public sealed partial class MediaSegmentRefreshService(
-    IMediaSegmentManager mediaSegmentManager,
+    IJellyfinSegmentStore segmentStore,
+    SegmentDtoFactory segmentDtoFactory,
     ILibraryManager libraryManager,
     ILogger<MediaSegmentRefreshService> logger) : IMediaSegmentRefresher
 {
@@ -28,101 +30,12 @@ public sealed partial class MediaSegmentRefreshService(
         await RefreshCoreAsync(item, cancellationToken).ConfigureAwait(false);
     }
 
-    private async Task RefreshCoreAsync(BaseItem item, CancellationToken cancellationToken)
-    {
-        try
-        {
-            await mediaSegmentManager
-                .RunSegmentPluginProviders(
-                    item,
-                    MediaSegmentProviderDefaults.ExternalProviders,
-                    true,
-                    cancellationToken)
-                .ConfigureAwait(false);
-            LogUpdatedMediaSegments(logger, item.Id);
-        }
-        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
-        {
-            LogMediaSegmentRefreshCanceled(logger, item.Id);
-            throw;
-        }
-        catch (Exception ex)
-        {
-            // Do not swallow cancellation or critical exceptions.
-            if (ex is OperationCanceledException
-                || ex is OutOfMemoryException
-                || ex is StackOverflowException
-                || ex is ThreadAbortException
-                || ex is ThreadInterruptedException
-                || ex is AccessViolationException)
-            {
-                throw;
-            }
-
-            LogErrorRefreshingMediaSegments(logger, ex, item.Id);
-        }
-    }
-
-    private async Task ProcessByIdAsync(
-        Guid itemId,
-        Func<BaseItem, CancellationToken, Task> operation,
-        CancellationToken cancellationToken)
-    {
-        var item = libraryManager.GetItemById(itemId);
-        if (item is null)
-        {
-            LogItemNotFoundForMediaSegmentOperation(logger, itemId);
-            return;
-        }
-
-        await operation(item, cancellationToken).ConfigureAwait(false);
-    }
-
-    private async Task RemoveIntroSkipperSegmentsCoreAsync(BaseItem item, CancellationToken cancellationToken)
-    {
-        cancellationToken.ThrowIfCancellationRequested();
-
-        var introSkipperOnlyOptions = new LibraryOptions
-        {
-            DisabledMediaSegmentProviders =
-            [
-                .. mediaSegmentManager
-                    .GetSupportedProviders(item)
-                    .Select(static provider => provider.Name)
-                    .Where(static providerName => !string.Equals(
-                        providerName,
-                        Plugin.ProviderName,
-                        StringComparison.OrdinalIgnoreCase))
-            ]
-        };
-
-        var segments = await mediaSegmentManager
-            .GetSegmentsAsync(item, null, introSkipperOnlyOptions, filterByProvider: true)
-            .ConfigureAwait(false);
-
-        foreach (var segment in segments)
-        {
-            cancellationToken.ThrowIfCancellationRequested();
-            await mediaSegmentManager.DeleteSegmentAsync(segment.Id).ConfigureAwait(false);
-        }
-    }
-
     /// <inheritdoc />
-    public Task RefreshAsync(IEnumerable<Guid> itemIds, CancellationToken cancellationToken = default)
-        => ProcessByIdsAsync(itemIds, RefreshCoreAsync, cancellationToken);
-
-    /// <inheritdoc />
-    public Task RemoveIntroSkipperSegmentsAsync(IEnumerable<Guid> itemIds, CancellationToken cancellationToken = default)
-        => ProcessByIdsAsync(itemIds, RemoveIntroSkipperSegmentsCoreAsync, cancellationToken);
-
-    private async Task ProcessByIdsAsync(
-        IEnumerable<Guid> itemIds,
-        Func<BaseItem, CancellationToken, Task> operation,
-        CancellationToken cancellationToken)
+    public async Task RefreshAsync(IEnumerable<Guid> itemIds, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(itemIds);
 
-        var ids = itemIds.Where(itemId => itemId != Guid.Empty).ToHashSet();
+        var ids = itemIds.Where(static itemId => itemId != Guid.Empty).ToHashSet();
 
         if (ids.Count == 0)
         {
@@ -137,8 +50,55 @@ public sealed partial class MediaSegmentRefreshService(
 
         await Parallel.ForEachAsync(ids, options, async (itemId, ct) =>
         {
-            await ProcessByIdAsync(itemId, operation, ct).ConfigureAwait(false);
+            var item = libraryManager.GetItemById(itemId);
+            if (item is null)
+            {
+                LogItemNotFoundForMediaSegmentOperation(logger, itemId);
+                return;
+            }
+
+            await RefreshCoreAsync(item, ct).ConfigureAwait(false);
         }).ConfigureAwait(false);
+    }
+
+    /// <inheritdoc />
+    public async Task RemoveIntroSkipperSegmentsAsync(IEnumerable<Guid> itemIds, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(itemIds);
+
+        // No library resolution here: rows of items already removed from the library
+        // must be deleted too, which is exactly what the stale-cleanup caller needs.
+        await segmentStore.DeleteOwnSegmentsAsync(itemIds, cancellationToken).ConfigureAwait(false);
+    }
+
+    private async Task RefreshCoreAsync(BaseItem item, CancellationToken cancellationToken)
+    {
+        try
+        {
+            var segments = await segmentDtoFactory.CreateAsync(item.Id, cancellationToken).ConfigureAwait(false);
+            await segmentStore.ReplaceSegmentsAsync(item.Id, segments, cancellationToken).ConfigureAwait(false);
+            LogUpdatedMediaSegments(logger, item.Id);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            LogMediaSegmentRefreshCanceled(logger, item.Id);
+            throw;
+        }
+        catch (Exception ex)
+        {
+            // Do not swallow cancellation or critical exceptions.
+            if (ex is OperationCanceledException
+                or OutOfMemoryException
+                or StackOverflowException
+                or ThreadAbortException
+                or ThreadInterruptedException
+                or AccessViolationException)
+            {
+                throw;
+            }
+
+            LogErrorRefreshingMediaSegments(logger, ex, item.Id);
+        }
     }
 
     [LoggerMessage(Level = LogLevel.Debug, Message = "Updated media segments for item {ItemId}")]

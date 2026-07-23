@@ -19,10 +19,7 @@ using IntroSkipper.Manager;
 using MediaBrowser.Controller.Entities;
 using MediaBrowser.Controller.Entities.TV;
 using MediaBrowser.Controller.Library;
-using MediaBrowser.Controller.MediaSegments;
-using MediaBrowser.Model.Configuration;
 using MediaBrowser.Model.Entities;
-using MediaBrowser.Model.MediaSegments;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging.Abstractions;
 using Xunit;
@@ -98,10 +95,7 @@ public sealed class TestSeasonKeyResolution
             await database.UpdateTimestampAsync(new Segment(specialId, new TimeRange(100, 160)), AnalysisMode.Introduction);
             await database.SetEpisodeIdsAsync(hostSeasonId, AnalysisMode.Introduction, [hostEpisodeId, specialId], "hash");
 
-            var service = new MediaSegmentEditorService(
-                new FakeMediaSegmentManager(),
-                EntrypointTestHelpers.CreateLibraryManager(),
-                NullLogger<MediaSegmentEditorService>.Instance);
+            var service = new MediaSegmentEditorService(new FakeJellyfinSegmentStore());
             var controller = new SegmentEditorController(service, database);
 
             await controller.DeleteSegmentAsync(Guid.NewGuid(), specialId, "intro", CancellationToken.None);
@@ -141,10 +135,7 @@ public sealed class TestSeasonKeyResolution
             await database.UpdateTimestampAsync(new Segment(episodeId, new TimeRange(100, 160)), AnalysisMode.Introduction);
             await database.SetEpisodeIdsAsync(seasonId, AnalysisMode.Introduction, [episodeId], "hash");
 
-            var service = new MediaSegmentEditorService(
-                new FakeMediaSegmentManager(),
-                EntrypointTestHelpers.CreateLibraryManager(),
-                NullLogger<MediaSegmentEditorService>.Instance);
+            var service = new MediaSegmentEditorService(new FakeJellyfinSegmentStore());
             var controller = new SegmentEditorController(service, database);
 
             await controller.DeleteSegmentAsync(Guid.NewGuid(), episodeId, "intro", CancellationToken.None);
@@ -218,23 +209,4 @@ public sealed class TestSeasonKeyResolution
         }
     }
 
-    private sealed class FakeMediaSegmentManager : IMediaSegmentManager
-    {
-        public IEnumerable<(string Name, string Id)> GetSupportedProviders(BaseItem item) => [(Plugin.ProviderName, "intro-skipper")];
-
-        public Task<IEnumerable<MediaSegmentDto>> GetSegmentsAsync(BaseItem item, IEnumerable<Jellyfin.Database.Implementations.Enums.MediaSegmentType>? typeFilter, LibraryOptions libraryOptions, bool filterByProvider = true)
-            => Task.FromResult<IEnumerable<MediaSegmentDto>>([]);
-
-        public Task<MediaSegmentDto> CreateSegmentAsync(MediaSegmentDto mediaSegment, string segmentProviderId) => Task.FromResult(mediaSegment);
-
-        public Task DeleteSegmentAsync(Guid segmentId) => Task.CompletedTask;
-
-        public Task DeleteSegmentsAsync(Guid itemId, CancellationToken cancellationToken) => Task.CompletedTask;
-
-        public Task RunSegmentPluginProviders(BaseItem baseItem, LibraryOptions libraryOptions, bool forceOverwrite, CancellationToken cancellationToken) => Task.CompletedTask;
-
-        public bool HasSegments(Guid itemId) => false;
-
-        public bool IsTypeSupported(BaseItem baseItem) => true;
-    }
 }
