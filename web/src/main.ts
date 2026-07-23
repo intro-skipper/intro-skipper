@@ -31,10 +31,10 @@ const tabs: readonly Tab[] = [
 
 const ROOT_SELECTOR = "#intro-skipper-dashboard-root";
 const DEFAULT_TAB_ID = "general";
-const OBSERVER_TIMEOUT_MS = 30_000;
 
 let cleanupPage: (() => void) | null = null;
 let mountVersion = 0;
+let boundRoot: HTMLElement | null = null;
 
 function destroyMountedPage(): void {
     mountVersion += 1;
@@ -90,6 +90,7 @@ function bindPage(rootEl: HTMLElement): void {
     }
 
     rootEl.dataset.introSkipperBound = "true";
+    boundRoot = rootEl;
 
     const page = getPageElement(rootEl);
 
@@ -117,17 +118,27 @@ function findAndBind(): boolean {
     return true;
 }
 
-if (!findAndBind()) {
-    const observer = new MutationObserver(() => {
-        if (findAndBind()) {
-            observer.disconnect();
-            window.clearTimeout(observerTimeoutId);
+findAndBind();
+
+// This bundle is loaded as `<script type="module">`, so the browser's module
+// map evaluates it at most once per document. Jellyfin's view manager keeps
+// only a few views cached and re-injects the config page HTML (including this
+// script tag) with a brand-new DOM once the view has been evicted, but that
+// re-injection never re-runs an already-evaluated module. Keep observing for
+// the lifetime of the document so a freshly injected, unbound root is picked
+// up and bound again.
+const observer = new MutationObserver(() => {
+    if (boundRoot) {
+        if (boundRoot.isConnected) {
+            return;
         }
-    });
 
-    const observerRoot = document.body ?? document.documentElement;
-    observer.observe(observerRoot, { childList: true, subtree: true });
+        // Release the evicted view subtree so it can be garbage collected.
+        boundRoot = null;
+    }
 
-    // Safety net: stop observing if the page never appears.
-    const observerTimeoutId = window.setTimeout(() => observer.disconnect(), OBSERVER_TIMEOUT_MS);
-}
+    findAndBind();
+});
+
+const observerRoot = document.body ?? document.documentElement;
+observer.observe(observerRoot, { childList: true, subtree: true });
