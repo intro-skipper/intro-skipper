@@ -1,9 +1,11 @@
 // SPDX-FileCopyrightText: 2026 Intro-Skipper contributors <intro-skipper.org>
 // SPDX-License-Identifier: GPL-3.0-only
 
+using System.Collections.Concurrent;
 using System.Globalization;
 using Jellyfin.Database.Implementations;
 using Jellyfin.Database.Implementations.Entities;
+using Jellyfin.Database.Implementations.Enums;
 using MediaBrowser.Common.Extensions;
 using MediaBrowser.Model.MediaSegments;
 using Microsoft.EntityFrameworkCore;
@@ -28,16 +30,29 @@ public sealed partial class JellyfinSegmentStore(
 {
     private const int DeleteChunkSize = 500;
 
+    // Must be declared before ProviderId: its initializer calls DeriveProviderId, and
+    // static members initialize in textual order.
+    private static readonly ConcurrentDictionary<string, string> _derivedProviderIds = new(StringComparer.Ordinal);
+
     /// <summary>
     /// Gets the provider id Jellyfin derives for Intro Skipper's segment provider.
-    /// Mirrors the server's MediaSegmentManager.GetProviderId: an MD5 (UTF-16) of the
-    /// lower-cased provider name, via the same <see cref="MediaBrowser.Common.Extensions.BaseExtensions.GetMD5"/>
-    /// extension the server uses, so the derivation can never drift.
     /// </summary>
-    internal static string ProviderId { get; } = Plugin.ProviderName
-        .ToLowerInvariant()
-        .GetMD5()
-        .ToString("N", CultureInfo.InvariantCulture);
+    internal static string ProviderId { get; } = DeriveProviderId(Plugin.ProviderName);
+
+    /// <summary>
+    /// Derives the provider id Jellyfin computes for a segment provider name. Mirrors the
+    /// server's MediaSegmentManager.GetProviderId: an MD5 (UTF-16) of the lower-cased name,
+    /// via the same <see cref="MediaBrowser.Common.Extensions.BaseExtensions.GetMD5"/>
+    /// extension the server uses, so the derivation cannot drift. The result is memoized
+    /// because provider registrations are fixed for the process lifetime.
+    /// </summary>
+    /// <param name="providerName">The provider display name.</param>
+    /// <returns>The derived provider id.</returns>
+    internal static string DeriveProviderId(string providerName)
+        => _derivedProviderIds.GetOrAdd(providerName, static name => name
+            .ToLowerInvariant()
+            .GetMD5()
+            .ToString("N", CultureInfo.InvariantCulture));
 
     /// <inheritdoc />
     public async Task ReplaceSegmentsAsync(Guid itemId, IReadOnlyList<MediaSegmentDto> segments, CancellationToken cancellationToken)
@@ -46,25 +61,12 @@ public sealed partial class JellyfinSegmentStore(
 
         var entities = segments.Select(segment => Map(segment, itemId)).ToList();
 
-        var db = await contextFactory.CreateDbContextAsync(cancellationToken).ConfigureAwait(false);
-        await using (db.ConfigureAwait(false))
-        {
-            if (entities.Count == 0)
-            {
-                await OwnSegments(db, itemId).ExecuteDeleteAsync(cancellationToken).ConfigureAwait(false);
-                return;
-            }
-
-            await RunWriteTransactionAsync(
-                db,
-                async () =>
-                {
-                    await OwnSegments(db, itemId).ExecuteDeleteAsync(cancellationToken).ConfigureAwait(false);
-                    db.MediaSegments.AddRange(entities);
-                    await SaveExactlyAsync(db, itemId, nameof(ReplaceSegmentsAsync), entities.Count, cancellationToken).ConfigureAwait(false);
-                },
-                cancellationToken).ConfigureAwait(false);
-        }
+        await ReplaceScopeAsync(
+            itemId,
+            nameof(ReplaceSegmentsAsync),
+            entities,
+            db => OwnSegments(db, itemId),
+            cancellationToken).ConfigureAwait(false);
     }
 
     /// <inheritdoc />
@@ -92,31 +94,11 @@ public sealed partial class JellyfinSegmentStore(
     }
 
     /// <inheritdoc />
-    public async Task ReplaceTypeAsync(Guid itemId, MediaSegmentDto segment, CancellationToken cancellationToken)
+    public Task ReplaceTypeAsync(Guid itemId, MediaSegmentDto segment, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(segment);
 
-        var entity = Map(segment, itemId);
-        var type = entity.Type;
-
-        var db = await contextFactory.CreateDbContextAsync(cancellationToken).ConfigureAwait(false);
-        await using (db.ConfigureAwait(false))
-        {
-            await RunWriteTransactionAsync(
-                db,
-                async () =>
-                {
-                    // The editor owns "the" segment of a type: existing entries of the
-                    // same type are removed regardless of which provider created them.
-                    await db.MediaSegments
-                        .Where(existing => existing.ItemId == itemId && existing.Type == type)
-                        .ExecuteDeleteAsync(cancellationToken)
-                        .ConfigureAwait(false);
-                    db.MediaSegments.Add(entity);
-                    await SaveExactlyAsync(db, itemId, nameof(ReplaceTypeAsync), 1, cancellationToken).ConfigureAwait(false);
-                },
-                cancellationToken).ConfigureAwait(false);
-        }
+        return ReplaceEditableTypesAsync(itemId, [segment], [segment.Type], cancellationToken);
     }
 
     /// <inheritdoc />
@@ -186,6 +168,117 @@ public sealed partial class JellyfinSegmentStore(
             await db.MediaSegments
                 .Where(segment => segment.ItemId == itemId && segment.Id == segmentId)
                 .ExecuteDeleteAsync(cancellationToken)
+                .ConfigureAwait(false);
+        }
+    }
+
+    /// <inheritdoc />
+    public async Task ReplaceEditableTypesAsync(Guid itemId, IReadOnlyList<MediaSegmentDto> segments, IReadOnlyCollection<MediaSegmentType> types, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(segments);
+        ArgumentNullException.ThrowIfNull(types);
+
+        var typeArray = types.Distinct().ToArray();
+        if (typeArray.Length == 0)
+        {
+            throw new ArgumentException("At least one segment type is required.", nameof(types));
+        }
+
+        foreach (var segment in segments)
+        {
+            if (!typeArray.Contains(segment.Type))
+            {
+                throw new ArgumentException($"Segment type '{segment.Type}' is not among the replaced types.", nameof(segments));
+            }
+        }
+
+        var entities = segments.Select(segment => Map(segment, itemId)).ToList();
+
+        // The editor owns "the" segments of the replaced types: existing entries are
+        // removed regardless of which provider created them.
+        await ReplaceScopeAsync(
+            itemId,
+            nameof(ReplaceEditableTypesAsync),
+            entities,
+            db => db.MediaSegments.Where(segment => segment.ItemId == itemId && typeArray.Contains(segment.Type)),
+            cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Shared replace core: deletes the scoped rows and inserts the given entities. An
+    /// empty entity set is a single atomic delete statement; otherwise delete and insert
+    /// run in one write-first transaction.
+    /// </summary>
+    /// <param name="itemId">The item id being written, for diagnostics.</param>
+    /// <param name="operation">The calling operation name, for diagnostics.</param>
+    /// <param name="entities">The rows that should exist within the scope after the call.</param>
+    /// <param name="deleteScope">Builds the query selecting the rows to replace.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>A <see cref="Task"/> representing the asynchronous operation.</returns>
+    private async Task ReplaceScopeAsync(
+        Guid itemId,
+        string operation,
+        List<MediaSegment> entities,
+        Func<JellyfinDbContext, IQueryable<MediaSegment>> deleteScope,
+        CancellationToken cancellationToken)
+    {
+        var db = await contextFactory.CreateDbContextAsync(cancellationToken).ConfigureAwait(false);
+        await using (db.ConfigureAwait(false))
+        {
+            if (entities.Count == 0)
+            {
+                await deleteScope(db).ExecuteDeleteAsync(cancellationToken).ConfigureAwait(false);
+                return;
+            }
+
+            await RunWriteTransactionAsync(
+                db,
+                async () =>
+                {
+                    await deleteScope(db).ExecuteDeleteAsync(cancellationToken).ConfigureAwait(false);
+                    db.MediaSegments.AddRange(entities);
+                    await SaveExactlyAsync(db, itemId, operation, entities.Count, cancellationToken).ConfigureAwait(false);
+                },
+                cancellationToken).ConfigureAwait(false);
+        }
+    }
+
+    /// <inheritdoc />
+    public async Task<IReadOnlyList<JellyfinSegmentSnapshot>> GetItemSegmentsAsync(Guid itemId, CancellationToken cancellationToken)
+    {
+        var db = await contextFactory.CreateDbContextAsync(cancellationToken).ConfigureAwait(false);
+        await using (db.ConfigureAwait(false))
+        {
+            return await db.MediaSegments
+                .AsNoTracking()
+                .Where(segment => segment.ItemId == itemId)
+                .OrderBy(segment => segment.StartTicks)
+                .Select(segment => new JellyfinSegmentSnapshot(
+                    segment.Id,
+                    segment.ItemId,
+                    segment.Type,
+                    segment.StartTicks,
+                    segment.EndTicks,
+                    segment.SegmentProviderId))
+                .ToListAsync(cancellationToken)
+                .ConfigureAwait(false);
+        }
+    }
+
+    /// <inheritdoc />
+    public async Task<IReadOnlyList<ItemSegmentCounts>> GetItemSegmentCountsAsync(CancellationToken cancellationToken)
+    {
+        var db = await contextFactory.CreateDbContextAsync(cancellationToken).ConfigureAwait(false);
+        await using (db.ConfigureAwait(false))
+        {
+            return await db.MediaSegments
+                .AsNoTracking()
+                .GroupBy(segment => segment.ItemId)
+                .Select(group => new ItemSegmentCounts(
+                    group.Key,
+                    group.Count(segment => segment.SegmentProviderId == ProviderId),
+                    group.Count(segment => segment.SegmentProviderId != ProviderId)))
+                .ToListAsync(cancellationToken)
                 .ConfigureAwait(false);
         }
     }

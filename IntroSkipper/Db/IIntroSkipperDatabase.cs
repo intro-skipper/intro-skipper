@@ -6,13 +6,15 @@ using IntroSkipper.Data;
 namespace IntroSkipper.Db;
 
 /// <summary>
-/// Cohesive facade over the segment database (<c>introskipper.db</c>).
-/// Owns every read and write against <see cref="IntroSkipperDbContext"/> — segments,
-/// season state and database maintenance — as well as the database lifecycle
-/// (legacy schema repair, EF migrations and salvage rebuild).
-/// All domain rules that guard writes (user-provided precedence, credits/intro
-/// overlap) live inside this facade; callers never see a <c>DbContext</c>.
+/// Defines the facade for the segment database (<c>introskipper.db</c>).
 /// </summary>
+/// <remarks>
+/// The facade owns every read and write against <see cref="IntroSkipperDbContext"/>,
+/// including segments, season state, database maintenance, and database lifecycle
+/// operations such as legacy schema repair, EF migrations, and salvage rebuilds. Domain
+/// write rules, including user-provided precedence and credits-introduction overlap,
+/// reside here so callers never handle a <see cref="IntroSkipperDbContext"/>.
+/// </remarks>
 public interface IIntroSkipperDatabase
 {
     /// <summary>
@@ -63,18 +65,39 @@ public interface IIntroSkipperDatabase
     Task DeleteItemSegmentsAsync(Guid itemId, CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// Deletes a stored timestamp for the specified item and analysis mode. The delete is
-    /// authoritative: the rows it matched (using the facade's own comparison epsilon) are
-    /// returned, so callers can restore exactly what was deleted — including
-    /// <see cref="DbSegment.IsUserProvided"/> and <see cref="DbSegment.ConfigHash"/> —
-    /// without re-implementing the matching.
+    /// Deletes a stored timestamp for an item and analysis mode.
     /// </summary>
-    /// <param name="itemId">The item ID whose timestamp should be removed.</param>
-    /// <param name="mode">The analysis mode representing the segment type.</param>
-    /// <param name="segment">Optional segment details used to remove a specific entry.</param>
-    /// <param name="cancellationToken">Cancellation token.</param>
-    /// <returns>The deleted segment rows; empty when nothing matched.</returns>
+    /// <remarks>
+    /// The delete returns the exact rows it matched using the facade's comparison epsilon,
+    /// including <see cref="DbSegment.IsUserProvided"/> and
+    /// <see cref="DbSegment.ConfigHash"/>, so callers can restore them without duplicating
+    /// the matching rule.
+    /// </remarks>
+    /// <param name="itemId">The ID of the item whose timestamp is removed.</param>
+    /// <param name="mode">One of the analysis modes that specifies the segment type.</param>
+    /// <param name="segment">The optional details used to remove a specific entry.</param>
+    /// <param name="cancellationToken">The token that cancels the asynchronous database operation.</param>
+    /// <returns>The deleted segment rows, or an empty list when nothing matches.</returns>
     Task<IReadOnlyList<DbSegment>> DeleteTimestampAsync(Guid itemId, AnalysisMode mode, Segment? segment = null, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Replaces every stored segment of the given analysis modes for an item.
+    /// </summary>
+    /// <remarks>
+    /// The operation is atomic. Rows outside <paramref name="modes"/> remain unchanged.
+    /// The returned rows are detached copies that retain user-provided and configuration
+    /// metadata and can be supplied to a later call for restoration. This deliberate
+    /// editor action bypasses the auto-versus-user and credits-overlap guards used by
+    /// <see cref="UpdateTimestampAsync"/>.
+    /// </remarks>
+    /// <param name="itemId">The ID of the item whose segments are replaced.</param>
+    /// <param name="modes">The analysis modes whose rows are replaced.</param>
+    /// <param name="segments">The rows that will exist for <paramref name="modes"/> after the operation.</param>
+    /// <param name="cancellationToken">The token that cancels the asynchronous transaction.</param>
+    /// <returns>The detached prior rows for <paramref name="modes"/>, or an empty list when there were none.</returns>
+    /// <exception cref="ArgumentException">A row has another item ID or a type outside <paramref name="modes"/>, or commercial rows are equivalent within the comparison tolerance.</exception>
+    /// <exception cref="OperationCanceledException"><paramref name="cancellationToken"/> is canceled before the transaction commits.</exception>
+    Task<IReadOnlyList<DbSegment>> ReplaceItemSegmentsAsync(Guid itemId, IReadOnlyCollection<AnalysisMode> modes, IReadOnlyCollection<DbSegment> segments, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Deletes every stored segment of the given analysis mode.

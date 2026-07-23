@@ -11,9 +11,9 @@ namespace IntroSkipper.Db;
 /// schema lifecycle (<c>EnsureCreated</c> with delete-and-recreate corruption recovery).
 /// The synchronous members mirror the synchronous call patterns of the analysis pipeline.
 /// Initialization failures make the cache temporarily unavailable; operations return neutral
-/// results and retry initialization on the next call. Delete operations are best-effort —
-/// the cache is an optimization, so database errors are logged and swallowed (returning 0)
-/// instead of propagating to callers.
+/// results and retry initialization on the next call. Delete operations are best-effort.
+/// Because the cache is an optimization, database errors are logged and swallowed
+/// (returning 0) instead of propagating to callers.
 /// </summary>
 public interface IDetectionCacheDatabase
 {
@@ -98,4 +98,27 @@ public interface IDetectionCacheDatabase
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>The number of deleted rows; 0 when the delete failed.</returns>
     Task<int> DeleteForItemsAsync(IReadOnlyCollection<Guid> itemIds, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Returns all cache entries for an item of the given types, with their raw compressed
+    /// payloads; decompression is the caller's concern because the payload shape depends on
+    /// <see cref="DbDetectionCache.Type"/>. Best-effort: an unavailable cache yields an
+    /// empty list. Unlike the analyzer read path, no configuration-hash filtering applies.
+    /// </summary>
+    /// <param name="itemId">Item ID.</param>
+    /// <param name="types">Cache entry types to return.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>The matching entries; empty when the cache is unavailable.</returns>
+    Task<IReadOnlyList<DbDetectionCache>> GetEntriesForItemAsync(Guid itemId, IReadOnlyCollection<CacheEntryType> types, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Returns the key columns, without payload, of all cache entries for an item and given
+    /// types. This supports consumers that need scanned ranges without reading payload BLOBs.
+    /// Best-effort behavior returns an empty list when the cache is unavailable.
+    /// </summary>
+    /// <param name="itemId">Item ID.</param>
+    /// <param name="types">Cache entry types to return.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>The matching entry ranges; empty when the cache is unavailable.</returns>
+    Task<IReadOnlyList<DetectionCacheEntryRange>> GetEntryRangesForItemAsync(Guid itemId, IReadOnlyCollection<CacheEntryType> types, CancellationToken cancellationToken = default);
 }

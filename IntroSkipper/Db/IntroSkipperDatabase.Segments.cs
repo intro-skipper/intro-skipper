@@ -178,6 +178,81 @@ public sealed partial class IntroSkipperDatabase
     }
 
     /// <inheritdoc/>
+    public async Task<IReadOnlyList<DbSegment>> ReplaceItemSegmentsAsync(
+        Guid itemId,
+        IReadOnlyCollection<AnalysisMode> modes,
+        IReadOnlyCollection<DbSegment> segments,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(modes);
+        ArgumentNullException.ThrowIfNull(segments);
+
+        if (modes.Count == 0)
+        {
+            throw new ArgumentException("At least one analysis mode is required.", nameof(modes));
+        }
+
+        var modeArray = modes.Distinct().ToArray();
+        var commercialSegments = new List<DbSegment>();
+        foreach (var segment in segments)
+        {
+            if (segment.ItemId != itemId)
+            {
+                throw new ArgumentException($"Segment item id '{segment.ItemId}' does not match '{itemId}'.", nameof(segments));
+            }
+
+            if (!modeArray.Contains(segment.Type))
+            {
+                throw new ArgumentException($"Segment type '{segment.Type}' is not among the replaced modes.", nameof(segments));
+            }
+
+            if (segment.Type == AnalysisMode.Commercial)
+            {
+                if (commercialSegments.Any(existing =>
+                    Math.Abs(existing.Start - segment.Start) <= SegmentComparisonEpsilon
+                    && Math.Abs(existing.End - segment.End) <= SegmentComparisonEpsilon))
+                {
+                    throw new ArgumentException(
+                        "Commercial segment ranges must differ by more than the comparison tolerance.",
+                        nameof(segments));
+                }
+
+                commercialSegments.Add(segment);
+            }
+        }
+
+        // Replacement rows are always new database entities. Caller-owned rows may carry
+        // generated ids from an earlier no-tracking query and cannot be attached alongside
+        // the tracked rows being removed in this unit of work.
+        var replacementRows = segments
+            .Select(row => new DbSegment(row.ToSegment(), row.Type, row.IsUserProvided, row.ConfigHash))
+            .ToList();
+
+        await InitializeAsync().ConfigureAwait(false);
+        using var db = _contextFactory.CreateDbContext();
+
+        var transaction = await db.Database.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
+        await using (transaction.ConfigureAwait(false))
+        {
+            var priorRows = await db.DbSegment
+                .Where(s => s.ItemId == itemId && modeArray.Contains(s.Type))
+                .ToListAsync(cancellationToken)
+                .ConfigureAwait(false);
+
+            db.DbSegment.RemoveRange(priorRows);
+            db.DbSegment.AddRange(replacementRows);
+            await db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+            await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
+
+            // Detached copies: the removed entities' identity and tracking state are stale,
+            // so returning them directly would make restoration a caller-side footgun.
+            return priorRows
+                .Select(row => new DbSegment(row.ToSegment(), row.Type, row.IsUserProvided, row.ConfigHash))
+                .ToList();
+        }
+    }
+
+    /// <inheritdoc/>
     public async Task DeleteSegmentsByModeAsync(AnalysisMode mode, CancellationToken cancellationToken = default)
     {
         await InitializeAsync().ConfigureAwait(false);

@@ -1,6 +1,7 @@
 // SPDX-FileCopyrightText: 2026 Intro-Skipper contributors <intro-skipper.org>
 // SPDX-License-Identifier: GPL-3.0-only
 
+using Jellyfin.Database.Implementations.Enums;
 using MediaBrowser.Model.MediaSegments;
 
 namespace IntroSkipper.Manager;
@@ -31,13 +32,18 @@ public interface IJellyfinSegmentStore
     Task DeleteOwnSegmentsAsync(IEnumerable<Guid> itemIds, CancellationToken cancellationToken);
 
     /// <summary>
-    /// Atomically replaces every segment of the given segment's type for an item —
-    /// regardless of provider — with the given Intro Skipper-owned segment.
+    /// Replaces every segment of a type for an item with an Intro Skipper-owned segment.
     /// </summary>
-    /// <param name="itemId">The item id.</param>
-    /// <param name="segment">The segment to persist.</param>
-    /// <param name="cancellationToken">Cancellation token.</param>
-    /// <returns>A <see cref="Task"/> representing the asynchronous operation.</returns>
+    /// <remarks>
+    /// The replacement removes matching segments regardless of provider in the same
+    /// transaction that creates <paramref name="segment"/>. It therefore has a
+    /// cross-provider destructive side effect.
+    /// </remarks>
+    /// <param name="itemId">The ID of the item whose segment is replaced.</param>
+    /// <param name="segment">The segment that will remain for its type.</param>
+    /// <param name="cancellationToken">The token that cancels the asynchronous transaction.</param>
+    /// <returns>A task that represents the asynchronous operation.</returns>
+    /// <exception cref="ArgumentNullException"><paramref name="segment"/> is <see langword="null"/>.</exception>
     Task ReplaceTypeAsync(Guid itemId, MediaSegmentDto segment, CancellationToken cancellationToken);
 
     /// <summary>
@@ -69,4 +75,38 @@ public interface IJellyfinSegmentStore
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>A <see cref="Task"/> representing the asynchronous operation.</returns>
     Task DeleteSegmentAsync(Guid itemId, Guid segmentId, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Replaces every segment of the given types for an item with Intro Skipper-owned segments.
+    /// </summary>
+    /// <remarks>
+    /// The replacement removes segments regardless of provider in one transaction. An
+    /// empty <paramref name="segments"/> collection deletes all segments of
+    /// <paramref name="types"/>. Segments of other types remain unchanged.
+    /// </remarks>
+    /// <param name="itemId">The ID of the item whose segments are replaced.</param>
+    /// <param name="segments">The segments that will exist after the operation.</param>
+    /// <param name="types">The segment types whose existing rows are replaced.</param>
+    /// <param name="cancellationToken">The token that cancels the asynchronous transaction.</param>
+    /// <returns>A task that represents the asynchronous operation.</returns>
+    /// <exception cref="ArgumentException">A segment type is outside <paramref name="types"/>.</exception>
+    /// <exception cref="ArgumentNullException"><paramref name="segments"/> or <paramref name="types"/> is <see langword="null"/>.</exception>
+    Task ReplaceEditableTypesAsync(Guid itemId, IReadOnlyList<MediaSegmentDto> segments, IReadOnlyCollection<MediaSegmentType> types, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Returns all of an item's segments across every provider, ordered by start position,
+    /// including each row's owning provider id.
+    /// </summary>
+    /// <param name="itemId">The item id.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>The item's segment rows.</returns>
+    Task<IReadOnlyList<JellyfinSegmentSnapshot>> GetItemSegmentsAsync(Guid itemId, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Returns per-item segment row counts across the whole table, split into Intro
+    /// Skipper-owned rows and rows owned by other providers.
+    /// </summary>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>One entry per distinct item id present in the table.</returns>
+    Task<IReadOnlyList<ItemSegmentCounts>> GetItemSegmentCountsAsync(CancellationToken cancellationToken);
 }

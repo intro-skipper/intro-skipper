@@ -18,6 +18,7 @@ using IntroSkipper.FFmpeg;
 using IntroSkipper.Manager;
 using IntroSkipper.Services;
 using MediaBrowser.Controller.Entities;
+using MediaBrowser.Controller.Entities.Movies;
 using MediaBrowser.Controller.Library;
 using MediaBrowser.Model.Entities;
 using MediaBrowser.Model.Plugins;
@@ -73,6 +74,23 @@ internal static class EntrypointTestHelpers
     // and returns null for any other id. Shared by the controller and refresh-service tests.
     internal static ILibraryManager CreateLibraryManager(params BaseItem[] items)
         => LibraryManagerProxy.Create(items);
+
+    /// <summary>
+    /// Creates a non-virtual <see cref="Movie"/> with a specified ID.
+    /// </summary>
+    /// <remarks>
+    /// This shared fixture creates a resolvable library item for tests that cannot use a
+    /// virtual item.
+    /// </remarks>
+    /// <param name="id">The item id.</param>
+    /// <returns>The movie.</returns>
+    internal static Movie CreateMovie(Guid id)
+    {
+        var item = new Movie();
+        SetPropertyOrField(item, "Id", id);
+        EnsureNonVirtual(item);
+        return item;
+    }
 
     private class LibraryManagerProxy : DispatchProxy
     {

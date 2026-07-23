@@ -331,6 +331,119 @@ public sealed class TestJellyfinSegmentStore
         Assert.Equal(existing.Id, row.Id);
     }
 
+    [Fact]
+    public async Task ReplaceEditableTypesAsync_ReplacesListedTypesAcrossProviders_AndKeepsOthers()
+    {
+        using var db = new TempJellyfinDb();
+        var store = CreateStore(db);
+        var itemId = Guid.NewGuid();
+        var foreignRecap = CreateEntity(itemId, MediaSegmentType.Recap, 0, 5, ForeignProviderId);
+        await SeedAsync(
+            db,
+            CreateEntity(itemId, MediaSegmentType.Intro, 0, 5, ForeignProviderId),
+            CreateEntity(itemId, MediaSegmentType.Commercial, 50, 60, ForeignProviderId),
+            CreateEntity(itemId, MediaSegmentType.Commercial, 80, 90, JellyfinSegmentStore.ProviderId),
+            foreignRecap);
+
+        await store.ReplaceEditableTypesAsync(
+            itemId,
+            [
+                CreateDto(MediaSegmentType.Intro, 10, 20),
+                CreateDto(MediaSegmentType.Commercial, 100, 110),
+                CreateDto(MediaSegmentType.Commercial, 200, 210),
+            ],
+            [MediaSegmentType.Intro, MediaSegmentType.Commercial],
+            CancellationToken.None);
+
+        var rows = await GetAllAsync(db);
+        Assert.Equal(4, rows.Count);
+        Assert.Single(rows, row => row.Id == foreignRecap.Id);
+        var intro = Assert.Single(rows, row => row.Type == MediaSegmentType.Intro);
+        Assert.Equal(JellyfinSegmentStore.ProviderId, intro.SegmentProviderId);
+        Assert.Equal(10, intro.StartTicks);
+        var commercials = rows.Where(row => row.Type == MediaSegmentType.Commercial).ToList();
+        Assert.Equal(2, commercials.Count);
+        Assert.All(commercials, row => Assert.Equal(JellyfinSegmentStore.ProviderId, row.SegmentProviderId));
+    }
+
+    [Fact]
+    public async Task ReplaceEditableTypesAsync_EmptyInput_DeletesListedTypesOnly()
+    {
+        using var db = new TempJellyfinDb();
+        var store = CreateStore(db);
+        var itemId = Guid.NewGuid();
+        var keptOutro = CreateEntity(itemId, MediaSegmentType.Outro, 0, 5, ForeignProviderId);
+        await SeedAsync(
+            db,
+            CreateEntity(itemId, MediaSegmentType.Intro, 0, 5, JellyfinSegmentStore.ProviderId),
+            CreateEntity(itemId, MediaSegmentType.Intro, 6, 9, ForeignProviderId),
+            keptOutro);
+
+        await store.ReplaceEditableTypesAsync(itemId, [], [MediaSegmentType.Intro], CancellationToken.None);
+
+        var row = Assert.Single(await GetAllAsync(db));
+        Assert.Equal(keptOutro.Id, row.Id);
+    }
+
+    [Fact]
+    public async Task ReplaceEditableTypesAsync_Throws_WhenSegmentTypeIsNotListed()
+    {
+        using var db = new TempJellyfinDb();
+        var store = CreateStore(db);
+
+        await Assert.ThrowsAsync<ArgumentException>(() => store.ReplaceEditableTypesAsync(
+            Guid.NewGuid(),
+            [CreateDto(MediaSegmentType.Outro, 10, 20)],
+            [MediaSegmentType.Intro],
+            CancellationToken.None));
+    }
+
+    [Fact]
+    public async Task GetItemSegmentsAsync_ReturnsProviderIds_OrderedByStart()
+    {
+        using var db = new TempJellyfinDb();
+        var store = CreateStore(db);
+        var itemId = Guid.NewGuid();
+        await SeedAsync(
+            db,
+            CreateEntity(itemId, MediaSegmentType.Outro, 300, 400, ForeignProviderId),
+            CreateEntity(itemId, MediaSegmentType.Intro, 10, 20, JellyfinSegmentStore.ProviderId),
+            CreateEntity(Guid.NewGuid(), MediaSegmentType.Intro, 0, 5, ForeignProviderId));
+
+        var snapshots = await store.GetItemSegmentsAsync(itemId, CancellationToken.None);
+
+        Assert.Equal(2, snapshots.Count);
+        Assert.Equal(MediaSegmentType.Intro, snapshots[0].Type);
+        Assert.Equal(JellyfinSegmentStore.ProviderId, snapshots[0].ProviderId);
+        Assert.Equal(MediaSegmentType.Outro, snapshots[1].Type);
+        Assert.Equal(ForeignProviderId, snapshots[1].ProviderId);
+    }
+
+    [Fact]
+    public async Task GetItemSegmentCountsAsync_SplitsOwnAndOtherPerItem()
+    {
+        using var db = new TempJellyfinDb();
+        var store = CreateStore(db);
+        var itemA = Guid.NewGuid();
+        var itemB = Guid.NewGuid();
+        await SeedAsync(
+            db,
+            CreateEntity(itemA, MediaSegmentType.Intro, 10, 20, JellyfinSegmentStore.ProviderId),
+            CreateEntity(itemA, MediaSegmentType.Outro, 30, 40, ForeignProviderId),
+            CreateEntity(itemA, MediaSegmentType.Commercial, 50, 60, ForeignProviderId),
+            CreateEntity(itemB, MediaSegmentType.Intro, 10, 20, JellyfinSegmentStore.ProviderId));
+
+        var counts = await store.GetItemSegmentCountsAsync(CancellationToken.None);
+
+        Assert.Equal(2, counts.Count);
+        var entryA = Assert.Single(counts, entry => entry.ItemId == itemA);
+        Assert.Equal(1, entryA.OwnCount);
+        Assert.Equal(2, entryA.OtherCount);
+        var entryB = Assert.Single(counts, entry => entry.ItemId == itemB);
+        Assert.Equal(1, entryB.OwnCount);
+        Assert.Equal(0, entryB.OtherCount);
+    }
+
     private static JellyfinSegmentStore CreateStore(TempJellyfinDb db)
         => new(db.Factory, NullLogger<JellyfinSegmentStore>.Instance);
 

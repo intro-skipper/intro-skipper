@@ -1,3 +1,4 @@
+using IntroSkipper.Helper;
 using IntroSkipper.Providers;
 using MediaBrowser.Controller.Entities;
 using MediaBrowser.Controller.Library;
@@ -6,16 +7,18 @@ using Microsoft.Extensions.Logging;
 namespace IntroSkipper.Manager;
 
 /// <summary>
-/// Syncs Intro Skipper's segments for library items into Jellyfin's database by
-/// replacing Intro Skipper-owned entries directly; other providers are never touched.
+/// Synchronizes Intro Skipper segments for library items into Jellyfin's database.
 /// </summary>
 /// <remarks>
-/// Initializes a new instance of the <see cref="MediaSegmentRefreshService"/> class.
+/// Each item refresh waits asynchronously for the shared item mutation lock, which
+/// serializes it with editor operations without blocking a thread. Cancellation and
+/// critical exceptions propagate; other refresh failures are logged and isolated to the
+/// affected item.
 /// </remarks>
-/// <param name="segmentStore">Direct store for Jellyfin's media segments.</param>
-/// <param name="segmentDtoFactory">Converts plugin segments to Jellyfin DTOs.</param>
-/// <param name="libraryManager">The Jellyfin library manager used to resolve items by id.</param>
-/// <param name="logger">Application logger.</param>
+/// <param name="segmentStore">The direct store for Jellyfin's media segments.</param>
+/// <param name="segmentDtoFactory">The converter from plugin segments to Jellyfin DTOs.</param>
+/// <param name="libraryManager">The Jellyfin library manager used to resolve items by ID.</param>
+/// <param name="logger">The application logger.</param>
 public sealed partial class MediaSegmentRefreshService(
     IJellyfinSegmentStore segmentStore,
     SegmentDtoFactory segmentDtoFactory,
@@ -75,9 +78,18 @@ public sealed partial class MediaSegmentRefreshService(
     {
         try
         {
-            var segments = await segmentDtoFactory.CreateAsync(item.Id, cancellationToken).ConfigureAwait(false);
-            await segmentStore.ReplaceSegmentsAsync(item.Id, segments, cancellationToken).ConfigureAwait(false);
-            LogUpdatedMediaSegments(logger, item.Id);
+            var itemLock = MediaSegmentItemLock.Get(item.Id);
+            await itemLock.WaitAsync(cancellationToken).ConfigureAwait(false);
+            try
+            {
+                var segments = await segmentDtoFactory.CreateAsync(item.Id, cancellationToken).ConfigureAwait(false);
+                await segmentStore.ReplaceSegmentsAsync(item.Id, segments, cancellationToken).ConfigureAwait(false);
+                LogUpdatedMediaSegments(logger, item.Id);
+            }
+            finally
+            {
+                itemLock.Release();
+            }
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
@@ -87,12 +99,7 @@ public sealed partial class MediaSegmentRefreshService(
         catch (Exception ex)
         {
             // Do not swallow cancellation or critical exceptions.
-            if (ex is OperationCanceledException
-                or OutOfMemoryException
-                or StackOverflowException
-                or ThreadAbortException
-                or ThreadInterruptedException
-                or AccessViolationException)
+            if (ex is OperationCanceledException || ex.IsCritical())
             {
                 throw;
             }

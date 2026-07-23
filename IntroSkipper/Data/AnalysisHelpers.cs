@@ -28,6 +28,16 @@ internal static class AnalysisHelpers
         ModeToSegmentType.ToDictionary(pair => pair.Value, pair => pair.Key);
 
     /// <summary>
+    /// Gets the analysis modes managed by the segment editor.
+    /// </summary>
+    /// <remarks>
+    /// The collection contains one mode per mapped Jellyfin segment type and must be
+    /// declared after <see cref="ModeToSegmentType"/> because property initialization is textual.
+    /// </remarks>
+    /// <value>The analysis modes with a mapped Jellyfin segment type.</value>
+    internal static IReadOnlyList<AnalysisMode> EditorManagedModes { get; } = [.. ModeToSegmentType.Keys];
+
+    /// <summary>
     /// Returns whether a settled-season analysis mode still needs re-analysis for its current episode
     /// set. Pure set comparison: the decision is committed separately via
     /// <see cref="Db.IIntroSkipperDatabase.RecordSettleReanalysisAsync(Guid, IReadOnlyCollection{AnalysisMode}, IReadOnlyCollection{Guid}, CancellationToken)"/>
@@ -48,4 +58,15 @@ internal static class AnalysisHelpers
     /// <returns>The corresponding <see cref="AnalysisMode"/>.</returns>
     internal static AnalysisMode MapSegmentTypeToMode(MediaSegmentType type)
         => SegmentTypeToMode.TryGetValue(type, out var mode) ? mode : throw new NotImplementedException();
+
+    /// <summary>
+    /// Maps a Jellyfin media segment type to the corresponding analysis mode without
+    /// throwing on unmapped types, so request handlers can reject unknown input as a
+    /// client error instead of surfacing a server error.
+    /// </summary>
+    /// <param name="type">Media segment type.</param>
+    /// <param name="mode">The corresponding <see cref="AnalysisMode"/> when the type maps.</param>
+    /// <returns><see langword="true"/> when the type maps to a mode; otherwise <see langword="false"/>.</returns>
+    internal static bool TryMapSegmentTypeToMode(MediaSegmentType type, out AnalysisMode mode)
+        => SegmentTypeToMode.TryGetValue(type, out mode);
 }

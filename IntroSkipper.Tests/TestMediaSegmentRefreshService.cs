@@ -152,6 +152,43 @@ public sealed class TestMediaSegmentRefreshService
         Assert.Same(expectedException, exception);
     }
 
+    [Fact]
+    public async Task RefreshAsync_WaitsForEditorReplacementOfSameItem()
+    {
+        var item = CreateMovie(Guid.NewGuid());
+        var database = DatabaseTestHelpers.CreateTempSegmentDatabase();
+        var writeEntered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var writeGate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var store = new FakeJellyfinSegmentStore
+        {
+            WriteEntered = writeEntered,
+            WriteGate = writeGate,
+            GateOnlyFirstWrite = true,
+            BlockedItemId = item.Id
+        };
+        var editor = new MediaSegmentEditorService(store, database, []);
+        var refresher = CreateRefresher(store, segmentDtoFactory: new SegmentDtoFactory(database));
+
+        var replacement = editor.ReplaceEditorSegmentsAsync(
+            item,
+            Guid.NewGuid(),
+            [],
+            [AnalysisMode.Introduction],
+            CancellationToken.None);
+        await writeEntered.Task;
+
+        var refresh = refresher.RefreshAsync(item, CancellationToken.None);
+
+        Assert.NotSame(refresh, await Task.WhenAny(refresh, Task.Delay(TimeSpan.FromMilliseconds(250))));
+        Assert.Equal(1, store.WriteCallCount);
+
+        writeGate.SetResult();
+        await replacement;
+        await refresh;
+
+        Assert.Equal(2, store.WriteCallCount);
+    }
+
     private static MediaSegmentRefreshService CreateRefresher(
         FakeJellyfinSegmentStore store,
         ILibraryManager? libraryManager = null,

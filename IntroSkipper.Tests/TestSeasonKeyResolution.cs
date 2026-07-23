@@ -95,8 +95,7 @@ public sealed class TestSeasonKeyResolution
             await database.UpdateTimestampAsync(new Segment(specialId, new TimeRange(100, 160)), AnalysisMode.Introduction);
             await database.SetEpisodeIdsAsync(hostSeasonId, AnalysisMode.Introduction, [hostEpisodeId, specialId], "hash");
 
-            var service = new MediaSegmentEditorService(new FakeJellyfinSegmentStore());
-            var controller = new SegmentEditorController(service, database);
+            var controller = CreateController(database);
 
             await controller.DeleteSegmentAsync(Guid.NewGuid(), specialId, "intro", CancellationToken.None);
 
@@ -122,8 +121,8 @@ public sealed class TestSeasonKeyResolution
             var seasonId = Guid.NewGuid();
             var episodeId = Guid.NewGuid();
 
-            // No analysis has run yet: the cached queue is empty, so the editor must fall back
-            // to the item's own SeasonId — which is the correct key for regular episodes.
+            // No analysis has run yet, so the cached queue is empty. The editor must use
+            // the item's SeasonId, which is the correct key for regular episodes.
             var episode = CreateEpisode(episodeId, Guid.NewGuid(), seasonId, parentIndexNumber: 1, "/media/show/s01e01.mkv");
             EntrypointTestHelpers.SetPrivateField(Plugin.Instance!, "_libraryManager", EntrypointTestHelpers.CreateLibraryManager(episode));
             EntrypointTestHelpers.SetPropertyOrField(
@@ -135,8 +134,7 @@ public sealed class TestSeasonKeyResolution
             await database.UpdateTimestampAsync(new Segment(episodeId, new TimeRange(100, 160)), AnalysisMode.Introduction);
             await database.SetEpisodeIdsAsync(seasonId, AnalysisMode.Introduction, [episodeId], "hash");
 
-            var service = new MediaSegmentEditorService(new FakeJellyfinSegmentStore());
-            var controller = new SegmentEditorController(service, database);
+            var controller = CreateController(database);
 
             await controller.DeleteSegmentAsync(Guid.NewGuid(), episodeId, "intro", CancellationToken.None);
 
@@ -175,6 +173,12 @@ public sealed class TestSeasonKeyResolution
             Name = name,
             ItemId = Guid.NewGuid().ToString(),
         };
+
+    private static SegmentEditorController CreateController(IIntroSkipperDatabase database)
+        => new(
+            new MediaSegmentEditorService(new FakeJellyfinSegmentStore(), database, []),
+            database,
+            DatabaseTestHelpers.CreateCacheDatabase(DatabaseTestHelpers.CreateTempCacheDbPath()));
 
     private static string CreateTempDbPath()
         => DatabaseTestHelpers.CreateTempDbPath(Guid.NewGuid().ToString("N") + "-seasonkey.db");

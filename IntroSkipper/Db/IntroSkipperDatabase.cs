@@ -10,10 +10,10 @@ namespace IntroSkipper.Db;
 /// Default implementation of <see cref="IIntroSkipperDatabase"/>.
 /// The implementation is split across partial class files by concern:
 /// <list type="bullet">
-/// <item><description><c>IntroSkipperDatabase.cs</c> — lifecycle (initialization gate, migrations, rebuild).</description></item>
-/// <item><description><c>IntroSkipperDatabase.Segments.cs</c> — <see cref="DbSegment"/> reads and writes.</description></item>
-/// <item><description><c>IntroSkipperDatabase.SeasonStates.cs</c> — <see cref="DbSeasonState"/> reads and writes.</description></item>
-/// <item><description><c>IntroSkipperDatabase.Maintenance.cs</c> — bulk cleanup operations spanning both tables.</description></item>
+/// <item><description><c>IntroSkipperDatabase.cs</c>: lifecycle (initialization gate, migrations, rebuild).</description></item>
+/// <item><description><c>IntroSkipperDatabase.Segments.cs</c>: <see cref="DbSegment"/> reads and writes.</description></item>
+/// <item><description><c>IntroSkipperDatabase.SeasonStates.cs</c>: <see cref="DbSeasonState"/> reads and writes.</description></item>
+/// <item><description><c>IntroSkipperDatabase.Maintenance.cs</c>: bulk cleanup operations spanning both tables.</description></item>
 /// </list>
 /// The facade is stateless apart from the retryable initialization gate: every operation
 /// creates a fresh <see cref="IntroSkipperDbContext"/> from the injected factory, exactly
@@ -21,7 +21,10 @@ namespace IntroSkipper.Db;
 /// </summary>
 public sealed partial class IntroSkipperDatabase : IIntroSkipperDatabase
 {
-    private const double SegmentComparisonEpsilon = 0.001;
+    // Seconds-based tolerance for treating two segment ranges as the same entry. Shared
+    // with consumers that must match rows the facade wrote (e.g. the editor's
+    // user-provided-flag resolution) so the matching contract cannot drift.
+    internal const double SegmentComparisonEpsilon = 0.001;
 
     private readonly IDbContextFactory<IntroSkipperDbContext> _contextFactory;
     private readonly ILogger _logger;

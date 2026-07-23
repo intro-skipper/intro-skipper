@@ -165,6 +165,47 @@ public sealed partial class DetectionCacheDatabase : IDetectionCacheDatabase
     }
 
     /// <inheritdoc/>
+    public async Task<IReadOnlyList<DbDetectionCache>> GetEntriesForItemAsync(Guid itemId, IReadOnlyCollection<CacheEntryType> types, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(types);
+
+        var typeArray = types.Distinct().ToArray();
+        if (typeArray.Length == 0 || !TryInitialize())
+        {
+            return [];
+        }
+
+        using var db = _contextFactory.CreateDbContext();
+
+        return await db.DetectionCache
+            .AsNoTracking()
+            .Where(e => e.ItemId == itemId && typeArray.Contains(e.Type))
+            .ToListAsync(cancellationToken)
+            .ConfigureAwait(false);
+    }
+
+    /// <inheritdoc/>
+    public async Task<IReadOnlyList<DetectionCacheEntryRange>> GetEntryRangesForItemAsync(Guid itemId, IReadOnlyCollection<CacheEntryType> types, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(types);
+
+        var typeArray = types.Distinct().ToArray();
+        if (typeArray.Length == 0 || !TryInitialize())
+        {
+            return [];
+        }
+
+        using var db = _contextFactory.CreateDbContext();
+
+        return await db.DetectionCache
+            .AsNoTracking()
+            .Where(e => e.ItemId == itemId && typeArray.Contains(e.Type))
+            .Select(e => new DetectionCacheEntryRange(e.Type, e.Mode, e.Start, e.End, e.ConfigHash))
+            .ToListAsync(cancellationToken)
+            .ConfigureAwait(false);
+    }
+
+    /// <inheritdoc/>
     public async Task<int> DeleteForItemsAsync(IReadOnlyCollection<Guid> itemIds, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(itemIds);
