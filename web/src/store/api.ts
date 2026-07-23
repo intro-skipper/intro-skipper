@@ -83,6 +83,22 @@ export function updateAnalyzerActions(id: string, actions: AnalyzerActions): Pro
     );
 }
 
+export function getDisabledEpisodes(seasonId: string): Promise<ApiResult<string[]>> {
+    return getJson<string[]>(`Intros/DisabledEpisodes/${encodeURIComponent(seasonId)}`);
+}
+
+export function updateDisabledEpisode(
+    seasonId: string,
+    episodeId: string,
+    disabled: boolean,
+): Promise<Response> {
+    return fetchWithAuth(
+        "Intros/DisabledEpisodes/Update",
+        "POST",
+        JSON.stringify({ seasonId, episodeId, disabled }),
+    );
+}
+
 // Scan controls.
 export function scanSeason(showId: string, seasonId: string): Promise<Response> {
     return fetchWithAuth(

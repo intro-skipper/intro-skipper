@@ -54,6 +54,21 @@ namespace IntroSkipper.Migrations
                     b.ToTable("DbSeasonState", (string)null);
                 });
 
+            modelBuilder.Entity("IntroSkipper.Db.DbDisabledEpisode", b =>
+                {
+                    b.Property<Guid>("EpisodeId")
+                        .HasColumnType("TEXT");
+
+                    b.Property<Guid>("SeasonId")
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("EpisodeId");
+
+                    b.HasIndex("SeasonId");
+
+                    b.ToTable("DbDisabledEpisode", (string)null);
+                });
+
             modelBuilder.Entity("IntroSkipper.Db.DbSegment", b =>
                 {
                     b.Property<long>("Id")

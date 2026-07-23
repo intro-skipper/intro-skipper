@@ -396,6 +396,67 @@ public partial class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
         await db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
     }
 
+    /// <summary>
+    /// Gets the episodes explicitly disabled for analysis in a season.
+    /// </summary>
+    /// <param name="seasonId">Season identifier.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>Disabled episode identifiers.</returns>
+    internal static async Task<IReadOnlySet<Guid>> GetDisabledEpisodeIdsAsync(Guid seasonId, CancellationToken cancellationToken = default)
+    {
+        using var db = CreateDbContext();
+        var ids = await db.DbDisabledEpisode
+            .AsNoTracking()
+            .Where(e => e.SeasonId == seasonId)
+            .Select(e => e.EpisodeId)
+            .ToListAsync(cancellationToken)
+            .ConfigureAwait(false);
+        return ids.ToHashSet();
+    }
+
+    /// <summary>
+    /// Sets whether an episode is disabled for analysis and media-segment output.
+    /// </summary>
+    /// <param name="seasonId">Season identifier.</param>
+    /// <param name="episodeId">Episode identifier.</param>
+    /// <param name="disabled">Whether the episode is disabled.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    internal static async Task SetEpisodeAnalysisDisabledAsync(Guid seasonId, Guid episodeId, bool disabled, CancellationToken cancellationToken = default)
+    {
+        using var db = CreateDbContext();
+        var existing = await db.DbDisabledEpisode.FindAsync([episodeId], cancellationToken).ConfigureAwait(false);
+
+        if (disabled)
+        {
+            if (existing is null)
+            {
+                db.DbDisabledEpisode.Add(new DbDisabledEpisode(seasonId, episodeId));
+            }
+            else if (existing.SeasonId != seasonId)
+            {
+                db.Entry(existing).Property(e => e.SeasonId).CurrentValue = seasonId;
+            }
+        }
+        else if (existing is not null)
+        {
+            db.DbDisabledEpisode.Remove(existing);
+        }
+
+        await db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Returns whether an episode is explicitly disabled for analysis and media-segment output.
+    /// </summary>
+    /// <param name="episodeId">Episode identifier.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns><see langword="true"/> when the episode is disabled.</returns>
+    internal static async Task<bool> IsEpisodeAnalysisDisabledAsync(Guid episodeId, CancellationToken cancellationToken = default)
+    {
+        using var db = CreateDbContext();
+        return await db.DbDisabledEpisode.AsNoTracking().AnyAsync(e => e.EpisodeId == episodeId, cancellationToken).ConfigureAwait(false);
+    }
+
     internal static async Task SetEpisodeIdsAsync(Guid id, AnalysisMode mode, IEnumerable<Guid> episodeIds, string configHash = "", CancellationToken cancellationToken = default)
     {
         using var db = CreateDbContext();
@@ -658,6 +719,12 @@ public partial class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
             seasonStates.ToDictionary(s => s.Type, s => (IReadOnlySet<Guid>)s.EpisodeIds.ToHashSet()),
             seasonStates.ToDictionary(s => s.Type, s => s.ConfigHash),
             seasonStates.ToDictionary(s => s.Type, s => s.Action),
+            (await db.DbDisabledEpisode
+                .AsNoTracking()
+                .Where(e => e.SeasonId == seasonId)
+                .Select(e => e.EpisodeId)
+                .ToListAsync(cancellationToken)
+                .ConfigureAwait(false)).ToHashSet(),
             segments
                 .GroupBy(s => s.ItemId)
                 .ToDictionary(
@@ -707,6 +774,10 @@ public partial class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
         using var db = CreateDbContext();
         await db.DbSeasonState
             .Where(s => !ids.Contains(s.SeasonId))
+            .ExecuteDeleteAsync(cancellationToken)
+            .ConfigureAwait(false);
+        await db.DbDisabledEpisode
+            .Where(e => !ids.Contains(e.SeasonId))
             .ExecuteDeleteAsync(cancellationToken)
             .ConfigureAwait(false);
     }

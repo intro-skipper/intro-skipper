@@ -473,6 +473,12 @@ public partial class QueueManager(ILogger<QueueManager> logger, ILibraryManager 
                     continue;
                 }
 
+                if (snapshot.DisabledEpisodeIds.Contains(candidate.EpisodeId))
+                {
+                    LogSkippingDisabledEpisode(_logger, candidate.Name, candidate.EpisodeId);
+                    continue;
+                }
+
                 var decision = candidate.Category == QueuedMediaCategory.Movie
                     ? policy.EvaluateMovie(candidate.Name, candidate.EpisodeId, path)
                     : policy.EvaluateSeries(candidate.SeriesName, candidate.SeriesId, path);
@@ -586,6 +592,9 @@ public partial class QueueManager(ILogger<QueueManager> logger, ILibraryManager 
 
     [LoggerMessage(Level = LogLevel.Debug, Message = "Skipping {Name} ({Id}): file not found")]
     private static partial void LogSkippingFileNotFound(ILogger logger, string name, Guid id);
+
+    [LoggerMessage(Level = LogLevel.Debug, Message = "Skipping disabled episode {Name} ({EpisodeId})")]
+    private static partial void LogSkippingDisabledEpisode(ILogger logger, string name, Guid id);
 
     [LoggerMessage(Level = LogLevel.Debug, Message = "Skipping analysis of {Name} ({Id})")]
     private static partial void LogSkippingAnalysisException(ILogger logger, string name, Guid id, Exception exception);

@@ -716,6 +716,67 @@ public sealed class TestSeasonReanalysisReset
         }
     }
 
+    [Fact]
+    public async Task VerifyQueueAsync_SkipsEpisodeDisabledForAnalysis()
+    {
+        var tempDir = Path.Join(Path.GetTempPath(), "IntroSkipper.Tests");
+        Directory.CreateDirectory(tempDir);
+        var dbPath = Path.Join(tempDir, Guid.NewGuid().ToString("N") + ".db");
+        var mediaPath = Path.Join(tempDir, Guid.NewGuid().ToString("N") + ".mkv");
+        var seasonId = Guid.NewGuid();
+        var episodeId = Guid.NewGuid();
+
+        try
+        {
+            await File.WriteAllTextAsync(mediaPath, string.Empty);
+            await using (var db = new IntroSkipperDbContext(dbPath))
+            {
+                await db.Database.EnsureCreatedAsync();
+                db.DbDisabledEpisode.Add(new DbDisabledEpisode(seasonId, episodeId));
+                await db.SaveChangesAsync();
+            }
+
+            using (new EntrypointTestHelpers.PluginInstanceScope(EntrypointTestHelpers.CreateTempCacheDir()))
+            {
+                var plugin = Plugin.Instance!;
+                EntrypointTestHelpers.SetPrivateField(plugin, "_dbPath", dbPath);
+                var episode = new Episode();
+                EntrypointTestHelpers.SetPropertyOrField(episode, "Id", episodeId);
+                EntrypointTestHelpers.SetPropertyOrField(episode, "Path", mediaPath);
+                var libraryManager = EntrypointTestHelpers.CreateLibraryManager(episode);
+                EntrypointTestHelpers.SetPrivateField(plugin, "_libraryManager", libraryManager);
+
+                var queueManager = new QueueManager(
+                    NullLogger<QueueManager>.Instance,
+                    libraryManager,
+                    providerManager: null!,
+                    fileSystem: null!,
+                    ffmpegService: new FakeFfmpegService(ffmpegValid: false));
+
+                var verified = await queueManager.VerifyQueueAsync(
+                    [new QueuedEpisode
+                    {
+                        EpisodeId = episodeId,
+                        SeasonId = seasonId,
+                        Name = "S01E01",
+                        SeriesName = "Rick and Morty"
+                    }],
+                    [AnalysisMode.Introduction]);
+
+                Assert.Empty(verified);
+            }
+        }
+        finally
+        {
+            if (File.Exists(mediaPath))
+            {
+                File.Delete(mediaPath);
+            }
+
+            DeleteSqliteFiles(dbPath);
+        }
+    }
+
     private static QueuedEpisode CreateQueuedEpisode(Guid episodeId, Guid seasonId)
         => new()
         {

@@ -30,7 +30,8 @@ public class IntroSkipperDbContext : DbContext
         "20260314184512_AddDbSegmentIdentity",
         "20260316060001_AddNonCommercialUniqueIndex",
         "20260519073000_AddConfigHashes",
-        "20260613185809_ReplaceSeasonInfoWithSeasonState"
+        "20260613185809_ReplaceSeasonInfoWithSeasonState",
+        "20260723120000_AddDisabledEpisodes"
     ];
 
     private readonly string? _dbPath;
@@ -44,6 +45,7 @@ public class IntroSkipperDbContext : DbContext
         _dbPath = dbPath;
         DbSegment = Set<DbSegment>();
         DbSeasonState = Set<DbSeasonState>();
+        DbDisabledEpisode = Set<DbDisabledEpisode>();
     }
 
     /// <summary>
@@ -55,6 +57,7 @@ public class IntroSkipperDbContext : DbContext
         _dbPath = null;
         DbSegment = Set<DbSegment>();
         DbSeasonState = Set<DbSeasonState>();
+        DbDisabledEpisode = Set<DbDisabledEpisode>();
     }
 
     /// <summary>
@@ -66,6 +69,11 @@ public class IntroSkipperDbContext : DbContext
     /// Gets or sets the <see cref="DbSet{TEntity}"/> containing the season state.
     /// </summary>
     public DbSet<DbSeasonState> DbSeasonState { get; set; }
+
+    /// <summary>
+    /// Gets or sets the <see cref="DbSet{TEntity}"/> containing explicitly disabled episodes.
+    /// </summary>
+    public DbSet<DbDisabledEpisode> DbDisabledEpisode { get; set; }
 
     /// <inheritdoc/>
     protected override void OnConfiguring(DbContextOptionsBuilder optionsBuilder)
@@ -151,6 +159,13 @@ public class IntroSkipperDbContext : DbContext
                   .HasDefaultValueSql("'[]'")
                   .IsRequired();
         });
+
+        modelBuilder.Entity<DbDisabledEpisode>(entity =>
+        {
+            entity.ToTable("DbDisabledEpisode");
+            entity.HasKey(e => e.EpisodeId);
+            entity.HasIndex(e => e.SeasonId);
+        });
         base.OnModelCreating(modelBuilder);
     }
 
@@ -198,6 +213,7 @@ public class IntroSkipperDbContext : DbContext
             using var transaction = Database.BeginTransaction();
             EnsureDbSegmentSchema();
             EnsureDbSeasonStateSchema();
+            EnsureDbDisabledEpisodeSchema();
             EnsureMigrationHistoryForCurrentSchema();
             transaction.Commit();
         }
@@ -224,6 +240,7 @@ public class IntroSkipperDbContext : DbContext
     {
         var segments = new List<DbSegment>();
         var seasonStates = new List<DbSeasonState>();
+        var disabledEpisodes = new List<DbDisabledEpisode>();
         var backupFailed = false;
 
         // Best-effort backup — a corrupted DB will fail here, and that's fine.
@@ -242,6 +259,7 @@ public class IntroSkipperDbContext : DbContext
                 segments = await db.DbSegment.AsNoTracking().ToListAsync(cancellationToken).ConfigureAwait(false);
                 segments = [.. segments.Where(s => s.ToSegment().Valid)];
                 seasonStates = await db.DbSeasonState.AsNoTracking().ToListAsync(cancellationToken).ConfigureAwait(false);
+                disabledEpisodes = await db.DbDisabledEpisode.AsNoTracking().ToListAsync(cancellationToken).ConfigureAwait(false);
             }
             finally
             {
@@ -278,7 +296,7 @@ public class IntroSkipperDbContext : DbContext
         await Database.MigrateAsync(cancellationToken).ConfigureAwait(false);
 
         // Restore whatever data was salvaged
-        if (segments.Count > 0 || seasonStates.Count > 0)
+        if (segments.Count > 0 || seasonStates.Count > 0 || disabledEpisodes.Count > 0)
         {
             using var db = contextFactory();
             if (segments.Count > 0)
@@ -289,6 +307,11 @@ public class IntroSkipperDbContext : DbContext
             if (seasonStates.Count > 0)
             {
                 db.DbSeasonState.AddRange(seasonStates);
+            }
+
+            if (disabledEpisodes.Count > 0)
+            {
+                db.DbDisabledEpisode.AddRange(disabledEpisodes);
             }
 
             await db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
@@ -431,6 +454,24 @@ public class IntroSkipperDbContext : DbContext
 
         Database.ExecuteSqlRaw("CREATE INDEX IF NOT EXISTS \"IX_DbSeasonState_SeasonId\" ON \"DbSeasonState\" (\"SeasonId\")");
         Database.ExecuteSqlRaw("DROP TABLE \"DbSeasonInfo\"");
+    }
+
+    private void EnsureDbDisabledEpisodeSchema()
+    {
+        if (TableExists("DbDisabledEpisode") || !TableExists("DbSeasonState"))
+        {
+            return;
+        }
+
+        Database.ExecuteSqlRaw(
+            """
+            CREATE TABLE "DbDisabledEpisode" (
+                "EpisodeId" TEXT NOT NULL,
+                "SeasonId" TEXT NOT NULL,
+                CONSTRAINT "PK_DbDisabledEpisode" PRIMARY KEY ("EpisodeId")
+            )
+            """);
+        Database.ExecuteSqlRaw("CREATE INDEX IF NOT EXISTS \"IX_DbDisabledEpisode_SeasonId\" ON \"DbDisabledEpisode\" (\"SeasonId\")");
     }
 
     private void RebuildDbSegmentWithIdentity()
