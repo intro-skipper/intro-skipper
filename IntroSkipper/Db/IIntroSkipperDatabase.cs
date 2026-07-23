@@ -55,6 +55,32 @@ public interface IIntroSkipperDatabase
     Task<IReadOnlyList<DbSegment>> GetSegmentsAsync(Guid id, CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// Returns the episodes explicitly disabled for analysis in a season.
+    /// </summary>
+    /// <param name="seasonId">Season identifier.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>Disabled episode identifiers.</returns>
+    Task<IReadOnlySet<Guid>> GetDisabledEpisodeIdsAsync(Guid seasonId, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Sets whether an episode is disabled for analysis and media-segment output.
+    /// </summary>
+    /// <param name="seasonId">Season identifier.</param>
+    /// <param name="episodeId">Episode identifier.</param>
+    /// <param name="disabled">Whether the episode is disabled.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>A <see cref="Task"/> representing the asynchronous operation.</returns>
+    Task SetEpisodeAnalysisDisabledAsync(Guid seasonId, Guid episodeId, bool disabled, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Returns whether an episode is disabled for analysis and media-segment output.
+    /// </summary>
+    /// <param name="episodeId">Episode identifier.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns><see langword="true"/> when the episode is disabled.</returns>
+    Task<bool> IsEpisodeAnalysisDisabledAsync(Guid episodeId, CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// Deletes all segments stored for an item.
     /// </summary>
     /// <param name="itemId">Item ID.</param>

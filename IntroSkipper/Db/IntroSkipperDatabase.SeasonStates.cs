@@ -203,10 +203,18 @@ public sealed partial class IntroSkipperDatabase
             .ToListAsync(cancellationToken)
             .ConfigureAwait(false);
 
+        var disabledEpisodeIds = await db.DbDisabledEpisode
+            .AsNoTracking()
+            .Where(e => e.SeasonId == seasonId && EF.Parameter(episodeIdArray).Contains(e.EpisodeId))
+            .Select(e => e.EpisodeId)
+            .ToHashSetAsync(cancellationToken)
+            .ConfigureAwait(false);
+
         return new SeasonQueueSnapshot(
             seasonStates.ToDictionary(s => s.Type, s => (IReadOnlySet<Guid>)s.EpisodeIds.ToHashSet()),
             seasonStates.ToDictionary(s => s.Type, s => s.ConfigHash),
             seasonStates.ToDictionary(s => s.Type, s => s.Action),
+            disabledEpisodeIds,
             segments
                 .GroupBy(s => s.ItemId)
                 .ToDictionary(

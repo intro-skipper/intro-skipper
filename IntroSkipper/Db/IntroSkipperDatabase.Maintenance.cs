@@ -208,5 +208,10 @@ public sealed partial class IntroSkipperDatabase
             .Where(s => !EF.Parameter(retainedIds).Contains(s.SeasonId))
             .ExecuteDeleteAsync(cancellationToken)
             .ConfigureAwait(false);
+
+        await db.DbDisabledEpisode
+            .Where(e => !EF.Parameter(retainedIds).Contains(e.SeasonId))
+            .ExecuteDeleteAsync(cancellationToken)
+            .ConfigureAwait(false);
     }
 }

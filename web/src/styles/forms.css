@@ -597,6 +597,19 @@ a {
     gap: 8px;
 }
 
+.ts-episode-disable-toggle {
+    width: 16px;
+    height: 16px;
+    margin-left: auto;
+    accent-color: var(--is-accent);
+    cursor: pointer;
+    flex-shrink: 0;
+}
+
+.ts-episode-disabled {
+    opacity: 0.58;
+}
+
 .ts-episode-name {
     font-size: 0.95em;
     font-weight: 600;

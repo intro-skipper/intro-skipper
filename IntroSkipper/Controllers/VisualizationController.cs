@@ -72,6 +72,60 @@ public partial class VisualizationController(ILogger<VisualizationController> lo
     }
 
     /// <summary>
+    /// Returns the episodes explicitly disabled for analysis in the provided season.
+    /// </summary>
+    /// <param name="seasonId">Season ID.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>Disabled episode identifiers.</returns>
+    [HttpGet("DisabledEpisodes/{SeasonId}")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<ActionResult<IReadOnlySet<Guid>>> GetDisabledEpisodes([FromRoute] Guid seasonId, CancellationToken cancellationToken = default)
+    {
+        if (!TryGetSeasonEpisodes(seasonId, out _))
+        {
+            return NotFound();
+        }
+
+        return Ok(await _database.GetDisabledEpisodeIdsAsync(seasonId, cancellationToken).ConfigureAwait(false));
+    }
+
+    /// <summary>
+    /// Enables or disables analysis and media-segment output for one episode.
+    /// </summary>
+    /// <param name="request">Episode analysis update.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>No content.</returns>
+    [HttpPost("DisabledEpisodes/Update")]
+    [ProducesResponseType(StatusCodes.Status204NoContent)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<ActionResult> UpdateDisabledEpisode([FromBody] UpdateEpisodeAnalysisRequest request, CancellationToken cancellationToken = default)
+    {
+        if (!TryGetSeasonEpisodes(request.SeasonId, out var episodes) ||
+            episodes.FirstOrDefault(e => e.EpisodeId == request.EpisodeId) is not { Category: not QueuedMediaCategory.Movie })
+        {
+            return NotFound();
+        }
+
+        await _database.SetEpisodeAnalysisDisabledAsync(
+            request.SeasonId,
+            request.EpisodeId,
+            request.Disabled,
+            cancellationToken).ConfigureAwait(false);
+
+        if (request.Disabled)
+        {
+            await _mediaSegmentRefresher.RemoveIntroSkipperSegmentsAsync([request.EpisodeId], cancellationToken).ConfigureAwait(false);
+        }
+        else
+        {
+            await _mediaSegmentRefresher.RefreshAsync([request.EpisodeId], cancellationToken).ConfigureAwait(false);
+        }
+
+        return NoContent();
+    }
+
+    /// <summary>
     /// Returns the names and unique identifiers of all episodes in the provided season.
     /// </summary>
     /// <param name="seriesId">Show ID.</param>
@@ -220,6 +274,20 @@ public partial class VisualizationController(ILogger<VisualizationController> lo
         await _database.SetAnalyzerActionAsync(request.Id, request.AnalyzerActions, cancellationToken).ConfigureAwait(false);
 
         return NoContent();
+    }
+
+    private static bool TryGetSeasonEpisodes(Guid seasonId, out List<QueuedEpisode> episodes)
+    {
+        if (Plugin.Instance!.QueuedMediaItems.TryGetValue(seasonId, out var queuedEpisodes) &&
+            queuedEpisodes.Count > 0 &&
+            queuedEpisodes.Any(e => e.Category != QueuedMediaCategory.Movie))
+        {
+            episodes = queuedEpisodes;
+            return true;
+        }
+
+        episodes = [];
+        return false;
     }
 
     private async Task<IReadOnlyList<QueuedEpisode>> GetExcludedInventoryAsync(Plugin plugin, CancellationToken cancellationToken)
