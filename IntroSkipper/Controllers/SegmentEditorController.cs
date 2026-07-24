@@ -89,12 +89,13 @@ public class SegmentEditorController(MediaSegmentEditorService mediaSegmentEdito
     /// Delete MediaSgment by segment id.
     /// </summary>
     /// <param name="segmentId">The Id of the media segment to delete.</param>
-    /// <param name="itemId">The item id the segment belongs to (used to remove plugin DB entry).</param>
+    /// <param name="itemId">The item id that owns the segment; scopes both the plugin DB row and the Jellyfin delete.</param>
     /// <param name="type">The media segment type name (Intro/Recap/Preview/Outro).</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>
     /// HTTP 200 on success, 400 when the requested type does not match the Jellyfin segment,
-    /// or 404 when the commercial segment is not found.
+    /// or 404 when the commercial segment is not found. A segment id owned by a different item
+    /// leaves Jellyfin untouched while the item's own plugin row is still removed.
     /// </returns>
     [HttpDelete("{segmentId}")]
     [ProducesResponseType(StatusCodes.Status200OK)]
@@ -148,7 +149,7 @@ public class SegmentEditorController(MediaSegmentEditorService mediaSegmentEdito
 
         try
         {
-            await _mediaSegmentEditorService.DeleteSegmentAsync(segmentId, cancellationToken).ConfigureAwait(false);
+            await _mediaSegmentEditorService.DeleteSegmentAsync(itemId, segmentId, cancellationToken).ConfigureAwait(false);
         }
         catch
         {

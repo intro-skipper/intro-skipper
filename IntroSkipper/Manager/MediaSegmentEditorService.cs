@@ -60,12 +60,13 @@ public class MediaSegmentEditorService(IJellyfinSegmentStore segmentStore)
     /// <summary>
     /// Deletes a segment.
     /// </summary>
+    /// <param name="itemId">The Id of the item that owns the segment.</param>
     /// <param name="segmentId">The Id of the segment.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>A <see cref="Task"/> representing the asynchronous operation.</returns>
-    public async Task DeleteSegmentAsync(Guid segmentId, CancellationToken cancellationToken)
+    public async Task DeleteSegmentAsync(Guid itemId, Guid segmentId, CancellationToken cancellationToken)
     {
-        await _segmentStore.DeleteSegmentAsync(segmentId, cancellationToken).ConfigureAwait(false);
+        await _segmentStore.DeleteSegmentAsync(itemId, segmentId, cancellationToken).ConfigureAwait(false);
     }
 
     /// <summary>

@@ -244,10 +244,32 @@ public sealed class TestJellyfinSegmentStore
         var own = CreateEntity(itemId, MediaSegmentType.Outro, 30, 40, JellyfinSegmentStore.ProviderId);
         await SeedAsync(db, foreign, own);
 
-        await store.DeleteSegmentAsync(foreign.Id, CancellationToken.None);
+        await store.DeleteSegmentAsync(itemId, foreign.Id, CancellationToken.None);
 
         var row = Assert.Single(await GetAllAsync(db));
         Assert.Equal(own.Id, row.Id);
+    }
+
+    [Fact]
+    public async Task DeleteSegmentAsync_IgnoresRowsOfOtherItems()
+    {
+        using var db = new TempJellyfinDb();
+        var store = CreateStore(db);
+        var itemA = Guid.NewGuid();
+        var itemB = Guid.NewGuid();
+        var rowA = CreateEntity(itemA, MediaSegmentType.Intro, 10, 20, JellyfinSegmentStore.ProviderId);
+        await SeedAsync(db, rowA);
+
+        // A mismatched item id must not delete another item's segment.
+        await store.DeleteSegmentAsync(itemB, rowA.Id, CancellationToken.None);
+        Assert.Single(await GetAllAsync(db));
+
+        // An unknown segment id is a no-op rather than an error.
+        await store.DeleteSegmentAsync(itemA, Guid.NewGuid(), CancellationToken.None);
+        Assert.Single(await GetAllAsync(db));
+
+        await store.DeleteSegmentAsync(itemA, rowA.Id, CancellationToken.None);
+        Assert.Empty(await GetAllAsync(db));
     }
 
     [Fact]
