@@ -40,13 +40,8 @@ namespace IntroSkipper.Providers
             ArgumentNullException.ThrowIfNull(request);
             ArgumentNullException.ThrowIfNull(Plugin.Instance);
 
-            if (await Plugin.IsEpisodeMediaSegmentExcludedAsync(request.ItemId, cancellationToken).ConfigureAwait(false))
-            {
-                return [];
-            }
-
             var segments = new List<MediaSegmentDto>();
-            var itemSegments = await Plugin.GetSegmentsAsync(request.ItemId, cancellationToken).ConfigureAwait(false);
+            var itemSegments = await Plugin.GetSegmentsUnlessExcludedAsync(request.ItemId, cancellationToken).ConfigureAwait(false);
             var dedupedModes = new HashSet<AnalysisMode>();
 
             foreach (var segment in itemSegments.OrderBy(segment => segment.Start))

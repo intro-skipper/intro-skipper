@@ -140,6 +140,8 @@ public sealed class TestVisualizationController
         Assert.IsType<NoContentResult>(disableResult);
         Assert.Equal([episodeIds[0]], refresher.LastItemIds);
         Assert.True(await Plugin.IsEpisodeMediaSegmentExcludedAsync(episodeIds[0]));
+        Assert.Empty(await Plugin.GetSegmentsUnlessExcludedAsync(episodeIds[0]));
+        Assert.Single(await Plugin.GetSegmentsUnlessExcludedAsync(episodeIds[1]));
 
         var disabled = await controller.GetDisabledEpisodes(seasonId, CancellationToken.None);
         var disabledIds = Assert.IsAssignableFrom<IReadOnlySet<Guid>>(Assert.IsType<OkObjectResult>(disabled.Result).Value);
@@ -151,6 +153,7 @@ public sealed class TestVisualizationController
 
         Assert.IsType<NoContentResult>(enableResult);
         Assert.False(await Plugin.IsEpisodeMediaSegmentExcludedAsync(episodeIds[0]));
+        Assert.Single(await Plugin.GetSegmentsUnlessExcludedAsync(episodeIds[0]));
     }
 
     private static VisualizationController CreateController(RecordingMediaSegmentRefresher refresher, ILoggerFactory loggerFactory)
