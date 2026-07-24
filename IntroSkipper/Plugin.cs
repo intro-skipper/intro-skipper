@@ -425,17 +425,13 @@ public partial class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
     internal static async Task SetMediaSegmentExcludedAsync(Guid seasonId, Guid episodeId, bool excluded, CancellationToken cancellationToken = default)
     {
         using var db = CreateDbContext();
-        var existing = await db.DbDisabledEpisode.FindAsync([episodeId], cancellationToken).ConfigureAwait(false);
+        var existing = await db.DbDisabledEpisode.FindAsync([seasonId, episodeId], cancellationToken).ConfigureAwait(false);
 
         if (excluded)
         {
             if (existing is null)
             {
                 db.DbDisabledEpisode.Add(new DbDisabledEpisode(seasonId, episodeId));
-            }
-            else if (existing.SeasonId != seasonId)
-            {
-                db.Entry(existing).Property(e => e.SeasonId).CurrentValue = seasonId;
             }
         }
         else if (existing is not null)
@@ -460,18 +456,6 @@ public partial class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
             .Where(s => s.ItemId == id && !db.DbDisabledEpisode.Any(e => e.EpisodeId == id))
             .ToListAsync(cancellationToken)
             .ConfigureAwait(false);
-    }
-
-    /// <summary>
-    /// Returns whether an episode is excluded from media-segment output.
-    /// </summary>
-    /// <param name="episodeId">Episode identifier.</param>
-    /// <param name="cancellationToken">Cancellation token.</param>
-    /// <returns><see langword="true"/> when the episode is excluded.</returns>
-    internal static async Task<bool> IsEpisodeMediaSegmentExcludedAsync(Guid episodeId, CancellationToken cancellationToken = default)
-    {
-        using var db = CreateDbContext();
-        return await db.DbDisabledEpisode.AsNoTracking().AnyAsync(e => e.EpisodeId == episodeId, cancellationToken).ConfigureAwait(false);
     }
 
     internal static async Task SetEpisodeIdsAsync(Guid id, AnalysisMode mode, IEnumerable<Guid> episodeIds, string configHash = "", CancellationToken cancellationToken = default)

@@ -139,7 +139,10 @@ public sealed class TestVisualizationController
 
         Assert.IsType<NoContentResult>(disableResult);
         Assert.Equal([episodeIds[0]], refresher.LastItemIds);
-        Assert.True(await Plugin.IsEpisodeMediaSegmentExcludedAsync(episodeIds[0]));
+        await using (var db = new IntroSkipperDbContext(dbPath))
+        {
+            Assert.True(await db.DbDisabledEpisode.AnyAsync(e => e.SeasonId == seasonId && e.EpisodeId == episodeIds[0]));
+        }
         Assert.Empty(await Plugin.GetSegmentsUnlessExcludedAsync(episodeIds[0]));
         Assert.Single(await Plugin.GetSegmentsUnlessExcludedAsync(episodeIds[1]));
 
@@ -152,8 +155,11 @@ public sealed class TestVisualizationController
             CancellationToken.None);
 
         Assert.IsType<NoContentResult>(enableResult);
-        Assert.False(await Plugin.IsEpisodeMediaSegmentExcludedAsync(episodeIds[0]));
         Assert.Single(await Plugin.GetSegmentsUnlessExcludedAsync(episodeIds[0]));
+        await using (var db = new IntroSkipperDbContext(dbPath))
+        {
+            Assert.False(await db.DbDisabledEpisode.AnyAsync(e => e.SeasonId == seasonId && e.EpisodeId == episodeIds[0]));
+        }
     }
 
     private static VisualizationController CreateController(RecordingMediaSegmentRefresher refresher, ILoggerFactory loggerFactory)
