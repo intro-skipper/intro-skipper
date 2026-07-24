@@ -1,89 +1,108 @@
+// SPDX-FileCopyrightText: 2026 Intro-Skipper contributors <intro-skipper.org>
+// SPDX-License-Identifier: GPL-3.0-only
+
+namespace IntroSkipper.Tests;
+
 using System;
-using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
 using IntroSkipper.Configuration;
+using IntroSkipper.Data;
 using IntroSkipper.Manager;
+using IntroSkipper.Providers;
 using Jellyfin.Database.Implementations.Enums;
-using MediaBrowser.Controller.Entities;
 using MediaBrowser.Controller.Entities.Movies;
 using MediaBrowser.Controller.Library;
-using MediaBrowser.Controller.MediaSegments;
-using MediaBrowser.Model.Configuration;
-using MediaBrowser.Model.MediaSegments;
 using Microsoft.Extensions.Logging.Abstractions;
 using Xunit;
-
-namespace IntroSkipper.Tests;
 
 public sealed class TestMediaSegmentRefreshService
 {
     [Fact]
-    public async Task RefreshAsync_AwaitsRunSegmentPluginProviders_BeforeCompleting()
+    public async Task RefreshAsync_AwaitsSegmentStoreWrite_BeforeCompleting()
     {
         var itemId = Guid.NewGuid();
         var item = CreateMovie(itemId);
-        var manager = new FakeMediaSegmentManager
+        var writeEntered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var writeGate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var store = new FakeJellyfinSegmentStore
         {
-            RunCompletion = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously)
+            WriteEntered = writeEntered,
+            WriteGate = writeGate,
+            BlockedItemId = itemId
         };
-        var refresher = CreateRefresher(manager);
+        var refresher = CreateRefresher(store);
 
         var refreshTask = refresher.RefreshAsync(item, CancellationToken.None);
 
+        // Wait until the refresh has passed the DTO factory and is parked on the closed
+        // gate inside the store write; only then does the task's incompleteness prove
+        // the write is awaited rather than fired and forgotten.
+        await writeEntered.Task;
+
         Assert.False(refreshTask.IsCompleted);
 
-        manager.RunCompletion.SetResult();
+        writeGate.SetResult();
         await refreshTask;
 
-        Assert.Equal(1, manager.RunCount);
-        Assert.Equal(itemId, manager.LastItemId);
-        Assert.True(manager.LastForceOverwrite.GetValueOrDefault());
+        var (replacedItemId, _) = Assert.Single(store.ReplacedItems);
+        Assert.Equal(itemId, replacedItemId);
     }
 
     [Fact]
-    public async Task RefreshAsync_UsesExternalProvidersAndForceOverwrite()
-    {
-        var manager = new FakeMediaSegmentManager();
-        var refresher = CreateRefresher(manager);
-
-        await refresher.RefreshAsync(CreateMovie(Guid.NewGuid()), CancellationToken.None);
-
-        Assert.NotNull(manager.LastLibraryOptions);
-        Assert.Contains("Chapter Segments Provider", manager.LastLibraryOptions!.DisabledMediaSegmentProviders);
-        Assert.True(manager.LastForceOverwrite.GetValueOrDefault());
-    }
-
-    [Fact]
-    public async Task RefreshAsync_LogsAndReturnsAfterProviderFailure()
+    public async Task RefreshAsync_PushesFactoryOutput_ForSeededPluginDatabase()
     {
         var itemId = Guid.NewGuid();
-        var manager = new FakeMediaSegmentManager
-        {
-            RunException = new InvalidOperationException("boom")
-        };
-        var refresher = CreateRefresher(manager);
+        var database = DatabaseTestHelpers.CreateTempSegmentDatabase();
+        await database.UpdateTimestampAsync(new Segment(itemId, new TimeRange(100, 160)), AnalysisMode.Introduction);
+        await database.UpdateTimestampAsync(new Segment(itemId, new TimeRange(1200, 1260)), AnalysisMode.Credits);
+        var store = new FakeJellyfinSegmentStore();
+        var refresher = CreateRefresher(store, segmentDtoFactory: new SegmentDtoFactory(database));
 
         await refresher.RefreshAsync(CreateMovie(itemId), CancellationToken.None);
 
-        Assert.Equal(1, manager.RunCount);
-        Assert.Equal(itemId, manager.LastItemId);
-        Assert.True(manager.LastForceOverwrite.GetValueOrDefault());
+        var (replacedItemId, pushed) = Assert.Single(store.ReplacedItems);
+        Assert.Equal(itemId, replacedItemId);
+        Assert.Equal(2, pushed.Count);
+        var intro = Assert.Single(pushed, segment => segment.Type == MediaSegmentType.Intro);
+        Assert.Equal(itemId, intro.ItemId);
+        Assert.Equal(TimeSpan.FromSeconds(100).Ticks, intro.StartTicks);
+        Assert.Equal(TimeSpan.FromSeconds(160).Ticks, intro.EndTicks);
+        var outro = Assert.Single(pushed, segment => segment.Type == MediaSegmentType.Outro);
+        Assert.Equal(TimeSpan.FromSeconds(1200).Ticks, outro.StartTicks);
+        Assert.Equal(TimeSpan.FromSeconds(1260).Ticks, outro.EndTicks);
+    }
+
+    [Fact]
+    public async Task RefreshAsync_LogsAndReturnsAfterStoreFailure()
+    {
+        var itemId = Guid.NewGuid();
+        var store = new FakeJellyfinSegmentStore
+        {
+            WriteException = new InvalidOperationException("boom")
+        };
+        var refresher = CreateRefresher(store);
+
+        await refresher.RefreshAsync(CreateMovie(itemId), CancellationToken.None);
+
+        Assert.Equal(1, store.WriteCallCount);
+        var (replacedItemId, _) = Assert.Single(store.ReplacedItems);
+        Assert.Equal(itemId, replacedItemId);
     }
 
     [Fact]
     public async Task RefreshAsync_RethrowsCriticalException()
     {
-        var manager = new FakeMediaSegmentManager
+        var store = new FakeJellyfinSegmentStore
         {
-            RunException = new ThreadInterruptedException()
+            WriteException = new ThreadInterruptedException()
         };
-        var refresher = CreateRefresher(manager);
+        var refresher = CreateRefresher(store);
 
         await Assert.ThrowsAsync<ThreadInterruptedException>(
             () => refresher.RefreshAsync(CreateMovie(Guid.NewGuid()), CancellationToken.None));
 
-        Assert.Equal(1, manager.RunCount);
+        Assert.Equal(1, store.WriteCallCount);
     }
 
     [Fact]
@@ -91,65 +110,57 @@ public sealed class TestMediaSegmentRefreshService
     {
         var itemId = Guid.NewGuid();
         var item = CreateMovie(itemId);
-        var manager = new FakeMediaSegmentManager();
+        var store = new FakeJellyfinSegmentStore();
         var libraryManager = EntrypointTestHelpers.CreateLibraryManager(item);
         using var scope = new EntrypointTestHelpers.PluginInstanceScope(EntrypointTestHelpers.CreateTempCacheDir());
         EntrypointTestHelpers.SetPropertyOrField(Plugin.Instance!, "Configuration", new PluginConfiguration { MaxParallelism = 2 });
-        var refresher = CreateRefresher(manager, libraryManager);
+        var refresher = CreateRefresher(store, libraryManager);
 
         await refresher.RefreshAsync([itemId, Guid.Empty, itemId], CancellationToken.None);
 
-        Assert.Equal(1, manager.RunCount);
-        Assert.Equal(itemId, manager.LastItemId);
+        var (replacedItemId, _) = Assert.Single(store.ReplacedItems);
+        Assert.Equal(itemId, replacedItemId);
     }
 
     [Fact]
-    public async Task RemoveIntroSkipperSegmentsAsync_DeletesOnlyIntroSkipperSegments()
+    public async Task RemoveIntroSkipperSegmentsAsync_DelegatesIdsToStore()
     {
-        var itemId = Guid.NewGuid();
-        var segmentId = Guid.NewGuid();
-        var manager = new FakeMediaSegmentManager
-        {
-            SegmentsToReturn = [new MediaSegmentDto { Id = segmentId, ItemId = itemId }]
-        };
-        var libraryManager = EntrypointTestHelpers.CreateLibraryManager(CreateMovie(itemId));
-        using var scope = new EntrypointTestHelpers.PluginInstanceScope(EntrypointTestHelpers.CreateTempCacheDir());
-        EntrypointTestHelpers.SetPropertyOrField(Plugin.Instance!, "Configuration", new PluginConfiguration { MaxParallelism = 2 });
-        var refresher = CreateRefresher(manager, libraryManager);
+        var firstId = Guid.NewGuid();
+        var secondId = Guid.NewGuid();
+        var store = new FakeJellyfinSegmentStore();
+        var refresher = CreateRefresher(store);
 
-        await refresher.RemoveIntroSkipperSegmentsAsync([itemId], CancellationToken.None);
+        await refresher.RemoveIntroSkipperSegmentsAsync([firstId, secondId], CancellationToken.None);
 
-        Assert.Equal([segmentId], manager.DeletedSegmentIds);
-        Assert.NotNull(manager.LastLibraryOptions);
-        Assert.DoesNotContain(Plugin.ProviderName, manager.LastLibraryOptions!.DisabledMediaSegmentProviders);
-        Assert.Contains("Chapter Segments Provider", manager.LastLibraryOptions.DisabledMediaSegmentProviders);
-        Assert.True(manager.LastFilterByProvider);
-        Assert.Equal(0, manager.RunCount);
+        Assert.Equal([firstId, secondId], store.DeletedOwnItemIds);
+        Assert.Empty(store.ReplacedItems);
     }
 
     [Fact]
     public async Task RemoveIntroSkipperSegmentsAsync_PropagatesDeleteFailure()
     {
-        var itemId = Guid.NewGuid();
         var expectedException = new InvalidOperationException("boom");
-        var manager = new FakeMediaSegmentManager
+        var store = new FakeJellyfinSegmentStore
         {
-            SegmentsToReturn = [new MediaSegmentDto { Id = Guid.NewGuid(), ItemId = itemId }],
-            DeleteSegmentException = expectedException
+            DeleteOwnException = expectedException
         };
-        var libraryManager = EntrypointTestHelpers.CreateLibraryManager(CreateMovie(itemId));
-        using var scope = new EntrypointTestHelpers.PluginInstanceScope(EntrypointTestHelpers.CreateTempCacheDir());
-        EntrypointTestHelpers.SetPropertyOrField(Plugin.Instance!, "Configuration", new PluginConfiguration { MaxParallelism = 2 });
-        var refresher = CreateRefresher(manager, libraryManager);
+        var refresher = CreateRefresher(store);
 
         var exception = await Assert.ThrowsAsync<InvalidOperationException>(
-            () => refresher.RemoveIntroSkipperSegmentsAsync([itemId], CancellationToken.None));
+            () => refresher.RemoveIntroSkipperSegmentsAsync([Guid.NewGuid()], CancellationToken.None));
 
         Assert.Same(expectedException, exception);
     }
 
-    private static MediaSegmentRefreshService CreateRefresher(FakeMediaSegmentManager manager, ILibraryManager? libraryManager = null)
-        => new(manager, libraryManager ?? EntrypointTestHelpers.CreateLibraryManager(), NullLogger<MediaSegmentRefreshService>.Instance);
+    private static MediaSegmentRefreshService CreateRefresher(
+        FakeJellyfinSegmentStore store,
+        ILibraryManager? libraryManager = null,
+        SegmentDtoFactory? segmentDtoFactory = null)
+        => new(
+            store,
+            segmentDtoFactory ?? new SegmentDtoFactory(DatabaseTestHelpers.CreateTempSegmentDatabase()),
+            libraryManager ?? EntrypointTestHelpers.CreateLibraryManager(),
+            NullLogger<MediaSegmentRefreshService>.Instance);
 
     private static Movie CreateMovie(Guid itemId)
     {
@@ -157,76 +168,5 @@ public sealed class TestMediaSegmentRefreshService
         EntrypointTestHelpers.SetPropertyOrField(item, "Id", itemId);
         EntrypointTestHelpers.EnsureNonVirtual(item);
         return item;
-    }
-
-    private sealed class FakeMediaSegmentManager : IMediaSegmentManager
-    {
-        public int RunCount { get; private set; }
-
-        public Guid LastItemId { get; private set; }
-
-        public bool? LastForceOverwrite { get; private set; }
-
-        public LibraryOptions? LastLibraryOptions { get; private set; }
-
-        public bool LastFilterByProvider { get; private set; }
-
-        public List<Guid> DeletedSegmentIds { get; } = [];
-
-        public Exception? RunException { get; init; }
-
-        public Exception? DeleteSegmentException { get; init; }
-
-        public IReadOnlyList<MediaSegmentDto> SegmentsToReturn { get; init; } = [];
-
-        public TaskCompletionSource? RunCompletion { get; init; }
-
-        public Task RunSegmentPluginProviders(BaseItem baseItem, LibraryOptions libraryOptions, bool forceOverwrite, CancellationToken cancellationToken)
-        {
-            RunCount++;
-            LastItemId = baseItem.Id;
-            LastForceOverwrite = forceOverwrite;
-            LastLibraryOptions = libraryOptions;
-
-            if (RunException is not null)
-            {
-                throw RunException;
-            }
-
-            return RunCompletion?.Task ?? Task.CompletedTask;
-        }
-
-        public bool IsTypeSupported(BaseItem baseItem) => true;
-
-        public Task<MediaSegmentDto> CreateSegmentAsync(MediaSegmentDto mediaSegment, string segmentProviderId) => Task.FromResult(mediaSegment);
-
-        public Task DeleteSegmentAsync(Guid segmentId)
-        {
-            if (DeleteSegmentException is not null)
-            {
-                throw DeleteSegmentException;
-            }
-
-            DeletedSegmentIds.Add(segmentId);
-            return Task.CompletedTask;
-        }
-
-        public Task DeleteSegmentsAsync(Guid itemId, CancellationToken cancellationToken) => Task.CompletedTask;
-
-        public Task<IEnumerable<MediaSegmentDto>> GetSegmentsAsync(BaseItem item, IEnumerable<MediaSegmentType>? typeFilter, LibraryOptions libraryOptions, bool filterByProvider = true)
-        {
-            LastLibraryOptions = libraryOptions;
-            LastFilterByProvider = filterByProvider;
-            return Task.FromResult<IEnumerable<MediaSegmentDto>>(SegmentsToReturn);
-        }
-
-        public bool HasSegments(Guid itemId) => false;
-
-        public IEnumerable<(string Name, string Id)> GetSupportedProviders(BaseItem item)
-            =>
-            [
-                (Plugin.ProviderName, "intro-skipper"),
-                ("Chapter Segments Provider", "chapter")
-            ];
     }
 }

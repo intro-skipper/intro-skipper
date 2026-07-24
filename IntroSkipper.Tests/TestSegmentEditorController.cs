@@ -4,20 +4,14 @@
 namespace IntroSkipper.Tests;
 
 using System;
-using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using IntroSkipper.Controllers;
 using IntroSkipper.Data;
 using IntroSkipper.Manager;
-using MediaBrowser.Controller.Entities;
-using MediaBrowser.Controller.Entities.Movies;
-using MediaBrowser.Controller.MediaSegments;
-using MediaBrowser.Model.Configuration;
 using MediaBrowser.Model.MediaSegments;
 using Microsoft.AspNetCore.Mvc;
-using Microsoft.Extensions.Logging.Abstractions;
 using Xunit;
 
 /// <summary>
@@ -37,8 +31,8 @@ public sealed class SegmentEditorControllerTests
         await database.UpdateTimestampAsync(new Segment(itemId, new TimeRange(100, 160)), AnalysisMode.Introduction, isUserProvided: true, configHash: "cfg-1");
 
         // Jellyfin has no segment with this id (lookup returns null) and its delete throws.
-        var manager = new FakeMediaSegmentManager { DeleteException = new InvalidOperationException("jellyfin down") };
-        var controller = CreateController(manager, database);
+        var store = new FakeJellyfinSegmentStore { DeleteSegmentException = new InvalidOperationException("jellyfin down") };
+        var controller = CreateController(store, database);
 
         await Assert.ThrowsAsync<InvalidOperationException>(() =>
             controller.DeleteSegmentAsync(Guid.NewGuid(), itemId, "intro", CancellationToken.None));
@@ -61,8 +55,7 @@ public sealed class SegmentEditorControllerTests
         var database = DatabaseTestHelpers.CreateTempSegmentDatabase();
         await database.UpdateTimestampAsync(new Segment(itemId, new TimeRange(100, 160)), AnalysisMode.Introduction, isUserProvided: true, configHash: "cfg-2");
 
-        var movie = CreateMovie(itemId);
-        var manager = new FakeMediaSegmentManager
+        var store = new FakeJellyfinSegmentStore
         {
             ExistingSegments =
             [
@@ -75,9 +68,9 @@ public sealed class SegmentEditorControllerTests
                     EndTicks = TimeSpan.FromSeconds(160).Ticks,
                 }
             ],
-            DeleteException = new InvalidOperationException("jellyfin down"),
+            DeleteSegmentException = new InvalidOperationException("jellyfin down"),
         };
-        var controller = CreateController(manager, database, movie);
+        var controller = CreateController(store, database);
 
         await Assert.ThrowsAsync<InvalidOperationException>(() =>
             controller.DeleteSegmentAsync(segmentId, itemId, "intro", CancellationToken.None));
@@ -105,8 +98,7 @@ public sealed class SegmentEditorControllerTests
         await database.SetEpisodeIdsAsync(itemId, AnalysisMode.Introduction, [itemId], "cfg-intro");
         await database.SetEpisodeIdsAsync(itemId, AnalysisMode.Credits, [itemId], "cfg-credits");
 
-        var movie = CreateMovie(itemId);
-        var manager = new FakeMediaSegmentManager
+        var store = new FakeJellyfinSegmentStore
         {
             ExistingSegments =
             [
@@ -120,12 +112,12 @@ public sealed class SegmentEditorControllerTests
                 }
             ],
         };
-        var controller = CreateController(manager, database, movie);
+        var controller = CreateController(store, database);
 
         var response = await controller.DeleteSegmentAsync(segmentId, itemId, "intro", CancellationToken.None);
 
         Assert.IsType<BadRequestObjectResult>(response);
-        Assert.Empty(manager.DeletedSegmentIds);
+        Assert.Empty(store.DeletedSegmentIds);
 
         var rows = await database.GetSegmentsAsync(itemId);
         Assert.Equal(2, rows.Count);
@@ -152,8 +144,7 @@ public sealed class SegmentEditorControllerTests
         var database = DatabaseTestHelpers.CreateTempSegmentDatabase();
         await database.UpdateTimestampAsync(new Segment(itemId, new TimeRange(100, 160)), AnalysisMode.Introduction, configHash: "cfg-original");
 
-        var movie = CreateMovie(itemId);
-        var manager = new FakeMediaSegmentManager
+        var store = new FakeJellyfinSegmentStore
         {
             ExistingSegments =
             [
@@ -166,9 +157,9 @@ public sealed class SegmentEditorControllerTests
                     EndTicks = TimeSpan.FromSeconds(160.005).Ticks,
                 }
             ],
-            DeleteException = new InvalidOperationException("jellyfin down"),
+            DeleteSegmentException = new InvalidOperationException("jellyfin down"),
         };
-        var controller = CreateController(manager, database, movie);
+        var controller = CreateController(store, database);
 
         await Assert.ThrowsAsync<InvalidOperationException>(() =>
             controller.DeleteSegmentAsync(segmentId, itemId, "intro", CancellationToken.None));
@@ -195,8 +186,7 @@ public sealed class SegmentEditorControllerTests
         await database.UpdateTimestampAsync(new Segment(itemId, new TimeRange(10, 20)), AnalysisMode.Commercial, isUserProvided: false, configHash: "cfg-a");
         await database.UpdateTimestampAsync(new Segment(itemId, new TimeRange(10.005, 20.005)), AnalysisMode.Commercial, isUserProvided: true, configHash: "cfg-b");
 
-        var movie = CreateMovie(itemId);
-        var manager = new FakeMediaSegmentManager
+        var store = new FakeJellyfinSegmentStore
         {
             ExistingSegments =
             [
@@ -209,9 +199,9 @@ public sealed class SegmentEditorControllerTests
                     EndTicks = TimeSpan.FromSeconds(20.005).Ticks,
                 }
             ],
-            DeleteException = new InvalidOperationException("jellyfin down"),
+            DeleteSegmentException = new InvalidOperationException("jellyfin down"),
         };
-        var controller = CreateController(manager, database, movie);
+        var controller = CreateController(store, database);
 
         await Assert.ThrowsAsync<InvalidOperationException>(() =>
             controller.DeleteSegmentAsync(segmentId, itemId, "commercial", CancellationToken.None));
@@ -238,68 +228,18 @@ public sealed class SegmentEditorControllerTests
 
         // Jellyfin segment already gone; the delete of the unknown id succeeds as a no-op,
         // so the orphaned plugin row is cleaned up.
-        var manager = new FakeMediaSegmentManager();
-        var controller = CreateController(manager, database);
+        var store = new FakeJellyfinSegmentStore();
+        var controller = CreateController(store, database);
         var segmentId = Guid.NewGuid();
 
         await controller.DeleteSegmentAsync(segmentId, itemId, "intro", CancellationToken.None);
 
         Assert.Empty(await database.GetSegmentsAsync(itemId));
-        Assert.Equal([segmentId], manager.DeletedSegmentIds);
+        Assert.Equal([segmentId], store.DeletedSegmentIds);
     }
 
     private static SegmentEditorController CreateController(
-        FakeMediaSegmentManager manager,
-        IntroSkipper.Db.IIntroSkipperDatabase database,
-        BaseItem? item = null)
-    {
-        var libraryManager = item is null
-            ? EntrypointTestHelpers.CreateLibraryManager()
-            : EntrypointTestHelpers.CreateLibraryManager(item);
-        var service = new MediaSegmentEditorService(manager, libraryManager, NullLogger<MediaSegmentEditorService>.Instance);
-        return new SegmentEditorController(service, database);
-    }
-
-    private static Movie CreateMovie(Guid id)
-    {
-        var item = new Movie();
-        EntrypointTestHelpers.SetPropertyOrField(item, "Id", id);
-        EntrypointTestHelpers.EnsureNonVirtual(item);
-        return item;
-    }
-
-    private sealed class FakeMediaSegmentManager : IMediaSegmentManager
-    {
-        public IReadOnlyList<MediaSegmentDto> ExistingSegments { get; init; } = [];
-
-        public Exception? DeleteException { get; init; }
-
-        public List<Guid> DeletedSegmentIds { get; } = [];
-
-        public IEnumerable<(string Name, string Id)> GetSupportedProviders(BaseItem item) => [(Plugin.ProviderName, "intro-skipper")];
-
-        public Task<IEnumerable<MediaSegmentDto>> GetSegmentsAsync(BaseItem item, IEnumerable<Jellyfin.Database.Implementations.Enums.MediaSegmentType>? typeFilter, LibraryOptions libraryOptions, bool filterByProvider = true)
-            => Task.FromResult<IEnumerable<MediaSegmentDto>>(ExistingSegments);
-
-        public Task<MediaSegmentDto> CreateSegmentAsync(MediaSegmentDto mediaSegment, string segmentProviderId) => Task.FromResult(mediaSegment);
-
-        public Task DeleteSegmentAsync(Guid segmentId)
-        {
-            if (DeleteException is not null)
-            {
-                throw DeleteException;
-            }
-
-            DeletedSegmentIds.Add(segmentId);
-            return Task.CompletedTask;
-        }
-
-        public Task DeleteSegmentsAsync(Guid itemId, CancellationToken cancellationToken) => Task.CompletedTask;
-
-        public Task RunSegmentPluginProviders(BaseItem baseItem, LibraryOptions libraryOptions, bool forceOverwrite, CancellationToken cancellationToken) => Task.CompletedTask;
-
-        public bool HasSegments(Guid itemId) => false;
-
-        public bool IsTypeSupported(BaseItem baseItem) => true;
-    }
+        FakeJellyfinSegmentStore store,
+        IntroSkipper.Db.IIntroSkipperDatabase database)
+        => new(new MediaSegmentEditorService(store), database);
 }
