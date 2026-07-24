@@ -174,15 +174,17 @@ public sealed partial class JellyfinSegmentStore(
     }
 
     /// <inheritdoc />
-    public async Task DeleteSegmentAsync(Guid segmentId, CancellationToken cancellationToken)
+    public async Task DeleteSegmentAsync(Guid itemId, Guid segmentId, CancellationToken cancellationToken)
     {
         var db = await contextFactory.CreateDbContextAsync(cancellationToken).ConfigureAwait(false);
         await using (db.ConfigureAwait(false))
         {
             // Deliberately not scoped to Intro Skipper's provider id: the editor lets
-            // users remove any segment by id, matching IMediaSegmentManager semantics.
+            // users remove any of the item's segments by id. It is scoped to the item,
+            // unlike IMediaSegmentManager, so a caller holding a stale or mismatched
+            // segment id can never delete another item's segment.
             await db.MediaSegments
-                .Where(segment => segment.Id == segmentId)
+                .Where(segment => segment.ItemId == itemId && segment.Id == segmentId)
                 .ExecuteDeleteAsync(cancellationToken)
                 .ConfigureAwait(false);
         }

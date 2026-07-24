@@ -148,7 +148,7 @@ public class SegmentEditorController(MediaSegmentEditorService mediaSegmentEdito
 
         try
         {
-            await _mediaSegmentEditorService.DeleteSegmentAsync(segmentId, cancellationToken).ConfigureAwait(false);
+            await _mediaSegmentEditorService.DeleteSegmentAsync(itemId, segmentId, cancellationToken).ConfigureAwait(false);
         }
         catch
         {

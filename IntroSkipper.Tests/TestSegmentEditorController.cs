@@ -10,8 +10,11 @@ using System.Threading.Tasks;
 using IntroSkipper.Controllers;
 using IntroSkipper.Data;
 using IntroSkipper.Manager;
+using Jellyfin.Database.Implementations.Entities;
 using MediaBrowser.Model.MediaSegments;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging.Abstractions;
 using Xunit;
 
 /// <summary>
@@ -117,7 +120,7 @@ public sealed class SegmentEditorControllerTests
         var response = await controller.DeleteSegmentAsync(segmentId, itemId, "intro", CancellationToken.None);
 
         Assert.IsType<BadRequestObjectResult>(response);
-        Assert.Empty(store.DeletedSegmentIds);
+        Assert.Empty(store.DeletedSegments);
 
         var rows = await database.GetSegmentsAsync(itemId);
         Assert.Equal(2, rows.Count);
@@ -235,7 +238,55 @@ public sealed class SegmentEditorControllerTests
         await controller.DeleteSegmentAsync(segmentId, itemId, "intro", CancellationToken.None);
 
         Assert.Empty(await database.GetSegmentsAsync(itemId));
-        Assert.Equal([segmentId], store.DeletedSegmentIds);
+        Assert.Equal([(itemId, segmentId)], store.DeletedSegments);
+    }
+
+    [Fact]
+    public async Task DeleteSegment_WithMismatchedItemId_NeverTouchesOtherItemsJellyfinRow()
+    {
+        using var scope = new EntrypointTestHelpers.PluginInstanceScope(EntrypointTestHelpers.CreateTempCacheDir());
+        EntrypointTestHelpers.SetPrivateField(Plugin.Instance!, "_libraryManager", EntrypointTestHelpers.CreateLibraryManager());
+        using var jellyfinDb = new TempJellyfinDb();
+        var store = new JellyfinSegmentStore(jellyfinDb.Factory, NullLogger<JellyfinSegmentStore>.Instance);
+        var database = DatabaseTestHelpers.CreateTempSegmentDatabase();
+
+        var itemA = Guid.NewGuid();
+        var itemB = Guid.NewGuid();
+        var segmentIdA = Guid.NewGuid();
+
+        var context = jellyfinDb.Factory.CreateDbContext();
+        await using (context)
+        {
+            context.MediaSegments.Add(new MediaSegment
+            {
+                Id = segmentIdA,
+                ItemId = itemA,
+                Type = Jellyfin.Database.Implementations.Enums.MediaSegmentType.Intro,
+                StartTicks = TimeSpan.FromSeconds(10).Ticks,
+                EndTicks = TimeSpan.FromSeconds(60).Ticks,
+                SegmentProviderId = JellyfinSegmentStore.ProviderId,
+            });
+            await context.SaveChangesAsync();
+        }
+
+        await database.UpdateTimestampAsync(new Segment(itemB, new TimeRange(100, 160)), AnalysisMode.Introduction, isUserProvided: true, configHash: "cfg-b");
+
+        var controller = new SegmentEditorController(new MediaSegmentEditorService(store), database);
+
+        // Item B's id paired with item A's segment id: the caller's own orphaned plugin row
+        // is still cleaned up, but item A's Jellyfin segment must survive.
+        var result = await controller.DeleteSegmentAsync(segmentIdA, itemB, "intro", CancellationToken.None);
+
+        Assert.IsType<OkResult>(result);
+        Assert.Empty(await database.GetSegmentsAsync(itemB));
+
+        var verify = jellyfinDb.Factory.CreateDbContext();
+        await using (verify)
+        {
+            var survivor = Assert.Single(await verify.MediaSegments.AsNoTracking().ToListAsync());
+            Assert.Equal(itemA, survivor.ItemId);
+            Assert.Equal(segmentIdA, survivor.Id);
+        }
     }
 
     private static SegmentEditorController CreateController(

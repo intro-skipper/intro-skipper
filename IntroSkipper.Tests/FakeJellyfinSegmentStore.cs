@@ -21,8 +21,8 @@ internal sealed class FakeJellyfinSegmentStore : IJellyfinSegmentStore
     private int _writeCount;
 
     /// <summary>
-    /// Gets the segments served by <see cref="GetSegmentAsync"/>, matched by segment id
-    /// only (editor tests build entries without an item id).
+    /// Gets the segments served by <see cref="GetSegmentAsync"/>, matched by item id and
+    /// segment id exactly like the production store.
     /// </summary>
     public IReadOnlyList<MediaSegmentDto> ExistingSegments { get; init; } = [];
 
@@ -53,7 +53,7 @@ internal sealed class FakeJellyfinSegmentStore : IJellyfinSegmentStore
 
     public List<(Guid ItemId, MediaSegmentDto Segment)> CreatedCommercials { get; } = [];
 
-    public List<Guid> DeletedSegmentIds { get; } = [];
+    public List<(Guid ItemId, Guid SegmentId)> DeletedSegments { get; } = [];
 
     public List<Guid> DeletedOwnItemIds { get; } = [];
 
@@ -101,12 +101,12 @@ internal sealed class FakeJellyfinSegmentStore : IJellyfinSegmentStore
     }
 
     public Task<MediaSegmentDto?> GetSegmentAsync(Guid itemId, Guid segmentId, CancellationToken cancellationToken)
-        => Task.FromResult(ExistingSegments.FirstOrDefault(segment => segment.Id == segmentId));
+        => Task.FromResult(ExistingSegments.FirstOrDefault(segment => segment.ItemId == itemId && segment.Id == segmentId));
 
-    public Task DeleteSegmentAsync(Guid segmentId, CancellationToken cancellationToken)
+    public Task DeleteSegmentAsync(Guid itemId, Guid segmentId, CancellationToken cancellationToken)
     {
         ThrowIfConfigured(DeleteSegmentException);
-        DeletedSegmentIds.Add(segmentId);
+        DeletedSegments.Add((itemId, segmentId));
         return Task.CompletedTask;
     }
 

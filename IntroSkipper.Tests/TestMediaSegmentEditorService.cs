@@ -109,8 +109,8 @@ public sealed class TestMediaSegmentEditorService
         {
             ExistingSegments =
             [
-                CreateSegment(MediaSegmentType.Outro, 30, 40, Guid.NewGuid()),
-                CreateSegment(MediaSegmentType.Intro, 10, 20, segmentId)
+                CreateSegment(MediaSegmentType.Outro, 30, 40, Guid.NewGuid(), itemId),
+                CreateSegment(MediaSegmentType.Intro, 10, 20, segmentId, itemId)
             ]
         };
         var service = CreateService(store);
@@ -119,6 +119,19 @@ public sealed class TestMediaSegmentEditorService
 
         Assert.NotNull(result);
         Assert.Equal(segmentId, result!.Id);
+    }
+
+    [Fact]
+    public async Task GetSegmentAsync_ReturnsNull_WhenItemIdDoesNotMatch()
+    {
+        var segmentId = Guid.NewGuid();
+        var store = new FakeJellyfinSegmentStore
+        {
+            ExistingSegments = [CreateSegment(MediaSegmentType.Intro, 10, 20, segmentId, Guid.NewGuid())]
+        };
+        var service = CreateService(store);
+
+        Assert.Null(await service.GetSegmentAsync(Guid.NewGuid(), segmentId, CancellationToken.None));
     }
 
     [Fact]
@@ -155,11 +168,12 @@ public sealed class TestMediaSegmentEditorService
     {
         var store = new FakeJellyfinSegmentStore();
         var service = CreateService(store);
+        var itemId = Guid.NewGuid();
         var segmentId = Guid.NewGuid();
 
-        await service.DeleteSegmentAsync(segmentId, CancellationToken.None);
+        await service.DeleteSegmentAsync(itemId, segmentId, CancellationToken.None);
 
-        Assert.Equal([segmentId], store.DeletedSegmentIds);
+        Assert.Equal([(itemId, segmentId)], store.DeletedSegments);
     }
 
     private static MediaSegmentEditorService CreateService(FakeJellyfinSegmentStore store)
@@ -173,10 +187,11 @@ public sealed class TestMediaSegmentEditorService
         return item;
     }
 
-    private static MediaSegmentDto CreateSegment(MediaSegmentType type, long startTicks, long endTicks, Guid id = default)
+    private static MediaSegmentDto CreateSegment(MediaSegmentType type, long startTicks, long endTicks, Guid id = default, Guid itemId = default)
         => new()
         {
             Id = id,
+            ItemId = itemId,
             Type = type,
             StartTicks = startTicks,
             EndTicks = endTicks
