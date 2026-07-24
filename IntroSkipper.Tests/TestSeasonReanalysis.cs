@@ -723,6 +723,8 @@ public sealed class TestSeasonReanalysisReset
                 EntrypointTestHelpers.SetPropertyOrField(episode, "Id", episodeId);
                 EntrypointTestHelpers.SetPropertyOrField(episode, "Path", mediaPath);
                 var libraryManager = EntrypointTestHelpers.CreateLibraryManager(episode);
+                var plugin = Plugin.Instance!;
+                EntrypointTestHelpers.SetPrivateField(plugin, "_libraryManager", libraryManager);
                 var database = DatabaseTestHelpers.CreateSegmentDatabase(dbPath);
 
                 var queueManager = new QueueManager(

@@ -18,6 +18,27 @@ namespace IntroSkipper.Tests;
 public sealed class TestDbSegmentStorage
 {
     [Fact]
+    public async Task DisabledEpisodesUseSeasonAndEpisodeAsCompositeKey()
+    {
+        await using var connection = new SqliteConnection("Data Source=:memory:");
+        await connection.OpenAsync();
+        var options = new DbContextOptionsBuilder<IntroSkipperDbContext>()
+            .UseSqlite(connection)
+            .Options;
+        await using var db = new IntroSkipperDbContext(options);
+        await db.Database.EnsureCreatedAsync();
+
+        var episodeId = Guid.NewGuid();
+        db.DbDisabledEpisode.AddRange(
+            new DbDisabledEpisode(Guid.NewGuid(), episodeId),
+            new DbDisabledEpisode(Guid.NewGuid(), episodeId));
+
+        await db.SaveChangesAsync();
+
+        Assert.Equal(2, await db.DbDisabledEpisode.CountAsync());
+    }
+
+    [Fact]
     public void AllowsMultipleCommercialSegments()
     {
         using var connection = new SqliteConnection("Data Source=:memory:");

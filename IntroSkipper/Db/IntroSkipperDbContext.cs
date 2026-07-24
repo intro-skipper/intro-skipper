@@ -154,8 +154,8 @@ public class IntroSkipperDbContext : DbContext
         modelBuilder.Entity<DbDisabledEpisode>(entity =>
         {
             entity.ToTable("DbDisabledEpisode");
-            entity.HasKey(e => e.EpisodeId);
-            entity.HasIndex(e => e.SeasonId);
+            entity.HasKey(e => new { e.SeasonId, e.EpisodeId });
+            entity.HasIndex(e => e.EpisodeId);
         });
         base.OnModelCreating(modelBuilder);
     }
@@ -449,20 +449,59 @@ public class IntroSkipperDbContext : DbContext
 
     private void EnsureDbDisabledEpisodeSchema()
     {
-        if (TableExists("DbDisabledEpisode") || !TableExists("DbSeasonState"))
+        if (!TableExists("DbDisabledEpisode"))
         {
+            if (!TableExists("DbSeasonState"))
+            {
+                return;
+            }
+
+            Database.ExecuteSqlRaw(
+                """
+                CREATE TABLE "DbDisabledEpisode" (
+                    "EpisodeId" TEXT NOT NULL,
+                    "SeasonId" TEXT NOT NULL,
+                    CONSTRAINT "PK_DbDisabledEpisode" PRIMARY KEY ("SeasonId", "EpisodeId")
+                );
+                CREATE INDEX "IX_DbDisabledEpisode_EpisodeId" ON "DbDisabledEpisode" ("EpisodeId");
+                """);
+            return;
+        }
+
+        if (HasCompositeDisabledEpisodePrimaryKey())
+        {
+            Database.ExecuteSqlRaw("DROP INDEX IF EXISTS \"IX_DbDisabledEpisode_SeasonId\"");
+            Database.ExecuteSqlRaw("CREATE INDEX IF NOT EXISTS \"IX_DbDisabledEpisode_EpisodeId\" ON \"DbDisabledEpisode\" (\"EpisodeId\")");
             return;
         }
 
         Database.ExecuteSqlRaw(
             """
-            CREATE TABLE "DbDisabledEpisode" (
+            CREATE TABLE "DbDisabledEpisode_Temp" (
                 "EpisodeId" TEXT NOT NULL,
                 "SeasonId" TEXT NOT NULL,
-                CONSTRAINT "PK_DbDisabledEpisode" PRIMARY KEY ("EpisodeId")
-            )
+                CONSTRAINT "PK_DbDisabledEpisode_Temp" PRIMARY KEY ("SeasonId", "EpisodeId")
+            );
+            INSERT OR IGNORE INTO "DbDisabledEpisode_Temp" ("EpisodeId", "SeasonId")
+            SELECT "EpisodeId", "SeasonId" FROM "DbDisabledEpisode";
+            DROP TABLE "DbDisabledEpisode";
+            ALTER TABLE "DbDisabledEpisode_Temp" RENAME TO "DbDisabledEpisode";
+            CREATE INDEX "IX_DbDisabledEpisode_EpisodeId" ON "DbDisabledEpisode" ("EpisodeId");
             """);
-        Database.ExecuteSqlRaw("CREATE INDEX IF NOT EXISTS \"IX_DbDisabledEpisode_SeasonId\" ON \"DbDisabledEpisode\" (\"SeasonId\")");
+    }
+
+    private bool HasCompositeDisabledEpisodePrimaryKey()
+    {
+        using var command = Database.GetDbConnection().CreateCommand();
+        command.CommandText = "SELECT \"name\" FROM pragma_table_info('DbDisabledEpisode') WHERE \"pk\" > 0 ORDER BY \"pk\"";
+        command.Transaction = Database.CurrentTransaction?.GetDbTransaction();
+
+        using var reader = command.ExecuteReader();
+        return reader.Read()
+            && reader.GetString(0) == "SeasonId"
+            && reader.Read()
+            && reader.GetString(0) == "EpisodeId"
+            && !reader.Read();
     }
 
     private void RebuildDbSegmentWithIdentity()

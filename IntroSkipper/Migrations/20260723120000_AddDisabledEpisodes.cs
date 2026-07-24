@@ -19,13 +19,13 @@ namespace IntroSkipper.Migrations
                 },
                 constraints: table =>
                 {
-                    table.PrimaryKey("PK_DbDisabledEpisode", x => x.EpisodeId);
+                    table.PrimaryKey("PK_DbDisabledEpisode", x => new { x.SeasonId, x.EpisodeId });
                 });
 
             migrationBuilder.CreateIndex(
-                name: "IX_DbDisabledEpisode_SeasonId",
+                name: "IX_DbDisabledEpisode_EpisodeId",
                 table: "DbDisabledEpisode",
-                column: "SeasonId");
+                column: "EpisodeId");
         }
 
         /// <inheritdoc />

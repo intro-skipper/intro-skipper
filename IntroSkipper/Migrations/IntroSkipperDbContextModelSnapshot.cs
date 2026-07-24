@@ -62,9 +62,9 @@ namespace IntroSkipper.Migrations
                     b.Property<Guid>("SeasonId")
                         .HasColumnType("TEXT");
 
-                    b.HasKey("EpisodeId");
+                    b.HasKey("SeasonId", "EpisodeId");
 
-                    b.HasIndex("SeasonId");
+                    b.HasIndex("EpisodeId");
 
                     b.ToTable("DbDisabledEpisode", (string)null);
                 });
