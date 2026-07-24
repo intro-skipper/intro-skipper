@@ -137,13 +137,14 @@ public sealed class TestMediaSegmentEditorService
     [Fact]
     public async Task GetSegmentAsync_ReturnsNull_WhenSegmentIdDoesNotMatch()
     {
+        var itemId = Guid.NewGuid();
         var store = new FakeJellyfinSegmentStore
         {
-            ExistingSegments = [CreateSegment(MediaSegmentType.Intro, 10, 20, Guid.NewGuid())]
+            ExistingSegments = [CreateSegment(MediaSegmentType.Intro, 10, 20, Guid.NewGuid(), itemId)]
         };
         var service = CreateService(store);
 
-        var result = await service.GetSegmentAsync(Guid.NewGuid(), Guid.NewGuid(), CancellationToken.None);
+        var result = await service.GetSegmentAsync(itemId, Guid.NewGuid(), CancellationToken.None);
 
         Assert.Null(result);
     }
