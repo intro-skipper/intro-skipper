@@ -924,6 +924,86 @@ public sealed class SegmentEditorControllerTests
     }
 
     [Fact]
+    public async Task CreateSegment_RestoresPriorPluginRow_WhenJellyfinWriteFails()
+    {
+        using var scope = new EntrypointTestHelpers.PluginInstanceScope(EntrypointTestHelpers.CreateTempCacheDir());
+        var itemId = Guid.NewGuid();
+        SetLibrary(CreateMovie(itemId));
+        var database = DatabaseTestHelpers.CreateTempSegmentDatabase();
+        await database.UpdateTimestampAsync(new Segment(itemId, new TimeRange(100, 160)), AnalysisMode.Introduction, isUserProvided: false, configHash: "cfg-old");
+        var store = new FakeJellyfinSegmentStore { WriteException = new InvalidOperationException("jellyfin down") };
+        var controller = CreateController(store, database);
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() => controller.CreateSegmentAsync(
+            itemId,
+            "providerId",
+            new MediaSegmentDto { Type = MediaSegmentType.Intro, StartTicks = TimeSpan.FromSeconds(200).Ticks, EndTicks = TimeSpan.FromSeconds(260).Ticks },
+            CancellationToken.None));
+
+        // The half-applied create is compensated: the plugin database still holds the
+        // prior detected row rather than the new user row Jellyfin never committed.
+        var restored = Assert.Single(await database.GetSegmentsAsync(itemId));
+        Assert.Equal(100, restored.Start);
+        Assert.Equal(160, restored.End);
+        Assert.False(restored.IsUserProvided);
+        Assert.Equal("cfg-old", restored.ConfigHash);
+    }
+
+    [Fact]
+    public async Task CreateSegment_CommercialRollback_RemovesOnlyRowsThisCallCreated()
+    {
+        using var scope = new EntrypointTestHelpers.PluginInstanceScope(EntrypointTestHelpers.CreateTempCacheDir());
+        var itemId = Guid.NewGuid();
+        SetLibrary(CreateMovie(itemId));
+        var database = DatabaseTestHelpers.CreateTempSegmentDatabase();
+        var store = new FakeJellyfinSegmentStore { WriteException = new InvalidOperationException("jellyfin down") };
+        var controller = CreateController(store, database);
+        var commercial = new MediaSegmentDto
+        {
+            Type = MediaSegmentType.Commercial,
+            StartTicks = TimeSpan.FromSeconds(10).Ticks,
+            EndTicks = TimeSpan.FromSeconds(20).Ticks,
+        };
+
+        // A brand-new commercial: the compensation removes the row this call created.
+        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            controller.CreateSegmentAsync(itemId, "providerId", commercial, CancellationToken.None));
+        Assert.Empty(await database.GetSegmentsAsync(itemId));
+
+        // A pre-existing equivalent commercial: the compensation must not delete it.
+        await database.UpdateTimestampAsync(new Segment(itemId, new TimeRange(10, 20)), AnalysisMode.Commercial, isUserProvided: false, configHash: "cfg-old");
+        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            controller.CreateSegmentAsync(itemId, "providerId", commercial, CancellationToken.None));
+        var survivor = Assert.Single(await database.GetSegmentsAsync(itemId));
+        Assert.Equal("cfg-old", survivor.ConfigHash);
+    }
+
+    [Fact]
+    public async Task PutSegments_Returns400_AndRestoresPluginRows_WhenASuppliedIdConflicts()
+    {
+        using var scope = new EntrypointTestHelpers.PluginInstanceScope(EntrypointTestHelpers.CreateTempCacheDir());
+        var itemId = Guid.NewGuid();
+        SetLibrary(CreateMovie(itemId));
+        var database = DatabaseTestHelpers.CreateTempSegmentDatabase();
+        await database.UpdateTimestampAsync(new Segment(itemId, new TimeRange(100, 160)), AnalysisMode.Introduction, isUserProvided: false, configHash: "cfg-old");
+        var conflictingId = Guid.NewGuid();
+        var store = new FakeJellyfinSegmentStore { WriteException = new SegmentIdConflictException(conflictingId) };
+        var controller = CreateController(store, database);
+
+        var response = await controller.ReplaceSegmentsAsync(
+            itemId,
+            [new MediaSegmentDto { Id = conflictingId, Type = MediaSegmentType.Intro, StartTicks = 10, EndTicks = 20 }],
+            CancellationToken.None);
+
+        // The id collision is a client error, and the compensation already restored the
+        // plugin database before the controller translated the exception.
+        Assert.IsType<BadRequestObjectResult>(response.Result);
+        var restored = Assert.Single(await database.GetSegmentsAsync(itemId));
+        Assert.Equal(100, restored.Start);
+        Assert.Equal("cfg-old", restored.ConfigHash);
+    }
+
+    [Fact]
     public async Task Copy_NearDuplicateCommercialsAcrossProviders_CollapsesOntoOwnRow()
     {
         using var scope = new EntrypointTestHelpers.PluginInstanceScope(EntrypointTestHelpers.CreateTempCacheDir());

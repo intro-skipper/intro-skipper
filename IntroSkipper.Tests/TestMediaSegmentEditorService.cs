@@ -59,12 +59,14 @@ public sealed class TestMediaSegmentEditorService
         var store = new FakeJellyfinSegmentStore
         {
             WriteGate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously),
+            WriteEntered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously),
             BlockedItemId = item.Id
         };
         var service = CreateService(store);
 
         // First call enters the critical section and parks inside the store write while holding the lock.
         var first = service.CreateOrReplaceSegmentAsync(item, CreateSegment(MediaSegmentType.Intro, 10, 20), CancellationToken.None);
+        await store.WriteEntered.Task;
 
         // Second call for the same item must block on the per-item lock and therefore must not have
         // reached the store yet.

@@ -54,6 +54,7 @@ public interface IJellyfinSegmentStore
     /// <param name="segment">The segment to persist.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>A <see cref="Task"/> representing the asynchronous operation.</returns>
+    /// <exception cref="SegmentIdConflictException">The supplied segment id already identifies another row.</exception>
     Task CreateCommercialIfAbsentAsync(Guid itemId, MediaSegmentDto segment, CancellationToken cancellationToken);
 
     /// <summary>
@@ -93,6 +94,7 @@ public interface IJellyfinSegmentStore
     /// <returns>A task that represents the asynchronous operation.</returns>
     /// <exception cref="ArgumentException">A segment type is outside <paramref name="types"/>.</exception>
     /// <exception cref="ArgumentNullException"><paramref name="segments"/> or <paramref name="types"/> is <see langword="null"/>.</exception>
+    /// <exception cref="SegmentIdConflictException">A supplied segment id already identifies a row outside the replaced scope.</exception>
     Task ReplaceEditableTypesAsync(Guid itemId, IReadOnlyList<MediaSegmentDto> segments, IReadOnlyCollection<MediaSegmentType> types, CancellationToken cancellationToken);
 
     /// <summary>

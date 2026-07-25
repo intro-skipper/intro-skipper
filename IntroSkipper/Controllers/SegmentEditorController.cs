@@ -131,9 +131,19 @@ public class SegmentEditorController(
 
         var normalized = NormalizeForReplace(segments, itemId);
 
-        await _mediaSegmentEditorService
-            .ReplaceEditorSegmentsAsync(item, ResolveSeasonStateKey(item), normalized, AnalysisHelpers.EditorManagedModes, cancellationToken)
-            .ConfigureAwait(false);
+        try
+        {
+            await _mediaSegmentEditorService
+                .ReplaceEditorSegmentsAsync(item, ResolveSeasonStateKey(item), normalized, AnalysisHelpers.EditorManagedModes, cancellationToken)
+                .ConfigureAwait(false);
+        }
+        catch (SegmentIdConflictException ex)
+        {
+            // A supplied id can collide with a row outside the replaced scope (another
+            // item, or a type the replace does not cover); that is a client error, not a
+            // server fault. The service already restored the plugin database.
+            return BadRequest($"Segment id '{ex.SegmentId}' already identifies another segment.");
+        }
 
         var refreshed = await _mediaSegmentEditorService.GetEditorSegmentsAsync(itemId, cancellationToken).ConfigureAwait(false);
         return Ok(refreshed);
@@ -353,6 +363,10 @@ public class SegmentEditorController(
     /// <summary>
     /// Create MediaSegment for itemId.
     /// </summary>
+    /// <remarks>
+    /// The write is applied to the plugin database first and then to Jellyfin; a Jellyfin
+    /// write failure restores the plugin database.
+    /// </remarks>
     /// <param name="itemId">The ItemId.</param>
     /// <param name="providerId">Provider of the Segment.</param>
     /// <param name="segment">MediaSegment data.</param>
@@ -374,10 +388,8 @@ public class SegmentEditorController(
             return NotFound();
         }
 
-        // Reject invalid input as a client error before the plugin database commits:
-        // without this, an inverted range surfaces as a server error from the Jellyfin
-        // write after the plugin row was already created, tearing the two stores apart.
-        if (!AnalysisHelpers.TryMapSegmentTypeToMode(segment.Type, out var mode))
+        // Reject invalid input as a client error before either store commits.
+        if (!AnalysisHelpers.TryMapSegmentTypeToMode(segment.Type, out _))
         {
             return BadRequest($"Segment type '{segment.Type}' is not supported by the editor.");
         }
@@ -392,11 +404,15 @@ public class SegmentEditorController(
             return BadRequest($"Segment end must be after its start (type '{segment.Type}').");
         }
 
-        var seg = new Segment(itemId, new TimeRange(TimeSpan.FromTicks(segment.StartTicks).TotalSeconds, TimeSpan.FromTicks(segment.EndTicks).TotalSeconds));
-
-        await _database.UpdateTimestampAsync(seg, mode, isUserProvided: true, cancellationToken: cancellationToken).ConfigureAwait(false);
-
-        await _mediaSegmentEditorService.CreateOrReplaceSegmentAsync(item, segment, cancellationToken).ConfigureAwait(false);
+        try
+        {
+            await _mediaSegmentEditorService.CreateOrReplaceSegmentAsync(item, segment, cancellationToken).ConfigureAwait(false);
+        }
+        catch (SegmentIdConflictException ex)
+        {
+            // The service already restored the plugin database before rethrowing.
+            return BadRequest($"Segment id '{ex.SegmentId}' already identifies another segment.");
+        }
 
         return Ok();
     }

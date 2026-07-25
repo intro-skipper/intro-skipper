@@ -35,24 +35,31 @@ public partial class MediaSegmentEditorService(
     private readonly ILogger<MediaSegmentEditorService> _logger = logger;
 
     /// <summary>
-    /// Creates or replaces a Jellyfin media segment for an item.
+    /// Creates or replaces one editor segment in both stores.
     /// </summary>
     /// <remarks>
-    /// The operation waits asynchronously for the item's mutation lock. Non-commercial
-    /// segments replace every existing segment of that type, regardless of provider, in
-    /// Jellyfin's transaction. Commercial segments are added only when no entry with the
-    /// same start and end ticks exists.
+    /// The operation waits asynchronously for the item's mutation lock. It commits the
+    /// plugin row first, then writes Jellyfin: non-commercial segments replace every
+    /// existing segment of that type, regardless of provider, in Jellyfin's transaction,
+    /// while commercial segments are added only when no entry with the same start and end
+    /// ticks exists. If the Jellyfin write fails, the plugin database is restored to its
+    /// prior state without honoring cancellation, mirroring the replace and delete paths.
     /// </remarks>
     /// <param name="item">The media item that owns the segment.</param>
-    /// <param name="segment">The segment to persist in Jellyfin's database.</param>
-    /// <param name="cancellationToken">The token that cancels waiting or the store operation.</param>
+    /// <param name="segment">The segment to persist, expressed in ticks.</param>
+    /// <param name="cancellationToken">The token that cancels waiting or work before both stores commit.</param>
     /// <returns>A task that represents the asynchronous operation.</returns>
     /// <exception cref="ArgumentNullException"><paramref name="item"/> or <paramref name="segment"/> is <see langword="null"/>.</exception>
-    /// <exception cref="OperationCanceledException"><paramref name="cancellationToken"/> is canceled while waiting or writing.</exception>
+    /// <exception cref="OperationCanceledException"><paramref name="cancellationToken"/> is canceled before both stores commit.</exception>
     public async Task CreateOrReplaceSegmentAsync(BaseItem item, MediaSegmentDto segment, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(item);
         ArgumentNullException.ThrowIfNull(segment);
+
+        var mode = AnalysisHelpers.MapSegmentTypeToMode(segment.Type);
+        var dbSegment = new Segment(item.Id, new TimeRange(
+            TimeSpan.FromTicks(segment.StartTicks).TotalSeconds,
+            TimeSpan.FromTicks(segment.EndTicks).TotalSeconds));
 
         var itemLock = MediaSegmentItemLock.Get(item.Id);
         await itemLock.WaitAsync(cancellationToken).ConfigureAwait(false);
@@ -60,11 +67,65 @@ public partial class MediaSegmentEditorService(
         {
             if (segment.Type == MediaSegmentType.Commercial)
             {
-                await _segmentStore.CreateCommercialIfAbsentAsync(item.Id, segment, cancellationToken).ConfigureAwait(false);
+                // Add-if-absent: record whether an equivalent plugin row pre-existed so a
+                // Jellyfin failure removes only a row this call created.
+                var existed = (await _database.GetSegmentsAsync(item.Id, cancellationToken).ConfigureAwait(false))
+                    .Any(row => row.Type == mode
+                        && Math.Abs(row.Start - dbSegment.Start) <= IntroSkipperDatabase.SegmentComparisonEpsilon
+                        && Math.Abs(row.End - dbSegment.End) <= IntroSkipperDatabase.SegmentComparisonEpsilon);
+
+                await _database
+                    .UpdateTimestampAsync(dbSegment, mode, isUserProvided: true, cancellationToken: cancellationToken)
+                    .ConfigureAwait(false);
+
+                try
+                {
+                    await _segmentStore.CreateCommercialIfAbsentAsync(item.Id, segment, cancellationToken).ConfigureAwait(false);
+                }
+                catch
+                {
+                    if (!existed)
+                    {
+                        try
+                        {
+                            await _database.DeleteTimestampAsync(item.Id, mode, dbSegment, CancellationToken.None).ConfigureAwait(false);
+                        }
+                        catch (Exception restoreException) when (!restoreException.IsCritical())
+                        {
+                            LogRestoreFailed(_logger, restoreException, item.Id);
+                        }
+                    }
+
+                    throw;
+                }
             }
             else
             {
-                await _segmentStore.ReplaceTypeAsync(item.Id, segment, cancellationToken).ConfigureAwait(false);
+                // The editor write is authoritative for its mode, so the plugin replacement
+                // both persists the user row and captures the prior rows for compensation.
+                var priorRows = await _database
+                    .ReplaceItemSegmentsAsync(item.Id, [mode], [new DbSegment(dbSegment, mode, isUserProvided: true)], cancellationToken)
+                    .ConfigureAwait(false);
+
+                try
+                {
+                    await _segmentStore.ReplaceTypeAsync(item.Id, segment, cancellationToken).ConfigureAwait(false);
+                }
+                catch
+                {
+                    try
+                    {
+                        await _database
+                            .ReplaceItemSegmentsAsync(item.Id, [mode], priorRows, CancellationToken.None)
+                            .ConfigureAwait(false);
+                    }
+                    catch (Exception restoreException) when (!restoreException.IsCritical())
+                    {
+                        LogRestoreFailed(_logger, restoreException, item.Id);
+                    }
+
+                    throw;
+                }
             }
         }
         finally

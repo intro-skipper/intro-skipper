@@ -13,6 +13,7 @@ using IntroSkipper.Controllers;
 using IntroSkipper.Data;
 using IntroSkipper.Db;
 using IntroSkipper.FFmpeg;
+using IntroSkipper.Helper;
 using IntroSkipper.Manager;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -122,8 +123,16 @@ public sealed class TestSnapPoints
     {
         using var scope = CreateScope(out var itemId, out var cacheDb, out var controller);
 
-        // Era 1 scanned credits from 1200s; its probe window [1250,1350] holds an interval
-        // at absolute 1300-1304, stored relative as (100,104).
+        // Production hashes embed the entry type, so a BlackInterval row's hash never
+        // equals a BlackFrame row's. Era identity therefore only exists for rows the
+        // CURRENT configuration wrote; historical rows are resolved by geometry alone.
+        var config = Plugin.Instance!.Configuration;
+        var currentBlackFrameHash = ConfigHasher.DetectionCache(config, CacheEntryType.BlackFrame, AnalysisMode.Credits);
+        var currentIntervalHash = ConfigHasher.DetectionCache(config, CacheEntryType.BlackInterval, AnalysisMode.Credits);
+
+        // Era 1 (historical config) scanned credits from 1200s; its probe window
+        // [1250,1350] holds an interval at absolute 1300-1304, stored relative as (100,104).
+        // Only the era-1 anchor fits geometrically, so it resolves without a tiebreak.
         cacheDb.Upsert(itemId, AnalysisMode.Credits, CacheEntryType.BlackFrame, 1200, 0, DetectionCacheService.CompressBrotli<BlackFrame[]>([]), "era1");
         cacheDb.Upsert(
             itemId,
@@ -134,10 +143,10 @@ public sealed class TestSnapPoints
             DetectionCacheService.CompressBrotli<BlackInterval[]>([new BlackInterval(100, 104)]),
             "era1");
 
-        // Era 2 (config change) scanned from 1020s; window [1020,1400] holds an interval at
-        // absolute 1100-1104, stored relative as (80,84). Both anchors are in the cache, so
-        // a single global anchor would mis-place one era's intervals.
-        cacheDb.Upsert(itemId, AnalysisMode.Credits, CacheEntryType.BlackFrame, 1020, 0, DetectionCacheService.CompressBrotli<BlackFrame[]>([]), "era2");
+        // Era 2 (current config) scanned from 1020s; window [1020,1400] holds an interval
+        // at absolute 1100-1104, stored relative as (80,84). Both anchors fit that wide
+        // window, so only the current-era tiebreak can place it.
+        cacheDb.Upsert(itemId, AnalysisMode.Credits, CacheEntryType.BlackFrame, 1020, 0, DetectionCacheService.CompressBrotli<BlackFrame[]>([]), currentBlackFrameHash);
         cacheDb.Upsert(
             itemId,
             AnalysisMode.Credits,
@@ -145,13 +154,44 @@ public sealed class TestSnapPoints
             1020,
             1400,
             DetectionCacheService.CompressBrotli<BlackInterval[]>([new BlackInterval(80, 84)]),
-            "era2");
+            currentIntervalHash);
+
+        // A historical row whose wide window fits both anchors stays ambiguous — no era
+        // identity can be established for it, so it must be omitted, not guessed.
+        cacheDb.Upsert(
+            itemId,
+            AnalysisMode.Credits,
+            CacheEntryType.BlackInterval,
+            1000,
+            1400,
+            DetectionCacheService.CompressBrotli<BlackInterval[]>([new BlackInterval(150, 154)]),
+            "era1");
 
         var result = await GetSnapPointsAsync(controller, itemId);
 
         Assert.Equal(2, result.BlackIntervals.Count);
         Assert.Contains(result.BlackIntervals, interval => Math.Abs(interval.Start - 1100) < 0.01 && Math.Abs(interval.End - 1104) < 0.01);
         Assert.Contains(result.BlackIntervals, interval => Math.Abs(interval.Start - 1300) < 0.01 && Math.Abs(interval.End - 1304) < 0.01);
+    }
+
+    [Fact]
+    public async Task SnapPoints_CorruptPayload_IsSkipped_NotFatal()
+    {
+        using var scope = CreateScope(out var itemId, out var cacheDb, out var controller);
+
+        // Not valid Brotli/JSON: the best-effort endpoint must skip the row, not fail.
+        cacheDb.Upsert(itemId, AnalysisMode.Introduction, CacheEntryType.Keyframe, 0, 300, [1, 2, 3], "h");
+        cacheDb.Upsert(itemId, AnalysisMode.Introduction, CacheEntryType.Silence, 0, 300, DetectionCacheService.CompressBrotli<TimeRange[]>([new TimeRange(50, 55)]), "h");
+        cacheDb.Upsert(itemId, AnalysisMode.Credits, CacheEntryType.BlackInterval, 905, 915, [7, 7, 7], "h");
+
+        var result = await GetSnapPointsAsync(controller, itemId);
+
+        Assert.True(result.FromCache);
+        Assert.Empty(result.Keyframes);
+        Assert.Empty(result.BlackIntervals);
+        var silence = Assert.Single(result.Silence);
+        Assert.Equal(50, silence.Start);
+        Assert.Equal(55, silence.End);
     }
 
     [Fact]

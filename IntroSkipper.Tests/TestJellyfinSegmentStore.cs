@@ -444,6 +444,76 @@ public sealed class TestJellyfinSegmentStore
         Assert.Equal(0, entryB.OtherCount);
     }
 
+    [Fact]
+    public async Task ReplaceEditableTypesAsync_ThrowsTypedConflict_WhenSuppliedIdBelongsToAnotherItem()
+    {
+        using var db = new TempJellyfinDb();
+        var store = CreateStore(db);
+        var itemA = Guid.NewGuid();
+        var itemB = Guid.NewGuid();
+        var otherItemsRow = CreateEntity(itemB, MediaSegmentType.Intro, 0, 100, ForeignProviderId);
+        var itemARow = CreateEntity(itemA, MediaSegmentType.Intro, 10, 20, JellyfinSegmentStore.ProviderId);
+        await SeedAsync(db, otherItemsRow, itemARow);
+
+        // The supplied id survives the scoped delete (it lives on another item), so the
+        // editor path must fail with the typed conflict, not a raw constraint violation.
+        var ex = await Assert.ThrowsAsync<SegmentIdConflictException>(() => store.ReplaceEditableTypesAsync(
+            itemA,
+            [CreateDto(MediaSegmentType.Intro, 50, 60, otherItemsRow.Id)],
+            [MediaSegmentType.Intro],
+            CancellationToken.None));
+
+        Assert.Equal(otherItemsRow.Id, ex.SegmentId);
+
+        // The transaction rolled back: item A's deleted row is back, item B untouched.
+        var rows = await GetAllAsync(db);
+        Assert.Equal(2, rows.Count);
+        var survivor = Assert.Single(rows, row => row.Id == itemARow.Id);
+        Assert.Equal(10, survivor.StartTicks);
+        Assert.Single(rows, row => row.Id == otherItemsRow.Id);
+    }
+
+    [Fact]
+    public async Task ReplaceEditableTypesAsync_AllowsReusingIdsFromTheReplacedScope()
+    {
+        using var db = new TempJellyfinDb();
+        var store = CreateStore(db);
+        var itemId = Guid.NewGuid();
+        var existing = CreateEntity(itemId, MediaSegmentType.Intro, 10, 20, JellyfinSegmentStore.ProviderId);
+        await SeedAsync(db, existing);
+
+        // A GET-then-PUT round-trip legitimately reuses the ids of rows the replace
+        // deletes; the conflict check runs after the scoped delete so this stays valid.
+        await store.ReplaceEditableTypesAsync(
+            itemId,
+            [CreateDto(MediaSegmentType.Intro, 50, 60, existing.Id)],
+            [MediaSegmentType.Intro],
+            CancellationToken.None);
+
+        var row = Assert.Single(await GetAllAsync(db));
+        Assert.Equal(existing.Id, row.Id);
+        Assert.Equal(50, row.StartTicks);
+        Assert.Equal(60, row.EndTicks);
+    }
+
+    [Fact]
+    public async Task CreateCommercialIfAbsentAsync_ThrowsTypedConflict_WhenSuppliedIdBelongsToAnotherRow()
+    {
+        using var db = new TempJellyfinDb();
+        var store = CreateStore(db);
+        var itemId = Guid.NewGuid();
+        var existing = CreateEntity(itemId, MediaSegmentType.Intro, 0, 100, ForeignProviderId);
+        await SeedAsync(db, existing);
+
+        var ex = await Assert.ThrowsAsync<SegmentIdConflictException>(() => store.CreateCommercialIfAbsentAsync(
+            itemId,
+            CreateDto(MediaSegmentType.Commercial, 50, 60, existing.Id),
+            CancellationToken.None));
+
+        Assert.Equal(existing.Id, ex.SegmentId);
+        Assert.Single(await GetAllAsync(db));
+    }
+
     private static JellyfinSegmentStore CreateStore(TempJellyfinDb db)
         => new(db.Factory, NullLogger<JellyfinSegmentStore>.Instance);
 

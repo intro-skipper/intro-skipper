@@ -66,6 +66,7 @@ public sealed partial class JellyfinSegmentStore(
             nameof(ReplaceSegmentsAsync),
             entities,
             db => OwnSegments(db, itemId),
+            detectIdConflicts: false,
             cancellationToken).ConfigureAwait(false);
     }
 
@@ -131,6 +132,17 @@ public sealed partial class JellyfinSegmentStore(
             if (exists)
             {
                 return;
+            }
+
+            if (entity.Id != Guid.Empty
+                && await db.MediaSegments
+                    .AsNoTracking()
+                    .AnyAsync(existing => existing.Id == entity.Id, cancellationToken)
+                    .ConfigureAwait(false))
+            {
+                // The supplied id belongs to a different row, so the insert would violate
+                // the primary key. Surface a client error instead of a constraint failure.
+                throw new SegmentIdConflictException(entity.Id);
             }
 
             db.MediaSegments.Add(entity);
@@ -199,12 +211,15 @@ public sealed partial class JellyfinSegmentStore(
         var entities = segments.Select(segment => Map(segment, itemId)).ToList();
 
         // The editor owns "the" segments of the replaced types: existing entries are
-        // removed regardless of which provider created them.
+        // removed regardless of which provider created them. Caller-supplied ids are
+        // checked against rows outside the replaced scope so a collision surfaces as a
+        // client error instead of a primary-key constraint failure.
         await ReplaceScopeAsync(
             itemId,
             nameof(ReplaceEditableTypesAsync),
             entities,
             db => db.MediaSegments.Where(segment => segment.ItemId == itemId && typeArray.Contains(segment.Type)),
+            detectIdConflicts: true,
             cancellationToken).ConfigureAwait(false);
     }
 
@@ -217,6 +232,7 @@ public sealed partial class JellyfinSegmentStore(
     /// <param name="operation">The calling operation name, for diagnostics.</param>
     /// <param name="entities">The rows that should exist within the scope after the call.</param>
     /// <param name="deleteScope">Builds the query selecting the rows to replace.</param>
+    /// <param name="detectIdConflicts">Whether caller-supplied ids are checked against rows outside the scope, surfacing collisions as <see cref="SegmentIdConflictException"/> for client-error reporting. The refresh path skips the check: its rows never carry ids, and a raw constraint failure there indicates a programming error.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>A <see cref="Task"/> representing the asynchronous operation.</returns>
     private async Task ReplaceScopeAsync(
@@ -224,6 +240,7 @@ public sealed partial class JellyfinSegmentStore(
         string operation,
         List<MediaSegment> entities,
         Func<JellyfinDbContext, IQueryable<MediaSegment>> deleteScope,
+        bool detectIdConflicts,
         CancellationToken cancellationToken)
     {
         var db = await contextFactory.CreateDbContextAsync(cancellationToken).ConfigureAwait(false);
@@ -240,6 +257,11 @@ public sealed partial class JellyfinSegmentStore(
                 async () =>
                 {
                     await deleteScope(db).ExecuteDeleteAsync(cancellationToken).ConfigureAwait(false);
+                    if (detectIdConflicts)
+                    {
+                        await ThrowOnSegmentIdConflictAsync(db, entities, cancellationToken).ConfigureAwait(false);
+                    }
+
                     db.MediaSegments.AddRange(entities);
                     await SaveExactlyAsync(db, itemId, operation, entities.Count, cancellationToken).ConfigureAwait(false);
                 },
@@ -295,6 +317,37 @@ public sealed partial class JellyfinSegmentStore(
 
     private static IQueryable<MediaSegment> OwnSegments(JellyfinDbContext db, Guid itemId)
         => db.MediaSegments.Where(segment => segment.ItemId == itemId && segment.SegmentProviderId == ProviderId);
+
+    /// <summary>
+    /// Fails a replace whose supplied ids collide with rows outside the replaced scope.
+    /// Runs after the scoped delete in the same transaction, so any row still holding a
+    /// supplied id would violate the primary key on insert. Surfacing the conflict as a
+    /// typed exception lets the API report a client error instead of a constraint failure.
+    /// </summary>
+    private static async Task ThrowOnSegmentIdConflictAsync(JellyfinDbContext db, List<MediaSegment> entities, CancellationToken cancellationToken)
+    {
+        var suppliedIds = entities
+            .Where(entity => entity.Id != Guid.Empty)
+            .Select(entity => entity.Id)
+            .ToArray();
+
+        if (suppliedIds.Length == 0)
+        {
+            return;
+        }
+
+        var conflict = await db.MediaSegments
+            .AsNoTracking()
+            .Where(segment => suppliedIds.Contains(segment.Id))
+            .Select(segment => (Guid?)segment.Id)
+            .FirstOrDefaultAsync(cancellationToken)
+            .ConfigureAwait(false);
+
+        if (conflict is Guid conflictingId)
+        {
+            throw new SegmentIdConflictException(conflictingId);
+        }
+    }
 
     private async Task SaveExactlyAsync(JellyfinDbContext db, Guid itemId, string operation, int expectedWrites, CancellationToken cancellationToken)
     {
