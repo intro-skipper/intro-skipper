@@ -69,6 +69,40 @@ public sealed partial class IntroSkipperDatabase : IIntroSkipperDatabase
         await db.RebuildDatabaseAsync(_contextFactory.CreateDbContext, forceCleanOnBackupFailure, cancellationToken).ConfigureAwait(false);
     }
 
+    /// <summary>
+    /// Determines whether two second-based ranges are the same entry within
+    /// <see cref="SegmentComparisonEpsilon"/>.
+    /// </summary>
+    /// <remarks>
+    /// Callers that validate a write before it reaches the facade must use this so their
+    /// answer cannot disagree with the guard that rejects the write. Queries translated to
+    /// SQL keep the comparison inline: EF Core cannot translate a method call.
+    /// </remarks>
+    /// <param name="startSeconds">First range start, in seconds.</param>
+    /// <param name="endSeconds">First range end, in seconds.</param>
+    /// <param name="otherStartSeconds">Second range start, in seconds.</param>
+    /// <param name="otherEndSeconds">Second range end, in seconds.</param>
+    /// <returns><see langword="true"/> when both bounds match within the tolerance.</returns>
+    internal static bool RangesEquivalent(double startSeconds, double endSeconds, double otherStartSeconds, double otherEndSeconds)
+        => Math.Abs(startSeconds - otherStartSeconds) <= SegmentComparisonEpsilon
+            && Math.Abs(endSeconds - otherEndSeconds) <= SegmentComparisonEpsilon;
+
+    /// <summary>
+    /// Determines whether two tick-based ranges are the same entry within
+    /// <see cref="SegmentComparisonEpsilon"/>.
+    /// </summary>
+    /// <param name="startTicks">First range start, in ticks.</param>
+    /// <param name="endTicks">First range end, in ticks.</param>
+    /// <param name="otherStartTicks">Second range start, in ticks.</param>
+    /// <param name="otherEndTicks">Second range end, in ticks.</param>
+    /// <returns><see langword="true"/> when both bounds match within the tolerance.</returns>
+    internal static bool TickRangesEquivalent(long startTicks, long endTicks, long otherStartTicks, long otherEndTicks)
+        => RangesEquivalent(
+            TimeSpan.FromTicks(startTicks).TotalSeconds,
+            TimeSpan.FromTicks(endTicks).TotalSeconds,
+            TimeSpan.FromTicks(otherStartTicks).TotalSeconds,
+            TimeSpan.FromTicks(otherEndTicks).TotalSeconds);
+
     private async Task InitializeCoreAsync()
     {
         using var db = _contextFactory.CreateDbContext();

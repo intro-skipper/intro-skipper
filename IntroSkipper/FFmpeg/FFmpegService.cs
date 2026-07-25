@@ -383,7 +383,16 @@ public sealed partial class FFmpegService(
         };
 
         var raw = Encoding.UTF8.GetString(await GetOutputAsync(args, true, cancellationToken: cancellationToken).ConfigureAwait(false));
-        var rangeIntervals = FFmpegOutputParser.ParseBlackIntervals(raw);
+
+        // -to does not reliably bound a -skip_frame noref scan either, so clip to the window
+        // exactly as the keyframe-visual scan above does (times are relative to the -ss seek,
+        // so an in-window interval falls within [0, range.Duration]). Callers treat a cached
+        // row's payload as bounded by the row's scanned window — SnapPointAssembler recovers
+        // the analysis-run offset by testing which anchor makes the payload fit, and a single
+        // interval trailing past the window makes no anchor fit, dropping the whole row.
+        var rangeIntervals = FFmpegOutputParser.ParseBlackIntervals(raw)
+            .Where(interval => interval.Start >= 0 && interval.End <= range.Duration)
+            .ToArray();
         var offset = range.Start - episode.CreditsFingerprintStart;
         var intervals = offset == 0
             ? rangeIntervals

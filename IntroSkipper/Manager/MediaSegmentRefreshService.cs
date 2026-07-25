@@ -78,18 +78,10 @@ public sealed partial class MediaSegmentRefreshService(
     {
         try
         {
-            var itemLock = MediaSegmentItemLock.Get(item.Id);
-            await itemLock.WaitAsync(cancellationToken).ConfigureAwait(false);
-            try
-            {
-                var segments = await segmentDtoFactory.CreateAsync(item.Id, cancellationToken).ConfigureAwait(false);
-                await segmentStore.ReplaceSegmentsAsync(item.Id, segments, cancellationToken).ConfigureAwait(false);
-                LogUpdatedMediaSegments(logger, item.Id);
-            }
-            finally
-            {
-                itemLock.Release();
-            }
+            using var itemLock = await MediaSegmentItemLock.AcquireAsync(item.Id, cancellationToken).ConfigureAwait(false);
+            var segments = await segmentDtoFactory.CreateAsync(item.Id, cancellationToken).ConfigureAwait(false);
+            await segmentStore.ReplaceSegmentsAsync(item.Id, segments, cancellationToken).ConfigureAwait(false);
+            LogUpdatedMediaSegments(logger, item.Id);
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {

@@ -3,6 +3,7 @@
 
 using System.Collections.Concurrent;
 using System.Globalization;
+using IntroSkipper.Data;
 using Jellyfin.Database.Implementations;
 using Jellyfin.Database.Implementations.Entities;
 using Jellyfin.Database.Implementations.Enums;
@@ -66,7 +67,6 @@ public sealed partial class JellyfinSegmentStore(
             nameof(ReplaceSegmentsAsync),
             entities,
             db => OwnSegments(db, itemId),
-            detectIdConflicts: false,
             cancellationToken).ConfigureAwait(false);
     }
 
@@ -92,14 +92,6 @@ public sealed partial class JellyfinSegmentStore(
                     .ConfigureAwait(false);
             }
         }
-    }
-
-    /// <inheritdoc />
-    public Task ReplaceTypeAsync(Guid itemId, MediaSegmentDto segment, CancellationToken cancellationToken)
-    {
-        ArgumentNullException.ThrowIfNull(segment);
-
-        return ReplaceEditableTypesAsync(itemId, [segment], [segment.Type], cancellationToken);
     }
 
     /// <inheritdoc />
@@ -195,6 +187,20 @@ public sealed partial class JellyfinSegmentStore(
     }
 
     /// <inheritdoc />
+    public async Task<bool> SegmentIdExistsAsync(Guid segmentId, CancellationToken cancellationToken)
+    {
+        var db = await contextFactory.CreateDbContextAsync(cancellationToken).ConfigureAwait(false);
+        await using (db.ConfigureAwait(false))
+        {
+            // Deliberately unscoped by item: the point is to find the id wherever it lives.
+            return await db.MediaSegments
+                .AsNoTracking()
+                .AnyAsync(segment => segment.Id == segmentId, cancellationToken)
+                .ConfigureAwait(false);
+        }
+    }
+
+    /// <inheritdoc />
     public async Task DeleteSegmentAsync(Guid itemId, Guid segmentId, CancellationToken cancellationToken)
     {
         var db = await contextFactory.CreateDbContextAsync(cancellationToken).ConfigureAwait(false);
@@ -242,7 +248,6 @@ public sealed partial class JellyfinSegmentStore(
             nameof(ReplaceEditableTypesAsync),
             entities,
             db => db.MediaSegments.Where(segment => segment.ItemId == itemId && typeArray.Contains(segment.Type)),
-            detectIdConflicts: true,
             cancellationToken).ConfigureAwait(false);
     }
 
@@ -255,15 +260,14 @@ public sealed partial class JellyfinSegmentStore(
     /// <param name="operation">The calling operation name, for diagnostics.</param>
     /// <param name="entities">The rows that should exist within the scope after the call.</param>
     /// <param name="deleteScope">Builds the query selecting the rows to replace.</param>
-    /// <param name="detectIdConflicts">Whether caller-supplied ids are checked against rows outside the scope, surfacing collisions as <see cref="SegmentIdConflictException"/> for client-error reporting. The refresh path skips the check: its rows never carry ids, and a raw constraint failure there indicates a programming error.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>A <see cref="Task"/> representing the asynchronous operation.</returns>
+    /// <exception cref="SegmentIdConflictException">A supplied segment id already identifies a row outside the replaced scope.</exception>
     private async Task ReplaceScopeAsync(
         Guid itemId,
         string operation,
         List<MediaSegment> entities,
         Func<JellyfinDbContext, IQueryable<MediaSegment>> deleteScope,
-        bool detectIdConflicts,
         CancellationToken cancellationToken)
     {
         var db = await contextFactory.CreateDbContextAsync(cancellationToken).ConfigureAwait(false);
@@ -275,20 +279,40 @@ public sealed partial class JellyfinSegmentStore(
                 return;
             }
 
-            await RunWriteTransactionAsync(
-                db,
-                async () =>
+            var transaction = await db.Database.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
+            await using (transaction.ConfigureAwait(false))
+            {
+                try
                 {
                     await deleteScope(db).ExecuteDeleteAsync(cancellationToken).ConfigureAwait(false);
-                    if (detectIdConflicts)
-                    {
-                        await ThrowOnSegmentIdConflictAsync(db, entities, cancellationToken).ConfigureAwait(false);
-                    }
+
+                    // The conflict check runs after the scoped delete so reusing an id from
+                    // inside the scope is allowed; only a row outside it is a real collision.
+                    // The refresh path supplies no ids, so this is a cheap no-op there.
+                    await ThrowOnSegmentIdConflictAsync(db, entities, cancellationToken).ConfigureAwait(false);
 
                     db.MediaSegments.AddRange(entities);
                     await SaveExactlyAsync(db, itemId, operation, entities.Count, cancellationToken).ConfigureAwait(false);
-                },
-                cancellationToken).ConfigureAwait(false);
+                    await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
+                }
+                catch
+                {
+                    // EF raises no interceptor event on transaction dispose, so without an
+                    // explicit rollback Jellyfin's pessimistic locking behavior would never
+                    // release its process-wide write lock. A failed commit already released
+                    // it; the guard swallows the double-release from the follow-up rollback.
+                    try
+                    {
+                        await transaction.RollbackAsync(CancellationToken.None).ConfigureAwait(false);
+                    }
+                    catch (Exception rollbackException)
+                    {
+                        LogRollbackFailed(logger, rollbackException);
+                    }
+
+                    throw;
+                }
+            }
         }
     }
 
@@ -384,36 +408,6 @@ public sealed partial class JellyfinSegmentStore(
             LogUnexpectedWriteCount(logger, operation, itemId, expectedWrites, written);
             throw new InvalidOperationException(FormattableString.Invariant(
                 $"Expected to write {expectedWrites} media segment(s) but SaveChanges reported {written}."));
-        }
-    }
-
-    private async Task RunWriteTransactionAsync(JellyfinDbContext db, Func<Task> writes, CancellationToken cancellationToken)
-    {
-        var transaction = await db.Database.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
-        await using (transaction.ConfigureAwait(false))
-        {
-            try
-            {
-                await writes().ConfigureAwait(false);
-                await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
-            }
-            catch
-            {
-                // EF raises no interceptor event on transaction dispose, so without an
-                // explicit rollback Jellyfin's pessimistic locking behavior would never
-                // release its process-wide write lock. A failed commit already released
-                // it; the guard swallows the double-release from the follow-up rollback.
-                try
-                {
-                    await transaction.RollbackAsync(CancellationToken.None).ConfigureAwait(false);
-                }
-                catch (Exception rollbackException)
-                {
-                    LogRollbackFailed(logger, rollbackException);
-                }
-
-                throw;
-            }
         }
     }
 

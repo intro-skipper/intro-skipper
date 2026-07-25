@@ -209,8 +209,7 @@ public sealed partial class IntroSkipperDatabase
             if (segment.Type == AnalysisMode.Commercial)
             {
                 if (commercialSegments.Any(existing =>
-                    Math.Abs(existing.Start - segment.Start) <= SegmentComparisonEpsilon
-                    && Math.Abs(existing.End - segment.End) <= SegmentComparisonEpsilon))
+                    RangesEquivalent(existing.Start, existing.End, segment.Start, segment.End)))
                 {
                     throw new ArgumentException(
                         "Commercial segment ranges must differ by more than the comparison tolerance.",

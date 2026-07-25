@@ -1,6 +1,7 @@
 // SPDX-FileCopyrightText: 2026 Intro-Skipper contributors <intro-skipper.org>
 // SPDX-License-Identifier: GPL-3.0-only
 
+using IntroSkipper.Data;
 using Jellyfin.Database.Implementations.Enums;
 using MediaBrowser.Model.MediaSegments;
 
@@ -32,21 +33,6 @@ public interface IJellyfinSegmentStore
     Task DeleteOwnSegmentsAsync(IEnumerable<Guid> itemIds, CancellationToken cancellationToken);
 
     /// <summary>
-    /// Replaces every segment of a type for an item with an Intro Skipper-owned segment.
-    /// </summary>
-    /// <remarks>
-    /// The replacement removes matching segments regardless of provider in the same
-    /// transaction that creates <paramref name="segment"/>. It therefore has a
-    /// cross-provider destructive side effect.
-    /// </remarks>
-    /// <param name="itemId">The ID of the item whose segment is replaced.</param>
-    /// <param name="segment">The segment that will remain for its type.</param>
-    /// <param name="cancellationToken">The token that cancels the asynchronous transaction.</param>
-    /// <returns>A task that represents the asynchronous operation.</returns>
-    /// <exception cref="ArgumentNullException"><paramref name="segment"/> is <see langword="null"/>.</exception>
-    Task ReplaceTypeAsync(Guid itemId, MediaSegmentDto segment, CancellationToken cancellationToken);
-
-    /// <summary>
     /// Creates the given segment unless an identical entry (same type, start and end ticks,
     /// any provider) already exists for the item.
     /// </summary>
@@ -67,6 +53,16 @@ public interface IJellyfinSegmentStore
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>The matching segment row, or <c>null</c> if not found.</returns>
     Task<JellyfinSegmentSnapshot?> GetSegmentAsync(Guid itemId, Guid segmentId, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Returns whether a segment id identifies a row anywhere in the table, regardless of
+    /// item or provider. Callers use this to tell a re-minted id (gone everywhere) apart
+    /// from an id that is alive under a different item, which must not be treated as stale.
+    /// </summary>
+    /// <param name="segmentId">The segment id.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns><see langword="true"/> when some row carries the id.</returns>
+    Task<bool> SegmentIdExistsAsync(Guid segmentId, CancellationToken cancellationToken);
 
     /// <summary>
     /// Deletes a segment by id when it belongs to the given item, regardless of provider.

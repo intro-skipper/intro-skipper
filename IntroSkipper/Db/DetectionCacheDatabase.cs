@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
 using System.Data.Common;
+using System.Linq.Expressions;
 using IntroSkipper.Data;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
@@ -165,61 +166,16 @@ public sealed partial class DetectionCacheDatabase : IDetectionCacheDatabase
     }
 
     /// <inheritdoc/>
-    public async Task<IReadOnlyList<DbDetectionCache>> GetEntriesForItemAsync(Guid itemId, IReadOnlyCollection<CacheEntryType> types, CancellationToken cancellationToken = default)
-    {
-        ArgumentNullException.ThrowIfNull(types);
-
-        var typeArray = types.Distinct().ToArray();
-        if (typeArray.Length == 0 || !TryInitialize())
-        {
-            return [];
-        }
-
-        using var db = _contextFactory.CreateDbContext();
-
-        try
-        {
-            return await db.DetectionCache
-                .AsNoTracking()
-                .Where(e => e.ItemId == itemId && typeArray.Contains(e.Type))
-                .ToListAsync(cancellationToken)
-                .ConfigureAwait(false);
-        }
-        catch (Exception ex) when (ex is DbUpdateException or DbException)
-        {
-            LogCacheReadFailed(_logger, ex);
-            return [];
-        }
-    }
+    public Task<IReadOnlyList<DbDetectionCache>> GetEntriesForItemAsync(Guid itemId, IReadOnlyCollection<CacheEntryType> types, CancellationToken cancellationToken = default)
+        => QueryItemEntriesAsync(itemId, types, e => e, cancellationToken);
 
     /// <inheritdoc/>
-    public async Task<IReadOnlyList<DetectionCacheEntryRange>> GetEntryRangesForItemAsync(Guid itemId, IReadOnlyCollection<CacheEntryType> types, CancellationToken cancellationToken = default)
-    {
-        ArgumentNullException.ThrowIfNull(types);
-
-        var typeArray = types.Distinct().ToArray();
-        if (typeArray.Length == 0 || !TryInitialize())
-        {
-            return [];
-        }
-
-        using var db = _contextFactory.CreateDbContext();
-
-        try
-        {
-            return await db.DetectionCache
-                .AsNoTracking()
-                .Where(e => e.ItemId == itemId && typeArray.Contains(e.Type))
-                .Select(e => new DetectionCacheEntryRange(e.Type, e.Mode, e.Start, e.End, e.ConfigHash))
-                .ToListAsync(cancellationToken)
-                .ConfigureAwait(false);
-        }
-        catch (Exception ex) when (ex is DbUpdateException or DbException)
-        {
-            LogCacheReadFailed(_logger, ex);
-            return [];
-        }
-    }
+    public Task<IReadOnlyList<DetectionCacheEntryRange>> GetEntryRangesForItemAsync(Guid itemId, IReadOnlyCollection<CacheEntryType> types, CancellationToken cancellationToken = default)
+        => QueryItemEntriesAsync(
+            itemId,
+            types,
+            e => new DetectionCacheEntryRange(e.Type, e.Mode, e.Start, e.End, e.ConfigHash),
+            cancellationToken);
 
     /// <inheritdoc/>
     public async Task<int> DeleteForItemsAsync(IReadOnlyCollection<Guid> itemIds, CancellationToken cancellationToken = default)
@@ -270,6 +226,52 @@ public sealed partial class DetectionCacheDatabase : IDetectionCacheDatabase
     private static IQueryable<DbDetectionCache> QueryByKey(DetectionCacheDbContext db, Guid itemId, AnalysisMode mode, CacheEntryType type, double start, double end)
         => db.DetectionCache
             .Where(e => e.ItemId == itemId && e.Mode == mode && e.Type == type && e.Start == start && e.End == end);
+
+    /// <summary>
+    /// Reads one item's cache entries of the given types, projected server-side.
+    /// </summary>
+    /// <remarks>
+    /// The cache is an optimization, so a read failure degrades to an empty result rather
+    /// than propagating. The projection is what separates the payload-carrying read from
+    /// the range-only read, which must not pull entry BLOBs it never uses.
+    /// </remarks>
+    /// <typeparam name="T">The projected result type.</typeparam>
+    /// <param name="itemId">Item id.</param>
+    /// <param name="types">Cache entry types to include.</param>
+    /// <param name="projection">The server-side projection applied to each matching row.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>The projected entries, or an empty list when the cache is unavailable.</returns>
+    private async Task<IReadOnlyList<T>> QueryItemEntriesAsync<T>(
+        Guid itemId,
+        IReadOnlyCollection<CacheEntryType> types,
+        Expression<Func<DbDetectionCache, T>> projection,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(types);
+
+        var typeArray = types.Distinct().ToArray();
+        if (typeArray.Length == 0 || !TryInitialize())
+        {
+            return [];
+        }
+
+        using var db = _contextFactory.CreateDbContext();
+
+        try
+        {
+            return await db.DetectionCache
+                .AsNoTracking()
+                .Where(e => e.ItemId == itemId && typeArray.Contains(e.Type))
+                .Select(projection)
+                .ToListAsync(cancellationToken)
+                .ConfigureAwait(false);
+        }
+        catch (Exception ex) when (ex is DbUpdateException or DbException)
+        {
+            LogCacheReadFailed(_logger, ex);
+            return [];
+        }
+    }
 
     private bool InitializeCore()
     {

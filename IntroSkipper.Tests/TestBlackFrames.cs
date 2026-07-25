@@ -79,6 +79,36 @@ public class TestBlackFrames
         Assert.All(visuals, v => Assert.True(v.Saturation >= 0)); // real SATAVG parsed
     }
 
+    [FactSkipFFmpegTests]
+    public async Task TestDetectBlackIntervals_ClipsScanToCreditsWindow()
+    {
+        // Same -to leak as the keyframe scan above, and the same clip. Callers treat a cached
+        // black-interval row's payload as bounded by the row's scanned window:
+        // SnapPointAssembler recovers each run's offset by testing which anchor makes the
+        // whole payload fit, so one interval trailing past the window makes no anchor fit and
+        // silently drops every snap point the row carries.
+        var episode = new QueuedEpisode
+        {
+            EpisodeId = Guid.NewGuid(),
+            Name = "credits.mp4",
+            Path = "../../../video/credits.mp4",
+            Duration = 330,
+            CreditsFingerprintStart = 5,
+            CreditsFingerprintEnd = 35,
+        };
+
+        var range = new TimeRange(5, 35);
+        var intervals = await CreateFFmpegService().DetectBlackIntervalsAsync(episode, range, 32, 85);
+
+        // Times are relative to CreditsFingerprintStart, which equals range.Start here, so an
+        // in-window interval falls within [0, range.Duration].
+        Assert.All(intervals, interval =>
+        {
+            Assert.InRange(interval.Start, 0, range.Duration);
+            Assert.InRange(interval.End, 0, range.Duration);
+        });
+    }
+
     [Fact]
     public void TestParseBlackIntervals_LogOutput()
     {

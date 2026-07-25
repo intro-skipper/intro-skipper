@@ -123,13 +123,11 @@ public class SegmentEditorController(
             return NotFound();
         }
 
-        var validationError = ValidateSegmentSet(segments);
+        var (validationError, normalized) = ValidateSegmentSet(segments);
         if (validationError is not null)
         {
             return BadRequest(validationError);
         }
-
-        var normalized = NormalizeForReplace(segments, itemId);
 
         try
         {
@@ -340,7 +338,7 @@ public class SegmentEditorController(
     /// <returns>The orphaned items.</returns>
     [HttpGet("Orphans")]
     [ProducesResponseType(StatusCodes.Status200OK, Description = "Returns orphaned Jellyfin segment rows grouped by item and provider.")]
-    public async Task<ActionResult<IReadOnlyList<OrphanedItemSegments>>> GetOrphanedSegmentsAsync(CancellationToken cancellationToken = default)
+    public async Task<ActionResult<IReadOnlyList<ItemSegmentCounts>>> GetOrphanedSegmentsAsync(CancellationToken cancellationToken = default)
     {
         var orphans = await _mediaSegmentEditorService.GetOrphanedSegmentsAsync(ItemExists, cancellationToken).ConfigureAwait(false);
         return Ok(orphans);
@@ -368,17 +366,20 @@ public class SegmentEditorController(
     /// write failure restores the plugin database.
     /// </remarks>
     /// <param name="itemId">The ItemId.</param>
-    /// <param name="providerId">Provider of the Segment.</param>
+    /// <param name="providerId">
+    /// Accepted for compatibility with clients written against Jellyfin's segment API and
+    /// ignored: a segment created here is always attributed to Intro Skipper.
+    /// </param>
     /// <param name="segment">MediaSegment data.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
-    /// <returns>The created segment.</returns>
+    /// <returns>HTTP 200 with an empty body on success.</returns>
     [HttpPost("{itemId}")]
     [ProducesResponseType(StatusCodes.Status200OK, Description = "Creates or replaces the requested media segment.")]
-    [ProducesResponseType(StatusCodes.Status400BadRequest, Description = "The supplied segment range or type is invalid.")]
+    [ProducesResponseType(StatusCodes.Status400BadRequest, Description = "The supplied segment range or type is invalid, or its id already identifies another segment.")]
     [ProducesResponseType(StatusCodes.Status404NotFound, Description = "The item does not exist.")]
-    public async Task<ActionResult<QueryResult<MediaSegmentDto>>> CreateSegmentAsync(
+    public async Task<ActionResult> CreateSegmentAsync(
         [FromRoute, Required] Guid itemId,
-        [FromQuery, Required] string providerId,
+        [FromQuery] string? providerId,
         [FromBody, Required] MediaSegmentDto segment,
         CancellationToken cancellationToken = default)
     {
@@ -388,25 +389,19 @@ public class SegmentEditorController(
             return NotFound();
         }
 
-        // Reject invalid input as a client error before either store commits.
-        if (!AnalysisHelpers.TryMapSegmentTypeToMode(segment.Type, out _))
+        // Reject invalid input as a client error before either store commits. The set
+        // validator applies the same per-segment rules the replace endpoint enforces; its
+        // cross-segment rules cannot fire on a single entry, so the two endpoints reject
+        // the same input with the same message and cannot drift apart.
+        var (validationError, _) = ValidateSegmentSet([segment]);
+        if (validationError is not null)
         {
-            return BadRequest($"Segment type '{segment.Type}' is not supported by the editor.");
-        }
-
-        if (segment.StartTicks < 0)
-        {
-            return BadRequest($"Segment start must not be negative (type '{segment.Type}').");
-        }
-
-        if (segment.EndTicks <= segment.StartTicks)
-        {
-            return BadRequest($"Segment end must be after its start (type '{segment.Type}').");
+            return BadRequest(validationError);
         }
 
         try
         {
-            await _mediaSegmentEditorService.CreateOrReplaceSegmentAsync(item, segment, cancellationToken).ConfigureAwait(false);
+            await _mediaSegmentEditorService.CreateOrReplaceSegmentAsync(item, ResolveSeasonStateKey(item), segment, cancellationToken).ConfigureAwait(false);
         }
         catch (SegmentIdConflictException ex)
         {
@@ -425,22 +420,31 @@ public class SegmentEditorController(
     /// <param name="type">The media segment type name (Intro/Recap/Preview/Outro).</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>
-    /// HTTP 200 on success, 400 when the requested type does not match the Jellyfin segment,
-    /// or 404 when the commercial segment is not found. A segment id owned by a different item
-    /// leaves Jellyfin untouched while the item's own plugin row is still removed. Deleting
-    /// another provider's segment removes only that Jellyfin row; Intro Skipper's own rows
-    /// and season state stay untouched.
+    /// HTTP 200 on success, 400 when <paramref name="itemId"/> is empty or <paramref name="type"/>
+    /// names no editor-managed type or does not match the Jellyfin segment, or 404 when the
+    /// segment exists in neither store. A segment id owned by a different item leaves Jellyfin
+    /// untouched while the item's own plugin row is still removed. Deleting another provider's
+    /// segment removes only that Jellyfin row; Intro Skipper's own rows and season state stay
+    /// untouched.
     /// </returns>
     [HttpDelete("{segmentId}")]
     [ProducesResponseType(StatusCodes.Status200OK, Description = "Deletes the requested segment from both stores.")]
-    [ProducesResponseType(StatusCodes.Status400BadRequest, Description = "The requested type does not match the Jellyfin segment.")]
-    [ProducesResponseType(StatusCodes.Status404NotFound, Description = "The requested commercial segment does not exist.")]
+    [ProducesResponseType(StatusCodes.Status400BadRequest, Description = "The item id is empty, or the requested type is unknown or does not match the Jellyfin segment.")]
+    [ProducesResponseType(StatusCodes.Status404NotFound, Description = "The requested segment does not exist.")]
     public async Task<ActionResult> DeleteSegmentAsync(
         [FromRoute, Required] Guid segmentId,
         [FromQuery, Required] Guid itemId,
         [FromQuery, Required] string type,
         CancellationToken cancellationToken = default)
     {
+        // [Required] never rejects a non-nullable value type, so an omitted itemId binds to
+        // Guid.Empty and would target the empty-guid rows that Jellyfin's table really can
+        // hold (see DeleteOrphanedSegmentsAsync, which excludes them for the same reason).
+        if (itemId.Equals(Guid.Empty))
+        {
+            return BadRequest("A non-empty itemId is required.");
+        }
+
         AnalysisMode? mappedMode = type.ToLowerInvariant() switch
         {
             "intro" => AnalysisMode.Introduction,
@@ -518,16 +522,27 @@ public class SegmentEditorController(
         return item is Episode fallbackEpisode ? fallbackEpisode.SeasonId : item.Id;
     }
 
-    private static string? ValidateSegmentSet(IReadOnlyList<MediaSegmentDto> segments)
+    /// <summary>
+    /// Validates a segment set and returns the entries that should actually be written.
+    /// </summary>
+    /// <remarks>
+    /// Exact-duplicate commercial entries are dropped rather than rejected, mirroring the
+    /// create endpoint's identical-entry semantics; the validator already recognizes them,
+    /// so it also collects what survives instead of leaving a second pass to re-derive it.
+    /// </remarks>
+    /// <param name="segments">The submitted segments.</param>
+    /// <returns>The first validation error, or the normalized set when the input is valid.</returns>
+    private static (string? Error, List<MediaSegmentDto> Normalized) ValidateSegmentSet(IReadOnlyList<MediaSegmentDto> segments)
     {
         var seenNonCommercialModes = new HashSet<AnalysisMode>();
         var seenCommercialRanges = new List<(long Start, long End)>();
         var seenIds = new HashSet<Guid>();
+        var normalized = new List<MediaSegmentDto>(segments.Count);
         foreach (var segment in segments)
         {
             if (segment is null)
             {
-                return "Segment entries must not be null.";
+                return ("Segment entries must not be null.", []);
             }
 
             // A supplied id becomes the Jellyfin row's primary key, so a repeat would fail
@@ -536,22 +551,22 @@ public class SegmentEditorController(
             // every new segment carries it.
             if (segment.Id != Guid.Empty && !seenIds.Add(segment.Id))
             {
-                return $"Segment id '{segment.Id}' appears more than once.";
+                return ($"Segment id '{segment.Id}' appears more than once.", []);
             }
 
             if (!AnalysisHelpers.TryMapSegmentTypeToMode(segment.Type, out var mode))
             {
-                return $"Segment type '{segment.Type}' is not supported by the editor.";
+                return ($"Segment type '{segment.Type}' is not supported by the editor.", []);
             }
 
             if (segment.StartTicks < 0)
             {
-                return $"Segment start must not be negative (type '{segment.Type}').";
+                return ($"Segment start must not be negative (type '{segment.Type}').", []);
             }
 
             if (segment.EndTicks <= segment.StartTicks)
             {
-                return $"Segment end must be after its start (type '{segment.Type}').";
+                return ($"Segment end must be after its start (type '{segment.Type}').", []);
             }
 
             if (mode == AnalysisMode.Commercial)
@@ -559,56 +574,35 @@ public class SegmentEditorController(
                 var range = (segment.StartTicks, segment.EndTicks);
                 if (seenCommercialRanges.Contains(range))
                 {
-                    // Exact duplicates are normalized away before writing.
+                    // Exact duplicates are dropped rather than written twice.
                     continue;
                 }
 
                 if (seenCommercialRanges.Any(existing => AreCommercialRangesEquivalent(existing, range)))
                 {
-                    return "Commercial segment ranges must differ by more than the comparison tolerance.";
+                    return ("Commercial segment ranges must differ by more than the comparison tolerance.", []);
                 }
 
                 seenCommercialRanges.Add(range);
+                normalized.Add(segment);
                 continue;
             }
 
             if (!seenNonCommercialModes.Add(mode))
             {
-                return $"Only one segment of type '{segment.Type}' is allowed per item.";
+                return ($"Only one segment of type '{segment.Type}' is allowed per item.", []);
             }
+
+            normalized.Add(segment);
         }
 
-        return null;
+        return (null, normalized);
     }
 
     private static bool AreCommercialRangesEquivalent(
         (long Start, long End) first,
         (long Start, long End) second)
-        => Math.Abs(TimeSpan.FromTicks(first.Start).TotalSeconds - TimeSpan.FromTicks(second.Start).TotalSeconds)
-                <= IntroSkipperDatabase.SegmentComparisonEpsilon
-            && Math.Abs(TimeSpan.FromTicks(first.End).TotalSeconds - TimeSpan.FromTicks(second.End).TotalSeconds)
-                <= IntroSkipperDatabase.SegmentComparisonEpsilon;
-
-    private static List<MediaSegmentDto> NormalizeForReplace(IReadOnlyList<MediaSegmentDto> segments, Guid itemId)
-    {
-        var normalized = new List<MediaSegmentDto>(segments.Count);
-        var seenCommercialRanges = new HashSet<(long Start, long End)>();
-        foreach (var segment in segments)
-        {
-            // Identical commercial entries are silently deduplicated, mirroring the
-            // create endpoint's identical-entry semantics.
-            if (segment.Type == MediaSegmentType.Commercial
-                && !seenCommercialRanges.Add((segment.StartTicks, segment.EndTicks)))
-            {
-                continue;
-            }
-
-            segment.ItemId = itemId;
-            normalized.Add(segment);
-        }
-
-        return normalized;
-    }
+        => IntroSkipperDatabase.TickRangesEquivalent(first.Start, first.End, second.Start, second.End);
 
     /// <summary>
     /// Selects source segments that can be safely applied as an authoritative replacement.
@@ -633,32 +627,33 @@ public class SegmentEditorController(
             .Where(segment => AnalysisHelpers.TryMapSegmentTypeToMode(segment.Type, out _))
             .Where(segment => requestedTypes is null || requestedTypes.Contains(segment.Type));
 
+        // Intro Skipper's own row wins, then the earliest start.
+        static IEnumerable<EditorSegmentDto> ByPreference(IEnumerable<EditorSegmentDto> group)
+            => group
+                .OrderByDescending(segment => string.Equals(segment.ProviderId, JellyfinSegmentStore.ProviderId, StringComparison.Ordinal))
+                .ThenBy(segment => segment.StartTicks);
+
         var selected = new List<EditorSegmentDto>();
         foreach (var group in candidates.GroupBy(segment => segment.Type))
         {
-            if (group.Key == MediaSegmentType.Commercial)
+            if (group.Key != MediaSegmentType.Commercial)
             {
-                var chosen = new List<EditorSegmentDto>();
-                foreach (var candidate in group
-                    .OrderByDescending(segment => string.Equals(segment.ProviderId, JellyfinSegmentStore.ProviderId, StringComparison.Ordinal))
-                    .ThenBy(segment => segment.StartTicks))
-                {
-                    if (!chosen.Any(existing => AreCommercialRangesEquivalent(
-                        (existing.StartTicks, existing.EndTicks),
-                        (candidate.StartTicks, candidate.EndTicks))))
-                    {
-                        chosen.Add(candidate);
-                    }
-                }
-
-                selected.AddRange(chosen);
+                selected.Add(ByPreference(group).First());
                 continue;
             }
 
-            selected.Add(group
-                .OrderByDescending(segment => string.Equals(segment.ProviderId, JellyfinSegmentStore.ProviderId, StringComparison.Ordinal))
-                .ThenBy(segment => segment.StartTicks)
-                .First());
+            var chosen = new List<EditorSegmentDto>();
+            foreach (var candidate in ByPreference(group))
+            {
+                if (!chosen.Any(existing => AreCommercialRangesEquivalent(
+                    (existing.StartTicks, existing.EndTicks),
+                    (candidate.StartTicks, candidate.EndTicks))))
+                {
+                    chosen.Add(candidate);
+                }
+            }
+
+            selected.AddRange(chosen);
         }
 
         return selected.OrderBy(segment => segment.StartTicks).ToList();

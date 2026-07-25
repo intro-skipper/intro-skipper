@@ -46,11 +46,12 @@ internal static class SnapPointAssembler
             .ConfigureAwait(false);
 
         var fromCache = entries.Count > 0;
+        var byType = entries.ToLookup(e => e.Type);
         var keyframes = new List<double>();
         var silence = new List<SnapRange>();
         var blackIntervals = new List<SnapRange>();
 
-        foreach (var entry in entries.Where(e => e.Type == CacheEntryType.Keyframe))
+        foreach (var entry in byType[CacheEntryType.Keyframe])
         {
             var payload = TryDecompress<double[]>(entry.Data);
             if (payload is not null)
@@ -59,7 +60,7 @@ internal static class SnapPointAssembler
             }
         }
 
-        foreach (var entry in entries.Where(e => e.Type == CacheEntryType.Silence))
+        foreach (var entry in byType[CacheEntryType.Silence])
         {
             var payload = TryDecompress<TimeRange[]>(entry.Data);
             if (payload is not null)
@@ -68,8 +69,8 @@ internal static class SnapPointAssembler
             }
         }
 
-        var intervalEntries = entries.Where(e => e.Type == CacheEntryType.BlackInterval).ToList();
-        if (intervalEntries.Count > 0)
+        var intervalEntries = byType[CacheEntryType.BlackInterval];
+        if (intervalEntries.Any())
         {
             // Anchor recovery is deferred until interval rows exist: it costs a second
             // cache query and, as a last resort, a scan of the analysis queue.

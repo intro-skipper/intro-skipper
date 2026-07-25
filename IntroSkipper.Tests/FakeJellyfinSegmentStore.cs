@@ -8,6 +8,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
+using IntroSkipper.Data;
 using IntroSkipper.Manager;
 using Jellyfin.Database.Implementations.Enums;
 using MediaBrowser.Model.MediaSegments;
@@ -96,8 +97,6 @@ internal sealed class FakeJellyfinSegmentStore : IJellyfinSegmentStore
 
     public List<(Guid ItemId, IReadOnlyList<MediaSegmentDto> Segments, IReadOnlyList<MediaSegmentType> Types)> ReplacedEditableTypes { get; } = [];
 
-    public List<(Guid ItemId, MediaSegmentDto Segment)> ReplacedTypes { get; } = [];
-
     public List<(Guid ItemId, MediaSegmentDto Segment)> CreatedCommercials { get; } = [];
 
     public List<(Guid ItemId, Guid SegmentId)> DeletedSegments { get; } = [];
@@ -110,18 +109,6 @@ internal sealed class FakeJellyfinSegmentStore : IJellyfinSegmentStore
         lock (ReplacedItems)
         {
             ReplacedItems.Add((itemId, segments));
-        }
-
-        await WaitIfGatedAsync(itemId, writeNumber);
-        ThrowIfConfigured(WriteException);
-    }
-
-    public async Task ReplaceTypeAsync(Guid itemId, MediaSegmentDto segment, CancellationToken cancellationToken)
-    {
-        var writeNumber = Interlocked.Increment(ref _writeCount);
-        lock (ReplacedTypes)
-        {
-            ReplacedTypes.Add((itemId, segment));
         }
 
         await WaitIfGatedAsync(itemId, writeNumber);
@@ -162,6 +149,9 @@ internal sealed class FakeJellyfinSegmentStore : IJellyfinSegmentStore
         ThrowIfConfigured(WriteException);
         EditableTypesWriteCompleted?.Invoke();
     }
+
+    public Task<bool> SegmentIdExistsAsync(Guid segmentId, CancellationToken cancellationToken)
+        => Task.FromResult(ItemSegments.Any(segment => segment.Id == segmentId));
 
     public Task<IReadOnlyList<JellyfinSegmentSnapshot>> GetItemSegmentsAsync(Guid itemId, CancellationToken cancellationToken)
         => Task.FromResult<IReadOnlyList<JellyfinSegmentSnapshot>>(

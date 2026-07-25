@@ -28,11 +28,13 @@ public sealed class TestMediaSegmentEditorService
         var service = CreateService(store);
         var segment = CreateSegment(MediaSegmentType.Intro, 10, 20);
 
-        await service.CreateOrReplaceSegmentAsync(CreateMovie(itemId), segment, CancellationToken.None);
+        await service.CreateOrReplaceSegmentAsync(CreateMovie(itemId), Guid.NewGuid(), segment, CancellationToken.None);
 
-        var (replacedItemId, replacedSegment) = Assert.Single(store.ReplacedTypes);
+        // Scoped to the segment's own type, so the replace cannot touch another type.
+        var (replacedItemId, replacedSegments, replacedTypes) = Assert.Single(store.ReplacedEditableTypes);
         Assert.Equal(itemId, replacedItemId);
-        Assert.Same(segment, replacedSegment);
+        Assert.Same(segment, Assert.Single(replacedSegments));
+        Assert.Equal(MediaSegmentType.Intro, Assert.Single(replacedTypes));
         Assert.Empty(store.CreatedCommercials);
     }
 
@@ -44,12 +46,12 @@ public sealed class TestMediaSegmentEditorService
         var service = CreateService(store);
         var segment = CreateSegment(MediaSegmentType.Commercial, 10, 20);
 
-        await service.CreateOrReplaceSegmentAsync(CreateMovie(itemId), segment, CancellationToken.None);
+        await service.CreateOrReplaceSegmentAsync(CreateMovie(itemId), Guid.NewGuid(), segment, CancellationToken.None);
 
         var (createdItemId, createdSegment) = Assert.Single(store.CreatedCommercials);
         Assert.Equal(itemId, createdItemId);
         Assert.Same(segment, createdSegment);
-        Assert.Empty(store.ReplacedTypes);
+        Assert.Empty(store.ReplacedEditableTypes);
     }
 
     [Fact]
@@ -65,12 +67,12 @@ public sealed class TestMediaSegmentEditorService
         var service = CreateService(store);
 
         // First call enters the critical section and parks inside the store write while holding the lock.
-        var first = service.CreateOrReplaceSegmentAsync(item, CreateSegment(MediaSegmentType.Intro, 10, 20), CancellationToken.None);
+        var first = service.CreateOrReplaceSegmentAsync(item, Guid.NewGuid(), CreateSegment(MediaSegmentType.Intro, 10, 20), CancellationToken.None);
         await store.WriteEntered.Task;
 
         // Second call for the same item must block on the per-item lock and therefore must not have
         // reached the store yet.
-        var second = service.CreateOrReplaceSegmentAsync(item, CreateSegment(MediaSegmentType.Intro, 30, 40), CancellationToken.None);
+        var second = service.CreateOrReplaceSegmentAsync(item, Guid.NewGuid(), CreateSegment(MediaSegmentType.Intro, 30, 40), CancellationToken.None);
 
         Assert.False(first.IsCompleted);
         Assert.False(second.IsCompleted);
@@ -81,7 +83,7 @@ public sealed class TestMediaSegmentEditorService
         await second;
 
         Assert.Equal(2, store.WriteCallCount);
-        Assert.Equal(2, store.ReplacedTypes.Count);
+        Assert.Equal(2, store.ReplacedEditableTypes.Count);
     }
 
     [Fact]
@@ -96,8 +98,8 @@ public sealed class TestMediaSegmentEditorService
         };
         var service = CreateService(store);
 
-        var first = service.CreateOrReplaceSegmentAsync(firstItem, CreateSegment(MediaSegmentType.Intro, 10, 20), CancellationToken.None);
-        var second = service.CreateOrReplaceSegmentAsync(secondItem, CreateSegment(MediaSegmentType.Intro, 30, 40), CancellationToken.None);
+        var first = service.CreateOrReplaceSegmentAsync(firstItem, Guid.NewGuid(), CreateSegment(MediaSegmentType.Intro, 10, 20), CancellationToken.None);
+        var second = service.CreateOrReplaceSegmentAsync(secondItem, Guid.NewGuid(), CreateSegment(MediaSegmentType.Intro, 30, 40), CancellationToken.None);
 
         Assert.Same(second, await Task.WhenAny(second, Task.Delay(TimeSpan.FromSeconds(1))));
         Assert.False(first.IsCompleted);
@@ -109,7 +111,7 @@ public sealed class TestMediaSegmentEditorService
     }
 
     [Fact]
-    public async Task DeleteSegmentAsync_DelegatesToStore()
+    public async Task DeleteSegmentAsync_StillContactsStore_ButReportsNotDeleted_WhenIdExistsNowhere()
     {
         var store = new FakeJellyfinSegmentStore();
         var service = CreateService(store);
@@ -122,8 +124,14 @@ public sealed class TestMediaSegmentEditorService
             AnalysisMode.Introduction,
             CancellationToken.None);
 
+        // The no-op delete is still issued: it is the escape hatch's only contact with the
+        // store, so skipping it would hide a store that is failing outright.
         Assert.Equal([(itemId, segmentId)], store.DeletedSegments);
-        Assert.True(result.Deleted);
+
+        // Nothing was removed from either store, so the caller must not treat this as a
+        // success and re-queue the episode for analysis.
+        Assert.False(result.Deleted);
+        Assert.False(result.OwnSegmentsChanged);
     }
 
     [Fact]
@@ -225,7 +233,7 @@ public sealed class TestMediaSegmentEditorService
             CancellationToken.None);
         await writeEntered.Task;
 
-        var second = service.CreateOrReplaceSegmentAsync(item, CreateSegment(MediaSegmentType.Outro, 30, 40), CancellationToken.None);
+        var second = service.CreateOrReplaceSegmentAsync(item, Guid.NewGuid(), CreateSegment(MediaSegmentType.Outro, 30, 40), CancellationToken.None);
 
         Assert.False(first.IsCompleted);
         Assert.False(second.IsCompleted);

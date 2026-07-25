@@ -117,10 +117,10 @@ public sealed class TestJellyfinSegmentStore
         var foreign = CreateEntity(itemId, MediaSegmentType.Outro, 0, 100, ForeignProviderId);
         await SeedAsync(db, existingOwn, foreign);
 
-        // The new segment's explicit id collides with the foreign row's primary key,
-        // so the insert fails after the in-transaction delete already ran: the delete
+        // The new segment's explicit id collides with the foreign row's primary key. The
+        // collision is caught after the in-transaction delete already ran, so the delete
         // must be rolled back.
-        await Assert.ThrowsAsync<DbUpdateException>(() => store.ReplaceSegmentsAsync(
+        await Assert.ThrowsAsync<SegmentIdConflictException>(() => store.ReplaceSegmentsAsync(
             itemId,
             [CreateDto(MediaSegmentType.Intro, 50, 60, foreign.Id)],
             CancellationToken.None));
@@ -143,7 +143,7 @@ public sealed class TestJellyfinSegmentStore
         var foreign = CreateEntity(itemId, MediaSegmentType.Outro, 0, 100, ForeignProviderId);
         await SeedAsync(db, foreign);
 
-        await Assert.ThrowsAsync<DbUpdateException>(() => store.ReplaceSegmentsAsync(
+        await Assert.ThrowsAsync<SegmentIdConflictException>(() => store.ReplaceSegmentsAsync(
             itemId,
             [CreateDto(MediaSegmentType.Intro, 10, 20, foreign.Id)],
             CancellationToken.None));
@@ -156,8 +156,13 @@ public sealed class TestJellyfinSegmentStore
         Assert.Equal(2, (await GetAllAsync(db)).Count);
     }
 
+    /// <summary>
+    /// Single-type replace, the shape the editor's create path uses. Unlike the multi-type
+    /// test, this seeds a second item carrying the same type, so it pins that the replace
+    /// scope is the item as well as the type.
+    /// </summary>
     [Fact]
-    public async Task ReplaceTypeAsync_ReplacesAllProvidersRowsOfType_AndLeavesOthersUntouched()
+    public async Task ReplaceEditableTypesAsync_SingleType_ReplacesAllProvidersRowsOfThatTypeOnThatItemOnly()
     {
         using var db = new TempJellyfinDb();
         var store = CreateStore(db);
@@ -172,7 +177,11 @@ public sealed class TestJellyfinSegmentStore
             foreignOutro,
             otherItemIntro);
 
-        await store.ReplaceTypeAsync(itemId, CreateDto(MediaSegmentType.Intro, 10, 20), CancellationToken.None);
+        await store.ReplaceEditableTypesAsync(
+            itemId,
+            [CreateDto(MediaSegmentType.Intro, 10, 20)],
+            [MediaSegmentType.Intro],
+            CancellationToken.None);
 
         var rows = await GetAllAsync(db);
         Assert.Equal(3, rows.Count);

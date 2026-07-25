@@ -16,6 +16,7 @@ using IntroSkipper.FFmpeg;
 using IntroSkipper.Helper;
 using IntroSkipper.Manager;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.Data.Sqlite;
 using Microsoft.Extensions.Logging.Abstractions;
 using Xunit;
 
@@ -238,6 +239,32 @@ public sealed class TestSnapPoints
         Assert.Equal([1, 2, 3], decompressed);
 
         Assert.Empty(await cacheDb.GetEntriesForItemAsync(itemId, []));
+    }
+
+    [Fact]
+    public async Task CacheReads_DegradeToEmpty_WhenTheTableIsUnreadable()
+    {
+        var dbPath = DatabaseTestHelpers.CreateTempCacheDbPath();
+        var cacheDb = DatabaseTestHelpers.CreateCacheDatabase(dbPath);
+        var itemId = Guid.NewGuid();
+        cacheDb.Upsert(itemId, AnalysisMode.Credits, CacheEntryType.BlackFrame, 900, 0, DetectionCacheService.CompressBrotli<BlackInterval[]>([]), "h");
+
+        // Dropping the table makes every read throw SqliteException. The drop lands after
+        // the initialization gate has already cached its success, so the schema cannot be
+        // recreated underneath the read.
+        SqliteConnection.ClearAllPools();
+        await using (var connection = new SqliteConnection($"Data Source={dbPath}"))
+        {
+            await connection.OpenAsync();
+            await using var command = connection.CreateCommand();
+            command.CommandText = "DROP TABLE \"DetectionCache\"";
+            await command.ExecuteNonQueryAsync();
+        }
+
+        // The cache is an optimization, so both readers report absence rather than
+        // failing the best-effort endpoint that rests on them.
+        Assert.Empty(await cacheDb.GetEntriesForItemAsync(itemId, [CacheEntryType.BlackFrame]));
+        Assert.Empty(await cacheDb.GetEntryRangesForItemAsync(itemId, [CacheEntryType.BlackFrame]));
     }
 
     private static EntrypointTestHelpers.PluginInstanceScope CreateScope(
