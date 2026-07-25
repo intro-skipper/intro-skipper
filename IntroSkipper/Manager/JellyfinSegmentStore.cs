@@ -146,7 +146,30 @@ public sealed partial class JellyfinSegmentStore(
             }
 
             db.MediaSegments.Add(entity);
-            await SaveExactlyAsync(db, itemId, nameof(CreateCommercialIfAbsentAsync), 1, cancellationToken).ConfigureAwait(false);
+            try
+            {
+                await SaveExactlyAsync(db, itemId, nameof(CreateCommercialIfAbsentAsync), 1, cancellationToken).ConfigureAwait(false);
+            }
+            catch (Exception saveException) when (entity.Id != Guid.Empty
+                && saveException is DbUpdateException or InvalidOperationException)
+            {
+                // The pre-insert checks run outside the insert's own transaction (writes
+                // here must begin with a write statement, see above), so a concurrent
+                // writer can claim the supplied id between check and save. Re-check after
+                // the failure so the race still surfaces as the typed client error; the
+                // failed insert was never committed, so there is nothing to compensate.
+                var idTaken = await db.MediaSegments
+                    .AsNoTracking()
+                    .AnyAsync(existing => existing.Id == entity.Id, CancellationToken.None)
+                    .ConfigureAwait(false);
+
+                if (idTaken)
+                {
+                    throw new SegmentIdConflictException(entity.Id);
+                }
+
+                throw;
+            }
         }
     }
 

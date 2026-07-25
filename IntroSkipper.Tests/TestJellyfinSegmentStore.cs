@@ -12,11 +12,13 @@ using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using IntroSkipper.Manager;
+using Jellyfin.Database.Implementations;
 using Jellyfin.Database.Implementations.Entities;
 using Jellyfin.Database.Implementations.Enums;
 using Jellyfin.Database.Implementations.Locking;
 using MediaBrowser.Model.MediaSegments;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Diagnostics;
 using Microsoft.Extensions.Logging.Abstractions;
 using Xunit;
 
@@ -512,6 +514,61 @@ public sealed class TestJellyfinSegmentStore
 
         Assert.Equal(existing.Id, ex.SegmentId);
         Assert.Single(await GetAllAsync(db));
+    }
+
+    [Fact]
+    public async Task CreateCommercialIfAbsentAsync_TranslatesRacedIdClaim_IntoTypedConflict()
+    {
+        var itemId = Guid.NewGuid();
+        var otherItemId = Guid.NewGuid();
+        var conflictingId = Guid.NewGuid();
+
+        // Claims the supplied id from a second connection after the store's pre-insert
+        // check has passed, immediately before the store's own SaveChanges runs — the
+        // exact gap the non-transactional check-then-insert leaves open.
+        TempJellyfinDb? db = null;
+        var interceptor = new OneShotBeforeSaveInterceptor(
+            () => SeedAsync(db!, CreateEntity(otherItemId, MediaSegmentType.Intro, 0, 100, ForeignProviderId, conflictingId)));
+        using var tempDb = new TempJellyfinDb(null, interceptor);
+        db = tempDb;
+        var store = CreateStore(tempDb);
+
+        var ex = await Assert.ThrowsAsync<SegmentIdConflictException>(() => store.CreateCommercialIfAbsentAsync(
+            itemId,
+            CreateDto(MediaSegmentType.Commercial, 50, 60, conflictingId),
+            CancellationToken.None));
+
+        Assert.Equal(conflictingId, ex.SegmentId);
+
+        // Only the racing row exists; the store's failed insert was never committed.
+        var row = Assert.Single(await GetAllAsync(tempDb));
+        Assert.Equal(otherItemId, row.ItemId);
+        Assert.Equal(conflictingId, row.Id);
+    }
+
+    /// <summary>
+    /// Runs a callback once, immediately before the first SaveChanges that inserts a
+    /// media segment, so a test can interleave a concurrent write into the store's
+    /// check-then-save gap. The callback's own SaveChanges is not intercepted again.
+    /// </summary>
+    private sealed class OneShotBeforeSaveInterceptor(Func<Task> beforeFirstSave) : ISaveChangesInterceptor
+    {
+        private int _fired;
+
+        public async ValueTask<InterceptionResult<int>> SavingChangesAsync(
+            DbContextEventData eventData,
+            InterceptionResult<int> result,
+            CancellationToken cancellationToken = default)
+        {
+            if (eventData.Context is JellyfinDbContext context
+                && context.ChangeTracker.Entries<MediaSegment>().Any(entry => entry.State == EntityState.Added)
+                && Interlocked.Exchange(ref _fired, 1) == 0)
+            {
+                await beforeFirstSave();
+            }
+
+            return result;
+        }
     }
 
     private static JellyfinSegmentStore CreateStore(TempJellyfinDb db)

@@ -11,6 +11,7 @@ using Jellyfin.Database.Implementations;
 using Jellyfin.Database.Implementations.DbConfiguration;
 using Jellyfin.Database.Implementations.Locking;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Diagnostics;
 using Microsoft.Extensions.Logging.Abstractions;
 
 /// <summary>
@@ -31,12 +32,21 @@ internal sealed class TempJellyfinDb : IDisposable
     /// Locking behavior shared by all contexts from <see cref="Factory"/>; defaults to
     /// <see cref="NoLockBehavior"/> (the server's default).
     /// </param>
-    internal TempJellyfinDb(IEntityFrameworkCoreLockingBehavior? lockingBehavior = null)
+    /// <param name="interceptors">
+    /// Optional EF interceptors registered on every context from <see cref="Factory"/>,
+    /// so tests can interleave work at precise points (e.g. between check and save).
+    /// </param>
+    internal TempJellyfinDb(IEntityFrameworkCoreLockingBehavior? lockingBehavior = null, params IInterceptor[] interceptors)
     {
         _dbPath = DatabaseTestHelpers.CreateTempDbPath(Guid.NewGuid().ToString("N") + "-jellyfin.db");
         var behavior = lockingBehavior ?? new NoLockBehavior(NullLogger<NoLockBehavior>.Instance);
         var optionsBuilder = new DbContextOptionsBuilder<JellyfinDbContext>()
             .UseSqlite($"Data Source={_dbPath}");
+        if (interceptors.Length > 0)
+        {
+            optionsBuilder.AddInterceptors(interceptors);
+        }
+
         behavior.Initialise(optionsBuilder);
         var options = optionsBuilder.Options;
         var databaseProvider = new FakeJellyfinDatabaseProvider();
