@@ -225,15 +225,13 @@ public class SegmentEditorController(
             if (segment.Type == MediaSegmentType.Commercial)
             {
                 var range = (clampedStart, endTicks);
-                if (copiedCommercialRanges.Contains(range))
-                {
-                    // Clamping can collapse distinct source commercials onto one exact range.
-                    continue;
-                }
-
                 if (copiedCommercialRanges.Any(existing => AreCommercialRangesEquivalent(existing, range)))
                 {
-                    return BadRequest("Commercial segment ranges must differ by more than the comparison tolerance.");
+                    // Cross-provider near-duplicates were already collapsed during
+                    // selection, and a uniform shift preserves distances, so only start
+                    // clamping can push two ranges within the comparison tolerance here.
+                    // Keep the first instead of failing the request.
+                    continue;
                 }
 
                 copiedCommercialRanges.Add(range);
@@ -362,6 +360,7 @@ public class SegmentEditorController(
     /// <returns>The created segment.</returns>
     [HttpPost("{itemId}")]
     [ProducesResponseType(StatusCodes.Status200OK, Description = "Creates or replaces the requested media segment.")]
+    [ProducesResponseType(StatusCodes.Status400BadRequest, Description = "The supplied segment range or type is invalid.")]
     [ProducesResponseType(StatusCodes.Status404NotFound, Description = "The item does not exist.")]
     public async Task<ActionResult<QueryResult<MediaSegmentDto>>> CreateSegmentAsync(
         [FromRoute, Required] Guid itemId,
@@ -375,8 +374,25 @@ public class SegmentEditorController(
             return NotFound();
         }
 
+        // Reject invalid input as a client error before the plugin database commits:
+        // without this, an inverted range surfaces as a server error from the Jellyfin
+        // write after the plugin row was already created, tearing the two stores apart.
+        if (!AnalysisHelpers.TryMapSegmentTypeToMode(segment.Type, out var mode))
+        {
+            return BadRequest($"Segment type '{segment.Type}' is not supported by the editor.");
+        }
+
+        if (segment.StartTicks < 0)
+        {
+            return BadRequest($"Segment start must not be negative (type '{segment.Type}').");
+        }
+
+        if (segment.EndTicks <= segment.StartTicks)
+        {
+            return BadRequest($"Segment end must be after its start (type '{segment.Type}').");
+        }
+
         var seg = new Segment(itemId, new TimeRange(TimeSpan.FromTicks(segment.StartTicks).TotalSeconds, TimeSpan.FromTicks(segment.EndTicks).TotalSeconds));
-        var mode = AnalysisHelpers.MapSegmentTypeToMode(segment.Type);
 
         await _database.UpdateTimestampAsync(seg, mode, isUserProvided: true, cancellationToken: cancellationToken).ConfigureAwait(false);
 
@@ -395,7 +411,9 @@ public class SegmentEditorController(
     /// <returns>
     /// HTTP 200 on success, 400 when the requested type does not match the Jellyfin segment,
     /// or 404 when the commercial segment is not found. A segment id owned by a different item
-    /// leaves Jellyfin untouched while the item's own plugin row is still removed.
+    /// leaves Jellyfin untouched while the item's own plugin row is still removed. Deleting
+    /// another provider's segment removes only that Jellyfin row; Intro Skipper's own rows
+    /// and season state stay untouched.
     /// </returns>
     [HttpDelete("{segmentId}")]
     [ProducesResponseType(StatusCodes.Status200OK, Description = "Deletes the requested segment from both stores.")]
@@ -422,7 +440,7 @@ public class SegmentEditorController(
             return BadRequest($"Unknown segment type '{type}'.");
         }
 
-        var (deleted, actualType) = await _mediaSegmentEditorService
+        var (deleted, actualType, ownSegmentsChanged) = await _mediaSegmentEditorService
             .DeleteSegmentAsync(itemId, segmentId, requestedMode, cancellationToken)
             .ConfigureAwait(false);
 
@@ -438,8 +456,10 @@ public class SegmentEditorController(
 
         // Both segment stores have committed. Complete derived season bookkeeping even if
         // the request is canceled now so the next analysis can re-process the episode.
+        // Deleting another provider's row changes nothing Intro Skipper owns, so it must
+        // not mark the episode as needing re-analysis.
         var deletedItem = Plugin.Instance!.GetItem(itemId);
-        if (deletedItem is not null)
+        if (ownSegmentsChanged && deletedItem is not null)
         {
             await _database
                 .RemoveEpisodeIdAsync(ResolveSeasonStateKey(deletedItem), requestedMode, itemId, CancellationToken.None)
@@ -581,7 +601,10 @@ public class SegmentEditorController(
     /// Jellyfin permits several providers to hold a segment of one type, but the plugin
     /// permits only one non-commercial segment per type. The result therefore contains one
     /// non-commercial segment per type: Intro Skipper's row wins, then the earliest start.
-    /// This prevents a replacement set that violates the plugin's unique index.
+    /// Commercial rows are kept from every provider, except that rows equivalent within
+    /// the plugin's comparison tolerance collapse onto one entry with the same preference
+    /// order. This prevents a replacement set that violates the plugin's unique index or
+    /// its commercial-equivalence guard.
     /// </remarks>
     /// <param name="sourceView">The source item's cross-provider segment view.</param>
     /// <param name="requestedTypes">The types to copy, or <see langword="null"/> for every editor-managed type present on the source.</param>
@@ -599,7 +622,20 @@ public class SegmentEditorController(
         {
             if (group.Key == MediaSegmentType.Commercial)
             {
-                selected.AddRange(group);
+                var chosen = new List<EditorSegmentDto>();
+                foreach (var candidate in group
+                    .OrderByDescending(segment => string.Equals(segment.ProviderId, JellyfinSegmentStore.ProviderId, StringComparison.Ordinal))
+                    .ThenBy(segment => segment.StartTicks))
+                {
+                    if (!chosen.Any(existing => AreCommercialRangesEquivalent(
+                        (existing.StartTicks, existing.EndTicks),
+                        (candidate.StartTicks, candidate.EndTicks))))
+                    {
+                        chosen.Add(candidate);
+                    }
+                }
+
+                selected.AddRange(chosen);
                 continue;
             }
 

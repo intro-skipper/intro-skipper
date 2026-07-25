@@ -15,6 +15,7 @@ using IntroSkipper.Db;
 using IntroSkipper.FFmpeg;
 using IntroSkipper.Manager;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.Extensions.Logging.Abstractions;
 using Xunit;
 
 /// <summary>
@@ -218,7 +219,7 @@ public sealed class TestSnapPoints
         var store = new FakeJellyfinSegmentStore();
         cacheDb = DatabaseTestHelpers.CreateCacheDatabase(DatabaseTestHelpers.CreateTempCacheDbPath());
         controller = new SegmentEditorController(
-            new MediaSegmentEditorService(store, database, []),
+            new MediaSegmentEditorService(store, database, [], NullLogger<MediaSegmentEditorService>.Instance),
             database,
             cacheDb);
         return scope;

@@ -166,7 +166,7 @@ public sealed class TestMediaSegmentRefreshService
             GateOnlyFirstWrite = true,
             BlockedItemId = item.Id
         };
-        var editor = new MediaSegmentEditorService(store, database, []);
+        var editor = new MediaSegmentEditorService(store, database, [], NullLogger<MediaSegmentEditorService>.Instance);
         var refresher = CreateRefresher(store, segmentDtoFactory: new SegmentDtoFactory(database));
 
         var replacement = editor.ReplaceEditorSegmentsAsync(

@@ -57,13 +57,15 @@ public interface IJellyfinSegmentStore
     Task CreateCommercialIfAbsentAsync(Guid itemId, MediaSegmentDto segment, CancellationToken cancellationToken);
 
     /// <summary>
-    /// Retrieves a segment by item and segment id, regardless of provider.
+    /// Retrieves a segment by item and segment id, regardless of provider. The snapshot
+    /// carries the owning provider id so callers can scope follow-up mutations to Intro
+    /// Skipper-owned rows.
     /// </summary>
     /// <param name="itemId">The item id that owns the segment.</param>
     /// <param name="segmentId">The segment id.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
-    /// <returns>The matching segment, or <c>null</c> if not found.</returns>
-    Task<MediaSegmentDto?> GetSegmentAsync(Guid itemId, Guid segmentId, CancellationToken cancellationToken);
+    /// <returns>The matching segment row, or <c>null</c> if not found.</returns>
+    Task<JellyfinSegmentSnapshot?> GetSegmentAsync(Guid itemId, Guid segmentId, CancellationToken cancellationToken);
 
     /// <summary>
     /// Deletes a segment by id when it belongs to the given item, regardless of provider.

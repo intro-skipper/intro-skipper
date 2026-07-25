@@ -24,12 +24,6 @@ internal sealed class FakeJellyfinSegmentStore : IJellyfinSegmentStore
 {
     private int _writeCount;
 
-    /// <summary>
-    /// Gets the segments served by <see cref="GetSegmentAsync"/>, matched by item id and
-    /// segment id exactly like the production store.
-    /// </summary>
-    public IReadOnlyList<MediaSegmentDto> ExistingSegments { get; init; } = [];
-
     public Exception? WriteException { get; init; }
 
     public Exception? DeleteSegmentException { get; init; }
@@ -87,7 +81,9 @@ internal sealed class FakeJellyfinSegmentStore : IJellyfinSegmentStore
     public int WriteCallCount => _writeCount;
 
     /// <summary>
-    /// Gets the snapshots served by <see cref="GetItemSegmentsAsync"/>, filtered by item id.
+    /// Gets the snapshots served by <see cref="GetItemSegmentsAsync"/> (filtered by item
+    /// id) and by <see cref="GetSegmentAsync"/> (matched by item id and segment id exactly
+    /// like the production store).
     /// </summary>
     public IReadOnlyList<JellyfinSegmentSnapshot> ItemSegments { get; init; } = [];
 
@@ -151,8 +147,8 @@ internal sealed class FakeJellyfinSegmentStore : IJellyfinSegmentStore
         return Task.CompletedTask;
     }
 
-    public Task<MediaSegmentDto?> GetSegmentAsync(Guid itemId, Guid segmentId, CancellationToken cancellationToken)
-        => Task.FromResult(ExistingSegments.FirstOrDefault(segment => segment.ItemId == itemId && segment.Id == segmentId));
+    public Task<JellyfinSegmentSnapshot?> GetSegmentAsync(Guid itemId, Guid segmentId, CancellationToken cancellationToken)
+        => Task.FromResult(ItemSegments.FirstOrDefault(segment => segment.ItemId == itemId && segment.Id == segmentId));
 
     public async Task ReplaceEditableTypesAsync(Guid itemId, IReadOnlyList<MediaSegmentDto> segments, IReadOnlyCollection<MediaSegmentType> types, CancellationToken cancellationToken)
     {

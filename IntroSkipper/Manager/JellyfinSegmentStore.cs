@@ -139,19 +139,23 @@ public sealed partial class JellyfinSegmentStore(
     }
 
     /// <inheritdoc />
-    public async Task<MediaSegmentDto?> GetSegmentAsync(Guid itemId, Guid segmentId, CancellationToken cancellationToken)
+    public async Task<JellyfinSegmentSnapshot?> GetSegmentAsync(Guid itemId, Guid segmentId, CancellationToken cancellationToken)
     {
         var db = await contextFactory.CreateDbContextAsync(cancellationToken).ConfigureAwait(false);
         await using (db.ConfigureAwait(false))
         {
-            var entity = await db.MediaSegments
+            return await db.MediaSegments
                 .AsNoTracking()
-                .FirstOrDefaultAsync(
-                    segment => segment.ItemId == itemId && segment.Id == segmentId,
-                    cancellationToken)
+                .Where(segment => segment.ItemId == itemId && segment.Id == segmentId)
+                .Select(segment => new JellyfinSegmentSnapshot(
+                    segment.Id,
+                    segment.ItemId,
+                    segment.Type,
+                    segment.StartTicks,
+                    segment.EndTicks,
+                    segment.SegmentProviderId))
+                .FirstOrDefaultAsync(cancellationToken)
                 .ConfigureAwait(false);
-
-            return entity is null ? null : Map(entity);
         }
     }
 
@@ -351,16 +355,6 @@ public sealed partial class JellyfinSegmentStore(
             SegmentProviderId = ProviderId
         };
     }
-
-    private static MediaSegmentDto Map(MediaSegment segment)
-        => new()
-        {
-            Id = segment.Id,
-            ItemId = segment.ItemId,
-            StartTicks = segment.StartTicks,
-            EndTicks = segment.EndTicks,
-            Type = segment.Type
-        };
 
     [LoggerMessage(Level = LogLevel.Error, Message = "Failed to roll back a Jellyfin media segment transaction.")]
     private static partial void LogRollbackFailed(ILogger logger, Exception ex);

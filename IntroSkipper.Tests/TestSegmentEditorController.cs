@@ -66,17 +66,7 @@ public sealed class SegmentEditorControllerTests
 
         var store = new FakeJellyfinSegmentStore
         {
-            ExistingSegments =
-            [
-                new MediaSegmentDto
-                {
-                    Id = segmentId,
-                    ItemId = itemId,
-                    Type = MediaSegmentType.Intro,
-                    StartTicks = TimeSpan.FromSeconds(100).Ticks,
-                    EndTicks = TimeSpan.FromSeconds(160).Ticks,
-                }
-            ],
+            ItemSegments = [CreateSnapshot(itemId, MediaSegmentType.Intro, 100, 160, JellyfinSegmentStore.ProviderId, segmentId)],
             DeleteSegmentException = new InvalidOperationException("jellyfin down"),
         };
         var controller = CreateController(store, database);
@@ -107,17 +97,7 @@ public sealed class SegmentEditorControllerTests
 
         var store = new FakeJellyfinSegmentStore
         {
-            ExistingSegments =
-            [
-                new MediaSegmentDto
-                {
-                    Id = segmentId,
-                    ItemId = itemId,
-                    Type = MediaSegmentType.Outro,
-                    StartTicks = TimeSpan.FromSeconds(2300).Ticks,
-                    EndTicks = TimeSpan.FromSeconds(2500).Ticks,
-                }
-            ],
+            ItemSegments = [CreateSnapshot(itemId, MediaSegmentType.Outro, 2300, 2500, JellyfinSegmentStore.ProviderId, segmentId)],
             DeleteSegmentException = new InvalidOperationException("jellyfin down"),
         };
         var controller = CreateController(store, database);
@@ -142,21 +122,11 @@ public sealed class SegmentEditorControllerTests
         var segmentId = Guid.NewGuid();
         var database = DatabaseTestHelpers.CreateTempSegmentDatabase();
 
-        // Another provider's Jellyfin segment: the editor may delete it by id, but the
+        // Another provider's Jellyfin segment: the editor may delete it by id, and the
         // plugin database has nothing to roll back to.
         var store = new FakeJellyfinSegmentStore
         {
-            ExistingSegments =
-            [
-                new MediaSegmentDto
-                {
-                    Id = segmentId,
-                    ItemId = itemId,
-                    Type = MediaSegmentType.Intro,
-                    StartTicks = TimeSpan.FromSeconds(100).Ticks,
-                    EndTicks = TimeSpan.FromSeconds(160).Ticks,
-                }
-            ],
+            ItemSegments = [CreateSnapshot(itemId, MediaSegmentType.Intro, 100, 160, "foreign-provider", segmentId)],
             DeleteSegmentException = new InvalidOperationException("jellyfin down"),
         };
         var controller = CreateController(store, database);
@@ -184,17 +154,7 @@ public sealed class SegmentEditorControllerTests
 
         var store = new FakeJellyfinSegmentStore
         {
-            ExistingSegments =
-            [
-                new MediaSegmentDto
-                {
-                    Id = segmentId,
-                    ItemId = itemId,
-                    Type = existingType,
-                    StartTicks = TimeSpan.FromSeconds(1200).Ticks,
-                    EndTicks = TimeSpan.FromSeconds(1260).Ticks,
-                }
-            ],
+            ItemSegments = [CreateSnapshot(itemId, existingType, 1200, 1260, JellyfinSegmentStore.ProviderId, segmentId)],
         };
         var controller = CreateController(store, database);
 
@@ -230,17 +190,7 @@ public sealed class SegmentEditorControllerTests
 
         var store = new FakeJellyfinSegmentStore
         {
-            ExistingSegments =
-            [
-                new MediaSegmentDto
-                {
-                    Id = segmentId,
-                    ItemId = itemId,
-                    Type = MediaSegmentType.Intro,
-                    StartTicks = TimeSpan.FromSeconds(100).Ticks,
-                    EndTicks = TimeSpan.FromSeconds(160).Ticks,
-                }
-            ],
+            ItemSegments = [CreateSnapshot(itemId, MediaSegmentType.Intro, 100, 160, JellyfinSegmentStore.ProviderId, segmentId)],
         };
         var controller = CreateController(store, database);
 
@@ -262,17 +212,7 @@ public sealed class SegmentEditorControllerTests
 
         var store = new FakeJellyfinSegmentStore
         {
-            ExistingSegments =
-            [
-                new MediaSegmentDto
-                {
-                    Id = segmentId,
-                    ItemId = itemId,
-                    Type = MediaSegmentType.Intro,
-                    StartTicks = TimeSpan.FromSeconds(100.005).Ticks,
-                    EndTicks = TimeSpan.FromSeconds(160.005).Ticks,
-                }
-            ],
+            ItemSegments = [CreateSnapshot(itemId, MediaSegmentType.Intro, 100.005, 160.005, JellyfinSegmentStore.ProviderId, segmentId)],
             DeleteSegmentException = new InvalidOperationException("jellyfin down"),
         };
         var controller = CreateController(store, database);
@@ -304,17 +244,7 @@ public sealed class SegmentEditorControllerTests
 
         var store = new FakeJellyfinSegmentStore
         {
-            ExistingSegments =
-            [
-                new MediaSegmentDto
-                {
-                    Id = segmentId,
-                    ItemId = itemId,
-                    Type = MediaSegmentType.Commercial,
-                    StartTicks = TimeSpan.FromSeconds(10.005).Ticks,
-                    EndTicks = TimeSpan.FromSeconds(20.005).Ticks,
-                }
-            ],
+            ItemSegments = [CreateSnapshot(itemId, MediaSegmentType.Commercial, 10.005, 20.005, JellyfinSegmentStore.ProviderId, segmentId)],
             DeleteSegmentException = new InvalidOperationException("jellyfin down"),
         };
         var controller = CreateController(store, database);
@@ -385,7 +315,7 @@ public sealed class SegmentEditorControllerTests
         await database.UpdateTimestampAsync(new Segment(itemB, new TimeRange(100, 160)), AnalysisMode.Introduction, isUserProvided: true, configHash: "cfg-b");
 
         var controller = new SegmentEditorController(
-            new MediaSegmentEditorService(store, database, []),
+            new MediaSegmentEditorService(store, database, [], NullLogger<MediaSegmentEditorService>.Instance),
             database,
             DatabaseTestHelpers.CreateCacheDatabase(DatabaseTestHelpers.CreateTempCacheDbPath()));
 
@@ -911,6 +841,125 @@ public sealed class SegmentEditorControllerTests
     }
 
     [Fact]
+    public async Task DeleteSegment_ForeignProviderSegment_LeavesPluginRowsAndSeasonStateIntact()
+    {
+        using var scope = new EntrypointTestHelpers.PluginInstanceScope(EntrypointTestHelpers.CreateTempCacheDir());
+        var itemId = Guid.NewGuid();
+        SetLibrary(CreateMovie(itemId));
+        var foreignSegmentId = Guid.NewGuid();
+        var database = DatabaseTestHelpers.CreateTempSegmentDatabase();
+        await database.UpdateTimestampAsync(new Segment(itemId, new TimeRange(100, 160)), AnalysisMode.Introduction, isUserProvided: true, configHash: "cfg");
+        await database.SetEpisodeIdsAsync(itemId, AnalysisMode.Introduction, [itemId], "cfg");
+
+        // Both providers hold an Intro. Deleting the foreign row must not take Intro
+        // Skipper's own plugin row (or the episode's analyzed-state entry) with it.
+        var store = new FakeJellyfinSegmentStore
+        {
+            ItemSegments =
+            [
+                CreateSnapshot(itemId, MediaSegmentType.Intro, 100, 160, JellyfinSegmentStore.ProviderId),
+                CreateSnapshot(itemId, MediaSegmentType.Intro, 95, 165, "foreign-provider", foreignSegmentId),
+            ]
+        };
+        var controller = CreateController(store, database);
+
+        var response = await controller.DeleteSegmentAsync(foreignSegmentId, itemId, "intro", CancellationToken.None);
+
+        Assert.IsType<OkResult>(response);
+        Assert.Equal([(itemId, foreignSegmentId)], store.DeletedSegments);
+        var survivor = Assert.Single(await database.GetSegmentsAsync(itemId));
+        Assert.Equal(AnalysisMode.Introduction, survivor.Type);
+        Assert.Equal(100, survivor.Start);
+        Assert.Equal(160, survivor.End);
+        Assert.True(survivor.IsUserProvided);
+        var snapshot = await database.GetSeasonQueueSnapshotAsync(itemId, [itemId]);
+        Assert.Contains(itemId, snapshot.EpisodeIdsByMode[AnalysisMode.Introduction]);
+    }
+
+    [Theory]
+    [InlineData(-1L, 20L)]
+    [InlineData(10L, 10L)]
+    [InlineData(20L, 10L)]
+    public async Task CreateSegment_Returns400_ForInvalidRange(long startTicks, long endTicks)
+    {
+        using var scope = new EntrypointTestHelpers.PluginInstanceScope(EntrypointTestHelpers.CreateTempCacheDir());
+        var itemId = Guid.NewGuid();
+        SetLibrary(CreateMovie(itemId));
+        var database = DatabaseTestHelpers.CreateTempSegmentDatabase();
+        var store = new FakeJellyfinSegmentStore();
+        var controller = CreateController(store, database);
+
+        var response = await controller.CreateSegmentAsync(
+            itemId,
+            "providerId",
+            new MediaSegmentDto { Type = MediaSegmentType.Intro, StartTicks = startTicks, EndTicks = endTicks },
+            CancellationToken.None);
+
+        // Rejected before either store is touched: previously an inverted range surfaced
+        // as a server error from the Jellyfin write after the plugin row had committed.
+        Assert.IsType<BadRequestObjectResult>(response.Result);
+        Assert.Equal(0, store.WriteCallCount);
+        Assert.Empty(await database.GetSegmentsAsync(itemId));
+    }
+
+    [Fact]
+    public async Task CreateSegment_Returns400_ForUnsupportedType()
+    {
+        using var scope = new EntrypointTestHelpers.PluginInstanceScope(EntrypointTestHelpers.CreateTempCacheDir());
+        var itemId = Guid.NewGuid();
+        SetLibrary(CreateMovie(itemId));
+        var database = DatabaseTestHelpers.CreateTempSegmentDatabase();
+        var store = new FakeJellyfinSegmentStore();
+        var controller = CreateController(store, database);
+
+        var response = await controller.CreateSegmentAsync(
+            itemId,
+            "providerId",
+            new MediaSegmentDto { Type = (MediaSegmentType)int.MaxValue, StartTicks = 10, EndTicks = 20 },
+            CancellationToken.None);
+
+        Assert.IsType<BadRequestObjectResult>(response.Result);
+        Assert.Equal(0, store.WriteCallCount);
+        Assert.Empty(await database.GetSegmentsAsync(itemId));
+    }
+
+    [Fact]
+    public async Task Copy_NearDuplicateCommercialsAcrossProviders_CollapsesOntoOwnRow()
+    {
+        using var scope = new EntrypointTestHelpers.PluginInstanceScope(EntrypointTestHelpers.CreateTempCacheDir());
+        var sourceId = Guid.NewGuid();
+        var targetId = Guid.NewGuid();
+        SetLibrary(CreateMovie(sourceId), CreateMovie(targetId));
+        var database = DatabaseTestHelpers.CreateTempSegmentDatabase();
+
+        // Two providers hold the same commercial within the comparison tolerance. The
+        // plugin database refuses equivalent rows, so the copy must collapse them onto
+        // one entry, preferring Intro Skipper's own row, instead of failing the request.
+        var store = new FakeJellyfinSegmentStore
+        {
+            ItemSegments =
+            [
+                CreateSnapshot(sourceId, MediaSegmentType.Commercial, 10.0005, 20.0005, JellyfinSegmentStore.DeriveProviderId("Other Provider")),
+                CreateSnapshot(sourceId, MediaSegmentType.Commercial, 10, 20, JellyfinSegmentStore.ProviderId),
+                CreateSnapshot(sourceId, MediaSegmentType.Commercial, 100, 130, JellyfinSegmentStore.ProviderId),
+            ]
+        };
+        var controller = CreateController(store, database);
+
+        var response = await controller.CopySegmentsAsync(
+            new CopySegmentsRequest(sourceId, [targetId], [MediaSegmentType.Commercial]),
+            CancellationToken.None);
+
+        var ok = Assert.IsType<OkObjectResult>(response.Result);
+        Assert.True(Assert.Single(Assert.IsType<CopySegmentsResponse>(ok.Value).Results).Success);
+        var (_, writeSegments, _) = Assert.Single(store.ReplacedEditableTypes);
+        Assert.Equal(2, writeSegments.Count);
+        Assert.Single(writeSegments, segment => segment.StartTicks == TimeSpan.FromSeconds(10).Ticks && segment.EndTicks == TimeSpan.FromSeconds(20).Ticks);
+        Assert.Single(writeSegments, segment => segment.StartTicks == TimeSpan.FromSeconds(100).Ticks && segment.EndTicks == TimeSpan.FromSeconds(130).Ticks);
+        Assert.Equal(2, (await database.GetSegmentsAsync(targetId)).Count);
+    }
+
+    [Fact]
     public async Task Orphans_ListsOnlyMissingItems_AndDeleteCleansOwnRows()
     {
         using var scope = new EntrypointTestHelpers.PluginInstanceScope(EntrypointTestHelpers.CreateTempCacheDir());
@@ -962,9 +1011,10 @@ public sealed class SegmentEditorControllerTests
         MediaSegmentType type,
         double startSeconds,
         double endSeconds,
-        string providerId)
+        string providerId,
+        Guid segmentId = default)
         => new(
-            Guid.NewGuid(),
+            segmentId == default ? Guid.NewGuid() : segmentId,
             itemId,
             type,
             TimeSpan.FromSeconds(startSeconds).Ticks,
@@ -976,7 +1026,7 @@ public sealed class SegmentEditorControllerTests
         IIntroSkipperDatabase database,
         IEnumerable<IMediaSegmentProvider>? providers = null)
         => new(
-            new MediaSegmentEditorService(store, database, providers ?? []),
+            new MediaSegmentEditorService(store, database, providers ?? [], NullLogger<MediaSegmentEditorService>.Instance),
             database,
             DatabaseTestHelpers.CreateCacheDatabase(DatabaseTestHelpers.CreateTempCacheDbPath()));
 }

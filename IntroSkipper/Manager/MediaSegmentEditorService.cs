@@ -1,9 +1,11 @@
 using IntroSkipper.Data;
 using IntroSkipper.Db;
+using IntroSkipper.Helper;
 using Jellyfin.Database.Implementations.Enums;
 using MediaBrowser.Controller.Entities;
 using MediaBrowser.Controller.MediaSegments;
 using MediaBrowser.Model.MediaSegments;
+using Microsoft.Extensions.Logging;
 
 namespace IntroSkipper.Manager;
 
@@ -20,14 +22,17 @@ namespace IntroSkipper.Manager;
 /// <param name="segmentStore">The direct store for Jellyfin's media segments.</param>
 /// <param name="database">The segment database facade.</param>
 /// <param name="segmentProviders">The registered media segment providers used to resolve display names.</param>
-public class MediaSegmentEditorService(
+/// <param name="logger">The application logger.</param>
+public partial class MediaSegmentEditorService(
     IJellyfinSegmentStore segmentStore,
     IIntroSkipperDatabase database,
-    IEnumerable<IMediaSegmentProvider> segmentProviders)
+    IEnumerable<IMediaSegmentProvider> segmentProviders,
+    ILogger<MediaSegmentEditorService> logger)
 {
     private readonly IJellyfinSegmentStore _segmentStore = segmentStore;
     private readonly IIntroSkipperDatabase _database = database;
     private readonly IEnumerable<IMediaSegmentProvider> _segmentProviders = segmentProviders;
+    private readonly ILogger<MediaSegmentEditorService> _logger = logger;
 
     /// <summary>
     /// Creates or replaces a Jellyfin media segment for an item.
@@ -123,9 +128,19 @@ public class MediaSegmentEditorService(
             {
                 // Restore the exact prior plugin rows after a Jellyfin failure. The
                 // compensation is uncancelable because the plugin replacement committed.
-                await _database
-                    .ReplaceItemSegmentsAsync(item.Id, targetModes, priorRows, CancellationToken.None)
-                    .ConfigureAwait(false);
+                // A failed restore is logged and swallowed so the original Jellyfin
+                // failure, the actionable root cause, is the exception that surfaces.
+                try
+                {
+                    await _database
+                        .ReplaceItemSegmentsAsync(item.Id, targetModes, priorRows, CancellationToken.None)
+                        .ConfigureAwait(false);
+                }
+                catch (Exception restoreException) when (!restoreException.IsCritical())
+                {
+                    LogRestoreFailed(_logger, restoreException, item.Id);
+                }
+
                 throw;
             }
 
@@ -236,22 +251,26 @@ public class MediaSegmentEditorService(
     /// Deletes one editor segment from both stores.
     /// </summary>
     /// <remarks>
-    /// The operation waits asynchronously for the item's mutation lock. It removes the
-    /// plugin row before deleting the Jellyfin row. If the Jellyfin delete fails, it
-    /// restores exactly the removed plugin rows, and only those, without honoring
-    /// cancellation. Season-state bookkeeping is intentionally the caller's responsibility
-    /// after a successful delete.
+    /// The operation waits asynchronously for the item's mutation lock. For Intro
+    /// Skipper-owned rows it removes the plugin row before deleting the Jellyfin row; if
+    /// the Jellyfin delete fails, it restores exactly the removed plugin rows, and only
+    /// those, without honoring cancellation. Another provider's row is deleted from
+    /// Jellyfin alone: Intro Skipper's plugin rows are not its counterpart and stay
+    /// untouched. Season-state bookkeeping is intentionally the caller's responsibility
+    /// after a delete that changed Intro Skipper-owned state.
     /// </remarks>
     /// <param name="itemId">The ID of the item that owns the segment.</param>
     /// <param name="segmentId">The ID of the Jellyfin segment to delete.</param>
     /// <param name="mode">One of the analysis modes that specifies the expected segment type.</param>
     /// <param name="cancellationToken">The token that cancels waiting or work before the Jellyfin delete.</param>
     /// <returns>
-    /// A result that reports whether deletion occurred and, when it did not, the actual
-    /// mismatched type or <see langword="null"/> for a missing commercial segment.
+    /// A result that reports whether deletion occurred, the actual mismatched type when a
+    /// type conflict prevented deletion (or <see langword="null"/> for a missing
+    /// commercial segment), and whether Intro Skipper-owned state changed so the caller
+    /// can scope season bookkeeping to its own segments.
     /// </returns>
     /// <exception cref="OperationCanceledException"><paramref name="cancellationToken"/> is canceled before the Jellyfin delete.</exception>
-    public async Task<(bool Deleted, MediaSegmentType? ActualType)> DeleteSegmentAsync(
+    public async Task<(bool Deleted, MediaSegmentType? ActualType, bool OwnSegmentsChanged)> DeleteSegmentAsync(
         Guid itemId,
         Guid segmentId,
         AnalysisMode mode,
@@ -265,7 +284,7 @@ public class MediaSegmentEditorService(
             if (existingSegment is not null
                 && existingSegment.Type != AnalysisHelpers.ModeToSegmentType[mode])
             {
-                return (false, existingSegment.Type);
+                return (false, existingSegment.Type, false);
             }
 
             Segment? dbSegment = null;
@@ -278,15 +297,29 @@ public class MediaSegmentEditorService(
 
             if (dbSegment is null && mode == AnalysisMode.Commercial)
             {
-                return (false, null);
+                return (false, null, false);
             }
 
-            // Non-commercial modes have exactly one row per item and mode, so delete that
-            // unambiguous counterpart even if Jellyfin's reported range has drifted.
-            var deleteSegment = mode == AnalysisMode.Commercial ? dbSegment : null;
-            var deletedRows = await _database
-                .DeleteTimestampAsync(itemId, mode, deleteSegment, cancellationToken)
-                .ConfigureAwait(false);
+            // The plugin rows mirror Intro Skipper's own Jellyfin rows only. Deleting
+            // another provider's row must not clear them: for non-commercial modes that
+            // would silently take Intro Skipper's segment of the same type with it (the
+            // zombie Jellyfin row would be swept by the next refresh), and the item may
+            // be re-queued for analysis the user never asked for. A missing row keeps
+            // the plugin-side delete as an escape hatch for cleaning up rows whose
+            // Jellyfin counterpart is already gone.
+            var isForeignRow = existingSegment is not null
+                && !string.Equals(existingSegment.ProviderId, JellyfinSegmentStore.ProviderId, StringComparison.Ordinal);
+
+            IReadOnlyList<DbSegment> deletedRows = [];
+            if (!isForeignRow)
+            {
+                // Non-commercial modes have exactly one row per item and mode, so delete
+                // that unambiguous counterpart even if Jellyfin's reported range has drifted.
+                var deleteSegment = mode == AnalysisMode.Commercial ? dbSegment : null;
+                deletedRows = await _database
+                    .DeleteTimestampAsync(itemId, mode, deleteSegment, cancellationToken)
+                    .ConfigureAwait(false);
+            }
 
             try
             {
@@ -301,44 +334,53 @@ public class MediaSegmentEditorService(
                 // request is canceled. Restore exactly what was removed and nothing more:
                 // when no row was deleted there is no prior state to put back, so writing
                 // the Jellyfin segment here would invent a plugin row that never existed
-                // (a foreign provider's segment has no counterpart to begin with).
+                // (a foreign provider's segment has no counterpart to begin with). A
+                // failed restore is logged and swallowed so the original Jellyfin
+                // failure, the actionable root cause, is the exception that surfaces.
                 if (deletedRows.Count > 0)
                 {
-                    if (mode == AnalysisMode.Commercial)
+                    try
                     {
-                        // The delete was range-scoped, so other commercials survived and
-                        // only the removed rows are added back. Commercial writes take
-                        // UpdateTimestampAsync's unguarded add-if-absent branch.
-                        foreach (var row in deletedRows)
+                        if (mode == AnalysisMode.Commercial)
                         {
+                            // The delete was range-scoped, so other commercials survived and
+                            // only the removed rows are added back. Commercial writes take
+                            // UpdateTimestampAsync's unguarded add-if-absent branch.
+                            foreach (var row in deletedRows)
+                            {
+                                await _database
+                                    .UpdateTimestampAsync(
+                                        row.ToSegment(),
+                                        mode,
+                                        isUserProvided: row.IsUserProvided,
+                                        configHash: row.ConfigHash,
+                                        cancellationToken: CancellationToken.None)
+                                    .ConfigureAwait(false);
+                            }
+                        }
+                        else
+                        {
+                            // The delete removed every row of the mode, so the mode is restored
+                            // as a whole. This must not go through UpdateTimestampAsync: that
+                            // path carries detection-time rules (it refuses to overwrite a
+                            // user-provided row, and refuses a detected Credits row overlapping
+                            // a stored Introduction) which would silently drop the restore and
+                            // leave the two stores torn apart.
                             await _database
-                                .UpdateTimestampAsync(
-                                    row.ToSegment(),
-                                    mode,
-                                    isUserProvided: row.IsUserProvided,
-                                    configHash: row.ConfigHash,
-                                    cancellationToken: CancellationToken.None)
+                                .ReplaceItemSegmentsAsync(itemId, [mode], deletedRows, CancellationToken.None)
                                 .ConfigureAwait(false);
                         }
                     }
-                    else
+                    catch (Exception restoreException) when (!restoreException.IsCritical())
                     {
-                        // The delete removed every row of the mode, so the mode is restored
-                        // as a whole. This must not go through UpdateTimestampAsync: that
-                        // path carries detection-time rules (it refuses to overwrite a
-                        // user-provided row, and refuses a detected Credits row overlapping
-                        // a stored Introduction) which would silently drop the restore and
-                        // leave the two stores torn apart.
-                        await _database
-                            .ReplaceItemSegmentsAsync(itemId, [mode], deletedRows, CancellationToken.None)
-                            .ConfigureAwait(false);
+                        LogRestoreFailed(_logger, restoreException, itemId);
                     }
                 }
 
                 throw;
             }
 
-            return (true, null);
+            return (true, null, !isForeignRow);
         }
         finally
         {
@@ -373,4 +415,7 @@ public class MediaSegmentEditorService(
             && Math.Abs(r.End - endSeconds) <= IntroSkipperDatabase.SegmentComparisonEpsilon);
         return match?.IsUserProvided;
     }
+
+    [LoggerMessage(Level = LogLevel.Error, Message = "Failed to restore the plugin database after a Jellyfin segment write failure for item {ItemId}; the stores may disagree until the next segment refresh.")]
+    private static partial void LogRestoreFailed(ILogger logger, Exception exception, Guid itemId);
 }
