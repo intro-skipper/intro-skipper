@@ -220,6 +220,38 @@ public sealed class SegmentEditorControllerTests
     }
 
     [Fact]
+    public async Task DeleteSegment_Returns400_ForUnknownRequestedType_WithoutMutatingEitherStore()
+    {
+        using var scope = new EntrypointTestHelpers.PluginInstanceScope(EntrypointTestHelpers.CreateTempCacheDir());
+        var itemId = Guid.NewGuid();
+        var segmentId = Guid.NewGuid();
+        var database = DatabaseTestHelpers.CreateTempSegmentDatabase();
+        await database.UpdateTimestampAsync(new Segment(itemId, new TimeRange(100, 160)), AnalysisMode.Introduction, configHash: "cfg-intro");
+
+        var store = new FakeJellyfinSegmentStore
+        {
+            ExistingSegments =
+            [
+                new MediaSegmentDto
+                {
+                    Id = segmentId,
+                    ItemId = itemId,
+                    Type = MediaSegmentType.Intro,
+                    StartTicks = TimeSpan.FromSeconds(100).Ticks,
+                    EndTicks = TimeSpan.FromSeconds(160).Ticks,
+                }
+            ],
+        };
+        var controller = CreateController(store, database);
+
+        var response = await controller.DeleteSegmentAsync(segmentId, itemId, "bogus", CancellationToken.None);
+
+        Assert.IsType<BadRequestObjectResult>(response);
+        Assert.Empty(store.DeletedSegments);
+        Assert.Single(await database.GetSegmentsAsync(itemId));
+    }
+
+    [Fact]
     public async Task DeleteSegment_RestoresNonCommercialMetadata_WhenJellyfinRangeDriftedOutsideEpsilon()
     {
         using var scope = new EntrypointTestHelpers.PluginInstanceScope(EntrypointTestHelpers.CreateTempCacheDir());
@@ -821,6 +853,31 @@ public sealed class SegmentEditorControllerTests
 
         var response = await controller.CopySegmentsAsync(
             new CopySegmentsRequest(sourceId, [targetId]),
+            CancellationToken.None);
+
+        Assert.IsType<BadRequestObjectResult>(response.Result);
+        Assert.Equal(0, store.WriteCallCount);
+        Assert.Empty(await database.GetSegmentsAsync(targetId));
+    }
+
+    [Theory]
+    [InlineData(long.MaxValue)]
+    [InlineData(long.MinValue)]
+    public async Task Copy_Returns400_WhenTimeShiftOverflowsTicks(long timeShiftTicks)
+    {
+        using var scope = new EntrypointTestHelpers.PluginInstanceScope(EntrypointTestHelpers.CreateTempCacheDir());
+        var sourceId = Guid.NewGuid();
+        var targetId = Guid.NewGuid();
+        SetLibrary(CreateMovie(sourceId), CreateMovie(targetId));
+        var database = DatabaseTestHelpers.CreateTempSegmentDatabase();
+        var store = new FakeJellyfinSegmentStore
+        {
+            ItemSegments = [CreateSnapshot(sourceId, MediaSegmentType.Intro, 10, 20, JellyfinSegmentStore.ProviderId)]
+        };
+        var controller = CreateController(store, database);
+
+        var response = await controller.CopySegmentsAsync(
+            new CopySegmentsRequest(sourceId, [targetId], null, timeShiftTicks),
             CancellationToken.None);
 
         Assert.IsType<BadRequestObjectResult>(response.Result);

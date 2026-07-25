@@ -194,8 +194,18 @@ public class SegmentEditorController(
         var copiedCommercialRanges = new List<(long Start, long End)>();
         foreach (var segment in SelectCopySources(sourceView, requestedTypes))
         {
-            var startTicks = segment.StartTicks + request.TimeShiftTicks;
-            var endTicks = segment.EndTicks + request.TimeShiftTicks;
+            long startTicks;
+            long endTicks;
+            try
+            {
+                startTicks = checked(segment.StartTicks + request.TimeShiftTicks);
+                endTicks = checked(segment.EndTicks + request.TimeShiftTicks);
+            }
+            catch (OverflowException)
+            {
+                return BadRequest($"Time shift overflows the tick range for a '{segment.Type}' segment.");
+            }
+
             if (endTicks <= 0)
             {
                 // Under replace semantics, dropping this segment would silently delete that
@@ -397,15 +407,20 @@ public class SegmentEditorController(
         [FromQuery, Required] string type,
         CancellationToken cancellationToken = default)
     {
-        AnalysisMode requestedMode = type.ToLowerInvariant() switch
+        AnalysisMode? mappedMode = type.ToLowerInvariant() switch
         {
             "intro" => AnalysisMode.Introduction,
             "recap" => AnalysisMode.Recap,
             "preview" => AnalysisMode.Preview,
             "outro" or "credits" => AnalysisMode.Credits,
             "commercial" => AnalysisMode.Commercial,
-            _ => throw new ArgumentOutOfRangeException(nameof(type), $"Unknown segment type '{type}'")
+            _ => null,
         };
+
+        if (mappedMode is not AnalysisMode requestedMode)
+        {
+            return BadRequest($"Unknown segment type '{type}'.");
+        }
 
         var (deleted, actualType) = await _mediaSegmentEditorService
             .DeleteSegmentAsync(itemId, segmentId, requestedMode, cancellationToken)

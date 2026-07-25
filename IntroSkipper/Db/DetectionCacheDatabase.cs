@@ -177,11 +177,19 @@ public sealed partial class DetectionCacheDatabase : IDetectionCacheDatabase
 
         using var db = _contextFactory.CreateDbContext();
 
-        return await db.DetectionCache
-            .AsNoTracking()
-            .Where(e => e.ItemId == itemId && typeArray.Contains(e.Type))
-            .ToListAsync(cancellationToken)
-            .ConfigureAwait(false);
+        try
+        {
+            return await db.DetectionCache
+                .AsNoTracking()
+                .Where(e => e.ItemId == itemId && typeArray.Contains(e.Type))
+                .ToListAsync(cancellationToken)
+                .ConfigureAwait(false);
+        }
+        catch (Exception ex) when (ex is DbUpdateException or DbException)
+        {
+            LogCacheReadFailed(_logger, ex);
+            return [];
+        }
     }
 
     /// <inheritdoc/>
@@ -197,12 +205,20 @@ public sealed partial class DetectionCacheDatabase : IDetectionCacheDatabase
 
         using var db = _contextFactory.CreateDbContext();
 
-        return await db.DetectionCache
-            .AsNoTracking()
-            .Where(e => e.ItemId == itemId && typeArray.Contains(e.Type))
-            .Select(e => new DetectionCacheEntryRange(e.Type, e.Mode, e.Start, e.End, e.ConfigHash))
-            .ToListAsync(cancellationToken)
-            .ConfigureAwait(false);
+        try
+        {
+            return await db.DetectionCache
+                .AsNoTracking()
+                .Where(e => e.ItemId == itemId && typeArray.Contains(e.Type))
+                .Select(e => new DetectionCacheEntryRange(e.Type, e.Mode, e.Start, e.End, e.ConfigHash))
+                .ToListAsync(cancellationToken)
+                .ConfigureAwait(false);
+        }
+        catch (Exception ex) when (ex is DbUpdateException or DbException)
+        {
+            LogCacheReadFailed(_logger, ex);
+            return [];
+        }
     }
 
     /// <inheritdoc/>
@@ -270,4 +286,7 @@ public sealed partial class DetectionCacheDatabase : IDetectionCacheDatabase
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "Failed to delete detection cache rows; the cache is an optimization, continuing")]
     private static partial void LogCacheDeleteFailed(ILogger logger, Exception exception);
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "Failed to read detection cache rows; the cache is an optimization, returning an empty result")]
+    private static partial void LogCacheReadFailed(ILogger logger, Exception exception);
 }
