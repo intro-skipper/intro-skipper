@@ -68,9 +68,7 @@ public partial class MediaSegmentEditorService(
             return;
         }
 
-        var dbSegment = new Segment(item.Id, new TimeRange(
-            TimeSpan.FromTicks(segment.StartTicks).TotalSeconds,
-            TimeSpan.FromTicks(segment.EndTicks).TotalSeconds));
+        var dbSegment = ToPluginSegment(item.Id, segment.StartTicks, segment.EndTicks);
 
         using var itemLock = await MediaSegmentItemLock.AcquireAsync(item.Id, cancellationToken).ConfigureAwait(false);
 
@@ -137,9 +135,7 @@ public partial class MediaSegmentEditorService(
 
         var newRows = segments
             .Select(segment => new DbSegment(
-                new Segment(item.Id, new TimeRange(
-                    TimeSpan.FromTicks(segment.StartTicks).TotalSeconds,
-                    TimeSpan.FromTicks(segment.EndTicks).TotalSeconds)),
+                ToPluginSegment(item.Id, segment.StartTicks, segment.EndTicks),
                 AnalysisHelpers.MapSegmentTypeToMode(segment.Type),
                 isUserProvided: true))
             .ToList();
@@ -460,6 +456,15 @@ public partial class MediaSegmentEditorService(
         return selected.OrderBy(segment => segment.StartTicks).ToList();
     }
 
+    /// <summary>
+    /// Converts a Jellyfin segment's tick positions into the plugin's own segment shape,
+    /// which stores positions as seconds.
+    /// </summary>
+    private static Segment ToPluginSegment(Guid itemId, long startTicks, long endTicks)
+        => new(itemId, new TimeRange(
+            TimeSpan.FromTicks(startTicks).TotalSeconds,
+            TimeSpan.FromTicks(endTicks).TotalSeconds));
+
     private static bool AreCommercialRangesEquivalent(
         (long Start, long End) first,
         (long Start, long End) second)
@@ -546,13 +551,9 @@ public partial class MediaSegmentEditorService(
             return (false, existingSegment.Type);
         }
 
-        Segment? dbSegment = null;
-        if (existingSegment is not null)
-        {
-            var startSeconds = TimeSpan.FromTicks(existingSegment.StartTicks).TotalSeconds;
-            var endSeconds = TimeSpan.FromTicks(existingSegment.EndTicks).TotalSeconds;
-            dbSegment = new Segment(itemId, new TimeRange(startSeconds, endSeconds));
-        }
+        var dbSegment = existingSegment is null
+            ? null
+            : ToPluginSegment(itemId, existingSegment.StartTicks, existingSegment.EndTicks);
 
         if (dbSegment is null && mode == AnalysisMode.Commercial)
         {
