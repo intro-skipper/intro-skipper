@@ -71,7 +71,10 @@ public class SegmentEditorController(
     /// <remarks>
     /// The response includes provider information and the user-provided flag for Intro
     /// Skipper-owned rows. Unlike Jellyfin's core MediaSegments endpoint, it is never
-    /// filtered.
+    /// filtered: <see cref="IntroSkipper.Filters.MediaSegmentsFilterConvention"/> attaches the
+    /// premiere-intro response filter only to controllers declared in Jellyfin's own
+    /// Jellyfin.Api assembly, so no plugin controller can receive it regardless of its type
+    /// name or route.
     /// </remarks>
     /// <param name="itemId">The ID of the item whose segments are retrieved.</param>
     /// <param name="cancellationToken">The token that cancels the asynchronous read.</param>
@@ -468,11 +471,21 @@ public class SegmentEditorController(
     {
         var seenNonCommercialModes = new HashSet<AnalysisMode>();
         var seenCommercialRanges = new List<(long Start, long End)>();
+        var seenIds = new HashSet<Guid>();
         foreach (var segment in segments)
         {
             if (segment is null)
             {
                 return "Segment entries must not be null.";
+            }
+
+            // A supplied id becomes the Jellyfin row's primary key, so a repeat would fail
+            // the insert mid-transaction and surface as a server error rather than a client
+            // one. The empty guid is exempt: it is how callers ask for a generated id, and
+            // every new segment carries it.
+            if (segment.Id != Guid.Empty && !seenIds.Add(segment.Id))
+            {
+                return $"Segment id '{segment.Id}' appears more than once.";
             }
 
             if (!AnalysisHelpers.TryMapSegmentTypeToMode(segment.Type, out var mode))

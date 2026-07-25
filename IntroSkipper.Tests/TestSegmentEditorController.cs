@@ -92,6 +92,81 @@ public sealed class SegmentEditorControllerTests
         Assert.Equal("cfg-2", restored.ConfigHash);
     }
 
+    [Fact]
+    public async Task DeleteSegment_RestoresDetectedCreditsRow_WhenJellyfinDeleteFails_AndAnIntroductionOverlapsIt()
+    {
+        using var scope = new EntrypointTestHelpers.PluginInstanceScope(EntrypointTestHelpers.CreateTempCacheDir());
+        var itemId = Guid.NewGuid();
+        var segmentId = Guid.NewGuid();
+        var database = DatabaseTestHelpers.CreateTempSegmentDatabase();
+
+        // Credits first: writing a detected Credits row is refused once an overlapping
+        // Introduction exists, which is exactly the guard the restore must not re-trigger.
+        await database.UpdateTimestampAsync(new Segment(itemId, new TimeRange(2300, 2500)), AnalysisMode.Credits, configHash: "cfg-credits");
+        await database.UpdateTimestampAsync(new Segment(itemId, new TimeRange(0, 2400)), AnalysisMode.Introduction, isUserProvided: true, configHash: "cfg-intro");
+
+        var store = new FakeJellyfinSegmentStore
+        {
+            ExistingSegments =
+            [
+                new MediaSegmentDto
+                {
+                    Id = segmentId,
+                    ItemId = itemId,
+                    Type = MediaSegmentType.Outro,
+                    StartTicks = TimeSpan.FromSeconds(2300).Ticks,
+                    EndTicks = TimeSpan.FromSeconds(2500).Ticks,
+                }
+            ],
+            DeleteSegmentException = new InvalidOperationException("jellyfin down"),
+        };
+        var controller = CreateController(store, database);
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            controller.DeleteSegmentAsync(segmentId, itemId, "outro", CancellationToken.None));
+
+        var rows = await database.GetSegmentsAsync(itemId);
+        var restored = Assert.Single(rows, row => row.Type == AnalysisMode.Credits);
+        Assert.Equal(2300, restored.Start);
+        Assert.Equal(2500, restored.End);
+        Assert.False(restored.IsUserProvided);
+        Assert.Equal("cfg-credits", restored.ConfigHash);
+        Assert.Single(rows, row => row.Type == AnalysisMode.Introduction);
+    }
+
+    [Fact]
+    public async Task DeleteSegment_CreatesNoPluginRow_WhenJellyfinDeleteFails_AndTheSegmentHadNoPluginCounterpart()
+    {
+        using var scope = new EntrypointTestHelpers.PluginInstanceScope(EntrypointTestHelpers.CreateTempCacheDir());
+        var itemId = Guid.NewGuid();
+        var segmentId = Guid.NewGuid();
+        var database = DatabaseTestHelpers.CreateTempSegmentDatabase();
+
+        // Another provider's Jellyfin segment: the editor may delete it by id, but the
+        // plugin database has nothing to roll back to.
+        var store = new FakeJellyfinSegmentStore
+        {
+            ExistingSegments =
+            [
+                new MediaSegmentDto
+                {
+                    Id = segmentId,
+                    ItemId = itemId,
+                    Type = MediaSegmentType.Intro,
+                    StartTicks = TimeSpan.FromSeconds(100).Ticks,
+                    EndTicks = TimeSpan.FromSeconds(160).Ticks,
+                }
+            ],
+            DeleteSegmentException = new InvalidOperationException("jellyfin down"),
+        };
+        var controller = CreateController(store, database);
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            controller.DeleteSegmentAsync(segmentId, itemId, "intro", CancellationToken.None));
+
+        Assert.Empty(await database.GetSegmentsAsync(itemId));
+    }
+
     [Theory]
     [InlineData(MediaSegmentType.Outro)]
     [InlineData((MediaSegmentType)int.MaxValue)]
@@ -400,6 +475,41 @@ public sealed class SegmentEditorControllerTests
         Assert.IsType<BadRequestObjectResult>(response.Result);
         Assert.Equal(0, store.WriteCallCount);
         Assert.Empty(await database.GetSegmentsAsync(itemId));
+    }
+
+    [Fact]
+    public async Task PutSegments_Returns400_ForRepeatedSegmentId_ButNotForRepeatedEmptyIds()
+    {
+        using var scope = new EntrypointTestHelpers.PluginInstanceScope(EntrypointTestHelpers.CreateTempCacheDir());
+        var itemId = Guid.NewGuid();
+        SetLibrary(CreateMovie(itemId));
+        var database = DatabaseTestHelpers.CreateTempSegmentDatabase();
+        var store = new FakeJellyfinSegmentStore();
+        var controller = CreateController(store, database);
+        var segmentId = Guid.NewGuid();
+
+        var duplicate = await controller.ReplaceSegmentsAsync(
+            itemId,
+            [
+                new MediaSegmentDto { Id = segmentId, Type = MediaSegmentType.Intro, StartTicks = 10, EndTicks = 20 },
+                new MediaSegmentDto { Id = segmentId, Type = MediaSegmentType.Outro, StartTicks = 30, EndTicks = 40 },
+            ],
+            CancellationToken.None);
+
+        Assert.IsType<BadRequestObjectResult>(duplicate.Result);
+        Assert.Equal(0, store.WriteCallCount);
+        Assert.Empty(await database.GetSegmentsAsync(itemId));
+
+        // The empty guid is how a caller asks for a generated id, so repeats are expected.
+        var generated = await controller.ReplaceSegmentsAsync(
+            itemId,
+            [
+                new MediaSegmentDto { Type = MediaSegmentType.Intro, StartTicks = 10, EndTicks = 20 },
+                new MediaSegmentDto { Type = MediaSegmentType.Outro, StartTicks = 30, EndTicks = 40 },
+            ],
+            CancellationToken.None);
+
+        Assert.IsType<OkObjectResult>(generated.Result);
     }
 
     [Fact]

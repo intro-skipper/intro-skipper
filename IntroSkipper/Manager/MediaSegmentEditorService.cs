@@ -238,8 +238,9 @@ public class MediaSegmentEditorService(
     /// <remarks>
     /// The operation waits asynchronously for the item's mutation lock. It removes the
     /// plugin row before deleting the Jellyfin row. If the Jellyfin delete fails, it
-    /// restores the removed plugin rows without honoring cancellation. Season-state
-    /// bookkeeping is intentionally the caller's responsibility after a successful delete.
+    /// restores exactly the removed plugin rows, and only those, without honoring
+    /// cancellation. Season-state bookkeeping is intentionally the caller's responsibility
+    /// after a successful delete.
     /// </remarks>
     /// <param name="itemId">The ID of the item that owns the segment.</param>
     /// <param name="segmentId">The ID of the Jellyfin segment to delete.</param>
@@ -297,26 +298,41 @@ public class MediaSegmentEditorService(
             catch
             {
                 // Once the plugin delete commits, compensation must finish even if the
-                // request is canceled.
+                // request is canceled. Restore exactly what was removed and nothing more:
+                // when no row was deleted there is no prior state to put back, so writing
+                // the Jellyfin segment here would invent a plugin row that never existed
+                // (a foreign provider's segment has no counterpart to begin with).
                 if (deletedRows.Count > 0)
                 {
-                    foreach (var row in deletedRows)
+                    if (mode == AnalysisMode.Commercial)
                     {
+                        // The delete was range-scoped, so other commercials survived and
+                        // only the removed rows are added back. Commercial writes take
+                        // UpdateTimestampAsync's unguarded add-if-absent branch.
+                        foreach (var row in deletedRows)
+                        {
+                            await _database
+                                .UpdateTimestampAsync(
+                                    row.ToSegment(),
+                                    mode,
+                                    isUserProvided: row.IsUserProvided,
+                                    configHash: row.ConfigHash,
+                                    cancellationToken: CancellationToken.None)
+                                .ConfigureAwait(false);
+                        }
+                    }
+                    else
+                    {
+                        // The delete removed every row of the mode, so the mode is restored
+                        // as a whole. This must not go through UpdateTimestampAsync: that
+                        // path carries detection-time rules (it refuses to overwrite a
+                        // user-provided row, and refuses a detected Credits row overlapping
+                        // a stored Introduction) which would silently drop the restore and
+                        // leave the two stores torn apart.
                         await _database
-                            .UpdateTimestampAsync(
-                                row.ToSegment(),
-                                mode,
-                                isUserProvided: row.IsUserProvided,
-                                configHash: row.ConfigHash,
-                                cancellationToken: CancellationToken.None)
+                            .ReplaceItemSegmentsAsync(itemId, [mode], deletedRows, CancellationToken.None)
                             .ConfigureAwait(false);
                     }
-                }
-                else if (dbSegment is not null)
-                {
-                    await _database
-                        .UpdateTimestampAsync(dbSegment, mode, cancellationToken: CancellationToken.None)
-                        .ConfigureAwait(false);
                 }
 
                 throw;

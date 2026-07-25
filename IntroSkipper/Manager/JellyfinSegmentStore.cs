@@ -271,6 +271,12 @@ public sealed partial class JellyfinSegmentStore(
         var db = await contextFactory.CreateDbContextAsync(cancellationToken).ConfigureAwait(false);
         await using (db.ConfigureAwait(false))
         {
+            // Whole-table group-by, materialized in one go. "Is this item still in the
+            // library" is only answerable in-process, so the orphan filter cannot be pushed
+            // into SQL and every distinct item id has to come back. The result set is one
+            // row per item that has segments, not per segment and not per library item,
+            // and this only runs on an explicit admin request. If that ever stops holding,
+            // page the group-by by item id rather than filtering a bigger result in memory.
             return await db.MediaSegments
                 .AsNoTracking()
                 .GroupBy(segment => segment.ItemId)
