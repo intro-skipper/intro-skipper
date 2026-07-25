@@ -5,6 +5,7 @@ namespace IntroSkipper.Tests;
 
 using System;
 using System.Collections.Generic;
+using System.Data.Common;
 using System.Globalization;
 using System.Linq;
 using System.Security.Cryptography;
@@ -553,6 +554,77 @@ public sealed class TestJellyfinSegmentStore
         var row = Assert.Single(await GetAllAsync(tempDb));
         Assert.Equal(otherItemId, row.ItemId);
         Assert.Equal(conflictingId, row.Id);
+    }
+
+    [Fact]
+    public async Task CreateCommercialIfAbsentAsync_SurfacesOriginalFailure_WhenConflictRecheckAlsoFails()
+    {
+        var interceptor = new UnavailableStoreInterceptor();
+        using var db = new TempJellyfinDb(null, interceptor);
+        var store = CreateStore(db);
+
+        // The store goes down during the insert, so the post-failure id re-check hits the
+        // same outage. The re-check is a diagnostic, not the failure: it must not replace
+        // the actionable root cause with its own secondary error.
+        var ex = await Assert.ThrowsAsync<DbUpdateException>(() => store.CreateCommercialIfAbsentAsync(
+            Guid.NewGuid(),
+            CreateDto(MediaSegmentType.Commercial, 50, 60, Guid.NewGuid()),
+            CancellationToken.None));
+
+        Assert.Equal("store went down mid-insert", ex.Message);
+        Assert.True(interceptor.RecheckAttempted);
+    }
+
+    /// <summary>
+    /// Fails the first media-segment SaveChanges and then makes every later read on the
+    /// same context throw, so a test can drive the case where a store outage breaks both
+    /// the write and the diagnostic re-check that follows it.
+    /// </summary>
+    private sealed class UnavailableStoreInterceptor : ISaveChangesInterceptor, IDbCommandInterceptor
+    {
+        private volatile bool _down;
+
+        internal bool RecheckAttempted { get; private set; }
+
+        public ValueTask<InterceptionResult<int>> SavingChangesAsync(
+            DbContextEventData eventData,
+            InterceptionResult<int> result,
+            CancellationToken cancellationToken = default)
+        {
+            if (eventData.Context is JellyfinDbContext context
+                && context.ChangeTracker.Entries<MediaSegment>().Any(entry => entry.State == EntityState.Added))
+            {
+                _down = true;
+                throw new DbUpdateException("store went down mid-insert");
+            }
+
+            return ValueTask.FromResult(result);
+        }
+
+        public ValueTask<InterceptionResult<DbDataReader>> ReaderExecutingAsync(
+            DbCommand command,
+            CommandEventData eventData,
+            InterceptionResult<DbDataReader> result,
+            CancellationToken cancellationToken = default)
+            => ThrowIfDown(result);
+
+        public ValueTask<InterceptionResult<object>> ScalarExecutingAsync(
+            DbCommand command,
+            CommandEventData eventData,
+            InterceptionResult<object> result,
+            CancellationToken cancellationToken = default)
+            => ThrowIfDown(result);
+
+        private ValueTask<InterceptionResult<T>> ThrowIfDown<T>(InterceptionResult<T> result)
+        {
+            if (!_down)
+            {
+                return ValueTask.FromResult(result);
+            }
+
+            RecheckAttempted = true;
+            throw new InvalidOperationException("store is unavailable");
+        }
     }
 
     /// <summary>

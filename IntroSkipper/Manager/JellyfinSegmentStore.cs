@@ -4,6 +4,7 @@
 using System.Collections.Concurrent;
 using System.Globalization;
 using IntroSkipper.Data;
+using IntroSkipper.Helper;
 using Jellyfin.Database.Implementations;
 using Jellyfin.Database.Implementations.Entities;
 using Jellyfin.Database.Implementations.Enums;
@@ -104,6 +105,11 @@ public sealed partial class JellyfinSegmentStore(
         var startTicks = entity.StartTicks;
         var endTicks = entity.EndTicks;
 
+        // Captured before Add: EF's key generator fills an empty Guid key in at Add time, so
+        // after that point entity.Id no longer distinguishes a caller-supplied id from a
+        // generated one. Only a supplied id can collide with an existing row.
+        var suppliedId = entity.Id;
+
         var db = await contextFactory.CreateDbContextAsync(cancellationToken).ConfigureAwait(false);
         await using (db.ConfigureAwait(false))
         {
@@ -126,15 +132,15 @@ public sealed partial class JellyfinSegmentStore(
                 return;
             }
 
-            if (entity.Id != Guid.Empty
+            if (suppliedId != Guid.Empty
                 && await db.MediaSegments
                     .AsNoTracking()
-                    .AnyAsync(existing => existing.Id == entity.Id, cancellationToken)
+                    .AnyAsync(existing => existing.Id == suppliedId, cancellationToken)
                     .ConfigureAwait(false))
             {
                 // The supplied id belongs to a different row, so the insert would violate
                 // the primary key. Surface a client error instead of a constraint failure.
-                throw new SegmentIdConflictException(entity.Id);
+                throw new SegmentIdConflictException(suppliedId);
             }
 
             db.MediaSegments.Add(entity);
@@ -142,7 +148,7 @@ public sealed partial class JellyfinSegmentStore(
             {
                 await SaveExactlyAsync(db, itemId, nameof(CreateCommercialIfAbsentAsync), 1, cancellationToken).ConfigureAwait(false);
             }
-            catch (Exception saveException) when (entity.Id != Guid.Empty
+            catch (Exception saveException) when (suppliedId != Guid.Empty
                 && saveException is DbUpdateException or InvalidOperationException)
             {
                 // The pre-insert checks run outside the insert's own transaction (writes
@@ -150,14 +156,27 @@ public sealed partial class JellyfinSegmentStore(
                 // writer can claim the supplied id between check and save. Re-check after
                 // the failure so the race still surfaces as the typed client error; the
                 // failed insert was never committed, so there is nothing to compensate.
-                var idTaken = await db.MediaSegments
-                    .AsNoTracking()
-                    .AnyAsync(existing => existing.Id == entity.Id, CancellationToken.None)
-                    .ConfigureAwait(false);
+                bool idTaken;
+                try
+                {
+                    idTaken = await db.MediaSegments
+                        .AsNoTracking()
+                        .AnyAsync(existing => existing.Id == suppliedId, CancellationToken.None)
+                        .ConfigureAwait(false);
+                }
+                catch (Exception recheckException) when (!recheckException.IsCritical())
+                {
+                    // A store that cannot answer the re-check is most likely the reason the
+                    // save failed in the first place. Treat the id as unclaimed so the
+                    // original failure, the actionable root cause, is what surfaces rather
+                    // than being replaced by this secondary error.
+                    LogConflictRecheckFailed(logger, recheckException, itemId);
+                    idTaken = false;
+                }
 
                 if (idTaken)
                 {
-                    throw new SegmentIdConflictException(entity.Id);
+                    throw new SegmentIdConflictException(suppliedId);
                 }
 
                 throw;
@@ -431,4 +450,7 @@ public sealed partial class JellyfinSegmentStore(
 
     [LoggerMessage(Level = LogLevel.Error, Message = "{Operation} for item {ItemId} expected to write {ExpectedWrites} media segment(s) but SaveChanges reported {Written}.")]
     private static partial void LogUnexpectedWriteCount(ILogger logger, string operation, Guid itemId, int expectedWrites, int written);
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "Could not re-check the supplied media segment id for item {ItemId} after a failed insert; reporting the original failure.")]
+    private static partial void LogConflictRecheckFailed(ILogger logger, Exception ex, Guid itemId);
 }
