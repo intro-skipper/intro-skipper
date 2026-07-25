@@ -177,7 +177,6 @@ public sealed class TestSeasonKeyResolution
     private static SegmentEditorController CreateController(IIntroSkipperDatabase database)
         => new(
             new MediaSegmentEditorService(new FakeJellyfinSegmentStore(), database, [], NullLogger<MediaSegmentEditorService>.Instance),
-            database,
             DatabaseTestHelpers.CreateCacheDatabase(DatabaseTestHelpers.CreateTempCacheDbPath()));
 
     private static string CreateTempDbPath()

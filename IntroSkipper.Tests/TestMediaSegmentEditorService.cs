@@ -122,6 +122,7 @@ public sealed class TestMediaSegmentEditorService
             itemId,
             segmentId,
             AnalysisMode.Introduction,
+            seasonStateKey: null,
             CancellationToken.None);
 
         // The no-op delete is still issued: it is the escape hatch's only contact with the
@@ -131,7 +132,6 @@ public sealed class TestMediaSegmentEditorService
         // Nothing was removed from either store, so the caller must not treat this as a
         // success and re-queue the episode for analysis.
         Assert.False(result.Deleted);
-        Assert.False(result.OwnSegmentsChanged);
     }
 
     [Fact]
@@ -301,6 +301,7 @@ public sealed class TestMediaSegmentEditorService
             itemId,
             segmentId,
             AnalysisMode.Introduction,
+            seasonStateKey: null,
             CancellationToken.None);
 
         Assert.NotSame(deleteEntered.Task, await Task.WhenAny(deleteEntered.Task, Task.Delay(TimeSpan.FromMilliseconds(250))));
@@ -321,12 +322,14 @@ public sealed class TestMediaSegmentEditorService
         => new(store, database ?? DatabaseTestHelpers.CreateTempSegmentDatabase(), providers ?? [], NullLogger<MediaSegmentEditorService>.Instance);
 
     [Fact]
-    public async Task DeleteSegmentAsync_ForeignProviderRow_DeletesJellyfinRowOnly_AndReportsNoOwnChange()
+    public async Task DeleteSegmentAsync_ForeignProviderRow_DeletesJellyfinRowOnly_AndLeavesSeasonStateAlone()
     {
         var itemId = Guid.NewGuid();
+        var seasonKey = Guid.NewGuid();
         var segmentId = Guid.NewGuid();
         var database = DatabaseTestHelpers.CreateTempSegmentDatabase();
         await database.UpdateTimestampAsync(new Segment(itemId, new TimeRange(100, 160)), AnalysisMode.Introduction, isUserProvided: true, configHash: "cfg");
+        await database.SetEpisodeIdsAsync(seasonKey, AnalysisMode.Introduction, [itemId], "hash");
 
         var store = new FakeJellyfinSegmentStore
         {
@@ -334,11 +337,10 @@ public sealed class TestMediaSegmentEditorService
         };
         var service = CreateService(store, database);
 
-        var result = await service.DeleteSegmentAsync(itemId, segmentId, AnalysisMode.Introduction, CancellationToken.None);
+        var result = await service.DeleteSegmentAsync(itemId, segmentId, AnalysisMode.Introduction, seasonKey, CancellationToken.None);
 
         Assert.True(result.Deleted);
         Assert.Null(result.ActualType);
-        Assert.False(result.OwnSegmentsChanged);
         Assert.Equal([(itemId, segmentId)], store.DeletedSegments);
 
         // Intro Skipper's plugin row is not the foreign row's counterpart and must survive.
@@ -346,6 +348,11 @@ public sealed class TestMediaSegmentEditorService
         Assert.Equal(AnalysisMode.Introduction, survivor.Type);
         Assert.Equal(100, survivor.Start);
         Assert.True(survivor.IsUserProvided);
+
+        // Deleting another provider's row changes nothing Intro Skipper owns, so the episode
+        // must not be marked as needing re-analysis.
+        var snapshot = await database.GetSeasonQueueSnapshotAsync(seasonKey, [itemId]);
+        Assert.Contains(itemId, snapshot.EpisodeIdsByMode[AnalysisMode.Introduction]);
     }
 
     [Fact]
@@ -389,7 +396,7 @@ public sealed class TestMediaSegmentEditorService
         var service = CreateService(store, database);
 
         var thrown = await Assert.ThrowsAsync<InvalidOperationException>(() =>
-            service.DeleteSegmentAsync(itemId, segmentId, AnalysisMode.Introduction, CancellationToken.None));
+            service.DeleteSegmentAsync(itemId, segmentId, AnalysisMode.Introduction, seasonStateKey: null, CancellationToken.None));
 
         Assert.Equal("jellyfin down", thrown.Message);
         Assert.Equal(1, database.ReplaceCallCount);

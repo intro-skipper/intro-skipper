@@ -287,7 +287,6 @@ public sealed class TestSnapPoints
         cacheDb = DatabaseTestHelpers.CreateCacheDatabase(DatabaseTestHelpers.CreateTempCacheDbPath());
         controller = new SegmentEditorController(
             new MediaSegmentEditorService(store, database, [], NullLogger<MediaSegmentEditorService>.Instance),
-            database,
             cacheDb);
         return scope;
     }

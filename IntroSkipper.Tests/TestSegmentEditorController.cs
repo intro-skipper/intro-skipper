@@ -36,6 +36,14 @@ public sealed class SegmentEditorControllerTests : IDisposable
     private readonly EntrypointTestHelpers.PluginInstanceScope _scope =
         new(EntrypointTestHelpers.CreateTempCacheDir());
 
+    public SegmentEditorControllerTests()
+    {
+        // Deleting a segment whose item has left the library is a supported escape hatch, so
+        // the endpoint always resolves the item and expects a null result rather than a
+        // missing library manager. Tests that need real items call SetLibrary again.
+        SetLibrary();
+    }
+
     public void Dispose() => _scope.Dispose();
 
     [Fact]
@@ -379,7 +387,6 @@ public sealed class SegmentEditorControllerTests : IDisposable
 
         var controller = new SegmentEditorController(
             new MediaSegmentEditorService(store, database, [], NullLogger<MediaSegmentEditorService>.Instance),
-            database,
             DatabaseTestHelpers.CreateCacheDatabase(DatabaseTestHelpers.CreateTempCacheDbPath()));
 
         // Item B's id paired with item A's segment id: the caller's own orphaned plugin row
@@ -443,7 +450,6 @@ public sealed class SegmentEditorControllerTests : IDisposable
 
         var controller = new SegmentEditorController(
             new MediaSegmentEditorService(store, database, [], NullLogger<MediaSegmentEditorService>.Instance),
-            database,
             DatabaseTestHelpers.CreateCacheDatabase(DatabaseTestHelpers.CreateTempCacheDbPath()));
 
         // Item A's segment id paired with item B's item id. The id is not stale — it is
@@ -1266,6 +1272,5 @@ public sealed class SegmentEditorControllerTests : IDisposable
         IEnumerable<IMediaSegmentProvider>? providers = null)
         => new(
             new MediaSegmentEditorService(store, database, providers ?? [], NullLogger<MediaSegmentEditorService>.Instance),
-            database,
             DatabaseTestHelpers.CreateCacheDatabase(DatabaseTestHelpers.CreateTempCacheDbPath()));
 }

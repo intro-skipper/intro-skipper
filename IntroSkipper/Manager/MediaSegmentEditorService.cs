@@ -232,6 +232,240 @@ public partial class MediaSegmentEditorService(
     }
 
     /// <summary>
+    /// Builds the authoritative segment set to apply to every target of a copy.
+    /// </summary>
+    /// <remarks>
+    /// Selects the source rows that can be applied as a replacement, shifts them, and
+    /// validates the result. Types the source does not carry are deliberately absent from
+    /// the returned modes: the replacement is authoritative, so including them would delete
+    /// the targets' segments of those types, user edits and other providers' rows included.
+    /// </remarks>
+    /// <param name="sourceItemId">The ID of the item to copy from.</param>
+    /// <param name="requestedTypes">The types to copy, or <see langword="null"/> for every editor-managed type present on the source.</param>
+    /// <param name="timeShiftTicks">Ticks added to every copied position.</param>
+    /// <param name="cancellationToken">The token that cancels the source read.</param>
+    /// <returns>
+    /// The first validation error, or the segments to write and the modes they replace.
+    /// </returns>
+    /// <exception cref="OperationCanceledException"><paramref name="cancellationToken"/> is canceled while reading.</exception>
+    public async Task<(string? Error, List<MediaSegmentDto> Segments, List<AnalysisMode> Modes)> BuildCopySegmentsAsync(
+        Guid sourceItemId,
+        IReadOnlySet<MediaSegmentType>? requestedTypes,
+        long timeShiftTicks,
+        CancellationToken cancellationToken)
+    {
+        var sourceView = await GetEditorSegmentsAsync(sourceItemId, cancellationToken).ConfigureAwait(false);
+
+        var copiedSegments = new List<MediaSegmentDto>();
+        var copiedCommercialRanges = new List<(long Start, long End)>();
+        foreach (var segment in SelectCopySources(sourceView, requestedTypes))
+        {
+            long startTicks;
+            long endTicks;
+            try
+            {
+                startTicks = checked(segment.StartTicks + timeShiftTicks);
+                endTicks = checked(segment.EndTicks + timeShiftTicks);
+            }
+            catch (OverflowException)
+            {
+                return ($"Time shift overflows the tick range for a '{segment.Type}' segment.", [], []);
+            }
+
+            if (endTicks <= 0)
+            {
+                // Under replace semantics, dropping this segment would silently delete that
+                // type on every target; reject the request instead.
+                return ($"Time shift moves a '{segment.Type}' segment entirely before the item start.", [], []);
+            }
+
+            // A negative shift may push a segment's start before zero; clamp instead of
+            // failing so a plain "shift everything earlier" request stays usable.
+            var clampedStart = Math.Max(0, startTicks);
+
+            if (endTicks <= clampedStart)
+            {
+                return ($"Time shift produces an empty '{segment.Type}' segment.", [], []);
+            }
+
+            if (segment.Type == MediaSegmentType.Commercial)
+            {
+                var range = (clampedStart, endTicks);
+                if (copiedCommercialRanges.Any(existing => AreCommercialRangesEquivalent(existing, range)))
+                {
+                    // Cross-provider near-duplicates were already collapsed during
+                    // selection, and a uniform shift preserves distances, so only start
+                    // clamping can push two ranges within the comparison tolerance here.
+                    // Keep the first instead of failing the request.
+                    continue;
+                }
+
+                copiedCommercialRanges.Add(range);
+            }
+
+            copiedSegments.Add(new MediaSegmentDto
+            {
+                Type = segment.Type,
+                StartTicks = clampedStart,
+                EndTicks = endTicks,
+            });
+        }
+
+        if (copiedSegments.Count == 0)
+        {
+            // Applying an empty authoritative set would erase the requested types on every
+            // target; an empty source selection is almost certainly a caller error.
+            return ("The source item has no segments of the requested types.", [], []);
+        }
+
+        var copyModes = copiedSegments
+            .Select(segment => AnalysisHelpers.MapSegmentTypeToMode(segment.Type))
+            .Distinct()
+            .ToList();
+
+        return (null, copiedSegments, copyModes);
+    }
+
+    /// <summary>
+    /// Validates a segment set and returns the entries that should actually be written.
+    /// </summary>
+    /// <remarks>
+    /// Exact-duplicate commercial entries are dropped rather than rejected, mirroring the
+    /// create path's identical-entry semantics; the validator already recognizes them, so it
+    /// also collects what survives instead of leaving a second pass to re-derive it.
+    /// </remarks>
+    /// <param name="segments">The submitted segments.</param>
+    /// <returns>The first validation error, or the normalized set when the input is valid.</returns>
+    public static (string? Error, List<MediaSegmentDto> Normalized) ValidateSegmentSet(IReadOnlyList<MediaSegmentDto> segments)
+    {
+        ArgumentNullException.ThrowIfNull(segments);
+
+        var seenNonCommercialModes = new HashSet<AnalysisMode>();
+        var seenCommercialRanges = new List<(long Start, long End)>();
+        var seenIds = new HashSet<Guid>();
+        var normalized = new List<MediaSegmentDto>(segments.Count);
+        foreach (var segment in segments)
+        {
+            if (segment is null)
+            {
+                return ("Segment entries must not be null.", []);
+            }
+
+            // A supplied id becomes the Jellyfin row's primary key, so a repeat would fail
+            // the insert mid-transaction and surface as a server error rather than a client
+            // one. The empty guid is exempt: it is how callers ask for a generated id, and
+            // every new segment carries it.
+            if (segment.Id != Guid.Empty && !seenIds.Add(segment.Id))
+            {
+                return ($"Segment id '{segment.Id}' appears more than once.", []);
+            }
+
+            if (!AnalysisHelpers.TryMapSegmentTypeToMode(segment.Type, out var mode))
+            {
+                return ($"Segment type '{segment.Type}' is not supported by the editor.", []);
+            }
+
+            if (segment.StartTicks < 0)
+            {
+                return ($"Segment start must not be negative (type '{segment.Type}').", []);
+            }
+
+            if (segment.EndTicks <= segment.StartTicks)
+            {
+                return ($"Segment end must be after its start (type '{segment.Type}').", []);
+            }
+
+            if (mode == AnalysisMode.Commercial)
+            {
+                var range = (segment.StartTicks, segment.EndTicks);
+                if (seenCommercialRanges.Contains(range))
+                {
+                    // Exact duplicates are dropped rather than written twice.
+                    continue;
+                }
+
+                if (seenCommercialRanges.Any(existing => AreCommercialRangesEquivalent(existing, range)))
+                {
+                    return ("Commercial segment ranges must differ by more than the comparison tolerance.", []);
+                }
+
+                seenCommercialRanges.Add(range);
+                normalized.Add(segment);
+                continue;
+            }
+
+            if (!seenNonCommercialModes.Add(mode))
+            {
+                return ($"Only one segment of type '{segment.Type}' is allowed per item.", []);
+            }
+
+            normalized.Add(segment);
+        }
+
+        return (null, normalized);
+    }
+
+    /// <summary>
+    /// Selects source segments that can be safely applied as an authoritative replacement.
+    /// </summary>
+    /// <remarks>
+    /// Jellyfin permits several providers to hold a segment of one type, but the plugin
+    /// permits only one non-commercial segment per type. The result therefore contains one
+    /// non-commercial segment per type: Intro Skipper's row wins, then the earliest start.
+    /// Commercial rows are kept from every provider, except that rows equivalent within
+    /// the plugin's comparison tolerance collapse onto one entry with the same preference
+    /// order. This prevents a replacement set that violates the plugin's unique index or
+    /// its commercial-equivalence guard.
+    /// </remarks>
+    /// <param name="sourceView">The source item's cross-provider segment view.</param>
+    /// <param name="requestedTypes">The types to copy, or <see langword="null"/> for every editor-managed type present on the source.</param>
+    /// <returns>The selected segments ordered by start position.</returns>
+    private static List<EditorSegmentDto> SelectCopySources(
+        IReadOnlyList<EditorSegmentDto> sourceView,
+        IReadOnlySet<MediaSegmentType>? requestedTypes)
+    {
+        var candidates = sourceView
+            .Where(segment => AnalysisHelpers.TryMapSegmentTypeToMode(segment.Type, out _))
+            .Where(segment => requestedTypes is null || requestedTypes.Contains(segment.Type));
+
+        // Intro Skipper's own row wins, then the earliest start.
+        static IEnumerable<EditorSegmentDto> ByPreference(IEnumerable<EditorSegmentDto> group)
+            => group
+                .OrderByDescending(segment => string.Equals(segment.ProviderId, JellyfinSegmentStore.ProviderId, StringComparison.Ordinal))
+                .ThenBy(segment => segment.StartTicks);
+
+        var selected = new List<EditorSegmentDto>();
+        foreach (var group in candidates.GroupBy(segment => segment.Type))
+        {
+            if (group.Key != MediaSegmentType.Commercial)
+            {
+                selected.Add(ByPreference(group).First());
+                continue;
+            }
+
+            var chosen = new List<EditorSegmentDto>();
+            foreach (var candidate in ByPreference(group))
+            {
+                if (!chosen.Any(existing => AreCommercialRangesEquivalent(
+                    (existing.StartTicks, existing.EndTicks),
+                    (candidate.StartTicks, candidate.EndTicks))))
+                {
+                    chosen.Add(candidate);
+                }
+            }
+
+            selected.AddRange(chosen);
+        }
+
+        return selected.OrderBy(segment => segment.StartTicks).ToList();
+    }
+
+    private static bool AreCommercialRangesEquivalent(
+        (long Start, long End) first,
+        (long Start, long End) second)
+        => IntroSkipperDatabase.TickRangesEquivalent(first.Start, first.End, second.Start, second.End);
+
+    /// <summary>
     /// Lists Jellyfin media segment rows whose items no longer exist, grouped per item and
     /// split by owning provider. Includes rows keyed by the empty guid.
     /// </summary>
@@ -278,26 +512,30 @@ public partial class MediaSegmentEditorService(
     /// the Jellyfin delete fails, it restores exactly the removed plugin rows, and only
     /// those, without honoring cancellation. Another provider's row is deleted from
     /// Jellyfin alone: Intro Skipper's plugin rows are not its counterpart and stay
-    /// untouched. Season-state bookkeeping is intentionally the caller's responsibility
-    /// after a delete that changed Intro Skipper-owned state.
+    /// untouched. A delete that changed Intro Skipper-owned state also clears the item's
+    /// season-state entry, without honoring cancellation, so the next analysis can
+    /// re-process the episode.
     /// </remarks>
     /// <param name="itemId">The ID of the item that owns the segment.</param>
     /// <param name="segmentId">The ID of the Jellyfin segment to delete.</param>
     /// <param name="mode">One of the analysis modes that specifies the expected segment type.</param>
+    /// <param name="seasonStateKey">
+    /// The item's season-state key, or <see langword="null"/> when the item is no longer in
+    /// the library and there is no season entry to clear.
+    /// </param>
     /// <param name="cancellationToken">The token that cancels waiting or work before the Jellyfin delete.</param>
     /// <returns>
-    /// A result that reports whether deletion occurred, the actual mismatched type when a
+    /// A result that reports whether deletion occurred and the actual mismatched type when a
     /// type conflict prevented deletion (or <see langword="null"/> when the segment was not
-    /// found at all), and whether the delete was scoped to Intro Skipper's own rows so the
-    /// caller can skip season bookkeeping for another provider's segment. An id that named
-    /// no row in either store removed nothing, so it reports not-deleted for every mode
-    /// rather than a success that would re-queue the episode for analysis.
+    /// found at all). An id that named no row in either store removed nothing, so it reports
+    /// not-deleted for every mode rather than a success that would re-queue the episode.
     /// </returns>
     /// <exception cref="OperationCanceledException"><paramref name="cancellationToken"/> is canceled before the Jellyfin delete.</exception>
-    public async Task<(bool Deleted, MediaSegmentType? ActualType, bool OwnSegmentsChanged)> DeleteSegmentAsync(
+    public async Task<(bool Deleted, MediaSegmentType? ActualType)> DeleteSegmentAsync(
         Guid itemId,
         Guid segmentId,
         AnalysisMode mode,
+        Guid? seasonStateKey,
         CancellationToken cancellationToken)
     {
         using var itemLock = await MediaSegmentItemLock.AcquireAsync(itemId, cancellationToken).ConfigureAwait(false);
@@ -305,7 +543,7 @@ public partial class MediaSegmentEditorService(
         if (existingSegment is not null
             && existingSegment.Type != AnalysisHelpers.ModeToSegmentType[mode])
         {
-            return (false, existingSegment.Type, false);
+            return (false, existingSegment.Type);
         }
 
         Segment? dbSegment = null;
@@ -318,7 +556,7 @@ public partial class MediaSegmentEditorService(
 
         if (dbSegment is null && mode == AnalysisMode.Commercial)
         {
-            return (false, null, false);
+            return (false, null);
         }
 
         // The plugin rows mirror Intro Skipper's own Jellyfin rows only. Deleting
@@ -378,10 +616,19 @@ public partial class MediaSegmentEditorService(
         // changed nothing and re-queues the episode for analysis.
         if (existingSegment is null && ownCounterpartIds.Count == 0 && deletedRows.Count == 0)
         {
-            return (false, null, false);
+            return (false, null);
         }
 
-        return (true, null, !isForeignRow);
+        // Both stores have committed. Complete derived season bookkeeping even if the
+        // request is canceled now so the next analysis can re-process the episode. Deleting
+        // another provider's row changes nothing Intro Skipper owns, so it must not mark the
+        // episode as needing re-analysis.
+        if (!isForeignRow && seasonStateKey is Guid key)
+        {
+            await _database.RemoveEpisodeIdAsync(key, mode, itemId, CancellationToken.None).ConfigureAwait(false);
+        }
+
+        return (true, null);
     }
 
     /// <summary>
