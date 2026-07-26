@@ -16,11 +16,61 @@ using IntroSkipper.Data;
 using IntroSkipper.Db;
 using IntroSkipper.FFmpeg;
 using IntroSkipper.Helper;
+using Microsoft.Data.Sqlite;
 using Microsoft.Extensions.Logging.Abstractions;
 using Xunit;
 
 public sealed class TestCacheOperations
 {
+    [Fact]
+    public async Task GetEntriesForItemAsync_FiltersByItemAndType_AndReturnsRawPayloads()
+    {
+        var cacheDb = DatabaseTestHelpers.CreateCacheDatabase(DatabaseTestHelpers.CreateTempCacheDbPath());
+        var itemId = Guid.NewGuid();
+        var payload = DetectionCacheService.CompressBrotli<double[]>([1, 2, 3]);
+        cacheDb.Upsert(itemId, AnalysisMode.Introduction, CacheEntryType.Keyframe, 0, 300, payload, "hash-a");
+        cacheDb.Upsert(itemId, AnalysisMode.Introduction, CacheEntryType.Silence, 0, 300, DetectionCacheService.CompressBrotli<TimeRange[]>([]), "hash-b");
+        cacheDb.Upsert(Guid.NewGuid(), AnalysisMode.Introduction, CacheEntryType.Keyframe, 0, 300, payload, "hash-c");
+
+        var entries = await cacheDb.GetEntriesForItemAsync(itemId, [CacheEntryType.Keyframe]);
+
+        var entry = Assert.Single(entries);
+        Assert.Equal(itemId, entry.ItemId);
+        Assert.Equal(CacheEntryType.Keyframe, entry.Type);
+        Assert.Equal("hash-a", entry.ConfigHash);
+        var decompressed = DetectionCacheService.DecompressBrotli<double[]>(entry.Data);
+        Assert.NotNull(decompressed);
+        Assert.Equal([1, 2, 3], decompressed);
+
+        Assert.Empty(await cacheDb.GetEntriesForItemAsync(itemId, []));
+    }
+
+    [Fact]
+    public async Task CacheReads_DegradeToEmpty_WhenTheTableIsUnreadable()
+    {
+        var dbPath = DatabaseTestHelpers.CreateTempCacheDbPath();
+        var cacheDb = DatabaseTestHelpers.CreateCacheDatabase(dbPath);
+        var itemId = Guid.NewGuid();
+        cacheDb.Upsert(itemId, AnalysisMode.Credits, CacheEntryType.BlackFrame, 900, 0, DetectionCacheService.CompressBrotli<BlackInterval[]>([]), "h");
+
+        // Dropping the table makes every read throw SqliteException. The drop lands after
+        // the initialization gate has already cached its success, so the schema cannot be
+        // recreated underneath the read.
+        SqliteConnection.ClearAllPools();
+        await using (var connection = new SqliteConnection($"Data Source={dbPath}"))
+        {
+            await connection.OpenAsync();
+            await using var command = connection.CreateCommand();
+            command.CommandText = "DROP TABLE \"DetectionCache\"";
+            await command.ExecuteNonQueryAsync();
+        }
+
+        // The cache is an optimization, so both readers report absence rather than
+        // failing the best-effort endpoints that rest on them (see TestSnapPoints).
+        Assert.Empty(await cacheDb.GetEntriesForItemAsync(itemId, [CacheEntryType.BlackFrame]));
+        Assert.Empty(await cacheDb.GetEntryRangesForItemAsync(itemId, [CacheEntryType.BlackFrame]));
+    }
+
     [Fact]
     public void DeleteCacheFiles_Introduction_DeletesIntroFilesOnly()
     {

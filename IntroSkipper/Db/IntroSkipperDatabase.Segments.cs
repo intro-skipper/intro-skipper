@@ -194,6 +194,7 @@ public sealed partial class IntroSkipperDatabase
 
         var modeArray = modes.Distinct().ToArray();
         var commercialSegments = new List<DbSegment>();
+        var seenNonCommercialModes = new HashSet<AnalysisMode>();
         foreach (var segment in segments)
         {
             if (segment.ItemId != itemId)
@@ -217,6 +218,17 @@ public sealed partial class IntroSkipperDatabase
                 }
 
                 commercialSegments.Add(segment);
+            }
+            else if (!seenNonCommercialModes.Add(segment.Type))
+            {
+                // IX_DbSegment_NonCommercial_Unique permits one row per (item, type), so a
+                // second row of the same mode would fail the insert mid-transaction and
+                // surface as a server fault. Reject it up front like the commercial
+                // equivalence guard above, so both violations of the table's uniqueness
+                // rules are caller errors.
+                throw new ArgumentException(
+                    $"Only one segment of type '{segment.Type}' is allowed per item.",
+                    nameof(segments));
             }
         }
 

@@ -95,7 +95,7 @@ public interface IIntroSkipperDatabase
     /// <param name="segments">The rows that will exist for <paramref name="modes"/> after the operation.</param>
     /// <param name="cancellationToken">The token that cancels the asynchronous transaction.</param>
     /// <returns>The detached prior rows for <paramref name="modes"/>, or an empty list when there were none.</returns>
-    /// <exception cref="ArgumentException">A row has another item ID or a type outside <paramref name="modes"/>, or commercial rows are equivalent within the comparison tolerance.</exception>
+    /// <exception cref="ArgumentException">A row has another item ID or a type outside <paramref name="modes"/>, or the rows violate the table's uniqueness rules: commercial rows equivalent within the comparison tolerance, or more than one row of a non-commercial mode.</exception>
     /// <exception cref="OperationCanceledException"><paramref name="cancellationToken"/> is canceled before the transaction commits.</exception>
     Task<IReadOnlyList<DbSegment>> ReplaceItemSegmentsAsync(Guid itemId, IReadOnlyCollection<AnalysisMode> modes, IReadOnlyCollection<DbSegment> segments, CancellationToken cancellationToken = default);
 

@@ -34,7 +34,7 @@ public sealed partial class JellyfinSegmentStore(
 
     // Must be declared before ProviderId: its initializer calls DeriveProviderId, and
     // static members initialize in textual order.
-    private static readonly ConcurrentDictionary<string, string> _derivedProviderIds = new(StringComparer.Ordinal);
+    private static readonly ConcurrentDictionary<string, string> DerivedProviderIds = new(StringComparer.Ordinal);
 
     /// <summary>
     /// Gets the provider id Jellyfin derives for Intro Skipper's segment provider.
@@ -51,7 +51,7 @@ public sealed partial class JellyfinSegmentStore(
     /// <param name="providerName">The provider display name.</param>
     /// <returns>The derived provider id.</returns>
     internal static string DeriveProviderId(string providerName)
-        => _derivedProviderIds.GetOrAdd(providerName, static name => name
+        => DerivedProviderIds.GetOrAdd(providerName, static name => name
             .ToLowerInvariant()
             .GetMD5()
             .ToString("N", CultureInfo.InvariantCulture));

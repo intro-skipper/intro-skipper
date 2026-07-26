@@ -148,6 +148,43 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
 
     internal BaseItem? GetItem(Guid id) => id != Guid.Empty ? _libraryManager.GetItemById(id) : null;
 
+    /// <summary>
+    /// Finds an item in the cached analysis queue and reports the season key it is filed under.
+    /// </summary>
+    /// <remarks>
+    /// The queue key is not always the item's own SeasonId: in-season specials are grouped under
+    /// the season they air within, and movies are filed under their own id. Callers pass the key
+    /// they expect so the common case costs one dictionary lookup instead of a scan of the whole
+    /// queue, which the fallback only reaches for items filed under a foreign key.
+    /// </remarks>
+    /// <param name="itemId">The ID of the item to find.</param>
+    /// <param name="preferredSeasonId">The season key to probe before scanning the queue.</param>
+    /// <param name="seasonKey">
+    /// The key the item is filed under, or <paramref name="preferredSeasonId"/> when it is not queued.
+    /// </param>
+    /// <returns>The queued item, or <see langword="null"/> when it is not in the queue.</returns>
+    internal QueuedEpisode? FindQueuedItem(Guid itemId, Guid preferredSeasonId, out Guid seasonKey)
+    {
+        if (QueuedMediaItems.TryGetValue(preferredSeasonId, out var preferred)
+            && preferred.Find(episode => episode.EpisodeId == itemId) is { } preferredMatch)
+        {
+            seasonKey = preferredSeasonId;
+            return preferredMatch;
+        }
+
+        foreach (var (candidateKey, episodes) in QueuedMediaItems)
+        {
+            if (episodes.Find(episode => episode.EpisodeId == itemId) is { } match)
+            {
+                seasonKey = candidateKey;
+                return match;
+            }
+        }
+
+        seasonKey = preferredSeasonId;
+        return null;
+    }
+
     internal string GetItemPath(Guid id) => GetItem(id) is var item && item is not null ? item.Path : string.Empty;
 
     internal IReadOnlyList<ChapterInfo> GetChapters(Guid id) => _chapterRepository.GetChapters(id) ?? Array.Empty<ChapterInfo>();

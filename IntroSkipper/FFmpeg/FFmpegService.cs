@@ -384,15 +384,7 @@ public sealed partial class FFmpegService(
 
         var raw = Encoding.UTF8.GetString(await GetOutputAsync(args, true, cancellationToken: cancellationToken).ConfigureAwait(false));
 
-        // -to does not reliably bound a -skip_frame noref scan either, so clip to the window
-        // exactly as the keyframe-visual scan above does (times are relative to the -ss seek,
-        // so an in-window interval falls within [0, range.Duration]). Callers treat a cached
-        // row's payload as bounded by the row's scanned window — SnapPointAssembler recovers
-        // the analysis-run offset by testing which anchor makes the payload fit, and a single
-        // interval trailing past the window makes no anchor fit, dropping the whole row.
-        var rangeIntervals = FFmpegOutputParser.ParseBlackIntervals(raw)
-            .Where(interval => interval.Start >= 0 && interval.End <= range.Duration)
-            .ToArray();
+        var rangeIntervals = ClipIntervalsToWindow(FFmpegOutputParser.ParseBlackIntervals(raw), range.Duration);
         var offset = range.Start - episode.CreditsFingerprintStart;
         var intervals = offset == 0
             ? rangeIntervals
@@ -401,6 +393,35 @@ public sealed partial class FFmpegService(
         _cacheService.Write(episode.EpisodeId, AnalysisMode.Credits, CacheEntryType.BlackInterval, range.Start, range.End, intervals);
 
         return intervals;
+    }
+
+    /// <summary>
+    /// Clips parsed black intervals to the window that was actually scanned.
+    /// </summary>
+    /// <remarks>
+    /// <c>-to</c> does not bound a <c>-skip_frame noref</c> scan, so blackdetect reports runs past
+    /// the requested duration. Times are relative to the <c>-ss</c> seek, so an in-window interval
+    /// falls within <c>[0, duration]</c>; <see cref="SnapPointAssembler"/> discards any cached row
+    /// whose payload leaves that window.
+    /// <para>
+    /// An interval crossing an edge is truncated, not dropped: credit scenes anchor to
+    /// <see cref="BlackInterval.Start"/> and only extend to <see cref="BlackInterval.End"/>
+    /// (<see cref="Analyzers.Credits.CreditSceneBuilder.DetectIntervalSupportedCreditScenes"/>), so
+    /// discarding a run that reaches the window end loses the anchor marking the credits start.
+    /// </para>
+    /// </remarks>
+    /// <param name="intervals">The intervals parsed from blackdetect output, relative to the seek.</param>
+    /// <param name="duration">The scanned window's duration in seconds.</param>
+    /// <returns>The intervals that overlap the window, each truncated to it.</returns>
+    internal static BlackInterval[] ClipIntervalsToWindow(IEnumerable<BlackInterval> intervals, double duration)
+    {
+        ArgumentNullException.ThrowIfNull(intervals);
+
+        return [.. intervals
+            .Where(interval => interval.End > 0 && interval.Start < duration)
+            .Select(interval => new BlackInterval(
+                Math.Max(0, interval.Start),
+                Math.Min(duration, interval.End)))];
     }
 
     // blackdetect's pix_th is a fraction of the luma range; internally it derives the absolute cutoff

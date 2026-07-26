@@ -108,9 +108,11 @@ internal static class SnapPointAssembler
             }
         }
 
+        // Overlapping cached scan ranges repeat their findings, so every array is deduped
+        // before it is served: keyframes by tolerance above, ranges by exact value here.
         return new SnapPointsResponse(
             dedupedKeyframes,
-            blackIntervals.OrderBy(range => range.Start).ToList(),
+            blackIntervals.Distinct().OrderBy(range => range.Start).ToList(),
             silence.Distinct().OrderBy(range => range.Start).ToList(),
             fromCache);
     }
@@ -147,18 +149,12 @@ internal static class SnapPointAssembler
             candidates.Add(new AnchorCandidate(range.Start, IsCurrentEra(config, range.Type, range.Mode, range.ConfigHash)));
         }
 
-        if (Plugin.Instance is { } plugin)
+        // Movies are queued under their own id; for episodes that probe misses and the
+        // lookup falls back to a queue scan.
+        if (Plugin.Instance is { } plugin && plugin.FindQueuedItem(itemId, itemId, out _) is { } queued)
         {
-            foreach (var episodes in plugin.QueuedMediaItems.Values)
-            {
-                var queued = episodes.FirstOrDefault(episode => episode.EpisodeId == itemId);
-                if (queued is not null)
-                {
-                    // The queue is rebuilt from the current configuration by definition.
-                    candidates.Add(new AnchorCandidate(queued.CreditsFingerprintStart, IsCurrentEra: true));
-                    break;
-                }
-            }
+            // The queue is rebuilt from the current configuration by definition.
+            candidates.Add(new AnchorCandidate(queued.CreditsFingerprintStart, IsCurrentEra: true));
         }
 
         return candidates;

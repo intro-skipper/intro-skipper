@@ -941,41 +941,10 @@ public sealed class SegmentEditorControllerTests : IDisposable
         Assert.Equal(0, store.WriteCallCount);
     }
 
-    [Fact]
-    public async Task DeleteSegment_ForeignProviderSegment_LeavesPluginRowsAndSeasonStateIntact()
-    {
-        var itemId = Guid.NewGuid();
-        SetLibrary(CreateMovie(itemId));
-        var foreignSegmentId = Guid.NewGuid();
-        var database = DatabaseTestHelpers.CreateTempSegmentDatabase();
-        await database.UpdateTimestampAsync(new Segment(itemId, new TimeRange(100, 160)), AnalysisMode.Introduction, isUserProvided: true, configHash: "cfg");
-        await database.SetEpisodeIdsAsync(itemId, AnalysisMode.Introduction, [itemId], "cfg");
-
-        // Both providers hold an Intro. Deleting the foreign row must not take Intro
-        // Skipper's own plugin row (or the episode's analyzed-state entry) with it.
-        var store = new FakeJellyfinSegmentStore
-        {
-            ItemSegments =
-            [
-                CreateSnapshot(itemId, MediaSegmentType.Intro, 100, 160, JellyfinSegmentStore.ProviderId),
-                CreateSnapshot(itemId, MediaSegmentType.Intro, 95, 165, "foreign-provider", foreignSegmentId),
-            ]
-        };
-        var controller = CreateController(store, database);
-
-        var response = await controller.DeleteSegmentAsync(foreignSegmentId, itemId, "intro", CancellationToken.None);
-
-        Assert.IsType<OkResult>(response);
-        Assert.Equal([(itemId, foreignSegmentId)], store.DeletedSegments);
-        var survivor = Assert.Single(await database.GetSegmentsAsync(itemId));
-        Assert.Equal(AnalysisMode.Introduction, survivor.Type);
-        Assert.Equal(100, survivor.Start);
-        Assert.Equal(160, survivor.End);
-        Assert.True(survivor.IsUserProvided);
-        var snapshot = await database.GetSeasonQueueSnapshotAsync(itemId, [itemId]);
-        Assert.Contains(itemId, snapshot.EpisodeIdsByMode[AnalysisMode.Introduction]);
-    }
-
+    // Deleting a foreign provider's row by its live id is covered at the service level by
+    // TestMediaSegmentEditorService.DeleteSegmentAsync_ForeignProviderRow_DeletesJellyfinRowOnly_AndLeavesSeasonStateAlone,
+    // which exercises the same two-provider arrangement. DeleteSegment_LeavesForeignRowsIntact_WhenRequestedIdIsStale
+    // above keeps the distinct stale-id path covered here.
     [Theory]
     [InlineData(-1L, 20L)]
     [InlineData(10L, 10L)]

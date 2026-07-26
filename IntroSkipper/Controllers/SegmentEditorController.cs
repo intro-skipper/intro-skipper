@@ -150,6 +150,12 @@ public class SegmentEditorController(
     /// Each target replacement is authoritative for the copied types. The endpoint
     /// continues after a non-critical target failure and reports that target's error in
     /// the response; cancellation stops the entire operation.
+    /// <para>
+    /// The source is not excluded from the targets: listing it applies the shifted set back
+    /// onto itself, which is how a plain "move every segment by N ticks" request is
+    /// expressed. Like any other target it is rewritten authoritatively, so other providers'
+    /// rows of the copied types are replaced by Intro Skipper-owned ones.
+    /// </para>
     /// </remarks>
     /// <param name="request">The source, targets, optional types, and time shift.</param>
     /// <param name="cancellationToken">The token that cancels the copy operation.</param>
@@ -201,8 +207,9 @@ public class SegmentEditorController(
             return BadRequest(buildError);
         }
 
-        var results = new List<CopyItemResult>(request.TargetItemIds.Count);
-        foreach (var targetItemId in request.TargetItemIds.Distinct())
+        var targetItemIds = request.TargetItemIds.Distinct().ToList();
+        var results = new List<CopyItemResult>(targetItemIds.Count);
+        foreach (var targetItemId in targetItemIds)
         {
             var target = Plugin.Instance!.GetItem(targetItemId);
             if (target is null)
@@ -419,27 +426,12 @@ public class SegmentEditorController(
     /// <returns>The season-state key.</returns>
     private static Guid ResolveSeasonStateKey(BaseItem item)
     {
-        var queue = Plugin.Instance!.QueuedMediaItems;
-
-        // Nearly every episode is queued under its own season, so check that bucket
-        // before falling back to a scan of the whole queue for in-season specials
-        // grouped under another season's key.
-        if (item is Episode episode
-            && queue.TryGetValue(episode.SeasonId, out var seasonEpisodes)
-            && seasonEpisodes.Any(e => e.EpisodeId == item.Id))
-        {
-            return episode.SeasonId;
-        }
-
-        foreach (var (seasonId, episodes) in queue)
-        {
-            if (episodes.Any(e => e.EpisodeId == item.Id))
-            {
-                return seasonId;
-            }
-        }
-
-        return item is Episode fallbackEpisode ? fallbackEpisode.SeasonId : item.Id;
+        // Episodes are nearly always queued under their own season and movies always under
+        // their own id, so probing that key first keeps the queue scan for the in-season
+        // specials that need it. An unqueued item falls back to the same key.
+        var preferredKey = item is Episode episode ? episode.SeasonId : item.Id;
+        Plugin.Instance!.FindQueuedItem(item.Id, preferredKey, out var seasonStateKey);
+        return seasonStateKey;
     }
 
     private static bool ItemExists(Guid itemId) => Plugin.Instance!.GetItem(itemId) is not null;

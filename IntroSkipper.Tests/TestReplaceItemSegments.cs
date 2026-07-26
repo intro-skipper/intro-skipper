@@ -8,13 +8,13 @@ using System.Linq;
 using System.Threading.Tasks;
 using IntroSkipper.Data;
 using IntroSkipper.Db;
-using Microsoft.EntityFrameworkCore;
 using Xunit;
 
 /// <summary>
 /// Facade tests for <see cref="IIntroSkipperDatabase.ReplaceItemSegmentsAsync"/>: mode
-/// scoping, prior-row return for compensation, commercial multi-row support, argument
-/// guards and transactionality against the non-commercial unique index.
+/// scoping, prior-row return for compensation, commercial multi-row support, and the
+/// argument guards covering both of the segment table's uniqueness rules, each of which
+/// must leave the prior rows intact.
 /// </summary>
 public sealed class TestReplaceItemSegments
 {
@@ -146,7 +146,11 @@ public sealed class TestReplaceItemSegments
         var database = DatabaseTestHelpers.CreateTempSegmentDatabase();
         await database.UpdateTimestampAsync(new Segment(itemId, new TimeRange(10, 20)), AnalysisMode.Introduction, configHash: "cfg-keep");
 
-        await Assert.ThrowsAsync<DbUpdateException>(() => database.ReplaceItemSegmentsAsync(
+        // Rejected before the transaction opens: IX_DbSegment_NonCommercial_Unique would
+        // otherwise fail the insert mid-transaction and surface as a server fault, so the
+        // facade treats a second row of one mode as a caller error, exactly like the
+        // commercial equivalence guard.
+        await Assert.ThrowsAsync<ArgumentException>(() => database.ReplaceItemSegmentsAsync(
             itemId,
             [AnalysisMode.Introduction],
             [

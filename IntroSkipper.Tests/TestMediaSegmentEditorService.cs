@@ -331,9 +331,16 @@ public sealed class TestMediaSegmentEditorService
         await database.UpdateTimestampAsync(new Segment(itemId, new TimeRange(100, 160)), AnalysisMode.Introduction, isUserProvided: true, configHash: "cfg");
         await database.SetEpisodeIdsAsync(seasonKey, AnalysisMode.Introduction, [itemId], "hash");
 
+        // Both providers hold an Intro, the arrangement that makes this dangerous: deleting
+        // the foreign row must take neither Intro Skipper's own Jellyfin row nor its plugin row.
+        var ownSegmentId = Guid.NewGuid();
         var store = new FakeJellyfinSegmentStore
         {
-            ItemSegments = [new JellyfinSegmentSnapshot(segmentId, itemId, MediaSegmentType.Intro, TimeSpan.FromSeconds(95).Ticks, TimeSpan.FromSeconds(165).Ticks, "foreign-provider")],
+            ItemSegments =
+            [
+                new JellyfinSegmentSnapshot(segmentId, itemId, MediaSegmentType.Intro, TimeSpan.FromSeconds(95).Ticks, TimeSpan.FromSeconds(165).Ticks, "foreign-provider"),
+                new JellyfinSegmentSnapshot(ownSegmentId, itemId, MediaSegmentType.Intro, TimeSpan.FromSeconds(100).Ticks, TimeSpan.FromSeconds(160).Ticks, JellyfinSegmentStore.ProviderId),
+            ],
         };
         var service = CreateService(store, database);
 

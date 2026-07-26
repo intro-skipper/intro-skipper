@@ -79,34 +79,36 @@ public class TestBlackFrames
         Assert.All(visuals, v => Assert.True(v.Saturation >= 0)); // real SATAVG parsed
     }
 
-    [FactSkipFFmpegTests]
-    public async Task TestDetectBlackIntervals_ClipsScanToCreditsWindow()
+    [Fact]
+    public void TestClipIntervalsToWindow_TruncatesStraddlers_AndDropsOutsideOnes()
     {
-        // Same -to leak as the keyframe scan above, and the same clip. Callers treat a cached
-        // black-interval row's payload as bounded by the row's scanned window:
-        // SnapPointAssembler recovers each run's offset by testing which anchor makes the
-        // whole payload fit, so one interval trailing past the window makes no anchor fit and
-        // silently drops every snap point the row carries.
-        var episode = new QueuedEpisode
-        {
-            EpisodeId = Guid.NewGuid(),
-            Name = "credits.mp4",
-            Path = "../../../video/credits.mp4",
-            Duration = 330,
-            CreditsFingerprintStart = 5,
-            CreditsFingerprintEnd = 35,
-        };
+        // -to does not reliably bound a -skip_frame noref scan, so blackdetect reports runs past
+        // the requested duration. An interval that overlaps the window is truncated rather than
+        // dropped: credit scenes anchor to interval.Start and only extend to interval.End, so
+        // discarding a black run that reaches the end of the scan window would throw away the
+        // anchor marking where the credits begin.
+        BlackInterval[] parsed =
+        [
+            new(-3, -1),      // entirely before the window
+            new(-2, 4),       // straddles the start
+            new(10, 20),      // fully inside
+            new(25, 45),      // straddles the end
+            new(31, 40),      // entirely after the window
+        ];
 
-        var range = new TimeRange(5, 35);
-        var intervals = await CreateFFmpegService().DetectBlackIntervalsAsync(episode, range, 32, 85);
+        var clipped = FFmpegService.ClipIntervalsToWindow(parsed, 30);
 
-        // Times are relative to CreditsFingerprintStart, which equals range.Start here, so an
-        // in-window interval falls within [0, range.Duration].
-        Assert.All(intervals, interval =>
-        {
-            Assert.InRange(interval.Start, 0, range.Duration);
-            Assert.InRange(interval.End, 0, range.Duration);
-        });
+        Assert.Equal(
+            [new BlackInterval(0, 4), new BlackInterval(10, 20), new BlackInterval(25, 30)],
+            clipped);
+    }
+
+    [Fact]
+    public void TestClipIntervalsToWindow_KeepsUnclippedInputUntouched()
+    {
+        BlackInterval[] parsed = [new(0, 5), new(12, 30)];
+
+        Assert.Equal(parsed, FFmpegService.ClipIntervalsToWindow(parsed, 30));
     }
 
     [Fact]
