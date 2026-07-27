@@ -39,10 +39,31 @@ jobs:
         with:
           languages: ${{ matrix.language }}
           queries: +security-extended
-          config-file: ./.github/codeql/codeql-config.yml
 
       - name: Autobuild
         uses: github/codeql-action/autobuild@99df26d4f13ea111d4ec1a7dddef6063f76b97e9 # v4.37.0
 
       - name: Perform CodeQL Analysis
         uses: github/codeql-action/analyze@99df26d4f13ea111d4ec1a7dddef6063f76b97e9 # v4.37.0
+        with:
+          output: sarif-results
+          upload: failure-only
+
+      # Test code is not shipped, and web-app security queries misfire on it —
+      # e.g. cs/web/missing-function-level-access-control treats public Delete*
+      # methods of Test*Controller xUnit classes as unauthenticated MVC actions.
+      # For compiled languages config paths-ignore does not filter results, so
+      # drop test-project alerts from the SARIF before uploading (the pattern
+      # GitHub documents for excluding generated/test code).
+      - name: Filter out test-project alerts
+        uses: advanced-security/filter-sarif@f3b8118a9349d88f7b1c0c488476411145b6270d # v1
+        with:
+          patterns: |
+            -IntroSkipper.Tests/**
+          input: sarif-results/csharp.sarif
+          output: sarif-results/csharp.sarif
+
+      - name: Upload filtered CodeQL results
+        uses: github/codeql-action/upload-sarif@99df26d4f13ea111d4ec1a7dddef6063f76b97e9 # v4.37.0
+        with:
+          sarif_file: sarif-results/csharp.sarif
