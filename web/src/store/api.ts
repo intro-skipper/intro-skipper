@@ -1,7 +1,9 @@
 import type {
     PluginConfig,
     ApiResult,
-    TimestampMap,
+    SegmentDto,
+    SegmentCreateRequest,
+    SegmentUpdateRequest,
     AnalyzerActions,
     ScanStatus,
     PluginInfo,
@@ -25,7 +27,7 @@ export async function fetchWithAuth(
         Authorization: "MediaBrowser Token=" + window.ApiClient.accessToken(),
     };
 
-    if (method === "POST") {
+    if (method === "POST" || method === "PUT") {
         headers["Content-Type"] = "application/json";
     }
 
@@ -65,9 +67,101 @@ export function savePluginConfig(config: PluginConfig): Promise<unknown> {
     return window.ApiClient.updatePluginConfiguration(PLUGIN_ID, config);
 }
 
-// Timestamp browsing.
-export function getEpisodeTimestamps(episodeId: string): Promise<ApiResult<TimestampMap>> {
-    return getJson<TimestampMap>(`Episode/${encodeURIComponent(episodeId)}/Timestamps`);
+// Extracts the most useful error text from an ASP.NET error payload.
+async function readErrorMessage(response: Response): Promise<string> {
+    try {
+        const data: unknown = await response.json();
+        if (typeof data === "string" && data.length > 0) {
+            return data;
+        }
+        if (typeof data === "object" && data !== null) {
+            for (const key of ["title", "detail", "Message"]) {
+                const value = Reflect.get(data, key);
+                if (typeof value === "string" && value.length > 0) {
+                    return value;
+                }
+            }
+        }
+    } catch {
+        // Fall through to the generic message.
+    }
+    return "Server returned " + response.status;
+}
+
+export async function sendJson<T>(
+    url: string,
+    method: "POST" | "PUT",
+    body: unknown,
+): Promise<ApiResult<T>> {
+    try {
+        const response = await fetchWithAuth(url, method, JSON.stringify(body));
+        if (response.ok) {
+            return {
+                ok: true,
+                status: response.status,
+                data: (await response.json()) as T,
+            };
+        }
+        return {
+            ok: false,
+            status: response.status,
+            error: await readErrorMessage(response),
+        };
+    } catch (err: unknown) {
+        return {
+            ok: false,
+            status: null,
+            error: err instanceof Error ? err.message : "Network error",
+        };
+    }
+}
+
+// Segment browsing and editing (plural segments API). Suppressed (tombstoned)
+// segments are included so the editor can offer Restore; display code filters them.
+export function getEpisodeSegments(
+    itemId: string,
+    includeSuppressed = true,
+): Promise<ApiResult<SegmentDto[]>> {
+    return getJson<SegmentDto[]>(
+        `Episode/${encodeURIComponent(itemId)}/Segments?includeSuppressed=${includeSuppressed}`,
+    );
+}
+
+export function createEpisodeSegment(
+    itemId: string,
+    request: SegmentCreateRequest,
+): Promise<ApiResult<SegmentDto>> {
+    return sendJson<SegmentDto>(`Episode/${encodeURIComponent(itemId)}/Segments`, "POST", request);
+}
+
+export function updateEpisodeSegment(
+    itemId: string,
+    segmentId: string,
+    request: SegmentUpdateRequest,
+): Promise<ApiResult<SegmentDto>> {
+    return sendJson<SegmentDto>(
+        `Episode/${encodeURIComponent(itemId)}/Segments/${encodeURIComponent(segmentId)}`,
+        "PUT",
+        request,
+    );
+}
+
+export function deleteEpisodeSegment(itemId: string, segmentId: string): Promise<Response> {
+    return fetchWithAuth(
+        `Episode/${encodeURIComponent(itemId)}/Segments/${encodeURIComponent(segmentId)}`,
+        "DELETE",
+    );
+}
+
+export function restoreEpisodeSegment(
+    itemId: string,
+    segmentId: string,
+): Promise<ApiResult<SegmentDto>> {
+    return sendJson<SegmentDto>(
+        `Episode/${encodeURIComponent(itemId)}/Segments/${encodeURIComponent(segmentId)}/Restore`,
+        "POST",
+        null,
+    );
 }
 
 // Per-season analyzer actions.

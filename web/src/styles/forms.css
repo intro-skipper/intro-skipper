@@ -636,6 +636,101 @@ a {
     color: var(--is-text-muted);
 }
 
+.ts-timestamp-pill.user {
+    background: rgba(33, 150, 243, 0.15);
+    color: var(--is-accent, #2196f3);
+    border: 1px solid rgba(33, 150, 243, 0.4);
+}
+
+.ts-pill-source {
+    margin-left: 6px;
+    font-size: 0.85em;
+    opacity: 0.7;
+}
+
+.ts-edit-btn {
+    margin-left: auto;
+    padding: 2px 10px;
+    font-size: 0.8em;
+    border: 1px solid var(--is-border, rgba(128, 128, 128, 0.4));
+    border-radius: 4px;
+    background: transparent;
+    color: inherit;
+    cursor: pointer;
+}
+
+.ts-edit-btn:focus-visible {
+    outline: 2px solid var(--is-accent, #2196f3);
+    outline-offset: 1px;
+}
+
+.ts-segment-editor {
+    margin-top: 8px;
+    padding: 8px;
+    border: 1px solid var(--is-border, rgba(128, 128, 128, 0.25));
+    border-radius: 6px;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.ts-segment-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+    font-size: 0.85em;
+}
+
+.ts-segment-row.suppressed {
+    opacity: 0.6;
+}
+
+.ts-segment-mode {
+    min-width: 72px;
+    font-weight: 500;
+}
+
+.ts-segment-input {
+    width: 7.5em;
+    padding: 2px 6px;
+    font-variant-numeric: tabular-nums;
+}
+
+.ts-segment-select {
+    min-width: 72px;
+    padding: 2px 4px;
+}
+
+.ts-segment-btn {
+    padding: 2px 10px;
+    font-size: 0.9em;
+    border: 1px solid var(--is-border, rgba(128, 128, 128, 0.4));
+    border-radius: 4px;
+    background: transparent;
+    color: inherit;
+    cursor: pointer;
+}
+
+.ts-segment-btn.danger {
+    color: var(--is-error);
+    border-color: var(--is-error);
+}
+
+.ts-segment-error {
+    color: var(--is-error);
+    font-size: 0.9em;
+}
+
+.ts-segment-hint {
+    color: var(--is-text-muted);
+    font-size: 0.9em;
+}
+
+.ts-segment-status {
+    font-size: 0.85em;
+}
+
 .ts-episode-error {
     font-size: 0.8em;
     color: var(--is-error);

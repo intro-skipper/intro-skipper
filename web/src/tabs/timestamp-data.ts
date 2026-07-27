@@ -1,9 +1,9 @@
-import type { ShowItem, SeasonItem, EpisodeItem, ApiResult, TimestampMap } from "../types.ts";
+import type { ShowItem, SeasonItem, EpisodeItem, ApiResult, SegmentDto } from "../types.ts";
 import * as jellyfinClient from "../store/jellyfin-client.ts";
 import * as api from "../store/api.ts";
 import { mapWithConcurrency } from "../utils.ts";
 
-const TIMESTAMP_FETCH_CONCURRENCY = 6;
+const SEGMENT_FETCH_CONCURRENCY = 6;
 
 export type LibraryItem = { Id: string; Name: string };
 
@@ -19,26 +19,26 @@ export function getSeasons(showId: string): Promise<SeasonItem[]> {
     return jellyfinClient.getSeasons(showId);
 }
 
-export async function getEpisodesWithTimestamps(
+export async function getEpisodesWithSegments(
     showId: string,
     seasonId: string,
 ): Promise<{
     episodes: EpisodeItem[];
-    timestamps: Array<ApiResult<TimestampMap> | null>;
+    segments: Array<ApiResult<SegmentDto[]> | null>;
 }> {
     const episodes = await jellyfinClient.getEpisodes(showId, seasonId);
 
     if (episodes.length === 0) {
-        return { episodes: [], timestamps: [] };
+        return { episodes: [], segments: [] };
     }
 
-    const timestamps = await mapWithConcurrency(episodes, TIMESTAMP_FETCH_CONCURRENCY, (ep) =>
-        api.getEpisodeTimestamps(ep.Id),
+    const segments = await mapWithConcurrency(episodes, SEGMENT_FETCH_CONCURRENCY, (ep) =>
+        api.getEpisodeSegments(ep.Id),
     );
 
-    return { episodes, timestamps };
+    return { episodes, segments };
 }
 
-export async function getMovieTimestamps(showId: string): Promise<ApiResult<TimestampMap>> {
-    return api.getEpisodeTimestamps(showId);
+export function getMovieSegments(showId: string): Promise<ApiResult<SegmentDto[]>> {
+    return api.getEpisodeSegments(showId);
 }
