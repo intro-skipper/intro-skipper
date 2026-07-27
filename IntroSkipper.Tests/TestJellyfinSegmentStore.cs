@@ -583,6 +583,28 @@ public sealed class TestJellyfinSegmentStore
     }
 
     [Fact]
+    public async Task CreateCommercialIfAbsentAsync_Succeeds_WhenDuplicateReconcileFails()
+    {
+        var interceptor = new FailFirstMediaSegmentDeleteInterceptor();
+        using var db = new TempJellyfinDb(null, interceptor);
+        var store = CreateStore(db);
+        var itemId = Guid.NewGuid();
+
+        // The insert commits, then the post-insert reconcile delete fails. The call must
+        // still succeed: throwing after the committed insert would make the editor
+        // compensate away the plugin row of a Jellyfin row that exists, tearing the
+        // stores apart. Without a racing duplicate the reconcile is a no-op anyway.
+        await store.CreateCommercialIfAbsentAsync(itemId, CreateDto(MediaSegmentType.Commercial, 50, 60), CancellationToken.None);
+
+        Assert.True(interceptor.Fired);
+        var row = Assert.Single(await GetAllAsync(db));
+        Assert.Equal(itemId, row.ItemId);
+        Assert.Equal(JellyfinSegmentStore.ProviderId, row.SegmentProviderId);
+        Assert.Equal(50, row.StartTicks);
+        Assert.Equal(60, row.EndTicks);
+    }
+
+    [Fact]
     public async Task CreateCommercialIfAbsentAsync_SurfacesOriginalFailure_WhenConflictRecheckAlsoFails()
     {
         var interceptor = new UnavailableStoreInterceptor();
@@ -650,6 +672,34 @@ public sealed class TestJellyfinSegmentStore
 
             RecheckAttempted = true;
             throw new InvalidOperationException("store is unavailable");
+        }
+    }
+
+    /// <summary>
+    /// Fails the first DELETE issued against the media segments table, so a test can
+    /// drive the case where the post-insert duplicate reconcile breaks after the insert
+    /// itself already committed.
+    /// </summary>
+    private sealed class FailFirstMediaSegmentDeleteInterceptor : IDbCommandInterceptor
+    {
+        private int _fired;
+
+        internal bool Fired => _fired != 0;
+
+        public ValueTask<InterceptionResult<int>> NonQueryExecutingAsync(
+            DbCommand command,
+            CommandEventData eventData,
+            InterceptionResult<int> result,
+            CancellationToken cancellationToken = default)
+        {
+            if (command.CommandText.Contains("DELETE", StringComparison.OrdinalIgnoreCase)
+                && command.CommandText.Contains("MediaSegments", StringComparison.OrdinalIgnoreCase)
+                && Interlocked.Exchange(ref _fired, 1) == 0)
+            {
+                throw new InvalidOperationException("reconcile delete failed");
+            }
+
+            return ValueTask.FromResult(result);
         }
     }
 

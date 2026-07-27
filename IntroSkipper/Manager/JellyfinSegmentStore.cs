@@ -192,19 +192,31 @@ public sealed partial class JellyfinSegmentStore(
             // the statement does not honor cancellation because the committed insert must
             // be reconciled deterministically once it exists.
             var insertedId = entity.Id;
-            var discarded = await db.MediaSegments
-                .Where(own => own.Id == insertedId
-                    && db.MediaSegments.Any(other => other.Id != insertedId
-                        && other.ItemId == itemId
-                        && other.Type == type
-                        && other.StartTicks == startTicks
-                        && other.EndTicks == endTicks))
-                .ExecuteDeleteAsync(CancellationToken.None)
-                .ConfigureAwait(false);
-
-            if (discarded > 0)
+            try
             {
-                LogDiscardedRacedDuplicate(logger, itemId);
+                var discarded = await db.MediaSegments
+                    .Where(own => own.Id == insertedId
+                        && db.MediaSegments.Any(other => other.Id != insertedId
+                            && other.ItemId == itemId
+                            && other.Type == type
+                            && other.StartTicks == startTicks
+                            && other.EndTicks == endTicks))
+                    .ExecuteDeleteAsync(CancellationToken.None)
+                    .ConfigureAwait(false);
+
+                if (discarded > 0)
+                {
+                    LogDiscardedRacedDuplicate(logger, itemId);
+                }
+            }
+            catch (Exception reconcileException) when (!reconcileException.IsCritical())
+            {
+                // The insert committed, so the call succeeded; throwing here would make
+                // the editor compensate away the plugin row of a Jellyfin row that
+                // exists, tearing the stores apart. A duplicate that survives a failed
+                // reconcile is benign and short-lived: the next refresh replaces Intro
+                // Skipper's rows for the item authoritatively from the plugin database.
+                LogDuplicateReconcileFailed(logger, reconcileException, itemId);
             }
         }
     }
@@ -481,4 +493,7 @@ public sealed partial class JellyfinSegmentStore(
 
     [LoggerMessage(Level = LogLevel.Debug, Message = "Discarded a commercial insert for item {ItemId} because an identical row was committed concurrently.")]
     private static partial void LogDiscardedRacedDuplicate(ILogger logger, Guid itemId);
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "Could not reconcile a possibly duplicated commercial for item {ItemId} after its insert committed; a surviving duplicate is replaced by the next segment refresh.")]
+    private static partial void LogDuplicateReconcileFailed(ILogger logger, Exception ex, Guid itemId);
 }
