@@ -396,6 +396,68 @@ public partial class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
         await db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
     }
 
+    /// <summary>
+    /// Gets the episodes excluded from media-segment output in a season.
+    /// </summary>
+    /// <param name="seasonId">Season identifier.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>Disabled episode identifiers.</returns>
+    internal static async Task<IReadOnlySet<Guid>> GetMediaSegmentExcludedEpisodeIdsAsync(Guid seasonId, CancellationToken cancellationToken = default)
+    {
+        using var db = CreateDbContext();
+        var ids = await db.DbDisabledEpisode
+            .AsNoTracking()
+            .Where(e => e.SeasonId == seasonId)
+            .Select(e => e.EpisodeId)
+            .ToListAsync(cancellationToken)
+            .ConfigureAwait(false);
+        return ids.ToHashSet();
+    }
+
+    /// <summary>
+    /// Sets whether an episode is excluded from media-segment output.
+    /// </summary>
+    /// <param name="seasonId">Season identifier.</param>
+    /// <param name="episodeId">Episode identifier.</param>
+    /// <param name="excluded">Whether the episode is excluded from media-segment output.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>A task representing the asynchronous update operation.</returns>
+    internal static async Task SetMediaSegmentExcludedAsync(Guid seasonId, Guid episodeId, bool excluded, CancellationToken cancellationToken = default)
+    {
+        using var db = CreateDbContext();
+        var existing = await db.DbDisabledEpisode.FindAsync([seasonId, episodeId], cancellationToken).ConfigureAwait(false);
+
+        if (excluded)
+        {
+            if (existing is null)
+            {
+                db.DbDisabledEpisode.Add(new DbDisabledEpisode(seasonId, episodeId));
+            }
+        }
+        else if (existing is not null)
+        {
+            db.DbDisabledEpisode.Remove(existing);
+        }
+
+        await db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Gets the segments for an episode, returning none when the episode is excluded from media-segment output.
+    /// </summary>
+    /// <param name="id">Episode identifier.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>The episode's segments, or an empty list when the episode is excluded.</returns>
+    internal static async Task<IReadOnlyList<DbSegment>> GetSegmentsUnlessExcludedAsync(Guid id, CancellationToken cancellationToken = default)
+    {
+        using var db = CreateDbContext();
+        return await db.DbSegment
+            .AsNoTracking()
+            .Where(s => s.ItemId == id && !db.DbDisabledEpisode.Any(e => e.EpisodeId == id))
+            .ToListAsync(cancellationToken)
+            .ConfigureAwait(false);
+    }
+
     internal static async Task SetEpisodeIdsAsync(Guid id, AnalysisMode mode, IEnumerable<Guid> episodeIds, string configHash = "", CancellationToken cancellationToken = default)
     {
         using var db = CreateDbContext();
@@ -707,6 +769,10 @@ public partial class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
         using var db = CreateDbContext();
         await db.DbSeasonState
             .Where(s => !ids.Contains(s.SeasonId))
+            .ExecuteDeleteAsync(cancellationToken)
+            .ConfigureAwait(false);
+        await db.DbDisabledEpisode
+            .Where(e => !ids.Contains(e.SeasonId))
             .ExecuteDeleteAsync(cancellationToken)
             .ConfigureAwait(false);
     }

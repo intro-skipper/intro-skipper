@@ -25,18 +25,24 @@ export async function getEpisodesWithTimestamps(
 ): Promise<{
     episodes: EpisodeItem[];
     timestamps: Array<ApiResult<TimestampMap> | null>;
+    disabledEpisodeIds: string[];
 }> {
     const episodes = await jellyfinClient.getEpisodes(showId, seasonId);
 
     if (episodes.length === 0) {
-        return { episodes: [], timestamps: [] };
+        return { episodes: [], timestamps: [], disabledEpisodeIds: [] };
     }
 
-    const timestamps = await mapWithConcurrency(episodes, TIMESTAMP_FETCH_CONCURRENCY, (ep) =>
-        api.getEpisodeTimestamps(ep.Id),
-    );
+    const [timestamps, disabledResult] = await Promise.all([
+        mapWithConcurrency(episodes, TIMESTAMP_FETCH_CONCURRENCY, (ep) => api.getEpisodeTimestamps(ep.Id)),
+        api.getMediaSegmentExcludedEpisodes(seasonId),
+    ]);
 
-    return { episodes, timestamps };
+    return {
+        episodes,
+        timestamps,
+        disabledEpisodeIds: disabledResult.ok && disabledResult.data ? disabledResult.data : [],
+    };
 }
 
 export async function getMovieTimestamps(showId: string): Promise<ApiResult<TimestampMap>> {
