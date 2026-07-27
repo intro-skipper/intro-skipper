@@ -618,7 +618,7 @@ public partial class QueueManager(ILogger<QueueManager> logger, ILibraryManager 
     private static partial void LogSkippingFileNotFound(ILogger logger, string name, Guid id);
 
     [LoggerMessage(Level = LogLevel.Debug, Message = "Skipping disabled episode {Name} ({EpisodeId})")]
-    private static partial void LogSkippingDisabledEpisode(ILogger logger, string name, Guid id);
+    private static partial void LogSkippingDisabledEpisode(ILogger logger, string name, Guid episodeId);
 
     [LoggerMessage(Level = LogLevel.Debug, Message = "Skipping analysis of {Name} ({Id})")]
     private static partial void LogSkippingAnalysisException(ILogger logger, string name, Guid id, Exception exception);
