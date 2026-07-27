@@ -12,7 +12,7 @@ namespace IntroSkipper.Db;
 public sealed partial class IntroSkipperDatabase
 {
     /// <inheritdoc/>
-    public async Task UpdateTimestampAsync(
+    public async Task<bool> UpdateTimestampAsync(
         Segment segment,
         AnalysisMode mode,
         bool isUserProvided = false,
@@ -30,6 +30,10 @@ public sealed partial class IntroSkipperDatabase
 
             if (mode == AnalysisMode.Commercial)
             {
+                // Fast path only: analyzers and the skip controller write commercials
+                // without the editor's per-item lock, so an equivalent row can still be
+                // committed between this check and the insert. The in-transaction
+                // re-check below is what makes the add-if-absent semantics hold.
                 var exists = await db.DbSegment
                     .AnyAsync(
                         s => s.ItemId == segment.EpisodeId
@@ -39,10 +43,42 @@ public sealed partial class IntroSkipperDatabase
                         cancellationToken)
                     .ConfigureAwait(false);
 
-                if (!exists)
+                if (exists)
+                {
+                    return false;
+                }
+
+                var transaction = await db.Database.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
+                await using (transaction.ConfigureAwait(false))
                 {
                     db.DbSegment.Add(dbSegment);
                     await db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+
+                    // The transaction holds the database's write lock here, so any
+                    // equivalent row visible now was committed by a concurrent writer
+                    // inside the check-then-insert window above. Add-if-absent: that
+                    // row wins, this insert is rolled back, and the caller learns it
+                    // owns no row and must not compensate one away.
+                    var insertedId = dbSegment.Id;
+                    var duplicated = await db.DbSegment
+                        .AsNoTracking()
+                        .AnyAsync(
+                            s => s.Id != insertedId
+                                 && s.ItemId == segment.EpisodeId
+                                 && s.Type == mode
+                                 && Math.Abs(s.Start - dbSegment.Start) <= SegmentComparisonEpsilon
+                                 && Math.Abs(s.End - dbSegment.End) <= SegmentComparisonEpsilon,
+                            cancellationToken)
+                        .ConfigureAwait(false);
+
+                    if (duplicated)
+                    {
+                        await transaction.RollbackAsync(CancellationToken.None).ConfigureAwait(false);
+                        return false;
+                    }
+
+                    await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
+                    return true;
                 }
             }
             else
@@ -57,7 +93,7 @@ public sealed partial class IntroSkipperDatabase
 
                     if (!isUserProvided && existingSegments.Any(s => s.IsUserProvided))
                     {
-                        return;
+                        return false;
                     }
 
                     if (mode == AnalysisMode.Credits && !isUserProvided)
@@ -75,7 +111,7 @@ public sealed partial class IntroSkipperDatabase
                             && storedIntroduction.Start < segment.End)
                         {
                             LogCreditsOverlapWithIntro(_logger, segment.EpisodeId);
-                            return;
+                            return false;
                         }
                     }
 
@@ -87,6 +123,7 @@ public sealed partial class IntroSkipperDatabase
                     db.DbSegment.Add(dbSegment);
                     await db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
                     await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
+                    return true;
                 }
             }
         }

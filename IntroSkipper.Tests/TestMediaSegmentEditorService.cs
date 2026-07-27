@@ -315,6 +315,72 @@ public sealed class TestMediaSegmentEditorService
         Assert.Equal([(itemId, segmentId)], store.DeletedSegments);
     }
 
+    [Fact]
+    public async Task DeleteOrphanedSegmentsAsync_WaitsForItemLease_AndSkipsItemsRestoredMeanwhile()
+    {
+        var lockedId = Guid.NewGuid();
+        var restoredId = Guid.NewGuid();
+        var store = new FakeJellyfinSegmentStore
+        {
+            SegmentCounts =
+            [
+                new ItemSegmentCounts(lockedId, 1, 0),
+                new ItemSegmentCounts(restoredId, 1, 0),
+            ],
+        };
+        var service = CreateService(store);
+        var restoredIsLive = false;
+
+        var lease = await MediaSegmentItemLock.AcquireAsync(lockedId, CancellationToken.None);
+        var deletion = service.DeleteOrphanedSegmentsAsync(
+            itemId => itemId == restoredId && Volatile.Read(ref restoredIsLive),
+            CancellationToken.None);
+
+        // Bounded observation window: the sweep must not delete while another writer,
+        // such as an in-flight refresh or editor replace, still holds the item's lease.
+        Assert.NotSame(deletion, await Task.WhenAny(deletion, Task.Delay(TimeSpan.FromMilliseconds(250))));
+        Assert.Empty(store.DeletedOwnItemIds);
+
+        // A library scan restores the second item while the first item's lease still
+        // blocks the sweep, so its re-check inside the lock must observe the restore.
+        Volatile.Write(ref restoredIsLive, true);
+        lease.Dispose();
+
+        var deletedItemCount = await deletion.WaitAsync(TimeSpan.FromSeconds(5));
+
+        // The restored item's rows survive and it is not counted as deleted.
+        Assert.Equal(1, deletedItemCount);
+        Assert.Equal([lockedId], store.DeletedOwnItemIds);
+    }
+
+    [Fact]
+    public async Task CreateOrReplaceSegmentAsync_KeepsConcurrentEquivalentRow_WhenJellyfinWriteFails()
+    {
+        var itemId = Guid.NewGuid();
+        var inner = DatabaseTestHelpers.CreateTempSegmentDatabase();
+        var database = new ConcurrentCommercialInsertDatabase(inner);
+        var store = new FakeJellyfinSegmentStore { WriteException = new InvalidOperationException("jellyfin down") };
+        var service = CreateService(store, database);
+
+        // A concurrent writer commits the equivalent commercial after the editor path has
+        // started but before its plugin write commits, so the editor's write inserts
+        // nothing. The Jellyfin failure must then compensate nothing: deleting the
+        // equivalent range would remove the concurrent writer's row.
+        await Assert.ThrowsAsync<InvalidOperationException>(() => service.CreateOrReplaceSegmentAsync(
+            CreateMovie(itemId),
+            Guid.NewGuid(),
+            CreateSegment(MediaSegmentType.Commercial, TimeSpan.FromSeconds(10).Ticks, TimeSpan.FromSeconds(20).Ticks),
+            CancellationToken.None));
+
+        var survivor = Assert.Single(await inner.GetSegmentsAsync(itemId));
+        Assert.Equal(AnalysisMode.Commercial, survivor.Type);
+        Assert.Equal(10, survivor.Start);
+        Assert.Equal(20, survivor.End);
+
+        // The surviving row is the concurrent automatic write, not the editor's.
+        Assert.False(survivor.IsUserProvided);
+    }
+
     private static MediaSegmentEditorService CreateService(
         FakeJellyfinSegmentStore store,
         IIntroSkipperDatabase? database = null,
@@ -420,7 +486,7 @@ public sealed class TestMediaSegmentEditorService
 
         public Task InitializeAsync() => inner.InitializeAsync();
 
-        public Task UpdateTimestampAsync(Segment segment, AnalysisMode mode, bool isUserProvided = false, string configHash = "", CancellationToken cancellationToken = default)
+        public Task<bool> UpdateTimestampAsync(Segment segment, AnalysisMode mode, bool isUserProvided = false, string configHash = "", CancellationToken cancellationToken = default)
             => inner.UpdateTimestampAsync(segment, mode, isUserProvided, configHash, cancellationToken);
 
         public Task<IReadOnlyDictionary<AnalysisMode, Segment>> GetTimestampsAsync(Guid id, CancellationToken cancellationToken = default)
@@ -445,6 +511,102 @@ public sealed class TestMediaSegmentEditorService
 
             return inner.ReplaceItemSegmentsAsync(itemId, modes, segments, cancellationToken);
         }
+
+        public Task DeleteSegmentsByModeAsync(AnalysisMode mode, CancellationToken cancellationToken = default)
+            => inner.DeleteSegmentsByModeAsync(mode, cancellationToken);
+
+        public Task<int> DeleteSegmentsForItemsAsync(IReadOnlyCollection<Guid> itemIds, CancellationToken cancellationToken = default)
+            => inner.DeleteSegmentsForItemsAsync(itemIds, cancellationToken);
+
+        public Task ClearSeasonAnalysisAsync(Guid seasonId, IReadOnlyCollection<Guid> itemIds, CancellationToken cancellationToken = default)
+            => inner.ClearSeasonAnalysisAsync(seasonId, itemIds, cancellationToken);
+
+        public Task<int> RemoveItemsFromAnalysisAsync(IReadOnlyDictionary<Guid, IReadOnlySet<Guid>> itemIdsBySeason, CancellationToken cancellationToken = default)
+            => inner.RemoveItemsFromAnalysisAsync(itemIdsBySeason, cancellationToken);
+
+        public Task<IReadOnlyCollection<Guid>> GetStaleTimestampEpisodeIdsAsync(IEnumerable<Guid> enabledEpisodeIds, CancellationToken cancellationToken = default)
+            => inner.GetStaleTimestampEpisodeIdsAsync(enabledEpisodeIds, cancellationToken);
+
+        public Task CleanStaleAutomaticSegmentsAsync(IEnumerable<Guid> itemIds, AnalysisMode mode, string configHash, CancellationToken cancellationToken = default)
+            => inner.CleanStaleAutomaticSegmentsAsync(itemIds, mode, configHash, cancellationToken);
+
+        public Task SetAnalyzerActionAsync(Guid seasonId, IReadOnlyDictionary<AnalysisMode, AnalyzerAction> analyzerActions, CancellationToken cancellationToken = default)
+            => inner.SetAnalyzerActionAsync(seasonId, analyzerActions, cancellationToken);
+
+        public Task SetEpisodeIdsAsync(Guid seasonId, AnalysisMode mode, IEnumerable<Guid> episodeIds, string configHash = "", CancellationToken cancellationToken = default)
+            => inner.SetEpisodeIdsAsync(seasonId, mode, episodeIds, configHash, cancellationToken);
+
+        public Task RemoveEpisodeIdAsync(Guid seasonId, AnalysisMode mode, Guid episodeId, CancellationToken cancellationToken = default)
+            => inner.RemoveEpisodeIdAsync(seasonId, mode, episodeId, cancellationToken);
+
+        public Task<IReadOnlyDictionary<AnalysisMode, (AnalyzerAction Action, IReadOnlySet<Guid> SettledReanalysisEpisodeIds)>> GetSettleReanalysisStatesAsync(Guid seasonId, CancellationToken cancellationToken = default)
+            => inner.GetSettleReanalysisStatesAsync(seasonId, cancellationToken);
+
+        public Task RecordSettleReanalysisAsync(Guid seasonId, IReadOnlyCollection<AnalysisMode> modes, IReadOnlyCollection<Guid> episodeIds, CancellationToken cancellationToken = default)
+            => inner.RecordSettleReanalysisAsync(seasonId, modes, episodeIds, cancellationToken);
+
+        public Task ResetSeasonForReanalysisAsync(Guid seasonId, IEnumerable<Guid> episodeIds, IReadOnlyCollection<AnalysisMode> modes, CancellationToken cancellationToken = default)
+            => inner.ResetSeasonForReanalysisAsync(seasonId, episodeIds, modes, cancellationToken);
+
+        public Task<IReadOnlyDictionary<AnalysisMode, AnalyzerAction>> GetAllAnalyzerActionsAsync(Guid seasonId, CancellationToken cancellationToken = default)
+            => inner.GetAllAnalyzerActionsAsync(seasonId, cancellationToken);
+
+        public Task<AnalyzerAction> GetAnalyzerActionAsync(Guid seasonId, AnalysisMode mode, CancellationToken cancellationToken = default)
+            => inner.GetAnalyzerActionAsync(seasonId, mode, cancellationToken);
+
+        public Task<SeasonQueueSnapshot> GetSeasonQueueSnapshotAsync(Guid seasonId, IReadOnlyCollection<Guid> episodeIds, CancellationToken cancellationToken = default)
+            => inner.GetSeasonQueueSnapshotAsync(seasonId, episodeIds, cancellationToken);
+
+        public Task CleanSeasonStateAsync(IEnumerable<Guid> seasonIds, CancellationToken cancellationToken = default)
+            => inner.CleanSeasonStateAsync(seasonIds, cancellationToken);
+
+        public Task RebuildDatabaseAsync(bool forceCleanOnBackupFailure = false, CancellationToken cancellationToken = default)
+            => inner.RebuildDatabaseAsync(forceCleanOnBackupFailure, cancellationToken);
+    }
+
+    /// <summary>
+    /// Delegates to a real database facade but, once, commits an equivalent automatic
+    /// commercial row immediately before delegating the first commercial
+    /// <see cref="IIntroSkipperDatabase.UpdateTimestampAsync"/>. This emulates an analyzer
+    /// or the skip controller — which write the plugin database without the editor's
+    /// per-item lock — racing the editor after its path has started but before its plugin
+    /// write commits.
+    /// </summary>
+    private sealed class ConcurrentCommercialInsertDatabase(IIntroSkipperDatabase inner) : IIntroSkipperDatabase
+    {
+        private bool _injected;
+
+        public Task InitializeAsync() => inner.InitializeAsync();
+
+        public async Task<bool> UpdateTimestampAsync(Segment segment, AnalysisMode mode, bool isUserProvided = false, string configHash = "", CancellationToken cancellationToken = default)
+        {
+            if (mode == AnalysisMode.Commercial && !_injected)
+            {
+                _injected = true;
+                await inner.UpdateTimestampAsync(
+                    new Segment(segment.EpisodeId, new TimeRange(segment.Start, segment.End)),
+                    mode,
+                    isUserProvided: false,
+                    cancellationToken: CancellationToken.None);
+            }
+
+            return await inner.UpdateTimestampAsync(segment, mode, isUserProvided, configHash, cancellationToken);
+        }
+
+        public Task<IReadOnlyDictionary<AnalysisMode, Segment>> GetTimestampsAsync(Guid id, CancellationToken cancellationToken = default)
+            => inner.GetTimestampsAsync(id, cancellationToken);
+
+        public Task<IReadOnlyList<DbSegment>> GetSegmentsAsync(Guid id, CancellationToken cancellationToken = default)
+            => inner.GetSegmentsAsync(id, cancellationToken);
+
+        public Task DeleteItemSegmentsAsync(Guid itemId, CancellationToken cancellationToken = default)
+            => inner.DeleteItemSegmentsAsync(itemId, cancellationToken);
+
+        public Task<IReadOnlyList<DbSegment>> DeleteTimestampAsync(Guid itemId, AnalysisMode mode, Segment? segment = null, CancellationToken cancellationToken = default)
+            => inner.DeleteTimestampAsync(itemId, mode, segment, cancellationToken);
+
+        public Task<IReadOnlyList<DbSegment>> ReplaceItemSegmentsAsync(Guid itemId, IReadOnlyCollection<AnalysisMode> modes, IReadOnlyCollection<DbSegment> segments, CancellationToken cancellationToken = default)
+            => inner.ReplaceItemSegmentsAsync(itemId, modes, segments, cancellationToken);
 
         public Task DeleteSegmentsByModeAsync(AnalysisMode mode, CancellationToken cancellationToken = default)
             => inner.DeleteSegmentsByModeAsync(mode, cancellationToken);

@@ -34,7 +34,9 @@ public interface IJellyfinSegmentStore
 
     /// <summary>
     /// Creates the given segment unless an identical entry (same type, start and end ticks,
-    /// any provider) already exists for the item.
+    /// any provider) already exists for the item. The if-absent guarantee holds across
+    /// database connections: when a competing writer commits an identical entry
+    /// concurrently, that entry wins and at most one row remains after the call returns.
     /// </summary>
     /// <param name="itemId">The item id.</param>
     /// <param name="segment">The segment to persist.</param>

@@ -114,9 +114,12 @@ public sealed partial class JellyfinSegmentStore(
         await using (db.ConfigureAwait(false))
         {
             // Read-before-write on purpose: transactions here must start with a write so
-            // SQLite takes its reserved lock immediately. The tiny check-then-insert
-            // window matches the previous IMediaSegmentManager-based behavior and is
-            // serialized in-process by the editor's per-item lock.
+            // SQLite takes its reserved lock immediately. This check is only a fast path:
+            // the editor's per-item lock serializes in-process writers, but Jellyfin's own
+            // writers use other connections and never take that lock, so an identical
+            // commercial can still be committed between this check and the save. The
+            // single-statement dedupe after the save is what makes the if-absent semantics
+            // hold across connections.
             var exists = await db.MediaSegments
                 .AsNoTracking()
                 .AnyAsync(
@@ -180,6 +183,28 @@ public sealed partial class JellyfinSegmentStore(
                 }
 
                 throw;
+            }
+
+            // The insert is committed, so a competing connection may have committed an
+            // identical row inside the check-then-insert window above. If-absent semantics:
+            // that row wins, so this call's own row is deleted again. Equivalence check and
+            // delete run as one statement, so no writer can interleave between them, and
+            // the statement does not honor cancellation because the committed insert must
+            // be reconciled deterministically once it exists.
+            var insertedId = entity.Id;
+            var discarded = await db.MediaSegments
+                .Where(own => own.Id == insertedId
+                    && db.MediaSegments.Any(other => other.Id != insertedId
+                        && other.ItemId == itemId
+                        && other.Type == type
+                        && other.StartTicks == startTicks
+                        && other.EndTicks == endTicks))
+                .ExecuteDeleteAsync(CancellationToken.None)
+                .ConfigureAwait(false);
+
+            if (discarded > 0)
+            {
+                LogDiscardedRacedDuplicate(logger, itemId);
             }
         }
     }
@@ -453,4 +478,7 @@ public sealed partial class JellyfinSegmentStore(
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "Could not re-check the supplied media segment id for item {ItemId} after a failed insert; reporting the original failure.")]
     private static partial void LogConflictRecheckFailed(ILogger logger, Exception ex, Guid itemId);
+
+    [LoggerMessage(Level = LogLevel.Debug, Message = "Discarded a commercial insert for item {ItemId} because an identical row was committed concurrently.")]
+    private static partial void LogDiscardedRacedDuplicate(ILogger logger, Guid itemId);
 }

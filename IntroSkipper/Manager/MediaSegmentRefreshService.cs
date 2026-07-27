@@ -71,7 +71,16 @@ public sealed partial class MediaSegmentRefreshService(
 
         // No library resolution here: rows of items already removed from the library
         // must be deleted too, which is exactly what the stale-cleanup caller needs.
-        await segmentStore.DeleteOwnSegmentsAsync(itemIds, cancellationToken).ConfigureAwait(false);
+        // Each item's delete runs under its mutation lock so it cannot race an in-flight
+        // refresh or editor write holding the item's lease. Locks are taken one at a
+        // time: holding many item locks simultaneously could deadlock against callers
+        // acquiring them in a different order, and this is a cleanup path where
+        // per-item statements are acceptable.
+        foreach (var itemId in itemIds.Where(static itemId => itemId != Guid.Empty).Distinct())
+        {
+            using var itemLock = await MediaSegmentItemLock.AcquireAsync(itemId, cancellationToken).ConfigureAwait(false);
+            await segmentStore.DeleteOwnSegmentsAsync([itemId], cancellationToken).ConfigureAwait(false);
+        }
     }
 
     private async Task RefreshCoreAsync(BaseItem item, CancellationToken cancellationToken)

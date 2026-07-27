@@ -137,6 +137,27 @@ public sealed class TestMediaSegmentRefreshService
     }
 
     [Fact]
+    public async Task RemoveIntroSkipperSegmentsAsync_WaitsForItemLease_BeforeDeleting()
+    {
+        var itemId = Guid.NewGuid();
+        var store = new FakeJellyfinSegmentStore();
+        var refresher = CreateRefresher(store);
+
+        var lease = await MediaSegmentItemLock.AcquireAsync(itemId, CancellationToken.None);
+        var removal = refresher.RemoveIntroSkipperSegmentsAsync([itemId], CancellationToken.None);
+
+        // Bounded observation window: the delete must not run while another writer, such
+        // as an in-flight refresh or editor replace, still holds the item's lease.
+        Assert.NotSame(removal, await Task.WhenAny(removal, Task.Delay(TimeSpan.FromMilliseconds(250))));
+        Assert.Empty(store.DeletedOwnItemIds);
+
+        lease.Dispose();
+        await removal.WaitAsync(TimeSpan.FromSeconds(5));
+
+        Assert.Equal([itemId], store.DeletedOwnItemIds);
+    }
+
+    [Fact]
     public async Task RemoveIntroSkipperSegmentsAsync_PropagatesDeleteFailure()
     {
         var expectedException = new InvalidOperationException("boom");

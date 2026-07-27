@@ -37,8 +37,14 @@ public interface IIntroSkipperDatabase
     /// <param name="isUserProvided">Whether the segment was provided by the user.</param>
     /// <param name="configHash">Configuration hash that produced the segment.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
-    /// <returns>A <see cref="Task"/> representing the asynchronous operation.</returns>
-    Task UpdateTimestampAsync(Segment segment, AnalysisMode mode, bool isUserProvided = false, string configHash = "", CancellationToken cancellationToken = default);
+    /// <returns>
+    /// <see langword="true"/> when this call wrote the segment; <see langword="false"/>
+    /// when a domain guard skipped the write or an equivalent commercial row already
+    /// exists, including one committed by a concurrent writer while this call ran. The
+    /// report is atomic with the write itself, so callers may compensate a failed
+    /// follow-up operation by deleting the row only when this call inserted it.
+    /// </returns>
+    Task<bool> UpdateTimestampAsync(Segment segment, AnalysisMode mode, bool isUserProvided = false, string configHash = "", CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Returns the earliest stored segment per analysis mode for an item.

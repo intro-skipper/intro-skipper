@@ -72,13 +72,12 @@ public partial class MediaSegmentEditorService(
 
         using var itemLock = await MediaSegmentItemLock.AcquireAsync(item.Id, cancellationToken).ConfigureAwait(false);
 
-        // Add-if-absent: record whether an equivalent plugin row pre-existed so a
-        // Jellyfin failure removes only a row this call created.
-        var existed = (await _database.GetSegmentsAsync(item.Id, cancellationToken).ConfigureAwait(false))
-            .Any(row => row.Type == mode
-                && IntroSkipperDatabase.RangesEquivalent(row.Start, row.End, dbSegment.Start, dbSegment.End));
-
-        await _database
+        // Add-if-absent: the update itself reports atomically whether this call inserted
+        // the row. A pre-read could not establish that ownership: analyzers and the skip
+        // controller write the plugin database without the item lock, so an equivalent
+        // row can appear between a read and the write, and compensating based on the
+        // read would delete the concurrent writer's row.
+        var inserted = await _database
             .UpdateTimestampAsync(dbSegment, mode, isUserProvided: true, cancellationToken: cancellationToken)
             .ConfigureAwait(false);
 
@@ -88,7 +87,7 @@ public partial class MediaSegmentEditorService(
         }
         catch
         {
-            if (!existed)
+            if (inserted)
             {
                 try
                 {
@@ -489,8 +488,11 @@ public partial class MediaSegmentEditorService(
     /// <summary>
     /// Deletes Intro Skipper's Jellyfin segment rows for items that no longer exist. The
     /// orphan set is always recomputed because a caller-supplied list is time-of-check
-    /// sensitive: a library scan can restore items between listing and deleting. Other
-    /// providers' rows and empty-guid rows are retained.
+    /// sensitive: a library scan can restore items between listing and deleting. Each
+    /// item's delete runs under its mutation lock and re-checks the item's existence
+    /// inside the lock, so a concurrently restored item is skipped rather than stripped
+    /// of rows a refresh or editor write just produced. Other providers' rows and
+    /// empty-guid rows are retained.
     /// </summary>
     /// <param name="itemExists">Predicate deciding whether an item id is a live library item.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
@@ -503,9 +505,27 @@ public partial class MediaSegmentEditorService(
             .Select(orphan => orphan.ItemId)
             .ToList();
 
-        await _segmentStore.DeleteOwnSegmentsAsync(deletableIds, cancellationToken).ConfigureAwait(false);
+        var deletedItemCount = 0;
+        foreach (var itemId in deletableIds)
+        {
+            // One lock at a time: holding many item locks simultaneously could deadlock
+            // against callers acquiring them in a different order, and this is an admin
+            // cleanup path where per-item statements are acceptable.
+            using var itemLock = await MediaSegmentItemLock.AcquireAsync(itemId, cancellationToken).ConfigureAwait(false);
 
-        return deletableIds.Count;
+            // Re-checked inside the lock: a library scan can restore the item between
+            // the orphan listing and this delete. A restored item is live again, so its
+            // rows stay and it does not count as deleted.
+            if (itemExists(itemId))
+            {
+                continue;
+            }
+
+            await _segmentStore.DeleteOwnSegmentsAsync([itemId], cancellationToken).ConfigureAwait(false);
+            deletedItemCount++;
+        }
+
+        return deletedItemCount;
     }
 
     /// <summary>
@@ -684,7 +704,7 @@ public partial class MediaSegmentEditorService(
             {
                 // The delete was range-scoped, so other commercials survived and only the
                 // removed rows are added back. Commercial writes take UpdateTimestampAsync's
-                // unguarded add-if-absent branch.
+                // add-if-absent branch; the inserted-or-not report is irrelevant here.
                 foreach (var row in deletedRows)
                 {
                     await _database

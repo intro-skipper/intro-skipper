@@ -557,6 +557,32 @@ public sealed class TestJellyfinSegmentStore
     }
 
     [Fact]
+    public async Task CreateCommercialIfAbsentAsync_KeepsSingleRow_WhenIdenticalCommercialRacesFromSecondConnection()
+    {
+        var itemId = Guid.NewGuid();
+
+        // Commits an identical commercial from a second connection after the store's
+        // dedupe pre-check has passed, immediately before the store's own SaveChanges —
+        // the cross-connection window the editor's per-item lock cannot cover because
+        // Jellyfin's own writers never take that lock.
+        TempJellyfinDb? db = null;
+        var interceptor = new OneShotBeforeSaveInterceptor(
+            () => SeedAsync(db!, CreateEntity(itemId, MediaSegmentType.Commercial, 50, 60, ForeignProviderId)));
+        using var tempDb = new TempJellyfinDb(null, interceptor);
+        db = tempDb;
+        var store = CreateStore(tempDb);
+
+        await store.CreateCommercialIfAbsentAsync(itemId, CreateDto(MediaSegmentType.Commercial, 50, 60), CancellationToken.None);
+
+        // If-absent semantics across connections: the racing writer's row wins and the
+        // store discards its own insert, so exactly one identical row is committed.
+        var row = Assert.Single(await GetAllAsync(tempDb));
+        Assert.Equal(ForeignProviderId, row.SegmentProviderId);
+        Assert.Equal(50, row.StartTicks);
+        Assert.Equal(60, row.EndTicks);
+    }
+
+    [Fact]
     public async Task CreateCommercialIfAbsentAsync_SurfacesOriginalFailure_WhenConflictRecheckAlsoFails()
     {
         var interceptor = new UnavailableStoreInterceptor();
