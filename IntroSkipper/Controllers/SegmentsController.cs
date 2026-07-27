@@ -198,16 +198,23 @@ public class SegmentsController(IIntroSkipperDatabase database, MediaSegmentEdit
             return NotFound();
         }
 
-        try
+        // Jellyfin is only a mirror: when segment updates are disabled it stays
+        // untouched, consistent with create/update/restore. When enabled, the
+        // targeted delete (rather than relying on the full sync below alone) gives a
+        // precise failure point to roll the plugin delete back from.
+        if (Plugin.Instance!.Configuration.UpdateMediaSegments)
         {
-            // The Jellyfin row shares the segment id; an unknown id is a no-op there.
-            await _mediaSegmentEditorService.DeleteSegmentAsync(itemId, segmentId, cancellationToken).ConfigureAwait(false);
-        }
-        catch
-        {
-            // Rollback is deliberately uncancelable once the plugin delete has completed.
-            await _database.UndoDeleteAsync(result, CancellationToken.None).ConfigureAwait(false);
-            throw;
+            try
+            {
+                // The Jellyfin row shares the segment id; an unknown id is a no-op there.
+                await _mediaSegmentEditorService.DeleteSegmentAsync(itemId, segmentId, cancellationToken).ConfigureAwait(false);
+            }
+            catch
+            {
+                // Rollback is deliberately uncancelable once the plugin delete has completed.
+                await _database.UndoDeleteAsync(result, CancellationToken.None).ConfigureAwait(false);
+                throw;
+            }
         }
 
         // Return the episode to NotAnalyzed for this mode so the next analysis run can

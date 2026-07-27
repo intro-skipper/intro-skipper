@@ -121,6 +121,38 @@ public sealed class TestSegmentTombstones
     }
 
     [Fact]
+    public async Task UpdateSegmentAsync_ReclaimsTombstonedRange_ByAbsorbingTombstone()
+    {
+        var dbPath = CreateTempDbPath();
+        var itemId = Guid.NewGuid();
+        try
+        {
+            var database = DatabaseTestHelpers.CreateSegmentDatabase(dbPath);
+            await database.ReplaceAutoSegmentsAsync(
+                itemId,
+                AnalysisMode.Commercial,
+                [new Segment(itemId, new TimeRange(10, 20)), new Segment(itemId, new TimeRange(50, 60))],
+                SegmentSource.Chapter);
+            var rows = await database.GetSegmentsAsync(itemId);
+            await database.DeleteSegmentAsync(rows[0].Id); // tombstone (10, 20)
+
+            // Moving the other segment onto the tombstoned range is an explicit user
+            // decision: the tombstone is absorbed instead of raising a phantom 409.
+            var updated = await database.UpdateSegmentAsync(rows[1].Id, Ticks(10), Ticks(20));
+
+            Assert.NotNull(updated);
+            Assert.Equal(SegmentSource.User, updated!.Source);
+            var remaining = Assert.Single(await database.GetSegmentsAsync(itemId, includeSuppressed: true));
+            Assert.Equal(rows[1].Id, remaining.Id);
+            Assert.Equal(Ticks(10), remaining.StartTicks);
+        }
+        finally
+        {
+            DatabaseTestHelpers.DeleteSqliteFiles(dbPath);
+        }
+    }
+
+    [Fact]
     public async Task RestoreSegmentAsync_ReactivatesWithOriginalSource()
     {
         var dbPath = CreateTempDbPath();

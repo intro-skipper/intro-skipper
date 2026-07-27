@@ -220,8 +220,8 @@ public sealed partial class IntroSkipperDatabase
             return null;
         }
 
-        var conflict = await db.Segments
-            .AnyAsync(
+        var occupant = await db.Segments
+            .FirstOrDefaultAsync(
                 s => s.Id != segmentId
                     && s.ItemId == row.ItemId
                     && s.Type == row.Type
@@ -229,9 +229,18 @@ public sealed partial class IntroSkipperDatabase
                     && s.EndTicks == endTicks,
                 cancellationToken)
             .ConfigureAwait(false);
-        if (conflict)
+        if (occupant is not null)
         {
-            throw new SegmentConflictException($"Another {row.Type} segment of item {row.ItemId} already covers exactly this range.");
+            if (occupant.State != SegmentState.Suppressed)
+            {
+                throw new SegmentConflictException($"Another {row.Type} segment of item {row.ItemId} already covers exactly this range.");
+            }
+
+            // The user explicitly reclaims a previously deleted range: absorb the
+            // tombstone so the unique index cannot fire. Its protective purpose is
+            // preserved because the occupying row becomes user-provided, which
+            // analysis never overwrites.
+            db.Segments.Remove(occupant);
         }
 
         row.StartTicks = startTicks;

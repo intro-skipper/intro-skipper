@@ -242,6 +242,34 @@ public sealed class TestSegmentsApiController
     }
 
     [Fact]
+    public async Task DeleteSegment_DoesNotTouchJellyfin_WhenUpdateMediaSegmentsDisabled()
+    {
+        var itemId = Guid.NewGuid();
+        var dbPath = CreateTempDbPath();
+        using var pluginScope = CreatePluginScope(itemId, updateMediaSegments: false, out _);
+        try
+        {
+            var database = DatabaseTestHelpers.CreateSegmentDatabase(dbPath);
+            await database.ReplaceAutoSegmentsAsync(itemId, AnalysisMode.Introduction, [new Segment(itemId, new TimeRange(10, 60))], SegmentSource.Chromaprint);
+            var row = Assert.Single(await database.GetSegmentsAsync(itemId));
+            var controller = CreateController(database, out var store);
+
+            Assert.IsType<NoContentResult>(await controller.DeleteSegment(itemId, row.Id, CancellationToken.None));
+
+            // Plugin-side delete happened; Jellyfin stays untouched, consistent with
+            // how create/update/restore honor the UpdateMediaSegments flag.
+            var tombstone = Assert.Single(await database.GetSegmentsAsync(itemId, includeSuppressed: true));
+            Assert.Equal(SegmentState.Suppressed, tombstone.State);
+            Assert.Empty(store.Deleted);
+            Assert.Empty(store.Replaced);
+        }
+        finally
+        {
+            DatabaseTestHelpers.DeleteSqliteFiles(dbPath);
+        }
+    }
+
+    [Fact]
     public async Task DeleteSegment_RollsBackPluginDelete_WhenJellyfinDeleteFails()
     {
         var itemId = Guid.NewGuid();

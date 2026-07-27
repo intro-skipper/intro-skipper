@@ -119,13 +119,16 @@ export function segmentEditor(opts: {
             restoreBtn.addEventListener("click", async () => {
                 if (busy) return;
                 busy = true;
-                const response = await api.restoreEpisodeSegment(opts.itemId, segment.Id);
-                busy = false;
-                if (destroyed) return;
-                if (response.ok) {
-                    await reloadAfterMutation("Segment restored.");
-                } else {
-                    setStatus(response.error ?? "Failed to restore segment", "var(--is-error)");
+                try {
+                    const response = await api.restoreEpisodeSegment(opts.itemId, segment.Id);
+                    if (destroyed) return;
+                    if (response.ok) {
+                        await reloadAfterMutation("Segment restored.");
+                    } else {
+                        setStatus(response.error ?? "Failed to restore segment", "var(--is-error)");
+                    }
+                } finally {
+                    busy = false;
                 }
             });
             row.append(startInput, endInput, badge, el("span", { className: "ts-segment-hint" }, "hidden"), restoreBtn, errorEl);
@@ -149,13 +152,16 @@ export function segmentEditor(opts: {
             }
             errorEl.textContent = "";
             busy = true;
-            const result = await api.updateEpisodeSegment(opts.itemId, segment.Id, { Start: start, End: end });
-            busy = false;
-            if (destroyed) return;
-            if (result.ok) {
-                await reloadAfterMutation("Segment saved." + overlapWarning(segments, segment.Type, start, end, segment.Id));
-            } else {
-                errorEl.textContent = result.error ?? "Failed to save segment";
+            try {
+                const result = await api.updateEpisodeSegment(opts.itemId, segment.Id, { Start: start, End: end });
+                if (destroyed) return;
+                if (result.ok) {
+                    await reloadAfterMutation("Segment saved." + overlapWarning(segments, segment.Type, start, end, segment.Id));
+                } else {
+                    errorEl.textContent = result.error ?? "Failed to save segment";
+                }
+            } finally {
+                busy = false;
             }
         });
 
@@ -170,14 +176,23 @@ export function segmentEditor(opts: {
             });
             if (!confirmed || destroyed) return;
             busy = true;
-            const response = await api.deleteEpisodeSegment(opts.itemId, segment.Id);
-            busy = false;
-            if (destroyed) return;
-            if (response.ok) {
-                await reloadAfterMutation("Segment deleted.");
-            } else {
-                setStatus("Failed to delete segment (HTTP " + response.status + ")", "var(--is-error)");
-                window.Dashboard.alert("Failed to delete segment");
+            try {
+                // deleteEpisodeSegment returns the raw fetch, which can reject on
+                // network failure — the finally keeps the editor usable either way.
+                const response = await api.deleteEpisodeSegment(opts.itemId, segment.Id);
+                if (destroyed) return;
+                if (response.ok) {
+                    await reloadAfterMutation("Segment deleted.");
+                } else {
+                    setStatus("Failed to delete segment (HTTP " + response.status + ")", "var(--is-error)");
+                    window.Dashboard.alert("Failed to delete segment");
+                }
+            } catch (err: unknown) {
+                if (!destroyed) {
+                    setStatus(err instanceof Error ? err.message : "Failed to delete segment", "var(--is-error)");
+                }
+            } finally {
+                busy = false;
             }
         });
 
@@ -215,15 +230,18 @@ export function segmentEditor(opts: {
             }
             errorEl.textContent = "";
             busy = true;
-            const result = await api.createEpisodeSegment(opts.itemId, { Type: type, Start: start, End: end });
-            busy = false;
-            if (destroyed) return;
-            if (result.ok) {
-                startInput.value = "";
-                endInput.value = "";
-                await reloadAfterMutation("Segment added." + overlapWarning(segments, type, start, end));
-            } else {
-                errorEl.textContent = result.error ?? "Failed to add segment";
+            try {
+                const result = await api.createEpisodeSegment(opts.itemId, { Type: type, Start: start, End: end });
+                if (destroyed) return;
+                if (result.ok) {
+                    startInput.value = "";
+                    endInput.value = "";
+                    await reloadAfterMutation("Segment added." + overlapWarning(segments, type, start, end));
+                } else {
+                    errorEl.textContent = result.error ?? "Failed to add segment";
+                }
+            } finally {
+                busy = false;
             }
         });
 
