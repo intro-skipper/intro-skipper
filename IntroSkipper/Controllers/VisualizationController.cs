@@ -14,6 +14,7 @@ using IntroSkipper.Helper;
 using IntroSkipper.Manager;
 using IntroSkipper.ScheduledTasks;
 using MediaBrowser.Common.Api;
+using MediaBrowser.Controller.Entities.TV;
 using MediaBrowser.Controller.Library;
 using MediaBrowser.Controller.Providers;
 using MediaBrowser.Model.IO;
@@ -82,11 +83,6 @@ public partial class VisualizationController(ILogger<VisualizationController> lo
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     public async Task<ActionResult<IReadOnlySet<Guid>>> GetDisabledEpisodes([FromRoute] Guid seasonId, CancellationToken cancellationToken = default)
     {
-        if (!TryGetSeasonEpisodes(seasonId, out _))
-        {
-            return NotFound();
-        }
-
         return Ok(await _database.GetDisabledEpisodeIdsAsync(seasonId, cancellationToken).ConfigureAwait(false));
     }
 
@@ -101,8 +97,7 @@ public partial class VisualizationController(ILogger<VisualizationController> lo
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     public async Task<ActionResult> UpdateDisabledEpisode([FromBody] UpdateEpisodeMediaSegmentRequest request, CancellationToken cancellationToken = default)
     {
-        if (!TryGetSeasonEpisodes(request.SeasonId, out var episodes) ||
-            !episodes.Any(e => e.EpisodeId == request.EpisodeId && e.Category != QueuedMediaCategory.Movie))
+        if (!IsEpisodeInSeason(request.SeasonId, request.EpisodeId))
         {
             return NotFound();
         }
@@ -276,18 +271,18 @@ public partial class VisualizationController(ILogger<VisualizationController> lo
         return NoContent();
     }
 
-    private static bool TryGetSeasonEpisodes(Guid seasonId, out List<QueuedEpisode> episodes)
+    private bool IsEpisodeInSeason(Guid seasonId, Guid episodeId)
     {
         if (Plugin.Instance!.QueuedMediaItems.TryGetValue(seasonId, out var queuedEpisodes) &&
             queuedEpisodes.Count > 0 &&
-            queuedEpisodes.Any(e => e.Category != QueuedMediaCategory.Movie))
+            queuedEpisodes.Any(e => e.EpisodeId == episodeId && e.Category != QueuedMediaCategory.Movie))
         {
-            episodes = queuedEpisodes;
             return true;
         }
 
-        episodes = [];
-        return false;
+        return _libraryManager is not null &&
+            _libraryManager.GetItemById(episodeId) is Episode episode &&
+            episode.SeasonId == seasonId;
     }
 
     private async Task<IReadOnlyList<QueuedEpisode>> GetExcludedInventoryAsync(Plugin plugin, CancellationToken cancellationToken)
