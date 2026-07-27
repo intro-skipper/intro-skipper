@@ -75,7 +75,7 @@ public sealed partial class CreditsBlackFrameAnalyzer(ILogger<CreditsBlackFrameA
                 LogFoundCredits(episode.Name, credit.Start);
 
                 episode.SetAnalyzed(mode, EpisodeState.Analyzed);
-                await _database.UpdateTimestampAsync(credit, mode, configHash: episode.AnalysisConfigHash, cancellationToken: cancellationToken).ConfigureAwait(false);
+                await _database.ReplaceAutoSegmentsAsync(episode.EpisodeId, mode, [credit], SegmentSource.BlackFrame, episode.AnalysisConfigHash, cancellationToken).ConfigureAwait(false);
             }
             catch (OperationCanceledException)
             {

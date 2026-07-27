@@ -49,10 +49,6 @@ internal sealed class FakeJellyfinSegmentStore : IJellyfinSegmentStore
 
     public List<(Guid ItemId, IReadOnlyList<MediaSegmentDto> Segments)> ReplacedItems { get; } = [];
 
-    public List<(Guid ItemId, MediaSegmentDto Segment)> ReplacedTypes { get; } = [];
-
-    public List<(Guid ItemId, MediaSegmentDto Segment)> CreatedCommercials { get; } = [];
-
     public List<(Guid ItemId, Guid SegmentId)> DeletedSegments { get; } = [];
 
     public List<Guid> DeletedOwnItemIds { get; } = [];
@@ -63,30 +59,6 @@ internal sealed class FakeJellyfinSegmentStore : IJellyfinSegmentStore
         lock (ReplacedItems)
         {
             ReplacedItems.Add((itemId, segments));
-        }
-
-        await WaitIfGatedAsync(itemId);
-        ThrowIfConfigured(WriteException);
-    }
-
-    public async Task ReplaceTypeAsync(Guid itemId, MediaSegmentDto segment, CancellationToken cancellationToken)
-    {
-        Interlocked.Increment(ref _writeCount);
-        lock (ReplacedTypes)
-        {
-            ReplacedTypes.Add((itemId, segment));
-        }
-
-        await WaitIfGatedAsync(itemId);
-        ThrowIfConfigured(WriteException);
-    }
-
-    public async Task CreateCommercialIfAbsentAsync(Guid itemId, MediaSegmentDto segment, CancellationToken cancellationToken)
-    {
-        Interlocked.Increment(ref _writeCount);
-        lock (CreatedCommercials)
-        {
-            CreatedCommercials.Add((itemId, segment));
         }
 
         await WaitIfGatedAsync(itemId);

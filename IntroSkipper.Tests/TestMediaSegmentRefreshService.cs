@@ -4,6 +4,7 @@
 namespace IntroSkipper.Tests;
 
 using System;
+using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using IntroSkipper.Configuration;
@@ -54,23 +55,47 @@ public sealed class TestMediaSegmentRefreshService
     {
         var itemId = Guid.NewGuid();
         var database = DatabaseTestHelpers.CreateTempSegmentDatabase();
-        await database.UpdateTimestampAsync(new Segment(itemId, new TimeRange(100, 160)), AnalysisMode.Introduction);
-        await database.UpdateTimestampAsync(new Segment(itemId, new TimeRange(1200, 1260)), AnalysisMode.Credits);
+        await database.ReplaceAutoSegmentsAsync(
+            itemId,
+            AnalysisMode.Introduction,
+            [new Segment(itemId, new TimeRange(100, 160)), new Segment(itemId, new TimeRange(200, 230))],
+            SegmentSource.Chapter);
+        await database.ReplaceAutoSegmentsAsync(
+            itemId,
+            AnalysisMode.Credits,
+            [new Segment(itemId, new TimeRange(1200, 1260)), new Segment(itemId, new TimeRange(1300, 1330))],
+            SegmentSource.Chromaprint);
+
+        // Tombstone one credits row: suppressed rows must never be pushed to Jellyfin.
+        var seeded = await database.GetSegmentsAsync(itemId);
+        var suppressedRow = seeded.First(row => row.Type == AnalysisMode.Credits && row.StartTicks == TickConversions.FromSeconds(1300));
+        await database.DeleteSegmentAsync(suppressedRow.Id);
+
         var store = new FakeJellyfinSegmentStore();
         var refresher = CreateRefresher(store, segmentDtoFactory: new SegmentDtoFactory(database));
 
         await refresher.RefreshAsync(CreateMovie(itemId), CancellationToken.None);
 
+        var active = await database.GetSegmentsAsync(itemId);
+        Assert.Equal(3, active.Count);
+
+        // Every active row is pushed 1:1 with its plugin Guid as the DTO id.
         var (replacedItemId, pushed) = Assert.Single(store.ReplacedItems);
         Assert.Equal(itemId, replacedItemId);
-        Assert.Equal(2, pushed.Count);
-        var intro = Assert.Single(pushed, segment => segment.Type == MediaSegmentType.Intro);
-        Assert.Equal(itemId, intro.ItemId);
-        Assert.Equal(TimeSpan.FromSeconds(100).Ticks, intro.StartTicks);
-        Assert.Equal(TimeSpan.FromSeconds(160).Ticks, intro.EndTicks);
+        Assert.Equal(active.Count, pushed.Count);
+        foreach (var row in active)
+        {
+            var dto = Assert.Single(pushed, segment => segment.Id == row.Id);
+            Assert.Equal(itemId, dto.ItemId);
+            Assert.Equal(row.StartTicks, dto.StartTicks);
+            Assert.Equal(row.EndTicks, dto.EndTicks);
+        }
+
+        Assert.Equal(2, pushed.Count(segment => segment.Type == MediaSegmentType.Intro));
         var outro = Assert.Single(pushed, segment => segment.Type == MediaSegmentType.Outro);
-        Assert.Equal(TimeSpan.FromSeconds(1200).Ticks, outro.StartTicks);
-        Assert.Equal(TimeSpan.FromSeconds(1260).Ticks, outro.EndTicks);
+        Assert.Equal(TickConversions.FromSeconds(1200), outro.StartTicks);
+        Assert.Equal(TickConversions.FromSeconds(1260), outro.EndTicks);
+        Assert.DoesNotContain(pushed, segment => segment.Id == suppressedRow.Id);
     }
 
     [Fact]

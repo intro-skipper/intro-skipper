@@ -57,7 +57,7 @@ public sealed class TestSkipIntroController
 
         Assert.IsType<NoContentResult>(result);
         await using var db = new IntroSkipperDbContext(dbPath);
-        var segment = await db.DbSegment.SingleAsync();
+        var segment = await db.Segments.SingleAsync();
         Assert.Equal(itemId, segment.ItemId);
         Assert.Equal(AnalysisMode.Introduction, segment.Type);
         Assert.True(segment.IsUserProvided);
@@ -90,14 +90,58 @@ public sealed class TestSkipIntroController
     }
 
     [Fact]
+    public async Task UpdateTimestampsAsync_CommercialSlot_ReplacesAllStoredCommercials()
+    {
+        var itemId = Guid.NewGuid();
+        var dbPath = CreateTempDbPath();
+        using var pluginScope = CreatePluginScope(itemId, updateMediaSegments: false, out _);
+        await EnsureDatabaseAsync(dbPath);
+        var database = DatabaseTestHelpers.CreateSegmentDatabase(dbPath);
+        await database.ReplaceAutoSegmentsAsync(
+            itemId,
+            AnalysisMode.Commercial,
+            [new Segment(itemId, new TimeRange(300, 330)), new Segment(itemId, new TimeRange(600, 630))],
+            SegmentSource.BlackFrame);
+        await database.ReplaceAutoSegmentsAsync(
+            itemId,
+            AnalysisMode.Introduction,
+            [new Segment(itemId, new TimeRange(10, 20))],
+            SegmentSource.Chapter);
+        var controller = new SkipIntroController(
+            new RecordingMediaSegmentRefresher(),
+            DatabaseTestHelpers.CreateCacheDatabase(pluginScope.CacheDbPath),
+            database);
+        var timestamps = new TimeStamps
+        {
+            Commercial = new Segment(itemId, new TimeRange(400, 430))
+        };
+
+        var result = await controller.UpdateTimestampsAsync(itemId, timestamps, CancellationToken.None);
+
+        // The deprecated singular endpoint replaces every stored commercial with the one
+        // posted user segment (no more append), while other modes stay untouched.
+        Assert.IsType<NoContentResult>(result);
+        var rows = await database.GetSegmentsAsync(itemId);
+        var commercial = Assert.Single(rows, row => row.Type == AnalysisMode.Commercial);
+        Assert.Equal(TickConversions.FromSeconds(400), commercial.StartTicks);
+        Assert.Equal(TickConversions.FromSeconds(430), commercial.EndTicks);
+        Assert.True(commercial.IsUserProvided);
+        var intro = Assert.Single(rows, row => row.Type == AnalysisMode.Introduction);
+        Assert.Equal(TickConversions.FromSeconds(10), intro.StartTicks);
+        Assert.False(intro.IsUserProvided);
+    }
+
+    [Fact]
     public async Task ResetIntroTimestamps_CacheFailureDoesNotFailMainDatabaseDelete()
     {
         var itemId = Guid.NewGuid();
         var dbPath = CreateTempDbPath();
         var database = DatabaseTestHelpers.CreateSegmentDatabase(dbPath);
-        await database.UpdateTimestampAsync(
-            new Segment(itemId, new TimeRange(10, 20)),
-            AnalysisMode.Introduction);
+        await database.ReplaceAutoSegmentsAsync(
+            itemId,
+            AnalysisMode.Introduction,
+            [new Segment(itemId, new TimeRange(10, 20))],
+            SegmentSource.Chapter);
         var missingCachePath = Path.Join(
             Path.GetTempPath(),
             "IntroSkipper.Tests",
@@ -135,7 +179,7 @@ public sealed class TestSkipIntroController
     private static async Task EnsureDatabaseAsync(string dbPath)
     {
         await using var db = new IntroSkipperDbContext(dbPath);
-        await db.Database.EnsureCreatedAsync();
+        await db.ApplyMigrationsAsync();
     }
 
     private static string CreateTempDbPath()

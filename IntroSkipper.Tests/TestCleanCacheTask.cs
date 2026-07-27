@@ -185,7 +185,11 @@ public sealed class TestCleanCacheTask
             var cacheDatabase = DatabaseTestHelpers.CreateCacheDatabase(cacheDbPath);
 
             // Live movie data plus rows for an item that is no longer in any library.
-            await database.UpdateTimestampAsync(new Segment(movieId, new TimeRange(10, 40)), AnalysisMode.Introduction);
+            await database.ReplaceAutoSegmentsAsync(
+                movieId,
+                AnalysisMode.Introduction,
+                [new Segment(movieId, new TimeRange(10, 40))],
+                SegmentSource.Chapter);
             await database.SetEpisodeIdsAsync(movieId, AnalysisMode.Introduction, [movieId], "hash");
             cacheDatabase.Upsert(movieId, AnalysisMode.Introduction, CacheEntryType.Chromaprint, 0, 0, EntrypointTestHelpers.EmptyJsonArray, "hash");
             await SeedAsync(database, cacheDatabase, staleEpisodeId);
@@ -205,9 +209,9 @@ public sealed class TestCleanCacheTask
 
             await using var db = new IntroSkipperDbContext(dbPath);
             Assert.True(await Microsoft.EntityFrameworkCore.EntityFrameworkQueryableExtensions.AnyAsync(
-                db.DbSeasonState, s => s.SeasonId == movieId));
+                db.SeasonStates, s => s.SeasonId == movieId));
             Assert.False(await Microsoft.EntityFrameworkCore.EntityFrameworkQueryableExtensions.AnyAsync(
-                db.DbSeasonState, s => s.SeasonId == staleEpisodeId));
+                db.SeasonStates, s => s.SeasonId == staleEpisodeId));
         }
         finally
         {
@@ -246,7 +250,11 @@ public sealed class TestCleanCacheTask
 
     private static async Task SeedAsync(IIntroSkipperDatabase database, IDetectionCacheDatabase cacheDatabase, Guid episodeId)
     {
-        await database.UpdateTimestampAsync(new Segment(episodeId, new TimeRange(5, 65)), AnalysisMode.Introduction);
+        await database.ReplaceAutoSegmentsAsync(
+            episodeId,
+            AnalysisMode.Introduction,
+            [new Segment(episodeId, new TimeRange(5, 65))],
+            SegmentSource.Chapter);
         await database.SetEpisodeIdsAsync(episodeId, AnalysisMode.Introduction, [episodeId], "hash");
         cacheDatabase.Upsert(episodeId, AnalysisMode.Introduction, CacheEntryType.Chromaprint, 0, 0, EntrypointTestHelpers.EmptyJsonArray, "hash");
     }
@@ -258,7 +266,7 @@ public sealed class TestCleanCacheTask
 
         await using var db = new IntroSkipperDbContext(dbPath);
         Assert.True(await Microsoft.EntityFrameworkCore.EntityFrameworkQueryableExtensions.AnyAsync(
-            db.DbSeasonState, s => s.SeasonId == episodeId));
+            db.SeasonStates, s => s.SeasonId == episodeId));
     }
 
     private static VirtualFolderInfo NewFolder(string name)

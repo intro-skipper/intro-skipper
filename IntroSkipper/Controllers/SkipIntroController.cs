@@ -37,6 +37,10 @@ public partial class SkipIntroController(
     /// <summary>
     /// Updates the timestamps for the provided episode.
     /// </summary>
+    /// <remarks>
+    /// Deprecated: use the plural <c>Episode/{itemId}/Segments</c> API. Each provided slot
+    /// replaces every stored segment of its mode with the single user segment.
+    /// </remarks>
     /// <param name="id">Episode ID to update timestamps for.</param>
     /// <param name="timestamps">New timestamps Introduction/Credits start and end times.</param>
     /// <param name="cancellationToken">Cancellation Token.</param>
@@ -70,10 +74,12 @@ public partial class SkipIntroController(
 
         foreach (var (mode, segment) in segmentTypes)
         {
-            if (segment.Valid)
+            if (segment.Valid
+                && TickConversions.TryFromSeconds(segment.Start, out var startTicks)
+                && TickConversions.TryFromSeconds(segment.End, out var endTicks)
+                && endTicks > startTicks)
             {
-                segment.EpisodeId = id;
-                await _database.UpdateTimestampAsync(segment, mode, isUserProvided: true, cancellationToken: cancellationToken).ConfigureAwait(false);
+                await _database.ReplaceUserSegmentAsync(id, mode, startTicks, endTicks, cancellationToken).ConfigureAwait(false);
             }
         }
 
@@ -88,6 +94,10 @@ public partial class SkipIntroController(
     /// <summary>
     /// Gets the timestamps for the provided episode.
     /// </summary>
+    /// <remarks>
+    /// Deprecated: use the plural <c>Episode/{itemId}/Segments</c> API. Reports one
+    /// canonical segment per mode (the active segment with the earliest start).
+    /// </remarks>
     /// <param name="id">Episode ID.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <response code="200">Sucess.</response>
@@ -105,7 +115,8 @@ public partial class SkipIntroController(
         }
 
         var times = new TimeStamps();
-        var segments = await _database.GetTimestampsAsync(id, cancellationToken).ConfigureAwait(false);
+        var segments = LegacyTimestampMapper.ToCanonical(
+            await _database.GetSegmentsAsync(id, cancellationToken: cancellationToken).ConfigureAwait(false));
 
         if (segments.TryGetValue(AnalysisMode.Introduction, out var introSegment))
         {
@@ -138,6 +149,10 @@ public partial class SkipIntroController(
     /// <summary>
     /// Gets a dictionary of all skippable segments.
     /// </summary>
+    /// <remarks>
+    /// Deprecated: use the plural <c>Episode/{itemId}/Segments</c> API. Reports one
+    /// canonical segment per mode (the active segment with the earliest start).
+    /// </remarks>
     /// <param name="id">Media ID.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <response code="200">Skippable segments dictionary.</response>
@@ -145,7 +160,8 @@ public partial class SkipIntroController(
     [HttpGet("Episode/{id}/IntroSkipperSegments")]
     public async Task<ActionResult<Dictionary<AnalysisMode, Segment>>> GetSkippableSegments([FromRoute] Guid id, CancellationToken cancellationToken = default)
     {
-        var segments = await _database.GetTimestampsAsync(id, cancellationToken).ConfigureAwait(false);
+        var segments = LegacyTimestampMapper.ToCanonical(
+            await _database.GetSegmentsAsync(id, cancellationToken: cancellationToken).ConfigureAwait(false));
         var result = new Dictionary<AnalysisMode, Segment>();
 
         if (segments.TryGetValue(AnalysisMode.Introduction, out var introSegment))

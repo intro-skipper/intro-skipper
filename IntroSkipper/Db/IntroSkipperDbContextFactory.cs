@@ -17,7 +17,7 @@ public class IntroSkipperDbContextFactory : IDesignTimeDbContextFactory<IntroSki
     public IntroSkipperDbContext CreateDbContext(string[] args)
     {
         var optionsBuilder = new DbContextOptionsBuilder<IntroSkipperDbContext>();
-        optionsBuilder.UseSqlite("Data Source=introskipper.db")
+        optionsBuilder.UseSqlite("Data Source=introskipper-v2.db")
                       .EnableSensitiveDataLogging(false);
 
         return new IntroSkipperDbContext(optionsBuilder.Options);

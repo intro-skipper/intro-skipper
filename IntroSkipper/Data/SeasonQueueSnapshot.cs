@@ -11,11 +11,11 @@ namespace IntroSkipper.Data;
 /// <param name="EpisodeIdsByMode">Episode identifiers grouped by analysis mode.</param>
 /// <param name="ConfigHashByMode">Configuration hashes grouped by analysis mode.</param>
 /// <param name="AnalyzerActionByMode">Analyzer actions grouped by analysis mode.</param>
-/// <param name="SegmentsByEpisodeId">Existing segments grouped by episode and analysis mode.</param>
-/// <param name="UserProvidedByMode">User-provided episode identifiers grouped by analysis mode.</param>
+/// <param name="SegmentsByEpisodeId">Active segments grouped by episode and analysis mode, ordered by start time.</param>
+/// <param name="UserProvidedByMode">Episode identifiers with at least one active user-provided segment, grouped by analysis mode.</param>
 public sealed record SeasonQueueSnapshot(
     IReadOnlyDictionary<AnalysisMode, IReadOnlySet<Guid>> EpisodeIdsByMode,
     IReadOnlyDictionary<AnalysisMode, string> ConfigHashByMode,
     IReadOnlyDictionary<AnalysisMode, AnalyzerAction> AnalyzerActionByMode,
-    IReadOnlyDictionary<Guid, IReadOnlyDictionary<AnalysisMode, Segment>> SegmentsByEpisodeId,
+    IReadOnlyDictionary<Guid, IReadOnlyDictionary<AnalysisMode, IReadOnlyList<Segment>>> SegmentsByEpisodeId,
     IReadOnlyDictionary<AnalysisMode, IReadOnlySet<Guid>> UserProvidedByMode);

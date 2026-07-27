@@ -155,61 +155,21 @@ public sealed class TestJellyfinSegmentStore
     }
 
     [Fact]
-    public async Task ReplaceTypeAsync_ReplacesAllProvidersRowsOfType_AndLeavesOthersUntouched()
+    public async Task ReplaceSegmentsAsync_WritesJellyfinRowId_EqualToDtoId()
     {
         using var db = new TempJellyfinDb();
         var store = CreateStore(db);
         var itemId = Guid.NewGuid();
-        var otherItemId = Guid.NewGuid();
-        var foreignOutro = CreateEntity(itemId, MediaSegmentType.Outro, 0, 100, ForeignProviderId);
-        var otherItemIntro = CreateEntity(otherItemId, MediaSegmentType.Intro, 0, 100, ForeignProviderId);
-        await SeedAsync(
-            db,
-            CreateEntity(itemId, MediaSegmentType.Intro, 0, 5, ForeignProviderId),
-            CreateEntity(itemId, MediaSegmentType.Intro, 5, 9, JellyfinSegmentStore.ProviderId),
-            foreignOutro,
-            otherItemIntro);
+        var sharedId = Guid.NewGuid();
 
-        await store.ReplaceTypeAsync(itemId, CreateDto(MediaSegmentType.Intro, 10, 20), CancellationToken.None);
+        // The DTO carries the plugin row's id; the Jellyfin row must reuse it verbatim so
+        // both databases address the same segment by the same Guid.
+        await store.ReplaceSegmentsAsync(itemId, [CreateDto(MediaSegmentType.Intro, 10, 20, sharedId)], CancellationToken.None);
 
-        var rows = await GetAllAsync(db);
-        Assert.Equal(3, rows.Count);
-        var intro = Assert.Single(rows, row => row.ItemId == itemId && row.Type == MediaSegmentType.Intro);
-        Assert.Equal(JellyfinSegmentStore.ProviderId, intro.SegmentProviderId);
-        Assert.Equal(10, intro.StartTicks);
-        Assert.Equal(20, intro.EndTicks);
-        Assert.Single(rows, row => row.Id == foreignOutro.Id);
-        Assert.Single(rows, row => row.Id == otherItemIntro.Id);
-    }
-
-    [Fact]
-    public async Task CreateCommercialIfAbsentAsync_SkipsCreate_WhenIdenticalExists()
-    {
-        using var db = new TempJellyfinDb();
-        var store = CreateStore(db);
-        var itemId = Guid.NewGuid();
-        await SeedAsync(db, CreateEntity(itemId, MediaSegmentType.Commercial, 10, 20, ForeignProviderId));
-
-        await store.CreateCommercialIfAbsentAsync(itemId, CreateDto(MediaSegmentType.Commercial, 10, 20), CancellationToken.None);
-
-        Assert.Single(await GetAllAsync(db));
-    }
-
-    [Fact]
-    public async Task CreateCommercialIfAbsentAsync_Creates_WhenNoIdenticalExists()
-    {
-        using var db = new TempJellyfinDb();
-        var store = CreateStore(db);
-        var itemId = Guid.NewGuid();
-        await SeedAsync(db, CreateEntity(itemId, MediaSegmentType.Commercial, 10, 20, ForeignProviderId));
-
-        await store.CreateCommercialIfAbsentAsync(itemId, CreateDto(MediaSegmentType.Commercial, 30, 40), CancellationToken.None);
-
-        var rows = await GetAllAsync(db);
-        Assert.Equal(2, rows.Count);
-        var created = Assert.Single(rows, row => row.SegmentProviderId == JellyfinSegmentStore.ProviderId);
-        Assert.Equal(30, created.StartTicks);
-        Assert.Equal(40, created.EndTicks);
+        var row = Assert.Single(await GetAllAsync(db));
+        Assert.Equal(sharedId, row.Id);
+        Assert.Equal(itemId, row.ItemId);
+        Assert.Equal(JellyfinSegmentStore.ProviderId, row.SegmentProviderId);
     }
 
     [Fact]

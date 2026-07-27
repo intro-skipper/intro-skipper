@@ -3,7 +3,6 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
 using System;
-using System.Collections.Generic;
 using IntroSkipper.Data;
 using IntroSkipper.ScheduledTasks;
 using Xunit;
@@ -18,12 +17,9 @@ public class TestAnimePreviewRefresh
     [Fact]
     public void ReturnsNewSegment_WhenNoPreviewExistsYet()
     {
-        var timestamps = new Dictionary<AnalysisMode, Segment>
-        {
-            [AnalysisMode.Credits] = new Segment(EpisodeId, new TimeRange(1200.0, 1260.0)),
-        };
+        var credits = new Segment(EpisodeId, new TimeRange(1200.0, 1260.0));
 
-        var result = BaseItemAnalyzerTask.ComputeAnimePreviewFromCredits(EpisodeId, EpisodeDuration, timestamps);
+        var result = BaseItemAnalyzerTask.ComputeAnimePreviewFromCredits(EpisodeId, EpisodeDuration, credits, []);
 
         Assert.NotNull(result);
         Assert.Equal(EpisodeId, result!.EpisodeId);
@@ -36,13 +32,10 @@ public class TestAnimePreviewRefresh
     {
         // Scenario: previous analysis produced Credits ending at 1080s and a Preview [1080, 1320].
         // A settings change triggered re-analysis, Credits is now [..., 1260] — the old Preview is stale.
-        var timestamps = new Dictionary<AnalysisMode, Segment>
-        {
-            [AnalysisMode.Credits] = new Segment(EpisodeId, new TimeRange(1200.0, 1260.0)),
-            [AnalysisMode.Preview] = new Segment(EpisodeId, new TimeRange(1080.0, EpisodeDuration)),
-        };
+        var credits = new Segment(EpisodeId, new TimeRange(1200.0, 1260.0));
+        var stalePreview = new Segment(EpisodeId, new TimeRange(1080.0, EpisodeDuration));
 
-        var result = BaseItemAnalyzerTask.ComputeAnimePreviewFromCredits(EpisodeId, EpisodeDuration, timestamps);
+        var result = BaseItemAnalyzerTask.ComputeAnimePreviewFromCredits(EpisodeId, EpisodeDuration, credits, [stalePreview]);
 
         Assert.NotNull(result);
         Assert.Equal(1260.0, result!.Start);
@@ -52,13 +45,10 @@ public class TestAnimePreviewRefresh
     [Fact]
     public void IsIdempotent_WhenExistingPreviewMatchesCreditsEnd()
     {
-        var timestamps = new Dictionary<AnalysisMode, Segment>
-        {
-            [AnalysisMode.Credits] = new Segment(EpisodeId, new TimeRange(1200.0, 1260.0)),
-            [AnalysisMode.Preview] = new Segment(EpisodeId, new TimeRange(1260.0, EpisodeDuration)),
-        };
+        var credits = new Segment(EpisodeId, new TimeRange(1200.0, 1260.0));
+        var matchingPreview = new Segment(EpisodeId, new TimeRange(1260.0, EpisodeDuration));
 
-        var result = BaseItemAnalyzerTask.ComputeAnimePreviewFromCredits(EpisodeId, EpisodeDuration, timestamps);
+        var result = BaseItemAnalyzerTask.ComputeAnimePreviewFromCredits(EpisodeId, EpisodeDuration, credits, [matchingPreview]);
 
         Assert.Null(result);
     }
@@ -67,13 +57,10 @@ public class TestAnimePreviewRefresh
     public void TreatsSubSecondDriftAsEqual()
     {
         // Chromaprint quantises timestamps to ~0.124s — a 0.3s delta between runs is noise, not a real change.
-        var timestamps = new Dictionary<AnalysisMode, Segment>
-        {
-            [AnalysisMode.Credits] = new Segment(EpisodeId, new TimeRange(1200.0, 1260.3)),
-            [AnalysisMode.Preview] = new Segment(EpisodeId, new TimeRange(1260.0, EpisodeDuration)),
-        };
+        var credits = new Segment(EpisodeId, new TimeRange(1200.0, 1260.3));
+        var existingPreview = new Segment(EpisodeId, new TimeRange(1260.0, EpisodeDuration));
 
-        var result = BaseItemAnalyzerTask.ComputeAnimePreviewFromCredits(EpisodeId, EpisodeDuration, timestamps);
+        var result = BaseItemAnalyzerTask.ComputeAnimePreviewFromCredits(EpisodeId, EpisodeDuration, credits, [existingPreview]);
 
         Assert.Null(result);
     }
@@ -82,13 +69,10 @@ public class TestAnimePreviewRefresh
     public void TreatsExactBoundaryDriftAsEqual()
     {
         // A drift of exactly 0.5s should be treated as equal (matches the "within or equal to" doc).
-        var timestamps = new Dictionary<AnalysisMode, Segment>
-        {
-            [AnalysisMode.Credits] = new Segment(EpisodeId, new TimeRange(1200.0, 1260.5)),
-            [AnalysisMode.Preview] = new Segment(EpisodeId, new TimeRange(1260.0, EpisodeDuration)),
-        };
+        var credits = new Segment(EpisodeId, new TimeRange(1200.0, 1260.5));
+        var existingPreview = new Segment(EpisodeId, new TimeRange(1260.0, EpisodeDuration));
 
-        var result = BaseItemAnalyzerTask.ComputeAnimePreviewFromCredits(EpisodeId, EpisodeDuration, timestamps);
+        var result = BaseItemAnalyzerTask.ComputeAnimePreviewFromCredits(EpisodeId, EpisodeDuration, credits, [existingPreview]);
 
         Assert.Null(result);
     }
@@ -97,14 +81,11 @@ public class TestAnimePreviewRefresh
     public void RefreshesPreview_WhenEpisodeDurationChanges()
     {
         // Episode file replaced with a longer cut: credits.End is unchanged but Preview.End is stale.
-        var timestamps = new Dictionary<AnalysisMode, Segment>
-        {
-            [AnalysisMode.Credits] = new Segment(EpisodeId, new TimeRange(1200.0, 1260.0)),
-            [AnalysisMode.Preview] = new Segment(EpisodeId, new TimeRange(1260.0, EpisodeDuration)),
-        };
+        var credits = new Segment(EpisodeId, new TimeRange(1200.0, 1260.0));
+        var stalePreview = new Segment(EpisodeId, new TimeRange(1260.0, EpisodeDuration));
 
         const double newDuration = EpisodeDuration + 60.0;
-        var result = BaseItemAnalyzerTask.ComputeAnimePreviewFromCredits(EpisodeId, newDuration, timestamps);
+        var result = BaseItemAnalyzerTask.ComputeAnimePreviewFromCredits(EpisodeId, newDuration, credits, [stalePreview]);
 
         Assert.NotNull(result);
         Assert.Equal(1260.0, result!.Start);
@@ -114,13 +95,10 @@ public class TestAnimePreviewRefresh
     [Fact]
     public void RefreshesPreview_WhenDriftExceedsTolerance()
     {
-        var timestamps = new Dictionary<AnalysisMode, Segment>
-        {
-            [AnalysisMode.Credits] = new Segment(EpisodeId, new TimeRange(1200.0, 1260.0)),
-            [AnalysisMode.Preview] = new Segment(EpisodeId, new TimeRange(1259.0, EpisodeDuration)),
-        };
+        var credits = new Segment(EpisodeId, new TimeRange(1200.0, 1260.0));
+        var stalePreview = new Segment(EpisodeId, new TimeRange(1259.0, EpisodeDuration));
 
-        var result = BaseItemAnalyzerTask.ComputeAnimePreviewFromCredits(EpisodeId, EpisodeDuration, timestamps);
+        var result = BaseItemAnalyzerTask.ComputeAnimePreviewFromCredits(EpisodeId, EpisodeDuration, credits, [stalePreview]);
 
         Assert.NotNull(result);
         Assert.Equal(1260.0, result!.Start);
@@ -129,9 +107,7 @@ public class TestAnimePreviewRefresh
     [Fact]
     public void ReturnsNull_WhenNoCreditsPresent()
     {
-        var timestamps = new Dictionary<AnalysisMode, Segment>();
-
-        var result = BaseItemAnalyzerTask.ComputeAnimePreviewFromCredits(EpisodeId, EpisodeDuration, timestamps);
+        var result = BaseItemAnalyzerTask.ComputeAnimePreviewFromCredits(EpisodeId, EpisodeDuration, credits: null, existingPreviews: []);
 
         Assert.Null(result);
     }
@@ -140,12 +116,9 @@ public class TestAnimePreviewRefresh
     public void ReturnsNull_WhenCreditsAreInvalid()
     {
         // A default-constructed Segment has End == 0 → Valid is false.
-        var timestamps = new Dictionary<AnalysisMode, Segment>
-        {
-            [AnalysisMode.Credits] = new Segment(EpisodeId),
-        };
+        var credits = new Segment(EpisodeId);
 
-        var result = BaseItemAnalyzerTask.ComputeAnimePreviewFromCredits(EpisodeId, EpisodeDuration, timestamps);
+        var result = BaseItemAnalyzerTask.ComputeAnimePreviewFromCredits(EpisodeId, EpisodeDuration, credits, []);
 
         Assert.Null(result);
     }
@@ -153,12 +126,9 @@ public class TestAnimePreviewRefresh
     [Fact]
     public void ReturnsNull_WhenCreditsReachEndOfEpisode()
     {
-        var timestamps = new Dictionary<AnalysisMode, Segment>
-        {
-            [AnalysisMode.Credits] = new Segment(EpisodeId, new TimeRange(1200.0, EpisodeDuration)),
-        };
+        var credits = new Segment(EpisodeId, new TimeRange(1200.0, EpisodeDuration));
 
-        var result = BaseItemAnalyzerTask.ComputeAnimePreviewFromCredits(EpisodeId, EpisodeDuration, timestamps);
+        var result = BaseItemAnalyzerTask.ComputeAnimePreviewFromCredits(EpisodeId, EpisodeDuration, credits, []);
 
         Assert.Null(result);
     }
@@ -167,16 +137,28 @@ public class TestAnimePreviewRefresh
     public void IgnoresInvalidExistingPreview()
     {
         // A stored Preview with End==0 is invalid (e.g. leftover DB row); should be overwritten.
-        var timestamps = new Dictionary<AnalysisMode, Segment>
-        {
-            [AnalysisMode.Credits] = new Segment(EpisodeId, new TimeRange(1200.0, 1260.0)),
-            [AnalysisMode.Preview] = new Segment(EpisodeId),
-        };
+        var credits = new Segment(EpisodeId, new TimeRange(1200.0, 1260.0));
+        var invalidPreview = new Segment(EpisodeId);
 
-        var result = BaseItemAnalyzerTask.ComputeAnimePreviewFromCredits(EpisodeId, EpisodeDuration, timestamps);
+        var result = BaseItemAnalyzerTask.ComputeAnimePreviewFromCredits(EpisodeId, EpisodeDuration, credits, [invalidPreview]);
 
         Assert.NotNull(result);
         Assert.Equal(1260.0, result!.Start);
         Assert.Equal(EpisodeDuration, result.End);
+    }
+
+    [Fact]
+    public void ReturnsNull_WhenAnyExistingPreviewMatchesTolerance()
+    {
+        // Multiple previews can coexist per (item, type); the tolerance check is satisfied by
+        // ANY existing preview, so a stale first entry must not force a rewrite when the
+        // second one already matches.
+        var credits = new Segment(EpisodeId, new TimeRange(1200.0, 1260.0));
+        var stalePreview = new Segment(EpisodeId, new TimeRange(1080.0, EpisodeDuration));
+        var matchingPreview = new Segment(EpisodeId, new TimeRange(1260.0, EpisodeDuration));
+
+        var result = BaseItemAnalyzerTask.ComputeAnimePreviewFromCredits(EpisodeId, EpisodeDuration, credits, [stalePreview, matchingPreview]);
+
+        Assert.Null(result);
     }
 }

@@ -4,9 +4,12 @@
 namespace IntroSkipper.Tests;
 
 using System;
+using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
+using IntroSkipper.Data;
 using IntroSkipper.Manager;
+using IntroSkipper.Providers;
 using Jellyfin.Database.Implementations.Enums;
 using MediaBrowser.Controller.Entities.Movies;
 using MediaBrowser.Model.MediaSegments;
@@ -15,54 +18,68 @@ using Xunit;
 public sealed class TestMediaSegmentEditorService
 {
     [Fact]
-    public async Task CreateOrReplaceSegmentAsync_RoutesNonCommercialToReplaceType()
+    public async Task SyncItemAsync_UsesUniformReplace_ForEveryMode()
     {
         var itemId = Guid.NewGuid();
+        var database = DatabaseTestHelpers.CreateTempSegmentDatabase();
+        await database.ReplaceAutoSegmentsAsync(
+            itemId, AnalysisMode.Introduction, [new Segment(itemId, new TimeRange(10, 20))], SegmentSource.Chapter);
+        await database.ReplaceAutoSegmentsAsync(
+            itemId, AnalysisMode.Credits, [new Segment(itemId, new TimeRange(1200, 1260))], SegmentSource.Chromaprint);
+        await database.ReplaceAutoSegmentsAsync(
+            itemId,
+            AnalysisMode.Commercial,
+            [new Segment(itemId, new TimeRange(300, 330)), new Segment(itemId, new TimeRange(600, 630))],
+            SegmentSource.BlackFrame);
+        await database.AddUserSegmentAsync(
+            itemId, AnalysisMode.Recap, TickConversions.FromSeconds(20), TickConversions.FromSeconds(40));
+        var rows = await database.GetSegmentsAsync(itemId);
+        Assert.Equal(5, rows.Count);
+
         var store = new FakeJellyfinSegmentStore();
-        var service = CreateService(store);
-        var segment = CreateSegment(MediaSegmentType.Intro, 10, 20);
+        var service = CreateService(store, database);
 
-        await service.CreateOrReplaceSegmentAsync(CreateMovie(itemId), segment, CancellationToken.None);
+        await service.SyncItemAsync(CreateMovie(itemId), CancellationToken.None);
 
-        var (replacedItemId, replacedSegment) = Assert.Single(store.ReplacedTypes);
+        // One uniform replace carries every active segment of every mode — no per-type
+        // routing, no commercial special case — and each DTO reuses its plugin row's id.
+        Assert.Equal(1, store.WriteCallCount);
+        var (replacedItemId, pushed) = Assert.Single(store.ReplacedItems);
         Assert.Equal(itemId, replacedItemId);
-        Assert.Same(segment, replacedSegment);
-        Assert.Empty(store.CreatedCommercials);
+        Assert.Equal(rows.Count, pushed.Count);
+        foreach (var row in rows)
+        {
+            var dto = Assert.Single(pushed, segment => segment.Id == row.Id);
+            Assert.Equal(itemId, dto.ItemId);
+            Assert.Equal(row.StartTicks, dto.StartTicks);
+            Assert.Equal(row.EndTicks, dto.EndTicks);
+        }
+
+        Assert.Equal(2, pushed.Count(segment => segment.Type == MediaSegmentType.Commercial));
     }
 
     [Fact]
-    public async Task CreateOrReplaceSegmentAsync_RoutesCommercialToCreateIfAbsent()
-    {
-        var itemId = Guid.NewGuid();
-        var store = new FakeJellyfinSegmentStore();
-        var service = CreateService(store);
-        var segment = CreateSegment(MediaSegmentType.Commercial, 10, 20);
-
-        await service.CreateOrReplaceSegmentAsync(CreateMovie(itemId), segment, CancellationToken.None);
-
-        var (createdItemId, createdSegment) = Assert.Single(store.CreatedCommercials);
-        Assert.Equal(itemId, createdItemId);
-        Assert.Same(segment, createdSegment);
-        Assert.Empty(store.ReplacedTypes);
-    }
-
-    [Fact]
-    public async Task CreateOrReplaceSegmentAsync_SerializesConcurrentCallsForSameItem()
+    public async Task SyncItemAsync_SerializesConcurrentCallsForSameItem()
     {
         var item = CreateMovie(Guid.NewGuid());
+        var writeEntered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var store = new FakeJellyfinSegmentStore
         {
             WriteGate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously),
+            WriteEntered = writeEntered,
             BlockedItemId = item.Id
         };
         var service = CreateService(store);
 
-        // First call enters the critical section and parks inside the store write while holding the lock.
-        var first = service.CreateOrReplaceSegmentAsync(item, CreateSegment(MediaSegmentType.Intro, 10, 20), CancellationToken.None);
+        // First call enters the critical section and parks inside the store write while
+        // holding the lock; wait for the park so the assertions below cannot race the
+        // asynchronous DTO-factory read that precedes the write.
+        var first = service.SyncItemAsync(item, CancellationToken.None);
+        await writeEntered.Task;
 
-        // Second call for the same item must block on the per-item lock and therefore must not have
-        // reached the store yet.
-        var second = service.CreateOrReplaceSegmentAsync(item, CreateSegment(MediaSegmentType.Intro, 30, 40), CancellationToken.None);
+        // Second call for the same item must block on the per-item lock and therefore must
+        // not have reached the store yet.
+        var second = service.SyncItemAsync(item, CancellationToken.None);
 
         Assert.False(first.IsCompleted);
         Assert.False(second.IsCompleted);
@@ -73,11 +90,11 @@ public sealed class TestMediaSegmentEditorService
         await second;
 
         Assert.Equal(2, store.WriteCallCount);
-        Assert.Equal(2, store.ReplacedTypes.Count);
+        Assert.Equal(2, store.ReplacedItems.Count);
     }
 
     [Fact]
-    public async Task CreateOrReplaceSegmentAsync_AllowsConcurrentCallsForDifferentItems()
+    public async Task SyncItemAsync_AllowsConcurrentCallsForDifferentItems()
     {
         var firstItem = CreateMovie(Guid.NewGuid());
         var secondItem = CreateMovie(Guid.NewGuid());
@@ -88,8 +105,8 @@ public sealed class TestMediaSegmentEditorService
         };
         var service = CreateService(store);
 
-        var first = service.CreateOrReplaceSegmentAsync(firstItem, CreateSegment(MediaSegmentType.Intro, 10, 20), CancellationToken.None);
-        var second = service.CreateOrReplaceSegmentAsync(secondItem, CreateSegment(MediaSegmentType.Intro, 30, 40), CancellationToken.None);
+        var first = service.SyncItemAsync(firstItem, CancellationToken.None);
+        var second = service.SyncItemAsync(secondItem, CancellationToken.None);
 
         Assert.Same(second, await Task.WhenAny(second, Task.Delay(TimeSpan.FromSeconds(1))));
         Assert.False(first.IsCompleted);
@@ -177,8 +194,10 @@ public sealed class TestMediaSegmentEditorService
         Assert.Equal([(itemId, segmentId)], store.DeletedSegments);
     }
 
-    private static MediaSegmentEditorService CreateService(FakeJellyfinSegmentStore store)
-        => new(store);
+    private static MediaSegmentEditorService CreateService(
+        FakeJellyfinSegmentStore store,
+        IntroSkipper.Db.IIntroSkipperDatabase? database = null)
+        => new(store, new SegmentDtoFactory(database ?? DatabaseTestHelpers.CreateTempSegmentDatabase()));
 
     private static Movie CreateMovie(Guid id)
     {

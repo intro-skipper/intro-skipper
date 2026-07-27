@@ -54,8 +54,10 @@ public sealed class TestVisualizationController
 
         Assert.IsType<NoContentResult>(result);
         await using var db = new IntroSkipperDbContext(dbPath);
-        Assert.False(await db.DbSegment.AnyAsync(s => episodeIds.Contains(s.ItemId)));
-        var seasonStates = await db.DbSeasonState.Where(s => s.SeasonId == seasonId).ToListAsync();
+
+        // Covers the seeded tombstone as well: a season erase deletes suppressed rows too.
+        Assert.False(await db.Segments.AnyAsync(s => episodeIds.Contains(s.ItemId)));
+        var seasonStates = await db.SeasonStates.Where(s => s.SeasonId == seasonId).ToListAsync();
         Assert.All(seasonStates, state => Assert.Empty(state.EpisodeIds));
     }
 
@@ -111,8 +113,10 @@ public sealed class TestVisualizationController
 
         Assert.IsType<NoContentResult>(result);
         await using var db = new IntroSkipperDbContext(dbPath);
-        Assert.False(await db.DbSegment.AnyAsync(s => episodeIds.Contains(s.ItemId)));
-        var seasonStates = await db.DbSeasonState.Where(s => s.SeasonId == seasonId).ToListAsync();
+
+        // Covers the seeded tombstone as well: a season erase deletes suppressed rows too.
+        Assert.False(await db.Segments.AnyAsync(s => episodeIds.Contains(s.ItemId)));
+        var seasonStates = await db.SeasonStates.Where(s => s.SeasonId == seasonId).ToListAsync();
         Assert.All(seasonStates, state => Assert.Empty(state.EpisodeIds));
     }
 
@@ -145,14 +149,17 @@ public sealed class TestVisualizationController
         var ok = Assert.IsType<OkObjectResult>(result.Result);
         var response = Assert.IsType<ClearExcludedTimestampsResponse>(ok.Value);
         Assert.Equal(1, response.AffectedItems);
-        Assert.Equal(1, response.RemovedSegments);
+
+        // The excluded episode's active segment plus its tombstone: clearing excluded
+        // items is a full erase, so suppressed rows are deleted (and counted) too.
+        Assert.Equal(2, response.RemovedSegments);
         Assert.Equal(1, response.RemovedCacheEntries);
         Assert.Equal([excludedId], refresher.LastItemIds);
 
         await using var db = new IntroSkipperDbContext(dbPath);
-        Assert.False(await db.DbSegment.AnyAsync(s => s.ItemId == excludedId));
-        Assert.True(await db.DbSegment.AnyAsync(s => s.ItemId == includedId));
-        var seasonStates = await db.DbSeasonState.Where(s => s.SeasonId == seasonId).ToListAsync();
+        Assert.False(await db.Segments.AnyAsync(s => s.ItemId == excludedId));
+        Assert.True(await db.Segments.AnyAsync(s => s.ItemId == includedId));
+        var seasonStates = await db.SeasonStates.Where(s => s.SeasonId == seasonId).ToListAsync();
         Assert.All(seasonStates, state => Assert.Equal([includedId], state.EpisodeIds));
 
         using var cacheDb = new DetectionCacheDbContext(pluginScope.CacheDbPath);
@@ -197,13 +204,15 @@ public sealed class TestVisualizationController
         var ok = Assert.IsType<OkObjectResult>(result.Result);
         var response = Assert.IsType<ClearExcludedTimestampsResponse>(ok.Value);
         Assert.Equal(1, response.AffectedItems);
-        Assert.Equal(1, response.RemovedSegments);
+
+        // Active segment + tombstone of the excluded episode (see SeedSeasonAsync).
+        Assert.Equal(2, response.RemovedSegments);
         Assert.Equal(0, response.RemovedCacheEntries);
 
         await using var db = new IntroSkipperDbContext(dbPath);
-        Assert.False(await db.DbSegment.AnyAsync(s => s.ItemId == excludedId));
-        Assert.True(await db.DbSegment.AnyAsync(s => s.ItemId == includedId));
-        var seasonStates = await db.DbSeasonState.Where(s => s.SeasonId == seasonId).ToListAsync();
+        Assert.False(await db.Segments.AnyAsync(s => s.ItemId == excludedId));
+        Assert.True(await db.Segments.AnyAsync(s => s.ItemId == includedId));
+        var seasonStates = await db.SeasonStates.Where(s => s.SeasonId == seasonId).ToListAsync();
         Assert.All(seasonStates, state => Assert.Equal([includedId], state.EpisodeIds));
     }
 
@@ -253,11 +262,17 @@ public sealed class TestVisualizationController
     private static async Task SeedSeasonAsync(string dbPath, Guid seasonId, IReadOnlyList<Guid> episodeIds)
     {
         await using var db = new IntroSkipperDbContext(dbPath);
-        await db.Database.EnsureCreatedAsync();
-        db.DbSegment.AddRange(
-            new DbSegment(new Segment(episodeIds[0], new TimeRange(10, 20)), AnalysisMode.Introduction),
-            new DbSegment(new Segment(episodeIds[1], new TimeRange(30, 40)), AnalysisMode.Introduction));
-        db.DbSeasonState.AddRange(
+        await db.ApplyMigrationsAsync();
+        db.Segments.AddRange(
+            new DbSegment(episodeIds[0], AnalysisMode.Introduction, TickConversions.FromSeconds(10), TickConversions.FromSeconds(20), SegmentSource.Chapter),
+            new DbSegment(episodeIds[1], AnalysisMode.Introduction, TickConversions.FromSeconds(30), TickConversions.FromSeconds(40), SegmentSource.Chapter),
+            // Tombstone (user-deleted automatic segment) on the first episode: season erase and
+            // clear-excluded are full erases, so they must delete suppressed rows too.
+            new DbSegment(episodeIds[0], AnalysisMode.Introduction, TickConversions.FromSeconds(50), TickConversions.FromSeconds(60), SegmentSource.Chapter)
+            {
+                State = SegmentState.Suppressed,
+            });
+        db.SeasonStates.AddRange(
             new DbSeasonState(seasonId, AnalysisMode.Introduction, AnalyzerAction.Default, episodeIds),
             new DbSeasonState(seasonId, AnalysisMode.Credits, AnalyzerAction.Default, episodeIds));
         await db.SaveChangesAsync();

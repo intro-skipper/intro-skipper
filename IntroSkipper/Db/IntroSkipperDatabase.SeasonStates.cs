@@ -18,7 +18,7 @@ public sealed partial class IntroSkipperDatabase
 
         await InitializeAsync().ConfigureAwait(false);
         using var db = _contextFactory.CreateDbContext();
-        var existingEntries = await db.DbSeasonState
+        var existingEntries = await db.SeasonStates
             .Where(s => s.SeasonId == seasonId)
             .ToDictionaryAsync(s => s.Type, cancellationToken)
             .ConfigureAwait(false);
@@ -31,7 +31,7 @@ public sealed partial class IntroSkipperDatabase
             }
             else
             {
-                db.DbSeasonState.Add(new DbSeasonState(seasonId, mode, action));
+                db.SeasonStates.Add(new DbSeasonState(seasonId, mode, action));
             }
         }
 
@@ -50,14 +50,14 @@ public sealed partial class IntroSkipperDatabase
 
         await InitializeAsync().ConfigureAwait(false);
         using var db = _contextFactory.CreateDbContext();
-        var seasonState = await db.DbSeasonState
+        var seasonState = await db.SeasonStates
             .FirstOrDefaultAsync(s => s.SeasonId == seasonId && s.Type == mode, cancellationToken)
             .ConfigureAwait(false);
 
         if (seasonState is null)
         {
             seasonState = new DbSeasonState(seasonId, mode, AnalyzerAction.Default, ids, configHash);
-            db.DbSeasonState.Add(seasonState);
+            db.SeasonStates.Add(seasonState);
         }
         else
         {
@@ -78,7 +78,7 @@ public sealed partial class IntroSkipperDatabase
     {
         await InitializeAsync().ConfigureAwait(false);
         using var db = _contextFactory.CreateDbContext();
-        var seasonState = await db.DbSeasonState
+        var seasonState = await db.SeasonStates
             .FirstOrDefaultAsync(s => s.SeasonId == seasonId && s.Type == mode, cancellationToken)
             .ConfigureAwait(false);
 
@@ -104,7 +104,7 @@ public sealed partial class IntroSkipperDatabase
     {
         await InitializeAsync().ConfigureAwait(false);
         using var db = _contextFactory.CreateDbContext();
-        var states = await db.DbSeasonState
+        var states = await db.SeasonStates
             .AsNoTracking()
             .Where(s => s.SeasonId == seasonId)
             .Select(s => new
@@ -144,7 +144,7 @@ public sealed partial class IntroSkipperDatabase
         {
             await db.Database.ExecuteSqlInterpolatedAsync(
                 $"""
-                INSERT INTO "DbSeasonState" ("SeasonId", "Type", "Action", "EpisodeIds", "ConfigHash", "SettledReanalysisEpisodeIds")
+                INSERT INTO "SeasonStates" ("SeasonId", "Type", "Action", "EpisodeIds", "ConfigHash", "SettledReanalysisEpisodeIds")
                 VALUES ({seasonId}, {(int)mode}, {(int)AnalyzerAction.Default}, {"[]"}, {string.Empty}, {settledEpisodeIds})
                 ON CONFLICT("SeasonId", "Type") DO UPDATE SET
                     "SettledReanalysisEpisodeIds" = excluded."SettledReanalysisEpisodeIds"
@@ -158,7 +158,7 @@ public sealed partial class IntroSkipperDatabase
     {
         await InitializeAsync().ConfigureAwait(false);
         using var db = _contextFactory.CreateDbContext();
-        var states = await db.DbSeasonState
+        var states = await db.SeasonStates
             .Where(s => s.SeasonId == seasonId)
             .ToDictionaryAsync(s => s.Type, s => s.Action, cancellationToken)
             .ConfigureAwait(false);
@@ -178,7 +178,7 @@ public sealed partial class IntroSkipperDatabase
     {
         await InitializeAsync().ConfigureAwait(false);
         using var db = _contextFactory.CreateDbContext();
-        var state = await db.DbSeasonState
+        var state = await db.SeasonStates
             .FirstOrDefaultAsync(s => s.SeasonId == seasonId && s.Type == mode, cancellationToken)
             .ConfigureAwait(false);
         return state?.Action ?? AnalyzerAction.Default;
@@ -191,15 +191,15 @@ public sealed partial class IntroSkipperDatabase
         using var db = _contextFactory.CreateDbContext();
         var episodeIdArray = (Guid[])[.. episodeIds.Distinct()];
 
-        var seasonStates = await db.DbSeasonState
+        var seasonStates = await db.SeasonStates
             .AsNoTracking()
             .Where(s => s.SeasonId == seasonId)
             .ToListAsync(cancellationToken)
             .ConfigureAwait(false);
 
-        var segments = await db.DbSegment
+        var segments = await db.Segments
             .AsNoTracking()
-            .Where(s => EF.Parameter(episodeIdArray).Contains(s.ItemId))
+            .Where(s => EF.Parameter(episodeIdArray).Contains(s.ItemId) && s.State == SegmentState.Active)
             .ToListAsync(cancellationToken)
             .ConfigureAwait(false);
 
@@ -211,9 +211,15 @@ public sealed partial class IntroSkipperDatabase
                 .GroupBy(s => s.ItemId)
                 .ToDictionary(
                     group => group.Key,
-                    group => (IReadOnlyDictionary<AnalysisMode, Segment>)ToCanonicalTimestamps(group)),
+                    group => (IReadOnlyDictionary<AnalysisMode, IReadOnlyList<Segment>>)group
+                        .GroupBy(s => s.Type)
+                        .ToDictionary(
+                            modeGroup => modeGroup.Key,
+                            modeGroup => (IReadOnlyList<Segment>)[.. modeGroup
+                                .OrderBy(s => s.StartTicks)
+                                .Select(s => s.ToSegment())])),
             segments
-                .Where(s => s.IsUserProvided)
+                .Where(s => s.Source == SegmentSource.User)
                 .GroupBy(s => s.Type)
                 .ToDictionary(
                     group => group.Key,

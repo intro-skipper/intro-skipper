@@ -1,5 +1,5 @@
 using System.Collections.Concurrent;
-using Jellyfin.Database.Implementations.Enums;
+using IntroSkipper.Providers;
 using MediaBrowser.Controller.Entities;
 using MediaBrowser.Model.MediaSegments;
 
@@ -12,44 +12,34 @@ namespace IntroSkipper.Manager;
 /// Initializes a new instance of the <see cref="MediaSegmentEditorService"/> class.
 /// </remarks>
 /// <param name="segmentStore">Direct store for Jellyfin's media segments.</param>
-public class MediaSegmentEditorService(IJellyfinSegmentStore segmentStore)
+/// <param name="segmentDtoFactory">Factory that converts stored plugin segments to Jellyfin DTOs.</param>
+public class MediaSegmentEditorService(IJellyfinSegmentStore segmentStore, SegmentDtoFactory segmentDtoFactory)
 {
     private readonly IJellyfinSegmentStore _segmentStore = segmentStore;
+    private readonly SegmentDtoFactory _segmentDtoFactory = segmentDtoFactory;
 
     // Keyed semaphores are kept for the process lifetime; re-add eviction if touched item count becomes measurable.
     private static readonly ConcurrentDictionary<Guid, SemaphoreSlim> _itemLocks = [];
 
     /// <summary>
-    /// Creates or replaces a Jellyfin media segment for the given item.
-    /// Operates only on segments of the supplied type, leaving all other types untouched.
+    /// Mirrors the plugin database into Jellyfin's media segments for one item: every
+    /// active plugin segment is pushed (carrying its plugin row id), and Intro Skipper
+    /// rows no longer present in the plugin database are removed. Other providers'
+    /// segments are never touched.
     /// </summary>
-    /// <remarks>
-    /// Non-commercial segments are replaced atomically: any existing Jellyfin segment of the
-    /// same type — regardless of provider — is deleted in the same transaction that creates
-    /// the new one. Commercial segments are deduplicated by start/end ticks: the new segment
-    /// is only created when no identical entry already exists.
-    /// </remarks>
-    /// <param name="item">The media item that owns the segment.</param>
-    /// <param name="segment">The segment DTO to persist in Jellyfin's database.</param>
+    /// <param name="item">The media item to synchronize.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>A <see cref="Task"/> representing the asynchronous operation.</returns>
-    public async Task CreateOrReplaceSegmentAsync(BaseItem item, MediaSegmentDto segment, CancellationToken cancellationToken)
+    public async Task SyncItemAsync(BaseItem item, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(item);
-        ArgumentNullException.ThrowIfNull(segment);
 
         var itemLock = _itemLocks.GetOrAdd(item.Id, static _ => new SemaphoreSlim(1, 1));
         await itemLock.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
-            if (segment.Type == MediaSegmentType.Commercial)
-            {
-                await _segmentStore.CreateCommercialIfAbsentAsync(item.Id, segment, cancellationToken).ConfigureAwait(false);
-            }
-            else
-            {
-                await _segmentStore.ReplaceTypeAsync(item.Id, segment, cancellationToken).ConfigureAwait(false);
-            }
+            var segments = await _segmentDtoFactory.CreateAsync(item.Id, cancellationToken).ConfigureAwait(false);
+            await _segmentStore.ReplaceSegmentsAsync(item.Id, segments, cancellationToken).ConfigureAwait(false);
         }
         finally
         {

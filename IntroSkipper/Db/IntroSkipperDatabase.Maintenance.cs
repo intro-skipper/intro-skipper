@@ -27,7 +27,7 @@ public sealed partial class IntroSkipperDatabase
         // EF.Parameter forces the single-JSON-parameter json_each translation on SQLite,
         // so the retained set is one bound parameter regardless of its size — no
         // 32,766-variable limit and no chunking (verified by a 33,000-ID test).
-        return await db.DbSegment
+        return await db.Segments
             .Where(s => !EF.Parameter(enabledIds).Contains(s.ItemId))
             .Select(s => s.ItemId)
             .Distinct()
@@ -52,10 +52,11 @@ public sealed partial class IntroSkipperDatabase
 
         await InitializeAsync().ConfigureAwait(false);
         using var db = _contextFactory.CreateDbContext();
-        await db.DbSegment
+        await db.Segments
             .Where(s => EF.Parameter(ids).Contains(s.ItemId)
                 && s.Type == mode
-                && !s.IsUserProvided
+                && s.Source != SegmentSource.User
+                && s.State == SegmentState.Active
                 && s.ConfigHash != configHash)
             .ExecuteDeleteAsync(cancellationToken)
             .ConfigureAwait(false);
@@ -79,13 +80,13 @@ public sealed partial class IntroSkipperDatabase
         {
             if (ids.Length > 0)
             {
-                await db.DbSegment
+                await db.Segments
                     .Where(s => EF.Parameter(ids).Contains(s.ItemId))
                     .ExecuteDeleteAsync(cancellationToken)
                     .ConfigureAwait(false);
             }
 
-            await db.DbSeasonState
+            await db.SeasonStates
                 .Where(s => s.SeasonId == seasonId)
                 .ExecuteUpdateAsync(
                     setters => setters.SetProperty(s => s.EpisodeIds, Array.Empty<Guid>()),
@@ -121,12 +122,12 @@ public sealed partial class IntroSkipperDatabase
         {
             var removedSegments = itemIds.Length == 0
                 ? 0
-                : await db.DbSegment
+                : await db.Segments
                     .Where(s => EF.Parameter(itemIds).Contains(s.ItemId))
                     .ExecuteDeleteAsync(cancellationToken)
                     .ConfigureAwait(false);
 
-            var seasonStates = await db.DbSeasonState
+            var seasonStates = await db.SeasonStates
                 .Where(s => EF.Parameter(seasonIds).Contains(s.SeasonId))
                 .ToListAsync(cancellationToken)
                 .ConfigureAwait(false);
@@ -174,15 +175,18 @@ public sealed partial class IntroSkipperDatabase
         var transaction = await db.Database.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
         await using (transaction.ConfigureAwait(false))
         {
-            await db.DbSegment
-                .Where(s => EF.Parameter(ids).Contains(s.ItemId) && modeArray.Contains(s.Type) && !s.IsUserProvided)
+            await db.Segments
+                .Where(s => EF.Parameter(ids).Contains(s.ItemId)
+                    && modeArray.Contains(s.Type)
+                    && s.Source != SegmentSource.User
+                    && s.State == SegmentState.Active)
                 .ExecuteDeleteAsync(cancellationToken)
                 .ConfigureAwait(false);
 
             // Clear the analyzed-episode lists so VerifyQueueAsync treats every episode as NotAnalyzed.
             // Committing this together with the deletes guarantees the episodes are re-analyzed (either
             // on this pass or a later one) instead of being stranded as NoSegments.
-            await db.DbSeasonState
+            await db.SeasonStates
                 .Where(s => s.SeasonId == seasonId && modeArray.Contains(s.Type))
                 .ExecuteUpdateAsync(
                     setters => setters.SetProperty(s => s.EpisodeIds, Array.Empty<Guid>()),
@@ -204,7 +208,7 @@ public sealed partial class IntroSkipperDatabase
 
         // Single NOT-IN delete; EF.Parameter binds the retained set as one JSON
         // parameter, so this is safe for arbitrarily large libraries.
-        await db.DbSeasonState
+        await db.SeasonStates
             .Where(s => !EF.Parameter(retainedIds).Contains(s.SeasonId))
             .ExecuteDeleteAsync(cancellationToken)
             .ConfigureAwait(false);

@@ -23,40 +23,34 @@ public sealed class SegmentDtoFactory(IIntroSkipperDatabase database)
 
     /// <summary>
     /// Creates the Jellyfin media segment DTOs for an item from the plugin database.
+    /// Every active segment maps to one DTO carrying the plugin row's id, so the
+    /// Jellyfin row and the plugin row share the same Guid.
     /// </summary>
     /// <param name="itemId">The item id.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
-    /// <returns>The converted segments, ordered by start time.</returns>
+    /// <returns>The converted segments, ordered by type and start time.</returns>
     public async Task<IReadOnlyList<MediaSegmentDto>> CreateAsync(Guid itemId, CancellationToken cancellationToken)
     {
         var segments = new List<MediaSegmentDto>();
-        var itemSegments = await _database.GetSegmentsAsync(itemId, cancellationToken).ConfigureAwait(false);
-        var dedupedModes = new HashSet<AnalysisMode>();
+        var itemSegments = await _database.GetSegmentsAsync(itemId, cancellationToken: cancellationToken).ConfigureAwait(false);
 
-        foreach (var segment in itemSegments.OrderBy(static segment => segment.Start))
+        foreach (var segment in itemSegments)
         {
             if (!AnalysisHelpers.ModeToSegmentType.TryGetValue(segment.Type, out var type))
             {
                 continue;
             }
 
-            if (segment.End <= 0.0)
+            if (segment.EndTicks <= segment.StartTicks)
             {
                 continue;
             }
-
-            if (segment.Type != AnalysisMode.Commercial && !dedupedModes.Add(segment.Type))
-            {
-                continue;
-            }
-
-            long startTicks = (long)(segment.Start * TimeSpan.TicksPerSecond);
-            long endTicks = (long)(segment.End * TimeSpan.TicksPerSecond);
 
             segments.Add(new MediaSegmentDto
             {
-                StartTicks = startTicks,
-                EndTicks = endTicks,
+                Id = segment.Id,
+                StartTicks = segment.StartTicks,
+                EndTicks = segment.EndTicks,
                 ItemId = itemId,
                 Type = type
             });

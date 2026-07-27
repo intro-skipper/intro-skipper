@@ -6,17 +6,19 @@ using IntroSkipper.Data;
 namespace IntroSkipper.Db;
 
 /// <summary>
-/// Cohesive facade over the segment database (<c>introskipper.db</c>).
+/// Cohesive facade over the segment database (<c>introskipper-v2.db</c>).
 /// Owns every read and write against <see cref="IntroSkipperDbContext"/> — segments,
 /// season state and database maintenance — as well as the database lifecycle
-/// (legacy schema repair, EF migrations and salvage rebuild).
-/// All domain rules that guard writes (user-provided precedence, credits/intro
-/// overlap) live inside this facade; callers never see a <c>DbContext</c>.
+/// (EF migrations, one-time legacy import and salvage rebuild).
+/// All domain rules that guard writes (user-provided precedence, tombstone
+/// suppression, credits/intro overlap) live inside this facade; callers never see a
+/// <c>DbContext</c>. Boundaries are ticks internally; analysis writes accept seconds
+/// because analyzers work in seconds.
 /// </summary>
 public interface IIntroSkipperDatabase
 {
     /// <summary>
-    /// Ensures the database is initialized (legacy schema repair + EF migrations).
+    /// Ensures the database is initialized (EF migrations + one-time legacy import).
     /// Concurrent callers share one attempt and successful initialization is cached.
     /// A failed attempt propagates to its callers and the next operation retries before
     /// touching the database, so calling this method eagerly is an optimization, not a requirement.
@@ -25,37 +27,111 @@ public interface IIntroSkipperDatabase
     Task InitializeAsync();
 
     /// <summary>
-    /// Stores a segment for an item, enforcing the domain rules:
-    /// user-provided segments are never overwritten by analysis results, and
-    /// auto-detected credits must not overlap the stored introduction.
-    /// Commercial segments are appended (deduplicated); other modes replace the existing row.
+    /// Atomically replaces the active automatic segments of an item and mode with the
+    /// accepted subset of <paramref name="segments"/>. A segment is rejected when it is
+    /// invalid (end not after start), overlaps a tombstone of the same item and mode,
+    /// overlaps an active user segment of the same mode, is an automatic credits segment
+    /// overlapping any active introduction, or duplicates a kept row exactly.
+    /// Automatic rows whose boundaries match an accepted segment exactly are kept in
+    /// place (stable ids); an empty list clears the mode's automatic segments.
+    /// User segments and tombstones are never touched.
     /// </summary>
-    /// <param name="segment">Segment to store.</param>
-    /// <param name="mode">Analysis mode the segment belongs to.</param>
-    /// <param name="isUserProvided">Whether the segment was provided by the user.</param>
-    /// <param name="configHash">Configuration hash that produced the segment.</param>
+    /// <param name="itemId">Item ID.</param>
+    /// <param name="mode">Analysis mode the segments belong to.</param>
+    /// <param name="segments">Detected segments in seconds.</param>
+    /// <param name="source">Analyzer that produced the segments; must not be <see cref="SegmentSource.User"/>.</param>
+    /// <param name="configHash">Configuration hash that produced the segments.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>The number of active automatic segments stored for the mode after the write.</returns>
+    Task<int> ReplaceAutoSegmentsAsync(Guid itemId, AnalysisMode mode, IReadOnlyList<Segment> segments, SegmentSource source, string configHash = "", CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Adds a user segment. An exact-range collision is resolved in place: an active
+    /// automatic row is promoted to <see cref="SegmentSource.User"/>, a suppressed row is
+    /// revived as a user segment, an existing user row is returned unchanged. Overlapping
+    /// (non-identical) segments of the same mode are allowed.
+    /// </summary>
+    /// <param name="itemId">Item ID.</param>
+    /// <param name="mode">Analysis mode.</param>
+    /// <param name="startTicks">Start time in ticks.</param>
+    /// <param name="endTicks">End time in ticks; must be after <paramref name="startTicks"/>.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>The stored row.</returns>
+    Task<DbSegment> AddUserSegmentAsync(Guid itemId, AnalysisMode mode, long startTicks, long endTicks, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Deletes every active segment of the mode (any source) and stores a single user
+    /// segment in one transaction. Tombstones are kept. Exists only for the deprecated
+    /// singular <c>POST Episode/{id}/Timestamps</c> endpoint.
+    /// </summary>
+    /// <param name="itemId">Item ID.</param>
+    /// <param name="mode">Analysis mode.</param>
+    /// <param name="startTicks">Start time in ticks.</param>
+    /// <param name="endTicks">End time in ticks; must be after <paramref name="startTicks"/>.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>The stored row.</returns>
+    Task<DbSegment> ReplaceUserSegmentAsync(Guid itemId, AnalysisMode mode, long startTicks, long endTicks, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Updates the boundaries of a stored segment and marks it user-provided.
+    /// </summary>
+    /// <param name="segmentId">Segment ID.</param>
+    /// <param name="startTicks">New start time in ticks.</param>
+    /// <param name="endTicks">New end time in ticks; must be after <paramref name="startTicks"/>.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>The updated row, or <c>null</c> when the id is unknown or suppressed.</returns>
+    /// <exception cref="SegmentConflictException">Another segment of the same item and mode covers exactly the new range.</exception>
+    Task<DbSegment?> UpdateSegmentAsync(Guid segmentId, long startTicks, long endTicks, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Deletes a segment: automatic rows are tombstoned (kept as
+    /// <see cref="SegmentState.Suppressed"/> so re-analysis does not re-add an
+    /// overlapping automatic segment), user rows are hard-deleted.
+    /// </summary>
+    /// <param name="segmentId">Segment ID.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>The delete outcome, sufficient to reverse the delete exactly.</returns>
+    Task<SegmentDeleteResult> DeleteSegmentAsync(Guid segmentId, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Reverses a prior <see cref="DeleteSegmentAsync"/> exactly: flips the tombstone back
+    /// to its previous state, or re-inserts the hard-deleted row verbatim (same id, source,
+    /// config hash and creation time). No-op when nothing was deleted.
+    /// </summary>
+    /// <param name="deleteResult">Result of the delete to reverse.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>A <see cref="Task"/> representing the asynchronous operation.</returns>
-    Task UpdateTimestampAsync(Segment segment, AnalysisMode mode, bool isUserProvided = false, string configHash = "", CancellationToken cancellationToken = default);
+    Task UndoDeleteAsync(SegmentDeleteResult deleteResult, CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// Returns the earliest stored segment per analysis mode for an item.
+    /// Clears a tombstone, making the suppressed segment active again with its original source.
     /// </summary>
-    /// <param name="id">Item ID.</param>
+    /// <param name="segmentId">Segment ID.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
-    /// <returns>Segments keyed by analysis mode.</returns>
-    Task<IReadOnlyDictionary<AnalysisMode, Segment>> GetTimestampsAsync(Guid id, CancellationToken cancellationToken = default);
+    /// <returns><c>true</c> when a suppressed row was restored; <c>false</c> when the id is unknown or not suppressed.</returns>
+    Task<bool> RestoreSegmentAsync(Guid segmentId, CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// Returns all stored segments for an item.
+    /// Returns a stored segment by id, regardless of state.
     /// </summary>
-    /// <param name="id">Item ID.</param>
+    /// <param name="segmentId">Segment ID.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
-    /// <returns>All segments stored for the item.</returns>
-    Task<IReadOnlyList<DbSegment>> GetSegmentsAsync(Guid id, CancellationToken cancellationToken = default);
+    /// <returns>The row, or <c>null</c> when unknown.</returns>
+    Task<DbSegment?> GetSegmentAsync(Guid segmentId, CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// Deletes all segments stored for an item.
+    /// Returns the stored segments of an item, ordered by mode and start time.
+    /// Tombstones are excluded unless <paramref name="includeSuppressed"/> is set.
+    /// </summary>
+    /// <param name="itemId">Item ID.</param>
+    /// <param name="includeSuppressed">Whether to include suppressed rows.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>The stored segments.</returns>
+    Task<IReadOnlyList<DbSegment>> GetSegmentsAsync(Guid itemId, bool includeSuppressed = false, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Deletes all segments stored for an item, tombstones included (used when the item
+    /// itself disappears or the user resets it explicitly).
     /// </summary>
     /// <param name="itemId">Item ID.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
@@ -63,21 +139,8 @@ public interface IIntroSkipperDatabase
     Task DeleteItemSegmentsAsync(Guid itemId, CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// Deletes a stored timestamp for the specified item and analysis mode. The delete is
-    /// authoritative: the rows it matched (using the facade's own comparison epsilon) are
-    /// returned, so callers can restore exactly what was deleted — including
-    /// <see cref="DbSegment.IsUserProvided"/> and <see cref="DbSegment.ConfigHash"/> —
-    /// without re-implementing the matching.
-    /// </summary>
-    /// <param name="itemId">The item ID whose timestamp should be removed.</param>
-    /// <param name="mode">The analysis mode representing the segment type.</param>
-    /// <param name="segment">Optional segment details used to remove a specific entry.</param>
-    /// <param name="cancellationToken">Cancellation token.</param>
-    /// <returns>The deleted segment rows; empty when nothing matched.</returns>
-    Task<IReadOnlyList<DbSegment>> DeleteTimestampAsync(Guid itemId, AnalysisMode mode, Segment? segment = null, CancellationToken cancellationToken = default);
-
-    /// <summary>
-    /// Deletes every stored segment of the given analysis mode.
+    /// Deletes every stored segment of the given analysis mode, tombstones included
+    /// (explicit erase is a factory reset).
     /// </summary>
     /// <param name="mode">Analysis mode to erase.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
@@ -113,7 +176,8 @@ public interface IIntroSkipperDatabase
     Task<int> RemoveItemsFromAnalysisAsync(IReadOnlyDictionary<Guid, IReadOnlySet<Guid>> itemIdsBySeason, CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// Gets the IDs of items with segments that are no longer part of any enabled library.
+    /// Gets the IDs of items with segments (including tombstones) that are no longer
+    /// part of any enabled library.
     /// </summary>
     /// <param name="enabledEpisodeIds">Episode IDs that are still part of enabled libraries.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
@@ -124,7 +188,7 @@ public interface IIntroSkipperDatabase
 
     /// <summary>
     /// Removes stale automatic segments for the supplied items and mode.
-    /// User-provided segments are intentionally preserved.
+    /// User-provided segments and tombstones are intentionally preserved.
     /// </summary>
     /// <param name="itemIds">Item IDs to inspect.</param>
     /// <param name="mode">Analysis mode.</param>
@@ -185,7 +249,7 @@ public interface IIntroSkipperDatabase
     /// <summary>
     /// Clears stored automatic analysis state for a season so it is re-analyzed from
     /// scratch on the current pass. The deletes and the episode-list clear run in a
-    /// single transaction; user-provided segments are preserved.
+    /// single transaction; user-provided segments and tombstones are preserved.
     /// </summary>
     /// <param name="seasonId">Season ID whose analyzed-state lists should be cleared.</param>
     /// <param name="episodeIds">Episode IDs whose automatic segments should be removed.</param>
@@ -213,8 +277,8 @@ public interface IIntroSkipperDatabase
     Task<AnalyzerAction> GetAnalyzerActionAsync(Guid seasonId, AnalysisMode mode, CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// Returns a consistent snapshot of the season state and stored segments used by
-    /// queue verification, avoiding per-episode database lookups. The episode ID set is
+    /// Returns a consistent snapshot of the season state and stored active segments used
+    /// by queue verification, avoiding per-episode database lookups. The episode ID set is
     /// bound as one JSON parameter, so the episode count is unbounded.
     /// </summary>
     /// <param name="seasonId">Season ID.</param>
@@ -232,7 +296,8 @@ public interface IIntroSkipperDatabase
     Task CleanSeasonStateAsync(IEnumerable<Guid> seasonIds, CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// Rebuilds the database while attempting to preserve valid segments and season state.
+    /// Rebuilds the database while attempting to preserve valid segments, season state
+    /// and the legacy-import marker. The rebuild never re-runs the legacy import.
     /// </summary>
     /// <param name="forceCleanOnBackupFailure">
     /// When <c>true</c>, rebuild proceeds with an empty database if the backup read fails.

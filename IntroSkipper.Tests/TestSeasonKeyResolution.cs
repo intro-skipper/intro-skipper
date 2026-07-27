@@ -16,6 +16,7 @@ using IntroSkipper.Controllers;
 using IntroSkipper.Data;
 using IntroSkipper.Db;
 using IntroSkipper.Manager;
+using IntroSkipper.Providers;
 using MediaBrowser.Controller.Entities;
 using MediaBrowser.Controller.Entities.TV;
 using MediaBrowser.Controller.Library;
@@ -92,16 +93,21 @@ public sealed class TestSeasonKeyResolution
                 });
 
             var database = DatabaseTestHelpers.CreateSegmentDatabase(dbPath);
-            await database.UpdateTimestampAsync(new Segment(specialId, new TimeRange(100, 160)), AnalysisMode.Introduction);
+            await database.ReplaceAutoSegmentsAsync(
+                specialId,
+                AnalysisMode.Introduction,
+                [new Segment(specialId, new TimeRange(100, 160))],
+                SegmentSource.Chapter);
             await database.SetEpisodeIdsAsync(hostSeasonId, AnalysisMode.Introduction, [hostEpisodeId, specialId], "hash");
+            var segmentId = (await database.GetSegmentsAsync(specialId)).Single().Id;
 
-            var service = new MediaSegmentEditorService(new FakeJellyfinSegmentStore());
+            var service = new MediaSegmentEditorService(new FakeJellyfinSegmentStore(), new SegmentDtoFactory(database));
             var controller = new SegmentEditorController(service, database);
 
-            await controller.DeleteSegmentAsync(Guid.NewGuid(), specialId, "intro", CancellationToken.None);
+            await controller.DeleteSegmentAsync(segmentId, specialId, "intro", CancellationToken.None);
 
             await using var db = new IntroSkipperDbContext(dbPath);
-            var state = await db.DbSeasonState
+            var state = await db.SeasonStates
                 .AsNoTracking()
                 .SingleAsync(s => s.SeasonId == hostSeasonId && s.Type == AnalysisMode.Introduction);
             Assert.Equal([hostEpisodeId], state.EpisodeIds);
@@ -132,16 +138,21 @@ public sealed class TestSeasonKeyResolution
                 new ConcurrentDictionary<Guid, List<QueuedEpisode>>());
 
             var database = DatabaseTestHelpers.CreateSegmentDatabase(dbPath);
-            await database.UpdateTimestampAsync(new Segment(episodeId, new TimeRange(100, 160)), AnalysisMode.Introduction);
+            await database.ReplaceAutoSegmentsAsync(
+                episodeId,
+                AnalysisMode.Introduction,
+                [new Segment(episodeId, new TimeRange(100, 160))],
+                SegmentSource.Chapter);
             await database.SetEpisodeIdsAsync(seasonId, AnalysisMode.Introduction, [episodeId], "hash");
+            var segmentId = (await database.GetSegmentsAsync(episodeId)).Single().Id;
 
-            var service = new MediaSegmentEditorService(new FakeJellyfinSegmentStore());
+            var service = new MediaSegmentEditorService(new FakeJellyfinSegmentStore(), new SegmentDtoFactory(database));
             var controller = new SegmentEditorController(service, database);
 
-            await controller.DeleteSegmentAsync(Guid.NewGuid(), episodeId, "intro", CancellationToken.None);
+            await controller.DeleteSegmentAsync(segmentId, episodeId, "intro", CancellationToken.None);
 
             await using var db = new IntroSkipperDbContext(dbPath);
-            var state = await db.DbSeasonState
+            var state = await db.SeasonStates
                 .AsNoTracking()
                 .SingleAsync(s => s.SeasonId == seasonId && s.Type == AnalysisMode.Introduction);
             Assert.Empty(state.EpisodeIds);

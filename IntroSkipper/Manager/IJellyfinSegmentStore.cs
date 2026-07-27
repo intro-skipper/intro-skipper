@@ -31,26 +31,6 @@ public interface IJellyfinSegmentStore
     Task DeleteOwnSegmentsAsync(IEnumerable<Guid> itemIds, CancellationToken cancellationToken);
 
     /// <summary>
-    /// Atomically replaces every segment of the given segment's type for an item —
-    /// regardless of provider — with the given Intro Skipper-owned segment.
-    /// </summary>
-    /// <param name="itemId">The item id.</param>
-    /// <param name="segment">The segment to persist.</param>
-    /// <param name="cancellationToken">Cancellation token.</param>
-    /// <returns>A <see cref="Task"/> representing the asynchronous operation.</returns>
-    Task ReplaceTypeAsync(Guid itemId, MediaSegmentDto segment, CancellationToken cancellationToken);
-
-    /// <summary>
-    /// Creates the given segment unless an identical entry (same type, start and end ticks,
-    /// any provider) already exists for the item.
-    /// </summary>
-    /// <param name="itemId">The item id.</param>
-    /// <param name="segment">The segment to persist.</param>
-    /// <param name="cancellationToken">Cancellation token.</param>
-    /// <returns>A <see cref="Task"/> representing the asynchronous operation.</returns>
-    Task CreateCommercialIfAbsentAsync(Guid itemId, MediaSegmentDto segment, CancellationToken cancellationToken);
-
-    /// <summary>
     /// Retrieves a segment by item and segment id, regardless of provider.
     /// </summary>
     /// <param name="itemId">The item id that owns the segment.</param>

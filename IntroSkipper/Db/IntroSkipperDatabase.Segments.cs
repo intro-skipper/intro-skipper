@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
 using IntroSkipper.Data;
+using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 
 namespace IntroSkipper.Db;
@@ -12,122 +13,342 @@ namespace IntroSkipper.Db;
 public sealed partial class IntroSkipperDatabase
 {
     /// <inheritdoc/>
-    public async Task UpdateTimestampAsync(
-        Segment segment,
+    public async Task<int> ReplaceAutoSegmentsAsync(
+        Guid itemId,
         AnalysisMode mode,
-        bool isUserProvided = false,
+        IReadOnlyList<Segment> segments,
+        SegmentSource source,
         string configHash = "",
         CancellationToken cancellationToken = default)
     {
-        ArgumentNullException.ThrowIfNull(segment);
+        ArgumentNullException.ThrowIfNull(segments);
+        if (source == SegmentSource.User)
+        {
+            throw new ArgumentException("Analysis writes must not use the User source.", nameof(source));
+        }
 
         await InitializeAsync().ConfigureAwait(false);
         using var db = _contextFactory.CreateDbContext();
 
         try
         {
-            var dbSegment = new DbSegment(segment, mode, isUserProvided, configHash);
-
-            if (mode == AnalysisMode.Commercial)
+            var transaction = await db.Database.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
+            await using (transaction.ConfigureAwait(false))
             {
-                var exists = await db.DbSegment
-                    .AnyAsync(
-                        s => s.ItemId == segment.EpisodeId
-                             && s.Type == mode
-                             && Math.Abs(s.Start - dbSegment.Start) <= SegmentComparisonEpsilon
-                             && Math.Abs(s.End - dbSegment.End) <= SegmentComparisonEpsilon,
-                        cancellationToken)
+                var existing = await db.Segments
+                    .Where(s => s.ItemId == itemId && s.Type == mode)
+                    .ToListAsync(cancellationToken)
                     .ConfigureAwait(false);
 
-                if (!exists)
-                {
-                    db.DbSegment.Add(dbSegment);
-                    await db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
-                }
-            }
-            else
-            {
-                var transaction = await db.Database.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
-                await using (transaction.ConfigureAwait(false))
-                {
-                    var existingSegments = await db.DbSegment
-                        .Where(s => s.ItemId == segment.EpisodeId && s.Type == mode)
+                var tombstones = existing.Where(s => s.State == SegmentState.Suppressed).ToList();
+                var userRows = existing.Where(s => s.State == SegmentState.Active && s.Source == SegmentSource.User).ToList();
+                var autoRows = existing.Where(s => s.State == SegmentState.Active && s.Source != SegmentSource.User).ToList();
+
+                var intros = mode == AnalysisMode.Credits
+                    ? await db.Segments
+                        .AsNoTracking()
+                        .Where(s => s.ItemId == itemId && s.Type == AnalysisMode.Introduction && s.State == SegmentState.Active)
+                        .Select(s => new { s.StartTicks, s.EndTicks })
                         .ToListAsync(cancellationToken)
-                        .ConfigureAwait(false);
+                        .ConfigureAwait(false)
+                    : [];
 
-                    if (!isUserProvided && existingSegments.Any(s => s.IsUserProvided))
+                var accepted = new List<DbSegment>();
+                foreach (var segment in segments.OrderBy(s => s.Start))
+                {
+                    if (!TickConversions.TryFromSeconds(segment.Start, out var startTicks)
+                        || !TickConversions.TryFromSeconds(segment.End, out var endTicks)
+                        || endTicks <= startTicks)
                     {
-                        return;
+                        continue;
                     }
 
-                    if (mode == AnalysisMode.Credits && !isUserProvided)
+                    if (tombstones.Any(t => SegmentWritePolicy.Overlaps(startTicks, endTicks, t.StartTicks, t.EndTicks)))
                     {
-                        var storedIntroduction = await db.DbSegment
-                            .AsNoTracking()
-                            .FirstOrDefaultAsync(
-                                s => s.ItemId == segment.EpisodeId && s.Type == AnalysisMode.Introduction,
-                                cancellationToken)
-                            .ConfigureAwait(false);
-
-                        // Touching segment boundaries do not overlap.
-                        if (storedIntroduction is not null
-                            && segment.Start < storedIntroduction.End
-                            && storedIntroduction.Start < segment.End)
-                        {
-                            LogCreditsOverlapWithIntro(_logger, segment.EpisodeId);
-                            return;
-                        }
+                        LogAutoSegmentSuppressedByTombstone(_logger, mode, itemId);
+                        continue;
                     }
 
-                    if (existingSegments.Count > 0)
+                    if (userRows.Any(u => SegmentWritePolicy.Overlaps(startTicks, endTicks, u.StartTicks, u.EndTicks)))
                     {
-                        db.DbSegment.RemoveRange(existingSegments);
+                        LogAutoSegmentSkippedForUserOverlap(_logger, mode, itemId);
+                        continue;
                     }
 
-                    db.DbSegment.Add(dbSegment);
-                    await db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
-                    await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
+                    if (mode == AnalysisMode.Credits
+                        && intros.Any(i => SegmentWritePolicy.Overlaps(startTicks, endTicks, i.StartTicks, i.EndTicks)))
+                    {
+                        LogCreditsOverlapWithIntro(_logger, itemId);
+                        continue;
+                    }
+
+                    if (accepted.Any(a => a.StartTicks == startTicks && a.EndTicks == endTicks))
+                    {
+                        continue;
+                    }
+
+                    accepted.Add(new DbSegment(itemId, mode, startTicks, endTicks, source, configHash));
                 }
+
+                // Keep automatic rows whose boundaries are unchanged so their ids stay
+                // stable across re-analysis (Jellyfin rows keep the same Guids); replace
+                // the rest.
+                var kept = 0;
+                foreach (var row in autoRows)
+                {
+                    var match = accepted.Find(a => a.StartTicks == row.StartTicks && a.EndTicks == row.EndTicks);
+                    if (match is not null)
+                    {
+                        accepted.Remove(match);
+                        row.Source = source;
+                        row.ConfigHash = configHash;
+                        kept++;
+                    }
+                    else
+                    {
+                        db.Segments.Remove(row);
+                    }
+                }
+
+                db.Segments.AddRange(accepted);
+                await db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+                await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
+                return kept + accepted.Count;
             }
         }
         catch (Exception ex)
         {
-            LogFailedToUpdateTimestamp(_logger, ex, segment.EpisodeId);
+            LogFailedToUpdateSegments(_logger, ex, itemId);
             throw;
         }
     }
 
     /// <inheritdoc/>
-    public async Task<IReadOnlyDictionary<AnalysisMode, Segment>> GetTimestampsAsync(Guid id, CancellationToken cancellationToken = default)
+    public async Task<DbSegment> AddUserSegmentAsync(
+        Guid itemId,
+        AnalysisMode mode,
+        long startTicks,
+        long endTicks,
+        CancellationToken cancellationToken = default)
     {
-        var segments = await GetSegmentsAsync(id, cancellationToken).ConfigureAwait(false);
+        ValidateRange(startTicks, endTicks);
 
-        return ToCanonicalTimestamps(segments);
+        await InitializeAsync().ConfigureAwait(false);
+        using var db = _contextFactory.CreateDbContext();
+
+        var exact = await db.Segments
+            .FirstOrDefaultAsync(
+                s => s.ItemId == itemId && s.Type == mode && s.StartTicks == startTicks && s.EndTicks == endTicks,
+                cancellationToken)
+            .ConfigureAwait(false);
+
+        if (exact is not null)
+        {
+            // Promote an automatic row, revive a tombstone, or return the user row unchanged.
+            exact.State = SegmentState.Active;
+            exact.Source = SegmentSource.User;
+            await db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+            return exact;
+        }
+
+        var row = new DbSegment(itemId, mode, startTicks, endTicks, SegmentSource.User);
+        db.Segments.Add(row);
+        await db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+        return row;
     }
 
-    /// <summary>
-    /// Reduces stored segments to one canonical timestamp per mode: the segment with the
-    /// earliest start wins. Shared by the per-episode timestamp API and the season queue
-    /// snapshot so both surfaces always report the same segment.
-    /// </summary>
-    /// <param name="segments">Stored segments of a single episode.</param>
-    /// <returns>The canonical timestamp per analysis mode.</returns>
-    private static Dictionary<AnalysisMode, Segment> ToCanonicalTimestamps(IEnumerable<DbSegment> segments)
-        => segments
-            .GroupBy(segment => segment.Type)
-            .ToDictionary(
-                group => group.Key,
-                group => group.OrderBy(segment => segment.Start).First().ToSegment());
+    /// <inheritdoc/>
+    public async Task<DbSegment> ReplaceUserSegmentAsync(
+        Guid itemId,
+        AnalysisMode mode,
+        long startTicks,
+        long endTicks,
+        CancellationToken cancellationToken = default)
+    {
+        ValidateRange(startTicks, endTicks);
+
+        await InitializeAsync().ConfigureAwait(false);
+        using var db = _contextFactory.CreateDbContext();
+
+        var transaction = await db.Database.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
+        await using (transaction.ConfigureAwait(false))
+        {
+            var existing = await db.Segments
+                .Where(s => s.ItemId == itemId && s.Type == mode)
+                .ToListAsync(cancellationToken)
+                .ConfigureAwait(false);
+
+            db.Segments.RemoveRange(existing.Where(s => s.State == SegmentState.Active));
+
+            // A tombstone with exactly the new range would collide on the unique index:
+            // revive it as the user segment instead of inserting.
+            var row = existing.Find(s => s.State == SegmentState.Suppressed && s.StartTicks == startTicks && s.EndTicks == endTicks);
+            if (row is not null)
+            {
+                row.State = SegmentState.Active;
+                row.Source = SegmentSource.User;
+            }
+            else
+            {
+                row = new DbSegment(itemId, mode, startTicks, endTicks, SegmentSource.User);
+                db.Segments.Add(row);
+            }
+
+            await db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+            await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
+            return row;
+        }
+    }
 
     /// <inheritdoc/>
-    public async Task<IReadOnlyList<DbSegment>> GetSegmentsAsync(Guid id, CancellationToken cancellationToken = default)
+    public async Task<DbSegment?> UpdateSegmentAsync(
+        Guid segmentId,
+        long startTicks,
+        long endTicks,
+        CancellationToken cancellationToken = default)
+    {
+        ValidateRange(startTicks, endTicks);
+
+        await InitializeAsync().ConfigureAwait(false);
+        using var db = _contextFactory.CreateDbContext();
+
+        var row = await db.Segments
+            .FirstOrDefaultAsync(s => s.Id == segmentId, cancellationToken)
+            .ConfigureAwait(false);
+        if (row is null || row.State == SegmentState.Suppressed)
+        {
+            return null;
+        }
+
+        var conflict = await db.Segments
+            .AnyAsync(
+                s => s.Id != segmentId
+                    && s.ItemId == row.ItemId
+                    && s.Type == row.Type
+                    && s.StartTicks == startTicks
+                    && s.EndTicks == endTicks,
+                cancellationToken)
+            .ConfigureAwait(false);
+        if (conflict)
+        {
+            throw new SegmentConflictException($"Another {row.Type} segment of item {row.ItemId} already covers exactly this range.");
+        }
+
+        row.StartTicks = startTicks;
+        row.EndTicks = endTicks;
+        row.Source = SegmentSource.User;
+        await db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+        return row;
+    }
+
+    /// <inheritdoc/>
+    public async Task<SegmentDeleteResult> DeleteSegmentAsync(Guid segmentId, CancellationToken cancellationToken = default)
     {
         await InitializeAsync().ConfigureAwait(false);
         using var db = _contextFactory.CreateDbContext();
 
-        return await db.DbSegment
+        var row = await db.Segments
+            .FirstOrDefaultAsync(s => s.Id == segmentId, cancellationToken)
+            .ConfigureAwait(false);
+        if (row is null || row.State == SegmentState.Suppressed)
+        {
+            return new SegmentDeleteResult(null, false);
+        }
+
+        var snapshot = row.Clone();
+        if (row.Source == SegmentSource.User)
+        {
+            db.Segments.Remove(row);
+            await db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+            return new SegmentDeleteResult(snapshot, false);
+        }
+
+        row.State = SegmentState.Suppressed;
+        await db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+        return new SegmentDeleteResult(snapshot, true);
+    }
+
+    /// <inheritdoc/>
+    public async Task UndoDeleteAsync(SegmentDeleteResult deleteResult, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(deleteResult);
+        if (deleteResult.Deleted is null)
+        {
+            return;
+        }
+
+        await InitializeAsync().ConfigureAwait(false);
+        using var db = _contextFactory.CreateDbContext();
+
+        var row = await db.Segments
+            .FirstOrDefaultAsync(s => s.Id == deleteResult.Deleted.Id, cancellationToken)
+            .ConfigureAwait(false);
+
+        if (row is not null)
+        {
+            row.State = deleteResult.Deleted.State;
+            row.Source = deleteResult.Deleted.Source;
+        }
+        else
+        {
+            db.Segments.Add(deleteResult.Deleted.Clone());
+        }
+
+        try
+        {
+            await db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+        }
+        catch (DbUpdateException ex) when (IsUniqueConstraintViolation(ex))
+        {
+            // An equivalent row appeared in the meantime — the restore's intent is met.
+        }
+    }
+
+    /// <inheritdoc/>
+    public async Task<bool> RestoreSegmentAsync(Guid segmentId, CancellationToken cancellationToken = default)
+    {
+        await InitializeAsync().ConfigureAwait(false);
+        using var db = _contextFactory.CreateDbContext();
+
+        var row = await db.Segments
+            .FirstOrDefaultAsync(s => s.Id == segmentId, cancellationToken)
+            .ConfigureAwait(false);
+        if (row is null || row.State != SegmentState.Suppressed)
+        {
+            return false;
+        }
+
+        row.State = SegmentState.Active;
+        await db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+        return true;
+    }
+
+    /// <inheritdoc/>
+    public async Task<DbSegment?> GetSegmentAsync(Guid segmentId, CancellationToken cancellationToken = default)
+    {
+        await InitializeAsync().ConfigureAwait(false);
+        using var db = _contextFactory.CreateDbContext();
+
+        return await db.Segments
             .AsNoTracking()
-            .Where(s => s.ItemId == id)
+            .FirstOrDefaultAsync(s => s.Id == segmentId, cancellationToken)
+            .ConfigureAwait(false);
+    }
+
+    /// <inheritdoc/>
+    public async Task<IReadOnlyList<DbSegment>> GetSegmentsAsync(
+        Guid itemId,
+        bool includeSuppressed = false,
+        CancellationToken cancellationToken = default)
+    {
+        await InitializeAsync().ConfigureAwait(false);
+        using var db = _contextFactory.CreateDbContext();
+
+        return await db.Segments
+            .AsNoTracking()
+            .Where(s => s.ItemId == itemId && (includeSuppressed || s.State == SegmentState.Active))
+            .OrderBy(s => s.Type)
+            .ThenBy(s => s.StartTicks)
             .ToListAsync(cancellationToken)
             .ConfigureAwait(false);
     }
@@ -137,44 +358,10 @@ public sealed partial class IntroSkipperDatabase
     {
         await InitializeAsync().ConfigureAwait(false);
         using var db = _contextFactory.CreateDbContext();
-        await db.DbSegment
+        await db.Segments
             .Where(s => s.ItemId == itemId)
             .ExecuteDeleteAsync(cancellationToken)
             .ConfigureAwait(false);
-    }
-
-    /// <inheritdoc/>
-    public async Task<IReadOnlyList<DbSegment>> DeleteTimestampAsync(
-        Guid itemId,
-        AnalysisMode mode,
-        Segment? segment = null,
-        CancellationToken cancellationToken = default)
-    {
-        if (segment is null && mode == AnalysisMode.Commercial)
-        {
-            return [];
-        }
-
-        await InitializeAsync().ConfigureAwait(false);
-        using var db = _contextFactory.CreateDbContext();
-
-        var query = db.DbSegment.Where(s => s.ItemId == itemId && s.Type == mode);
-
-        if (segment is not null)
-        {
-            query = query.Where(s =>
-                Math.Abs(s.Start - segment.Start) <= SegmentComparisonEpsilon
-                && Math.Abs(s.End - segment.End) <= SegmentComparisonEpsilon);
-        }
-
-        var entries = await query.ToListAsync(cancellationToken).ConfigureAwait(false);
-        if (entries.Count > 0)
-        {
-            db.DbSegment.RemoveRange(entries);
-            await db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
-        }
-
-        return entries;
     }
 
     /// <inheritdoc/>
@@ -182,7 +369,7 @@ public sealed partial class IntroSkipperDatabase
     {
         await InitializeAsync().ConfigureAwait(false);
         using var db = _contextFactory.CreateDbContext();
-        await db.DbSegment
+        await db.Segments
             .Where(s => s.Type == mode)
             .ExecuteDeleteAsync(cancellationToken)
             .ConfigureAwait(false);
@@ -204,9 +391,18 @@ public sealed partial class IntroSkipperDatabase
 
         // EF.Parameter binds the ID set as a single JSON parameter (json_each), so the
         // delete is one statement regardless of the item count.
-        return await db.DbSegment
+        return await db.Segments
             .Where(s => EF.Parameter(ids).Contains(s.ItemId))
             .ExecuteDeleteAsync(cancellationToken)
             .ConfigureAwait(false);
     }
+
+    private static void ValidateRange(long startTicks, long endTicks)
+    {
+        ArgumentOutOfRangeException.ThrowIfNegative(startTicks);
+        ArgumentOutOfRangeException.ThrowIfLessThanOrEqual(endTicks, startTicks);
+    }
+
+    private static bool IsUniqueConstraintViolation(DbUpdateException exception)
+        => exception.InnerException is SqliteException { SqliteErrorCode: 19 };
 }

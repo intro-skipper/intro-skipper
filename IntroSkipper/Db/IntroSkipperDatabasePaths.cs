@@ -20,7 +20,14 @@ internal static class IntroSkipperDatabasePaths
     /// <summary>
     /// File name of the segment database.
     /// </summary>
-    internal const string SegmentDatabaseFileName = "introskipper.db";
+    internal const string SegmentDatabaseFileName = "introskipper-v2.db";
+
+    /// <summary>
+    /// File name of the legacy segment database. Read once (read-only) by
+    /// <see cref="LegacyDatabaseImporter"/> and never modified, so downgrading
+    /// to a pre-v2 plugin keeps working.
+    /// </summary>
+    internal const string LegacySegmentDatabaseFileName = "introskipper.db";
 
     /// <summary>
     /// File name of the detection cache database.
@@ -48,6 +55,15 @@ internal static class IntroSkipperDatabasePaths
     /// <returns>The segment database path.</returns>
     internal static string GetSegmentDatabasePath(IApplicationPaths applicationPaths)
         => Path.Join(GetPluginDirectory(applicationPaths), SegmentDatabaseFileName);
+
+    /// <summary>
+    /// Returns the legacy segment database path that sits next to the given current
+    /// segment database path.
+    /// </summary>
+    /// <param name="segmentDatabasePath">Path of the current segment database.</param>
+    /// <returns>The legacy segment database path.</returns>
+    internal static string GetLegacySegmentDatabasePath(string segmentDatabasePath)
+        => Path.Join(Path.GetDirectoryName(segmentDatabasePath), LegacySegmentDatabaseFileName);
 
     /// <summary>
     /// Returns the full path of the detection cache database, creating the containing directory when missing.
