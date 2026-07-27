@@ -105,19 +105,20 @@ export function episodeList(): {
                 className: "ts-episode-disable-toggle",
                 type: "checkbox",
             });
-            toggle.checked = disabled;
-            toggle.setAttribute("aria-label", "Exclude " + ep.Name + " from media segments");
-            toggle.title = "Exclude this episode from media segments";
+            toggle.checked = !disabled;
+            toggle.setAttribute("aria-label", "Enable " + ep.Name + " media segments");
+            toggle.title = "Turn off to disable media segments for this episode";
             toggle.addEventListener("change", async () => {
                 toggle.disabled = true;
                 try {
-                    await onDisabledChange?.(ep.Id, toggle.checked);
-                    if (toggle.checked) {
+                    const nowDisabled = !toggle.checked;
+                    await onDisabledChange?.(ep.Id, nowDisabled);
+                    if (nowDisabled) {
                         currentDisabledEpisodeIds.add(ep.Id);
                     } else {
                         currentDisabledEpisodeIds.delete(ep.Id);
                     }
-                    card.classList.toggle("ts-episode-disabled", toggle.checked);
+                    card.classList.toggle("ts-episode-disabled", nowDisabled);
                 } catch {
                     toggle.checked = !toggle.checked;
                     window.Dashboard.alert("Failed to update media-segment setting");
