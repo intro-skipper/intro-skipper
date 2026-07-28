@@ -8,6 +8,7 @@ import { episodeList } from "../components/episode-list.ts";
 import { actionBar } from "../components/action-bar.ts";
 import { clickableCard } from "../components/clickable-card.ts";
 import { createManageBar } from "../components/manage-bar.ts";
+import * as api from "../store/api.ts";
 
 export function createTimestampsBrowser(container: HTMLElement): { destroy: () => void } {
     const nav$ = createNavState();
@@ -284,7 +285,7 @@ export function createTimestampsBrowser(container: HTMLElement): { destroy: () =
 
         nav$.showDashboardLoading();
         try {
-            const { episodes, timestamps } = await tsData.getEpisodesWithTimestamps(
+            const { episodes, timestamps, disabledEpisodeIds } = await tsData.getEpisodesWithTimestamps(
                 show.Id,
                 season.Id,
             );
@@ -295,7 +296,16 @@ export function createTimestampsBrowser(container: HTMLElement): { destroy: () =
                 return;
             }
 
-            epList.render(episodes, timestamps);
+            epList.render(episodes, timestamps, false, disabledEpisodeIds, async (episodeId, disabled) => {
+                const response = await api.updateMediaSegmentExcludedEpisode(
+                    season.Id,
+                    episodeId,
+                    disabled,
+                );
+                if (!response.ok) {
+                    throw new Error("Failed to update media-segment setting");
+                }
+            });
             await actions.loadForSeason(show.Id, season.Id, false);
         } catch (err) {
             if (!nav$.isCurrentPanel(panelToken)) return;

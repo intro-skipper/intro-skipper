@@ -18,6 +18,27 @@ namespace IntroSkipper.Tests;
 public sealed class TestDbSegmentStorage
 {
     [Fact]
+    public async Task DisabledEpisodesUseSeasonAndEpisodeAsCompositeKey()
+    {
+        await using var connection = new SqliteConnection("Data Source=:memory:");
+        await connection.OpenAsync();
+        var options = new DbContextOptionsBuilder<IntroSkipperDbContext>()
+            .UseSqlite(connection)
+            .Options;
+        await using var db = new IntroSkipperDbContext(options);
+        await db.Database.EnsureCreatedAsync();
+
+        var episodeId = Guid.NewGuid();
+        db.DbDisabledEpisode.AddRange(
+            new DbDisabledEpisode(Guid.NewGuid(), episodeId),
+            new DbDisabledEpisode(Guid.NewGuid(), episodeId));
+
+        await db.SaveChangesAsync();
+
+        Assert.Equal(2, await db.DbDisabledEpisode.CountAsync());
+    }
+
+    [Fact]
     public void AllowsMultipleCommercialSegments()
     {
         using var connection = new SqliteConnection("Data Source=:memory:");
@@ -150,7 +171,7 @@ public sealed class TestDbSegmentStorage
     }
 
     [Fact]
-    public async Task CleanTimestampsAsync_DoesNotExceedSqliteVariableLimit_WhenEpisodeListIsLarge()
+    public async Task TimestampCleanup_DoesNotExceedSqliteVariableLimit_WhenEpisodeListIsLarge()
     {
         const int LargeEpisodeCount = 33_000;
 
@@ -181,7 +202,15 @@ public sealed class TestDbSegmentStorage
                 var plugin = Plugin.Instance!;
                 EntrypointTestHelpers.SetPrivateField(plugin, "_dbPath", dbPath);
 
-                await Plugin.CleanTimestampsAsync(enabledEpisodeIds);
+                var staleEpisodeIds = await Plugin.GetStaleTimestampEpisodeIdsAsync(enabledEpisodeIds);
+                Assert.Equal([staleItemId], staleEpisodeIds);
+
+                using (var db = new IntroSkipperDbContext(dbPath))
+                {
+                    Assert.Equal(2, db.DbSegment.Count());
+                }
+
+                await Plugin.DeleteTimestampsAsync(staleEpisodeIds);
             }
 
             using (var db = new IntroSkipperDbContext(dbPath))

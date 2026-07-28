@@ -22,4 +22,12 @@ public interface IMediaSegmentRefresher
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>A <see cref="Task"/> representing the asynchronous operation.</returns>
     Task RefreshAsync(IEnumerable<Guid> itemIds, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Removes Intro Skipper-owned media segments by refreshing items with only other providers.
+    /// </summary>
+    /// <param name="itemIds">The item ids whose Intro Skipper segments should be removed.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>A <see cref="Task"/> representing the asynchronous operation.</returns>
+    Task RemoveIntroSkipperSegmentsAsync(IEnumerable<Guid> itemIds, CancellationToken cancellationToken = default);
 }

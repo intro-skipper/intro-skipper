@@ -35,6 +35,7 @@ public partial class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
 {
     private const double SegmentComparisonEpsilon = 0.001;
     private const int SqliteParameterBatchSize = 500;
+    internal const string ProviderName = "Intro Skipper";
     private readonly ILibraryManager _libraryManager;
     private readonly IChapterManager _chapterRepository;
     private readonly IPluginManager _pluginManager;
@@ -159,7 +160,7 @@ public partial class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
     public string FFmpegPath { get; private set; }
 
     /// <inheritdoc />
-    public override string Name => "Intro Skipper";
+    public override string Name => ProviderName;
 
     /// <inheritdoc />
     public override Guid Id => Guid.Parse("c83d86bb-a1e0-4c35-a113-e2101cf4ee6b");
@@ -333,7 +334,9 @@ public partial class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
             .ConfigureAwait(false);
     }
 
-    internal static async Task CleanTimestampsAsync(IEnumerable<Guid> episodeIds, CancellationToken cancellationToken = default)
+    internal static async Task<IReadOnlyCollection<Guid>> GetStaleTimestampEpisodeIdsAsync(
+        IEnumerable<Guid> episodeIds,
+        CancellationToken cancellationToken = default)
     {
         var enabledEpisodeIds = episodeIds.ToHashSet();
 
@@ -345,14 +348,26 @@ public partial class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
             .ToListAsync(cancellationToken)
             .ConfigureAwait(false);
 
-        var staleEpisodeIds = segmentEpisodeIds
+        return segmentEpisodeIds
             .Where(id => !enabledEpisodeIds.Contains(id))
             .ToArray();
+    }
 
-        foreach (var staleEpisodeIdBatch in staleEpisodeIds.Chunk(SqliteParameterBatchSize))
+    internal static async Task DeleteTimestampsAsync(
+        IEnumerable<Guid> episodeIds,
+        CancellationToken cancellationToken = default)
+    {
+        var episodeIdArray = episodeIds.Distinct().ToArray();
+        if (episodeIdArray.Length == 0)
+        {
+            return;
+        }
+
+        using var db = CreateDbContext();
+        foreach (var episodeIdBatch in episodeIdArray.Chunk(SqliteParameterBatchSize))
         {
             await db.DbSegment
-                .Where(s => staleEpisodeIdBatch.Contains(s.ItemId))
+                .Where(s => episodeIdBatch.Contains(s.ItemId))
                 .ExecuteDeleteAsync(cancellationToken)
                 .ConfigureAwait(false);
         }
@@ -379,6 +394,68 @@ public partial class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
         }
 
         await db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Gets the episodes excluded from media-segment output in a season.
+    /// </summary>
+    /// <param name="seasonId">Season identifier.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>Disabled episode identifiers.</returns>
+    internal static async Task<IReadOnlySet<Guid>> GetMediaSegmentExcludedEpisodeIdsAsync(Guid seasonId, CancellationToken cancellationToken = default)
+    {
+        using var db = CreateDbContext();
+        var ids = await db.DbDisabledEpisode
+            .AsNoTracking()
+            .Where(e => e.SeasonId == seasonId)
+            .Select(e => e.EpisodeId)
+            .ToListAsync(cancellationToken)
+            .ConfigureAwait(false);
+        return ids.ToHashSet();
+    }
+
+    /// <summary>
+    /// Sets whether an episode is excluded from media-segment output.
+    /// </summary>
+    /// <param name="seasonId">Season identifier.</param>
+    /// <param name="episodeId">Episode identifier.</param>
+    /// <param name="excluded">Whether the episode is excluded from media-segment output.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>A task representing the asynchronous update operation.</returns>
+    internal static async Task SetMediaSegmentExcludedAsync(Guid seasonId, Guid episodeId, bool excluded, CancellationToken cancellationToken = default)
+    {
+        using var db = CreateDbContext();
+        var existing = await db.DbDisabledEpisode.FindAsync([seasonId, episodeId], cancellationToken).ConfigureAwait(false);
+
+        if (excluded)
+        {
+            if (existing is null)
+            {
+                db.DbDisabledEpisode.Add(new DbDisabledEpisode(seasonId, episodeId));
+            }
+        }
+        else if (existing is not null)
+        {
+            db.DbDisabledEpisode.Remove(existing);
+        }
+
+        await db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Gets the segments for an episode, returning none when the episode is excluded from media-segment output.
+    /// </summary>
+    /// <param name="id">Episode identifier.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>The episode's segments, or an empty list when the episode is excluded.</returns>
+    internal static async Task<IReadOnlyList<DbSegment>> GetSegmentsUnlessExcludedAsync(Guid id, CancellationToken cancellationToken = default)
+    {
+        using var db = CreateDbContext();
+        return await db.DbSegment
+            .AsNoTracking()
+            .Where(s => s.ItemId == id && !db.DbDisabledEpisode.Any(e => e.EpisodeId == id))
+            .ToListAsync(cancellationToken)
+            .ConfigureAwait(false);
     }
 
     internal static async Task SetEpisodeIdsAsync(Guid id, AnalysisMode mode, IEnumerable<Guid> episodeIds, string configHash = "", CancellationToken cancellationToken = default)
@@ -692,6 +769,10 @@ public partial class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
         using var db = CreateDbContext();
         await db.DbSeasonState
             .Where(s => !ids.Contains(s.SeasonId))
+            .ExecuteDeleteAsync(cancellationToken)
+            .ConfigureAwait(false);
+        await db.DbDisabledEpisode
+            .Where(e => !ids.Contains(e.SeasonId))
             .ExecuteDeleteAsync(cancellationToken)
             .ConfigureAwait(false);
     }

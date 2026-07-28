@@ -21,6 +21,8 @@ export function episodeList(): {
         episodes: EpisodeItem[],
         timestamps: Array<ApiResult<TimestampMap> | null>,
         isMovie?: boolean,
+        disabledEpisodeIds?: string[],
+        onEpisodeDisabledChange?: (episodeId: string, disabled: boolean) => Promise<void>,
     ) => void;
     clear: () => void;
     setStatus: (msg: string, color?: string) => void;
@@ -60,6 +62,8 @@ export function episodeList(): {
     }
 
     let isMovieView = false;
+    let currentDisabledEpisodeIds = new Set<string>();
+    let onDisabledChange: ((episodeId: string, disabled: boolean) => Promise<void>) | null = null;
 
     function buildCard(
         ep: EpisodeItem,
@@ -94,6 +98,37 @@ export function episodeList(): {
             header.append(el("span", { className: "ts-episode-runtime" }, runtime));
         }
         info.append(header);
+
+        if (!isMovieView) {
+            const disabled = currentDisabledEpisodeIds.has(ep.Id);
+            const toggle = el("input", {
+                className: "ts-episode-disable-toggle",
+                type: "checkbox",
+            });
+            toggle.checked = !disabled;
+            toggle.setAttribute("aria-label", "Enable " + ep.Name + " media segments");
+            toggle.title = "Turn off to disable media segments for this episode";
+            toggle.addEventListener("change", async () => {
+                toggle.disabled = true;
+                try {
+                    const nowDisabled = !toggle.checked;
+                    await onDisabledChange?.(ep.Id, nowDisabled);
+                    if (nowDisabled) {
+                        currentDisabledEpisodeIds.add(ep.Id);
+                    } else {
+                        currentDisabledEpisodeIds.delete(ep.Id);
+                    }
+                    card.classList.toggle("ts-episode-disabled", nowDisabled);
+                } catch {
+                    toggle.checked = !toggle.checked;
+                    window.Dashboard.alert("Failed to update media-segment setting");
+                } finally {
+                    toggle.disabled = false;
+                }
+            });
+            header.append(toggle);
+            card.classList.toggle("ts-episode-disabled", disabled);
+        }
 
         if (!result || !result.ok) {
             card.classList.add("error");
@@ -181,8 +216,12 @@ export function episodeList(): {
             episodes: EpisodeItem[],
             timestamps: Array<ApiResult<TimestampMap> | null>,
             isMovie = false,
+            disabledEpisodeIds: string[] = [],
+            onEpisodeDisabledChange: ((episodeId: string, disabled: boolean) => Promise<void>) | undefined,
         ) {
             isMovieView = isMovie;
+            currentDisabledEpisodeIds = new Set(disabledEpisodeIds);
+            onDisabledChange = onEpisodeDisabledChange ?? null;
             currentEpisodes = episodes;
             listEl.replaceChildren();
             currentCards = [];
@@ -209,6 +248,8 @@ export function episodeList(): {
             listEl.replaceChildren();
             currentCards = [];
             currentEpisodes = [];
+            currentDisabledEpisodeIds.clear();
+            onDisabledChange = null;
             if (filterTimer) clearTimeout(filterTimer);
             countEl.textContent = "";
             filterInput.value = "";
