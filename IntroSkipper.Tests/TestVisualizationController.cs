@@ -139,11 +139,15 @@ public sealed class TestVisualizationController
 
         Assert.IsType<NoContentResult>(disableResult);
         Assert.Equal([episodeIds[0]], refresher.LastItemIds);
+        Assert.Equal(1, refresher.RefreshCallCount);
+        Assert.Equal(0, refresher.RemoveCallCount);
         await using (var db = new IntroSkipperDbContext(dbPath))
         {
             Assert.True(await db.DbDisabledEpisode.AnyAsync(e => e.SeasonId == seasonId && e.EpisodeId == episodeIds[0]));
         }
-        Assert.Empty(await Plugin.GetSegmentsUnlessExcludedAsync(episodeIds[0]));
+        var disabledSegments = await Plugin.GetSegmentsUnlessExcludedAsync(episodeIds[0]);
+        var retainedSegment = Assert.Single(disabledSegments);
+        Assert.True(retainedSegment.IsUserProvided);
         Assert.Single(await Plugin.GetSegmentsUnlessExcludedAsync(episodeIds[1]));
 
         var disabled = await controller.GetDisabledEpisodes(seasonId, CancellationToken.None);
@@ -156,6 +160,8 @@ public sealed class TestVisualizationController
 
         Assert.IsType<NoContentResult>(enableResult);
         Assert.Single(await Plugin.GetSegmentsUnlessExcludedAsync(episodeIds[0]));
+        Assert.Equal(2, refresher.RefreshCallCount);
+        Assert.Equal(0, refresher.RemoveCallCount);
         await using (var db = new IntroSkipperDbContext(dbPath))
         {
             Assert.False(await db.DbDisabledEpisode.AnyAsync(e => e.SeasonId == seasonId && e.EpisodeId == episodeIds[0]));
@@ -203,7 +209,8 @@ public sealed class TestVisualizationController
         await using var db = new IntroSkipperDbContext(dbPath);
         await db.Database.EnsureCreatedAsync();
         db.DbSegment.AddRange(
-            new DbSegment(new Segment(episodeIds[0], new TimeRange(10, 20)), AnalysisMode.Introduction),
+            new DbSegment(new Segment(episodeIds[0], new TimeRange(10, 20)), AnalysisMode.Introduction, isUserProvided: true),
+            new DbSegment(new Segment(episodeIds[0], new TimeRange(20, 30)), AnalysisMode.Credits),
             new DbSegment(new Segment(episodeIds[1], new TimeRange(30, 40)), AnalysisMode.Introduction));
         db.DbSeasonState.AddRange(
             new DbSeasonState(seasonId, AnalysisMode.Introduction, AnalyzerAction.Default, episodeIds),
@@ -233,6 +240,10 @@ public sealed class TestVisualizationController
 
         public int CollectionCallCount { get; private set; }
 
+        public int RefreshCallCount { get; private set; }
+
+        public int RemoveCallCount { get; private set; }
+
         public IReadOnlyList<Guid> LastItemIds { get; private set; } = [];
 
         public Task RefreshAsync(BaseItem item, CancellationToken cancellationToken = default)
@@ -243,12 +254,17 @@ public sealed class TestVisualizationController
 
         public Task RefreshAsync(IEnumerable<Guid> itemIds, CancellationToken cancellationToken = default)
         {
+            RefreshCallCount++;
             CollectionCallCount++;
             LastItemIds = [.. itemIds];
             return Completion?.Task ?? Task.CompletedTask;
         }
 
         public Task RemoveIntroSkipperSegmentsAsync(IEnumerable<Guid> itemIds, CancellationToken cancellationToken = default)
-            => RefreshAsync(itemIds, cancellationToken);
+        {
+            RemoveCallCount++;
+            LastItemIds = [.. itemIds];
+            return Completion?.Task ?? Task.CompletedTask;
+        }
     }
 }

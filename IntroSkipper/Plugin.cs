@@ -443,17 +443,19 @@ public partial class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
     }
 
     /// <summary>
-    /// Gets the segments for an episode, returning none when the episode is excluded from media-segment output.
+    /// Gets the segments for an episode, excluding automatically generated segments when the episode is
+    /// excluded from media-segment output while retaining user-provided segments.
     /// </summary>
     /// <param name="id">Episode identifier.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
-    /// <returns>The episode's segments, or an empty list when the episode is excluded.</returns>
+    /// <returns>The episode's media-segment output.</returns>
     internal static async Task<IReadOnlyList<DbSegment>> GetSegmentsUnlessExcludedAsync(Guid id, CancellationToken cancellationToken = default)
     {
         using var db = CreateDbContext();
         return await db.DbSegment
             .AsNoTracking()
-            .Where(s => s.ItemId == id && !db.DbDisabledEpisode.Any(e => e.EpisodeId == id))
+            .Where(s => s.ItemId == id &&
+                        (!db.DbDisabledEpisode.Any(e => e.EpisodeId == id) || s.IsUserProvided))
             .ToListAsync(cancellationToken)
             .ConfigureAwait(false);
     }
