@@ -74,6 +74,31 @@ public sealed class TestMediaSegmentRefreshService
     }
 
     [Fact]
+    public async Task RefreshAsync_DisabledEpisode_PreservesUserProvidedSegmentsOnly()
+    {
+        var itemId = Guid.NewGuid();
+        var database = DatabaseTestHelpers.CreateTempSegmentDatabase();
+        await database.UpdateTimestampAsync(
+            new Segment(itemId, new TimeRange(100, 160)),
+            AnalysisMode.Introduction,
+            isUserProvided: true);
+        await database.UpdateTimestampAsync(
+            new Segment(itemId, new TimeRange(1200, 1260)),
+            AnalysisMode.Credits);
+        await database.SetEpisodeAnalysisDisabledAsync(Guid.NewGuid(), itemId, disabled: true);
+
+        var store = new FakeJellyfinSegmentStore();
+        var refresher = CreateRefresher(store, segmentDtoFactory: new SegmentDtoFactory(database));
+
+        await refresher.RefreshAsync(CreateMovie(itemId), CancellationToken.None);
+
+        var (_, pushed) = Assert.Single(store.ReplacedItems);
+        var intro = Assert.Single(pushed);
+        Assert.Equal(MediaSegmentType.Intro, intro.Type);
+        Assert.Equal(TimeSpan.FromSeconds(100).Ticks, intro.StartTicks);
+    }
+
+    [Fact]
     public async Task RefreshAsync_LogsAndReturnsAfterStoreFailure()
     {
         var itemId = Guid.NewGuid();

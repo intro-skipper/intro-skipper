@@ -497,12 +497,6 @@ public partial class QueueManager(ILogger<QueueManager> logger, ILibraryManager 
                     continue;
                 }
 
-                if (snapshot.DisabledEpisodeIds.Contains(candidate.EpisodeId))
-                {
-                    LogSkippingDisabledEpisode(_logger, candidate.Name, candidate.EpisodeId);
-                    continue;
-                }
-
                 var decision = candidate.Category == QueuedMediaCategory.Movie
                     ? policy.EvaluateMovie(candidate.Name, candidate.EpisodeId, path)
                     : policy.EvaluateSeries(candidate.SeriesName, candidate.SeriesId, path);

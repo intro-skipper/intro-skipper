@@ -606,7 +606,9 @@ public class IntroSkipperDbContext : DbContext
             && ColumnExists("DbSeasonState", "EpisodeIds")
             && ColumnExists("DbSeasonState", "ConfigHash")
             && ColumnExists("DbSeasonState", "SettledReanalysisEpisodeIds")
-            && IndexExists("DbSeasonState", "IX_DbSeasonState_SeasonId");
+            && IndexExists("DbSeasonState", "IX_DbSeasonState_SeasonId")
+            && TableExists("DbDisabledEpisode")
+            && IndexExists("DbDisabledEpisode", "IX_DbDisabledEpisode_EpisodeId");
     }
 
     private void InsertMigrationHistoryRecord(string migrationId)

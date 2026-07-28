@@ -108,14 +108,10 @@ public partial class VisualizationController(ILogger<VisualizationController> lo
             request.Disabled,
             cancellationToken).ConfigureAwait(false);
 
-        if (request.Disabled)
-        {
-            await _mediaSegmentRefresher.RemoveIntroSkipperSegmentsAsync([request.EpisodeId], cancellationToken).ConfigureAwait(false);
-        }
-        else
-        {
-            await _mediaSegmentRefresher.RefreshAsync([request.EpisodeId], cancellationToken).ConfigureAwait(false);
-        }
+        // Rebuild the item's mirror in both directions. For a disabled episode the
+        // factory filters automatic rows while retaining user-provided rows, so this
+        // removes only the segments that the toggle is meant to suppress.
+        await _mediaSegmentRefresher.RefreshAsync([request.EpisodeId], cancellationToken).ConfigureAwait(false);
 
         return NoContent();
     }

@@ -30,11 +30,19 @@ public sealed class SegmentDtoFactory(IIntroSkipperDatabase database)
     public async Task<IReadOnlyList<MediaSegmentDto>> CreateAsync(Guid itemId, CancellationToken cancellationToken)
     {
         var segments = new List<MediaSegmentDto>();
+        var isExcluded = await _database.IsEpisodeAnalysisDisabledAsync(itemId, cancellationToken).ConfigureAwait(false);
         var itemSegments = await _database.GetSegmentsAsync(itemId, cancellationToken).ConfigureAwait(false);
         var dedupedModes = new HashSet<AnalysisMode>();
 
         foreach (var segment in itemSegments.OrderBy(static segment => segment.Start))
         {
+            // Disabled episodes may still be analyzed and retain local timestamps, but
+            // only explicitly user-provided rows are allowed to reach Jellyfin.
+            if (isExcluded && !segment.IsUserProvided)
+            {
+                continue;
+            }
+
             if (!AnalysisHelpers.ModeToSegmentType.TryGetValue(segment.Type, out var type))
             {
                 continue;

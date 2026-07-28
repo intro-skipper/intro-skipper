@@ -698,7 +698,7 @@ public sealed class TestSeasonReanalysisReset
     }
 
     [Fact]
-    public async Task VerifyQueueAsync_SkipsEpisodeDisabledForAnalysis()
+    public async Task VerifyQueueAsync_AnalyzesEpisodeDisabledForMediaSegments()
     {
         var tempDir = Path.Join(Path.GetTempPath(), "IntroSkipper.Tests");
         Directory.CreateDirectory(tempDir);
@@ -746,7 +746,8 @@ public sealed class TestSeasonReanalysisReset
                     }],
                     [AnalysisMode.Introduction]);
 
-                Assert.Empty(verified);
+                var queued = Assert.Single(verified);
+                Assert.Equal(episodeId, queued.EpisodeId);
             }
         }
         finally

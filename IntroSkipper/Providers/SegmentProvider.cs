@@ -34,11 +34,6 @@ namespace IntroSkipper.Providers
         {
             ArgumentNullException.ThrowIfNull(request);
 
-            if (await _database.IsEpisodeAnalysisDisabledAsync(request.ItemId, cancellationToken).ConfigureAwait(false))
-            {
-                return [];
-            }
-
             return await _segmentDtoFactory.CreateAsync(request.ItemId, cancellationToken).ConfigureAwait(false);
         }
 
