@@ -10,8 +10,12 @@ using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Reflection;
+using System.Threading;
+using System.Threading.Tasks;
 using IntroSkipper.Analyzers;
+using IntroSkipper.Configuration;
 using IntroSkipper.Data;
+using IntroSkipper.FFmpeg;
 using MediaBrowser.Controller.Chapters;
 using MediaBrowser.Model.Entities;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -95,6 +99,43 @@ public class TestChapterAnalyzer
         var recap = ChapterAnalyzer.BuildRecapFromBlackFrames(Guid.NewGuid(), frames, minimumRecapDuration: 5, maximumRecapBoundary: 120);
 
         Assert.Null(recap);
+    }
+
+    [Fact]
+    public async Task DetectAdaptiveRecapBlackFrames_UsesAdaptiveThresholdWithCurrentBlackFrameScan()
+    {
+        var config = new PluginConfiguration
+        {
+            BlackFrameMinimumPercentage = 85,
+            BlackFrameThreshold = 32,
+            MinimumRecapDetectionDuration = 5,
+            MaximumRecapDetectionDuration = 120,
+        };
+        var ffmpeg = new RecapBlackFrameFfmpeg(
+        [
+            new(50, 20, 10),
+            new(95, 40, 20),
+            new(88, 80, 30),
+        ]);
+        var analyzer = new ChapterAnalyzer(
+            NullLogger<ChapterAnalyzer>.Instance,
+            ffmpeg,
+            DatabaseTestHelpers.CreateTempSegmentDatabase(),
+            config);
+        var episode = new QueuedEpisode { EpisodeId = Guid.NewGuid(), Duration = 200, Path = "episode.mkv" };
+
+        var blackFrames = await analyzer.DetectAdaptiveRecapBlackFramesAsync(episode, 120, CancellationToken.None);
+        var recap = ChapterAnalyzer.BuildRecapFromBlackFrames(episode.EpisodeId, blackFrames, config.MinimumRecapDetectionDuration, 120);
+
+        Assert.Single(blackFrames);
+        Assert.Equal(95, blackFrames[0].Percentage);
+        Assert.NotNull(recap);
+        Assert.Equal(40, recap.End);
+        Assert.Equal(50, ffmpeg.LastMinimum);
+        Assert.Equal(32, ffmpeg.LastThreshold);
+        Assert.Equal(AnalysisMode.Recap, ffmpeg.LastMode);
+        Assert.Equal(0, ffmpeg.LastRange?.Start);
+        Assert.Equal(120, ffmpeg.LastRange?.End);
     }
 
     [Theory]
@@ -303,6 +344,58 @@ public class TestChapterAnalyzer
             Name = name,
             StartPositionTicks = TimeSpan.FromSeconds(position).Ticks
         };
+    }
+
+    private sealed class RecapBlackFrameFfmpeg(BlackFrame[] frames) : IFFmpegService
+    {
+        public TimeRange? LastRange { get; private set; }
+
+        public int? LastMinimum { get; private set; }
+
+        public int? LastThreshold { get; private set; }
+
+        public AnalysisMode? LastMode { get; private set; }
+
+        public Task<bool> CheckFFmpegVersionAsync(CancellationToken cancellationToken = default)
+            => throw new NotSupportedException();
+
+        public Task<uint[]> FingerprintAsync(QueuedEpisode episode, AnalysisMode mode, CancellationToken cancellationToken = default)
+            => throw new NotSupportedException();
+
+        public Task<TimeRange[]> DetectSilenceAsync(QueuedEpisode episode, TimeRange range, AnalysisMode mode, CancellationToken cancellationToken = default)
+            => throw new NotSupportedException();
+
+        public Task<BlackFrame[]> DetectBlackFramesAsync(
+            QueuedEpisode episode,
+            TimeRange range,
+            int minimum,
+            int threshold,
+            AnalysisMode mode,
+            CancellationToken cancellationToken = default)
+        {
+            LastRange = range;
+            LastMinimum = minimum;
+            LastThreshold = threshold;
+            LastMode = mode;
+            return Task.FromResult(frames);
+        }
+
+        public Task<BlackFrame[]> DetectBlackFramesAsync(QueuedEpisode episode, int threshold, CancellationToken cancellationToken = default)
+            => throw new NotSupportedException();
+
+        public Task<KeyframeVisual[]> DetectKeyframeVisualsAsync(QueuedEpisode episode, CancellationToken cancellationToken = default)
+            => throw new NotSupportedException();
+
+        public Task<BlackInterval[]> DetectBlackIntervalsAsync(QueuedEpisode episode, TimeRange range, int threshold, int minimum, CancellationToken cancellationToken = default)
+            => throw new NotSupportedException();
+
+        public Task<double[]> DetectKeyFramesAsync(QueuedEpisode episode, TimeRange range, AnalysisMode mode, CancellationToken cancellationToken = default)
+            => throw new NotSupportedException();
+
+        public Task<double?> ProbeAudioDurationAsync(string filePath, CancellationToken cancellationToken = default)
+            => throw new NotSupportedException();
+
+        public string GetChromaprintLogs() => string.Empty;
     }
 
     private class NullChapterManager : DispatchProxy
