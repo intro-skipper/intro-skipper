@@ -270,17 +270,7 @@ public sealed partial class CreditsBlackFrameAnalyzer(ILogger<CreditsBlackFrameA
     /// <returns>The normalized black-frame and scene-change thresholds.</returns>
     internal static (int Minimum, int SceneChange) NormalizeThreshold(List<BlackFrame> frames, int minimumPercentage)
     {
-        ArgumentOutOfRangeException.ThrowIfZero(frames.Count, nameof(frames));
-
-        var orderedFrames = frames.OrderBy(f => f.Percentage).ToList();
-        // Clamp into range: for scans under 100 keyframes (the common short/sparse-GOP credits
-        // window) frames.Count * 0.01 floors to 0, so the floor becomes the single least-black
-        // keyframe. The clamp guards the index, and the 30-cap below bounds that frame's influence.
-        var percentileIndex = Math.Clamp((int)(frames.Count * 0.01), 0, frames.Count - 1);
-        var floor = Math.Min(orderedFrames[percentileIndex].Percentage, 30);
-        var minimum = (minimumPercentage * (100 - floor) / 100) + floor;
-        var sceneChange = (95 * (100 - floor) / 100) + floor;
-        return (minimum, sceneChange);
+        return BlackFrameThresholdHelper.NormalizeThreshold(frames, minimumPercentage);
     }
 
     /// <summary>
