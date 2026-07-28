@@ -128,7 +128,7 @@ public sealed class TestVisualizationController
         var episodeIds = new[] { Guid.NewGuid(), Guid.NewGuid() };
         var dbPath = CreateTempDbPath();
         using var pluginScope = CreatePluginScope(dbPath, seriesId, seasonId, episodeIds, updateMediaSegments: false);
-        await SeedSeasonAsync(dbPath, seasonId, episodeIds);
+        await SeedSeasonAsync(dbPath, seasonId, episodeIds, includeUserProvidedSegments: true);
         var refresher = new RecordingMediaSegmentRefresher();
         using var loggerFactory = LoggerFactory.Create(builder => { });
         var controller = CreateController(refresher, loggerFactory);
@@ -159,7 +159,8 @@ public sealed class TestVisualizationController
             CancellationToken.None);
 
         Assert.IsType<NoContentResult>(enableResult);
-        Assert.Single(await Plugin.GetSegmentsUnlessExcludedAsync(episodeIds[0]));
+        var enabledSegments = await Plugin.GetSegmentsUnlessExcludedAsync(episodeIds[0]);
+        Assert.Equal(2, enabledSegments.Count);
         Assert.Equal(2, refresher.RefreshCallCount);
         Assert.Equal(0, refresher.RemoveCallCount);
         await using (var db = new IntroSkipperDbContext(dbPath))
@@ -204,14 +205,28 @@ public sealed class TestVisualizationController
         return scope;
     }
 
-    private static async Task SeedSeasonAsync(string dbPath, Guid seasonId, IReadOnlyList<Guid> episodeIds)
+    private static async Task SeedSeasonAsync(
+        string dbPath,
+        Guid seasonId,
+        IReadOnlyList<Guid> episodeIds,
+        bool includeUserProvidedSegments = false)
     {
         await using var db = new IntroSkipperDbContext(dbPath);
         await db.Database.EnsureCreatedAsync();
-        db.DbSegment.AddRange(
-            new DbSegment(new Segment(episodeIds[0], new TimeRange(10, 20)), AnalysisMode.Introduction, isUserProvided: true),
-            new DbSegment(new Segment(episodeIds[0], new TimeRange(20, 30)), AnalysisMode.Credits),
-            new DbSegment(new Segment(episodeIds[1], new TimeRange(30, 40)), AnalysisMode.Introduction));
+        var segments = new List<DbSegment>
+        {
+            new DbSegment(
+                new Segment(episodeIds[0], new TimeRange(10, 20)),
+                AnalysisMode.Introduction,
+                isUserProvided: includeUserProvidedSegments)
+        };
+        if (includeUserProvidedSegments)
+        {
+            segments.Add(new DbSegment(new Segment(episodeIds[0], new TimeRange(20, 30)), AnalysisMode.Credits));
+        }
+
+        segments.Add(new DbSegment(new Segment(episodeIds[1], new TimeRange(30, 40)), AnalysisMode.Introduction));
+        db.DbSegment.AddRange(segments);
         db.DbSeasonState.AddRange(
             new DbSeasonState(seasonId, AnalysisMode.Introduction, AnalyzerAction.Default, episodeIds),
             new DbSeasonState(seasonId, AnalysisMode.Credits, AnalyzerAction.Default, episodeIds));
