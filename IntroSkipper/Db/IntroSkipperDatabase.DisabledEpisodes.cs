@@ -33,15 +33,23 @@ public sealed partial class IntroSkipperDatabase
             .FindAsync([seasonId, episodeId], cancellationToken)
             .ConfigureAwait(false);
 
+        // Avoid a write when the requested state already matches the stored state.
         if (disabled)
+        {
+            if (existing is not null)
+            {
+                return;
+            }
+
+            db.DbDisabledEpisode.Add(new DbDisabledEpisode(seasonId, episodeId));
+        }
+        else
         {
             if (existing is null)
             {
-                db.DbDisabledEpisode.Add(new DbDisabledEpisode(seasonId, episodeId));
+                return;
             }
-        }
-        else if (existing is not null)
-        {
+
             db.DbDisabledEpisode.Remove(existing);
         }
 

@@ -80,7 +80,6 @@ public partial class VisualizationController(ILogger<VisualizationController> lo
     /// <returns>Disabled episode identifiers.</returns>
     [HttpGet("DisabledEpisodes/{SeasonId}")]
     [ProducesResponseType(StatusCodes.Status200OK)]
-    [ProducesResponseType(StatusCodes.Status404NotFound)]
     public async Task<ActionResult<IReadOnlySet<Guid>>> GetDisabledEpisodes([FromRoute] Guid seasonId, CancellationToken cancellationToken = default)
     {
         return Ok(await _database.GetDisabledEpisodeIdsAsync(seasonId, cancellationToken).ConfigureAwait(false));
