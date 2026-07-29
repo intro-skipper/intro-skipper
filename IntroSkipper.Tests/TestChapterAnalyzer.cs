@@ -145,10 +145,9 @@ public class TestChapterAnalyzer
         var config = new PluginConfiguration { MinimumRecapDetectionDuration = 5 };
         Assert.Equal(85, config.BlackFrameMinimumPercentage);
 
-        var scan = Enumerable.Range(0, 40)
+        BlackFrame[] scan = [.. Enumerable.Range(0, 40)
             .Select(i => new BlackFrame(i % 4, i * 0.5, i))
-            .Append(new BlackFrame(87, 42.0, 1008))
-            .ToArray();
+            .Append(new BlackFrame(87, 42.0, 1008))];
         var analyzer = new ChapterAnalyzer(
             NullLogger<ChapterAnalyzer>.Instance,
             new RecapBlackFrameFfmpeg(scan),
@@ -171,10 +170,9 @@ public class TestChapterAnalyzer
         // rejected: the floor caps at 30, lifting the normalized minimum to 89.
         var config = new PluginConfiguration { MinimumRecapDetectionDuration = 5 };
 
-        var scan = Enumerable.Range(0, 100)
+        BlackFrame[] scan = [.. Enumerable.Range(0, 100)
             .Select(i => new BlackFrame(45, i * 0.5, i))
-            .Append(new BlackFrame(87, 42.0, 1008))
-            .ToArray();
+            .Append(new BlackFrame(87, 42.0, 1008))];
         var analyzer = new ChapterAnalyzer(
             NullLogger<ChapterAnalyzer>.Instance,
             new RecapBlackFrameFfmpeg(scan),
