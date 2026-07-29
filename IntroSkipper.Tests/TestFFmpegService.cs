@@ -110,11 +110,12 @@ public class TestFFmpegService
     public async Task CheckFFmpegVersionAsync_CancelsCallerWithoutCancelingSharedProbe()
     {
         var probeCount = 0;
+        var probeToken = default(CancellationToken);
         var probeStarted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var releaseProbe = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
         var ffmpegService = CreateFFmpegService(cancellationToken =>
         {
-            Assert.False(cancellationToken.CanBeCanceled);
+            probeToken = cancellationToken;
             Interlocked.Increment(ref probeCount);
             probeStarted.SetResult();
             return releaseProbe.Task;
@@ -130,10 +131,33 @@ public class TestFFmpegService
         Assert.False(remainingCaller.IsCompleted);
         Assert.Equal(1, probeCount);
 
+        // The probe runs on the service-owned lifetime, not the caller's token: one
+        // waiter walking away must never cancel the shared probe.
+        Assert.False(probeToken.IsCancellationRequested);
+
         releaseProbe.SetResult(true);
         Assert.True(await remainingCaller);
         Assert.True(await ffmpegService.CheckFFmpegVersionAsync());
         Assert.Equal(1, probeCount);
+    }
+
+    [Fact]
+    public async Task CheckFFmpegVersionAsync_HungProbe_TimesOutResetsGateAndRetries()
+    {
+        var probeCount = 0;
+        var ffmpegService = CreateFFmpegService(
+            _ => Interlocked.Increment(ref probeCount) == 1
+                ? new TaskCompletionSource<bool>().Task // hangs forever and even ignores its token
+                : Task.FromResult(true),
+            versionProbeTimeout: TimeSpan.FromMilliseconds(100));
+
+        // The service-owned lifetime must fail the attempt — an unresponsive ffmpeg may
+        // not wedge the gate for the rest of the process lifetime.
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(
+            () => ffmpegService.CheckFFmpegVersionAsync().WaitAsync(TimeSpan.FromSeconds(10)));
+
+        Assert.True(await ffmpegService.CheckFFmpegVersionAsync());
+        Assert.Equal(2, probeCount);
     }
 
     [Fact]
@@ -487,12 +511,13 @@ public class TestFFmpegService
             DatabaseTestHelpers.CreateTempCacheService());
     }
 
-    private static FFmpegService CreateFFmpegService(Func<CancellationToken, Task<bool>> versionProbe)
+    private static FFmpegService CreateFFmpegService(Func<CancellationToken, Task<bool>> versionProbe, TimeSpan? versionProbeTimeout = null)
     {
         return new FFmpegService(
             NullLogger<FFmpegService>.Instance,
             DatabaseTestHelpers.CreateTempCacheService(),
-            versionProbe);
+            versionProbe,
+            versionProbeTimeout);
     }
 
     private static QueuedEpisode QueueFile(string path)

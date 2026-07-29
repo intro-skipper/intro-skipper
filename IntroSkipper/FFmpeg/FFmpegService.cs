@@ -30,9 +30,16 @@ public sealed partial class FFmpegService(
     private const double LimitedRangeLumaMinimum = 16.0;
     private const double LimitedRangeLumaRange = 219.0;
 
+    // Bounds one shared version probe. Generous: the probe is four fast ffmpeg info
+    // queries, each already limited to 60 s of process-exit wait — but the drain phase
+    // has no timeout of its own, and the probe deliberately ignores caller tokens, so
+    // without this lifetime a hung ffmpeg would wedge the gate until a plugin reload.
+    private static readonly TimeSpan DefaultVersionProbeTimeout = TimeSpan.FromMinutes(2);
+
     private readonly ILogger<FFmpegService> _logger = logger;
     private readonly IDetectionCacheService _cacheService = cacheService;
     private readonly Func<CancellationToken, Task<bool>>? _versionProbe;
+    private readonly TimeSpan _versionProbeTimeout = DefaultVersionProbeTimeout;
 
     // Version checks share one in-flight probe, but the support bundle endpoint can read
     // these logs while that probe writes them, so a concurrent dictionary is required.
@@ -45,10 +52,12 @@ public sealed partial class FFmpegService(
     internal FFmpegService(
         ILogger<FFmpegService> logger,
         IDetectionCacheService cacheService,
-        Func<CancellationToken, Task<bool>> versionProbe)
+        Func<CancellationToken, Task<bool>> versionProbe,
+        TimeSpan? versionProbeTimeout = null)
         : this(logger, cacheService)
     {
         _versionProbe = versionProbe;
+        _versionProbeTimeout = versionProbeTimeout ?? DefaultVersionProbeTimeout;
     }
 
     /// <inheritdoc/>
@@ -91,7 +100,15 @@ public sealed partial class FFmpegService(
     {
         try
         {
-            var valid = await (_versionProbe ?? ProbeFFmpegVersionAsync)(CancellationToken.None).ConfigureAwait(false);
+            // The probe is shared, so no single caller's token may cancel it; a
+            // service-owned lifetime bounds it instead. WaitAsync keeps the gate safe
+            // even against a probe that ignores its token: the attempt faults, the gate
+            // resets, the next call retries, and the abandoned probe's eventual result
+            // is discarded.
+            using var probeLifetime = new CancellationTokenSource(_versionProbeTimeout);
+            var valid = await (_versionProbe ?? ProbeFFmpegVersionAsync)(probeLifetime.Token)
+                .WaitAsync(probeLifetime.Token)
+                .ConfigureAwait(false);
             lock (_versionProbeLock)
             {
                 if (valid)

@@ -16,7 +16,9 @@ public interface IFFmpegService
     /// probe is memoized for the service lifetime; a failed probe is retried on the
     /// next call so a repaired ffmpeg installation is observed without a restart.
     /// </summary>
-    /// <param name="cancellationToken">Token used to cancel FFmpeg requirement checks.</param>
+    /// <param name="cancellationToken">Cancels this caller's wait for the shared probe. The probe
+    /// itself is never canceled by a caller: it runs on a bounded service-owned lifetime, so an
+    /// unresponsive ffmpeg fails the attempt and the next call retries.</param>
     /// <returns>A task that returns <see langword="true"/> if a compatible version of ffmpeg is installed, <see langword="false"/> on any error.</returns>
     Task<bool> CheckFFmpegVersionAsync(CancellationToken cancellationToken = default);
 
