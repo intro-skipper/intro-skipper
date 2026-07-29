@@ -112,14 +112,6 @@ public partial class ChapterAnalyzer(ILogger<ChapterAnalyzer> logger, IFFmpegSer
                     _config.EnableSponsorBlockChapterDetection)
                 : [];
 
-            // Commercials can legitimately occur several times per episode; for every
-            // other mode a second matching chapter is far more likely noise, so only
-            // the first match (in mode-specific scan order) is kept.
-            if (mode != AnalysisMode.Commercial && matches.Count > 1)
-            {
-                matches = [matches[0]];
-            }
-
             if (matches.Count == 0 && enableRecapBlackFrameFallback)
             {
                 var fallback = await DetectRecapUsingBlackFramesAsync(episode, cancellationToken).ConfigureAwait(false);
@@ -244,10 +236,25 @@ public partial class ChapterAnalyzer(ILogger<ChapterAnalyzer> logger, IFFmpegSer
 
             LogChapterOk(baseMessage);
             matches.Add(new Segment(episode.EpisodeId, currentRange));
+            if (!AllowsMultipleMatches(mode))
+            {
+                break;
+            }
         }
 
         return matches;
     }
+
+    /// <summary>
+    /// Declares per-mode segment multiplicity for chapter analysis. Commercials
+    /// legitimately occur several times per episode; for every other mode a second
+    /// matching chapter is far more likely noise, so scanning stops at the first
+    /// accepted match (in mode-specific scan order). Storage, sync and the API are
+    /// plural for every mode — this is an analyzer-quality policy only.
+    /// </summary>
+    /// <param name="mode">Analysis mode.</param>
+    /// <returns><c>true</c> when the mode may emit more than one chapter match.</returns>
+    internal static bool AllowsMultipleMatches(AnalysisMode mode) => mode == AnalysisMode.Commercial;
 
     internal async Task<Segment?> DetectRecapUsingBlackFramesAsync(QueuedEpisode episode, CancellationToken cancellationToken)
     {

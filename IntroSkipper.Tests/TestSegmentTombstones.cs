@@ -8,6 +8,7 @@ using IntroSkipper.Data;
 using IntroSkipper.Db;
 using IntroSkipper.Providers;
 using Xunit;
+using static IntroSkipper.Tests.DatabaseTestHelpers;
 
 namespace IntroSkipper.Tests;
 
@@ -272,8 +273,6 @@ public sealed class TestSegmentTombstones
             DatabaseTestHelpers.DeleteSqliteFiles(dbPath);
         }
     }
-
-    private static long Ticks(double seconds) => TickConversions.FromSeconds(seconds);
 
     private static string CreateTempDbPath()
         => DatabaseTestHelpers.CreateTempDbPath(Guid.NewGuid().ToString("N") + "-tombstones.db");

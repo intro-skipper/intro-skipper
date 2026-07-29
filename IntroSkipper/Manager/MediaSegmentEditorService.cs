@@ -3,6 +3,7 @@ using IntroSkipper.Db;
 using IntroSkipper.Helper;
 using MediaBrowser.Controller.Entities;
 using MediaBrowser.Model.MediaSegments;
+using Microsoft.Extensions.Logging;
 
 namespace IntroSkipper.Manager;
 
@@ -17,11 +18,17 @@ namespace IntroSkipper.Manager;
 /// <param name="segmentStore">Direct store for Jellyfin's media segments.</param>
 /// <param name="mirror">The shared locked mirror write path.</param>
 /// <param name="database">Segment database facade.</param>
-public class MediaSegmentEditorService(IJellyfinSegmentStore segmentStore, MediaSegmentMirror mirror, IIntroSkipperDatabase database)
+/// <param name="logger">Application logger.</param>
+public partial class MediaSegmentEditorService(
+    IJellyfinSegmentStore segmentStore,
+    MediaSegmentMirror mirror,
+    IIntroSkipperDatabase database,
+    ILogger<MediaSegmentEditorService> logger)
 {
     private readonly IJellyfinSegmentStore _segmentStore = segmentStore;
     private readonly MediaSegmentMirror _mirror = mirror;
     private readonly IIntroSkipperDatabase _database = database;
+    private readonly ILogger<MediaSegmentEditorService> _logger = logger;
 
     /// <summary>
     /// Mirrors the plugin database into Jellyfin's media segments for one item via the
@@ -38,32 +45,20 @@ public class MediaSegmentEditorService(IJellyfinSegmentStore segmentStore, Media
     }
 
     /// <summary>
-    /// Deletes a Jellyfin segment. No-op when mirroring is disabled.
-    /// </summary>
-    /// <param name="itemId">The Id of the item that owns the segment.</param>
-    /// <param name="segmentId">The Id of the segment.</param>
-    /// <param name="cancellationToken">Cancellation token.</param>
-    /// <returns>A <see cref="Task"/> representing the asynchronous operation.</returns>
-    public async Task DeleteSegmentAsync(Guid itemId, Guid segmentId, CancellationToken cancellationToken)
-    {
-        if (!MediaSegmentMirrorPolicy.Enabled)
-        {
-            return;
-        }
-
-        await _segmentStore.DeleteSegmentAsync(itemId, segmentId, cancellationToken).ConfigureAwait(false);
-    }
-
-    /// <summary>
     /// Deletes a stored segment end-to-end: removes the plugin row (tombstoning automatic
     /// segments, hard-deleting user rows), mirrors the delete to Jellyfin (a no-op when
-    /// mirroring is disabled) rolling the plugin delete back when the mirror delete fails,
+    /// mirroring is disabled) rolling the plugin delete back when the mirror write fails,
     /// and returns the episode to NotAnalyzed for the segment's mode so the next analysis
     /// run can re-detect remaining segments (the tombstone keeps the deleted range gone).
+    /// When a plugin row was deleted but no Jellyfin row existed under the shared id, the
+    /// item's mirror is re-synced with a warning: either the row was already gone, or the
+    /// server no longer preserves provider-supplied ids — the re-sync keeps the mirror
+    /// converged in both cases and makes the second loudly diagnosable from logs.
     /// </summary>
     /// <param name="itemId">The item that owns the segment.</param>
     /// <param name="mode">Analysis mode of the deleted segment, used for the season-state reset.</param>
-    /// <param name="jellyfinSegmentId">The Jellyfin segment id to delete; an unknown id is a no-op there.</param>
+    /// <param name="jellyfinSegmentId">The Jellyfin segment id to delete; when unknown, a correlated
+    /// plugin row triggers the warning re-sync and an uncorrelated delete is a no-op.</param>
     /// <param name="pluginSegmentId">The plugin row id, or <c>null</c> when no plugin-side counterpart exists
     /// (uncorrelated legacy Jellyfin rows) so only the Jellyfin delete and state reset run.</param>
     /// <param name="cancellationToken">Cancellation token; the rollback is deliberately uncancelable
@@ -91,7 +86,15 @@ public class MediaSegmentEditorService(IJellyfinSegmentStore segmentStore, Media
 
         try
         {
-            await DeleteSegmentAsync(itemId, jellyfinSegmentId, cancellationToken).ConfigureAwait(false);
+            if (MediaSegmentMirrorPolicy.Enabled)
+            {
+                var jellyfinRowsDeleted = await _segmentStore.DeleteSegmentAsync(itemId, jellyfinSegmentId, cancellationToken).ConfigureAwait(false);
+                if (deleted is not null && jellyfinRowsDeleted == 0)
+                {
+                    LogJellyfinRowMissingOnDelete(_logger, jellyfinSegmentId, itemId);
+                    await _mirror.SyncItemAsync(itemId, cancellationToken).ConfigureAwait(false);
+                }
+            }
         }
         catch
         {
@@ -123,4 +126,7 @@ public class MediaSegmentEditorService(IJellyfinSegmentStore segmentStore, Media
 
         return segment;
     }
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "No Jellyfin media segment row found under shared id {SegmentId} for item {ItemId}; re-syncing the item's mirror. If this recurs, the server may no longer preserve provider-supplied segment ids.")]
+    private static partial void LogJellyfinRowMissingOnDelete(ILogger logger, Guid segmentId, Guid itemId);
 }

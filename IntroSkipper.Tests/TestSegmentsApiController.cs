@@ -16,6 +16,7 @@ using IntroSkipper.Providers;
 using MediaBrowser.Controller.Entities.Movies;
 using Microsoft.AspNetCore.Mvc;
 using Xunit;
+using static IntroSkipper.Tests.DatabaseTestHelpers;
 
 namespace IntroSkipper.Tests;
 
@@ -334,7 +335,7 @@ public sealed class TestSegmentsApiController
         Exception? deleteException = null)
     {
         store = new FakeJellyfinSegmentStore { DeleteSegmentException = deleteException };
-        var editorService = new MediaSegmentEditorService(store, new MediaSegmentMirror(store, new SegmentDtoFactory(database)), database);
+        var editorService = DatabaseTestHelpers.CreateEditorService(store, database);
         return new SegmentsController(database, editorService);
     }
 
@@ -355,8 +356,6 @@ public sealed class TestSegmentsApiController
             new System.Collections.Concurrent.ConcurrentDictionary<Guid, List<QueuedEpisode>>());
         return scope;
     }
-
-    private static long Ticks(double seconds) => TickConversions.FromSeconds(seconds);
 
     private static string CreateTempDbPath()
     {

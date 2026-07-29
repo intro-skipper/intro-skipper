@@ -182,8 +182,9 @@ public class SegmentsController(IIntroSkipperDatabase database, MediaSegmentEdit
             return NotFound();
         }
 
-        // The cascade owns the delete workflow: plugin delete, targeted Jellyfin delete
-        // with rollback, and the season-state reset. The Jellyfin row shares the segment id.
+        // The cascade owns the whole delete workflow: plugin delete, targeted Jellyfin
+        // delete with rollback, mirror re-sync when the shared id found no Jellyfin row,
+        // and the season-state reset. The Jellyfin row shares the segment id.
         var deleted = await _mediaSegmentEditorService
             .DeleteStoredSegmentAsync(itemId, existing.Type, segmentId, segmentId, cancellationToken)
             .ConfigureAwait(false);
@@ -192,7 +193,6 @@ public class SegmentsController(IIntroSkipperDatabase database, MediaSegmentEdit
             return NotFound();
         }
 
-        await _mediaSegmentEditorService.SyncItemAsync(item, cancellationToken).ConfigureAwait(false);
         return NoContent();
     }
 

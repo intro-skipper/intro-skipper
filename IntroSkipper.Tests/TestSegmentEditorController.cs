@@ -299,7 +299,7 @@ public sealed class SegmentEditorControllerTests
         }
 
         var controller = new SegmentEditorController(
-            new MediaSegmentEditorService(store, new MediaSegmentMirror(store, new SegmentDtoFactory(database)), database), database);
+            DatabaseTestHelpers.CreateEditorService(store, database), database);
 
         // Item B's id paired with item A's segment id: the item mismatch skips the shared-id
         // fast path, the Jellyfin lookup is scoped to item B and finds nothing, and neither
@@ -322,5 +322,5 @@ public sealed class SegmentEditorControllerTests
     private static SegmentEditorController CreateController(
         FakeJellyfinSegmentStore store,
         IntroSkipper.Db.IIntroSkipperDatabase database)
-        => new(new MediaSegmentEditorService(store, new MediaSegmentMirror(store, new SegmentDtoFactory(database)), database), database);
+        => new(DatabaseTestHelpers.CreateEditorService(store, database), database);
 }

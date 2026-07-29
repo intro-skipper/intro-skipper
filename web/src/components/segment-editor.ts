@@ -1,5 +1,6 @@
 import { el } from "./dom.ts";
 import { confirmDialog } from "./confirm-dialog.ts";
+import { createStatusMessage } from "./async-feedback.ts";
 import { parseTimeInput, formatTimeInput } from "../utils.ts";
 import * as api from "../store/api.ts";
 import type { SegmentDto, SegmentType } from "../types.ts";
@@ -66,21 +67,17 @@ export function segmentEditor(opts: {
     itemId: string;
     initialSegments: SegmentDto[];
     onChanged: (segments: SegmentDto[]) => void;
-}): { container: HTMLElement; refresh: (segments: SegmentDto[]) => void; destroy: () => void } {
+}): { container: HTMLElement; destroy: () => void } {
     const container = el("div", { className: "ts-segment-editor" });
     const rowsEl = el("div");
-    const statusEl = el("div", { className: "ts-segment-status" });
-    statusEl.setAttribute("aria-live", "polite");
-    statusEl.style.display = "none";
+    const status = createStatusMessage({ className: "ts-segment-status", display: "block" });
 
     let destroyed = false;
     let busy = false;
 
     function setStatus(msg: string, color = "var(--is-text-muted)"): void {
         if (destroyed) return;
-        statusEl.textContent = msg;
-        statusEl.style.color = color;
-        statusEl.style.display = msg ? "block" : "none";
+        status.show(msg, color);
     }
 
     // Serializes mutations: while one is in flight, further clicks are ignored.
@@ -237,14 +234,11 @@ export function segmentEditor(opts: {
         rowsEl.append(buildAddRow(sorted));
     }
 
-    container.append(rowsEl, statusEl);
+    container.append(rowsEl, status.element);
     renderRows(opts.initialSegments);
 
     return {
         container,
-        refresh(segments: SegmentDto[]) {
-            renderRows(segments);
-        },
         destroy() {
             destroyed = true;
             container.replaceChildren();

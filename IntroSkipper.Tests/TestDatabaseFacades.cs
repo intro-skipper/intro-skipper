@@ -15,6 +15,7 @@ using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging.Abstractions;
 using Xunit;
+using static IntroSkipper.Tests.DatabaseTestHelpers;
 
 /// <summary>
 /// Tests for the <see cref="IntroSkipperDatabase"/> and <see cref="DetectionCacheDatabase"/>
@@ -1305,8 +1306,6 @@ public sealed class TestDatabaseFacades
         command.CommandText = "PRAGMA journal_mode;";
         return (string)command.ExecuteScalar()!;
     }
-
-    private static long Ticks(double seconds) => TickConversions.FromSeconds(seconds);
 
     private static string CreateTempDbPath()
         => DatabaseTestHelpers.CreateTempDbPath(Guid.NewGuid().ToString("N") + "-facades.db");

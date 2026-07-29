@@ -45,6 +45,13 @@ internal sealed class FakeJellyfinSegmentStore : IJellyfinSegmentStore
 
     public Guid? BlockedItemId { get; init; }
 
+    /// <summary>
+    /// Gets the segment ids <see cref="DeleteSegmentAsync"/> reports as not found
+    /// (returning 0 deleted rows, the drift signal). Every other delete reports one
+    /// deleted row, simulating a correlated Jellyfin row.
+    /// </summary>
+    public IReadOnlyList<Guid> MissingSegmentIds { get; init; } = [];
+
     public int WriteCallCount => _writeCount;
 
     public List<(Guid ItemId, IReadOnlyList<MediaSegmentDto> Segments)> ReplacedItems { get; } = [];
@@ -75,11 +82,11 @@ internal sealed class FakeJellyfinSegmentStore : IJellyfinSegmentStore
     public Task<MediaSegmentDto?> GetSegmentAsync(Guid itemId, Guid segmentId, CancellationToken cancellationToken)
         => Task.FromResult(ExistingSegments.FirstOrDefault(segment => segment.ItemId == itemId && segment.Id == segmentId));
 
-    public Task DeleteSegmentAsync(Guid itemId, Guid segmentId, CancellationToken cancellationToken)
+    public Task<int> DeleteSegmentAsync(Guid itemId, Guid segmentId, CancellationToken cancellationToken)
     {
         ThrowIfConfigured(DeleteSegmentException);
         DeletedSegments.Add((itemId, segmentId));
-        return Task.CompletedTask;
+        return Task.FromResult(MissingSegmentIds.Contains(segmentId) ? 0 : 1);
     }
 
     private async Task WaitIfGatedAsync(Guid itemId)

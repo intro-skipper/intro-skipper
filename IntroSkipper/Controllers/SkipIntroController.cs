@@ -75,9 +75,7 @@ public partial class SkipIntroController(
         foreach (var (mode, segment) in segmentTypes)
         {
             if (segment.Valid
-                && TickConversions.TryFromSeconds(segment.Start, out var startTicks)
-                && TickConversions.TryFromSeconds(segment.End, out var endTicks)
-                && endTicks > startTicks)
+                && TickConversions.TryFromSecondsRange(segment.Start, segment.End, out var startTicks, out var endTicks))
             {
                 await _database.ReplaceUserSegmentAsync(id, mode, startTicks, endTicks, cancellationToken).ConfigureAwait(false);
             }

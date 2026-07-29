@@ -116,21 +116,11 @@ public class DbSegment
         => new(ItemId, new TimeRange(TickConversions.ToSeconds(StartTicks), TickConversions.ToSeconds(EndTicks)));
 
     /// <summary>
-    /// Creates a detached copy carrying every persisted property, used to snapshot a
-    /// row before deletion so it can be restored verbatim.
+    /// Creates a detached copy used to snapshot a row before deletion so it can be
+    /// restored verbatim. Memberwise, so every persisted property — including columns
+    /// added later — is carried automatically; all properties are value types or
+    /// immutable strings, making the shallow copy exact.
     /// </summary>
     /// <returns>An untracked copy of this segment.</returns>
-    internal DbSegment Clone() => new()
-    {
-        Id = Id,
-        ItemId = ItemId,
-        Type = Type,
-        StartTicks = StartTicks,
-        EndTicks = EndTicks,
-        Source = Source,
-        State = State,
-        ConfigHash = ConfigHash,
-        CreatedAt = CreatedAt,
-        UpdatedAt = UpdatedAt
-    };
+    internal DbSegment Clone() => (DbSegment)MemberwiseClone();
 }

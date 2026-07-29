@@ -47,6 +47,7 @@ public interface IJellyfinSegmentStore
     /// <param name="itemId">The item id that must own the segment.</param>
     /// <param name="segmentId">The segment id.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
-    /// <returns>A <see cref="Task"/> representing the asynchronous operation.</returns>
-    Task DeleteSegmentAsync(Guid itemId, Guid segmentId, CancellationToken cancellationToken);
+    /// <returns>The number of rows deleted: 0 when no row matched the item and segment id.
+    /// Callers use a 0 for a row they expected to exist as a drift signal.</returns>
+    Task<int> DeleteSegmentAsync(Guid itemId, Guid segmentId, CancellationToken cancellationToken);
 }

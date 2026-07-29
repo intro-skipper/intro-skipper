@@ -511,16 +511,7 @@ public partial class BaseItemAnalyzerTask(
                 break;
             }
 
-            // ReplaceAutoSegmentsAsync silently drops segments overlapping a user-provided
-            // Preview; check explicitly so we do not emit a misleading "Created anime
-            // preview" log + Analyzed state.
             var dbSegments = await _database.GetSegmentsAsync(episode.EpisodeId, cancellationToken: cancellationToken).ConfigureAwait(false);
-
-            if (dbSegments.Any(s => s.Type == AnalysisMode.Preview && s.IsUserProvided))
-            {
-                LogSkippedUserProvidedPreview(_logger, episode.Name);
-                continue;
-            }
 
             // The preview is the tail of the episode, so it follows the final credits block.
             var credits = dbSegments
@@ -539,18 +530,30 @@ public partial class BaseItemAnalyzerTask(
                 continue;
             }
 
-            await _database.ReplaceAutoSegmentsAsync(episode.EpisodeId, AnalysisMode.Preview, [preview], SegmentSource.CreditsDerived, episode.AnalysisConfigHash, cancellationToken).ConfigureAwait(false);
+            // The admission gate (AutoSegmentAdmissionPolicy) has the final say: an
+            // overlapping user segment or tombstone drops the preview. Branch the log on
+            // the gate's outcome so a dropped write is never reported as created. The
+            // episode still counts as analyzed either way — re-running the analysis
+            // would not change the gate's answer.
+            var stored = await _database.ReplaceAutoSegmentsAsync(episode.EpisodeId, AnalysisMode.Preview, [preview], SegmentSource.CreditsDerived, episode.AnalysisConfigHash, cancellationToken).ConfigureAwait(false);
             episode.SetAnalyzed(AnalysisMode.Preview, EpisodeState.Analyzed);
 
-            LogCreatedAnimePreview(_logger, episode.Name, preview.Start, preview.End);
+            if (stored > 0)
+            {
+                LogCreatedAnimePreview(_logger, episode.Name, preview.Start, preview.End);
+            }
+            else
+            {
+                LogDroppedAnimePreview(_logger, episode.Name);
+            }
         }
     }
 
     [LoggerMessage(Level = LogLevel.Debug, Message = "Created anime preview for {Episode}: {Start:F2}s to {End:F2}s")]
     private static partial void LogCreatedAnimePreview(ILogger logger, string episode, double start, double end);
 
-    [LoggerMessage(Level = LogLevel.Debug, Message = "Skipping anime preview for {Episode}: a user-provided Preview already exists.")]
-    private static partial void LogSkippedUserProvidedPreview(ILogger logger, string episode);
+    [LoggerMessage(Level = LogLevel.Debug, Message = "Anime preview for {Episode} was dropped by the admission policy (overlapping user segment or tombstone).")]
+    private static partial void LogDroppedAnimePreview(ILogger logger, string episode);
 
     [LoggerMessage(Level = LogLevel.Information, Message = "No libraries selected for analysis. To enable, check library configuration > Media Segment Providers.")]
     private static partial void LogNoLibrariesSelected(ILogger logger);

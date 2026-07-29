@@ -103,7 +103,13 @@ public sealed class TestMediaSegmentEditorService
             WriteGate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously),
             BlockedItemId = firstItem.Id
         };
-        var service = CreateService(store);
+        var database = DatabaseTestHelpers.CreateTempSegmentDatabase();
+
+        // Warm EF/SQLite initialization before the race: the 1-second completion window
+        // below asserts mirror-stripe independence and must not also absorb the one-time
+        // model build + migration, which alone exceeds it on a cold run.
+        await database.GetSegmentsAsync(Guid.NewGuid());
+        var service = CreateService(store, database);
 
         var first = service.SyncItemAsync(firstItem, CancellationToken.None);
         var second = service.SyncItemAsync(secondItem, CancellationToken.None);
@@ -120,7 +126,7 @@ public sealed class TestMediaSegmentEditorService
     [Fact]
     public async Task Writes_DoNotTouchJellyfin_WhenUpdateMediaSegmentsDisabled()
     {
-        using var scope = new EntrypointTestHelpers.PluginInstanceScope(EntrypointTestHelpers.CreateTempCacheDir());
+        using var scope = CreatePluginScope();
         EntrypointTestHelpers.SetPropertyOrField(
             Plugin.Instance!,
             "Configuration",
@@ -130,7 +136,7 @@ public sealed class TestMediaSegmentEditorService
 
         // The mirror flag lives in the service, not at call sites: every write no-ops.
         await service.SyncItemAsync(CreateMovie(Guid.NewGuid()), CancellationToken.None);
-        await service.DeleteSegmentAsync(Guid.NewGuid(), Guid.NewGuid(), CancellationToken.None);
+        await service.DeleteStoredSegmentAsync(Guid.NewGuid(), AnalysisMode.Introduction, Guid.NewGuid(), null, CancellationToken.None);
 
         Assert.Equal(0, store.WriteCallCount);
         Assert.Empty(store.ReplacedItems);
@@ -202,24 +208,69 @@ public sealed class TestMediaSegmentEditorService
     }
 
     [Fact]
-    public async Task DeleteSegmentAsync_DelegatesToStore()
+    public async Task DeleteStoredSegmentAsync_CorrelatedRowFound_DeletesTargetedWithoutResync()
     {
-        var store = new FakeJellyfinSegmentStore();
-        var service = CreateService(store);
+        using var scope = CreatePluginScope();
         var itemId = Guid.NewGuid();
-        var segmentId = Guid.NewGuid();
+        var database = DatabaseTestHelpers.CreateTempSegmentDatabase();
+        await database.ReplaceAutoSegmentsAsync(
+            itemId, AnalysisMode.Introduction, [new Segment(itemId, new TimeRange(10, 20))], SegmentSource.Chapter);
+        var row = Assert.Single(await database.GetSegmentsAsync(itemId));
 
-        await service.DeleteSegmentAsync(itemId, segmentId, CancellationToken.None);
+        var store = new FakeJellyfinSegmentStore();
+        var service = CreateService(store, database);
 
-        Assert.Equal([(itemId, segmentId)], store.DeletedSegments);
+        var deleted = await service.DeleteStoredSegmentAsync(
+            itemId, AnalysisMode.Introduction, row.Id, row.Id, CancellationToken.None);
+
+        Assert.NotNull(deleted);
+        Assert.Equal([(itemId, row.Id)], store.DeletedSegments);
+        // The shared id found its Jellyfin row: the targeted delete suffices, no full
+        // mirror replace runs on the normal path.
+        Assert.Empty(store.ReplacedItems);
+    }
+
+    [Fact]
+    public async Task DeleteStoredSegmentAsync_MissingJellyfinRow_ResyncsMirror()
+    {
+        using var scope = CreatePluginScope();
+        var itemId = Guid.NewGuid();
+        var database = DatabaseTestHelpers.CreateTempSegmentDatabase();
+        await database.ReplaceAutoSegmentsAsync(
+            itemId, AnalysisMode.Introduction, [new Segment(itemId, new TimeRange(10, 20))], SegmentSource.Chapter);
+        var row = Assert.Single(await database.GetSegmentsAsync(itemId));
+
+        var store = new FakeJellyfinSegmentStore { MissingSegmentIds = [row.Id] };
+        var service = CreateService(store, database);
+
+        var deleted = await service.DeleteStoredSegmentAsync(
+            itemId, AnalysisMode.Introduction, row.Id, row.Id, CancellationToken.None);
+
+        // A correlated plugin row with no Jellyfin row under the shared id is the drift
+        // signal (server stopped preserving provider ids, or the row was already gone):
+        // the cascade re-converges the whole item mirror instead of leaving stale rows.
+        Assert.NotNull(deleted);
+        Assert.Equal([(itemId, row.Id)], store.DeletedSegments);
+        var (syncedItemId, pushed) = Assert.Single(store.ReplacedItems);
+        Assert.Equal(itemId, syncedItemId);
+        // The deleted intro was tombstoned, so the re-sync pushes the empty active set.
+        Assert.Empty(pushed);
     }
 
     private static MediaSegmentEditorService CreateService(
         FakeJellyfinSegmentStore store,
         IntroSkipper.Db.IIntroSkipperDatabase? database = null)
+        => DatabaseTestHelpers.CreateEditorService(store, database ?? DatabaseTestHelpers.CreateTempSegmentDatabase());
+
+    /// <summary>
+    /// Scopes a plugin instance with an empty library manager so the delete cascade's
+    /// item lookup (for the season-state reset) resolves to null instead of crashing.
+    /// </summary>
+    private static EntrypointTestHelpers.PluginInstanceScope CreatePluginScope()
     {
-        var db = database ?? DatabaseTestHelpers.CreateTempSegmentDatabase();
-        return new(store, new MediaSegmentMirror(store, new SegmentDtoFactory(db)), db);
+        var scope = new EntrypointTestHelpers.PluginInstanceScope(EntrypointTestHelpers.CreateTempCacheDir());
+        EntrypointTestHelpers.SetPrivateField(Plugin.Instance!, "_libraryManager", EntrypointTestHelpers.CreateLibraryManager());
+        return scope;
     }
 
     /// <summary>
