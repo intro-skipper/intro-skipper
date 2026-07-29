@@ -69,7 +69,7 @@ public sealed class TestMediaSegmentRefreshService
         // Tombstone one credits row: suppressed rows must never be pushed to Jellyfin.
         var seeded = await database.GetSegmentsAsync(itemId);
         var suppressedRow = seeded.First(row => row.Type == AnalysisMode.Credits && row.StartTicks == TickConversions.FromSeconds(1300));
-        await database.DeleteSegmentAsync(suppressedRow.Id);
+        await database.DeleteSegmentAsync(itemId, suppressedRow.Id);
 
         var store = new FakeJellyfinSegmentStore();
         var refresher = CreateRefresher(store, segmentDtoFactory: new SegmentDtoFactory(database));

@@ -315,7 +315,7 @@ public sealed class TestDatabaseFacades
             await database.ReplaceAutoSegmentsAsync(itemId, AnalysisMode.Introduction, [new Segment(itemId, new TimeRange(0, 5))], SegmentSource.Chapter);
 
             var target = Assert.Single(await database.GetSegmentsAsync(itemId), s => s.StartTicks == Ticks(10));
-            var snapshot = await database.DeleteSegmentAsync(target.Id);
+            var snapshot = await database.DeleteSegmentAsync(itemId, target.Id);
 
             Assert.NotNull(snapshot);
             Assert.Equal(target.Id, snapshot!.Id);
@@ -350,7 +350,7 @@ public sealed class TestDatabaseFacades
             var target = Assert.Single(await database.GetSegmentsAsync(itemId), s => s.StartTicks == Ticks(10));
             var sibling = Assert.Single(await database.GetSegmentsAsync(itemId), s => s.StartTicks == Ticks(30));
 
-            var updated = await database.UpdateSegmentAsync(target.Id, Ticks(12), Ticks(22));
+            var updated = await database.UpdateSegmentAsync(itemId, target.Id, Ticks(12), Ticks(22));
             Assert.NotNull(updated);
             Assert.Equal(target.Id, updated!.Id);
             Assert.Equal(SegmentSource.User, updated.Source);
@@ -359,14 +359,16 @@ public sealed class TestDatabaseFacades
             // Moving onto the exact range of the active sibling merges into it: the
             // occupant survives as the user segment (keeping its id) and the moved row
             // is absorbed, mirroring AddUserSegmentAsync's in-place promotion.
-            var merged = await database.UpdateSegmentAsync(target.Id, Ticks(30), Ticks(40));
+            var merged = await database.UpdateSegmentAsync(itemId, target.Id, Ticks(30), Ticks(40));
             Assert.NotNull(merged);
             Assert.Equal(sibling.Id, merged!.Id);
             Assert.Equal(SegmentSource.User, merged.Source);
             var survivor = Assert.Single(await database.GetSegmentsAsync(itemId, includeSuppressed: true));
             Assert.Equal(sibling.Id, survivor.Id);
 
-            Assert.Null(await database.UpdateSegmentAsync(Guid.NewGuid(), Ticks(1), Ticks(2)));
+            Assert.Null(await database.UpdateSegmentAsync(itemId, Guid.NewGuid(), Ticks(1), Ticks(2)));
+            // The survivor addressed through the wrong item is unknown by contract.
+            Assert.Null(await database.UpdateSegmentAsync(Guid.NewGuid(), sibling.Id, Ticks(50), Ticks(60)));
         }
         finally
         {
@@ -390,7 +392,7 @@ public sealed class TestDatabaseFacades
 
             // Tombstone one intro so the erase provably clears tombstones too.
             var tombstoned = Assert.Single(await database.GetSegmentsAsync(itemB), s => s.Type == AnalysisMode.Introduction);
-            await database.DeleteSegmentAsync(tombstoned.Id);
+            await database.DeleteSegmentAsync(itemB, tombstoned.Id);
 
             await database.DeleteSegmentsByModeAsync(AnalysisMode.Introduction);
 
@@ -453,7 +455,7 @@ public sealed class TestDatabaseFacades
             // Tombstone the target item's intro: an explicit season erase is a factory
             // reset, so the tombstone must go too.
             var tombstoned = Assert.Single(await database.GetSegmentsAsync(targetItemId));
-            await database.DeleteSegmentAsync(tombstoned.Id);
+            await database.DeleteSegmentAsync(targetItemId, tombstoned.Id);
 
             await database.ClearSeasonAnalysisAsync(seasonId, [targetItemId]);
 
@@ -818,7 +820,7 @@ public sealed class TestDatabaseFacades
             // it records user intent, not analysis output.
             await database.ReplaceAutoSegmentsAsync(tombstonedItemId, AnalysisMode.Introduction, [new Segment(tombstonedItemId, new TimeRange(0, 30))], SegmentSource.Chapter, "old-config");
             var tombstoned = Assert.Single(await database.GetSegmentsAsync(tombstonedItemId));
-            await database.DeleteSegmentAsync(tombstoned.Id);
+            await database.DeleteSegmentAsync(tombstonedItemId, tombstoned.Id);
 
             await database.CleanStaleAutomaticSegmentsAsync(itemIds, AnalysisMode.Introduction, "new-config");
 
@@ -862,7 +864,7 @@ public sealed class TestDatabaseFacades
             // Tombstones record user intent and must survive corruption recovery.
             await database.ReplaceAutoSegmentsAsync(tombstonedItemId, AnalysisMode.Introduction, [new Segment(tombstonedItemId, new TimeRange(0, 30))], SegmentSource.Chapter);
             var tombstoned = Assert.Single(await database.GetSegmentsAsync(tombstonedItemId));
-            await database.DeleteSegmentAsync(tombstoned.Id);
+            await database.DeleteSegmentAsync(tombstonedItemId, tombstoned.Id);
 
             // An invalid segment (EndTicks <= StartTicks) is seeded raw — the facade
             // write paths never produce one — and must be dropped by the rebuild's

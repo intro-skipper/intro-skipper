@@ -311,7 +311,7 @@ public sealed class TestSegmentsApiController
             var database = DatabaseTestHelpers.CreateSegmentDatabase(dbPath);
             await database.ReplaceAutoSegmentsAsync(itemId, AnalysisMode.Introduction, [new Segment(itemId, new TimeRange(10, 60))], SegmentSource.BlackFrame);
             var row = Assert.Single(await database.GetSegmentsAsync(itemId));
-            await database.DeleteSegmentAsync(row.Id);
+            await database.DeleteSegmentAsync(itemId, row.Id);
             var controller = CreateController(database, out _);
 
             var restored = await controller.RestoreSegment(itemId, row.Id, CancellationToken.None);

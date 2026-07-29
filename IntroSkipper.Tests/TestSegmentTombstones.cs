@@ -30,7 +30,7 @@ public sealed class TestSegmentTombstones
             await database.ReplaceAutoSegmentsAsync(itemId, AnalysisMode.Introduction, [new Segment(itemId, new TimeRange(10, 60))], SegmentSource.Chromaprint);
             var row = Assert.Single(await database.GetSegmentsAsync(itemId));
 
-            var snapshot = await database.DeleteSegmentAsync(row.Id);
+            var snapshot = await database.DeleteSegmentAsync(itemId, row.Id);
 
             Assert.NotNull(snapshot);
             Assert.Empty(await database.GetSegmentsAsync(itemId));
@@ -39,7 +39,7 @@ public sealed class TestSegmentTombstones
             Assert.Equal(SegmentSource.Chromaprint, tombstone.Source);
 
             // Deleting a tombstone again is a no-op.
-            Assert.Null(await database.DeleteSegmentAsync(row.Id));
+            Assert.Null(await database.DeleteSegmentAsync(itemId, row.Id));
         }
         finally
         {
@@ -57,7 +57,7 @@ public sealed class TestSegmentTombstones
             var database = DatabaseTestHelpers.CreateSegmentDatabase(dbPath);
             var row = await database.AddUserSegmentAsync(itemId, AnalysisMode.Credits, Ticks(1200), Ticks(1260));
 
-            var snapshot = await database.DeleteSegmentAsync(row.Id);
+            var snapshot = await database.DeleteSegmentAsync(itemId, row.Id);
 
             Assert.NotNull(snapshot);
             Assert.Equal(SegmentSource.User, snapshot!.Source);
@@ -82,7 +82,7 @@ public sealed class TestSegmentTombstones
             var database = DatabaseTestHelpers.CreateSegmentDatabase(dbPath);
             await database.ReplaceAutoSegmentsAsync(itemId, AnalysisMode.Introduction, [new Segment(itemId, new TimeRange(10, 60))], SegmentSource.Chromaprint);
             var row = Assert.Single(await database.GetSegmentsAsync(itemId));
-            await database.DeleteSegmentAsync(row.Id);
+            await database.DeleteSegmentAsync(itemId, row.Id);
 
             // Re-analysis re-derives an overlapping range: it must not resurrect the
             // segment the user deleted, and must not throw on the unique index.
@@ -109,7 +109,7 @@ public sealed class TestSegmentTombstones
             var database = DatabaseTestHelpers.CreateSegmentDatabase(dbPath);
             await database.ReplaceAutoSegmentsAsync(itemId, AnalysisMode.Commercial, [new Segment(itemId, new TimeRange(10, 20))], SegmentSource.Chapter);
             var row = Assert.Single(await database.GetSegmentsAsync(itemId));
-            await database.DeleteSegmentAsync(row.Id);
+            await database.DeleteSegmentAsync(itemId, row.Id);
 
             // A commercial that does not strictly overlap the deleted one — including one
             // that exactly abuts it — is unrelated and must be stored.
@@ -139,11 +139,11 @@ public sealed class TestSegmentTombstones
                 [new Segment(itemId, new TimeRange(10, 20)), new Segment(itemId, new TimeRange(50, 60))],
                 SegmentSource.Chapter);
             var rows = await database.GetSegmentsAsync(itemId);
-            await database.DeleteSegmentAsync(rows[0].Id); // tombstone (10, 20)
+            await database.DeleteSegmentAsync(itemId, rows[0].Id); // tombstone (10, 20)
 
             // Moving the other segment onto the tombstoned range is an explicit user
             // decision: the tombstone is absorbed instead of raising a phantom 409.
-            var updated = await database.UpdateSegmentAsync(rows[1].Id, Ticks(10), Ticks(20));
+            var updated = await database.UpdateSegmentAsync(itemId, rows[1].Id, Ticks(10), Ticks(20));
 
             Assert.NotNull(updated);
             Assert.Equal(SegmentSource.User, updated!.Source);
@@ -167,11 +167,14 @@ public sealed class TestSegmentTombstones
             var database = DatabaseTestHelpers.CreateSegmentDatabase(dbPath);
             await database.ReplaceAutoSegmentsAsync(itemId, AnalysisMode.Introduction, [new Segment(itemId, new TimeRange(10, 60))], SegmentSource.BlackFrame);
             var row = Assert.Single(await database.GetSegmentsAsync(itemId));
-            await database.DeleteSegmentAsync(row.Id);
+            await database.DeleteSegmentAsync(itemId, row.Id);
 
-            Assert.NotNull(await database.RestoreSegmentAsync(row.Id));
-            Assert.Null(await database.RestoreSegmentAsync(row.Id)); // not suppressed anymore
-            Assert.Null(await database.RestoreSegmentAsync(Guid.NewGuid()));
+            // A suppressed row addressed through the wrong item is unknown by contract.
+            Assert.Null(await database.RestoreSegmentAsync(Guid.NewGuid(), row.Id));
+
+            Assert.NotNull(await database.RestoreSegmentAsync(itemId, row.Id));
+            Assert.Null(await database.RestoreSegmentAsync(itemId, row.Id)); // not suppressed anymore
+            Assert.Null(await database.RestoreSegmentAsync(itemId, Guid.NewGuid()));
 
             var restored = Assert.Single(await database.GetSegmentsAsync(itemId));
             Assert.Equal(SegmentSource.BlackFrame, restored.Source);
@@ -196,14 +199,14 @@ public sealed class TestSegmentTombstones
             var userRow = await database.AddUserSegmentAsync(itemId, AnalysisMode.Credits, Ticks(1200), Ticks(1260));
 
             // Tombstoned auto row: undo flips the tombstone back.
-            var autoDelete = await database.DeleteSegmentAsync(autoRow.Id);
+            var autoDelete = await database.DeleteSegmentAsync(itemId, autoRow.Id);
             await database.UndoDeleteAsync(autoDelete);
             var restored = Assert.Single(await database.GetSegmentsAsync(itemId), s => s.Id == autoRow.Id);
             Assert.Equal(SegmentState.Active, restored.State);
             Assert.Equal("cfg", restored.ConfigHash);
 
             // Hard-deleted user row: undo re-inserts the snapshot verbatim.
-            var userDelete = await database.DeleteSegmentAsync(userRow.Id);
+            var userDelete = await database.DeleteSegmentAsync(itemId, userRow.Id);
             await database.UndoDeleteAsync(userDelete);
             var reinserted = Assert.Single(await database.GetSegmentsAsync(itemId), s => s.Id == userRow.Id);
             Assert.Equal(SegmentSource.User, reinserted.Source);
@@ -228,7 +231,7 @@ public sealed class TestSegmentTombstones
             var database = DatabaseTestHelpers.CreateSegmentDatabase(dbPath);
             await database.ReplaceAutoSegmentsAsync(itemId, AnalysisMode.Introduction, [new Segment(itemId, new TimeRange(10, 60))], SegmentSource.Chromaprint);
             var row = Assert.Single(await database.GetSegmentsAsync(itemId));
-            await database.DeleteSegmentAsync(row.Id);
+            await database.DeleteSegmentAsync(itemId, row.Id);
 
             // Erase-by-mode is a factory reset: the tombstone goes too, and the next
             // analysis run may store the range again.
@@ -258,7 +261,7 @@ public sealed class TestSegmentTombstones
                 [new Segment(itemId, new TimeRange(10, 20)), new Segment(itemId, new TimeRange(50, 60))],
                 SegmentSource.Chapter);
             var rows = await database.GetSegmentsAsync(itemId);
-            await database.DeleteSegmentAsync(rows[0].Id);
+            await database.DeleteSegmentAsync(itemId, rows[0].Id);
 
             var factory = new SegmentDtoFactory(database);
             var dtos = await factory.CreateAsync(itemId, default);

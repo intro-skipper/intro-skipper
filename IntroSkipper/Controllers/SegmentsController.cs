@@ -135,13 +135,7 @@ public class SegmentsController(IIntroSkipperDatabase database, MediaSegmentEdit
             return BadRequest("Start must be non-negative and End must be after Start.");
         }
 
-        var existing = await _database.GetSegmentAsync(segmentId, cancellationToken).ConfigureAwait(false);
-        if (existing is null || existing.ItemId != itemId)
-        {
-            return NotFound();
-        }
-
-        var updated = await _database.UpdateSegmentAsync(segmentId, startTicks, endTicks, cancellationToken).ConfigureAwait(false);
+        var updated = await _database.UpdateSegmentAsync(itemId, segmentId, startTicks, endTicks, cancellationToken).ConfigureAwait(false);
         if (updated is null)
         {
             return NotFound();
@@ -176,17 +170,12 @@ public class SegmentsController(IIntroSkipperDatabase database, MediaSegmentEdit
             return NotFound();
         }
 
-        var existing = await _database.GetSegmentAsync(segmentId, cancellationToken).ConfigureAwait(false);
-        if (existing is null || existing.ItemId != itemId || existing.State == SegmentState.Suppressed)
-        {
-            return NotFound();
-        }
-
-        // The cascade owns the whole delete workflow: plugin delete, targeted Jellyfin
-        // delete with rollback, mirror re-sync when the shared id found no Jellyfin row,
-        // and the season-state reset. The Jellyfin row shares the segment id.
+        // The cascade owns the whole delete workflow: item-scoped plugin delete, targeted
+        // Jellyfin delete with rollback, mirror re-sync when the shared id found no
+        // Jellyfin row, and the season-state reset (mode comes from the deleted row).
+        // The Jellyfin row shares the segment id.
         var deleted = await _mediaSegmentEditorService
-            .DeleteStoredSegmentAsync(itemId, existing.Type, segmentId, segmentId, cancellationToken)
+            .DeleteStoredSegmentAsync(itemId, null, segmentId, segmentId, cancellationToken)
             .ConfigureAwait(false);
         if (deleted is null)
         {
@@ -220,13 +209,7 @@ public class SegmentsController(IIntroSkipperDatabase database, MediaSegmentEdit
             return NotFound();
         }
 
-        var existing = await _database.GetSegmentAsync(segmentId, cancellationToken).ConfigureAwait(false);
-        if (existing is null || existing.ItemId != itemId)
-        {
-            return NotFound();
-        }
-
-        var restored = await _database.RestoreSegmentAsync(segmentId, cancellationToken).ConfigureAwait(false);
+        var restored = await _database.RestoreSegmentAsync(itemId, segmentId, cancellationToken).ConfigureAwait(false);
         if (restored is null)
         {
             return NotFound();

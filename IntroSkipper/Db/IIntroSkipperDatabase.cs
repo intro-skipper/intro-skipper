@@ -79,24 +79,26 @@ public interface IIntroSkipperDatabase
     /// addressed row is removed — mirroring <see cref="AddUserSegmentAsync"/>'s in-place
     /// resolution of exact-range collisions.
     /// </summary>
+    /// <param name="itemId">Item ID that must own the segment; ids on other items are treated as unknown.</param>
     /// <param name="segmentId">Segment ID.</param>
     /// <param name="startTicks">New start time in ticks.</param>
     /// <param name="endTicks">New end time in ticks; must be after <paramref name="startTicks"/>.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>The surviving row (the addressed row, or the exact-range occupant it merged into),
-    /// or <c>null</c> when the id is unknown or suppressed.</returns>
-    Task<DbSegment?> UpdateSegmentAsync(Guid segmentId, long startTicks, long endTicks, CancellationToken cancellationToken = default);
+    /// or <c>null</c> when the id is unknown on the item or suppressed.</returns>
+    Task<DbSegment?> UpdateSegmentAsync(Guid itemId, Guid segmentId, long startTicks, long endTicks, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Deletes a segment: automatic rows are tombstoned (kept as
     /// <see cref="SegmentState.Suppressed"/> so re-analysis does not re-add an
     /// overlapping automatic segment), user rows are hard-deleted.
     /// </summary>
+    /// <param name="itemId">Item ID that must own the segment; ids on other items are treated as unknown.</param>
     /// <param name="segmentId">Segment ID.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>A pre-delete snapshot sufficient to reverse the delete exactly via
-    /// <see cref="UndoDeleteAsync"/>, or <c>null</c> when the id is unknown or already suppressed.</returns>
-    Task<DbSegment?> DeleteSegmentAsync(Guid segmentId, CancellationToken cancellationToken = default);
+    /// <see cref="UndoDeleteAsync"/>, or <c>null</c> when the id is unknown on the item or already suppressed.</returns>
+    Task<DbSegment?> DeleteSegmentAsync(Guid itemId, Guid segmentId, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Reverses a prior <see cref="DeleteSegmentAsync"/> exactly: flips the tombstone back
@@ -111,10 +113,11 @@ public interface IIntroSkipperDatabase
     /// <summary>
     /// Clears a tombstone, making the suppressed segment active again with its original source.
     /// </summary>
+    /// <param name="itemId">Item ID that must own the segment; ids on other items are treated as unknown.</param>
     /// <param name="segmentId">Segment ID.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
-    /// <returns>The restored row, or <c>null</c> when the id is unknown or not suppressed.</returns>
-    Task<DbSegment?> RestoreSegmentAsync(Guid segmentId, CancellationToken cancellationToken = default);
+    /// <returns>The restored row, or <c>null</c> when the id is unknown on the item or not suppressed.</returns>
+    Task<DbSegment?> RestoreSegmentAsync(Guid itemId, Guid segmentId, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Returns a stored segment by id, regardless of state.

@@ -200,6 +200,7 @@ public sealed partial class IntroSkipperDatabase
 
     /// <inheritdoc/>
     public async Task<DbSegment?> UpdateSegmentAsync(
+        Guid itemId,
         Guid segmentId,
         long startTicks,
         long endTicks,
@@ -211,7 +212,7 @@ public sealed partial class IntroSkipperDatabase
         using var db = _contextFactory.CreateDbContext();
 
         var row = await db.Segments
-            .FirstOrDefaultAsync(s => s.Id == segmentId, cancellationToken)
+            .FirstOrDefaultAsync(s => s.ItemId == itemId && s.Id == segmentId, cancellationToken)
             .ConfigureAwait(false);
         if (row is null || row.State == SegmentState.Suppressed)
         {
@@ -256,13 +257,13 @@ public sealed partial class IntroSkipperDatabase
     }
 
     /// <inheritdoc/>
-    public async Task<DbSegment?> DeleteSegmentAsync(Guid segmentId, CancellationToken cancellationToken = default)
+    public async Task<DbSegment?> DeleteSegmentAsync(Guid itemId, Guid segmentId, CancellationToken cancellationToken = default)
     {
         await InitializeAsync().ConfigureAwait(false);
         using var db = _contextFactory.CreateDbContext();
 
         var row = await db.Segments
-            .FirstOrDefaultAsync(s => s.Id == segmentId, cancellationToken)
+            .FirstOrDefaultAsync(s => s.ItemId == itemId && s.Id == segmentId, cancellationToken)
             .ConfigureAwait(false);
         if (row is null || row.State == SegmentState.Suppressed)
         {
@@ -319,13 +320,13 @@ public sealed partial class IntroSkipperDatabase
     }
 
     /// <inheritdoc/>
-    public async Task<DbSegment?> RestoreSegmentAsync(Guid segmentId, CancellationToken cancellationToken = default)
+    public async Task<DbSegment?> RestoreSegmentAsync(Guid itemId, Guid segmentId, CancellationToken cancellationToken = default)
     {
         await InitializeAsync().ConfigureAwait(false);
         using var db = _contextFactory.CreateDbContext();
 
         var row = await db.Segments
-            .FirstOrDefaultAsync(s => s.Id == segmentId, cancellationToken)
+            .FirstOrDefaultAsync(s => s.ItemId == itemId && s.Id == segmentId, cancellationToken)
             .ConfigureAwait(false);
         if (row is null || row.State != SegmentState.Suppressed)
         {

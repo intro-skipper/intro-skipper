@@ -56,7 +56,9 @@ public partial class MediaSegmentEditorService(
     /// converged in both cases and makes the second loudly diagnosable from logs.
     /// </summary>
     /// <param name="itemId">The item that owns the segment.</param>
-    /// <param name="mode">Analysis mode of the deleted segment, used for the season-state reset.</param>
+    /// <param name="mode">Season-state reset mode for deletes that address no plugin row; when a
+    /// plugin row is deleted its stored <see cref="DbSegment.Type"/> is authoritative and this
+    /// parameter may be <c>null</c>.</param>
     /// <param name="jellyfinSegmentId">The Jellyfin segment id to delete; when unknown, a correlated
     /// plugin row triggers the warning re-sync and an uncorrelated delete is a no-op.</param>
     /// <param name="pluginSegmentId">The plugin row id, or <c>null</c> when no plugin-side counterpart exists
@@ -68,7 +70,7 @@ public partial class MediaSegmentEditorService(
     /// was addressed.</returns>
     public async Task<DbSegment?> DeleteStoredSegmentAsync(
         Guid itemId,
-        AnalysisMode mode,
+        AnalysisMode? mode,
         Guid jellyfinSegmentId,
         Guid? pluginSegmentId,
         CancellationToken cancellationToken)
@@ -76,10 +78,11 @@ public partial class MediaSegmentEditorService(
         DbSegment? deleted = null;
         if (pluginSegmentId is { } pluginRowId)
         {
-            deleted = await _database.DeleteSegmentAsync(pluginRowId, cancellationToken).ConfigureAwait(false);
+            deleted = await _database.DeleteSegmentAsync(itemId, pluginRowId, cancellationToken).ConfigureAwait(false);
             if (deleted is null)
             {
-                // The row vanished or was suppressed concurrently; whoever removed it owned the cascade.
+                // Unknown on the item, or vanished/suppressed concurrently; whoever
+                // removed it owned the cascade.
                 return null;
             }
         }
@@ -103,9 +106,9 @@ public partial class MediaSegmentEditorService(
         }
 
         var item = Plugin.Instance!.GetItem(itemId);
-        if (item is not null)
+        if (item is not null && (deleted?.Type ?? mode) is { } resetMode)
         {
-            await _database.RemoveEpisodeIdAsync(SeasonStateKeyResolver.Resolve(item), mode, itemId, cancellationToken).ConfigureAwait(false);
+            await _database.RemoveEpisodeIdAsync(SeasonStateKeyResolver.Resolve(item), resetMode, itemId, cancellationToken).ConfigureAwait(false);
         }
 
         return deleted;
