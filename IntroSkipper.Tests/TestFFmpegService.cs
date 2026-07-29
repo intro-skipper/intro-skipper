@@ -9,6 +9,7 @@
 
 using System;
 using System.Diagnostics;
+using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using IntroSkipper.Data;
@@ -133,6 +134,154 @@ public class TestFFmpegService
         Assert.True(await remainingCaller);
         Assert.True(await ffmpegService.CheckFFmpegVersionAsync());
         Assert.Equal(1, probeCount);
+    }
+
+    [Fact]
+    public async Task CheckFFmpegVersionAsync_ProbeException_PropagatesToAllWaitersAndResetsGate()
+    {
+        var probeCount = 0;
+        var probeStarted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var releaseProbe = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var ffmpegService = CreateFFmpegService(async _ =>
+        {
+            if (Interlocked.Increment(ref probeCount) == 1)
+            {
+                probeStarted.SetResult();
+                await releaseProbe.Task;
+                throw new InvalidOperationException("probe exploded");
+            }
+
+            return true;
+        });
+
+        var first = ffmpegService.CheckFFmpegVersionAsync();
+        await probeStarted.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        var second = ffmpegService.CheckFFmpegVersionAsync();
+
+        releaseProbe.SetResult();
+        await Assert.ThrowsAsync<InvalidOperationException>(() => first);
+        await Assert.ThrowsAsync<InvalidOperationException>(() => second);
+
+        // The faulted attempt must not be cached: the next call probes again, and its
+        // success is then memoized.
+        Assert.True(await ffmpegService.CheckFFmpegVersionAsync());
+        Assert.True(await ffmpegService.CheckFFmpegVersionAsync());
+        Assert.Equal(2, probeCount);
+    }
+
+    [Fact]
+    public async Task CheckFFmpegVersionAsync_SynchronousProbeThrow_DoesNotWedgeGate()
+    {
+        var probeCount = 0;
+        var ffmpegService = CreateFFmpegService(_ =>
+            Interlocked.Increment(ref probeCount) == 1
+                ? throw new InvalidOperationException("thrown before any task exists")
+                : Task.FromResult(true));
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() => ffmpegService.CheckFFmpegVersionAsync());
+        Assert.True(await ffmpegService.CheckFFmpegVersionAsync());
+        Assert.Equal(2, probeCount);
+    }
+
+    [Fact]
+    public async Task CheckFFmpegVersionAsync_ProbeCancellationFault_ResetsGateForRetry()
+    {
+        var probeCount = 0;
+        var ffmpegService = CreateFFmpegService(_ =>
+            Interlocked.Increment(ref probeCount) == 1
+                ? Task.FromCanceled<bool>(new CancellationToken(canceled: true))
+                : Task.FromResult(true));
+
+        // The caller's own token was never canceled, yet a cancellation fault inside the
+        // shared probe surfaces as OperationCanceledException. The gate must treat it
+        // like any other failure and retry on the next call.
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => ffmpegService.CheckFFmpegVersionAsync());
+        Assert.True(await ffmpegService.CheckFFmpegVersionAsync());
+        Assert.Equal(2, probeCount);
+    }
+
+    [Fact]
+    public async Task CheckFFmpegVersionAsync_AbandonedFailedProbe_StillResetsGate()
+    {
+        var probeCount = 0;
+        var probeStarted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var releaseProbe = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var ffmpegService = CreateFFmpegService(_ =>
+        {
+            if (Interlocked.Increment(ref probeCount) == 1)
+            {
+                probeStarted.SetResult();
+                return releaseProbe.Task;
+            }
+
+            return Task.FromResult(true);
+        });
+        using var cancellation = new CancellationTokenSource();
+
+        // The only waiter walks away; the in-flight probe then fails with nobody watching.
+        var abandoned = ffmpegService.CheckFFmpegVersionAsync(cancellation.Token);
+        await probeStarted.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        await cancellation.CancelAsync();
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => abandoned);
+        releaseProbe.SetResult(false);
+
+        // The unobserved failure must still reset the gate. Early calls may attach to
+        // the completing first attempt and see its false result; a bounded number of
+        // calls later the reset is visible and a fresh probe succeeds.
+        var result = false;
+        for (var i = 0; i < 1000 && !result; i++)
+        {
+            result = await ffmpegService.CheckFFmpegVersionAsync();
+        }
+
+        Assert.True(result);
+        Assert.Equal(2, probeCount);
+    }
+
+    [Fact]
+    public async Task CheckFFmpegVersionAsync_ConcurrentCallersAcrossRetries_NeverOverlapProbes_AndSuccessSticks()
+    {
+        var probeCount = 0;
+        var inFlight = 0;
+        var maxInFlight = 0;
+        var ffmpegService = CreateFFmpegService(async _ =>
+        {
+            var current = Interlocked.Increment(ref inFlight);
+            int observedMax;
+            do
+            {
+                observedMax = Volatile.Read(ref maxInFlight);
+            }
+            while (current > observedMax && Interlocked.CompareExchange(ref maxInFlight, current, observedMax) != observedMax);
+
+            var attempt = Interlocked.Increment(ref probeCount);
+            await Task.Yield();
+            Interlocked.Decrement(ref inFlight);
+            return attempt >= 4;
+        });
+
+        // Hammer the gate from concurrent callers until a probe finally succeeds; the
+        // first three attempts fail, and every failure must be shared, reset and retried
+        // without two probes ever running at once.
+        var succeeded = false;
+        for (var round = 0; round < 200 && !succeeded; round++)
+        {
+            var results = await Task.WhenAll(
+                Enumerable.Range(0, 16).Select(_ => Task.Run(() => ffmpegService.CheckFFmpegVersionAsync())))
+                .WaitAsync(TimeSpan.FromSeconds(10));
+            succeeded = Array.Exists(results, r => r);
+        }
+
+        Assert.True(succeeded);
+        Assert.Equal(4, probeCount);
+        Assert.Equal(1, maxInFlight);
+
+        // Success is sticky: another concurrent burst runs no further probes.
+        var afterSuccess = await Task.WhenAll(
+            Enumerable.Range(0, 32).Select(_ => Task.Run(() => ffmpegService.CheckFFmpegVersionAsync())))
+            .WaitAsync(TimeSpan.FromSeconds(10));
+        Assert.All(afterSuccess, Assert.True);
+        Assert.Equal(4, probeCount);
     }
 
     #region Info Query Tests

@@ -95,8 +95,11 @@ public sealed class TestSegmentTombstones
         }
     }
 
-    [Fact]
-    public async Task AnalysisWrite_DifferentRange_InsertsDespiteTombstone()
+    [Theory]
+    [InlineData(100.0, 120.0)] // disjoint range elsewhere in the episode
+    [InlineData(20.0, 30.0)]   // starts exactly at the tombstone's end — touching is not overlap
+    [InlineData(0.0, 10.0)]    // ends exactly at the tombstone's start — touching is not overlap
+    public async Task AnalysisWrite_DifferentRange_InsertsDespiteTombstone(double newStart, double newEnd)
     {
         var dbPath = CreateTempDbPath();
         var itemId = Guid.NewGuid();
@@ -107,11 +110,13 @@ public sealed class TestSegmentTombstones
             var row = Assert.Single(await database.GetSegmentsAsync(itemId));
             await database.DeleteSegmentAsync(row.Id);
 
-            // A commercial elsewhere in the episode is unrelated to the deleted one.
-            await database.ReplaceAutoSegmentsAsync(itemId, AnalysisMode.Commercial, [new Segment(itemId, new TimeRange(100, 120))], SegmentSource.Chapter);
+            // A commercial that does not strictly overlap the deleted one — including one
+            // that exactly abuts it — is unrelated and must be stored.
+            await database.ReplaceAutoSegmentsAsync(itemId, AnalysisMode.Commercial, [new Segment(itemId, new TimeRange(newStart, newEnd))], SegmentSource.Chapter);
 
             var active = Assert.Single(await database.GetSegmentsAsync(itemId));
-            Assert.Equal(Ticks(100), active.StartTicks);
+            Assert.Equal(Ticks(newStart), active.StartTicks);
+            Assert.Equal(Ticks(newEnd), active.EndTicks);
         }
         finally
         {
