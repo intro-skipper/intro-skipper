@@ -273,12 +273,13 @@ public partial class ChromaprintAnalyzer(ILogger<ChromaprintAnalyzer> logger, IF
 
         if (!_recapBlackFrameCache.TryGetValue(episode.EpisodeId, out var blackFrames))
         {
-            blackFrames = await _ffmpegService.DetectBlackFramesAsync(
+            // Share the adaptive scan with ChapterAnalyzer so both recap consumers agree on
+            // which frames count as black instead of diverging by analyzer order.
+            blackFrames = await RecapDetectionHelper.DetectAdaptiveBlackFramesAsync(
+                _ffmpegService,
                 episode,
-                new TimeRange(0, maximumBoundary),
-                _config.BlackFrameMinimumPercentage,
-                _config.BlackFrameThreshold,
-                AnalysisMode.Recap,
+                maximumBoundary,
+                _config,
                 cancellationToken).ConfigureAwait(false);
             _recapBlackFrameCache[episode.EpisodeId] = blackFrames;
         }
