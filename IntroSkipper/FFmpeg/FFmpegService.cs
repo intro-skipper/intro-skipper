@@ -98,14 +98,14 @@ public sealed partial class FFmpegService(
 
     private async Task RunVersionProbeAsync(TaskCompletionSource<bool> completion)
     {
+        // The probe is shared, so no single caller's token may cancel it; a
+        // service-owned lifetime bounds it instead. WaitAsync keeps the gate safe
+        // even against a probe that ignores its token: the attempt fails, the gate
+        // resets, the next call retries, and the abandoned probe's eventual result
+        // is discarded.
+        using var probeLifetime = new CancellationTokenSource(_versionProbeTimeout);
         try
         {
-            // The probe is shared, so no single caller's token may cancel it; a
-            // service-owned lifetime bounds it instead. WaitAsync keeps the gate safe
-            // even against a probe that ignores its token: the attempt faults, the gate
-            // resets, the next call retries, and the abandoned probe's eventual result
-            // is discarded.
-            using var probeLifetime = new CancellationTokenSource(_versionProbeTimeout);
             var valid = await (_versionProbe ?? ProbeFFmpegVersionAsync)(probeLifetime.Token)
                 .WaitAsync(probeLifetime.Token)
                 .ConfigureAwait(false);
@@ -121,6 +121,19 @@ public sealed partial class FFmpegService(
                 {
                     _versionProbeTask = null;
                 }
+            }
+        }
+        catch (OperationCanceledException) when (probeLifetime.IsCancellationRequested)
+        {
+            // A probe that outran its service-owned lifetime is a failed attempt, not a
+            // cancellation of its waiters: CheckFFmpegVersionAsync documents false on
+            // any error, and callers such as Entrypoint.StartAsync await it unguarded.
+            // Exception propagation stays reserved for unexpected probe failures.
+            LogFfmpegVersionProbeTimedOut(_logger, _versionProbeTimeout);
+            lock (_versionProbeLock)
+            {
+                completion.SetResult(false);
+                _versionProbeTask = null;
             }
         }
         catch (Exception ex)
@@ -845,6 +858,9 @@ public sealed partial class FFmpegService(
 
     [LoggerMessage(Level = LogLevel.Error, Message = "Unexpected error while checking the installed FFmpeg version")]
     private static partial void LogFfmpegVersionCheckFailed(ILogger logger, Exception ex);
+
+    [LoggerMessage(Level = LogLevel.Error, Message = "FFmpeg version check did not finish within {Timeout}; treating the installed FFmpeg as invalid until a later check succeeds")]
+    private static partial void LogFfmpegVersionProbeTimedOut(ILogger logger, TimeSpan timeout);
 
     [LoggerMessage(Level = LogLevel.Trace, Message = "Detecting silence in \"{File}\" (range {Start}-{End}, id {Id})")]
     private static partial void LogDetectingSilence(ILogger logger, string file, double start, double end, Guid id);

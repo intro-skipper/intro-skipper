@@ -142,7 +142,7 @@ public class TestFFmpegService
     }
 
     [Fact]
-    public async Task CheckFFmpegVersionAsync_HungProbe_TimesOutResetsGateAndRetries()
+    public async Task CheckFFmpegVersionAsync_HungProbe_TimesOutReturnsFalseAndRetries()
     {
         var probeCount = 0;
         var ffmpegService = CreateFFmpegService(
@@ -152,9 +152,14 @@ public class TestFFmpegService
             versionProbeTimeout: TimeSpan.FromMilliseconds(100));
 
         // The service-owned lifetime must fail the attempt — an unresponsive ffmpeg may
-        // not wedge the gate for the rest of the process lifetime.
-        await Assert.ThrowsAnyAsync<OperationCanceledException>(
-            () => ffmpegService.CheckFFmpegVersionAsync().WaitAsync(TimeSpan.FromSeconds(10)));
+        // not wedge the gate for the rest of the process lifetime. The timeout is a
+        // failed probe, not a cancellation: every waiter observes the documented false
+        // verdict rather than an OperationCanceledException their own open token never
+        // caused (Entrypoint.StartAsync awaits the check unguarded during startup).
+        var first = ffmpegService.CheckFFmpegVersionAsync();
+        var second = ffmpegService.CheckFFmpegVersionAsync();
+        Assert.False(await first.WaitAsync(TimeSpan.FromSeconds(10)));
+        Assert.False(await second.WaitAsync(TimeSpan.FromSeconds(10)));
 
         Assert.True(await ffmpegService.CheckFFmpegVersionAsync());
         Assert.Equal(2, probeCount);
