@@ -14,8 +14,6 @@ using IntroSkipper.Helper;
 using IntroSkipper.Manager;
 using IntroSkipper.ScheduledTasks;
 using MediaBrowser.Common.Api;
-using MediaBrowser.Controller.Entities.Movies;
-using MediaBrowser.Controller.Entities.TV;
 using MediaBrowser.Controller.Library;
 using MediaBrowser.Controller.Providers;
 using MediaBrowser.Model.IO;
@@ -266,7 +264,7 @@ public partial class VisualizationController(ILogger<VisualizationController> lo
     private async Task<ActionResult> SetItemDisabledAsync(Guid seasonId, Guid itemId, bool disabled, CancellationToken cancellationToken)
     {
         var item = Plugin.Instance!.GetItem(itemId);
-        if (item is not (Episode or Movie) || SeasonStateKeyResolver.Resolve(item) != seasonId)
+        if (!MediaItemHelper.IsSupported(item) || SeasonStateKeyResolver.Resolve(item) != seasonId)
         {
             return NotFound();
         }

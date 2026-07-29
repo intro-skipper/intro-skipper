@@ -17,14 +17,12 @@ public sealed partial class IntroSkipperDatabase
         await InitializeAsync().ConfigureAwait(false);
         using var db = _contextFactory.CreateDbContext();
 
-        var ids = await db.DisabledItems
+        return await db.DisabledItems
             .AsNoTracking()
             .Where(e => e.SeasonId == seasonId)
             .Select(e => e.ItemId)
-            .ToListAsync(cancellationToken)
+            .ToHashSetAsync(cancellationToken)
             .ConfigureAwait(false);
-
-        return ids.ToHashSet();
     }
 
     /// <inheritdoc/>
@@ -34,21 +32,34 @@ public sealed partial class IntroSkipperDatabase
         using var db = _contextFactory.CreateDbContext();
 
         var existing = await db.DisabledItems
-            .FindAsync([seasonId, itemId], cancellationToken)
+            .FindAsync([itemId], cancellationToken)
             .ConfigureAwait(false);
-
-        if (disabled == (existing is not null))
-        {
-            return;
-        }
 
         if (disabled)
         {
-            db.DisabledItems.Add(new DbDisabledItem(seasonId, itemId));
+            if (existing is null)
+            {
+                db.DisabledItems.Add(new DbDisabledItem(seasonId, itemId));
+            }
+            else if (existing.SeasonId == seasonId)
+            {
+                return;
+            }
+            else
+            {
+                // The item moved season keys since it was disabled; the flag
+                // follows the item, so rewrite the stale key in place.
+                existing.SeasonId = seasonId;
+            }
         }
         else
         {
-            db.DisabledItems.Remove(existing!);
+            if (existing is null)
+            {
+                return;
+            }
+
+            db.DisabledItems.Remove(existing);
         }
 
         await db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);

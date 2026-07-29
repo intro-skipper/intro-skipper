@@ -14,8 +14,10 @@ export function episodeList(): {
         episodes: EpisodeItem[],
         segments: Array<ApiResult<SegmentDto[]> | null>,
         isMovie?: boolean,
-        disabledItemIds?: string[],
-        onDisabledChange?: (itemId: string, disabled: boolean) => Promise<void>,
+        disable?: {
+            ids: string[];
+            onChange: (itemId: string, disabled: boolean) => Promise<void>;
+        },
     ) => void;
     clear: () => void;
     setStatus: (msg: string, color?: string) => void;
@@ -274,12 +276,11 @@ export function episodeList(): {
             episodes: EpisodeItem[],
             segments: Array<ApiResult<SegmentDto[]> | null>,
             isMovie = false,
-            disabledItemIds: string[] = [],
-            onDisabledChangeCallback?: (itemId: string, disabled: boolean) => Promise<void>,
+            disable?: { ids: string[]; onChange: (itemId: string, disabled: boolean) => Promise<void> },
         ) {
             isMovieView = isMovie;
-            currentDisabledIds = new Set(disabledItemIds);
-            onDisabledChange = onDisabledChangeCallback ?? null;
+            currentDisabledIds = new Set(disable?.ids);
+            onDisabledChange = disable?.onChange ?? null;
             currentEpisodes = episodes;
             listEl.replaceChildren();
             destroyEditors();

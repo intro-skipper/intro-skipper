@@ -295,9 +295,10 @@ export function createTimestampsBrowser(container: HTMLElement): { destroy: () =
                 return;
             }
 
-            epList.render(episodes, segments, false, disabledItemIds, (itemId, disabled) =>
-                updateItemDisabled(season.Id, itemId, disabled),
-            );
+            epList.render(episodes, segments, false, {
+                ids: disabledItemIds,
+                onChange: (itemId, disabled) => updateItemDisabled(season.Id, itemId, disabled),
+            });
             await actions.loadForSeason(show.Id, season.Id, false);
         } catch (err) {
             if (!nav$.isCurrentPanel(panelToken)) return;
@@ -339,9 +340,10 @@ export function createTimestampsBrowser(container: HTMLElement): { destroy: () =
             if (!nav$.isCurrentPanel(panelToken)) return;
 
             // A movie's season-state key is its own ID.
-            epList.render([movieEp], [result], true, disabledItemIds, (itemId, disabled) =>
-                updateItemDisabled(show.Id, itemId, disabled),
-            );
+            epList.render([movieEp], [result], true, {
+                ids: disabledItemIds,
+                onChange: (itemId, disabled) => updateItemDisabled(show.Id, itemId, disabled),
+            });
             await actions.loadForSeason(show.Id, show.Id, true);
         } catch (err) {
             if (!nav$.isCurrentPanel(panelToken)) return;
@@ -365,7 +367,8 @@ export function createTimestampsBrowser(container: HTMLElement): { destroy: () =
     ): Promise<void> {
         const result = await tsData.setItemDisabled(seasonId, itemId, disabled);
         if (!result.ok) {
-            throw new Error(result.error ?? "Failed to update media-segment setting");
+            // The toggle handler owns the user-facing message; this is only a signal.
+            throw new Error("setItemDisabled failed");
         }
     }
 

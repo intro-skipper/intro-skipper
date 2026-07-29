@@ -138,10 +138,10 @@ public class IntroSkipperDbContext : DbContext
         {
             entity.ToTable("DisabledItems");
 
-            // The season-key prefix serves the per-season listing; the ItemId index
-            // serves the season-agnostic lookup on the sync path.
-            entity.HasKey(e => new { e.SeasonId, e.ItemId });
-            entity.HasIndex(e => e.ItemId);
+            // One flag per item by construction; the SeasonId index serves the
+            // per-season listing and season-departure pruning.
+            entity.HasKey(e => e.ItemId);
+            entity.HasIndex(e => e.SeasonId);
         });
 
         base.OnModelCreating(modelBuilder);

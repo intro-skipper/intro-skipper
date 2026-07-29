@@ -3,6 +3,7 @@
 
 using System;
 using System.Threading.Tasks;
+using IntroSkipper.Data;
 using IntroSkipper.Db;
 using Microsoft.EntityFrameworkCore;
 using Xunit;
@@ -76,6 +77,90 @@ public sealed class TestDisabledItems
             // The sync path only knows the item id, not which season key owns the flag.
             Assert.True(await database.IsItemDisabledAsync(itemId));
             Assert.False(await database.IsItemDisabledAsync(Guid.NewGuid()));
+        }
+        finally
+        {
+            DatabaseTestHelpers.DeleteSqliteFiles(dbPath);
+        }
+    }
+
+    [Fact]
+    public async Task SetItemDisabledAsync_RewritesSeasonKeyOnDrift()
+    {
+        var dbPath = DatabaseTestHelpers.CreateTempDbPath("disabled-items-drift.db");
+        try
+        {
+            var database = DatabaseTestHelpers.CreateSegmentDatabase(dbPath);
+            var itemId = Guid.NewGuid();
+            var oldSeasonId = Guid.NewGuid();
+            var newSeasonId = Guid.NewGuid();
+
+            await database.SetItemDisabledAsync(oldSeasonId, itemId, disabled: true);
+
+            // The item's queue key drifted (e.g. an in-season special regrouped):
+            // a disable write under the new key moves the flag instead of forking it.
+            await database.SetItemDisabledAsync(newSeasonId, itemId, disabled: true);
+
+            Assert.Empty(await database.GetDisabledItemIdsAsync(oldSeasonId));
+            Assert.Equal([itemId], await database.GetDisabledItemIdsAsync(newSeasonId));
+
+            // Enabling clears the flag no matter which key recorded it.
+            await database.SetItemDisabledAsync(newSeasonId, itemId, disabled: false);
+            Assert.False(await database.IsItemDisabledAsync(itemId));
+        }
+        finally
+        {
+            DatabaseTestHelpers.DeleteSqliteFiles(dbPath);
+        }
+    }
+
+    [Fact]
+    public async Task MigratedSchema_EnforcesOneRowPerItem()
+    {
+        var dbPath = DatabaseTestHelpers.CreateTempDbPath("disabled-items-migrated-pk.db");
+        try
+        {
+            var database = DatabaseTestHelpers.CreateSegmentDatabase(dbPath);
+            var itemId = Guid.NewGuid();
+
+            await database.SetItemDisabledAsync(Guid.NewGuid(), itemId, disabled: true);
+
+            // Raw insert against the migrated file: the migration's DDL, not just
+            // the EF model, must enforce the one-row-per-item invariant.
+            await using var db = new IntroSkipperDbContext(dbPath);
+            db.DisabledItems.Add(new DbDisabledItem(Guid.NewGuid(), itemId));
+
+            await Assert.ThrowsAsync<DbUpdateException>(() => db.SaveChangesAsync());
+        }
+        finally
+        {
+            DatabaseTestHelpers.DeleteSqliteFiles(dbPath);
+        }
+    }
+
+    [Fact]
+    public async Task GetServableSegmentsAsync_WithholdsAutomaticRowsWhileDisabled()
+    {
+        var dbPath = DatabaseTestHelpers.CreateTempDbPath("disabled-items-servable.db");
+        try
+        {
+            var database = DatabaseTestHelpers.CreateSegmentDatabase(dbPath);
+            var seasonId = Guid.NewGuid();
+            var itemId = Guid.NewGuid();
+
+            var intro = new Segment(itemId, new TimeRange(0, 30));
+            await database.ReplaceAutoSegmentsAsync(itemId, AnalysisMode.Introduction, [intro], SegmentSource.Chromaprint);
+            await database.AddUserSegmentAsync(itemId, AnalysisMode.Credits, TickConversions.FromSeconds(60), TickConversions.FromSeconds(90));
+
+            Assert.Equal(2, (await database.GetServableSegmentsAsync(itemId)).Count);
+
+            await database.SetItemDisabledAsync(seasonId, itemId, disabled: true);
+
+            var served = await database.GetServableSegmentsAsync(itemId);
+            Assert.Equal(SegmentSource.User, Assert.Single(served).Source);
+
+            // The editor's storage view keeps both rows.
+            Assert.Equal(2, (await database.GetSegmentsAsync(itemId)).Count);
         }
         finally
         {

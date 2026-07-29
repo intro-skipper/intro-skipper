@@ -19,15 +19,15 @@ namespace IntroSkipper.Migrations
 
             modelBuilder.Entity("IntroSkipper.Db.DbDisabledItem", b =>
                 {
-                    b.Property<Guid>("SeasonId")
-                        .HasColumnType("TEXT");
-
                     b.Property<Guid>("ItemId")
                         .HasColumnType("TEXT");
 
-                    b.HasKey("SeasonId", "ItemId");
+                    b.Property<Guid>("SeasonId")
+                        .HasColumnType("TEXT");
 
-                    b.HasIndex("ItemId");
+                    b.HasKey("ItemId");
+
+                    b.HasIndex("SeasonId");
 
                     b.ToTable("DisabledItems", (string)null);
                 });

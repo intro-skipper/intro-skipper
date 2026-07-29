@@ -138,6 +138,18 @@ public interface IIntroSkipperDatabase
     Task<IReadOnlyList<DbSegment>> GetSegmentsAsync(Guid itemId, bool includeSuppressed = false, CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// Returns the item's active segments as served to clients: automatic rows are
+    /// withheld while the item is disabled, user-provided rows always pass. Every
+    /// client-facing surface (the Jellyfin mirror, the provider, the legacy skip
+    /// shims) reads through this; editor and analysis reads use
+    /// <see cref="GetSegmentsAsync"/>.
+    /// </summary>
+    /// <param name="itemId">Item ID.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>The servable segments, ordered by mode and start time.</returns>
+    Task<IReadOnlyList<DbSegment>> GetServableSegmentsAsync(Guid itemId, CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// Deletes all segments stored for an item, tombstones included (used when the item
     /// itself disappears or the user resets it explicitly).
     /// </summary>
@@ -315,7 +327,10 @@ public interface IIntroSkipperDatabase
     /// <summary>
     /// Sets whether an item's automatic segments are withheld from Jellyfin.
     /// Analysis and stored segments are unaffected either way; user-provided segments
-    /// always sync. Idempotent: a request matching the stored state writes nothing.
+    /// always sync. Disabling records the item's current season key — rewriting a
+    /// stale key in place — and enabling removes the flag no matter which key
+    /// recorded it. Idempotent: a request matching the stored state and key writes
+    /// nothing.
     /// </summary>
     /// <param name="seasonId">Season-state key that owns the item (a movie's own ID for movies).</param>
     /// <param name="itemId">Item ID.</param>

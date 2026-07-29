@@ -638,7 +638,7 @@ a {
 
 .ts-timestamp-pill.user {
     background: rgba(33, 150, 243, 0.15);
-    color: var(--is-accent, #2196f3);
+    color: var(--is-accent);
     border: 1px solid rgba(33, 150, 243, 0.4);
 }
 
@@ -660,7 +660,7 @@ a {
 }
 
 .ts-edit-btn:focus-visible {
-    outline: 2px solid var(--is-accent, #2196f3);
+    outline: 2px solid var(--is-accent);
     outline-offset: 1px;
 }
 
@@ -693,8 +693,8 @@ a {
 }
 
 .ts-episode-disable-toggle:checked {
-    border-color: var(--is-accent, #2196f3);
-    background: var(--is-accent, #2196f3);
+    border-color: var(--is-accent);
+    background: var(--is-accent);
 }
 
 .ts-episode-disable-toggle:checked::after {
@@ -703,12 +703,12 @@ a {
 }
 
 .ts-episode-disable-toggle:focus-visible {
-    outline: 2px solid var(--is-accent, #2196f3);
+    outline: 2px solid var(--is-accent);
     outline-offset: 2px;
 }
 
 .ts-episode-card.ts-episode-disabled {
-    opacity: 0.58;
+    opacity: 0.6;
 }
 
 .ts-segment-editor {

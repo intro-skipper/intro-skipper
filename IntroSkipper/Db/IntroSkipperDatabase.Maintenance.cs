@@ -213,7 +213,7 @@ public sealed partial class IntroSkipperDatabase
             .ExecuteDeleteAsync(cancellationToken)
             .ConfigureAwait(false);
 
-        // Disabled-item rows are keyed by the same season keys (a movie's own ID for
+        // Disabled-item rows carry the same season keys (a movie's own ID for
         // movies), so the retained set prunes them identically.
         await db.DisabledItems
             .Where(e => !EF.Parameter(retainedIds).Contains(e.SeasonId))

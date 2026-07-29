@@ -12,8 +12,8 @@ namespace IntroSkipper.Providers;
 /// Single source of truth for the plugin-to-Jellyfin conversion so that direct
 /// database pushes and provider runs produce identical data — which lets
 /// Jellyfin's scheduled segment extraction detect "no changes" and skip rewrites.
-/// Being the single source is also what enforces per-item disable: filtering
-/// automatic segments of disabled items here covers every push and pull path.
+/// Reads through the facade's servable-segments query, so the per-item disable
+/// policy is applied identically here and on the legacy skip endpoints.
 /// </summary>
 /// <remarks>
 /// Initializes a new instance of the <see cref="SegmentDtoFactory"/> class.
@@ -34,18 +34,10 @@ public sealed class SegmentDtoFactory(IIntroSkipperDatabase database)
     public async Task<IReadOnlyList<MediaSegmentDto>> CreateAsync(Guid itemId, CancellationToken cancellationToken)
     {
         var segments = new List<MediaSegmentDto>();
-        var isDisabled = await _database.IsItemDisabledAsync(itemId, cancellationToken).ConfigureAwait(false);
-        var itemSegments = await _database.GetSegmentsAsync(itemId, cancellationToken: cancellationToken).ConfigureAwait(false);
+        var itemSegments = await _database.GetServableSegmentsAsync(itemId, cancellationToken).ConfigureAwait(false);
 
         foreach (var segment in itemSegments)
         {
-            // Disabled items keep analyzing and storing segments; only explicitly
-            // user-provided rows may reach Jellyfin.
-            if (isDisabled && !segment.IsUserProvided)
-            {
-                continue;
-            }
-
             if (!AnalysisHelpers.ModeToSegmentType.TryGetValue(segment.Type, out var type))
             {
                 continue;

@@ -424,62 +424,38 @@ public sealed class TestDbSegmentStorage
         }
     }
 
+    [Fact]
+    public void DisabledItems_ItemIdPrimaryKey_RejectsSecondRowForSameItem()
+    {
+        using var connection = new SqliteConnection("Data Source=:memory:");
+        var options = CreateInMemoryOptions(connection);
+
+        var itemId = Guid.NewGuid();
+
+        using (var db = new IntroSkipperDbContext(options))
+        {
+            db.Database.EnsureCreated();
+
+            db.DisabledItems.Add(new DbDisabledItem(Guid.NewGuid(), itemId));
+            db.SaveChanges();
+        }
+
+        using (var db = new IntroSkipperDbContext(options))
+        {
+            // One flag per item: a drifted season key is rewritten in place by the
+            // facade, never accumulated as a second row.
+            db.DisabledItems.Add(new DbDisabledItem(Guid.NewGuid(), itemId));
+
+            Assert.Throws<DbUpdateException>(() => db.SaveChanges());
+        }
+    }
+
     /// <summary>
     /// Opens the shared in-memory connection (the database lives while it stays open;
     /// the caller owns disposal) and builds context options over it.
     /// </summary>
     /// <param name="connection">Unopened in-memory SQLite connection.</param>
     /// <returns>Context options bound to the connection.</returns>
-    [Fact]
-    public void DisabledItems_CompositeKey_AllowsSameItemUnderTwoSeasonKeys()
-    {
-        using var connection = new SqliteConnection("Data Source=:memory:");
-        var options = CreateInMemoryOptions(connection);
-
-        var itemId = Guid.NewGuid();
-
-        using (var db = new IntroSkipperDbContext(options))
-        {
-            db.Database.EnsureCreated();
-
-            // In-season specials can move between season keys; both rows must coexist.
-            db.DisabledItems.AddRange(
-                new DbDisabledItem(Guid.NewGuid(), itemId),
-                new DbDisabledItem(Guid.NewGuid(), itemId));
-            db.SaveChanges();
-        }
-
-        using (var db = new IntroSkipperDbContext(options))
-        {
-            Assert.Equal(2, db.DisabledItems.Count(e => e.ItemId == itemId));
-        }
-    }
-
-    [Fact]
-    public void DisabledItems_CompositeKey_RejectsDuplicateRow()
-    {
-        using var connection = new SqliteConnection("Data Source=:memory:");
-        var options = CreateInMemoryOptions(connection);
-
-        var seasonId = Guid.NewGuid();
-        var itemId = Guid.NewGuid();
-
-        using (var db = new IntroSkipperDbContext(options))
-        {
-            db.Database.EnsureCreated();
-
-            db.DisabledItems.Add(new DbDisabledItem(seasonId, itemId));
-            db.SaveChanges();
-        }
-
-        using (var db = new IntroSkipperDbContext(options))
-        {
-            db.DisabledItems.Add(new DbDisabledItem(seasonId, itemId));
-
-            Assert.Throws<DbUpdateException>(() => db.SaveChanges());
-        }
-    }
-
     private static DbContextOptions<IntroSkipperDbContext> CreateInMemoryOptions(SqliteConnection connection)
     {
         connection.Open();

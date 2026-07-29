@@ -15,18 +15,18 @@ namespace IntroSkipper.Migrations
                 name: "DisabledItems",
                 columns: table => new
                 {
-                    SeasonId = table.Column<Guid>(type: "TEXT", nullable: false),
-                    ItemId = table.Column<Guid>(type: "TEXT", nullable: false)
+                    ItemId = table.Column<Guid>(type: "TEXT", nullable: false),
+                    SeasonId = table.Column<Guid>(type: "TEXT", nullable: false)
                 },
                 constraints: table =>
                 {
-                    table.PrimaryKey("PK_DisabledItems", x => new { x.SeasonId, x.ItemId });
+                    table.PrimaryKey("PK_DisabledItems", x => x.ItemId);
                 });
 
             migrationBuilder.CreateIndex(
-                name: "IX_DisabledItems_ItemId",
+                name: "IX_DisabledItems_SeasonId",
                 table: "DisabledItems",
-                column: "ItemId");
+                column: "SeasonId");
         }
 
         /// <inheritdoc />
