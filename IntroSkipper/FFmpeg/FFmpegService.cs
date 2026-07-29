@@ -30,14 +30,27 @@ public sealed partial class FFmpegService(
     private const double LimitedRangeLumaMinimum = 16.0;
     private const double LimitedRangeLumaRange = 219.0;
 
+    // Bounds one shared version probe. Generous: the probe is four fast ffmpeg info
+    // queries, each already limited to 60 s of process-exit wait — but the drain phase
+    // has no timeout of its own, and the probe deliberately ignores caller tokens, so
+    // without this lifetime a hung ffmpeg would wedge the gate until a plugin reload.
+    private static readonly TimeSpan DefaultVersionProbeTimeout = TimeSpan.FromMinutes(2);
+
     private readonly ILogger<FFmpegService> _logger = logger;
     private readonly IDetectionCacheService _cacheService = cacheService;
     private readonly Func<CancellationToken, Task<bool>>? _versionProbe;
+    private readonly TimeSpan _versionProbeTimeout = DefaultVersionProbeTimeout;
 
     // Version checks share one in-flight probe, but the support bundle endpoint can read
     // these logs while that probe writes them, so a concurrent dictionary is required.
     private readonly ConcurrentDictionary<string, string> _chromaprintLogs = new();
 
+    // Deliberately NOT RetryableInitializationGate: that gate replaces an attempt only
+    // when it throws, but this one must also reset on a successful probe whose verdict
+    // is false (an incompatible ffmpeg is an expected, re-queryable state), keep success
+    // sticky for the service lifetime, and publish a false verdict and its reset
+    // atomically so the next caller is guaranteed a fresh probe. A Lazy-based attempt
+    // can express none of that.
     private readonly Lock _versionProbeLock = new();
     private Task<bool>? _versionProbeTask;
     private volatile bool _versionProbeSucceeded;
@@ -45,10 +58,12 @@ public sealed partial class FFmpegService(
     internal FFmpegService(
         ILogger<FFmpegService> logger,
         IDetectionCacheService cacheService,
-        Func<CancellationToken, Task<bool>> versionProbe)
+        Func<CancellationToken, Task<bool>> versionProbe,
+        TimeSpan? versionProbeTimeout = null)
         : this(logger, cacheService)
     {
         _versionProbe = versionProbe;
+        _versionProbeTimeout = versionProbeTimeout ?? DefaultVersionProbeTimeout;
     }
 
     /// <inheritdoc/>
@@ -89,9 +104,19 @@ public sealed partial class FFmpegService(
 
     private async Task RunVersionProbeAsync(TaskCompletionSource<bool> completion)
     {
+        // The probe is shared, so no single caller's token may cancel it; a
+        // service-owned lifetime bounds it instead. WaitAsync keeps the gate safe
+        // even against a probe that ignores its token: the attempt fails, the gate
+        // resets, the next call retries, and the abandoned probe's eventual result
+        // is discarded.
+        using var probeLifetime = new CancellationTokenSource(_versionProbeTimeout);
+        Task<bool>? probeTask = null;
         try
         {
-            var valid = await (_versionProbe ?? ProbeFFmpegVersionAsync)(CancellationToken.None).ConfigureAwait(false);
+            probeTask = (_versionProbe ?? ProbeFFmpegVersionAsync)(probeLifetime.Token);
+            var valid = await probeTask
+                .WaitAsync(probeLifetime.Token)
+                .ConfigureAwait(false);
             lock (_versionProbeLock)
             {
                 if (valid)
@@ -104,6 +129,27 @@ public sealed partial class FFmpegService(
                 {
                     _versionProbeTask = null;
                 }
+            }
+        }
+        catch (OperationCanceledException) when (probeLifetime.IsCancellationRequested)
+        {
+            // A probe that outran its service-owned lifetime is a failed attempt, not a
+            // cancellation of its waiters: CheckFFmpegVersionAsync documents false on
+            // any error, and callers such as Entrypoint.StartAsync await it unguarded.
+            // Exception propagation stays reserved for unexpected probe failures.
+            LogFfmpegVersionProbeTimedOut(_logger, _versionProbeTimeout);
+
+            // The abandoned probe finishes in the background; observe its eventual fault
+            // so a timed-out attempt cannot surface as UnobservedTaskException noise.
+            _ = probeTask?.ContinueWith(
+                static t => _ = t.Exception,
+                CancellationToken.None,
+                TaskContinuationOptions.OnlyOnFaulted | TaskContinuationOptions.ExecuteSynchronously,
+                TaskScheduler.Default);
+            lock (_versionProbeLock)
+            {
+                completion.SetResult(false);
+                _versionProbeTask = null;
             }
         }
         catch (Exception ex)
@@ -828,6 +874,9 @@ public sealed partial class FFmpegService(
 
     [LoggerMessage(Level = LogLevel.Error, Message = "Unexpected error while checking the installed FFmpeg version")]
     private static partial void LogFfmpegVersionCheckFailed(ILogger logger, Exception ex);
+
+    [LoggerMessage(Level = LogLevel.Error, Message = "FFmpeg version check did not finish within {Timeout}; treating the installed FFmpeg as invalid until a later check succeeds")]
+    private static partial void LogFfmpegVersionProbeTimedOut(ILogger logger, TimeSpan timeout);
 
     [LoggerMessage(Level = LogLevel.Trace, Message = "Detecting silence in \"{File}\" (range {Start}-{End}, id {Id})")]
     private static partial void LogDetectingSilence(ILogger logger, string file, double start, double end, Guid id);

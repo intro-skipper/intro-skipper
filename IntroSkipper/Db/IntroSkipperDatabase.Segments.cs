@@ -61,20 +61,20 @@ public sealed partial class IntroSkipperDatabase
                         continue;
                     }
 
-                    if (tombstones.Any(t => SegmentWritePolicy.Overlaps(startTicks, endTicks, t.StartTicks, t.EndTicks)))
+                    if (tombstones.Any(t => AutoSegmentAdmissionPolicy.Overlaps(startTicks, endTicks, t.StartTicks, t.EndTicks)))
                     {
                         LogAutoSegmentSuppressedByTombstone(_logger, mode, itemId);
                         continue;
                     }
 
-                    if (userRows.Any(u => SegmentWritePolicy.Overlaps(startTicks, endTicks, u.StartTicks, u.EndTicks)))
+                    if (userRows.Any(u => AutoSegmentAdmissionPolicy.Overlaps(startTicks, endTicks, u.StartTicks, u.EndTicks)))
                     {
                         LogAutoSegmentSkippedForUserOverlap(_logger, mode, itemId);
                         continue;
                     }
 
                     if (mode == AnalysisMode.Credits
-                        && intros.Any(i => SegmentWritePolicy.Overlaps(startTicks, endTicks, i.StartTicks, i.EndTicks)))
+                        && intros.Any(i => AutoSegmentAdmissionPolicy.Overlaps(startTicks, endTicks, i.StartTicks, i.EndTicks)))
                     {
                         LogCreditsOverlapWithIntro(_logger, itemId);
                         continue;

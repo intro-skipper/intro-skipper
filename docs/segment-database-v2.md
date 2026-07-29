@@ -19,7 +19,7 @@ Redesign the schema from scratch for the 12.0 major version:
 ## Consequences
 
 - Multiple intros/outros/commercials per episode are first-class end-to-end (storage → sync → API → config-page editor); `ChapterAnalyzer` emits every matching commercial chapter.
-- Analysis writes go through one primitive, `ReplaceAutoSegmentsAsync`, which enforces the invariants (user rows never overwritten, tombstones honored, automatic credits never overlap an active introduction).
+- Analysis writes go through one primitive, `ReplaceAutoSegmentsAsync`, whose admission rules (`AutoSegmentAdmissionPolicy`) gate automatic output only: automation may not contradict recorded human intent (tombstones, active user rows of the same mode), and automatic credits are dropped when they overlap an active introduction. These are admission rules at the write, not state invariants — overlaps are legal stored state (user writes are unconditional; restore/undo do not re-validate), and the stored state's only invariants are the exact-range unique index and end > start.
 - The legacy repair machinery, migration back-fill and epsilon matching are deleted; future schema changes are plain EF migrations on the v2 file.
 - Restoring an old `introskipper.db` after v2 exists does not re-import (marker); document "delete `introskipper-v2.db` + restart" in release notes as the supported re-import path.
 - The plugin's own DB remains the source of truth; Jellyfin's MediaSegments table is a mirror per item (`SyncItemAsync` = replace own rows), with other providers' rows untouched.

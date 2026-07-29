@@ -75,8 +75,11 @@ public sealed class TestDatabaseFacades
         }
     }
 
-    [Fact]
-    public async Task ReplaceAutoSegmentsAsync_AcceptsAutoSegmentNotOverlappingUserSegment()
+    [Theory]
+    [InlineData(100.0, 120.0)] // disjoint range elsewhere in the episode
+    [InlineData(20.0, 30.0)]   // starts exactly at the user segment's end — touching is not overlap
+    [InlineData(0.0, 10.0)]    // ends exactly at the user segment's start — touching is not overlap
+    public async Task ReplaceAutoSegmentsAsync_AcceptsAutoSegmentNotOverlappingUserSegment(double autoStart, double autoEnd)
     {
         var dbPath = CreateTempDbPath();
         var itemId = Guid.NewGuid();
@@ -86,17 +89,18 @@ public sealed class TestDatabaseFacades
 
             await database.AddUserSegmentAsync(itemId, AnalysisMode.Commercial, Ticks(10), Ticks(20));
 
-            // Analysis may still contribute non-overlapping segments of the same mode.
+            // Analysis may still contribute segments of the same mode as long as they do
+            // not strictly overlap the user's row — exactly abutting it is fine.
             await database.ReplaceAutoSegmentsAsync(
                 itemId,
                 AnalysisMode.Commercial,
-                [new Segment(itemId, new TimeRange(100, 120))],
+                [new Segment(itemId, new TimeRange(autoStart, autoEnd))],
                 SegmentSource.Chapter);
 
             var stored = await database.GetSegmentsAsync(itemId);
             Assert.Equal(2, stored.Count);
             Assert.Single(stored, s => s.IsUserProvided);
-            Assert.Single(stored, s => s.Source == SegmentSource.Chapter);
+            Assert.Single(stored, s => s.Source == SegmentSource.Chapter && s.StartTicks == Ticks(autoStart));
         }
         finally
         {
