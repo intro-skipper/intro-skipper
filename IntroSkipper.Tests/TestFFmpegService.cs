@@ -225,11 +225,12 @@ public class TestFFmpegService
         await Assert.ThrowsAnyAsync<OperationCanceledException>(() => abandoned);
         releaseProbe.SetResult(false);
 
-        // The unobserved failure must still reset the gate. Early calls may attach to
-        // the completing first attempt and see its false result; a bounded number of
-        // calls later the reset is visible and a fresh probe succeeds.
-        var result = false;
-        for (var i = 0; i < 1000 && !result; i++)
+        // The unobserved failure must still reset the gate. The first call may attach
+        // to the completing first attempt and observe its false result, but the false
+        // result and the gate reset are published atomically under the gate lock, so
+        // the very next call is guaranteed to run a fresh probe.
+        var result = await ffmpegService.CheckFFmpegVersionAsync();
+        if (!result)
         {
             result = await ffmpegService.CheckFFmpegVersionAsync();
         }
@@ -260,25 +261,25 @@ public class TestFFmpegService
             return attempt >= 4;
         });
 
-        // Hammer the gate from concurrent callers until a probe finally succeeds; the
-        // first three attempts fail, and every failure must be shared, reset and retried
-        // without two probes ever running at once.
-        var succeeded = false;
-        for (var round = 0; round < 200 && !succeeded; round++)
+        // The first three attempts fail and every failure must be shared, reset and
+        // retried without two probes ever running at once. A failed attempt resets the
+        // gate atomically with its false result, so each burst of concurrent callers is
+        // guaranteed to run at least one fresh probe: four bursts deterministically
+        // reach the fourth, succeeding attempt.
+        for (var round = 0; round < 4; round++)
         {
-            var results = await Task.WhenAll(
-                Enumerable.Range(0, 16).Select(_ => Task.Run(() => ffmpegService.CheckFFmpegVersionAsync())))
+            await Task.WhenAll(
+                Enumerable.Range(0, 16).Select(_ => ffmpegService.CheckFFmpegVersionAsync()))
                 .WaitAsync(TimeSpan.FromSeconds(10));
-            succeeded = Array.Exists(results, r => r);
         }
 
-        Assert.True(succeeded);
+        Assert.True(await ffmpegService.CheckFFmpegVersionAsync());
         Assert.Equal(4, probeCount);
         Assert.Equal(1, maxInFlight);
 
         // Success is sticky: another concurrent burst runs no further probes.
         var afterSuccess = await Task.WhenAll(
-            Enumerable.Range(0, 32).Select(_ => Task.Run(() => ffmpegService.CheckFFmpegVersionAsync())))
+            Enumerable.Range(0, 32).Select(_ => ffmpegService.CheckFFmpegVersionAsync()))
             .WaitAsync(TimeSpan.FromSeconds(10));
         Assert.All(afterSuccess, Assert.True);
         Assert.Equal(4, probeCount);
