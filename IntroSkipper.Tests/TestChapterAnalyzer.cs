@@ -9,6 +9,7 @@ namespace IntroSkipper.Tests;
 using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
+using System.Linq;
 using System.Reflection;
 using System.Threading;
 using System.Threading.Tasks;
@@ -102,7 +103,7 @@ public class TestChapterAnalyzer
     }
 
     [Fact]
-    public async Task DetectAdaptiveRecapBlackFrames_UsesAdaptiveThresholdWithCurrentBlackFrameScan()
+    public async Task DetectAdaptiveRecapBlackFrames_NormalizesThresholdFromFullDistributionScan()
     {
         var config = new PluginConfiguration
         {
@@ -113,6 +114,8 @@ public class TestChapterAnalyzer
         };
         var ffmpeg = new RecapBlackFrameFfmpeg(
         [
+            new(2, 12, 5),
+            new(5, 15, 8),
             new(50, 20, 10),
             new(95, 40, 20),
             new(88, 80, 30),
@@ -127,15 +130,80 @@ public class TestChapterAnalyzer
         var blackFrames = await analyzer.DetectAdaptiveRecapBlackFramesAsync(episode, 120, CancellationToken.None);
         var recap = ChapterAnalyzer.BuildRecapFromBlackFrames(episode.EpisodeId, blackFrames, config.MinimumRecapDetectionDuration, 120);
 
-        Assert.Single(blackFrames);
-        Assert.Equal(95, blackFrames[0].Percentage);
+        // Baseline (1st percentile) is 2, so the normalized minimum stays at the configured 85.
+        Assert.Equal(new[] { 95, 88 }, blackFrames.Select(frame => frame.Percentage));
         Assert.NotNull(recap);
-        Assert.Equal(40, recap.End);
-        Assert.Equal(50, ffmpeg.LastMinimum);
+        Assert.Equal(80, recap.End);
+        Assert.Equal(0, ffmpeg.LastMinimum);
         Assert.Equal(32, ffmpeg.LastThreshold);
         Assert.Equal(AnalysisMode.Recap, ffmpeg.LastMode);
         Assert.Equal(0, ffmpeg.LastRange?.Start);
         Assert.Equal(120, ffmpeg.LastRange?.End);
+    }
+
+    [Fact]
+    public async Task DetectAdaptiveRecapBlackFrames_BrightContent_KeepsConfiguredMinimum()
+    {
+        // An 87% fade in normal (bright) content must satisfy the default 85% minimum;
+        // the adaptive floor may only tighten the threshold for globally dark content.
+        var config = new PluginConfiguration { MinimumRecapDetectionDuration = 5 };
+        Assert.Equal(85, config.BlackFrameMinimumPercentage);
+
+        var scan = Enumerable.Range(0, 40)
+            .Select(i => new BlackFrame(i % 4, i * 0.5, i))
+            .Append(new BlackFrame(87, 42.0, 1008))
+            .ToArray();
+        var analyzer = new ChapterAnalyzer(
+            NullLogger<ChapterAnalyzer>.Instance,
+            new RecapBlackFrameFfmpeg(scan),
+            DatabaseTestHelpers.CreateTempSegmentDatabase(),
+            config);
+        var episode = new QueuedEpisode { EpisodeId = Guid.NewGuid(), Duration = 1200, Path = "episode.mkv" };
+
+        var blackFrames = await analyzer.DetectAdaptiveRecapBlackFramesAsync(episode, 120, CancellationToken.None);
+        var recap = ChapterAnalyzer.BuildRecapFromBlackFrames(episode.EpisodeId, blackFrames, config.MinimumRecapDetectionDuration, 120);
+
+        var frame = Assert.Single(blackFrames);
+        Assert.Equal(87, frame.Percentage);
+        Assert.NotNull(recap);
+        Assert.Equal(42.0, recap.End);
+    }
+
+    [Fact]
+    public async Task DetectAdaptiveRecapBlackFrames_DarkContent_RaisesThreshold()
+    {
+        // The same 87% fade inside globally dark content (baseline 45% black) must be
+        // rejected: the floor caps at 30, lifting the normalized minimum to 89.
+        var config = new PluginConfiguration { MinimumRecapDetectionDuration = 5 };
+
+        var scan = Enumerable.Range(0, 100)
+            .Select(i => new BlackFrame(45, i * 0.5, i))
+            .Append(new BlackFrame(87, 42.0, 1008))
+            .ToArray();
+        var analyzer = new ChapterAnalyzer(
+            NullLogger<ChapterAnalyzer>.Instance,
+            new RecapBlackFrameFfmpeg(scan),
+            DatabaseTestHelpers.CreateTempSegmentDatabase(),
+            config);
+        var episode = new QueuedEpisode { EpisodeId = Guid.NewGuid(), Duration = 1200, Path = "episode.mkv" };
+
+        var blackFrames = await analyzer.DetectAdaptiveRecapBlackFramesAsync(episode, 120, CancellationToken.None);
+
+        Assert.Empty(blackFrames);
+        Assert.Null(ChapterAnalyzer.BuildRecapFromBlackFrames(episode.EpisodeId, blackFrames, config.MinimumRecapDetectionDuration, 120));
+    }
+
+    [Fact]
+    public void NormalizeThreshold_MovesWithScanDistribution()
+    {
+        var bright = Enumerable.Range(0, 200).Select(i => new BlackFrame(i < 190 ? 2 : 95, i, i)).ToList();
+        var dark = Enumerable.Range(0, 200).Select(i => new BlackFrame(i < 190 ? 45 : 95, i, i)).ToList();
+
+        var (brightMinimum, _) = BlackFrameThresholdHelper.NormalizeThreshold(bright, 85);
+        var (darkMinimum, _) = BlackFrameThresholdHelper.NormalizeThreshold(dark, 85);
+
+        Assert.Equal(85, brightMinimum);
+        Assert.Equal(89, darkMinimum);
     }
 
     [Theory]
