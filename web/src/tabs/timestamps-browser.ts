@@ -284,7 +284,7 @@ export function createTimestampsBrowser(container: HTMLElement): { destroy: () =
 
         nav$.showDashboardLoading();
         try {
-            const { episodes, segments } = await tsData.getEpisodesWithSegments(
+            const { episodes, segments, disabledItemIds } = await tsData.getEpisodesWithSegments(
                 show.Id,
                 season.Id,
             );
@@ -295,7 +295,9 @@ export function createTimestampsBrowser(container: HTMLElement): { destroy: () =
                 return;
             }
 
-            epList.render(episodes, segments);
+            epList.render(episodes, segments, false, disabledItemIds, (itemId, disabled) =>
+                updateItemDisabled(season.Id, itemId, disabled),
+            );
             await actions.loadForSeason(show.Id, season.Id, false);
         } catch (err) {
             if (!nav$.isCurrentPanel(panelToken)) return;
@@ -330,10 +332,16 @@ export function createTimestampsBrowser(container: HTMLElement): { destroy: () =
                 SeriesName: null,
             };
 
-            const result = await tsData.getMovieSegments(show.Id);
+            const [result, disabledItemIds] = await Promise.all([
+                tsData.getMovieSegments(show.Id),
+                tsData.getDisabledItemIds(show.Id),
+            ]);
             if (!nav$.isCurrentPanel(panelToken)) return;
 
-            epList.render([movieEp], [result], true);
+            // A movie's season-state key is its own ID.
+            epList.render([movieEp], [result], true, disabledItemIds, (itemId, disabled) =>
+                updateItemDisabled(show.Id, itemId, disabled),
+            );
             await actions.loadForSeason(show.Id, show.Id, true);
         } catch (err) {
             if (!nav$.isCurrentPanel(panelToken)) return;
@@ -347,6 +355,17 @@ export function createTimestampsBrowser(container: HTMLElement): { destroy: () =
                 setPanelBusy(false);
             }
             nav$.hideDashboardLoading();
+        }
+    }
+
+    async function updateItemDisabled(
+        seasonId: string,
+        itemId: string,
+        disabled: boolean,
+    ): Promise<void> {
+        const result = await tsData.setItemDisabled(seasonId, itemId, disabled);
+        if (!result.ok) {
+            throw new Error(result.error ?? "Failed to update media-segment setting");
         }
     }
 

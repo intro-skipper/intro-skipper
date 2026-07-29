@@ -664,6 +664,53 @@ a {
     outline-offset: 1px;
 }
 
+/* Pill switch controlling whether an item's automatic segments reach Jellyfin.
+   Checked means enabled; the switch sits right-aligned before the Edit button. */
+.ts-episode-disable-toggle {
+    appearance: none;
+    width: 34px;
+    height: 18px;
+    margin: 0 0 0 auto;
+    align-self: center;
+    flex-shrink: 0;
+    border: 1px solid var(--is-text-muted);
+    border-radius: 999px;
+    background: var(--is-surface);
+    position: relative;
+    cursor: pointer;
+}
+
+.ts-episode-disable-toggle::after {
+    content: "";
+    position: absolute;
+    top: 1px;
+    left: 1px;
+    width: 14px;
+    height: 14px;
+    border-radius: 50%;
+    background: var(--is-text-muted);
+    transition: transform 0.15s ease;
+}
+
+.ts-episode-disable-toggle:checked {
+    border-color: var(--is-accent, #2196f3);
+    background: var(--is-accent, #2196f3);
+}
+
+.ts-episode-disable-toggle:checked::after {
+    transform: translateX(16px);
+    background: var(--is-text);
+}
+
+.ts-episode-disable-toggle:focus-visible {
+    outline: 2px solid var(--is-accent, #2196f3);
+    outline-offset: 2px;
+}
+
+.ts-episode-card.ts-episode-disabled {
+    opacity: 0.58;
+}
+
 .ts-segment-editor {
     margin-top: 8px;
     padding: 8px;
