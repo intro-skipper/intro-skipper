@@ -14,6 +14,8 @@ using IntroSkipper.Helper;
 using IntroSkipper.Manager;
 using IntroSkipper.ScheduledTasks;
 using MediaBrowser.Common.Api;
+using MediaBrowser.Controller.Entities.Movies;
+using MediaBrowser.Controller.Entities.TV;
 using MediaBrowser.Controller.Library;
 using MediaBrowser.Controller.Providers;
 using MediaBrowser.Model.IO;
@@ -212,6 +214,68 @@ public partial class VisualizationController(ILogger<VisualizationController> lo
     public async Task<ActionResult> UpdateAnalyzerActions([FromBody] UpdateAnalyzerActionsRequest request, CancellationToken cancellationToken = default)
     {
         await _database.SetAnalyzerActionAsync(request.Id, request.AnalyzerActions, cancellationToken).ConfigureAwait(false);
+
+        return NoContent();
+    }
+
+    /// <summary>
+    /// Returns the IDs of the season's items whose automatic segments are withheld
+    /// from Jellyfin. An unknown season yields an empty set.
+    /// </summary>
+    /// <param name="seasonId">Season-state key (a movie's own ID for movies).</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>The disabled item IDs.</returns>
+    [HttpGet("DisabledItems/{SeasonId}")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    public async Task<ActionResult<IReadOnlySet<Guid>>> GetDisabledItems([FromRoute] Guid seasonId, CancellationToken cancellationToken = default)
+    {
+        return Ok(await _database.GetDisabledItemIdsAsync(seasonId, cancellationToken).ConfigureAwait(false));
+    }
+
+    /// <summary>
+    /// Withholds the item's automatic segments from Jellyfin. Analysis and stored
+    /// segments are unaffected; user-provided segments keep syncing.
+    /// </summary>
+    /// <param name="seasonId">Season-state key that owns the item (a movie's own ID for movies).</param>
+    /// <param name="itemId">Item ID.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>No content.</returns>
+    [HttpPut("DisabledItems/{SeasonId}/{ItemId}")]
+    [ProducesResponseType(StatusCodes.Status204NoContent)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public Task<ActionResult> DisableItem([FromRoute] Guid seasonId, [FromRoute] Guid itemId, CancellationToken cancellationToken = default)
+    {
+        return SetItemDisabledAsync(seasonId, itemId, disabled: true, cancellationToken);
+    }
+
+    /// <summary>
+    /// Restores the item's automatic segments to Jellyfin without re-analysis.
+    /// </summary>
+    /// <param name="seasonId">Season-state key that owns the item (a movie's own ID for movies).</param>
+    /// <param name="itemId">Item ID.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>No content.</returns>
+    [HttpDelete("DisabledItems/{SeasonId}/{ItemId}")]
+    [ProducesResponseType(StatusCodes.Status204NoContent)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public Task<ActionResult> EnableItem([FromRoute] Guid seasonId, [FromRoute] Guid itemId, CancellationToken cancellationToken = default)
+    {
+        return SetItemDisabledAsync(seasonId, itemId, disabled: false, cancellationToken);
+    }
+
+    private async Task<ActionResult> SetItemDisabledAsync(Guid seasonId, Guid itemId, bool disabled, CancellationToken cancellationToken)
+    {
+        var item = Plugin.Instance!.GetItem(itemId);
+        if (item is not (Episode or Movie) || SeasonStateKeyResolver.Resolve(item) != seasonId)
+        {
+            return NotFound();
+        }
+
+        await _database.SetItemDisabledAsync(seasonId, itemId, disabled, cancellationToken).ConfigureAwait(false);
+
+        // Resync in both directions: disabling strips the automatic rows from the
+        // mirror, enabling restores them from the untouched plugin rows.
+        await _mediaSegmentRefresher.RefreshAsync([itemId], cancellationToken).ConfigureAwait(false);
 
         return NoContent();
     }

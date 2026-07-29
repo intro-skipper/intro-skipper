@@ -23,3 +23,12 @@ Redesign the schema from scratch for the 12.0 major version:
 - The legacy repair machinery, migration back-fill and epsilon matching are deleted; future schema changes are plain EF migrations on the v2 file.
 - Restoring an old `introskipper.db` after v2 exists does not re-import (marker); document "delete `introskipper-v2.db` + restart" in release notes as the supported re-import path.
 - The plugin's own DB remains the source of truth; Jellyfin's MediaSegments table is a mirror per item (`SyncItemAsync` = replace own rows), with other providers' rows untouched.
+
+## Per-item disable (follow-up, supersedes PR #870)
+
+An item (episode or movie) can be individually disabled: its automatic segments are withheld from Jellyfin while explicitly user-provided rows keep syncing. Reimplements PR #870's settled semantics natively on v2; the abandoned earlier semantics (skipping analysis) stays dropped.
+
+- **Output-only**: analysis runs and rows are stored regardless of the flag. The filter lives solely in `SegmentDtoFactory.CreateAsync` — the single source for both the push path (`SyncItemAsync`) and the pull path (`SegmentProvider`) — so every write path honors it. Re-enabling resyncs the untouched rows without re-analysis; toggling either way triggers a per-item refresh. `Unknown`-source rows from legacy import count as automatic.
+- **Storage**: `DisabledItems (SeasonId, ItemId)` — presence of the row is the flag, added as the second EF migration (`AddDisabledItems`). `SeasonId` is the season-state key (a movie's own id for movies), used only to prune rows when a season leaves the library (`CleanSeasonStateAsync`); the sync-path lookup is by `ItemId` alone. Rows survive database rebuilds.
+- **The flag is preference, not analysis state**: erase and reanalysis operations leave it untouched — like exclusion lists, it only disappears when the season does.
+- **API** (elevation-gated, dashboard-only): `GET Intros/DisabledItems/{seasonId}` returns the disabled set; `PUT`/`DELETE Intros/DisabledItems/{seasonId}/{itemId}` disable/enable membership-style. Validation resolves the item and requires `SeasonStateKeyResolver.Resolve(item) == seasonId`.

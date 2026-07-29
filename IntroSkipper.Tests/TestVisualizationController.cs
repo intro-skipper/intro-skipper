@@ -12,6 +12,8 @@ using IntroSkipper.Db;
 using IntroSkipper.FFmpeg;
 using IntroSkipper.Manager;
 using MediaBrowser.Controller.Entities;
+using MediaBrowser.Controller.Entities.Movies;
+using MediaBrowser.Controller.Entities.TV;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
@@ -213,6 +215,105 @@ public sealed class TestVisualizationController
         Assert.True(await db.Segments.AnyAsync(s => s.ItemId == includedId));
         var seasonStates = await db.SeasonStates.Where(s => s.SeasonId == seasonId).ToListAsync();
         Assert.All(seasonStates, state => Assert.Equal([includedId], state.EpisodeIds));
+    }
+
+    [Fact]
+    public async Task DisabledItems_PutGetDelete_RoundTripsAndRefreshes()
+    {
+        var seriesId = Guid.NewGuid();
+        var seasonId = Guid.NewGuid();
+        var episodeIds = new[] { Guid.NewGuid(), Guid.NewGuid() };
+        var dbPath = CreateTempDbPath();
+        using var pluginScope = CreatePluginScope(seriesId, seasonId, episodeIds, updateMediaSegments: true);
+        EntrypointTestHelpers.SetPrivateField(
+            Plugin.Instance!,
+            "_libraryManager",
+            EntrypointTestHelpers.CreateLibraryManager(CreateEpisodeItem(episodeIds[0], seasonId)));
+        var refresher = new RecordingMediaSegmentRefresher();
+        using var loggerFactory = LoggerFactory.Create(builder => { });
+        var database = DatabaseTestHelpers.CreateSegmentDatabase(dbPath);
+        var controller = CreateController(refresher, loggerFactory, database, pluginScope.CacheDbPath);
+
+        var putResult = await controller.DisableItem(seasonId, episodeIds[0], CancellationToken.None);
+
+        Assert.IsType<NoContentResult>(putResult);
+        Assert.Equal([episodeIds[0]], refresher.LastItemIds);
+        Assert.True(await database.IsItemDisabledAsync(episodeIds[0]));
+
+        var getResult = await controller.GetDisabledItems(seasonId, CancellationToken.None);
+
+        var ok = Assert.IsType<OkObjectResult>(getResult.Result);
+        var ids = Assert.IsAssignableFrom<IReadOnlySet<Guid>>(ok.Value);
+        Assert.Equal([episodeIds[0]], ids);
+
+        var deleteResult = await controller.EnableItem(seasonId, episodeIds[0], CancellationToken.None);
+
+        Assert.IsType<NoContentResult>(deleteResult);
+
+        // Both directions resync the item's mirror.
+        Assert.Equal(2, refresher.CollectionCallCount);
+        Assert.False(await database.IsItemDisabledAsync(episodeIds[0]));
+    }
+
+    [Fact]
+    public async Task DisabledItems_RejectSeasonMismatchAndUnknownItem()
+    {
+        var seriesId = Guid.NewGuid();
+        var seasonId = Guid.NewGuid();
+        var episodeIds = new[] { Guid.NewGuid(), Guid.NewGuid() };
+        var dbPath = CreateTempDbPath();
+        using var pluginScope = CreatePluginScope(seriesId, seasonId, episodeIds, updateMediaSegments: true);
+        EntrypointTestHelpers.SetPrivateField(
+            Plugin.Instance!,
+            "_libraryManager",
+            EntrypointTestHelpers.CreateLibraryManager(CreateEpisodeItem(episodeIds[0], seasonId)));
+        var refresher = new RecordingMediaSegmentRefresher();
+        using var loggerFactory = LoggerFactory.Create(builder => { });
+        var database = DatabaseTestHelpers.CreateSegmentDatabase(dbPath);
+        var controller = CreateController(refresher, loggerFactory, database, pluginScope.CacheDbPath);
+
+        var mismatch = await controller.DisableItem(Guid.NewGuid(), episodeIds[0], CancellationToken.None);
+        var unknown = await controller.DisableItem(seasonId, Guid.NewGuid(), CancellationToken.None);
+
+        Assert.IsType<NotFoundResult>(mismatch);
+        Assert.IsType<NotFoundResult>(unknown);
+        Assert.Equal(0, refresher.CollectionCallCount);
+        Assert.False(await database.IsItemDisabledAsync(episodeIds[0]));
+    }
+
+    [Fact]
+    public async Task DisabledItems_MovieUsesItsOwnIdAsSeasonKey()
+    {
+        var movieId = Guid.NewGuid();
+        var dbPath = CreateTempDbPath();
+        using var pluginScope = CreatePluginScope(Guid.NewGuid(), Guid.NewGuid(), [Guid.NewGuid(), Guid.NewGuid()], updateMediaSegments: true);
+        var movie = new Movie();
+        EntrypointTestHelpers.SetPropertyOrField(movie, "Id", movieId);
+        EntrypointTestHelpers.SetPrivateField(
+            Plugin.Instance!,
+            "_libraryManager",
+            EntrypointTestHelpers.CreateLibraryManager(movie));
+        var refresher = new RecordingMediaSegmentRefresher();
+        using var loggerFactory = LoggerFactory.Create(builder => { });
+        var database = DatabaseTestHelpers.CreateSegmentDatabase(dbPath);
+        var controller = CreateController(refresher, loggerFactory, database, pluginScope.CacheDbPath);
+
+        var result = await controller.DisableItem(movieId, movieId, CancellationToken.None);
+
+        Assert.IsType<NoContentResult>(result);
+        Assert.True(await database.IsItemDisabledAsync(movieId));
+
+        var mismatch = await controller.DisableItem(Guid.NewGuid(), movieId, CancellationToken.None);
+
+        Assert.IsType<NotFoundResult>(mismatch);
+    }
+
+    private static Episode CreateEpisodeItem(Guid episodeId, Guid seasonId)
+    {
+        var episode = new Episode();
+        EntrypointTestHelpers.SetPropertyOrField(episode, "Id", episodeId);
+        EntrypointTestHelpers.SetPropertyOrField(episode, "SeasonId", seasonId);
+        return episode;
     }
 
     private static VisualizationController CreateController(RecordingMediaSegmentRefresher refresher, ILoggerFactory loggerFactory, string dbPath, string cacheDbPath)

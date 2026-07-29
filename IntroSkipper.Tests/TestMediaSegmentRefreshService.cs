@@ -99,6 +99,70 @@ public sealed class TestMediaSegmentRefreshService
     }
 
     [Fact]
+    public async Task RefreshAsync_DisabledItem_PushesOnlyUserProvidedSegments()
+    {
+        var itemId = Guid.NewGuid();
+        var database = DatabaseTestHelpers.CreateTempSegmentDatabase();
+        await database.ReplaceAutoSegmentsAsync(
+            itemId,
+            AnalysisMode.Introduction,
+            [new Segment(itemId, new TimeRange(100, 160))],
+            SegmentSource.Chapter);
+        await database.ReplaceAutoSegmentsAsync(
+            itemId,
+            AnalysisMode.Credits,
+            [new Segment(itemId, new TimeRange(1200, 1260))],
+            SegmentSource.Chromaprint);
+        var userRow = await database.AddUserSegmentAsync(
+            itemId,
+            AnalysisMode.Introduction,
+            TickConversions.FromSeconds(300),
+            TickConversions.FromSeconds(330));
+
+        // The disable flag is item-scoped on the sync path: an unrelated season key
+        // still disables the item.
+        await database.SetItemDisabledAsync(Guid.NewGuid(), itemId, disabled: true);
+
+        var store = new FakeJellyfinSegmentStore();
+        var refresher = CreateRefresher(store, segmentDtoFactory: new SegmentDtoFactory(database));
+
+        await refresher.RefreshAsync(CreateMovie(itemId), CancellationToken.None);
+
+        // Stored segments are untouched; only the user row crosses to Jellyfin.
+        Assert.Equal(3, (await database.GetSegmentsAsync(itemId)).Count);
+        var (replacedItemId, pushed) = Assert.Single(store.ReplacedItems);
+        Assert.Equal(itemId, replacedItemId);
+        var dto = Assert.Single(pushed);
+        Assert.Equal(userRow.Id, dto.Id);
+        Assert.Equal(MediaSegmentType.Intro, dto.Type);
+        Assert.Equal(TickConversions.FromSeconds(300), dto.StartTicks);
+        Assert.Equal(TickConversions.FromSeconds(330), dto.EndTicks);
+    }
+
+    [Fact]
+    public async Task RefreshAsync_DisabledItem_WithOnlyAutomaticSegments_PushesEmptyReplace()
+    {
+        var itemId = Guid.NewGuid();
+        var database = DatabaseTestHelpers.CreateTempSegmentDatabase();
+        await database.ReplaceAutoSegmentsAsync(
+            itemId,
+            AnalysisMode.Introduction,
+            [new Segment(itemId, new TimeRange(100, 160))],
+            SegmentSource.Chapter);
+        await database.SetItemDisabledAsync(Guid.NewGuid(), itemId, disabled: true);
+
+        var store = new FakeJellyfinSegmentStore();
+        var refresher = CreateRefresher(store, segmentDtoFactory: new SegmentDtoFactory(database));
+
+        await refresher.RefreshAsync(CreateMovie(itemId), CancellationToken.None);
+
+        // The empty replace is what deletes the item's mirrored rows in production.
+        var (replacedItemId, pushed) = Assert.Single(store.ReplacedItems);
+        Assert.Equal(itemId, replacedItemId);
+        Assert.Empty(pushed);
+    }
+
+    [Fact]
     public async Task RefreshAsync_LogsAndReturnsAfterStoreFailure()
     {
         var itemId = Guid.NewGuid();
