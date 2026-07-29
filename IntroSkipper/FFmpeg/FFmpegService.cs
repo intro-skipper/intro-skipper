@@ -45,6 +45,12 @@ public sealed partial class FFmpegService(
     // these logs while that probe writes them, so a concurrent dictionary is required.
     private readonly ConcurrentDictionary<string, string> _chromaprintLogs = new();
 
+    // Deliberately NOT RetryableInitializationGate: that gate replaces an attempt only
+    // when it throws, but this one must also reset on a successful probe whose verdict
+    // is false (an incompatible ffmpeg is an expected, re-queryable state), keep success
+    // sticky for the service lifetime, and publish a false verdict and its reset
+    // atomically so the next caller is guaranteed a fresh probe. A Lazy-based attempt
+    // can express none of that.
     private readonly Lock _versionProbeLock = new();
     private Task<bool>? _versionProbeTask;
     private volatile bool _versionProbeSucceeded;
@@ -104,9 +110,11 @@ public sealed partial class FFmpegService(
         // resets, the next call retries, and the abandoned probe's eventual result
         // is discarded.
         using var probeLifetime = new CancellationTokenSource(_versionProbeTimeout);
+        Task<bool>? probeTask = null;
         try
         {
-            var valid = await (_versionProbe ?? ProbeFFmpegVersionAsync)(probeLifetime.Token)
+            probeTask = (_versionProbe ?? ProbeFFmpegVersionAsync)(probeLifetime.Token);
+            var valid = await probeTask
                 .WaitAsync(probeLifetime.Token)
                 .ConfigureAwait(false);
             lock (_versionProbeLock)
@@ -130,6 +138,14 @@ public sealed partial class FFmpegService(
             // any error, and callers such as Entrypoint.StartAsync await it unguarded.
             // Exception propagation stays reserved for unexpected probe failures.
             LogFfmpegVersionProbeTimedOut(_logger, _versionProbeTimeout);
+
+            // The abandoned probe finishes in the background; observe its eventual fault
+            // so a timed-out attempt cannot surface as UnobservedTaskException noise.
+            _ = probeTask?.ContinueWith(
+                static t => _ = t.Exception,
+                CancellationToken.None,
+                TaskContinuationOptions.OnlyOnFaulted | TaskContinuationOptions.ExecuteSynchronously,
+                TaskScheduler.Default);
             lock (_versionProbeLock)
             {
                 completion.SetResult(false);
