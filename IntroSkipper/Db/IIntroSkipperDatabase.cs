@@ -8,7 +8,7 @@ namespace IntroSkipper.Db;
 /// <summary>
 /// Cohesive facade over the segment database (<c>introskipper-v2.db</c>).
 /// Owns every read and write against <see cref="IntroSkipperDbContext"/> — segments,
-/// season state and database maintenance — as well as the database lifecycle
+/// season state, disabled items and database maintenance — as well as the database lifecycle
 /// (EF migrations, one-time legacy import and salvage rebuild).
 /// All domain rules that guard writes (user-provided precedence, tombstone
 /// suppression, credits/intro overlap) live inside this facade; callers never see a
@@ -296,7 +296,7 @@ public interface IIntroSkipperDatabase
     Task<SeasonQueueSnapshot> GetSeasonQueueSnapshotAsync(Guid seasonId, IReadOnlyCollection<Guid> episodeIds, CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// Removes season-state rows whose seasons no longer exist.
+    /// Removes season-state and disabled-item rows whose seasons no longer exist.
     /// </summary>
     /// <param name="seasonIds">Season IDs that still exist.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
@@ -304,8 +304,38 @@ public interface IIntroSkipperDatabase
     Task CleanSeasonStateAsync(IEnumerable<Guid> seasonIds, CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// Rebuilds the database while attempting to preserve valid segments, season state
-    /// and the legacy-import marker. The rebuild never re-runs the legacy import.
+    /// Returns the IDs of the season's items whose automatic segments are withheld
+    /// from Jellyfin.
+    /// </summary>
+    /// <param name="seasonId">Season-state key (a movie's own ID for movies).</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>The disabled item IDs.</returns>
+    Task<IReadOnlySet<Guid>> GetDisabledItemIdsAsync(Guid seasonId, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Sets whether an item's automatic segments are withheld from Jellyfin.
+    /// Analysis and stored segments are unaffected either way; user-provided segments
+    /// always sync. Idempotent: a request matching the stored state writes nothing.
+    /// </summary>
+    /// <param name="seasonId">Season-state key that owns the item (a movie's own ID for movies).</param>
+    /// <param name="itemId">Item ID.</param>
+    /// <param name="disabled">Whether to withhold the item's automatic segments.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>A <see cref="Task"/> representing the asynchronous operation.</returns>
+    Task SetItemDisabledAsync(Guid seasonId, Guid itemId, bool disabled, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Returns whether an item's automatic segments are withheld from Jellyfin,
+    /// regardless of which season key owns the flag.
+    /// </summary>
+    /// <param name="itemId">Item ID.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns><c>true</c> when the item is disabled.</returns>
+    Task<bool> IsItemDisabledAsync(Guid itemId, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Rebuilds the database while attempting to preserve valid segments, season state,
+    /// disabled items and the legacy-import marker. The rebuild never re-runs the legacy import.
     /// </summary>
     /// <param name="forceCleanOnBackupFailure">
     /// When <c>true</c>, rebuild proceeds with an empty database if the backup read fails.

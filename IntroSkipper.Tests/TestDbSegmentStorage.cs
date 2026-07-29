@@ -343,9 +343,12 @@ public sealed class TestDbSegmentStorage
                 var pendingMigrations = await db.Database.GetPendingMigrationsAsync();
                 Assert.Empty(pendingMigrations);
 
-                // The whole schema comes from ONE baseline migration.
-                var appliedMigrations = await db.Database.GetAppliedMigrationsAsync();
-                Assert.Single(appliedMigrations);
+                // The core schema comes from the baseline; later features are plain
+                // EF migrations on top (currently: DisabledItems).
+                var appliedMigrations = (await db.Database.GetAppliedMigrationsAsync()).ToArray();
+                Assert.Equal(2, appliedMigrations.Length);
+                Assert.EndsWith("_InitialCreate", appliedMigrations[0], StringComparison.Ordinal);
+                Assert.EndsWith("_AddDisabledItems", appliedMigrations[1], StringComparison.Ordinal);
 
                 db.SeasonStates.Add(new DbSeasonState(
                     seasonId,
@@ -427,6 +430,56 @@ public sealed class TestDbSegmentStorage
     /// </summary>
     /// <param name="connection">Unopened in-memory SQLite connection.</param>
     /// <returns>Context options bound to the connection.</returns>
+    [Fact]
+    public void DisabledItems_CompositeKey_AllowsSameItemUnderTwoSeasonKeys()
+    {
+        using var connection = new SqliteConnection("Data Source=:memory:");
+        var options = CreateInMemoryOptions(connection);
+
+        var itemId = Guid.NewGuid();
+
+        using (var db = new IntroSkipperDbContext(options))
+        {
+            db.Database.EnsureCreated();
+
+            // In-season specials can move between season keys; both rows must coexist.
+            db.DisabledItems.AddRange(
+                new DbDisabledItem(Guid.NewGuid(), itemId),
+                new DbDisabledItem(Guid.NewGuid(), itemId));
+            db.SaveChanges();
+        }
+
+        using (var db = new IntroSkipperDbContext(options))
+        {
+            Assert.Equal(2, db.DisabledItems.Count(e => e.ItemId == itemId));
+        }
+    }
+
+    [Fact]
+    public void DisabledItems_CompositeKey_RejectsDuplicateRow()
+    {
+        using var connection = new SqliteConnection("Data Source=:memory:");
+        var options = CreateInMemoryOptions(connection);
+
+        var seasonId = Guid.NewGuid();
+        var itemId = Guid.NewGuid();
+
+        using (var db = new IntroSkipperDbContext(options))
+        {
+            db.Database.EnsureCreated();
+
+            db.DisabledItems.Add(new DbDisabledItem(seasonId, itemId));
+            db.SaveChanges();
+        }
+
+        using (var db = new IntroSkipperDbContext(options))
+        {
+            db.DisabledItems.Add(new DbDisabledItem(seasonId, itemId));
+
+            Assert.Throws<DbUpdateException>(() => db.SaveChanges());
+        }
+    }
+
     private static DbContextOptions<IntroSkipperDbContext> CreateInMemoryOptions(SqliteConnection connection)
     {
         connection.Open();
