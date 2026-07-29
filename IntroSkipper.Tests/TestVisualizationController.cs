@@ -62,7 +62,7 @@ public sealed class TestVisualizationController
     }
 
     [Fact]
-    public async Task EraseSeasonAsync_DoesNotRefresh_WhenUpdateMediaSegmentsDisabled()
+    public async Task EraseSeasonAsync_AlwaysDelegatesRefresh_TheServiceOwnsTheMirrorFlag()
     {
         var seriesId = Guid.NewGuid();
         var seasonId = Guid.NewGuid();
@@ -70,17 +70,16 @@ public sealed class TestVisualizationController
         var dbPath = CreateTempDbPath();
         using var pluginScope = CreatePluginScope(seriesId, seasonId, episodeIds, updateMediaSegments: false);
         await SeedSeasonAsync(dbPath, seasonId, episodeIds);
-        var refresher = new RecordingMediaSegmentRefresher
-        {
-            Completion = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously)
-        };
+        var refresher = new RecordingMediaSegmentRefresher();
         using var loggerFactory = LoggerFactory.Create(builder => { });
         var controller = CreateController(refresher, loggerFactory, dbPath, pluginScope.CacheDbPath);
 
         var result = await controller.EraseSeasonAsync(seriesId, seasonId, eraseCache: false, CancellationToken.None);
 
+        // The controller no longer gates on UpdateMediaSegments: it always delegates,
+        // and MediaSegmentRefreshService itself owns the mirror flag.
         Assert.IsType<NoContentResult>(result);
-        Assert.Equal(0, refresher.CollectionCallCount);
+        Assert.Equal(1, refresher.CollectionCallCount);
     }
 
     [Fact]

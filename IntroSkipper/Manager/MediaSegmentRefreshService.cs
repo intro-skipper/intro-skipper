@@ -1,4 +1,3 @@
-using IntroSkipper.Providers;
 using MediaBrowser.Controller.Entities;
 using MediaBrowser.Controller.Library;
 using Microsoft.Extensions.Logging;
@@ -6,19 +5,21 @@ using Microsoft.Extensions.Logging;
 namespace IntroSkipper.Manager;
 
 /// <summary>
-/// Syncs Intro Skipper's segments for library items into Jellyfin's database by
-/// replacing Intro Skipper-owned entries directly; other providers are never touched.
+/// Syncs Intro Skipper's segments for library items into Jellyfin's database via the
+/// shared <see cref="MediaSegmentMirror"/>; other providers are never touched.
+/// All operations honor <see cref="MediaSegmentMirrorPolicy"/>: when mirroring is
+/// disabled they are no-ops, so callers never gate them.
 /// </summary>
 /// <remarks>
 /// Initializes a new instance of the <see cref="MediaSegmentRefreshService"/> class.
 /// </remarks>
 /// <param name="segmentStore">Direct store for Jellyfin's media segments.</param>
-/// <param name="segmentDtoFactory">Converts plugin segments to Jellyfin DTOs.</param>
+/// <param name="mirror">The shared locked mirror write path.</param>
 /// <param name="libraryManager">The Jellyfin library manager used to resolve items by id.</param>
 /// <param name="logger">Application logger.</param>
 public sealed partial class MediaSegmentRefreshService(
     IJellyfinSegmentStore segmentStore,
-    SegmentDtoFactory segmentDtoFactory,
+    MediaSegmentMirror mirror,
     ILibraryManager libraryManager,
     ILogger<MediaSegmentRefreshService> logger) : IMediaSegmentRefresher
 {
@@ -27,6 +28,11 @@ public sealed partial class MediaSegmentRefreshService(
     {
         ArgumentNullException.ThrowIfNull(item);
 
+        if (!MediaSegmentMirrorPolicy.Enabled)
+        {
+            return;
+        }
+
         await RefreshCoreAsync(item, cancellationToken).ConfigureAwait(false);
     }
 
@@ -34,6 +40,11 @@ public sealed partial class MediaSegmentRefreshService(
     public async Task RefreshAsync(IEnumerable<Guid> itemIds, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(itemIds);
+
+        if (!MediaSegmentMirrorPolicy.Enabled)
+        {
+            return;
+        }
 
         var ids = itemIds.Where(static itemId => itemId != Guid.Empty).ToHashSet();
 
@@ -66,6 +77,11 @@ public sealed partial class MediaSegmentRefreshService(
     {
         ArgumentNullException.ThrowIfNull(itemIds);
 
+        if (!MediaSegmentMirrorPolicy.Enabled)
+        {
+            return;
+        }
+
         // No library resolution here: rows of items already removed from the library
         // must be deleted too, which is exactly what the stale-cleanup caller needs.
         await segmentStore.DeleteOwnSegmentsAsync(itemIds, cancellationToken).ConfigureAwait(false);
@@ -75,8 +91,7 @@ public sealed partial class MediaSegmentRefreshService(
     {
         try
         {
-            var segments = await segmentDtoFactory.CreateAsync(item.Id, cancellationToken).ConfigureAwait(false);
-            await segmentStore.ReplaceSegmentsAsync(item.Id, segments, cancellationToken).ConfigureAwait(false);
+            await mirror.SyncItemAsync(item.Id, cancellationToken).ConfigureAwait(false);
             LogUpdatedMediaSegments(logger, item.Id);
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)

@@ -4,7 +4,6 @@
 using System.Net.Mime;
 using IntroSkipper.Data;
 using IntroSkipper.Db;
-using IntroSkipper.Helper;
 using IntroSkipper.Manager;
 using MediaBrowser.Common.Api;
 using MediaBrowser.Controller.Entities;
@@ -95,28 +94,28 @@ public class SegmentsController(IIntroSkipperDatabase database, MediaSegmentEdit
         }
 
         var row = await _database.AddUserSegmentAsync(itemId, request.Type, startTicks, endTicks, cancellationToken).ConfigureAwait(false);
-        await PushAsync(item, cancellationToken).ConfigureAwait(false);
+        await _mediaSegmentEditorService.SyncItemAsync(item, cancellationToken).ConfigureAwait(false);
         return CreatedAtAction(nameof(GetSegments), new { itemId }, SegmentDto.FromDbSegment(row));
     }
 
     /// <summary>
-    /// Updates a segment's boundaries; the segment becomes user-provided.
+    /// Updates a segment's boundaries; the segment becomes user-provided. Moving a segment
+    /// exactly onto another segment of the same mode merges the two: the occupant survives
+    /// as the user segment and is returned.
     /// </summary>
     /// <param name="itemId">Item (episode or movie) id.</param>
     /// <param name="segmentId">Segment id.</param>
     /// <param name="request">New boundaries.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
-    /// <response code="200">The updated segment.</response>
+    /// <response code="200">The updated (or merged-into) segment.</response>
     /// <response code="400">The boundaries are invalid.</response>
     /// <response code="404">The segment does not exist on this item or is suppressed.</response>
-    /// <response code="409">Another segment of the same item and mode covers exactly the new range.</response>
-    /// <returns>The updated segment DTO.</returns>
+    /// <returns>The surviving segment DTO.</returns>
     [Authorize(Policy = Policies.RequiresElevation)]
     [HttpPut("Episode/{itemId}/Segments/{segmentId}")]
     [ProducesResponseType(StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
-    [ProducesResponseType(StatusCodes.Status409Conflict)]
     public async Task<ActionResult<SegmentDto>> UpdateSegment(
         [FromRoute] Guid itemId,
         [FromRoute] Guid segmentId,
@@ -142,22 +141,13 @@ public class SegmentsController(IIntroSkipperDatabase database, MediaSegmentEdit
             return NotFound();
         }
 
-        DbSegment? updated;
-        try
-        {
-            updated = await _database.UpdateSegmentAsync(segmentId, startTicks, endTicks, cancellationToken).ConfigureAwait(false);
-        }
-        catch (SegmentConflictException ex)
-        {
-            return Conflict(ex.Message);
-        }
-
+        var updated = await _database.UpdateSegmentAsync(segmentId, startTicks, endTicks, cancellationToken).ConfigureAwait(false);
         if (updated is null)
         {
             return NotFound();
         }
 
-        await PushAsync(item, cancellationToken).ConfigureAwait(false);
+        await _mediaSegmentEditorService.SyncItemAsync(item, cancellationToken).ConfigureAwait(false);
         return Ok(SegmentDto.FromDbSegment(updated));
     }
 
@@ -192,35 +182,17 @@ public class SegmentsController(IIntroSkipperDatabase database, MediaSegmentEdit
             return NotFound();
         }
 
-        var deleted = await _database.DeleteSegmentAsync(segmentId, cancellationToken).ConfigureAwait(false);
+        // The cascade owns the delete workflow: plugin delete, targeted Jellyfin delete
+        // with rollback, and the season-state reset. The Jellyfin row shares the segment id.
+        var deleted = await _mediaSegmentEditorService
+            .DeleteStoredSegmentAsync(itemId, existing.Type, segmentId, segmentId, cancellationToken)
+            .ConfigureAwait(false);
         if (deleted is null)
         {
             return NotFound();
         }
 
-        // Jellyfin is only a mirror: when segment updates are disabled it stays
-        // untouched, consistent with create/update/restore. When enabled, the
-        // targeted delete (rather than relying on the full sync below alone) gives a
-        // precise failure point to roll the plugin delete back from.
-        if (Plugin.Instance!.Configuration.UpdateMediaSegments)
-        {
-            try
-            {
-                // The Jellyfin row shares the segment id; an unknown id is a no-op there.
-                await _mediaSegmentEditorService.DeleteSegmentAsync(itemId, segmentId, cancellationToken).ConfigureAwait(false);
-            }
-            catch
-            {
-                // Rollback is deliberately uncancelable once the plugin delete has completed.
-                await _database.UndoDeleteAsync(deleted, CancellationToken.None).ConfigureAwait(false);
-                throw;
-            }
-        }
-
-        // Return the episode to NotAnalyzed for this mode so the next analysis run can
-        // re-detect remaining segments (the tombstone keeps the deleted one gone).
-        await _database.RemoveEpisodeIdAsync(SeasonStateKeyResolver.Resolve(item), existing.Type, itemId, cancellationToken).ConfigureAwait(false);
-        await PushAsync(item, cancellationToken).ConfigureAwait(false);
+        await _mediaSegmentEditorService.SyncItemAsync(item, cancellationToken).ConfigureAwait(false);
         return NoContent();
     }
 
@@ -260,7 +232,7 @@ public class SegmentsController(IIntroSkipperDatabase database, MediaSegmentEdit
             return NotFound();
         }
 
-        await PushAsync(item, cancellationToken).ConfigureAwait(false);
+        await _mediaSegmentEditorService.SyncItemAsync(item, cancellationToken).ConfigureAwait(false);
         return Ok(SegmentDto.FromDbSegment(restored));
     }
 
@@ -268,13 +240,5 @@ public class SegmentsController(IIntroSkipperDatabase database, MediaSegmentEdit
     {
         var item = Plugin.Instance!.GetItem(itemId);
         return item is Episode or Movie ? item : null;
-    }
-
-    private async Task PushAsync(BaseItem item, CancellationToken cancellationToken)
-    {
-        if (Plugin.Instance!.Configuration.UpdateMediaSegments)
-        {
-            await _mediaSegmentEditorService.SyncItemAsync(item, cancellationToken).ConfigureAwait(false);
-        }
     }
 }

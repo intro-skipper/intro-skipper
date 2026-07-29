@@ -83,10 +83,7 @@ public partial class SkipIntroController(
             }
         }
 
-        if (Plugin.Instance.Configuration.UpdateMediaSegments)
-        {
-            await _mediaSegmentRefresher.RefreshAsync(rawItem, cancellationToken).ConfigureAwait(false);
-        }
+        await _mediaSegmentRefresher.RefreshAsync(rawItem, cancellationToken).ConfigureAwait(false);
 
         return NoContent();
     }

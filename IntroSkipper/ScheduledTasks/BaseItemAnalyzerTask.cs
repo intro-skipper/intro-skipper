@@ -203,7 +203,7 @@ public partial class BaseItemAnalyzerTask(
                 throw;
             }
 
-            if (updateMediaSegments && _config.UpdateMediaSegments)
+            if (updateMediaSegments)
             {
                 await _mediaSegmentRefresher.RefreshAsync(episodes.Select(e => e.EpisodeId), ct).ConfigureAwait(false);
             }

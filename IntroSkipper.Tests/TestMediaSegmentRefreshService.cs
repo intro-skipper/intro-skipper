@@ -148,6 +148,27 @@ public sealed class TestMediaSegmentRefreshService
     }
 
     [Fact]
+    public async Task AllWrites_DoNothing_WhenUpdateMediaSegmentsDisabled()
+    {
+        using var scope = new EntrypointTestHelpers.PluginInstanceScope(EntrypointTestHelpers.CreateTempCacheDir());
+        EntrypointTestHelpers.SetPropertyOrField(
+            Plugin.Instance!,
+            "Configuration",
+            new PluginConfiguration { UpdateMediaSegments = false });
+        var store = new FakeJellyfinSegmentStore();
+        var refresher = CreateRefresher(store);
+
+        // The mirror flag lives in the service, not at call sites: every write no-ops.
+        await refresher.RefreshAsync(CreateMovie(Guid.NewGuid()), CancellationToken.None);
+        await refresher.RefreshAsync([Guid.NewGuid()], CancellationToken.None);
+        await refresher.RemoveIntroSkipperSegmentsAsync([Guid.NewGuid()], CancellationToken.None);
+
+        Assert.Equal(0, store.WriteCallCount);
+        Assert.Empty(store.ReplacedItems);
+        Assert.Empty(store.DeletedOwnItemIds);
+    }
+
+    [Fact]
     public async Task RemoveIntroSkipperSegmentsAsync_DelegatesIdsToStore()
     {
         var firstId = Guid.NewGuid();
@@ -183,7 +204,7 @@ public sealed class TestMediaSegmentRefreshService
         SegmentDtoFactory? segmentDtoFactory = null)
         => new(
             store,
-            segmentDtoFactory ?? new SegmentDtoFactory(DatabaseTestHelpers.CreateTempSegmentDatabase()),
+            new MediaSegmentMirror(store, segmentDtoFactory ?? new SegmentDtoFactory(DatabaseTestHelpers.CreateTempSegmentDatabase())),
             libraryManager ?? EntrypointTestHelpers.CreateLibraryManager(),
             NullLogger<MediaSegmentRefreshService>.Instance);
 

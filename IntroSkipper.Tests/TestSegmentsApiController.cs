@@ -174,7 +174,7 @@ public sealed class TestSegmentsApiController
     }
 
     [Fact]
-    public async Task UpdateSegment_MovesBoundaries_404ForWrongItem_409ForExactCollision()
+    public async Task UpdateSegment_MovesBoundaries_404ForWrongItem_MergesOnExactCollision()
     {
         var itemId = Guid.NewGuid();
         var dbPath = CreateTempDbPath();
@@ -198,8 +198,14 @@ public sealed class TestSegmentsApiController
             var wrongItem = await controller.UpdateSegment(Guid.NewGuid(), rows[0].Id, new UpdateSegmentRequest(1, 2), CancellationToken.None);
             Assert.IsType<NotFoundResult>(wrongItem.Result);
 
-            var conflict = await controller.UpdateSegment(itemId, rows[0].Id, new UpdateSegmentRequest(50, 60), CancellationToken.None);
-            Assert.IsType<ConflictObjectResult>(conflict.Result);
+            // Moving exactly onto the sibling merges into it: the occupant survives as
+            // the returned user segment and the moved row is absorbed.
+            var merged = await controller.UpdateSegment(itemId, rows[0].Id, new UpdateSegmentRequest(50, 60), CancellationToken.None);
+            var mergedDto = Assert.IsType<SegmentDto>(Assert.IsType<OkObjectResult>(merged.Result).Value);
+            Assert.Equal(rows[1].Id, mergedDto.Id);
+            Assert.Equal(SegmentSource.User, mergedDto.Source);
+            var survivor = Assert.Single(await database.GetSegmentsAsync(itemId, includeSuppressed: true));
+            Assert.Equal(rows[1].Id, survivor.Id);
         }
         finally
         {
@@ -328,7 +334,7 @@ public sealed class TestSegmentsApiController
         Exception? deleteException = null)
     {
         store = new FakeJellyfinSegmentStore { DeleteSegmentException = deleteException };
-        var editorService = new MediaSegmentEditorService(store, new SegmentDtoFactory(database));
+        var editorService = new MediaSegmentEditorService(store, new MediaSegmentMirror(store, new SegmentDtoFactory(database)), database);
         return new SegmentsController(database, editorService);
     }
 

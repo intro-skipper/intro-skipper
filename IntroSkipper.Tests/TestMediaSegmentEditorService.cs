@@ -97,7 +97,7 @@ public sealed class TestMediaSegmentEditorService
     public async Task SyncItemAsync_AllowsConcurrentCallsForDifferentItems()
     {
         var firstItem = CreateMovie(Guid.NewGuid());
-        var secondItem = CreateMovie(Guid.NewGuid());
+        var secondItem = CreateMovie(NewGuidOnDifferentStripe(firstItem.Id));
         var store = new FakeJellyfinSegmentStore
         {
             WriteGate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously),
@@ -115,6 +115,26 @@ public sealed class TestMediaSegmentEditorService
         await first;
 
         Assert.Equal(2, store.WriteCallCount);
+    }
+
+    [Fact]
+    public async Task Writes_DoNotTouchJellyfin_WhenUpdateMediaSegmentsDisabled()
+    {
+        using var scope = new EntrypointTestHelpers.PluginInstanceScope(EntrypointTestHelpers.CreateTempCacheDir());
+        EntrypointTestHelpers.SetPropertyOrField(
+            Plugin.Instance!,
+            "Configuration",
+            new IntroSkipper.Configuration.PluginConfiguration { UpdateMediaSegments = false });
+        var store = new FakeJellyfinSegmentStore();
+        var service = CreateService(store);
+
+        // The mirror flag lives in the service, not at call sites: every write no-ops.
+        await service.SyncItemAsync(CreateMovie(Guid.NewGuid()), CancellationToken.None);
+        await service.DeleteSegmentAsync(Guid.NewGuid(), Guid.NewGuid(), CancellationToken.None);
+
+        Assert.Equal(0, store.WriteCallCount);
+        Assert.Empty(store.ReplacedItems);
+        Assert.Empty(store.DeletedSegments);
     }
 
     [Fact]
@@ -197,7 +217,26 @@ public sealed class TestMediaSegmentEditorService
     private static MediaSegmentEditorService CreateService(
         FakeJellyfinSegmentStore store,
         IntroSkipper.Db.IIntroSkipperDatabase? database = null)
-        => new(store, new SegmentDtoFactory(database ?? DatabaseTestHelpers.CreateTempSegmentDatabase()));
+    {
+        var db = database ?? DatabaseTestHelpers.CreateTempSegmentDatabase();
+        return new(store, new MediaSegmentMirror(store, new SegmentDtoFactory(db)), db);
+    }
+
+    /// <summary>
+    /// Picks an id on a different mirror lock stripe than <paramref name="other"/> so
+    /// cross-item concurrency assertions cannot flake on a stripe collision.
+    /// </summary>
+    private static Guid NewGuidOnDifferentStripe(Guid other)
+    {
+        Guid id;
+        do
+        {
+            id = Guid.NewGuid();
+        }
+        while (MediaSegmentMirror.StripeIndex(id) == MediaSegmentMirror.StripeIndex(other));
+
+        return id;
+    }
 
     private static Movie CreateMovie(Guid id)
     {

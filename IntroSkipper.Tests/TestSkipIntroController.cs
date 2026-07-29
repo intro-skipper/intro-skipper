@@ -64,16 +64,13 @@ public sealed class TestSkipIntroController
     }
 
     [Fact]
-    public async Task UpdateTimestampsAsync_DoesNotRefresh_WhenUpdateMediaSegmentsDisabled()
+    public async Task UpdateTimestampsAsync_AlwaysDelegatesRefresh_TheServiceOwnsTheMirrorFlag()
     {
         var itemId = Guid.NewGuid();
         var dbPath = CreateTempDbPath();
         using var pluginScope = CreatePluginScope(itemId, updateMediaSegments: false, out _);
         await EnsureDatabaseAsync(dbPath);
-        var refresher = new RecordingMediaSegmentRefresher
-        {
-            Completion = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously)
-        };
+        var refresher = new RecordingMediaSegmentRefresher();
         var controller = new SkipIntroController(
             refresher,
             DatabaseTestHelpers.CreateCacheDatabase(pluginScope.CacheDbPath),
@@ -85,8 +82,10 @@ public sealed class TestSkipIntroController
 
         var result = await controller.UpdateTimestampsAsync(itemId, timestamps, CancellationToken.None);
 
+        // The controller no longer gates on UpdateMediaSegments: it always delegates,
+        // and MediaSegmentRefreshService itself owns the mirror flag.
         Assert.IsType<NoContentResult>(result);
-        Assert.Equal(0, refresher.ItemCallCount);
+        Assert.Equal(1, refresher.ItemCallCount);
     }
 
     [Fact]

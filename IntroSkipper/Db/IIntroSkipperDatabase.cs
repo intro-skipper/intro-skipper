@@ -73,14 +73,18 @@ public interface IIntroSkipperDatabase
     Task<DbSegment> ReplaceUserSegmentAsync(Guid itemId, AnalysisMode mode, long startTicks, long endTicks, CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// Updates the boundaries of a stored segment and marks it user-provided.
+    /// Updates the boundaries of a stored segment and marks it user-provided. When another
+    /// segment of the same item and mode exactly occupies the new range, the two rows merge:
+    /// the occupant survives as the user segment (keeping the id Jellyfin knows) and the
+    /// addressed row is removed — mirroring <see cref="AddUserSegmentAsync"/>'s in-place
+    /// resolution of exact-range collisions.
     /// </summary>
     /// <param name="segmentId">Segment ID.</param>
     /// <param name="startTicks">New start time in ticks.</param>
     /// <param name="endTicks">New end time in ticks; must be after <paramref name="startTicks"/>.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
-    /// <returns>The updated row, or <c>null</c> when the id is unknown or suppressed.</returns>
-    /// <exception cref="SegmentConflictException">Another segment of the same item and mode covers exactly the new range.</exception>
+    /// <returns>The surviving row (the addressed row, or the exact-range occupant it merged into),
+    /// or <c>null</c> when the id is unknown or suppressed.</returns>
     Task<DbSegment?> UpdateSegmentAsync(Guid segmentId, long startTicks, long endTicks, CancellationToken cancellationToken = default);
 
     /// <summary>

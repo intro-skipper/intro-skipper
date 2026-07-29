@@ -238,7 +238,7 @@ public sealed class TestCleanCacheTask
                 database),
             database,
             cacheDatabase,
-            mediaSegmentRefresher: mediaSegmentRefresher ?? null!);
+            mediaSegmentRefresher: mediaSegmentRefresher ?? new RecordingRefresher());
 
     private static MediaBrowser.Controller.Entities.Movies.Movie CreateMovie(Guid id)
         => new()

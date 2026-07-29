@@ -67,8 +67,6 @@ public partial class CleanCacheTask(
     /// <returns>Task.</returns>
     public async Task ExecuteAsync(IProgress<double> progress, CancellationToken cancellationToken)
     {
-        var plugin = Plugin.Instance ?? throw new InvalidOperationException("Plugin instance is null");
-
         var queueManager = _analyzerFactory.CreateQueueManager();
 
         // QueueManager.GetMediaItems() already skips libraries where the plugin is disabled via
@@ -104,12 +102,9 @@ public partial class CleanCacheTask(
         {
             // Refresh first with Intro Skipper excluded. If refresh fails or is canceled, the
             // timestamps remain available so a later cleanup run can retry the handoff.
-            if (plugin.Configuration.UpdateMediaSegments)
-            {
-                await _mediaSegmentRefresher
-                    .RemoveIntroSkipperSegmentsAsync(staleTimestampEpisodeIds, cancellationToken)
-                    .ConfigureAwait(false);
-            }
+            await _mediaSegmentRefresher
+                .RemoveIntroSkipperSegmentsAsync(staleTimestampEpisodeIds, cancellationToken)
+                .ConfigureAwait(false);
 
             await _database
                 .DeleteSegmentsForItemsAsync(staleTimestampEpisodeIds, cancellationToken)

@@ -231,7 +231,14 @@ public sealed partial class IntroSkipperDatabase
         {
             if (occupant.State != SegmentState.Suppressed)
             {
-                throw new SegmentConflictException($"Another {row.Type} segment of item {row.ItemId} already covers exactly this range.");
+                // The user explicitly claims an exactly-occupied active range: like
+                // AddUserSegmentAsync's in-place promotion, the occupant (whose id
+                // Jellyfin already knows) survives as the user segment and the moved
+                // row is absorbed into it.
+                db.Segments.Remove(row);
+                occupant.Source = SegmentSource.User;
+                await db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+                return occupant;
             }
 
             // The user explicitly reclaims a previously deleted range: absorb the

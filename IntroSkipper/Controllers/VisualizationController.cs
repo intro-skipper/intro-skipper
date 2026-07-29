@@ -135,10 +135,7 @@ public partial class VisualizationController(ILogger<VisualizationController> lo
                 await _cacheDatabase.DeleteForItemsAsync(episodeIds, CancellationToken.None).ConfigureAwait(false);
             }
 
-            if (Plugin.Instance.Configuration.UpdateMediaSegments)
-            {
-                await _mediaSegmentRefresher.RefreshAsync(episodeIds, cancellationToken).ConfigureAwait(false);
-            }
+            await _mediaSegmentRefresher.RefreshAsync(episodeIds, cancellationToken).ConfigureAwait(false);
 
             return NoContent();
         }
@@ -189,10 +186,7 @@ public partial class VisualizationController(ILogger<VisualizationController> lo
                 .DeleteForItemsAsync(excludedIds, CancellationToken.None)
                 .ConfigureAwait(false);
 
-            if (plugin.Configuration.UpdateMediaSegments)
-            {
-                await _mediaSegmentRefresher.RefreshAsync(excludedIds, cancellationToken).ConfigureAwait(false);
-            }
+            await _mediaSegmentRefresher.RefreshAsync(excludedIds, cancellationToken).ConfigureAwait(false);
 
             return Ok(new ClearExcludedTimestampsResponse(excludedIds.Count, removedSegments, removedCacheEntries));
         }

@@ -7,7 +7,6 @@ using System.ComponentModel.DataAnnotations;
 using System.Net.Mime;
 using IntroSkipper.Data;
 using IntroSkipper.Db;
-using IntroSkipper.Helper;
 using IntroSkipper.Manager;
 using MediaBrowser.Common.Api;
 using MediaBrowser.Model.MediaSegments;
@@ -132,7 +131,9 @@ public class SegmentEditorController(MediaSegmentEditorService mediaSegmentEdito
                 return NotFound();
             }
 
-            await DeleteCorrelatedAsync(itemId, segmentId, cancellationToken).ConfigureAwait(false);
+            await _mediaSegmentEditorService
+                .DeleteStoredSegmentAsync(itemId, requestedMode, segmentId, segmentId, cancellationToken)
+                .ConfigureAwait(false);
         }
         else
         {
@@ -156,51 +157,13 @@ public class SegmentEditorController(MediaSegmentEditorService mediaSegmentEdito
                 && s.StartTicks == existingSegment.StartTicks
                 && s.EndTicks == existingSegment.EndTicks);
 
-            if (match is not null)
-            {
-                await DeleteCorrelatedAsync(itemId, segmentId, cancellationToken, match.Id).ConfigureAwait(false);
-            }
-            else
-            {
-                // No plugin-side counterpart — just remove the Jellyfin row.
-                await _mediaSegmentEditorService.DeleteSegmentAsync(itemId, segmentId, cancellationToken).ConfigureAwait(false);
-            }
-        }
-
-        // Jellyfin delete succeeded — remove the episode from the season's analyzed-state list so
-        // that the episode returns to NotAnalyzed and can be re-processed by the next analysis run
-        // (an automatic segment leaves a tombstone behind, so the deleted range stays gone).
-        var deletedItem = Plugin.Instance!.GetItem(itemId);
-        if (deletedItem is not null)
-        {
-            await _database.RemoveEpisodeIdAsync(SeasonStateKeyResolver.Resolve(deletedItem), requestedMode, itemId, cancellationToken).ConfigureAwait(false);
+            // The uncorrelated fallback matches the plugin counterpart by exact ticks;
+            // without one, only the Jellyfin row is removed and the state still resets.
+            await _mediaSegmentEditorService
+                .DeleteStoredSegmentAsync(itemId, requestedMode, segmentId, match?.Id, cancellationToken)
+                .ConfigureAwait(false);
         }
 
         return Ok();
-    }
-
-    /// <summary>
-    /// Deletes the plugin row (tombstoning automatic segments) and the Jellyfin row,
-    /// rolling the plugin delete back when the Jellyfin delete fails so no orphaned
-    /// Jellyfin segment survives. Rollback is deliberately uncancelable once the plugin
-    /// delete has completed.
-    /// </summary>
-    /// <param name="itemId">The item id that owns the segment.</param>
-    /// <param name="jellyfinSegmentId">The Jellyfin segment id to delete.</param>
-    /// <param name="cancellationToken">Cancellation token.</param>
-    /// <param name="pluginSegmentId">The plugin row id when it differs from the Jellyfin id (uncorrelated fallback).</param>
-    private async Task DeleteCorrelatedAsync(Guid itemId, Guid jellyfinSegmentId, CancellationToken cancellationToken, Guid? pluginSegmentId = null)
-    {
-        var deleted = await _database.DeleteSegmentAsync(pluginSegmentId ?? jellyfinSegmentId, cancellationToken).ConfigureAwait(false);
-
-        try
-        {
-            await _mediaSegmentEditorService.DeleteSegmentAsync(itemId, jellyfinSegmentId, cancellationToken).ConfigureAwait(false);
-        }
-        catch
-        {
-            await _database.UndoDeleteAsync(deleted, CancellationToken.None).ConfigureAwait(false);
-            throw;
-        }
     }
 }

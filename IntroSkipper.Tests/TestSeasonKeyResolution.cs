@@ -101,7 +101,8 @@ public sealed class TestSeasonKeyResolution
             await database.SetEpisodeIdsAsync(hostSeasonId, AnalysisMode.Introduction, [hostEpisodeId, specialId], "hash");
             var segmentId = (await database.GetSegmentsAsync(specialId)).Single().Id;
 
-            var service = new MediaSegmentEditorService(new FakeJellyfinSegmentStore(), new SegmentDtoFactory(database));
+            var store = new FakeJellyfinSegmentStore();
+            var service = new MediaSegmentEditorService(store, new MediaSegmentMirror(store, new SegmentDtoFactory(database)), database);
             var controller = new SegmentEditorController(service, database);
 
             await controller.DeleteSegmentAsync(segmentId, specialId, "intro", CancellationToken.None);
@@ -146,7 +147,8 @@ public sealed class TestSeasonKeyResolution
             await database.SetEpisodeIdsAsync(seasonId, AnalysisMode.Introduction, [episodeId], "hash");
             var segmentId = (await database.GetSegmentsAsync(episodeId)).Single().Id;
 
-            var service = new MediaSegmentEditorService(new FakeJellyfinSegmentStore(), new SegmentDtoFactory(database));
+            var store = new FakeJellyfinSegmentStore();
+            var service = new MediaSegmentEditorService(store, new MediaSegmentMirror(store, new SegmentDtoFactory(database)), database);
             var controller = new SegmentEditorController(service, database);
 
             await controller.DeleteSegmentAsync(segmentId, episodeId, "intro", CancellationToken.None);

@@ -329,7 +329,7 @@ public sealed class TestDatabaseFacades
     }
 
     [Fact]
-    public async Task UpdateSegmentAsync_MovesBoundaries_AndThrowsOnExactCollision()
+    public async Task UpdateSegmentAsync_MovesBoundaries_AndMergesIntoExactOccupant()
     {
         var dbPath = CreateTempDbPath();
         var itemId = Guid.NewGuid();
@@ -343,6 +343,7 @@ public sealed class TestDatabaseFacades
                 SegmentSource.Chapter);
 
             var target = Assert.Single(await database.GetSegmentsAsync(itemId), s => s.StartTicks == Ticks(10));
+            var sibling = Assert.Single(await database.GetSegmentsAsync(itemId), s => s.StartTicks == Ticks(30));
 
             var updated = await database.UpdateSegmentAsync(target.Id, Ticks(12), Ticks(22));
             Assert.NotNull(updated);
@@ -350,9 +351,15 @@ public sealed class TestDatabaseFacades
             Assert.Equal(SegmentSource.User, updated.Source);
             Assert.Equal(Ticks(12), updated.StartTicks);
 
-            // Moving onto the exact range of the sibling row must conflict.
-            await Assert.ThrowsAsync<SegmentConflictException>(
-                () => database.UpdateSegmentAsync(target.Id, Ticks(30), Ticks(40)));
+            // Moving onto the exact range of the active sibling merges into it: the
+            // occupant survives as the user segment (keeping its id) and the moved row
+            // is absorbed, mirroring AddUserSegmentAsync's in-place promotion.
+            var merged = await database.UpdateSegmentAsync(target.Id, Ticks(30), Ticks(40));
+            Assert.NotNull(merged);
+            Assert.Equal(sibling.Id, merged!.Id);
+            Assert.Equal(SegmentSource.User, merged.Source);
+            var survivor = Assert.Single(await database.GetSegmentsAsync(itemId, includeSuppressed: true));
+            Assert.Equal(sibling.Id, survivor.Id);
 
             Assert.Null(await database.UpdateSegmentAsync(Guid.NewGuid(), Ticks(1), Ticks(2)));
         }
