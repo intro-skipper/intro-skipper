@@ -90,26 +90,27 @@ public interface IIntroSkipperDatabase
     /// </summary>
     /// <param name="segmentId">Segment ID.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
-    /// <returns>The delete outcome, sufficient to reverse the delete exactly.</returns>
-    Task<SegmentDeleteResult> DeleteSegmentAsync(Guid segmentId, CancellationToken cancellationToken = default);
+    /// <returns>A pre-delete snapshot sufficient to reverse the delete exactly via
+    /// <see cref="UndoDeleteAsync"/>, or <c>null</c> when the id is unknown or already suppressed.</returns>
+    Task<DbSegment?> DeleteSegmentAsync(Guid segmentId, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Reverses a prior <see cref="DeleteSegmentAsync"/> exactly: flips the tombstone back
     /// to its previous state, or re-inserts the hard-deleted row verbatim (same id, source,
     /// config hash and creation time). No-op when nothing was deleted.
     /// </summary>
-    /// <param name="deleteResult">Result of the delete to reverse.</param>
+    /// <param name="deletedSnapshot">Snapshot returned by the delete to reverse; <c>null</c> when nothing was deleted.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>A <see cref="Task"/> representing the asynchronous operation.</returns>
-    Task UndoDeleteAsync(SegmentDeleteResult deleteResult, CancellationToken cancellationToken = default);
+    Task UndoDeleteAsync(DbSegment? deletedSnapshot, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Clears a tombstone, making the suppressed segment active again with its original source.
     /// </summary>
     /// <param name="segmentId">Segment ID.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
-    /// <returns><c>true</c> when a suppressed row was restored; <c>false</c> when the id is unknown or not suppressed.</returns>
-    Task<bool> RestoreSegmentAsync(Guid segmentId, CancellationToken cancellationToken = default);
+    /// <returns>The restored row, or <c>null</c> when the id is unknown or not suppressed.</returns>
+    Task<DbSegment?> RestoreSegmentAsync(Guid segmentId, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Returns a stored segment by id, regardless of state.

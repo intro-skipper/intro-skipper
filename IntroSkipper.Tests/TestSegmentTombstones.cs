@@ -29,17 +29,16 @@ public sealed class TestSegmentTombstones
             await database.ReplaceAutoSegmentsAsync(itemId, AnalysisMode.Introduction, [new Segment(itemId, new TimeRange(10, 60))], SegmentSource.Chromaprint);
             var row = Assert.Single(await database.GetSegmentsAsync(itemId));
 
-            var result = await database.DeleteSegmentAsync(row.Id);
+            var snapshot = await database.DeleteSegmentAsync(row.Id);
 
-            Assert.True(result.Suppressed);
+            Assert.NotNull(snapshot);
             Assert.Empty(await database.GetSegmentsAsync(itemId));
             var tombstone = Assert.Single(await database.GetSegmentsAsync(itemId, includeSuppressed: true));
             Assert.Equal(SegmentState.Suppressed, tombstone.State);
             Assert.Equal(SegmentSource.Chromaprint, tombstone.Source);
 
             // Deleting a tombstone again is a no-op.
-            var repeat = await database.DeleteSegmentAsync(row.Id);
-            Assert.Null(repeat.Deleted);
+            Assert.Null(await database.DeleteSegmentAsync(row.Id));
         }
         finally
         {
@@ -57,10 +56,10 @@ public sealed class TestSegmentTombstones
             var database = DatabaseTestHelpers.CreateSegmentDatabase(dbPath);
             var row = await database.AddUserSegmentAsync(itemId, AnalysisMode.Credits, Ticks(1200), Ticks(1260));
 
-            var result = await database.DeleteSegmentAsync(row.Id);
+            var snapshot = await database.DeleteSegmentAsync(row.Id);
 
-            Assert.False(result.Suppressed);
-            Assert.NotNull(result.Deleted);
+            Assert.NotNull(snapshot);
+            Assert.Equal(SegmentSource.User, snapshot!.Source);
             Assert.Empty(await database.GetSegmentsAsync(itemId, includeSuppressed: true));
         }
         finally
@@ -164,9 +163,9 @@ public sealed class TestSegmentTombstones
             var row = Assert.Single(await database.GetSegmentsAsync(itemId));
             await database.DeleteSegmentAsync(row.Id);
 
-            Assert.True(await database.RestoreSegmentAsync(row.Id));
-            Assert.False(await database.RestoreSegmentAsync(row.Id)); // not suppressed anymore
-            Assert.False(await database.RestoreSegmentAsync(Guid.NewGuid()));
+            Assert.NotNull(await database.RestoreSegmentAsync(row.Id));
+            Assert.Null(await database.RestoreSegmentAsync(row.Id)); // not suppressed anymore
+            Assert.Null(await database.RestoreSegmentAsync(Guid.NewGuid()));
 
             var restored = Assert.Single(await database.GetSegmentsAsync(itemId));
             Assert.Equal(SegmentSource.BlackFrame, restored.Source);
@@ -205,7 +204,7 @@ public sealed class TestSegmentTombstones
             Assert.Equal(userRow.CreatedAt, reinserted.CreatedAt);
 
             // Nothing deleted → no-op.
-            await database.UndoDeleteAsync(new SegmentDeleteResult(null, false));
+            await database.UndoDeleteAsync(null);
         }
         finally
         {

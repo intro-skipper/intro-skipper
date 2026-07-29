@@ -109,15 +109,14 @@ public class SegmentEditorController(MediaSegmentEditorService mediaSegmentEdito
         [FromQuery, Required] string type,
         CancellationToken cancellationToken = default)
     {
-        AnalysisMode requestedMode = type.ToLowerInvariant() switch
+        // "credits" is a legacy wire alias for the Outro segment type.
+        AnalysisMode? parsedMode = type.Equals("credits", StringComparison.OrdinalIgnoreCase)
+            ? AnalysisMode.Credits
+            : AnalysisHelpers.TryParseSegmentTypeName(type);
+        if (parsedMode is not { } requestedMode)
         {
-            "intro" => AnalysisMode.Introduction,
-            "recap" => AnalysisMode.Recap,
-            "preview" => AnalysisMode.Preview,
-            "outro" or "credits" => AnalysisMode.Credits,
-            "commercial" => AnalysisMode.Commercial,
-            _ => throw new ArgumentOutOfRangeException(nameof(type), $"Unknown segment type '{type}'")
-        };
+            return BadRequest($"Unknown segment type '{type}'.");
+        }
 
         // Fast path: the plugin row shares the Jellyfin row's id.
         var pluginRow = await _database.GetSegmentAsync(segmentId, cancellationToken).ConfigureAwait(false);
@@ -192,7 +191,7 @@ public class SegmentEditorController(MediaSegmentEditorService mediaSegmentEdito
     /// <param name="pluginSegmentId">The plugin row id when it differs from the Jellyfin id (uncorrelated fallback).</param>
     private async Task DeleteCorrelatedAsync(Guid itemId, Guid jellyfinSegmentId, CancellationToken cancellationToken, Guid? pluginSegmentId = null)
     {
-        var result = await _database.DeleteSegmentAsync(pluginSegmentId ?? jellyfinSegmentId, cancellationToken).ConfigureAwait(false);
+        var deleted = await _database.DeleteSegmentAsync(pluginSegmentId ?? jellyfinSegmentId, cancellationToken).ConfigureAwait(false);
 
         try
         {
@@ -200,7 +199,7 @@ public class SegmentEditorController(MediaSegmentEditorService mediaSegmentEdito
         }
         catch
         {
-            await _database.UndoDeleteAsync(result, CancellationToken.None).ConfigureAwait(false);
+            await _database.UndoDeleteAsync(deleted, CancellationToken.None).ConfigureAwait(false);
             throw;
         }
     }

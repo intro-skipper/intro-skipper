@@ -89,7 +89,7 @@ public class SegmentsController(IIntroSkipperDatabase database, MediaSegmentEdit
             return NotFound();
         }
 
-        if (!TryConvertRange(request.Start, request.End, out var startTicks, out var endTicks))
+        if (!TickConversions.TryFromSecondsRange(request.Start, request.End, out var startTicks, out var endTicks))
         {
             return BadRequest("Start must be non-negative and End must be after Start.");
         }
@@ -131,7 +131,7 @@ public class SegmentsController(IIntroSkipperDatabase database, MediaSegmentEdit
             return NotFound();
         }
 
-        if (!TryConvertRange(request.Start, request.End, out var startTicks, out var endTicks))
+        if (!TickConversions.TryFromSecondsRange(request.Start, request.End, out var startTicks, out var endTicks))
         {
             return BadRequest("Start must be non-negative and End must be after Start.");
         }
@@ -192,8 +192,8 @@ public class SegmentsController(IIntroSkipperDatabase database, MediaSegmentEdit
             return NotFound();
         }
 
-        var result = await _database.DeleteSegmentAsync(segmentId, cancellationToken).ConfigureAwait(false);
-        if (result.Deleted is null)
+        var deleted = await _database.DeleteSegmentAsync(segmentId, cancellationToken).ConfigureAwait(false);
+        if (deleted is null)
         {
             return NotFound();
         }
@@ -212,7 +212,7 @@ public class SegmentsController(IIntroSkipperDatabase database, MediaSegmentEdit
             catch
             {
                 // Rollback is deliberately uncancelable once the plugin delete has completed.
-                await _database.UndoDeleteAsync(result, CancellationToken.None).ConfigureAwait(false);
+                await _database.UndoDeleteAsync(deleted, CancellationToken.None).ConfigureAwait(false);
                 throw;
             }
         }
@@ -254,28 +254,20 @@ public class SegmentsController(IIntroSkipperDatabase database, MediaSegmentEdit
             return NotFound();
         }
 
-        if (!await _database.RestoreSegmentAsync(segmentId, cancellationToken).ConfigureAwait(false))
+        var restored = await _database.RestoreSegmentAsync(segmentId, cancellationToken).ConfigureAwait(false);
+        if (restored is null)
         {
             return NotFound();
         }
 
-        var restored = await _database.GetSegmentAsync(segmentId, cancellationToken).ConfigureAwait(false);
         await PushAsync(item, cancellationToken).ConfigureAwait(false);
-        return restored is null ? NotFound() : Ok(SegmentDto.FromDbSegment(restored));
+        return Ok(SegmentDto.FromDbSegment(restored));
     }
 
     private static BaseItem? ResolveItem(Guid itemId)
     {
         var item = Plugin.Instance!.GetItem(itemId);
         return item is Episode or Movie ? item : null;
-    }
-
-    private static bool TryConvertRange(double startSeconds, double endSeconds, out long startTicks, out long endTicks)
-    {
-        endTicks = 0;
-        return TickConversions.TryFromSeconds(startSeconds, out startTicks)
-            && TickConversions.TryFromSeconds(endSeconds, out endTicks)
-            && endTicks > startTicks;
     }
 
     private async Task PushAsync(BaseItem item, CancellationToken cancellationToken)

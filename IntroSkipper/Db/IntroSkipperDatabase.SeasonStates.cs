@@ -159,7 +159,9 @@ public sealed partial class IntroSkipperDatabase
         await InitializeAsync().ConfigureAwait(false);
         using var db = _contextFactory.CreateDbContext();
         var states = await db.SeasonStates
+            .AsNoTracking()
             .Where(s => s.SeasonId == seasonId)
+            .Select(s => new { s.Type, s.Action })
             .ToDictionaryAsync(s => s.Type, s => s.Action, cancellationToken)
             .ConfigureAwait(false);
 
@@ -178,10 +180,13 @@ public sealed partial class IntroSkipperDatabase
     {
         await InitializeAsync().ConfigureAwait(false);
         using var db = _contextFactory.CreateDbContext();
-        var state = await db.SeasonStates
-            .FirstOrDefaultAsync(s => s.SeasonId == seasonId && s.Type == mode, cancellationToken)
+        var action = await db.SeasonStates
+            .AsNoTracking()
+            .Where(s => s.SeasonId == seasonId && s.Type == mode)
+            .Select(s => (AnalyzerAction?)s.Action)
+            .FirstOrDefaultAsync(cancellationToken)
             .ConfigureAwait(false);
-        return state?.Action ?? AnalyzerAction.Default;
+        return action ?? AnalyzerAction.Default;
     }
 
     /// <inheritdoc/>

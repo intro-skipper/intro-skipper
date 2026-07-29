@@ -27,6 +27,9 @@ internal static class AnalysisHelpers
     private static IReadOnlyDictionary<MediaSegmentType, AnalysisMode> SegmentTypeToMode { get; } =
         ModeToSegmentType.ToDictionary(pair => pair.Value, pair => pair.Key);
 
+    private static IReadOnlyDictionary<string, AnalysisMode> SegmentTypeNameToMode { get; } =
+        ModeToSegmentType.ToDictionary(pair => pair.Value.ToString(), pair => pair.Key, StringComparer.OrdinalIgnoreCase);
+
     /// <summary>
     /// Returns whether a settled-season analysis mode still needs re-analysis for its current episode
     /// set. Pure set comparison: the decision is committed separately via
@@ -48,4 +51,13 @@ internal static class AnalysisHelpers
     /// <returns>The corresponding <see cref="AnalysisMode"/>.</returns>
     internal static AnalysisMode MapSegmentTypeToMode(MediaSegmentType type)
         => SegmentTypeToMode.TryGetValue(type, out var mode) ? mode : throw new NotImplementedException();
+
+    /// <summary>
+    /// Parses a <see cref="MediaSegmentType"/> enum name (case-insensitive) to its analysis
+    /// mode; derived from <see cref="ModeToSegmentType"/>.
+    /// </summary>
+    /// <param name="name">Segment type name, e.g. <c>"Intro"</c> or <c>"outro"</c>.</param>
+    /// <returns>The corresponding mode, or <see langword="null"/> for unknown names.</returns>
+    internal static AnalysisMode? TryParseSegmentTypeName(string name)
+        => SegmentTypeNameToMode.TryGetValue(name, out var mode) ? mode : null;
 }

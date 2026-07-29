@@ -104,7 +104,6 @@ export type SegmentDto = {
     Start: number;
     End: number;
     Source: string;
-    IsUserDefined: boolean;
     Suppressed: boolean;
     UpdatedAt: string;
 };

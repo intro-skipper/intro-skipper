@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
 using System.Data.Common;
+using System.Linq.Expressions;
 using IntroSkipper.Data;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
@@ -100,44 +101,10 @@ public sealed partial class DetectionCacheDatabase : IDetectionCacheDatabase
     }
 
     /// <inheritdoc/>
-    public int DeleteForItem(Guid itemId)
-    {
-        if (!TryInitialize())
-        {
-            return 0;
-        }
-
-        try
-        {
-            using var db = _contextFactory.CreateDbContext();
-            return db.DetectionCache.Where(e => e.ItemId == itemId).ExecuteDelete();
-        }
-        catch (Exception ex) when (ex is DbUpdateException or DbException)
-        {
-            LogCacheDeleteFailed(_logger, ex);
-            return 0;
-        }
-    }
+    public int DeleteForItem(Guid itemId) => DeleteWhere(e => e.ItemId == itemId);
 
     /// <inheritdoc/>
-    public int DeleteByMode(AnalysisMode mode)
-    {
-        if (!TryInitialize())
-        {
-            return 0;
-        }
-
-        try
-        {
-            using var db = _contextFactory.CreateDbContext();
-            return db.DetectionCache.Where(e => e.Mode == mode).ExecuteDelete();
-        }
-        catch (Exception ex) when (ex is DbUpdateException or DbException)
-        {
-            LogCacheDeleteFailed(_logger, ex);
-            return 0;
-        }
-    }
+    public int DeleteByMode(AnalysisMode mode) => DeleteWhere(e => e.Mode == mode);
 
     /// <inheritdoc/>
     public async Task<IReadOnlyCollection<Guid>> GetStaleItemIdsAsync(IReadOnlySet<Guid> validItemIds, CancellationToken cancellationToken = default)
@@ -175,27 +142,9 @@ public sealed partial class DetectionCacheDatabase : IDetectionCacheDatabase
             return 0;
         }
 
-        if (!TryInitialize())
-        {
-            return 0;
-        }
-
-        try
-        {
-            using var db = _contextFactory.CreateDbContext();
-
-            // EF.Parameter binds the ID set as a single JSON parameter (json_each), so the
-            // delete is one statement regardless of the item count.
-            return await db.DetectionCache
-                .Where(e => EF.Parameter(ids).Contains(e.ItemId))
-                .ExecuteDeleteAsync(cancellationToken)
-                .ConfigureAwait(false);
-        }
-        catch (Exception ex) when (ex is DbUpdateException or DbException)
-        {
-            LogCacheDeleteFailed(_logger, ex);
-            return 0;
-        }
+        // EF.Parameter binds the ID set as a single JSON parameter (json_each), so the
+        // delete is one statement regardless of the item count.
+        return await DeleteWhereAsync(e => EF.Parameter(ids).Contains(e.ItemId), cancellationToken).ConfigureAwait(false);
     }
 
     /// <summary>
@@ -213,6 +162,49 @@ public sealed partial class DetectionCacheDatabase : IDetectionCacheDatabase
     private static IQueryable<DbDetectionCache> QueryByKey(DetectionCacheDbContext db, Guid itemId, AnalysisMode mode, CacheEntryType type, double start, double end)
         => db.DetectionCache
             .Where(e => e.ItemId == itemId && e.Mode == mode && e.Type == type && e.Start == start && e.End == end);
+
+    // The cache is an optimization: deletes are best-effort, logging and reporting 0
+    // instead of surfacing database failures. Keep both variants in sync.
+    private int DeleteWhere(Expression<Func<DbDetectionCache, bool>> predicate)
+    {
+        if (!TryInitialize())
+        {
+            return 0;
+        }
+
+        try
+        {
+            using var db = _contextFactory.CreateDbContext();
+            return db.DetectionCache.Where(predicate).ExecuteDelete();
+        }
+        catch (Exception ex) when (ex is DbUpdateException or DbException)
+        {
+            LogCacheDeleteFailed(_logger, ex);
+            return 0;
+        }
+    }
+
+    private async Task<int> DeleteWhereAsync(Expression<Func<DbDetectionCache, bool>> predicate, CancellationToken cancellationToken)
+    {
+        if (!TryInitialize())
+        {
+            return 0;
+        }
+
+        try
+        {
+            using var db = _contextFactory.CreateDbContext();
+            return await db.DetectionCache
+                .Where(predicate)
+                .ExecuteDeleteAsync(cancellationToken)
+                .ConfigureAwait(false);
+        }
+        catch (Exception ex) when (ex is DbUpdateException or DbException)
+        {
+            LogCacheDeleteFailed(_logger, ex);
+            return 0;
+        }
+    }
 
     private bool InitializeCore()
     {

@@ -2,19 +2,11 @@ import { el } from "./dom.ts";
 import { formatTime } from "../utils.ts";
 import * as api from "../store/api.ts";
 import { getImageUrl } from "../store/jellyfin-client.ts";
-import { segmentEditor, sortSegments, sourceBadgeText } from "./segment-editor.ts";
+import { MODE_OPTIONS, segmentEditor, sortSegments, sourceBadgeText } from "./segment-editor.ts";
 import type { EpisodeItem, SegmentDto, ApiResult } from "../types.ts";
 
 /** Delay before filtering the episode list (ms). */
 const FILTER_DEBOUNCE_MS = 120;
-
-const TIMESTAMP_MODES: ReadonlyArray<{ key: string; label: string }> = [
-    { key: "Introduction", label: "Intro" },
-    { key: "Credits", label: "Credits" },
-    { key: "Recap", label: "Recap" },
-    { key: "Preview", label: "Preview" },
-    { key: "Commercial", label: "Commercial" },
-];
 
 export function episodeList(): {
     container: HTMLElement;
@@ -177,8 +169,8 @@ export function episodeList(): {
     function buildSegmentPills(segments: SegmentDto[]): HTMLElement {
         const row = el("div", { className: "ts-episode-timestamps" });
         const active = sortSegments(segments.filter((s) => !s.Suppressed));
-        for (const mode of TIMESTAMP_MODES) {
-            const ofMode = active.filter((s) => s.Type === mode.key);
+        for (const mode of MODE_OPTIONS) {
+            const ofMode = active.filter((s) => s.Type === mode.value);
             if (ofMode.length === 0) {
                 row.append(
                     el("span", { className: "ts-timestamp-missing" }, mode.label + " –"),
@@ -189,7 +181,7 @@ export function episodeList(): {
             for (const seg of ofMode) {
                 const pill = el(
                     "span",
-                    { className: "ts-timestamp-pill" + (seg.IsUserDefined ? " user" : "") },
+                    { className: "ts-timestamp-pill" + (seg.Source === "User" ? " user" : "") },
                     mode.label + " " + formatTime(seg.Start) + " – " + formatTime(seg.End),
                 );
                 pill.append(el("span", { className: "ts-pill-source" }, sourceBadgeText(seg)));

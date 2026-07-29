@@ -56,9 +56,7 @@ public sealed partial class IntroSkipperDatabase
                 var accepted = new List<DbSegment>();
                 foreach (var segment in segments.OrderBy(s => s.Start))
                 {
-                    if (!TickConversions.TryFromSeconds(segment.Start, out var startTicks)
-                        || !TickConversions.TryFromSeconds(segment.End, out var endTicks)
-                        || endTicks <= startTicks)
+                    if (!TickConversions.TryFromSecondsRange(segment.Start, segment.End, out var startTicks, out var endTicks))
                     {
                         continue;
                     }
@@ -251,7 +249,7 @@ public sealed partial class IntroSkipperDatabase
     }
 
     /// <inheritdoc/>
-    public async Task<SegmentDeleteResult> DeleteSegmentAsync(Guid segmentId, CancellationToken cancellationToken = default)
+    public async Task<DbSegment?> DeleteSegmentAsync(Guid segmentId, CancellationToken cancellationToken = default)
     {
         await InitializeAsync().ConfigureAwait(false);
         using var db = _contextFactory.CreateDbContext();
@@ -261,27 +259,27 @@ public sealed partial class IntroSkipperDatabase
             .ConfigureAwait(false);
         if (row is null || row.State == SegmentState.Suppressed)
         {
-            return new SegmentDeleteResult(null, false);
+            return null;
         }
 
         var snapshot = row.Clone();
         if (row.Source == SegmentSource.User)
         {
             db.Segments.Remove(row);
-            await db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
-            return new SegmentDeleteResult(snapshot, false);
+        }
+        else
+        {
+            row.State = SegmentState.Suppressed;
         }
 
-        row.State = SegmentState.Suppressed;
         await db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
-        return new SegmentDeleteResult(snapshot, true);
+        return snapshot;
     }
 
     /// <inheritdoc/>
-    public async Task UndoDeleteAsync(SegmentDeleteResult deleteResult, CancellationToken cancellationToken = default)
+    public async Task UndoDeleteAsync(DbSegment? deletedSnapshot, CancellationToken cancellationToken = default)
     {
-        ArgumentNullException.ThrowIfNull(deleteResult);
-        if (deleteResult.Deleted is null)
+        if (deletedSnapshot is null)
         {
             return;
         }
@@ -290,17 +288,17 @@ public sealed partial class IntroSkipperDatabase
         using var db = _contextFactory.CreateDbContext();
 
         var row = await db.Segments
-            .FirstOrDefaultAsync(s => s.Id == deleteResult.Deleted.Id, cancellationToken)
+            .FirstOrDefaultAsync(s => s.Id == deletedSnapshot.Id, cancellationToken)
             .ConfigureAwait(false);
 
         if (row is not null)
         {
-            row.State = deleteResult.Deleted.State;
-            row.Source = deleteResult.Deleted.Source;
+            row.State = deletedSnapshot.State;
+            row.Source = deletedSnapshot.Source;
         }
         else
         {
-            db.Segments.Add(deleteResult.Deleted.Clone());
+            db.Segments.Add(deletedSnapshot.Clone());
         }
 
         try
@@ -314,7 +312,7 @@ public sealed partial class IntroSkipperDatabase
     }
 
     /// <inheritdoc/>
-    public async Task<bool> RestoreSegmentAsync(Guid segmentId, CancellationToken cancellationToken = default)
+    public async Task<DbSegment?> RestoreSegmentAsync(Guid segmentId, CancellationToken cancellationToken = default)
     {
         await InitializeAsync().ConfigureAwait(false);
         using var db = _contextFactory.CreateDbContext();
@@ -324,12 +322,12 @@ public sealed partial class IntroSkipperDatabase
             .ConfigureAwait(false);
         if (row is null || row.State != SegmentState.Suppressed)
         {
-            return false;
+            return null;
         }
 
         row.State = SegmentState.Active;
         await db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
-        return true;
+        return row;
     }
 
     /// <inheritdoc/>

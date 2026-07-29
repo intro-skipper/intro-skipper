@@ -159,24 +159,6 @@ public partial class ChapterAnalyzer(ILogger<ChapterAnalyzer> logger, IFFmpegSer
     }
 
     /// <summary>
-    /// Searches a list of chapter names for one that matches the provided regular expression.
-    /// Only public to allow for unit testing.
-    /// </summary>
-    /// <param name="episode">Episode.</param>
-    /// <param name="chapters">Media item chapters.</param>
-    /// <param name="expression">Regular expression pattern.</param>
-    /// <param name="mode">Analysis mode.</param>
-    /// <param name="enableSponsorBlockChapterDetection">Whether known SponsorBlock chapter labels should be matched in addition to the regular expression.</param>
-    /// <returns>Intro object containing skippable time range, or null if no chapter matched.</returns>
-    public Segment? FindMatchingChapter(
-        QueuedEpisode episode,
-        IReadOnlyList<ChapterInfo> chapters,
-        string expression,
-        AnalysisMode mode,
-        bool enableSponsorBlockChapterDetection = true)
-        => FindMatchingChapters(episode, chapters, expression, mode, enableSponsorBlockChapterDetection) is [var first, ..] ? first : null;
-
-    /// <summary>
     /// Searches a list of chapter names for all that match the provided regular expression,
     /// in mode-specific scan order (reversed for credits and previews).
     /// Only public to allow for unit testing.

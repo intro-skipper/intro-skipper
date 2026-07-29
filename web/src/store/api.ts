@@ -146,11 +146,27 @@ export function updateEpisodeSegment(
     );
 }
 
-export function deleteEpisodeSegment(itemId: string, segmentId: string): Promise<Response> {
-    return fetchWithAuth(
-        `Episode/${encodeURIComponent(itemId)}/Segments/${encodeURIComponent(segmentId)}`,
-        "DELETE",
-    );
+export async function deleteEpisodeSegment(itemId: string, segmentId: string): Promise<ApiResult<null>> {
+    try {
+        const response = await fetchWithAuth(
+            `Episode/${encodeURIComponent(itemId)}/Segments/${encodeURIComponent(segmentId)}`,
+            "DELETE",
+        );
+        if (response.ok) {
+            return { ok: true, status: response.status, data: null };
+        }
+        return {
+            ok: false,
+            status: response.status,
+            error: await readErrorMessage(response),
+        };
+    } catch (err: unknown) {
+        return {
+            ok: false,
+            status: null,
+            error: err instanceof Error ? err.message : "Network error",
+        };
+    }
 }
 
 export function restoreEpisodeSegment(

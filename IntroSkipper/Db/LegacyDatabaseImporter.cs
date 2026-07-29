@@ -132,10 +132,7 @@ internal static partial class LegacyDatabaseImporter
                 var type = Convert.ToInt32(typeValue, CultureInfo.InvariantCulture);
 
                 if (!Enum.IsDefined((AnalysisMode)type)
-                    || endSeconds <= 0
-                    || !TickConversions.TryFromSeconds(startSeconds, out var startTicks)
-                    || !TickConversions.TryFromSeconds(endSeconds, out var endTicks)
-                    || endTicks <= startTicks)
+                    || !TickConversions.TryFromSecondsRange(startSeconds, endSeconds, out var startTicks, out var endTicks))
                 {
                     skipped++;
                     continue;

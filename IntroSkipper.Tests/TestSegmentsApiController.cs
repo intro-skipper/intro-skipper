@@ -14,7 +14,6 @@ using IntroSkipper.Db;
 using IntroSkipper.Manager;
 using IntroSkipper.Providers;
 using MediaBrowser.Controller.Entities.Movies;
-using MediaBrowser.Model.MediaSegments;
 using Microsoft.AspNetCore.Mvc;
 using Xunit;
 
@@ -27,7 +26,7 @@ namespace IntroSkipper.Tests;
 public sealed class TestSegmentsApiController
 {
     [Fact]
-    public async Task GetSegments_ReturnsAllSegments_WithSecondsSourceAndUserFlag()
+    public async Task GetSegments_ReturnsAllSegments_WithSecondsAndSource()
     {
         var itemId = Guid.NewGuid();
         var dbPath = CreateTempDbPath();
@@ -53,10 +52,8 @@ public sealed class TestSegmentsApiController
             Assert.Equal(10, intros[0].Start);
             Assert.Equal(60, intros[0].End);
             Assert.Equal(SegmentSource.Chromaprint, intros[0].Source);
-            Assert.False(intros[0].IsUserDefined);
 
             var commercial = Assert.Single(dtos, d => d.Type == AnalysisMode.Commercial);
-            Assert.True(commercial.IsUserDefined);
             Assert.Equal(SegmentSource.User, commercial.Source);
             Assert.False(commercial.Suppressed);
         }
@@ -107,14 +104,14 @@ public sealed class TestSegmentsApiController
 
             var dto = Assert.IsType<SegmentDto>(Assert.IsType<CreatedAtActionResult>(response.Result).Value);
             Assert.Equal(AnalysisMode.Commercial, dto.Type);
-            Assert.True(dto.IsUserDefined);
+            Assert.Equal(SegmentSource.User, dto.Source);
             Assert.NotEqual(Guid.Empty, dto.Id);
 
             var stored = Assert.Single(await database.GetSegmentsAsync(itemId));
             Assert.Equal(dto.Id, stored.Id);
 
             // Uniform mirror push: the replaced set carries the plugin row id.
-            var pushed = Assert.Single(store.Replaced);
+            var pushed = Assert.Single(store.ReplacedItems);
             Assert.Equal(itemId, pushed.ItemId);
             var pushedDto = Assert.Single(pushed.Segments);
             Assert.Equal(dto.Id, pushedDto.Id);
@@ -142,7 +139,7 @@ public sealed class TestSegmentsApiController
                 CancellationToken.None);
 
             Assert.IsType<CreatedAtActionResult>(response.Result);
-            Assert.Empty(store.Replaced);
+            Assert.Empty(store.ReplacedItems);
         }
         finally
         {
@@ -196,7 +193,7 @@ public sealed class TestSegmentsApiController
             var updated = await controller.UpdateSegment(itemId, rows[0].Id, new UpdateSegmentRequest(12, 22), CancellationToken.None);
             var dto = Assert.IsType<SegmentDto>(Assert.IsType<OkObjectResult>(updated.Result).Value);
             Assert.Equal(12, dto.Start);
-            Assert.True(dto.IsUserDefined);
+            Assert.Equal(SegmentSource.User, dto.Source);
 
             var wrongItem = await controller.UpdateSegment(Guid.NewGuid(), rows[0].Id, new UpdateSegmentRequest(1, 2), CancellationToken.None);
             Assert.IsType<NotFoundResult>(wrongItem.Result);
@@ -227,7 +224,7 @@ public sealed class TestSegmentsApiController
             Assert.IsType<NoContentResult>(await controller.DeleteSegment(itemId, autoRow.Id, CancellationToken.None));
             var tombstone = Assert.Single(await database.GetSegmentsAsync(itemId, includeSuppressed: true), s => s.Id == autoRow.Id);
             Assert.Equal(SegmentState.Suppressed, tombstone.State);
-            Assert.Contains((itemId, autoRow.Id), store.Deleted);
+            Assert.Contains((itemId, autoRow.Id), store.DeletedSegments);
 
             Assert.IsType<NoContentResult>(await controller.DeleteSegment(itemId, userRow.Id, CancellationToken.None));
             Assert.DoesNotContain(await database.GetSegmentsAsync(itemId, includeSuppressed: true), s => s.Id == userRow.Id);
@@ -260,8 +257,8 @@ public sealed class TestSegmentsApiController
             // how create/update/restore honor the UpdateMediaSegments flag.
             var tombstone = Assert.Single(await database.GetSegmentsAsync(itemId, includeSuppressed: true));
             Assert.Equal(SegmentState.Suppressed, tombstone.State);
-            Assert.Empty(store.Deleted);
-            Assert.Empty(store.Replaced);
+            Assert.Empty(store.DeletedSegments);
+            Assert.Empty(store.ReplacedItems);
         }
         finally
         {
@@ -280,8 +277,7 @@ public sealed class TestSegmentsApiController
             var database = DatabaseTestHelpers.CreateSegmentDatabase(dbPath);
             await database.ReplaceAutoSegmentsAsync(itemId, AnalysisMode.Introduction, [new Segment(itemId, new TimeRange(10, 60))], SegmentSource.Chromaprint, "cfg");
             var row = Assert.Single(await database.GetSegmentsAsync(itemId));
-            var controller = CreateController(database, out var store);
-            store.DeleteException = new InvalidOperationException("Jellyfin unavailable");
+            var controller = CreateController(database, out _, new InvalidOperationException("Jellyfin unavailable"));
 
             await Assert.ThrowsAsync<InvalidOperationException>(
                 () => controller.DeleteSegment(itemId, row.Id, CancellationToken.None));
@@ -326,9 +322,12 @@ public sealed class TestSegmentsApiController
         }
     }
 
-    private static SegmentsController CreateController(IIntroSkipperDatabase database, out RecordingStore store)
+    private static SegmentsController CreateController(
+        IIntroSkipperDatabase database,
+        out FakeJellyfinSegmentStore store,
+        Exception? deleteException = null)
     {
-        store = new RecordingStore();
+        store = new FakeJellyfinSegmentStore { DeleteSegmentException = deleteException };
         var editorService = new MediaSegmentEditorService(store, new SegmentDtoFactory(database));
         return new SegmentsController(database, editorService);
     }
@@ -360,39 +359,4 @@ public sealed class TestSegmentsApiController
         return Path.Join(tempDir, Guid.NewGuid().ToString("N") + ".db");
     }
 
-    /// <summary>
-    /// Minimal recording <see cref="IJellyfinSegmentStore"/> local to this suite so it
-    /// does not depend on the shared fake's surface.
-    /// </summary>
-    private sealed class RecordingStore : IJellyfinSegmentStore
-    {
-        public List<(Guid ItemId, IReadOnlyList<MediaSegmentDto> Segments)> Replaced { get; } = [];
-
-        public List<(Guid ItemId, Guid SegmentId)> Deleted { get; } = [];
-
-        public Exception? DeleteException { get; set; }
-
-        public Task ReplaceSegmentsAsync(Guid itemId, IReadOnlyList<MediaSegmentDto> segments, CancellationToken cancellationToken)
-        {
-            Replaced.Add((itemId, segments));
-            return Task.CompletedTask;
-        }
-
-        public Task DeleteOwnSegmentsAsync(IEnumerable<Guid> itemIds, CancellationToken cancellationToken)
-            => Task.CompletedTask;
-
-        public Task<MediaSegmentDto?> GetSegmentAsync(Guid itemId, Guid segmentId, CancellationToken cancellationToken)
-            => Task.FromResult<MediaSegmentDto?>(null);
-
-        public Task DeleteSegmentAsync(Guid itemId, Guid segmentId, CancellationToken cancellationToken)
-        {
-            if (DeleteException is not null)
-            {
-                throw DeleteException;
-            }
-
-            Deleted.Add((itemId, segmentId));
-            return Task.CompletedTask;
-        }
-    }
 }

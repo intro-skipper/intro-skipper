@@ -10,7 +10,7 @@ import type { SegmentDto, SegmentType } from "../types.ts";
  * detected segment tombstones it server-side so re-analysis does not re-add it.
  */
 
-const MODE_OPTIONS: ReadonlyArray<{ value: SegmentType; label: string }> = [
+export const MODE_OPTIONS: ReadonlyArray<{ value: SegmentType; label: string }> = [
     { value: "Introduction", label: "Intro" },
     { value: "Credits", label: "Credits" },
     { value: "Recap", label: "Recap" },
@@ -18,13 +18,7 @@ const MODE_OPTIONS: ReadonlyArray<{ value: SegmentType; label: string }> = [
     { value: "Commercial", label: "Commercial" },
 ];
 
-const MODE_ORDER: Record<string, number> = {
-    Introduction: 0,
-    Credits: 1,
-    Recap: 2,
-    Preview: 3,
-    Commercial: 4,
-};
+const MODE_ORDER: ReadonlyMap<string, number> = new Map(MODE_OPTIONS.map((m, i) => [m.value, i]));
 
 export function sourceBadgeText(segment: SegmentDto): string {
     switch (segment.Source) {
@@ -45,8 +39,27 @@ export function sourceBadgeText(segment: SegmentDto): string {
 
 export function sortSegments(segments: SegmentDto[]): SegmentDto[] {
     return [...segments].sort(
-        (a, b) => (MODE_ORDER[a.Type] ?? 99) - (MODE_ORDER[b.Type] ?? 99) || a.Start - b.Start,
+        (a, b) => (MODE_ORDER.get(a.Type) ?? 99) - (MODE_ORDER.get(b.Type) ?? 99) || a.Start - b.Start,
     );
+}
+
+function readRange(
+    startInput: HTMLInputElement,
+    endInput: HTMLInputElement,
+    errorEl: HTMLElement,
+): { start: number; end: number } | null {
+    const start = parseTimeInput(startInput.value);
+    const end = parseTimeInput(endInput.value);
+    if (start === null || end === null) {
+        errorEl.textContent = "Enter a time like 95.5 or 1:35.5";
+        return null;
+    }
+    if (end <= start) {
+        errorEl.textContent = "End must be after start";
+        return null;
+    }
+    errorEl.textContent = "";
+    return { start, end };
 }
 
 export function segmentEditor(opts: {
@@ -68,6 +81,17 @@ export function segmentEditor(opts: {
         statusEl.textContent = msg;
         statusEl.style.color = color;
         statusEl.style.display = msg ? "block" : "none";
+    }
+
+    // Serializes mutations: while one is in flight, further clicks are ignored.
+    async function withBusy(fn: () => Promise<void>): Promise<void> {
+        if (busy) return;
+        busy = true;
+        try {
+            await fn();
+        } finally {
+            busy = false;
+        }
     }
 
     async function reloadAfterMutation(successMessage: string): Promise<void> {
@@ -116,21 +140,15 @@ export function segmentEditor(opts: {
             startInput.disabled = true;
             endInput.disabled = true;
             const restoreBtn = el("button", { className: "ts-segment-btn", type: "button" }, "Restore");
-            restoreBtn.addEventListener("click", async () => {
-                if (busy) return;
-                busy = true;
-                try {
-                    const response = await api.restoreEpisodeSegment(opts.itemId, segment.Id);
-                    if (destroyed) return;
-                    if (response.ok) {
-                        await reloadAfterMutation("Segment restored.");
-                    } else {
-                        setStatus(response.error ?? "Failed to restore segment", "var(--is-error)");
-                    }
-                } finally {
-                    busy = false;
+            restoreBtn.addEventListener("click", () => withBusy(async () => {
+                const response = await api.restoreEpisodeSegment(opts.itemId, segment.Id);
+                if (destroyed) return;
+                if (response.ok) {
+                    await reloadAfterMutation("Segment restored.");
+                } else {
+                    setStatus(response.error ?? "Failed to restore segment", "var(--is-error)");
                 }
-            });
+            }));
             row.append(startInput, endInput, badge, el("span", { className: "ts-segment-hint" }, "hidden"), restoreBtn, errorEl);
             return row;
         }
@@ -138,62 +156,38 @@ export function segmentEditor(opts: {
         const saveBtn = el("button", { className: "ts-segment-btn", type: "button" }, "Save");
         const deleteBtn = el("button", { className: "ts-segment-btn danger", type: "button" }, "Delete");
 
-        saveBtn.addEventListener("click", async () => {
-            if (busy) return;
-            const start = parseTimeInput(startInput.value);
-            const end = parseTimeInput(endInput.value);
-            if (start === null || end === null) {
-                errorEl.textContent = "Enter a time like 95.5 or 1:35.5";
-                return;
+        saveBtn.addEventListener("click", () => withBusy(async () => {
+            const range = readRange(startInput, endInput, errorEl);
+            if (range === null) return;
+            const result = await api.updateEpisodeSegment(opts.itemId, segment.Id, { Start: range.start, End: range.end });
+            if (destroyed) return;
+            if (result.ok) {
+                await reloadAfterMutation("Segment saved." + overlapWarning(segments, segment.Type, range.start, range.end, segment.Id));
+            } else {
+                errorEl.textContent = result.error ?? "Failed to save segment";
             }
-            if (end <= start) {
-                errorEl.textContent = "End must be after start";
-                return;
-            }
-            errorEl.textContent = "";
-            busy = true;
-            try {
-                const result = await api.updateEpisodeSegment(opts.itemId, segment.Id, { Start: start, End: end });
-                if (destroyed) return;
-                if (result.ok) {
-                    await reloadAfterMutation("Segment saved." + overlapWarning(segments, segment.Type, start, end, segment.Id));
-                } else {
-                    errorEl.textContent = result.error ?? "Failed to save segment";
-                }
-            } finally {
-                busy = false;
-            }
-        });
+        }));
 
         deleteBtn.addEventListener("click", async () => {
             if (busy) return;
             const confirmed = await confirmDialog({
                 title: "Delete segment",
-                body: segment.IsUserDefined
+                body: segment.Source === "User"
                     ? "This permanently deletes the segment."
                     : "This hides the automatically detected segment. Re-analysis will not re-add it. Erasing timestamps restores automatic detection.",
                 confirmLabel: "Delete",
             });
             if (!confirmed || destroyed) return;
-            busy = true;
-            try {
-                // deleteEpisodeSegment returns the raw fetch, which can reject on
-                // network failure — the finally keeps the editor usable either way.
-                const response = await api.deleteEpisodeSegment(opts.itemId, segment.Id);
+            await withBusy(async () => {
+                const result = await api.deleteEpisodeSegment(opts.itemId, segment.Id);
                 if (destroyed) return;
-                if (response.ok) {
+                if (result.ok) {
                     await reloadAfterMutation("Segment deleted.");
                 } else {
-                    setStatus("Failed to delete segment (HTTP " + response.status + ")", "var(--is-error)");
+                    setStatus(result.error ?? "Failed to delete segment", "var(--is-error)");
                     window.Dashboard.alert("Failed to delete segment");
                 }
-            } catch (err: unknown) {
-                if (!destroyed) {
-                    setStatus(err instanceof Error ? err.message : "Failed to delete segment", "var(--is-error)");
-                }
-            } finally {
-                busy = false;
-            }
+            });
         });
 
         row.append(startInput, endInput, badge, saveBtn, deleteBtn, errorEl);
@@ -215,35 +209,20 @@ export function segmentEditor(opts: {
         const errorEl = el("span", { className: "ts-segment-error" });
         const addBtn = el("button", { className: "ts-segment-btn", type: "button" }, "Add");
 
-        addBtn.addEventListener("click", async () => {
-            if (busy) return;
-            const start = parseTimeInput(startInput.value);
-            const end = parseTimeInput(endInput.value);
+        addBtn.addEventListener("click", () => withBusy(async () => {
+            const range = readRange(startInput, endInput, errorEl);
+            if (range === null) return;
             const type = select.value as SegmentType;
-            if (start === null || end === null) {
-                errorEl.textContent = "Enter a time like 95.5 or 1:35.5";
-                return;
+            const result = await api.createEpisodeSegment(opts.itemId, { Type: type, Start: range.start, End: range.end });
+            if (destroyed) return;
+            if (result.ok) {
+                startInput.value = "";
+                endInput.value = "";
+                await reloadAfterMutation("Segment added." + overlapWarning(segments, type, range.start, range.end));
+            } else {
+                errorEl.textContent = result.error ?? "Failed to add segment";
             }
-            if (end <= start) {
-                errorEl.textContent = "End must be after start";
-                return;
-            }
-            errorEl.textContent = "";
-            busy = true;
-            try {
-                const result = await api.createEpisodeSegment(opts.itemId, { Type: type, Start: start, End: end });
-                if (destroyed) return;
-                if (result.ok) {
-                    startInput.value = "";
-                    endInput.value = "";
-                    await reloadAfterMutation("Segment added." + overlapWarning(segments, type, start, end));
-                } else {
-                    errorEl.textContent = result.error ?? "Failed to add segment";
-                }
-            } finally {
-                busy = false;
-            }
-        });
+        }));
 
         row.append(select, startInput, endInput, addBtn, errorEl);
         return row;

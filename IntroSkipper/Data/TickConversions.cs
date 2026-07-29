@@ -45,6 +45,29 @@ internal static class TickConversions
             : throw new ArgumentOutOfRangeException(nameof(seconds), seconds, "Value is not representable as a non-negative tick count.");
 
     /// <summary>
+    /// Converts a seconds range to a tick range. Succeeds only when both boundaries are
+    /// representable and the end is strictly after the start.
+    /// </summary>
+    /// <param name="startSeconds">Range start in seconds.</param>
+    /// <param name="endSeconds">Range end in seconds.</param>
+    /// <param name="startTicks">Range start in ticks when the conversion succeeded; 0 otherwise.</param>
+    /// <param name="endTicks">Range end in ticks when the conversion succeeded; 0 otherwise.</param>
+    /// <returns><c>false</c> when either boundary is not representable or the range is empty or inverted.</returns>
+    internal static bool TryFromSecondsRange(double startSeconds, double endSeconds, out long startTicks, out long endTicks)
+    {
+        if (TryFromSeconds(startSeconds, out startTicks)
+            && TryFromSeconds(endSeconds, out endTicks)
+            && endTicks > startTicks)
+        {
+            return true;
+        }
+
+        startTicks = 0;
+        endTicks = 0;
+        return false;
+    }
+
+    /// <summary>
     /// Converts ticks to seconds.
     /// </summary>
     /// <param name="ticks">Time in ticks.</param>

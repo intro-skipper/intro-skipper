@@ -24,8 +24,6 @@ namespace IntroSkipper
     /// </summary>
     public class PluginServiceRegistrator : IPluginServiceRegistrator
     {
-        private static readonly SqlitePragmaInterceptor _pragmaInterceptor = new();
-
         /// <inheritdoc />
         public void RegisterServices(IServiceCollection serviceCollection, IServerApplicationHost applicationHost)
         {
@@ -33,11 +31,9 @@ namespace IntroSkipper
             // for pooling to matter, and pooling would forbid the string-path constructor
             // that the design-time factory, the rebuild flow and the tests rely on.
             serviceCollection.AddDbContextFactory<IntroSkipperDbContext>((serviceProvider, options) =>
-                options.UseSqlite($"Data Source={IntroSkipperDatabasePaths.GetSegmentDatabasePath(serviceProvider.GetRequiredService<IApplicationPaths>())}")
-                    .AddInterceptors(_pragmaInterceptor));
+                SqlitePragmas.Configure(options, IntroSkipperDatabasePaths.GetSegmentDatabasePath(serviceProvider.GetRequiredService<IApplicationPaths>())));
             serviceCollection.AddDbContextFactory<DetectionCacheDbContext>((serviceProvider, options) =>
-                options.UseSqlite($"Data Source={IntroSkipperDatabasePaths.GetDetectionCacheDatabasePath(serviceProvider.GetRequiredService<IApplicationPaths>())}")
-                    .AddInterceptors(_pragmaInterceptor));
+                SqlitePragmas.Configure(options, IntroSkipperDatabasePaths.GetDetectionCacheDatabasePath(serviceProvider.GetRequiredService<IApplicationPaths>())));
             // The facades own database initialization via their internal retryable
             // gates; every consumer goes through a facade.
             serviceCollection.AddSingleton<IIntroSkipperDatabase, IntroSkipperDatabase>();

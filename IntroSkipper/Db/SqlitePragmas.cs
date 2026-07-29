@@ -18,6 +18,18 @@ internal static class SqlitePragmas
 
     private const string WalCommand = "PRAGMA journal_mode=WAL;";
 
+    private static readonly SqlitePragmaInterceptor _pragmaInterceptor = new();
+
+    /// <summary>
+    /// Applies the shared SQLite configuration for a file-backed plugin database: the
+    /// provider plus the per-connection pragma interceptor. Every context configuration
+    /// site goes through this so the pragma policy cannot drift.
+    /// </summary>
+    /// <param name="options">The options builder to configure.</param>
+    /// <param name="dbPath">Path to the SQLite database file.</param>
+    public static void Configure(DbContextOptionsBuilder options, string dbPath)
+        => options.UseSqlite($"Data Source={dbPath}").AddInterceptors(_pragmaInterceptor);
+
     /// <summary>
     /// Enforces WAL journal mode. WAL is a persistent database property, but EF only
     /// sets it when *it* creates the database file. Enforce it idempotently so databases

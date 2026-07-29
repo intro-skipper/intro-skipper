@@ -310,11 +310,10 @@ public sealed class TestDatabaseFacades
             await database.ReplaceAutoSegmentsAsync(itemId, AnalysisMode.Introduction, [new Segment(itemId, new TimeRange(0, 5))], SegmentSource.Chapter);
 
             var target = Assert.Single(await database.GetSegmentsAsync(itemId), s => s.StartTicks == Ticks(10));
-            var result = await database.DeleteSegmentAsync(target.Id);
+            var snapshot = await database.DeleteSegmentAsync(target.Id);
 
-            Assert.True(result.Suppressed);
-            Assert.NotNull(result.Deleted);
-            Assert.Equal(target.Id, result.Deleted!.Id);
+            Assert.NotNull(snapshot);
+            Assert.Equal(target.Id, snapshot!.Id);
 
             // The other commercial and the intro are untouched; the tombstone is hidden
             // from default reads but still stored.

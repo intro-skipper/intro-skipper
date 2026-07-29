@@ -25,11 +25,7 @@ public sealed class TestDbSegmentStorage
     public void AllowsMultipleSegmentsPerItemAndType_ForEveryMode(AnalysisMode mode)
     {
         using var connection = new SqliteConnection("Data Source=:memory:");
-        connection.Open();
-
-        var options = new DbContextOptionsBuilder<IntroSkipperDbContext>()
-            .UseSqlite(connection)
-            .Options;
+        var options = CreateInMemoryOptions(connection);
 
         var itemId = Guid.NewGuid();
 
@@ -60,11 +56,7 @@ public sealed class TestDbSegmentStorage
     public void UniqueIndex_RejectsExactDuplicateRange_ForEveryMode(AnalysisMode mode)
     {
         using var connection = new SqliteConnection("Data Source=:memory:");
-        connection.Open();
-
-        var options = new DbContextOptionsBuilder<IntroSkipperDbContext>()
-            .UseSqlite(connection)
-            .Options;
+        var options = CreateInMemoryOptions(connection);
 
         var itemId = Guid.NewGuid();
 
@@ -90,11 +82,7 @@ public sealed class TestDbSegmentStorage
     public void UniqueIndex_AllowsSameRangeForDifferentItems()
     {
         using var connection = new SqliteConnection("Data Source=:memory:");
-        connection.Open();
-
-        var options = new DbContextOptionsBuilder<IntroSkipperDbContext>()
-            .UseSqlite(connection)
-            .Options;
+        var options = CreateInMemoryOptions(connection);
 
         var itemIdA = Guid.NewGuid();
         var itemIdB = Guid.NewGuid();
@@ -122,11 +110,7 @@ public sealed class TestDbSegmentStorage
     public void SegmentRow_RoundTripsAllColumns()
     {
         using var connection = new SqliteConnection("Data Source=:memory:");
-        connection.Open();
-
-        var options = new DbContextOptionsBuilder<IntroSkipperDbContext>()
-            .UseSqlite(connection)
-            .Options;
+        var options = CreateInMemoryOptions(connection);
 
         var itemId = Guid.NewGuid();
         Guid segmentId;
@@ -161,11 +145,7 @@ public sealed class TestDbSegmentStorage
     public void SaveChanges_StampsCreatedAndUpdatedTimestamps()
     {
         using var connection = new SqliteConnection("Data Source=:memory:");
-        connection.Open();
-
-        var options = new DbContextOptionsBuilder<IntroSkipperDbContext>()
-            .UseSqlite(connection)
-            .Options;
+        var options = CreateInMemoryOptions(connection);
 
         var itemId = Guid.NewGuid();
         var before = DateTime.UtcNow;
@@ -439,6 +419,20 @@ public sealed class TestDbSegmentStorage
         {
             DeleteSqliteFiles(dbPath);
         }
+    }
+
+    /// <summary>
+    /// Opens the shared in-memory connection (the database lives while it stays open;
+    /// the caller owns disposal) and builds context options over it.
+    /// </summary>
+    /// <param name="connection">Unopened in-memory SQLite connection.</param>
+    /// <returns>Context options bound to the connection.</returns>
+    private static DbContextOptions<IntroSkipperDbContext> CreateInMemoryOptions(SqliteConnection connection)
+    {
+        connection.Open();
+        return new DbContextOptionsBuilder<IntroSkipperDbContext>()
+            .UseSqlite(connection)
+            .Options;
     }
 
     private static void DeleteSqliteFiles(string dbPath)

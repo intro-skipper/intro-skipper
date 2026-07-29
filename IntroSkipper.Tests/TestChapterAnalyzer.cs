@@ -267,12 +267,12 @@ public class TestChapterAnalyzer
             _ => throw new ArgumentOutOfRangeException(nameof(mode), mode, null)
         };
 
-        return analyzer.FindMatchingChapter(
+        return analyzer.FindMatchingChapters(
             new() { Duration = 2000 },
             chapters,
             expressionOverride ?? expression,
             mode,
-            enableSponsorBlockChapterDetection);
+            enableSponsorBlockChapterDetection) is [var first, ..] ? first : null;
     }
 
     private Collection<ChapterInfo> CreateChapters(string name, AnalysisMode mode)

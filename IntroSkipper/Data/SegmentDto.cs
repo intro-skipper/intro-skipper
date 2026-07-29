@@ -15,8 +15,7 @@ namespace IntroSkipper.Data;
 /// <param name="Type">Analysis mode the segment belongs to.</param>
 /// <param name="Start">Start time in seconds.</param>
 /// <param name="End">End time in seconds.</param>
-/// <param name="Source">Origin of the segment.</param>
-/// <param name="IsUserDefined">Whether the segment was provided by the user.</param>
+/// <param name="Source">Origin of the segment; <see cref="SegmentSource.User"/> marks user-provided segments.</param>
 /// <param name="Suppressed">Whether the segment is a tombstone (user-deleted automatic segment).</param>
 /// <param name="UpdatedAt">UTC time of the last modification.</param>
 public sealed record SegmentDto(
@@ -25,7 +24,6 @@ public sealed record SegmentDto(
     double Start,
     double End,
     [property: JsonConverter(typeof(JsonStringEnumConverter<SegmentSource>))] SegmentSource Source,
-    bool IsUserDefined,
     bool Suppressed,
     DateTime UpdatedAt)
 {
@@ -40,7 +38,6 @@ public sealed record SegmentDto(
         TickConversions.ToSeconds(segment.StartTicks),
         TickConversions.ToSeconds(segment.EndTicks),
         segment.Source,
-        segment.IsUserProvided,
         segment.State == SegmentState.Suppressed,
         segment.UpdatedAt);
 }
