@@ -60,6 +60,14 @@ public interface IJellyfinSegmentStore
     Task<MediaSegmentDto?> GetSegmentAsync(Guid itemId, Guid segmentId, CancellationToken cancellationToken);
 
     /// <summary>
+    /// Retrieves a segment by id, regardless of item or provider.
+    /// </summary>
+    /// <param name="segmentId">The segment id.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>The matching segment, or <c>null</c> if not found.</returns>
+    Task<MediaSegmentDto?> GetSegmentByIdAsync(Guid segmentId, CancellationToken cancellationToken);
+
+    /// <summary>
     /// Deletes a segment by id when it belongs to the given item, regardless of provider.
     /// A segment id owned by a different item is left untouched, and an unknown id is a
     /// no-op so callers can clean up plugin-side rows whose Jellyfin row is already gone.

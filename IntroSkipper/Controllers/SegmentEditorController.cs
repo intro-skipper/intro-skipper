@@ -95,7 +95,7 @@ public class SegmentEditorController(MediaSegmentEditorService mediaSegmentEdito
     /// <returns>
     /// HTTP 200 on success, 400 when the requested type does not match the Jellyfin segment,
     /// or 404 when the commercial segment is not found. A segment id owned by a different item
-    /// leaves Jellyfin untouched while the item's own plugin row is still removed.
+    /// is rejected without mutating either item.
     /// </returns>
     [HttpDelete("{segmentId}")]
     [ProducesResponseType(StatusCodes.Status200OK)]
@@ -117,9 +117,15 @@ public class SegmentEditorController(MediaSegmentEditorService mediaSegmentEdito
             _ => throw new ArgumentOutOfRangeException(nameof(type), $"Unknown segment type '{type}'")
         };
 
-        var existingSegment = await _mediaSegmentEditorService
-            .GetSegmentAsync(itemId, segmentId, cancellationToken)
+        var segmentById = await _mediaSegmentEditorService
+            .GetSegmentByIdAsync(segmentId, cancellationToken)
             .ConfigureAwait(false);
+        if (segmentById is not null && segmentById.ItemId != itemId)
+        {
+            return BadRequest($"Segment '{segmentId}' does not belong to item '{itemId}'.");
+        }
+
+        var existingSegment = segmentById;
 
         var mode = requestedMode;
         if (existingSegment is not null
