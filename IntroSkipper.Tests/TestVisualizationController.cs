@@ -145,10 +145,10 @@ public sealed class TestVisualizationController
         {
             Assert.True(await db.DbDisabledEpisode.AnyAsync(e => e.SeasonId == seasonId && e.EpisodeId == episodeIds[0]));
         }
-        var disabledSegments = await Plugin.GetSegmentsUnlessExcludedAsync(episodeIds[0]);
+        var disabledSegments = await Plugin.GetSegmentsForOutputAsync(episodeIds[0]);
         var retainedSegment = Assert.Single(disabledSegments);
         Assert.True(retainedSegment.IsUserProvided);
-        Assert.Single(await Plugin.GetSegmentsUnlessExcludedAsync(episodeIds[1]));
+        Assert.Single(await Plugin.GetSegmentsForOutputAsync(episodeIds[1]));
 
         var disabled = await controller.GetDisabledEpisodes(seasonId, CancellationToken.None);
         var disabledIds = Assert.IsAssignableFrom<IReadOnlySet<Guid>>(Assert.IsType<OkObjectResult>(disabled.Result).Value);
@@ -159,7 +159,7 @@ public sealed class TestVisualizationController
             CancellationToken.None);
 
         Assert.IsType<NoContentResult>(enableResult);
-        var enabledSegments = await Plugin.GetSegmentsUnlessExcludedAsync(episodeIds[0]);
+        var enabledSegments = await Plugin.GetSegmentsForOutputAsync(episodeIds[0]);
         Assert.Equal(2, enabledSegments.Count);
         Assert.Equal(2, refresher.RefreshCallCount);
         Assert.Equal(0, refresher.RemoveCallCount);
