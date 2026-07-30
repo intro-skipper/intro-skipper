@@ -370,19 +370,13 @@ public sealed partial class IntroSkipperDatabase
         await InitializeAsync().ConfigureAwait(false);
         using var db = _contextFactory.CreateDbContext();
 
-        var segments = await OrderedItemSegments(db, itemId, includeSuppressed: false)
+        // The cross-set Any translates to a NOT EXISTS probe inside the segment
+        // query, so the disable policy costs no second roundtrip on the
+        // per-playback and provider read paths.
+        return await OrderedItemSegments(db, itemId, includeSuppressed: false)
+            .Where(s => s.Source == SegmentSource.User || !db.DisabledItems.Any(d => d.ItemId == itemId))
             .ToListAsync(cancellationToken)
             .ConfigureAwait(false);
-
-        // The disabled flag only matters when an automatic row exists, sparing the
-        // lookup for unanalyzed items on library-wide provider runs.
-        if (segments.Any(s => s.Source != SegmentSource.User)
-            && await db.DisabledItems.AsNoTracking().AnyAsync(e => e.ItemId == itemId, cancellationToken).ConfigureAwait(false))
-        {
-            segments.RemoveAll(s => s.Source != SegmentSource.User);
-        }
-
-        return segments;
     }
 
     /// <summary>

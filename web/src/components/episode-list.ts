@@ -193,11 +193,6 @@ export function episodeList(): {
             const nowDisabled = !toggle.checked;
             try {
                 await onDisabledChange?.(ep.Id, nowDisabled);
-                if (nowDisabled) {
-                    currentDisabledIds.add(ep.Id);
-                } else {
-                    currentDisabledIds.delete(ep.Id);
-                }
                 card.classList.toggle("ts-episode-disabled", nowDisabled);
             } catch {
                 toggle.checked = !toggle.checked;

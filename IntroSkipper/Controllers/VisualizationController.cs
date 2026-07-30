@@ -234,42 +234,42 @@ public partial class VisualizationController(ILogger<VisualizationController> lo
     /// Withholds the item's automatic segments from Jellyfin. Analysis and stored
     /// segments are unaffected; user-provided segments keep syncing.
     /// </summary>
-    /// <param name="seasonId">Season-state key that owns the item (a movie's own ID for movies).</param>
     /// <param name="itemId">Item ID.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>No content.</returns>
-    [HttpPut("DisabledItems/{SeasonId}/{ItemId}")]
+    [HttpPut("DisabledItems/{ItemId}")]
     [ProducesResponseType(StatusCodes.Status204NoContent)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
-    public Task<ActionResult> DisableItem([FromRoute] Guid seasonId, [FromRoute] Guid itemId, CancellationToken cancellationToken = default)
+    public Task<ActionResult> DisableItem([FromRoute] Guid itemId, CancellationToken cancellationToken = default)
     {
-        return SetItemDisabledAsync(seasonId, itemId, disabled: true, cancellationToken);
+        return SetItemDisabledAsync(itemId, disabled: true, cancellationToken);
     }
 
     /// <summary>
     /// Restores the item's automatic segments to Jellyfin without re-analysis.
     /// </summary>
-    /// <param name="seasonId">Season-state key that owns the item (a movie's own ID for movies).</param>
     /// <param name="itemId">Item ID.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>No content.</returns>
-    [HttpDelete("DisabledItems/{SeasonId}/{ItemId}")]
+    [HttpDelete("DisabledItems/{ItemId}")]
     [ProducesResponseType(StatusCodes.Status204NoContent)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
-    public Task<ActionResult> EnableItem([FromRoute] Guid seasonId, [FromRoute] Guid itemId, CancellationToken cancellationToken = default)
+    public Task<ActionResult> EnableItem([FromRoute] Guid itemId, CancellationToken cancellationToken = default)
     {
-        return SetItemDisabledAsync(seasonId, itemId, disabled: false, cancellationToken);
+        return SetItemDisabledAsync(itemId, disabled: false, cancellationToken);
     }
 
-    private async Task<ActionResult> SetItemDisabledAsync(Guid seasonId, Guid itemId, bool disabled, CancellationToken cancellationToken)
+    private async Task<ActionResult> SetItemDisabledAsync(Guid itemId, bool disabled, CancellationToken cancellationToken)
     {
         var item = Plugin.Instance!.GetItem(itemId);
-        if (!MediaItemHelper.IsSupported(item) || SeasonStateKeyResolver.Resolve(item) != seasonId)
+        if (!MediaItemHelper.IsSupported(item))
         {
             return NotFound();
         }
 
-        await _database.SetItemDisabledAsync(seasonId, itemId, disabled, cancellationToken).ConfigureAwait(false);
+        // The row's season key is a server-side pruning detail; clients only name
+        // the item.
+        await _database.SetItemDisabledAsync(SeasonStateKeyResolver.Resolve(item), itemId, disabled, cancellationToken).ConfigureAwait(false);
 
         // Resync in both directions: disabling strips the automatic rows from the
         // mirror, enabling restores them from the untouched plugin rows.

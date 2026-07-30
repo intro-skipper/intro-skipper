@@ -15,7 +15,8 @@ internal static class MediaItemHelper
 {
     /// <summary>
     /// Determines whether the plugin manages segments for the item — episodes and
-    /// movies only. The single definition behind every controller's item-type 404 guard.
+    /// movies only. The single definition of this check: the controllers' item-type
+    /// 404 guards and the segment provider's Supports check all route here.
     /// </summary>
     /// <param name="item">The item to classify; <c>null</c> (an ID missing from the library) is unsupported.</param>
     /// <returns><c>true</c> when the item is an <see cref="Episode"/> or <see cref="Movie"/>.</returns>

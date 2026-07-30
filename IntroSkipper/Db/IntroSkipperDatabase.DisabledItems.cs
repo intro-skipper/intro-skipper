@@ -64,16 +64,4 @@ public sealed partial class IntroSkipperDatabase
 
         await db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
     }
-
-    /// <inheritdoc/>
-    public async Task<bool> IsItemDisabledAsync(Guid itemId, CancellationToken cancellationToken = default)
-    {
-        await InitializeAsync().ConfigureAwait(false);
-        using var db = _contextFactory.CreateDbContext();
-
-        return await db.DisabledItems
-            .AsNoTracking()
-            .AnyAsync(e => e.ItemId == itemId, cancellationToken)
-            .ConfigureAwait(false);
-    }
 }

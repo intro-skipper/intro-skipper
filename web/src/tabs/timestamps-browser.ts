@@ -297,7 +297,7 @@ export function createTimestampsBrowser(container: HTMLElement): { destroy: () =
 
             epList.render(episodes, segments, false, {
                 ids: disabledItemIds,
-                onChange: (itemId, disabled) => updateItemDisabled(season.Id, itemId, disabled),
+                onChange: updateItemDisabled,
             });
             await actions.loadForSeason(show.Id, season.Id, false);
         } catch (err) {
@@ -335,14 +335,14 @@ export function createTimestampsBrowser(container: HTMLElement): { destroy: () =
 
             const [result, disabledItemIds] = await Promise.all([
                 tsData.getMovieSegments(show.Id),
+                // A movie's season-state key is its own ID.
                 tsData.getDisabledItemIds(show.Id),
             ]);
             if (!nav$.isCurrentPanel(panelToken)) return;
 
-            // A movie's season-state key is its own ID.
             epList.render([movieEp], [result], true, {
                 ids: disabledItemIds,
-                onChange: (itemId, disabled) => updateItemDisabled(show.Id, itemId, disabled),
+                onChange: updateItemDisabled,
             });
             await actions.loadForSeason(show.Id, show.Id, true);
         } catch (err) {
@@ -360,12 +360,8 @@ export function createTimestampsBrowser(container: HTMLElement): { destroy: () =
         }
     }
 
-    async function updateItemDisabled(
-        seasonId: string,
-        itemId: string,
-        disabled: boolean,
-    ): Promise<void> {
-        const result = await tsData.setItemDisabled(seasonId, itemId, disabled);
+    async function updateItemDisabled(itemId: string, disabled: boolean): Promise<void> {
+        const result = await tsData.setItemDisabled(itemId, disabled);
         if (!result.ok) {
             // The toggle handler owns the user-facing message; this is only a signal.
             throw new Error("setItemDisabled failed");

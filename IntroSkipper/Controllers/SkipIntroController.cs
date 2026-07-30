@@ -89,9 +89,10 @@ public partial class SkipIntroController(
     /// Gets the timestamps for the provided episode.
     /// </summary>
     /// <remarks>
-    /// Deprecated: use the plural <c>Episode/{itemId}/Segments</c> API. Reports one
-    /// canonical segment per mode (the active segment with the earliest start); a
-    /// disabled item reports only its user-provided segments.
+    /// Deprecated: playback clients should use Jellyfin's native <c>MediaSegments</c>
+    /// API, which the plugin keeps in sync. Reports one canonical segment per mode
+    /// (the active segment with the earliest start); a disabled item reports only its
+    /// user-provided segments.
     /// </remarks>
     /// <param name="id">Episode ID.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
@@ -145,9 +146,10 @@ public partial class SkipIntroController(
     /// Gets a dictionary of all skippable segments.
     /// </summary>
     /// <remarks>
-    /// Deprecated: use the plural <c>Episode/{itemId}/Segments</c> API. Reports one
-    /// canonical segment per mode (the active segment with the earliest start); a
-    /// disabled item reports only its user-provided segments.
+    /// Deprecated: playback clients should use Jellyfin's native <c>MediaSegments</c>
+    /// API, which the plugin keeps in sync. Reports one canonical segment per mode
+    /// (the active segment with the earliest start); a disabled item reports only its
+    /// user-provided segments.
     /// </remarks>
     /// <param name="id">Media ID.</param>
     /// <param name="cancellationToken">Cancellation token.</param>

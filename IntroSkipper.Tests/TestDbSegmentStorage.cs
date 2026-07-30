@@ -424,32 +424,6 @@ public sealed class TestDbSegmentStorage
         }
     }
 
-    [Fact]
-    public void DisabledItems_ItemIdPrimaryKey_RejectsSecondRowForSameItem()
-    {
-        using var connection = new SqliteConnection("Data Source=:memory:");
-        var options = CreateInMemoryOptions(connection);
-
-        var itemId = Guid.NewGuid();
-
-        using (var db = new IntroSkipperDbContext(options))
-        {
-            db.Database.EnsureCreated();
-
-            db.DisabledItems.Add(new DbDisabledItem(Guid.NewGuid(), itemId));
-            db.SaveChanges();
-        }
-
-        using (var db = new IntroSkipperDbContext(options))
-        {
-            // One flag per item: a drifted season key is rewritten in place by the
-            // facade, never accumulated as a second row.
-            db.DisabledItems.Add(new DbDisabledItem(Guid.NewGuid(), itemId));
-
-            Assert.Throws<DbUpdateException>(() => db.SaveChanges());
-        }
-    }
-
     /// <summary>
     /// Opens the shared in-memory connection (the database lives while it stays open;
     /// the caller owns disposal) and builds context options over it.

@@ -340,15 +340,6 @@ public interface IIntroSkipperDatabase
     Task SetItemDisabledAsync(Guid seasonId, Guid itemId, bool disabled, CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// Returns whether an item's automatic segments are withheld from Jellyfin,
-    /// regardless of which season key owns the flag.
-    /// </summary>
-    /// <param name="itemId">Item ID.</param>
-    /// <param name="cancellationToken">Cancellation token.</param>
-    /// <returns><c>true</c> when the item is disabled.</returns>
-    Task<bool> IsItemDisabledAsync(Guid itemId, CancellationToken cancellationToken = default);
-
-    /// <summary>
     /// Rebuilds the database while attempting to preserve valid segments, season state,
     /// disabled items and the legacy-import marker. The rebuild never re-runs the legacy import.
     /// </summary>

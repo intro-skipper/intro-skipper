@@ -234,11 +234,11 @@ public sealed class TestVisualizationController
         var database = DatabaseTestHelpers.CreateSegmentDatabase(dbPath);
         var controller = CreateController(refresher, loggerFactory, database, pluginScope.CacheDbPath);
 
-        var putResult = await controller.DisableItem(seasonId, episodeIds[0], CancellationToken.None);
+        var putResult = await controller.DisableItem(episodeIds[0], CancellationToken.None);
 
         Assert.IsType<NoContentResult>(putResult);
         Assert.Equal([episodeIds[0]], refresher.LastItemIds);
-        Assert.True(await database.IsItemDisabledAsync(episodeIds[0]));
+        Assert.Equal([episodeIds[0]], await database.GetDisabledItemIdsAsync(seasonId));
 
         var getResult = await controller.GetDisabledItems(seasonId, CancellationToken.None);
 
@@ -246,17 +246,17 @@ public sealed class TestVisualizationController
         var ids = Assert.IsAssignableFrom<IReadOnlySet<Guid>>(ok.Value);
         Assert.Equal([episodeIds[0]], ids);
 
-        var deleteResult = await controller.EnableItem(seasonId, episodeIds[0], CancellationToken.None);
+        var deleteResult = await controller.EnableItem(episodeIds[0], CancellationToken.None);
 
         Assert.IsType<NoContentResult>(deleteResult);
 
         // Both directions resync the item's mirror.
         Assert.Equal(2, refresher.CollectionCallCount);
-        Assert.False(await database.IsItemDisabledAsync(episodeIds[0]));
+        Assert.Empty(await database.GetDisabledItemIdsAsync(seasonId));
     }
 
     [Fact]
-    public async Task DisabledItems_RejectSeasonMismatchAndUnknownItem()
+    public async Task DisabledItems_RejectUnknownItem()
     {
         var seriesId = Guid.NewGuid();
         var seasonId = Guid.NewGuid();
@@ -272,13 +272,11 @@ public sealed class TestVisualizationController
         var database = DatabaseTestHelpers.CreateSegmentDatabase(dbPath);
         var controller = CreateController(refresher, loggerFactory, database, pluginScope.CacheDbPath);
 
-        var mismatch = await controller.DisableItem(Guid.NewGuid(), episodeIds[0], CancellationToken.None);
-        var unknown = await controller.DisableItem(seasonId, Guid.NewGuid(), CancellationToken.None);
+        var unknown = await controller.DisableItem(Guid.NewGuid(), CancellationToken.None);
 
-        Assert.IsType<NotFoundResult>(mismatch);
         Assert.IsType<NotFoundResult>(unknown);
         Assert.Equal(0, refresher.CollectionCallCount);
-        Assert.False(await database.IsItemDisabledAsync(episodeIds[0]));
+        Assert.Empty(await database.GetDisabledItemIdsAsync(seasonId));
     }
 
     [Fact]
@@ -298,14 +296,13 @@ public sealed class TestVisualizationController
         var database = DatabaseTestHelpers.CreateSegmentDatabase(dbPath);
         var controller = CreateController(refresher, loggerFactory, database, pluginScope.CacheDbPath);
 
-        var result = await controller.DisableItem(movieId, movieId, CancellationToken.None);
+        var result = await controller.DisableItem(movieId, CancellationToken.None);
 
         Assert.IsType<NoContentResult>(result);
-        Assert.True(await database.IsItemDisabledAsync(movieId));
 
-        var mismatch = await controller.DisableItem(Guid.NewGuid(), movieId, CancellationToken.None);
-
-        Assert.IsType<NotFoundResult>(mismatch);
+        // The server records the movie's own ID as its season key, which is what
+        // the dashboard's movie view lists by.
+        Assert.Equal([movieId], await database.GetDisabledItemIdsAsync(movieId));
     }
 
     private static Episode CreateEpisodeItem(Guid episodeId, Guid seasonId)
