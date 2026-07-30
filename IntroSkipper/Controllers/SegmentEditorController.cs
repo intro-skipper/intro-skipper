@@ -95,7 +95,7 @@ public class SegmentEditorController(MediaSegmentEditorService mediaSegmentEdito
     /// <returns>
     /// HTTP 200 on success, 400 when the requested type does not match the Jellyfin segment,
     /// or 404 when the commercial segment is not found. A segment id owned by a different item
-    /// leaves Jellyfin untouched while the item's own plugin row is still removed.
+    /// is rejected without mutating either item.
     /// </returns>
     [HttpDelete("{segmentId}")]
     [ProducesResponseType(StatusCodes.Status200OK)]
@@ -107,7 +107,7 @@ public class SegmentEditorController(MediaSegmentEditorService mediaSegmentEdito
         [FromQuery, Required] string type,
         CancellationToken cancellationToken = default)
     {
-        AnalysisMode requestedMode = type.ToLowerInvariant() switch
+        AnalysisMode mode = type.ToLowerInvariant() switch
         {
             "intro" => AnalysisMode.Introduction,
             "recap" => AnalysisMode.Recap,
@@ -118,12 +118,15 @@ public class SegmentEditorController(MediaSegmentEditorService mediaSegmentEdito
         };
 
         var existingSegment = await _mediaSegmentEditorService
-            .GetSegmentAsync(itemId, segmentId, cancellationToken)
+            .GetSegmentByIdAsync(segmentId, cancellationToken)
             .ConfigureAwait(false);
+        if (existingSegment is not null && existingSegment.ItemId != itemId)
+        {
+            return BadRequest($"Segment '{segmentId}' does not belong to item '{itemId}'.");
+        }
 
-        var mode = requestedMode;
         if (existingSegment is not null
-            && existingSegment.Type != AnalysisHelpers.ModeToSegmentType[requestedMode])
+            && existingSegment.Type != AnalysisHelpers.ModeToSegmentType[mode])
         {
             return BadRequest($"Segment '{segmentId}' is {existingSegment.Type}, not requested type '{type}'.");
         }
