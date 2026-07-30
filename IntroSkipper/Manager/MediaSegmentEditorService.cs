@@ -70,22 +70,6 @@ public class MediaSegmentEditorService(IJellyfinSegmentStore segmentStore)
     }
 
     /// <summary>
-    /// Retrieves a segment from Jellyfin by id.
-    /// </summary>
-    /// <param name="itemId">The item id that owns the segment.</param>
-    /// <param name="segmentId">The segment id.</param>
-    /// <param name="cancellationToken">Cancellation token.</param>
-    /// <returns>The matching segment, or <c>null</c> if not found.</returns>
-    public async Task<MediaSegmentDto?> GetSegmentAsync(Guid itemId, Guid segmentId, CancellationToken cancellationToken)
-    {
-        var segment = await _segmentStore.GetSegmentAsync(itemId, segmentId, cancellationToken).ConfigureAwait(false);
-
-        cancellationToken.ThrowIfCancellationRequested();
-
-        return segment;
-    }
-
-    /// <summary>
     /// Retrieves a segment from Jellyfin by id without item scoping.
     /// </summary>
     /// <param name="segmentId">The segment id.</param>
