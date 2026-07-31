@@ -122,26 +122,48 @@ public sealed class TestDisabledItems
     }
 
     [Fact]
-    public async Task CleanSeasonStateAsync_PrunesDisabledItemsOfDroppedSeasons()
+    public async Task CleanDisabledItemsAsync_PrunesByItemId_NotByStoredSeasonKey()
     {
         var database = DatabaseTestHelpers.CreateTempSegmentDatabase();
-        var retainedSeasonId = Guid.NewGuid();
         var retainedItemId = Guid.NewGuid();
         var movieId = Guid.NewGuid();
-        var droppedSeasonId = Guid.NewGuid();
-        var droppedItemId = Guid.NewGuid();
+        var removedItemId = Guid.NewGuid();
+        var removedSeasonId = Guid.NewGuid();
+        var staleSeasonId = Guid.NewGuid();
 
-        await database.SetItemDisabledAsync(retainedSeasonId, retainedItemId, disabled: true);
+        // The retained item was disabled under a season key that has since
+        // drifted (e.g. an in-season special regrouped): the stored key no
+        // longer exists, but the item does, so the flag must survive cleanup.
+        await database.SetItemDisabledAsync(staleSeasonId, retainedItemId, disabled: true);
 
-        // A movie is queued under its own id, so its id is a retained season key.
+        // A movie is queued under its own id.
         await database.SetItemDisabledAsync(movieId, movieId, disabled: true);
-        await database.SetItemDisabledAsync(droppedSeasonId, droppedItemId, disabled: true);
+        await database.SetItemDisabledAsync(removedSeasonId, removedItemId, disabled: true);
 
-        await database.CleanSeasonStateAsync([retainedSeasonId, movieId]);
+        await database.CleanDisabledItemsAsync([retainedItemId, movieId]);
 
-        Assert.Equal([retainedItemId], await database.GetDisabledItemIdsAsync(retainedSeasonId));
+        Assert.Equal([retainedItemId], await database.GetDisabledItemIdsAsync(staleSeasonId));
         Assert.Equal([movieId], await database.GetDisabledItemIdsAsync(movieId));
-        Assert.Empty(await database.GetDisabledItemIdsAsync(droppedSeasonId));
+        Assert.Empty(await database.GetDisabledItemIdsAsync(removedSeasonId));
+    }
+
+    [Fact]
+    public async Task CleanDisabledItemsAsync_SurvivingFlagKeepsWithholdingSegments()
+    {
+        var database = DatabaseTestHelpers.CreateTempSegmentDatabase();
+        var itemId = Guid.NewGuid();
+        var staleSeasonId = Guid.NewGuid();
+
+        var intro = new Segment(itemId, new TimeRange(0, 30));
+        await database.ReplaceAutoSegmentsAsync(itemId, AnalysisMode.Introduction, [intro], SegmentSource.Chromaprint);
+        await database.SetItemDisabledAsync(staleSeasonId, itemId, disabled: true);
+
+        // The reviewer's drift repro: the item moved to a retained season key
+        // while its disable row still carries the dropped key. Cleanup must not
+        // resurrect the automatic segments.
+        await database.CleanDisabledItemsAsync([itemId]);
+
+        Assert.Empty(await database.GetServableSegmentsAsync(itemId));
     }
 
     [Fact]

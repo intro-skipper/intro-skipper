@@ -240,6 +240,7 @@ public partial class VisualizationController(ILogger<VisualizationController> lo
     [HttpPut("DisabledItems/{ItemId}")]
     [ProducesResponseType(StatusCodes.Status204NoContent)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
+    [ProducesResponseType(StatusCodes.Status500InternalServerError)]
     public Task<ActionResult> DisableItem([FromRoute] Guid itemId, CancellationToken cancellationToken = default)
     {
         return SetItemDisabledAsync(itemId, disabled: true, cancellationToken);
@@ -254,6 +255,7 @@ public partial class VisualizationController(ILogger<VisualizationController> lo
     [HttpDelete("DisabledItems/{ItemId}")]
     [ProducesResponseType(StatusCodes.Status204NoContent)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
+    [ProducesResponseType(StatusCodes.Status500InternalServerError)]
     public Task<ActionResult> EnableItem([FromRoute] Guid itemId, CancellationToken cancellationToken = default)
     {
         return SetItemDisabledAsync(itemId, disabled: false, cancellationToken);
@@ -269,11 +271,32 @@ public partial class VisualizationController(ILogger<VisualizationController> lo
 
         // The row's season key is a server-side pruning detail; clients only name
         // the item.
-        await _database.SetItemDisabledAsync(SeasonStateKeyResolver.Resolve(item), itemId, disabled, cancellationToken).ConfigureAwait(false);
+        var seasonKey = SeasonStateKeyResolver.Resolve(item);
+        var previous = await _database.SetItemDisabledAsync(seasonKey, itemId, disabled, cancellationToken).ConfigureAwait(false);
 
-        // Resync in both directions: disabling strips the automatic rows from the
-        // mirror, enabling restores them from the untouched plugin rows.
-        await _mediaSegmentRefresher.RefreshAsync([itemId], cancellationToken).ConfigureAwait(false);
+        try
+        {
+            // Resync in both directions: disabling strips the automatic rows from the
+            // mirror, enabling restores them from the untouched plugin rows. Strict:
+            // this interactive mutation must not report success while Jellyfin may
+            // still serve the old rows.
+            await _mediaSegmentRefresher.RefreshStrictAsync(item, cancellationToken).ConfigureAwait(false);
+        }
+        catch (Exception ex)
+        {
+            // The mirror kept its old rows, so restore the stored flag; otherwise the
+            // preference would silently disagree with what Jellyfin serves. Not bound
+            // to request cancellation: the rollback must complete once started.
+            await _database.SetItemDisabledAsync(seasonKey, itemId, previous, CancellationToken.None).ConfigureAwait(false);
+
+            if (ex is OperationCanceledException)
+            {
+                throw;
+            }
+
+            LogFailedToSetItemDisabled(_logger, ex, itemId, disabled);
+            return Problem("The media segment mirror could not be refreshed; the change was rolled back.", statusCode: StatusCodes.Status500InternalServerError);
+        }
 
         return NoContent();
     }
@@ -386,4 +409,7 @@ public partial class VisualizationController(ILogger<VisualizationController> lo
 
     [LoggerMessage(Level = LogLevel.Error, Message = "Error during manual season rescan for {SeasonId}")]
     private static partial void LogRescanError(ILogger logger, Exception ex, Guid seasonId);
+
+    [LoggerMessage(Level = LogLevel.Error, Message = "Failed to refresh media segments while setting item {ItemId} disabled={Disabled}; the flag was rolled back")]
+    private static partial void LogFailedToSetItemDisabled(ILogger logger, Exception ex, Guid itemId, bool disabled);
 }

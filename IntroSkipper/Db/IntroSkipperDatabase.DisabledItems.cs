@@ -26,7 +26,7 @@ public sealed partial class IntroSkipperDatabase
     }
 
     /// <inheritdoc/>
-    public async Task SetItemDisabledAsync(Guid seasonId, Guid itemId, bool disabled, CancellationToken cancellationToken = default)
+    public async Task<bool> SetItemDisabledAsync(Guid seasonId, Guid itemId, bool disabled, CancellationToken cancellationToken = default)
     {
         await InitializeAsync().ConfigureAwait(false);
         using var db = _contextFactory.CreateDbContext();
@@ -34,6 +34,7 @@ public sealed partial class IntroSkipperDatabase
         var existing = await db.DisabledItems
             .FindAsync([itemId], cancellationToken)
             .ConfigureAwait(false);
+        var previous = existing is not null;
 
         if (disabled)
         {
@@ -43,7 +44,7 @@ public sealed partial class IntroSkipperDatabase
             }
             else if (existing.SeasonId == seasonId)
             {
-                return;
+                return previous;
             }
             else
             {
@@ -56,12 +57,13 @@ public sealed partial class IntroSkipperDatabase
         {
             if (existing is null)
             {
-                return;
+                return previous;
             }
 
             db.DisabledItems.Remove(existing);
         }
 
         await db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+        return previous;
     }
 }

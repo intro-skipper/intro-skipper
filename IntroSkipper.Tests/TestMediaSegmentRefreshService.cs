@@ -180,6 +180,24 @@ public sealed class TestMediaSegmentRefreshService
     }
 
     [Fact]
+    public async Task RefreshStrictAsync_PropagatesStoreFailure()
+    {
+        var itemId = Guid.NewGuid();
+        var store = new FakeJellyfinSegmentStore
+        {
+            WriteException = new InvalidOperationException("boom")
+        };
+        var refresher = CreateRefresher(store);
+
+        // Unlike RefreshAsync's log-and-continue, the strict path must surface the
+        // failure so interactive callers can roll back and report an error.
+        await Assert.ThrowsAsync<InvalidOperationException>(
+            () => refresher.RefreshStrictAsync(CreateMovie(itemId), CancellationToken.None));
+
+        Assert.Equal(1, store.WriteCallCount);
+    }
+
+    [Fact]
     public async Task RefreshAsync_RethrowsCriticalException()
     {
         var store = new FakeJellyfinSegmentStore

@@ -308,12 +308,23 @@ public interface IIntroSkipperDatabase
     Task<SeasonQueueSnapshot> GetSeasonQueueSnapshotAsync(Guid seasonId, IReadOnlyCollection<Guid> episodeIds, CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// Removes season-state and disabled-item rows whose seasons no longer exist.
+    /// Removes season-state rows whose seasons no longer exist.
     /// </summary>
     /// <param name="seasonIds">Season IDs that still exist.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>A <see cref="Task"/> representing the asynchronous operation.</returns>
     Task CleanSeasonStateAsync(IEnumerable<Guid> seasonIds, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Removes disabled-item rows whose items no longer exist in enabled libraries.
+    /// Rows are pruned by item ID — never by their stored season key, which is
+    /// mutable metadata that can go stale when an item moves season keys — so the
+    /// flag survives key drift and disappears only when the item does.
+    /// </summary>
+    /// <param name="retainedItemIds">Item IDs that still exist.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>A <see cref="Task"/> representing the asynchronous operation.</returns>
+    Task CleanDisabledItemsAsync(IReadOnlyCollection<Guid> retainedItemIds, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Returns the IDs of the season's items whose automatic segments are withheld
@@ -336,8 +347,8 @@ public interface IIntroSkipperDatabase
     /// <param name="itemId">Item ID.</param>
     /// <param name="disabled">Whether to withhold the item's automatic segments.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
-    /// <returns>A <see cref="Task"/> representing the asynchronous operation.</returns>
-    Task SetItemDisabledAsync(Guid seasonId, Guid itemId, bool disabled, CancellationToken cancellationToken = default);
+    /// <returns>Whether the item was disabled before this write, so callers can roll back.</returns>
+    Task<bool> SetItemDisabledAsync(Guid seasonId, Guid itemId, bool disabled, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Rebuilds the database while attempting to preserve valid segments, season state,

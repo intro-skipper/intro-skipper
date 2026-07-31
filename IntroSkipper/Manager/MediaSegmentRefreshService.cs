@@ -37,6 +37,22 @@ public sealed partial class MediaSegmentRefreshService(
     }
 
     /// <inheritdoc />
+    public async Task RefreshStrictAsync(BaseItem item, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(item);
+
+        if (!MediaSegmentMirrorPolicy.Enabled)
+        {
+            return;
+        }
+
+        // Deliberately no catch: interactive callers own the failure and must not
+        // report success when the mirror kept its old rows.
+        await mirror.SyncItemAsync(item.Id, cancellationToken).ConfigureAwait(false);
+        LogUpdatedMediaSegments(logger, item.Id);
+    }
+
+    /// <inheritdoc />
     public async Task RefreshAsync(IEnumerable<Guid> itemIds, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(itemIds);

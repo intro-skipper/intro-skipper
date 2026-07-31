@@ -25,7 +25,7 @@ export async function getEpisodesWithSegments(
 ): Promise<{
     episodes: EpisodeItem[];
     segments: Array<ApiResult<SegmentDto[]> | null>;
-    disabledItemIds: string[];
+    disabledItemIds: string[] | null;
 }> {
     const episodes = await jellyfinClient.getEpisodes(showId, seasonId);
 
@@ -47,11 +47,11 @@ export function getMovieSegments(showId: string): Promise<ApiResult<SegmentDto[]
     return api.getEpisodeSegments(showId);
 }
 
-// Fails soft: a failed fetch renders every toggle as enabled instead of
-// blocking the episode list.
-export async function getDisabledItemIds(seasonId: string): Promise<string[]> {
+// Distinguishes loaded-empty from state-unknown: a failed fetch returns null so
+// callers hide the toggles instead of rendering every item as enabled.
+export async function getDisabledItemIds(seasonId: string): Promise<string[] | null> {
     const result = await api.getDisabledItems(seasonId);
-    return result.ok && result.data ? result.data : [];
+    return result.ok && result.data ? result.data : null;
 }
 
 export function setItemDisabled(itemId: string, disabled: boolean): Promise<ApiResult<null>> {

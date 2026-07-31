@@ -664,6 +664,12 @@ a {
     outline-offset: 1px;
 }
 
+/* The toggle owns the single auto margin when both are present; Edit then
+   follows at a fixed gap instead of splitting the free space with it. */
+.ts-episode-disable-toggle ~ .ts-edit-btn {
+    margin-left: 8px;
+}
+
 /* Pill switch controlling whether an item's automatic segments reach Jellyfin.
    Checked means enabled; the switch sits right-aligned before the Edit button. */
 .ts-episode-disable-toggle {

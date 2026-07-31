@@ -295,10 +295,22 @@ export function createTimestampsBrowser(container: HTMLElement): { destroy: () =
                 return;
             }
 
-            epList.render(episodes, segments, false, {
-                ids: disabledItemIds,
-                onChange: updateItemDisabled,
-            });
+            epList.render(
+                episodes,
+                segments,
+                false,
+                disabledItemIds === null
+                    ? undefined
+                    : { ids: disabledItemIds, onChange: updateItemDisabled },
+            );
+            if (disabledItemIds === null) {
+                // State unknown: the toggles are hidden rather than rendered as a
+                // fabricated all-enabled state.
+                epList.setStatus(
+                    "Failed to load media-segment settings; the enable/disable toggles are hidden.",
+                    "var(--is-error)",
+                );
+            }
             await actions.loadForSeason(show.Id, season.Id, false);
         } catch (err) {
             if (!nav$.isCurrentPanel(panelToken)) return;
@@ -340,10 +352,20 @@ export function createTimestampsBrowser(container: HTMLElement): { destroy: () =
             ]);
             if (!nav$.isCurrentPanel(panelToken)) return;
 
-            epList.render([movieEp], [result], true, {
-                ids: disabledItemIds,
-                onChange: updateItemDisabled,
-            });
+            epList.render(
+                [movieEp],
+                [result],
+                true,
+                disabledItemIds === null
+                    ? undefined
+                    : { ids: disabledItemIds, onChange: updateItemDisabled },
+            );
+            if (disabledItemIds === null) {
+                epList.setStatus(
+                    "Failed to load media-segment settings; the enable/disable toggle is hidden.",
+                    "var(--is-error)",
+                );
+            }
             await actions.loadForSeason(show.Id, show.Id, true);
         } catch (err) {
             if (!nav$.isCurrentPanel(panelToken)) return;

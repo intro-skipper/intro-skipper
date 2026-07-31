@@ -14,6 +14,7 @@ using IntroSkipper.Manager;
 using MediaBrowser.Controller.Entities;
 using MediaBrowser.Controller.Entities.Movies;
 using MediaBrowser.Controller.Entities.TV;
+using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
@@ -250,8 +251,9 @@ public sealed class TestVisualizationController
 
         Assert.IsType<NoContentResult>(deleteResult);
 
-        // Both directions resync the item's mirror.
-        Assert.Equal(2, refresher.CollectionCallCount);
+        // Both directions resync the item's mirror through the strict path.
+        Assert.Equal(2, refresher.StrictCallCount);
+        Assert.Equal(0, refresher.CollectionCallCount);
         Assert.Empty(await database.GetDisabledItemIdsAsync(seasonId));
     }
 
@@ -275,8 +277,66 @@ public sealed class TestVisualizationController
         var unknown = await controller.DisableItem(Guid.NewGuid(), CancellationToken.None);
 
         Assert.IsType<NotFoundResult>(unknown);
-        Assert.Equal(0, refresher.CollectionCallCount);
+        Assert.Equal(0, refresher.StrictCallCount);
         Assert.Empty(await database.GetDisabledItemIdsAsync(seasonId));
+    }
+
+    [Fact]
+    public async Task DisabledItems_RefreshFailureRollsBackDisable_AndReports500()
+    {
+        var seriesId = Guid.NewGuid();
+        var seasonId = Guid.NewGuid();
+        var episodeIds = new[] { Guid.NewGuid(), Guid.NewGuid() };
+        var dbPath = CreateTempDbPath();
+        using var pluginScope = CreatePluginScope(seriesId, seasonId, episodeIds, updateMediaSegments: true);
+        EntrypointTestHelpers.SetPrivateField(
+            Plugin.Instance!,
+            "_libraryManager",
+            EntrypointTestHelpers.CreateLibraryManager(CreateEpisodeItem(episodeIds[0], seasonId)));
+        var refresher = new RecordingMediaSegmentRefresher
+        {
+            StrictException = new InvalidOperationException("mirror write failed")
+        };
+        using var loggerFactory = LoggerFactory.Create(builder => { });
+        var database = DatabaseTestHelpers.CreateSegmentDatabase(dbPath);
+        var controller = CreateController(refresher, loggerFactory, database, pluginScope.CacheDbPath);
+
+        var result = await controller.DisableItem(episodeIds[0], CancellationToken.None);
+
+        // The mirror kept its old rows, so the response must not be a success and
+        // the flag write must be rolled back.
+        var problem = Assert.IsType<ObjectResult>(result);
+        Assert.Equal(StatusCodes.Status500InternalServerError, problem.StatusCode);
+        Assert.Empty(await database.GetDisabledItemIdsAsync(seasonId));
+    }
+
+    [Fact]
+    public async Task DisabledItems_RefreshFailureRollsBackEnable_AndReports500()
+    {
+        var seriesId = Guid.NewGuid();
+        var seasonId = Guid.NewGuid();
+        var episodeIds = new[] { Guid.NewGuid(), Guid.NewGuid() };
+        var dbPath = CreateTempDbPath();
+        using var pluginScope = CreatePluginScope(seriesId, seasonId, episodeIds, updateMediaSegments: true);
+        EntrypointTestHelpers.SetPrivateField(
+            Plugin.Instance!,
+            "_libraryManager",
+            EntrypointTestHelpers.CreateLibraryManager(CreateEpisodeItem(episodeIds[0], seasonId)));
+        var refresher = new RecordingMediaSegmentRefresher
+        {
+            StrictException = new InvalidOperationException("mirror write failed")
+        };
+        using var loggerFactory = LoggerFactory.Create(builder => { });
+        var database = DatabaseTestHelpers.CreateSegmentDatabase(dbPath);
+        await database.SetItemDisabledAsync(seasonId, episodeIds[0], disabled: true);
+        var controller = CreateController(refresher, loggerFactory, database, pluginScope.CacheDbPath);
+
+        var result = await controller.EnableItem(episodeIds[0], CancellationToken.None);
+
+        // Jellyfin still withholds the rows, so the stored flag must stay disabled.
+        var problem = Assert.IsType<ObjectResult>(result);
+        Assert.Equal(StatusCodes.Status500InternalServerError, problem.StatusCode);
+        Assert.Equal([episodeIds[0]], await database.GetDisabledItemIdsAsync(seasonId));
     }
 
     [Fact]
@@ -395,7 +455,11 @@ public sealed class TestVisualizationController
     {
         public TaskCompletionSource? Completion { get; init; }
 
+        public Exception? StrictException { get; set; }
+
         public int CollectionCallCount { get; private set; }
+
+        public int StrictCallCount { get; private set; }
 
         public IReadOnlyList<Guid> LastItemIds { get; private set; } = [];
 
@@ -403,6 +467,15 @@ public sealed class TestVisualizationController
         {
             LastItemIds = [item.Id];
             return Completion?.Task ?? Task.CompletedTask;
+        }
+
+        public Task RefreshStrictAsync(BaseItem item, CancellationToken cancellationToken = default)
+        {
+            StrictCallCount++;
+            LastItemIds = [item.Id];
+            return StrictException is null
+                ? Completion?.Task ?? Task.CompletedTask
+                : Task.FromException(StrictException);
         }
 
         public Task RefreshAsync(IEnumerable<Guid> itemIds, CancellationToken cancellationToken = default)
