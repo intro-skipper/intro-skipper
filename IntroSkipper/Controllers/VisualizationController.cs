@@ -43,6 +43,16 @@ namespace IntroSkipper.Controllers;
 [Route("Intros")]
 public partial class VisualizationController(ILogger<VisualizationController> logger, IMediaSegmentRefresher mediaSegmentRefresher, ILibraryManager libraryManager, AnalyzerTaskFactory analyzerFactory, IIntroSkipperDatabase database, IDetectionCacheDatabase cacheDatabase) : ControllerBase
 {
+    // Disable-flag mutations must be linearizable per item: the flag write, the strict
+    // mirror sync, and any rollback form one unit. Without this, a concurrent request
+    // can observe a flag value that a failing request is about to roll back, and the
+    // unconditional rollback can clobber the later mutation. Static because controllers
+    // are per-request while the state they mutate is not. A separate pool from
+    // MediaSegmentMirror's stripes, so lock order is always mutation stripe -> mirror
+    // stripe and never the reverse. Stripe collisions merely serialize two unrelated
+    // items' mutations, which is harmless for these rare interactive calls.
+    private static readonly SemaphoreSlim[] _disableMutationStripes = CreateDisableMutationStripes();
+
     private readonly ILogger<VisualizationController> _logger = logger;
     private readonly IMediaSegmentRefresher _mediaSegmentRefresher = mediaSegmentRefresher;
     private readonly ILibraryManager _libraryManager = libraryManager;
@@ -272,33 +282,65 @@ public partial class VisualizationController(ILogger<VisualizationController> lo
         // The row's season key is a server-side pruning detail; clients only name
         // the item.
         var seasonKey = SeasonStateKeyResolver.Resolve(item);
-        var previous = await _database.SetItemDisabledAsync(seasonKey, itemId, disabled, cancellationToken).ConfigureAwait(false);
 
+        var stripe = _disableMutationStripes[DisableMutationStripeIndex(itemId)];
+        await stripe.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
-            // Resync in both directions: disabling strips the automatic rows from the
-            // mirror, enabling restores them from the untouched plugin rows. Strict:
-            // this interactive mutation must not report success while Jellyfin may
-            // still serve the old rows.
-            await _mediaSegmentRefresher.RefreshStrictAsync(item, cancellationToken).ConfigureAwait(false);
-        }
-        catch (Exception ex)
-        {
-            // The mirror kept its old rows, so restore the stored flag; otherwise the
-            // preference would silently disagree with what Jellyfin serves. Not bound
-            // to request cancellation: the rollback must complete once started.
-            await _database.SetItemDisabledAsync(seasonKey, itemId, previous, CancellationToken.None).ConfigureAwait(false);
+            var previous = await _database.SetItemDisabledAsync(seasonKey, itemId, disabled, cancellationToken).ConfigureAwait(false);
 
-            if (ex is OperationCanceledException)
+            try
             {
-                throw;
+                // Resync in both directions: disabling strips the automatic rows from the
+                // mirror, enabling restores them from the untouched plugin rows. Strict:
+                // this interactive mutation must not report success while Jellyfin may
+                // still serve the old rows.
+                await _mediaSegmentRefresher.RefreshStrictAsync(item, cancellationToken).ConfigureAwait(false);
             }
+            catch (Exception ex)
+            {
+                // The mirror kept its old rows, so restore the stored flag; otherwise the
+                // preference would silently disagree with what Jellyfin serves. Safe while
+                // the stripe is held: no other mutation for this item can have interleaved,
+                // so `previous` is still the value this request replaced. Not bound to
+                // request cancellation: the rollback must complete once started.
+                await _database.SetItemDisabledAsync(seasonKey, itemId, previous, CancellationToken.None).ConfigureAwait(false);
 
-            LogFailedToSetItemDisabled(_logger, ex, itemId, disabled);
-            return Problem("The media segment mirror could not be refreshed; the change was rolled back.", statusCode: StatusCodes.Status500InternalServerError);
+                if (ex is OperationCanceledException)
+                {
+                    throw;
+                }
+
+                LogFailedToSetItemDisabled(_logger, ex, itemId, disabled);
+                return Problem("The media segment mirror could not be refreshed; the change was rolled back.", statusCode: StatusCodes.Status500InternalServerError);
+            }
+        }
+        finally
+        {
+            stripe.Release();
         }
 
         return NoContent();
+    }
+
+    /// <summary>
+    /// Maps an item id to its disable-mutation lock stripe. Internal so concurrency
+    /// tests can pick ids deterministically instead of flaking on hash luck.
+    /// </summary>
+    /// <param name="itemId">Item id.</param>
+    /// <returns>The stripe index.</returns>
+    internal static int DisableMutationStripeIndex(Guid itemId) => (int)((uint)itemId.GetHashCode() & (_disableMutationStripes.Length - 1));
+
+    private static SemaphoreSlim[] CreateDisableMutationStripes()
+    {
+        const int StripeCount = 32; // power of two so the index is a mask
+        var stripes = new SemaphoreSlim[StripeCount];
+        for (var i = 0; i < stripes.Length; i++)
+        {
+            stripes[i] = new SemaphoreSlim(1, 1);
+        }
+
+        return stripes;
     }
 
     private async Task<IReadOnlyList<QueuedEpisode>> GetExcludedInventoryAsync(Plugin plugin, CancellationToken cancellationToken)

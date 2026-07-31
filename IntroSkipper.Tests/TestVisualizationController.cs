@@ -340,6 +340,47 @@ public sealed class TestVisualizationController
     }
 
     [Fact]
+    public async Task DisabledItems_ConcurrentMutationSerializesBehindFailingRollback()
+    {
+        var seriesId = Guid.NewGuid();
+        var seasonId = Guid.NewGuid();
+        var episodeIds = new[] { Guid.NewGuid(), Guid.NewGuid() };
+        var dbPath = CreateTempDbPath();
+        using var pluginScope = CreatePluginScope(seriesId, seasonId, episodeIds, updateMediaSegments: true);
+        EntrypointTestHelpers.SetPrivateField(
+            Plugin.Instance!,
+            "_libraryManager",
+            EntrypointTestHelpers.CreateLibraryManager(CreateEpisodeItem(episodeIds[0], seasonId)));
+        var refresher = new GatedStrictRefresher();
+        using var loggerFactory = LoggerFactory.Create(builder => { });
+        var database = DatabaseTestHelpers.CreateSegmentDatabase(dbPath);
+        await database.InitializeAsync();
+        var controller = CreateController(refresher, loggerFactory, database, pluginScope.CacheDbPath);
+
+        // Request A writes the flag, then parks inside its strict refresh.
+        var requestA = controller.DisableItem(episodeIds[0], CancellationToken.None);
+        await refresher.FirstCallStarted.Task;
+
+        // Request B mutates the same item while A is in flight. It must serialize
+        // behind A's whole mutation instead of observing A's uncommitted flag: if it
+        // ran now it would see `previous == true` and no-op, and A's rollback would
+        // then silently clobber B's "successful" disable.
+        var requestB = controller.DisableItem(episodeIds[0], CancellationToken.None);
+        Assert.NotSame(requestB, await Task.WhenAny(requestB, Task.Delay(250)));
+
+        // A's refresh now fails; the rollback must complete before B proceeds.
+        refresher.FailFirstCall.SetResult();
+
+        var problem = Assert.IsType<ObjectResult>(await requestA);
+        Assert.Equal(StatusCodes.Status500InternalServerError, problem.StatusCode);
+        Assert.IsType<NoContentResult>(await requestB);
+
+        // B reported success after A's rollback, so the item must end up disabled.
+        Assert.Equal(2, refresher.StrictCallCount);
+        Assert.Equal([episodeIds[0]], await database.GetDisabledItemIdsAsync(seasonId));
+    }
+
+    [Fact]
     public async Task DisabledItems_MovieUsesItsOwnIdAsSeasonKey()
     {
         var movieId = Guid.NewGuid();
@@ -373,10 +414,10 @@ public sealed class TestVisualizationController
         return episode;
     }
 
-    private static VisualizationController CreateController(RecordingMediaSegmentRefresher refresher, ILoggerFactory loggerFactory, string dbPath, string cacheDbPath)
+    private static VisualizationController CreateController(IMediaSegmentRefresher refresher, ILoggerFactory loggerFactory, string dbPath, string cacheDbPath)
         => CreateController(refresher, loggerFactory, DatabaseTestHelpers.CreateSegmentDatabase(dbPath), cacheDbPath);
 
-    private static VisualizationController CreateController(RecordingMediaSegmentRefresher refresher, ILoggerFactory loggerFactory, IntroSkipperDatabase database, string cacheDbPath)
+    private static VisualizationController CreateController(IMediaSegmentRefresher refresher, ILoggerFactory loggerFactory, IntroSkipperDatabase database, string cacheDbPath)
     {
         return new VisualizationController(
             NullLogger<VisualizationController>.Instance,
@@ -449,6 +490,33 @@ public sealed class TestVisualizationController
         var tempDir = Path.Join(Path.GetTempPath(), "IntroSkipper.Tests", "visualization-controller");
         Directory.CreateDirectory(tempDir);
         return Path.Join(tempDir, Guid.NewGuid().ToString("N") + ".db");
+    }
+
+    private sealed class GatedStrictRefresher : IMediaSegmentRefresher
+    {
+        private int _strictCalls;
+
+        public TaskCompletionSource FirstCallStarted { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public TaskCompletionSource FailFirstCall { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public int StrictCallCount => Volatile.Read(ref _strictCalls);
+
+        public Task RefreshAsync(BaseItem item, CancellationToken cancellationToken = default) => Task.CompletedTask;
+
+        public async Task RefreshStrictAsync(BaseItem item, CancellationToken cancellationToken = default)
+        {
+            if (Interlocked.Increment(ref _strictCalls) == 1)
+            {
+                FirstCallStarted.SetResult();
+                await FailFirstCall.Task.ConfigureAwait(false);
+                throw new InvalidOperationException("mirror write failed");
+            }
+        }
+
+        public Task RefreshAsync(IEnumerable<Guid> itemIds, CancellationToken cancellationToken = default) => Task.CompletedTask;
+
+        public Task RemoveIntroSkipperSegmentsAsync(IEnumerable<Guid> itemIds, CancellationToken cancellationToken = default) => Task.CompletedTask;
     }
 
     private sealed class RecordingMediaSegmentRefresher : IMediaSegmentRefresher
