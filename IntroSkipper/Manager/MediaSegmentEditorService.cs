@@ -26,26 +26,25 @@ namespace IntroSkipper.Manager;
 /// Initializes a new instance of the <see cref="MediaSegmentEditorService"/> class.
 /// Must be registered as a singleton so the mutation stripes are shared by all requests.
 /// </remarks>
-/// <param name="segmentStore">Direct store for Jellyfin's media segments.</param>
-/// <param name="mirror">The shared locked mirror write path.</param>
+/// <param name="mirror">The shared locked mirror write path; the editor's only path to
+/// Jellyfin's media segments.</param>
 /// <param name="database">Segment database facade.</param>
 /// <param name="logger">Application logger.</param>
 public partial class MediaSegmentEditorService(
-    IJellyfinSegmentStore segmentStore,
     MediaSegmentMirror mirror,
     IIntroSkipperDatabase database,
     ILogger<MediaSegmentEditorService> logger)
 {
     // Serializes all editor mutations per item, above the mirror's stripes: a concurrent
-    // sync between another request's plugin write and its rollback would bake the
-    // rolled-back state into the mirror. Separate pool from MediaSegmentMirror's; lock
-    // order is always mutation stripe -> mirror stripe. Bulk refreshes take only mirror
-    // stripes, so they can delay, never deadlock, a mutation.
-    private const int StripeCount = 32; // power of two so the index is a mask
+    // editor mutation's sync between another request's plugin write and its rollback
+    // would bake the rolled-back state into the mirror. Separate pool from
+    // MediaSegmentMirror's; lock order is always mutation stripe -> mirror stripe.
+    // Non-editor syncs (bulk refreshes, the legacy Timestamps shim) take only mirror
+    // stripes, so they can delay, never deadlock, a mutation. One of them can still
+    // interleave between a write and its rollback and briefly publish the pre-rollback
+    // state; the next sync converges it.
+    private readonly StripedAsyncLock _mutationLock = new();
 
-    private readonly SemaphoreSlim[] _mutationStripes = CreateStripes();
-
-    private readonly IJellyfinSegmentStore _segmentStore = segmentStore;
     private readonly MediaSegmentMirror _mirror = mirror;
     private readonly IIntroSkipperDatabase _database = database;
     private readonly ILogger<MediaSegmentEditorService> _logger = logger;
@@ -62,18 +61,10 @@ public partial class MediaSegmentEditorService(
     /// <returns>The stored row.</returns>
     public async Task<DbSegment> CreateUserSegmentAsync(Guid itemId, AnalysisMode mode, long startTicks, long endTicks, CancellationToken cancellationToken)
     {
-        var stripe = _mutationStripes[StripeIndex(itemId)];
-        await stripe.WaitAsync(cancellationToken).ConfigureAwait(false);
-        try
-        {
-            var row = await _database.AddUserSegmentAsync(itemId, mode, startTicks, endTicks, cancellationToken).ConfigureAwait(false);
-            await _mirror.SyncItemAsync(itemId, cancellationToken).ConfigureAwait(false);
-            return row;
-        }
-        finally
-        {
-            stripe.Release();
-        }
+        using var stripe = await _mutationLock.AcquireAsync(itemId, cancellationToken).ConfigureAwait(false);
+        var row = await _database.AddUserSegmentAsync(itemId, mode, startTicks, endTicks, cancellationToken).ConfigureAwait(false);
+        await _mirror.SyncItemAsync(itemId, cancellationToken).ConfigureAwait(false);
+        return row;
     }
 
     /// <summary>
@@ -90,23 +81,15 @@ public partial class MediaSegmentEditorService(
     /// suppressed (nothing is touched then).</returns>
     public async Task<DbSegment?> UpdateSegmentAsync(Guid itemId, Guid segmentId, long startTicks, long endTicks, CancellationToken cancellationToken)
     {
-        var stripe = _mutationStripes[StripeIndex(itemId)];
-        await stripe.WaitAsync(cancellationToken).ConfigureAwait(false);
-        try
+        using var stripe = await _mutationLock.AcquireAsync(itemId, cancellationToken).ConfigureAwait(false);
+        var updated = await _database.UpdateSegmentAsync(itemId, segmentId, startTicks, endTicks, cancellationToken).ConfigureAwait(false);
+        if (updated is null)
         {
-            var updated = await _database.UpdateSegmentAsync(itemId, segmentId, startTicks, endTicks, cancellationToken).ConfigureAwait(false);
-            if (updated is null)
-            {
-                return null;
-            }
+            return null;
+        }
 
-            await _mirror.SyncItemAsync(itemId, cancellationToken).ConfigureAwait(false);
-            return updated;
-        }
-        finally
-        {
-            stripe.Release();
-        }
+        await _mirror.SyncItemAsync(itemId, cancellationToken).ConfigureAwait(false);
+        return updated;
     }
 
     /// <summary>
@@ -120,23 +103,15 @@ public partial class MediaSegmentEditorService(
     /// suppressed (nothing is touched then).</returns>
     public async Task<DbSegment?> RestoreSegmentAsync(Guid itemId, Guid segmentId, CancellationToken cancellationToken)
     {
-        var stripe = _mutationStripes[StripeIndex(itemId)];
-        await stripe.WaitAsync(cancellationToken).ConfigureAwait(false);
-        try
+        using var stripe = await _mutationLock.AcquireAsync(itemId, cancellationToken).ConfigureAwait(false);
+        var restored = await _database.RestoreSegmentAsync(itemId, segmentId, cancellationToken).ConfigureAwait(false);
+        if (restored is null)
         {
-            var restored = await _database.RestoreSegmentAsync(itemId, segmentId, cancellationToken).ConfigureAwait(false);
-            if (restored is null)
-            {
-                return null;
-            }
+            return null;
+        }
 
-            await _mirror.SyncItemAsync(itemId, cancellationToken).ConfigureAwait(false);
-            return restored;
-        }
-        finally
-        {
-            stripe.Release();
-        }
+        await _mirror.SyncItemAsync(itemId, cancellationToken).ConfigureAwait(false);
+        return restored;
     }
 
     /// <summary>
@@ -156,27 +131,19 @@ public partial class MediaSegmentEditorService(
         // The row's season key is a server-side pruning detail; callers only name the item.
         var seasonKey = SeasonStateKeyResolver.Resolve(item);
 
-        var stripe = _mutationStripes[StripeIndex(item.Id)];
-        await stripe.WaitAsync(cancellationToken).ConfigureAwait(false);
+        using var stripe = await _mutationLock.AcquireAsync(item.Id, cancellationToken).ConfigureAwait(false);
+        var previous = await _database.SetItemDisabledAsync(seasonKey, item.Id, disabled, cancellationToken).ConfigureAwait(false);
+
         try
         {
-            var previous = await _database.SetItemDisabledAsync(seasonKey, item.Id, disabled, cancellationToken).ConfigureAwait(false);
-
-            try
-            {
-                await _mirror.SyncItemAsync(item.Id, cancellationToken).ConfigureAwait(false);
-            }
-            catch
-            {
-                // The mirror kept its old rows, so restore the stored flag. The held
-                // stripe guarantees `previous` is still the value this request replaced.
-                await _database.SetItemDisabledAsync(seasonKey, item.Id, previous, CancellationToken.None).ConfigureAwait(false);
-                throw;
-            }
+            await _mirror.SyncItemAsync(item.Id, cancellationToken).ConfigureAwait(false);
         }
-        finally
+        catch
         {
-            stripe.Release();
+            // The mirror kept its old rows, so restore the stored flag. The held
+            // stripe guarantees `previous` is still the value this request replaced.
+            await _database.SetItemDisabledAsync(seasonKey, item.Id, previous, CancellationToken.None).ConfigureAwait(false);
+            throw;
         }
     }
 
@@ -193,25 +160,17 @@ public partial class MediaSegmentEditorService(
     /// the item or already suppressed (nothing is touched then).</returns>
     public async Task<DbSegment?> DeleteSegmentAsync(Guid itemId, Guid segmentId, CancellationToken cancellationToken)
     {
-        var stripe = _mutationStripes[StripeIndex(itemId)];
-        await stripe.WaitAsync(cancellationToken).ConfigureAwait(false);
-        try
+        using var stripe = await _mutationLock.AcquireAsync(itemId, cancellationToken).ConfigureAwait(false);
+        var deleted = await _database.DeleteSegmentAsync(itemId, segmentId, cancellationToken).ConfigureAwait(false);
+        if (deleted is null)
         {
-            var deleted = await _database.DeleteSegmentAsync(itemId, segmentId, cancellationToken).ConfigureAwait(false);
-            if (deleted is null)
-            {
-                // Unknown on the item, or vanished/suppressed concurrently; whoever
-                // removed it owned the cascade.
-                return null;
-            }
+            // Unknown on the item, or vanished/suppressed concurrently; whoever
+            // removed it owned the cascade.
+            return null;
+        }
 
-            await DeleteMirrorRowAndResetStateAsync(itemId, deleted.Type, segmentId, deleted, cancellationToken).ConfigureAwait(false);
-            return deleted;
-        }
-        finally
-        {
-            stripe.Release();
-        }
+        await DeleteMirrorRowAndResetStateAsync(itemId, deleted.Type, segmentId, deleted, cancellationToken).ConfigureAwait(false);
+        return deleted;
     }
 
     /// <summary>
@@ -228,72 +187,43 @@ public partial class MediaSegmentEditorService(
     {
         ArgumentNullException.ThrowIfNull(jellyfinSegment);
 
-        var stripe = _mutationStripes[StripeIndex(itemId)];
-        await stripe.WaitAsync(cancellationToken).ConfigureAwait(false);
-        try
-        {
-            var itemRows = await _database.GetSegmentsAsync(itemId, cancellationToken: cancellationToken).ConfigureAwait(false);
-            var match = itemRows.FirstOrDefault(s => s.Type == mode
-                && s.StartTicks == jellyfinSegment.StartTicks
-                && s.EndTicks == jellyfinSegment.EndTicks);
+        using var stripe = await _mutationLock.AcquireAsync(itemId, cancellationToken).ConfigureAwait(false);
+        var itemRows = await _database.GetSegmentsAsync(itemId, cancellationToken: cancellationToken).ConfigureAwait(false);
+        var match = itemRows.FirstOrDefault(s => s.Type == mode
+            && s.StartTicks == jellyfinSegment.StartTicks
+            && s.EndTicks == jellyfinSegment.EndTicks);
 
-            DbSegment? deleted = null;
-            if (match is not null)
+        DbSegment? deleted = null;
+        if (match is not null)
+        {
+            deleted = await _database.DeleteSegmentAsync(itemId, match.Id, cancellationToken).ConfigureAwait(false);
+            if (deleted is null)
             {
-                deleted = await _database.DeleteSegmentAsync(itemId, match.Id, cancellationToken).ConfigureAwait(false);
-                if (deleted is null)
-                {
-                    // Vanished or suppressed concurrently; whoever removed it owned the
-                    // cascade.
-                    return;
-                }
+                // Vanished or suppressed concurrently; whoever removed it owned the
+                // cascade.
+                return;
             }
+        }
 
-            await DeleteMirrorRowAndResetStateAsync(itemId, mode, jellyfinSegment.Id, deleted, cancellationToken).ConfigureAwait(false);
-        }
-        finally
-        {
-            stripe.Release();
-        }
+        await DeleteMirrorRowAndResetStateAsync(itemId, mode, jellyfinSegment.Id, deleted, cancellationToken).ConfigureAwait(false);
     }
 
     /// <summary>
-    /// Retrieves a segment from Jellyfin by id.
-    /// </summary>
-    /// <param name="itemId">The item id that owns the segment.</param>
-    /// <param name="segmentId">The segment id.</param>
-    /// <param name="cancellationToken">Cancellation token.</param>
-    /// <returns>The matching segment, or <c>null</c> if not found.</returns>
-    public Task<MediaSegmentDto?> GetSegmentAsync(Guid itemId, Guid segmentId, CancellationToken cancellationToken)
-        => _segmentStore.GetSegmentAsync(itemId, segmentId, cancellationToken);
-
-    /// <summary>
-    /// Maps an item id to its mutation lock stripe. Internal so concurrency tests can
-    /// pick ids on distinct (or identical) stripes deterministically.
-    /// </summary>
-    /// <param name="itemId">Item id.</param>
-    /// <returns>The stripe index.</returns>
-    internal static int StripeIndex(Guid itemId) => (int)((uint)itemId.GetHashCode() & (StripeCount - 1));
-
-    /// <summary>
-    /// Shared tail of both delete flows: targeted Jellyfin delete (rolling any plugin
-    /// delete back on failure; uncancelable once started) and the season-state reset.
-    /// A deleted plugin row with no Jellyfin row under the shared id signals drift (row
-    /// already gone, or the server stopped preserving provider-supplied ids), so the
-    /// item's mirror is re-synced with a warning.
+    /// Shared tail of both delete flows: targeted Jellyfin delete through the mirror
+    /// (rolling any plugin delete back on failure; uncancelable once started) and the
+    /// season-state reset. A deleted plugin row whose Jellyfin row is not found signals
+    /// drift (a concurrent refresh removed it first, or the server stopped preserving
+    /// provider-supplied ids), so the item's mirror is re-synced with a warning.
     /// </summary>
     private async Task DeleteMirrorRowAndResetStateAsync(Guid itemId, AnalysisMode resetMode, Guid jellyfinSegmentId, DbSegment? deletedPluginRow, CancellationToken cancellationToken)
     {
         try
         {
-            if (MediaSegmentMirrorPolicy.Enabled)
+            var outcome = await _mirror.DeleteSegmentAsync(itemId, jellyfinSegmentId, cancellationToken).ConfigureAwait(false);
+            if (deletedPluginRow is not null && outcome == MirrorDeleteOutcome.RowNotFound)
             {
-                var jellyfinRowsDeleted = await _segmentStore.DeleteSegmentAsync(itemId, jellyfinSegmentId, cancellationToken).ConfigureAwait(false);
-                if (deletedPluginRow is not null && jellyfinRowsDeleted == 0)
-                {
-                    LogJellyfinRowMissingOnDelete(_logger, jellyfinSegmentId, itemId);
-                    await _mirror.SyncItemAsync(itemId, cancellationToken).ConfigureAwait(false);
-                }
+                LogJellyfinRowMissingOnDelete(_logger, jellyfinSegmentId, itemId);
+                await _mirror.SyncItemAsync(itemId, cancellationToken).ConfigureAwait(false);
             }
         }
         catch
@@ -309,17 +239,6 @@ public partial class MediaSegmentEditorService(
         }
     }
 
-    private static SemaphoreSlim[] CreateStripes()
-    {
-        var stripes = new SemaphoreSlim[StripeCount];
-        for (var i = 0; i < stripes.Length; i++)
-        {
-            stripes[i] = new SemaphoreSlim(1, 1);
-        }
-
-        return stripes;
-    }
-
-    [LoggerMessage(Level = LogLevel.Warning, Message = "No Jellyfin media segment row found under shared id {SegmentId} for item {ItemId}; re-syncing the item's mirror. If this recurs, the server may no longer preserve provider-supplied segment ids.")]
+    [LoggerMessage(Level = LogLevel.Warning, Message = "No Jellyfin media segment row found under id {SegmentId} for item {ItemId}; re-syncing the item's mirror. A concurrent refresh may have removed the row already; if this recurs without concurrent activity, the server may no longer preserve provider-supplied segment ids.")]
     private static partial void LogJellyfinRowMissingOnDelete(ILogger logger, Guid segmentId, Guid itemId);
 }

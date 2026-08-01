@@ -25,16 +25,19 @@ namespace IntroSkipper.Controllers;
 /// </remarks>
 /// <param name="mediaSegmentEditorService">Media segment editor service; owns every mutation end-to-end.</param>
 /// <param name="database">Segment database facade.</param>
+/// <param name="segmentStore">Direct store for Jellyfin's media segments, for reads outside the mutation path.</param>
 [Authorize(Policy = Policies.RequiresElevation)]
 [ApiController]
 [Produces(MediaTypeNames.Application.Json)]
 [Route("MediaSegmentsApi")]
 public class SegmentEditorController(
     MediaSegmentEditorService mediaSegmentEditorService,
-    IIntroSkipperDatabase database) : ControllerBase
+    IIntroSkipperDatabase database,
+    IJellyfinSegmentStore segmentStore) : ControllerBase
 {
     private readonly MediaSegmentEditorService _mediaSegmentEditorService = mediaSegmentEditorService;
     private readonly IIntroSkipperDatabase _database = database;
+    private readonly IJellyfinSegmentStore _segmentStore = segmentStore;
 
     /// <summary>
     /// Plugin meta endpoint.
@@ -145,7 +148,7 @@ public class SegmentEditorController(
             // scheme, or foreign-provider rows. The cascade matches the plugin-side
             // counterpart by exact ticks; without one, only the Jellyfin row is removed
             // and the state still resets.
-            var existingSegment = await _mediaSegmentEditorService
+            var existingSegment = await _segmentStore
                 .GetSegmentAsync(itemId, segmentId, cancellationToken)
                 .ConfigureAwait(false);
             if (existingSegment is null)

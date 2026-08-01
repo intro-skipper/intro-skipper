@@ -321,7 +321,5 @@ public sealed class SegmentEditorControllerTests
     private static SegmentEditorController CreateController(
         IJellyfinSegmentStore store,
         IntroSkipper.Db.IIntroSkipperDatabase database)
-        => new(
-            DatabaseTestHelpers.CreateEditorService(store, database),
-            database);
+        => DatabaseTestHelpers.CreateSegmentEditorController(store, database);
 }

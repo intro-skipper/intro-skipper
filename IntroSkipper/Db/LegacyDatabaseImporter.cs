@@ -1,6 +1,7 @@
 // SPDX-FileCopyrightText: 2026 Intro-Skipper contributors <intro-skipper.org>
 // SPDX-License-Identifier: GPL-3.0-only
 
+using System.Data.Common;
 using System.Globalization;
 using System.Text.Json;
 using IntroSkipper.Data;
@@ -113,6 +114,9 @@ internal static partial class LegacyDatabaseImporter
         var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
         await using (reader.ConfigureAwait(false))
         {
+            var userOrdinal = hasUser ? reader.GetOrdinal("IsUserProvided") : -1;
+            var hashOrdinal = hasHash ? reader.GetOrdinal("ConfigHash") : -1;
+
             while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
             {
                 var startValue = reader.GetValue(1);
@@ -140,12 +144,11 @@ internal static partial class LegacyDatabaseImporter
                     continue;
                 }
 
-                var userValue = hasUser ? reader.GetValue(4) : null;
+                var userValue = hasUser ? reader.GetValue(userOrdinal) : null;
                 var source = TryToInt64(userValue, out var userFlag) && userFlag != 0
                     ? SegmentSource.User
                     : SegmentSource.Unknown;
-                var hashOrdinal = hasUser ? 5 : 4;
-                var configHash = hasHash && reader.GetValue(hashOrdinal) is string hash ? hash : string.Empty;
+                var configHash = ReadOptionalString(reader, hashOrdinal);
 
                 pending.Add(new DbSegment(itemId, (AnalysisMode)type, startTicks, endTicks, source, configHash));
                 imported++;
@@ -214,6 +217,9 @@ internal static partial class LegacyDatabaseImporter
         var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
         await using (reader.ConfigureAwait(false))
         {
+            var hashOrdinal = hasHash ? reader.GetOrdinal("ConfigHash") : -1;
+            var settledOrdinal = hasSettled ? reader.GetOrdinal("SettledReanalysisEpisodeIds") : -1;
+
             while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
             {
                 var typeValue = reader.GetValue(1);
@@ -235,9 +241,7 @@ internal static partial class LegacyDatabaseImporter
                 // Malformed JSON degrades to an empty list but the row is kept: the
                 // analyzer action survives and an empty set just re-triggers analysis.
                 var episodeIds = ParseGuidArray(reader.GetValue(3));
-                var hashOrdinal = 4;
-                var configHash = hasHash && reader.GetValue(hashOrdinal) is string hash ? hash : string.Empty;
-                var settledOrdinal = hasHash ? 5 : 4;
+                var configHash = ReadOptionalString(reader, hashOrdinal);
                 var settled = hasSettled ? ParseGuidArray(reader.GetValue(settledOrdinal)) : [];
 
                 states.Add(new DbSeasonState(seasonId, (AnalysisMode)type, action, episodeIds, configHash, settled));
@@ -267,6 +271,11 @@ internal static partial class LegacyDatabaseImporter
         newDb.ChangeTracker.Clear();
         pending.Clear();
     }
+
+    // A -1 ordinal marks a column this legacy shape does not have; NULL and non-text
+    // values degrade to empty like every other tolerant read here.
+    private static string ReadOptionalString(DbDataReader reader, int ordinal)
+        => ordinal >= 0 && reader.GetValue(ordinal) is string value ? value : string.Empty;
 
     private static Guid[] ParseGuidArray(object? value)
     {

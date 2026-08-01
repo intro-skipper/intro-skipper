@@ -6,9 +6,10 @@ namespace IntroSkipper.Manager;
 /// <summary>
 /// Single home of the "Jellyfin is only a mirror" policy: every write into Jellyfin's
 /// MediaSegments table is controlled by the <c>UpdateMediaSegments</c> configuration
-/// flag. The writing services (<see cref="MediaSegmentEditorService"/> and
-/// <see cref="MediaSegmentRefreshService"/>) consult it themselves so callers cannot
-/// forget the gate; reads are never gated.
+/// flag. <see cref="MediaSegmentMirror"/> consults it on every write so callers cannot
+/// forget the gate; <see cref="MediaSegmentRefreshService"/> additionally checks it to
+/// skip logging and per-item library resolution for syncs that would all no-op. Reads
+/// are never gated.
 /// </summary>
 internal static class MediaSegmentMirrorPolicy
 {

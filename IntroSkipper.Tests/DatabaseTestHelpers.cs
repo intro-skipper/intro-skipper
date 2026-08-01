@@ -5,6 +5,7 @@ namespace IntroSkipper.Tests;
 
 using System;
 using System.IO;
+using IntroSkipper.Controllers;
 using IntroSkipper.Data;
 using IntroSkipper.Db;
 using IntroSkipper.FFmpeg;
@@ -45,14 +46,14 @@ internal static class DatabaseTestHelpers
     /// of the editor-service composition chain.
     /// </summary>
     internal static MediaSegmentEditorService CreateEditorService(IJellyfinSegmentStore store, IIntroSkipperDatabase database)
-        => new(store, CreateMirror(store, database), database, NullLogger<MediaSegmentEditorService>.Instance);
+        => new(CreateMirror(store, database), database, NullLogger<MediaSegmentEditorService>.Instance);
 
     /// <summary>
-    /// Composes the refresh service with its standard mirror wiring and an empty library
-    /// manager, for controller tests that drive the strict per-item refresh.
+    /// Composes the editor controller over the standard editor-service wiring, the
+    /// single test home of the controller composition chain.
     /// </summary>
-    internal static MediaSegmentRefreshService CreateRefreshService(IJellyfinSegmentStore store, IIntroSkipperDatabase database)
-        => new(store, CreateMirror(store, database), EntrypointTestHelpers.CreateLibraryManager(), NullLogger<MediaSegmentRefreshService>.Instance);
+    internal static SegmentEditorController CreateSegmentEditorController(IJellyfinSegmentStore store, IIntroSkipperDatabase database)
+        => new(CreateEditorService(store, database), database, store);
 
     /// <summary>
     /// Converts seconds to ticks for test fixtures; shared so per-file shims are unneeded.

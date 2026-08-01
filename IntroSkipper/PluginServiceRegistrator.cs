@@ -56,8 +56,9 @@ namespace IntroSkipper
             // Jellyfin-initiated runs converge to the same data.
             serviceCollection.AddSingleton<SegmentDtoFactory>();
             serviceCollection.AddSingleton<IJellyfinSegmentStore, JellyfinSegmentStore>();
-            // The one locked write path into the Jellyfin mirror; both the editor service
-            // and the refresh service go through it.
+            // Every plugin write into Jellyfin's MediaSegments table goes through the
+            // mirror: per-item locked syncs and targeted deletes, plus one documented
+            // lock-free bulk cleanup.
             serviceCollection.AddSingleton<MediaSegmentMirror>();
             serviceCollection.AddSingleton<IMediaSegmentProvider, SegmentProvider>();
             serviceCollection.AddSingleton<IMediaSegmentRefresher, MediaSegmentRefreshService>();

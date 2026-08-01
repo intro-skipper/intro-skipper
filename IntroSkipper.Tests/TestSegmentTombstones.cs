@@ -222,6 +222,32 @@ public sealed class TestSegmentTombstones
     }
 
     [Fact]
+    public async Task UndoDeleteAsync_SwallowsReinsert_WhenEquivalentRowAppeared()
+    {
+        var dbPath = CreateTempDbPath();
+        var itemId = Guid.NewGuid();
+        try
+        {
+            var database = DatabaseTestHelpers.CreateSegmentDatabase(dbPath);
+            var userRow = await database.AddUserSegmentAsync(itemId, AnalysisMode.Credits, Ticks(1200), Ticks(1260));
+            var snapshot = await database.DeleteSegmentAsync(itemId, userRow.Id);
+
+            // An equivalent row (same range, new id) appears before the undo runs: the
+            // re-insert hits the unique quadruple index and is swallowed, so the
+            // occupant survives and the rollback path does not fail.
+            var occupant = await database.AddUserSegmentAsync(itemId, AnalysisMode.Credits, Ticks(1200), Ticks(1260));
+            await database.UndoDeleteAsync(snapshot);
+
+            var row = Assert.Single(await database.GetSegmentsAsync(itemId));
+            Assert.Equal(occupant.Id, row.Id);
+        }
+        finally
+        {
+            DatabaseTestHelpers.DeleteSqliteFiles(dbPath);
+        }
+    }
+
+    [Fact]
     public async Task ExplicitErase_ClearsTombstones_SoReanalysisCanReAdd()
     {
         var dbPath = CreateTempDbPath();

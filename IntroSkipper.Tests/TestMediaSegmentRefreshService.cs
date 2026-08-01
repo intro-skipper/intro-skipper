@@ -285,7 +285,6 @@ public sealed class TestMediaSegmentRefreshService
         ILibraryManager? libraryManager = null,
         SegmentDtoFactory? segmentDtoFactory = null)
         => new(
-            store,
             new MediaSegmentMirror(store, segmentDtoFactory ?? new SegmentDtoFactory(DatabaseTestHelpers.CreateTempSegmentDatabase())),
             libraryManager ?? EntrypointTestHelpers.CreateLibraryManager(),
             NullLogger<MediaSegmentRefreshService>.Instance);

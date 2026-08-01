@@ -12,7 +12,6 @@ using System.Reflection;
 using System.Threading;
 using System.Threading.Tasks;
 using IntroSkipper.Configuration;
-using IntroSkipper.Controllers;
 using IntroSkipper.Data;
 using IntroSkipper.Db;
 using IntroSkipper.Manager;
@@ -101,9 +100,7 @@ public sealed class TestSeasonKeyResolution
             await database.SetEpisodeIdsAsync(hostSeasonId, AnalysisMode.Introduction, [hostEpisodeId, specialId], "hash");
             var segmentId = (await database.GetSegmentsAsync(specialId)).Single().Id;
 
-            var store = new FakeJellyfinSegmentStore();
-            var service = DatabaseTestHelpers.CreateEditorService(store, database);
-            var controller = new SegmentEditorController(service, database);
+            var controller = DatabaseTestHelpers.CreateSegmentEditorController(new FakeJellyfinSegmentStore(), database);
 
             await controller.DeleteSegmentAsync(segmentId, specialId, "intro", CancellationToken.None);
 
@@ -147,9 +144,7 @@ public sealed class TestSeasonKeyResolution
             await database.SetEpisodeIdsAsync(seasonId, AnalysisMode.Introduction, [episodeId], "hash");
             var segmentId = (await database.GetSegmentsAsync(episodeId)).Single().Id;
 
-            var store = new FakeJellyfinSegmentStore();
-            var service = DatabaseTestHelpers.CreateEditorService(store, database);
-            var controller = new SegmentEditorController(service, database);
+            var controller = DatabaseTestHelpers.CreateSegmentEditorController(new FakeJellyfinSegmentStore(), database);
 
             await controller.DeleteSegmentAsync(segmentId, episodeId, "intro", CancellationToken.None);
 

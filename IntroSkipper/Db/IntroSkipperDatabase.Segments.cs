@@ -440,6 +440,13 @@ public sealed partial class IntroSkipperDatabase
         ArgumentOutOfRangeException.ThrowIfLessThanOrEqual(endTicks, startTicks);
     }
 
+    // The extended result codes cover the Id primary key and the (ItemId, Type,
+    // StartTicks, EndTicks) unique index; the primary code SQLITE_CONSTRAINT would also
+    // swallow NOT NULL and CHECK violations, which do not mean an equivalent row
+    // already exists.
     private static bool IsUniqueConstraintViolation(DbUpdateException exception)
-        => exception.InnerException is SqliteException { SqliteErrorCode: 19 };
+        => exception.InnerException is SqliteException
+        {
+            SqliteExtendedErrorCode: SQLitePCL.raw.SQLITE_CONSTRAINT_PRIMARYKEY or SQLitePCL.raw.SQLITE_CONSTRAINT_UNIQUE
+        };
 }

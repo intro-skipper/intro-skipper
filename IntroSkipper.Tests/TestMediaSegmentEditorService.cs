@@ -8,8 +8,7 @@ using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using IntroSkipper.Data;
-using IntroSkipper.Manager;
-using IntroSkipper.Providers;
+using IntroSkipper.Helper;
 using Jellyfin.Database.Implementations.Enums;
 using MediaBrowser.Model.MediaSegments;
 using Xunit;
@@ -145,58 +144,16 @@ public sealed class TestMediaSegmentEditorService
             CreateSegment(MediaSegmentType.Intro, 10, 20, Guid.NewGuid(), itemId),
             CancellationToken.None);
 
+        // The correlated delete still commits the plugin tombstone; the mirror's
+        // disabled no-op must not read as drift and trigger a resync.
+        await database.ReplaceAutoSegmentsAsync(
+            itemId, AnalysisMode.Introduction, [new Segment(itemId, new TimeRange(10, 20))], SegmentSource.Chapter);
+        var row = Assert.Single(await database.GetSegmentsAsync(itemId));
+        Assert.NotNull(await service.DeleteSegmentAsync(itemId, row.Id, CancellationToken.None));
+
         Assert.Equal(0, store.WriteCallCount);
         Assert.Empty(store.ReplacedItems);
         Assert.Empty(store.DeletedSegments);
-    }
-
-    [Fact]
-    public async Task GetSegmentAsync_ReturnsMatchingSegment()
-    {
-        var itemId = Guid.NewGuid();
-        var segmentId = Guid.NewGuid();
-        var store = new FakeJellyfinSegmentStore
-        {
-            ExistingSegments =
-            [
-                CreateSegment(MediaSegmentType.Outro, 30, 40, Guid.NewGuid(), itemId),
-                CreateSegment(MediaSegmentType.Intro, 10, 20, segmentId, itemId)
-            ]
-        };
-        var service = CreateService(store);
-
-        var result = await service.GetSegmentAsync(itemId, segmentId, CancellationToken.None);
-
-        Assert.NotNull(result);
-        Assert.Equal(segmentId, result!.Id);
-    }
-
-    [Fact]
-    public async Task GetSegmentAsync_ReturnsNull_WhenItemIdDoesNotMatch()
-    {
-        var segmentId = Guid.NewGuid();
-        var store = new FakeJellyfinSegmentStore
-        {
-            ExistingSegments = [CreateSegment(MediaSegmentType.Intro, 10, 20, segmentId, Guid.NewGuid())]
-        };
-        var service = CreateService(store);
-
-        Assert.Null(await service.GetSegmentAsync(Guid.NewGuid(), segmentId, CancellationToken.None));
-    }
-
-    [Fact]
-    public async Task GetSegmentAsync_ReturnsNull_WhenSegmentIdDoesNotMatch()
-    {
-        var itemId = Guid.NewGuid();
-        var store = new FakeJellyfinSegmentStore
-        {
-            ExistingSegments = [CreateSegment(MediaSegmentType.Intro, 10, 20, Guid.NewGuid(), itemId)]
-        };
-        var service = CreateService(store);
-
-        var result = await service.GetSegmentAsync(itemId, Guid.NewGuid(), CancellationToken.None);
-
-        Assert.Null(result);
     }
 
     [Fact]
@@ -210,7 +167,7 @@ public sealed class TestMediaSegmentEditorService
         var row = Assert.Single(await database.GetSegmentsAsync(itemId));
 
         var store = new FakeJellyfinSegmentStore();
-        var service = CreateService(store, database);
+        var service = DatabaseTestHelpers.CreateEditorService(store, database);
 
         var deleted = await service.DeleteSegmentAsync(itemId, row.Id, CancellationToken.None);
 
@@ -232,7 +189,7 @@ public sealed class TestMediaSegmentEditorService
         var row = Assert.Single(await database.GetSegmentsAsync(itemId));
 
         var store = new FakeJellyfinSegmentStore { MissingSegmentIds = [row.Id] };
-        var service = CreateService(store, database);
+        var service = DatabaseTestHelpers.CreateEditorService(store, database);
 
         var deleted = await service.DeleteSegmentAsync(itemId, row.Id, CancellationToken.None);
 
@@ -247,11 +204,6 @@ public sealed class TestMediaSegmentEditorService
         Assert.Empty(pushed);
     }
 
-    private static MediaSegmentEditorService CreateService(
-        FakeJellyfinSegmentStore store,
-        IntroSkipper.Db.IIntroSkipperDatabase? database = null)
-        => DatabaseTestHelpers.CreateEditorService(store, database ?? DatabaseTestHelpers.CreateTempSegmentDatabase());
-
     /// <summary>
     /// Scopes a plugin instance with an empty library manager so the delete cascade's
     /// item lookup (for the season-state reset) resolves to null instead of crashing.
@@ -264,8 +216,9 @@ public sealed class TestMediaSegmentEditorService
     }
 
     /// <summary>
-    /// Picks an id on a different mirror lock stripe than <paramref name="other"/> so
-    /// cross-item concurrency assertions cannot flake on a stripe collision.
+    /// Picks an id on a different lock stripe than <paramref name="other"/> (the mirror
+    /// and mutation pools share the stripe mapping) so cross-item concurrency assertions
+    /// cannot flake on a stripe collision.
     /// </summary>
     private static Guid NewGuidOnDifferentStripe(Guid other)
     {
@@ -274,12 +227,12 @@ public sealed class TestMediaSegmentEditorService
         {
             id = Guid.NewGuid();
         }
-        while (MediaSegmentMirror.StripeIndex(id) == MediaSegmentMirror.StripeIndex(other));
+        while (StripedAsyncLock.StripeIndex(id) == StripedAsyncLock.StripeIndex(other));
 
         return id;
     }
 
-    private static MediaSegmentDto CreateSegment(MediaSegmentType type, long startTicks, long endTicks, Guid id = default, Guid itemId = default)
+    private static MediaSegmentDto CreateSegment(MediaSegmentType type, long startTicks, long endTicks, Guid id, Guid itemId)
         => new()
         {
             Id = id,

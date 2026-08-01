@@ -13,12 +13,10 @@ namespace IntroSkipper.Manager;
 /// <remarks>
 /// Initializes a new instance of the <see cref="MediaSegmentRefreshService"/> class.
 /// </remarks>
-/// <param name="segmentStore">Direct store for Jellyfin's media segments.</param>
 /// <param name="mirror">The shared locked mirror write path.</param>
 /// <param name="libraryManager">The Jellyfin library manager used to resolve items by id.</param>
 /// <param name="logger">Application logger.</param>
 public sealed partial class MediaSegmentRefreshService(
-    IJellyfinSegmentStore segmentStore,
     MediaSegmentMirror mirror,
     ILibraryManager libraryManager,
     ILogger<MediaSegmentRefreshService> logger) : IMediaSegmentRefresher
@@ -36,6 +34,8 @@ public sealed partial class MediaSegmentRefreshService(
     {
         ArgumentNullException.ThrowIfNull(item);
 
+        // The mirror gates its own writes; this early return only keeps the update log
+        // below from claiming a sync that no-oped.
         if (!MediaSegmentMirrorPolicy.Enabled)
         {
             return;
@@ -50,6 +50,8 @@ public sealed partial class MediaSegmentRefreshService(
     {
         ArgumentNullException.ThrowIfNull(itemIds);
 
+        // The mirror gates its own writes; this early return only skips resolving every
+        // id against the library for syncs that would all no-op.
         if (!MediaSegmentMirrorPolicy.Enabled)
         {
             return;
@@ -86,14 +88,9 @@ public sealed partial class MediaSegmentRefreshService(
     {
         ArgumentNullException.ThrowIfNull(itemIds);
 
-        if (!MediaSegmentMirrorPolicy.Enabled)
-        {
-            return;
-        }
-
         // No library resolution here: rows of items already removed from the library
         // must be deleted too, which is exactly what the stale-cleanup caller needs.
-        await segmentStore.DeleteOwnSegmentsAsync(itemIds, cancellationToken).ConfigureAwait(false);
+        await mirror.DeleteOwnSegmentsAsync(itemIds, cancellationToken).ConfigureAwait(false);
     }
 
     // The lenient path: the strict refresh with non-critical failures logged and
