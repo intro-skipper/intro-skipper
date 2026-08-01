@@ -3,17 +3,13 @@
 
 using System;
 using System.Collections.Generic;
-using System.IO;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
-using IntroSkipper.Configuration;
 using IntroSkipper.Controllers;
 using IntroSkipper.Data;
 using IntroSkipper.Db;
 using IntroSkipper.Manager;
-using IntroSkipper.Providers;
-using MediaBrowser.Controller.Entities.Movies;
 using Microsoft.AspNetCore.Mvc;
 using Xunit;
 using static IntroSkipper.Tests.DatabaseTestHelpers;
@@ -31,7 +27,7 @@ public sealed class TestSegmentsApiController
     {
         var itemId = Guid.NewGuid();
         var dbPath = CreateTempDbPath();
-        using var pluginScope = CreatePluginScope(itemId, updateMediaSegments: true, out _);
+        using var pluginScope = EntrypointTestHelpers.CreateMoviePluginScope(itemId, updateMediaSegments: true, out _);
         try
         {
             var database = DatabaseTestHelpers.CreateSegmentDatabase(dbPath);
@@ -69,7 +65,7 @@ public sealed class TestSegmentsApiController
     {
         var itemId = Guid.NewGuid();
         var dbPath = CreateTempDbPath();
-        using var pluginScope = CreatePluginScope(itemId, updateMediaSegments: true, out _);
+        using var pluginScope = EntrypointTestHelpers.CreateMoviePluginScope(itemId, updateMediaSegments: true, out _);
         try
         {
             var controller = CreateController(DatabaseTestHelpers.CreateSegmentDatabase(dbPath), out _);
@@ -92,7 +88,7 @@ public sealed class TestSegmentsApiController
     {
         var itemId = Guid.NewGuid();
         var dbPath = CreateTempDbPath();
-        using var pluginScope = CreatePluginScope(itemId, updateMediaSegments: true, out _);
+        using var pluginScope = EntrypointTestHelpers.CreateMoviePluginScope(itemId, updateMediaSegments: true, out _);
         try
         {
             var database = DatabaseTestHelpers.CreateSegmentDatabase(dbPath);
@@ -128,7 +124,7 @@ public sealed class TestSegmentsApiController
     {
         var itemId = Guid.NewGuid();
         var dbPath = CreateTempDbPath();
-        using var pluginScope = CreatePluginScope(itemId, updateMediaSegments: false, out _);
+        using var pluginScope = EntrypointTestHelpers.CreateMoviePluginScope(itemId, updateMediaSegments: false, out _);
         try
         {
             var database = DatabaseTestHelpers.CreateSegmentDatabase(dbPath);
@@ -156,7 +152,7 @@ public sealed class TestSegmentsApiController
     {
         var itemId = Guid.NewGuid();
         var dbPath = CreateTempDbPath();
-        using var pluginScope = CreatePluginScope(itemId, updateMediaSegments: true, out _);
+        using var pluginScope = EntrypointTestHelpers.CreateMoviePluginScope(itemId, updateMediaSegments: true, out _);
         try
         {
             var controller = CreateController(DatabaseTestHelpers.CreateSegmentDatabase(dbPath), out _);
@@ -179,7 +175,7 @@ public sealed class TestSegmentsApiController
     {
         var itemId = Guid.NewGuid();
         var dbPath = CreateTempDbPath();
-        using var pluginScope = CreatePluginScope(itemId, updateMediaSegments: true, out _);
+        using var pluginScope = EntrypointTestHelpers.CreateMoviePluginScope(itemId, updateMediaSegments: true, out _);
         try
         {
             var database = DatabaseTestHelpers.CreateSegmentDatabase(dbPath);
@@ -219,7 +215,7 @@ public sealed class TestSegmentsApiController
     {
         var itemId = Guid.NewGuid();
         var dbPath = CreateTempDbPath();
-        using var pluginScope = CreatePluginScope(itemId, updateMediaSegments: true, out _);
+        using var pluginScope = EntrypointTestHelpers.CreateMoviePluginScope(itemId, updateMediaSegments: true, out _);
         try
         {
             var database = DatabaseTestHelpers.CreateSegmentDatabase(dbPath);
@@ -250,7 +246,7 @@ public sealed class TestSegmentsApiController
     {
         var itemId = Guid.NewGuid();
         var dbPath = CreateTempDbPath();
-        using var pluginScope = CreatePluginScope(itemId, updateMediaSegments: false, out _);
+        using var pluginScope = EntrypointTestHelpers.CreateMoviePluginScope(itemId, updateMediaSegments: false, out _);
         try
         {
             var database = DatabaseTestHelpers.CreateSegmentDatabase(dbPath);
@@ -278,7 +274,7 @@ public sealed class TestSegmentsApiController
     {
         var itemId = Guid.NewGuid();
         var dbPath = CreateTempDbPath();
-        using var pluginScope = CreatePluginScope(itemId, updateMediaSegments: true, out _);
+        using var pluginScope = EntrypointTestHelpers.CreateMoviePluginScope(itemId, updateMediaSegments: true, out _);
         try
         {
             var database = DatabaseTestHelpers.CreateSegmentDatabase(dbPath);
@@ -305,7 +301,7 @@ public sealed class TestSegmentsApiController
     {
         var itemId = Guid.NewGuid();
         var dbPath = CreateTempDbPath();
-        using var pluginScope = CreatePluginScope(itemId, updateMediaSegments: true, out _);
+        using var pluginScope = EntrypointTestHelpers.CreateMoviePluginScope(itemId, updateMediaSegments: true, out _);
         try
         {
             var database = DatabaseTestHelpers.CreateSegmentDatabase(dbPath);
@@ -336,32 +332,10 @@ public sealed class TestSegmentsApiController
     {
         store = new FakeJellyfinSegmentStore { DeleteSegmentException = deleteException };
         var editorService = DatabaseTestHelpers.CreateEditorService(store, database);
-        return new SegmentsController(database, editorService);
-    }
-
-    private static EntrypointTestHelpers.PluginInstanceScope CreatePluginScope(Guid itemId, bool updateMediaSegments, out Movie item)
-    {
-        var scope = new EntrypointTestHelpers.PluginInstanceScope(EntrypointTestHelpers.CreateTempCacheDir());
-        item = new Movie();
-        EntrypointTestHelpers.SetPropertyOrField(item, "Id", itemId);
-        EntrypointTestHelpers.EnsureNonVirtual(item);
-
-        var libraryManager = EntrypointTestHelpers.CreateLibraryManager(item);
-        var plugin = Plugin.Instance!;
-        EntrypointTestHelpers.SetPropertyOrField(plugin, "Configuration", new PluginConfiguration { UpdateMediaSegments = updateMediaSegments });
-        EntrypointTestHelpers.SetPrivateField(plugin, "_libraryManager", libraryManager);
-        EntrypointTestHelpers.SetPropertyOrField(
-            plugin,
-            "QueuedMediaItems",
-            new System.Collections.Concurrent.ConcurrentDictionary<Guid, List<QueuedEpisode>>());
-        return scope;
+        var refresher = DatabaseTestHelpers.CreateRefreshService(store, database);
+        return new SegmentsController(database, editorService, refresher);
     }
 
     private static string CreateTempDbPath()
-    {
-        var tempDir = Path.Join(Path.GetTempPath(), "IntroSkipper.Tests", "segments-api");
-        Directory.CreateDirectory(tempDir);
-        return Path.Join(tempDir, Guid.NewGuid().ToString("N") + ".db");
-    }
-
+        => DatabaseTestHelpers.CreateTempDbPath(Guid.NewGuid().ToString("N") + "-segments-api.db");
 }

@@ -486,11 +486,7 @@ public sealed class TestVisualizationController
     }
 
     private static string CreateTempDbPath()
-    {
-        var tempDir = Path.Join(Path.GetTempPath(), "IntroSkipper.Tests", "visualization-controller");
-        Directory.CreateDirectory(tempDir);
-        return Path.Join(tempDir, Guid.NewGuid().ToString("N") + ".db");
-    }
+        => DatabaseTestHelpers.CreateTempDbPath(Guid.NewGuid().ToString("N") + "-visualization-controller.db");
 
     private sealed class GatedStrictRefresher : IMediaSegmentRefresher
     {

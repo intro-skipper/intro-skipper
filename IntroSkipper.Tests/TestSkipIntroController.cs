@@ -3,14 +3,11 @@ using System.Collections.Generic;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
-using IntroSkipper.Configuration;
 using IntroSkipper.Controllers;
 using IntroSkipper.Data;
 using IntroSkipper.Db;
 using IntroSkipper.Manager;
 using MediaBrowser.Controller.Entities;
-using MediaBrowser.Controller.Entities.Movies;
-using MediaBrowser.Controller.Library;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -25,7 +22,7 @@ public sealed class TestSkipIntroController
     {
         var itemId = Guid.NewGuid();
         var dbPath = CreateTempDbPath();
-        using var pluginScope = CreatePluginScope(itemId, updateMediaSegments: true, out var item);
+        using var pluginScope = EntrypointTestHelpers.CreateMoviePluginScope(itemId, updateMediaSegments: true, out var item);
         await EnsureDatabaseAsync(dbPath);
         var refresher = new RecordingMediaSegmentRefresher
         {
@@ -60,7 +57,7 @@ public sealed class TestSkipIntroController
         var segment = await db.Segments.SingleAsync();
         Assert.Equal(itemId, segment.ItemId);
         Assert.Equal(AnalysisMode.Introduction, segment.Type);
-        Assert.True(segment.IsUserProvided);
+        Assert.Equal(SegmentSource.User, segment.Source);
     }
 
     [Fact]
@@ -68,7 +65,7 @@ public sealed class TestSkipIntroController
     {
         var itemId = Guid.NewGuid();
         var dbPath = CreateTempDbPath();
-        using var pluginScope = CreatePluginScope(itemId, updateMediaSegments: false, out _);
+        using var pluginScope = EntrypointTestHelpers.CreateMoviePluginScope(itemId, updateMediaSegments: false, out _);
         await EnsureDatabaseAsync(dbPath);
         var refresher = new RecordingMediaSegmentRefresher();
         var controller = new SkipIntroController(
@@ -93,7 +90,7 @@ public sealed class TestSkipIntroController
     {
         var itemId = Guid.NewGuid();
         var dbPath = CreateTempDbPath();
-        using var pluginScope = CreatePluginScope(itemId, updateMediaSegments: false, out _);
+        using var pluginScope = EntrypointTestHelpers.CreateMoviePluginScope(itemId, updateMediaSegments: false, out _);
         await EnsureDatabaseAsync(dbPath);
         var database = DatabaseTestHelpers.CreateSegmentDatabase(dbPath);
         await database.ReplaceAutoSegmentsAsync(
@@ -124,10 +121,10 @@ public sealed class TestSkipIntroController
         var commercial = Assert.Single(rows, row => row.Type == AnalysisMode.Commercial);
         Assert.Equal(TickConversions.FromSeconds(400), commercial.StartTicks);
         Assert.Equal(TickConversions.FromSeconds(430), commercial.EndTicks);
-        Assert.True(commercial.IsUserProvided);
+        Assert.Equal(SegmentSource.User, commercial.Source);
         var intro = Assert.Single(rows, row => row.Type == AnalysisMode.Introduction);
         Assert.Equal(TickConversions.FromSeconds(10), intro.StartTicks);
-        Assert.False(intro.IsUserProvided);
+        Assert.NotEqual(SegmentSource.User, intro.Source);
     }
 
     [Fact]
@@ -161,20 +158,6 @@ public sealed class TestSkipIntroController
         Assert.Empty(await database.GetSegmentsAsync(itemId));
     }
 
-    private static EntrypointTestHelpers.PluginInstanceScope CreatePluginScope(Guid itemId, bool updateMediaSegments, out Movie item)
-    {
-        var scope = new EntrypointTestHelpers.PluginInstanceScope(EntrypointTestHelpers.CreateTempCacheDir());
-        item = new Movie();
-        EntrypointTestHelpers.SetPropertyOrField(item, "Id", itemId);
-        EntrypointTestHelpers.EnsureNonVirtual(item);
-
-        var libraryManager = EntrypointTestHelpers.CreateLibraryManager(item);
-        var plugin = Plugin.Instance!;
-        EntrypointTestHelpers.SetPropertyOrField(plugin, "Configuration", new PluginConfiguration { UpdateMediaSegments = updateMediaSegments });
-        EntrypointTestHelpers.SetPrivateField(plugin, "_libraryManager", libraryManager);
-        return scope;
-    }
-
     private static async Task EnsureDatabaseAsync(string dbPath)
     {
         await using var db = new IntroSkipperDbContext(dbPath);
@@ -182,11 +165,7 @@ public sealed class TestSkipIntroController
     }
 
     private static string CreateTempDbPath()
-    {
-        var tempDir = Path.Join(Path.GetTempPath(), "IntroSkipper.Tests", "skip-controller");
-        Directory.CreateDirectory(tempDir);
-        return Path.Join(tempDir, Guid.NewGuid().ToString("N") + ".db");
-    }
+        => DatabaseTestHelpers.CreateTempDbPath(Guid.NewGuid().ToString("N") + "-skip-controller.db");
 
     private sealed class RecordingMediaSegmentRefresher : IMediaSegmentRefresher
     {

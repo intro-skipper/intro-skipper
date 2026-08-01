@@ -34,28 +34,8 @@ export async function fetchWithAuth(
     return await fetch(fullUrl, { method, headers, body });
 }
 
-export async function getJson<T>(url: string): Promise<ApiResult<T>> {
-    try {
-        const response = await fetchWithAuth(url, "GET");
-        if (response.ok) {
-            return {
-                ok: true,
-                status: response.status,
-                data: (await response.json()) as T,
-            };
-        }
-        return {
-            ok: false,
-            status: response.status,
-            error: "Server returned " + response.status,
-        };
-    } catch (err: unknown) {
-        return {
-            ok: false,
-            status: null,
-            error: err instanceof Error ? err.message : "Network error",
-        };
-    }
+export function getJson<T>(url: string): Promise<ApiResult<T>> {
+    return request<T>(url, "GET");
 }
 
 // Plugin configuration.
@@ -88,11 +68,11 @@ async function readErrorMessage(response: Response): Promise<string> {
     return "Server returned " + response.status;
 }
 
-// Shared mutation envelope: JSON body in (when given), ApiResult out. A 204
+// Shared request envelope: JSON body in (when given), ApiResult out. A 204
 // response carries no body and maps to null data (the DELETE case).
 async function request<T>(
     url: string,
-    method: "POST" | "PUT" | "DELETE",
+    method: "GET" | "POST" | "PUT" | "DELETE",
     body?: unknown,
 ): Promise<ApiResult<T>> {
     try {
@@ -240,37 +220,24 @@ function isClearExcludedTimestampsResponse(
 export async function clearExcludedTimestamps(): Promise<
     ApiResult<ClearExcludedTimestampsResponse>
 > {
-    try {
-        const response = await fetchWithAuth("Intros/ExcludedTimestamps/Clear", "POST");
-        if (!response.ok) {
-            return {
-                ok: false,
-                status: response.status,
-                error: "Server returned " + response.status,
-            };
-        }
+    const result = await request<unknown>("Intros/ExcludedTimestamps/Clear", "POST");
+    if (!result.ok) {
+        return { ok: false, status: result.status, error: result.error };
+    }
 
-        const data: unknown = await response.json();
-        if (!isClearExcludedTimestampsResponse(data)) {
-            return {
-                ok: false,
-                status: response.status,
-                error: "Unexpected clear response shape",
-            };
-        }
-
-        return {
-            ok: true,
-            status: response.status,
-            data,
-        };
-    } catch (err: unknown) {
+    if (!isClearExcludedTimestampsResponse(result.data)) {
         return {
             ok: false,
-            status: null,
-            error: err instanceof Error ? err.message : "Network error",
+            status: result.status,
+            error: "Unexpected clear response shape",
         };
     }
+
+    return {
+        ok: true,
+        status: result.status,
+        data: result.data,
+    };
 }
 
 // Support and storage tools.

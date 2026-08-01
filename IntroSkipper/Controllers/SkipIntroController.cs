@@ -51,8 +51,7 @@ public partial class SkipIntroController(
     public async Task<ActionResult> UpdateTimestampsAsync([FromRoute] Guid id, [FromBody] TimeStamps timestamps, CancellationToken cancellationToken = default)
     {
         // only update existing episodes
-        var rawItem = Plugin.Instance!.GetItem(id);
-        if (!MediaItemHelper.IsSupported(rawItem))
+        if (MediaItemHelper.FindSupported(id) is not { } rawItem)
         {
             return NotFound();
         }
@@ -104,8 +103,7 @@ public partial class SkipIntroController(
     public async Task<ActionResult<TimeStamps>> GetTimestamps([FromRoute] Guid id, CancellationToken cancellationToken = default)
     {
         // only get return content for episodes
-        var rawItem = Plugin.Instance!.GetItem(id);
-        if (!MediaItemHelper.IsSupported(rawItem))
+        if (MediaItemHelper.FindSupported(id) is null)
         {
             return NotFound();
         }
@@ -158,36 +156,8 @@ public partial class SkipIntroController(
     [HttpGet("Episode/{id}/IntroSkipperSegments")]
     public async Task<ActionResult<Dictionary<AnalysisMode, Segment>>> GetSkippableSegments([FromRoute] Guid id, CancellationToken cancellationToken = default)
     {
-        var segments = LegacyTimestampMapper.ToCanonical(
+        return LegacyTimestampMapper.ToCanonical(
             await _database.GetServableSegmentsAsync(id, cancellationToken).ConfigureAwait(false));
-        var result = new Dictionary<AnalysisMode, Segment>();
-
-        if (segments.TryGetValue(AnalysisMode.Introduction, out var introSegment))
-        {
-            result[AnalysisMode.Introduction] = introSegment;
-        }
-
-        if (segments.TryGetValue(AnalysisMode.Credits, out var creditSegment))
-        {
-            result[AnalysisMode.Credits] = creditSegment;
-        }
-
-        if (segments.TryGetValue(AnalysisMode.Recap, out var recapSegment))
-        {
-            result[AnalysisMode.Recap] = recapSegment;
-        }
-
-        if (segments.TryGetValue(AnalysisMode.Preview, out var previewSegment))
-        {
-            result[AnalysisMode.Preview] = previewSegment;
-        }
-
-        if (segments.TryGetValue(AnalysisMode.Commercial, out var commercialSegment))
-        {
-            result[AnalysisMode.Commercial] = commercialSegment;
-        }
-
-        return result;
     }
 
     /// <summary>

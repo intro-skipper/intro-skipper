@@ -103,12 +103,6 @@ public class DbSegment
     public DateTime UpdatedAt { get; set; }
 
     /// <summary>
-    /// Gets a value indicating whether the segment was provided by the user.
-    /// Not mapped; convenience over <see cref="Source"/>.
-    /// </summary>
-    public bool IsUserProvided => Source == SegmentSource.User;
-
-    /// <summary>
     /// Converts the boundaries to a seconds-based <see cref="Segment"/>.
     /// </summary>
     /// <returns>A <see cref="Segment"/> object.</returns>

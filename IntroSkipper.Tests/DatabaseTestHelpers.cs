@@ -48,6 +48,13 @@ internal static class DatabaseTestHelpers
         => new(store, CreateMirror(store, database), database, NullLogger<MediaSegmentEditorService>.Instance);
 
     /// <summary>
+    /// Composes the refresh service with its standard mirror wiring and an empty library
+    /// manager, for controller tests that drive the strict per-item refresh.
+    /// </summary>
+    internal static MediaSegmentRefreshService CreateRefreshService(IJellyfinSegmentStore store, IIntroSkipperDatabase database)
+        => new(store, CreateMirror(store, database), EntrypointTestHelpers.CreateLibraryManager(), NullLogger<MediaSegmentRefreshService>.Instance);
+
+    /// <summary>
     /// Converts seconds to ticks for test fixtures; shared so per-file shims are unneeded.
     /// </summary>
     internal static long Ticks(double seconds) => TickConversions.FromSeconds(seconds);

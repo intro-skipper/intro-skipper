@@ -17,15 +17,13 @@ namespace IntroSkipper.Data;
 /// <param name="End">End time in seconds.</param>
 /// <param name="Source">Origin of the segment; <see cref="SegmentSource.User"/> marks user-provided segments.</param>
 /// <param name="Suppressed">Whether the segment is a tombstone (user-deleted automatic segment).</param>
-/// <param name="UpdatedAt">UTC time of the last modification.</param>
 public sealed record SegmentDto(
     Guid Id,
     [property: JsonConverter(typeof(JsonStringEnumConverter<AnalysisMode>))] AnalysisMode Type,
     double Start,
     double End,
     [property: JsonConverter(typeof(JsonStringEnumConverter<SegmentSource>))] SegmentSource Source,
-    bool Suppressed,
-    DateTime UpdatedAt)
+    bool Suppressed)
 {
     /// <summary>
     /// Converts a stored row to its API shape.
@@ -38,6 +36,5 @@ public sealed record SegmentDto(
         TickConversions.ToSeconds(segment.StartTicks),
         TickConversions.ToSeconds(segment.EndTicks),
         segment.Source,
-        segment.State == SegmentState.Suppressed,
-        segment.UpdatedAt);
+        segment.State == SegmentState.Suppressed);
 }

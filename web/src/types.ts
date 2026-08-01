@@ -105,7 +105,6 @@ export type SegmentDto = {
     End: number;
     Source: string;
     Suppressed: boolean;
-    UpdatedAt: string;
 };
 
 export type SegmentCreateRequest = {

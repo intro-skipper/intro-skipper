@@ -103,7 +103,8 @@ public sealed class TestSeasonKeyResolution
 
             var store = new FakeJellyfinSegmentStore();
             var service = DatabaseTestHelpers.CreateEditorService(store, database);
-            var controller = new SegmentEditorController(service, database);
+            var controller = new SegmentEditorController(
+                service, database, DatabaseTestHelpers.CreateRefreshService(store, database));
 
             await controller.DeleteSegmentAsync(segmentId, specialId, "intro", CancellationToken.None);
 
@@ -149,7 +150,8 @@ public sealed class TestSeasonKeyResolution
 
             var store = new FakeJellyfinSegmentStore();
             var service = DatabaseTestHelpers.CreateEditorService(store, database);
-            var controller = new SegmentEditorController(service, database);
+            var controller = new SegmentEditorController(
+                service, database, DatabaseTestHelpers.CreateRefreshService(store, database));
 
             await controller.DeleteSegmentAsync(segmentId, episodeId, "intro", CancellationToken.None);
 

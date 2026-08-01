@@ -7,6 +7,7 @@ using System.Text.Json;
 using IntroSkipper.Data;
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Microsoft.Extensions.DependencyInjection;
 
 namespace IntroSkipper.Db;
@@ -18,6 +19,11 @@ namespace IntroSkipper.Db;
 /// </summary>
 public class IntroSkipperDbContext : DbContext
 {
+    // SQLite stores DateTime without a kind; every stored timestamp is UTC, so reads
+    // must come back marked as such or comparisons silently use local time.
+    private static readonly ValueConverter<DateTime, DateTime> _utcDateTimeConverter =
+        new(v => v, v => DateTime.SpecifyKind(v, DateTimeKind.Utc));
+
     private readonly string? _dbPath;
 
     /// <summary>
@@ -107,10 +113,10 @@ public class IntroSkipperDbContext : DbContext
                   .IsRequired();
 
             entity.Property(e => e.CreatedAt)
-                  .HasConversion(v => v, v => DateTime.SpecifyKind(v, DateTimeKind.Utc));
+                  .HasConversion(_utcDateTimeConverter);
 
             entity.Property(e => e.UpdatedAt)
-                  .HasConversion(v => v, v => DateTime.SpecifyKind(v, DateTimeKind.Utc));
+                  .HasConversion(_utcDateTimeConverter);
         });
 
         modelBuilder.Entity<DbSeasonState>(entity =>
@@ -128,7 +134,7 @@ public class IntroSkipperDbContext : DbContext
             entity.HasKey(r => r.Id);
 
             entity.Property(r => r.ImportedAt)
-                  .HasConversion(v => v, v => DateTime.SpecifyKind(v, DateTimeKind.Utc));
+                  .HasConversion(_utcDateTimeConverter);
 
             entity.Property(r => r.Notes)
                   .IsRequired();
@@ -145,15 +151,6 @@ public class IntroSkipperDbContext : DbContext
         });
 
         base.OnModelCreating(modelBuilder);
-    }
-
-    /// <summary>
-    /// Applies any pending migrations to the database.
-    /// Uses synchronous EF Core APIs to avoid sync-over-async deadlock risks.
-    /// </summary>
-    public void ApplyMigrations()
-    {
-        Database.Migrate();
     }
 
     /// <summary>
@@ -274,23 +271,34 @@ public class IntroSkipperDbContext : DbContext
 
         using (var db = contextFactory())
         {
-            if (segments.Count > 0)
+            // Restore in bounded batches with a cleared tracker (the importer's pattern)
+            // so a large library's snapshot is not also held in the change tracker all at
+            // once; the explicit transaction keeps the restore all-or-nothing.
+            var transaction = await db.Database.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
+            await using (transaction.ConfigureAwait(false))
             {
-                db.Segments.AddRange(segments);
-            }
+                await AddInBatchesAsync(db, db.Segments, segments, cancellationToken).ConfigureAwait(false);
+                await AddInBatchesAsync(db, db.SeasonStates, seasonStates, cancellationToken).ConfigureAwait(false);
+                await AddInBatchesAsync(db, db.DisabledItems, disabledItems, cancellationToken).ConfigureAwait(false);
+                await AddInBatchesAsync(db, db.ImportHistory, importRecords, cancellationToken).ConfigureAwait(false);
 
-            if (seasonStates.Count > 0)
-            {
-                db.SeasonStates.AddRange(seasonStates);
+                await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
             }
+        }
+    }
 
-            if (disabledItems.Count > 0)
-            {
-                db.DisabledItems.AddRange(disabledItems);
-            }
-
-            db.ImportHistory.AddRange(importRecords);
+    private static async Task AddInBatchesAsync<TEntity>(
+        IntroSkipperDbContext db,
+        DbSet<TEntity> set,
+        List<TEntity> entities,
+        CancellationToken cancellationToken)
+        where TEntity : class
+    {
+        foreach (var batch in entities.Chunk(1000))
+        {
+            set.AddRange(batch);
             await db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+            db.ChangeTracker.Clear();
         }
     }
 

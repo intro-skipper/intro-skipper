@@ -66,7 +66,7 @@ public sealed class TestDatabaseFacades
             await database.ReplaceAutoSegmentsAsync(itemId, AnalysisMode.Introduction, [analyzed], SegmentSource.Chromaprint);
 
             var stored = Assert.Single(await database.GetSegmentsAsync(itemId));
-            Assert.True(stored.IsUserProvided);
+            Assert.Equal(SegmentSource.User, stored.Source);
             Assert.Equal(Ticks(10), stored.StartTicks);
             Assert.Equal(Ticks(60), stored.EndTicks);
         }
@@ -100,7 +100,7 @@ public sealed class TestDatabaseFacades
 
             var stored = await database.GetSegmentsAsync(itemId);
             Assert.Equal(2, stored.Count);
-            Assert.Single(stored, s => s.IsUserProvided);
+            Assert.Single(stored, s => s.Source == SegmentSource.User);
             Assert.Single(stored, s => s.Source == SegmentSource.Chapter && s.StartTicks == Ticks(autoStart));
         }
         finally
@@ -122,7 +122,7 @@ public sealed class TestDatabaseFacades
             await database.ReplaceUserSegmentAsync(itemId, AnalysisMode.Introduction, Ticks(10), Ticks(60));
 
             var stored = Assert.Single(await database.GetSegmentsAsync(itemId));
-            Assert.True(stored.IsUserProvided);
+            Assert.Equal(SegmentSource.User, stored.Source);
             Assert.Equal(Ticks(10), stored.StartTicks);
             Assert.Equal(Ticks(60), stored.EndTicks);
         }
@@ -896,10 +896,10 @@ public sealed class TestDatabaseFacades
             Assert.DoesNotContain(segments, s => s.ItemId == invalidItemId);
             var automatic = Assert.Single(segments, s => s.ItemId == automaticItemId && s.Type == AnalysisMode.Introduction);
             Assert.Equal("cfg-auto", automatic.ConfigHash);
-            Assert.False(automatic.IsUserProvided);
+            Assert.NotEqual(SegmentSource.User, automatic.Source);
             var userProvided = Assert.Single(segments, s => s.Type == AnalysisMode.Credits);
             Assert.Equal(userProvidedItemId, userProvided.ItemId);
-            Assert.True(userProvided.IsUserProvided);
+            Assert.Equal(SegmentSource.User, userProvided.Source);
             Assert.Single(segments, s => s.Type == AnalysisMode.Commercial);
             Assert.Single(segments, s => s.ItemId == tombstonedItemId && s.State == SegmentState.Suppressed);
 

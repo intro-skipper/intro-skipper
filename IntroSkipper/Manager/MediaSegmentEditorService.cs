@@ -1,7 +1,6 @@
 using IntroSkipper.Data;
 using IntroSkipper.Db;
 using IntroSkipper.Helper;
-using MediaBrowser.Controller.Entities;
 using MediaBrowser.Model.MediaSegments;
 using Microsoft.Extensions.Logging;
 
@@ -29,20 +28,6 @@ public partial class MediaSegmentEditorService(
     private readonly MediaSegmentMirror _mirror = mirror;
     private readonly IIntroSkipperDatabase _database = database;
     private readonly ILogger<MediaSegmentEditorService> _logger = logger;
-
-    /// <summary>
-    /// Mirrors the plugin database into Jellyfin's media segments for one item via the
-    /// shared <see cref="MediaSegmentMirror"/>. Failures propagate to the caller.
-    /// </summary>
-    /// <param name="item">The media item to synchronize.</param>
-    /// <param name="cancellationToken">Cancellation token.</param>
-    /// <returns>A <see cref="Task"/> representing the asynchronous operation.</returns>
-    public async Task SyncItemAsync(BaseItem item, CancellationToken cancellationToken)
-    {
-        ArgumentNullException.ThrowIfNull(item);
-
-        await _mirror.SyncItemAsync(item.Id, cancellationToken).ConfigureAwait(false);
-    }
 
     /// <summary>
     /// Deletes a stored segment end-to-end: removes the plugin row (tombstoning automatic
@@ -121,14 +106,8 @@ public partial class MediaSegmentEditorService(
     /// <param name="segmentId">The segment id.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>The matching segment, or <c>null</c> if not found.</returns>
-    public async Task<MediaSegmentDto?> GetSegmentAsync(Guid itemId, Guid segmentId, CancellationToken cancellationToken)
-    {
-        var segment = await _segmentStore.GetSegmentAsync(itemId, segmentId, cancellationToken).ConfigureAwait(false);
-
-        cancellationToken.ThrowIfCancellationRequested();
-
-        return segment;
-    }
+    public Task<MediaSegmentDto?> GetSegmentAsync(Guid itemId, Guid segmentId, CancellationToken cancellationToken)
+        => _segmentStore.GetSegmentAsync(itemId, segmentId, cancellationToken);
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "No Jellyfin media segment row found under shared id {SegmentId} for item {ItemId}; re-syncing the item's mirror. If this recurs, the server may no longer preserve provider-supplied segment ids.")]
     private static partial void LogJellyfinRowMissingOnDelete(ILogger logger, Guid segmentId, Guid itemId);

@@ -25,14 +25,19 @@ namespace IntroSkipper.Controllers;
 /// </remarks>
 /// <param name="mediaSegmentEditorService">Media segment editor service.</param>
 /// <param name="database">Segment database facade.</param>
+/// <param name="mediaSegmentRefresher">Jellyfin media segment refresher.</param>
 [Authorize(Policy = Policies.RequiresElevation)]
 [ApiController]
 [Produces(MediaTypeNames.Application.Json)]
 [Route("MediaSegmentsApi")]
-public class SegmentEditorController(MediaSegmentEditorService mediaSegmentEditorService, IIntroSkipperDatabase database) : ControllerBase
+public class SegmentEditorController(
+    MediaSegmentEditorService mediaSegmentEditorService,
+    IIntroSkipperDatabase database,
+    IMediaSegmentRefresher mediaSegmentRefresher) : ControllerBase
 {
     private readonly MediaSegmentEditorService _mediaSegmentEditorService = mediaSegmentEditorService;
     private readonly IIntroSkipperDatabase _database = database;
+    private readonly IMediaSegmentRefresher _mediaSegmentRefresher = mediaSegmentRefresher;
 
     /// <summary>
     /// Plugin meta endpoint.
@@ -81,7 +86,7 @@ public class SegmentEditorController(MediaSegmentEditorService mediaSegmentEdito
         var mode = AnalysisHelpers.MapSegmentTypeToMode(segment.Type);
 
         await _database.AddUserSegmentAsync(itemId, mode, segment.StartTicks, segment.EndTicks, cancellationToken).ConfigureAwait(false);
-        await _mediaSegmentEditorService.SyncItemAsync(item, cancellationToken).ConfigureAwait(false);
+        await _mediaSegmentRefresher.RefreshStrictAsync(item, cancellationToken).ConfigureAwait(false);
 
         return Ok();
     }
@@ -126,14 +131,15 @@ public class SegmentEditorController(MediaSegmentEditorService mediaSegmentEdito
                 return BadRequest($"Segment '{segmentId}' is {AnalysisHelpers.ModeToSegmentType[pluginRow.Type]}, not requested type '{type}'.");
             }
 
-            if (pluginRow.State == SegmentState.Suppressed)
+            // Deletability (unknown, vanished, or suppressed rows → 404) is the cascade's
+            // call, derived from its result exactly like the plural DELETE endpoint.
+            var deleted = await _mediaSegmentEditorService
+                .DeleteStoredSegmentAsync(itemId, requestedMode, segmentId, segmentId, cancellationToken)
+                .ConfigureAwait(false);
+            if (deleted is null)
             {
                 return NotFound();
             }
-
-            await _mediaSegmentEditorService
-                .DeleteStoredSegmentAsync(itemId, requestedMode, segmentId, segmentId, cancellationToken)
-                .ConfigureAwait(false);
         }
         else
         {

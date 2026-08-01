@@ -33,6 +33,16 @@ internal static class SeasonStateKeyResolver
             return episode.SeasonId;
         }
 
+        // Movies (and any other non-episode) are queued under their own id, so probe
+        // that bucket before falling back to the full-queue scan, which only exists for
+        // in-season specials grouped under another season's key.
+        if (item is not Episode
+            && queue.TryGetValue(item.Id, out var ownEntries)
+            && ownEntries.Any(e => e.EpisodeId == item.Id))
+        {
+            return item.Id;
+        }
+
         foreach (var (seasonId, episodes) in queue)
         {
             if (episodes.Any(e => e.EpisodeId == item.Id))

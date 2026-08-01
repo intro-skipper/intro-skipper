@@ -11,14 +11,13 @@ using IntroSkipper.Data;
 using IntroSkipper.Manager;
 using IntroSkipper.Providers;
 using Jellyfin.Database.Implementations.Enums;
-using MediaBrowser.Controller.Entities.Movies;
 using MediaBrowser.Model.MediaSegments;
 using Xunit;
 
 public sealed class TestMediaSegmentEditorService
 {
     [Fact]
-    public async Task SyncItemAsync_UsesUniformReplace_ForEveryMode()
+    public async Task MirrorSyncItem_UsesUniformReplace_ForEveryMode()
     {
         var itemId = Guid.NewGuid();
         var database = DatabaseTestHelpers.CreateTempSegmentDatabase();
@@ -37,9 +36,9 @@ public sealed class TestMediaSegmentEditorService
         Assert.Equal(5, rows.Count);
 
         var store = new FakeJellyfinSegmentStore();
-        var service = CreateService(store, database);
+        var mirror = DatabaseTestHelpers.CreateMirror(store, database);
 
-        await service.SyncItemAsync(CreateMovie(itemId), CancellationToken.None);
+        await mirror.SyncItemAsync(itemId, CancellationToken.None);
 
         // One uniform replace carries every active segment of every mode — no per-type
         // routing, no commercial special case — and each DTO reuses its plugin row's id.
@@ -59,27 +58,27 @@ public sealed class TestMediaSegmentEditorService
     }
 
     [Fact]
-    public async Task SyncItemAsync_SerializesConcurrentCallsForSameItem()
+    public async Task MirrorSyncItem_SerializesConcurrentCallsForSameItem()
     {
-        var item = CreateMovie(Guid.NewGuid());
+        var itemId = Guid.NewGuid();
         var writeEntered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var store = new FakeJellyfinSegmentStore
         {
             WriteGate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously),
             WriteEntered = writeEntered,
-            BlockedItemId = item.Id
+            BlockedItemId = itemId
         };
-        var service = CreateService(store);
+        var mirror = DatabaseTestHelpers.CreateMirror(store, DatabaseTestHelpers.CreateTempSegmentDatabase());
 
         // First call enters the critical section and parks inside the store write while
         // holding the lock; wait for the park so the assertions below cannot race the
         // asynchronous DTO-factory read that precedes the write.
-        var first = service.SyncItemAsync(item, CancellationToken.None);
+        var first = mirror.SyncItemAsync(itemId, CancellationToken.None);
         await writeEntered.Task;
 
         // Second call for the same item must block on the per-item lock and therefore must
         // not have reached the store yet.
-        var second = service.SyncItemAsync(item, CancellationToken.None);
+        var second = mirror.SyncItemAsync(itemId, CancellationToken.None);
 
         Assert.False(first.IsCompleted);
         Assert.False(second.IsCompleted);
@@ -94,14 +93,14 @@ public sealed class TestMediaSegmentEditorService
     }
 
     [Fact]
-    public async Task SyncItemAsync_AllowsConcurrentCallsForDifferentItems()
+    public async Task MirrorSyncItem_AllowsConcurrentCallsForDifferentItems()
     {
-        var firstItem = CreateMovie(Guid.NewGuid());
-        var secondItem = CreateMovie(NewGuidOnDifferentStripe(firstItem.Id));
+        var firstItemId = Guid.NewGuid();
+        var secondItemId = NewGuidOnDifferentStripe(firstItemId);
         var store = new FakeJellyfinSegmentStore
         {
             WriteGate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously),
-            BlockedItemId = firstItem.Id
+            BlockedItemId = firstItemId
         };
         var database = DatabaseTestHelpers.CreateTempSegmentDatabase();
 
@@ -109,10 +108,10 @@ public sealed class TestMediaSegmentEditorService
         // below asserts mirror-stripe independence and must not also absorb the one-time
         // model build + migration, which alone exceeds it on a cold run.
         await database.GetSegmentsAsync(Guid.NewGuid());
-        var service = CreateService(store, database);
+        var mirror = DatabaseTestHelpers.CreateMirror(store, database);
 
-        var first = service.SyncItemAsync(firstItem, CancellationToken.None);
-        var second = service.SyncItemAsync(secondItem, CancellationToken.None);
+        var first = mirror.SyncItemAsync(firstItemId, CancellationToken.None);
+        var second = mirror.SyncItemAsync(secondItemId, CancellationToken.None);
 
         Assert.Same(second, await Task.WhenAny(second, Task.Delay(TimeSpan.FromSeconds(1))));
         Assert.False(first.IsCompleted);
@@ -132,10 +131,13 @@ public sealed class TestMediaSegmentEditorService
             "Configuration",
             new IntroSkipper.Configuration.PluginConfiguration { UpdateMediaSegments = false });
         var store = new FakeJellyfinSegmentStore();
-        var service = CreateService(store);
+        var database = DatabaseTestHelpers.CreateTempSegmentDatabase();
+        var mirror = DatabaseTestHelpers.CreateMirror(store, database);
+        var service = DatabaseTestHelpers.CreateEditorService(store, database);
 
-        // The mirror flag lives in the service, not at call sites: every write no-ops.
-        await service.SyncItemAsync(CreateMovie(Guid.NewGuid()), CancellationToken.None);
+        // The mirror flag lives in the mirror and the services, not at call sites:
+        // every write no-ops.
+        await mirror.SyncItemAsync(Guid.NewGuid(), CancellationToken.None);
         await service.DeleteStoredSegmentAsync(Guid.NewGuid(), AnalysisMode.Introduction, Guid.NewGuid(), null, CancellationToken.None);
 
         Assert.Equal(0, store.WriteCallCount);
@@ -190,21 +192,6 @@ public sealed class TestMediaSegmentEditorService
         var result = await service.GetSegmentAsync(itemId, Guid.NewGuid(), CancellationToken.None);
 
         Assert.Null(result);
-    }
-
-    [Fact]
-    public async Task GetSegmentAsync_Throws_WhenCancelled()
-    {
-        var store = new FakeJellyfinSegmentStore
-        {
-            ExistingSegments = [CreateSegment(MediaSegmentType.Intro, 10, 20, Guid.NewGuid())]
-        };
-        var service = CreateService(store);
-        using var cts = new CancellationTokenSource();
-        await cts.CancelAsync();
-
-        await Assert.ThrowsAsync<OperationCanceledException>(
-            () => service.GetSegmentAsync(Guid.NewGuid(), Guid.NewGuid(), cts.Token));
     }
 
     [Fact]
@@ -287,14 +274,6 @@ public sealed class TestMediaSegmentEditorService
         while (MediaSegmentMirror.StripeIndex(id) == MediaSegmentMirror.StripeIndex(other));
 
         return id;
-    }
-
-    private static Movie CreateMovie(Guid id)
-    {
-        var item = new Movie();
-        EntrypointTestHelpers.SetPropertyOrField(item, "Id", id);
-        EntrypointTestHelpers.EnsureNonVirtual(item);
-        return item;
     }
 
     private static MediaSegmentDto CreateSegment(MediaSegmentType type, long startTicks, long endTicks, Guid id = default, Guid itemId = default)

@@ -135,7 +135,6 @@ public sealed class TestDbSegmentStorage
             Assert.Equal(TickConversions.FromSeconds(10), segment.StartTicks);
             Assert.Equal(TickConversions.FromSeconds(60), segment.EndTicks);
             Assert.Equal(SegmentSource.User, segment.Source);
-            Assert.True(segment.IsUserProvided);
             Assert.Equal(SegmentState.Active, segment.State);
             Assert.Equal("hash", segment.ConfigHash);
         }

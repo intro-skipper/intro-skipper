@@ -6,6 +6,7 @@
 namespace IntroSkipper.Tests;
 
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.IO;
 using System.Reflection;
@@ -14,10 +15,12 @@ using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using IntroSkipper.Configuration;
+using IntroSkipper.Data;
 using IntroSkipper.FFmpeg;
 using IntroSkipper.Manager;
 using IntroSkipper.Services;
 using MediaBrowser.Controller.Entities;
+using MediaBrowser.Controller.Entities.Movies;
 using MediaBrowser.Controller.Library;
 using MediaBrowser.Model.Entities;
 using MediaBrowser.Model.Plugins;
@@ -75,6 +78,25 @@ internal static class EntrypointTestHelpers
     // and returns null for any other id. Shared by the controller and refresh-service tests.
     internal static ILibraryManager CreateLibraryManager(params BaseItem[] items)
         => LibraryManagerProxy.Create(items);
+
+    /// <summary>
+    /// Scopes a plugin instance around a single movie library item: the library manager
+    /// resolves the movie, the configuration carries the given mirror flag, and the
+    /// analysis queue is empty. Shared by the controller test suites.
+    /// </summary>
+    internal static PluginInstanceScope CreateMoviePluginScope(Guid itemId, bool updateMediaSegments, out Movie item)
+    {
+        var scope = new PluginInstanceScope(CreateTempCacheDir());
+        item = new Movie();
+        SetPropertyOrField(item, "Id", itemId);
+        EnsureNonVirtual(item);
+
+        var plugin = Plugin.Instance!;
+        SetPropertyOrField(plugin, "Configuration", new PluginConfiguration { UpdateMediaSegments = updateMediaSegments });
+        SetPrivateField(plugin, "_libraryManager", CreateLibraryManager(item));
+        SetPropertyOrField(plugin, "QueuedMediaItems", new ConcurrentDictionary<Guid, List<QueuedEpisode>>());
+        return scope;
+    }
 
     private class LibraryManagerProxy : DispatchProxy
     {

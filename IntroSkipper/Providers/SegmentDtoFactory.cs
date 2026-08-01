@@ -33,31 +33,18 @@ public sealed class SegmentDtoFactory(IIntroSkipperDatabase database)
     /// <returns>The converted segments, ordered by type and start time.</returns>
     public async Task<IReadOnlyList<MediaSegmentDto>> CreateAsync(Guid itemId, CancellationToken cancellationToken)
     {
-        var segments = new List<MediaSegmentDto>();
         var itemSegments = await _database.GetServableSegmentsAsync(itemId, cancellationToken).ConfigureAwait(false);
 
-        foreach (var segment in itemSegments)
+        // Stored rows always satisfy end > start and carry a mapped mode (every write
+        // boundary validates); a violation surfaces loudly at the Jellyfin write instead
+        // of being silently dropped here.
+        return [.. itemSegments.Select(segment => new MediaSegmentDto
         {
-            if (!AnalysisHelpers.ModeToSegmentType.TryGetValue(segment.Type, out var type))
-            {
-                continue;
-            }
-
-            if (segment.EndTicks <= segment.StartTicks)
-            {
-                continue;
-            }
-
-            segments.Add(new MediaSegmentDto
-            {
-                Id = segment.Id,
-                StartTicks = segment.StartTicks,
-                EndTicks = segment.EndTicks,
-                ItemId = itemId,
-                Type = type
-            });
-        }
-
-        return segments;
+            Id = segment.Id,
+            StartTicks = segment.StartTicks,
+            EndTicks = segment.EndTicks,
+            ItemId = itemId,
+            Type = AnalysisHelpers.ModeToSegmentType[segment.Type]
+        })];
     }
 }

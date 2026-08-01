@@ -7,7 +7,6 @@ using IntroSkipper.Db;
 using IntroSkipper.Helper;
 using IntroSkipper.Manager;
 using MediaBrowser.Common.Api;
-using MediaBrowser.Controller.Entities;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
@@ -26,13 +25,18 @@ namespace IntroSkipper.Controllers;
 /// </remarks>
 /// <param name="database">Segment database facade.</param>
 /// <param name="mediaSegmentEditorService">Media segment editor service.</param>
+/// <param name="mediaSegmentRefresher">Jellyfin media segment refresher.</param>
 [Authorize]
 [ApiController]
 [Produces(MediaTypeNames.Application.Json)]
-public class SegmentsController(IIntroSkipperDatabase database, MediaSegmentEditorService mediaSegmentEditorService) : ControllerBase
+public class SegmentsController(
+    IIntroSkipperDatabase database,
+    MediaSegmentEditorService mediaSegmentEditorService,
+    IMediaSegmentRefresher mediaSegmentRefresher) : ControllerBase
 {
     private readonly IIntroSkipperDatabase _database = database;
     private readonly MediaSegmentEditorService _mediaSegmentEditorService = mediaSegmentEditorService;
+    private readonly IMediaSegmentRefresher _mediaSegmentRefresher = mediaSegmentRefresher;
 
     /// <summary>
     /// Gets all stored segments of an item, ordered by type and start time.
@@ -52,7 +56,7 @@ public class SegmentsController(IIntroSkipperDatabase database, MediaSegmentEdit
         [FromQuery] bool includeSuppressed = false,
         CancellationToken cancellationToken = default)
     {
-        if (ResolveItem(itemId) is null)
+        if (MediaItemHelper.FindSupported(itemId) is null)
         {
             return NotFound();
         }
@@ -84,7 +88,7 @@ public class SegmentsController(IIntroSkipperDatabase database, MediaSegmentEdit
     {
         ArgumentNullException.ThrowIfNull(request);
 
-        var item = ResolveItem(itemId);
+        var item = MediaItemHelper.FindSupported(itemId);
         if (item is null)
         {
             return NotFound();
@@ -96,7 +100,7 @@ public class SegmentsController(IIntroSkipperDatabase database, MediaSegmentEdit
         }
 
         var row = await _database.AddUserSegmentAsync(itemId, request.Type, startTicks, endTicks, cancellationToken).ConfigureAwait(false);
-        await _mediaSegmentEditorService.SyncItemAsync(item, cancellationToken).ConfigureAwait(false);
+        await _mediaSegmentRefresher.RefreshStrictAsync(item, cancellationToken).ConfigureAwait(false);
         return CreatedAtAction(nameof(GetSegments), new { itemId }, SegmentDto.FromDbSegment(row));
     }
 
@@ -126,7 +130,7 @@ public class SegmentsController(IIntroSkipperDatabase database, MediaSegmentEdit
     {
         ArgumentNullException.ThrowIfNull(request);
 
-        var item = ResolveItem(itemId);
+        var item = MediaItemHelper.FindSupported(itemId);
         if (item is null)
         {
             return NotFound();
@@ -143,7 +147,7 @@ public class SegmentsController(IIntroSkipperDatabase database, MediaSegmentEdit
             return NotFound();
         }
 
-        await _mediaSegmentEditorService.SyncItemAsync(item, cancellationToken).ConfigureAwait(false);
+        await _mediaSegmentRefresher.RefreshStrictAsync(item, cancellationToken).ConfigureAwait(false);
         return Ok(SegmentDto.FromDbSegment(updated));
     }
 
@@ -166,7 +170,7 @@ public class SegmentsController(IIntroSkipperDatabase database, MediaSegmentEdit
         [FromRoute] Guid segmentId,
         CancellationToken cancellationToken = default)
     {
-        var item = ResolveItem(itemId);
+        var item = MediaItemHelper.FindSupported(itemId);
         if (item is null)
         {
             return NotFound();
@@ -205,7 +209,7 @@ public class SegmentsController(IIntroSkipperDatabase database, MediaSegmentEdit
         [FromRoute] Guid segmentId,
         CancellationToken cancellationToken = default)
     {
-        var item = ResolveItem(itemId);
+        var item = MediaItemHelper.FindSupported(itemId);
         if (item is null)
         {
             return NotFound();
@@ -217,13 +221,7 @@ public class SegmentsController(IIntroSkipperDatabase database, MediaSegmentEdit
             return NotFound();
         }
 
-        await _mediaSegmentEditorService.SyncItemAsync(item, cancellationToken).ConfigureAwait(false);
+        await _mediaSegmentRefresher.RefreshStrictAsync(item, cancellationToken).ConfigureAwait(false);
         return Ok(SegmentDto.FromDbSegment(restored));
-    }
-
-    private static BaseItem? ResolveItem(Guid itemId)
-    {
-        var item = Plugin.Instance!.GetItem(itemId);
-        return MediaItemHelper.IsSupported(item) ? item : null;
     }
 }
