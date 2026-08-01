@@ -204,6 +204,77 @@ public sealed class TestMediaSegmentEditorService
         Assert.Empty(pushed);
     }
 
+    [Fact]
+    public async Task DeleteOwnSegments_WaitsForParkedSyncOfSameItem()
+    {
+        var itemId = Guid.NewGuid();
+        var writeEntered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var store = new FakeJellyfinSegmentStore
+        {
+            WriteGate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously),
+            WriteEntered = writeEntered,
+            BlockedItemId = itemId
+        };
+        var mirror = DatabaseTestHelpers.CreateMirror(store, DatabaseTestHelpers.CreateTempSegmentDatabase());
+
+        // Park a sync between its plugin-database read and its store replace, holding
+        // the item's stripe — the stale-cleanup adversary: if the bulk delete ran now,
+        // the stale replace would land after it and resurrect rows whose plugin source
+        // the cleanup caller is about to remove.
+        var sync = mirror.SyncItemAsync(itemId, CancellationToken.None);
+        await writeEntered.Task;
+
+        var cleanup = mirror.DeleteOwnSegmentsAsync([itemId], CancellationToken.None);
+
+        // The cleanup must serialize behind the parked sync instead of interleaving.
+        Assert.NotSame(cleanup, await Task.WhenAny(cleanup, Task.Delay(TimeSpan.FromMilliseconds(250))));
+        Assert.Empty(store.DeletedOwnItemIds);
+
+        store.WriteGate!.SetResult();
+        await sync;
+        await cleanup;
+
+        // The stale replace landed first and the delete last, so the item converges
+        // to no Jellyfin rows.
+        Assert.Single(store.ReplacedItems);
+        Assert.Equal([itemId], store.DeletedOwnItemIds);
+    }
+
+    [Fact]
+    public async Task DeleteSegmentAsync_CancellationAfterCommittedJellyfinDelete_StillResetsAnalyzedState()
+    {
+        var itemId = Guid.NewGuid();
+        var dbPath = DatabaseTestHelpers.CreateTempDbPath(Guid.NewGuid().ToString("N") + "-editor-cancel.db");
+        using var scope = EntrypointTestHelpers.CreateMoviePluginScope(itemId, updateMediaSegments: true, out _);
+        try
+        {
+            var database = DatabaseTestHelpers.CreateSegmentDatabase(dbPath);
+            await database.ReplaceAutoSegmentsAsync(
+                itemId, AnalysisMode.Introduction, [new Segment(itemId, new TimeRange(10, 20))], SegmentSource.Chapter);
+            var row = Assert.Single(await database.GetSegmentsAsync(itemId));
+            await database.SetEpisodeIdsAsync(itemId, AnalysisMode.Introduction, [itemId]);
+
+            // Cancel at the exact point where the Jellyfin delete has committed: the
+            // cascade cannot be retried (a repeated DELETE 404s on the tombstoned row),
+            // so the analyzed-state reset must complete despite the cancellation or the
+            // item stays marked analyzed forever.
+            using var cts = new CancellationTokenSource();
+            var store = new FakeJellyfinSegmentStore { DeleteSegmentCallback = () => cts.Cancel() };
+            var service = DatabaseTestHelpers.CreateEditorService(store, database);
+
+            var deleted = await service.DeleteSegmentAsync(itemId, row.Id, cts.Token);
+
+            Assert.NotNull(deleted);
+            Assert.Equal([(itemId, row.Id)], store.DeletedSegments);
+            var snapshot = await database.GetSeasonQueueSnapshotAsync(itemId, [itemId]);
+            Assert.DoesNotContain(itemId, snapshot.EpisodeIdsByMode[AnalysisMode.Introduction]);
+        }
+        finally
+        {
+            DatabaseTestHelpers.DeleteSqliteFiles(dbPath);
+        }
+    }
+
     /// <summary>
     /// Scopes a plugin instance with an empty library manager so the delete cascade's
     /// item lookup (for the season-state reset) resolves to null instead of crashing.

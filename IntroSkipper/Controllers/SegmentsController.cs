@@ -70,7 +70,7 @@ public class SegmentsController(
     /// <param name="request">Segment to create.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <response code="201">The created segment.</response>
-    /// <response code="400">The boundaries are invalid.</response>
+    /// <response code="400">The boundaries or the segment type are invalid.</response>
     /// <response code="404">The item is not an episode or movie.</response>
     /// <returns>The created segment DTO.</returns>
     [Authorize(Policy = Policies.RequiresElevation)]
@@ -89,6 +89,13 @@ public class SegmentsController(
         if (item is null)
         {
             return NotFound();
+        }
+
+        // The enum-string converter also accepts raw integers, so an undefined numeric
+        // mode binds successfully; reject it here so no unservable row is ever committed.
+        if (!Enum.IsDefined(request.Type))
+        {
+            return BadRequest($"Unknown segment type '{(int)request.Type}'.");
         }
 
         if (!TickConversions.TryFromSecondsRange(request.Start, request.End, out var startTicks, out var endTicks))

@@ -32,6 +32,13 @@ internal sealed class FakeJellyfinSegmentStore : IJellyfinSegmentStore
 
     public Exception? DeleteSegmentException { get; init; }
 
+    /// <summary>
+    /// Gets a callback invoked after a successful <see cref="DeleteSegmentAsync"/> is
+    /// recorded, e.g. to cancel a token at the exact point where the Jellyfin delete
+    /// has already committed.
+    /// </summary>
+    public Action? DeleteSegmentCallback { get; init; }
+
     public Exception? DeleteOwnException { get; init; }
 
     public TaskCompletionSource? WriteGate { get; init; }
@@ -88,6 +95,7 @@ internal sealed class FakeJellyfinSegmentStore : IJellyfinSegmentStore
     {
         ThrowIfConfigured(DeleteSegmentException);
         DeletedSegments.Add((itemId, segmentId));
+        DeleteSegmentCallback?.Invoke();
         return Task.FromResult(MissingSegmentIds.Contains(segmentId) ? 0 : 1);
     }
 

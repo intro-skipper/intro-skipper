@@ -213,7 +213,10 @@ public partial class MediaSegmentEditorService(
     /// (rolling any plugin delete back on failure; uncancelable once started) and the
     /// season-state reset. A deleted plugin row whose Jellyfin row is not found signals
     /// drift (a concurrent refresh removed it first, or the server stopped preserving
-    /// provider-supplied ids), so the item's mirror is re-synced with a warning.
+    /// provider-supplied ids), so the item's mirror is re-synced with a warning. Once
+    /// the Jellyfin delete has committed, the season-state reset runs uncancelably: the
+    /// deleted row cannot be deleted again, so a canceled reset could never be retried
+    /// and would strand the item in the analyzed set.
     /// </summary>
     private async Task DeleteMirrorRowAndResetStateAsync(Guid itemId, AnalysisMode resetMode, Guid jellyfinSegmentId, DbSegment? deletedPluginRow, CancellationToken cancellationToken)
     {
@@ -235,7 +238,10 @@ public partial class MediaSegmentEditorService(
         var item = Plugin.Instance!.GetItem(itemId);
         if (item is not null)
         {
-            await _database.RemoveEpisodeIdAsync(SeasonStateKeyResolver.Resolve(item), resetMode, itemId, cancellationToken).ConfigureAwait(false);
+            // Uncancelable: the deletes above are committed and a retried request 404s
+            // before reaching this repair, so honoring a cancellation here would leave
+            // the item permanently marked analyzed and re-analysis skipping it.
+            await _database.RemoveEpisodeIdAsync(SeasonStateKeyResolver.Resolve(item), resetMode, itemId, CancellationToken.None).ConfigureAwait(false);
         }
     }
 

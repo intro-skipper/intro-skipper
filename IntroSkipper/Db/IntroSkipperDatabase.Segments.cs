@@ -22,6 +22,7 @@ public sealed partial class IntroSkipperDatabase
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(segments);
+        ValidateMode(mode);
         if (source == SegmentSource.User)
         {
             throw new ArgumentException("Analysis writes must not use the User source.", nameof(source));
@@ -129,6 +130,7 @@ public sealed partial class IntroSkipperDatabase
         long endTicks,
         CancellationToken cancellationToken = default)
     {
+        ValidateMode(mode);
         ValidateRange(startTicks, endTicks);
 
         await InitializeAsync().ConfigureAwait(false);
@@ -163,6 +165,7 @@ public sealed partial class IntroSkipperDatabase
         long endTicks,
         CancellationToken cancellationToken = default)
     {
+        ValidateMode(mode);
         ValidateRange(startTicks, endTicks);
 
         await InitializeAsync().ConfigureAwait(false);
@@ -438,6 +441,18 @@ public sealed partial class IntroSkipperDatabase
     {
         ArgumentOutOfRangeException.ThrowIfNegative(startTicks);
         ArgumentOutOfRangeException.ThrowIfLessThanOrEqual(endTicks, startTicks);
+    }
+
+    // Every stored row must carry a defined mode: downstream conversions index
+    // AnalysisHelpers.ModeToSegmentType with it, so a persisted undefined mode would
+    // poison every later mirror of the item. HTTP edges reject undefined modes with
+    // 400; this guards the invariant at the write boundary itself.
+    private static void ValidateMode(AnalysisMode mode)
+    {
+        if (!Enum.IsDefined(mode))
+        {
+            throw new ArgumentOutOfRangeException(nameof(mode), mode, "Undefined analysis mode.");
+        }
     }
 
     // The extended result codes cover the Id primary key and the (ItemId, Type,

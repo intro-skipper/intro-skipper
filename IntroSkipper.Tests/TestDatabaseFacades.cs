@@ -52,6 +52,35 @@ public sealed class TestDatabaseFacades
     }
 
     [Fact]
+    public async Task SegmentWrites_RejectUndefinedMode_WithoutPersistingAnything()
+    {
+        var dbPath = CreateTempDbPath();
+        var itemId = Guid.NewGuid();
+        try
+        {
+            var database = DatabaseTestHelpers.CreateSegmentDatabase(dbPath);
+            var undefined = (AnalysisMode)999;
+
+            // A persisted undefined mode would poison every later conversion of the
+            // item (ModeToSegmentType indexing throws), so the facade rejects it at
+            // every write that stamps a Type.
+            await Assert.ThrowsAsync<ArgumentOutOfRangeException>(
+                () => database.AddUserSegmentAsync(itemId, undefined, Ticks(10), Ticks(20)));
+            await Assert.ThrowsAsync<ArgumentOutOfRangeException>(
+                () => database.ReplaceUserSegmentAsync(itemId, undefined, Ticks(10), Ticks(20)));
+            await Assert.ThrowsAsync<ArgumentOutOfRangeException>(
+                () => database.ReplaceAutoSegmentsAsync(
+                    itemId, undefined, [new Segment(itemId, new TimeRange(10, 20))], SegmentSource.Chapter));
+
+            Assert.Empty(await database.GetSegmentsAsync(itemId, includeSuppressed: true));
+        }
+        finally
+        {
+            DeleteSqliteFiles(dbPath);
+        }
+    }
+
+    [Fact]
     public async Task ReplaceAutoSegmentsAsync_DoesNotOverwriteOverlappingUserSegment()
     {
         var dbPath = CreateTempDbPath();

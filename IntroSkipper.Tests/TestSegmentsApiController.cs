@@ -171,6 +171,35 @@ public sealed class TestSegmentsApiController
     }
 
     [Fact]
+    public async Task CreateSegment_BadRequest_ForUndefinedNumericMode()
+    {
+        var itemId = Guid.NewGuid();
+        var dbPath = CreateTempDbPath();
+        using var pluginScope = EntrypointTestHelpers.CreateMoviePluginScope(itemId, updateMediaSegments: true, out _);
+        try
+        {
+            var database = DatabaseTestHelpers.CreateSegmentDatabase(dbPath);
+            var controller = CreateController(database, out var store);
+
+            // The enum-string converter also binds raw integers, so an undefined numeric
+            // mode reaches the action; it must be rejected before the database write —
+            // a committed row would fail every later mirror of the item.
+            var response = await controller.CreateSegment(
+                itemId,
+                new CreateSegmentRequest((AnalysisMode)999, 10, 20),
+                CancellationToken.None);
+
+            Assert.IsType<BadRequestObjectResult>(response.Result);
+            Assert.Empty(await database.GetSegmentsAsync(itemId, includeSuppressed: true));
+            Assert.Empty(store.ReplacedItems);
+        }
+        finally
+        {
+            DatabaseTestHelpers.DeleteSqliteFiles(dbPath);
+        }
+    }
+
+    [Fact]
     public async Task UpdateSegment_MovesBoundaries_404ForWrongItem_MergesOnExactCollision()
     {
         var itemId = Guid.NewGuid();

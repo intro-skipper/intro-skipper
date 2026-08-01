@@ -8,8 +8,8 @@ namespace IntroSkipper.Manager;
 
 /// <summary>
 /// The plugin's write path into Jellyfin's media segments: per-item locked convergence
-/// (<see cref="SyncItemAsync"/>) and targeted delete (<see cref="DeleteSegmentAsync"/>),
-/// plus one deliberately lock-free bulk cleanup (<see cref="DeleteOwnSegmentsAsync"/>).
+/// (<see cref="SyncItemAsync"/>), targeted delete (<see cref="DeleteSegmentAsync"/>),
+/// and a stripe-serialized bulk cleanup (<see cref="DeleteOwnSegmentsAsync"/>).
 /// Other providers' segments are never touched, and every operation no-ops when
 /// mirroring is disabled (<see cref="MediaSegmentMirrorPolicy"/>), so callers never
 /// gate it. The one writer that bypasses this class is Jellyfin itself: it persists
@@ -74,22 +74,32 @@ public sealed class MediaSegmentMirror(IJellyfinSegmentStore segmentStore, Segme
 
     /// <summary>
     /// Deletes every Intro Skipper segment row for the given item ids, including items
-    /// no longer in the library. Deliberately lock-free: one bulk statement across many
-    /// items has no single stripe to hold, and taking the whole pool would stall every
-    /// item write for the duration. Accepted race: a concurrent per-item write can
-    /// interleave with the bulk delete, leaving that item's plugin and Jellyfin rows
-    /// diverged until a later edit or analysis syncs it.
+    /// no longer in the library. The ids are grouped by lock stripe and each group's
+    /// delete runs while holding its stripe, so the cleanup serializes with every
+    /// per-item mirror write: an in-flight <see cref="SyncItemAsync"/> holding a stale
+    /// plugin-database read cannot land its replace after this cleanup and resurrect
+    /// rows whose plugin source the caller is removing, and any sync that starts later
+    /// re-reads the plugin database and converges on what the caller left there.
+    /// Grouping keeps each hold to one stripe (never the whole pool) and each group to
+    /// one bulk statement.
     /// </summary>
     /// <param name="itemIds">The item ids whose Intro Skipper segments should be removed.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>A <see cref="Task"/> representing the asynchronous operation.</returns>
     public async Task DeleteOwnSegmentsAsync(IEnumerable<Guid> itemIds, CancellationToken cancellationToken)
     {
+        ArgumentNullException.ThrowIfNull(itemIds);
+
         if (!MediaSegmentMirrorPolicy.Enabled)
         {
             return;
         }
 
-        await segmentStore.DeleteOwnSegmentsAsync(itemIds, cancellationToken).ConfigureAwait(false);
+        foreach (var stripeGroup in itemIds.GroupBy(StripedAsyncLock.StripeIndex))
+        {
+            var ids = stripeGroup.ToList();
+            using var stripe = await _lock.AcquireAsync(ids[0], cancellationToken).ConfigureAwait(false);
+            await segmentStore.DeleteOwnSegmentsAsync(ids, cancellationToken).ConfigureAwait(false);
+        }
     }
 }
