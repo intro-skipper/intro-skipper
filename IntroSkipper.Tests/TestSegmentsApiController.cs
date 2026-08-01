@@ -332,8 +332,7 @@ public sealed class TestSegmentsApiController
     {
         store = new FakeJellyfinSegmentStore { DeleteSegmentException = deleteException };
         var editorService = DatabaseTestHelpers.CreateEditorService(store, database);
-        var refresher = DatabaseTestHelpers.CreateRefreshService(store, database);
-        return new SegmentsController(database, editorService, refresher);
+        return new SegmentsController(database, editorService);
     }
 
     private static string CreateTempDbPath()

@@ -13,12 +13,14 @@ using MediaBrowser.Model.MediaSegments;
 
 /// <summary>
 /// Hand-rolled <see cref="IJellyfinSegmentStore"/> fake: records calls, serves
-/// <see cref="ExistingSegments"/> lookups, and optionally throws or parks write calls
-/// for <see cref="BlockedItemId"/> on <see cref="WriteGate"/> after recording them.
+/// <see cref="ExistingSegments"/> lookups, and optionally throws or parks the first
+/// write for <see cref="BlockedItemId"/> on <see cref="WriteGate"/> after recording it.
+/// Releasing the gate with SetException fails exactly that write; later writes succeed.
 /// </summary>
 internal sealed class FakeJellyfinSegmentStore : IJellyfinSegmentStore
 {
     private int _writeCount;
+    private int _gatedWriteParked;
 
     /// <summary>
     /// Gets the segments served by <see cref="GetSegmentAsync"/>, matched by item id and
@@ -91,7 +93,8 @@ internal sealed class FakeJellyfinSegmentStore : IJellyfinSegmentStore
 
     private async Task WaitIfGatedAsync(Guid itemId)
     {
-        if (WriteGate is not null && itemId == BlockedItemId)
+        if (WriteGate is not null && itemId == BlockedItemId
+            && Interlocked.Exchange(ref _gatedWriteParked, 1) == 0)
         {
             WriteEntered?.TrySetResult();
             await WriteGate.Task;

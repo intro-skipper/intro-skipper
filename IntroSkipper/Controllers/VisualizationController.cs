@@ -33,6 +33,7 @@ namespace IntroSkipper.Controllers;
 /// </remarks>
 /// <param name="logger">Logger.</param>
 /// <param name="mediaSegmentRefresher">Media segment refresher.</param>
+/// <param name="mediaSegmentEditorService">Media segment editor service; owns the disable-flag mutation end-to-end.</param>
 /// <param name="libraryManager">libraryManager.</param>
 /// <param name="analyzerFactory">Factory for per-run queue managers and analyzer tasks.</param>
 /// <param name="database">Segment database facade.</param>
@@ -41,20 +42,11 @@ namespace IntroSkipper.Controllers;
 [ApiController]
 [Produces(MediaTypeNames.Application.Json)]
 [Route("Intros")]
-public partial class VisualizationController(ILogger<VisualizationController> logger, IMediaSegmentRefresher mediaSegmentRefresher, ILibraryManager libraryManager, AnalyzerTaskFactory analyzerFactory, IIntroSkipperDatabase database, IDetectionCacheDatabase cacheDatabase) : ControllerBase
+public partial class VisualizationController(ILogger<VisualizationController> logger, IMediaSegmentRefresher mediaSegmentRefresher, MediaSegmentEditorService mediaSegmentEditorService, ILibraryManager libraryManager, AnalyzerTaskFactory analyzerFactory, IIntroSkipperDatabase database, IDetectionCacheDatabase cacheDatabase) : ControllerBase
 {
-    // Disable-flag mutations must be linearizable per item: the flag write, the strict
-    // mirror sync, and any rollback form one unit. Without this, a concurrent request
-    // can observe a flag value that a failing request is about to roll back, and the
-    // unconditional rollback can clobber the later mutation. Static because controllers
-    // are per-request while the state they mutate is not. One lock for all items:
-    // cross-item serialization is harmless for these rare interactive calls. Separate
-    // from MediaSegmentMirror's stripes, so lock order is always mutation lock ->
-    // mirror stripe and never the reverse.
-    private static readonly SemaphoreSlim _disableMutationLock = new(1, 1);
-
     private readonly ILogger<VisualizationController> _logger = logger;
     private readonly IMediaSegmentRefresher _mediaSegmentRefresher = mediaSegmentRefresher;
+    private readonly MediaSegmentEditorService _mediaSegmentEditorService = mediaSegmentEditorService;
     private readonly ILibraryManager _libraryManager = libraryManager;
     private readonly AnalyzerTaskFactory _analyzerFactory = analyzerFactory;
     private readonly IIntroSkipperDatabase _database = database;
@@ -280,45 +272,20 @@ public partial class VisualizationController(ILogger<VisualizationController> lo
             return NotFound();
         }
 
-        // The row's season key is a server-side pruning detail; clients only name
-        // the item.
-        var seasonKey = SeasonStateKeyResolver.Resolve(item);
-
-        await _disableMutationLock.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
-            var previous = await _database.SetItemDisabledAsync(seasonKey, itemId, disabled, cancellationToken).ConfigureAwait(false);
-
-            try
-            {
-                // Resync in both directions: disabling strips the automatic rows from the
-                // mirror, enabling restores them from the untouched plugin rows. Strict:
-                // this interactive mutation must not report success while Jellyfin may
-                // still serve the old rows. Runs even when the flag write was a no-op,
-                // so retrying after a failed rollback still repairs the mirror.
-                await _mediaSegmentRefresher.RefreshStrictAsync(item, cancellationToken).ConfigureAwait(false);
-            }
-            catch (Exception ex)
-            {
-                // The mirror kept its old rows, so restore the stored flag; otherwise the
-                // preference would silently disagree with what Jellyfin serves. Safe while
-                // the lock is held: no other mutation for this item can have interleaved,
-                // so `previous` is still the value this request replaced. Not bound to
-                // request cancellation: the rollback must complete once started.
-                await _database.SetItemDisabledAsync(seasonKey, itemId, previous, CancellationToken.None).ConfigureAwait(false);
-
-                if (ex is OperationCanceledException)
-                {
-                    throw;
-                }
-
-                LogFailedToSetItemDisabled(_logger, ex, itemId, disabled);
-                return Problem("The media segment mirror could not be refreshed; the change was rolled back.", statusCode: StatusCodes.Status500InternalServerError);
-            }
+            // The editor service owns the whole mutation as one per-item linearized
+            // unit: flag write, strict mirror resync, and flag rollback on failure.
+            await _mediaSegmentEditorService.SetItemDisabledAsync(item, disabled, cancellationToken).ConfigureAwait(false);
         }
-        finally
+        catch (OperationCanceledException)
         {
-            _disableMutationLock.Release();
+            throw;
+        }
+        catch (Exception ex)
+        {
+            LogFailedToSetItemDisabled(_logger, ex, itemId, disabled);
+            return Problem("The media segment mirror could not be refreshed; the change was rolled back.", statusCode: StatusCodes.Status500InternalServerError);
         }
 
         return NoContent();

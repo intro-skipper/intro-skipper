@@ -24,19 +24,16 @@ namespace IntroSkipper.Controllers;
 /// Initializes a new instance of the <see cref="SegmentsController"/> class.
 /// </remarks>
 /// <param name="database">Segment database facade.</param>
-/// <param name="mediaSegmentEditorService">Media segment editor service.</param>
-/// <param name="mediaSegmentRefresher">Jellyfin media segment refresher.</param>
+/// <param name="mediaSegmentEditorService">Media segment editor service; owns every mutation end-to-end.</param>
 [Authorize]
 [ApiController]
 [Produces(MediaTypeNames.Application.Json)]
 public class SegmentsController(
     IIntroSkipperDatabase database,
-    MediaSegmentEditorService mediaSegmentEditorService,
-    IMediaSegmentRefresher mediaSegmentRefresher) : ControllerBase
+    MediaSegmentEditorService mediaSegmentEditorService) : ControllerBase
 {
     private readonly IIntroSkipperDatabase _database = database;
     private readonly MediaSegmentEditorService _mediaSegmentEditorService = mediaSegmentEditorService;
-    private readonly IMediaSegmentRefresher _mediaSegmentRefresher = mediaSegmentRefresher;
 
     /// <summary>
     /// Gets all stored segments of an item, ordered by type and start time.
@@ -99,8 +96,9 @@ public class SegmentsController(
             return BadRequest("Start must be non-negative and End must be after Start.");
         }
 
-        var row = await _database.AddUserSegmentAsync(itemId, request.Type, startTicks, endTicks, cancellationToken).ConfigureAwait(false);
-        await _mediaSegmentRefresher.RefreshStrictAsync(item, cancellationToken).ConfigureAwait(false);
+        var row = await _mediaSegmentEditorService
+            .CreateUserSegmentAsync(itemId, request.Type, startTicks, endTicks, cancellationToken)
+            .ConfigureAwait(false);
         return CreatedAtAction(nameof(GetSegments), new { itemId }, SegmentDto.FromDbSegment(row));
     }
 
@@ -141,13 +139,14 @@ public class SegmentsController(
             return BadRequest("Start must be non-negative and End must be after Start.");
         }
 
-        var updated = await _database.UpdateSegmentAsync(itemId, segmentId, startTicks, endTicks, cancellationToken).ConfigureAwait(false);
+        var updated = await _mediaSegmentEditorService
+            .UpdateSegmentAsync(itemId, segmentId, startTicks, endTicks, cancellationToken)
+            .ConfigureAwait(false);
         if (updated is null)
         {
             return NotFound();
         }
 
-        await _mediaSegmentRefresher.RefreshStrictAsync(item, cancellationToken).ConfigureAwait(false);
         return Ok(SegmentDto.FromDbSegment(updated));
     }
 
@@ -181,7 +180,7 @@ public class SegmentsController(
         // Jellyfin row, and the season-state reset (mode comes from the deleted row).
         // The Jellyfin row shares the segment id.
         var deleted = await _mediaSegmentEditorService
-            .DeleteStoredSegmentAsync(itemId, null, segmentId, segmentId, cancellationToken)
+            .DeleteSegmentAsync(itemId, segmentId, cancellationToken)
             .ConfigureAwait(false);
         if (deleted is null)
         {
@@ -215,13 +214,14 @@ public class SegmentsController(
             return NotFound();
         }
 
-        var restored = await _database.RestoreSegmentAsync(itemId, segmentId, cancellationToken).ConfigureAwait(false);
+        var restored = await _mediaSegmentEditorService
+            .RestoreSegmentAsync(itemId, segmentId, cancellationToken)
+            .ConfigureAwait(false);
         if (restored is null)
         {
             return NotFound();
         }
 
-        await _mediaSegmentRefresher.RefreshStrictAsync(item, cancellationToken).ConfigureAwait(false);
         return Ok(SegmentDto.FromDbSegment(restored));
     }
 }

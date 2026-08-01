@@ -231,14 +231,16 @@ public sealed class TestVisualizationController
             "_libraryManager",
             EntrypointTestHelpers.CreateLibraryManager(CreateEpisodeItem(episodeIds[0], seasonId)));
         var refresher = new RecordingMediaSegmentRefresher();
+        var store = new FakeJellyfinSegmentStore();
         using var loggerFactory = LoggerFactory.Create(builder => { });
         var database = DatabaseTestHelpers.CreateSegmentDatabase(dbPath);
-        var controller = CreateController(refresher, loggerFactory, database, pluginScope.CacheDbPath);
+        var controller = CreateController(
+            refresher, loggerFactory, database, pluginScope.CacheDbPath, DatabaseTestHelpers.CreateEditorService(store, database));
 
         var putResult = await controller.DisableItem(episodeIds[0], CancellationToken.None);
 
         Assert.IsType<NoContentResult>(putResult);
-        Assert.Equal([episodeIds[0]], refresher.LastItemIds);
+        Assert.Equal(episodeIds[0], Assert.Single(store.ReplacedItems).ItemId);
         Assert.Equal([episodeIds[0]], await database.GetDisabledItemIdsAsync(seasonId));
 
         var getResult = await controller.GetDisabledItems(seasonId, CancellationToken.None);
@@ -251,8 +253,10 @@ public sealed class TestVisualizationController
 
         Assert.IsType<NoContentResult>(deleteResult);
 
-        // Both directions resync the item's mirror through the strict path.
-        Assert.Equal(2, refresher.StrictCallCount);
+        // Both directions resync the item's mirror through the editor service; the
+        // refresher (the bulk/lenient path) is not involved in the disable flow.
+        Assert.Equal(2, store.WriteCallCount);
+        Assert.Equal(0, refresher.StrictCallCount);
         Assert.Equal(0, refresher.CollectionCallCount);
         Assert.Empty(await database.GetDisabledItemIdsAsync(seasonId));
     }
@@ -269,15 +273,16 @@ public sealed class TestVisualizationController
             Plugin.Instance!,
             "_libraryManager",
             EntrypointTestHelpers.CreateLibraryManager(CreateEpisodeItem(episodeIds[0], seasonId)));
-        var refresher = new RecordingMediaSegmentRefresher();
+        var store = new FakeJellyfinSegmentStore();
         using var loggerFactory = LoggerFactory.Create(builder => { });
         var database = DatabaseTestHelpers.CreateSegmentDatabase(dbPath);
-        var controller = CreateController(refresher, loggerFactory, database, pluginScope.CacheDbPath);
+        var controller = CreateController(
+            new RecordingMediaSegmentRefresher(), loggerFactory, database, pluginScope.CacheDbPath, DatabaseTestHelpers.CreateEditorService(store, database));
 
         var unknown = await controller.DisableItem(Guid.NewGuid(), CancellationToken.None);
 
         Assert.IsType<NotFoundResult>(unknown);
-        Assert.Equal(0, refresher.StrictCallCount);
+        Assert.Equal(0, store.WriteCallCount);
         Assert.Empty(await database.GetDisabledItemIdsAsync(seasonId));
     }
 
@@ -293,13 +298,14 @@ public sealed class TestVisualizationController
             Plugin.Instance!,
             "_libraryManager",
             EntrypointTestHelpers.CreateLibraryManager(CreateEpisodeItem(episodeIds[0], seasonId)));
-        var refresher = new RecordingMediaSegmentRefresher
+        var store = new FakeJellyfinSegmentStore
         {
-            StrictException = new InvalidOperationException("mirror write failed")
+            WriteException = new InvalidOperationException("mirror write failed")
         };
         using var loggerFactory = LoggerFactory.Create(builder => { });
         var database = DatabaseTestHelpers.CreateSegmentDatabase(dbPath);
-        var controller = CreateController(refresher, loggerFactory, database, pluginScope.CacheDbPath);
+        var controller = CreateController(
+            new RecordingMediaSegmentRefresher(), loggerFactory, database, pluginScope.CacheDbPath, DatabaseTestHelpers.CreateEditorService(store, database));
 
         var result = await controller.DisableItem(episodeIds[0], CancellationToken.None);
 
@@ -322,14 +328,15 @@ public sealed class TestVisualizationController
             Plugin.Instance!,
             "_libraryManager",
             EntrypointTestHelpers.CreateLibraryManager(CreateEpisodeItem(episodeIds[0], seasonId)));
-        var refresher = new RecordingMediaSegmentRefresher
+        var store = new FakeJellyfinSegmentStore
         {
-            StrictException = new InvalidOperationException("mirror write failed")
+            WriteException = new InvalidOperationException("mirror write failed")
         };
         using var loggerFactory = LoggerFactory.Create(builder => { });
         var database = DatabaseTestHelpers.CreateSegmentDatabase(dbPath);
         await database.SetItemDisabledAsync(seasonId, episodeIds[0], disabled: true);
-        var controller = CreateController(refresher, loggerFactory, database, pluginScope.CacheDbPath);
+        var controller = CreateController(
+            new RecordingMediaSegmentRefresher(), loggerFactory, database, pluginScope.CacheDbPath, DatabaseTestHelpers.CreateEditorService(store, database));
 
         var result = await controller.EnableItem(episodeIds[0], CancellationToken.None);
 
@@ -351,15 +358,23 @@ public sealed class TestVisualizationController
             Plugin.Instance!,
             "_libraryManager",
             EntrypointTestHelpers.CreateLibraryManager(CreateEpisodeItem(episodeIds[0], seasonId)));
-        var refresher = new GatedStrictRefresher();
+        var writeEntered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var writeGate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var store = new FakeJellyfinSegmentStore
+        {
+            WriteGate = writeGate,
+            WriteEntered = writeEntered,
+            BlockedItemId = episodeIds[0]
+        };
         using var loggerFactory = LoggerFactory.Create(builder => { });
         var database = DatabaseTestHelpers.CreateSegmentDatabase(dbPath);
         await database.InitializeAsync();
-        var controller = CreateController(refresher, loggerFactory, database, pluginScope.CacheDbPath);
+        var controller = CreateController(
+            new RecordingMediaSegmentRefresher(), loggerFactory, database, pluginScope.CacheDbPath, DatabaseTestHelpers.CreateEditorService(store, database));
 
-        // Request A writes the flag, then parks inside its strict refresh.
+        // Request A writes the flag, then parks inside its strict mirror write.
         var requestA = controller.DisableItem(episodeIds[0], CancellationToken.None);
-        await refresher.FirstCallStarted.Task;
+        await writeEntered.Task;
 
         // Request B mutates the same item while A is in flight. It must serialize
         // behind A's whole mutation instead of observing A's uncommitted flag: if it
@@ -367,17 +382,75 @@ public sealed class TestVisualizationController
         // then silently clobber B's "successful" disable.
         var requestB = controller.DisableItem(episodeIds[0], CancellationToken.None);
         Assert.NotSame(requestB, await Task.WhenAny(requestB, Task.Delay(250)));
+        Assert.Equal(1, store.WriteCallCount);
 
-        // A's refresh now fails; the rollback must complete before B proceeds.
-        refresher.FailFirstCall.SetResult();
+        // A's mirror write now fails; the rollback must complete before B proceeds.
+        writeGate.SetException(new InvalidOperationException("mirror write failed"));
 
         var problem = Assert.IsType<ObjectResult>(await requestA);
         Assert.Equal(StatusCodes.Status500InternalServerError, problem.StatusCode);
         Assert.IsType<NoContentResult>(await requestB);
 
         // B reported success after A's rollback, so the item must end up disabled.
-        Assert.Equal(2, refresher.StrictCallCount);
+        Assert.Equal(2, store.WriteCallCount);
         Assert.Equal([episodeIds[0]], await database.GetDisabledItemIdsAsync(seasonId));
+    }
+
+    [Fact]
+    public async Task DisabledItems_ConcurrentSegmentCreateSerializesBehindFailingRollback()
+    {
+        var seriesId = Guid.NewGuid();
+        var seasonId = Guid.NewGuid();
+        var episodeIds = new[] { Guid.NewGuid(), Guid.NewGuid() };
+        var dbPath = CreateTempDbPath();
+        using var pluginScope = CreatePluginScope(seriesId, seasonId, episodeIds, updateMediaSegments: true);
+        EntrypointTestHelpers.SetPrivateField(
+            Plugin.Instance!,
+            "_libraryManager",
+            EntrypointTestHelpers.CreateLibraryManager(CreateEpisodeItem(episodeIds[0], seasonId)));
+        var writeEntered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var writeGate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var store = new FakeJellyfinSegmentStore
+        {
+            WriteGate = writeGate,
+            WriteEntered = writeEntered,
+            BlockedItemId = episodeIds[0]
+        };
+        using var loggerFactory = LoggerFactory.Create(builder => { });
+        var database = DatabaseTestHelpers.CreateSegmentDatabase(dbPath);
+        await database.ReplaceAutoSegmentsAsync(
+            episodeIds[0], AnalysisMode.Introduction, [new Segment(episodeIds[0], new TimeRange(10, 20))], SegmentSource.Chapter);
+        var editorService = DatabaseTestHelpers.CreateEditorService(store, database);
+        var controller = CreateController(
+            new RecordingMediaSegmentRefresher(), loggerFactory, database, pluginScope.CacheDbPath, editorService);
+        var segmentsController = new SegmentsController(database, editorService);
+
+        // Request A writes the disable flag, then parks inside its strict mirror write.
+        var requestA = controller.DisableItem(episodeIds[0], CancellationToken.None);
+        await writeEntered.Task;
+
+        // A segment create for the same item must serialize behind A's whole mutation:
+        // syncing now would read A's uncommitted disabled flag and strip the automatic
+        // rows, a state A's rollback would leave baked into the mirror.
+        var requestB = segmentsController.CreateSegment(
+            episodeIds[0], new CreateSegmentRequest(AnalysisMode.Commercial, 100, 120), CancellationToken.None);
+        Assert.NotSame(requestB, await Task.WhenAny(requestB, Task.Delay(250)));
+        Assert.Equal(1, store.WriteCallCount);
+
+        // A's mirror write now fails and rolls the flag back; only then does B proceed.
+        writeGate.SetException(new InvalidOperationException("mirror write failed"));
+
+        var problem = Assert.IsType<ObjectResult>(await requestA);
+        Assert.Equal(StatusCodes.Status500InternalServerError, problem.StatusCode);
+        Assert.IsType<CreatedAtActionResult>((await requestB).Result);
+
+        // B's sync ran after the rollback: the flag is enabled again, so the final
+        // mirror push carries the automatic segment alongside the new user segment.
+        Assert.Empty(await database.GetDisabledItemIdsAsync(seasonId));
+        Assert.Equal(2, store.WriteCallCount);
+        var finalPush = store.ReplacedItems[^1];
+        Assert.Equal(episodeIds[0], finalPush.ItemId);
+        Assert.Equal(2, finalPush.Segments.Count);
     }
 
     [Fact]
@@ -417,11 +490,12 @@ public sealed class TestVisualizationController
     private static VisualizationController CreateController(IMediaSegmentRefresher refresher, ILoggerFactory loggerFactory, string dbPath, string cacheDbPath)
         => CreateController(refresher, loggerFactory, DatabaseTestHelpers.CreateSegmentDatabase(dbPath), cacheDbPath);
 
-    private static VisualizationController CreateController(IMediaSegmentRefresher refresher, ILoggerFactory loggerFactory, IntroSkipperDatabase database, string cacheDbPath)
+    private static VisualizationController CreateController(IMediaSegmentRefresher refresher, ILoggerFactory loggerFactory, IntroSkipperDatabase database, string cacheDbPath, MediaSegmentEditorService? editorService = null)
     {
         return new VisualizationController(
             NullLogger<VisualizationController>.Instance,
             refresher,
+            editorService ?? DatabaseTestHelpers.CreateEditorService(new FakeJellyfinSegmentStore(), database),
             libraryManager: null!,
             new AnalyzerTaskFactory(
                 loggerFactory,
@@ -488,38 +562,9 @@ public sealed class TestVisualizationController
     private static string CreateTempDbPath()
         => DatabaseTestHelpers.CreateTempDbPath(Guid.NewGuid().ToString("N") + "-visualization-controller.db");
 
-    private sealed class GatedStrictRefresher : IMediaSegmentRefresher
-    {
-        private int _strictCalls;
-
-        public TaskCompletionSource FirstCallStarted { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
-
-        public TaskCompletionSource FailFirstCall { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
-
-        public int StrictCallCount => Volatile.Read(ref _strictCalls);
-
-        public Task RefreshAsync(BaseItem item, CancellationToken cancellationToken = default) => Task.CompletedTask;
-
-        public async Task RefreshStrictAsync(BaseItem item, CancellationToken cancellationToken = default)
-        {
-            if (Interlocked.Increment(ref _strictCalls) == 1)
-            {
-                FirstCallStarted.SetResult();
-                await FailFirstCall.Task.ConfigureAwait(false);
-                throw new InvalidOperationException("mirror write failed");
-            }
-        }
-
-        public Task RefreshAsync(IEnumerable<Guid> itemIds, CancellationToken cancellationToken = default) => Task.CompletedTask;
-
-        public Task RemoveIntroSkipperSegmentsAsync(IEnumerable<Guid> itemIds, CancellationToken cancellationToken = default) => Task.CompletedTask;
-    }
-
     private sealed class RecordingMediaSegmentRefresher : IMediaSegmentRefresher
     {
         public TaskCompletionSource? Completion { get; init; }
-
-        public Exception? StrictException { get; set; }
 
         public int CollectionCallCount { get; private set; }
 
@@ -537,9 +582,7 @@ public sealed class TestVisualizationController
         {
             StrictCallCount++;
             LastItemIds = [item.Id];
-            return StrictException is null
-                ? Completion?.Task ?? Task.CompletedTask
-                : Task.FromException(StrictException);
+            return Completion?.Task ?? Task.CompletedTask;
         }
 
         public Task RefreshAsync(IEnumerable<Guid> itemIds, CancellationToken cancellationToken = default)

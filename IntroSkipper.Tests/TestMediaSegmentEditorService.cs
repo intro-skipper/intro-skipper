@@ -137,8 +137,13 @@ public sealed class TestMediaSegmentEditorService
 
         // The mirror flag lives in the mirror and the services, not at call sites:
         // every write no-ops.
-        await mirror.SyncItemAsync(Guid.NewGuid(), CancellationToken.None);
-        await service.DeleteStoredSegmentAsync(Guid.NewGuid(), AnalysisMode.Introduction, Guid.NewGuid(), null, CancellationToken.None);
+        var itemId = Guid.NewGuid();
+        await mirror.SyncItemAsync(itemId, CancellationToken.None);
+        await service.DeleteUncorrelatedSegmentAsync(
+            itemId,
+            AnalysisMode.Introduction,
+            CreateSegment(MediaSegmentType.Intro, 10, 20, Guid.NewGuid(), itemId),
+            CancellationToken.None);
 
         Assert.Equal(0, store.WriteCallCount);
         Assert.Empty(store.ReplacedItems);
@@ -195,7 +200,7 @@ public sealed class TestMediaSegmentEditorService
     }
 
     [Fact]
-    public async Task DeleteStoredSegmentAsync_CorrelatedRowFound_DeletesTargetedWithoutResync()
+    public async Task DeleteSegmentAsync_CorrelatedRowFound_DeletesTargetedWithoutResync()
     {
         using var scope = CreatePluginScope();
         var itemId = Guid.NewGuid();
@@ -207,8 +212,7 @@ public sealed class TestMediaSegmentEditorService
         var store = new FakeJellyfinSegmentStore();
         var service = CreateService(store, database);
 
-        var deleted = await service.DeleteStoredSegmentAsync(
-            itemId, AnalysisMode.Introduction, row.Id, row.Id, CancellationToken.None);
+        var deleted = await service.DeleteSegmentAsync(itemId, row.Id, CancellationToken.None);
 
         Assert.NotNull(deleted);
         Assert.Equal([(itemId, row.Id)], store.DeletedSegments);
@@ -218,7 +222,7 @@ public sealed class TestMediaSegmentEditorService
     }
 
     [Fact]
-    public async Task DeleteStoredSegmentAsync_MissingJellyfinRow_ResyncsMirror()
+    public async Task DeleteSegmentAsync_MissingJellyfinRow_ResyncsMirror()
     {
         using var scope = CreatePluginScope();
         var itemId = Guid.NewGuid();
@@ -230,8 +234,7 @@ public sealed class TestMediaSegmentEditorService
         var store = new FakeJellyfinSegmentStore { MissingSegmentIds = [row.Id] };
         var service = CreateService(store, database);
 
-        var deleted = await service.DeleteStoredSegmentAsync(
-            itemId, AnalysisMode.Introduction, row.Id, row.Id, CancellationToken.None);
+        var deleted = await service.DeleteSegmentAsync(itemId, row.Id, CancellationToken.None);
 
         // A correlated plugin row with no Jellyfin row under the shared id is the drift
         // signal (server stopped preserving provider ids, or the row was already gone):

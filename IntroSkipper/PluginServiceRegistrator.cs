@@ -61,7 +61,9 @@ namespace IntroSkipper
             serviceCollection.AddSingleton<MediaSegmentMirror>();
             serviceCollection.AddSingleton<IMediaSegmentProvider, SegmentProvider>();
             serviceCollection.AddSingleton<IMediaSegmentRefresher, MediaSegmentRefreshService>();
-            serviceCollection.AddTransient<MediaSegmentEditorService>();
+            // Singleton: the editor service serializes all interactive mutations per item
+            // on its own striped lock, which only works when every request shares it.
+            serviceCollection.AddSingleton<MediaSegmentEditorService>();
             serviceCollection.AddSingleton<MediaSegmentsFirstEpisodeFilter>();
             serviceCollection.Configure<MvcOptions>(options =>
             {

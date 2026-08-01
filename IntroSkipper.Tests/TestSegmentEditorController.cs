@@ -323,6 +323,5 @@ public sealed class SegmentEditorControllerTests
         IntroSkipper.Db.IIntroSkipperDatabase database)
         => new(
             DatabaseTestHelpers.CreateEditorService(store, database),
-            database,
-            DatabaseTestHelpers.CreateRefreshService(store, database));
+            database);
 }

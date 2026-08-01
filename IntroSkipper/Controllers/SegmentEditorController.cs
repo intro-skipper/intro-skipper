@@ -23,21 +23,18 @@ namespace IntroSkipper.Controllers;
 /// <remarks>
 /// Initializes a new instance of the <see cref="SegmentEditorController"/> class.
 /// </remarks>
-/// <param name="mediaSegmentEditorService">Media segment editor service.</param>
+/// <param name="mediaSegmentEditorService">Media segment editor service; owns every mutation end-to-end.</param>
 /// <param name="database">Segment database facade.</param>
-/// <param name="mediaSegmentRefresher">Jellyfin media segment refresher.</param>
 [Authorize(Policy = Policies.RequiresElevation)]
 [ApiController]
 [Produces(MediaTypeNames.Application.Json)]
 [Route("MediaSegmentsApi")]
 public class SegmentEditorController(
     MediaSegmentEditorService mediaSegmentEditorService,
-    IIntroSkipperDatabase database,
-    IMediaSegmentRefresher mediaSegmentRefresher) : ControllerBase
+    IIntroSkipperDatabase database) : ControllerBase
 {
     private readonly MediaSegmentEditorService _mediaSegmentEditorService = mediaSegmentEditorService;
     private readonly IIntroSkipperDatabase _database = database;
-    private readonly IMediaSegmentRefresher _mediaSegmentRefresher = mediaSegmentRefresher;
 
     /// <summary>
     /// Plugin meta endpoint.
@@ -85,8 +82,9 @@ public class SegmentEditorController(
 
         var mode = AnalysisHelpers.MapSegmentTypeToMode(segment.Type);
 
-        await _database.AddUserSegmentAsync(itemId, mode, segment.StartTicks, segment.EndTicks, cancellationToken).ConfigureAwait(false);
-        await _mediaSegmentRefresher.RefreshStrictAsync(item, cancellationToken).ConfigureAwait(false);
+        await _mediaSegmentEditorService
+            .CreateUserSegmentAsync(itemId, mode, segment.StartTicks, segment.EndTicks, cancellationToken)
+            .ConfigureAwait(false);
 
         return Ok();
     }
@@ -134,7 +132,7 @@ public class SegmentEditorController(
             // Deletability (unknown, vanished, or suppressed rows → 404) is the cascade's
             // call, derived from its result exactly like the plural DELETE endpoint.
             var deleted = await _mediaSegmentEditorService
-                .DeleteStoredSegmentAsync(itemId, requestedMode, segmentId, segmentId, cancellationToken)
+                .DeleteSegmentAsync(itemId, segmentId, cancellationToken)
                 .ConfigureAwait(false);
             if (deleted is null)
             {
@@ -144,7 +142,9 @@ public class SegmentEditorController(
         else
         {
             // Fallback for uncorrelated ids: rows Jellyfin materialized before the shared-id
-            // scheme, or foreign-provider rows. Match the plugin-side counterpart by exact ticks.
+            // scheme, or foreign-provider rows. The cascade matches the plugin-side
+            // counterpart by exact ticks; without one, only the Jellyfin row is removed
+            // and the state still resets.
             var existingSegment = await _mediaSegmentEditorService
                 .GetSegmentAsync(itemId, segmentId, cancellationToken)
                 .ConfigureAwait(false);
@@ -158,15 +158,8 @@ public class SegmentEditorController(
                 return BadRequest($"Segment '{segmentId}' is {existingSegment.Type}, not requested type '{type}'.");
             }
 
-            var itemRows = await _database.GetSegmentsAsync(itemId, cancellationToken: cancellationToken).ConfigureAwait(false);
-            var match = itemRows.FirstOrDefault(s => s.Type == requestedMode
-                && s.StartTicks == existingSegment.StartTicks
-                && s.EndTicks == existingSegment.EndTicks);
-
-            // The uncorrelated fallback matches the plugin counterpart by exact ticks;
-            // without one, only the Jellyfin row is removed and the state still resets.
             await _mediaSegmentEditorService
-                .DeleteStoredSegmentAsync(itemId, requestedMode, segmentId, match?.Id, cancellationToken)
+                .DeleteUncorrelatedSegmentAsync(itemId, requestedMode, existingSegment, cancellationToken)
                 .ConfigureAwait(false);
         }
 
