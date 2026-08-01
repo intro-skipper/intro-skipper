@@ -194,6 +194,11 @@ public sealed class TestCleanCacheTask
             cacheDatabase.Upsert(movieId, AnalysisMode.Introduction, CacheEntryType.Chromaprint, 0, 0, EntrypointTestHelpers.EmptyJsonArray, "hash");
             await SeedAsync(database, cacheDatabase, staleEpisodeId);
 
+            // Disabled flags follow the item: the live movie's flag carries a stale
+            // season key (drift) and must survive; the stale episode's flag must go.
+            await database.SetItemDisabledAsync(Guid.NewGuid(), movieId, disabled: true);
+            await database.SetItemDisabledAsync(staleEpisodeId, staleEpisodeId, disabled: true);
+
             var libraryManager = FakeLibraryManager.Create([NewFolder("Movies")], _ => [CreateMovie(movieId)]);
 
             var progress = new RecordingProgress();
@@ -212,6 +217,10 @@ public sealed class TestCleanCacheTask
                 db.SeasonStates, s => s.SeasonId == movieId));
             Assert.False(await Microsoft.EntityFrameworkCore.EntityFrameworkQueryableExtensions.AnyAsync(
                 db.SeasonStates, s => s.SeasonId == staleEpisodeId));
+            Assert.True(await Microsoft.EntityFrameworkCore.EntityFrameworkQueryableExtensions.AnyAsync(
+                db.DisabledItems, e => e.ItemId == movieId));
+            Assert.False(await Microsoft.EntityFrameworkCore.EntityFrameworkQueryableExtensions.AnyAsync(
+                db.DisabledItems, e => e.ItemId == staleEpisodeId));
         }
         finally
         {
@@ -295,6 +304,8 @@ public sealed class TestCleanCacheTask
         public int RemoveCallCount { get; private set; }
 
         public Task RefreshAsync(BaseItem item, CancellationToken cancellationToken = default) => Task.CompletedTask;
+
+        public Task RefreshStrictAsync(BaseItem item, CancellationToken cancellationToken = default) => Task.CompletedTask;
 
         public Task RefreshAsync(IEnumerable<Guid> itemIds, CancellationToken cancellationToken = default) => Task.CompletedTask;
 

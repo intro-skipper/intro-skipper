@@ -43,6 +43,16 @@ namespace IntroSkipper.Controllers;
 [Route("Intros")]
 public partial class VisualizationController(ILogger<VisualizationController> logger, IMediaSegmentRefresher mediaSegmentRefresher, ILibraryManager libraryManager, AnalyzerTaskFactory analyzerFactory, IIntroSkipperDatabase database, IDetectionCacheDatabase cacheDatabase) : ControllerBase
 {
+    // Disable-flag mutations must be linearizable per item: the flag write, the strict
+    // mirror sync, and any rollback form one unit. Without this, a concurrent request
+    // can observe a flag value that a failing request is about to roll back, and the
+    // unconditional rollback can clobber the later mutation. Static because controllers
+    // are per-request while the state they mutate is not. One lock for all items:
+    // cross-item serialization is harmless for these rare interactive calls. Separate
+    // from MediaSegmentMirror's stripes, so lock order is always mutation lock ->
+    // mirror stripe and never the reverse.
+    private static readonly SemaphoreSlim _disableMutationLock = new(1, 1);
+
     private readonly ILogger<VisualizationController> _logger = logger;
     private readonly IMediaSegmentRefresher _mediaSegmentRefresher = mediaSegmentRefresher;
     private readonly ILibraryManager _libraryManager = libraryManager;
@@ -216,6 +226,104 @@ public partial class VisualizationController(ILogger<VisualizationController> lo
         return NoContent();
     }
 
+    /// <summary>
+    /// Returns the IDs of the items recorded under the given season-state key whose
+    /// automatic segments are withheld from Jellyfin. A key with no recorded
+    /// disabled items yields an empty set rather than an error.
+    /// </summary>
+    /// <param name="seasonId">Season-state key (a movie's own ID for movies).</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>The disabled item IDs.</returns>
+    [HttpGet("DisabledItems/{SeasonId}")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    public async Task<ActionResult<IReadOnlySet<Guid>>> GetDisabledItems([FromRoute] Guid seasonId, CancellationToken cancellationToken = default)
+    {
+        return Ok(await _database.GetDisabledItemIdsAsync(seasonId, cancellationToken).ConfigureAwait(false));
+    }
+
+    /// <summary>
+    /// Withholds the item's automatic segments from Jellyfin. Analysis and stored
+    /// segments are unaffected; user-provided segments keep syncing.
+    /// </summary>
+    /// <param name="itemId">Item ID.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>No content.</returns>
+    [HttpPut("DisabledItems/{ItemId}")]
+    [ProducesResponseType(StatusCodes.Status204NoContent)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    [ProducesResponseType(StatusCodes.Status500InternalServerError)]
+    public Task<ActionResult> DisableItem([FromRoute] Guid itemId, CancellationToken cancellationToken = default)
+    {
+        return SetItemDisabledAsync(itemId, disabled: true, cancellationToken);
+    }
+
+    /// <summary>
+    /// Restores the item's automatic segments to Jellyfin without re-analysis.
+    /// </summary>
+    /// <param name="itemId">Item ID.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>No content.</returns>
+    [HttpDelete("DisabledItems/{ItemId}")]
+    [ProducesResponseType(StatusCodes.Status204NoContent)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    [ProducesResponseType(StatusCodes.Status500InternalServerError)]
+    public Task<ActionResult> EnableItem([FromRoute] Guid itemId, CancellationToken cancellationToken = default)
+    {
+        return SetItemDisabledAsync(itemId, disabled: false, cancellationToken);
+    }
+
+    private async Task<ActionResult> SetItemDisabledAsync(Guid itemId, bool disabled, CancellationToken cancellationToken)
+    {
+        var item = Plugin.Instance!.GetItem(itemId);
+        if (!MediaItemHelper.IsSupported(item))
+        {
+            return NotFound();
+        }
+
+        // The row's season key is a server-side pruning detail; clients only name
+        // the item.
+        var seasonKey = SeasonStateKeyResolver.Resolve(item);
+
+        await _disableMutationLock.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            var previous = await _database.SetItemDisabledAsync(seasonKey, itemId, disabled, cancellationToken).ConfigureAwait(false);
+
+            try
+            {
+                // Resync in both directions: disabling strips the automatic rows from the
+                // mirror, enabling restores them from the untouched plugin rows. Strict:
+                // this interactive mutation must not report success while Jellyfin may
+                // still serve the old rows. Runs even when the flag write was a no-op,
+                // so retrying after a failed rollback still repairs the mirror.
+                await _mediaSegmentRefresher.RefreshStrictAsync(item, cancellationToken).ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                // The mirror kept its old rows, so restore the stored flag; otherwise the
+                // preference would silently disagree with what Jellyfin serves. Safe while
+                // the lock is held: no other mutation for this item can have interleaved,
+                // so `previous` is still the value this request replaced. Not bound to
+                // request cancellation: the rollback must complete once started.
+                await _database.SetItemDisabledAsync(seasonKey, itemId, previous, CancellationToken.None).ConfigureAwait(false);
+
+                if (ex is OperationCanceledException)
+                {
+                    throw;
+                }
+
+                LogFailedToSetItemDisabled(_logger, ex, itemId, disabled);
+                return Problem("The media segment mirror could not be refreshed; the change was rolled back.", statusCode: StatusCodes.Status500InternalServerError);
+            }
+        }
+        finally
+        {
+            _disableMutationLock.Release();
+        }
+
+        return NoContent();
+    }
+
     private async Task<IReadOnlyList<QueuedEpisode>> GetExcludedInventoryAsync(Plugin plugin, CancellationToken cancellationToken)
     {
         if (_libraryManager is not null)
@@ -324,4 +432,7 @@ public partial class VisualizationController(ILogger<VisualizationController> lo
 
     [LoggerMessage(Level = LogLevel.Error, Message = "Error during manual season rescan for {SeasonId}")]
     private static partial void LogRescanError(ILogger logger, Exception ex, Guid seasonId);
+
+    [LoggerMessage(Level = LogLevel.Error, Message = "Failed to refresh media segments while setting item {ItemId} disabled={Disabled}; the flag was rolled back")]
+    private static partial void LogFailedToSetItemDisabled(ILogger logger, Exception ex, Guid itemId, bool disabled);
 }

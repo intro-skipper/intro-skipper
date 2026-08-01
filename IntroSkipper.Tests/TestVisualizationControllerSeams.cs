@@ -222,6 +222,8 @@ public sealed class TestVisualizationControllerSeams
     {
         public Task RefreshAsync(BaseItem item, CancellationToken cancellationToken = default) => Task.CompletedTask;
 
+        public Task RefreshStrictAsync(BaseItem item, CancellationToken cancellationToken = default) => Task.CompletedTask;
+
         public Task RefreshAsync(IEnumerable<Guid> itemIds, CancellationToken cancellationToken = default) => Task.CompletedTask;
 
         public Task RemoveIntroSkipperSegmentsAsync(IEnumerable<Guid> itemIds, CancellationToken cancellationToken = default) => Task.CompletedTask;

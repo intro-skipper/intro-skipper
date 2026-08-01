@@ -213,4 +213,24 @@ public sealed partial class IntroSkipperDatabase
             .ExecuteDeleteAsync(cancellationToken)
             .ConfigureAwait(false);
     }
+
+    /// <inheritdoc/>
+    public async Task CleanDisabledItemsAsync(IReadOnlyCollection<Guid> retainedItemIds, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(retainedItemIds);
+
+        var retainedIds = retainedItemIds.Distinct().ToArray();
+
+        await InitializeAsync().ConfigureAwait(false);
+        using var db = _contextFactory.CreateDbContext();
+
+        // Pruned by item ID, never by the row's season key: the key is mutable
+        // metadata that goes stale when an item moves season keys, so the flag
+        // must follow the item. EF.Parameter binds the retained set as one JSON
+        // parameter, so this is safe for arbitrarily large libraries.
+        await db.DisabledItems
+            .Where(e => !EF.Parameter(retainedIds).Contains(e.ItemId))
+            .ExecuteDeleteAsync(cancellationToken)
+            .ConfigureAwait(false);
+    }
 }

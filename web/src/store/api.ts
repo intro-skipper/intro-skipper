@@ -183,6 +183,21 @@ export function updateAnalyzerActions(id: string, actions: AnalyzerActions): Pro
     );
 }
 
+// Per-item media-segment disable: a disabled item's automatic segments are
+// withheld from Jellyfin while user segments keep syncing. The listing is keyed
+// by the season-state key (a movie's own ID for movies); mutations name only
+// the item and the server resolves the owning key itself.
+export function getDisabledItems(seasonId: string): Promise<ApiResult<string[]>> {
+    return getJson<string[]>(`Intros/DisabledItems/${encodeURIComponent(seasonId)}`);
+}
+
+export function setItemDisabled(itemId: string, disabled: boolean): Promise<ApiResult<null>> {
+    return request<null>(
+        `Intros/DisabledItems/${encodeURIComponent(itemId)}`,
+        disabled ? "PUT" : "DELETE",
+    );
+}
+
 // Scan controls.
 export function scanSeason(showId: string, seasonId: string): Promise<Response> {
     return fetchWithAuth(

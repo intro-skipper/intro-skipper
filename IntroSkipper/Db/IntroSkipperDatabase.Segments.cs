@@ -359,14 +359,36 @@ public sealed partial class IntroSkipperDatabase
         await InitializeAsync().ConfigureAwait(false);
         using var db = _contextFactory.CreateDbContext();
 
-        return await db.Segments
-            .AsNoTracking()
-            .Where(s => s.ItemId == itemId && (includeSuppressed || s.State == SegmentState.Active))
-            .OrderBy(s => s.Type)
-            .ThenBy(s => s.StartTicks)
+        return await OrderedItemSegments(db, itemId, includeSuppressed)
             .ToListAsync(cancellationToken)
             .ConfigureAwait(false);
     }
+
+    /// <inheritdoc/>
+    public async Task<IReadOnlyList<DbSegment>> GetServableSegmentsAsync(Guid itemId, CancellationToken cancellationToken = default)
+    {
+        await InitializeAsync().ConfigureAwait(false);
+        using var db = _contextFactory.CreateDbContext();
+
+        // The cross-set Any translates to a NOT EXISTS probe inside the segment
+        // query, so the disable policy costs no second roundtrip on the
+        // per-playback and provider read paths.
+        return await OrderedItemSegments(db, itemId, includeSuppressed: false)
+            .Where(s => s.Source == SegmentSource.User || !db.DisabledItems.Any(d => d.ItemId == itemId))
+            .ToListAsync(cancellationToken)
+            .ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Shared query shape of the item-segment reads: the item's rows, tombstones
+    /// excluded unless requested, ordered by mode and start time.
+    /// </summary>
+    private static IOrderedQueryable<DbSegment> OrderedItemSegments(IntroSkipperDbContext db, Guid itemId, bool includeSuppressed) =>
+        db.Segments
+            .AsNoTracking()
+            .Where(s => s.ItemId == itemId && (includeSuppressed || s.State == SegmentState.Active))
+            .OrderBy(s => s.Type)
+            .ThenBy(s => s.StartTicks);
 
     /// <inheritdoc/>
     public async Task DeleteItemSegmentsAsync(Guid itemId, CancellationToken cancellationToken = default)

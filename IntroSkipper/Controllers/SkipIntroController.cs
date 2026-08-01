@@ -10,10 +10,9 @@
 using System.Net.Mime;
 using IntroSkipper.Data;
 using IntroSkipper.Db;
+using IntroSkipper.Helper;
 using IntroSkipper.Manager;
 using MediaBrowser.Common.Api;
-using MediaBrowser.Controller.Entities.Movies;
-using MediaBrowser.Controller.Entities.TV;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
@@ -53,7 +52,7 @@ public partial class SkipIntroController(
     {
         // only update existing episodes
         var rawItem = Plugin.Instance!.GetItem(id);
-        if (rawItem is not Episode and not Movie)
+        if (!MediaItemHelper.IsSupported(rawItem))
         {
             return NotFound();
         }
@@ -90,8 +89,10 @@ public partial class SkipIntroController(
     /// Gets the timestamps for the provided episode.
     /// </summary>
     /// <remarks>
-    /// Deprecated: use the plural <c>Episode/{itemId}/Segments</c> API. Reports one
-    /// canonical segment per mode (the active segment with the earliest start).
+    /// Deprecated: playback clients should use Jellyfin's native <c>MediaSegments</c>
+    /// API, which the plugin keeps in sync. Reports one canonical segment per mode
+    /// (the active segment with the earliest start); a disabled item reports only its
+    /// user-provided segments.
     /// </remarks>
     /// <param name="id">Episode ID.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
@@ -104,14 +105,14 @@ public partial class SkipIntroController(
     {
         // only get return content for episodes
         var rawItem = Plugin.Instance!.GetItem(id);
-        if (rawItem is not Episode and not Movie)
+        if (!MediaItemHelper.IsSupported(rawItem))
         {
             return NotFound();
         }
 
         var times = new TimeStamps();
         var segments = LegacyTimestampMapper.ToCanonical(
-            await _database.GetSegmentsAsync(id, cancellationToken: cancellationToken).ConfigureAwait(false));
+            await _database.GetServableSegmentsAsync(id, cancellationToken).ConfigureAwait(false));
 
         if (segments.TryGetValue(AnalysisMode.Introduction, out var introSegment))
         {
@@ -145,8 +146,10 @@ public partial class SkipIntroController(
     /// Gets a dictionary of all skippable segments.
     /// </summary>
     /// <remarks>
-    /// Deprecated: use the plural <c>Episode/{itemId}/Segments</c> API. Reports one
-    /// canonical segment per mode (the active segment with the earliest start).
+    /// Deprecated: playback clients should use Jellyfin's native <c>MediaSegments</c>
+    /// API, which the plugin keeps in sync. Reports one canonical segment per mode
+    /// (the active segment with the earliest start); a disabled item reports only its
+    /// user-provided segments.
     /// </remarks>
     /// <param name="id">Media ID.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
@@ -156,7 +159,7 @@ public partial class SkipIntroController(
     public async Task<ActionResult<Dictionary<AnalysisMode, Segment>>> GetSkippableSegments([FromRoute] Guid id, CancellationToken cancellationToken = default)
     {
         var segments = LegacyTimestampMapper.ToCanonical(
-            await _database.GetSegmentsAsync(id, cancellationToken: cancellationToken).ConfigureAwait(false));
+            await _database.GetServableSegmentsAsync(id, cancellationToken).ConfigureAwait(false));
         var result = new Dictionary<AnalysisMode, Segment>();
 
         if (segments.TryGetValue(AnalysisMode.Introduction, out var introSegment))

@@ -8,7 +8,7 @@ namespace IntroSkipper.Db;
 /// <summary>
 /// Cohesive facade over the segment database (<c>introskipper-v2.db</c>).
 /// Owns every read and write against <see cref="IntroSkipperDbContext"/> — segments,
-/// season state and database maintenance — as well as the database lifecycle
+/// season state, disabled items and database maintenance — as well as the database lifecycle
 /// (EF migrations, one-time legacy import and salvage rebuild).
 /// All domain rules that guard writes (user-provided precedence, tombstone
 /// suppression, credits/intro overlap) live inside this facade; callers never see a
@@ -136,6 +136,18 @@ public interface IIntroSkipperDatabase
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>The stored segments.</returns>
     Task<IReadOnlyList<DbSegment>> GetSegmentsAsync(Guid itemId, bool includeSuppressed = false, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Returns the item's active segments as served to clients: automatic rows are
+    /// withheld while the item is disabled, user-provided rows always pass. Every
+    /// client-facing surface (the Jellyfin mirror, the provider, the legacy skip
+    /// shims) reads through this; editor and analysis reads use
+    /// <see cref="GetSegmentsAsync"/>.
+    /// </summary>
+    /// <param name="itemId">Item ID.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>The servable segments, ordered by mode and start time.</returns>
+    Task<IReadOnlyList<DbSegment>> GetServableSegmentsAsync(Guid itemId, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Deletes all segments stored for an item, tombstones included (used when the item
@@ -304,8 +316,43 @@ public interface IIntroSkipperDatabase
     Task CleanSeasonStateAsync(IEnumerable<Guid> seasonIds, CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// Rebuilds the database while attempting to preserve valid segments, season state
-    /// and the legacy-import marker. The rebuild never re-runs the legacy import.
+    /// Removes disabled-item rows whose items no longer exist in enabled libraries.
+    /// Rows are pruned by item ID — never by their stored season key, which is
+    /// mutable metadata that can go stale when an item moves season keys — so the
+    /// flag survives key drift and disappears only when the item does.
+    /// </summary>
+    /// <param name="retainedItemIds">Item IDs that still exist.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>A <see cref="Task"/> representing the asynchronous operation.</returns>
+    Task CleanDisabledItemsAsync(IReadOnlyCollection<Guid> retainedItemIds, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Returns the IDs of the season's items whose automatic segments are withheld
+    /// from Jellyfin.
+    /// </summary>
+    /// <param name="seasonId">Season-state key (a movie's own ID for movies).</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>The disabled item IDs.</returns>
+    Task<IReadOnlySet<Guid>> GetDisabledItemIdsAsync(Guid seasonId, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Sets whether an item's automatic segments are withheld from Jellyfin.
+    /// Analysis and stored segments are unaffected either way; user-provided segments
+    /// always sync. Disabling records the item's current season key — rewriting a
+    /// stale key in place — and enabling removes the flag no matter which key
+    /// recorded it. Idempotent: a request matching the stored state and key writes
+    /// nothing.
+    /// </summary>
+    /// <param name="seasonId">Season-state key that owns the item (a movie's own ID for movies).</param>
+    /// <param name="itemId">Item ID.</param>
+    /// <param name="disabled">Whether to withhold the item's automatic segments.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>Whether the item was disabled before this write, so callers can roll back.</returns>
+    Task<bool> SetItemDisabledAsync(Guid seasonId, Guid itemId, bool disabled, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Rebuilds the database while attempting to preserve valid segments, season state,
+    /// disabled items and the legacy-import marker. The rebuild never re-runs the legacy import.
     /// </summary>
     /// <param name="forceCleanOnBackupFailure">
     /// When <c>true</c>, rebuild proceeds with an empty database if the backup read fails.

@@ -343,9 +343,12 @@ public sealed class TestDbSegmentStorage
                 var pendingMigrations = await db.Database.GetPendingMigrationsAsync();
                 Assert.Empty(pendingMigrations);
 
-                // The whole schema comes from ONE baseline migration.
-                var appliedMigrations = await db.Database.GetAppliedMigrationsAsync();
-                Assert.Single(appliedMigrations);
+                // The core schema comes from the baseline; later features are plain
+                // EF migrations on top (currently: DisabledItems).
+                var appliedMigrations = (await db.Database.GetAppliedMigrationsAsync()).ToArray();
+                Assert.Equal(2, appliedMigrations.Length);
+                Assert.EndsWith("_InitialCreate", appliedMigrations[0], StringComparison.Ordinal);
+                Assert.EndsWith("_AddDisabledItems", appliedMigrations[1], StringComparison.Ordinal);
 
                 db.SeasonStates.Add(new DbSeasonState(
                     seasonId,

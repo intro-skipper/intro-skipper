@@ -12,6 +12,8 @@ namespace IntroSkipper.Providers;
 /// Single source of truth for the plugin-to-Jellyfin conversion so that direct
 /// database pushes and provider runs produce identical data — which lets
 /// Jellyfin's scheduled segment extraction detect "no changes" and skip rewrites.
+/// Reads through the facade's servable-segments query, so the per-item disable
+/// policy is applied identically here and on the legacy skip endpoints.
 /// </summary>
 /// <remarks>
 /// Initializes a new instance of the <see cref="SegmentDtoFactory"/> class.
@@ -32,7 +34,7 @@ public sealed class SegmentDtoFactory(IIntroSkipperDatabase database)
     public async Task<IReadOnlyList<MediaSegmentDto>> CreateAsync(Guid itemId, CancellationToken cancellationToken)
     {
         var segments = new List<MediaSegmentDto>();
-        var itemSegments = await _database.GetSegmentsAsync(itemId, cancellationToken: cancellationToken).ConfigureAwait(false);
+        var itemSegments = await _database.GetServableSegmentsAsync(itemId, cancellationToken).ConfigureAwait(false);
 
         foreach (var segment in itemSegments)
         {

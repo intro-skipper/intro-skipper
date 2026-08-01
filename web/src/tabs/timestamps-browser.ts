@@ -284,7 +284,7 @@ export function createTimestampsBrowser(container: HTMLElement): { destroy: () =
 
         nav$.showDashboardLoading();
         try {
-            const { episodes, segments } = await tsData.getEpisodesWithSegments(
+            const { episodes, segments, disabledItemIds } = await tsData.getEpisodesWithSegments(
                 show.Id,
                 season.Id,
             );
@@ -295,7 +295,11 @@ export function createTimestampsBrowser(container: HTMLElement): { destroy: () =
                 return;
             }
 
-            epList.render(episodes, segments);
+            epList.render(episodes, segments, false, disableOption(disabledItemIds));
+            warnDisableStateUnknown(
+                disabledItemIds,
+                "Failed to load media-segment settings; the enable/disable toggles are hidden.",
+            );
             await actions.loadForSeason(show.Id, season.Id, false);
         } catch (err) {
             if (!nav$.isCurrentPanel(panelToken)) return;
@@ -330,10 +334,18 @@ export function createTimestampsBrowser(container: HTMLElement): { destroy: () =
                 SeriesName: null,
             };
 
-            const result = await tsData.getMovieSegments(show.Id);
+            const [result, disabledItemIds] = await Promise.all([
+                tsData.getMovieSegments(show.Id),
+                // A movie's season-state key is its own ID.
+                tsData.getDisabledItemIds(show.Id),
+            ]);
             if (!nav$.isCurrentPanel(panelToken)) return;
 
-            epList.render([movieEp], [result], true);
+            epList.render([movieEp], [result], true, disableOption(disabledItemIds));
+            warnDisableStateUnknown(
+                disabledItemIds,
+                "Failed to load media-segment settings; the enable/disable toggle is hidden.",
+            );
             await actions.loadForSeason(show.Id, show.Id, true);
         } catch (err) {
             if (!nav$.isCurrentPanel(panelToken)) return;
@@ -347,6 +359,31 @@ export function createTimestampsBrowser(container: HTMLElement): { destroy: () =
                 setPanelBusy(false);
             }
             nav$.hideDashboardLoading();
+        }
+    }
+
+    // Maps the fetched disabled ids to the episode list's disable option. Null
+    // (state unknown) hides the toggles rather than rendering a fabricated
+    // all-enabled state; warnDisableStateUnknown surfaces the failure after render.
+    function disableOption(
+        disabledItemIds: string[] | null,
+    ): { ids: string[]; onChange: (itemId: string, disabled: boolean) => Promise<void> } | undefined {
+        return disabledItemIds === null
+            ? undefined
+            : { ids: disabledItemIds, onChange: updateItemDisabled };
+    }
+
+    function warnDisableStateUnknown(disabledItemIds: string[] | null, message: string): void {
+        if (disabledItemIds === null) {
+            epList.setStatus(message, "var(--is-error)");
+        }
+    }
+
+    async function updateItemDisabled(itemId: string, disabled: boolean): Promise<void> {
+        const result = await tsData.setItemDisabled(itemId, disabled);
+        if (!result.ok) {
+            // The toggle handler owns the user-facing message; this is only a signal.
+            throw new Error("setItemDisabled failed");
         }
     }
 

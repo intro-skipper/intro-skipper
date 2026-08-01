@@ -14,6 +14,10 @@ export function episodeList(): {
         episodes: EpisodeItem[],
         segments: Array<ApiResult<SegmentDto[]> | null>,
         isMovie?: boolean,
+        disable?: {
+            ids: string[];
+            onChange: (itemId: string, disabled: boolean) => Promise<void>;
+        },
     ) => void;
     clear: () => void;
     setStatus: (msg: string, color?: string) => void;
@@ -55,6 +59,8 @@ export function episodeList(): {
     }
 
     let isMovieView = false;
+    let currentDisabledIds = new Set<string>();
+    let onDisabledChange: ((itemId: string, disabled: boolean) => Promise<void>) | null = null;
 
     function buildCard(
         ep: EpisodeItem,
@@ -87,6 +93,9 @@ export function episodeList(): {
         const runtime = ticksToMinutes(ep.RunTimeTicks);
         if (runtime) {
             header.append(el("span", { className: "ts-episode-runtime" }, runtime));
+        }
+        if (onDisabledChange) {
+            attachDisableToggle(ep, card, header);
         }
         info.append(header);
 
@@ -166,6 +175,36 @@ export function episodeList(): {
         });
     }
 
+    /**
+     * Pill switch controlling whether the item's automatic segments reach
+     * Jellyfin. Checked means enabled; disabled items keep their stored
+     * segments and dim the card.
+     */
+    function attachDisableToggle(ep: EpisodeItem, card: HTMLElement, header: HTMLElement): void {
+        const toggle = el("input", { className: "ts-episode-disable-toggle", type: "checkbox" });
+        const disabled = currentDisabledIds.has(ep.Id);
+        toggle.checked = !disabled;
+        toggle.setAttribute("aria-label", "Enable media segments for " + ep.Name);
+        toggle.title = "Turn off to hide this item's detected segments from Jellyfin";
+        card.classList.toggle("ts-episode-disabled", disabled);
+
+        toggle.addEventListener("change", async () => {
+            toggle.disabled = true;
+            const nowDisabled = !toggle.checked;
+            try {
+                await onDisabledChange?.(ep.Id, nowDisabled);
+                card.classList.toggle("ts-episode-disabled", nowDisabled);
+            } catch {
+                toggle.checked = !toggle.checked;
+                window.Dashboard.alert("Failed to update media-segment setting");
+            } finally {
+                toggle.disabled = false;
+            }
+        });
+
+        header.append(toggle);
+    }
+
     function buildSegmentPills(segments: SegmentDto[]): HTMLElement {
         const row = el("div", { className: "ts-episode-timestamps" });
         const active = sortSegments(segments.filter((s) => !s.Suppressed));
@@ -232,8 +271,11 @@ export function episodeList(): {
             episodes: EpisodeItem[],
             segments: Array<ApiResult<SegmentDto[]> | null>,
             isMovie = false,
+            disable?: { ids: string[]; onChange: (itemId: string, disabled: boolean) => Promise<void> },
         ) {
             isMovieView = isMovie;
+            currentDisabledIds = new Set(disable?.ids);
+            onDisabledChange = disable?.onChange ?? null;
             currentEpisodes = episodes;
             listEl.replaceChildren();
             destroyEditors();
@@ -262,6 +304,8 @@ export function episodeList(): {
             destroyEditors();
             currentCards = [];
             currentEpisodes = [];
+            currentDisabledIds = new Set();
+            onDisabledChange = null;
             if (filterTimer) clearTimeout(filterTimer);
             countEl.textContent = "";
             filterInput.value = "";

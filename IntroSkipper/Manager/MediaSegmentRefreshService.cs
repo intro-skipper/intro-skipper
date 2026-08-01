@@ -28,12 +28,21 @@ public sealed partial class MediaSegmentRefreshService(
     {
         ArgumentNullException.ThrowIfNull(item);
 
+        await RefreshCoreAsync(item, cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <inheritdoc />
+    public async Task RefreshStrictAsync(BaseItem item, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(item);
+
         if (!MediaSegmentMirrorPolicy.Enabled)
         {
             return;
         }
 
-        await RefreshCoreAsync(item, cancellationToken).ConfigureAwait(false);
+        await mirror.SyncItemAsync(item.Id, cancellationToken).ConfigureAwait(false);
+        LogUpdatedMediaSegments(logger, item.Id);
     }
 
     /// <inheritdoc />
@@ -87,12 +96,13 @@ public sealed partial class MediaSegmentRefreshService(
         await segmentStore.DeleteOwnSegmentsAsync(itemIds, cancellationToken).ConfigureAwait(false);
     }
 
+    // The lenient path: the strict refresh with non-critical failures logged and
+    // swallowed.
     private async Task RefreshCoreAsync(BaseItem item, CancellationToken cancellationToken)
     {
         try
         {
-            await mirror.SyncItemAsync(item.Id, cancellationToken).ConfigureAwait(false);
-            LogUpdatedMediaSegments(logger, item.Id);
+            await RefreshStrictAsync(item, cancellationToken).ConfigureAwait(false);
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {

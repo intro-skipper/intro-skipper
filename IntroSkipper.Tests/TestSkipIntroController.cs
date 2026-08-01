@@ -203,6 +203,9 @@ public sealed class TestSkipIntroController
             return Completion?.Task ?? Task.CompletedTask;
         }
 
+        public Task RefreshStrictAsync(BaseItem item, CancellationToken cancellationToken = default)
+            => RefreshAsync(item, cancellationToken);
+
         public Task RefreshAsync(IEnumerable<Guid> itemIds, CancellationToken cancellationToken = default)
         {
             return Completion?.Task ?? Task.CompletedTask;

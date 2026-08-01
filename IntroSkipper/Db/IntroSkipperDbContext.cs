@@ -30,6 +30,7 @@ public class IntroSkipperDbContext : DbContext
         Segments = Set<DbSegment>();
         SeasonStates = Set<DbSeasonState>();
         ImportHistory = Set<DbImportRecord>();
+        DisabledItems = Set<DbDisabledItem>();
     }
 
     /// <summary>
@@ -49,6 +50,7 @@ public class IntroSkipperDbContext : DbContext
         Segments = Set<DbSegment>();
         SeasonStates = Set<DbSeasonState>();
         ImportHistory = Set<DbImportRecord>();
+        DisabledItems = Set<DbDisabledItem>();
     }
 
     /// <summary>
@@ -65,6 +67,12 @@ public class IntroSkipperDbContext : DbContext
     /// Gets or sets the <see cref="DbSet{TEntity}"/> containing the legacy-import markers.
     /// </summary>
     public DbSet<DbImportRecord> ImportHistory { get; set; }
+
+    /// <summary>
+    /// Gets or sets the <see cref="DbSet{TEntity}"/> containing the items whose automatic
+    /// segments are withheld from Jellyfin.
+    /// </summary>
+    public DbSet<DbDisabledItem> DisabledItems { get; set; }
 
     /// <inheritdoc/>
     protected override void OnConfiguring(DbContextOptionsBuilder optionsBuilder)
@@ -126,6 +134,16 @@ public class IntroSkipperDbContext : DbContext
                   .IsRequired();
         });
 
+        modelBuilder.Entity<DbDisabledItem>(entity =>
+        {
+            entity.ToTable("DisabledItems");
+
+            // One flag per item by construction; the SeasonId index serves the
+            // per-season listing (cleanup prunes by item ID).
+            entity.HasKey(e => e.ItemId);
+            entity.HasIndex(e => e.SeasonId);
+        });
+
         base.OnModelCreating(modelBuilder);
     }
 
@@ -164,7 +182,7 @@ public class IntroSkipperDbContext : DbContext
 
     /// <summary>
     /// Asynchronously rebuilds the database while attempting to preserve valid segments,
-    /// season state and the legacy-import marker.
+    /// season state, disabled items and the legacy-import marker.
     /// </summary>
     /// <param name="contextFactory">Factory delegate to create sibling <see cref="IntroSkipperDbContext"/> instances.</param>
     /// <param name="forceCleanOnBackupFailure">
@@ -178,6 +196,7 @@ public class IntroSkipperDbContext : DbContext
         var segments = new List<DbSegment>();
         var seasonStates = new List<DbSeasonState>();
         var importRecords = new List<DbImportRecord>();
+        var disabledItems = new List<DbDisabledItem>();
         var backupFailed = false;
 
         // Best-effort backup — a corrupted DB will fail here, and that's fine.
@@ -199,6 +218,7 @@ public class IntroSkipperDbContext : DbContext
                 segments = [.. segments.Where(s => s.StartTicks >= 0 && s.EndTicks > s.StartTicks)];
                 seasonStates = await db.SeasonStates.AsNoTracking().ToListAsync(cancellationToken).ConfigureAwait(false);
                 importRecords = await db.ImportHistory.AsNoTracking().ToListAsync(cancellationToken).ConfigureAwait(false);
+                disabledItems = await db.DisabledItems.AsNoTracking().ToListAsync(cancellationToken).ConfigureAwait(false);
             }
             finally
             {
@@ -262,6 +282,11 @@ public class IntroSkipperDbContext : DbContext
             if (seasonStates.Count > 0)
             {
                 db.SeasonStates.AddRange(seasonStates);
+            }
+
+            if (disabledItems.Count > 0)
+            {
+                db.DisabledItems.AddRange(disabledItems);
             }
 
             db.ImportHistory.AddRange(importRecords);

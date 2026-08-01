@@ -4,11 +4,10 @@
 using System.Net.Mime;
 using IntroSkipper.Data;
 using IntroSkipper.Db;
+using IntroSkipper.Helper;
 using IntroSkipper.Manager;
 using MediaBrowser.Common.Api;
 using MediaBrowser.Controller.Entities;
-using MediaBrowser.Controller.Entities.Movies;
-using MediaBrowser.Controller.Entities.TV;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
@@ -18,7 +17,9 @@ namespace IntroSkipper.Controllers;
 /// <summary>
 /// Plural segments API: every stored segment of an item is addressable by its id
 /// (shared with the Jellyfin media segment row). Boundaries are seconds at this edge.
-/// Supersedes the singular <c>Episode/{id}/Timestamps</c> endpoints.
+/// Supersedes the singular <c>Episode/{id}/Timestamps</c> endpoints. Elevation-gated
+/// editor surface: reads return the stored view, unfiltered by the per-item disable
+/// flag; playback clients read Jellyfin's native media segments instead.
 /// </summary>
 /// <remarks>
 /// Initializes a new instance of the <see cref="SegmentsController"/> class.
@@ -42,6 +43,7 @@ public class SegmentsController(IIntroSkipperDatabase database, MediaSegmentEdit
     /// <response code="200">The stored segments.</response>
     /// <response code="404">The item is not an episode or movie.</response>
     /// <returns>The segment list.</returns>
+    [Authorize(Policy = Policies.RequiresElevation)]
     [HttpGet("Episode/{itemId}/Segments")]
     [ProducesResponseType(StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
@@ -222,6 +224,6 @@ public class SegmentsController(IIntroSkipperDatabase database, MediaSegmentEdit
     private static BaseItem? ResolveItem(Guid itemId)
     {
         var item = Plugin.Instance!.GetItem(itemId);
-        return item is Episode or Movie ? item : null;
+        return MediaItemHelper.IsSupported(item) ? item : null;
     }
 }

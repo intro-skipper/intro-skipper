@@ -25,20 +25,35 @@ export async function getEpisodesWithSegments(
 ): Promise<{
     episodes: EpisodeItem[];
     segments: Array<ApiResult<SegmentDto[]> | null>;
+    disabledItemIds: string[] | null;
 }> {
     const episodes = await jellyfinClient.getEpisodes(showId, seasonId);
 
     if (episodes.length === 0) {
-        return { episodes: [], segments: [] };
+        return { episodes: [], segments: [], disabledItemIds: [] };
     }
 
-    const segments = await mapWithConcurrency(episodes, SEGMENT_FETCH_CONCURRENCY, (ep) =>
-        api.getEpisodeSegments(ep.Id),
-    );
+    const [segments, disabledItemIds] = await Promise.all([
+        mapWithConcurrency(episodes, SEGMENT_FETCH_CONCURRENCY, (ep) =>
+            api.getEpisodeSegments(ep.Id),
+        ),
+        getDisabledItemIds(seasonId),
+    ]);
 
-    return { episodes, segments };
+    return { episodes, segments, disabledItemIds };
 }
 
 export function getMovieSegments(showId: string): Promise<ApiResult<SegmentDto[]>> {
     return api.getEpisodeSegments(showId);
+}
+
+// Distinguishes loaded-empty from state-unknown: a failed fetch returns null so
+// callers hide the toggles instead of rendering every item as enabled.
+export async function getDisabledItemIds(seasonId: string): Promise<string[] | null> {
+    const result = await api.getDisabledItems(seasonId);
+    return result.ok && result.data ? result.data : null;
+}
+
+export function setItemDisabled(itemId: string, disabled: boolean): Promise<ApiResult<null>> {
+    return api.setItemDisabled(itemId, disabled);
 }
