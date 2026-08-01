@@ -187,6 +187,53 @@ public sealed class TestLegacyImporter
     }
 
     [Fact]
+    public async Task Import_MalformedNumericValues_SkipsRowsWithoutAbortingImport()
+    {
+        using var scope = new FixtureScope();
+        var itemId = Guid.NewGuid();
+        var seasonId = Guid.NewGuid();
+        LegacySchemaFixtures.CreateV5(
+            scope.LegacyPath,
+            [new(itemId, 10, 60, (int)AnalysisMode.Introduction, IsUserProvided: true)],
+            [new(seasonId, (int)AnalysisMode.Introduction, (int)AnalyzerAction.Chromaprint, "[]")]);
+
+        // SQLite never enforced column affinity, so repair-era files can carry text
+        // where numbers belong. Plant such rows directly.
+        var builder = new SqliteConnectionStringBuilder { DataSource = scope.LegacyPath, Pooling = false };
+        var legacy = new SqliteConnection(builder.ToString());
+        await using (legacy.ConfigureAwait(false))
+        {
+            await legacy.OpenAsync();
+            using var command = legacy.CreateCommand();
+            command.CommandText =
+                """
+                INSERT INTO "DbSegment" ("ItemId", "Start", "End", "Type", "IsUserProvided", "ConfigHash")
+                VALUES ($item, 'garbage', 90, 0, 'not-a-flag', '');
+                INSERT INTO "DbSeasonState" ("SeasonId", "Type", "Action", "EpisodeIds", "ConfigHash", "SettledReanalysisEpisodeIds")
+                VALUES ($season, 'garbage', 'garbage', '[]', '', '[]');
+                """;
+            command.Parameters.AddWithValue("$item", itemId.ToString());
+            command.Parameters.AddWithValue("$season", Guid.NewGuid().ToString());
+            await command.ExecuteNonQueryAsync();
+        }
+
+        await DatabaseTestHelpers.CreateSegmentDatabase(scope.V2Path).InitializeAsync();
+
+        await using var db = new IntroSkipperDbContext(scope.V2Path);
+        var row = Assert.Single(await db.Segments.AsNoTracking().ToListAsync());
+        Assert.Equal(itemId, row.ItemId);
+        Assert.Equal(SegmentSource.User, row.Source);
+
+        var state = Assert.Single(await db.SeasonStates.AsNoTracking().ToListAsync());
+        Assert.Equal(seasonId, state.SeasonId);
+
+        var marker = Assert.Single(await db.ImportHistory.AsNoTracking().ToListAsync());
+        Assert.Equal(1, marker.SegmentsImported);
+        Assert.Equal(1, marker.SegmentsSkipped);
+        Assert.Equal(1, marker.SeasonStatesImported);
+    }
+
+    [Fact]
     public async Task Import_ImportedSegmentsFlowThroughFacadeReads()
     {
         using var scope = new FixtureScope();

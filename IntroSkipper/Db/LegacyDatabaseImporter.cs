@@ -119,17 +119,13 @@ internal static partial class LegacyDatabaseImporter
                 var endValue = reader.GetValue(2);
                 var typeValue = reader.GetValue(3);
                 if (!TryReadGuid(reader.GetValue(0), out var itemId)
-                    || startValue is DBNull
-                    || endValue is DBNull
-                    || typeValue is DBNull)
+                    || !TryToDouble(startValue, out var startSeconds)
+                    || !TryToDouble(endValue, out var endSeconds)
+                    || !TryToInt32(typeValue, out var type))
                 {
                     skipped++;
                     continue;
                 }
-
-                var startSeconds = Convert.ToDouble(startValue, CultureInfo.InvariantCulture);
-                var endSeconds = Convert.ToDouble(endValue, CultureInfo.InvariantCulture);
-                var type = Convert.ToInt32(typeValue, CultureInfo.InvariantCulture);
 
                 if (!Enum.IsDefined((AnalysisMode)type)
                     || !TickConversions.TryFromSecondsRange(startSeconds, endSeconds, out var startTicks, out var endTicks))
@@ -145,8 +141,7 @@ internal static partial class LegacyDatabaseImporter
                 }
 
                 var userValue = hasUser ? reader.GetValue(4) : null;
-                var source = userValue is not null and not DBNull
-                             && Convert.ToInt64(userValue, CultureInfo.InvariantCulture) != 0
+                var source = TryToInt64(userValue, out var userFlag) && userFlag != 0
                     ? SegmentSource.User
                     : SegmentSource.Unknown;
                 var hashOrdinal = hasUser ? 5 : 4;
@@ -222,21 +217,18 @@ internal static partial class LegacyDatabaseImporter
             while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
             {
                 var typeValue = reader.GetValue(1);
-                if (!TryReadGuid(reader.GetValue(0), out var seasonId) || typeValue is DBNull)
+                if (!TryReadGuid(reader.GetValue(0), out var seasonId) || !TryToInt32(typeValue, out var type))
                 {
                     continue;
                 }
 
-                var type = Convert.ToInt32(typeValue, CultureInfo.InvariantCulture);
                 if (!Enum.IsDefined((AnalysisMode)type) || !existingKeys.Add((seasonId, (AnalysisMode)type)))
                 {
                     continue;
                 }
 
                 var actionValue = reader.GetValue(2);
-                var action = actionValue is not DBNull
-                             && Convert.ToInt32(actionValue, CultureInfo.InvariantCulture) is var actionNumber
-                             && Enum.IsDefined((AnalyzerAction)actionNumber)
+                var action = TryToInt32(actionValue, out var actionNumber) && Enum.IsDefined((AnalyzerAction)actionNumber)
                     ? (AnalyzerAction)actionNumber
                     : AnalyzerAction.Default;
 
@@ -306,6 +298,57 @@ internal static partial class LegacyDatabaseImporter
                 guid = Guid.Empty;
                 return false;
         }
+    }
+
+    // Repair-era legacy files can hold arbitrarily typed values (SQLite never enforced
+    // column affinity), so every numeric read is tolerant: a malformed value skips the
+    // row instead of aborting the whole import transaction.
+    private static bool TryToDouble(object? value, out double result)
+    {
+        if (value is not null and not DBNull)
+        {
+            try
+            {
+                result = Convert.ToDouble(value, CultureInfo.InvariantCulture);
+                return true;
+            }
+            catch (Exception ex) when (ex is FormatException or InvalidCastException or OverflowException)
+            {
+            }
+        }
+
+        result = 0;
+        return false;
+    }
+
+    private static bool TryToInt32(object? value, out int result)
+    {
+        if (TryToInt64(value, out var wide) && wide is >= int.MinValue and <= int.MaxValue)
+        {
+            result = (int)wide;
+            return true;
+        }
+
+        result = 0;
+        return false;
+    }
+
+    private static bool TryToInt64(object? value, out long result)
+    {
+        if (value is not null and not DBNull)
+        {
+            try
+            {
+                result = Convert.ToInt64(value, CultureInfo.InvariantCulture);
+                return true;
+            }
+            catch (Exception ex) when (ex is FormatException or InvalidCastException or OverflowException)
+            {
+            }
+        }
+
+        result = 0;
+        return false;
     }
 
     private static bool TableExists(SqliteConnection connection, string tableName)
