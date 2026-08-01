@@ -32,8 +32,8 @@ public sealed class DbDisabledItem
     /// <summary>
     /// Gets or sets the season-state key that owns the item, matching <see cref="DbSeasonState.SeasonId"/>:
     /// the analysis queue's season key for episodes, the item's own ID for movies. Refreshed on
-    /// every disable write, so a key gone stale after an item moves seasons heals itself. Used to
-    /// clean up rows when the season disappears from the library.
+    /// every disable write, so a key gone stale after an item moves seasons heals itself. Exists
+    /// only to serve the season-scoped listing; cleanup prunes by item ID.
     /// </summary>
     public Guid SeasonId { get; set; }
 

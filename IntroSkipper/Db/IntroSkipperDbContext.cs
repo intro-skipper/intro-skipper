@@ -139,7 +139,7 @@ public class IntroSkipperDbContext : DbContext
             entity.ToTable("DisabledItems");
 
             // One flag per item by construction; the SeasonId index serves the
-            // per-season listing and season-departure pruning.
+            // per-season listing (cleanup prunes by item ID).
             entity.HasKey(e => e.ItemId);
             entity.HasIndex(e => e.SeasonId);
         });

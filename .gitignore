@@ -12,6 +12,7 @@ IntroSkipper/Configuration/introskipper.css
 
 # Web dashboard dependencies
 web/node_modules
+docs/agents
 
 # Visual Studio
 .vs/
@@ -21,3 +22,4 @@ web/node_modules
 /.cursor
 .agents/
 .omo
+.claude

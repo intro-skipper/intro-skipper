@@ -28,11 +28,6 @@ public sealed partial class MediaSegmentRefreshService(
     {
         ArgumentNullException.ThrowIfNull(item);
 
-        if (!MediaSegmentMirrorPolicy.Enabled)
-        {
-            return;
-        }
-
         await RefreshCoreAsync(item, cancellationToken).ConfigureAwait(false);
     }
 
@@ -46,8 +41,6 @@ public sealed partial class MediaSegmentRefreshService(
             return;
         }
 
-        // Deliberately no catch: interactive callers own the failure and must not
-        // report success when the mirror kept its old rows.
         await mirror.SyncItemAsync(item.Id, cancellationToken).ConfigureAwait(false);
         LogUpdatedMediaSegments(logger, item.Id);
     }
@@ -103,12 +96,13 @@ public sealed partial class MediaSegmentRefreshService(
         await segmentStore.DeleteOwnSegmentsAsync(itemIds, cancellationToken).ConfigureAwait(false);
     }
 
+    // The lenient path: the strict refresh with non-critical failures logged and
+    // swallowed.
     private async Task RefreshCoreAsync(BaseItem item, CancellationToken cancellationToken)
     {
         try
         {
-            await mirror.SyncItemAsync(item.Id, cancellationToken).ConfigureAwait(false);
-            LogUpdatedMediaSegments(logger, item.Id);
+            await RefreshStrictAsync(item, cancellationToken).ConfigureAwait(false);
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {

@@ -295,22 +295,11 @@ export function createTimestampsBrowser(container: HTMLElement): { destroy: () =
                 return;
             }
 
-            epList.render(
-                episodes,
-                segments,
-                false,
-                disabledItemIds === null
-                    ? undefined
-                    : { ids: disabledItemIds, onChange: updateItemDisabled },
+            epList.render(episodes, segments, false, disableOption(disabledItemIds));
+            warnDisableStateUnknown(
+                disabledItemIds,
+                "Failed to load media-segment settings; the enable/disable toggles are hidden.",
             );
-            if (disabledItemIds === null) {
-                // State unknown: the toggles are hidden rather than rendered as a
-                // fabricated all-enabled state.
-                epList.setStatus(
-                    "Failed to load media-segment settings; the enable/disable toggles are hidden.",
-                    "var(--is-error)",
-                );
-            }
             await actions.loadForSeason(show.Id, season.Id, false);
         } catch (err) {
             if (!nav$.isCurrentPanel(panelToken)) return;
@@ -352,20 +341,11 @@ export function createTimestampsBrowser(container: HTMLElement): { destroy: () =
             ]);
             if (!nav$.isCurrentPanel(panelToken)) return;
 
-            epList.render(
-                [movieEp],
-                [result],
-                true,
-                disabledItemIds === null
-                    ? undefined
-                    : { ids: disabledItemIds, onChange: updateItemDisabled },
+            epList.render([movieEp], [result], true, disableOption(disabledItemIds));
+            warnDisableStateUnknown(
+                disabledItemIds,
+                "Failed to load media-segment settings; the enable/disable toggle is hidden.",
             );
-            if (disabledItemIds === null) {
-                epList.setStatus(
-                    "Failed to load media-segment settings; the enable/disable toggle is hidden.",
-                    "var(--is-error)",
-                );
-            }
             await actions.loadForSeason(show.Id, show.Id, true);
         } catch (err) {
             if (!nav$.isCurrentPanel(panelToken)) return;
@@ -379,6 +359,23 @@ export function createTimestampsBrowser(container: HTMLElement): { destroy: () =
                 setPanelBusy(false);
             }
             nav$.hideDashboardLoading();
+        }
+    }
+
+    // Maps the fetched disabled ids to the episode list's disable option. Null
+    // (state unknown) hides the toggles rather than rendering a fabricated
+    // all-enabled state; warnDisableStateUnknown surfaces the failure after render.
+    function disableOption(
+        disabledItemIds: string[] | null,
+    ): { ids: string[]; onChange: (itemId: string, disabled: boolean) => Promise<void> } | undefined {
+        return disabledItemIds === null
+            ? undefined
+            : { ids: disabledItemIds, onChange: updateItemDisabled };
+    }
+
+    function warnDisableStateUnknown(disabledItemIds: string[] | null, message: string): void {
+        if (disabledItemIds === null) {
+            epList.setStatus(message, "var(--is-error)");
         }
     }
 
