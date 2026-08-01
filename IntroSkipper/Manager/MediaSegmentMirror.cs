@@ -80,8 +80,6 @@ public sealed class MediaSegmentMirror(IJellyfinSegmentStore segmentStore, Segme
     /// plugin-database read cannot land its replace after this cleanup and resurrect
     /// rows whose plugin source the caller is removing, and any sync that starts later
     /// re-reads the plugin database and converges on what the caller left there.
-    /// Grouping keeps each hold to one stripe (never the whole pool) and each group to
-    /// one bulk statement.
     /// </summary>
     /// <param name="itemIds">The item ids whose Intro Skipper segments should be removed.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
@@ -97,9 +95,8 @@ public sealed class MediaSegmentMirror(IJellyfinSegmentStore segmentStore, Segme
 
         foreach (var stripeGroup in itemIds.GroupBy(StripedAsyncLock.StripeIndex))
         {
-            var ids = stripeGroup.ToList();
-            using var stripe = await _lock.AcquireAsync(ids[0], cancellationToken).ConfigureAwait(false);
-            await segmentStore.DeleteOwnSegmentsAsync(ids, cancellationToken).ConfigureAwait(false);
+            using var stripe = await _lock.AcquireStripeAsync(stripeGroup.Key, cancellationToken).ConfigureAwait(false);
+            await segmentStore.DeleteOwnSegmentsAsync(stripeGroup, cancellationToken).ConfigureAwait(false);
         }
     }
 }

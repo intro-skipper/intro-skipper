@@ -214,9 +214,7 @@ public partial class MediaSegmentEditorService(
     /// season-state reset. A deleted plugin row whose Jellyfin row is not found signals
     /// drift (a concurrent refresh removed it first, or the server stopped preserving
     /// provider-supplied ids), so the item's mirror is re-synced with a warning. Once
-    /// the Jellyfin delete has committed, the season-state reset runs uncancelably: the
-    /// deleted row cannot be deleted again, so a canceled reset could never be retried
-    /// and would strand the item in the analyzed set.
+    /// the Jellyfin delete has committed, the season-state reset runs uncancelably.
     /// </summary>
     private async Task DeleteMirrorRowAndResetStateAsync(Guid itemId, AnalysisMode resetMode, Guid jellyfinSegmentId, DbSegment? deletedPluginRow, CancellationToken cancellationToken)
     {

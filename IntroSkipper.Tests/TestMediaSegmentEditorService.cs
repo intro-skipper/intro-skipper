@@ -244,35 +244,27 @@ public sealed class TestMediaSegmentEditorService
     public async Task DeleteSegmentAsync_CancellationAfterCommittedJellyfinDelete_StillResetsAnalyzedState()
     {
         var itemId = Guid.NewGuid();
-        var dbPath = DatabaseTestHelpers.CreateTempDbPath(Guid.NewGuid().ToString("N") + "-editor-cancel.db");
         using var scope = EntrypointTestHelpers.CreateMoviePluginScope(itemId, updateMediaSegments: true, out _);
-        try
-        {
-            var database = DatabaseTestHelpers.CreateSegmentDatabase(dbPath);
-            await database.ReplaceAutoSegmentsAsync(
-                itemId, AnalysisMode.Introduction, [new Segment(itemId, new TimeRange(10, 20))], SegmentSource.Chapter);
-            var row = Assert.Single(await database.GetSegmentsAsync(itemId));
-            await database.SetEpisodeIdsAsync(itemId, AnalysisMode.Introduction, [itemId]);
+        var database = DatabaseTestHelpers.CreateTempSegmentDatabase();
+        await database.ReplaceAutoSegmentsAsync(
+            itemId, AnalysisMode.Introduction, [new Segment(itemId, new TimeRange(10, 20))], SegmentSource.Chapter);
+        var row = Assert.Single(await database.GetSegmentsAsync(itemId));
+        await database.SetEpisodeIdsAsync(itemId, AnalysisMode.Introduction, [itemId]);
 
-            // Cancel at the exact point where the Jellyfin delete has committed: the
-            // cascade cannot be retried (a repeated DELETE 404s on the tombstoned row),
-            // so the analyzed-state reset must complete despite the cancellation or the
-            // item stays marked analyzed forever.
-            using var cts = new CancellationTokenSource();
-            var store = new FakeJellyfinSegmentStore { DeleteSegmentCallback = () => cts.Cancel() };
-            var service = DatabaseTestHelpers.CreateEditorService(store, database);
+        // Cancel at the exact point where the Jellyfin delete has committed: the
+        // cascade cannot be retried (a repeated DELETE 404s on the tombstoned row),
+        // so the analyzed-state reset must complete despite the cancellation or the
+        // item stays marked analyzed forever.
+        using var cts = new CancellationTokenSource();
+        var store = new FakeJellyfinSegmentStore { DeleteSegmentCallback = () => cts.Cancel() };
+        var service = DatabaseTestHelpers.CreateEditorService(store, database);
 
-            var deleted = await service.DeleteSegmentAsync(itemId, row.Id, cts.Token);
+        var deleted = await service.DeleteSegmentAsync(itemId, row.Id, cts.Token);
 
-            Assert.NotNull(deleted);
-            Assert.Equal([(itemId, row.Id)], store.DeletedSegments);
-            var snapshot = await database.GetSeasonQueueSnapshotAsync(itemId, [itemId]);
-            Assert.DoesNotContain(itemId, snapshot.EpisodeIdsByMode[AnalysisMode.Introduction]);
-        }
-        finally
-        {
-            DatabaseTestHelpers.DeleteSqliteFiles(dbPath);
-        }
+        Assert.NotNull(deleted);
+        Assert.Equal([(itemId, row.Id)], store.DeletedSegments);
+        var snapshot = await database.GetSeasonQueueSnapshotAsync(itemId, [itemId]);
+        Assert.DoesNotContain(itemId, snapshot.EpisodeIdsByMode[AnalysisMode.Introduction]);
     }
 
     /// <summary>

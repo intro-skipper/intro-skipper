@@ -443,15 +443,15 @@ public sealed partial class IntroSkipperDatabase
         ArgumentOutOfRangeException.ThrowIfLessThanOrEqual(endTicks, startTicks);
     }
 
-    // Every stored row must carry a defined mode: downstream conversions index
-    // AnalysisHelpers.ModeToSegmentType with it, so a persisted undefined mode would
-    // poison every later mirror of the item. HTTP edges reject undefined modes with
-    // 400; this guards the invariant at the write boundary itself.
+    // Every stored row must carry a mappable mode: downstream conversions index
+    // AnalysisHelpers.ModeToSegmentType with it, so a persisted unmapped mode would
+    // poison every later mirror of the item. The segments POST edge rejects such modes
+    // with 400; this guards the invariant at the write boundary itself.
     private static void ValidateMode(AnalysisMode mode)
     {
-        if (!Enum.IsDefined(mode))
+        if (!AnalysisHelpers.IsSupported(mode))
         {
-            throw new ArgumentOutOfRangeException(nameof(mode), mode, "Undefined analysis mode.");
+            throw new ArgumentOutOfRangeException(nameof(mode), mode, "Analysis mode has no media segment type mapping.");
         }
     }
 

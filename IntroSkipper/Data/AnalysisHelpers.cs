@@ -45,6 +45,17 @@ internal static class AnalysisHelpers
         => settledEpisodeIds.Count != episodeIds.Count || episodeIds.Any(id => !settledEpisodeIds.Contains(id));
 
     /// <summary>
+    /// Returns whether the mode has a <see cref="ModeToSegmentType"/> entry, i.e. every
+    /// downstream conversion of a row carrying it is defined. Write boundaries and HTTP
+    /// edges reject modes failing this so no stored row can crash a later mirror; a mere
+    /// <c>Enum.IsDefined</c> check would drift the moment a mode is added without a
+    /// mapping.
+    /// </summary>
+    /// <param name="mode">Analysis mode.</param>
+    /// <returns><see langword="true"/> when the mode is mappable; otherwise <see langword="false"/>.</returns>
+    internal static bool IsSupported(AnalysisMode mode) => ModeToSegmentType.ContainsKey(mode);
+
+    /// <summary>
     /// Maps a Jellyfin media segment type to the corresponding analysis mode.
     /// </summary>
     /// <param name="type">Media segment type.</param>

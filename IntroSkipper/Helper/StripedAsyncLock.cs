@@ -24,17 +24,30 @@ internal sealed class StripedAsyncLock
     /// <param name="itemId">Item id.</param>
     /// <param name="cancellationToken">Cancellation token; only the wait is cancelable.</param>
     /// <returns>A releaser that frees the stripe on dispose.</returns>
-    public async ValueTask<Releaser> AcquireAsync(Guid itemId, CancellationToken cancellationToken)
+    public ValueTask<Releaser> AcquireAsync(Guid itemId, CancellationToken cancellationToken)
+        => AcquireStripeAsync(StripeIndex(itemId), cancellationToken);
+
+    /// <summary>
+    /// Acquires a stripe by index, for callers that batch work per stripe after grouping
+    /// ids with <see cref="StripeIndex"/>; routing the id overload through here keeps
+    /// grouping and acquisition on one mapping by construction. Same releaser contract
+    /// as <see cref="AcquireAsync(Guid, CancellationToken)"/>.
+    /// </summary>
+    /// <param name="stripeIndex">Stripe index from <see cref="StripeIndex"/>.</param>
+    /// <param name="cancellationToken">Cancellation token; only the wait is cancelable.</param>
+    /// <returns>A releaser that frees the stripe on dispose.</returns>
+    public async ValueTask<Releaser> AcquireStripeAsync(int stripeIndex, CancellationToken cancellationToken)
     {
-        var stripe = _stripes[StripeIndex(itemId)];
+        var stripe = _stripes[stripeIndex];
         await stripe.WaitAsync(cancellationToken).ConfigureAwait(false);
         return new Releaser(stripe);
     }
 
     /// <summary>
-    /// Maps an item id to its lock stripe. The mapping is shared by every pool, and is
-    /// internal so concurrency tests can pick ids on distinct (or identical) stripes
-    /// deterministically instead of flaking on hash luck.
+    /// Maps an item id to its lock stripe. The mapping is shared by every pool; callers
+    /// group per-stripe batches with it (paired with <see cref="AcquireStripeAsync"/>),
+    /// and it is internal so concurrency tests can pick ids on distinct (or identical)
+    /// stripes deterministically instead of flaking on hash luck.
     /// </summary>
     /// <param name="itemId">Item id.</param>
     /// <returns>The stripe index.</returns>

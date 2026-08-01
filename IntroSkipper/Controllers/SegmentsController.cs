@@ -91,9 +91,9 @@ public class SegmentsController(
             return NotFound();
         }
 
-        // The enum-string converter also accepts raw integers, so an undefined numeric
+        // The enum-string converter also accepts raw integers, so an unmapped numeric
         // mode binds successfully; reject it here so no unservable row is ever committed.
-        if (!Enum.IsDefined(request.Type))
+        if (!AnalysisHelpers.IsSupported(request.Type))
         {
             return BadRequest($"Unknown segment type '{(int)request.Type}'.");
         }
