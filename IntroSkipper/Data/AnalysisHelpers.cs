@@ -12,7 +12,7 @@ internal static class AnalysisHelpers
 {
     /// <summary>
     /// Gets the single source of truth for the correspondence between analysis modes and
-    /// Jellyfin media segment types; <see cref="MapSegmentTypeToMode"/> is derived from it.
+    /// Jellyfin media segment types; <see cref="TryMapSegmentTypeToMode"/> is derived from it.
     /// </summary>
     internal static IReadOnlyDictionary<AnalysisMode, MediaSegmentType> ModeToSegmentType { get; } = new Dictionary<AnalysisMode, MediaSegmentType>
     {
@@ -56,12 +56,16 @@ internal static class AnalysisHelpers
     internal static bool IsSupported(AnalysisMode mode) => ModeToSegmentType.ContainsKey(mode);
 
     /// <summary>
-    /// Maps a Jellyfin media segment type to the corresponding analysis mode.
+    /// Maps a Jellyfin media segment type to its analysis mode; derived from
+    /// <see cref="ModeToSegmentType"/>. <see cref="MediaSegmentType.Unknown"/> is a
+    /// defined enum value with no mapping (and the default for an omitted JSON
+    /// property), so callers must handle <see langword="null"/> — an
+    /// <c>Enum.IsDefined</c> pre-check would not catch it.
     /// </summary>
     /// <param name="type">Media segment type.</param>
-    /// <returns>The corresponding <see cref="AnalysisMode"/>.</returns>
-    internal static AnalysisMode MapSegmentTypeToMode(MediaSegmentType type)
-        => SegmentTypeToMode.TryGetValue(type, out var mode) ? mode : throw new NotImplementedException();
+    /// <returns>The corresponding mode, or <see langword="null"/> for unmapped types.</returns>
+    internal static AnalysisMode? TryMapSegmentTypeToMode(MediaSegmentType type)
+        => SegmentTypeToMode.TryGetValue(type, out var mode) ? mode : null;
 
     /// <summary>
     /// Parses a <see cref="MediaSegmentType"/> enum name (case-insensitive) to its analysis

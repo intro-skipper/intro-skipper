@@ -318,6 +318,62 @@ public sealed class SegmentEditorControllerTests
         }
     }
 
+    [Fact]
+    public async Task CreateSegment_BadRequest_ForUnmappedSegmentType_WithoutWriting()
+    {
+        var itemId = Guid.NewGuid();
+        using var scope = EntrypointTestHelpers.CreateMoviePluginScope(itemId, updateMediaSegments: true, out _);
+        var database = DatabaseTestHelpers.CreateTempSegmentDatabase();
+        var store = new FakeJellyfinSegmentStore();
+        var controller = CreateController(store, database);
+
+        // Type is omitted, so it binds as MediaSegmentType.Unknown — a defined enum
+        // value with no mode mapping; the endpoint must 400 instead of crashing the
+        // mapping into a 500.
+        var response = await controller.CreateSegmentAsync(
+            itemId,
+            "providerId",
+            new MediaSegmentDto { Id = Guid.NewGuid(), ItemId = itemId, StartTicks = 10, EndTicks = 20 },
+            CancellationToken.None);
+
+        Assert.IsType<BadRequestObjectResult>(response.Result);
+        Assert.Empty(await database.GetSegmentsAsync(itemId, includeSuppressed: true));
+        Assert.Empty(store.ReplacedItems);
+    }
+
+    [Fact]
+    public async Task CreateSegment_PersistsUserRow_AndMirrorsIt()
+    {
+        var itemId = Guid.NewGuid();
+        using var scope = EntrypointTestHelpers.CreateMoviePluginScope(itemId, updateMediaSegments: true, out _);
+        var database = DatabaseTestHelpers.CreateTempSegmentDatabase();
+        var store = new FakeJellyfinSegmentStore();
+        var controller = CreateController(store, database);
+
+        var response = await controller.CreateSegmentAsync(
+            itemId,
+            "providerId",
+            new MediaSegmentDto
+            {
+                Id = Guid.NewGuid(),
+                ItemId = itemId,
+                Type = Jellyfin.Database.Implementations.Enums.MediaSegmentType.Intro,
+                StartTicks = TickConversions.FromSeconds(10),
+                EndTicks = TickConversions.FromSeconds(20),
+            },
+            CancellationToken.None);
+
+        Assert.IsType<OkResult>(response.Result);
+        var row = Assert.Single(await database.GetSegmentsAsync(itemId));
+        Assert.Equal(AnalysisMode.Introduction, row.Type);
+        Assert.Equal(SegmentSource.User, row.Source);
+        Assert.Equal(TickConversions.FromSeconds(10), row.StartTicks);
+        Assert.Equal(TickConversions.FromSeconds(20), row.EndTicks);
+        var (replacedItemId, pushed) = Assert.Single(store.ReplacedItems);
+        Assert.Equal(itemId, replacedItemId);
+        Assert.Equal(row.Id, Assert.Single(pushed).Id);
+    }
+
     private static SegmentEditorController CreateController(
         IJellyfinSegmentStore store,
         IntroSkipper.Db.IIntroSkipperDatabase database)

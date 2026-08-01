@@ -65,6 +65,7 @@ public class SegmentEditorController(
     /// <returns>The created segment.</returns>
     [HttpPost("{itemId}")]
     [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     public async Task<ActionResult<QueryResult<MediaSegmentDto>>> CreateSegmentAsync(
         [FromRoute, Required] Guid itemId,
@@ -83,7 +84,12 @@ public class SegmentEditorController(
             return BadRequest("EndTicks must be after StartTicks and both must be non-negative.");
         }
 
-        var mode = AnalysisHelpers.MapSegmentTypeToMode(segment.Type);
+        // Unknown is a defined MediaSegmentType with no mode mapping and the default
+        // when the body omits Type; reject it like every other unmapped type.
+        if (AnalysisHelpers.TryMapSegmentTypeToMode(segment.Type) is not { } mode)
+        {
+            return BadRequest($"Unknown segment type '{segment.Type}'.");
+        }
 
         await _mediaSegmentEditorService
             .CreateUserSegmentAsync(itemId, mode, segment.StartTicks, segment.EndTicks, cancellationToken)
