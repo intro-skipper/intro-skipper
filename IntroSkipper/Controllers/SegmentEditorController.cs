@@ -96,7 +96,7 @@ public class SegmentEditorController(MediaSegmentEditorService mediaSegmentEdito
     /// <returns>
     /// HTTP 200 on success, 400 when the requested type does not match the Jellyfin segment,
     /// or 404 when the commercial segment is not found. A segment id owned by a different item
-    /// leaves Jellyfin untouched while the item's own plugin row is still removed.
+    /// is rejected without mutating either item.
     /// </returns>
     [HttpDelete("{segmentId}")]
     [ProducesResponseType(StatusCodes.Status200OK)]

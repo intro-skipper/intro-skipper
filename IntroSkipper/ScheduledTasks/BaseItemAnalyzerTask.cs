@@ -338,7 +338,7 @@ public partial class BaseItemAnalyzerTask(
         var analyzers = new List<IMediaFileAnalyzer>
         {
             // ChapterAnalyzer: supports all modes and content types
-            new ChapterAnalyzer(_loggerFactory.CreateLogger<ChapterAnalyzer>(), _ffmpegService, _database)
+            new ChapterAnalyzer(_loggerFactory.CreateLogger<ChapterAnalyzer>(), _ffmpegService, _database, _config)
         };
 
         if (mode is AnalysisMode.Credits)
