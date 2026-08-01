@@ -227,8 +227,9 @@ public partial class VisualizationController(ILogger<VisualizationController> lo
     }
 
     /// <summary>
-    /// Returns the IDs of the season's items whose automatic segments are withheld
-    /// from Jellyfin. An unknown season yields an empty set.
+    /// Returns the IDs of the items recorded under the given season-state key whose
+    /// automatic segments are withheld from Jellyfin. A key with no recorded
+    /// disabled items yields an empty set rather than an error.
     /// </summary>
     /// <param name="seasonId">Season-state key (a movie's own ID for movies).</param>
     /// <param name="cancellationToken">Cancellation token.</param>
