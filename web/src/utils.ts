@@ -25,18 +25,23 @@ export function parseTimeInput(value: string): number | null {
     if (parts.length > 3) return null;
 
     let seconds = 0;
-    for (const part of parts) {
-        // Only the digits (with optional fraction) of each component are legal.
-        if (!/^\d+(\.\d+)?$/.test(part)) return null;
-        seconds = seconds * 60 + Number(part);
+    for (const [index, part] of parts.entries()) {
+        // Only the last component may carry a fraction; the rest are integers.
+        const pattern = index === parts.length - 1 ? /^\d+(\.\d+)?$/ : /^\d+$/;
+        if (!pattern.test(part)) return null;
+        const component = Number(part);
+        // Base-60 positions (seconds, and minutes in h:mm:ss) must stay < 60.
+        if (index > 0 && component >= 60) return null;
+        seconds = seconds * 60 + component;
     }
 
     return Number.isFinite(seconds) ? seconds : null;
 }
 
 /**
- * Canonical editable form of a time: "m:ss.mmm" with an hours prefix when
- * needed; round-trips through parseTimeInput.
+ * Canonical editable form of a time: "m:ss[.fff]" (fraction only when
+ * non-zero, trailing zeros trimmed) with an hours prefix when needed;
+ * round-trips through parseTimeInput.
  */
 export function formatTimeInput(totalSeconds: number): string {
     // Round to milliseconds FIRST so 119.9996 becomes 2:00 rather than 1:60.

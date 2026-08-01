@@ -166,7 +166,6 @@ export function restoreEpisodeSegment(
     return request<SegmentDto>(
         `Episode/${encodeURIComponent(itemId)}/Segments/${encodeURIComponent(segmentId)}/Restore`,
         "POST",
-        null,
     );
 }
 
