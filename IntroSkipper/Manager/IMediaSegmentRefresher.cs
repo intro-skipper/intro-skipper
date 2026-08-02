@@ -24,7 +24,9 @@ public interface IMediaSegmentRefresher
     Task RefreshAsync(IEnumerable<Guid> itemIds, CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// Removes Intro Skipper-owned media segments by refreshing items with only other providers.
+    /// Removes Intro Skipper-owned media segments by refreshing each item with only other providers.
+    /// Existing segments are deleted before the refresh, so this operation both removes the
+    /// Intro Skipper segments and refreshes the remaining providers' output.
     /// </summary>
     /// <param name="itemIds">The item ids whose Intro Skipper segments should be removed.</param>
     /// <param name="cancellationToken">Cancellation token.</param>

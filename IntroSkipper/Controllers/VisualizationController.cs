@@ -110,14 +110,9 @@ public partial class VisualizationController(ILogger<VisualizationController> lo
             request.Disabled,
             cancellationToken).ConfigureAwait(false);
 
-        if (request.Disabled)
-        {
-            await _mediaSegmentRefresher.RemoveIntroSkipperSegmentsAsync([request.EpisodeId], cancellationToken).ConfigureAwait(false);
-        }
-        else
-        {
-            await _mediaSegmentRefresher.RefreshAsync([request.EpisodeId], cancellationToken).ConfigureAwait(false);
-        }
+        // Refresh in both directions. The provider filters automatic rows for a disabled episode
+        // while retaining user-provided rows, so a delete-only refresh would remove user edits.
+        await _mediaSegmentRefresher.RefreshAsync([request.EpisodeId], cancellationToken).ConfigureAwait(false);
 
         return NoContent();
     }
