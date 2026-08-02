@@ -452,20 +452,14 @@ public partial class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
     internal static async Task<IReadOnlyList<DbSegment>> GetSegmentsForOutputAsync(Guid id, CancellationToken cancellationToken = default)
     {
         using var db = CreateDbContext();
-        var disabledEpisodeIds = db.DbDisabledEpisode
+        var isDisabled = await db.DbDisabledEpisode
             .AsNoTracking()
-            .Where(e => e.EpisodeId == id)
-            .Select(e => (Guid?)e.EpisodeId)
-            .Distinct();
+            .AnyAsync(e => e.EpisodeId == id, cancellationToken)
+            .ConfigureAwait(false);
 
-        var query =
-            from segment in db.DbSegment.AsNoTracking()
-            join disabledEpisodeId in disabledEpisodeIds
-                on (Guid?)segment.ItemId equals disabledEpisodeId into disabledEpisodeMatches
-            from disabledEpisodeId in disabledEpisodeMatches.DefaultIfEmpty()
-            where segment.ItemId == id &&
-                  (disabledEpisodeId == null || segment.IsUserProvided)
-            select segment;
+        var query = db.DbSegment
+            .AsNoTracking()
+            .Where(segment => segment.ItemId == id && (!isDisabled || segment.IsUserProvided));
 
         return await query
             .ToListAsync(cancellationToken)

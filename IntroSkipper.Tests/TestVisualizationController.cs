@@ -279,9 +279,7 @@ public sealed class TestVisualizationController
         public Task RemoveIntroSkipperSegmentsAsync(IEnumerable<Guid> itemIds, CancellationToken cancellationToken = default)
         {
             RemoveCallCount++;
-            RefreshCallCount++;
-            LastItemIds = [.. itemIds];
-            return Completion?.Task ?? Task.CompletedTask;
+            return RefreshAsync(itemIds, cancellationToken);
         }
     }
 }
