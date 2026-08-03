@@ -9,6 +9,7 @@ using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.Globalization;
 using System.Text;
+using System.Text.Json;
 using IntroSkipper.Data;
 using IntroSkipper.Helper;
 using Microsoft.Extensions.Logging;
@@ -724,6 +725,63 @@ public sealed partial class FFmpegService(
         return Path.Join(Path.GetDirectoryName(ffmpegPath) ?? string.Empty, "ffprobe" + extension);
     }
 
+    private async Task<int?> FindPreferredAudioStreamIndexAsync(
+        string filePath,
+        string preferredLanguage,
+        CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(preferredLanguage))
+        {
+            return null;
+        }
+
+        try
+        {
+            var args = new List<string>
+            {
+                "-v", "error",
+                "-select_streams", "a",
+                "-show_entries", "stream=index:stream_tags=language",
+                "-of", "json",
+                filePath,
+            };
+
+            var output = Encoding.UTF8.GetString(await GetProcessOutputAsync(
+                GetFFprobePath(),
+                args,
+                stderr: false,
+                timeout: 10 * 1000,
+                cancellationToken: cancellationToken).ConfigureAwait(false));
+
+            using var document = JsonDocument.Parse(output);
+            if (!document.RootElement.TryGetProperty("streams", out var streams))
+            {
+                return null;
+            }
+
+            foreach (var stream in streams.EnumerateArray())
+            {
+                if (!stream.TryGetProperty("tags", out var tags) ||
+                    !tags.TryGetProperty("language", out var language) ||
+                    !string.Equals(language.GetString()?.Trim(), preferredLanguage, StringComparison.OrdinalIgnoreCase))
+                {
+                    continue;
+                }
+
+                if (stream.TryGetProperty("index", out var index) && index.TryGetInt32(out var streamIndex))
+                {
+                    return streamIndex;
+                }
+            }
+        }
+        catch (Exception ex) when (ex is JsonException or IOException or InvalidOperationException or UnauthorizedAccessException or System.ComponentModel.Win32Exception)
+        {
+            LogPreferredAudioLanguageProbeFailed(_logger, ex, filePath, preferredLanguage);
+        }
+
+        return null;
+    }
+
     /// <summary>
     /// Fingerprint a queued episode.
     /// </summary>
@@ -747,11 +805,18 @@ public sealed partial class FFmpegService(
 
         LogFingerprinting(_logger, start, end, episode.Path, episode.EpisodeId);
 
+        var preferredLanguage = (Plugin.Instance?.Configuration.PreferredAudioLanguage ?? string.Empty).Trim();
+        var preferredAudioStreamIndex = await FindPreferredAudioStreamIndexAsync(
+            episode.Path,
+            preferredLanguage,
+            cancellationToken).ConfigureAwait(false);
+
         var args = new List<string>
         {
             "-ss", start.ToString(CultureInfo.InvariantCulture),
             "-i", episode.Path,
             "-to", (end - start).ToString(CultureInfo.InvariantCulture),
+            "-map", preferredAudioStreamIndex is int streamIndex ? $"0:{streamIndex}" : "0:a:0?",
             "-ac", "2",
             "-f", "chromaprint",
             "-fp_format", "raw",
@@ -855,6 +920,9 @@ public sealed partial class FFmpegService(
 
     [LoggerMessage(Level = LogLevel.Debug, Message = "Failed to probe audio duration for {File}")]
     private static partial void LogAudioDurationProbeFailed(ILogger logger, Exception ex, string file);
+
+    [LoggerMessage(Level = LogLevel.Debug, Message = "Failed to probe preferred audio language {Language} for {File}; using the first audio stream")]
+    private static partial void LogPreferredAudioLanguageProbeFailed(ILogger logger, Exception ex, string file, string language);
 
     [LoggerMessage(Level = LogLevel.Debug, Message = "ffmpeg process already gone while killing process tree")]
     private static partial void LogFfmpegProcessAlreadyGone(ILogger logger, Exception ex);

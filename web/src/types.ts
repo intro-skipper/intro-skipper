@@ -40,6 +40,7 @@ export interface PluginConfig {
     ChapterAnalyzerRecapPattern: string;
     ChapterAnalyzerCommercialPattern: string;
     ExcludeSeries: string;
+    PreferredAudioLanguage: string;
     SeriesExclusions: string[];
     MovieExclusions: string[];
     PathExclusions: string[];

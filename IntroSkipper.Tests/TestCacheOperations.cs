@@ -230,6 +230,31 @@ public sealed class TestCacheOperations
     }
 
     [Fact]
+    public void DetectionCacheHash_Chromaprint_ChangesWithPreferredAudioLanguage()
+    {
+        var baseline = new PluginConfiguration();
+        var changed = new PluginConfiguration { PreferredAudioLanguage = "eng" };
+
+        Assert.NotEqual(
+            ConfigHasher.DetectionCache(baseline, CacheEntryType.Chromaprint, AnalysisMode.Introduction),
+            ConfigHasher.DetectionCache(changed, CacheEntryType.Chromaprint, AnalysisMode.Introduction));
+    }
+
+    [Theory]
+    [InlineData(AnalysisMode.Introduction)]
+    [InlineData(AnalysisMode.Credits)]
+    [InlineData(AnalysisMode.Recap)]
+    public void AnalysisHash_ChromaprintModes_ChangesWithPreferredAudioLanguage(AnalysisMode mode)
+    {
+        var baseline = new PluginConfiguration();
+        var changed = new PluginConfiguration { PreferredAudioLanguage = "eng" };
+
+        Assert.NotEqual(
+            ConfigHasher.Analysis(baseline, mode, AnalyzerAction.Default, ffmpegValid: true),
+            ConfigHasher.Analysis(changed, mode, AnalyzerAction.Default, ffmpegValid: true));
+    }
+
+    [Fact]
     public void DetectionCacheHash_BlackFrame_ChangesWithMode()
     {
         var config = new PluginConfiguration { BlackFrameThreshold = 32 };

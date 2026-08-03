@@ -26,6 +26,7 @@ public class TestPluginConfiguration
         Assert.False(config.DetectRecapUsingBlackFrames);
         Assert.Equal(PluginConfiguration.DefaultSettledSeasonDelayHours, config.SettledSeasonDelayHours);
         Assert.Equal(string.Empty, config.ExcludeSeries);
+        Assert.Equal(string.Empty, config.PreferredAudioLanguage);
         Assert.Empty(config.SeriesExclusions);
         Assert.Empty(config.MovieExclusions);
         Assert.Empty(config.PathExclusions);
