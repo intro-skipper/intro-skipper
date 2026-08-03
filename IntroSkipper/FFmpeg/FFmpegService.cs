@@ -744,7 +744,7 @@ public sealed partial class FFmpegService(
             {
                 "-v", "error",
                 "-select_streams", "a",
-                "-show_entries", "stream=index:stream_tags=language",
+                "-show_entries", "stream=index,channels:stream_tags=language",
                 "-of", "json",
                 filePath,
             };
@@ -762,6 +762,7 @@ public sealed partial class FFmpegService(
                 return null;
             }
 
+            (int Index, int Channels)? preferredStream = null;
             foreach (var stream in streams.EnumerateArray())
             {
                 if (!stream.TryGetProperty("tags", out var tags) ||
@@ -773,9 +774,21 @@ public sealed partial class FFmpegService(
 
                 if (stream.TryGetProperty("index", out var index) && index.TryGetInt32(out var streamIndex))
                 {
-                    return streamIndex;
+                    var channels = stream.TryGetProperty("channels", out var channelsElement) &&
+                        channelsElement.TryGetInt32(out var channelCount)
+                        ? channelCount
+                        : 0;
+
+                    if (preferredStream is null ||
+                        channels > preferredStream.Value.Channels ||
+                        channels == preferredStream.Value.Channels && streamIndex < preferredStream.Value.Index)
+                    {
+                        preferredStream = (streamIndex, channels);
+                    }
                 }
             }
+
+            return preferredStream?.Index;
         }
         catch (Exception ex) when (ex is JsonException or IOException or InvalidOperationException or UnauthorizedAccessException or System.ComponentModel.Win32Exception)
         {
@@ -819,12 +832,17 @@ public sealed partial class FFmpegService(
             "-ss", start.ToString(CultureInfo.InvariantCulture),
             "-i", episode.Path,
             "-to", (end - start).ToString(CultureInfo.InvariantCulture),
-            "-map", preferredAudioStreamIndex is int streamIndex ? $"0:{streamIndex}?" : "0:a:0?",
             "-ac", "2",
             "-f", "chromaprint",
             "-fp_format", "raw",
             "-",
         };
+
+        if (preferredAudioStreamIndex is int streamIndex)
+        {
+            args.Insert(6, "-map");
+            args.Insert(7, $"0:{streamIndex}?");
+        }
 
         // Returns all fingerprint points as raw 32-bit unsigned integers (little endian).
         var rawPoints = await GetOutputAsync(args, cancellationToken: cancellationToken).ConfigureAwait(false);
@@ -924,7 +942,7 @@ public sealed partial class FFmpegService(
     [LoggerMessage(Level = LogLevel.Debug, Message = "Failed to probe audio duration for {File}")]
     private static partial void LogAudioDurationProbeFailed(ILogger logger, Exception ex, string file);
 
-    [LoggerMessage(Level = LogLevel.Debug, Message = "Failed to probe preferred audio language {Language} for {File}; using the first audio stream")]
+    [LoggerMessage(Level = LogLevel.Debug, Message = "Failed to probe preferred audio language {Language} for {File}; using FFmpeg's default audio stream selection")]
     private static partial void LogPreferredAudioLanguageProbeFailed(ILogger logger, Exception ex, string file, string language);
 
     [LoggerMessage(Level = LogLevel.Debug, Message = "ffmpeg process already gone while killing process tree")]

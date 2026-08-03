@@ -259,7 +259,7 @@ public class PluginConfiguration : BasePluginConfiguration
 
     /// <summary>
     /// Gets or sets the preferred language tag for the audio stream used by Chromaprint.
-    /// When no matching stream is found, the first audio stream is used.
+    /// When no matching stream is found, FFmpeg's default audio stream selection is used.
     /// </summary>
     public string PreferredAudioLanguage { get; set; } = string.Empty;
 

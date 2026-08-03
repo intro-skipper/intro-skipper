@@ -50,7 +50,7 @@ export const ffmpegTab: Tab = {
                 label: "Preferred audio language for Chromaprint",
                 placeholder: "eng",
                 description:
-                    "Prefer an audio stream with this language tag when generating Chromaprint fingerprints. Leave empty to use the first audio stream; if no matching tag is found, the first audio stream is used.",
+                    "Prefer an audio stream with this language tag when generating Chromaprint fingerprints. Leave empty, or use a tag with no match, to preserve FFmpeg's default selection (most channels, then lowest stream index).",
             }),
             selectField({
                 id: "CacheCompressionLevel",
