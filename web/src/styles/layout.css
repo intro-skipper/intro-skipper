@@ -41,13 +41,32 @@
 }
 
 .app-header-warning {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    margin: -1px;
+    padding: 0;
+    overflow: hidden;
+    color: var(--is-warning);
+    white-space: nowrap;
+    border: 0;
+    clip: rect(0 0 0 0);
+    clip-path: inset(50%);
+}
+
+.app-header-warning.is-visible {
+    position: static;
+    display: flex;
     align-items: center;
     gap: 8px;
+    width: auto;
+    height: auto;
     margin-left: auto;
-    color: var(--is-warning);
+    overflow: visible;
     font-size: 0.85em;
     font-weight: 600;
-    white-space: nowrap;
+    clip: auto;
+    clip-path: none;
 }
 
 .app-header-warning-icon {
