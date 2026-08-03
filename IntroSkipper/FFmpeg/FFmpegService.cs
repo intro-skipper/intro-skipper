@@ -256,14 +256,17 @@ public sealed partial class FFmpegService(
             return [.. cached.Where(bf => bf.Percentage >= minimum)];
         }
 
-        // Seek to the start of the time range and find frames that are at least 50% black.
+        // Recap scans report every frame (amount=0) so adaptive threshold normalization can
+        // observe the content's full darkness distribution; other modes keep the amount=50
+        // superset that existing cache rows and their callers' post-filters rely on.
+        var amount = mode == AnalysisMode.Recap ? 0 : 50;
         var args = new List<string>
         {
             "-ss", range.Start.ToString(CultureInfo.InvariantCulture),
             "-i", episode.Path,
             "-to", range.Duration.ToString(CultureInfo.InvariantCulture),
             "-an", "-dn", "-sn",
-            "-vf", $"blackframe=amount=50:threshold={threshold}",
+            "-vf", $"blackframe=amount={amount}:threshold={threshold}",
             "-f", "null", "-",
         };
 

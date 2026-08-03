@@ -45,7 +45,7 @@ public static class ConfigHasher
                 $"{AdjustmentHash(config)}"),
 
             AnalysisMode.Recap => Invariant(
-                $"analysis|v2|mode={mode}|action={action}|prefer={config.PreferChromaprint}|chap={config.ChapterAnalyzerRecapPattern}|fullchap={config.FullLengthChapters}|sbchap={config.EnableSponsorBlockChapterDetection}|min={config.MinimumRecapDuration}|max={config.MaximumRecapDuration}",
+                $"analysis|v3|mode={mode}|action={action}|prefer={config.PreferChromaprint}|chap={config.ChapterAnalyzerRecapPattern}|fullchap={config.FullLengthChapters}|sbchap={config.EnableSponsorBlockChapterDetection}|min={config.MinimumRecapDuration}|max={config.MaximumRecapDuration}",
                 $"|detMin={config.MinimumRecapDetectionDuration}|detMax={config.MaximumRecapDetectionDuration}",
                 $"|recapBlackFrames={config.DetectRecapUsingBlackFrames}|bfmin={config.BlackFrameMinimumPercentage}|bfthr={config.BlackFrameThreshold}",
                 $"|pct={config.AnalysisPercent}|limit={config.AnalysisLengthLimit}|fpbits={config.MaximumFingerprintPointDifferences}|skip={config.MaximumTimeSkip}|shift={config.InvertedIndexShift}|chromaprint={ffmpegValid}{ChromaprintLanguageToken(config)}",
@@ -85,7 +85,7 @@ public static class ConfigHasher
                 $"cache|v1|{type}|noise={config.SilenceDetectionMaximumNoise}|dur={config.SilenceDetectionMinimumDuration}"),
 
             CacheEntryType.BlackFrame => Invariant(
-                $"cache|v1|{type}|{mode}|threshold={config.BlackFrameThreshold}"),
+                $"cache|v1|{type}|{mode}|threshold={config.BlackFrameThreshold}{BlackFrameAmountToken(mode)}"),
 
             CacheEntryType.BlackInterval => Invariant(
                 $"cache|v1|{type}|{mode}|blackdetect=v1|threshold={config.BlackFrameThreshold}|bfmin={config.BlackFrameMinimumPercentage}|duration={BlackInterval.MinimumDetectionDuration}"),
@@ -111,6 +111,12 @@ public static class ConfigHasher
     private static string ChromaprintLanguageToken(PluginConfiguration config)
         => FormattableString.Invariant(
             $"|audioLanguage={config.PreferredAudioLanguage?.Trim().ToLowerInvariant() ?? string.Empty}");
+
+    // The recap black-frame scan reports every frame (blackframe amount=0) so adaptive threshold
+    // normalization can observe the full darkness distribution; the token invalidates truncated
+    // amount=50 recap rows written before that change without touching other modes' cache rows.
+    private static string BlackFrameAmountToken(AnalysisMode mode)
+        => mode == AnalysisMode.Recap ? "|amount=0" : string.Empty;
 
     private static string AdjustmentHash(PluginConfiguration config)
         => Invariant(
