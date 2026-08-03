@@ -781,7 +781,7 @@ public sealed partial class FFmpegService(
 
                     if (preferredStream is null ||
                         channels > preferredStream.Value.Channels ||
-                        channels == preferredStream.Value.Channels && streamIndex < preferredStream.Value.Index)
+                        (channels == preferredStream.Value.Channels && streamIndex < preferredStream.Value.Index))
                     {
                         preferredStream = (streamIndex, channels);
                     }
