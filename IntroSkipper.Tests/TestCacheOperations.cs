@@ -240,6 +240,17 @@ public sealed class TestCacheOperations
             ConfigHasher.DetectionCache(changed, CacheEntryType.Chromaprint, AnalysisMode.Introduction));
     }
 
+    [Fact]
+    public void DetectionCacheHash_Chromaprint_IgnoresPreferredAudioLanguageCase()
+    {
+        var lower = new PluginConfiguration { PreferredAudioLanguage = "eng" };
+        var upper = new PluginConfiguration { PreferredAudioLanguage = " ENG " };
+
+        Assert.Equal(
+            ConfigHasher.DetectionCache(lower, CacheEntryType.Chromaprint, AnalysisMode.Introduction),
+            ConfigHasher.DetectionCache(upper, CacheEntryType.Chromaprint, AnalysisMode.Introduction));
+    }
+
     [Theory]
     [InlineData(AnalysisMode.Introduction)]
     [InlineData(AnalysisMode.Credits)]

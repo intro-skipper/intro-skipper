@@ -816,7 +816,7 @@ public sealed partial class FFmpegService(
             "-ss", start.ToString(CultureInfo.InvariantCulture),
             "-i", episode.Path,
             "-to", (end - start).ToString(CultureInfo.InvariantCulture),
-            "-map", preferredAudioStreamIndex is int streamIndex ? $"0:{streamIndex}" : "0:a:0?",
+            "-map", preferredAudioStreamIndex is int streamIndex ? $"0:{streamIndex}?" : "0:a:0?",
             "-ac", "2",
             "-f", "chromaprint",
             "-fp_format", "raw",

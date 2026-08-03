@@ -109,7 +109,8 @@ public static class ConfigHasher
             : string.Empty;
 
     private static string ChromaprintLanguageToken(PluginConfiguration config)
-        => FormattableString.Invariant($"|audioLanguage={config.PreferredAudioLanguage?.Trim() ?? string.Empty}");
+        => FormattableString.Invariant(
+            $"|audioLanguage={config.PreferredAudioLanguage?.Trim().ToLowerInvariant() ?? string.Empty}");
 
     private static string AdjustmentHash(PluginConfiguration config)
         => Invariant(
