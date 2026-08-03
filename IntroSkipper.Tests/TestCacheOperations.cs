@@ -251,6 +251,21 @@ public sealed class TestCacheOperations
             ConfigHasher.DetectionCache(upper, CacheEntryType.Chromaprint, AnalysisMode.Introduction));
     }
 
+    [Fact]
+    public void DetectionCacheHash_Chromaprint_ChangesWithAudioStreamSelectionPolicy()
+    {
+        var mostChannels = new PluginConfiguration { PreferAudioStreamWithMostChannels = true };
+        var lowestIndex = new PluginConfiguration { PreferAudioStreamWithMostChannels = false };
+
+        Assert.NotEqual(
+            ConfigHasher.DetectionCache(mostChannels, CacheEntryType.Chromaprint, AnalysisMode.Introduction),
+            ConfigHasher.DetectionCache(lowestIndex, CacheEntryType.Chromaprint, AnalysisMode.Introduction));
+
+        Assert.NotEqual(
+            ConfigHasher.Analysis(mostChannels, AnalysisMode.Introduction, AnalyzerAction.Default, ffmpegValid: true),
+            ConfigHasher.Analysis(lowestIndex, AnalysisMode.Introduction, AnalyzerAction.Default, ffmpegValid: true));
+    }
+
     [Theory]
     [InlineData(AnalysisMode.Introduction)]
     [InlineData(AnalysisMode.Credits)]

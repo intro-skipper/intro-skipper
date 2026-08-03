@@ -27,6 +27,7 @@ public class TestPluginConfiguration
         Assert.Equal(PluginConfiguration.DefaultSettledSeasonDelayHours, config.SettledSeasonDelayHours);
         Assert.Equal(string.Empty, config.ExcludeSeries);
         Assert.Equal(string.Empty, config.PreferredAudioLanguage);
+        Assert.True(config.PreferAudioStreamWithMostChannels);
         Assert.Empty(config.SeriesExclusions);
         Assert.Empty(config.MovieExclusions);
         Assert.Empty(config.PathExclusions);

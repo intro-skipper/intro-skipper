@@ -32,7 +32,7 @@ public static class ConfigHasher
             AnalysisMode.Introduction => Invariant(
                 $"analysis|v1|mode={mode}|action={action}|prefer={config.PreferChromaprint}|chap={config.ChapterAnalyzerIntroductionPattern}|fullchap={config.FullLengthChapters}|sbchap={config.EnableSponsorBlockChapterDetection}",
                 $"|pct={config.AnalysisPercent}|limit={config.AnalysisLengthLimit}|min={config.MinimumIntroDuration}|max={config.MaximumIntroDuration}",
-                $"|fpbits={config.MaximumFingerprintPointDifferences}|skip={config.MaximumTimeSkip}|shift={config.InvertedIndexShift}|chromaprint={ffmpegValid}{ChromaprintLanguageToken(config)}",
+                $"|fpbits={config.MaximumFingerprintPointDifferences}|skip={config.MaximumTimeSkip}|shift={config.InvertedIndexShift}|chromaprint={ffmpegValid}{ChromaprintStreamToken(config)}",
                 $"{AdjustmentHash(config)}"),
 
             AnalysisMode.Credits => Invariant(
@@ -40,7 +40,7 @@ public static class ConfigHasher
                 $"|pct={config.AnalysisPercent}|maxCredits={config.MaximumCreditsDuration}|maxMovie={config.MaximumMovieCreditsDuration}|probe={config.ProbeAudioDuration}",
                 $"|min={config.MinimumCreditsDuration}|bfmin={config.BlackFrameMinimumPercentage}|bfthr={config.BlackFrameThreshold}|bfchap={config.UseChapterMarkersBlackFrame}",
                 $"|bfalt={config.UseAlternativeBlackFrameAnalyzer}|bfrefine={config.RefineCreditsBoundary}|bfaltVersion=2{CreditsNonBlackToken(config)}",
-                $"|fpbits={config.MaximumFingerprintPointDifferences}|skip={config.MaximumTimeSkip}|shift={config.InvertedIndexShift}|chromaprint={ffmpegValid}{ChromaprintLanguageToken(config)}",
+                $"|fpbits={config.MaximumFingerprintPointDifferences}|skip={config.MaximumTimeSkip}|shift={config.InvertedIndexShift}|chromaprint={ffmpegValid}{ChromaprintStreamToken(config)}",
                 $"|animePreview={config.AnimePreviewFromCreditsEnd}",
                 $"{AdjustmentHash(config)}"),
 
@@ -48,7 +48,7 @@ public static class ConfigHasher
                 $"analysis|v3|mode={mode}|action={action}|prefer={config.PreferChromaprint}|chap={config.ChapterAnalyzerRecapPattern}|fullchap={config.FullLengthChapters}|sbchap={config.EnableSponsorBlockChapterDetection}|min={config.MinimumRecapDuration}|max={config.MaximumRecapDuration}",
                 $"|detMin={config.MinimumRecapDetectionDuration}|detMax={config.MaximumRecapDetectionDuration}",
                 $"|recapBlackFrames={config.DetectRecapUsingBlackFrames}|bfmin={config.BlackFrameMinimumPercentage}|bfthr={config.BlackFrameThreshold}",
-                $"|pct={config.AnalysisPercent}|limit={config.AnalysisLengthLimit}|fpbits={config.MaximumFingerprintPointDifferences}|skip={config.MaximumTimeSkip}|shift={config.InvertedIndexShift}|chromaprint={ffmpegValid}{ChromaprintLanguageToken(config)}",
+                $"|pct={config.AnalysisPercent}|limit={config.AnalysisLengthLimit}|fpbits={config.MaximumFingerprintPointDifferences}|skip={config.MaximumTimeSkip}|shift={config.InvertedIndexShift}|chromaprint={ffmpegValid}{ChromaprintStreamToken(config)}",
                 $"{AdjustmentHash(config)}"),
 
             AnalysisMode.Preview => Invariant(
@@ -79,7 +79,7 @@ public static class ConfigHasher
         var input = type switch
         {
             CacheEntryType.Chromaprint => Invariant(
-                $"cache|v1|{type}|{mode}|pct={config.AnalysisPercent}|limit={config.AnalysisLengthLimit}|maxCredits={config.MaximumCreditsDuration}|maxMovie={config.MaximumMovieCreditsDuration}|probe={config.ProbeAudioDuration}{ChromaprintLanguageToken(config)}"),
+                $"cache|v1|{type}|{mode}|pct={config.AnalysisPercent}|limit={config.AnalysisLengthLimit}|maxCredits={config.MaximumCreditsDuration}|maxMovie={config.MaximumMovieCreditsDuration}|probe={config.ProbeAudioDuration}{ChromaprintStreamToken(config)}"),
 
             CacheEntryType.Silence => Invariant(
                 $"cache|v1|{type}|noise={config.SilenceDetectionMaximumNoise}|dur={config.SilenceDetectionMinimumDuration}"),
@@ -108,9 +108,9 @@ public static class ConfigHasher
             ? FormattableString.Invariant($"|nonblack={config.DetectNonBlackCredits}")
             : string.Empty;
 
-    private static string ChromaprintLanguageToken(PluginConfiguration config)
+    private static string ChromaprintStreamToken(PluginConfiguration config)
         => FormattableString.Invariant(
-            $"|audioLanguage={config.PreferredAudioLanguage?.Trim().ToLowerInvariant() ?? string.Empty}");
+            $"|audioLanguage={config.PreferredAudioLanguage?.Trim().ToLowerInvariant() ?? string.Empty}|audioMostChannels={config.PreferAudioStreamWithMostChannels}");
 
     // The recap black-frame scan reports every frame (blackframe amount=0) so adaptive threshold
     // normalization can observe the full darkness distribution; the token invalidates truncated

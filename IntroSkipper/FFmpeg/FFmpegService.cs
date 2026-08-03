@@ -728,13 +728,16 @@ public sealed partial class FFmpegService(
         return Path.Join(Path.GetDirectoryName(ffmpegPath) ?? string.Empty, "ffprobe" + extension);
     }
 
-    private async Task<int?> FindPreferredAudioStreamIndexAsync(
+    private async Task<int?> FindAudioStreamIndexAsync(
         string filePath,
         string preferredLanguage,
+        bool preferMostChannels,
         CancellationToken cancellationToken)
     {
-        if (string.IsNullOrWhiteSpace(preferredLanguage))
+        var hasLanguagePreference = !string.IsNullOrWhiteSpace(preferredLanguage);
+        if (!hasLanguagePreference && preferMostChannels)
         {
+            // No explicit map preserves FFmpeg's default selection: most channels, then lowest index.
             return null;
         }
 
@@ -762,33 +765,48 @@ public sealed partial class FFmpegService(
                 return null;
             }
 
-            (int Index, int Channels)? preferredStream = null;
+            var audioStreams = new List<(int Index, int Channels, string? Language)>();
             foreach (var stream in streams.EnumerateArray())
             {
-                if (!stream.TryGetProperty("tags", out var tags) ||
-                    !tags.TryGetProperty("language", out var language) ||
-                    !string.Equals(language.GetString()?.Trim(), preferredLanguage, StringComparison.OrdinalIgnoreCase))
-                {
-                    continue;
-                }
-
                 if (stream.TryGetProperty("index", out var index) && index.TryGetInt32(out var streamIndex))
                 {
                     var channels = stream.TryGetProperty("channels", out var channelsElement) &&
                         channelsElement.TryGetInt32(out var channelCount)
                         ? channelCount
                         : 0;
+                    var language = stream.TryGetProperty("tags", out var tags) &&
+                        tags.TryGetProperty("language", out var languageElement)
+                        ? languageElement.GetString()?.Trim()
+                        : null;
 
-                    if (preferredStream is null ||
-                        channels > preferredStream.Value.Channels ||
-                        (channels == preferredStream.Value.Channels && streamIndex < preferredStream.Value.Index))
-                    {
-                        preferredStream = (streamIndex, channels);
-                    }
+                    audioStreams.Add((streamIndex, channels, language));
                 }
             }
 
-            return preferredStream?.Index;
+            var candidates = hasLanguagePreference
+                ? audioStreams.Where(stream => string.Equals(stream.Language, preferredLanguage, StringComparison.OrdinalIgnoreCase)).ToList()
+                : audioStreams;
+
+            if (candidates.Count == 0)
+            {
+                if (hasLanguagePreference && preferMostChannels)
+                {
+                    // No match preserves FFmpeg's default most-channel selection.
+                    return null;
+                }
+
+                // With lowest-index selection, an unmatched language preference falls back to all audio streams.
+                candidates = audioStreams;
+            }
+
+            if (candidates.Count == 0)
+            {
+                return null;
+            }
+
+            return preferMostChannels
+                ? candidates.OrderByDescending(stream => stream.Channels).ThenBy(stream => stream.Index).First().Index
+                : candidates.Min(stream => stream.Index);
         }
         catch (Exception ex) when (ex is JsonException or IOException or InvalidOperationException or UnauthorizedAccessException or System.ComponentModel.Win32Exception)
         {
@@ -821,10 +839,12 @@ public sealed partial class FFmpegService(
 
         LogFingerprinting(_logger, start, end, episode.Path, episode.EpisodeId);
 
-        var preferredLanguage = (Plugin.Instance?.Configuration.PreferredAudioLanguage ?? string.Empty).Trim();
-        var preferredAudioStreamIndex = await FindPreferredAudioStreamIndexAsync(
+        var configuration = Plugin.Instance?.Configuration;
+        var preferredLanguage = (configuration?.PreferredAudioLanguage ?? string.Empty).Trim();
+        var preferredAudioStreamIndex = await FindAudioStreamIndexAsync(
             episode.Path,
             preferredLanguage,
+            configuration?.PreferAudioStreamWithMostChannels ?? true,
             cancellationToken).ConfigureAwait(false);
 
         var args = new List<string>
