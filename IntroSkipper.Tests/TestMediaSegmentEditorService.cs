@@ -101,7 +101,7 @@ public sealed class TestMediaSegmentEditorService
     }
 
     [Fact]
-    public async Task GetSegmentAsync_ReturnsMatchingSegment()
+    public async Task GetSegmentByIdAsync_ReturnsMatchingSegment()
     {
         var itemId = Guid.NewGuid();
         var segmentId = Guid.NewGuid();
@@ -115,42 +115,29 @@ public sealed class TestMediaSegmentEditorService
         };
         var service = CreateService(store);
 
-        var result = await service.GetSegmentAsync(itemId, segmentId, CancellationToken.None);
+        var result = await service.GetSegmentByIdAsync(segmentId, CancellationToken.None);
 
         Assert.NotNull(result);
         Assert.Equal(segmentId, result!.Id);
+        Assert.Equal(itemId, result.ItemId);
     }
 
     [Fact]
-    public async Task GetSegmentAsync_ReturnsNull_WhenItemIdDoesNotMatch()
+    public async Task GetSegmentByIdAsync_ReturnsNull_WhenSegmentIdDoesNotMatch()
     {
-        var segmentId = Guid.NewGuid();
         var store = new FakeJellyfinSegmentStore
         {
-            ExistingSegments = [CreateSegment(MediaSegmentType.Intro, 10, 20, segmentId, Guid.NewGuid())]
+            ExistingSegments = [CreateSegment(MediaSegmentType.Intro, 10, 20, Guid.NewGuid(), Guid.NewGuid())]
         };
         var service = CreateService(store);
 
-        Assert.Null(await service.GetSegmentAsync(Guid.NewGuid(), segmentId, CancellationToken.None));
-    }
-
-    [Fact]
-    public async Task GetSegmentAsync_ReturnsNull_WhenSegmentIdDoesNotMatch()
-    {
-        var itemId = Guid.NewGuid();
-        var store = new FakeJellyfinSegmentStore
-        {
-            ExistingSegments = [CreateSegment(MediaSegmentType.Intro, 10, 20, Guid.NewGuid(), itemId)]
-        };
-        var service = CreateService(store);
-
-        var result = await service.GetSegmentAsync(itemId, Guid.NewGuid(), CancellationToken.None);
+        var result = await service.GetSegmentByIdAsync(Guid.NewGuid(), CancellationToken.None);
 
         Assert.Null(result);
     }
 
     [Fact]
-    public async Task GetSegmentAsync_Throws_WhenCancelled()
+    public async Task GetSegmentByIdAsync_Throws_WhenCancelled()
     {
         var store = new FakeJellyfinSegmentStore
         {
@@ -161,7 +148,7 @@ public sealed class TestMediaSegmentEditorService
         await cts.CancelAsync();
 
         await Assert.ThrowsAsync<OperationCanceledException>(
-            () => service.GetSegmentAsync(Guid.NewGuid(), Guid.NewGuid(), cts.Token));
+            () => service.GetSegmentByIdAsync(Guid.NewGuid(), cts.Token));
     }
 
     [Fact]

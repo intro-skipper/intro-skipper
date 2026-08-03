@@ -273,12 +273,13 @@ public sealed class SegmentEditorControllerTests
 
         var controller = new SegmentEditorController(new MediaSegmentEditorService(store), database);
 
-        // Item B's id paired with item A's segment id: the caller's own orphaned plugin row
-        // is still cleaned up, but item A's Jellyfin segment must survive.
+        // Item B's id paired with item A's segment id must not mutate either item's data.
         var result = await controller.DeleteSegmentAsync(segmentIdA, itemB, "intro", CancellationToken.None);
 
-        Assert.IsType<OkResult>(result);
-        Assert.Empty(await database.GetSegmentsAsync(itemB));
+        Assert.IsType<BadRequestObjectResult>(result);
+        var pluginRow = Assert.Single(await database.GetSegmentsAsync(itemB));
+        Assert.Equal(100, pluginRow.Start);
+        Assert.Equal(160, pluginRow.End);
 
         var verify = jellyfinDb.Factory.CreateDbContext();
         await using (verify)

@@ -213,7 +213,7 @@ public sealed class TestJellyfinSegmentStore
     }
 
     [Fact]
-    public async Task GetSegmentAsync_ReturnsAllFields_AcrossProviders()
+    public async Task GetSegmentByIdAsync_ReturnsAllFields_AcrossProviders()
     {
         using var db = new TempJellyfinDb();
         var store = CreateStore(db);
@@ -221,7 +221,7 @@ public sealed class TestJellyfinSegmentStore
         var segmentId = Guid.NewGuid();
         await SeedAsync(db, CreateEntity(itemId, MediaSegmentType.Intro, 10, 20, ForeignProviderId, segmentId));
 
-        var result = await store.GetSegmentAsync(itemId, segmentId, CancellationToken.None);
+        var result = await store.GetSegmentByIdAsync(segmentId, CancellationToken.None);
 
         Assert.NotNull(result);
         Assert.Equal(segmentId, result!.Id);
@@ -230,8 +230,7 @@ public sealed class TestJellyfinSegmentStore
         Assert.Equal(10, result.StartTicks);
         Assert.Equal(20, result.EndTicks);
 
-        Assert.Null(await store.GetSegmentAsync(Guid.NewGuid(), segmentId, CancellationToken.None));
-        Assert.Null(await store.GetSegmentAsync(itemId, Guid.NewGuid(), CancellationToken.None));
+        Assert.Null(await store.GetSegmentByIdAsync(Guid.NewGuid(), CancellationToken.None));
     }
 
     [Fact]

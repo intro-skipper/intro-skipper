@@ -21,8 +21,8 @@ internal sealed class FakeJellyfinSegmentStore : IJellyfinSegmentStore
     private int _writeCount;
 
     /// <summary>
-    /// Gets the segments served by <see cref="GetSegmentAsync"/>, matched by item id and
-    /// segment id exactly like the production store.
+    /// Gets the segments served by <see cref="GetSegmentByIdAsync"/>, matched by segment
+    /// id exactly like the production store.
     /// </summary>
     public IReadOnlyList<MediaSegmentDto> ExistingSegments { get; init; } = [];
 
@@ -100,8 +100,8 @@ internal sealed class FakeJellyfinSegmentStore : IJellyfinSegmentStore
         return Task.CompletedTask;
     }
 
-    public Task<MediaSegmentDto?> GetSegmentAsync(Guid itemId, Guid segmentId, CancellationToken cancellationToken)
-        => Task.FromResult(ExistingSegments.FirstOrDefault(segment => segment.ItemId == itemId && segment.Id == segmentId));
+    public Task<MediaSegmentDto?> GetSegmentByIdAsync(Guid segmentId, CancellationToken cancellationToken)
+        => Task.FromResult(ExistingSegments.FirstOrDefault(segment => segment.Id == segmentId));
 
     public Task DeleteSegmentAsync(Guid itemId, Guid segmentId, CancellationToken cancellationToken)
     {
