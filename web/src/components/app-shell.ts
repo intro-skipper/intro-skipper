@@ -22,10 +22,7 @@ export function createAppShell(rootEl: HTMLElement): {
     const header = el("header", { className: "app-header", "aria-labelledby": titleId });
     const chromaprintWarning = el("div", {
         className: "app-header-warning",
-        role: "status",
-        "aria-label": "Chromaprint Unavailable",
-        "aria-live": "polite",
-        "aria-atomic": "true",
+        "aria-hidden": "true",
     });
     const warningIcon = el("span", {
         className: "app-header-warning-icon",
@@ -41,7 +38,12 @@ export function createAppShell(rootEl: HTMLElement): {
         .then((supportBundle) => {
             if (isChromaprintUnavailable(parseSupportBundle(supportBundle))) {
                 warningText.textContent = "Chromaprint Unavailable";
+                chromaprintWarning.setAttribute("role", "status");
+                chromaprintWarning.setAttribute("aria-label", "Chromaprint Unavailable");
+                chromaprintWarning.setAttribute("aria-live", "polite");
+                chromaprintWarning.setAttribute("aria-atomic", "true");
                 chromaprintWarning.classList.add("is-visible");
+                chromaprintWarning.removeAttribute("aria-hidden");
             }
         })
         .catch(() => {
