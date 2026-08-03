@@ -40,6 +40,20 @@
     border-bottom: 1px solid var(--is-border);
 }
 
+.app-header-warning {
+    align-items: center;
+    gap: 8px;
+    margin-left: auto;
+    color: var(--is-warning);
+    font-size: 0.85em;
+    font-weight: 600;
+    white-space: nowrap;
+}
+
+.app-header-warning-icon {
+    font-size: 1.25em;
+}
+
 .app-sidebar {
     display: flex;
     flex-direction: column;

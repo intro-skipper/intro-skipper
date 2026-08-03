@@ -1,5 +1,6 @@
 import { validator } from "../validation/validator.ts";
 import { configStore } from "../store/config-store.ts";
+import * as api from "../store/api.ts";
 import { el } from "./dom.ts";
 
 /** How long the "Changes saved" message stays visible (ms). */
@@ -18,7 +19,37 @@ export function createAppShell(rootEl: HTMLElement): {
     const title = el("h1", { className: "app-title", id: titleId }, "Intro Skipper Configuration");
 
     const header = el("header", { className: "app-header", "aria-labelledby": titleId });
-    header.append(title);
+    const chromaprintWarning = el("div", {
+        className: "app-header-warning",
+        role: "status",
+        "aria-label": "Chromaprint Unavailable",
+    });
+    const warningIcon = el("span", {
+        className: "app-header-warning-icon",
+        "aria-hidden": "true",
+    }, "\u26a0");
+    chromaprintWarning.append(warningIcon, el("span", {}, "Chromaprint Unavailable"));
+    chromaprintWarning.style.display = "none";
+
+    header.append(title, chromaprintWarning);
+
+    void api
+        .getSupportBundle()
+        .then((supportBundle) => {
+            const warnings = /^\* Warnings: `([^`]*)`$/m.exec(supportBundle)?.[1] ?? "";
+            const ffmpegStatus = /^\* FFmpeg: `([^`]*)`$/m.exec(supportBundle)?.[1];
+            const hasIncompatibleBuildWarning = warnings
+                .split(", ")
+                .includes("IncompatibleFFmpegBuild");
+
+            if (hasIncompatibleBuildWarning && ffmpegStatus === "chromaprint_not_supported") {
+                chromaprintWarning.style.display = "flex";
+            }
+        })
+        .catch(() => {
+            // The header warning is advisory; the information tab still reports
+            // support-bundle errors through its normal status message.
+        });
 
     const sidebar = el("nav", { className: "app-sidebar", "aria-label": "Settings Sections" });
 
