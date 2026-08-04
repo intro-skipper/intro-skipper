@@ -728,8 +728,6 @@ public sealed partial class FFmpegService(
         return Path.Join(Path.GetDirectoryName(ffmpegPath) ?? string.Empty, "ffprobe" + extension);
     }
 
-    private sealed record AudioStreamSelection(int? StreamIndex, string CacheVariant, bool LegacyDefaultCompatible);
-
     private async Task<AudioStreamSelection?> FindAudioStreamSelectionAsync(
         string filePath,
         string preferredLanguage,
@@ -1000,4 +998,6 @@ public sealed partial class FFmpegService(
 
     [LoggerMessage(Level = LogLevel.Debug, Message = "ffmpeg process already gone while killing process tree")]
     private static partial void LogFfmpegProcessAlreadyGone(ILogger logger, Exception ex);
+
+    private sealed record AudioStreamSelection(int? StreamIndex, string CacheVariant, bool LegacyDefaultCompatible);
 }
