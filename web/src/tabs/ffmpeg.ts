@@ -54,7 +54,7 @@ export const ffmpegTab: Tab = {
             }),
             checkboxField({
                 id: "PreferAudioStreamWithMostChannels",
-                label: "Prefer audio channel count",
+                label: "Prefer highest audio channel count",
                 description:
                     "When enabled, Chromaprint selects streams based on channel count, using the lowest index as the tie breaker. When disabled, the first stream is selected.",
             }),
