@@ -840,7 +840,7 @@ public sealed partial class FFmpegService(
         LogFingerprinting(_logger, start, end, episode.Path, episode.EpisodeId);
 
         var configuration = Plugin.Instance?.Configuration;
-        var preferredLanguage = (configuration?.PreferredAudioLanguage ?? string.Empty).Trim();
+        var preferredLanguage = AudioLanguageHelper.Normalize(configuration?.PreferredAudioLanguage);
         var preferredAudioStreamIndex = await FindAudioStreamIndexAsync(
             episode.Path,
             preferredLanguage,
@@ -852,17 +852,21 @@ public sealed partial class FFmpegService(
             "-ss", start.ToString(CultureInfo.InvariantCulture),
             "-i", episode.Path,
             "-to", (end - start).ToString(CultureInfo.InvariantCulture),
-            "-ac", "2",
-            "-f", "chromaprint",
-            "-fp_format", "raw",
-            "-",
         };
 
         if (preferredAudioStreamIndex is int streamIndex)
         {
-            args.Insert(6, "-map");
-            args.Insert(7, $"0:{streamIndex}?");
+            args.Add("-map");
+            args.Add($"0:{streamIndex}?");
         }
+
+        args.AddRange(
+        [
+            "-ac", "2",
+            "-f", "chromaprint",
+            "-fp_format", "raw",
+            "-",
+        ]);
 
         // Returns all fingerprint points as raw 32-bit unsigned integers (little endian).
         var rawPoints = await GetOutputAsync(args, cancellationToken: cancellationToken).ConfigureAwait(false);

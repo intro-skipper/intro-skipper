@@ -110,7 +110,7 @@ public static class ConfigHasher
 
     private static string ChromaprintStreamToken(PluginConfiguration config)
         => FormattableString.Invariant(
-            $"|audioLanguage={config.PreferredAudioLanguage?.Trim().ToLowerInvariant() ?? string.Empty}|audioMostChannels={config.PreferAudioStreamWithMostChannels}");
+            $"|audioLanguage={AudioLanguageHelper.Normalize(config.PreferredAudioLanguage)}|audioMostChannels={config.PreferAudioStreamWithMostChannels}");
 
     // The recap black-frame scan reports every frame (blackframe amount=0) so adaptive threshold
     // normalization can observe the full darkness distribution; the token invalidates truncated
