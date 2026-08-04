@@ -31,7 +31,15 @@ public sealed partial class DetectionCacheService(ILogger<DetectionCacheService>
     public bool IsEnabled => Plugin.Instance?.Configuration.CacheFingerprints ?? false;
 
     /// <inheritdoc/>
-    public bool TryRead<T>(Guid itemId, AnalysisMode mode, CacheEntryType type, double start, double end, out T[] result)
+    public bool TryRead<T>(
+        Guid itemId,
+        AnalysisMode mode,
+        CacheEntryType type,
+        double start,
+        double end,
+        out T[] result,
+        string? cacheVariant = null,
+        string? legacyConfigHash = null)
     {
         result = [];
 
@@ -52,9 +60,10 @@ public sealed partial class DetectionCacheService(ILogger<DetectionCacheService>
                 return false;
             }
 
-            var expectedHash = ConfigHasher.DetectionCache(Plugin.Instance?.Configuration ?? new(), type, mode);
+            var expectedHash = ConfigHasher.DetectionCache(Plugin.Instance?.Configuration ?? new(), type, mode, cacheVariant);
             if (!string.IsNullOrEmpty(entry.ConfigHash)
-                && !string.Equals(entry.ConfigHash, expectedHash, StringComparison.Ordinal))
+                && !string.Equals(entry.ConfigHash, expectedHash, StringComparison.Ordinal)
+                && !string.Equals(entry.ConfigHash, legacyConfigHash, StringComparison.Ordinal))
             {
                 return false;
             }
@@ -77,7 +86,14 @@ public sealed partial class DetectionCacheService(ILogger<DetectionCacheService>
     }
 
     /// <inheritdoc/>
-    public bool Write<T>(Guid itemId, AnalysisMode mode, CacheEntryType type, double start, double end, T[] items)
+    public bool Write<T>(
+        Guid itemId,
+        AnalysisMode mode,
+        CacheEntryType type,
+        double start,
+        double end,
+        T[] items,
+        string? cacheVariant = null)
     {
         if (!IsEnabled)
         {
@@ -85,7 +101,7 @@ public sealed partial class DetectionCacheService(ILogger<DetectionCacheService>
         }
 
         var data = CompressBrotli(items);
-        var configHash = ConfigHasher.DetectionCache(Plugin.Instance?.Configuration ?? new(), type, mode);
+        var configHash = ConfigHasher.DetectionCache(Plugin.Instance?.Configuration ?? new(), type, mode, cacheVariant);
 
         try
         {
@@ -118,8 +134,16 @@ public sealed partial class DetectionCacheService(ILogger<DetectionCacheService>
 
         try
         {
+            var entry = _cacheDatabase.FindEntry(episode.EpisodeId, mode, CacheEntryType.Chromaprint, start, end);
+            if (entry is null)
+            {
+                return false;
+            }
+
             var expectedHash = ConfigHasher.DetectionCache(Plugin.Instance?.Configuration ?? new(), CacheEntryType.Chromaprint, mode);
-            return _cacheDatabase.HasEntry(episode.EpisodeId, mode, CacheEntryType.Chromaprint, start, end, expectedHash);
+            return string.IsNullOrEmpty(entry.ConfigHash)
+                || string.Equals(entry.ConfigHash, expectedHash, StringComparison.Ordinal)
+                || ConfigHasher.IsStreamScopedDetectionCacheHash(entry.ConfigHash);
         }
         catch (DbException ex)
         {

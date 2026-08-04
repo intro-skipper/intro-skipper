@@ -266,6 +266,60 @@ public sealed class TestCacheOperations
             ConfigHasher.Analysis(lowestIndex, AnalysisMode.Introduction, AnalyzerAction.Default, ffmpegValid: true));
     }
 
+    [Fact]
+    public void DetectionCacheHash_Chromaprint_StreamIdentityReusesAcrossSelectionSettings()
+    {
+        var languagePreferred = new PluginConfiguration
+        {
+            PreferredAudioLanguage = "eng",
+            PreferAudioStreamWithMostChannels = true
+        };
+        var defaultSelection = new PluginConfiguration
+        {
+            PreferAudioStreamWithMostChannels = false
+        };
+
+        Assert.Equal(
+            ConfigHasher.DetectionCache(languagePreferred, CacheEntryType.Chromaprint, AnalysisMode.Introduction, "policy=most-channels"),
+            ConfigHasher.DetectionCache(defaultSelection, CacheEntryType.Chromaprint, AnalysisMode.Introduction, "policy=most-channels"));
+    }
+
+    [Fact]
+    public void StreamScopedChromaprintCache_AcceptsMatchingLegacyDefaultHash()
+    {
+        var episodeId = Guid.NewGuid();
+        var cacheDir = EntrypointTestHelpers.CreateTempCacheDir();
+        var fingerprint = new uint[] { 111u, 222u };
+
+        using var cachingScope = new CachingPluginScope(cacheDir);
+        var config = Plugin.Instance!.Configuration;
+        var legacyHash = ConfigHasher.LegacyChromaprintCacheWithoutLanguage(config, AnalysisMode.Introduction);
+
+        using (var db = new DetectionCacheDbContext(cachingScope.CacheDbPath))
+        {
+            db.DetectionCache.Add(new DbDetectionCache(
+                episodeId,
+                AnalysisMode.Introduction,
+                CacheEntryType.Chromaprint,
+                DetectionCacheService.CompressBrotli(fingerprint),
+                0,
+                600,
+                legacyHash));
+            db.SaveChanges();
+        }
+
+        Assert.True(cachingScope.CacheService.TryRead(
+            episodeId,
+            AnalysisMode.Introduction,
+            CacheEntryType.Chromaprint,
+            0,
+            600,
+            out uint[] result,
+            "policy=most-channels",
+            legacyHash));
+        Assert.Equal(fingerprint, result);
+    }
+
     [Theory]
     [InlineData(AnalysisMode.Introduction)]
     [InlineData(AnalysisMode.Credits)]
