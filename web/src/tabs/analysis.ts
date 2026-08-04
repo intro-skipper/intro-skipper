@@ -3,7 +3,6 @@ import { configStore } from "../store/config-store.ts";
 import { htmlEl } from "../components/dom.ts";
 import { bindVisibility } from "../components/field-bind.ts";
 import { appendTabContent, fieldRow } from "../components/tab-layout.ts";
-import { tabWarning } from "../components/tab-warning.ts";
 import { checkboxField } from "../components/checkbox-field.ts";
 import { numberField } from "../components/number-field.ts";
 import { MAXIMUM_ANALYSIS_PERCENT, MINIMUM_ANALYSIS_PERCENT } from "../config-limits.ts";
@@ -41,9 +40,6 @@ export const analysisTab: Tab = {
 
         appendTabContent(
             container,
-            tabWarning(
-                "Changes here require regenerating media segments to take effect. Per the MediaSegments API, records are updated individually and may be slow.",
-            ),
             checkboxField({
                 id: "PreferChromaprint",
                 label: "Prefer Chromaprint Analysis",
