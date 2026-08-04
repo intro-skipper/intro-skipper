@@ -50,13 +50,13 @@ export const ffmpegTab: Tab = {
                 label: "Preferred audio language for Chromaprint",
                 placeholder: "eng",
                 description:
-                    "Prefer an audio stream with this language tag when generating Chromaprint fingerprints. Leave empty, or use a tag with no match, to use the stream selection policy below.",
+                    "Prefer an audio stream with this language tag when generating Chromaprint fingerprints. Empty or unmatched values will use the stream selection policy below.",
             }),
             checkboxField({
                 id: "PreferAudioStreamWithMostChannels",
                 label: "Prefer audio streams with the most channels",
                 description:
-                    "When enabled, Chromaprint selects the most-channel stream, using the lowest stream index as the tie breaker. When disabled, it selects the lowest stream index.",
+                    "When enabled, Chromaprint selects streams based on channel count, using the lowest index as the tie breaker. When disabled, the first stream is selected.",
             }),
             selectField({
                 id: "CacheCompressionLevel",
