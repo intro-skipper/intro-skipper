@@ -1,3 +1,15 @@
+/** Support-bundle field holding the comma-separated plugin warning flags. */
+const WARNINGS_FIELD = "Warnings";
+
+/** Support-bundle field holding the FFmpeg feature-detection status. */
+const FFMPEG_FIELD = "FFmpeg";
+
+/** Warning flag raised by the server when the FFmpeg build lacks required features. */
+const INCOMPATIBLE_FFMPEG_BUILD_WARNING = "IncompatibleFFmpegBuild";
+
+/** FFmpeg status reported when the build has no chromaprint (fingerprinting) support. */
+const CHROMAPRINT_NOT_SUPPORTED_STATUS = "chromaprint_not_supported";
+
 /** Parsed status fields from the Markdown support bundle. */
 export interface SupportBundleInfo {
     warnings: ReadonlySet<string>;
@@ -18,7 +30,7 @@ export function parseSupportBundle(bundle: string): SupportBundleInfo {
     }
 
     const warnings = new Set(
-        (fields.get("Warnings") ?? "")
+        (fields.get(WARNINGS_FIELD) ?? "")
             .split(",")
             .map((warning) => warning.trim())
             .filter(Boolean),
@@ -26,13 +38,13 @@ export function parseSupportBundle(bundle: string): SupportBundleInfo {
 
     return {
         warnings,
-        ffmpegStatus: fields.get("FFmpeg") ?? null,
+        ffmpegStatus: fields.get(FFMPEG_FIELD) ?? null,
     };
 }
 
 export function isChromaprintUnavailable(bundle: SupportBundleInfo): boolean {
     return (
-        bundle.warnings.has("IncompatibleFFmpegBuild") &&
-        bundle.ffmpegStatus === "chromaprint_not_supported"
+        bundle.warnings.has(INCOMPATIBLE_FFMPEG_BUILD_WARNING) &&
+        bundle.ffmpegStatus === CHROMAPRINT_NOT_SUPPORTED_STATUS
     );
 }

@@ -7,6 +7,27 @@ import { isChromaprintUnavailable, parseSupportBundle } from "./support-bundle.t
 /** How long the "Changes saved" message stays visible (ms). */
 const STATUS_CLEAR_MS = 3000;
 
+/** Fetch the support bundle and reveal the header warning if Chromaprint is unavailable. */
+function announceChromaprintWarning(chromaprintWarning: HTMLElement, warningText: HTMLElement): void {
+    void api
+        .getSupportBundle()
+        .then((supportBundle) => {
+            if (isChromaprintUnavailable(parseSupportBundle(supportBundle))) {
+                warningText.textContent = "Chromaprint Unavailable";
+                chromaprintWarning.setAttribute("role", "status");
+                chromaprintWarning.setAttribute("aria-label", "Chromaprint Unavailable");
+                chromaprintWarning.setAttribute("aria-live", "polite");
+                chromaprintWarning.setAttribute("aria-atomic", "true");
+                chromaprintWarning.classList.add("is-visible");
+                chromaprintWarning.removeAttribute("aria-hidden");
+            }
+        })
+        .catch(() => {
+            // The header warning is advisory; the information tab still reports
+            // support-bundle errors through its normal status message.
+        });
+}
+
 export function createAppShell(rootEl: HTMLElement): {
     navEl: HTMLElement;
     contentEl: HTMLElement;
@@ -33,23 +54,7 @@ export function createAppShell(rootEl: HTMLElement): {
 
     header.append(title, chromaprintWarning);
 
-    void api
-        .getSupportBundle()
-        .then((supportBundle) => {
-            if (isChromaprintUnavailable(parseSupportBundle(supportBundle))) {
-                warningText.textContent = "Chromaprint Unavailable";
-                chromaprintWarning.setAttribute("role", "status");
-                chromaprintWarning.setAttribute("aria-label", "Chromaprint Unavailable");
-                chromaprintWarning.setAttribute("aria-live", "polite");
-                chromaprintWarning.setAttribute("aria-atomic", "true");
-                chromaprintWarning.classList.add("is-visible");
-                chromaprintWarning.removeAttribute("aria-hidden");
-            }
-        })
-        .catch(() => {
-            // The header warning is advisory; the information tab still reports
-            // support-bundle errors through its normal status message.
-        });
+    announceChromaprintWarning(chromaprintWarning, warningText);
 
     const sidebar = el("nav", { className: "app-sidebar", "aria-label": "Settings Sections" });
 
