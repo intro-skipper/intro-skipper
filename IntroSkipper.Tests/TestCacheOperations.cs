@@ -21,6 +21,8 @@ using Xunit;
 
 public sealed class TestCacheOperations
 {
+    private const string MostChannelsStreamCacheVariant = "policy=most-channels";
+
     [Fact]
     public void DeleteCacheFiles_Introduction_DeletesIntroFilesOnly()
     {
@@ -229,26 +231,20 @@ public sealed class TestCacheOperations
             ConfigHasher.DetectionCache(changed, CacheEntryType.BlackFrame, AnalysisMode.Credits));
     }
 
-    [Fact]
-    public void DetectionCacheHash_Chromaprint_ChangesWithPreferredAudioLanguage()
+    [Theory]
+    [InlineData("", "eng", false)]
+    [InlineData("eng", " ENG ", true)]
+    public void DetectionCacheHash_Chromaprint_NormalizesPreferredAudioLanguage(
+        string firstLanguage,
+        string secondLanguage,
+        bool expectEqual)
     {
-        var baseline = new PluginConfiguration();
-        var changed = new PluginConfiguration { PreferredAudioLanguage = "eng" };
+        var first = new PluginConfiguration { PreferredAudioLanguage = firstLanguage };
+        var second = new PluginConfiguration { PreferredAudioLanguage = secondLanguage };
+        var firstHash = ConfigHasher.DetectionCache(first, CacheEntryType.Chromaprint, AnalysisMode.Introduction);
+        var secondHash = ConfigHasher.DetectionCache(second, CacheEntryType.Chromaprint, AnalysisMode.Introduction);
 
-        Assert.NotEqual(
-            ConfigHasher.DetectionCache(baseline, CacheEntryType.Chromaprint, AnalysisMode.Introduction),
-            ConfigHasher.DetectionCache(changed, CacheEntryType.Chromaprint, AnalysisMode.Introduction));
-    }
-
-    [Fact]
-    public void DetectionCacheHash_Chromaprint_IgnoresPreferredAudioLanguageCase()
-    {
-        var lower = new PluginConfiguration { PreferredAudioLanguage = "eng" };
-        var upper = new PluginConfiguration { PreferredAudioLanguage = " ENG " };
-
-        Assert.Equal(
-            ConfigHasher.DetectionCache(lower, CacheEntryType.Chromaprint, AnalysisMode.Introduction),
-            ConfigHasher.DetectionCache(upper, CacheEntryType.Chromaprint, AnalysisMode.Introduction));
+        Assert.Equal(expectEqual, firstHash == secondHash);
     }
 
     [Fact]
@@ -280,8 +276,8 @@ public sealed class TestCacheOperations
         };
 
         Assert.Equal(
-            ConfigHasher.DetectionCache(languagePreferred, CacheEntryType.Chromaprint, AnalysisMode.Introduction, "policy=most-channels"),
-            ConfigHasher.DetectionCache(defaultSelection, CacheEntryType.Chromaprint, AnalysisMode.Introduction, "policy=most-channels"));
+            ConfigHasher.DetectionCache(languagePreferred, CacheEntryType.Chromaprint, AnalysisMode.Introduction, MostChannelsStreamCacheVariant),
+            ConfigHasher.DetectionCache(defaultSelection, CacheEntryType.Chromaprint, AnalysisMode.Introduction, MostChannelsStreamCacheVariant));
     }
 
     [Fact]
@@ -289,24 +285,20 @@ public sealed class TestCacheOperations
     {
         var episodeId = Guid.NewGuid();
         var cacheDir = EntrypointTestHelpers.CreateTempCacheDir();
-        var fingerprint = new uint[] { 111u, 222u };
+        uint[] fingerprint = [111u, 222u];
 
         using var cachingScope = new CachingPluginScope(cacheDir);
         var config = Plugin.Instance!.Configuration;
         var legacyHash = ConfigHasher.LegacyChromaprintCacheWithoutLanguage(config, AnalysisMode.Introduction);
 
-        using (var db = new DetectionCacheDbContext(cachingScope.CacheDbPath))
-        {
-            db.DetectionCache.Add(new DbDetectionCache(
-                episodeId,
-                AnalysisMode.Introduction,
-                CacheEntryType.Chromaprint,
-                DetectionCacheService.CompressBrotli(fingerprint),
-                0,
-                600,
-                legacyHash));
-            db.SaveChanges();
-        }
+        DatabaseTestHelpers.CreateCacheDatabase(cachingScope.CacheDbPath).Upsert(
+            episodeId,
+            AnalysisMode.Introduction,
+            CacheEntryType.Chromaprint,
+            0,
+            600,
+            DetectionCacheService.CompressBrotli(fingerprint),
+            legacyHash);
 
         Assert.True(cachingScope.CacheService.TryRead(
             episodeId,
@@ -315,7 +307,7 @@ public sealed class TestCacheOperations
             0,
             600,
             out uint[] result,
-            "policy=most-channels",
+            MostChannelsStreamCacheVariant,
             legacyHash));
         Assert.Equal(fingerprint, result);
     }
