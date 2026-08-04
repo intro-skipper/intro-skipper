@@ -56,7 +56,7 @@ export const ffmpegTab: Tab = {
                 id: "PreferAudioStreamWithMostChannels",
                 label: "Prefer audio streams with the most channels",
                 description:
-                    "Controls preferred-language matches, language fallbacks, and selection when no language is configured. When enabled, Chromaprint selects the most-channel stream, using the lowest stream index as the tie breaker. When disabled, it selects the lowest stream index. Defaults to enabled.",
+                    "When enabled, Chromaprint selects the most-channel stream, using the lowest stream index as the tie breaker. When disabled, it selects the lowest stream index.",
             }),
             selectField({
                 id: "CacheCompressionLevel",
