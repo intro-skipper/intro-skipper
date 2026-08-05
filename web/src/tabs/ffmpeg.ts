@@ -2,6 +2,7 @@ import type { Tab } from "../types.ts";
 import { checkboxField } from "../components/checkbox-field.ts";
 import { numberField } from "../components/number-field.ts";
 import { selectField } from "../components/select-field.ts";
+import { textField } from "../components/text-field.ts";
 import { appendTabContent } from "../components/tab-layout.ts";
 
 export const ffmpegTab: Tab = {
@@ -43,6 +44,19 @@ export const ffmpegTab: Tab = {
                 label: "Probe audio duration for credits",
                 description:
                     "Use ffprobe to base credits fingerprinting on the first audio stream duration when container runtime is longer than the audio.",
+            }),
+            textField({
+                id: "PreferredAudioLanguage",
+                label: "Preferred stream audio language",
+                placeholder: "eng",
+                description:
+                    "Prefer an audio stream with this language tag when generating Chromaprint fingerprints. Empty or unmatched values will use the stream selection policy below.",
+            }),
+            checkboxField({
+                id: "PreferAudioStreamWithMostChannels",
+                label: "Prefer highest audio channel count",
+                description:
+                    "When enabled, Chromaprint selects streams based on channel count, using the lowest index as the tie breaker. When disabled, the first stream is selected.",
             }),
             selectField({
                 id: "CacheCompressionLevel",

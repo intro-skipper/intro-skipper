@@ -9,6 +9,7 @@ using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.Globalization;
 using System.Text;
+using System.Text.Json;
 using IntroSkipper.Data;
 using IntroSkipper.Helper;
 using Microsoft.Extensions.Logging;
@@ -727,6 +728,97 @@ public sealed partial class FFmpegService(
         return Path.Join(Path.GetDirectoryName(ffmpegPath) ?? string.Empty, "ffprobe" + extension);
     }
 
+    private async Task<AudioStreamSelection?> FindAudioStreamSelectionAsync(
+        string filePath,
+        string preferredLanguage,
+        bool preferMostChannels,
+        CancellationToken cancellationToken)
+    {
+        var hasLanguagePreference = !string.IsNullOrWhiteSpace(preferredLanguage);
+        if (!hasLanguagePreference && preferMostChannels)
+        {
+            // No probe or explicit map is needed to preserve FFmpeg's default selection: most channels, then lowest index.
+            return new AudioStreamSelection(null, "policy=most-channels", true);
+        }
+
+        try
+        {
+            var args = new List<string>
+            {
+                "-v", "error",
+                "-select_streams", "a",
+                "-show_entries", "stream=index,channels:stream_tags=language",
+                "-of", "json",
+                filePath,
+            };
+
+            var output = Encoding.UTF8.GetString(await GetProcessOutputAsync(
+                GetFFprobePath(),
+                args,
+                stderr: false,
+                timeout: 10 * 1000,
+                cancellationToken: cancellationToken).ConfigureAwait(false));
+
+            using var document = JsonDocument.Parse(output);
+            if (!document.RootElement.TryGetProperty("streams", out var streams))
+            {
+                return null;
+            }
+
+            var audioStreams = new List<(int Index, int Channels, string? Language)>();
+            foreach (var stream in streams.EnumerateArray())
+            {
+                if (stream.TryGetProperty("index", out var index) && index.TryGetInt32(out var streamIndex))
+                {
+                    var channels = stream.TryGetProperty("channels", out var channelsElement) &&
+                        channelsElement.TryGetInt32(out var channelCount)
+                        ? channelCount
+                        : 0;
+                    var language = stream.TryGetProperty("tags", out var tags) &&
+                        tags.TryGetProperty("language", out var languageElement)
+                        ? languageElement.GetString()?.Trim()
+                        : null;
+
+                    audioStreams.Add((streamIndex, channels, language));
+                }
+            }
+
+            if (audioStreams.Count == 0)
+            {
+                return null;
+            }
+
+            var fallbackStream = SelectAudioStream(audioStreams, preferMostChannels);
+            var defaultStream = SelectAudioStream(audioStreams, preferMostChannels: true);
+            var candidates = hasLanguagePreference
+                ? audioStreams.Where(stream => string.Equals(stream.Language, preferredLanguage, StringComparison.OrdinalIgnoreCase)).ToList()
+                : audioStreams;
+
+            if (candidates.Count == 0)
+            {
+                // An unmatched language preference falls back to all audio streams using the configured policy.
+                candidates = audioStreams;
+            }
+
+            var selectedStream = SelectAudioStream(candidates, preferMostChannels);
+            var selectsDefaultMostStream = selectedStream.Index == defaultStream.Index;
+            var cacheVariant = selectsDefaultMostStream
+                ? "policy=most-channels"
+                : FormattableString.Invariant($"stream-index={selectedStream.Index}");
+
+            return new AudioStreamSelection(
+                preferMostChannels && selectsDefaultMostStream ? null : selectedStream.Index,
+                cacheVariant,
+                selectedStream.Index == fallbackStream.Index);
+        }
+        catch (Exception ex) when (ex is JsonException or IOException or InvalidOperationException or UnauthorizedAccessException or System.ComponentModel.Win32Exception)
+        {
+            LogPreferredAudioLanguageProbeFailed(_logger, ex, filePath, preferredLanguage);
+        }
+
+        return null;
+    }
+
     /// <summary>
     /// Fingerprint a queued episode.
     /// </summary>
@@ -740,8 +832,21 @@ public sealed partial class FFmpegService(
     {
         cancellationToken.ThrowIfCancellationRequested();
 
-        // Try to load this episode from cache before running ffmpeg.
-        if (LoadCachedFingerprint(episode, mode, start, end, out uint[] cachedFingerprint))
+        var configuration = Plugin.Instance?.Configuration;
+        var preferredLanguage = AudioLanguageHelper.Normalize(configuration?.PreferredAudioLanguage);
+        var streamSelection = await FindAudioStreamSelectionAsync(
+            episode.Path,
+            preferredLanguage,
+            configuration?.PreferAudioStreamWithMostChannels ?? true,
+            cancellationToken).ConfigureAwait(false);
+        var cacheVariant = streamSelection?.CacheVariant;
+        var legacyConfigHash = streamSelection?.LegacyDefaultCompatible == true
+            ? ConfigHasher.LegacyChromaprintCacheWithoutLanguage(configuration ?? new(), mode)
+            : null;
+
+        // Resolve the stream before reading the cache so a language preference can reuse a fingerprint
+        // generated with the same effective stream under the default selection.
+        if (LoadCachedFingerprint(episode, mode, start, end, cacheVariant, legacyConfigHash, out uint[] cachedFingerprint))
         {
             LogFingerprintCacheHit(_logger, episode.Path);
             cancellationToken.ThrowIfCancellationRequested();
@@ -755,11 +860,21 @@ public sealed partial class FFmpegService(
             "-ss", start.ToString(CultureInfo.InvariantCulture),
             "-i", episode.Path,
             "-to", (end - start).ToString(CultureInfo.InvariantCulture),
+        };
+
+        if (streamSelection?.StreamIndex is int streamIndex)
+        {
+            args.Add("-map");
+            args.Add($"0:{streamIndex}?");
+        }
+
+        args.AddRange(
+        [
             "-ac", "2",
             "-f", "chromaprint",
             "-fp_format", "raw",
             "-",
-        };
+        ]);
 
         // Returns all fingerprint points as raw 32-bit unsigned integers (little endian).
         var rawPoints = await GetOutputAsync(args, cancellationToken: cancellationToken).ConfigureAwait(false);
@@ -778,7 +893,7 @@ public sealed partial class FFmpegService(
 
         // Try to cache this fingerprint.
         cancellationToken.ThrowIfCancellationRequested();
-        _cacheService.Write(episode.EpisodeId, mode, CacheEntryType.Chromaprint, start, end, [.. results]);
+        _cacheService.Write(episode.EpisodeId, mode, CacheEntryType.Chromaprint, start, end, [.. results], cacheVariant);
 
         return [.. results];
     }
@@ -790,6 +905,8 @@ public sealed partial class FFmpegService(
     /// <param name="mode">Analysis mode.</param>
     /// <param name="start">Start time (in seconds) used when the fingerprint was cached.</param>
     /// <param name="end">End time (in seconds) used when the fingerprint was cached.</param>
+    /// <param name="cacheVariant">Effective audio stream selection identity.</param>
+    /// <param name="legacyConfigHash">Legacy no-language hash accepted when the selected stream is unchanged.</param>
     /// <param name="fingerprint">Array to store the fingerprint in.</param>
     /// <returns><c>true</c> if the episode was successfully loaded from cache; otherwise <c>false</c>.</returns>
     private bool LoadCachedFingerprint(
@@ -797,11 +914,28 @@ public sealed partial class FFmpegService(
         AnalysisMode mode,
         double start,
         double end,
+        string? cacheVariant,
+        string? legacyConfigHash,
         out uint[] fingerprint)
     {
         fingerprint = [];
-        return _cacheService.TryRead(episode.EpisodeId, mode, CacheEntryType.Chromaprint, start, end, out fingerprint);
+        return _cacheService.TryRead(
+            episode.EpisodeId,
+            mode,
+            CacheEntryType.Chromaprint,
+            start,
+            end,
+            out fingerprint,
+            cacheVariant,
+            legacyConfigHash);
     }
+
+    private static (int Index, int Channels, string? Language) SelectAudioStream(
+        IReadOnlyList<(int Index, int Channels, string? Language)> streams,
+        bool preferMostChannels)
+        => preferMostChannels
+            ? streams.OrderByDescending(stream => stream.Channels).ThenBy(stream => stream.Index).First()
+            : streams.OrderBy(stream => stream.Index).First();
 
     private string FormatFFmpegLog(string key)
     {
@@ -859,6 +993,11 @@ public sealed partial class FFmpegService(
     [LoggerMessage(Level = LogLevel.Debug, Message = "Failed to probe audio duration for {File}")]
     private static partial void LogAudioDurationProbeFailed(ILogger logger, Exception ex, string file);
 
+    [LoggerMessage(Level = LogLevel.Debug, Message = "Failed to probe preferred audio language {Language} for {File}; using FFmpeg's default audio stream selection")]
+    private static partial void LogPreferredAudioLanguageProbeFailed(ILogger logger, Exception ex, string file, string language);
+
     [LoggerMessage(Level = LogLevel.Debug, Message = "ffmpeg process already gone while killing process tree")]
     private static partial void LogFfmpegProcessAlreadyGone(ILogger logger, Exception ex);
+
+    private sealed record AudioStreamSelection(int? StreamIndex, string CacheVariant, bool LegacyDefaultCompatible);
 }

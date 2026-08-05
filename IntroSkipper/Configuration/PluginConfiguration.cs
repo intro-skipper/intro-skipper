@@ -258,6 +258,18 @@ public class PluginConfiguration : BasePluginConfiguration
     public bool ProbeAudioDuration { get; set; }
 
     /// <summary>
+    /// Gets or sets the preferred language tag for the audio stream used by Chromaprint.
+    /// When no matching stream is found, the configured audio stream selection policy is used.
+    /// </summary>
+    public string PreferredAudioLanguage { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Gets or sets a value indicating whether Chromaprint should prefer the audio stream with the most channels.
+    /// Streams with equal channel counts are ordered by their stream index.
+    /// </summary>
+    public bool PreferAudioStreamWithMostChannels { get; set; } = true;
+
+    /// <summary>
     /// Gets or sets the minimum length of similar audio that will be considered a recap.
     /// </summary>
     public int MinimumRecapDuration { get; set; } = 15;
