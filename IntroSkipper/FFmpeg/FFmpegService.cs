@@ -664,14 +664,14 @@ public sealed partial class FFmpegService(
         using var cancellationRegistration = cancellationToken.Register(() => KillProcessTree(process));
         using var ms = new MemoryStream();
 
-        var stdoutTask = DrainAsync(process.StandardOutput.BaseStream, stderr ? null : ms, cancellationToken);
-        var stderrTask = DrainAsync(process.StandardError.BaseStream, stderr ? ms : null, cancellationToken);
-
         using var timeoutCts = new CancellationTokenSource(timeout);
         using var waitCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, timeoutCts.Token);
+        var stdoutTask = DrainAsync(process.StandardOutput.BaseStream, stderr ? null : ms, waitCts.Token);
+        var stderrTask = DrainAsync(process.StandardError.BaseStream, stderr ? ms : null, waitCts.Token);
         try
         {
             await process.WaitForExitAsync(waitCts.Token).ConfigureAwait(false);
+            await Task.WhenAll(stdoutTask, stderrTask).ConfigureAwait(false);
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
@@ -682,9 +682,17 @@ public sealed partial class FFmpegService(
         {
             _logger.LogWarning("ffmpeg did not exit within {TimeoutMs}ms; killing process", timeout);
             KillProcessTree(process);
+
+            try
+            {
+                await Task.WhenAll(stdoutTask, stderrTask).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException) when (timeoutCts.IsCancellationRequested)
+            {
+                // The timeout also cancels pipe reads so a failed process-tree kill cannot hang here.
+            }
         }
 
-        await Task.WhenAll(stdoutTask, stderrTask).ConfigureAwait(false);
         cancellationToken.ThrowIfCancellationRequested();
         return ms.ToArray();
     }

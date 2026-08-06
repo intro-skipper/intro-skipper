@@ -158,6 +158,47 @@ public class TestFFmpegService
             $"Process timeout took {stopwatch.Elapsed}.");
     }
 
+    [Fact]
+    public async Task GetProcessOutputAsync_EnforcesTimeoutWhenDescendantKeepsStreamsOpen()
+    {
+        if (OperatingSystem.IsWindows())
+        {
+            return;
+        }
+
+        var childPidPath = Path.GetTempFileName();
+        try
+        {
+            var ffmpegService = CreateFFmpegService();
+            var stopwatch = Stopwatch.StartNew();
+
+            await ffmpegService.GetProcessOutputAsync(
+                "/bin/sh",
+                ["-c", $"sleep 30 & echo $! > {childPidPath}"],
+                timeout: 100);
+
+            Assert.True(
+                stopwatch.Elapsed < TimeSpan.FromSeconds(2),
+                $"Stream timeout took {stopwatch.Elapsed}.");
+        }
+        finally
+        {
+            if (int.TryParse(await File.ReadAllTextAsync(childPidPath), out var childPid))
+            {
+                try
+                {
+                    Process.GetProcessById(childPid).Kill(entireProcessTree: true);
+                }
+                catch (ArgumentException)
+                {
+                    // The child already exited.
+                }
+            }
+
+            File.Delete(childPidPath);
+        }
+    }
+
     #region Info Query Tests
 
     [FactSkipFFmpegTests]
