@@ -609,6 +609,17 @@ public sealed partial class FFmpegService(
             firstArg.StartsWith("-h", StringComparison.Ordinal);
     }
 
+    /// <summary>
+    /// Runs a process and returns the bytes it wrote to stdout (or stderr when <paramref name="stderr"/> is true).
+    /// If the process has not exited within <paramref name="timeout"/> milliseconds, its process tree is killed
+    /// and the output captured so far is returned; a timeout does not throw. Internal for testing.
+    /// </summary>
+    /// <param name="processPath">Path of the executable to run.</param>
+    /// <param name="args">Arguments to pass to the executable.</param>
+    /// <param name="stderr">Capture stderr instead of stdout.</param>
+    /// <param name="timeout">Maximum time, in milliseconds, to wait for the process to exit.</param>
+    /// <param name="cancellationToken">Cancellation token; cancellation kills the process tree and throws.</param>
+    /// <returns>The captured output bytes.</returns>
     internal async Task<byte[]> GetProcessOutputAsync(
         string processPath,
         IReadOnlyList<string> args,

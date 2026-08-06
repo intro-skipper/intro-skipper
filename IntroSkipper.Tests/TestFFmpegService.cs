@@ -138,21 +138,23 @@ public class TestFFmpegService
     [Fact]
     public async Task GetProcessOutputAsync_EnforcesTimeoutBeforeStreamsClose()
     {
-        if (OperatingSystem.IsWindows())
-        {
-            return;
-        }
+        // Spawn a child process that sleeps for ~30 seconds while keeping its
+        // output streams open. "ping -n" is used on Windows because
+        // "timeout.exe" rejects redirected stdin.
+        var (processPath, args) = OperatingSystem.IsWindows()
+            ? ("ping", new[] { "-n", "31", "127.0.0.1" })
+            : ("/bin/sh", new[] { "-c", "sleep 30" });
 
         var ffmpegService = CreateFFmpegService();
         var stopwatch = Stopwatch.StartNew();
 
         await ffmpegService.GetProcessOutputAsync(
-            "/bin/sh",
-            ["-c", "sleep 30"],
+            processPath,
+            args,
             timeout: 100);
 
         Assert.True(
-            stopwatch.Elapsed < TimeSpan.FromSeconds(5),
+            stopwatch.Elapsed < TimeSpan.FromSeconds(2),
             $"Process timeout took {stopwatch.Elapsed}.");
     }
 
