@@ -609,7 +609,7 @@ public sealed partial class FFmpegService(
             firstArg.StartsWith("-h", StringComparison.Ordinal);
     }
 
-    private async Task<byte[]> GetProcessOutputAsync(
+    internal async Task<byte[]> GetProcessOutputAsync(
         string processPath,
         IReadOnlyList<string> args,
         bool stderr = false,
@@ -655,7 +655,6 @@ public sealed partial class FFmpegService(
 
         var stdoutTask = DrainAsync(process.StandardOutput.BaseStream, stderr ? null : ms, cancellationToken);
         var stderrTask = DrainAsync(process.StandardError.BaseStream, stderr ? ms : null, cancellationToken);
-        await Task.WhenAll(stdoutTask, stderrTask).ConfigureAwait(false);
 
         using var timeoutCts = new CancellationTokenSource(timeout);
         using var waitCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, timeoutCts.Token);
@@ -674,6 +673,7 @@ public sealed partial class FFmpegService(
             KillProcessTree(process);
         }
 
+        await Task.WhenAll(stdoutTask, stderrTask).ConfigureAwait(false);
         cancellationToken.ThrowIfCancellationRequested();
         return ms.ToArray();
     }

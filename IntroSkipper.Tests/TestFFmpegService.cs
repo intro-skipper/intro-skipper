@@ -135,6 +135,27 @@ public class TestFFmpegService
         Assert.Equal(1, probeCount);
     }
 
+    [Fact]
+    public async Task GetProcessOutputAsync_EnforcesTimeoutBeforeStreamsClose()
+    {
+        if (OperatingSystem.IsWindows())
+        {
+            return;
+        }
+
+        var ffmpegService = CreateFFmpegService();
+        var stopwatch = Stopwatch.StartNew();
+
+        await ffmpegService.GetProcessOutputAsync(
+            "/bin/sh",
+            ["-c", "sleep 30"],
+            timeout: 100);
+
+        Assert.True(
+            stopwatch.Elapsed < TimeSpan.FromSeconds(5),
+            $"Process timeout took {stopwatch.Elapsed}.");
+    }
+
     #region Info Query Tests
 
     [FactSkipFFmpegTests]
