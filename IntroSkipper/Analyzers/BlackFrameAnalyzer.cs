@@ -236,19 +236,18 @@ public sealed partial class BlackFrameAnalyzer(ILogger<BlackFrameAnalyzer> logge
             return null;
         }
 
-        // suitableChapters are ordered descending, so index 0 is the latest chapter candidate.
-        var latestSuitableChapterStart = suitableChapters[0];
-
-        // Check each chapter to see if it marks the start of credits
-        foreach (var chapterStart in suitableChapters)
+        // Check each chapter to see if it marks the start of credits.
+        // Chapters are sorted latest-first, so index 0 is the best chapter candidate.
+        for (var i = 0; i < suitableChapters.Count; i++)
         {
+            var chapterStart = suitableChapters[i];
             var chapterCreditsDuration = episode.Duration - chapterStart;
             var maximumCreditsDuration = episode.Category == QueuedMediaCategory.Movie
                 ? _config.MaximumMovieCreditsDuration
                 : _config.MaximumCreditsDuration;
             if (chapterCreditsDuration > maximumCreditsDuration)
             {
-                if (chapterStart == latestSuitableChapterStart)
+                if (i == 0)
                 {
                     return null;
                 }
@@ -297,7 +296,7 @@ public sealed partial class BlackFrameAnalyzer(ILogger<BlackFrameAnalyzer> logge
 
             if (!blackRunStart.HasValue)
             {
-                if (chapterStart == latestSuitableChapterStart)
+                if (i == 0)
                 {
                     return null;
                 }
