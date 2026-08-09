@@ -197,13 +197,14 @@ public class TestBlackFrames
     {
         var ffmpeg = new RangeBasedBlackFrameService(
         [
-            new TimeRange(2400, 2410),
-            new TimeRange(2200, 2210)
+            new TimeRange(2200, 2210),
+            new TimeRange(2400, 2410)
         ]);
         var analyzer = new BlackFrameAnalyzer(NullLogger<BlackFrameAnalyzer>.Instance, ffmpeg);
 
         using var scope = new EntrypointTestHelpers.PluginInstanceScope(EntrypointTestHelpers.CreateTempCacheDir());
         var plugin = Plugin.Instance!;
+        // Both chapter options exceed default max credits duration (450s); the latest one should force fallback.
         EntrypointTestHelpers.SetPrivateField(plugin, "_chapterRepository", ChapterManagerProxy.Create(
         [
             CreateChapterInfo(2200),

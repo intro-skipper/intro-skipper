@@ -236,7 +236,8 @@ public sealed partial class BlackFrameAnalyzer(ILogger<BlackFrameAnalyzer> logge
             return null;
         }
 
-        var newestSuitableChapterStart = suitableChapters[0];
+        // suitableChapters are ordered descending, so index 0 is the latest chapter candidate.
+        var latestSuitableChapterStart = suitableChapters[0];
 
         // Check each chapter to see if it marks the start of credits
         foreach (var chapterStart in suitableChapters)
@@ -247,7 +248,7 @@ public sealed partial class BlackFrameAnalyzer(ILogger<BlackFrameAnalyzer> logge
                 : _config.MaximumCreditsDuration;
             if (chapterCreditsDuration > maximumCreditsDuration)
             {
-                if (chapterStart == newestSuitableChapterStart)
+                if (chapterStart == latestSuitableChapterStart)
                 {
                     return null;
                 }
@@ -296,7 +297,7 @@ public sealed partial class BlackFrameAnalyzer(ILogger<BlackFrameAnalyzer> logge
 
             if (!blackRunStart.HasValue)
             {
-                if (chapterStart == newestSuitableChapterStart)
+                if (chapterStart == latestSuitableChapterStart)
                 {
                     return null;
                 }
