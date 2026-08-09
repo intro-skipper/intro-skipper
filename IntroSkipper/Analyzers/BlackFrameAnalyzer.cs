@@ -292,11 +292,6 @@ public sealed partial class BlackFrameAnalyzer(ILogger<BlackFrameAnalyzer> logge
             return null;
         }
 
-        if (chapterStart - blackRunStart.Value > maxChapterOffsetFromBlackRunStart)
-        {
-            return null;
-        }
-
         LogFoundCreditsWithChapterMarker(_logger, chapterStart);
         return new Segment(episode.EpisodeId, new TimeRange(chapterStart, episode.Duration));
     }
