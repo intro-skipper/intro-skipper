@@ -227,7 +227,7 @@ public sealed partial class BlackFrameAnalyzer(ILogger<BlackFrameAnalyzer> logge
     /// <param name="threshold">Threshold for black frame detection.</param>
     /// <param name="cancellationToken">Token used to cancel FFmpeg probing.</param>
     /// <returns>Credits segment if found using chapters; otherwise null.</returns>
-    private async Task<Segment?> TryAnalyzeChaptersAsync(QueuedEpisode episode, int percentage, int threshold, CancellationToken cancellationToken)
+    internal async Task<Segment?> TryAnalyzeChaptersAsync(QueuedEpisode episode, int percentage, int threshold, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(episode);
 

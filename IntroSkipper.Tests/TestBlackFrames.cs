@@ -150,7 +150,7 @@ public class TestBlackFrames
             CreditsFingerprintStart = 2000,
         };
 
-        var result = await TryAnalyzeChaptersAsync(analyzer, episode, 85, 28);
+        var result = await analyzer.TryAnalyzeChaptersAsync(episode, 85, 28, CancellationToken.None);
 
         Assert.Null(result);
     }
@@ -178,7 +178,7 @@ public class TestBlackFrames
             CreditsFingerprintStart = 2000,
         };
 
-        var result = await TryAnalyzeChaptersAsync(analyzer, episode, 85, 28);
+        var result = await analyzer.TryAnalyzeChaptersAsync(episode, 85, 28, CancellationToken.None);
 
         Assert.Null(result);
     }
@@ -1875,14 +1875,6 @@ public class TestBlackFrames
         {
             StartPositionTicks = TimeSpan.FromSeconds(startSeconds).Ticks
         };
-    }
-
-    private static async Task<Segment?> TryAnalyzeChaptersAsync(BlackFrameAnalyzer analyzer, QueuedEpisode episode, int percentage, int threshold)
-    {
-        var method = typeof(BlackFrameAnalyzer).GetMethod("TryAnalyzeChaptersAsync", BindingFlags.Instance | BindingFlags.NonPublic);
-        Assert.NotNull(method);
-        var task = (Task<Segment?>)method!.Invoke(analyzer, [episode, percentage, threshold, CancellationToken.None])!;
-        return await task;
     }
 
     private class ChapterManagerProxy : DispatchProxy
