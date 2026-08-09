@@ -236,82 +236,69 @@ public sealed partial class BlackFrameAnalyzer(ILogger<BlackFrameAnalyzer> logge
             return null;
         }
 
-        // Check each chapter to see if it marks the start of credits.
-        // Chapters are sorted latest-first, so index 0 is the best chapter candidate.
-        for (var i = 0; i < suitableChapters.Count; i++)
+        // Chapters are sorted latest-first. Only the latest suitable chapter is considered;
+        // if it does not validate, the caller falls back to regular black-frame analysis.
+        var chapterStart = suitableChapters[0];
+        var chapterCreditsDuration = episode.Duration - chapterStart;
+        var maximumCreditsDuration = episode.Category == QueuedMediaCategory.Movie
+            ? _config.MaximumMovieCreditsDuration
+            : _config.MaximumCreditsDuration;
+        if (chapterCreditsDuration > maximumCreditsDuration)
         {
-            var chapterStart = suitableChapters[i];
-            var chapterCreditsDuration = episode.Duration - chapterStart;
-            var maximumCreditsDuration = episode.Category == QueuedMediaCategory.Movie
-                ? _config.MaximumMovieCreditsDuration
-                : _config.MaximumCreditsDuration;
-            if (chapterCreditsDuration > maximumCreditsDuration)
-            {
-                if (i == 0)
-                {
-                    return null;
-                }
+            return null;
+        }
 
-                continue;
-            }
+        // Check for black frames at chapter start
+        var startRange = new TimeRange(chapterStart, chapterStart + 1);
+        var hasBlackFramesAtStart = (await _ffmpegService.DetectBlackFramesAsync(
+            episode,
+            startRange,
+            percentage,
+            threshold,
+            AnalysisMode.Credits,
+            cancellationToken).ConfigureAwait(false)).Length > 0;
 
-            // Check for black frames at chapter start
-            var startRange = new TimeRange(chapterStart, chapterStart + 1);
-            var hasBlackFramesAtStart = (await _ffmpegService.DetectBlackFramesAsync(
+        if (!hasBlackFramesAtStart)
+        {
+            LogChapterNoBlackFramesAtStart(_logger, chapterStart);
+            return null;
+        }
+
+        // Verify the chapter is near the beginning of a black run.
+        // Walk backwards to find the first non-black second before the chapter marker.
+        const double maxChapterOffsetFromBlackRunStart = 15;
+        var scanStart = Math.Max(0, chapterStart - (maxChapterOffsetFromBlackRunStart + 1));
+        double? blackRunStart = null;
+        for (var probeStart = chapterStart - 1; probeStart >= scanStart; probeStart -= 1)
+        {
+            var beforeRange = new TimeRange(probeStart, probeStart + 1);
+            var hasBlackFramesBefore = (await _ffmpegService.DetectBlackFramesAsync(
                 episode,
-                startRange,
+                beforeRange,
                 percentage,
                 threshold,
                 AnalysisMode.Credits,
                 cancellationToken).ConfigureAwait(false)).Length > 0;
 
-            if (!hasBlackFramesAtStart)
+            if (!hasBlackFramesBefore)
             {
-                LogChapterNoBlackFramesAtStart(_logger, chapterStart);
+                blackRunStart = probeStart + 1;
                 break;
-            }
-
-            // Verify the chapter is near the beginning of a black run.
-            // Walk backwards to find the first non-black second before the chapter marker.
-            const double maxChapterOffsetFromBlackRunStart = 15;
-            var scanStart = Math.Max(0, chapterStart - (maxChapterOffsetFromBlackRunStart + 1));
-            double? blackRunStart = null;
-            for (var probeStart = chapterStart - 1; probeStart >= scanStart; probeStart -= 1)
-            {
-                var beforeRange = new TimeRange(probeStart, probeStart + 1);
-                var hasBlackFramesBefore = (await _ffmpegService.DetectBlackFramesAsync(
-                    episode,
-                    beforeRange,
-                    percentage,
-                    threshold,
-                    AnalysisMode.Credits,
-                    cancellationToken).ConfigureAwait(false)).Length > 0;
-
-                if (!hasBlackFramesBefore)
-                {
-                    blackRunStart = probeStart + 1;
-                    break;
-                }
-            }
-
-            if (!blackRunStart.HasValue)
-            {
-                if (i == 0)
-                {
-                    return null;
-                }
-
-                continue;
-            }
-
-            if (chapterStart - blackRunStart.Value <= maxChapterOffsetFromBlackRunStart)
-            {
-                LogFoundCreditsWithChapterMarker(_logger, chapterStart);
-                return new Segment(episode.EpisodeId, new TimeRange(chapterStart, episode.Duration));
             }
         }
 
-        return null;
+        if (!blackRunStart.HasValue)
+        {
+            return null;
+        }
+
+        if (chapterStart - blackRunStart.Value > maxChapterOffsetFromBlackRunStart)
+        {
+            return null;
+        }
+
+        LogFoundCreditsWithChapterMarker(_logger, chapterStart);
+        return new Segment(episode.EpisodeId, new TimeRange(chapterStart, episode.Duration));
     }
 
     /// <summary>
