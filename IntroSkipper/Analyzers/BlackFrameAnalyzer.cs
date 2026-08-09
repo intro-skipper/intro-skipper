@@ -255,17 +255,30 @@ public sealed partial class BlackFrameAnalyzer(ILogger<BlackFrameAnalyzer> logge
                 break;
             }
 
-            // Verify no black frames before chapter start (to confirm this is the actual start)
-            var beforeRange = new TimeRange(chapterStart - 5, chapterStart - 4);
-            var hasBlackFramesBefore = (await _ffmpegService.DetectBlackFramesAsync(
-                episode,
-                beforeRange,
-                percentage,
-                threshold,
-                AnalysisMode.Credits,
-                cancellationToken).ConfigureAwait(false)).Length > 0;
+            // Verify the chapter is near the beginning of a black run.
+            // Walk backwards to find the first non-black second before the chapter marker.
+            const double maxChapterOffsetFromBlackRunStart = 15;
+            var scanStart = Math.Max(episode.CreditsFingerprintStart, chapterStart - (maxChapterOffsetFromBlackRunStart + 1));
+            double? blackRunStart = null;
+            for (var probeStart = chapterStart - 1; probeStart >= scanStart; probeStart -= 1)
+            {
+                var beforeRange = new TimeRange(probeStart, probeStart + 1);
+                var hasBlackFramesBefore = (await _ffmpegService.DetectBlackFramesAsync(
+                    episode,
+                    beforeRange,
+                    percentage,
+                    threshold,
+                    AnalysisMode.Credits,
+                    cancellationToken).ConfigureAwait(false)).Length > 0;
 
-            if (!hasBlackFramesBefore)
+                if (!hasBlackFramesBefore)
+                {
+                    blackRunStart = probeStart + 1;
+                    break;
+                }
+            }
+
+            if (blackRunStart.HasValue && chapterStart - blackRunStart.Value <= maxChapterOffsetFromBlackRunStart)
             {
                 LogFoundCreditsWithChapterMarker(_logger, chapterStart);
                 return new Segment(episode.EpisodeId, new TimeRange(chapterStart, episode.Duration));
