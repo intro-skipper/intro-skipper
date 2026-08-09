@@ -24,6 +24,15 @@ namespace IntroSkipper.Analyzers;
 /// <param name="database">Segment database facade.</param>
 public sealed partial class BlackFrameAnalyzer(ILogger<BlackFrameAnalyzer> logger, IFFmpegService ffmpegService, IIntroSkipperDatabase database) : IMediaFileAnalyzer
 {
+    /// <summary>
+    /// Maximum distance, in seconds, between a chapter marker and the start of the black run
+    /// containing it for the marker to still count as the start of the credits. This bounds the
+    /// backward scan in <see cref="TryAnalyzeChaptersAsync"/> and tolerates pre-credits fades
+    /// longer than the historical 5-second assumption without accepting markers placed deep
+    /// inside unrelated black segments.
+    /// </summary>
+    private const double MaxChapterOffsetFromBlackRunStart = 15;
+
     private readonly PluginConfiguration _config = Plugin.Instance?.Configuration ?? new PluginConfiguration();
     private readonly TimeSpan _maximumError = TimeSpan.FromSeconds(4);
     private readonly ILogger<BlackFrameAnalyzer> _logger = logger ?? throw new ArgumentNullException(nameof(logger));
@@ -221,7 +230,7 @@ public sealed partial class BlackFrameAnalyzer(ILogger<BlackFrameAnalyzer> logge
     /// <param name="threshold">Threshold for black frame detection.</param>
     /// <param name="cancellationToken">Token used to cancel FFmpeg probing.</param>
     /// <returns>Credits segment if found using chapters; otherwise null.</returns>
-    private async Task<Segment?> TryAnalyzeChaptersAsync(QueuedEpisode episode, int percentage, int threshold, CancellationToken cancellationToken)
+    internal async Task<Segment?> TryAnalyzeChaptersAsync(QueuedEpisode episode, int percentage, int threshold, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(episode);
 
@@ -239,27 +248,44 @@ public sealed partial class BlackFrameAnalyzer(ILogger<BlackFrameAnalyzer> logge
             return null;
         }
 
-        // Check each chapter to see if it marks the start of credits
-        foreach (var chapterStart in suitableChapters)
+        // Chapters are sorted latest-first and only the latest suitable chapter is considered.
+        // Iterating on to earlier chapters is deliberately avoided: when the real credits chapter
+        // failed validation, the loop used to accept an earlier act-break chapter instead, shifting
+        // the detected outro start minutes too early (see #889). If the latest chapter does not
+        // validate, returning null lets the caller fall back to regular black-frame analysis.
+        var chapterStart = suitableChapters[0];
+        var chapterCreditsDuration = episode.Duration - chapterStart;
+        var maximumCreditsDuration = episode.Category == QueuedMediaCategory.Movie
+            ? _config.MaximumMovieCreditsDuration
+            : _config.MaximumCreditsDuration;
+        if (chapterCreditsDuration > maximumCreditsDuration)
         {
-            // Check for black frames at chapter start
-            var startRange = new TimeRange(chapterStart, chapterStart + 1);
-            var hasBlackFramesAtStart = (await _ffmpegService.DetectBlackFramesAsync(
-                episode,
-                startRange,
-                percentage,
-                threshold,
-                AnalysisMode.Credits,
-                cancellationToken).ConfigureAwait(false)).Length > 0;
+            return null;
+        }
 
-            if (!hasBlackFramesAtStart)
-            {
-                LogChapterNoBlackFramesAtStart(_logger, chapterStart);
-                break;
-            }
+        // Check for black frames at chapter start
+        var startRange = new TimeRange(chapterStart, chapterStart + 1);
+        var hasBlackFramesAtStart = (await _ffmpegService.DetectBlackFramesAsync(
+            episode,
+            startRange,
+            percentage,
+            threshold,
+            AnalysisMode.Credits,
+            cancellationToken).ConfigureAwait(false)).Length > 0;
 
-            // Verify no black frames before chapter start (to confirm this is the actual start)
-            var beforeRange = new TimeRange(chapterStart - 5, chapterStart - 4);
+        if (!hasBlackFramesAtStart)
+        {
+            LogChapterNoBlackFramesAtStart(_logger, chapterStart);
+            return null;
+        }
+
+        // Verify the chapter is near the beginning of a black run.
+        // Walk backwards to find the first non-black second before the chapter marker.
+        var scanStart = Math.Max(0, chapterStart - (MaxChapterOffsetFromBlackRunStart + 1));
+        double? blackRunStart = null;
+        for (var probeStart = chapterStart - 1; probeStart >= scanStart; probeStart -= 1)
+        {
+            var beforeRange = new TimeRange(probeStart, probeStart + 1);
             var hasBlackFramesBefore = (await _ffmpegService.DetectBlackFramesAsync(
                 episode,
                 beforeRange,
@@ -270,12 +296,18 @@ public sealed partial class BlackFrameAnalyzer(ILogger<BlackFrameAnalyzer> logge
 
             if (!hasBlackFramesBefore)
             {
-                LogFoundCreditsWithChapterMarker(_logger, chapterStart);
-                return new Segment(episode.EpisodeId, new TimeRange(chapterStart, episode.Duration));
+                blackRunStart = probeStart + 1;
+                break;
             }
         }
 
-        return null;
+        if (!blackRunStart.HasValue)
+        {
+            return null;
+        }
+
+        LogFoundCreditsWithChapterMarker(_logger, chapterStart);
+        return new Segment(episode.EpisodeId, new TimeRange(chapterStart, episode.Duration));
     }
 
     /// <summary>
