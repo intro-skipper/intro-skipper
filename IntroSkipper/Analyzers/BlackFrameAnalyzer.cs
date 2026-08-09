@@ -258,7 +258,11 @@ public sealed partial class BlackFrameAnalyzer(ILogger<BlackFrameAnalyzer> logge
         var maximumCreditsDuration = episode.Category == QueuedMediaCategory.Movie
             ? _config.MaximumMovieCreditsDuration
             : _config.MaximumCreditsDuration;
-        if (chapterCreditsDuration > maximumCreditsDuration)
+
+        // The suitable-chapters filter above already excludes markers past the episode duration
+        // whenever MinimumCreditsDuration is non-negative, but guard explicitly so bad metadata or
+        // a pathological configuration can never produce a segment where Start > End.
+        if (chapterCreditsDuration <= 0 || chapterCreditsDuration > maximumCreditsDuration)
         {
             return null;
         }
