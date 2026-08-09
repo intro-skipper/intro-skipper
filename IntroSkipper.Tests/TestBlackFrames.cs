@@ -1864,19 +1864,20 @@ public class TestBlackFrames
 
     private class ChapterManagerProxy : DispatchProxy
     {
-        private static IReadOnlyList<ChapterInfo> _chapters = [];
+        public IReadOnlyList<ChapterInfo> Chapters { get; set; } = [];
 
         public static IChapterManager Create(IReadOnlyList<ChapterInfo> chapters)
         {
-            _chapters = chapters;
-            return Create<IChapterManager, ChapterManagerProxy>();
+            var proxy = Create<IChapterManager, ChapterManagerProxy>();
+            ((ChapterManagerProxy)(object)proxy).Chapters = chapters;
+            return proxy;
         }
 
         protected override object? Invoke(MethodInfo? targetMethod, object?[]? args)
         {
             if (targetMethod?.Name == nameof(IChapterManager.GetChapters))
             {
-                return _chapters;
+                return Chapters;
             }
 
             throw new NotImplementedException(targetMethod?.Name);
