@@ -239,6 +239,15 @@ public sealed partial class BlackFrameAnalyzer(ILogger<BlackFrameAnalyzer> logge
         // Check each chapter to see if it marks the start of credits
         foreach (var chapterStart in suitableChapters)
         {
+            var chapterCreditsDuration = episode.Duration - chapterStart;
+            var maximumCreditsDuration = episode.Category == QueuedMediaCategory.Movie
+                ? _config.MaximumMovieCreditsDuration
+                : _config.MaximumCreditsDuration;
+            if (chapterCreditsDuration > maximumCreditsDuration)
+            {
+                return null;
+            }
+
             // Check for black frames at chapter start
             var startRange = new TimeRange(chapterStart, chapterStart + 1);
             var hasBlackFramesAtStart = (await _ffmpegService.DetectBlackFramesAsync(
@@ -258,7 +267,7 @@ public sealed partial class BlackFrameAnalyzer(ILogger<BlackFrameAnalyzer> logge
             // Verify the chapter is near the beginning of a black run.
             // Walk backwards to find the first non-black second before the chapter marker.
             const double maxChapterOffsetFromBlackRunStart = 15;
-            var scanStart = Math.Max(episode.CreditsFingerprintStart, chapterStart - (maxChapterOffsetFromBlackRunStart + 1));
+            var scanStart = Math.Max(0, chapterStart - (maxChapterOffsetFromBlackRunStart + 1));
             double? blackRunStart = null;
             for (var probeStart = chapterStart - 1; probeStart >= scanStart; probeStart -= 1)
             {
@@ -278,7 +287,12 @@ public sealed partial class BlackFrameAnalyzer(ILogger<BlackFrameAnalyzer> logge
                 }
             }
 
-            if (blackRunStart.HasValue && chapterStart - blackRunStart.Value <= maxChapterOffsetFromBlackRunStart)
+            if (!blackRunStart.HasValue)
+            {
+                return null;
+            }
+
+            if (chapterStart - blackRunStart.Value <= maxChapterOffsetFromBlackRunStart)
             {
                 LogFoundCreditsWithChapterMarker(_logger, chapterStart);
                 return new Segment(episode.EpisodeId, new TimeRange(chapterStart, episode.Duration));

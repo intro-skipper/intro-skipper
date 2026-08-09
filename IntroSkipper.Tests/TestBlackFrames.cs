@@ -161,6 +161,70 @@ public class TestBlackFrames
     }
 
     [Fact]
+    public async Task TryAnalyzeChaptersAsync_ReturnsNullWhenBlackRunStartIsOutsideScanWindow()
+    {
+        var ffmpeg = new RangeBasedBlackFrameService(
+        [
+            new TimeRange(2274, 2276),
+            new TimeRange(2399, 2420)
+        ]);
+        var analyzer = new BlackFrameAnalyzer(NullLogger<BlackFrameAnalyzer>.Instance, ffmpeg);
+
+        using var scope = new EntrypointTestHelpers.PluginInstanceScope(EntrypointTestHelpers.CreateTempCacheDir());
+        var plugin = Plugin.Instance!;
+        EntrypointTestHelpers.SetPrivateField(plugin, "_chapterRepository", ChapterManagerProxy.Create(
+        [
+            CreateChapterInfo(2274.92),
+            CreateChapterInfo(2417.76)
+        ]));
+        var episode = new QueuedEpisode
+        {
+            EpisodeId = Guid.NewGuid(),
+            Name = "episode.mkv",
+            Path = "episode.mkv",
+            Duration = 2444.6,
+            CreditsFingerprintStart = 2000,
+            CreditsFingerprintEnd = 2444.6,
+        };
+
+        var result = await TryAnalyzeChaptersAsync(analyzer, episode, 85, 28);
+
+        Assert.Null(result);
+    }
+
+    [Fact]
+    public async Task TryAnalyzeChaptersAsync_ReturnsNullWhenChapterCreditsExceedMaximumDuration()
+    {
+        var ffmpeg = new RangeBasedBlackFrameService(
+        [
+            new TimeRange(2400, 2410),
+            new TimeRange(2200, 2210)
+        ]);
+        var analyzer = new BlackFrameAnalyzer(NullLogger<BlackFrameAnalyzer>.Instance, ffmpeg);
+
+        using var scope = new EntrypointTestHelpers.PluginInstanceScope(EntrypointTestHelpers.CreateTempCacheDir());
+        var plugin = Plugin.Instance!;
+        EntrypointTestHelpers.SetPrivateField(plugin, "_chapterRepository", ChapterManagerProxy.Create(
+        [
+            CreateChapterInfo(2200),
+            CreateChapterInfo(2400)
+        ]));
+        var episode = new QueuedEpisode
+        {
+            EpisodeId = Guid.NewGuid(),
+            Name = "episode.mkv",
+            Path = "episode.mkv",
+            Duration = 2900,
+            CreditsFingerprintStart = 2000,
+            CreditsFingerprintEnd = 2900,
+        };
+
+        var result = await TryAnalyzeChaptersAsync(analyzer, episode, 85, 28);
+
+        Assert.Null(result);
+    }
+
+    [Fact]
     public void TestMergeScenesAcross20SecondGap()
     {
         // Two black-frame scenes whose raw endpoint timestamps differ by exactly 20s.
