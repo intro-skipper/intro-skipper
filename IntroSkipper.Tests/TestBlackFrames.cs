@@ -9,6 +9,8 @@ namespace IntroSkipper.Tests;
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
+using System.Reflection;
 using System.Threading;
 using System.Threading.Tasks;
 using IntroSkipper.Analyzers;
@@ -16,6 +18,8 @@ using IntroSkipper.Analyzers.Credits;
 using IntroSkipper.Configuration;
 using IntroSkipper.Data;
 using IntroSkipper.FFmpeg;
+using MediaBrowser.Controller.Chapters;
+using MediaBrowser.Model.Entities;
 using Microsoft.Extensions.Logging.Abstractions;
 using Xunit;
 
@@ -121,6 +125,96 @@ public class TestBlackFrames
         var result = await analyzer.AnalyzeMediaFileAsync(episode, 240, 85, 32);
         Assert.NotNull(result);
         Assert.InRange(result.Start, 300 - range, 300 + range);
+    }
+
+    [Fact]
+    public async Task TryAnalyzeChaptersAsync_AcceptsCreditsChapterWhenPreCreditsFadeExceedsFiveSeconds()
+    {
+        // Fade to black starts 6 seconds before the credits chapter. The historical single-sample
+        // check at [chapterStart - 5, chapterStart - 4] rejected this chapter and fell through to
+        // the earlier act-break chapter at 2274, shifting the outro start minutes too early (#889).
+        var ffmpeg = new RangeBasedBlackFrameService(
+        [
+            new TimeRange(2274, 2276),
+            new TimeRange(2394, 2420)
+        ]);
+        var analyzer = new BlackFrameAnalyzer(NullLogger<BlackFrameAnalyzer>.Instance, ffmpeg, DatabaseTestHelpers.CreateTempSegmentDatabase());
+
+        using var scope = new EntrypointTestHelpers.PluginInstanceScope(EntrypointTestHelpers.CreateTempCacheDir());
+        var plugin = Plugin.Instance!;
+        EntrypointTestHelpers.SetPrivateField(plugin, "_chapterRepository", ChapterManagerProxy.Create(
+        [
+            CreateChapterInfo(2274),
+            CreateChapterInfo(2400)
+        ]));
+        var episode = new QueuedEpisode
+        {
+            EpisodeId = Guid.NewGuid(),
+            Duration = 2444.6,
+            CreditsFingerprintStart = 2000,
+        };
+
+        var result = await analyzer.TryAnalyzeChaptersAsync(episode, 85, 28, CancellationToken.None);
+
+        Assert.NotNull(result);
+        Assert.Equal(2400, result.Start, 3);
+        Assert.Equal(2444.6, result.End, 3);
+    }
+
+    [Fact]
+    public async Task TryAnalyzeChaptersAsync_ReturnsNullWhenBlackRunStartIsOutsideScanWindow()
+    {
+        var ffmpeg = new RangeBasedBlackFrameService(
+        [
+            new TimeRange(2274, 2276),
+            new TimeRange(2399, 2420)
+        ]);
+        var analyzer = new BlackFrameAnalyzer(NullLogger<BlackFrameAnalyzer>.Instance, ffmpeg, DatabaseTestHelpers.CreateTempSegmentDatabase());
+
+        using var scope = new EntrypointTestHelpers.PluginInstanceScope(EntrypointTestHelpers.CreateTempCacheDir());
+        var plugin = Plugin.Instance!;
+        EntrypointTestHelpers.SetPrivateField(plugin, "_chapterRepository", ChapterManagerProxy.Create(
+        [
+            CreateChapterInfo(2417.76)
+        ]));
+        var episode = new QueuedEpisode
+        {
+            EpisodeId = Guid.NewGuid(),
+            Duration = 2444.6,
+            CreditsFingerprintStart = 2000,
+        };
+
+        var result = await analyzer.TryAnalyzeChaptersAsync(episode, 85, 28, CancellationToken.None);
+
+        Assert.Null(result);
+    }
+
+    [Fact]
+    public async Task TryAnalyzeChaptersAsync_ReturnsNullWhenChapterCreditsExceedMaximumDuration()
+    {
+        var ffmpeg = new RangeBasedBlackFrameService(
+        [
+            new TimeRange(2400, 2410)
+        ]);
+        var analyzer = new BlackFrameAnalyzer(NullLogger<BlackFrameAnalyzer>.Instance, ffmpeg, DatabaseTestHelpers.CreateTempSegmentDatabase());
+
+        using var scope = new EntrypointTestHelpers.PluginInstanceScope(EntrypointTestHelpers.CreateTempCacheDir());
+        var plugin = Plugin.Instance!;
+        // The chapter exceeds the default max credits duration (450s), so chapter analysis must fall back.
+        EntrypointTestHelpers.SetPrivateField(plugin, "_chapterRepository", ChapterManagerProxy.Create(
+        [
+            CreateChapterInfo(2400)
+        ]));
+        var episode = new QueuedEpisode
+        {
+            EpisodeId = Guid.NewGuid(),
+            Duration = 2900,
+            CreditsFingerprintStart = 2000,
+        };
+
+        var result = await analyzer.TryAnalyzeChaptersAsync(episode, 85, 28, CancellationToken.None);
+
+        Assert.Null(result);
     }
 
     [Fact]
@@ -1807,6 +1901,71 @@ public class TestBlackFrames
     private static BlackFrameAnalyzer CreateBlackFrameAnalyzer()
     {
         return new(NullLogger<BlackFrameAnalyzer>.Instance, CreateFFmpegService(), DatabaseTestHelpers.CreateTempSegmentDatabase());
+    }
+
+    private static ChapterInfo CreateChapterInfo(double startSeconds)
+    {
+        return new()
+        {
+            StartPositionTicks = TimeSpan.FromSeconds(startSeconds).Ticks
+        };
+    }
+
+    private class ChapterManagerProxy : DispatchProxy
+    {
+        public IReadOnlyList<ChapterInfo> Chapters { get; set; } = [];
+
+        public static IChapterManager Create(IReadOnlyList<ChapterInfo> chapters)
+        {
+            var proxy = Create<IChapterManager, ChapterManagerProxy>();
+            ((ChapterManagerProxy)(object)proxy).Chapters = chapters;
+            return proxy;
+        }
+
+        protected override object? Invoke(MethodInfo? targetMethod, object?[]? args)
+        {
+            if (targetMethod?.Name == nameof(IChapterManager.GetChapters))
+            {
+                return Chapters;
+            }
+
+            throw new NotImplementedException(targetMethod?.Name);
+        }
+    }
+
+    private sealed class RangeBasedBlackFrameService(IReadOnlyList<TimeRange> blackRanges) : IFFmpegService
+    {
+        public Task<bool> CheckFFmpegVersionAsync(CancellationToken cancellationToken = default)
+            => throw new NotSupportedException();
+
+        public Task<uint[]> FingerprintAsync(QueuedEpisode episode, AnalysisMode mode, CancellationToken cancellationToken = default)
+            => throw new NotSupportedException();
+
+        public Task<TimeRange[]> DetectSilenceAsync(QueuedEpisode episode, TimeRange range, AnalysisMode mode, CancellationToken cancellationToken = default)
+            => throw new NotSupportedException();
+
+        public Task<BlackFrame[]> DetectBlackFramesAsync(QueuedEpisode episode, TimeRange range, int minimum, int threshold, AnalysisMode mode, CancellationToken cancellationToken = default)
+        {
+            var hasBlackFrames = blackRanges.Any(r => range.Start >= r.Start && range.Start < r.End);
+            return Task.FromResult(hasBlackFrames ? [new BlackFrame(95, 0, 0)] : Array.Empty<BlackFrame>());
+        }
+
+        public Task<BlackFrame[]> DetectBlackFramesAsync(QueuedEpisode episode, int threshold, CancellationToken cancellationToken = default)
+            => throw new NotSupportedException();
+
+        public Task<KeyframeVisual[]> DetectKeyframeVisualsAsync(QueuedEpisode episode, CancellationToken cancellationToken = default)
+            => throw new NotSupportedException();
+
+        public Task<BlackInterval[]> DetectBlackIntervalsAsync(QueuedEpisode episode, TimeRange range, int threshold, int minimum, CancellationToken cancellationToken = default)
+            => throw new NotSupportedException();
+
+        public Task<double[]> DetectKeyFramesAsync(QueuedEpisode episode, TimeRange range, AnalysisMode mode, CancellationToken cancellationToken = default)
+            => throw new NotSupportedException();
+
+        public Task<double?> ProbeAudioDurationAsync(string filePath, CancellationToken cancellationToken = default)
+            => throw new NotSupportedException();
+
+        public string GetChromaprintLogs() => string.Empty;
     }
 
     private sealed class FakeFFmpegService(
