@@ -236,6 +236,8 @@ public sealed partial class BlackFrameAnalyzer(ILogger<BlackFrameAnalyzer> logge
             return null;
         }
 
+        var newestSuitableChapterStart = suitableChapters[0];
+
         // Check each chapter to see if it marks the start of credits
         foreach (var chapterStart in suitableChapters)
         {
@@ -245,7 +247,12 @@ public sealed partial class BlackFrameAnalyzer(ILogger<BlackFrameAnalyzer> logge
                 : _config.MaximumCreditsDuration;
             if (chapterCreditsDuration > maximumCreditsDuration)
             {
-                return null;
+                if (chapterStart == newestSuitableChapterStart)
+                {
+                    return null;
+                }
+
+                continue;
             }
 
             // Check for black frames at chapter start
@@ -289,7 +296,12 @@ public sealed partial class BlackFrameAnalyzer(ILogger<BlackFrameAnalyzer> logge
 
             if (!blackRunStart.HasValue)
             {
-                return null;
+                if (chapterStart == newestSuitableChapterStart)
+                {
+                    return null;
+                }
+
+                continue;
             }
 
             if (chapterStart - blackRunStart.Value <= maxChapterOffsetFromBlackRunStart)
