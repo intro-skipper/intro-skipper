@@ -138,7 +138,10 @@ public class TestBlackFrames
             new TimeRange(2274, 2276),
             new TimeRange(2394, 2420)
         ]);
-        var analyzer = new BlackFrameAnalyzer(NullLogger<BlackFrameAnalyzer>.Instance, ffmpeg, DatabaseTestHelpers.CreateTempSegmentDatabase());
+        var analyzer = new BlackFrameAnalyzer(
+            NullLogger<BlackFrameAnalyzer>.Instance,
+            ffmpeg,
+            DatabaseTestHelpers.CreateTempSegmentDatabase());
 
         using var scope = new EntrypointTestHelpers.PluginInstanceScope(EntrypointTestHelpers.CreateTempCacheDir());
         var plugin = Plugin.Instance!;
@@ -169,7 +172,10 @@ public class TestBlackFrames
             new TimeRange(2274, 2276),
             new TimeRange(2399, 2420)
         ]);
-        var analyzer = new BlackFrameAnalyzer(NullLogger<BlackFrameAnalyzer>.Instance, ffmpeg, DatabaseTestHelpers.CreateTempSegmentDatabase());
+        var analyzer = new BlackFrameAnalyzer(
+            NullLogger<BlackFrameAnalyzer>.Instance,
+            ffmpeg,
+            DatabaseTestHelpers.CreateTempSegmentDatabase());
 
         using var scope = new EntrypointTestHelpers.PluginInstanceScope(EntrypointTestHelpers.CreateTempCacheDir());
         var plugin = Plugin.Instance!;
@@ -196,7 +202,10 @@ public class TestBlackFrames
         [
             new TimeRange(2400, 2410)
         ]);
-        var analyzer = new BlackFrameAnalyzer(NullLogger<BlackFrameAnalyzer>.Instance, ffmpeg, DatabaseTestHelpers.CreateTempSegmentDatabase());
+        var analyzer = new BlackFrameAnalyzer(
+            NullLogger<BlackFrameAnalyzer>.Instance,
+            ffmpeg,
+            DatabaseTestHelpers.CreateTempSegmentDatabase());
 
         using var scope = new EntrypointTestHelpers.PluginInstanceScope(EntrypointTestHelpers.CreateTempCacheDir());
         var plugin = Plugin.Instance!;
