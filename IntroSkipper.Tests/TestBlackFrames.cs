@@ -163,13 +163,21 @@ public class TestBlackFrames
     {
         // Covers the accept path: a chapter marker is valid whenever it sits within
         // MaxChapterOffsetFromBlackRunStart of the start of its black run, independent of fade
-        // length (here the fade begins 6s before the marker). The earlier act-break chapter at
-        // 2274 also starts a black run and must not be selected, locking in the rule that only
-        // the latest suitable chapter is ever considered (#889).
+        // length. The earlier act-break chapter also starts a black run and must not be
+        // selected, locking in the rule that only the latest suitable chapter is ever
+        // considered (#889).
+        const double ActBreakChapterStart = 2274;
+        const double ActBreakBlackRunEnd = 2276;
+        const double PreCreditsFadeStart = 2394; // fade begins 6s before the credits chapter
+        const double CreditsChapterStart = 2400;
+        const double CreditsBlackRunEnd = 2420;
+        const double FingerprintStart = 2000;
+        const double EpisodeDuration = 2444.6;
+
         var ffmpeg = new RangeBasedBlackFrameService(
         [
-            new TimeRange(2274, 2276),
-            new TimeRange(2394, 2420)
+            new TimeRange(ActBreakChapterStart, ActBreakBlackRunEnd),
+            new TimeRange(PreCreditsFadeStart, CreditsBlackRunEnd)
         ]);
         var analyzer = new BlackFrameAnalyzer(
             NullLogger<BlackFrameAnalyzer>.Instance,
@@ -180,21 +188,21 @@ public class TestBlackFrames
         var plugin = Plugin.Instance!;
         EntrypointTestHelpers.SetPrivateField(plugin, "_chapterRepository", ChapterManagerProxy.Create(
         [
-            CreateChapterInfo(2274),
-            CreateChapterInfo(2400)
+            CreateChapterInfo(ActBreakChapterStart),
+            CreateChapterInfo(CreditsChapterStart)
         ]));
         var episode = new QueuedEpisode
         {
             EpisodeId = Guid.NewGuid(),
-            Duration = 2444.6,
-            CreditsFingerprintStart = 2000,
+            Duration = EpisodeDuration,
+            CreditsFingerprintStart = FingerprintStart,
         };
 
         var result = await analyzer.TryAnalyzeChaptersAsync(episode, 85, 28, CancellationToken.None);
 
         Assert.NotNull(result);
-        Assert.Equal(2400, result.Start, 3);
-        Assert.Equal(2444.6, result.End, 3);
+        Assert.Equal(CreditsChapterStart, result.Start, 3);
+        Assert.Equal(EpisodeDuration, result.End, 3);
     }
 
     [Fact]
