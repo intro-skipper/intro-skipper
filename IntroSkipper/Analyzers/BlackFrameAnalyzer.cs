@@ -282,7 +282,7 @@ public sealed partial class BlackFrameAnalyzer(ILogger<BlackFrameAnalyzer> logge
         // Verify the chapter is near the beginning of a black run.
         // Walk backwards to find the first non-black second before the chapter marker.
         var scanStart = Math.Max(0, chapterStart - (MaxChapterOffsetFromBlackRunStart + 1));
-        double? blackRunStart = null;
+        var foundBlackRunStart = false;
         for (var probeStart = chapterStart - 1; probeStart >= scanStart; probeStart -= 1)
         {
             var beforeRange = new TimeRange(probeStart, probeStart + 1);
@@ -296,12 +296,12 @@ public sealed partial class BlackFrameAnalyzer(ILogger<BlackFrameAnalyzer> logge
 
             if (!hasBlackFramesBefore)
             {
-                blackRunStart = probeStart + 1;
+                foundBlackRunStart = true;
                 break;
             }
         }
 
-        if (!blackRunStart.HasValue)
+        if (!foundBlackRunStart)
         {
             return null;
         }
