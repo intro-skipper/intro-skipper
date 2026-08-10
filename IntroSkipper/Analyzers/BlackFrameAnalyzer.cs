@@ -276,8 +276,11 @@ public sealed partial class BlackFrameAnalyzer(ILogger<BlackFrameAnalyzer> logge
             return null;
         }
 
-        // Verify the chapter is near the beginning of a black run.
-        // Walk backwards to find the first non-black second before the chapter marker.
+        // Verify the chapter is near the beginning of a black run. The scan window is bounded
+        // by MaxChapterOffsetFromBlackRunStart, so encountering any non-black second inside it
+        // proves the run started within the allowed offset of the marker. Only that existence
+        // matters, not the exact start position, hence the boolean flag. If the whole window is
+        // black, the run began too far before the chapter and it is rejected.
         var scanStart = Math.Max(0, chapterStart - (MaxChapterOffsetFromBlackRunStart + 1));
         var foundBlackRunStart = false;
         for (var probeStart = chapterStart - 1; probeStart >= scanStart; probeStart -= 1)
