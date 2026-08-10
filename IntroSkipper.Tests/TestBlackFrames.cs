@@ -130,9 +130,11 @@ public class TestBlackFrames
     [Fact]
     public async Task TryAnalyzeChaptersAsync_AcceptsCreditsChapterWhenPreCreditsFadeExceedsFiveSeconds()
     {
-        // Fade to black starts 6 seconds before the credits chapter. The historical single-sample
-        // check at [chapterStart - 5, chapterStart - 4] rejected this chapter and fell through to
-        // the earlier act-break chapter at 2274, shifting the outro start minutes too early (#889).
+        // Covers the accept path: a chapter marker is valid whenever it sits within
+        // MaxChapterOffsetFromBlackRunStart of the start of its black run, independent of fade
+        // length (here the fade begins 6s before the marker). The earlier act-break chapter at
+        // 2274 also starts a black run and must not be selected, locking in the rule that only
+        // the latest suitable chapter is ever considered (#889).
         var ffmpeg = new RangeBasedBlackFrameService(
         [
             new TimeRange(2274, 2276),
