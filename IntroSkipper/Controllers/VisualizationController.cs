@@ -173,36 +173,40 @@ public partial class VisualizationController(ILogger<VisualizationController> lo
         {
             using var db = Plugin.CreateDbContext();
 
-            // ExecuteDeleteAsync runs a single server-side DELETE and bypasses the change tracker.
-            // This is safe here because the tracked operations below target DbSeasonState, not DbSegment.
             var episodeIds = episodes.Select(e => e.EpisodeId).ToHashSet();
-            await db.DbSegment
-                .Where(s => episodeIds.Contains(s.ItemId))
-                .ExecuteDeleteAsync(cancellationToken)
-                .ConfigureAwait(false);
+            var transaction = await db.Database.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
+            try
+            {
+                await db.DbSegment
+                    .Where(s => episodeIds.Contains(s.ItemId))
+                    .ExecuteDeleteAsync(cancellationToken)
+                    .ConfigureAwait(false);
+
+                var seasonStates = await db.DbSeasonState
+                    .Where(s => s.SeasonId == seasonId)
+                    .ToListAsync(cancellationToken)
+                    .ConfigureAwait(false);
+
+                foreach (var state in seasonStates)
+                {
+                    db.Entry(state).Property(s => s.EpisodeIds).CurrentValue = [];
+                }
+
+                await db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+                await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
+            }
+            finally
+            {
+                await transaction.DisposeAsync().ConfigureAwait(false);
+            }
 
             if (eraseCache)
             {
-                // Cache deletion must run to completion — the DB rows are already gone,
-                // so aborting here would leave orphaned files with no way to clean them up.
                 foreach (var episode in episodes)
                 {
                     await Task.Run(() => _cacheService.DeleteForItem(episode.EpisodeId), CancellationToken.None).ConfigureAwait(false);
                 }
             }
-
-            // Batch-load season state and clear episode IDs.
-            var seasonStates = await db.DbSeasonState
-                .Where(s => s.SeasonId == seasonId)
-                .ToListAsync(cancellationToken)
-                .ConfigureAwait(false);
-
-            foreach (var state in seasonStates)
-            {
-                db.Entry(state).Property(s => s.EpisodeIds).CurrentValue = [];
-            }
-
-            await db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
 
             if (Plugin.Instance.Configuration.UpdateMediaSegments)
             {
