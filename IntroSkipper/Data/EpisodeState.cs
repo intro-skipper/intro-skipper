@@ -30,4 +30,9 @@ public enum EpisodeState
     /// Episode segment was provided externally via the segment editor and must not be overwritten by automatic analysis.
     /// </summary>
     UserProvided,
+
+    /// <summary>
+    /// Episode analysis failed and must not be cached as a completed no-segment result.
+    /// </summary>
+    AnalysisFailed,
 }

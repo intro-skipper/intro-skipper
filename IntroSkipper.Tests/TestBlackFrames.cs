@@ -1185,19 +1185,64 @@ public class TestBlackFrames
     [Fact]
     public async Task TestAnalyzeMediaFiles_DetectionException_Continues()
     {
-        var episode = CreateQueuedCreditsEpisode();
+        var failedEpisode = CreateQueuedCreditsEpisode();
+        var noCreditsEpisode = CreateQueuedCreditsEpisode();
         var ffmpeg = new FakeFFmpegService([])
         {
             CreditsScanException = new InvalidOperationException("test failure"),
+            CreditsScanExceptionOnCall = 1,
         };
         var analyzer = CreateCreditsBlackFrameAnalyzer(ffmpeg);
         using var scope = new EntrypointTestHelpers.PluginInstanceScope(EntrypointTestHelpers.CreateTempCacheDir());
 
-        var result = await analyzer.AnalyzeMediaFiles([episode], AnalysisMode.Credits, CancellationToken.None);
+        var result = await analyzer.AnalyzeMediaFiles([failedEpisode, noCreditsEpisode], AnalysisMode.Credits, CancellationToken.None);
 
-        Assert.Same(episode, result[0]);
+        Assert.Same(failedEpisode, result[0]);
+        Assert.Equal(EpisodeState.AnalysisFailed, failedEpisode.GetAnalyzed(AnalysisMode.Credits));
+        Assert.True(failedEpisode.NeedsAnalysis(AnalysisMode.Credits));
+        Assert.Equal(EpisodeState.NotAnalyzed, noCreditsEpisode.GetAnalyzed(AnalysisMode.Credits));
+        Assert.Equal(2, ffmpeg.CreditsScanCalls);
+    }
+
+    [Fact]
+    public async Task TestBlackFrameAnalyzer_BinarySearchException_MarksFailureAndContinues()
+    {
+        var failedEpisode = CreateQueuedCreditsEpisode();
+        var noCreditsEpisode = CreateQueuedCreditsEpisode();
+        var ffmpeg = new FakeFFmpegService([])
+        {
+            RangeScanException = new InvalidOperationException("test failure"),
+            RangeScanExceptionOnCall = 2,
+        };
+        var analyzer = new BlackFrameAnalyzer(NullLogger<BlackFrameAnalyzer>.Instance, ffmpeg);
+        var config = (PluginConfiguration)EntrypointTestHelpers.GetPrivateField(analyzer, "_config");
+        config.UseChapterMarkersBlackFrame = false;
+        using var scope = new EntrypointTestHelpers.PluginInstanceScope(EntrypointTestHelpers.CreateTempCacheDir());
+
+        await analyzer.AnalyzeMediaFiles([failedEpisode, noCreditsEpisode], AnalysisMode.Credits, CancellationToken.None);
+
+        Assert.Equal(EpisodeState.AnalysisFailed, failedEpisode.GetAnalyzed(AnalysisMode.Credits));
+        Assert.True(failedEpisode.NeedsAnalysis(AnalysisMode.Credits));
+        Assert.Equal(EpisodeState.NotAnalyzed, noCreditsEpisode.GetAnalyzed(AnalysisMode.Credits));
+        Assert.True(ffmpeg.RangeScanCalls > 2);
+    }
+
+    [Fact]
+    public async Task TestAnalyzeMediaFiles_OptionalIntervalException_RemainsDegradable()
+    {
+        var episode = CreateQueuedCreditsEpisode();
+        var ffmpeg = new FakeFFmpegService(CreateLowDensitySingleCandidateFrames())
+        {
+            IntervalScanException = new InvalidOperationException("test failure"),
+        };
+        var analyzer = CreateCreditsBlackFrameAnalyzer(ffmpeg);
+        SetDetectNonBlackCredits(analyzer, value: false);
+        using var scope = new EntrypointTestHelpers.PluginInstanceScope(EntrypointTestHelpers.CreateTempCacheDir());
+
+        await analyzer.AnalyzeMediaFiles([episode], AnalysisMode.Credits, CancellationToken.None);
+
         Assert.Equal(EpisodeState.NotAnalyzed, episode.GetAnalyzed(AnalysisMode.Credits));
-        Assert.Equal(1, ffmpeg.CreditsScanCalls);
+        Assert.Equal(1, ffmpeg.IntervalScanCalls);
     }
 
     // ── Non-black (entropy/saturation) credit fallback ───────────────────
@@ -1991,6 +2036,12 @@ public class TestBlackFrames
 
         public Exception? CreditsScanException { get; init; }
 
+        public int? CreditsScanExceptionOnCall { get; init; }
+
+        public Exception? RangeScanException { get; init; }
+
+        public int? RangeScanExceptionOnCall { get; init; }
+
         public Exception? IntervalScanException { get; init; }
 
         public int CreditsScanCalls { get; private set; }
@@ -2036,6 +2087,12 @@ public class TestBlackFrames
             LastProbeThreshold = threshold;
             LastProbeMode = mode;
             cancellationToken.ThrowIfCancellationRequested();
+            if (RangeScanException is not null &&
+                (RangeScanExceptionOnCall is null || RangeScanCalls == RangeScanExceptionOnCall))
+            {
+                throw RangeScanException;
+            }
+
             return Task.FromResult(_probeFrames);
         }
 
@@ -2043,7 +2100,8 @@ public class TestBlackFrames
         {
             CreditsScanCalls++;
             cancellationToken.ThrowIfCancellationRequested();
-            if (CreditsScanException is not null)
+            if (CreditsScanException is not null &&
+                (CreditsScanExceptionOnCall is null || CreditsScanCalls == CreditsScanExceptionOnCall))
             {
                 throw CreditsScanException;
             }
