@@ -532,7 +532,7 @@ public sealed partial class FFmpegService(
             firstArg.StartsWith("-h", StringComparison.Ordinal);
     }
 
-    private async Task<byte[]> GetProcessOutputAsync(
+    internal async Task<byte[]> GetProcessOutputAsync(
         string processPath,
         IReadOnlyList<string> args,
         bool stderr = false,
@@ -566,39 +566,46 @@ public sealed partial class FFmpegService(
 
         try
         {
-            process.PriorityClass = Plugin.Instance?.Configuration.ProcessPriority ?? ProcessPriorityClass.BelowNormal;
-        }
-        catch (Exception e) when (e is InvalidOperationException or System.ComponentModel.Win32Exception or NotSupportedException)
-        {
-            _logger.LogWarning("ffmpeg priority could not be modified. {Message}", e.Message);
-        }
+            try
+            {
+                process.PriorityClass = Plugin.Instance?.Configuration.ProcessPriority ?? ProcessPriorityClass.BelowNormal;
+            }
+            catch (Exception e) when (e is InvalidOperationException or System.ComponentModel.Win32Exception or NotSupportedException)
+            {
+                _logger.LogWarning("ffmpeg priority could not be modified. {Message}", e.Message);
+            }
 
-        using var cancellationRegistration = cancellationToken.Register(() => KillProcessTree(process));
-        using var ms = new MemoryStream();
+            using var ms = new MemoryStream();
+            var stdoutTask = DrainAsync(process.StandardOutput.BaseStream, stderr ? null : ms, CancellationToken.None);
+            var stderrTask = DrainAsync(process.StandardError.BaseStream, stderr ? ms : null, CancellationToken.None);
 
-        var stdoutTask = DrainAsync(process.StandardOutput.BaseStream, stderr ? null : ms, cancellationToken);
-        var stderrTask = DrainAsync(process.StandardError.BaseStream, stderr ? ms : null, cancellationToken);
-        await Task.WhenAll(stdoutTask, stderrTask).ConfigureAwait(false);
+            using var timeoutCts = new CancellationTokenSource(timeout);
+            using var waitCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, timeoutCts.Token);
+            try
+            {
+                await process.WaitForExitAsync(waitCts.Token).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                KillProcessTree(process);
+            }
+            catch (OperationCanceledException) when (timeoutCts.IsCancellationRequested)
+            {
+                _logger.LogWarning("ffmpeg did not exit within {TimeoutMs}ms; killing process", timeout);
+                KillProcessTree(process);
+            }
 
-        using var timeoutCts = new CancellationTokenSource(timeout);
-        using var waitCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, timeoutCts.Token);
-        try
-        {
-            await process.WaitForExitAsync(waitCts.Token).ConfigureAwait(false);
-        }
-        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
-        {
+            await process.WaitForExitAsync(CancellationToken.None).ConfigureAwait(false);
+            await Task.WhenAll(stdoutTask, stderrTask).ConfigureAwait(false);
+
             cancellationToken.ThrowIfCancellationRequested();
-            throw;
+            return ms.ToArray();
         }
-        catch (OperationCanceledException) when (timeoutCts.IsCancellationRequested)
+        finally
         {
-            _logger.LogWarning("ffmpeg did not exit within {TimeoutMs}ms; killing process", timeout);
             KillProcessTree(process);
+            await process.WaitForExitAsync(CancellationToken.None).ConfigureAwait(false);
         }
-
-        cancellationToken.ThrowIfCancellationRequested();
-        return ms.ToArray();
     }
 
     private static async Task DrainAsync(Stream stream, Stream? destination, CancellationToken cancellationToken)

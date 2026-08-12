@@ -9,6 +9,8 @@
 
 using System;
 using System.Diagnostics;
+using System.Globalization;
+using System.Text;
 using System.Threading.Tasks;
 using IntroSkipper.Data;
 using IntroSkipper.FFmpeg;
@@ -19,6 +21,40 @@ namespace IntroSkipper.Tests;
 
 public class TestFFmpegService
 {
+    [Fact]
+    public async Task TestProcessTimeoutKillsChildWhileDrainingOutput()
+    {
+        string processPath;
+        string[] args;
+        int timeout;
+        if (OperatingSystem.IsWindows())
+        {
+            processPath = "powershell.exe";
+            args = ["-NoProfile", "-NonInteractive", "-Command", "[Console]::Out.WriteLine($PID); [Console]::Out.Flush(); Start-Sleep -Seconds 8"];
+            timeout = 1500;
+        }
+        else
+        {
+            processPath = "/bin/sh";
+            args = ["-c", "printf '%d\\n' $$; sleep 8"];
+            timeout = 200;
+        }
+
+        var output = await CreateFFmpegService()
+            .GetProcessOutputAsync(processPath, args, timeout: timeout)
+            .WaitAsync(TimeSpan.FromSeconds(5));
+
+        var processId = int.Parse(Encoding.UTF8.GetString(output).Trim(), CultureInfo.InvariantCulture);
+        try
+        {
+            using var process = Process.GetProcessById(processId);
+            Assert.True(process.HasExited, $"Timed-out helper process {processId} is still running.");
+        }
+        catch (ArgumentException)
+        {
+        }
+    }
+
     #region Info Query Tests
 
     [FactSkipFFmpegTests]
