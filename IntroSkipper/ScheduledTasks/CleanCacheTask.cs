@@ -92,6 +92,7 @@ public partial class CleanCacheTask(
         var inventory = await queueManager.GetMediaInventory(includeExcluded: true, cancellationToken).ConfigureAwait(false);
         if (!inventory.IsComplete)
         {
+            LogIncompleteInventory(_logger);
             throw new InvalidOperationException("Cannot clean the Intro Skipper cache because the media inventory is incomplete");
         }
 
@@ -166,6 +167,9 @@ public partial class CleanCacheTask(
     {
         return [];
     }
+
+    [LoggerMessage(Level = LogLevel.Error, Message = "Aborting cache cleanup: the media inventory is incomplete, so cached data cannot be safely removed. Check the preceding log entries for the libraries or items that failed to enumerate")]
+    private static partial void LogIncompleteInventory(ILogger logger);
 
     [LoggerMessage(Level = LogLevel.Debug, Message = "Deleting detection cache rows for episode ID: {EpisodeId}")]
     private static partial void LogDeletingDetectionCacheRows(ILogger logger, Guid episodeId);

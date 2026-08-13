@@ -107,6 +107,8 @@ public partial class QueueManager(ILogger<QueueManager> logger, ILibraryManager 
                 // Some virtual folders don't have a proper item id.
                 if (!Guid.TryParse(folder.ItemId, out var folderId))
                 {
+                    isComplete = false;
+                    LogInvalidFolderId(_logger, folder.Name);
                     continue;
                 }
 
@@ -562,6 +564,9 @@ public partial class QueueManager(ILogger<QueueManager> logger, ILibraryManager 
 
     [LoggerMessage(Level = LogLevel.Error, Message = "Failed to enumerate virtual folders")]
     private static partial void LogFailedEnumerateLibraries(ILogger logger, Exception exception);
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "Skipping library \"{Name}\": virtual folder does not have a valid item id")]
+    private static partial void LogInvalidFolderId(ILogger logger, string name);
 
     [LoggerMessage(Level = LogLevel.Debug, Message = "Not analyzing library \"{Name}\": Intro Skipper is disabled in library settings. To enable, check library configuration > Media Segment Providers")]
     private static partial void LogLibraryDisabled(ILogger logger, string name);

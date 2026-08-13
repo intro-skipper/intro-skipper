@@ -83,6 +83,23 @@ public sealed class TestCleanCacheTask
         Assert.False(inventory.IsComplete);
     }
 
+    [Fact]
+    public async Task GetMediaInventory_InvalidFolderItemId_IsIncomplete()
+    {
+        using var scope = CreatePluginScope(CreateTempDbPath());
+        var folder = new VirtualFolderInfo
+        {
+            Name = "Library",
+            ItemId = "not-a-guid",
+        };
+        var libraryManager = InventoryLibraryManager.Create([folder], []);
+        var queueManager = CreateQueueManager(libraryManager);
+
+        var inventory = await queueManager.GetMediaInventory(includeExcluded: true);
+
+        Assert.False(inventory.IsComplete);
+    }
+
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
