@@ -87,9 +87,15 @@ public partial class CleanCacheTask(
             _fileSystem,
             _ffmpegService);
 
-        // QueueManager.GetMediaItems() already skips libraries where the plugin is disabled via
+        // QueueManager.GetMediaInventory() already skips libraries where the plugin is disabled via
         // LibraryOptions.DisabledMediaSegmentProviders.
-        var queue = await queueManager.GetMediaItems(includeExcluded: true, cancellationToken).ConfigureAwait(false);
+        var inventory = await queueManager.GetMediaInventory(includeExcluded: true, cancellationToken).ConfigureAwait(false);
+        if (!inventory.IsComplete)
+        {
+            throw new InvalidOperationException("Cannot clean the Intro Skipper cache because the media inventory is incomplete");
+        }
+
+        var queue = inventory.Items;
         var enabledLibraryEpisodeIds = queue.Values
             .SelectMany(static episodes => episodes)
             .Select(static episode => episode.EpisodeId)

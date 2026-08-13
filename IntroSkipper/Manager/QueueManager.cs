@@ -50,8 +50,8 @@ public partial class QueueManager(ILogger<QueueManager> logger, ILibraryManager 
     /// </summary>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>Queued media items.</returns>
-    public Task<IReadOnlyDictionary<Guid, List<QueuedEpisode>>> GetMediaItems(CancellationToken cancellationToken = default)
-        => GetMediaItems(includeExcluded: false, cancellationToken);
+    public async Task<IReadOnlyDictionary<Guid, List<QueuedEpisode>>> GetMediaItems(CancellationToken cancellationToken = default)
+        => (await GetMediaInventory(includeExcluded: false, cancellationToken).ConfigureAwait(false)).Items;
 
     internal async Task<bool> GetFfmpegValidAsync(CancellationToken cancellationToken = default)
     {
@@ -66,12 +66,15 @@ public partial class QueueManager(ILogger<QueueManager> logger, ILibraryManager 
     }
 
     internal async Task<IReadOnlyDictionary<Guid, List<QueuedEpisode>>> GetMediaItems(bool includeExcluded, CancellationToken cancellationToken = default)
+        => (await GetMediaInventory(includeExcluded, cancellationToken).ConfigureAwait(false)).Items;
+
+    internal async Task<MediaInventoryResult> GetMediaInventory(bool includeExcluded, CancellationToken cancellationToken = default)
     {
         var plugin = Plugin.Instance;
         if (plugin is null)
         {
             LogPluginInstanceNull(_logger);
-            return _queuedEpisodes;
+            return new MediaInventoryResult(_queuedEpisodes, false);
         }
 
         if (!includeExcluded)
@@ -81,43 +84,58 @@ public partial class QueueManager(ILogger<QueueManager> logger, ILibraryManager 
 
         LoadAnalysisSettings(plugin);
 
-        // For all selected libraries, enqueue all contained episodes.
-        var virtualFolders = _libraryManager.GetVirtualFolders();
-        if (virtualFolders is null)
+        var isComplete = true;
+        try
         {
-            LogLibraryManagerNull(_logger);
-            return _queuedEpisodes;
+            var virtualFolders = _libraryManager.GetVirtualFolders();
+            if (virtualFolders is null)
+            {
+                LogLibraryManagerNull(_logger);
+                return new MediaInventoryResult(_queuedEpisodes, false);
+            }
+
+            foreach (var folder in virtualFolders)
+            {
+                if (folder.LibraryOptions?.DisabledMediaSegmentProviders?.Contains(plugin.Name) == true)
+                {
+                    LogLibraryDisabled(_logger, folder.Name);
+                    continue;
+                }
+
+                LogRunningEnqueueLibrary(_logger, folder.Name);
+
+                // Some virtual folders don't have a proper item id.
+                if (!Guid.TryParse(folder.ItemId, out var folderId))
+                {
+                    continue;
+                }
+
+                try
+                {
+                    if (!await QueueLibraryContents(folderId, includeExcluded, cancellationToken).ConfigureAwait(false))
+                    {
+                        isComplete = false;
+                    }
+                }
+                catch (OperationCanceledException)
+                {
+                    throw;
+                }
+                catch (Exception ex)
+                {
+                    isComplete = false;
+                    LogFailedEnqueueLibrary(_logger, folder.Name, ex);
+                }
+            }
         }
-
-        foreach (var folder in virtualFolders)
+        catch (OperationCanceledException)
         {
-            // If libraries have been selected for analysis, ensure this library was selected.
-            if (folder.LibraryOptions?.DisabledMediaSegmentProviders?.Contains(plugin.Name) == true)
-            {
-                LogLibraryDisabled(_logger, folder.Name);
-                continue;
-            }
-
-            LogRunningEnqueueLibrary(_logger, folder.Name);
-
-            // Some virtual folders don't have a proper item id.
-            if (!Guid.TryParse(folder.ItemId, out var folderId))
-            {
-                continue;
-            }
-
-            try
-            {
-                await QueueLibraryContents(folderId, includeExcluded, cancellationToken).ConfigureAwait(false);
-            }
-            catch (OperationCanceledException)
-            {
-                throw;
-            }
-            catch (Exception ex)
-            {
-                LogFailedEnqueueLibrary(_logger, folder.Name, ex);
-            }
+            throw;
+        }
+        catch (Exception ex)
+        {
+            isComplete = false;
+            LogFailedEnumerateLibraries(_logger, ex);
         }
 
         if (_refreshedEpisodes.Count > 0)
@@ -135,7 +153,7 @@ public partial class QueueManager(ILogger<QueueManager> logger, ILibraryManager 
             }
         }
 
-        return _queuedEpisodes;
+        return new MediaInventoryResult(_queuedEpisodes, isComplete);
     }
 
     /// <summary>
@@ -164,7 +182,7 @@ public partial class QueueManager(ILogger<QueueManager> logger, ILibraryManager 
         }
     }
 
-    private async Task QueueLibraryContents(Guid id, bool includeExcluded, CancellationToken cancellationToken)
+    private async Task<bool> QueueLibraryContents(Guid id, bool includeExcluded, CancellationToken cancellationToken)
     {
         LogConstructingQuery(_logger);
 
@@ -178,20 +196,20 @@ public partial class QueueManager(ILogger<QueueManager> logger, ILibraryManager 
             IsVirtualItem = false
         };
 
-        var items = _libraryManager.GetItemList(query, false)
-            .DistinctBy(e => e.Id)
-            .ToList();
-
-        if (items is null)
+        var libraryItems = _libraryManager.GetItemList(query, false);
+        if (libraryItems is null)
         {
             LogLibraryQueryNull(_logger);
-            return;
+            return false;
         }
+
+        var items = libraryItems.DistinctBy(e => e.Id).ToList();
 
         // Queue all supported library items on the server for analysis.
         LogIteratingLibraryItems(_logger);
 
         var queuedCount = 0;
+        var isComplete = true;
         foreach (var item in items)
         {
             try
@@ -202,12 +220,20 @@ public partial class QueueManager(ILogger<QueueManager> logger, ILibraryManager 
                     {
                         queuedCount++;
                     }
+                    else if (includeExcluded)
+                    {
+                        isComplete = false;
+                    }
                 }
                 else if (item is Movie movie)
                 {
                     if (await QueueMovieAsync(movie, includeExcluded, cancellationToken).ConfigureAwait(false))
                     {
                         queuedCount++;
+                    }
+                    else if (includeExcluded)
+                    {
+                        isComplete = false;
                     }
                 }
                 else
@@ -221,11 +247,13 @@ public partial class QueueManager(ILogger<QueueManager> logger, ILibraryManager 
             }
             catch (Exception ex)
             {
+                isComplete = false;
                 LogErrorProcessingItem(_logger, ex, item.Name, item.Id);
             }
         }
 
         LogQueuedEpisodes(_logger, queuedCount);
+        return isComplete;
     }
 
     private async Task<bool> QueueEpisode(Episode episode, bool includeExcluded, CancellationToken cancellationToken)
@@ -532,6 +560,9 @@ public partial class QueueManager(ILogger<QueueManager> logger, ILibraryManager 
     [LoggerMessage(Level = LogLevel.Error, Message = "Library manager returned null when requesting virtual folders")]
     private static partial void LogLibraryManagerNull(ILogger logger);
 
+    [LoggerMessage(Level = LogLevel.Error, Message = "Failed to enumerate virtual folders")]
+    private static partial void LogFailedEnumerateLibraries(ILogger logger, Exception exception);
+
     [LoggerMessage(Level = LogLevel.Debug, Message = "Not analyzing library \"{Name}\": Intro Skipper is disabled in library settings. To enable, check library configuration > Media Segment Providers")]
     private static partial void LogLibraryDisabled(ILogger logger, string name);
 
@@ -591,4 +622,8 @@ public partial class QueueManager(ILogger<QueueManager> logger, ILibraryManager 
 
     [LoggerMessage(Level = LogLevel.Debug, Message = "Skipping analysis of {Name} ({Id})")]
     private static partial void LogSkippingAnalysisException(ILogger logger, string name, Guid id, Exception exception);
+
+    internal sealed record MediaInventoryResult(
+        IReadOnlyDictionary<Guid, List<QueuedEpisode>> Items,
+        bool IsComplete);
 }
