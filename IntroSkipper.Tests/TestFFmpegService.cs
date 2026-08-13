@@ -10,7 +10,7 @@
 using System;
 using System.Diagnostics;
 using System.Globalization;
-using System.Text;
+using System.IO;
 using System.Threading.Tasks;
 using IntroSkipper.Data;
 using IntroSkipper.FFmpeg;
@@ -24,34 +24,42 @@ public class TestFFmpegService
     [Fact]
     public async Task TestProcessTimeoutKillsChildWhileDrainingOutput()
     {
+        var pidFile = Path.Join(Path.GetTempPath(), "IntroSkipper.Tests." + Guid.NewGuid().ToString("N") + ".pid");
         string processPath;
         string[] args;
         int timeout;
         if (OperatingSystem.IsWindows())
         {
             processPath = "powershell.exe";
-            args = ["-NoProfile", "-NonInteractive", "-Command", "[Console]::Out.WriteLine($PID); [Console]::Out.Flush(); Start-Sleep -Seconds 8"];
-            timeout = 1500;
+            args = ["-NoProfile", "-NonInteractive", "-Command", $"Set-Content -LiteralPath '{pidFile}' -Value $PID; Start-Sleep -Seconds 30"];
+            timeout = 2000;
         }
         else
         {
             processPath = "/bin/sh";
-            args = ["-c", "printf '%d\\n' $$; sleep 8"];
-            timeout = 200;
+            args = ["-c", $"echo $$ > '{pidFile}'; sleep 30"];
+            timeout = 500;
         }
 
-        var output = await CreateFFmpegService()
-            .GetProcessOutputAsync(processPath, args, timeout: timeout)
-            .WaitAsync(TimeSpan.FromSeconds(5));
-
-        var processId = int.Parse(Encoding.UTF8.GetString(output).Trim(), CultureInfo.InvariantCulture);
         try
         {
-            using var process = Process.GetProcessById(processId);
-            Assert.True(process.HasExited, $"Timed-out helper process {processId} is still running.");
+            await Assert.ThrowsAsync<TimeoutException>(() => CreateFFmpegService()
+                .GetProcessOutputAsync(processPath, args, timeout: timeout)
+                .WaitAsync(TimeSpan.FromSeconds(15)));
+
+            var processId = int.Parse((await File.ReadAllTextAsync(pidFile)).Trim(), CultureInfo.InvariantCulture);
+            try
+            {
+                using var process = Process.GetProcessById(processId);
+                Assert.True(process.HasExited, $"Timed-out helper process {processId} is still running.");
+            }
+            catch (ArgumentException)
+            {
+            }
         }
-        catch (ArgumentException)
+        finally
         {
+            File.Delete(pidFile);
         }
     }
 

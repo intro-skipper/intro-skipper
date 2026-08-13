@@ -413,7 +413,7 @@ public sealed partial class FFmpegService(
                 }
             }
         }
-        catch (Exception ex) when (ex is IOException or InvalidOperationException or UnauthorizedAccessException or System.ComponentModel.Win32Exception)
+        catch (Exception ex) when (ex is IOException or InvalidOperationException or UnauthorizedAccessException or System.ComponentModel.Win32Exception or TimeoutException)
         {
             LogAudioDurationProbeFailed(_logger, ex, filePath);
         }
@@ -579,6 +579,7 @@ public sealed partial class FFmpegService(
             var stdoutTask = DrainAsync(process.StandardOutput.BaseStream, stderr ? null : ms, CancellationToken.None);
             var stderrTask = DrainAsync(process.StandardError.BaseStream, stderr ? ms : null, CancellationToken.None);
 
+            var timedOut = false;
             using var timeoutCts = new CancellationTokenSource(timeout);
             using var waitCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, timeoutCts.Token);
             try
@@ -593,12 +594,18 @@ public sealed partial class FFmpegService(
             {
                 _logger.LogWarning("ffmpeg did not exit within {TimeoutMs}ms; killing process", timeout);
                 KillProcessTree(process);
+                timedOut = true;
             }
 
             await process.WaitForExitAsync(CancellationToken.None).ConfigureAwait(false);
             await Task.WhenAll(stdoutTask, stderrTask).ConfigureAwait(false);
 
             cancellationToken.ThrowIfCancellationRequested();
+            if (timedOut)
+            {
+                throw new TimeoutException($"ffmpeg process was killed after not exiting within {timeout}ms");
+            }
+
             return ms.ToArray();
         }
         finally
@@ -693,7 +700,16 @@ public sealed partial class FFmpegService(
         };
 
         // Returns all fingerprint points as raw 32-bit unsigned integers (little endian).
-        var rawPoints = await GetOutputAsync(args, cancellationToken: cancellationToken).ConfigureAwait(false);
+        byte[] rawPoints;
+        try
+        {
+            rawPoints = await GetOutputAsync(args, cancellationToken: cancellationToken).ConfigureAwait(false);
+        }
+        catch (TimeoutException ex)
+        {
+            throw new FingerprintException("chromaprint fingerprinting of \"" + episode.Path + "\" timed out", ex);
+        }
+
         if (rawPoints.Length == 0 || rawPoints.Length % 4 != 0)
         {
             LogChromaprintReturnedPoints(_logger, rawPoints.Length, episode.Path);
