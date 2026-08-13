@@ -175,7 +175,7 @@ public partial class VisualizationController(ILogger<VisualizationController> lo
 
             var episodeIds = episodes.Select(e => e.EpisodeId).ToHashSet();
             var transaction = await db.Database.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
-            try
+            await using (transaction.ConfigureAwait(false))
             {
                 await db.DbSegment
                     .Where(s => episodeIds.Contains(s.ItemId))
@@ -194,10 +194,6 @@ public partial class VisualizationController(ILogger<VisualizationController> lo
 
                 await db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
                 await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
-            }
-            finally
-            {
-                await transaction.DisposeAsync().ConfigureAwait(false);
             }
 
             if (eraseCache)
