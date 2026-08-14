@@ -25,6 +25,7 @@ public class TestPluginConfiguration
         Assert.Equal(120, config.MaximumRecapDetectionDuration);
         Assert.False(config.DetectRecapUsingBlackFrames);
         Assert.Equal(PluginConfiguration.DefaultSettledSeasonDelayHours, config.SettledSeasonDelayHours);
+        Assert.False(config.UseLegacyBlackFrameAnalyzer);
         Assert.Equal(string.Empty, config.ExcludeSeries);
         Assert.Equal(string.Empty, config.PreferredAudioLanguage);
         Assert.True(config.PreferAudioStreamWithMostChannels);

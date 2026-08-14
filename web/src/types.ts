@@ -50,7 +50,7 @@ export interface PluginConfig {
     ReanalyzeSettledSeasons: boolean;
     AnalyzeSeasonZero: boolean;
     UpdateMediaSegments: boolean;
-    UseAlternativeBlackFrameAnalyzer: boolean;
+    UseLegacyBlackFrameAnalyzer: boolean;
     RefineCreditsBoundary: boolean;
     DetectNonBlackCredits: boolean;
     UseChapterMarkersBlackFrame: boolean;

@@ -133,13 +133,13 @@ public class PluginConfiguration : BasePluginConfiguration
     public CompressionLevel CacheCompressionLevel { get; set; } = CompressionLevel.Optimal;
 
     /// <summary>
-    /// Gets or sets a value indicating whether to use the alternative black frame analyzer.
+    /// Gets or sets a value indicating whether to use the legacy black frame analyzer.
     /// </summary>
-    public bool UseAlternativeBlackFrameAnalyzer { get; set; }
+    public bool UseLegacyBlackFrameAnalyzer { get; set; }
 
     /// <summary>
     /// Gets or sets a value indicating whether to refine credits boundaries with frame-level analysis.
-    /// When enabled, the alternative black frame analyzer probes the gap between keyframes
+    /// When enabled, the black frame analyzer probes the gap between keyframes
     /// to find the exact frame where credits begin. Disable for faster analysis with keyframe-only accuracy.
     /// </summary>
     public bool RefineCreditsBoundary { get; set; } = true;
