@@ -20,6 +20,14 @@ updates:
     schedule:
       interval: weekly
     open-pull-requests-limit: 10
+    groups:
+      # The codeql-action sub-actions (init, autobuild, analyze) must run at the
+      # same version within a workflow; separate bump PRs leave the intermediate
+      # merges with mismatched versions, which fails the CodeQL run outright.
+      codeql-action:
+        patterns:
+          - github/codeql-action
+          - github/codeql-action/*
     labels:
       - dependency
       - github_actions
