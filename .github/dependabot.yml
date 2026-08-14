@@ -26,7 +26,8 @@ updates:
       # merges with mismatched versions, which fails the CodeQL run outright.
       codeql-action:
         patterns:
-          - github/codeql-action*
+          - github/codeql-action
+          - github/codeql-action/*
     labels:
       - dependency
       - github_actions
