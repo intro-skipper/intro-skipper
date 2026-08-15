@@ -40,6 +40,7 @@ export interface PluginConfig {
     ChapterAnalyzerRecapPattern: string;
     ChapterAnalyzerCommercialPattern: string;
     ExcludeSeries: string;
+    PreferredAudioLanguage: string;
     SeriesExclusions: string[];
     MovieExclusions: string[];
     PathExclusions: string[];
@@ -66,6 +67,7 @@ export interface PluginConfig {
     ScanCommercial: boolean;
     EnableMainMenu: boolean;
     PreferChromaprint: boolean;
+    PreferAudioStreamWithMostChannels: boolean;
     ProbeAudioDuration: boolean;
     SnapToKeyframe: boolean;
     AdjustIntroBasedOnSilence: boolean;

@@ -284,9 +284,11 @@ public partial class QueueManager(ILogger<QueueManager> logger, ILibraryManager 
             ? duration
             : await ResolveCreditsFingerprintEndAsync(episode.Path, duration, cancellationToken).ConfigureAwait(false);
 
+        // Credits have their own maximum duration in seconds. Do not apply the general
+        // analysis percentage here, since it can exclude the actual credits boundary.
         var maxCreditsDuration = Math.Min(
-            creditsDuration >= 5 * 60 ? creditsDuration * _analysisPercent : creditsDuration,
-            60 * pluginInstance.Configuration.MaximumCreditsDuration);
+            creditsDuration,
+            pluginInstance.Configuration.MaximumCreditsDuration);
 
         // Queue the episode for analysis.
         seasonEpisodes.Add(new QueuedEpisode

@@ -24,6 +24,8 @@ public interface IDetectionCacheService
     /// <param name="start">The start position used as a cache key component.</param>
     /// <param name="end">The end position used as a cache key component.</param>
     /// <param name="result">When this method returns, contains the cached result array, or an empty array if the cache was missed. This parameter is treated as uninitialized.</param>
+    /// <param name="cacheVariant">Optional effective stream identity for stream-sensitive cache entries.</param>
+    /// <param name="legacyConfigHash">Optional legacy hash that is safe to accept for this effective stream.</param>
     /// <returns><see langword="true"/> if a valid cache entry was found; otherwise, <see langword="false"/>.</returns>
     bool TryRead<T>(
         Guid itemId,
@@ -31,7 +33,9 @@ public interface IDetectionCacheService
         CacheEntryType type,
         double start,
         double end,
-        out T[] result);
+        out T[] result,
+        string? cacheVariant = null,
+        string? legacyConfigHash = null);
 
     /// <summary>
     /// Writes a detection result to the SQLite cache.
@@ -43,6 +47,7 @@ public interface IDetectionCacheService
     /// <param name="start">The start position used as a cache key component.</param>
     /// <param name="end">The end position used as a cache key component.</param>
     /// <param name="items">The result array to cache.</param>
+    /// <param name="cacheVariant">Optional effective stream identity for stream-sensitive cache entries.</param>
     /// <returns><see langword="true"/> if the write succeeded; otherwise, <see langword="false"/>.</returns>
     bool Write<T>(
         Guid itemId,
@@ -50,13 +55,15 @@ public interface IDetectionCacheService
         CacheEntryType type,
         double start,
         double end,
-        T[] items);
+        T[] items,
+        string? cacheVariant = null);
 
     /// <summary>
     /// Checks if a fingerprint cache entry exists for the episode.
     /// </summary>
     /// <param name="episode">The queued episode to check.</param>
     /// <param name="mode">One of the enumeration values that specifies the analysis mode.</param>
+    /// <remarks>Stream-scoped entries are considered present here; the fingerprint read validates the exact stream and configuration before reuse.</remarks>
     /// <returns><see langword="true"/> if a fingerprint cache entry exists; otherwise, <see langword="false"/>.</returns>
     bool HasCachedFingerprint(QueuedEpisode episode, AnalysisMode mode);
 }

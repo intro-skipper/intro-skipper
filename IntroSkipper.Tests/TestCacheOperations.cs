@@ -21,6 +21,8 @@ using Xunit;
 
 public sealed class TestCacheOperations
 {
+    private const string MostChannelsStreamCacheVariant = "policy=most-channels";
+
     [Fact]
     public void DeleteCacheFiles_Introduction_DeletesIntroFilesOnly()
     {
@@ -227,6 +229,101 @@ public sealed class TestCacheOperations
         Assert.NotEqual(
             ConfigHasher.DetectionCache(baseline, CacheEntryType.BlackFrame, AnalysisMode.Credits),
             ConfigHasher.DetectionCache(changed, CacheEntryType.BlackFrame, AnalysisMode.Credits));
+    }
+
+    [Theory]
+    [InlineData("", "eng", false)]
+    [InlineData("eng", " ENG ", true)]
+    public void DetectionCacheHash_Chromaprint_NormalizesPreferredAudioLanguage(
+        string firstLanguage,
+        string secondLanguage,
+        bool expectEqual)
+    {
+        var first = new PluginConfiguration { PreferredAudioLanguage = firstLanguage };
+        var second = new PluginConfiguration { PreferredAudioLanguage = secondLanguage };
+        var firstHash = ConfigHasher.DetectionCache(first, CacheEntryType.Chromaprint, AnalysisMode.Introduction);
+        var secondHash = ConfigHasher.DetectionCache(second, CacheEntryType.Chromaprint, AnalysisMode.Introduction);
+
+        Assert.Equal(expectEqual, firstHash == secondHash);
+    }
+
+    [Fact]
+    public void DetectionCacheHash_Chromaprint_ChangesWithAudioStreamSelectionPolicy()
+    {
+        var mostChannels = new PluginConfiguration { PreferAudioStreamWithMostChannels = true };
+        var lowestIndex = new PluginConfiguration { PreferAudioStreamWithMostChannels = false };
+
+        Assert.NotEqual(
+            ConfigHasher.DetectionCache(mostChannels, CacheEntryType.Chromaprint, AnalysisMode.Introduction),
+            ConfigHasher.DetectionCache(lowestIndex, CacheEntryType.Chromaprint, AnalysisMode.Introduction));
+
+        Assert.NotEqual(
+            ConfigHasher.Analysis(mostChannels, AnalysisMode.Introduction, AnalyzerAction.Default, ffmpegValid: true),
+            ConfigHasher.Analysis(lowestIndex, AnalysisMode.Introduction, AnalyzerAction.Default, ffmpegValid: true));
+    }
+
+    [Fact]
+    public void DetectionCacheHash_Chromaprint_StreamIdentityReusesAcrossSelectionSettings()
+    {
+        var languagePreferred = new PluginConfiguration
+        {
+            PreferredAudioLanguage = "eng",
+            PreferAudioStreamWithMostChannels = true
+        };
+        var defaultSelection = new PluginConfiguration
+        {
+            PreferAudioStreamWithMostChannels = false
+        };
+
+        Assert.Equal(
+            ConfigHasher.DetectionCache(languagePreferred, CacheEntryType.Chromaprint, AnalysisMode.Introduction, MostChannelsStreamCacheVariant),
+            ConfigHasher.DetectionCache(defaultSelection, CacheEntryType.Chromaprint, AnalysisMode.Introduction, MostChannelsStreamCacheVariant));
+    }
+
+    [Fact]
+    public void StreamScopedChromaprintCache_AcceptsMatchingLegacyDefaultHash()
+    {
+        var episodeId = Guid.NewGuid();
+        var cacheDir = EntrypointTestHelpers.CreateTempCacheDir();
+        uint[] fingerprint = [111u, 222u];
+
+        using var cachingScope = new CachingPluginScope(cacheDir);
+        var config = Plugin.Instance!.Configuration;
+        var legacyHash = ConfigHasher.LegacyChromaprintCacheWithoutLanguage(config, AnalysisMode.Introduction);
+
+        DatabaseTestHelpers.CreateCacheDatabase(cachingScope.CacheDbPath).Upsert(
+            episodeId,
+            AnalysisMode.Introduction,
+            CacheEntryType.Chromaprint,
+            0,
+            600,
+            DetectionCacheService.CompressBrotli(fingerprint),
+            legacyHash);
+
+        Assert.True(cachingScope.CacheService.TryRead(
+            episodeId,
+            AnalysisMode.Introduction,
+            CacheEntryType.Chromaprint,
+            0,
+            600,
+            out uint[] result,
+            MostChannelsStreamCacheVariant,
+            legacyHash));
+        Assert.Equal(fingerprint, result);
+    }
+
+    [Theory]
+    [InlineData(AnalysisMode.Introduction)]
+    [InlineData(AnalysisMode.Credits)]
+    [InlineData(AnalysisMode.Recap)]
+    public void AnalysisHash_ChromaprintModes_ChangesWithPreferredAudioLanguage(AnalysisMode mode)
+    {
+        var baseline = new PluginConfiguration();
+        var changed = new PluginConfiguration { PreferredAudioLanguage = "eng" };
+
+        Assert.NotEqual(
+            ConfigHasher.Analysis(baseline, mode, AnalyzerAction.Default, ffmpegValid: true),
+            ConfigHasher.Analysis(changed, mode, AnalyzerAction.Default, ffmpegValid: true));
     }
 
     [Fact]
