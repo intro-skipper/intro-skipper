@@ -139,7 +139,7 @@ public class PluginConfiguration : BasePluginConfiguration
     public bool UseLegacyBlackFrameAnalyzer { get; set; }
 
     /// <summary>
-    /// Gets or sets the former alternative analyzer setting for configuration migration.
+    /// Gets or sets a value indicating whether the former alternative analyzer was enabled for configuration migration.
     /// The old setting selected the modern analyzer, so its value is inverted when mapped to
     /// <see cref="UseLegacyBlackFrameAnalyzer"/>.
     /// </summary>
@@ -151,11 +151,6 @@ public class PluginConfiguration : BasePluginConfiguration
         get => false;
         set => UseLegacyBlackFrameAnalyzer = !value;
     }
-
-    /// <summary>
-    /// Prevents the former setting from being written back to XML after it has been migrated.
-    /// </summary>
-    public bool ShouldSerializeUseAlternativeBlackFrameAnalyzer() => false;
 
     /// <summary>
     /// Gets or sets a value indicating whether to refine credits boundaries with frame-level analysis.
@@ -509,4 +504,10 @@ public class PluginConfiguration : BasePluginConfiguration
     /// </summary>
     [XmlIgnore]
     public bool FileTransformationPluginEnabled { get; set; }
+
+    /// <summary>
+    /// Prevents the former setting from being written back to XML after it has been migrated.
+    /// </summary>
+    /// <returns><see langword="false"/> so the former setting is not serialized.</returns>
+    public bool ShouldSerializeUseAlternativeBlackFrameAnalyzer() => false;
 }
