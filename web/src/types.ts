@@ -51,6 +51,8 @@ export interface PluginConfig {
     AnalyzeSeasonZero: boolean;
     UpdateMediaSegments: boolean;
     UseLegacyBlackFrameAnalyzer: boolean;
+    /** @deprecated Read only for migration of dashboard/server payloads. */
+    UseAlternativeBlackFrameAnalyzer?: boolean;
     RefineCreditsBoundary: boolean;
     DetectNonBlackCredits: boolean;
     UseChapterMarkersBlackFrame: boolean;

@@ -4,6 +4,9 @@ import { checkboxField } from "../components/checkbox-field.ts";
 import { numberField } from "../components/number-field.ts";
 import { appendTabContent } from "../components/tab-layout.ts";
 
+const isLegacyAnalyzerEnabled = (): boolean =>
+    configStore.get("UseLegacyBlackFrameAnalyzer") === true;
+
 export const blackFrameTab: Tab = {
     id: "black-frame",
     label: "Black Frame",
@@ -21,21 +24,21 @@ export const blackFrameTab: Tab = {
                 label: "Refine credits boundary",
                 description:
                     "Use frame-level analysis to find the exact credits boundary. Disable for faster analysis with keyframe-only accuracy.",
-                visible: () => configStore.get("UseLegacyBlackFrameAnalyzer") !== true,
+                visible: () => !isLegacyAnalyzerEnabled(),
             }),
             checkboxField({
                 id: "DetectNonBlackCredits",
                 label: "Detect non-black credits",
                 description:
                     "When the black-frame scan finds nothing, also detect credits shown on a near-uniform card — text over a black, white, grey, or muted-colour background. Vivid, highly saturated backgrounds are not covered. Black-frame detection is unchanged; this only adds matches it would otherwise miss.",
-                visible: () => configStore.get("UseLegacyBlackFrameAnalyzer") !== true,
+                visible: () => !isLegacyAnalyzerEnabled(),
             }),
             checkboxField({
                 id: "UseChapterMarkersBlackFrame",
                 label: "Use chapter markers for credits detection",
                 description:
                     "If enabled, chapter markers will be used to identify credits segments. Tries to detect credits by looking for black frames close to chapter markers.",
-                visible: () => configStore.get("UseLegacyBlackFrameAnalyzer") === true,
+                visible: isLegacyAnalyzerEnabled,
             }),
             numberField({
                 id: "BlackFrameMinimumPercentage",
