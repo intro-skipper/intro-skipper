@@ -5,6 +5,7 @@
 using System;
 using System.IO;
 using System.Text.Json;
+using System.Xml;
 using System.Xml.Serialization;
 using IntroSkipper.Configuration;
 using Xunit;
@@ -129,7 +130,7 @@ public class TestPluginConfiguration
         bool expectedLegacyValue)
     {
         using var reader = new StringReader(
-            $"<PluginConfiguration><UseAlternativeBlackFrameAnalyzer>{oldValue}</UseAlternativeBlackFrameAnalyzer></PluginConfiguration>");
+            $"<PluginConfiguration><UseAlternativeBlackFrameAnalyzer>{XmlConvert.ToString(oldValue)}</UseAlternativeBlackFrameAnalyzer></PluginConfiguration>");
         var config = Assert.IsType<PluginConfiguration>(new XmlSerializer(typeof(PluginConfiguration)).Deserialize(reader));
 
         Assert.Equal(expectedLegacyValue, config.UseLegacyBlackFrameAnalyzer);
