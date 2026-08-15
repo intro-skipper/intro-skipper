@@ -10,6 +10,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
 using System.Diagnostics;
+using System.ComponentModel;
 using System.IO.Compression;
 using System.Text.Json.Serialization;
 using System.Xml.Serialization;
@@ -145,6 +146,7 @@ public class PluginConfiguration : BasePluginConfiguration
     /// </summary>
     [JsonPropertyName("UseAlternativeBlackFrameAnalyzer")]
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
+    [DefaultValue(false)]
     [XmlElement("UseAlternativeBlackFrameAnalyzer")]
     public bool UseAlternativeBlackFrameAnalyzer
     {
@@ -504,10 +506,4 @@ public class PluginConfiguration : BasePluginConfiguration
     /// </summary>
     [XmlIgnore]
     public bool FileTransformationPluginEnabled { get; set; }
-
-    /// <summary>
-    /// Prevents the former setting from being written back to XML after it has been migrated.
-    /// </summary>
-    /// <returns><see langword="false"/> so the former setting is not serialized.</returns>
-    public bool ShouldSerializeUseAlternativeBlackFrameAnalyzer() => false;
 }
